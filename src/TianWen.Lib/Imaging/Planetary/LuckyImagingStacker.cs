@@ -29,16 +29,18 @@ public sealed class LuckyImagingStacker
         var ctx = await PrepareAsync(stream, options, includeAlignmentPoints: false, cancellationToken).ConfigureAwait(false);
         var channelAccum = Image.CreateChannelData(ctx.Channels, ctx.Height, ctx.Width);
         var weightAccum = new float[ctx.Height, ctx.Width];
+        var coverage = options.CropToCoverage ? new PlanetaryCoverage(ctx.Width, ctx.Height) : null;
 
         var used = ctx.Derotator is { } derotator
-            ? await AccumulateDerotatedAsync(stream, ctx.Selected, derotator, index => ctx.ScoreByIndex[index], channelAccum, weightAccum, options, cancellationToken).ConfigureAwait(false)
-            : await AccumulateGlobalAsync(stream, ctx.Selected, ctx.Aligner, index => ctx.ScoreByIndex[index], channelAccum, weightAccum, options.Interpolation, cancellationToken).ConfigureAwait(false);
+            ? await AccumulateDerotatedAsync(stream, ctx.Selected, derotator, index => ctx.ScoreByIndex[index], channelAccum, weightAccum, coverage, options, cancellationToken).ConfigureAwait(false)
+            : await AccumulateGlobalAsync(stream, ctx.Selected, ctx.Aligner, index => ctx.ScoreByIndex[index], channelAccum, weightAccum, coverage, options.Interpolation, cancellationToken).ConfigureAwait(false);
 
         var stacked = Normalize(channelAccum, weightAccum, ctx);
-        var (master, alignment) = await FinalizeAsync(stacked, stream.Layout, options, ctx.Derotator?.Epoch.Utc, cancellationToken).ConfigureAwait(false);
+        var covered = coverage is { } reached ? PlanetaryMaster.CoveredRectangle(reached.Plane()) : PixelRect.Empty;
+        var (master, alignment, cropped) = await FinalizeAsync(stacked, stream.Layout, options, ctx.Derotator?.Epoch.Utc, covered, cancellationToken).ConfigureAwait(false);
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
         {
-            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, NorthUnread = ctx.NorthUnread, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades),
+            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, NorthUnread = ctx.NorthUnread, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades), FramesSmeared = FramesLeftOutAsSmeared(ctx.Grades), Cropped = cropped,
             AlignmentPoints = ctx.Matcher?.AlignmentPoints.Length ?? 0,
             AlignmentPointCandidates = ctx.AlignmentPointCandidates,
         };
@@ -76,7 +78,7 @@ public sealed class LuckyImagingStacker
 
         var channelAccum = Image.CreateChannelData(channels, height, width);
         var weightAccum = new float[height, width];
-        await AccumulateGlobalAsync(stream, frames, aligner, _ => 1f, channelAccum, weightAccum, WarpInterpolation.Bilinear, cancellationToken).ConfigureAwait(false);
+        await AccumulateGlobalAsync(stream, frames, aligner, _ => 1f, channelAccum, weightAccum, null, WarpInterpolation.Bilinear, cancellationToken).ConfigureAwait(false);
         return PlanetaryMaster.NormalizeInPlace(channelAccum, weightAccum, meta);
     }
 
@@ -84,13 +86,17 @@ public sealed class LuckyImagingStacker
     // weighted zero or less is skipped). Returns how many were added. The shifts are estimated a batch of frames side by side,
     // each slot on an aligner twin of its own, and the frames added in the order given (PlanetaryFrameBatches).
     private static async Task<int> AccumulateGlobalAsync(IPlanetaryFrameStream stream, ImmutableArray<int> frames, GlobalAligner aligner, Func<int, float> weightOf,
-        float[][,] channelAccum, float[,] weightAccum, WarpInterpolation interpolation, CancellationToken cancellationToken)
+        float[][,] channelAccum, float[,] weightAccum, PlanetaryCoverage? coverage, WarpInterpolation interpolation, CancellationToken cancellationToken)
     {
         var weighted = Weighted(frames, weightOf);
         var aligners = new GlobalAligner?[PlanetaryFrameBatches.MaxSlots];
         await PlanetaryFrameBatches.RunAsync(stream, weighted,
             (frame, _, slot) => (aligners[slot] ??= aligner.Twin()).Estimate(frame, PlanetaryDisk.BoundingBox(frame)),
-            (frame, index, shift) => frame.AccumulateTranslatedInto(channelAccum, weightAccum, (float)shift.Dx, (float)shift.Dy, weightOf(index), interpolation),
+            (frame, index, shift) =>
+            {
+                frame.AccumulateTranslatedInto(channelAccum, weightAccum, (float)shift.Dx, (float)shift.Dy, weightOf(index), interpolation);
+                coverage?.Add(shift.Dx, shift.Dy, frame.Width, frame.Height, weightOf(index));
+            },
             cancellationToken).ConfigureAwait(false);
         return weighted.Length;
     }
@@ -113,7 +119,7 @@ public sealed class LuckyImagingStacker
     // against the reference turned to its instant, and resampled through its de-rotation beneath that shift, a mesh with no
     // points, relit as it lands. In capture order, so one turned reference serves a run of frames. Returns how many were added.
     private static async Task<int> AccumulateDerotatedAsync(IPlanetaryFrameStream stream, ImmutableArray<int> frames, FrameDerotator derotator, Func<int, float> weightOf,
-        float[][,] channelAccum, float[,] weightAccum, PlanetaryStackOptions options, CancellationToken cancellationToken)
+        float[][,] channelAccum, float[,] weightAccum, PlanetaryCoverage? coverage, PlanetaryStackOptions options, CancellationToken cancellationToken)
     {
         var (height, width) = (weightAccum.GetLength(0), weightAccum.GetLength(1));
         var used = 0;
@@ -132,6 +138,7 @@ public sealed class LuckyImagingStacker
                 var shift = derotator.Shift(frame, index);
                 var mesh = DisplacementMesh.Build(width, height, (float)shift.Dx, (float)shift.Dy, [], derotator.FieldFor(index), options.MeshNodeSpacing, options.MeshInfluence);
                 frame.AccumulateByMeshInto(channelAccum, weightAccum, mesh, weight, options.Interpolation);
+                coverage?.Add(shift.Dx, shift.Dy, frame.Width, frame.Height, weight);
                 used++;
             }
             finally
@@ -176,6 +183,7 @@ public sealed class LuckyImagingStacker
         var ctx = await PrepareAsync(stream, options, includeAlignmentPoints: true, cancellationToken).ConfigureAwait(false);
         var channelAccum = Image.CreateChannelData(ctx.Channels, ctx.Height, ctx.Width);
         var weightAccum = new float[ctx.Height, ctx.Width];
+        var coverage = options.CropToCoverage ? new PlanetaryCoverage(ctx.Width, ctx.Height) : null;
         // PrepareAsync with includeAlignmentPoints always produces one; said as a check rather
         // than an assertion, so a future change to that contract fails here by name.
         var matcher = ctx.Matcher
@@ -199,6 +207,7 @@ public sealed class LuckyImagingStacker
             {
                 frame.AccumulateByMeshInto(channelAccum, weightAccum, mesh, weight, options.Interpolation);
             }
+            coverage?.Add(mesh, frame.Width, frame.Height, weight);
         }
 
         // The walk a de-rotated or a pooled stack keeps, a frame at a time in its own order: the de-rotator turns its reference
@@ -269,10 +278,11 @@ public sealed class LuckyImagingStacker
         }
 
         var stacked = Normalize(channelAccum, weightAccum, ctx);
-        var (master, alignment) = await FinalizeAsync(stacked, stream.Layout, options, ctx.Derotator?.Epoch.Utc, cancellationToken).ConfigureAwait(false);
+        var covered = coverage is { } reached ? PlanetaryMaster.CoveredRectangle(reached.Plane()) : PixelRect.Empty;
+        var (master, alignment, cropped) = await FinalizeAsync(stacked, stream.Layout, options, ctx.Derotator?.Epoch.Utc, covered, cancellationToken).ConfigureAwait(false);
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
         {
-            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, NorthUnread = ctx.NorthUnread, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades),
+            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, NorthUnread = ctx.NorthUnread, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades), FramesSmeared = FramesLeftOutAsSmeared(ctx.Grades), Cropped = cropped,
             AlignmentPoints = ctx.Matcher?.AlignmentPoints.Length ?? 0,
             AlignmentPointCandidates = ctx.AlignmentPointCandidates,
         };
@@ -310,6 +320,7 @@ public sealed class LuckyImagingStacker
 
         var flux = Image.CreateChannelData(3, canvasH, canvasW);
         var weight = Image.CreateChannelData(3, canvasH, canvasW);
+        var coverage = options.CropToCoverage ? new PlanetaryCoverage(canvasW, canvasH) : null;
         // Drop half-extent in OUTPUT pixels. The drop is pixfrac of an INPUT pixel, which is `scale` output
         // pixels wide -- so the output-space half-extent is pixfrac*scale/2. (The deep-sky DrizzleKernel
         // hardcodes pixfrac/2 because it only runs at scale=1; at scale>1 that under-sizes the drop and
@@ -333,6 +344,8 @@ public sealed class LuckyImagingStacker
             try
             {
                 var shift = ctx.Derotator?.Shift(frame, index) ?? ctx.Aligner.Estimate(frame, PlanetaryDisk.BoundingBox(frame));
+                // The mosaic lands at (mosaic - 2 x the sub-plane shift) x scale on the canvas, its mesh bending it only near the points.
+                coverage?.Add(-2.0 * shift.Dx * scale, -2.0 * shift.Dy * scale, (mosaicW - (2.0 * shift.Dx)) * scale, (mosaicH - (2.0 * shift.Dy)) * scale, ctx.ScoreByIndex[index]);
                 var derotation = ctx.Derotator?.FieldFor(index);
                 var mosaic = frame.MergeBayerChannelsInto(mosaicPlane.Array);
                 var sourceRect = new PixelRect(0, 0, mosaic.Width, mosaic.Height);
@@ -403,6 +416,11 @@ public sealed class LuckyImagingStacker
         {
             (master, alignment) = PlanetaryChannelAlignment.Align(master, PlanetaryFrameLayout.Rgb, LimbOptionsFor(master, options, ctx.Derotator?.Epoch.Utc));
         }
+        var cropped = PixelRect.Empty;
+        if (coverage is { } reached)
+        {
+            (master, cropped) = PlanetaryMaster.CropToCovered(master, PlanetaryMaster.CoveredRectangle(reached.Plane()), 1);
+        }
         if (options.Sharpen is { } sharpen)
         {
             master = WaveletSharpen.Sharpen(master, sharpen);
@@ -410,7 +428,7 @@ public sealed class LuckyImagingStacker
 
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
         {
-            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, NorthUnread = ctx.NorthUnread, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades),
+            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, NorthUnread = ctx.NorthUnread, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades), FramesSmeared = FramesLeftOutAsSmeared(ctx.Grades), Cropped = cropped,
             AlignmentPoints = ctx.Matcher?.AlignmentPoints.Length ?? 0,
             AlignmentPointCandidates = ctx.AlignmentPointCandidates,
         };
@@ -474,13 +492,24 @@ public sealed class LuckyImagingStacker
         return (await AlignmentPointTracks.MeasureAsync(stream, ctx.Aligner, matcher, cancellationToken).ConfigureAwait(false), ctx.ReferenceIndex, matcher);
     }
 
-    // The frames the grader left out because the frame's edge cut their planet or they held none (FrameGrader.WithoutCutFrames).
+    // The frames the grader left out because the frame's edge cut their planet or they held none (FrameGrader.WithoutCutOrSmearedFrames).
     private static int FramesLeftOutAsCut(ImmutableArray<FrameGrade> grades)
     {
         var count = 0;
         foreach (var grade in grades)
         {
             count += grade.Cut && grade.Score == 0 ? 1 : 0;
+        }
+        return count;
+    }
+
+    // The frames the grader left out because the telescope's motion smeared their planet (FrameGrader.SmearRatio, #1300).
+    private static int FramesLeftOutAsSmeared(ImmutableArray<FrameGrade> grades)
+    {
+        var count = 0;
+        foreach (var grade in grades)
+        {
+            count += grade.Smeared ? 1 : 0;
         }
         return count;
     }
@@ -685,7 +714,7 @@ public sealed class LuckyImagingStacker
         var frames = FrameGrader.SelectBest(grades, Math.Min(1.0, (double)options.ReferenceFrames / grades.Length));
         var channelAccum = Image.CreateChannelData(channels, height, width);
         var weightAccum = new float[height, width];
-        await AccumulateGlobalAsync(stream, frames, aligner, _ => 1f, channelAccum, weightAccum, options.Interpolation, cancellationToken).ConfigureAwait(false);
+        await AccumulateGlobalAsync(stream, frames, aligner, _ => 1f, channelAccum, weightAccum, null, options.Interpolation, cancellationToken).ConfigureAwait(false);
         return PlanetaryMaster.NormalizeInPlace(channelAccum, weightAccum, meta);
     }
 
@@ -746,7 +775,7 @@ public sealed class LuckyImagingStacker
         }
         var channelAccum = Image.CreateChannelData(channels, height, width);
         var weightAccum = new float[height, width];
-        await AccumulateGlobalAsync(stream, frames.MoveToImmutable(), aligner, _ => 1f, channelAccum, weightAccum, options.Interpolation, cancellationToken).ConfigureAwait(false);
+        await AccumulateGlobalAsync(stream, frames.MoveToImmutable(), aligner, _ => 1f, channelAccum, weightAccum, null, options.Interpolation, cancellationToken).ConfigureAwait(false);
         return (PlanetaryMaster.NormalizeInPlace(channelAccum, weightAccum, meta), new DateTimeOffset((long)(ticks / keep), TimeSpan.Zero));
     }
 
@@ -759,7 +788,7 @@ public sealed class LuckyImagingStacker
         var frames = FrameGrader.SelectBest(grades, Math.Min(1.0, (double)options.ReferenceFrames / grades.Length));
         var channelAccum = Image.CreateChannelData(template.ChannelCount, template.Height, template.Width);
         var weightAccum = new float[template.Height, template.Width];
-        await AccumulateDerotatedAsync(stream, frames, derotator, _ => 1f, channelAccum, weightAccum, options, cancellationToken).ConfigureAwait(false);
+        await AccumulateDerotatedAsync(stream, frames, derotator, _ => 1f, channelAccum, weightAccum, null, options, cancellationToken).ConfigureAwait(false);
         return PlanetaryMaster.NormalizeInPlace(channelAccum, weightAccum, template.ImageMeta);
     }
 
@@ -800,8 +829,8 @@ public sealed class LuckyImagingStacker
     /// green (<see cref="PlanetaryStackOptions.AlignChannels"/>), a split one's as sub-planes, before the demosaic mixes them.
     /// Phase 7: when <see cref="PlanetaryStackOptions.Sharpen"/> is set, the demosaiced linear master is wavelet-sharpened.
     /// </summary>
-    private static async Task<(Image Master, PlanetaryChannelAlignmentResult? Alignment)> FinalizeAsync(Image stacked, PlanetaryFrameLayout layout,
-        PlanetaryStackOptions options, DateTimeOffset? epoch, CancellationToken cancellationToken)
+    private static async Task<(Image Master, PlanetaryChannelAlignmentResult? Alignment, PixelRect Cropped)> FinalizeAsync(Image stacked, PlanetaryFrameLayout layout,
+        PlanetaryStackOptions options, DateTimeOffset? epoch, PixelRect covered, CancellationToken cancellationToken)
     {
         PlanetaryChannelAlignmentResult? alignment = null;
         if (options.AlignChannels)
@@ -809,14 +838,23 @@ public sealed class LuckyImagingStacker
             (stacked, alignment) = PlanetaryChannelAlignment.Align(stacked, layout, LimbOptionsFor(stacked, options, epoch));
         }
 
+        var gridWidth = stacked.Width;
         var master = await PlanetaryMaster.MergeAndDemosaicAsync(stacked, layout, cancellationToken).ConfigureAwait(false);
+
+        // Cropped once the colours lie where they belong and the demosaic has read every photosite (#1300): the rectangle is the
+        // accumulator's, a split stack's sub-plane grid half the master's.
+        var cropped = PixelRect.Empty;
+        if (!covered.IsEmpty)
+        {
+            (master, cropped) = PlanetaryMaster.CropToCovered(master, covered, master.Width / gridWidth);
+        }
 
         if (options.Sharpen is { } sharpen)
         {
             master = WaveletSharpen.Sharpen(master, sharpen);
         }
 
-        return (master, alignment);
+        return (master, alignment, cropped);
     }
 
     // The limb fit's options a master's colours are read by: its planet at the instant it shows it (the de-rotation's epoch, else the

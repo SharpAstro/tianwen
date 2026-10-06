@@ -1,5 +1,6 @@
 using System;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Geometry;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
@@ -53,6 +54,7 @@ public sealed record PlanetaryStackOptions
         Interpolation = WarpInterpolation.Bilinear,
         ReferenceFrames = 0,
         AlignChannels = false,
+        CropToCoverage = false,
     };
 
     /// <summary>
@@ -214,6 +216,22 @@ public sealed record PlanetaryStackOptions
     public bool AlignChannels { get; init; } = true;
 
     /// <summary>
+    /// Crop the master to the largest rectangle at least <see cref="CoverageCropFraction"/> of the frames' weight reached
+    /// (#1300, the default): every frame is moved onto the reference, so the master's edges are reached by fewer of them, or by none, and
+    /// hold no signal (the owner: "the edges can be a bit weird in planetary data and never contain actual signal"), while an edge no frame
+    /// reached sits below the sky and rings under the sharpening. The planet, its rings and its moons are never cut
+    /// (<see cref="PlanetaryDisk.Footprint"/>). Off keeps the frame's full size.
+    /// </summary>
+    public bool CropToCoverage { get; init; } = true;
+
+    /// <summary>
+    /// The share of a stack's full coverage (the central median of its weight, <see cref="Image.LargestCoveredRectangle(Image, double, int)"/>)
+    /// the edges of a master must reach to be kept (<see cref="CropToCoverage"/>, #1300): what is kept is within 1/sqrt(0.95) = 1.026 of
+    /// the interior's noise, the deep-sky master's rule.
+    /// </summary>
+    public const double CoverageCropFraction = 0.95;
+
+    /// <summary>
     /// The body the capture shows, written to the master's <c>OBJECT</c> card, where a viewer reads that it is a planetary frame
     /// (and opens it linear, as it does a SER: a deep-sky auto-stretch of a 1,500-frame stack's sky, its noise 3e-5, blew it up
     /// thirty thousand times). The de-rotation's planet when null. Nothing in the stack itself depends on it.
@@ -271,6 +289,18 @@ public sealed record PlanetaryStackResult(Image Master, int ReferenceIndex, int 
     /// they held none (<see cref="FrameGrader.IsCutOrEmpty"/>): an untracked Dobsonian lets the planet drift out of its field.
     /// </summary>
     public int FramesCut { get; init; }
+
+    /// <summary>
+    /// How many frames were left out because the telescope's motion smeared their planet (<see cref="FrameGrader.SmearRatio"/>, #1300): a
+    /// scope that moves during a frame (a bump, a nudge, a slew) draws its planet far longer than the run's.
+    /// </summary>
+    public int FramesSmeared { get; init; }
+
+    /// <summary>
+    /// The rectangle of the master's uncropped grid it was cropped to (<see cref="PlanetaryStackOptions.CropToCoverage"/>, #1300), empty
+    /// when it kept every pixel.
+    /// </summary>
+    public PixelRect Cropped { get; init; }
 
     /// <summary>
     /// How many alignment points the stack followed, 0 for a global one: <see cref="PlanetaryStackOptions.MaxAlignmentPoints"/> caps any grid

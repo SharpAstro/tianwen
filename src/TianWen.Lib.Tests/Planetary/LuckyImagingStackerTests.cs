@@ -75,7 +75,7 @@ public class LuckyImagingStackerTests
 
             using var stream = SerFrameStream.Open(path);
             var result = await new LuckyImagingStacker()
-                .StackGlobalAsync(stream, new PlanetaryStackOptions { KeepFraction = 1.0 }, TestContext.Current.CancellationToken);
+                .StackGlobalAsync(stream, new PlanetaryStackOptions { CropToCoverage = false, KeepFraction = 1.0 }, TestContext.Current.CancellationToken);
 
             result.FramesGraded.ShouldBe(8);
             result.FramesUsed.ShouldBe(8);
@@ -111,7 +111,7 @@ public class LuckyImagingStackerTests
 
             using var stream = SerFrameStream.Open(path);
             var result = await new LuckyImagingStacker()
-                .StackGlobalAsync(stream, new PlanetaryStackOptions { KeepFraction = 0.25 }, TestContext.Current.CancellationToken);
+                .StackGlobalAsync(stream, new PlanetaryStackOptions { CropToCoverage = false, KeepFraction = 0.25 }, TestContext.Current.CancellationToken);
 
             result.ReferenceIndex.ShouldBe(5);  // sharpest
             result.FramesUsed.ShouldBe(2);       // top 25% of 8
@@ -148,7 +148,7 @@ public class LuckyImagingStackerTests
 
             using var stream = SerFrameStream.Open(path);
             var result = await new LuckyImagingStacker()
-                .StackGlobalAsync(stream, new PlanetaryStackOptions { KeepFraction = 1.0 }, TestContext.Current.CancellationToken);
+                .StackGlobalAsync(stream, new PlanetaryStackOptions { CropToCoverage = false, KeepFraction = 1.0 }, TestContext.Current.CancellationToken);
 
             // Averaging ~12 aligned frames knocks the background noise down well below one frame's.
             CornerStd(result.Master).ShouldBeLessThan(singleFrameNoise * 0.7);

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using TianWen.Lib.Geometry;
 using System.Threading;
@@ -10,7 +11,10 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// <param name="Index">The frame's index in the stream.</param>
 /// <param name="Score">Its sharpness; zero for a frame no stack should hold.</param>
 /// <param name="Cut">Whether its planet is cut by the frame's edge or missing from it (<see cref="FrameGrader.IsCutOrEmpty"/>).</param>
-public readonly record struct FrameGrade(int Index, float Score, bool Cut = false);
+/// <param name="Elongation">How much longer than wide its planet lies (<see cref="PlanetaryDisk.Elongation"/>); NaN when unread or no planet.</param>
+/// <param name="Smeared">Whether its planet lies too long for the run, the telescope moving during it, so it was left out
+/// (<see cref="FrameGrader.SmearRatio"/>).</param>
+public readonly record struct FrameGrade(int Index, float Score, bool Cut = false, float Elongation = float.NaN, bool Smeared = false);
 
 /// <summary>
 /// Grades every frame of an <see cref="IPlanetaryFrameStream"/> with an
@@ -45,49 +49,101 @@ public sealed class FrameGrader(IFrameQualityEstimator estimator)
         // its scratch per call, so the grades are the ones a frame-by-frame walk gives.
         var scores = new float[count];
         var cut = new bool[count];
+        var elongation = new float[count];
         var every = ImmutableArray.CreateBuilder<int>(count);
         for (var i = 0; i < count; i++)
         {
             every.Add(i);
         }
         await PlanetaryFrameBatches.RunAsync(stream, every.MoveToImmutable(),
-            (image, _, _) => GradeAndCut(estimator, image, region),
-            (_, index, graded) => (scores[index], cut[index]) = graded,
+            (image, _, _) => GradeAndShape(estimator, image, region),
+            (_, index, graded) => (scores[index], cut[index], elongation[index]) = graded,
             cancellationToken).ConfigureAwait(false);
 
         var grades = ImmutableArray.CreateBuilder<FrameGrade>(count);
         for (var i = 0; i < count; i++)
         {
-            grades.Add(new FrameGrade(i, scores[i], cut[i]));
+            grades.Add(new FrameGrade(i, scores[i], cut[i], elongation[i]));
         }
 
-        return WithoutCutFrames(grades.MoveToImmutable());
+        return WithoutCutOrSmearedFrames(grades.MoveToImmutable());
     }
 
     /// <summary>
     /// <paramref name="grades"/> with every cut frame (<see cref="FrameGrade.Cut"/>) scored zero, so no stack holds it, when at least
-    /// <see cref="MinimumWholeFraction"/> of them are whole (<see cref="DropsCutFrames"/>); as they are otherwise.
+    /// <see cref="MinimumWholeFraction"/> of them are whole (<see cref="DropsCutFrames"/>), and every smeared one (its planet more than
+    /// <see cref="SmearRatio"/> times as elongated as the run's whole frames are at their median, <see cref="IsSmeared"/>) scored zero
+    /// and marked <see cref="FrameGrade.Smeared"/>; as they are otherwise.
     /// </summary>
-    public static ImmutableArray<FrameGrade> WithoutCutFrames(ImmutableArray<FrameGrade> grades)
+    public static ImmutableArray<FrameGrade> WithoutCutOrSmearedFrames(ImmutableArray<FrameGrade> grades)
     {
         var cut = 0;
         foreach (var grade in grades)
         {
             cut += grade.Cut ? 1 : 0;
         }
-        if (cut == 0 || !DropsCutFrames(grades.Length - cut, grades.Length))
-        {
-            return grades;
-        }
+        var dropCut = cut > 0 && DropsCutFrames(grades.Length - cut, grades.Length);
+        var runElongation = RunElongation(grades);
         var builder = grades.ToBuilder();
+        var changed = false;
         for (var i = 0; i < builder.Count; i++)
         {
-            if (builder[i].Cut)
+            var grade = builder[i];
+            if (dropCut && grade.Cut)
             {
-                builder[i] = builder[i] with { Score = 0 };
+                builder[i] = grade with { Score = 0 };
+                changed = true;
+            }
+            else if (!grade.Cut && IsSmeared(grade.Elongation, runElongation))
+            {
+                builder[i] = grade with { Score = 0, Smeared = true };
+                changed = true;
             }
         }
-        return builder.MoveToImmutable();
+        return changed ? builder.MoveToImmutable() : grades;
+    }
+
+    /// <summary>
+    /// How many times as elongated as the run's typical whole frame a frame's planet may lie before it was taken while the telescope
+    /// MOVED, and is left out (#1300). A telescope that moves during a frame (a bump, a nudge, a slew) draws the planet out along a
+    /// line: the long sharp edge of that line is the sharpest thing the gradient sees, so on the owner's 2021-08-01 Saturn one such
+    /// frame (2.07 times the run's median) was every stack's reference,
+    /// and every frame registered against it left the stack's left and top edges covered by no frame. On four captures off tracked
+    /// mounts no frame lies past 1.06 times its run's median; on that capture 25 lie past 1.5.
+    /// </summary>
+    public const double SmearRatio = 1.5;
+
+    /// <summary>
+    /// Whether a frame whose planet lies <paramref name="elongation"/> times as long as wide is smeared in a run whose whole frames lie
+    /// <paramref name="runElongation"/> at their median: past <see cref="SmearRatio"/> times it. Never when either is unread (NaN).
+    /// </summary>
+    public static bool IsSmeared(float elongation, double runElongation)
+        => runElongation > 0 && elongation > SmearRatio * runElongation;
+
+    /// <summary>The median <see cref="FrameGrade.Elongation"/> of <paramref name="grades"/>' whole frames, NaN with none read.</summary>
+    public static double RunElongation(ImmutableArray<FrameGrade> grades)
+    {
+        var read = new List<float>(grades.Length);
+        foreach (var grade in grades)
+        {
+            if (!grade.Cut && float.IsFinite(grade.Elongation))
+            {
+                read.Add(grade.Elongation);
+            }
+        }
+        return MedianOf(read);
+    }
+
+    // The median of `values`, NaN when there are none; reorders the list.
+    internal static double MedianOf(List<float> values)
+    {
+        if (values.Count == 0)
+        {
+            return double.NaN;
+        }
+        values.Sort();
+        var middle = values.Count / 2;
+        return values.Count % 2 == 1 ? values[middle] : (values[middle - 1] + (double)values[middle]) / 2;
     }
 
     /// <summary>
@@ -130,25 +186,26 @@ public sealed class FrameGrader(IFrameQualityEstimator estimator)
     }
 
     /// <summary>
-    /// <see cref="Grade"/>, and whether the frame's planet is cut by its edge or missing (<see cref="IsCutOrEmpty"/>), from one pass
-    /// over the frame's luminance; the score is <see cref="Grade"/>'s, bit for bit. Whether a cut frame is left out is the capture's to
-    /// say (<see cref="DropsCutFrames"/>), so the score is not zeroed here.
+    /// <see cref="Grade"/>, whether the frame's planet is cut by its edge or missing (<see cref="IsCutOrEmpty"/>) and how elongated it
+    /// lies (<see cref="PlanetaryDisk.Elongation"/>), from one pass over the frame's luminance; the score is <see cref="Grade"/>'s, bit
+    /// for bit. Whether a cut or a smeared frame is left out is the capture's to say (<see cref="DropsCutFrames"/>,
+    /// <see cref="IsSmeared"/>), so the score is not zeroed here.
     /// </summary>
-    public static (float Score, bool Cut) GradeAndCut(IFrameQualityEstimator estimator, Image frame, PixelRect region = default)
+    public static (float Score, bool Cut, float Elongation) GradeAndShape(IFrameQualityEstimator estimator, Image frame, PixelRect region = default)
     {
-        var (score, cut, _) = GradeCutAndBox(estimator, frame, region);
-        return (score, cut);
+        var (score, cut, _, elongation) = GradeCutAndBox(estimator, frame, region);
+        return (score, cut, elongation);
     }
 
     /// <summary>
-    /// <see cref="GradeAndCut"/> with the disk's box, <see cref="PlanetaryDisk.BoundingBox"/>'s at its defaults: a stack that registers the
+    /// <see cref="GradeAndShape"/> with the disk's box, <see cref="PlanetaryDisk.BoundingBox"/>'s at its defaults: a stack that registers the
     /// frame by that box takes it from here rather than scanning the frame for it again (the rolling stack, #1174).
     /// </summary>
-    internal static (float Score, bool Cut, PixelRect Box) GradeCutAndBox(IFrameQualityEstimator estimator, Image frame, PixelRect region = default)
+    internal static (float Score, bool Cut, PixelRect Box, float Elongation) GradeCutAndBox(IFrameQualityEstimator estimator, Image frame, PixelRect region = default)
     {
         ArgumentNullException.ThrowIfNull(estimator);
-        var (box, cut) = PlanetaryDisk.BoundingBoxAndCut(frame);
-        return (IsCorruptReadout(frame) ? 0f : estimator.Score(frame, region.IsEmpty ? box : region), cut, box);
+        var (box, cut, elongation) = PlanetaryDisk.BoundingBoxAndCut(frame);
+        return (IsCorruptReadout(frame) ? 0f : estimator.Score(frame, region.IsEmpty ? box : region), cut, box, elongation);
     }
 
     /// <summary>

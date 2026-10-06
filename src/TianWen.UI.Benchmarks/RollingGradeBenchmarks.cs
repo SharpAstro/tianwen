@@ -10,7 +10,7 @@ namespace TianWen.UI.Benchmarks;
 /// <summary>
 /// What grading one frame costs the rolling stack (<see cref="RollingWindowStacker"/>), step by step, against what folding it costs
 /// (#1174): a stack that folds only its best frames must still grade every frame a capture sends, so its grade has to fit the
-/// capture's frame interval (4.6 ms at 216 frames a second). <see cref="FrameGrader.GradeAndCut"/> is the disk's bounding box and cut
+/// capture's frame interval (4.6 ms at 216 frames a second). <see cref="FrameGrader.GradeAndShape"/> is the disk's bounding box and cut
 /// test over the whole frame, the corrupt-readout scan, then the gradient over the box.
 /// </summary>
 [MemoryDiagnoser]
@@ -72,7 +72,7 @@ public class RollingGradeBenchmarks
         var total = 0f;
         for (var i = 0; i < Frames; i++)
         {
-            total += FrameGrader.GradeAndCut(_estimator, _frames[i]).Score;
+            total += FrameGrader.GradeAndShape(_estimator, _frames[i]).Score;
         }
         return total;
     }

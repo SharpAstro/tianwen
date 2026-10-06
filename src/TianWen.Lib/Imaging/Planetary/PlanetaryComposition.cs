@@ -154,8 +154,9 @@ public static class PlanetaryComposition
     /// <summary>
     /// Step 2: every stack's limb fitted at its own instant (<see cref="PlanetaryLimbFit"/>, Saturn's rings in the model), and the stack
     /// moved so its disk's centre lands on the reference's (<see cref="ReferenceIndex"/>), by the stack's own clamped Lanczos-3 kernel:
-    /// a rigid move, so the limb, the rings and the sky move with the disk. Refuses, in words, a set of more than one planet or size, a
-    /// limb that does not fit, or radii further apart than <see cref="MaxRadiusDisagreement"/>.
+    /// a rigid move, so the limb, the rings and the sky move with the disk, onto the reference's grid (each stack is cropped to where its
+    /// own frames reached, #1300, so stacks of one night differ in size). Refuses, in words, a set of more than one planet, a limb that
+    /// does not fit, or radii further apart than <see cref="MaxRadiusDisagreement"/>.
     /// </summary>
     public static (PlanetaryRegistration? Registration, string? Refusal) Register(IReadOnlyList<PlanetaryMonoStack> stacks, Action<string>? say = null)
     {
@@ -164,14 +165,10 @@ public static class PlanetaryComposition
         {
             return (null, "no stacks to register");
         }
-        var (planet, width, height) = (stacks[0].Planet, stacks[0].Image.Width, stacks[0].Image.Height);
+        var planet = stacks[0].Planet;
         if (stacks.FirstOrDefault(s => s.Planet != planet) is { } otherPlanet)
         {
             return (null, $"{otherPlanet.Name} is {otherPlanet.Planet}, where {stacks[0].Name} is {planet}");
-        }
-        if (stacks.FirstOrDefault(s => s.Image.Width != width || s.Image.Height != height) is { } otherSize)
-        {
-            return (null, $"{otherSize.Name} is {otherSize.Image.Width}x{otherSize.Image.Height}, where {stacks[0].Name} is {width}x{height}");
         }
         var fits = new LimbFit[stacks.Count];
         for (var i = 0; i < stacks.Count; i++)
@@ -184,6 +181,9 @@ public static class PlanetaryComposition
         }
         var reference = ReferenceIndex(stacks);
         var referenceFit = fits[reference];
+        // Every stack onto the reference's grid: each is cropped to where its own frames reached (#1300), so stacks of one night differ
+        // in size, and its disk's place is its own limb fit's.
+        var (width, height) = (stacks[reference].Image.Width, stacks[reference].Image.Height);
         var inv = CultureInfo.InvariantCulture;
         var moved = ImmutableArray.CreateBuilder<PlanetaryMonoStack>(stacks.Count);
         for (var i = 0; i < stacks.Count; i++)
@@ -200,7 +200,7 @@ public static class PlanetaryComposition
             say?.Invoke(string.Create(inv,
                 $"{stacks[i].Name} ({stacks[i].Filter.ShortName}, {stacks[i].Instant:HH:mm:ss} UTC): disk R {fits[i].EquatorialRadius:0.00} px, moved ({moveX:+0.00;-0.00;0.00}, {moveY:+0.00;-0.00;0.00}) px{(i == reference ? ", the reference" : "")}"));
             var image = stacks[i].Image;
-            var plane = i == reference ? image.GetChannelArray(0) : PlanetaryChannelAlignment.Moved(image.GetChannelArray(0), dx, dy);
+            var plane = i == reference ? image.GetChannelArray(0) : PlanetaryChannelAlignment.Moved(image.GetChannelArray(0), dx, dy, width, height);
             var (max, min) = Extent([plane]);
             moved.Add(stacks[i] with { Image = new Image([plane], BitDepth.Float32, max, min, 0, image.ImageMeta) });
         }

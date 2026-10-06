@@ -131,6 +131,16 @@ public sealed class RollingWindowStacker
     private int _gradedFrames;
     private int _wholeFrames;
 
+    // The planet's elongation in the last SmearWindow whole frames graded, a ring, and their median, read again every SmearRefresh
+    // frames: a live stack learns the run's typical shape as it goes, and leaves out a frame the telescope's motion smeared once it
+    // has read SmearRefresh of them (FrameGrader.IsSmeared, #1300).
+    private const int SmearWindow = 512;
+    private const int SmearRefresh = 32;
+    private readonly float[] _elongations = new float[SmearWindow];
+    private readonly List<float> _elongationScratch = new(SmearWindow);
+    private int _elongationsRead;
+    private double _runElongation = double.NaN;
+
     // The folded contribution of each in-window frame, so eviction can subtract exactly what was added
     // (same shift, negated weight) without re-grading. Weight 0 = graded-but-not-folded (kept so the
     // window membership/contiguity bookkeeping is uniform).
@@ -666,10 +676,21 @@ public sealed class RollingWindowStacker
 
         // A frame whose planet the frame's edge cuts, or which holds none, scores zero once the run has held enough whole ones
         // (FrameGrader.DropsCutFrames): a live stack learns the capture as it goes.
-        var (graded, cut, box) = FrameGrader.GradeCutAndBox(_options.QualityEstimator, frame);
+        var (graded, cut, box, elongation) = FrameGrader.GradeCutAndBox(_options.QualityEstimator, frame);
         _gradedFrames++;
         _wholeFrames += cut ? 0 : 1;
-        var score = cut && FrameGrader.DropsCutFrames(_wholeFrames, _gradedFrames) ? 0f : MathF.Max(0f, graded);
+        if (!cut && float.IsFinite(elongation))
+        {
+            _elongations[_elongationsRead++ % SmearWindow] = elongation;
+            if (_elongationsRead % SmearRefresh == 0)
+            {
+                _elongationScratch.Clear();
+                _elongationScratch.AddRange(_elongations.AsSpan(0, Math.Min(_elongationsRead, SmearWindow)));
+                _runElongation = FrameGrader.MedianOf(_elongationScratch);
+            }
+        }
+        var smeared = !cut && FrameGrader.IsSmeared(elongation, _runElongation);
+        var score = (cut && FrameGrader.DropsCutFrames(_wholeFrames, _gradedFrames)) || smeared ? 0f : MathF.Max(0f, graded);
         _scoreCache[index] = (score, box);
         if (index < _scoreCacheFloor)
         {

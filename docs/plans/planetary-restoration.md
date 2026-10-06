@@ -3727,6 +3727,57 @@ green by its own limb (#1202), but each colour still carries a smear of its own 
 colour through its own blur treats it; one luminance mixes the three smears. The owner's eye found the luminance version a little crisper,
 which the missing colour fringes account for: its band transfer matches per-channel within a few percent on the twins.
 
+### A smeared reference, and the edges no frame reached (#1300)
+
+The owner's 2021-08-01 Saturn, restacked for #1292, carried a flat band at -0.0202 of the peak down its first 12 columns and across its
+top 5 rows, and its sharpening found three moons on the band's edge. It was filed as PIPP's padding stacked as sky, and that was wrong:
+- **The band was ZERO COVERAGE.** -0.0202 of the peak is exactly 0 less the sky the master subtracts (22 of 65,535 counts). The frames do
+  carry PIPP's padding (603 of 2,329), but at 20 counts, the black level, against a sky of 22: no step a stack shows.
+- **No frame reached those pixels because the reference was a SMEARED frame.** Frame #2240 is the planet drawn out along a diagonal, taken
+  as the scope moved (a bump, a nudge or a slew; the owner cannot say which). Its long sharp edge was the sharpest thing the gradient saw, so it was every stack's
+  reference, and every frame registered against it landed about 8 px off. The run before #1291 had no band only by luck: its reference,
+  frame #0, was a planet half cut by PIPP's crop, which #1291 now leaves out. A cut and a smear both give the gradient a long sharp edge.
+
+**A smeared frame is left out as a cut one is** (`FrameGrader.SmearRatio`, `PlanetaryDisk.Elongation`, `FrameGrade.Smeared`):
+- **The measure:** a planet's shape is fixed over a run, so a frame whose planet lies more than 1.5 times as elongated as the run's whole
+  frames at their median was taken while the telescope moved. The elongation is the square root of the ratio of the planet's blob's
+  largest to smallest positional variance.
+- **Where it is read:** above 0.3 of the way from the frame's mean to its 99.9th percentile, never at the cut test's mean plus three
+  deviations. A large disk lifts the frame's spread so far that that level lies above the disk itself; the 678MC and 12-inch SCT Jupiters
+  held no pixel there.
+- **Who applies it:** the batch stack and the capture statistics against the run's median, the live stack against the median of the last
+  512 frames it graded, once it has read 32.
+- **Measured (2026-10-06):** on four captures off tracked mounts (EdgeHD Saturn, Meade 16 Saturn, 678MC Jupiter, 12-inch SCT Jupiter) no
+  frame lies past 1.06 times its run's median. On 2021-08-01, 25 lie past 1.5, up to 2.63; #2240 lies at 2.07. The reference is now
+  #1027, at 1.29.
+
+**The master is cropped to where the frames reached** (`PlanetaryStackOptions.CropToCoverage`, the default; `--no-crop` keeps the frame's
+size). The owner asked for it: "the edges can be a bit weird in planetary data and never contain actual signal".
+- **The rule:** the largest rectangle every block of which (2 x 2 output pixels) at least 0.95 of the frames' weight reached. It is the
+  deep-sky master's rule (`Image.LargestCoveredRectangle(coverage)`): under-coverage counts only where it reaches the border, and full is
+  the central median.
+- **What it reads is a coverage tally, never the weight the stack folds** (`PlanetaryCoverage`): each frame's footprint as its shift
+  moves it, the mesh read at the grid's corners where no point bends it, a drizzle frame's mapped onto the canvas, four corners of a
+  difference array a frame. The first version read the folded weight, and per-point quality weighting makes that lower on the sky than on
+  the planet: it cropped the Meade 16 Saturn to 459 x 203 of 512 x 320, the 678MC Jupiter to 474 x 498 of 640 x 640, and cut into both
+  planets' faint halo (R3 below, as first read). On a drizzle canvas it fared worse: its cells' drop counts differ, and a test master
+  came out 2 px wide.
+- **When it is applied:** after the colours are moved onto green and the demosaic, so the crop moves no pixel. A split stack's rectangle
+  is scaled to its master.
+- **What it never cuts:** it grows to hold the planet's footprint (`PlanetaryDisk.Footprint`: every pixel 0.02 of the way from the sky to
+  the peak with four such neighbours, padded 8 px), the rings, the moons and the faint halo included. Light that cannot be told from the
+  sky keeps the whole frame.
+- **Composition:** a mono night's stacks then differ in size, so `PlanetaryComposition.Register` moves each onto the reference's grid.
+
+**The rule, set before measuring (on #1300), and what was read:**
+
+| Rule | Read | |
+|---|---|---|
+| R1: 2021-08-01's reference within 1.5 times the run's median elongation; the four outside captures leave out no frame | #1027 at 1.29 (was #2240 at 2.07); 25 left out there, none on the four | holds |
+| R2: 2021-08-01 has no edge row or column more than 0.002 of the peak from the sky, and no moon within 20 px of an edge | every edge within 0.0004 (was -0.0202); no moon reported (was three at x = 12, 13) | holds |
+| R3, first version (crop read off the folded weight) | EdgeHD held; Meade 16 cropped to 459 x 203, the 678MC to 474 x 498, the 12-inch SCT to 407 x 381, each into its halo by 1 to 4 px | FAILED |
+| R3: on the four outside captures the crop moves no pixel, and keeps the planet's footprint with 8 px to spare | crops of 4 to 16 px a side (EdgeHD 628 x 620 of 640, Meade 16 508 x 316 of 512 x 320, 678MC 636 x 636 of 640, SCT 628 x 412 of 656 x 424), bit for bit, the 2 % footprint 16 to 272 px inside | holds |
+
 ### S2 The limb fit with the rings in its model
 
 #1232. The fit's forward model gains the rings: each ring's brightness is free, their geometry is the ephemeris', and they are blurred with the globe

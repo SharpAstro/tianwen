@@ -162,7 +162,7 @@ public class PlanetaryApStackTests
         try
         {
             var baseDisk = WriteDistortedCapture(path);
-            var options = new PlanetaryStackOptions { KeepFraction = 1.0, ReferenceFrames = 4 };
+            var options = new PlanetaryStackOptions { CropToCoverage = false, KeepFraction = 1.0, ReferenceFrames = 4 };
             PlanetaryStackResult global, remeasured;
             using (var s = SerFrameStream.Open(path))
             {
@@ -192,7 +192,7 @@ public class PlanetaryApStackTests
             // The AP mesh corrects the frames' gradient, so the AP master lands closer to the base.
             var baseDisk = WriteDistortedCapture(path);
 
-            var options = new PlanetaryStackOptions { KeepFraction = 1.0 };
+            var options = new PlanetaryStackOptions { CropToCoverage = false, KeepFraction = 1.0 };
             PlanetaryStackResult global, ap;
             using (var s = SerFrameStream.Open(path))
             {
@@ -254,7 +254,7 @@ public class PlanetaryApStackTests
             stream.Layout.ShouldBe(PlanetaryFrameLayout.SplitCfa);
 
             var result = await new LuckyImagingStacker()
-                .StackAsync(stream, new PlanetaryStackOptions { KeepFraction = 1.0, AlignmentPatchSize = 16 }, TestContext.Current.CancellationToken);
+                .StackAsync(stream, new PlanetaryStackOptions { CropToCoverage = false, KeepFraction = 1.0, AlignmentPatchSize = 16 }, TestContext.Current.CancellationToken);
 
             result.Master.ChannelCount.ShouldBe(3);  // merged CFA -> MHC demosaic -> RGB
             result.Master.Width.ShouldBe(n);          // full resolution restored
@@ -302,13 +302,13 @@ public class PlanetaryApStackTests
             using (var s = SerFrameStream.Open(path))
             {
                 perPoint = (await new LuckyImagingStacker().StackAsync(s,
-                    new PlanetaryStackOptions { KeepFraction = 1.0, PerPointQualityWeighting = true }, TestContext.Current.CancellationToken)).Master;
+                    new PlanetaryStackOptions { CropToCoverage = false, KeepFraction = 1.0, PerPointQualityWeighting = true }, TestContext.Current.CancellationToken)).Master;
             }
 
             using (var s = SerFrameStream.Open(path))
             {
                 flat = (await new LuckyImagingStacker().StackAsync(s,
-                    new PlanetaryStackOptions { KeepFraction = 1.0, PerPointQualityWeighting = false }, TestContext.Current.CancellationToken)).Master;
+                    new PlanetaryStackOptions { CropToCoverage = false, KeepFraction = 1.0, PerPointQualityWeighting = false }, TestContext.Current.CancellationToken)).Master;
             }
 
             var left = new PixelRect(8, 22, 18, 20);
@@ -378,7 +378,7 @@ public class PlanetaryApStackTests
 
             using var stream = SerFrameStream.Open(path);
             var result = await new LuckyImagingStacker().StackDrizzleAsync(stream,
-                new PlanetaryStackOptions { KeepFraction = 1.0, Drizzle = new PlanetaryDrizzleOptions(Scale: 1.5f, Pixfrac: 1.0f) },
+                new PlanetaryStackOptions { CropToCoverage = false, KeepFraction = 1.0, Drizzle = new PlanetaryDrizzleOptions(Scale: 1.5f, Pixfrac: 1.0f) },
                 TestContext.Current.CancellationToken);
 
             result.Master.ChannelCount.ShouldBe(3);  // drizzle scatters CFA samples straight to RGB -- no demosaic
@@ -441,7 +441,7 @@ public class PlanetaryApStackTests
 
             using var stream = SerFrameStream.Open(path);
             var result = await new LuckyImagingStacker().StackDrizzleAsync(stream,
-                new PlanetaryStackOptions { KeepFraction = 1.0, Drizzle = new PlanetaryDrizzleOptions(Scale: 1.5f, Pixfrac: 1.0f, AlignmentPointMesh: false) },
+                new PlanetaryStackOptions { CropToCoverage = false, KeepFraction = 1.0, Drizzle = new PlanetaryDrizzleOptions(Scale: 1.5f, Pixfrac: 1.0f, AlignmentPointMesh: false) },
                 TestContext.Current.CancellationToken);
 
             result.Master.ChannelCount.ShouldBe(3);

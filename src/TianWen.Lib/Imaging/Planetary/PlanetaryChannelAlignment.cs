@@ -251,17 +251,21 @@ public static class PlanetaryChannelAlignment
         => new PlanetaryChannelShift(0.5 * (a.Dx + b.Dx), 0.5 * (a.Dy + b.Dy));
 
     // plane(x + dx, y + dy) at every pixel, by the stack's resampling, row bands in parallel (each writes only its own rows).
-    internal static float[,] Moved(float[,] plane, double dx, double dy)
+    internal static float[,] Moved(float[,] plane, double dx, double dy) => Moved(plane, dx, dy, plane.GetLength(1), plane.GetLength(0));
+
+    // The same onto a grid of its own size (a stack cropped to where its frames reached, #1300, moved onto another's): zero where the
+    // plane does not reach.
+    internal static float[,] Moved(float[,] plane, double dx, double dy, int outWidth, int outHeight)
     {
         var height = plane.GetLength(0);
         var width = plane.GetLength(1);
-        var moved = new float[height, width];
-        ParallelFor.RunBands(height, (first, end) =>
+        var moved = new float[outHeight, outWidth];
+        ParallelFor.RunBands(outHeight, (first, end) =>
         {
             var flat = MemoryMarshal.CreateReadOnlySpan(ref plane[0, 0], plane.Length);
             for (var y = first; y < end; y++)
             {
-                for (var x = 0; x < width; x++)
+                for (var x = 0; x < outWidth; x++)
                 {
                     var v = Image.Lanczos3Value(flat, width, height, (float)(x + dx), (float)(y + dy), Image.LanczosClampingThreshold);
                     moved[y, x] = float.IsNaN(v) ? 0f : v;
