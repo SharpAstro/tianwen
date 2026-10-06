@@ -2490,6 +2490,41 @@ Parts 1 and 2 ran beside that bake too, every arm of a comparison in the same se
 under it keeps up, and the adoption does not move if a K that failed would pass on a quiet box (K = 0.25 leaves the least band error of
 the three).
 
+### What a grade costs, after the planet tests (#1310)
+
+#1272's second run (2026-10-06) found its control far short of #1174's readings. Load was part of it (#1174's own build, replayed in the
+same window, fell short too), and the grade itself had grown. Measured with #1174's build and today's loaded side by side in one process, each in its own `AssemblyLoadContext`, the same 64
+frames graded in alternating batches 200 times (a load falls on both alike; the unchanged `BoundingBox`, timed the same way, reads 0.98
+to 1.04 of itself), grading an 800 by 600 frame had gone from 1.42 ms to 4.06 ms on Red and from 1.43 to 4.11 on the twin. A capture at
+216 frames a second leaves 4.6 ms a frame. #1291's interior-cut pass took it to 1.91 ms, the rest came with #1300 and #1307: each test
+added a pass over the whole frame, costed only on 300 by 300 colour frames, while Red's planet lies in a fortieth of its frame.
+
+Instrumented on Red, the whole-frame passes were the cost: the quantiles' histogram 2.6 ms (one tally, which a sky in a handful of bins
+makes wait on every increment, and a scalar range pass before it), the mean and spread 0.9 ms (in #1174's grade too), the planet's
+seed scan about 0.5 ms, the interior-cut prepass 0.25.
+
+**Part 1, the same answers in two passes** (`PlanetaryDisk.BoxAndCut`): the first takes the mean, the spread and the range (`Moments`,
+the sums in their old order); the second the box, the histogram (`Tally`, four interleaved tallies summed at the end) and each row's
+brightest pixel. The planet's seed scan, the cut test's prepass and its flood then read only the rows that can hold a pixel above their
+own level. Every field `BoundingBoxAndCut` and `GradeAndShape` return is the same on 4,200 frames of seven captures (Red, the twin, the
+21:41:21 Jupiter, 21:54:54, 23:20:01, 2022-10-09 11:25, the 12-inch SCT Jupiter; 156 of them cut). Computing the histogram's bins in vector
+lanes was tried and was slower (2.1 ms a pass against 1.5).
+
+| Frames | #1174 | main before part 1 | part 1 | part 1 / #1174 | part 1 / main |
+|---|---|---|---|---|---|
+| Red, 800 by 600 mono | 1.42 ms | 4.21 ms | 2.59 ms | 2.03 | 0.66 |
+| The twin, 800 by 600 | 1.43 ms | 4.37 ms | 2.54 ms | 2.09 | 0.68 |
+| 21:54:54 Saturn, 300 by 300 colour | 0.69 ms | 1.26 ms | 1.06 ms | 1.67 | 0.86 |
+| 21:41:21 Jupiter, 300 by 300 colour | 1.08 ms | 1.77 ms | 1.70 ms | 1.53 | 0.91 |
+
+(Minimums in milliseconds, the ratios the per-repetition medians; "main" is main before #1307, which #1307 left within 2.5 % of.)
+
+**The rule set on #1310, within 10 % of #1174's grade with the same answers, is not met by part 1.** What is left is two whole-frame
+passes, and #1174's grade had one: the mean and spread alone cost about 0.9 ms of its 1.42. The rest needs a change in what is read,
+which part 2 measures: **the owner's pre-filter for the live view** (#1310's comment), a cheap score first, and the whole-frame tests only
+for the frames that could reach the window's best quarter, which are all the live stack folds. It changes which frames the live
+statistics see, so it is judged on #1272's replays, not by `AB_SAME`.
+
 ### The best stack in the viewer
 
 The owner's choices of 2026-10-02: a recorded capture gets a "Best stack" action that runs the batch pipeline, slow and best, while the
