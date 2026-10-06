@@ -187,6 +187,9 @@ public sealed class StarRemovalEvalTests : IDisposable
         output.FarMean.ShouldBe(0, 0.02, "and nothing away from it");
         var input = Arm(report, "input (removes nothing)").PlateSources;
         (input.Taken, input.NearMean).ShouldBe((0, 0.0));
+        // The output's only error against the plate is the star it took, on the plate's sky, near the plate's source.
+        Arm(report, "output").Loss.SkyNearSources.ShouldBeGreaterThan(0.9);
+        Arm(report, "input (removes nothing)").Loss.Footprints.ShouldBe(1, 1e-9, "the input differs from the plate only where it injected");
     }
 
     [Fact]

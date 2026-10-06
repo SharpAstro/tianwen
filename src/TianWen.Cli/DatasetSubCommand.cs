@@ -1071,7 +1071,9 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     $"worst draws' share {arm.Footprint.WorstShare:P1}; the plate's own {arm.PlateSources.Sources} sources: " +
                     $"{arm.PlateSources.TakenRate:P1} taken (core {arm.PlateSources.CoreMean:F2}), sky near them " +
                     $"{arm.PlateSources.NearMean:F3} mean {arm.PlateSources.NearRms:F3} rms over {arm.PlateSources.NearPixels}, far " +
-                    $"{arm.PlateSources.FarMean:F3} mean {arm.PlateSources.FarRms:F3} rms over {arm.PlateSources.FarPixels}");
+                    $"{arm.PlateSources.FarMean:F3} mean {arm.PlateSources.FarRms:F3} rms over {arm.PlateSources.FarPixels}; " +
+                    $"a plain L2's squared error: footprints {arm.Loss.Footprints:P1} (bright cores {arm.Loss.BrightCores:P1}), " +
+                    $"sky near the plate's sources {arm.Loss.SkyNearSources:P1}, far {arm.Loss.SkyFar:P1}");
             }
             return 0;
         });
