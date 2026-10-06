@@ -1094,7 +1094,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   outside captures are sampled finer (0.23 to 0.53): anything acting near the cutoff is unread on today's twins (#1279, #1281), and
   `--finish cutoff` (the low-pass there) is an option until an oversampled twin decides it. **The derived gains are already a Wiener**, so a
   finish that shrinks the noise again (`--finish wiener`) or moves their strength to where the stack has contrast (`--finish adaptive`) made
-  every twin worse (#1279). **Check what a reference IS before reading it**: the
+  every twin worse (#1279). **Nor does shrinking each band against the master's own noise before them pay** (#1313, `--shrink`, an option:
+  within 0.3 % on the twins, less shared detail on the real captures): a master's two halves (`planetary-stack --halves`) read its noise
+  band by band, and every master read holds at least 6 times its noise from band 2 up, so a shrink takes detail, not noise. **Check what a reference IS before reading it**: the
   12-inch SCT Jupiter's PNG is its raw stack, not a post (scale and band energy said so; the source thread's post #6 confirms it).
   **It needs the planet, the instant and the telescope** (a master carries its capture's span, DATE-OBS to EXPTIME, for the
   instant). Measured on the twins it leaves under a third of legacy's error; the free gain fit oscillates where the edge reads the finest

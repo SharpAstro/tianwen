@@ -4498,6 +4498,69 @@ planetary tab) has no recording to stack whole, so its switch is Frames and Live
   afresh and starts no derivation (`SwitchingViewsAndStopsStacksAndDerivesNothing`, DPI 1 and 1.5; the capture held at one frame, since a
   capture opens playing and a live stack following a moving playhead is stacked again by right).
 
+### Shrinking each band against the master's own noise (#1313)
+
+**The owner's question (2026-10-06)**, looking at the 12-inch SCT Jupiter beside its post: ours shows less of the very fine, greyish cloud
+bands; do we denoise at all, and would a denoiser help? Today the only denoising is linear: the derived gains are a Wiener against the
+stack's white noise floor, one gain a band for signal and noise alike. The idea measured here takes the noise out of each band first,
+nonlinearly, and derives the gains after.
+
+**Two halves give the master's own noise, band by band** (`PlanetaryStackOptions.Halves`, `planetary-stack --halves`). Each frame the
+master folds is folded a second time, with its own mesh, quality map and weight, into half A or B by its rank in the selection (alternate
+ranks, so both halves span the same quality). Each half is finished as the master is: its colours moved by the master's own shifts, never
+read again, demosaiced, and cropped to the master's rectangle (`PlanetaryStackHalves`, written as `master_*_halfA.fits` and `_halfB.fits`).
+The halves then sum, weighted, to the master, so `(A - B) / 2` is the master's noise and nothing else. The design registered on #1313 had
+stacked them apart and moved each onto the master by its limb; that would have read each half's registration and frame choice as noise
+too, so it was changed before anything was measured (noted on the issue).
+
+**The shrink** (`PlanetaryBandShrink`, `PlanetarySharpenOptions.ShrinkHalves`, `planetary-sharpen --shrink --halves A B`): BayesShrink
+(Chang, Yu and Vetterli 2000) in each a trous band of each channel's window. The noise `sigma_n` is half the halves' difference in that band,
+the signal `sigma_x = sqrt(max(sigma_y^2 - sigma_n^2, 0))`, both read inside 0.9 radii, and every coefficient is soft-thresholded at
+`sigma_n^2 / sigma_x` (the band's largest coefficient where `sigma_x` is 0). The gains are then derived on the shrunk window, against its own
+white noise floor. Nothing in it is tuned.
+
+**Judged by the rule registered on #1313 before any of it ran** (`planetary-sharpen --truth`; A today's derived sharpening, B shrunk; the
+same master, stacked `--no-crop` so it lies on the truth's grid; a colour twin's error summed over its three colours, its limb the worst
+colour's):
+
+| Twin | strength 1, bands 1 to 4, A / B | limb profile, A / B | strength 2, bands 1 to 4, A / B | limb profile, A / B |
+|---|---|---|---|---|
+| Jupiter, calibrated (mono) | 0.654 / 0.652 | 0.0054 / 0.0054 | 2.873 / 2.870 | 0.0388 / 0.0389 |
+| Saturn, S3 (colour) | 3.884 / 3.888 | 0.0242 / 0.0245 | 5.601 / 5.600 | 0.0466 / 0.0466 |
+
+- **Rule 1 (strength 1) fails on Saturn**, by 0.004 of 3.884, and in each colour (red 1.147 / 1.148, green 1.222 / 1.224, blue 1.515 /
+  1.516). **Rule 2 (strength 2) holds** with the colours summed, by 0.001; read colour by colour, red fails it by the same 0.001. Every
+  limb is within 1.05. By the verdict as registered (with the colours summed) that is an option, not a default; colour by colour, not
+  adopted.
+- **Why it does nothing: the twins' stacks are not noise-limited, in any band.** Their noise read off the halves, against their detail, in
+  the window's units (the disk 1 above its sky):
+
+| Master | band 1, noise / detail / threshold | band 2 | band 3 |
+|---|---|---|---|
+| Jupiter twin | 0.00053 / 0.0045 / 0.00006 | 0.00014 / 0.0100 / 0 | 0.00006 / 0.0257 / 0 |
+| Saturn twin, green | 0.00100 / 0.0054 / 0.00018 | 0.00042 / 0.0168 / 0.00001 | 0.00027 / 0.0432 / 0 |
+| ASI678MC Jupiter, green | 0.00034 / 0.0010 / 0.00012 | 0.00014 / 0.0019 / 0.00001 | 0.00009 / 0.0054 / 0 |
+| 12-inch SCT Jupiter, green | 0.00053 / 0.0010 / 0.00029 | 0.00022 / 0.0024 / 0.00002 | 0.00011 / 0.0067 / 0 |
+
+  With the detail 4 to 9 times the noise even in the finest band, BayesShrink's threshold is a quarter of the noise or less: it takes a
+  sliver of band 1's real detail (Saturn's red transfer there 0.434 to 0.432, where the sharpened stack is already short of the truth) and
+  leaves the gain fit nothing to use (Jupiter's finest gain 4.57 to 4.59).
+- **On the two real Jupiters it takes detail the post holds, not noise** (rule 3, recorded; `planetary-judge`, band 2, the master's gain on
+  what both hold, and the detail correlation):
+
+| Capture | strength 1, A / B | strength 2, A / B | correlation, A / B |
+|---|---|---|---|
+| ASI678MC Jupiter | 0.358 / 0.352 | 0.668 / 0.658 | 0.869 / 0.867 |
+| 12-inch SCT Jupiter | 0.620 / 0.578 | 1.157 / 1.079 | 0.929 / 0.927 |
+
+  Their finest band is noisier (detail 1.5 to 3 times the noise), so the shrink cuts more of it, and the gain fit then gives band 2 less
+  (the 12-inch SCT's 13.57 to 12.43 at strength 1, 26.2 to 23.8 at 2), while the agreement with the post does not move.
+
+**What it answers.** The fine bands the 12-inch SCT's post shows are not hidden by noise in our master: both real masters hold at least 6
+times their noise in band 2 and 30 times in band 3. They are a matter of gain, which the strength option already reaches (at 2 the 12-inch
+SCT's band 2 is 1.16 of its post's). The derived gains are already the Wiener this would improve on, and a per-capture learned denoiser
+(the halves are Noise2Noise pairs) has as little noise to take. The halves stay, as the one reading of a master's own noise band by band.
+
 ### The colour look (#1273)
 
 **Issue:** #1273. The owner, 2026-10-05, on the EdgeHD Saturn beside his own `_post`: ours is sharp, but the post has more colour
