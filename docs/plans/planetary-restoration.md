@@ -3660,6 +3660,73 @@ Restacked (2026-10-06): the epoch is 11:36:22.3, the run's true middle, and nort
 43 s for the same capture stacked as taken: the de-rotation turns one reference for a run of time-consecutive frames, and a capture in
 quality order rebuilds it for nearly every frame.
 
+### Sharpening a colour master's luminance alone (#1295)
+
+The derived sharpening works per colour channel, each through its own diffraction and edge. On real Saturn captures that changes the colour
+of thin detail:
+- **The rings gain colour.** Their chroma as a share of the globe's (OKLab, linear) rises from 0.38 in the EdgeHD capture's stack to 0.57
+  sharpened, and from 0.44 to 0.62 on the owner's 2021-08-19 Saturn. That capture's own post reads 0.17 and the owner's AS!3 0.23.
+- **The gap between the globe and the inner ring turns teal** on the owner's 2021-08-19 and 2022-10-09 captures.
+
+**The candidate** (`PlanetarySharpenOptions.LuminanceOnly`, `planetary-sharpen --colour`, `planetary-stack --sharpen-luminance`):
+- the mean of the planes is sharpened once, as a mono master is, at the mean of the channels' wavelengths, its finest band held as a colour
+  plane's is (#1187);
+- every plane is rebuilt from it with the stack's own colour at each pixel: the luminance above the sky times each plane's share of the
+  stack there (`PlanetarySharpening.WithStackColour`). Every scale of the detail is the luminance's, every colour the stack's.
+
+The deep-sky LRGB step (`LuminanceDetail.Apply`, #1278) cannot serve here: it keeps each plane's colour from the blurred stack at every scale
+coarser than 1.5 px, so the sharpening's bands 2 to 4 would be lost.
+
+**Judged by a colour read against the truth** (`PlanetaryMasterScore.ColourAgainstTruth`, which `--truth` now prints for a colour master):
+each channel registered onto the truth's disk, both put on the truth's own globe colour, then the globe's core, the ring ansae and the gap
+between the globe and the inner ring read in OKLab.
+
+**Rule, set before measuring (on #1295):**
+1. The globe and the rings land no further from the truth than per-channel sharpening, and the rings' share of the globe's chroma is
+   within 10 % of the truth's.
+2. The error over bands 1 to 4 is within 3 % of per-channel's.
+3. The gap's chroma is within 0.02 of the truth's.
+
+All three on both twins make it the default; 1 or 3 with 2 failing makes it an option.
+
+**Measured (2026-10-06, the Saturn twin `sat-p5` and the Jupiter colour twin `uc-g4`, two seeds each, stacked with no colour balance at
+half the frames).** Each cell is luminance against per-channel:
+
+| Twin | Bands 1 to 4, summed over colours | Globe from the truth | Rings from the truth | Rings' share (truth 0.43) | Gap chroma (truth) |
+|---|---|---|---|---|---|
+| Saturn, seed 1 | 4.12 against 3.98 | 0.0212 against 0.0200 | 0.0942 against 0.0953 | 0.52 against 0.52 | 0.104 against 0.086 (0.093) |
+| Saturn, seed 2 | 4.32 against 4.06 | 0.0246 against 0.0223 | 0.1037 against 0.1031 | 0.51 against 0.46 | 0.102 against 0.097 (0.093) |
+| Jupiter, seed 1 | 5.15 against 4.24 | 0.0546 against 0.0474 | | | |
+| Jupiter, seed 2 | 5.62 against 4.59 | 0.0575 against 0.0522 | | | |
+
+**Rules 1 and 2 fail and rule 3 holds, so it is an option.** On the twins, per-channel sharpening moves the colour TOWARD the truth
+everywhere:
+- the globe from 0.036 to 0.020;
+- the rings from 0.23 to 0.10;
+- the gap's hue from the stack's 61 degrees to 31 and 50, against the truth's 38.
+
+The blur mixes neighbouring colours, and sharpening each channel through its own blur unmixes them. The luminance arm keeps the stack's
+mixed colour, and its one luminance's detail cannot match red's own blur (Jupiter's red, bands 1 to 4: 2.22 against 1.56).
+
+The first run derived the luminance's finest band as a mono master's is derived. That gave Jupiter's red 2.18 in band 1 against 0.82,
+until the band was held as #1187 holds it on a colour master.
+
+**What the twins cannot say:**
+- The twins show no teal gap: the twin's gap reads hue 31 to 64 degrees, never green.
+- Their rings' colour is the render's nominal one, so whether a real ring is as yellow as the per-channel sharpening makes it is not known
+  from them.
+
+**On the real captures**, by eye and read:
+- On the owner's 21:54:54 the luminance option takes the teal fringe out of the gap and the rings' share from 0.62 to 0.50.
+- On the EdgeHD capture it takes the rings' share from 0.57 to 0.47, with little to see.
+
+Neither reaches the posts' near-neutral rings (0.17, 0.23): those come from their processing's colour, which is a look, not a sharpening.
+
+**Opt-in, for a second reason the owner gave: a capture taken without an atmospheric dispersion corrector.** The stack moves each colour onto
+green by its own limb (#1202), but each colour still carries a smear of its own within its band, blue's the largest. Only sharpening that
+colour through its own blur treats it; one luminance mixes the three smears. The owner's eye found the luminance version a little crisper,
+which the missing colour fringes account for: its band transfer matches per-channel within a few percent on the twins.
+
 ### S2 The limb fit with the rings in its model
 
 #1232. The fit's forward model gains the rings: each ring's brightness is free, their geometry is the ephemeris', and they are blurred with the globe
