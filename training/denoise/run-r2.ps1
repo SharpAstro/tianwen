@@ -111,7 +111,10 @@ try {
             if (Test-Path $stopFile) { "stop file present before $name" | Tee-Object -FilePath $log -Append; break seeds }
             Set-Status "train $name"
             "train $name $(Get-Date -Format o)" | Tee-Object -FilePath $log -Append
-            $mask = if ($LossMask) { @('--loss-mask') } else { @() }
+            # Built as an array element by element: an if-expression returning @('--loss-mask') unrolls to a string, and
+            # splatting a string passes its characters one by one (the first R2d launch, 2026-10-07).
+            $mask = [System.Collections.Generic.List[string]]::new()
+            if ($LossMask) { $mask.Add('--loss-mask') }
             & python n2n_smoke.py --train --cache $cache --synthetic --loss l2 --upsample --cond-map `
                 --band-loss 3 --band-scales "2,4 4,8" --base 32 --schedule plateau --steps $Steps `
                 --val-every 500 --patience $Patience --max-decays 4 --min-improve 0.001 --gate-every 0 `
