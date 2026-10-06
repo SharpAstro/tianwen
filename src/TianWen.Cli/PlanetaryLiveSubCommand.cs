@@ -42,12 +42,13 @@ internal sealed class PlanetaryLiveSubCommand(IConsoleHost consoleHost, ITimePro
         var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary-degrade's .truth.fits): the last master of each recipe scored against it." };
         var planetOpt = new Option<string?>("--planet") { Description = "jupiter or saturn, for the truth's scoring; read off the file's name when not given." };
         var agedOpt = new Option<string>("--aged-reference") { Description = "What the stack does when its reference ages out of the window (#1174): rebuild, in-place, or a comma list to replay each recipe with each." };
+        var lastMasterOpt = new Option<string?>("--last-master") { Description = "A folder to write each recipe's last master to, as FITS, to read past the truth's score (#1319)." };
         var keepOpt = new Option<string>("--keep") { Description = "The share of the window's frames folded (#1174), a comma list to replay each recipe at each (e.g. '1,0.5,0.25'); the recipe's own when not given." };
 
         var command = new Command("planetary-live", "Measure how the live rolling stack keeps up with a capture replayed at its own rate, recipe by recipe.")
         {
             Arguments = { captureArg },
-            Options = { recipeOpt, secondsOpt, rateOpt, truthOpt, planetOpt, keepOpt, agedOpt },
+            Options = { recipeOpt, secondsOpt, rateOpt, truthOpt, planetOpt, keepOpt, agedOpt, lastMasterOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -105,6 +106,11 @@ internal sealed class PlanetaryLiveSubCommand(IConsoleHost consoleHost, ITimePro
                 }
                 recipes = [.. recipes.SelectMany(r => ways.Select(inPlace => (inPlace ? r.Name + ", in place" : r.Name + ", rebuilt", r.Options with { ReReferenceInPlace = inPlace })))];
             }
+            var lastMasterOut = parseResult.GetValue(lastMasterOpt);
+            if (lastMasterOut is not null)
+            {
+                Directory.CreateDirectory(lastMasterOut);
+            }
             var truthPath = parseResult.GetValue(truthOpt);
             CatalogIndex planet = parseResult.GetValue(planetOpt)?.ToLowerInvariant() switch
             {
@@ -139,6 +145,12 @@ internal sealed class PlanetaryLiveSubCommand(IConsoleHost consoleHost, ITimePro
                 try
                 {
                     Report(name, run, rate);
+                    if (lastMasterOut is not null && run.Last is { } last)
+                    {
+                        var file = Path.Combine(lastMasterOut, string.Concat(name.Select(c => char.IsLetterOrDigit(c) ? c : '-')) + ".fits");
+                        last.WriteToFitsFile(file);
+                        consoleHost.WriteScrollable($"[planetary] {name}'s last master (frame {run.Masters[^1].Built}): {file}");
+                    }
                     if (truthPath is not null && run.Last is { } master)
                     {
                         PlanetaryMasterScore.AgainstTruth(consoleHost, master, truthPath, planet, $"{name}'s last master");
