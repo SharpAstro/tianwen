@@ -109,6 +109,73 @@ def open_sigma(cache, meta):
     return planes, np.load(os.path.join(cache, SIGMA_HAS_FILE))
 
 
+# R2d's D4 loss mask (docs/plans/star-remover-training.md): one channel of fp16 beside each injected draw, named by
+# StarRemovalMasks.KeepPathFor in C# (the tile's .f16 replaced by .keep.f16), 0 on the sky near a source the plate itself
+# kept and 1 elsewhere, computed by the eval's own rule and only READ here. --prepare-keep packs the draws' masks into
+# keep.u8 beside an existing cache, [cells, draws, TILE, TILE], so a cache need not be prepared again for it.
+KEEP_EXT = ".keep.f16"
+KEEP_FILE = "keep.u8"
+
+
+def keep_path_for(rel):
+    """A draw's loss-mask sidecar: the C# KeepPathFor rule, verbatim."""
+    if not rel.endswith(TILE_EXT):
+        raise ValueError(f"{rel} is not a {TILE_EXT} tile")
+    return rel[:-len(TILE_EXT)] + KEEP_EXT
+
+
+def open_keep(cache, meta):
+    """The masks [cells, draws, TILE, TILE] uint8 (1 = counts in the loss), or None for a cache without them."""
+    if not meta.get("keep_planes"):
+        return None
+    return np.memmap(os.path.join(cache, KEEP_FILE), dtype=np.uint8, mode="r",
+                     shape=(meta["cells"], meta["keep_draws"], TILE, TILE))
+
+
+def prepare_keep(args):
+    """Packs every draw slot's .keep.f16 into keep.u8 beside an existing cache, in the cache's own cell and slot order
+    (the draws sorted, as --prepare reads them), and records it in meta.json. A draw without a mask stops it: a cache
+    half masked would train half of its cells against the target the mask exists to correct."""
+    meta_path = os.path.join(args.cache, "meta.json")
+    with open(meta_path, encoding="utf-8") as fh:
+        meta = json.load(fh)
+    draws = int(meta.get("draws", SUBS_PER_CELL))
+    cells = load_cells(args.root, args.manifest)
+    keys = [tuple(k) for k in meta["keys"]]
+    keep = np.memmap(os.path.join(args.cache, KEEP_FILE), dtype=np.uint8, mode="w+", shape=(len(keys), draws, TILE, TILE))
+    dropped = 0
+    for i, key in enumerate(keys):
+        subs = sorted(cells[key]["subs"])[:draws]
+        if len(subs) != draws:
+            raise SystemExit(f"cell {key} has {len(subs)} draws in {args.root}, the cache {draws}")
+        for d, rel in enumerate(subs):
+            p = os.path.join(args.root, keep_path_for(rel).replace("/", os.sep))
+            if not os.path.exists(p):
+                raise SystemExit(f"{p} is missing: run tianwen dataset plate-masks --export {args.root} first")
+            with open(p, "rb") as fh:
+                raw = fh.read()
+            if len(raw) != TILE * TILE * 2:
+                raise SystemExit(f"mask {p} is {len(raw)} bytes, expected {TILE * TILE * 2}")
+            m = np.frombuffer(raw, "<f2").reshape(TILE, TILE) > 0.5
+            keep[i, d] = m
+            dropped += int((~m[BORDER:-BORDER, BORDER:-BORDER]).sum())
+        if (i + 1) % 500 == 0:
+            print(f"  {i + 1}/{len(keys)} cells", flush=True)
+    keep.flush()
+    inside = len(keys) * draws * (TILE - 2 * BORDER) ** 2
+    meta["keep_planes"] = len(keys) * draws
+    meta["keep_draws"] = draws
+    with open(meta_path, "w", encoding="utf-8") as fh:
+        json.dump(meta, fh, indent=1)
+    print(f"packed {len(keys) * draws} draw masks into {KEEP_FILE}: {100.0 * dropped / inside:.2f} percent of the pixels "
+          f"inside the rim left out of the loss")
+
+
+def masked_mean(err, mask):
+    """The mean of err [B, C, H, W] over the pixels mask [B, 1, H, W] keeps, every channel alike."""
+    return (err * mask).sum() / (mask.sum() * err.shape[1]).clamp_min(1.0)
+
+
 def with_plane(x, plane, strength=1.0):
     """Append a STORED per-pixel conditioning plane [B, H, W] to an image batch: --cond-map, in place of
     with_sigma's broadcast scalar. `strength` keeps the scalar's meaning (overstating the noise is the dial)."""
@@ -1206,6 +1273,19 @@ def train(args):
         print(f"conditioning on the STORED per-pixel noise plane (sigma.f16): draw planes p5 "
               f"{np.percentile(sample, 5):.3f} p50 {np.percentile(sample, 50):.3f} p95 {np.percentile(sample, 95):.3f}")
 
+    # R2d's D4: the sky near a source the plate itself kept is left out of the pixel and band terms, in training and in
+    # the plateau's held-out objective alike, so neither asks the net to keep a faint star it is asked to remove elsewhere.
+    keep_planes = None
+    if args.loss_mask:
+        if regimes != [SYNTH] or getattr(args, "scale_aug", None):
+            raise SystemExit("--loss-mask is for the synthetic regime without --scale-aug: the mask is a draw's own")
+        keep_planes = open_keep(args.cache, meta)
+        if keep_planes is None:
+            raise SystemExit(f"--loss-mask needs keep.u8 in {args.cache}: tianwen dataset plate-masks, then --prepare-keep")
+        if meta["keep_draws"] < draws:
+            raise SystemExit(f"--loss-mask: the cache's masks cover {meta['keep_draws']} draws, training draws {draws}")
+        print(f"loss mask: the sky near the plate's own sources left out ({KEEP_FILE}, {meta['keep_planes']} draw masks)")
+
     # A DECONVOLUTION arm conditions on a stored psf01 label rather than on the input's measured
     # noise, and is selected on width and ringing rather than on noise: the denoiser's gate would
     # pick whichever checkpoint irons the frame flattest, which is selecting a deconvolver for
@@ -1438,14 +1518,22 @@ def train(args):
                         pred = model(with_plane(x, sigma_planes[vi, slots]) if sigma_planes is not None
                                      else with_sigma(x, planes=cond_planes) if cond_planes else x)
                         pc = pred[:, :, BORDER:-BORDER, BORDER:-BORDER]
-                        obj = (nn.functional.l1_loss(pc, yc) if args.loss == "l1"
-                               else nn.functional.mse_loss(pc, yc))
+                        mc = None
+                        if keep_planes is not None:
+                            mc = torch.from_numpy(np.ascontiguousarray(keep_planes[vi, slots - 1])).to(dev).float() \
+                                .unsqueeze(1)[:, :, BORDER:-BORDER, BORDER:-BORDER]
+                        if mc is not None:
+                            obj = masked_mean((pc - yc).abs() if args.loss == "l1" else (pc - yc) ** 2, mc)
+                        else:
+                            obj = (nn.functional.l1_loss(pc, yc) if args.loss == "l1"
+                                   else nn.functional.mse_loss(pc, yc))
                         if args.band_loss > 0:
                             band = 0.0
                             for s1, s2 in band_scales:
                                 k1, k2 = kernels[s1], kernels[s2]
-                                band = band + nn.functional.mse_loss(
-                                    _blur(pc, k1) - _blur(pc, k2), _blur(yc, k1) - _blur(yc, k2))
+                                dp, dy = _blur(pc, k1) - _blur(pc, k2), _blur(yc, k1) - _blur(yc, k2)
+                                band = band + (masked_mean((dp - dy) ** 2, mc) if mc is not None
+                                               else nn.functional.mse_loss(dp, dy))
                             obj = obj + args.band_loss * band / len(band_scales)
                         total += float(obj.item()) * len(vi)
             if was:
@@ -1588,12 +1676,20 @@ def train(args):
         # the full tile optimises a condition the model never meets.
         pc = pred[:, :, BORDER:-BORDER, BORDER:-BORDER]
         yc = y[:, :, BORDER:-BORDER, BORDER:-BORDER]
+        # R2d's D4: each draw's own mask, the sky near the plate's own sources left out.
+        mc = None
+        if keep_planes is not None:
+            mc = torch.from_numpy(np.ascontiguousarray(keep_planes[idx, a - 1])).to(dev).float() \
+                .unsqueeze(1)[:, :, BORDER:-BORDER, BORDER:-BORDER]
         # L1 converges to the conditional MEDIAN, which for a star near the noise floor sits
         # at the background: an L1 N2N erases faint stars while scoring well on PSNR, because
         # PSNR is dominated by the background pixels it cleans beautifully. L2 converges to the
         # conditional MEAN, which is unbiased and preserves faint flux in expectation.
-        pixel = (nn.functional.l1_loss(pc, yc) if args.loss == "l1"
-                 else nn.functional.mse_loss(pc, yc))
+        if mc is not None:
+            pixel = masked_mean((pc - yc).abs() if args.loss == "l1" else (pc - yc) ** 2, mc)
+        else:
+            pixel = (nn.functional.l1_loss(pc, yc) if args.loss == "l1"
+                     else nn.functional.mse_loss(pc, yc))
         loss = pixel
 
         # Structure-preserving term. Plain L2 is dominated by the flat background, which is
@@ -1614,8 +1710,8 @@ def train(args):
             band = 0.0
             for s1, s2 in band_scales:
                 k1, k2 = kernels[s1], kernels[s2]
-                band = band + nn.functional.mse_loss(
-                    _blur(pc, k1) - _blur(pc, k2), _blur(yc, k1) - _blur(yc, k2))
+                dp, dy = _blur(pc, k1) - _blur(pc, k2), _blur(yc, k1) - _blur(yc, k2)
+                band = band + (masked_mean((dp - dy) ** 2, mc) if mc is not None else nn.functional.mse_loss(dp, dy))
             loss = loss + args.band_loss * band / len(band_scales)
 
         # The star term (E2.8). Its weight is set on the FIRST batch that carries a star so the term
@@ -1795,6 +1891,7 @@ def train(args):
     def save(state, path, selected_at):
         torch.save({"model": state, "base": args.base, "upsample": args.upsample, "channels": CH,
                     "cond": cond_planes, "cond_map": sigma_planes is not None, "half_pairs": args.half_pairs,
+                    "loss_mask": keep_planes is not None,
                     "regimes": [str(k) for k in regimes], "selected_at_step": selected_at,
                     "pair_time": args.pair_time, "star_loss_w": star_w,
                     "operator": args.operator, "rl_k": args.rl_k,
@@ -2021,6 +2118,12 @@ if __name__ == "__main__":
                         "re-run of a recipe needs its own --out name or it overwrites the reference). "
                         "No default, see n2n_paths.py")
     p.add_argument("--prepare", action="store_true")
+    p.add_argument("--prepare-keep", action="store_true",
+                   help="R2d's D4: pack every draw's .keep.f16 (tianwen dataset plate-masks) into keep.u8 beside an "
+                        "existing --cache, from the export at --root")
+    p.add_argument("--loss-mask", action="store_true",
+                   help="R2d's D4: leave the sky near the plate's own sources (keep.u8) out of the pixel and band terms and "
+                        "the plateau's held-out objective")
     p.add_argument("--train", action="store_true")
     p.add_argument("--eval", action="store_true")
     p.add_argument("--train-sessions", type=int, default=8)
@@ -2268,6 +2371,10 @@ if __name__ == "__main__":
         p.error("--prepare needs --root, the bake to read tiles from (no default; see --root)")
     if a.prepare:
         prepare(a)
+    if a.prepare_keep:
+        if not a.root:
+            p.error("--prepare-keep needs --root, the export the masks sit in")
+        prepare_keep(a)
     if a.prepare_stars and not a.prepare:
         prepare_stars(a.cache, a.star_max)
     if a.operator_only:
