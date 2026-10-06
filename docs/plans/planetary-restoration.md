@@ -4360,6 +4360,53 @@ is derived on the CPU, so no shader stage and no CPU/GPU mirror:
   (`LiveStackPreviewSource`, through `SetSharpen` with the dials), and shows a master that cannot take it as balanced.
 - **The file stays linear.** "Save image as displayed" exports the looked rendering.
 
+#### The posts' look, about the planet's own colour (#1305)
+
+**Issue:** #1305. The CN-post study (2026-10-06) asked what four outside observers' posts do to their stacks' colour, and whether a look on
+our master generalises. What the posts share is wider colour differences: every post widens each pixel's departure from the planet's
+own mean colour, along its hue and across it (x1.35 to x2.69), and moves the mean by its own amount. SCNR's fingerprint is on none of them.
+Of two candidates fitted leave one out, only C2 beat both True colour and Boosted on all four captures, held out: each pixel's saturation
+s, OKLab (a, b) / L, taken to q m + p (s - m) about the interior's mean m, its lightness kept. The owner asked for it as a third look, with
+a model per planet ("there's only that many of them").
+
+**Built:** `ColourLook.Posted`, the third choice of the tone popover ("Posted") and `planetary-look --posted`, resolved for the planet on
+show by `ColourLook.For`. It is one routine (`PlanetaryColourLook.Apply`) for the verb, the viewer and the live view, faded at the limb and in
+the dark as the curve is. Its (p, q) per planet:
+
+| Planet | p, q | Fitted on | Held out within the planet (fitted on the other capture) | True colour | Boosted |
+|---|---|---|---|---|---|
+| Saturn | 2.80, 0.65 | EdgeHD 11 (0.0094), Meade 16 (0.0283) | 0.0225; 0.0324 | 0.0343; 0.0458 | 0.0370; 0.0547 |
+| Jupiter | 2.95, 0.30 | 678MC (0.0092), 12-inch SCT (0.0096) | 0.0102; 0.0112 | 0.0301; 0.0282 | 0.0323; 0.0331 |
+
+The values are median per-pixel saturation distances to the post, as shown. **The values are fitted through the routine that ships,
+never ported from the study's fit.** The look works on the master's linear colours. The study fitted the colours as shown, and the
+preview's stretch bends each channel on its own. Ported, the study's fit (2.15, 0.60 and 2.85, 0.25) put the Meade 16 Saturn 26 % past its
+in-sample distance, failing the check set before the code was written. Refitted through `planetary-look --spread --mean` (a grid, one
+limb fit a capture), both planets still hold the rule. Jupiter's posts keep less of the planet's colour (q 0.30) than Saturn's (0.65).
+
+#### A white balance read off the rings and the zones, against the owner's own posts (#1304)
+
+**Issue:** #1304. The owner asked whether a balance that makes Saturn's ring ansae (or Jupiter's brightest quarter inside 0.8 radii)
+neutral brings our master nearer the owner's own posts than the balance to OPAL. **It does not**, by the rule set on the issue (at least
+4 of 6, a Saturn and a Jupiter among them): the neutral balance's cast lies nearer the post's on 3 of 6.
+
+| Capture | Cast distance: OPAL | Neutral feature | Unbalanced (the camera's colour) |
+|---|---|---|---|
+| Saturn 2021-08-01 | 0.1021 | 0.0013 | 0.0004 |
+| Saturn 2021-08-19 | 0.0568 | 0.0285 | 0.0045 |
+| Jupiter 2021-08-14 | 0.0698 | 0.1030 | 0.0172 |
+| Jupiter 2021-08-19 | 0.0374 | 0.0492 | 0.0148 |
+| Jupiter 2024-12-15 | 0.0186 | 0.0167 | 0.0792 |
+| Jupiter 2025-01-02 | 0.0148 | 0.0205 | 0.0793 |
+
+**What the owner's posts do:**
+- **The 2021 ASI462MC posts keep the camera's own colour:** on all four, the unbalanced master is the nearest by far. Both Saturns' rings come
+  out of that camera near neutral, which is why the neutral balance also lands near on them.
+- **The 2024-25 Uranus-C posts were balanced:** the camera's colour lies 0.079 away, and OPAL and a neutral-zone balance are both near, one
+  ahead on each.
+
+No balance choice follows. OPAL stays the balance, and a post in the camera's colours is what `--no-colour-balance` already makes.
+
 ### Planetary compose: a colour master from mono stacks
 
 **Issue:** #1278. A mono camera's night is a stack per filter, minutes apart: R, G and B (and IR or L) each a capture of its own, the

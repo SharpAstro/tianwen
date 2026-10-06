@@ -1073,7 +1073,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   before the sRGB curve, so a master is shown at 1.7 to 2 times the chroma its planes read, and a study read linear against shown was void
   for it. **A colour look is a RENDERING, never a master** (`PlanetaryColourLook`, `tianwen planetary-look`): a curve on each pixel's OKLab
   chroma about GREY, its hue kept (about the planet's mean it pushed every zone and ring past grey to blue); `ColourLook.Boosted` is the
-  owner's S-curve by eye, a taste four posts share (built from three, it met the fourth within 25 % on three captures of four). The
+  owner's S-curve by eye, a taste four posts share (built from three, it met the fourth within 25 % on three captures of four);
+  `ColourLook.Posted` moves each pixel about the PLANET's own colour (C2, a (spread, mean) per planet, resolved by `For(planet)`, #1305),
+  **fitted through the routine that ships**: ported from a fit read as shown it missed a post by 26 %, since the look works linear. The
   linear masters are what is processed further; in the viewer it is the tone popover's choice (#1277), a looked COPY swapped in for a master on show and back, never the file, made by `PlanetaryColourLook.Prepare` / `OnMaster`, the one routine `planetary-look` runs. **Every twin is sampled coarser than its optics resolve**
   (the pupil's cutoff `p / (lambda N)` past Nyquist, 0.61 to 0.94 cycles a pixel; `PlanetarySharpenResult.Cutoffs` reports it), while the
   outside captures are sampled finer (0.23 to 0.53): anything acting near the cutoff is unread on today's twins (#1279, #1281), and

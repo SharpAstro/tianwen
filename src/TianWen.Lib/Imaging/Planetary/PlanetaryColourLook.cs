@@ -12,7 +12,8 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// its hue and lightness kept, so what is colourful grows and what is near neutral stays so; and, when given, the planet's mean colour taken
 /// to <see cref="Cast"/> first, a white balance. The curve is either <see cref="TargetChroma"/>, the chroma the interior is taken to at each of
 /// <see cref="PlanetaryColourReading.QuantileGrid"/>'s quantiles (a reference's, fitted to), or <see cref="ChromaGains"/>, a gain at each of
-/// them on the master's own chroma (the preset).
+/// them on the master's own chroma (the preset). Or, in place of a curve, every pixel moved about the planet's own colour
+/// (<see cref="AboutPlanet"/>, the posts' look, #1305).
 /// </summary>
 public sealed record ColourLook
 {
@@ -24,6 +25,39 @@ public sealed record ColourLook
 
     /// <summary>The gain on the interior's own chroma at each quantile of <see cref="PlanetaryColourReading.QuantileGrid"/>, or empty.</summary>
     public ImmutableArray<double> ChromaGains { get; init; } = [];
+
+    /// <summary>
+    /// The look about the planet's own colour (C2, #1305), in place of a chroma curve: each pixel's saturation s, its OKLab (a, b) over L, taken
+    /// to <c>Mean * m + Spread * (s - m)</c> about the interior's mean saturation m, its lightness kept. Spread widens every pixel's departure
+    /// from the planet's colour, along its hue and across it, and Mean moves the planet's colour itself toward grey (below 1) or away. Null
+    /// when the look is a chroma curve.
+    /// </summary>
+    public (double Spread, double Mean)? AboutPlanet { get; init; }
+
+    /// <summary>Whether <see cref="AboutPlanet"/> is the planet's own, filled in by <see cref="For"/> (<see cref="Posted"/>).</summary>
+    public bool PerPlanet { get; init; }
+
+    /// <summary>
+    /// The posts' look (#1305): C2 with each planet's (Spread, Mean) fitted through this routine to two outside observers' posts of it, read
+    /// as shown; held out within the planet (fitted on one capture, applied to the other) it still landed nearer the post than True colour and
+    /// Boosted, both ways, on both planets. Saturn's posts keep more of the planet's colour than Jupiter's. Resolve it with <see cref="For"/>.
+    /// </summary>
+    public static ColourLook Posted { get; } = new ColourLook { PerPlanet = true };
+
+    // Posted's (Spread, Mean) per planet, fitted on the EdgeHD 11 and Meade 16 Saturns and on the 678MC and 12-inch SCT Jupiters (#1305): the
+    // study's fit as shown missed the Meade by 26 % once ported here, so these are the refit through this routine.
+    private static readonly (double Spread, double Mean) PostedSaturn = (2.80, 0.65);
+    private static readonly (double Spread, double Mean) PostedJupiter = (2.95, 0.30);
+
+    /// <summary>This look on <paramref name="planet"/>: <see cref="Posted"/> with the planet's own (Spread, Mean); any other look as it is.</summary>
+    public ColourLook For(CatalogIndex planet)
+    {
+        if (!PerPlanet)
+        {
+            return this;
+        }
+        return this with { PerPlanet = false, AboutPlanet = planet == CatalogIndex.Saturn ? PostedSaturn : PostedJupiter };
+    }
 
     /// <summary>
     /// The look a capture with no reference gets on asking, the owner's pick by eye (2026-10-05, #1273): an S-curve on each pixel's chroma
@@ -64,6 +98,11 @@ public sealed record ColourLook
     /// <summary>The look in words, for a log line.</summary>
     public string Describe()
     {
+        if (AboutPlanet is { } about)
+        {
+            return string.Create(CultureInfo.InvariantCulture,
+                $"the posts' colour: every pixel's saturation about the planet's own taken {about.Spread:0.00} times as far from it, the planet's colour {about.Mean:0.00} of itself, each pixel's lightness kept");
+        }
         if (!TargetChroma.IsDefaultOrEmpty)
         {
             var tint = Cast is { } cast
@@ -80,7 +119,11 @@ public sealed record ColourLook
     public IReadOnlyDictionary<string, (object Value, string Comment)> HeaderCards()
     {
         string kind;
-        if (!TargetChroma.IsDefaultOrEmpty)
+        if (AboutPlanet is not null)
+        {
+            kind = "posted";
+        }
+        else if (!TargetChroma.IsDefaultOrEmpty)
         {
             kind = "fitted";
         }
@@ -92,6 +135,11 @@ public sealed record ColourLook
         {
             ["CLOOK"] = (kind, "colour look baked in: not scene-linear (#1273)"),
         };
+        if (AboutPlanet is { } about)
+        {
+            cards["CLOOKSP"] = (about.Spread, "colour look: the spread about the planet's colour (#1305)");
+            cards["CLOOKMN"] = (about.Mean, "colour look: the planet's colour kept (#1305)");
+        }
         if (Cast is { } cast)
         {
             cards["CLOOKCA"] = (cast.A, "colour look: the mean colour's OKLab a (#1273)");
@@ -200,7 +248,7 @@ public static class PlanetaryColourLook
         }
         try
         {
-            return TryApply(ready.Master, ready.Disk, look) is { } looked
+            return TryApply(ready.Master, ready.Disk, look.For(planet)) is { } looked
                 ? (looked, null)
                 : (null, "the planet has no luminance to read its colour at");
         }
@@ -255,11 +303,13 @@ public static class PlanetaryColourLook
         for (var k = 0; k < grid.Length; k++)
         {
             own[k] = reading.ChromaAt(grid[k]);
-            gains[k] = GainOf(look, k, own[k]);
+            gains[k] = look.AboutPlanet is null ? GainOf(look, k, own[k]) : 1;
         }
 
         var weights = CameraColorMatrix.SrgbToXyz.Slice(3, 3);
         var (wr, wg, wb) = (weights[0], weights[1], weights[2]);
+        // About the planet's own colour (C2, #1305): its mean saturation over the interior the look takes in full.
+        var (meanA, meanB) = look.AboutPlanet is not null ? MeanSaturation(r, g, b, width, height, disk, luminance) : (0, 0);
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
@@ -276,12 +326,26 @@ public static class PlanetaryColourLook
                     continue;
                 }
                 var from = OkLab.FromLinearSrgb(nr, ng, nb);
-                if (!(from.Chroma > 0))
+                OkLab to;
+                if (look.AboutPlanet is { } about)
                 {
-                    continue;
+                    if (!(from.L > 0))
+                    {
+                        continue;
+                    }
+                    var targetA = ((about.Mean * meanA) + (about.Spread * ((from.A / from.L) - meanA))) * from.L;
+                    var targetB = ((about.Mean * meanB) + (about.Spread * ((from.B / from.L) - meanB))) * from.L;
+                    to = new OkLab(from.L, from.A + (w * (targetA - from.A)), from.B + (w * (targetB - from.B)));
                 }
-                var scale = 1 + ((GainAt(from.Chroma, own, gains) - 1) * w);
-                var to = new OkLab(from.L, from.A * scale, from.B * scale);
+                else
+                {
+                    if (!(from.Chroma > 0))
+                    {
+                        continue;
+                    }
+                    var scale = 1 + ((GainAt(from.Chroma, own, gains) - 1) * w);
+                    to = new OkLab(from.L, from.A * scale, from.B * scale);
+                }
                 var (outR, outG, outB) = Within(from, to, Math.Min(nr, Math.Min(ng, nb)) >= 0);
                 (r[i], g[i], b[i]) = ((float)(outR * luminance), (float)(outG * luminance), (float)(outB * luminance));
             }
@@ -305,6 +369,37 @@ public static class PlanetaryColourLook
             }
         }
         return (new Image(planes, master.BitDepth, max, min, 0, master.ImageMeta), ImmutableArray.Create(gains));
+    }
+
+    // The mean of each pixel's OKLab (a, b) over L across the interior the look takes in full (inside FullInside of the outline, lit from
+    // LitFrom), the planet's own colour C2 moves about; the planes are the master's with its sky off, over the interior's mean `luminance`.
+    private static (double A, double B) MeanSaturation(float[] r, float[] g, float[] b, int width, int height, in MetricDisk disk, double luminance)
+    {
+        var weights = CameraColorMatrix.SrgbToXyz.Slice(3, 3);
+        var (wr, wg, wb) = (weights[0], weights[1], weights[2]);
+        var (sumA, sumB, count) = (0.0, 0.0, 0);
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var i = (y * width) + x;
+                if (!float.IsFinite(r[i]) || !float.IsFinite(g[i]) || !float.IsFinite(b[i]) || disk.ClearRadiiAt(x, y) > FullInside)
+                {
+                    continue;
+                }
+                var (nr, ng, nb) = (r[i] / luminance, g[i] / luminance, b[i] / luminance);
+                if ((wr * nr) + (wg * ng) + (wb * nb) < LitFrom)
+                {
+                    continue;
+                }
+                var lab = OkLab.FromLinearSrgb(nr, ng, nb);
+                if (lab.L > 0)
+                {
+                    (sumA, sumB, count) = (sumA + (lab.A / lab.L), sumB + (lab.B / lab.L), count + 1);
+                }
+            }
+        }
+        return count > 0 ? (sumA / count, sumB / count) : (0, 0);
     }
 
     // The look's gain at grid point k on a master whose chroma there is `own`: the target over it when fitted, the preset's gain when given,

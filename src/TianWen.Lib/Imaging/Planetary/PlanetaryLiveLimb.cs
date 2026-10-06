@@ -2,6 +2,7 @@ using System;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging.Optics;
 
 namespace TianWen.Lib.Imaging.Planetary;
@@ -70,6 +71,9 @@ public sealed class PlanetaryLiveLimb
 
     /// <summary>The fit's disk in the frame, with the ephemeris' axis ratio: what "outside the limb" means here (beyond one of its radii).</summary>
     public MetricDisk Disk => _window.Own;
+
+    /// <summary>The planet the limb is of, for what depends on it (the posts' colour look, <see cref="ColourLook.For"/>, #1305).</summary>
+    public CatalogIndex Planet => _aspect.Planet;
 
     /// <summary>
     /// The limb <see cref="PlanetarySharpening.Sharpen"/> drew on <paramref name="master"/>, kept: its fit and window, the models and the
