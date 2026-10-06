@@ -252,12 +252,22 @@ public sealed record PlanetaryStackOptions
 /// Bayer-drizzle knobs for a planetary stack. <paramref name="Scale"/> is the output grid upscale relative
 /// to the native mosaic (1.0 = same grid, 1.5 / 2.0 = sub-Bayer resolution recovery, matching the classic
 /// "Drizzle1.5"). <paramref name="Pixfrac"/> is the linear drop size in (0, 1]; smaller is sharper but needs
-/// more frames for full coverage. <paramref name="AlignmentPointMesh"/> (default true) forward-scatters each
+/// more frames for full coverage (<see cref="DefaultPixfrac"/>). <paramref name="AlignmentPointMesh"/> (default true) forward-scatters each
 /// raw sample through the per-AP displacement mesh (the same local de-warp the mesh integrator uses) instead
 /// of a single whole-disk translation -- combines drizzle's sub-Bayer resolution with the seeing-distortion
 /// correction; set false for whole-disk-only drizzle (cheaper, A/B baseline).
 /// </summary>
-public sealed record PlanetaryDrizzleOptions(float Scale = 1.5f, float Pixfrac = 1.0f, bool AlignmentPointMesh = true);
+public sealed record PlanetaryDrizzleOptions(float Scale = 1.5f, float Pixfrac = PlanetaryDrizzleOptions.DefaultPixfrac, bool AlignmentPointMesh = true)
+{
+    /// <summary>
+    /// The drop a drizzle takes unless told otherwise (#1092): half a photosite. Measured on the sensor grid on both seeds of R5a's colour
+    /// twin, sharpened as the pipeline sharpens, it left less error over bands 1 to 4 and the three colours than a whole photosite (4.01 and
+    /// 4.41 against 4.13 and 4.42), every limb within 1.03 of it and no pixel of any colour plane unreached; 0.85 and 0.7 did worse on the
+    /// second seed. Unsharpened, every drop is within 0.4 % of the whole photosite's: the margin is the derived gains', whose finest-band
+    /// edge reading moves more between drops than the stacks do.
+    /// </summary>
+    public const float DefaultPixfrac = 0.5f;
+}
 
 /// <summary>
 /// The product of a planetary stack: the integrated master plus diagnostics. The master carries the

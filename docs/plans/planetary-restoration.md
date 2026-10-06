@@ -1115,7 +1115,7 @@ carry was 1.684 against 1.646 put in.
 - **(b) holds: 1.5x beats the sensor-grid drizzle resampled to 1.5x in no band.** Band 1's error is 0.006 to 0.064 worse (the finer grid's noise), bands 2 and 3 within 0.002. The theme C prediction stands: with 0.62 px of warp, 1.5x does not beat the sensor grid.
 - **(c) holds: 3x adds nothing past the sensor grid.** Against the sensor-grid drizzle resampled to 3x it loses bands 1 and 2 (band 1's error 1.02 to 1.25, more error than the band holds signal) and gains 0.003 to 0.005 in band 3, which is the comparison's own Lanczos-3 resampling (its transfer falls toward 0.9 at the frequencies that band covers), not detail. It was compared with the resampled sensor grid, not with 1.5x.
 - **The split-half detail (T2) of the real capture is not reported**: R3 found the halves' agreement ranks noise, never the blur, so it cannot judge a stack until R7's measured PSF.
-- **What it asks of the stacker, the user's call** (#1091): Bayer drizzle to the sensor grid for a colour capture wins the finest band a colour plane cannot sample and loses a little below it to a Lanczos-3 demosaic, so the choice is tied to #1086's Lanczos-3. A smaller drop (pixfrac under 1), which should keep drizzle's band 1 without its bilinear blur below, is measured next on the same twin (#1092).
+- **What it asks of the stacker, the user's call** (#1091): Bayer drizzle to the sensor grid for a colour capture wins the finest band a colour plane cannot sample and loses a little below it to a Lanczos-3 demosaic, so the choice is tied to #1086's Lanczos-3. A smaller drop (pixfrac under 1), which should keep drizzle's band 1 without its bilinear blur below, was measured on the same twin (#1092): half a photosite is now drizzle's default, though the stacks barely moved ("A drizzle drop under a photosite (#1092)").
 - **Judged once sharpened, the demosaic stays the colour default** (2026-10-03, #1159's pre-registered judgement on the same twin, each master sharpened as the pipeline sharpens; in full in "A colour master's finest band", below).
   - **The first run favoured drizzle**, by summed error over bands 1 to 4 and the three colours: 5.79 and 4.58 against the demosaic's 6.31 and 7.05.
   - **That margin was band 1's alone**, and band 1 was broken in both arms: its derived gain (12 to 20) left it worse than the unsharpened stack in every colour, and lifted the CFA's residue into a 2-pixel lattice, which drizzle shows as much as the demosaic does.
@@ -4560,6 +4560,37 @@ colour's):
 times their noise in band 2 and 30 times in band 3. They are a matter of gain, which the strength option already reaches (at 2 the 12-inch
 SCT's band 2 is 1.16 of its post's). The derived gains are already the Wiener this would improve on, and a per-capture learned denoiser
 (the halves are Noise2Noise pairs) has as little noise to take. The halves stay, as the one reading of a master's own noise band by band.
+
+### A drizzle drop under a photosite (#1092)
+
+**The question** (R5a's follow-up): a sensor-grid Bayer drizzle with a whole-photosite drop blurs as a bilinear kernel does, losing bands 2
+and 3 to a Lanczos-3 demosaic, so does a smaller drop keep drizzle's band 1 and close bands 2 and 3? The rule, registered on #1092 before it
+ran, judged both seeds of R5a's colour twin (`uc-g4`, `uc-g4s2`). Each arm was stacked `--no-crop --keep 0.5 --no-colour-balance` and
+sharpened as the pipeline sharpens (derived gains, the colour's finest band held), and scored against the truth: bands 1 to 4 summed over
+the three colours, and each colour's limb profile.
+
+| Arm | seed 1, stacked | sharpened | seed 2, stacked | sharpened | worst limb vs pixfrac 1 |
+|---|---|---|---|---|---|
+| demosaic | 6.462 | 4.242 | 6.308 | 4.585 | |
+| drizzle, pixfrac 1 | 6.585 | 4.127 | 6.416 | 4.422 | 1 |
+| pixfrac 0.85 | 6.577 | 4.173 | 6.406 | **5.155** | 1.43 |
+| pixfrac 0.7 | 6.569 | 4.083 | 6.400 | **4.920** | 1.50 |
+| pixfrac 0.5 | 6.559 | **4.013** | 6.393 | **4.411** | 1.03 |
+
+- **Rule 1 (the drop's default) holds at 0.5**, below a whole photosite on both seeds with every limb within 1.05, and fails at 0.85 and
+  0.7 on seed 2. So `PlanetaryDrizzleOptions.DefaultPixfrac` is 0.5 (`--drizzle-pixfrac`, `planetary-measure --pixfrac`). No pixel of any
+  colour plane went unreached at any drop (`ADrizzleAtTheDefaultDropReachesEveryPixelOfEveryColourOnTheSensorGrid` pins it on a jittered
+  capture).
+- **Rule 2 (#1091) now holds too**: drizzle beats the demosaic on both seeds, at 0.5 and at a whole photosite, where on 2026-10-03 it lost
+  seed 1. The colour default stays the demosaic: #1091 is the owner's call.
+- **The issue's hypothesis is not what moved.** Unsharpened, every drop is within 0.4 % of a whole photosite's, bands 2 and 3 alike (blue
+  0.742 and 0.475 at 1, 0.739 and 0.471 at 0.5): the box's sinc is a small factor beside the seeing and the registration's blur.
+- **The sharpened margins are the derived gains'.** The finest-band edge reading at 0.3 cycles a pixel, which the gains are fitted through,
+  moves from 0.010 to 0.116 between arms whose stacks differ by less than half a percent. On seed 2 at 0.85 it took band 2's gain from 15.0 to
+  17.3 and the error up 17 %. The margins rule 1 and 2 pass by (2.8 % and 0.25 % for the drop, 5.4 % and 3.8 % for drizzle over the demosaic) lie
+  inside that swing.
+- **No lattice to speak of in any arm**: each plane's power at Nyquist is at most 6e-8 of its whole. Unsharpened, drizzle leaves 2,000 to
+  13,000 times the demosaic's in red and blue (0.5 about twice a whole photosite's); sharpened, up to 7.5 times (red, 0.5, seed 2).
 
 ### The colour look (#1273)
 

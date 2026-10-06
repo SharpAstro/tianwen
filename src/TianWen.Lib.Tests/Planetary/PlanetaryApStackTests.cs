@@ -410,6 +410,66 @@ public class PlanetaryApStackTests
     }
 
     [Fact]
+    public async Task ADrizzleAtTheDefaultDropReachesEveryPixelOfEveryColourOnTheSensorGrid()
+    {
+        // #1092: the default drop is half a photosite, so a frame's red or blue samples cover a sixteenth of their plane. A capture that
+        // jitters as seeing does (a pixel or so) must still reach every pixel of every colour: one left at zero is a hole in the master.
+        var path = PlanetarySerFixtures.NewTempPath();
+        try
+        {
+            const int n = 32;
+            var rng = new Random(13);
+            var frames = new ushort[24][];
+            for (var i = 0; i < frames.Length; i++)
+            {
+                var a = new float[n, n];
+                var cx = 16 + ((rng.NextDouble() * 2) - 1);
+                var cy = 16 + ((rng.NextDouble() * 2) - 1);
+                for (var y = 0; y < n; y++)
+                {
+                    for (var x = 0; x < n; x++)
+                    {
+                        var d2 = ((x - cx) * (x - cx)) + ((y - cy) * (y - cy));
+                        a[y, x] = (float)(0.2 + (0.7 * Math.Exp(-d2 / (2 * 6.0 * 6.0))));
+                    }
+                }
+
+                frames[i] = ToU16(a);
+            }
+
+            PlanetarySerFixtures.WriteSer(path, n, n, SerColorId.BayerRGGB, frames);
+
+            using var stream = SerFrameStream.Open(path);
+            var drizzle = new PlanetaryDrizzleOptions(Scale: 1f);
+            drizzle.Pixfrac.ShouldBe(PlanetaryDrizzleOptions.DefaultPixfrac);
+            var result = await new LuckyImagingStacker().StackDrizzleAsync(stream,
+                new PlanetaryStackOptions { CropToCoverage = false, KeepFraction = 1.0, Drizzle = drizzle }, TestContext.Current.CancellationToken);
+            try
+            {
+                result.Master.ChannelCount.ShouldBe(3);
+                for (var c = 0; c < 3; c++)
+                {
+                    for (var y = 2; y < result.Master.Height - 2; y++)
+                    {
+                        for (var x = 2; x < result.Master.Width - 2; x++)
+                        {
+                            result.Master[c, y, x].ShouldBeGreaterThan(0f, $"channel {c} at ({x}, {y}) was reached by no drop");
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                result.Master.Release();
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task Drizzle_global_alignment_emits_covered_disk()
     {
         // The default drizzle now forward-scatters through the AP mesh; this pins the whole-disk
