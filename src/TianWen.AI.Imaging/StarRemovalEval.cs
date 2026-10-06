@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -26,6 +27,21 @@ namespace TianWen.AI.Imaging;
 /// (<see cref="AiNafnetInputs.StitchBorderPx"/>), and for two references from the same draws beside the model's: the input
 /// itself (a remover that removes nothing) and the plate (one that removes everything and nothing else).
 /// </summary>
+/// <remarks>
+/// <para><b>What R2's first reads could not see (2026-10-06), and the measures added for it.</b> The measures R2a and R2b
+/// were registered on are kept exactly as they were; these sit beside them.</para>
+/// <list type="bullet">
+/// <item><b>Removal is one-sided.</b> <see cref="BandRow.Removed"/> counts a core left under a sigma above the plate, so a
+/// core dug below the sky passes. <see cref="BandRow.Clean"/> is two-sided and judged against the truth, and
+/// <see cref="BandRow.Dug"/> counts the digs.</item>
+/// <item><b>The sky's change is one unsigned number on the luminance.</b> A level offset, a colour cast and a smoothed
+/// noise all read alike there. <see cref="SkyDetail"/> takes it apart.</item>
+/// <item><b>The footprint residue is pooled.</b> A few bad draws and a general failure read the same.
+/// <see cref="FootprintDetail"/> and the per-session rows (<see cref="Report.Sessions"/>) tell them apart.</item>
+/// <item><b>Two models were compared at whatever strength each was trained to.</b> The blended arms
+/// (<see cref="BlendWeights"/>) turn one down, so arms can be read at a matched strength.</item>
+/// </list>
+/// </remarks>
 public static class StarRemovalEval
 {
     /// <summary>The model outputs to score, one row per draw, written beside them by the inference script.</summary>
@@ -37,6 +53,18 @@ public static class StarRemovalEval
     /// <summary>A star counts as removed when the light left at its core is under this many sigma of the draw's noise there.</summary>
     public const double RemovedSigma = 1.0;
 
+    /// <summary>A pixel within <see cref="StarlessSpeckles.CoreRadius"/> of a site this many sigma off the plate is a dig
+    /// (under it) or a leftover (over it): the speckle test's threshold, read against the truth rather than against the
+    /// ring round the site.</summary>
+    public const float CorePixelSigma = StarlessSpeckles.SpeckleSigma;
+
+    /// <summary>The weights the blended arms take the output at, <c>input + w (output - input)</c>: the same model turned
+    /// down, so two models can be compared at a matched strength.</summary>
+    public static readonly ImmutableArray<double> BlendWeights = [0.75, 0.5, 0.25];
+
+    /// <summary>The worst share of draws <see cref="FootprintDetail.WorstShare"/> reads (at least one draw).</summary>
+    public const double WorstDrawFraction = 0.01;
+
     /// <summary>The completeness bands' lower edges in the injected core's significance; a star under the first is counted
     /// but not rated, its core being under the noise in the input already.</summary>
     public static readonly ImmutableArray<float> CompletenessEdges = [1f, 5f, 20f, 100f, 1000f];
@@ -45,13 +73,44 @@ public static class StarRemovalEval
     public sealed record OutputRow(string Tile, string Output);
 
     /// <summary>One significance band's completeness.</summary>
-    public sealed record BandRow(string Band, int Stars, int Removed, double Rate);
+    /// <param name="Removed">Stars whose core's mean is left under <see cref="RemovedSigma"/> above the plate. One-sided, so a
+    /// dug core counts: the measure R2a and R2b were registered on.</param>
+    /// <param name="Rate"><paramref name="Removed"/> over the band's stars.</param>
+    /// <param name="Clean">Stars removed and nothing else: the core's mean within <see cref="RemovedSigma"/> of the plate
+    /// either way, and no pixel within <see cref="StarlessSpeckles.CoreRadius"/> more than <see cref="CorePixelSigma"/> off
+    /// it.</param>
+    /// <param name="Dug">Stars whose core went under the plate: its mean under minus <see cref="RemovedSigma"/>, or a pixel
+    /// more than <see cref="CorePixelSigma"/> under it.</param>
+    /// <param name="CoreMean">The core's mean left over the plate in sigma, signed, averaged over the band's stars.</param>
+    /// <param name="CoreRms">The same, RMS.</param>
+    public sealed record BandRow(
+        string Band, int Stars, int Removed, double Rate, int Clean, double CleanRate, int Dug, double DugRate, double CoreMean, double CoreRms);
 
     /// <summary>One band's speckle rate (<see cref="StarlessSpeckles"/>).</summary>
     public sealed record SpeckleRow(string Band, int Sites, int Speckled, double Rate);
 
+    /// <summary>The sky's change taken apart; <see cref="ArmScores.SkyRms"/> is its total.</summary>
+    /// <param name="ChannelMean">Each channel's signed mean change, in the luminance's sigma: a colour cast reads here.</param>
+    /// <param name="Mean">The luminance's signed mean change.</param>
+    /// <param name="LevelRms">The part of <see cref="ArmScores.SkyRms"/> that is each draw's own level shift: the RMS of the
+    /// draws' signed means, weighted by their pixels.</param>
+    /// <param name="AboutLevelRms">The rest, about each draw's level: the texture the model changed.
+    /// <c>LevelRms^2 + AboutLevelRms^2 = SkyRms^2</c>.</param>
+    /// <param name="NoiseRatio">The sky's differences between horizontal neighbours over the plate's, RMS, each in its
+    /// pixel's sigma: under 1 the model smoothed the sky's noise, over 1 it added some.</param>
+    public sealed record SkyDetail(ImmutableArray<double> ChannelMean, double Mean, double LevelRms, double AboutLevelRms, double NoiseRatio);
+
+    /// <summary>How the footprint residue spreads over the draws; <see cref="ArmScores.FootprintRms"/> pools them.</summary>
+    /// <param name="P50">The median draw's footprint RMS.</param>
+    /// <param name="P90">The 90th percentile draw's.</param>
+    /// <param name="P99">The 99th percentile draw's.</param>
+    /// <param name="Max">The worst draw's.</param>
+    /// <param name="WorstShare">The share of the pooled squared residue in the worst <see cref="WorstDrawFraction"/> of
+    /// draws: near 1, a few draws ARE the pooled number.</param>
+    public sealed record FootprintDetail(double P50, double P90, double P99, double Max, double WorstShare);
+
     /// <summary>One output's (or reference's) scores.</summary>
-    /// <param name="Name">The model's outputs, or a reference.</param>
+    /// <param name="Name">The model's outputs, a blend of them with the input, or a reference.</param>
     /// <param name="Completeness">Removed stars by significance band (<see cref="CompletenessEdges"/>, a band under the
     /// first counted and not rated), the saturated stars as a band of their own.</param>
     /// <param name="FootprintRms">The output minus the plate in sigma, RMS over the footprints (the pixels where the draw
@@ -59,19 +118,31 @@ public static class StarRemovalEval
     /// <param name="SkyRms">The same everywhere else: the model's change to sky it was handed unchanged. 0 for both
     /// references.</param>
     /// <param name="Speckles">Dark speckles at the injected sites by band, and the null at star-free places of the output.</param>
+    /// <param name="Sky">The sky's change taken apart.</param>
+    /// <param name="Footprint">The footprint residue's spread over the draws.</param>
     public sealed record ArmScores(
         string Name, ImmutableArray<BandRow> Completeness, double FootprintRms, long FootprintPixels, double SkyRms, long SkyPixels,
-        ImmutableArray<SpeckleRow> Speckles, SpeckleRow SpeckleNull);
+        ImmutableArray<SpeckleRow> Speckles, SpeckleRow SpeckleNull, SkyDetail Sky, FootprintDetail Footprint);
+
+    /// <summary>One session's scores: every arm over that session's draws alone, so a pooled number can be told from one
+    /// night's.</summary>
+    public sealed record SessionScores(string SessionId, int Draws, int Stars, ImmutableArray<ArmScores> Arms);
 
     /// <summary>The whole report.</summary>
-    public sealed record Report(string ExportRoot, string OutputsDir, int Draws, int Stars, ImmutableArray<ArmScores> Arms);
+    public sealed record Report(string ExportRoot, string OutputsDir, int Draws, int Stars, ImmutableArray<ArmScores> Arms,
+        ImmutableArray<SessionScores> Sessions);
 
-    /// <summary>The arms, in report order.</summary>
-    public static readonly ImmutableArray<string> ArmNames = ["output", "input (removes nothing)", "plate (removes all)"];
+    /// <summary>The arms, in report order: the output and the two references first, as R2a and R2b read them, then the
+    /// output blended with the input at each of <see cref="BlendWeights"/>.</summary>
+    public static readonly ImmutableArray<string> ArmNames =
+        ["output", "input (removes nothing)", "plate (removes all)",
+         .. BlendWeights.Select(static w => string.Create(CultureInfo.InvariantCulture, $"output at {w:0.##}"))];
 
     /// <summary>Scores the outputs listed in <paramref name="outputsDir"/>'s <see cref="OutputsFileName"/> against
-    /// <paramref name="exportRoot"/>'s injections and plates, and writes <see cref="ReportFileName"/> beside them.</summary>
-    public static async Task<Report> RunAsync(string exportRoot, string outputsDir, CancellationToken cancellationToken = default)
+    /// <paramref name="exportRoot"/>'s injections and plates, and writes the report beside them, as
+    /// <paramref name="reportName"/> (<see cref="ReportFileName"/> by default): a re-score under a name of its own never
+    /// replaces a report a registration was read from.</summary>
+    public static async Task<Report> RunAsync(string exportRoot, string outputsDir, string? reportName = null, CancellationToken cancellationToken = default)
     {
         var outputs = await ReadRowsAsync(Path.Combine(outputsDir, OutputsFileName), StarRemovalEvalJsonContext.Default.OutputRow, cancellationToken);
         var injections = new Dictionary<string, DatasetDegradationExporter.InjectionRow>(StringComparer.Ordinal);
@@ -92,15 +163,25 @@ public static class StarRemovalEval
             return ValueTask.CompletedTask;
         });
 
+        var sessions = results
+            .GroupBy(static r => r.SessionId, StringComparer.Ordinal)
+            .OrderBy(static g => g.Key, StringComparer.Ordinal)
+            .Select(static g => new SessionScores(g.Key, g.Count(), g.Sum(static r => r.Stars), SummariseArms([.. g])))
+            .ToImmutableArray();
+        var report = new Report(exportRoot, outputsDir, results.Length, results.Sum(static r => r.Stars), SummariseArms(results), sessions);
+        await File.WriteAllTextAsync(Path.Combine(outputsDir, reportName ?? ReportFileName),
+            JsonSerializer.Serialize(report, StarRemovalEvalJsonContext.Default.Report), cancellationToken);
+        return report;
+    }
+
+    private static ImmutableArray<ArmScores> SummariseArms(IReadOnlyList<DrawScores> draws)
+    {
         var arms = ImmutableArray.CreateBuilder<ArmScores>(ArmNames.Length);
         for (var a = 0; a < ArmNames.Length; a++)
         {
-            arms.Add(Summarise(ArmNames[a], results.Select(r => r.Arms[a])));
+            arms.Add(Summarise(ArmNames[a], draws.Select(r => r.Arms[a])));
         }
-        var report = new Report(exportRoot, outputsDir, results.Length, results.Sum(static r => r.Stars), arms.MoveToImmutable());
-        await File.WriteAllTextAsync(Path.Combine(outputsDir, ReportFileName),
-            JsonSerializer.Serialize(report, StarRemovalEvalJsonContext.Default.Report), cancellationToken);
-        return report;
+        return arms.MoveToImmutable();
     }
 
     // Completeness bands: under the first edge, each edge's band, then the saturated stars. Speckle bands are StarlessSpeckles'.
@@ -112,21 +193,32 @@ public static class StarRemovalEval
     private static ImmutableArray<string> EdgeNames(ImmutableArray<float> edges)
         => [.. edges.Select((e, i) => i + 1 < edges.Length ? $"{e:0}-{edges[i + 1]:0} sigma" : $"{e:0}+ sigma")];
 
-    private sealed class ArmAccumulator
+    // One arm's sums, over one draw (ScoreDraw) or over many (Summarise).
+    private sealed class ArmAccumulator(int channels)
     {
         public int[] Stars { get; } = new int[BandNames.Length];
         public int[] Removed { get; } = new int[BandNames.Length];
+        public int[] Clean { get; } = new int[BandNames.Length];
+        public int[] Dug { get; } = new int[BandNames.Length];
+        public double[] CoreSum { get; } = new double[BandNames.Length];
+        public double[] CoreSq { get; } = new double[BandNames.Length];
         public double FootprintSq { get; set; }
         public long FootprintPixels { get; set; }
         public double SkySq { get; set; }
         public long SkyPixels { get; set; }
+        public double SkySum { get; set; }
+        public double[] SkyChannelSum { get; } = new double[channels];
+        // The draws' level shifts, each draw's SkySum^2 / SkyPixels, summed: the level's part of SkySq.
+        public double SkyLevelSq { get; set; }
+        public double SkyDiffSq { get; set; }
+        public double PlateDiffSq { get; set; }
         public int[] SpeckleSites { get; } = new int[StarlessSpeckles.BandEdges.Length];
         public int[] Speckled { get; } = new int[StarlessSpeckles.BandEdges.Length];
         public int NullSites { get; set; }
         public int NullSpeckled { get; set; }
     }
 
-    private sealed record DrawScores(int Stars, ArmAccumulator[] Arms);
+    private sealed record DrawScores(string SessionId, int Stars, ArmAccumulator[] Arms);
 
     private static DrawScores ScoreDraw(string exportRoot, string outputsDir, OutputRow row, DatasetDegradationExporter.InjectionRow injection)
     {
@@ -139,9 +231,12 @@ public static class StarRemovalEval
         var dir = row.Tile[..row.Tile.LastIndexOf('/')];
         var cleanRel = $"{dir}/x{injection.CellX}_y{injection.CellY}_{DatasetDegradationExporter.FrameClean}{DatasetTileExporter.TileExtension}";
         var channels = (int)(new FileInfo(Path.Combine(exportRoot, Native(row.Tile))).Length / (2L * size * size));
-        var plate = Luminance(ReadPlanes(Path.Combine(exportRoot, Native(cleanRel)), channels, out _));
-        var input = Luminance(ReadPlanes(Path.Combine(exportRoot, Native(row.Tile)), channels, out _));
-        var output = Luminance(ReadPlanes(Path.Combine(outputsDir, Native(row.Output)), channels, out _));
+        var platePlanes = ReadPlanes(Path.Combine(exportRoot, Native(cleanRel)), channels, out _);
+        var inputPlanes = ReadPlanes(Path.Combine(exportRoot, Native(row.Tile)), channels, out _);
+        var outputPlanes = ReadPlanes(Path.Combine(outputsDir, Native(row.Output)), channels, out _);
+        var plate = Luminance(platePlanes);
+        var input = Luminance(inputPlanes);
+        var output = Luminance(outputPlanes);
 
         var rim = AiNafnetInputs.StitchBorderPx;
         var absent = new BitMatrix(size, size);
@@ -177,18 +272,37 @@ public static class StarRemovalEval
         var arms = new ArmAccumulator[ArmNames.Length];
         for (var a = 0; a < arms.Length; a++)
         {
-            var candidate = a switch { 0 => output, 1 => input, _ => plate };
-            var acc = new ArmAccumulator();
+            var (candidate, candidatePlanes) = a switch
+            {
+                0 => (output, outputPlanes),
+                1 => (input, inputPlanes),
+                2 => (plate, platePlanes),
+                _ => Blend(inputPlanes, outputPlanes, BlendWeights[a - 3]),
+            };
+            var acc = new ArmAccumulator(channels);
             foreach (var (x, y, significance, saturated) in sites)
             {
                 var cx = (int)Math.Round(x);
                 var cy = (int)Math.Round(y);
                 var band = saturated ? BandNames.Length - 1 : CompletenessBand(significance);
                 acc.Stars[band]++;
-                if (Core(candidate, plate, size, cx, cy) < RemovedSigma * sigma[(cy * size) + cx])
+                var s = sigma[(cy * size) + cx];
+                var core = Core(candidate, plate, size, cx, cy);
+                if (core < RemovedSigma * s)
                 {
                     acc.Removed[band]++;
                 }
+                var (over, under) = CorePixelsOff(candidate, plate, sigma, absent, size, x, y);
+                if (Math.Abs(core) < RemovedSigma * s && !over && !under)
+                {
+                    acc.Clean[band]++;
+                }
+                if (core < -RemovedSigma * s || under)
+                {
+                    acc.Dug[band]++;
+                }
+                acc.CoreSum[band] += core / s;
+                acc.CoreSq[band] += core / s * (core / s);
             }
             for (var i = 0; i < plate.Length; i++)
             {
@@ -206,8 +320,23 @@ public static class StarRemovalEval
                 {
                     acc.SkySq += z * z;
                     acc.SkyPixels++;
+                    acc.SkySum += z;
+                    for (var c = 0; c < channels; c++)
+                    {
+                        acc.SkyChannelSum[c] += (candidatePlanes[c][i] - platePlanes[c][i]) / sigma[i];
+                    }
+                    // The noise ratio: this pixel and its right neighbour, both sky, both inside the rim.
+                    var j = i + 1;
+                    if ((i % size) + 1 < size - rim && sigma[j] > 0 && input[j] == plate[j])
+                    {
+                        var dc = (candidate[j] - candidate[i]) / sigma[i];
+                        var dp = (plate[j] - plate[i]) / sigma[i];
+                        acc.SkyDiffSq += dc * dc;
+                        acc.PlateDiffSq += dp * dp;
+                    }
                 }
             }
+            acc.SkyLevelSq = acc.SkyPixels > 0 ? acc.SkySum * acc.SkySum / acc.SkyPixels : 0;
             var speckles = StarlessSpeckles.Measure(candidate, size, size, absent,
                 [.. sites.Select(static s => (s.X, s.Y, s.Significance))], sources);
             for (var b = 0; b < speckles.Bands.Length; b++)
@@ -219,7 +348,53 @@ public static class StarRemovalEval
             acc.NullSpeckled += speckles.Null.Speckled;
             arms[a] = acc;
         }
-        return new DrawScores(sites.Count, arms);
+        return new DrawScores(injection.SessionId, sites.Count, arms);
+    }
+
+    // The input taken toward the output by weight w, per channel, and its luminance.
+    private static (float[] Luminance, float[][] Planes) Blend(float[][] input, float[][] output, double w)
+    {
+        var weight = (float)w;
+        var planes = new float[input.Length][];
+        for (var c = 0; c < input.Length; c++)
+        {
+            var plane = new float[input[c].Length];
+            for (var i = 0; i < plane.Length; i++)
+            {
+                plane[i] = input[c][i] + (weight * (output[c][i] - input[c][i]));
+            }
+            planes[c] = plane;
+        }
+        return (Luminance(planes), planes);
+    }
+
+    // Whether any pixel within the speckle test's core radius of a site is more than CorePixelSigma over the plate, and
+    // whether any is more than that under it, each in its own pixel's sigma; the rim is not read.
+    private static (bool Over, bool Under) CorePixelsOff(float[] candidate, float[] plate, float[] sigma, BitMatrix absent, int size, float cx, float cy)
+    {
+        var r = (int)Math.Ceiling(StarlessSpeckles.CoreRadius);
+        var x0 = (int)Math.Round(cx);
+        var y0 = (int)Math.Round(cy);
+        bool over = false, under = false;
+        for (var y = Math.Max(0, y0 - r); y <= Math.Min(size - 1, y0 + r); y++)
+        {
+            for (var x = Math.Max(0, x0 - r); x <= Math.Min(size - 1, x0 + r); x++)
+            {
+                if (((x - cx) * (x - cx)) + ((y - cy) * (y - cy)) > StarlessSpeckles.CoreRadius * StarlessSpeckles.CoreRadius || absent[y, x])
+                {
+                    continue;
+                }
+                var i = (y * size) + x;
+                if (!(sigma[i] > 0))
+                {
+                    continue;
+                }
+                var z = (candidate[i] - plate[i]) / sigma[i];
+                over |= z > CorePixelSigma;
+                under |= z < -CorePixelSigma;
+            }
+        }
+        return (over, under);
     }
 
     // The mean of a candidate minus the plate over the 3x3 about a pixel.
@@ -251,13 +426,19 @@ public static class StarRemovalEval
 
     private static ArmScores Summarise(string name, IEnumerable<ArmAccumulator> draws)
     {
-        var total = new ArmAccumulator();
-        foreach (var d in draws)
+        var list = draws.ToList();
+        var total = new ArmAccumulator(list.Count > 0 ? list.Max(static d => d.SkyChannelSum.Length) : 0);
+        var footprintDraws = new List<(double Rms, double Sq)>(list.Count);
+        foreach (var d in list)
         {
             for (var b = 0; b < BandNames.Length; b++)
             {
                 total.Stars[b] += d.Stars[b];
                 total.Removed[b] += d.Removed[b];
+                total.Clean[b] += d.Clean[b];
+                total.Dug[b] += d.Dug[b];
+                total.CoreSum[b] += d.CoreSum[b];
+                total.CoreSq[b] += d.CoreSq[b];
             }
             for (var b = 0; b < total.SpeckleSites.Length; b++)
             {
@@ -268,19 +449,68 @@ public static class StarRemovalEval
             total.FootprintPixels += d.FootprintPixels;
             total.SkySq += d.SkySq;
             total.SkyPixels += d.SkyPixels;
+            total.SkySum += d.SkySum;
+            total.SkyLevelSq += d.SkyLevelSq;
+            for (var c = 0; c < d.SkyChannelSum.Length; c++)
+            {
+                total.SkyChannelSum[c] += d.SkyChannelSum[c];
+            }
+            total.SkyDiffSq += d.SkyDiffSq;
+            total.PlateDiffSq += d.PlateDiffSq;
             total.NullSites += d.NullSites;
             total.NullSpeckled += d.NullSpeckled;
+            if (d.FootprintPixels > 0)
+            {
+                footprintDraws.Add((Math.Sqrt(d.FootprintSq / d.FootprintPixels), d.FootprintSq));
+            }
         }
         static double Rate(int n, int of) => of > 0 ? (double)n / of : double.NaN;
+        static double PerPixel(double sum, long pixels) => pixels > 0 ? sum / pixels : double.NaN;
+
+        // The band under the noise is counted, not rated: its cores are under a sigma in the input already.
+        var bands = BandNames.Select((band, b) =>
+        {
+            var rated = b != 0;
+            var n = total.Stars[b];
+            return new BandRow(band, n,
+                total.Removed[b], rated ? Rate(total.Removed[b], n) : double.NaN,
+                total.Clean[b], rated ? Rate(total.Clean[b], n) : double.NaN,
+                total.Dug[b], rated ? Rate(total.Dug[b], n) : double.NaN,
+                n > 0 ? total.CoreSum[b] / n : double.NaN, n > 0 ? Math.Sqrt(total.CoreSq[b] / n) : double.NaN);
+        });
+
+        var sky = new SkyDetail(
+            [.. total.SkyChannelSum.Select(s => PerPixel(s, total.SkyPixels))],
+            PerPixel(total.SkySum, total.SkyPixels),
+            Math.Sqrt(PerPixel(total.SkyLevelSq, total.SkyPixels)),
+            Math.Sqrt(Math.Max(0.0, PerPixel(total.SkySq - total.SkyLevelSq, total.SkyPixels))),
+            total.PlateDiffSq > 0 ? Math.Sqrt(total.SkyDiffSq / total.PlateDiffSq) : double.NaN);
+
         return new ArmScores(
             name,
-            // The band under the noise is counted, not rated: its cores are under a sigma in the input already.
-            [.. BandNames.Select((band, b) => new BandRow(band, total.Stars[b], total.Removed[b], b == 0 ? double.NaN : Rate(total.Removed[b], total.Stars[b])))],
+            [.. bands],
             total.FootprintPixels > 0 ? Math.Sqrt(total.FootprintSq / total.FootprintPixels) : double.NaN, total.FootprintPixels,
             total.SkyPixels > 0 ? Math.Sqrt(total.SkySq / total.SkyPixels) : double.NaN, total.SkyPixels,
             [.. Enumerable.Range(0, total.SpeckleSites.Length).Select(b =>
                 new SpeckleRow(SpeckleBandNames[b], total.SpeckleSites[b], total.Speckled[b], Rate(total.Speckled[b], total.SpeckleSites[b])))],
-            new SpeckleRow("null", total.NullSites, total.NullSpeckled, Rate(total.NullSpeckled, total.NullSites)));
+            new SpeckleRow("null", total.NullSites, total.NullSpeckled, Rate(total.NullSpeckled, total.NullSites)),
+            sky,
+            Spread(footprintDraws, total.FootprintSq));
+    }
+
+    // The footprint residue's spread over the draws: nearest-rank percentiles of the draws' RMS, and the share of the pooled
+    // squared residue the worst WorstDrawFraction of draws hold.
+    private static FootprintDetail Spread(List<(double Rms, double Sq)> draws, double pooledSq)
+    {
+        if (draws.Count == 0)
+        {
+            return new FootprintDetail(double.NaN, double.NaN, double.NaN, double.NaN, double.NaN);
+        }
+        var rms = draws.Select(static d => d.Rms).Order().ToArray();
+        double At(double q) => rms[(int)Math.Round(q * (rms.Length - 1))];
+        var worst = Math.Max(1, (int)Math.Ceiling(WorstDrawFraction * draws.Count));
+        var worstSq = draws.Select(static d => d.Sq).OrderDescending().Take(worst).Sum();
+        return new FootprintDetail(At(0.5), At(0.9), At(0.99), rms[^1], pooledSq > 0 ? worstSq / pooledSq : double.NaN);
     }
 
     private static string Native(string relative) => relative.Replace('/', Path.DirectorySeparatorChar);

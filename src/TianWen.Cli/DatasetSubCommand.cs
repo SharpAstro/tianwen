@@ -1037,17 +1037,22 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Description = "The model's outputs: a directory with outputs.jsonl (a draw's tile and its output's path per row).",
             Required = true,
         };
+        var reportNameOpt = new Option<string>("--report-name")
+        {
+            Description = $"The report's file name in the outputs directory ({StarRemovalEval.ReportFileName} by default). A re-score " +
+                "under a name of its own never replaces a report a registration was read from.",
+        };
         var command = new Command("starless-eval",
             "Score a star remover's outputs against the stars a Stars-mode export injected: completeness by significance band, " +
             "what is left on the footprints and changed on the sky, and dark speckles against their null.")
         {
-            Options = { exportOpt, outputsOpt },
+            Options = { exportOpt, outputsOpt, reportNameOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
             var export = parseResult.Required(exportOpt);
             var outputs = parseResult.Required(outputsOpt);
-            var report = await StarRemovalEval.RunAsync(export, outputs, ct);
+            var report = await StarRemovalEval.RunAsync(export, outputs, parseResult.GetValue(reportNameOpt), ct);
             consoleHost.WriteScrollable($"[starless-eval] {report.Draws} draws, {report.Stars} stars read, from {outputs}");
             foreach (var arm in report.Arms)
             {
@@ -1057,6 +1062,13 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     $"; footprint rms {arm.FootprintRms:F3} sigma, sky rms {arm.SkyRms:F3} sigma; speckled " +
                     string.Join(", ", arm.Speckles.Select(static b => $"{b.Band} {b.Rate:P1} of {b.Sites}")) +
                     $", null {arm.SpeckleNull.Rate:P1} of {arm.SpeckleNull.Sites}");
+                consoleHost.WriteScrollable(
+                    $"[starless-eval]   {arm.Name}: clean " +
+                    string.Join(", ", arm.Completeness.Skip(1).Select(static b => $"{b.Band} {b.CleanRate:P1}, dug {b.DugRate:P1}")) +
+                    $"; sky mean {arm.Sky.Mean:F3} (" + string.Join("/", arm.Sky.ChannelMean.Select(static m => m.ToString("F3", CultureInfo.InvariantCulture))) +
+                    $"), level rms {arm.Sky.LevelRms:F3}, about-level rms {arm.Sky.AboutLevelRms:F3}, noise ratio {arm.Sky.NoiseRatio:F3}; " +
+                    $"footprint per draw p50 {arm.Footprint.P50:F2} p90 {arm.Footprint.P90:F2} max {arm.Footprint.Max:F2}, " +
+                    $"worst draws' share {arm.Footprint.WorstShare:P1}");
             }
             return 0;
         });
