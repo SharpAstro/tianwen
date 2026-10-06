@@ -284,7 +284,7 @@ public static class StarlessSpeckles
         => new SpeckleBand(BandEdges[b], b + 1 < BandEdges.Length ? BandEdges[b + 1] : float.PositiveInfinity, sites, speckled);
 
     // The background class at a position, from the texture at its pixel; -1 where the texture is not a number.
-    private static int ClassOf(TextureField field, double x, double y)
+    internal static int ClassOf(TextureField field, double x, double y)
     {
         var t = field.At((int)Math.Round(x), (int)Math.Round(y));
         if (!float.IsFinite(t))
