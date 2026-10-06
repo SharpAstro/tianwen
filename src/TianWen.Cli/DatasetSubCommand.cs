@@ -496,6 +496,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 BuildGradientExportCommand(),
                 BuildDegradeCommand(),
                 BuildStarlessEvalCommand(),
+                BuildSkyTextureCommand(),
                 BuildBrightCellsCommand(),
                 BuildNoiseCheckCommand(),
                 BuildNoisePlanesCommand(),
@@ -1076,6 +1077,49 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     $"sky near the plate's sources {arm.Loss.SkyNearSources:P1}, far {arm.Loss.SkyFar:P1}");
             }
             return 0;
+        });
+        return command;
+    }
+
+    /// <summary>
+    /// <c>tianwen dataset sky-texture</c>: R2d's D1 (docs/plans/star-remover-training.md). The star-free sky of every plate
+    /// a plate builder wrote, per starlet scale and background class (<see cref="SkyTexture"/>): what a synthetic background
+    /// must reproduce under the scales a star lives at.
+    /// </summary>
+    private Command BuildSkyTextureCommand()
+    {
+        var platesOpt = new Option<string>("--plates")
+        {
+            Description = "A plate builder's plates directory (<stem>_plate.fits with <stem>_plate.profile.json).",
+            Required = true,
+        };
+        var outOpt = new Option<string>("--out", "-o")
+        {
+            Description = $"The report, a JSONL row a plate (resumes: a plate already in it is skipped; {SkyTextureReport.StopFileName} " +
+                          "beside it stops the run before the next plate). Never inside a bake store.",
+            Required = true,
+        };
+        var command = new Command("sky-texture",
+            "Measure each starless plate's star-free sky per starlet scale (1 to 32 px) and background class: the robust energy, " +
+            "the kurtosis and the power-law index above the noise, away from every source the plate kept.")
+        {
+            Options = { platesOpt, outOpt },
+        };
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var plates = parseResult.Required(platesOpt);
+            if (!Directory.Exists(plates))
+            {
+                consoleHost.WriteError($"--plates does not exist: {plates}");
+                return 1;
+            }
+            var outPath = parseResult.Required(outOpt);
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outPath)) ?? ".");
+            var result = await SkyTextureReport.RunAsync(plates, outPath, new Progress<string>(line => consoleHost.WriteScrollable(line)), ct);
+            consoleHost.WriteScrollable(
+                $"[sky-texture] {(result.Stopped ? $"STOPPED by {SkyTextureReport.StopFileName}: " : "")}measured {result.Measured}, " +
+                $"skipped {result.Skipped}, failed {result.Failed}; report: {result.OutPath}");
+            return result.Failed > 0 && result.Measured == 0 ? 2 : 0;
         });
         return command;
     }
