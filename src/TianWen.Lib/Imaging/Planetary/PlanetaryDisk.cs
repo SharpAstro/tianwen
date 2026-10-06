@@ -42,8 +42,8 @@ public static class PlanetaryDisk
     }
 
     /// <summary>
-    /// <see cref="BoundingBox"/> at its defaults, and whether the frame's planet is cut by the frame's edge or missing from it
-    /// (<see cref="FrameGrader.IsCutOrEmpty"/>), from one pass over the frame's luminance: the grader asks both of every frame.
+    /// <see cref="BoundingBox"/> at its defaults, and whether the frame's planet is cut, by the frame's edge or by a straight line inside
+    /// it, or missing from it (<see cref="FrameGrader.IsCutOrEmpty"/>), from the frame's luminance: the grader asks both of every frame.
     /// </summary>
     /// <remarks>
     /// Every frame of every stack is graded through this, and a live stack must grade each frame a fast capture sends (#1174), so it
@@ -62,20 +62,23 @@ public static class PlanetaryDisk
         if (frame.ChannelCount == 1)
         {
             var channel = frame.GetChannelSpan(0);
-            return BoxAndCut(channel, w, h, Threshold(channel, 3.0));
+            return BoxAndCut(channel, w, h);
         }
         using var rented = ArrayPoolHelper.Rent<float>(n);
         var luma = rented.AsSpan(0, n);
         LumaProxy.Fill(frame, new PixelRect(0, 0, w, h), luma);
-        return BoxAndCut(luma, w, h, Threshold(luma, 3.0));
+        return BoxAndCut(luma, w, h);
     }
 
     // BoxOf at BoundingBox's defaults (pad 4, every bright pixel counted, 16 to make a disk) and the cut test, from one scan of the
     // luminance: the extent is taken of every pixel the scan passes above the level, and each one not yet in a blob starts a walk.
     // The planet is the largest blob above the level, its pixels joined by their edges; the frame's edge cuts it when the blob
-    // reaches the edge, and a blob under PlanetPixels is no planet.
-    private static (PixelRect Box, bool CutOrEmpty) BoxAndCut(ReadOnlySpan<float> luma, int width, int height, float level)
+    // reaches the edge, and a blob under PlanetPixels is no planet. A whole one is still cut when a straight line inside the frame cuts
+    // it (CutInside).
+    private static (PixelRect Box, bool CutOrEmpty) BoxAndCut(ReadOnlySpan<float> luma, int width, int height)
     {
+        var (mean, deviation) = MeanAndDeviation(luma);
+        var level = (float)(mean + (3.0 * deviation));
         const int pad = 4;
         const int minPixels = 16;
         var n = width * height;
@@ -138,7 +141,7 @@ public static class PlanetaryDisk
                 (largest, largestTouches) = (tail, touches);
             }
         }
-        var cut = largest < PlanetPixels || largestTouches;
+        var cut = largest < PlanetPixels || largestTouches || CutInside(luma, width, height, (float)mean, (float)(mean + deviation), seen, queue);
         if (bright < minPixels || maxX < minX || maxY < minY)
         {
             return (new PixelRect(0, 0, width, height), cut);
@@ -146,8 +149,191 @@ public static class PlanetaryDisk
         return (PixelRect.FromLTRB(Math.Max(0, minX - pad), Math.Max(0, minY - pad), Math.Min(width - 1, maxX + pad) + 1, Math.Min(height - 1, maxY + pad) + 1), cut);
     }
 
+    // A planet the CAMERA cut, which PIPP's crop then moved away from the frame's edge (#1291): the cut lies inside the frame, a straight
+    // row or column of the planet's own light with the dark beyond it, and the blob above never reaches the edge. An untracked
+    // Dobsonian's planet drifts off the sensor, and the owner's 2021-08-19 Saturn holds about 250 such frames in 5,572; the gradient took
+    // the straight cut for the sharpest edge in the run and made one the reference of every stack, which then carried the cut as a seam.
+    // No limb steps from the dark into the planet in one pixel along a line, since the blur spreads every limb over pixels. So the
+    // planet is flooded again at a lower level, `lit` (one deviation above the frame's mean, which a cut through a ring's dimmer light
+    // still reaches where three do not), and each of its pixels whose neighbour lies at or below `dark` (the frame's mean) is a step out
+    // of the dark, counted along its row (the neighbour above, or the one below) and its column (left, or right). The planet is cut when
+    // one line holds InteriorCutPixels such steps and InteriorCutFraction of the planet's extent across that line. Measured on ten real
+    // captures (2026-10-06): no whole frame of any reached the fraction but one corrupt readout, the cut runs' frames did, and a whole
+    // disk of three pixels' radius made at most six steps in a line, which the floor of eight leaves whole.
+    private static bool CutInside(ReadOnlySpan<float> luma, int width, int height, float dark, float lit, Span<bool> seen, Span<int> queue)
+    {
+        // A line holds no more of the planet's steps than of every lit pixel's, so a frame with no line of InteriorCutPixels steps among
+        // all of them (a whole planet over its sky) is answered in one pass, without the flood.
+        if (!AnyLineSteps(luma, width, height, dark, lit))
+        {
+            return false;
+        }
+        seen.Clear();
+        var n = width * height;
+        // Every blob above `lit`, its pixels kept in the queue one blob after another, so the largest is a slice of it.
+        var (tail, largestStart, largestEnd) = (0, 0, 0);
+        var (acrossLargest, downLargest) = (0, 0);
+        for (var start = 0; start < n; start++)
+        {
+            if (seen[start] || !(luma[start] > lit))
+            {
+                continue;
+            }
+            var (head, blobStart) = (tail, tail);
+            int minX = width, minY = height, maxX = -1, maxY = -1;
+            seen[start] = true;
+            queue[tail++] = start;
+            while (head < tail)
+            {
+                var index = queue[head++];
+                var (x, y) = (index % width, index / width);
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+                if (x > 0 && !seen[index - 1] && luma[index - 1] > lit)
+                {
+                    seen[index - 1] = true;
+                    queue[tail++] = index - 1;
+                }
+                if (x < width - 1 && !seen[index + 1] && luma[index + 1] > lit)
+                {
+                    seen[index + 1] = true;
+                    queue[tail++] = index + 1;
+                }
+                if (y > 0 && !seen[index - width] && luma[index - width] > lit)
+                {
+                    seen[index - width] = true;
+                    queue[tail++] = index - width;
+                }
+                if (y < height - 1 && !seen[index + width] && luma[index + width] > lit)
+                {
+                    seen[index + width] = true;
+                    queue[tail++] = index + width;
+                }
+            }
+            if (tail - blobStart > largestEnd - largestStart)
+            {
+                (largestStart, largestEnd) = (blobStart, tail);
+                (acrossLargest, downLargest) = (maxX - minX + 1, maxY - minY + 1);
+            }
+        }
+        if (largestEnd - largestStart < PlanetPixels)
+        {
+            return false;
+        }
+
+        // The steps out of the dark along each row, the dark above in the first half and below in the second, and along each column, the
+        // dark to the left and to the right.
+        using var rentedRows = ArrayPoolHelper.Rent<int>(2 * height);
+        var rows = rentedRows.AsSpan(0, 2 * height);
+        rows.Clear();
+        using var rentedColumns = ArrayPoolHelper.Rent<int>(2 * width);
+        var columns = rentedColumns.AsSpan(0, 2 * width);
+        columns.Clear();
+        foreach (var index in queue[largestStart..largestEnd])
+        {
+            var (x, y) = (index % width, index / width);
+            if (y > 0 && luma[index - width] <= dark)
+            {
+                rows[y]++;
+            }
+            if (y < height - 1 && luma[index + width] <= dark)
+            {
+                rows[height + y]++;
+            }
+            if (x > 0 && luma[index - 1] <= dark)
+            {
+                columns[x]++;
+            }
+            if (x < width - 1 && luma[index + 1] <= dark)
+            {
+                columns[width + x]++;
+            }
+        }
+        return AnyLineHolds(rows, acrossLargest) || AnyLineHolds(columns, downLargest);
+
+        static bool AnyLineHolds(ReadOnlySpan<int> steps, int extent)
+        {
+            var needed = Math.Max(InteriorCutPixels, InteriorCutFraction * extent);
+            foreach (var count in steps)
+            {
+                if (count >= needed)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    // Whether any row or column holds InteriorCutPixels steps out of the dark among every pixel above `lit`, the planet's or not: CutInside's
+    // count without its flood. Rows are answered as they are read; columns add up across the rows.
+    private static bool AnyLineSteps(ReadOnlySpan<float> luma, int width, int height, float dark, float lit)
+    {
+        using var rentedColumns = ArrayPoolHelper.Rent<int>(2 * width);
+        var columns = rentedColumns.AsSpan(0, 2 * width);
+        columns.Clear();
+        for (var y = 0; y < height; y++)
+        {
+            var row = luma.Slice(y * width, width);
+            var above = y > 0 ? luma.Slice((y - 1) * width, width) : default;
+            var below = y < height - 1 ? luma.Slice((y + 1) * width, width) : default;
+            var (up, down) = (0, 0);
+            for (var x = 0; x < width; x++)
+            {
+                if (!(row[x] > lit))
+                {
+                    continue;
+                }
+                if (!above.IsEmpty && above[x] <= dark)
+                {
+                    up++;
+                }
+                if (!below.IsEmpty && below[x] <= dark)
+                {
+                    down++;
+                }
+                if (x > 0 && row[x - 1] <= dark)
+                {
+                    columns[x]++;
+                }
+                if (x < width - 1 && row[x + 1] <= dark)
+                {
+                    columns[width + x]++;
+                }
+            }
+            if (up >= InteriorCutPixels || down >= InteriorCutPixels)
+            {
+                return true;
+            }
+        }
+        foreach (var count in columns)
+        {
+            if (count >= InteriorCutPixels)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>The steps out of the dark one line inside the frame must hold before it cuts the planet (#1291).</summary>
+    public const int InteriorCutPixels = 8;
+
+    /// <summary>The share of the planet's extent across a line inside the frame that the line's steps out of the dark must reach before it
+    /// cuts the planet (#1291).</summary>
+    public const double InteriorCutFraction = 0.3;
+
     // The mean of the luminance plus `sigma` of its standard deviations.
     private static float Threshold(ReadOnlySpan<float> luma, double sigma)
+    {
+        var (mean, deviation) = MeanAndDeviation(luma);
+        return (float)(mean + (sigma * deviation));
+    }
+
+    // The mean of the luminance and its standard deviation.
+    private static (double Mean, double Deviation) MeanAndDeviation(ReadOnlySpan<float> luma)
     {
         double sum = 0, sum2 = 0;
         for (var i = 0; i < luma.Length; i++)
@@ -158,7 +344,7 @@ public static class PlanetaryDisk
         }
         var mean = sum / luma.Length;
         var variance = (sum2 / luma.Length) - (mean * mean);
-        return (float)(mean + (sigma * Math.Sqrt(Math.Max(variance, 0))));
+        return (mean, Math.Sqrt(Math.Max(variance, 0)));
     }
 
     /// <summary>The pixels a planet's blob needs (<see cref="FrameGrader.IsCutOrEmpty"/>); fewer and the frame holds none.</summary>

@@ -259,8 +259,8 @@ public sealed record PlanetaryStackResult(Image Master, int ReferenceIndex, int 
     public PlanetaryChannelAlignmentResult? ChannelAlignment { get; init; }
 
     /// <summary>
-    /// How many frames were left out because the frame's edge cut their planet or they held none (<see cref="FrameGrader.IsCutOrEmpty"/>,
-    /// #1237): an untracked Dobsonian lets the planet drift out of its field.
+    /// How many frames were left out because their planet was cut, by the frame's edge (#1237) or a straight line inside it (#1291), or
+    /// they held none (<see cref="FrameGrader.IsCutOrEmpty"/>): an untracked Dobsonian lets the planet drift out of its field.
     /// </summary>
     public int FramesCut { get; init; }
 

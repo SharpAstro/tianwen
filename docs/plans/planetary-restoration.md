@@ -3580,6 +3580,61 @@ The master's colour planes could not be aligned (its greens read 1.05 px apart),
 Restacked, the 2022-10-09 master is one planet with no line, and its greens read 0.05 px apart, so the colours were moved onto green. It
 left out 676 of the 5,271 frames (12.8 %), and the stack log says so (`PlanetaryStackResult.FramesCut`).
 
+### A planet the camera cut, inside PIPP's crop (#1291)
+
+The owner's own 2021-08-19 Saturn (21:54:54, ASI462MC on the Newtonian, a PIPP crop of 300 by 300 with 5,572 frames) was stacked with a
+horizontal seam through the rings and globe that the owner's AutoStakkert stack of the same file does not have. Every recipe carried it:
+the defaults, `--global`, `--no-channel-align`, `--no-per-point`, `--reference-frames 0`, Bilinear and `--legacy`. All of them took frame
+#2077 as the reference, and #2077 holds only the lower part of Saturn, the rest black above a straight line.
+
+The planet ran off the camera's sensor, as it does on an untracked Dobsonian whose field the planet crosses, and PIPP centred what was
+left, so the cut lies inside the crop, not at its edge. #1237's test reads only whether the planet's blob reaches the frame's edge, so
+it passed these frames as whole. The gradient grader then scored the straight cut as the sharpest edge in the run. The drift method makes
+such runs, start, stop, re-align, start: each segment begins and ends with the planet cut.
+
+**A straight row or column of the planet's light with the dark beyond it, inside the frame, cuts the planet** (`PlanetaryDisk.CutInside`,
+part of `FrameGrader.IsCutOrEmpty`): no blurred limb steps from the dark into the planet in one pixel along a line.
+- **The planet is flooded again at one deviation above the frame's mean**, which a cut through the ring's dimmer light still reaches. At
+  three deviations, the box's level, the rule found 99 of the cut frames; at one, it found them from #1993, where the cut run starts.
+- **A step is a planet pixel whose neighbour lies at or below the frame's mean**, counted along its row (dark above, or below) and its
+  column (dark to the left, or right).
+- **A line cuts when it holds 8 steps and 30 % of the planet's extent across it** (`InteriorCutPixels`, `InteriorCutFraction`). A whole
+  disk of three pixels' radius on a noisy sky made up to six steps in a line, at up to half its extent, so the floor carries the small disks.
+
+Measured by a probe that mirrors the rule, on frames of ten real captures (every frame of 21:54:54, a sample of the others):
+
+| Capture | Frames read | Largest line, as a share of the extent (median / 99th percentile) | Cut inside |
+|---|---|---|---|
+| 2021-08-19 21:54:54, PIPP crop | 5,572 | 0 / 0.91 | 246 at 0.3, all from #1993 |
+| 2021-08-02 21:32:03, PIPP crop | 583 | 0.011 / 0.63 | 21, each one cut by eye |
+| 2022-10-09 11:25, raw drift | 1,055 | 0 / 0.04 | 1, a corrupt readout's bright top row |
+| 2022-10-09 11:19, PIPP crop | 888 | 0 / 0 | 0 |
+| 2021-12-16 11:24, Maksutov | 597 | 0 / 0 | 0 |
+| 2023-10-10 Uranus-C Saturn, 2022-10-25 EdgeHD Saturn and Mars, 2022-09-10 and 2023-11-11 Jupiters, a calibrated twin | 270 to 1,615 each | 0 / 0 | 0 |
+
+**Rule, set before restacking:**
+1. 21:54:54 leaves out about 250 frames.
+2. Its reference is a whole frame.
+3. Its seam is gone by eye, beside the owner's AutoStakkert result.
+4. 2022-10-09's two captures leave out what they did before.
+
+**Measured (2026-10-06): all four hold.**
+
+| Capture | Before | After |
+|---|---|---|
+| 2021-08-19 21:54:54 | reference #2077 (cut), 4 left out, the seam | reference #4553, 250 left out, no seam |
+| 2021-08-02 21:32:03 | reference #0 (cut), none left out | reference #2240, 72 left out |
+| 2022-10-09 11:25, raw drift | reference #2175, 676 left out | the same |
+| 2022-10-09 11:19, PIPP crop | reference #3476, none left out | the same |
+
+The 2021-08-02 capture showed a second fault once its reference was whole. Its frames are sorted by quality, so their timestamps are out of
+order, and the span is read from its first and last frames. Its de-rotation therefore took the limb fit's north unverified: #1292.
+
+**What it costs:** grading a real 300 by 300 colour frame (`RollingGradeBenchmarks`, in process, on the x64 desktop while it trained a
+model) went from 0.71 to 0.86 ms. The flood runs only when a pass over every lit pixel finds a line with 8 steps, which a whole planet over
+its sky never has, since the planet's lines are a subset of those. Without that pass the grade took 1.05 ms. A live stack has 4.6 ms a frame
+at 216 frames a second.
+
 ### S2 The limb fit with the rings in its model
 
 #1232. The fit's forward model gains the rings: each ring's brightness is free, their geometry is the ephemeris', and they are blurred with the globe

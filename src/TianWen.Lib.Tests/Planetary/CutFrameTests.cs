@@ -42,6 +42,23 @@ public class CutFrameTests
         return frame;
     }
 
+    // `frame` as PIPP crops a planet the CAMERA cut (#1291): everything on the far side of a line inside the frame is the crop's black, so the
+    // cut lies inside the frame, away from its edge. A row cut blacks the rows above `row`; a column cut the columns left of `column`.
+    private static float[,] CutInside(float[,] frame, int? row = null, int? column = null)
+    {
+        for (var y = 0; y < Height; y++)
+        {
+            for (var x = 0; x < Width; x++)
+            {
+                if (y < row || x < column)
+                {
+                    frame[y, x] = 0f;
+                }
+            }
+        }
+        return frame;
+    }
+
     private static float[,] Sky(Random random)
     {
         var frame = new float[Height, Width];
@@ -66,6 +83,22 @@ public class CutFrameTests
     }
 
     [Fact]
+    public void APlanetTheCameraCutAndPippMovedAwayFromTheEdgeIsCutAndASmallWholeDiskIsNot()
+    {
+        // The owner's 2021-08-19 Saturn (#1291): an untracked Dobsonian's planet ran off the sensor, PIPP centred what was left, and the
+        // cut, a straight line with the crop's black beyond it, lay inside the frame where the edge test never looked.
+        var random = new Random(4);
+        FrameGrader.IsCutOrEmpty(Image.FromChannel(CutInside(Frame(random, 47.3, 36.6), row: 33), 1f, 0f)).ShouldBeTrue("cut across its middle");
+        FrameGrader.IsCutOrEmpty(Image.FromChannel(CutInside(Frame(random, 47.3, 36.6), column: 40), 1f, 0f)).ShouldBeTrue("cut down its side");
+        FrameGrader.IsCutOrEmpty(Image.FromChannel(CutInside(Frame(random, 47.3, 36.6), row: 26), 1f, 0f)).ShouldBeTrue("trimmed near its limb");
+        for (var i = 0; i < 20; i++)
+        {
+            FrameGrader.IsCutOrEmpty(Image.FromChannel(Frame(random, 47.3 + (0.37 * i), 36.6 - (0.21 * i)), 1f, 0f)).ShouldBeFalse("a whole planet at any phase");
+            FrameGrader.IsCutOrEmpty(Image.FromChannel(Frame(random, 47.3 + (0.37 * i), 36.6, radius: 3), 1f, 0f)).ShouldBeFalse("a whole disk of three pixels");
+        }
+    }
+
+    [Fact]
     public void TheGradesOwnBoxIsTheBoundingBoxOnAMonoFrameAndAColourOne()
     {
         // The grade finds the disk's box in its cut test's scan, and the rolling stack registers the frame by that box (#1174): it must
@@ -76,6 +109,7 @@ public class CutFrameTests
         {
             (Frame(random, 47.3, 36.6), false), (Frame(random, 6.2, 36.6), true), (Frame(random, 93.5, 70.2), true), (Sky(random), true),
             (Frame(random, 47.3, 36.6, moon: (1.5, 10)), false), (Frame(random, 47.3, 36.6, radius: 60), true), (Frame(random, 30.4, 20.7, radius: 1), null),
+            (CutInside(Frame(random, 47.3, 36.6), row: 33), true),
         };
         foreach (var (data, cut) in frames)
         {
@@ -109,9 +143,10 @@ public class CutFrameTests
     public async Task ACaptureWithWholeFramesLeavesItsCutOnesOutButOneOfNoneKeepsThemAll()
     {
         var random = new Random(2);
-        // A planet drifting out of the field: eight whole frames, then two cut and two empty.
+        // A planet drifting out of the field: eight whole frames, then two cut by the edge, two cut inside the frame and two empty.
         var drift = Enumerable.Range(0, 8).Select(i => Frame(random, 47.3 - i, 36.6))
-            .Concat([Frame(random, 8, 36.6), Frame(random, 2, 36.6), Sky(random), Sky(random)]).ToArray();
+            .Concat([Frame(random, 8, 36.6), Frame(random, 2, 36.6), CutInside(Frame(random, 47.3, 36.6), row: 33), CutInside(Frame(random, 47.3, 36.6), column: 44), Sky(random), Sky(random)])
+            .ToArray();
         var grades = await new FrameGrader(new GradientEnergyEstimator()).GradeAllAsync(new InMemoryFrameStream(drift), cancellationToken: TestContext.Current.CancellationToken);
 
         grades.Take(8).ShouldAllBe(g => !g.Cut && g.Score > 0, "the whole frames");

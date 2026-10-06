@@ -1130,7 +1130,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   whose planet the frame's edge cuts, or which holds none** (#1237, `FrameGrader.IsCutOrEmpty`), while one frame in twenty is whole
   (`DropsCutFrames`): an untracked Dobsonian drifts the planet out of its field, and 2022-10-09's Saturn stacked a second, partial planet
   from such frames. The planet is its largest blob, so a moon at the edge cuts nothing; `SelectBest` keeps no zero while any frame scores
-  above it.
+  above it. **A straight line INSIDE the frame cuts it too** (#1291, `PlanetaryDisk.CutInside`): a planet that ran off the camera's sensor
+  and that PIPP's crop re-centred has its cut away from the frame's edge, and the gradient took that straight edge for the run's
+  sharpest (one such frame was the reference of every stack of the owner's 2021-08-19 Saturn, and every stack carried the seam). No blurred
+  limb steps from the dark into the planet along a line, so it is read at one deviation above the mean, where a cut through a ring's dim
+  light still shows.
 - **An alignment point's patch is cut at the EXACT global shift** (`PlanetaryTile.ExtractLumaAt`), and a mesh is built on it: a residual
   is the local warp alone. Cut at the rounded shift, a residual had to carry the fraction, which a patch along the belts cannot place,
   so every mesh locked to the whole pixel: a mesh stack off by up to half a pixel, and a 3x Bayer drizzle with 17 % of red and blue empty.
