@@ -260,7 +260,9 @@ jobs:
       working-directory: src
 
   test-unit:
-    timeout-minutes: 25   # healthy ~6m
+    # healthy ~6m when the bound was set; 17-24m on ubuntu-latest and 14-18m on arm by #1309-#1317, and the
+    # serial Viewer collection's tail took #1318's x64 leg past 25 with no test stuck
+    timeout-minutes: 60
     needs: build
     # Not again on a push to main whose tree its PR's passing run already tested (build's tested-on-pr).
     if: needs.build.outputs.tested-on-pr != 'true'

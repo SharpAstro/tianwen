@@ -196,7 +196,7 @@ public class ViewerPlanetaryMasterTests
         (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (254, OpticalDesign.Newtonian);
         ViewerWaveletDeriveTests.PressDerive(e2e);
         await e2e.PumpUntilAsync(() => e2e.State.WaveletDeriveNote is not null && !e2e.State.WaveletDeriving, "the derivation's answer", ct, untilTimeout: true);
-        TestContext.Current.TestOutputHelper?.WriteLine(e2e.State.WaveletDeriveNote);
+        TestContext.Current.TestOutputHelper?.WriteLine(e2e.State.WaveletDeriveNote ?? "");
         var layer = e2e.Controller.Source.ShouldBeOfType<LiveStackPreviewSource>(e2e.State.WaveletDeriveNote);
         await DrawnAsync(e2e, layer, 0, ct);
         var limb = e2e.State.WaveletLimb.ShouldNotBeNull();
