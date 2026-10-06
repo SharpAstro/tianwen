@@ -161,6 +161,83 @@ public class ViewerPlanetaryMasterTests
         fileVsSharpened.ShouldBeGreaterThan(0.01, "with it on, the sharpened master on show is");
     }
 
+    [Theory(Timeout = 600_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task AColourMastersStopShowsWhatTheBatchWritesInEveryChannel(float dpi)
+    {
+        // Rule 1 on a colour master: each channel at each stop equals the batch's (colours moved onto green, sharpened per channel, then
+        // balanced, as planetary-stack writes it) to within 1e-4 of that channel's disk level. With the first channel's gains on every
+        // channel, green read 3.0e-3 and blue 5.5e-3 inside the limb: each derives its own, through its own diffraction.
+        using var e2e = ViewerE2E.Start(dpi);
+        var ct = TestContext.Current.CancellationToken;
+        var meta = new ImageMeta("e2e", PlanetarySharpeningTests.Night - (Exposure / 2), Exposure, FrameType.Light, "",
+            0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Color, 0, 0, RowOrder.TopDown, float.NaN, float.NaN) with { ObjectName = "Jupiter" };
+        var (_, mono) = PlanetarySharpeningTests.NoisyStack();
+        var grey = mono.GetChannelSpan(0).ToArray();
+        var (w, h) = (mono.Width, mono.Height);
+        mono.Release();
+        (float Gain, float Sky)[] camera = [(0.9f, 0.04f), (0.6f, 0.03f), (0.35f, 0.05f)];
+        var planes = new float[3][,];
+        for (var c = 0; c < 3; c++)
+        {
+            planes[c] = new float[h, w];
+            for (var i = 0; i < grey.Length; i++)
+            {
+                planes[c][i / w, i % w] = (camera[c].Gain * (grey[i] - 0.05f)) + camera[c].Sky;
+            }
+        }
+        var colour = new Image(planes, BitDepth.Float32, 1f, 0f, 0f, meta);
+        var path = Path.Combine(e2e.Folder, "master_jupiter_colour.fits");
+        colour.WriteToFitsFile(path);
+        colour.Release();
+        await e2e.OpenAsync(path, ct);
+        await e2e.PumpUntilAsync(() => e2e.State.IsPlanetaryMaster, "the master's sharpening layer", ct);
+        (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (254, OpticalDesign.Newtonian);
+        ViewerWaveletDeriveTests.PressDerive(e2e);
+        await e2e.PumpUntilAsync(() => e2e.State.WaveletDeriveNote is not null && !e2e.State.WaveletDeriving, "the derivation's answer", ct, untilTimeout: true);
+        TestContext.Current.TestOutputHelper?.WriteLine(e2e.State.WaveletDeriveNote);
+        var layer = e2e.Controller.Source.ShouldBeOfType<LiveStackPreviewSource>(e2e.State.WaveletDeriveNote);
+        await DrawnAsync(e2e, layer, 0, ct);
+        var limb = e2e.State.WaveletLimb.ShouldNotBeNull();
+
+        Image.TryReadFitsFile(path, out var master).ShouldBeTrue();
+        var instant = PlanetaryBestStack.InstantOf(master, epoch: null).ShouldNotBeNull();
+        var pupil = PlanetaryBestStack.PupilFor(254, OpticalDesign.Newtonian).ShouldNotBeNull();
+        var (onGreen, _) = PlanetaryChannelAlignment.Align(master, PlanetaryFrameLayout.Rgb, PlanetaryChannelAlignment.LimbOptionsFor(CatalogIndex.Jupiter, instant));
+        var balance = PlanetaryColourBalance.For(onGreen, CatalogIndex.Jupiter, instant).Balance.ShouldNotBeNull();
+        var (cx, cy, r) = (limb.Fit.CenterX, limb.Fit.CenterY, limb.Fit.EquatorialRadius);
+        foreach (var stop in PlanetarySharpening.StrengthStops)
+        {
+            var drawn = layer.MastersDrawnOutsideTheLimb;
+            e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: var a } && a == ButtonFor(stop), $"the {stop} button"));
+            if (stop != 1)
+            {
+                await DrawnAsync(e2e, layer, drawn, ct);
+            }
+            var shown = e2e.Controller.ShownDocument.ShouldNotBeNull().UnstretchedImage;
+            var batch = (await Task.Run(() => PlanetarySharpening.Sharpen(onGreen,
+                new PlanetarySharpenOptions(CatalogIndex.Jupiter, instant, pupil) { WavelengthsNm = [610, 530, 460], Strength = stop }), ct)).ShouldNotBeNull();
+            var balanced = balance.Apply(batch.Sharpened);
+            batch.Sharpened.Release();
+            for (var c = 0; c < 3; c++)
+            {
+                var (inside, outside) = Difference(Plane(shown, c), Plane(balanced, c), cx, cy, r);
+                TestContext.Current.TestOutputHelper?.WriteLine($"stop {stop}, channel {c}: inside {inside:E2}, outside {outside:E2} of its disk's level");
+                inside.ShouldBeLessThan(1e-4, $"channel {c} inside the limb at {stop}");
+                outside.ShouldBeLessThan(1e-4, $"channel {c} outside the limb at {stop}");
+            }
+            balanced.Release();
+        }
+        onGreen.Release();
+        master.Release();
+    }
+
+    private static Image Plane(Image image, int c)
+    {
+        return new Image([image.GetChannelArray(c)], BitDepth.Float32, 1f, 0f, 0f, image.ImageMeta);
+    }
+
     // A master drawn since `drawn` and nothing left to draw: a sharpen the derivation started may still be in flight when a stop is
     // pressed, and its master is not the stop's.
     private static Task DrawnAsync(ViewerE2E e2e, LiveStackPreviewSource layer, int drawn, CancellationToken ct)

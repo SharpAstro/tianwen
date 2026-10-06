@@ -201,10 +201,23 @@ public sealed record PlanetarySharpenResult(Image Sharpened, bool Derived, Plane
     /// sharpening at that <see cref="PlanetarySharpenOptions.Strength"/> derives. Empty where none were asked or nothing was derived.
     /// </summary>
     public ImmutableArray<GainStop> Stops { get; init; } = [];
+
+    /// <summary>
+    /// Every channel's gains at <see cref="PlanetarySharpenOptions.Strength"/>, finest first: <see cref="Gains"/> is the first of them. A
+    /// colour master's channels each derive their own, through their own diffraction (#1314).
+    /// </summary>
+    public ImmutableArray<ImmutableArray<double>> ChannelGains { get; init; } = [];
 }
 
-/// <summary>A strength of the derived sharpening (<see cref="PlanetarySharpenOptions.Strength"/>) and the a trous gains it derives, finest first.</summary>
-public readonly record struct GainStop(double Strength, ImmutableArray<double> Gains);
+/// <summary>
+/// A strength of the derived sharpening (<see cref="PlanetarySharpenOptions.Strength"/>) and the a trous gains it derives for each channel,
+/// finest first (#1314).
+/// </summary>
+public readonly record struct GainStop(double Strength, ImmutableArray<ImmutableArray<double>> Channels)
+{
+    /// <summary>The first channel's gains, the ones the dials show.</summary>
+    public ImmutableArray<double> Gains => Channels.IsDefaultOrEmpty ? [] : Channels[0];
+}
 
 /// <summary>
 /// The planetary master's sharpening (the enhanced pipeline, #1159): a trous gains derived from the stack's own power, its white noise floor,
@@ -239,7 +252,9 @@ public static class PlanetarySharpening
 
         var planes = Image.CreateChannelData(master.ChannelCount, height, width);
         var (derived, firstGains, edgeAt01, edgeAt03) = (options.Pupil is not null, ImmutableArray<double>.Empty, double.NaN, double.NaN);
-        var stops = ImmutableArray<GainStop>.Empty;
+        // Every channel's gains, at the strength asked and at each stop (#1314): a colour master's channels each derive their own.
+        var channelGains = new ImmutableArray<double>[master.ChannelCount];
+        var stopGains = new ImmutableArray<double>[options.FitStops.Length, master.ChannelCount];
         // The contrast-adaptive finish reads the STACK's luminance: the mean of every channel's window, each normalised on the disk.
         var contrastFrom = options.Pupil is not null && options.Finish.HasFlag(PlanetaryFinish.Adaptive) ? LuminanceWindow(master, limbWindow, own) : null;
         var cutoffs = new double[options.Pupil is null ? 0 : master.ChannelCount];
@@ -287,10 +302,14 @@ public static class PlanetarySharpening
                             heldAt: finestHeld ? 1 : truth[0]);
                 }
                 var gains = AtStrength(options.Strength);
-                if (c == 0 && !options.NonNegative)
+                channelGains[c] = gains;
+                if (!options.NonNegative)
                 {
                     // The stops a live view switches between (#1314), each the gains a sharpening at that strength derives.
-                    stops = [.. options.FitStops.Select(s => new GainStop(s, s == options.Strength ? gains : AtStrength(s)))];
+                    for (var k = 0; k < options.FitStops.Length; k++)
+                    {
+                        stopGains[k, c] = options.FitStops[k] == options.Strength ? gains : AtStrength(options.FitStops[k]);
+                    }
                 }
                 sharpened = Apply(window, size, disk, sharp, f => kernel(f) * diffraction.At(f), diffraction.At, gains.AsSpan(), [], options.Fix, diskTarget, blurredDisk);
                 cutoffs[c] = PlanetaryFinishing.CutoffCyclesPerPixel(pupil, wavelengthNm, limbWindow.ArcsecPerPixel);
@@ -321,6 +340,7 @@ public static class PlanetarySharpening
                     // The preset's thresholds are in a master's [0, 1] units; the window's are the disk's.
                     thresholds[j] = j < preset.DenoiseThresholds.Length ? preset.DenoiseThresholds[j] / scale : 0;
                 }
+                channelGains[c] = [.. gains];
                 sharpened = PlanetaryDering.LimbChannel(window, size, size, sharp, blur, blur, p => PlanetaryDering.Sharpen(p, size, size, gains, thresholds));
                 sharpenMoon = w => PlanetaryDering.Sharpen(w, PlanetaryLimbWindow.MoonWindowSize, PlanetaryLimbWindow.MoonWindowSize, gains, thresholds);
                 if (c == 0)
@@ -334,8 +354,12 @@ public static class PlanetarySharpening
                 master.GetChannelSpan(channel), width, height, x0, y0, PlanetaryLimbWindow.MoonWindowSize, level, scale)));
         }
         var image = new Image(planes, BitDepth.Float32, master.MaxValue, master.MinValue, master.Pedestal, master.ImageMeta);
+        ImmutableArray<GainStop> stops = derived && !options.NonNegative
+            ? [.. options.FitStops.Select((s, k) => new GainStop(s, [.. Enumerable.Range(0, master.ChannelCount).Select(c => stopGains[k, c])]))]
+            : [];
         return new PlanetarySharpenResult(image, derived, derived ? options.Fix : PlanetaryLimbFix.LimbChannel, firstGains, edgeAt01, edgeAt03)
         {
+            ChannelGains = [.. channelGains],
             Limb = options.Pupil is { } kept ? PlanetaryLiveLimb.Kept(master, fit, limbOptions, aspect, limbWindow, kept, options.WavelengthsNm, [.. models], [.. diffractions]) : null,
             Cutoffs = [.. cutoffs],
             WienerCuts = [.. wienerCuts],

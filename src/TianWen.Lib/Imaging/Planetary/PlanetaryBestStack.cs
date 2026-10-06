@@ -399,6 +399,22 @@ public sealed record DerivedGains(ImmutableArray<float> Gains, string How, Plane
         return [];
     }
 
+    /// <summary>
+    /// Every channel's gains at the stop <paramref name="strength"/>, as the layer sharpens each channel (#1314): a colour master's channels
+    /// each derive their own, through their own diffraction, as the batch sharpens them. Empty where it is not one of <see cref="Stops"/>.
+    /// </summary>
+    public ImmutableArray<ImmutableArray<float>> ChannelGainsAt(double strength)
+    {
+        foreach (var stop in Stops)
+        {
+            if (stop.Strength == strength)
+            {
+                return [.. stop.Channels.Select(channel => ImmutableArray.CreateRange(channel.Select(g => (float)g)))];
+            }
+        }
+        return [];
+    }
+
     /// <summary><see cref="How"/>, but at the stop <paramref name="strength"/>.</summary>
     public string HowAt(double strength)
     {
