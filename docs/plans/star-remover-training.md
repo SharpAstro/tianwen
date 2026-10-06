@@ -1010,6 +1010,58 @@ stars. Either plates that keep no faint stars (the builder subtracting deeper), 
 the sky near a source the plate kept. The loss is the second: a per-star term for the bright end. Both need no new
 export of the injector; the physics does.
 
+### R2d: a truly starless background, synthetic fine scales over the plate's coarse ones (the owner's direction, 2026-10-06)
+
+Tracked by #1311. Section 0 argued that the plate need not be starless, because its imperfections would be
+removal artefacts the net learns to leave. R2c's first check found something else: the plates keep about 29 REAL faint
+stars a tile, the same kind as the injected ones, so the target asks the net to remove a faint star and to keep one
+exactly like it. The owner asked whether there is data enough to make the starless background synthetic, add the stars
+and remove them.
+
+**Stars: yes, already.** The injector draws each master's measured profile per channel, its stack's saturation and its
+own shot noise in the master's noise shape; the physical PSF ([physical-psf-model.md](physical-psf-model.md)) adds the
+field and colour terms it lacks.
+
+**Nebulosity: by how it is made.**
+
+| way | data it needs | risk |
+|---|---|---|
+| a learned generator over our plates | far more than 4,520 cells, and it would learn the plates' faint stars with them | not viable |
+| wholly procedural (turbulence, filaments, dust lanes) | none | the domain gap: the net learns the generator, not the sky |
+| **hybrid: the plate's coarse scales, synthetic fine ones** | the 190 plates there are | fine-scale realism, which is measured first |
+
+The hybrid, physics first:
+- **D1, measure the real sky** (`tianwen dataset sky-texture`). On each plate, away from every source it kept and its
+  canvas ring: the starlet energy per scale, its kurtosis per scale, and the power-law slope the scales above the noise
+  give (turbulent emission and dust have power-law spectra; the slope is measured, never assumed), by texture class.
+- **D2, the background.** The plate's starlet scales from about 4 PSF widths up, where no star survives, kept as they
+  are; the scales under them drawn anew, a field with the measured slope and per-scale kurtosis for that plate's
+  texture class; the master's own noise shape on top (E16b). Starless by construction at every scale a star lives at.
+- **D3, the cue that tells a star from a knot.** Every star in a frame shares its PSF; a nebula's knot does not. The
+  generator adds compact structure that is not the PSF (knots wider or narrower than it, elongated, a filament's
+  crossing), labelled keep: a label no real plate can give.
+- **D4, the interim fix and the baseline.** A loss and an eval that do not count the sky within two PSF widths of a
+  source the plate kept (`PlateSources`). It needs no new export, and is R2d's control arm.
+- **D5, validation on the real thing.** Never on synthetic draws alone ("the network will faithfully learn all of your
+  mistakes" holds for a generator as much as for a plate): held-out synthetic draws, today's real-plate draws, and real
+  held-out masters read with R0's hole, leftover and speckle tools and the owner's 1:1 spot checks.
+
+#### R2d, pre-registered (2026-10-06)
+
+Written before any synthetic background or model existed; D1's measurements set the generator, and nothing in it is
+fitted to an R2d outcome. Two arms, three seeds each, R2b's recipe (patience 12, the cap the convergence run argues
+for): **A**, today's plates with D4's mask in the loss; **B**, the D2 and D3 background with the same stars. Read with
+the fixed eval and D4's mask.
+1. On A's draws, B's clean removal at 5-20 sigma is at least 5 points over A's. Low to moderate: the domain gap works
+   against it.
+2. On A's draws, B moves the sky away from the plate's sources less than A. Moderate.
+3. On its own draws, B's clean removal at 5-20 sigma is at least 70 percent. Moderate.
+4. On real held-out masters, B keeps the starlet energy at 4 to 16 px in star-free regions within 5 percent of the
+   input, which is the plan's "nebulosity held at parity". Moderate; read once the runner path scores a real master.
+
+**Kill:** B under A on A's draws at 5-20 sigma, by more than either arm's seed range. Then the generator's gap
+dominates, and the truth is fixed by D4 and a deeper plate builder instead.
+
 Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
 residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,
 a V against luminance colour term is the likely reading, #1242); the mono noise shape (#1243, calibrated 2026-10-04:
