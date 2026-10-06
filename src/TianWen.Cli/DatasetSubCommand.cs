@@ -1340,6 +1340,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         {
             Description = "--mode stars: the PSF store the per-channel profiles come from; default the bake's stats/psf-sessions.jsonl.",
         };
+        var backgroundOpt = new Option<string>("--background")
+        {
+            Description = "--mode stars: plate (default; inject into the starless plate) or synthetic (R2d's background: the plate's " +
+                          "coarse scales, synthetic fine ones to its own local signal, the master's noise, and knots the target keeps).",
+            DefaultValueFactory = _ => "plate",
+        };
         var measureInjectionOpt = new Option<bool>("--measure-injection")
         {
             Description = "--mode stars: read every draw's injected stars back (fitted FWHM and beta, saturated plateaus and edges " +
@@ -1350,7 +1356,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -1377,6 +1383,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             if (!Enum.TryParse<StarProfileFamily>(profileText, ignoreCase: true, out var profile))
             {
                 consoleHost.WriteError($"--profile must be field, moffat or gaussian, got '{profileText}'");
+                return 1;
+            }
+            var backgroundText = parseResult.GetValue(backgroundOpt) ?? "plate";
+            if (backgroundText is not ("plate" or "synthetic"))
+            {
+                consoleHost.WriteError($"--background must be plate or synthetic, got '{backgroundText}'");
                 return 1;
             }
             var saturatedFraction = parseResult.GetValue(saturatedFractionOpt);
@@ -1452,7 +1464,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 SaturatedFraction: saturatedFraction,
                 PsfStorePath: parseResult.GetValue(psfStoreOpt),
                 MeasureInjection: parseResult.GetValue(measureInjectionOpt),
-                MonoWarpResampleSigma: parseResult.GetValue(warpSigmaMonoOpt));
+                MonoWarpResampleSigma: parseResult.GetValue(warpSigmaMonoOpt),
+                SyntheticBackground: backgroundText == "synthetic");
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);

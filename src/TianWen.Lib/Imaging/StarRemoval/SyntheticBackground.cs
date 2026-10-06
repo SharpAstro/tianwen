@@ -45,6 +45,18 @@ public sealed class SyntheticBackground
     /// <summary>The faintest and brightest knot's peak, in the cell's noise sigma.</summary>
     public const double KnotMinSigma = 5.0, KnotMaxSigma = 200.0;
 
+    /// <summary>The threshold the plate's sources are masked from in the amplitude maps: under the 4 sigma the eval finds the
+    /// kept sources at, so a faint star the finder only just misses raises no texture where it was.</summary>
+    public const float AmplitudeMaskSigma = 3f;
+
+    /// <summary>The smallest window the local signal is read over, in pixels (a Gaussian's sigma): a faint star's energy
+    /// spread thin over it, a nebula's not.</summary>
+    public const float AmplitudeWindowPx = 16f;
+
+    /// <summary>The noise's variance is taken out of the local variance times this: a margin, so a sky that is noise and
+    /// unresolved faint stars alone reads no texture.</summary>
+    public const double NoiseMargin = 1.2;
+
     private readonly float[][] _coarse;      // [channel][y * width + x]
     private readonly float[][][] _amplitude; // [channel][scale < FirstKept][y * width + x]
 
@@ -101,7 +113,7 @@ public sealed class SyntheticBackground
                 luminance[i] += plane[i] / channels;
             }
         }
-        var (sources, _) = PointSourceFinder.Find(luminance, width, height, absent, fwhm, PlateSources.DefaultThresholdSigma);
+        var (sources, _) = PointSourceFinder.Find(luminance, width, height, absent, fwhm, AmplitudeMaskSigma);
         var clean = new float[n];
         for (var i = 0; i < n; i++)
         {
@@ -160,8 +172,9 @@ public sealed class SyntheticBackground
         return new SyntheticBackground(width, height, firstKept, fwhm, coarse, amplitude);
     }
 
-    // The local RMS of a detail plane over the clean pixels, smoothed at twice the scale, less its noise (the clean pixels'
-    // robust variance, which a smooth sky dominates), floored at zero: the signal the plate has at that scale there.
+    // The local RMS of a detail plane over the clean pixels, smoothed at twice the scale or AmplitudeWindowPx, less its noise
+    // (the clean pixels' robust variance, which a smooth sky dominates, with NoiseMargin), floored at zero: the signal the
+    // plate has at that scale there.
     private static float[] SignalAmplitude(ReadOnlySpan<float> detail, float[] clean, int width, int height, int scale)
     {
         var n = detail.Length;
@@ -188,14 +201,14 @@ public sealed class SyntheticBackground
             var robust = 1.4826 * StatisticsHelper.NthSmallest(span, count / 2);
             noiseVariance = robust * robust;
         }
-        var sigma = 2f * (1 << scale);
+        var sigma = Math.Max(AmplitudeWindowPx, 2f * (1 << scale));
         var local = Image.SeparableGaussianBlur(energy, width, height, sigma);
         var weight = Image.SeparableGaussianBlur(clean, width, height, sigma);
         var amplitude = new float[n];
         for (var i = 0; i < n; i++)
         {
             var variance = weight[i] > 0.05f ? local[i] / weight[i] : 0f;
-            amplitude[i] = (float)Math.Sqrt(Math.Max(0.0, variance - noiseVariance));
+            amplitude[i] = (float)Math.Sqrt(Math.Max(0.0, variance - (NoiseMargin * noiseVariance)));
         }
         return amplitude;
     }

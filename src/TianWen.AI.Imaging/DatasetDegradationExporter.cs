@@ -392,6 +392,9 @@ namespace TianWen.AI.Imaging
         /// against its half-master's 0.279, #1243). Measured 2026-10-04 over seven mono sessions' half pairs (0.290): 0 gives
         /// 0.313 (0.15 the same, 0.3 0.317, 0.5 0.435); bilinear is the floor, the bake's Lanczos-3 warp sharper still. The
         /// CLI defaults it to 0.</param>
+        /// <param name="SyntheticBackground">Stars mode: inject into R2d's synthetic background (the plate's coarse scales,
+        /// synthetic fine ones, the master's noise, keep knots; <see cref="TianWen.Lib.Imaging.StarRemoval.SyntheticBackground"/>)
+        /// in place of the plate, whose faint stars the target would ask the net to keep.</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -426,7 +429,8 @@ namespace TianWen.AI.Imaging
             double SaturatedFraction = 0.25,
             string? PsfStorePath = null,
             bool MeasureInjection = false,
-            double? MonoWarpResampleSigma = null);
+            double? MonoWarpResampleSigma = null,
+            bool SyntheticBackground = false);
 
         /// <summary>
         /// The options one session's draws are made with: the warped shape's smoothing chosen by what made the master's noise.
