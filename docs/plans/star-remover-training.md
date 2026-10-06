@@ -940,7 +940,30 @@ training did not lift removal past the bar. What is left to move the recipe is n
   steps buy;
 - **the physics:** the injector's stars are the master's symmetric profile, never the train's own field aberrations
   ([physical-psf-model.md](physical-psf-model.md), #1298).
-The owner chooses which of these R2c is.
+The owner chooses which of these R2c is. **The owner's answer (2026-10-06): check all four, the truth first.**
+
+#### R2c: convergence, pre-registered (2026-10-06)
+
+Written before the run started. One run: the field arm, seed 0, R2b's recipe exactly (`run-r2.ps1 -Tag r2cconv -Arms random
+-SeedCount 1 -Patience 12`), with the step cap raised from 60,000 to 240,000 (`-Steps 240000`), so the plateau
+schedule's fourth halving, not the cap, ends it. The schedule does not depend on the cap, so the run follows
+`r2b_random_s0` for its first 60,000 steps up to the GPU's nondeterminism. It is scored as R2b was (`score-r2.ps1`) and
+read with the fixed eval, against `r2b_random_s0` on the random arm's draws, whose numbers it is set against here:
+clean 57.1 at 5-20 sigma and 18.6 at 100-1000, the core residual's RMS 4.26 at 100-1000, the footprint's median tile
+0.73, and the sky's change about its level 0.51.
+
+**The question.** Every R2b run stopped at the cap still improving. Do the steps past it buy removal?
+
+**Predictions.**
+1. It ends on its own before 240,000 steps. Moderate confidence.
+2. Clean removal at 5-20 sigma rises by at most 5 points over 57.1. Moderate: an L2 that has not taught clean removal in
+   60,000 steps should not learn it from more of the same.
+3. The core residual's RMS at 100-1000 sigma falls by at least 20 percent from 4.26. Low to moderate: the bright stars'
+   scatter is the slowest thing an L2 fits.
+4. The sky's change about its level stays above 0.4. Moderate.
+
+**What it decides.** If (2) holds, length is not R2c's lever and the cap was not what held R2b back. If (2) fails,
+every R2 so far was read early, and the next arms run to convergence.
 
 Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
 residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,

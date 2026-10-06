@@ -36,7 +36,10 @@ param(
     # of 60,000 steps; R2b runs 12 (docs/plans/star-remover-training.md, "R2b, pre-registered").
     [int]$Patience = 4,
     # A process to wait for before the first training (R2b waits for the E16c S4 bake: the owner's choice, 2026-10-05).
-    [int]$AfterPid = 0
+    [int]$AfterPid = 0,
+    # The step cap. R2a and R2b ran 60,000, and every R2b run reached it still improving; R2c's convergence run raises it
+    # so the plateau schedule, not the cap, ends the run ("R2c: convergence, pre-registered").
+    [int]$Steps = 60000
 )
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
@@ -64,7 +67,7 @@ function Export-Ready([string]$arm) {
 Set-Status 'starting'
 
 try {
-    "$Tag at $(git -C $PSScriptRoot rev-parse --short HEAD), $(Get-Date -Format o), patience $Patience" | Tee-Object -FilePath $log -Append
+    "$Tag at $(git -C $PSScriptRoot rev-parse --short HEAD), $(Get-Date -Format o), patience $Patience, cap $Steps" | Tee-Object -FilePath $log -Append
     while ($AfterPid -gt 0 -and (Get-Process -Id $AfterPid -ErrorAction SilentlyContinue)) {
         if (Stop-Requested "waiting for process $AfterPid") { return }
         Set-Status "waiting for process $AfterPid"
@@ -106,7 +109,7 @@ try {
             Set-Status "train $name"
             "train $name $(Get-Date -Format o)" | Tee-Object -FilePath $log -Append
             & python n2n_smoke.py --train --cache $cache --synthetic --loss l2 --upsample --cond-map `
-                --band-loss 3 --band-scales "2,4 4,8" --base 32 --schedule plateau --steps 60000 `
+                --band-loss 3 --band-scales "2,4 4,8" --base 32 --schedule plateau --steps $Steps `
                 --val-every 500 --patience $Patience --max-decays 4 --min-improve 0.001 --gate-every 0 `
                 --seed $seed --out "$name.pt" *>> $log
             if ($LASTEXITCODE -ne 0) { throw "train $name failed (exit $LASTEXITCODE)" }
