@@ -141,6 +141,13 @@ public sealed class RollingWindowStacker
     private int _elongationsRead;
     private double _runElongation = double.NaN;
 
+    // The planet's brightness (its peak above the sky) in the same frames, read the same way: a frame under half the run's median is
+    // left out as dim (FrameGrader.IsDim, #1307).
+    private readonly float[] _brightnesses = new float[SmearWindow];
+    private readonly List<float> _brightnessScratch = new(SmearWindow);
+    private int _brightnessesRead;
+    private double _runBrightness = double.NaN;
+
     // The folded contribution of each in-window frame, so eviction can subtract exactly what was added
     // (same shift, negated weight) without re-grading. Weight 0 = graded-but-not-folded (kept so the
     // window membership/contiguity bookkeeping is uniform).
@@ -676,7 +683,7 @@ public sealed class RollingWindowStacker
 
         // A frame whose planet the frame's edge cuts, or which holds none, scores zero once the run has held enough whole ones
         // (FrameGrader.DropsCutFrames): a live stack learns the capture as it goes.
-        var (graded, cut, box, elongation) = FrameGrader.GradeCutAndBox(_options.QualityEstimator, frame);
+        var (graded, cut, box, elongation, brightness) = FrameGrader.GradeCutAndBox(_options.QualityEstimator, frame);
         _gradedFrames++;
         _wholeFrames += cut ? 0 : 1;
         if (!cut && float.IsFinite(elongation))
@@ -689,8 +696,19 @@ public sealed class RollingWindowStacker
                 _runElongation = FrameGrader.MedianOf(_elongationScratch);
             }
         }
+        if (!cut && float.IsFinite(brightness))
+        {
+            _brightnesses[_brightnessesRead++ % SmearWindow] = brightness;
+            if (_brightnessesRead % SmearRefresh == 0)
+            {
+                _brightnessScratch.Clear();
+                _brightnessScratch.AddRange(_brightnesses.AsSpan(0, Math.Min(_brightnessesRead, SmearWindow)));
+                _runBrightness = FrameGrader.MedianOf(_brightnessScratch);
+            }
+        }
         var smeared = !cut && FrameGrader.IsSmeared(elongation, _runElongation);
-        var score = (cut && FrameGrader.DropsCutFrames(_wholeFrames, _gradedFrames)) || smeared ? 0f : MathF.Max(0f, graded);
+        var dim = !cut && FrameGrader.IsDim(brightness, _runBrightness);
+        var score = (cut && FrameGrader.DropsCutFrames(_wholeFrames, _gradedFrames)) || smeared || dim ? 0f : MathF.Max(0f, graded);
         _scoreCache[index] = (score, box);
         if (index < _scoreCacheFloor)
         {

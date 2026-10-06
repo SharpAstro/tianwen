@@ -261,21 +261,25 @@ public static class PlanetaryCaptureStatistics
         // the quality's distribution (2024-12-15's Uranus-C glitch frame was all four, R5a). A frame whose planet the frame's
         // edge cuts, or which holds none, is left out alike while the capture holds enough whole ones (FrameGrader.DropsCutFrames):
         // an untracked Dobsonian lets the planet drift out of the field. So is a frame whose planet the telescope's motion smeared
-        // (FrameGrader.IsSmeared, #1300), against the run's own median elongation.
+        // (FrameGrader.IsSmeared, #1300), against the run's own median elongation, and one whose planet is dim (FrameGrader.IsDim,
+        // #1307), against the run's own median brightness.
         var quality = new double[n];
         var corrupt = new bool[n];
         var cut = new bool[n];
         var elongation = new float[n];
+        var brightness = new float[n];
         var estimator = new LaplacianEnergyEstimator();
         await ForEachFrameAsync(stream, all, () => 0, (_, index, frame) =>
         {
-            (var score, cut[index], elongation[index]) = FrameGrader.GradeAndShape(estimator, frame);
+            (var score, cut[index], elongation[index], brightness[index]) = FrameGrader.GradeAndShape(estimator, frame);
             quality[index] = score;
             corrupt[index] = FrameGrader.IsCorruptReadout(frame);
         }, cancellationToken).ConfigureAwait(false);
         var dropCut = FrameGrader.DropsCutFrames(cut.Count(c => !c), n);
         var runElongation = FrameGrader.MedianOf([.. elongation.Where((e, i) => !cut[i] && float.IsFinite(e))]);
-        bool[] leftOut = [.. corrupt.Select((c, i) => c || (dropCut && cut[i]) || (!cut[i] && FrameGrader.IsSmeared(elongation[i], runElongation)))];
+        var runBrightness = FrameGrader.MedianOf([.. brightness.Where((b, i) => !cut[i] && float.IsFinite(b))]);
+        bool[] leftOut = [.. corrupt.Select((c, i) => c || (dropCut && cut[i])
+            || (!cut[i] && (FrameGrader.IsSmeared(elongation[i], runElongation) || FrameGrader.IsDim(brightness[i], runBrightness))))];
         var usableQuality = quality.Where((_, i) => !leftOut[i]).ToArray();
         if (usableQuality.Length < 3)
         {

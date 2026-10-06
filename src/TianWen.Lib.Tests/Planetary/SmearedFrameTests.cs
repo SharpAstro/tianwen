@@ -60,14 +60,15 @@ public class SmearedFrameTests
     }
 
     [Fact]
-    public void ADiskFillingMuchOfTheFrameIsReadWhereTheCutTestsLevelSeesNone()
+    public void ADiskFillingMuchOfTheFrameIsReadAtItsOwnBrightness()
     {
         // A planet over two fifths of the frame lifts its spread so far that three deviations above the mean lie above the planet itself
-        // (the 678MC and 12-inch SCT Jupiters held no pixel there): the elongation is read from the planet's own brightness instead.
+        // (the 678MC and 12-inch SCT Jupiters held no pixel there): its elongation, and whether it is whole (#1307), are read from the
+        // planet's own brightness instead.
         var frame = Image.FromChannel(Frame(new Random(2), 47.3, 35.6, radius: 30), 1f, 0f);
-        var (_, cutOrEmpty, elongation) = PlanetaryDisk.BoundingBoxAndCut(frame);
+        var (_, cutOrEmpty, elongation, _, _) = PlanetaryDisk.BoundingBoxAndCut(frame);
 
-        cutOrEmpty.ShouldBeTrue("the cut test's own level finds no blob");
+        cutOrEmpty.ShouldBeFalse("a whole planet");
         elongation.ShouldBeInRange(1f, 1.1f);
     }
 
@@ -88,6 +89,41 @@ public class SmearedFrameTests
 
         var tracked = await grader.GradeAllAsync(new InMemoryFrameStream(still), cancellationToken: TestContext.Current.CancellationToken);
         tracked.ShouldAllBe(g => !g.Smeared && g.Score > 0, "a tracked capture leaves out none");
+    }
+
+    [Fact]
+    public async Task ACaptureLeavesItsDimFramesOutAndATrackedOneNone()
+    {
+        // #1307: cloud, a bump or defocus lowers a planet's peak, and the grader divides its score by the frame's brightness squared, so a
+        // dim frame's noise reads as detail: the blurred last frame of the owner's 2021-08-19 21:54:54 Saturn, at a third of the run's
+        // brightness, was every stack's reference once its planet was found at all.
+        var random = new Random(4);
+        var still = Enumerable.Range(0, 12).Select(i => Frame(random, 47.3 + (i % 3), 36.6 - (i % 2))).ToArray();
+        var grader = new FrameGrader(new GradientEnergyEstimator());
+        var run = await grader.GradeAllAsync(new InMemoryFrameStream([.. still, Dimmed(Frame(random, 47.3, 36.6, radius: 16), 0.3f)]),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        run.Take(12).ShouldAllBe(g => !g.Dim && g.Score > 0, "the frames at the run's brightness");
+        run[12].Cut.ShouldBeFalse("its planet is whole");
+        run[12].Dim.ShouldBeTrue("its planet peaks at a third of the run's");
+        run[12].Score.ShouldBe(0f);
+        FrameGrader.Reference(run).ShouldBeLessThan(12, "a dim frame is never the reference");
+
+        var tracked = await grader.GradeAllAsync(new InMemoryFrameStream(still), cancellationToken: TestContext.Current.CancellationToken);
+        tracked.ShouldAllBe(g => !g.Dim && g.Score > 0, "a steady capture leaves out none");
+
+        // A frame dimmed `factor` times over the sky of 0.03, as cloud passing leaves it.
+        static float[,] Dimmed(float[,] frame, float factor)
+        {
+            for (var y = 0; y < frame.GetLength(0); y++)
+            {
+                for (var x = 0; x < frame.GetLength(1); x++)
+                {
+                    frame[y, x] = 0.03f + ((frame[y, x] - 0.03f) * factor);
+                }
+            }
+            return frame;
+        }
     }
 
     // A master's weight: the frames reached every pixel but the left `none` columns, which none reached, and the top `half` rows, which
