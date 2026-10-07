@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Numerics;
 using TianWen.Lib.Geometry;
 using System.Threading;
 using System.Threading.Tasks;
@@ -318,12 +319,21 @@ public sealed class FrameGrader(IFrameQualityEstimator estimator)
     // A sample within this fraction of full scale is at it: an 8-bit 254 (0.4 % under) is not, a 255 is.
     private const float FullScaleTolerance = 1e-3f;
 
-    private static int CountAtLeast(ReadOnlySpan<float> row, float level)
+    // Counted in vector lanes, the same count (a NaN is at no level in either), since every frame of every stack reads each row (#1310).
+    internal static int CountAtLeast(ReadOnlySpan<float> row, float level)
     {
-        var count = 0;
-        foreach (var sample in row)
+        var lanes = Vector<float>.Count;
+        var threshold = new Vector<float>(level);
+        var counted = Vector<int>.Zero;
+        var i = 0;
+        for (; i + lanes <= row.Length; i += lanes)
         {
-            if (sample >= level)
+            counted -= Vector.GreaterThanOrEqual(new Vector<float>(row.Slice(i, lanes)), threshold);
+        }
+        var count = Vector.Sum(counted);
+        for (; i < row.Length; i++)
+        {
+            if (row[i] >= level)
             {
                 count++;
             }

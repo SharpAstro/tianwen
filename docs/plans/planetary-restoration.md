@@ -2532,7 +2532,7 @@ lanes was tried and was slower (2.1 ms a pass against 1.5).
 
 (Minimums in milliseconds, the ratios the per-repetition medians; "main" is main before #1307, which #1307 left within 2.5 % of.)
 
-**The rule set on #1310, within 10 % of #1174's grade with the same answers, is not met by part 1.** What is left is two whole-frame
+**The rule set on #1310, within 10 % of #1174's grade with the same answers, is not met by part 1** (part 3 meets it). What is left is two whole-frame
 passes, and #1174's grade had one: the mean and spread alone cost about 0.9 ms of its 1.42. The rest needs a change in what is read,
 which part 2 measures: **the owner's pre-filter for the live view** (#1310's comment), a cheap score first, and the whole-frame tests only
 for the frames that could reach the window's best quarter, which are all the live stack folds. It changes which frames the live
@@ -2549,6 +2549,36 @@ Measured as registered on 2026-10-07 (#1310), on a branch never merged. **Rule 1
 - Only a margin near 1.0 ranks the share that would pay, about 0.57 on Red: the cheap score would then be the rank of every frame under
   the boundary. That is a change of design, and the owner's to choose.
 - Rule 2's band-error clause could not be read at 60 frames a second (#1319).
+
+#### Part 3, one vector pass and one scalar pass: the rule met
+
+The owner chose (b) on 2026-10-07: drop the pre-filter and cut the full grade itself. Part 1 read the frame three times (the sums, the
+tally with the box and the row peaks, and `Moments` before them). Part 3 reads it twice:
+- **The range and each row's brightest pixel in vector lanes** (`PlanetaryDisk.RangeAndRowPeaks`). A lane's minimum and maximum do not
+  skip a NaN as the scalar comparisons do, so a frame holding one is handed back to the scalar walk whole.
+- **The sums and the histogram in one scalar loop** (`SumsAndTally`), now that the range is known before the tally. The sums are added in
+  `Moments`' order, so the mean and the spread are the same bits, and the four interleaved tallies are part 1's.
+- **The box is read only from rows whose brightest pixel lies above the level** (the mean plus three deviations), where part 1 compared
+  every pixel. `FrameGrader.CountAtLeast`, the count at full scale, counts in vector lanes.
+
+Every field `BoundingBoxAndCut` and `GradeAndShape` return is the same, frame by frame, on 4,800 frames of eight captures (part 1's seven
+less 2022-10-09, plus the 2022-10-25 EdgeHD Saturn and the Uranus-C Saturn; 64 of them cut). `GradePassesTests` pins each pass to the walk
+it replaces, at widths that are no multiple of the lanes and with signed zeros and NaN.
+
+| Frames | #1174 | main | part 3 | part 3 / #1174 | part 3 / main |
+|---|---|---|---|---|---|
+| Red, 800 by 600 mono | 1.41 ms | 2.44 ms | 1.45 ms | **1.038** (1.021 to 1.058) | 0.607 |
+| The twin, 800 by 600 | 1.41 ms | 2.44 ms | 1.47 ms | **1.048** (1.029 to 1.098) | 0.608 |
+| 21:54:54 Saturn, 300 by 300 colour | 0.67 ms | 1.06 ms | 0.79 ms | 1.188 (1.171 to 1.205) | 0.750 |
+| 21:41:21 Jupiter, 300 by 300 colour | 1.08 ms | 1.62 ms | 1.36 ms | 1.280 (1.194 to 1.364) | 0.841 |
+
+(Minimums, the ratios the per-repetition medians with their quartiles; "main" is main with part 1, 2026-10-07. Each build was timed against
+part 3 in its own run, the unchanged `BoundingBox` reading 0.987 to 1.050 of itself.)
+
+**Red and the twin are within 10 % of #1174's grade with the same answers, so the rule is met, and #1272 can be run.** The 300 by 300 colour
+frames are outside the rule and still 19 to 28 % over #1174's grade there, at 0.8 and 1.4 ms a frame: what remains is not attributed. On a
+frame that small the planet and its box are a large share of the frame, and the planet tests' work inside the box no longer hides behind
+the whole-frame passes.
 
 ### The best stack in the viewer
 
