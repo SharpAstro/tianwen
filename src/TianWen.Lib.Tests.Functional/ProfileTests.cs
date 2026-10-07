@@ -8,8 +8,12 @@ using Xunit;
 
 namespace TianWen.Lib.Tests.Functional;
 
-public class ProfileTests(ITestOutputHelper outputHelper)
+public class ProfileTests(ITestOutputHelper outputHelper) : IDisposable
 {
+    private readonly TempFolders _folders = new TempFolders();
+
+    public void Dispose() => _folders.Dispose();
+
     /// <remarks>
     /// The <c>data=</c> segment is <see cref="ProfileData"/> serialised and base64url-encoded, and
     /// the context writes nulls, so **adding any property to that record changes this literal** --
@@ -32,28 +36,21 @@ public class ProfileTests(ITestOutputHelper outputHelper)
     {
         // given
         var cancellationToken = TestContext.Current.CancellationToken;
-        var dir = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("D")));
-        try
-        {
-            var external = new FakeExternal(outputHelper, dir);
-            var profileIterator = new ProfileIterator(external, NullLogger<ProfileIterator>.Instance);
+        var dir = _folders.Create("tw-profile-");
+        var external = new FakeExternal(outputHelper, dir);
+        var profileIterator = new ProfileIterator(external, NullLogger<ProfileIterator>.Instance);
 
-            var profile = new Profile(new Guid(guid), name, ProfileData.Empty);
-            await profile.SaveAsync(external, cancellationToken);
+        var profile = new Profile(new Guid(guid), name, ProfileData.Empty);
+        await profile.SaveAsync(external, cancellationToken);
 
-            // when
-            await profileIterator.DiscoverAsync(cancellationToken);
-            var enumeratedProfiles = profileIterator.RegisteredDevices(DeviceType.Profile);
+        // when
+        await profileIterator.DiscoverAsync(cancellationToken);
+        var enumeratedProfiles = profileIterator.RegisteredDevices(DeviceType.Profile);
 
-            // then
-            profileIterator.RegisteredDeviceTypes.ShouldBe([DeviceType.Profile]);
-            (await profileIterator.CheckSupportAsync(cancellationToken)).ShouldBeTrue();
+        // then
+        profileIterator.RegisteredDeviceTypes.ShouldBe([DeviceType.Profile]);
+        (await profileIterator.CheckSupportAsync(cancellationToken)).ShouldBeTrue();
 
-            enumeratedProfiles.ShouldHaveSingleItem().ShouldNotBeNull().DeviceUri.ShouldBe(profile.DeviceUri);
-        }
-        finally
-        {
-            dir.Delete(true);
-        }
+        enumeratedProfiles.ShouldHaveSingleItem().ShouldNotBeNull().DeviceUri.ShouldBe(profile.DeviceUri);
     }
 }

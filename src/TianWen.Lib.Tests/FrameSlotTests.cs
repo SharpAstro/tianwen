@@ -19,12 +19,18 @@ public class FrameSlotTests : IDisposable
 {
     // Two test runs at once must never share a section, and a Unix section falls back to this where there is no /dev/shm.
     private readonly string _prefix = $"tianwen-test-{Guid.NewGuid():N}";
-    private readonly DirectoryInfo _directory = Directory.CreateTempSubdirectory("twslots");
+    private readonly TempFolders _folders = new TempFolders();
+    private readonly DirectoryInfo _directory;
+
+    public FrameSlotTests()
+    {
+        _directory = _folders.Create("twslots");
+    }
 
     public void Dispose()
     {
         SharedMemorySection.RemoveStale(_prefix, _directory.FullName);
-        _directory.Delete(recursive: true);
+        _folders.Dispose();
     }
 
     private FrameSlotWriter Writer() => new FrameSlotWriter(_prefix, _directory.FullName);

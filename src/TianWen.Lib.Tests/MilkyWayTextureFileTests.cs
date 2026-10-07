@@ -17,21 +17,18 @@ namespace TianWen.Lib.Tests;
 /// <c>tools/bake-milkyway</c> turns it into the browser's PNG. A channel swapped here paints the web sky
 /// blue where the desktop's is red, and nothing else would notice.
 /// </remarks>
-public class MilkyWayTextureFileTests
+public class MilkyWayTextureFileTests : IDisposable
 {
-    private static byte[] Compressed(int width, int height, ReadOnlySpan<byte> bgra)
+    private readonly TempFolders _folders = new TempFolders();
+
+    public void Dispose() => _folders.Dispose();
+
+    private byte[] Compressed(int width, int height, ReadOnlySpan<byte> bgra)
     {
-        var dir = Directory.CreateTempSubdirectory("MilkyWayTextureFileTests_");
-        try
-        {
-            var path = Path.Combine(dir.FullName, "milkyway.bgra");
-            MilkyWayTextureBaker.WriteRaw(path, width, height, bgra);
-            return LzipEncoder.Compress(File.ReadAllBytes(path));
-        }
-        finally
-        {
-            try { dir.Delete(recursive: true); } catch (IOException) { /* best effort */ }
-        }
+        var dir = _folders.Create("MilkyWayTextureFileTests_");
+        var path = Path.Combine(dir.FullName, "milkyway.bgra");
+        MilkyWayTextureBaker.WriteRaw(path, width, height, bgra);
+        return LzipEncoder.Compress(File.ReadAllBytes(path));
     }
 
     [Fact]

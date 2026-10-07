@@ -37,7 +37,7 @@ public class ViewerHistogramLogLabelTests
     public async Task APressOnThePaintedButtonTogglesTheLogScale()
     {
         var ct = TestContext.Current.CancellationToken;
-        using var e2e = ViewerE2E.Start(1.5f);
+        await using var e2e = ViewerE2E.Start(1.5f);
         var button = await OpenWithTheHistogramAsync(e2e, ct);
         var before = e2e.State.HistogramLogScale;
 
@@ -51,7 +51,7 @@ public class ViewerHistogramLogLabelTests
 
     private static async Task<RectF32> PaintedLogButtonAsync(float dpi, CancellationToken ct)
     {
-        using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.Start(dpi);
         return await OpenWithTheHistogramAsync(e2e, ct);
     }
 

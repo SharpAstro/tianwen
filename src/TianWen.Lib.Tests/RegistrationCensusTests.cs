@@ -1,4 +1,5 @@
 using Shouldly;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -12,8 +13,12 @@ namespace TianWen.Lib.Tests;
 /// The census exists to separate the two opposite causes of a registration wipe-out, so the tests
 /// are one per cause plus the trend, and they use the numbers from the session that was misdiagnosed.
 /// </summary>
-public class RegistrationCensusTests
+public class RegistrationCensusTests : IDisposable
 {
+    private readonly TempFolders _folders = new TempFolders();
+
+    public void Dispose() => _folders.Dispose();
+
     /// <summary>
     /// Modelled on "Segaull+Thors_Helmet" / HIP 42861, whose 49 subs were dropped and written up as
     /// "genuinely too star-poor to register". Reconstructed from the Debug log, its real spread was
@@ -119,44 +124,37 @@ public class RegistrationCensusTests
     [Fact]
     public async Task ASkippedSessionRoundTripsThroughTheStoreWithItsCensusIntact()
     {
-        var dir = Directory.CreateTempSubdirectory("tw-skipstore");
-        try
-        {
-            var path = Path.Combine(dir.FullName, DatasetSkipStore.FileName);
-            var (stars, quads, hfd, ecc) = DegradingSession();
-            var record = new DatasetSkipStore.SkippedSession(
-                SessionId: "2025-12-28/Segaull+Thors_Helmet|ZWO ASI533MC Pro|HIP 42861",
-                Reason: "fewer-than-2-registered",
-                Survivors: 49,
-                Registered: 1,
-                SkippedTooFewStars: 0,
-                SkippedNoQuadFit: 48,
-                ReferenceFile: "2025-12-29_04-28-01__-5.10_60.00s_0048.fits",
-                ReferenceStars: 89,
-                ReferenceQuads: 58,
-                Census: RegistrationCensus.Measure(stars, quads, hfd, ecc));
+        var dir = _folders.Create("tw-skipstore");
+        var path = Path.Combine(dir.FullName, DatasetSkipStore.FileName);
+        var (stars, quads, hfd, ecc) = DegradingSession();
+        var record = new DatasetSkipStore.SkippedSession(
+            SessionId: "2025-12-28/Segaull+Thors_Helmet|ZWO ASI533MC Pro|HIP 42861",
+            Reason: "fewer-than-2-registered",
+            Survivors: 49,
+            Registered: 1,
+            SkippedTooFewStars: 0,
+            SkippedNoQuadFit: 48,
+            ReferenceFile: "2025-12-29_04-28-01__-5.10_60.00s_0048.fits",
+            ReferenceStars: 89,
+            ReferenceQuads: 58,
+            Census: RegistrationCensus.Measure(stars, quads, hfd, ecc));
 
-            await DatasetSkipStore.RecordAsync(path, record, cancellationToken: TestContext.Current.CancellationToken);
-            var read = await DatasetSkipStore.ReadAsync(path, cancellationToken: TestContext.Current.CancellationToken);
+        await DatasetSkipStore.RecordAsync(path, record, cancellationToken: TestContext.Current.CancellationToken);
+        var read = await DatasetSkipStore.ReadAsync(path, cancellationToken: TestContext.Current.CancellationToken);
 
-            read.Count.ShouldBe(1);
-            var back = read[record.SessionId];
-            back.Reason.ShouldBe("fewer-than-2-registered");
-            back.SkippedNoQuadFit.ShouldBe(48);
-            back.ReferenceQuads.ShouldBe(58);
-            back.Census.ShouldNotBeNull();
-            back.Census.StarsMin.ShouldBe(44);
-            back.Census.StarsMax.ShouldBe(97);
-            back.Census.StarTrend.ShouldNotBeNull();
-            // The histogram is stored rather than re-derived, because a SHIFTED histogram with an
-            // unchanged median is exactly the bake-to-bake signal this file exists to preserve.
-            back.Census.StarHistogram.Length.ShouldBe(RegistrationCensus.StarEdges.Length);
-            RegistrationCensus.Describe(back.Census).ShouldBe(RegistrationCensus.Describe(record.Census));
-        }
-        finally
-        {
-            dir.Delete(recursive: true);
-        }
+        read.Count.ShouldBe(1);
+        var back = read[record.SessionId];
+        back.Reason.ShouldBe("fewer-than-2-registered");
+        back.SkippedNoQuadFit.ShouldBe(48);
+        back.ReferenceQuads.ShouldBe(58);
+        back.Census.ShouldNotBeNull();
+        back.Census.StarsMin.ShouldBe(44);
+        back.Census.StarsMax.ShouldBe(97);
+        back.Census.StarTrend.ShouldNotBeNull();
+        // The histogram is stored rather than re-derived, because a SHIFTED histogram with an
+        // unchanged median is exactly the bake-to-bake signal this file exists to preserve.
+        back.Census.StarHistogram.Length.ShouldBe(RegistrationCensus.StarEdges.Length);
+        RegistrationCensus.Describe(back.Census).ShouldBe(RegistrationCensus.Describe(record.Census));
     }
 
     /// <summary>Last-wins by id, appended never rewritten, so a session that starts or stops failing
@@ -164,24 +162,17 @@ public class RegistrationCensusTests
     [Fact]
     public async Task ASecondRecordForOneSessionWinsWithoutErasingTheFirst()
     {
-        var dir = Directory.CreateTempSubdirectory("tw-skipstore2");
-        try
-        {
-            var path = Path.Combine(dir.FullName, DatasetSkipStore.FileName);
-            DatasetSkipStore.SkippedSession Make(string reason, int noFit) =>
-                new("session-a", reason, 49, 1, 0, noFit, "ref.fits", 89, 58, null);
+        var dir = _folders.Create("tw-skipstore2");
+        var path = Path.Combine(dir.FullName, DatasetSkipStore.FileName);
+        DatasetSkipStore.SkippedSession Make(string reason, int noFit) =>
+            new("session-a", reason, 49, 1, 0, noFit, "ref.fits", 89, 58, null);
 
-            await DatasetSkipStore.RecordAsync(path, Make("fewer-than-2-registered", 48), cancellationToken: TestContext.Current.CancellationToken);
-            await DatasetSkipStore.RecordAsync(path, Make("gate-kept-below-min-subs", 3), cancellationToken: TestContext.Current.CancellationToken);
+        await DatasetSkipStore.RecordAsync(path, Make("fewer-than-2-registered", 48), cancellationToken: TestContext.Current.CancellationToken);
+        await DatasetSkipStore.RecordAsync(path, Make("gate-kept-below-min-subs", 3), cancellationToken: TestContext.Current.CancellationToken);
 
-            var read = await DatasetSkipStore.ReadAsync(path, cancellationToken: TestContext.Current.CancellationToken);
-            read["session-a"].Reason.ShouldBe("gate-kept-below-min-subs");
-            (await File.ReadAllLinesAsync(path, TestContext.Current.CancellationToken)).Length.ShouldBe(2, "the earlier record stays readable");
-        }
-        finally
-        {
-            dir.Delete(recursive: true);
-        }
+        var read = await DatasetSkipStore.ReadAsync(path, cancellationToken: TestContext.Current.CancellationToken);
+        read["session-a"].Reason.ShouldBe("gate-kept-below-min-subs");
+        (await File.ReadAllLinesAsync(path, TestContext.Current.CancellationToken)).Length.ShouldBe(2, "the earlier record stays readable");
     }
 
     /// <summary>No store path configured is the normal case for tests and the stacking CLI, and must

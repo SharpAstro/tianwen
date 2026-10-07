@@ -28,7 +28,7 @@ public class ViewerBestViewTests
     {
         // Rule 5: at each stop, every channel on show equals the run's sharpened master at that strength (the same routine, the same
         // capture) to within 1e-4 of its disk's level.
-        using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.Start(dpi);
         var ct = TestContext.Current.CancellationToken;
         var capture = await OpenCaptureAsync(e2e, colour, ct);
         e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewBest" }, "the Best view"));
@@ -72,7 +72,7 @@ public class ViewerBestViewTests
     {
         // Rule 7, counted, not timed: once Best has run, Live to Best and back, and stop to stop, start no best stack, publish no live
         // stack afresh and start no derivation.
-        using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.Start(dpi);
         var ct = TestContext.Current.CancellationToken;
         await OpenCaptureAsync(e2e, colour: false, ct);
         e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewLive" }, "the Live view"));

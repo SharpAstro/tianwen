@@ -20,9 +20,15 @@ namespace TianWen.Lib.Tests;
 /// </summary>
 public sealed class ObjectPictureStoreTests : IDisposable
 {
-    private readonly DirectoryInfo _cache = Directory.CreateTempSubdirectory("tianwen-object-pictures-");
+    private readonly TempFolders _folders = new TempFolders();
+    private readonly DirectoryInfo _cache;
 
-    public void Dispose() => _cache.Delete(recursive: true);
+    public ObjectPictureStoreTests()
+    {
+        _cache = _folders.Create("tianwen-object-pictures-");
+    }
+
+    public void Dispose() => _folders.Dispose();
 
     private static ObjectArticleImage Image(string fileName)
         => new ObjectArticleImage(fileName,

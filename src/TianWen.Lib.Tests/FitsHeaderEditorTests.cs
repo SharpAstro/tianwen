@@ -17,13 +17,17 @@ namespace TianWen.Lib.Tests
     /// Every test that writes hashes the payload before and after and demands they be identical.
     /// </summary>
     [Collection("Imaging")]
-    public class FitsHeaderEditorTests
+    public class FitsHeaderEditorTests : IDisposable
     {
         private const int Block = FitsHeaderEditor.BlockSize;
         private const int Card = FitsHeaderEditor.CardSize;
 
-        private static string CreateTempDir([System.Runtime.CompilerServices.CallerMemberName] string? name = null)
-            => FitsFixture.CreateTempDir("TianWen.HeaderEditorTests", name ?? "unnamed");
+        private readonly TempFolders _folders = new TempFolders();
+
+        public void Dispose() => _folders.Dispose();
+
+        private string CreateTempDir([System.Runtime.CompilerServices.CallerMemberName] string? name = null)
+            => FitsFixture.CreateTempDir(_folders, name ?? "unnamed");
 
         /// <summary>Builds a FITS file by hand so the test owns every byte: a primary header of
         /// <paramref name="extraCards"/> plus the mandatory structural cards, then a pseudo-random

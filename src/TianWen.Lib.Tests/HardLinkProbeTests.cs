@@ -14,14 +14,14 @@ namespace TianWen.Lib.Tests
     /// the two facts everything above them trusts.
     /// </summary>
     [Collection("Imaging")]
-    public class HardLinkProbeTests
+    public class HardLinkProbeTests : IDisposable
     {
-        private static string CreateTempDir([System.Runtime.CompilerServices.CallerMemberName] string? name = null)
-        {
-            var dir = Path.Combine(Path.GetTempPath(), "TianWen.HardLinkProbeTests", name ?? "unnamed", Guid.NewGuid().ToString("N")[..8]);
-            Directory.CreateDirectory(dir);
-            return dir;
-        }
+        private readonly TempFolders _folders = new TempFolders();
+
+        public void Dispose() => _folders.Dispose();
+
+        private string CreateTempDir([System.Runtime.CompilerServices.CallerMemberName] string? name = null)
+            => _folders.Create((name ?? "unnamed") + "-").FullName;
 
         private static string WriteFile(string dir, string name, string content = "frame")
         {

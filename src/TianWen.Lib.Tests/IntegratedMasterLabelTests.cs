@@ -36,8 +36,12 @@ namespace TianWen.Lib.Tests;
 /// would move the black point most of the way up to the sky. The comet composite did exactly that.</para>
 /// </remarks>
 [Collection("Stacking")]
-public class IntegratedMasterLabelTests
+public class IntegratedMasterLabelTests : IDisposable
 {
+    private readonly TempFolders _folders = new TempFolders();
+
+    public void Dispose() => _folders.Dispose();
+
     private const int Size = 16;
     private const float UnitPedestal = 0.1f;
     private const float AduPedestal = 100f;
@@ -60,40 +64,33 @@ public class IntegratedMasterLabelTests
     public async Task AWarpedFrameStrategysMasterHasNoPedestalOnceItsFramesWereNormalised(IntegrationStrategyKind kind, bool normalise)
     {
         var ct = TestContext.Current.CancellationToken;
-        var staging = Directory.CreateTempSubdirectory("IntegratedMasterLabelTests_");
-        try
+        var staging = _folders.Create("IntegratedMasterLabelTests_");
+        IIntegrationStrategy strategy = kind switch
         {
-            IIntegrationStrategy strategy = kind switch
-            {
-                IntegrationStrategyKind.InRamAllFrames => new InRamAllFramesStrategy(),
-                IntegrationStrategyKind.ChunkedTwoPass => new ChunkedTwoPassStrategy(),
-                IntegrationStrategyKind.Float16Staged => new Float16StagedStrategy(),
-                IntegrationStrategyKind.FootprintStaged => new FootprintStagedStrategy(),
-                _ => throw new ArgumentOutOfRangeException(nameof(kind)),
-            };
+            IntegrationStrategyKind.InRamAllFrames => new InRamAllFramesStrategy(),
+            IntegrationStrategyKind.ChunkedTwoPass => new ChunkedTwoPassStrategy(),
+            IntegrationStrategyKind.Float16Staged => new Float16StagedStrategy(),
+            IntegrationStrategyKind.FootprintStaged => new FootprintStagedStrategy(),
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
 
-            var frames = new List<Image>();
-            for (var f = 0; f < 3; f++)
-            {
-                frames.Add(new Image([UnitPlane(0.45f + f * 0.05f)], BitDepth.Float32, maxValue: 1f, minValue: 0f,
-                    pedestal: UnitPedestal, imageMeta: new ImageMeta { Instrument = "synth-label", SensorType = SensorType.Monochrome }));
-            }
-
-            var job = new IntegrationJob(
-                WarpedFrames: token => Enumerate(frames, token),
-                ExpectedFrameCount: frames.Count,
-                Options: new IntegrationOptions(ApplyNormalization: normalise),
-                StagingDir: staging.FullName,
-                StatsRect: PixelRect.Empty);
-
-            var master = (await strategy.RunAsync(job, ct)).Master;
-
-            ShouldCarryTheIntegrationsZero(master, normalise ? 0f : UnitPedestal, $"{kind}, normalise={normalise}");
-        }
-        finally
+        var frames = new List<Image>();
+        for (var f = 0; f < 3; f++)
         {
-            try { staging.Delete(recursive: true); } catch (IOException) { /* best effort */ }
+            frames.Add(new Image([UnitPlane(0.45f + f * 0.05f)], BitDepth.Float32, maxValue: 1f, minValue: 0f,
+                pedestal: UnitPedestal, imageMeta: new ImageMeta { Instrument = "synth-label", SensorType = SensorType.Monochrome }));
         }
+
+        var job = new IntegrationJob(
+            WarpedFrames: token => Enumerate(frames, token),
+            ExpectedFrameCount: frames.Count,
+            Options: new IntegrationOptions(ApplyNormalization: normalise),
+            StagingDir: staging.FullName,
+            StatsRect: PixelRect.Empty);
+
+        var master = (await strategy.RunAsync(job, ct)).Master;
+
+        ShouldCarryTheIntegrationsZero(master, normalise ? 0f : UnitPedestal, $"{kind}, normalise={normalise}");
     }
 
     [Theory]
@@ -102,38 +99,31 @@ public class IntegratedMasterLabelTests
     public async Task TheTileStrategysMasterHasNoPedestalOnceItsFramesWereNormalised(bool normalise)
     {
         var ct = TestContext.Current.CancellationToken;
-        var dir = Directory.CreateTempSubdirectory("IntegratedMasterLabelTests_");
-        try
+        var dir = _folders.Create("IntegratedMasterLabelTests_");
+        var sources = new List<RawLightSource>();
+        for (var f = 0; f < 3; f++)
         {
-            var sources = new List<RawLightSource>();
-            for (var f = 0; f < 3; f++)
-            {
-                var path = Path.Combine(dir.FullName, $"mono{f}.fits");
-                new Image([UnitPlane(0.45f + f * 0.05f)], BitDepth.Float32, maxValue: 1f, minValue: 0f,
-                    pedestal: UnitPedestal, imageMeta: new ImageMeta { Instrument = "synth-label", SensorType = SensorType.Monochrome }).WriteToFitsFile(path);
-                sources.Add(new RawLightSource(path, Matrix3x2.Identity));
-            }
-
-            var job = new IntegrationJob(
-                WarpedFrames: _ => Enumerate(new List<Image>(), CancellationToken.None),
-                ExpectedFrameCount: sources.Count,
-                Options: new IntegrationOptions(ApplyNormalization: normalise),
-                StagingDir: dir.FullName,
-                StatsRect: PixelRect.Empty,
-                RawLightSources: sources,
-                Calibrator: new Calibrator(),
-                DebayerAlgorithm: DebayerAlgorithm.BilinearMono,
-                CanvasWidth: Size,
-                CanvasHeight: Size);
-
-            var master = (await new TilePipelinedStrategy().RunAsync(job, ct)).Master;
-
-            ShouldCarryTheIntegrationsZero(master, normalise ? 0f : UnitPedestal, $"TilePipelined, normalise={normalise}");
+            var path = Path.Combine(dir.FullName, $"mono{f}.fits");
+            new Image([UnitPlane(0.45f + f * 0.05f)], BitDepth.Float32, maxValue: 1f, minValue: 0f,
+                pedestal: UnitPedestal, imageMeta: new ImageMeta { Instrument = "synth-label", SensorType = SensorType.Monochrome }).WriteToFitsFile(path);
+            sources.Add(new RawLightSource(path, Matrix3x2.Identity));
         }
-        finally
-        {
-            try { dir.Delete(recursive: true); } catch (IOException) { /* best effort */ }
-        }
+
+        var job = new IntegrationJob(
+            WarpedFrames: _ => Enumerate(new List<Image>(), CancellationToken.None),
+            ExpectedFrameCount: sources.Count,
+            Options: new IntegrationOptions(ApplyNormalization: normalise),
+            StagingDir: dir.FullName,
+            StatsRect: PixelRect.Empty,
+            RawLightSources: sources,
+            Calibrator: new Calibrator(),
+            DebayerAlgorithm: DebayerAlgorithm.BilinearMono,
+            CanvasWidth: Size,
+            CanvasHeight: Size);
+
+        var master = (await new TilePipelinedStrategy().RunAsync(job, ct)).Master;
+
+        ShouldCarryTheIntegrationsZero(master, normalise ? 0f : UnitPedestal, $"TilePipelined, normalise={normalise}");
     }
 
     [Theory]
@@ -144,75 +134,68 @@ public class IntegratedMasterLabelTests
     public async Task ADrizzleMastersPedestalIsZeroWhenNormalisedAndTheFramesPedestalInUnitsWhenNot(bool tiled, bool normalise)
     {
         var ct = TestContext.Current.CancellationToken;
-        var dir = Directory.CreateTempSubdirectory("IntegratedMasterLabelTests_");
-        try
+        var dir = _folders.Create("IntegratedMasterLabelTests_");
+        const int frameCount = 4;
+        var frames = new List<Image>(frameCount);
+        var sources = new List<RawLightSource>(frameCount);
+        for (var f = 0; f < frameCount; f++)
         {
-            const int frameCount = 4;
-            var frames = new List<Image>(frameCount);
-            var sources = new List<RawLightSource>(frameCount);
-            for (var f = 0; f < frameCount; f++)
+            var frame = BayerFrame(f);
+            frames.Add(frame);
+            var path = Path.Combine(dir.FullName, $"bayer{f}.fits");
+            frame.WriteToFitsFile(path);
+            sources.Add(new RawLightSource(path, Matrix3x2.Identity));
+        }
+
+        async IAsyncEnumerable<RawBayerFrame> RawFrames([EnumeratorCancellation] CancellationToken token)
+        {
+            foreach (var frame in frames)
             {
-                var frame = BayerFrame(f);
-                frames.Add(frame);
-                var path = Path.Combine(dir.FullName, $"bayer{f}.fits");
-                frame.WriteToFitsFile(path);
-                sources.Add(new RawLightSource(path, Matrix3x2.Identity));
-            }
-
-            async IAsyncEnumerable<RawBayerFrame> RawFrames([EnumeratorCancellation] CancellationToken token)
-            {
-                foreach (var frame in frames)
-                {
-                    token.ThrowIfCancellationRequested();
-                    yield return new RawBayerFrame(frame, Matrix3x2.Identity);
-                    await Task.Yield();
-                }
-            }
-
-            var job = new IntegrationJob(
-                WarpedFrames: _ => Enumerate(new List<Image>(), CancellationToken.None),
-                ExpectedFrameCount: frameCount,
-                Options: new IntegrationOptions(ApplyNormalization: normalise),
-                StagingDir: dir.FullName,
-                StatsRect: PixelRect.Empty,
-                RawLightSources: tiled ? sources : null,
-                Calibrator: tiled ? new Calibrator() : null,
-                CanvasWidth: Size,
-                CanvasHeight: Size,
-                DrizzleOptions: new DrizzleOptions(),
-                RawBayerFrames: tiled ? null : RawFrames);
-
-            IIntegrationStrategy strategy = tiled
-                ? new TilePipelinedDrizzleStrategy(minFrameCount: 1)
-                : new DrizzleStrategy(minFrameCount: 1);
-            var result = await strategy.RunAsync(job, ct);
-            var master = result.Master;
-            var what = $"{(tiled ? "TilePipelinedDrizzle" : "BayerDrizzle")}, normalise={normalise}";
-
-            // Unnormalised, the drizzle divides every sample by the frame's full scale and subtracts
-            // nothing, so the pedestal is still in the data, divided by the same number.
-            ShouldCarryTheIntegrationsZero(master, normalise ? 0f : AduPedestal / AduFullScale, what);
-
-            // The coverage is accumulated WEIGHT, above 1 over four frames, and its label is what the
-            // sidecar writes as DATAMAX: both drizzle strategies labelled it 1, so every weight sidecar
-            // stated a range its samples left and read back as unit-scaled (#804).
-            var coverage = result.Coverage.ShouldNotBeNull();
-            var (_, peakWeight) = Image.ObservedRange([.. Enumerable.Range(0, coverage.ChannelCount).Select(coverage.GetChannelArray)]);
-            peakWeight.ShouldBeGreaterThan(1f, $"{what}: four frames' weight");
-            coverage.MaxValue.ShouldBe(peakWeight, $"{what}: the coverage is labelled with the weight it reached");
-
-            var masterPath = Path.Combine(dir.FullName, "master.fits");
-            IntegrationFitsWriter.WriteCoverageMap(masterPath, coverage, frameCount);
-            var sidecar = IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.CoveragePathFor(masterPath)).ShouldNotBeNull();
-            using (var fits = Image.OpenFits(sidecar))
-            {
-                var hdu = fits.ReadFirstImageHdu().ShouldNotBeNull();
-                ((float)hdu.MaximumValue).ShouldBe(peakWeight, $"{what}: the written DATAMAX");
+                token.ThrowIfCancellationRequested();
+                yield return new RawBayerFrame(frame, Matrix3x2.Identity);
+                await Task.Yield();
             }
         }
-        finally
+
+        var job = new IntegrationJob(
+            WarpedFrames: _ => Enumerate(new List<Image>(), CancellationToken.None),
+            ExpectedFrameCount: frameCount,
+            Options: new IntegrationOptions(ApplyNormalization: normalise),
+            StagingDir: dir.FullName,
+            StatsRect: PixelRect.Empty,
+            RawLightSources: tiled ? sources : null,
+            Calibrator: tiled ? new Calibrator() : null,
+            CanvasWidth: Size,
+            CanvasHeight: Size,
+            DrizzleOptions: new DrizzleOptions(),
+            RawBayerFrames: tiled ? null : RawFrames);
+
+        IIntegrationStrategy strategy = tiled
+            ? new TilePipelinedDrizzleStrategy(minFrameCount: 1)
+            : new DrizzleStrategy(minFrameCount: 1);
+        var result = await strategy.RunAsync(job, ct);
+        var master = result.Master;
+        var what = $"{(tiled ? "TilePipelinedDrizzle" : "BayerDrizzle")}, normalise={normalise}";
+
+        // Unnormalised, the drizzle divides every sample by the frame's full scale and subtracts
+        // nothing, so the pedestal is still in the data, divided by the same number.
+        ShouldCarryTheIntegrationsZero(master, normalise ? 0f : AduPedestal / AduFullScale, what);
+
+        // The coverage is accumulated WEIGHT, above 1 over four frames, and its label is what the
+        // sidecar writes as DATAMAX: both drizzle strategies labelled it 1, so every weight sidecar
+        // stated a range its samples left and read back as unit-scaled (#804).
+        var coverage = result.Coverage.ShouldNotBeNull();
+        var (_, peakWeight) = Image.ObservedRange([.. Enumerable.Range(0, coverage.ChannelCount).Select(coverage.GetChannelArray)]);
+        peakWeight.ShouldBeGreaterThan(1f, $"{what}: four frames' weight");
+        coverage.MaxValue.ShouldBe(peakWeight, $"{what}: the coverage is labelled with the weight it reached");
+
+        var masterPath = Path.Combine(dir.FullName, "master.fits");
+        IntegrationFitsWriter.WriteCoverageMap(masterPath, coverage, frameCount);
+        var sidecar = IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.CoveragePathFor(masterPath)).ShouldNotBeNull();
+        using (var fits = Image.OpenFits(sidecar))
         {
-            try { dir.Delete(recursive: true); } catch (IOException) { /* best effort */ }
+            var hdu = fits.ReadFirstImageHdu().ShouldNotBeNull();
+            ((float)hdu.MaximumValue).ShouldBe(peakWeight, $"{what}: the written DATAMAX");
         }
     }
 

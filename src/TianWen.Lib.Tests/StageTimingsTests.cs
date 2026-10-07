@@ -1,4 +1,5 @@
 using Shouldly;
+using System;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
@@ -15,8 +16,12 @@ namespace TianWen.Lib.Tests;
 /// Everything here drives <see cref="StageTimings.Record"/> with a real (tiny) elapsed interval and
 /// then asserts on the counters and the rendering.
 /// </summary>
-public class StageTimingsTests
+public class StageTimingsTests : IDisposable
 {
+    private readonly TempFolders _folders = new TempFolders();
+
+    public void Dispose() => _folders.Dispose();
+
     /// <summary>
     /// A stage recorded twice accumulates instead of appearing twice: the half-master pair records
     /// once per half and has to read as one stage, or its per-item cost is half of what it is.
@@ -176,47 +181,40 @@ public class StageTimingsTests
     [Fact]
     public async Task ASessionTimingRoundTripsThroughTheStoreWithItsStagesIntact()
     {
-        var dir = Directory.CreateTempSubdirectory("tw-timingstore");
-        try
-        {
-            var path = Path.Combine(dir.FullName, DatasetTimingStore.FileName);
-            var record = new DatasetTimingStore.SessionTiming(
-                SessionId: "2026-02-14|ZWO ASI533MC Pro|Statue of Liberty Nebula",
-                Camera: "ZWO ASI533MC Pro",
-                Lights: 257,
-                Registered: 255,
-                CanvasWidth: 3054,
-                CanvasHeight: 3035,
-                MasterStrategy: nameof(IntegrationStrategyKind.BayerDrizzle),
-                WallSeconds: 558.4,
-                Stages:
-                [
-                    new StageTimings.Stage(StageNames.Measure, 96.2, 257, 257L * 9_048_064),
-                    new StageTimings.Stage(StageNames.Register, 12.1, 257, 0),
-                    new StageTimings.Stage("export", 152.3, 3300, 3300L * 196_608),
-                ]);
+        var dir = _folders.Create("tw-timingstore");
+        var path = Path.Combine(dir.FullName, DatasetTimingStore.FileName);
+        var record = new DatasetTimingStore.SessionTiming(
+            SessionId: "2026-02-14|ZWO ASI533MC Pro|Statue of Liberty Nebula",
+            Camera: "ZWO ASI533MC Pro",
+            Lights: 257,
+            Registered: 255,
+            CanvasWidth: 3054,
+            CanvasHeight: 3035,
+            MasterStrategy: nameof(IntegrationStrategyKind.BayerDrizzle),
+            WallSeconds: 558.4,
+            Stages:
+            [
+                new StageTimings.Stage(StageNames.Measure, 96.2, 257, 257L * 9_048_064),
+                new StageTimings.Stage(StageNames.Register, 12.1, 257, 0),
+                new StageTimings.Stage("export", 152.3, 3300, 3300L * 196_608),
+            ]);
 
-            await DatasetTimingStore.RecordAsync(path, record, cancellationToken: TestContext.Current.CancellationToken);
-            var read = await DatasetTimingStore.ReadAsync(path, cancellationToken: TestContext.Current.CancellationToken);
+        await DatasetTimingStore.RecordAsync(path, record, cancellationToken: TestContext.Current.CancellationToken);
+        var read = await DatasetTimingStore.ReadAsync(path, cancellationToken: TestContext.Current.CancellationToken);
 
-            read.Count.ShouldBe(1);
-            var back = read[record.SessionId];
-            back.Registered.ShouldBe(255);
-            back.MasterStrategy.ShouldBe(nameof(IntegrationStrategyKind.BayerDrizzle));
-            back.WallSeconds.ShouldBe(558.4, 0.001);
-            // Field by field, not record equality: an ImmutableArray in a record compares by
-            // REFERENCE, so ShouldBe on the whole record would pass or fail for reasons unrelated to
-            // the contents.
-            back.Stages.Length.ShouldBe(3);
-            back.Stages[0].Name.ShouldBe(StageNames.Measure);
-            back.Stages[0].Items.ShouldBe(257);
-            back.Stages[2].Pixels.ShouldBe(3300L * 196_608);
-            StageTimings.Describe(back.Stages).ShouldBe(StageTimings.Describe(record.Stages));
-        }
-        finally
-        {
-            dir.Delete(recursive: true);
-        }
+        read.Count.ShouldBe(1);
+        var back = read[record.SessionId];
+        back.Registered.ShouldBe(255);
+        back.MasterStrategy.ShouldBe(nameof(IntegrationStrategyKind.BayerDrizzle));
+        back.WallSeconds.ShouldBe(558.4, 0.001);
+        // Field by field, not record equality: an ImmutableArray in a record compares by
+        // REFERENCE, so ShouldBe on the whole record would pass or fail for reasons unrelated to
+        // the contents.
+        back.Stages.Length.ShouldBe(3);
+        back.Stages[0].Name.ShouldBe(StageNames.Measure);
+        back.Stages[0].Items.ShouldBe(257);
+        back.Stages[2].Pixels.ShouldBe(3300L * 196_608);
+        StageTimings.Describe(back.Stages).ShouldBe(StageTimings.Describe(record.Stages));
     }
 
     /// <summary>Last-wins by id, appended never rewritten, like the other two stores: a re-bake's
@@ -224,26 +222,19 @@ public class StageTimingsTests
     [Fact]
     public async Task ARebakesTimingWinsWithoutErasingThePriorOne()
     {
-        var dir = Directory.CreateTempSubdirectory("tw-timingstore2");
-        try
-        {
-            var path = Path.Combine(dir.FullName, DatasetTimingStore.FileName);
-            DatasetTimingStore.SessionTiming Make(double wall) =>
-                new("session-a", "cam", 49, 49, 3040, 3030, "BayerDrizzle", wall,
-                    [new StageTimings.Stage(StageNames.Integrate, wall / 2, 49, 0)]);
+        var dir = _folders.Create("tw-timingstore2");
+        var path = Path.Combine(dir.FullName, DatasetTimingStore.FileName);
+        DatasetTimingStore.SessionTiming Make(double wall) =>
+            new("session-a", "cam", 49, 49, 3040, 3030, "BayerDrizzle", wall,
+                [new StageTimings.Stage(StageNames.Integrate, wall / 2, 49, 0)]);
 
-            await DatasetTimingStore.RecordAsync(path, Make(120), cancellationToken: TestContext.Current.CancellationToken);
-            await DatasetTimingStore.RecordAsync(path, Make(240), cancellationToken: TestContext.Current.CancellationToken);
+        await DatasetTimingStore.RecordAsync(path, Make(120), cancellationToken: TestContext.Current.CancellationToken);
+        await DatasetTimingStore.RecordAsync(path, Make(240), cancellationToken: TestContext.Current.CancellationToken);
 
-            var read = await DatasetTimingStore.ReadAsync(path, cancellationToken: TestContext.Current.CancellationToken);
-            read["session-a"].WallSeconds.ShouldBe(240.0, 0.001);
-            (await File.ReadAllLinesAsync(path, TestContext.Current.CancellationToken)).Length
-                .ShouldBe(2, "the earlier timing stays readable, which is the whole point of comparing bakes");
-        }
-        finally
-        {
-            dir.Delete(recursive: true);
-        }
+        var read = await DatasetTimingStore.ReadAsync(path, cancellationToken: TestContext.Current.CancellationToken);
+        read["session-a"].WallSeconds.ShouldBe(240.0, 0.001);
+        (await File.ReadAllLinesAsync(path, TestContext.Current.CancellationToken)).Length
+            .ShouldBe(2, "the earlier timing stays readable, which is the whole point of comparing bakes");
     }
 
     /// <summary>No store path configured is the normal case for tests and the stacking CLI: a no-op,
@@ -274,30 +265,23 @@ public class StageTimingsTests
     [Fact]
     public async Task AStoreStaysWritableWhileAReaderHoldsItOpen()
     {
-        var dir = Directory.CreateTempSubdirectory("tw-timingshare");
-        try
+        var dir = _folders.Create("tw-timingshare");
+        var path = Path.Combine(dir.FullName, DatasetTimingStore.FileName);
+        DatasetTimingStore.SessionTiming Make(string id) =>
+            new(id, "cam", 1, 1, 1, 1, "x", 1.0, [new StageTimings.Stage(StageNames.Measure, 1, 1, 1)]);
+
+        await DatasetTimingStore.AppendAsync(path, Make("first"), TestContext.Current.CancellationToken);
+
+        // A reader that shares writes, which is what every reader inside this process now does.
+        // AppendAsync, not RecordAsync: the latter swallows IOException by design and would pass
+        // whether or not the sharing was right.
+        using (var reader = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
         {
-            var path = Path.Combine(dir.FullName, DatasetTimingStore.FileName);
-            DatasetTimingStore.SessionTiming Make(string id) =>
-                new(id, "cam", 1, 1, 1, 1, "x", 1.0, [new StageTimings.Stage(StageNames.Measure, 1, 1, 1)]);
-
-            await DatasetTimingStore.AppendAsync(path, Make("first"), TestContext.Current.CancellationToken);
-
-            // A reader that shares writes, which is what every reader inside this process now does.
-            // AppendAsync, not RecordAsync: the latter swallows IOException by design and would pass
-            // whether or not the sharing was right.
-            using (var reader = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-            {
-                await DatasetTimingStore.AppendAsync(path, Make("second"), TestContext.Current.CancellationToken);
-            }
-
-            var read = await DatasetTimingStore.ReadAsync(path, cancellationToken: TestContext.Current.CancellationToken);
-            read.Keys.OrderBy(static k => k).ShouldBe(["first", "second"]);
+            await DatasetTimingStore.AppendAsync(path, Make("second"), TestContext.Current.CancellationToken);
         }
-        finally
-        {
-            dir.Delete(recursive: true);
-        }
+
+        var read = await DatasetTimingStore.ReadAsync(path, cancellationToken: TestContext.Current.CancellationToken);
+        read.Keys.OrderBy(static k => k).ShouldBe(["first", "second"]);
     }
 
     /// <summary>
@@ -311,28 +295,21 @@ public class StageTimingsTests
     [Fact]
     public async Task OnlyTheMeasurementsArePersistedNotTheFiguresDerivedFromThem()
     {
-        var dir = Directory.CreateTempSubdirectory("tw-timingderived");
-        try
-        {
-            var path = Path.Combine(dir.FullName, DatasetTimingStore.FileName);
-            await DatasetTimingStore.AppendAsync(
-                path,
-                new DatasetTimingStore.SessionTiming("s", "cam", 1, 1, 1, 1, "x", 1.0,
-                    [new StageTimings.Stage(StageNames.Measure, 2.0, 4, 8_000_000)]),
-                TestContext.Current.CancellationToken);
+        var dir = _folders.Create("tw-timingderived");
+        var path = Path.Combine(dir.FullName, DatasetTimingStore.FileName);
+        await DatasetTimingStore.AppendAsync(
+            path,
+            new DatasetTimingStore.SessionTiming("s", "cam", 1, 1, 1, 1, "x", 1.0,
+                [new StageTimings.Stage(StageNames.Measure, 2.0, 4, 8_000_000)]),
+            TestContext.Current.CancellationToken);
 
-            var json = await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken);
+        var json = await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken);
 
-            json.ShouldContain("\"Seconds\":2");
-            json.ShouldContain("\"Items\":4");
-            json.ShouldContain("\"Pixels\":8000000");
-            json.ShouldNotContain("MillisecondsPerItem");
-            json.ShouldNotContain("MegapixelsPerSecond");
-        }
-        finally
-        {
-            dir.Delete(recursive: true);
-        }
+        json.ShouldContain("\"Seconds\":2");
+        json.ShouldContain("\"Items\":4");
+        json.ShouldContain("\"Pixels\":8000000");
+        json.ShouldNotContain("MillisecondsPerItem");
+        json.ShouldNotContain("MegapixelsPerSecond");
     }
 
     /// <summary>
@@ -343,25 +320,18 @@ public class StageTimingsTests
     [Fact]
     public async Task OurOwnReaderDoesNotLockOutTheAppender()
     {
-        var dir = Directory.CreateTempSubdirectory("tw-timingshare2");
-        try
-        {
-            var path = Path.Combine(dir.FullName, DatasetTimingStore.FileName);
-            var record = new DatasetTimingStore.SessionTiming("a", "cam", 1, 1, 1, 1, "x", 1.0, []);
-            await DatasetTimingStore.AppendAsync(path, record, TestContext.Current.CancellationToken);
+        var dir = _folders.Create("tw-timingshare2");
+        var path = Path.Combine(dir.FullName, DatasetTimingStore.FileName);
+        var record = new DatasetTimingStore.SessionTiming("a", "cam", 1, 1, 1, 1, "x", 1.0, []);
+        await DatasetTimingStore.AppendAsync(path, record, TestContext.Current.CancellationToken);
 
-            // Interleave for real: start the read, and append while its enumeration is still open.
-            var readTask = DatasetTimingStore.ReadAsync(path, cancellationToken: TestContext.Current.CancellationToken);
-            await DatasetTimingStore.AppendAsync(
-                path, record with { SessionId = "b" }, TestContext.Current.CancellationToken);
-            (await readTask).ShouldNotBeEmpty();
+        // Interleave for real: start the read, and append while its enumeration is still open.
+        var readTask = DatasetTimingStore.ReadAsync(path, cancellationToken: TestContext.Current.CancellationToken);
+        await DatasetTimingStore.AppendAsync(
+            path, record with { SessionId = "b" }, TestContext.Current.CancellationToken);
+        (await readTask).ShouldNotBeEmpty();
 
-            (await DatasetTimingStore.ReadAsync(path, cancellationToken: TestContext.Current.CancellationToken))
-                .Count.ShouldBe(2);
-        }
-        finally
-        {
-            dir.Delete(recursive: true);
-        }
+        (await DatasetTimingStore.ReadAsync(path, cancellationToken: TestContext.Current.CancellationToken))
+            .Count.ShouldBe(2);
     }
 }

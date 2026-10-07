@@ -22,8 +22,12 @@ namespace TianWen.Lib.Tests;
 /// The dialog is a substitute that records what it was asked and answers "cancelled", so no window
 /// opens and nothing is written.
 /// </remarks>
-public class SaveDialogFolderTests
+public class SaveDialogFolderTests : IDisposable
 {
+    private readonly TempFolders _folders = new TempFolders();
+
+    public void Dispose() => _folders.Dispose();
+
     [Theory(Timeout = 60_000)]
     [InlineData(false)]
     [InlineData(true)]
@@ -58,16 +62,9 @@ public class SaveDialogFolderTests
     [Fact]
     public void AFileInAnExistingFolderGetsThatFolder()
     {
-        var directory = Directory.CreateTempSubdirectory("tianwen-save-folder-");
-        try
-        {
-            ViewerController.SaveDialogDirectory(Path.Combine(directory.FullName, "frame.fits"))
-                .ShouldBe(directory.FullName);
-        }
-        finally
-        {
-            directory.Delete(recursive: true);
-        }
+        var directory = _folders.Create("tianwen-save-folder-");
+        ViewerController.SaveDialogDirectory(Path.Combine(directory.FullName, "frame.fits"))
+            .ShouldBe(directory.FullName);
     }
 
     /// <summary>

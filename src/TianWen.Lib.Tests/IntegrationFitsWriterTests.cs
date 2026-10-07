@@ -10,14 +10,14 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 [Collection("Imaging")]
-public class IntegrationFitsWriterTests
+public class IntegrationFitsWriterTests : IDisposable
 {
-    private static string CreateTempDir([System.Runtime.CompilerServices.CallerMemberName] string? name = null)
-    {
-        var dir = Path.Combine(Path.GetTempPath(), "TianWen.IntegrationFitsWriter", name ?? "x", Guid.NewGuid().ToString("N")[..8]);
-        Directory.CreateDirectory(dir);
-        return dir;
-    }
+    private readonly TempFolders _folders = new TempFolders();
+
+    public void Dispose() => _folders.Dispose();
+
+    private string CreateTempDir([System.Runtime.CompilerServices.CallerMemberName] string? name = null)
+        => _folders.Create((name ?? "x") + "-").FullName;
 
     private static Image MonoFrame(float baseline, FrameType type = FrameType.Light)
     {

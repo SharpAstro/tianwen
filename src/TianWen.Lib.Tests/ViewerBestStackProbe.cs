@@ -33,7 +33,7 @@ public class ViewerBestStackProbe(ITestOutputHelper output)
         var capture = Path.GetFullPath(Environment.GetEnvironmentVariable(EnvVar) ?? "");
         var ct = TestContext.Current.CancellationToken;
 
-        using var e2e = ViewerE2E.Start(1f);
+        await using var e2e = ViewerE2E.Start(1f);
         e2e.Host.HandleDropFile(capture);
         await e2e.PumpUntilAsync(() => e2e.State.SequencePath == capture, "the capture to open", ct);
 

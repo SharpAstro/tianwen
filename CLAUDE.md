@@ -212,7 +212,9 @@ and `LALR.CC` is deliberately exempt from the shared shape, so leave it alone.
   nothing removes (1,253 had piled up in `%TEMP%`, #1197). It is made under the tests' common root,
   `%TEMP%/TianWen.Lib.Tests/t`, deleted when disposed (a test class's field, disposed after each test), and anything
   a delete missed is swept after a day. A node harness owns its own (`NodeHarness.StartAsync(onItsSocket: true)`,
-  `KeptNode`).
+  `KeptNode`). A helper that names a folder after its test takes the test's `TempFolders` (`FitsFixture.CreateTempDir`,
+  `TempStackingWorkspace`): a fixed parent of its own under `%TEMP%` is a folder nothing sweeps (#1323: about
+  9,000 folders and 1.1 GB in a week). `TestTempFoldersTests` fails on a bare `CreateTempSubdirectory` in any test project.
 - **Avoid duplication**: extract shared setup to helpers (e.g., `SessionTestHelper`)
 - **A shared fixture plus an assertion about a FIRST write is an order dependency**, whether or not
   today's order satisfies it. `IClassFixture<T>` lives for the whole class, so its state carries from

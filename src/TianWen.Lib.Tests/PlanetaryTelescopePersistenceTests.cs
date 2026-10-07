@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Threading.Tasks;
 using Shouldly;
@@ -11,13 +12,17 @@ namespace TianWen.Lib.Tests;
 /// The Best stack panel's telescope is remembered between runs of the viewer, which has no profile to read it from (#1159): what is
 /// saved comes back, and with nothing saved the panel keeps its defaults.
 /// </summary>
-public class PlanetaryTelescopePersistenceTests(ITestOutputHelper output)
+public class PlanetaryTelescopePersistenceTests(ITestOutputHelper output) : IDisposable
 {
+    private readonly TempFolders _folders = new TempFolders();
+
+    public void Dispose() => _folders.Dispose();
+
     [Fact]
     public async Task ASavedTelescopeComesBackAndNothingSavedLeavesTheDefaults()
     {
         // A folder of its own: the caller-named one FakeExternal defaults to outlives a run, and its file would read as already saved.
-        var root = Directory.CreateTempSubdirectory("tianwen-telescope-");
+        var root = _folders.Create("tianwen-telescope-");
         var external = new FakeExternal(output, root);
         var ct = TestContext.Current.CancellationToken;
 
@@ -33,7 +38,6 @@ public class PlanetaryTelescopePersistenceTests(ITestOutputHelper output)
         await PlanetaryTelescopePersistence.LoadAsync(restored, external, ct);
         restored.PlanetaryApertureMm.ShouldBe(203);
         restored.PlanetaryDesign.ShouldBe(OpticalDesign.SCT);
-        root.Delete(recursive: true);
     }
 
     [Fact]

@@ -215,21 +215,21 @@ public class StackingPipelineSyntheticTest(ITestOutputHelper output)
 /// (or be filtered out explicitly via the pipeline's own path-prefix skip,
 /// which we still get for free since the output dir lives under the root).
 ///
-/// <para>Pattern: <c>&lt;tmp&gt;/StackingPipelineSyntheticTest_&lt;guid&gt;/{root,output}/</c>.
-/// Cleaned up on Dispose; if the test crashes the dir leaks under
-/// <c>%TEMP%</c> but is uniquely named so subsequent runs don't collide.</para>
+/// <para>Pattern: <c>StackingPipelineSyntheticTest_&lt;random&gt;/data/{LIGHT,output}/</c> under
+/// <see cref="TempFolders.Root"/>. Deleted on Dispose; a folder a crash or a lingering file handle
+/// leaves is taken by <see cref="TempFolders"/>' sweep a day later.</para>
 /// </summary>
 internal sealed class TempStackingWorkspace : IDisposable
 {
     public string RootDir { get; }
     public string LightsDir { get; }
     public string OutputDir { get; }
-    private readonly string _baseDir;
+    private readonly TempFolders _folders = new TempFolders();
 
     public TempStackingWorkspace()
     {
-        _baseDir = Path.Combine(Path.GetTempPath(), $"StackingPipelineSyntheticTest_{Guid.NewGuid():N}");
-        RootDir = Path.Combine(_baseDir, "data");
+        var baseDir = _folders.Create("StackingPipelineSyntheticTest_").FullName;
+        RootDir = Path.Combine(baseDir, "data");
         LightsDir = Path.Combine(RootDir, "LIGHT");
         OutputDir = Path.Combine(RootDir, "output");
         Directory.CreateDirectory(RootDir);
@@ -237,11 +237,7 @@ internal sealed class TempStackingWorkspace : IDisposable
         Directory.CreateDirectory(OutputDir);
     }
 
-    public void Dispose()
-    {
-        try { Directory.Delete(_baseDir, recursive: true); }
-        catch { /* best-effort; if file handles linger, leak to %TEMP% */ }
-    }
+    public void Dispose() => _folders.Dispose();
 }
 
 /// <summary>

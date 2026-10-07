@@ -23,8 +23,12 @@ namespace TianWen.Lib.Tests;
 /// must remain untouched.
 /// </summary>
 [Collection("Stacking")]
-public class StackEnhanceTests
+public class StackEnhanceTests : IDisposable
 {
+    private readonly TempFolders _folders = new TempFolders();
+
+    public void Dispose() => _folders.Dispose();
+
     /// <summary>
     /// Identity enhancer that returns its input unchanged. Stand-in for any
     /// IImageEnhancer role; lets us drive MasterPostProcessor's enhance path
@@ -127,74 +131,67 @@ public class StackEnhanceTests
         // equality is not asserted because IntegrationFitsWriter normalises
         // headers + the recombine math (additive) is bit-stable but not
         // necessarily byte-identical to the source.
-        var tmp = Directory.CreateTempSubdirectory("StackEnhanceTests_");
-        try
-        {
-            var masterPath = Path.Combine(tmp.FullName, "master_test.fits");
-            var master = SyntheticRgb(64, 64, 0.05f);
-            var result = MakeResult(master);
+        var tmp = _folders.Create("StackEnhanceTests_");
+        var masterPath = Path.Combine(tmp.FullName, "master_test.fits");
+        var master = SyntheticRgb(64, 64, 0.05f);
+        var result = MakeResult(master);
 
-            var sharpenPipeline = new SharpenPipeline(
-                starRemover: new IdentityEnhancer("star"),
-                stellarSharpener: new IdentityEnhancer("stellar"),
-                nonStellarDeconvolver: new IdentityEnhancer("deconv"),
-                denoiser: new IdentityEnhancer("denoise"),
-                gradientCorrector: new IdentityEnhancer("gradient"));
+        var sharpenPipeline = new SharpenPipeline(
+            starRemover: new IdentityEnhancer("star"),
+            stellarSharpener: new IdentityEnhancer("stellar"),
+            nonStellarDeconvolver: new IdentityEnhancer("deconv"),
+            denoiser: new IdentityEnhancer("denoise"),
+            gradientCorrector: new IdentityEnhancer("gradient"));
 
-            var processor = new MasterPostProcessor(
-                Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
-                catalogDb: null,
-                sharpenPipeline: sharpenPipeline);
+        var processor = new MasterPostProcessor(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+            catalogDb: null,
+            sharpenPipeline: sharpenPipeline);
 
-            // Autocrop = inset 4 px on each side -> proper sub-rectangle so
-            // the autocrop-sibling path runs.
-            var autocrop = new PixelRect(4, 4, 56, 56);
+        // Autocrop = inset 4 px on each side -> proper sub-rectangle so
+        // the autocrop-sibling path runs.
+        var autocrop = new PixelRect(4, 4, 56, 56);
 
-            var postResult = await processor.WriteMasterAsync(
-                result, masterPath, searchHint: null, imageDim: null, refMeta: master.ImageMeta,
-                autocropRect: autocrop, strategy: IntegrationStrategyKind.InRamAllFrames,
-                enhance: true, enhanceBlend: 1.0f, splitPlates: false, enhanceOptions: EnhanceOptions.Default,
-                outputs: MasterRenderOutputs.None, ct: TestContext.Current.CancellationToken);
+        var postResult = await processor.WriteMasterAsync(
+            result, masterPath, searchHint: null, imageDim: null, refMeta: master.ImageMeta,
+            autocropRect: autocrop, strategy: IntegrationStrategyKind.InRamAllFrames,
+            enhance: true, enhanceBlend: 1.0f, splitPlates: false, enhanceOptions: EnhanceOptions.Default,
+            outputs: MasterRenderOutputs.None, ct: TestContext.Current.CancellationToken);
 
-            // The post-processor returns the same Master back (potentially
-            // with MaxValue patched). SolvedWcs is null here because no
-            // catalog DB was supplied -> no plate-solve.
-            postResult.SolvedWcs.ShouldBeNull();
-            postResult.Result.Master.ShouldNotBeNull();
-            postResult.Result.Master.Shape.ShouldBe(master.Shape);
+        // The post-processor returns the same Master back (potentially
+        // with MaxValue patched). SolvedWcs is null here because no
+        // catalog DB was supplied -> no plate-solve.
+        postResult.SolvedWcs.ShouldBeNull();
+        postResult.Result.Master.ShouldNotBeNull();
+        postResult.Result.Master.Shape.ShouldBe(master.Shape);
 
-            // 4 files: raw master + raw autocrop + sharpened master + sharpened autocrop.
-            File.Exists(masterPath).ShouldBeTrue($"raw master at {masterPath}");
-            File.Exists(Path.Combine(tmp.FullName, "master_test_autocrop.fits"))
-                .ShouldBeTrue("raw autocrop sibling");
-            File.Exists(Path.Combine(tmp.FullName, "master_test_sharpened.fits"))
-                .ShouldBeTrue("sharpened master sibling -- --enhance wiring is broken");
-            File.Exists(Path.Combine(tmp.FullName, "master_test_sharpened_autocrop.fits"))
-                .ShouldBeTrue("sharpened autocrop sibling -- crop-of-enhanced-master path is broken");
+        // 4 files: raw master + raw autocrop + sharpened master + sharpened autocrop.
+        File.Exists(masterPath).ShouldBeTrue($"raw master at {masterPath}");
+        File.Exists(Path.Combine(tmp.FullName, "master_test_autocrop.fits"))
+            .ShouldBeTrue("raw autocrop sibling");
+        File.Exists(Path.Combine(tmp.FullName, "master_test_sharpened.fits"))
+            .ShouldBeTrue("sharpened master sibling -- --enhance wiring is broken");
+        File.Exists(Path.Combine(tmp.FullName, "master_test_sharpened_autocrop.fits"))
+            .ShouldBeTrue("sharpened autocrop sibling -- crop-of-enhanced-master path is broken");
 
-            // Round-trip the sharpened FITS to verify dimensions match the
-            // canonical sibling. Identity enhancer => content matches master.
-            Image.TryReadFitsFile(Path.Combine(tmp.FullName, "master_test_sharpened.fits"), out var sharpened, out _)
-                .ShouldBeTrue();
-            sharpened!.Shape.ShouldBe(master.Shape);
+        // Round-trip the sharpened FITS to verify dimensions match the
+        // canonical sibling. Identity enhancer => content matches master.
+        Image.TryReadFitsFile(Path.Combine(tmp.FullName, "master_test_sharpened.fits"), out var sharpened, out _)
+            .ShouldBeTrue();
+        sharpened!.Shape.ShouldBe(master.Shape);
 
-            Image.TryReadFitsFile(Path.Combine(tmp.FullName, "master_test_sharpened_autocrop.fits"), out var sharpenedCrop, out _)
-                .ShouldBeTrue();
-            sharpenedCrop!.Width.ShouldBe(autocrop.Width);
-            sharpenedCrop.Height.ShouldBe(autocrop.Height);
+        Image.TryReadFitsFile(Path.Combine(tmp.FullName, "master_test_sharpened_autocrop.fits"), out var sharpenedCrop, out _)
+            .ShouldBeTrue();
+        sharpenedCrop!.Width.ShouldBe(autocrop.Width);
+        sharpenedCrop.Height.ShouldBe(autocrop.Height);
 
-            // The sharpened sibling names its modifier (SWMODIFY, the MaxIm DL card); the raw
-            // master, which nothing modified, must not.
-            ReadHeaderString(masterPath, "SWMODIFY").ShouldBeNull();
-            ReadHeaderString(Path.Combine(tmp.FullName, "master_test_sharpened.fits"), "SWMODIFY")
-                .ShouldBe(SharpenPipeline.SoftwareModifier);
-            ReadHeaderString(Path.Combine(tmp.FullName, "master_test_sharpened_autocrop.fits"), "SWMODIFY")
-                .ShouldBe(SharpenPipeline.SoftwareModifier);
-        }
-        finally
-        {
-            try { tmp.Delete(recursive: true); } catch { /* best-effort */ }
-        }
+        // The sharpened sibling names its modifier (SWMODIFY, the MaxIm DL card); the raw
+        // master, which nothing modified, must not.
+        ReadHeaderString(masterPath, "SWMODIFY").ShouldBeNull();
+        ReadHeaderString(Path.Combine(tmp.FullName, "master_test_sharpened.fits"), "SWMODIFY")
+            .ShouldBe(SharpenPipeline.SoftwareModifier);
+        ReadHeaderString(Path.Combine(tmp.FullName, "master_test_sharpened_autocrop.fits"), "SWMODIFY")
+            .ShouldBe(SharpenPipeline.SoftwareModifier);
     }
 
     [Fact]
@@ -203,45 +200,38 @@ public class StackEnhanceTests
         // Default path (enhance=false) must be byte-identical to the
         // pre-PR behaviour: only the master + autocrop FITS appear, no
         // sharpened siblings even when a SharpenPipeline is supplied.
-        var tmp = Directory.CreateTempSubdirectory("StackEnhanceTests_");
-        try
-        {
-            var masterPath = Path.Combine(tmp.FullName, "master_test.fits");
-            var master = SyntheticRgb(64, 64, 0.05f);
-            var result = MakeResult(master);
+        var tmp = _folders.Create("StackEnhanceTests_");
+        var masterPath = Path.Combine(tmp.FullName, "master_test.fits");
+        var master = SyntheticRgb(64, 64, 0.05f);
+        var result = MakeResult(master);
 
-            var sharpenPipeline = new SharpenPipeline(
-                starRemover: new IdentityEnhancer("star"),
-                stellarSharpener: new IdentityEnhancer("stellar"),
-                nonStellarDeconvolver: new IdentityEnhancer("deconv"),
-                denoiser: new IdentityEnhancer("denoise"),
-                gradientCorrector: new IdentityEnhancer("gradient"));
+        var sharpenPipeline = new SharpenPipeline(
+            starRemover: new IdentityEnhancer("star"),
+            stellarSharpener: new IdentityEnhancer("stellar"),
+            nonStellarDeconvolver: new IdentityEnhancer("deconv"),
+            denoiser: new IdentityEnhancer("denoise"),
+            gradientCorrector: new IdentityEnhancer("gradient"));
 
-            var processor = new MasterPostProcessor(
-                Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
-                catalogDb: null,
-                sharpenPipeline: sharpenPipeline);
+        var processor = new MasterPostProcessor(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+            catalogDb: null,
+            sharpenPipeline: sharpenPipeline);
 
-            var autocrop = new PixelRect(4, 4, 56, 56);
+        var autocrop = new PixelRect(4, 4, 56, 56);
 
-            var postResult = await processor.WriteMasterAsync(
-                result, masterPath, searchHint: null, imageDim: null, refMeta: master.ImageMeta,
-                autocropRect: autocrop, strategy: IntegrationStrategyKind.InRamAllFrames,
-                enhance: false, enhanceBlend: 1.0f, splitPlates: false, enhanceOptions: EnhanceOptions.Default,
-                outputs: MasterRenderOutputs.None, ct: TestContext.Current.CancellationToken);
-            postResult.SolvedWcs.ShouldBeNull();
+        var postResult = await processor.WriteMasterAsync(
+            result, masterPath, searchHint: null, imageDim: null, refMeta: master.ImageMeta,
+            autocropRect: autocrop, strategy: IntegrationStrategyKind.InRamAllFrames,
+            enhance: false, enhanceBlend: 1.0f, splitPlates: false, enhanceOptions: EnhanceOptions.Default,
+            outputs: MasterRenderOutputs.None, ct: TestContext.Current.CancellationToken);
+        postResult.SolvedWcs.ShouldBeNull();
 
-            File.Exists(masterPath).ShouldBeTrue();
-            File.Exists(Path.Combine(tmp.FullName, "master_test_autocrop.fits")).ShouldBeTrue();
-            File.Exists(Path.Combine(tmp.FullName, "master_test_sharpened.fits")).ShouldBeFalse(
-                "sharpened sibling must NOT appear when enhance=false");
-            File.Exists(Path.Combine(tmp.FullName, "master_test_sharpened_autocrop.fits")).ShouldBeFalse(
-                "sharpened autocrop sibling must NOT appear when enhance=false");
-        }
-        finally
-        {
-            try { tmp.Delete(recursive: true); } catch { /* best-effort */ }
-        }
+        File.Exists(masterPath).ShouldBeTrue();
+        File.Exists(Path.Combine(tmp.FullName, "master_test_autocrop.fits")).ShouldBeTrue();
+        File.Exists(Path.Combine(tmp.FullName, "master_test_sharpened.fits")).ShouldBeFalse(
+            "sharpened sibling must NOT appear when enhance=false");
+        File.Exists(Path.Combine(tmp.FullName, "master_test_sharpened_autocrop.fits")).ShouldBeFalse(
+            "sharpened autocrop sibling must NOT appear when enhance=false");
     }
 
     /// <summary>
@@ -253,37 +243,30 @@ public class StackEnhanceTests
     [Fact]
     public async Task WriteMasterAsync_SplitPlatesWithoutAStarRemover_WritesTheWholeFrameMasterAndSaysWhy()
     {
-        var tmp = Directory.CreateTempSubdirectory("StackEnhanceTests_");
-        try
-        {
-            var masterPath = Path.Combine(tmp.FullName, "master_test.fits");
-            var master = SyntheticRgb(64, 64, 0.05f);
-            var result = MakeResult(master);
+        var tmp = _folders.Create("StackEnhanceTests_");
+        var masterPath = Path.Combine(tmp.FullName, "master_test.fits");
+        var master = SyntheticRgb(64, 64, 0.05f);
+        var result = MakeResult(master);
 
-            // Gradient + denoise and nothing else: what a host without RC-Astro serves.
-            var sharpenPipeline = new SharpenPipeline(
-                denoiser: new CopyEnhancer("denoise"),
-                gradientCorrector: new CopyEnhancer("gradient"));
-            var logger = new RecordingLogger();
-            var processor = new MasterPostProcessor(logger, catalogDb: null, sharpenPipeline: sharpenPipeline);
+        // Gradient + denoise and nothing else: what a host without RC-Astro serves.
+        var sharpenPipeline = new SharpenPipeline(
+            denoiser: new CopyEnhancer("denoise"),
+            gradientCorrector: new CopyEnhancer("gradient"));
+        var logger = new RecordingLogger();
+        var processor = new MasterPostProcessor(logger, catalogDb: null, sharpenPipeline: sharpenPipeline);
 
-            await processor.WriteMasterAsync(
-                result, masterPath, searchHint: null, imageDim: null, refMeta: master.ImageMeta,
-                autocropRect: new PixelRect(4, 4, 56, 56), strategy: IntegrationStrategyKind.InRamAllFrames,
-                enhance: true, enhanceBlend: 1.0f, splitPlates: true, enhanceOptions: EnhanceOptions.Default,
-                outputs: MasterRenderOutputs.None, ct: TestContext.Current.CancellationToken);
+        await processor.WriteMasterAsync(
+            result, masterPath, searchHint: null, imageDim: null, refMeta: master.ImageMeta,
+            autocropRect: new PixelRect(4, 4, 56, 56), strategy: IntegrationStrategyKind.InRamAllFrames,
+            enhance: true, enhanceBlend: 1.0f, splitPlates: true, enhanceOptions: EnhanceOptions.Default,
+            outputs: MasterRenderOutputs.None, ct: TestContext.Current.CancellationToken);
 
-            File.Exists(Path.Combine(tmp.FullName, "master_test_sharpened.fits"))
-                .ShouldBeTrue("the whole-frame enhance still writes its master");
-            logger.Entries.ShouldContain(
-                e => e.Level == LogLevel.Warning && e.Message.Contains("[split-plates] skipped") && e.Message.Contains("no star remover"),
-                "a --split-plates run with no star remover must say why it wrote no plates");
-            logger.Entries.ShouldNotContain(e => e.Message.Contains("[enhance] failed"),
-                "the whole-frame program must run, not fail over the missing split");
-        }
-        finally
-        {
-            try { tmp.Delete(recursive: true); } catch { /* best-effort */ }
-        }
+        File.Exists(Path.Combine(tmp.FullName, "master_test_sharpened.fits"))
+            .ShouldBeTrue("the whole-frame enhance still writes its master");
+        logger.Entries.ShouldContain(
+            e => e.Level == LogLevel.Warning && e.Message.Contains("[split-plates] skipped") && e.Message.Contains("no star remover"),
+            "a --split-plates run with no star remover must say why it wrote no plates");
+        logger.Entries.ShouldNotContain(e => e.Message.Contains("[enhance] failed"),
+            "the whole-frame program must run, not fail over the missing split");
     }
 }

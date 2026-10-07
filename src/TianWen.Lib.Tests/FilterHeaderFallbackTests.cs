@@ -15,8 +15,12 @@ namespace TianWen.Lib.Tests
     /// output (which always writes both) while silently unfiltering the entire outside world.
     /// </summary>
     [Collection("Imaging")]
-    public class FilterHeaderFallbackTests
+    public class FilterHeaderFallbackTests : IDisposable
     {
+        private readonly TempFolders _folders = new TempFolders();
+
+        public void Dispose() => _folders.Dispose();
+
         private const int Block = 2880;
         private const int Card = 80;
 
@@ -53,8 +57,8 @@ namespace TianWen.Lib.Tests
             return path;
         }
 
-        private static string TempDir([System.Runtime.CompilerServices.CallerMemberName] string? name = null)
-            => Path.Combine(Path.GetTempPath(), "TianWen.FilterFallback", name ?? "x", Guid.NewGuid().ToString("N")[..8]);
+        private string TempDir([System.Runtime.CompilerServices.CallerMemberName] string? name = null)
+            => _folders.Create((name ?? "x") + "-").FullName;
 
         [Theory]
         // The N.I.N.A. / SharpCap / APP shape: FILTER only, no FILTCLAS anywhere in the file.

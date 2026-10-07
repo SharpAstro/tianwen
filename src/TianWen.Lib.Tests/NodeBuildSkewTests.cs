@@ -14,8 +14,12 @@ namespace TianWen.Lib.Tests;
 /// build's code. It is another build when it runs from another folder, or that folder has newer code than it had when the
 /// node started, or the node does not say.
 /// </summary>
-public class NodeBuildSkewTests
+public class NodeBuildSkewTests : IDisposable
 {
+    private readonly TempFolders _folders = new TempFolders();
+
+    public void Dispose() => _folders.Dispose();
+
     private static readonly string Here = Path.Combine(Path.GetTempPath(), "tianwen-build", "gui", "bin");
     private static readonly DateTime Written = new DateTime(2026, 9, 30, 9, 56, 26, DateTimeKind.Utc);
 
@@ -58,28 +62,21 @@ public class NodeBuildSkewTests
     [Fact]
     public void The_newest_code_is_the_newest_assembly_library_or_executable_and_nothing_else()
     {
-        var folder = Directory.CreateTempSubdirectory("tianwen-newest-");
-        try
+        var folder = _folders.Create("tianwen-newest-");
+        var dll = Path.Combine(folder.FullName, "TianWen.Lib.dll");
+        var native = Directory.CreateDirectory(Path.Combine(folder.FullName, "runtimes", "native")).FullName;
+        var so = Path.Combine(native, "libSDL3.so");
+        var exe = Path.Combine(folder.FullName, "tianwen-server");
+        var log = Path.Combine(folder.FullName, "gui-stdout.log");
+        foreach (var (path, when) in new[] { (dll, Written), (so, Written.AddMinutes(2)), (exe, Written.AddMinutes(1)), (log, Written.AddHours(1)) })
         {
-            var dll = Path.Combine(folder.FullName, "TianWen.Lib.dll");
-            var native = Directory.CreateDirectory(Path.Combine(folder.FullName, "runtimes", "native")).FullName;
-            var so = Path.Combine(native, "libSDL3.so");
-            var exe = Path.Combine(folder.FullName, "tianwen-server");
-            var log = Path.Combine(folder.FullName, "gui-stdout.log");
-            foreach (var (path, when) in new[] { (dll, Written), (so, Written.AddMinutes(2)), (exe, Written.AddMinutes(1)), (log, Written.AddHours(1)) })
-            {
-                File.WriteAllText(path, "x");
-                File.SetLastWriteTimeUtc(path, when);
-            }
-
-            BuildInfo.NewestCodeFileUtc(folder.FullName, exe).ShouldBe(Written.AddMinutes(2), "the native library below, not the log");
-
-            File.SetLastWriteTimeUtc(exe, Written.AddMinutes(3));
-            BuildInfo.NewestCodeFileUtc(folder.FullName, exe).ShouldBe(Written.AddMinutes(3), "an extensionless executable counts when named");
+            File.WriteAllText(path, "x");
+            File.SetLastWriteTimeUtc(path, when);
         }
-        finally
-        {
-            folder.Delete(recursive: true);
-        }
+
+        BuildInfo.NewestCodeFileUtc(folder.FullName, exe).ShouldBe(Written.AddMinutes(2), "the native library below, not the log");
+
+        File.SetLastWriteTimeUtc(exe, Written.AddMinutes(3));
+        BuildInfo.NewestCodeFileUtc(folder.FullName, exe).ShouldBe(Written.AddMinutes(3), "an extensionless executable counts when named");
     }
 }

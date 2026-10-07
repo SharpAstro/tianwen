@@ -16,8 +16,12 @@ using Xunit;
 
 namespace TianWen.Lib.Tests.Functional;
 
-public class GuideLoopTests(ITestOutputHelper output)
+public class GuideLoopTests(ITestOutputHelper output) : IDisposable
 {
+    private readonly TempFolders _folders = new TempFolders();
+
+    public void Dispose() => _folders.Dispose();
+
     private const double PixelScaleArcsec = 1.5;
     private const double GuideIntervalSeconds = 2.0;
     /// <summary>The site every loop here guides at, and therefore the one the offline trainer trains for.</summary>
@@ -364,63 +368,56 @@ public class GuideLoopTests(ITestOutputHelper output)
             offlineTrainer.TrainEpoch(calResult.Value, pController, maxPulseMs: 2000, siteLatitude: SiteLatitude, numSamples: 128, seed: e);
         }
 
-        var tempDir = Directory.CreateTempSubdirectory("guide_loop_online_test_");
+        var tempDir = _folders.Create("guide_loop_online_test_");
+        var guideLoop = new GuideLoop(pulseTarget, tracker, pController, timeProvider);
+        guideLoop.SetCalibration(calResult.Value);
+        guideLoop.EnableNeuralModel(model);
+        guideLoop.EnableOnlineLearning(onlineLearningRate: 0.0001f, profileFolder: tempDir);
+        guideLoop.OnlineTrainingInterval = 10; // train more frequently for test
+        guideLoop.MinExperiencesBeforeTraining = 15;
+
+        guideLoop.IsOnlineLearningEnabled.ShouldBeTrue();
+
+        var maxIterations = IterationsForPeCycles(pePeriod);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var iterationCount = 0;
+
+        async ValueTask<Image> RenderAndCount(CancellationToken token)
+        {
+            if (++iterationCount >= maxIterations)
+            {
+                await cts.CancelAsync();
+            }
+            return await RenderFrame(token);
+        }
+
         try
         {
-            var guideLoop = new GuideLoop(pulseTarget, tracker, pController, timeProvider);
-            guideLoop.SetCalibration(calResult.Value);
-            guideLoop.EnableNeuralModel(model);
-            guideLoop.EnableOnlineLearning(onlineLearningRate: 0.0001f, profileFolder: tempDir);
-            guideLoop.OnlineTrainingInterval = 10; // train more frequently for test
-            guideLoop.MinExperiencesBeforeTraining = 15;
-
-            guideLoop.IsOnlineLearningEnabled.ShouldBeTrue();
-
-            var maxIterations = IterationsForPeCycles(pePeriod);
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            var iterationCount = 0;
-
-            async ValueTask<Image> RenderAndCount(CancellationToken token)
-            {
-                if (++iterationCount >= maxIterations)
-                {
-                    await cts.CancelAsync();
-                }
-                return await RenderFrame(token);
-            }
-
-            try
-            {
-                await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(GuideIntervalSeconds), hourAngle: 0, declination: 45.0, siteLatitude: SiteLatitude, cancellationToken: cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                // Expected
-            }
-
-            output.WriteLine($"Guide iterations: {iterationCount}");
-            output.WriteLine($"Total samples: {guideLoop.ErrorTracker.TotalSamples}");
-            output.WriteLine($"RA RMS: {guideLoop.ErrorTracker.RaRmsAll:F3} px");
-            output.WriteLine($"Dec RMS: {guideLoop.ErrorTracker.DecRmsAll:F3} px");
-
-            if (guideLoop.PerformanceMonitor is not null)
-            {
-                output.WriteLine($"Neural RMS: {guideLoop.PerformanceMonitor.NeuralRms:F3}");
-                output.WriteLine($"P-controller RMS: {guideLoop.PerformanceMonitor.PControllerRms:F3}");
-                output.WriteLine($"Neural helping: {guideLoop.PerformanceMonitor.IsNeuralModelHelping}");
-            }
-
-            guideLoop.ErrorTracker.TotalSamples.ShouldBeGreaterThan(0u);
-            guideLoop.IsGuiding.ShouldBeFalse("loop should have stopped");
-
-            // Verify model was saved
-            var savedFiles = new DirectoryInfo(Path.Combine(tempDir.FullName, "NeuralGuider")).GetFiles("*.ngm");
-            savedFiles.Length.ShouldBeGreaterThan(0, "model weights should have been saved");
+            await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(GuideIntervalSeconds), hourAngle: 0, declination: 45.0, siteLatitude: SiteLatitude, cancellationToken: cts.Token);
         }
-        finally
+        catch (OperationCanceledException)
         {
-            try { tempDir.Delete(true); } catch { /* best effort */ }
+            // Expected
         }
+
+        output.WriteLine($"Guide iterations: {iterationCount}");
+        output.WriteLine($"Total samples: {guideLoop.ErrorTracker.TotalSamples}");
+        output.WriteLine($"RA RMS: {guideLoop.ErrorTracker.RaRmsAll:F3} px");
+        output.WriteLine($"Dec RMS: {guideLoop.ErrorTracker.DecRmsAll:F3} px");
+
+        if (guideLoop.PerformanceMonitor is not null)
+        {
+            output.WriteLine($"Neural RMS: {guideLoop.PerformanceMonitor.NeuralRms:F3}");
+            output.WriteLine($"P-controller RMS: {guideLoop.PerformanceMonitor.PControllerRms:F3}");
+            output.WriteLine($"Neural helping: {guideLoop.PerformanceMonitor.IsNeuralModelHelping}");
+        }
+
+        guideLoop.ErrorTracker.TotalSamples.ShouldBeGreaterThan(0u);
+        guideLoop.IsGuiding.ShouldBeFalse("loop should have stopped");
+
+        // Verify model was saved
+        var savedFiles = new DirectoryInfo(Path.Combine(tempDir.FullName, "NeuralGuider")).GetFiles("*.ngm");
+        savedFiles.Length.ShouldBeGreaterThan(0, "model weights should have been saved");
     }
 
     [Theory(Timeout = 60_000)]
@@ -682,68 +679,61 @@ public class GuideLoopTests(ITestOutputHelper output)
             offlineTrainer.TrainEpoch(calResult.Value, pController, maxPulseMs: 2000, siteLatitude: SiteLatitude, numSamples: 128, seed: e);
         }
 
-        var tempDir = Directory.CreateTempSubdirectory("guide_loop_seeing_online_test_");
+        var tempDir = _folders.Create("guide_loop_seeing_online_test_");
+        var guideLoop = new GuideLoop(pulseTarget, tracker, pController, timeProvider);
+        guideLoop.SetCalibration(calResult.Value);
+        guideLoop.EnableNeuralModel(model);
+        guideLoop.EnableOnlineLearning(onlineLearningRate: 0.0001f, profileFolder: tempDir);
+        guideLoop.OnlineTrainingInterval = 10;
+        guideLoop.MinExperiencesBeforeTraining = 15;
+
+        guideLoop.IsOnlineLearningEnabled.ShouldBeTrue();
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var iterationCount = 0;
+
+        async ValueTask<Image> RenderAndCount(CancellationToken token)
+        {
+            if (++iterationCount >= 80)
+            {
+                await cts.CancelAsync();
+            }
+            return await RenderFrame(token);
+        }
+
         try
         {
-            var guideLoop = new GuideLoop(pulseTarget, tracker, pController, timeProvider);
-            guideLoop.SetCalibration(calResult.Value);
-            guideLoop.EnableNeuralModel(model);
-            guideLoop.EnableOnlineLearning(onlineLearningRate: 0.0001f, profileFolder: tempDir);
-            guideLoop.OnlineTrainingInterval = 10;
-            guideLoop.MinExperiencesBeforeTraining = 15;
-
-            guideLoop.IsOnlineLearningEnabled.ShouldBeTrue();
-
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            var iterationCount = 0;
-
-            async ValueTask<Image> RenderAndCount(CancellationToken token)
-            {
-                if (++iterationCount >= 80)
-                {
-                    await cts.CancelAsync();
-                }
-                return await RenderFrame(token);
-            }
-
-            try
-            {
-                await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(2), hourAngle: 0, declination: 45.0, siteLatitude: SiteLatitude, cancellationToken: cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                // Expected
-            }
-
-            output.WriteLine($"[{label}] Guide iterations: {iterationCount}");
-            output.WriteLine($"[{label}] Total samples: {guideLoop.ErrorTracker.TotalSamples}");
-            output.WriteLine($"[{label}] RA RMS: {guideLoop.ErrorTracker.RaRmsAll:F3} px");
-            output.WriteLine($"[{label}] Dec RMS: {guideLoop.ErrorTracker.DecRmsAll:F3} px");
-            output.WriteLine($"[{label}] Total RMS: {guideLoop.ErrorTracker.TotalRmsAll:F3} px");
-
-            if (guideLoop.PerformanceMonitor is not null)
-            {
-                output.WriteLine($"[{label}] Neural RMS: {guideLoop.PerformanceMonitor.NeuralRms:F3}");
-                output.WriteLine($"[{label}] P-controller RMS: {guideLoop.PerformanceMonitor.PControllerRms:F3}");
-                output.WriteLine($"[{label}] Neural helping: {guideLoop.PerformanceMonitor.IsNeuralModelHelping}");
-            }
-
-            guideLoop.ErrorTracker.TotalSamples.ShouldBeGreaterThan(0u);
-            guideLoop.IsGuiding.ShouldBeFalse("loop should have stopped");
-
-            // Guiding should keep RMS bounded even with seeing + online learning
-            // Seeing adds noise floor but the combination of P-controller + neural should cope
-            guideLoop.ErrorTracker.TotalRmsAll.ShouldBeLessThan(15.0,
-                $"guiding with online learning should keep total RMS bounded even with {label}");
-
-            // Verify model was saved (online learning persists weights)
-            var savedFiles = new DirectoryInfo(Path.Combine(tempDir.FullName, "NeuralGuider")).GetFiles("*.ngm");
-            savedFiles.Length.ShouldBeGreaterThan(0, "model weights should have been saved during online learning");
+            await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(2), hourAngle: 0, declination: 45.0, siteLatitude: SiteLatitude, cancellationToken: cts.Token);
         }
-        finally
+        catch (OperationCanceledException)
         {
-            try { tempDir.Delete(true); } catch { /* best effort */ }
+            // Expected
         }
+
+        output.WriteLine($"[{label}] Guide iterations: {iterationCount}");
+        output.WriteLine($"[{label}] Total samples: {guideLoop.ErrorTracker.TotalSamples}");
+        output.WriteLine($"[{label}] RA RMS: {guideLoop.ErrorTracker.RaRmsAll:F3} px");
+        output.WriteLine($"[{label}] Dec RMS: {guideLoop.ErrorTracker.DecRmsAll:F3} px");
+        output.WriteLine($"[{label}] Total RMS: {guideLoop.ErrorTracker.TotalRmsAll:F3} px");
+
+        if (guideLoop.PerformanceMonitor is not null)
+        {
+            output.WriteLine($"[{label}] Neural RMS: {guideLoop.PerformanceMonitor.NeuralRms:F3}");
+            output.WriteLine($"[{label}] P-controller RMS: {guideLoop.PerformanceMonitor.PControllerRms:F3}");
+            output.WriteLine($"[{label}] Neural helping: {guideLoop.PerformanceMonitor.IsNeuralModelHelping}");
+        }
+
+        guideLoop.ErrorTracker.TotalSamples.ShouldBeGreaterThan(0u);
+        guideLoop.IsGuiding.ShouldBeFalse("loop should have stopped");
+
+        // Guiding should keep RMS bounded even with seeing + online learning
+        // Seeing adds noise floor but the combination of P-controller + neural should cope
+        guideLoop.ErrorTracker.TotalRmsAll.ShouldBeLessThan(15.0,
+            $"guiding with online learning should keep total RMS bounded even with {label}");
+
+        // Verify model was saved (online learning persists weights)
+        var savedFiles = new DirectoryInfo(Path.Combine(tempDir.FullName, "NeuralGuider")).GetFiles("*.ngm");
+        savedFiles.Length.ShouldBeGreaterThan(0, "model weights should have been saved during online learning");
     }
 
     [Fact(Timeout = 60_000)]

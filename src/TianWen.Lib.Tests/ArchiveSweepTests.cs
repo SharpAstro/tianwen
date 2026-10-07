@@ -17,12 +17,16 @@ namespace TianWen.Lib.Tests
     /// success and leaves a path naming the wrong file is the failure worth catching.
     /// </summary>
     [Collection("Imaging")]
-    public class ArchiveSweepTests
+    public class ArchiveSweepTests : IDisposable
     {
         private const int Block = FitsFixture.Block;
 
-        private static string TempDir([System.Runtime.CompilerServices.CallerMemberName] string? name = null)
-            => FitsFixture.CreateTempDir("TianWen.ArchiveSweepTests", name ?? "unnamed");
+        private readonly TempFolders _folders = new TempFolders();
+
+        public void Dispose() => _folders.Dispose();
+
+        private string TempDir([System.Runtime.CompilerServices.CallerMemberName] string? name = null)
+            => FitsFixture.CreateTempDir(_folders, name ?? "unnamed");
 
         /// <summary>The primary header as text, so a test can ask whether a card is THERE rather
         /// than trusting a parser to agree with the writer.</summary>
