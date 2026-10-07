@@ -1138,6 +1138,15 @@ with the interquartile range:
   13.8) and moves the sky far from them more, not less (0.390 sigma RMS against 0.221; the registered sky RMS 0.620
   against 0.399). If the seeds hold it, the mask frees the model to take faint source-like structure, and it takes it
   from the star-free sky too.
+- **The generator against the Pleiades, by eye (2026-10-07).** `tianwen dataset synthetic-background` draws it over any
+  starless plate beside the plate's own cutout (`SyntheticBackgroundPreview`). Over StarXTerminator's starless of the
+  iTelescope M45 stack (RASA 11, FWHM 7.22 px, so 1 to 16 px drawn anew): on smooth sky it is the plate plus its knots,
+  but on the reflection nebula it is wrong in kind. The real nebula's fine scales are long, smooth striations aligned
+  over hundreds of pixels and a bright arc about 15 px wide; the synthetic texture there is isotropic and clumpy, a
+  log-normal of the right energy and the wrong shape. D1 read only the spectrum's index and tails, which cannot see
+  orientation. A star remover taught on it never sees a filament cross a star, which is the Pleiades' whole difficulty;
+  the fix is an anisotropic texture whose orientation follows the plate's own coarse structure, measured first on the
+  plates (the structure tensor's coherence per scale and class, beside D1's index).
 
 Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
 residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,
