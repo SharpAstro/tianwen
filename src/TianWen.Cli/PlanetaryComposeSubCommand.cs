@@ -39,6 +39,7 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         command.Subcommands.Add(BuildRegister());
         command.Subcommands.Add(BuildDerotate());
         command.Subcommands.Add(BuildJoin());
+        command.Subcommands.Add(BuildLuminance());
         command.Subcommands.Add(BuildLrgb());
 
         command.SetAction(async (parseResult, ct) =>
@@ -155,6 +156,67 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
             }
             var output = parseResult.GetValue(outputOpt) ?? DefaultName(stacks[0].Planet, stacks[0].Instant);
             return await WriteComposedAsync(composed, output, ct) ? 0 : 1;
+        });
+        return command;
+    }
+
+    private Command BuildLuminance()
+    {
+        var masterArg = new Argument<string>("master") { Description = "The colour master to make the luminance from (FITS): a Bayer drizzle's, as stacked." };
+        var ontoOpt = new Option<string?>("--onto") { Description = "Another master of the same capture (FITS) to place the luminance on, by the two limb fits: the demosaic's, whose colours it details." };
+        var wavelengthOpt = new Option<string?>("--wavelength") { Description = "The channels' effective wavelengths, nm, red, green and blue (610,530,460 when not given)." };
+        var outputOpt = new Option<string?>("--output", "-o") { Description = "The luminance to write (FITS); <master>_luminance.fits beside the master when not given." };
+        var command = new Command("luminance", "A luminance from a colour master's planes (#1330): each on green's scale by the disk, weighted by its noise, and placed on another master's disk with --onto; sharpen it as a mono master at the wavelength it prints, then carry it in with the lrgb step.")
+        {
+            Arguments = { masterArg },
+            Options = { ontoOpt, wavelengthOpt, outputOpt },
+        };
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var masterPath = parseResult.GetValue(masterArg) ?? "";
+            if (!Image.TryReadFitsFile(masterPath, out var master))
+            {
+                consoleHost.WriteError($"{masterPath}: not a readable FITS");
+                return 1;
+            }
+            Image? onto = null;
+            if (parseResult.GetValue(ontoOpt) is { } ontoPath && !Image.TryReadFitsFile(ontoPath, out onto))
+            {
+                consoleHost.WriteError($"{ontoPath}: not a readable FITS");
+                return 1;
+            }
+            if (PlanetaryCaptureName.Named(master.ImageMeta.ObjectName) is not { } planet || PlanetaryBestStack.InstantOf(master, epoch: null) is not { } instant)
+            {
+                consoleHost.WriteError($"{masterPath}: no planet (OBJECT) or instant (DATE-OBS) in its header");
+                return 1;
+            }
+            if (PlanetaryMasterScore.Wavelengths(consoleHost, parseResult.GetValue(wavelengthOpt) ?? "610,530,460") is not { Length: 3 } wavelengths)
+            {
+                consoleHost.WriteError("--wavelength: red, green and blue");
+                return 1;
+            }
+            var (luminance, parts, wavelengthNm, refusal) = await Task.Run(() => PlanetaryComposition.Luminance(master, planet, instant, wavelengths, onto, Say), ct);
+            if (luminance is null)
+            {
+                consoleHost.WriteError(refusal ?? "no luminance");
+                return 1;
+            }
+            var inv = CultureInfo.InvariantCulture;
+            string[] names = ["red", "green", "blue"];
+            for (var c = 0; c < parts.Length; c++)
+            {
+                consoleHost.WriteScrollable(string.Create(inv,
+                    $"{names[c]}: scale {parts[c].Scale:0.0000} onto green by the disk, noise {parts[c].ScaledNoise:G4} on green's scale, weight {parts[c].Weight:P1}"));
+            }
+            var noise = SyntheticLuminance.BlockNoise(luminance);
+            var best = parts.Min(p => p.ScaledNoise);
+            consoleHost.WriteScrollable(string.Create(inv,
+                $"the luminance's noise {noise:G4} against the best single channel's {best:G4}: {best / noise:F2}x its signal to noise; sharpen it at {wavelengthNm:0} nm"));
+            var output = parseResult.GetValue(outputOpt) ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(masterPath)) ?? ".", Path.GetFileNameWithoutExtension(masterPath) + "_luminance.fits");
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output)) ?? ".");
+            luminance.WriteToFitsFile(output);
+            consoleHost.WriteScrollable($"wrote {output}");
+            return 0;
         });
         return command;
     }

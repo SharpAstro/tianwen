@@ -473,6 +473,105 @@ public static class PlanetaryComposition
     }
 
     /// <summary>
+    /// A luminance from a colour master's three planes (#1330), the planetary twin of <see cref="SyntheticLuminance"/>: each plane put on
+    /// green's scale by the disk (its mean above its sky inside 0.9 radii, clear of Saturn's rings, against green's: a planet has no
+    /// stars to read a scale from), weighted by the inverse of its noise on that scale (read over 4 px blocks of the sky past
+    /// <see cref="SkyNoiseRadii"/>, never over the disk, whose structure a noisy plane's reading takes in), and combined by
+    /// <see cref="SyntheticLuminance.Combine"/>. With <paramref name="onto"/>,
+    /// another master of the same capture, the luminance is placed on that master's disk by the two limb fits (<see cref="Register"/>,
+    /// <paramref name="onto"/>'s green the reference), so a Bayer drizzle's luminance can detail the demosaic's colours. Also returns the
+    /// luminance's effective wavelength, the weights' mean of <paramref name="wavelengthsNm"/>, which it is sharpened at. Null with the
+    /// reason in words for a master that is not three planes, a limb that does not fit, or a placement <see cref="Register"/> refuses.
+    /// </summary>
+    public static (Image? Luminance, SyntheticLuminance.Channel[] Parts, double WavelengthNm, string? Refusal) Luminance(Image colour, CatalogIndex planet,
+        DateTimeOffset instant, IReadOnlyList<double> wavelengthsNm, Image? onto = null, Action<string>? say = null)
+    {
+        ArgumentNullException.ThrowIfNull(colour);
+        ArgumentNullException.ThrowIfNull(wavelengthsNm);
+        if (colour.ChannelCount != 3 || wavelengthsNm.Count != 3)
+        {
+            return (null, [], double.NaN, $"a colour master has three planes and three wavelengths, this one {colour.ChannelCount} and {wavelengthsNm.Count}");
+        }
+        var options = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, instant));
+        if (PlanetaryLimbFit.Fit(colour, options) is not { } fit)
+        {
+            return (null, [], double.NaN, "the master's limb did not fit");
+        }
+        var disk = MetricDisk.From(fit, options);
+        var (width, height) = (colour.Width, colour.Height);
+        var planes = new Image[3];
+        var levels = new double[3];
+        for (var c = 0; c < 3; c++)
+        {
+            var plane = colour.GetChannelArray(c);
+            var (max, min) = Extent([plane]);
+            planes[c] = new Image([plane], BitDepth.Float32, max, min, 0, colour.ImageMeta with { SensorType = SensorType.Monochrome });
+            var span = planes[c].GetChannelSpan(0);
+            double sum = 0;
+            var count = 0;
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    if (disk.RadiiAt(x, y) < 0.9 && !disk.RingTouched(x, y))
+                    {
+                        (sum, count) = (sum + span[(y * width) + x], count + 1);
+                    }
+                }
+            }
+            levels[c] = count > 0 && PlanetaryMetrics.SkyLevel(span, width, height, disk) is { } sky ? (sum / count) - sky : double.NaN;
+            if (!(levels[c] > 0))
+            {
+                return (null, [], double.NaN, $"plane {c}: no level above its sky on the disk to scale it by");
+            }
+        }
+        // Green the reference, as the deep-sky luminance puts it: each plane's scale is green's level over its own.
+        var parts = new SyntheticLuminance.Channel[3];
+        var inverseVariance = new double[3];
+        double total = 0;
+        for (var c = 0; c < 3; c++)
+        {
+            var scale = levels[1] / levels[c];
+            var noise = SkyBlockNoise(planes[c], disk);
+            if (!double.IsFinite(noise))
+            {
+                say?.Invoke($"plane {c}: no sky past {SkyNoiseRadii} radii to read its noise on; read over the whole plane, the planet's structure in it");
+                noise = SyntheticLuminance.BlockNoise(planes[c]);
+            }
+            var scaledNoise = scale * noise;
+            inverseVariance[c] = 1.0 / (scaledNoise * scaledNoise);
+            total += inverseVariance[c];
+            parts[c] = new SyntheticLuminance.Channel(scale, PixelNoise.FiniteMedian(planes[c].GetChannelSpan(0)), noise, scaledNoise, 0, 0);
+        }
+        double wavelength = 0;
+        for (var c = 0; c < 3; c++)
+        {
+            parts[c] = parts[c] with { Weight = inverseVariance[c] / total };
+            wavelength += parts[c].Weight * wavelengthsNm[c];
+        }
+        var luminance = SyntheticLuminance.Combine(planes, parts, reference: 1);
+        if (onto is null)
+        {
+            return (luminance, parts, wavelength, null);
+        }
+        if (onto.ChannelCount != 3)
+        {
+            return (null, parts, wavelength, $"the master to place it on has {onto.ChannelCount} planes, where a colour master has three");
+        }
+        var green = onto.GetChannelArray(1);
+        var (gMax, gMin) = Extent([green]);
+        PlanetaryMonoStack[] pair =
+        [
+            new PlanetaryMonoStack("the master's green", new Image([green], BitDepth.Float32, gMax, gMin, 0, onto.ImageMeta with { Filter = Filter.Green }), planet, instant, Filter.Green),
+            new PlanetaryMonoStack("the luminance", luminance, planet, instant, Filter.Luminance),
+        ];
+        var (registration, refusal) = Register(pair, say);
+        return registration is null
+            ? (null, parts, wavelength, refusal)
+            : (registration.Stacks[1].Image, parts, wavelength, null);
+    }
+
+    /// <summary>
     /// The recipe: <see cref="Register"/>, <see cref="Derotate"/> and <see cref="Join"/> on ingested stacks, in order, and with
     /// <paramref name="withLuminance"/> the luminance carried in (<see cref="WithLuminance"/>), with nothing between them a file would not
     /// carry, so the steps' verbs run one by one give the same master to the bit.
@@ -507,6 +606,30 @@ public static class PlanetaryComposition
         say?.Invoke(string.Create(CultureInfo.InvariantCulture,
             $"the luminance carried in at scales red {scales[0]:0.000}, green {scales[1]:0.000}, blue {scales[2]:0.000}"));
         return (composed with { Master = detailed }, derotation, null);
+    }
+
+    /// <summary>The radii, rings counted (<see cref="MetricDisk.ClearRadiiAt"/>), past which <see cref="Luminance"/> reads a plane's noise: past the halo, as the metrics' sky.</summary>
+    public const double SkyNoiseRadii = 1.3;
+
+    // A plane's noise per pixel over 4 px blocks of the sky past SkyNoiseRadii, the deep-sky luminance's block noise
+    // (SyntheticLuminance.BlockNoise) kept off the planet. Over the whole plane its second pass, which leaves out a block whose peak stands
+    // far above the noise, left out the disk's structured blocks of a quiet plane and kept a noisy one's, so the noisier the plane the more
+    // of its structure it read as noise (on a rendered master with noise of 0.002, 0.004 and 0.008, green read 0.0022 and blue 0.0117).
+    // NaN with no two sky blocks side by side.
+    private static double SkyBlockNoise(Image plane, in MetricDisk disk)
+    {
+        var (width, height) = (plane.Width, plane.Height);
+        var source = plane.GetChannelSpan(0);
+        var sky = new float[source.Length];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var i = (y * width) + x;
+                sky[i] = disk.ClearRadiiAt(x, y) > SkyNoiseRadii ? source[i] : float.NaN;
+            }
+        }
+        return PixelNoise.FromBlocks(sky, width, SyntheticLuminance.NoiseBlockPx);
     }
 
     // A stack's limb, fitted at its own instant (Saturn's rings in the model).
