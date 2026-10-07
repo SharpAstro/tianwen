@@ -166,6 +166,44 @@ public sealed class PlanetaryCompositionTests : IDisposable
         worst.ShouldBeLessThan(0.01, "the cropped stack lands where the whole one does");
     }
 
+    [Fact(Timeout = 300_000)]
+    public void ALuminanceFromAnotherStackIsScaledByTheDiskWeightedByNoiseAndPlacedOnTheOthersDisk()
+    {
+        // Two colour masters of one capture (#1330): the "demosaic" to place on, and the "drizzle" the luminance is made from, framed
+        // 1.7 and -0.9 px away, its red, green and blue at their own levels and with their own noise.
+        var ct = TestContext.Current.CancellationToken;
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Start);
+        double[] levels = [0.9, 0.8, 0.6];
+        double[] sigmas = [0.004, 0.002, 0.008];
+        var onto = Colour(aspect, new DiskPlacement(63.6, 64.3, Radius, TrueNorth), levels, null);
+        var drizzle = Colour(aspect, new DiskPlacement(65.3, 63.4, Radius, TrueNorth), levels, sigmas);
+
+        var (luminance, parts, wavelength, refusal) = PlanetaryComposition.Luminance(drizzle, CatalogIndex.Jupiter, Start, [610, 530, 460], onto);
+        luminance.ShouldNotBeNull(refusal);
+        ct.ThrowIfCancellationRequested();
+
+        for (var c = 0; c < 3; c++)
+        {
+            TestContext.Current.TestOutputHelper?.WriteLine(
+                $"plane {c}: scale {parts[c].Scale:0.0000} (levels say {levels[1] / levels[c]:0.0000}), noise {parts[c].ScaledNoise:G4} on green's scale, weight {parts[c].Weight:P1}");
+            parts[c].Scale.ShouldBe(levels[1] / levels[c], 0.02 * levels[1] / levels[c], "each plane on green's scale by the disk's level");
+            // Read on the sky: over the whole plane the noisiest plane took in the disk's structure (blue read 0.0117 for 0.008).
+            parts[c].Noise.ShouldBe(sigmas[c], 0.15 * sigmas[c], "each plane's noise is its own, not its planet's structure");
+        }
+        parts[1].Weight.ShouldBeGreaterThan(parts[0].Weight, "green is the least noisy on green's scale");
+        parts[0].Weight.ShouldBeGreaterThan(parts[2].Weight, "blue the noisiest");
+        wavelength.ShouldBeInRange(500, 560, "the weights' mean leans to green's 530 nm");
+        SyntheticLuminance.BlockNoise(luminance).ShouldBeLessThan(parts.Min(p => p.ScaledNoise), "the luminance is cleaner than its best plane");
+
+        // Placed on the other master's disk: the luminance's limb lies where the demosaic's green does.
+        (luminance.Width, luminance.Height).ShouldBe((onto.Width, onto.Height));
+        var options = PlanetaryLimbFit.OptionsFor(aspect);
+        var placed = PlanetaryLimbFit.Fit(luminance, options).ShouldNotBeNull();
+        var target = PlanetaryLimbFit.Fit(onto, options).ShouldNotBeNull();
+        placed.CenterX.ShouldBe(target.CenterX, 0.1);
+        placed.CenterY.ShouldBe(target.CenterY, 0.1);
+    }
+
     [Fact]
     public void AStackWithoutItsLabelsSaysWhichOneIsMissing()
     {
@@ -206,6 +244,29 @@ public sealed class PlanetaryCompositionTests : IDisposable
             plane[i] = (float)(plane[i] * level);
         }
         return plane;
+    }
+
+    // A colour master rendered on a disk, each plane at its level, with Gaussian noise of the given spreads when given.
+    private static Image Colour(in PlanetAspect aspect, in DiskPlacement disk, double[] levels, double[]? sigmas)
+    {
+        var random = new Random(1330);
+        var planes = new float[3][,];
+        for (var c = 0; c < 3; c++)
+        {
+            var plane = Render(aspect, disk, levels[c]);
+            if (sigmas is not null)
+            {
+                for (var i = 0; i < plane.Length; i++)
+                {
+                    // Box-Muller.
+                    var (u1, u2) = (1.0 - random.NextDouble(), random.NextDouble());
+                    plane[i] += (float)(sigmas[c] * Math.Sqrt(-2 * Math.Log(u1)) * Math.Cos(2 * Math.PI * u2));
+                }
+            }
+            planes[c] = ToPlane(plane);
+        }
+        var meta = new ImageMeta { ObjectName = "Jupiter", ExposureStartTime = Start, SensorType = SensorType.Color };
+        return new Image(planes, BitDepth.Float32, 1, 0, 0, meta);
     }
 
     // Each stack written to its own FITS and read back as a compose step's verb reads it.
