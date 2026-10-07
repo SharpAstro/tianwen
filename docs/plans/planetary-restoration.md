@@ -2481,10 +2481,21 @@ It was adopted only if it left the twin no more than 0.02 more band error at eve
   kept, so the share is what buys the rate and the reference what keeps it.
 - **`RollingWindowOptions.Legacy` folds every frame and rebuilds**, the stack as it was, and `planetary-live --keep` and
   `--aged-reference` replay any recipe at any share either way.
-- **Lanczos-3 at the new defaults waits on a quiet machine (#1272)**, the issue's third box: its first run was taken while another
-  session's bake held about 13 of the 16 cores, and the control (the defaults' own registration at K = 0.25 in place) graded 80 % and
-  53 % where it had graded 99 % and 96 % an hour before, so neither keep-up reading meant anything. #1272 holds the rule, the
-  commands, the baselines and the check that a run was quiet.
+- **Lanczos-3 does not join the live stack at the new defaults (#1272), the issue's third box.** The rule asked for both:
+  1. it keeps up, by 95 % graded, at most half the masters rebuilt and a median lag of at most 1 s;
+  2. the twin's last master leaves less band error than the defaults'.
+
+  The first two runs (2026-10-05 and 06) were unread: other sessions' bakes and evaluations held the cores, and the grade had grown 2.9 times
+  dearer (#1310). The third (2026-10-07, after #1310) was read, because the control (the defaults' own registration at K = 0.25 in place)
+  reproduced #1174's readings.
+
+  | At K 0.25 in place | Red at 216: graded, median lag, rebuilds | Twin at 250: graded, lag, rebuilds | Twin, bands 1 to 4 |
+  |---|---|---|---|
+  | plain (the defaults, the control) | 99 %, 0.40 s, 2 of 89 | 96 %, 0.62 s, 1 of 15 | 1.539 |
+  | pipeline (Lanczos-3) | 82 %, 2.16 s, 22 of 27 | 80 %, 1.23 s, 5 of 8 | 1.472 |
+
+  Rule 2 holds: Lanczos-3 is the sharper stack whenever it gets its frames, as R5 part 3 showed. Rule 1 fails on every count on both
+  captures, so the live stack keeps the plain correlation's bilinear warp.
 - **A pixel no folded frame reaches reads 0 (#1319).** At 60 frames a second, the twin's last master swung from 1.61 to 7.09 (bands 1
   to 4) between replays of one recipe; with the reference rebuilt it read 1.536 every time.
   - Kept in place, the window is never folded again from nothing, so each eviction leaves float rounding in the weight and the sum.
