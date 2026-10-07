@@ -178,7 +178,7 @@ public sealed class PlanetaryCompositionTests : IDisposable
         var onto = Colour(aspect, new DiskPlacement(63.6, 64.3, Radius, TrueNorth), levels, null);
         var drizzle = Colour(aspect, new DiskPlacement(65.3, 63.4, Radius, TrueNorth), levels, sigmas);
 
-        var (luminance, parts, wavelength, refusal) = PlanetaryComposition.Luminance(drizzle, CatalogIndex.Jupiter, Start, [610, 530, 460], onto);
+        var (luminance, parts, noise, wavelength, refusal) = PlanetaryComposition.Luminance(drizzle, CatalogIndex.Jupiter, Start, [610, 530, 460], onto);
         luminance.ShouldNotBeNull(refusal);
         ct.ThrowIfCancellationRequested();
 
@@ -193,7 +193,7 @@ public sealed class PlanetaryCompositionTests : IDisposable
         parts[1].Weight.ShouldBeGreaterThan(parts[0].Weight, "green is the least noisy on green's scale");
         parts[0].Weight.ShouldBeGreaterThan(parts[2].Weight, "blue the noisiest");
         wavelength.ShouldBeInRange(500, 560, "the weights' mean leans to green's 530 nm");
-        SyntheticLuminance.BlockNoise(luminance).ShouldBeLessThan(parts.Min(p => p.ScaledNoise), "the luminance is cleaner than its best plane");
+        noise.ShouldBeLessThan(parts.Min(p => p.ScaledNoise), "the luminance is cleaner than its best plane, read on the sky as they are");
 
         // Placed on the other master's disk: the luminance's limb lies where the demosaic's green does.
         (luminance.Width, luminance.Height).ShouldBe((onto.Width, onto.Height));

@@ -1201,7 +1201,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   (`PlanetaryDrizzleOptions.DefaultPixfrac`, 4.01 and 4.41 against the demosaic's 4.24 and 4.59). Read those margins against the
   derived gains' own swing: every drop's unsharpened stack is within 0.4 % of a whole photosite's, while the finest-band edge reading
   the gains are fitted through moves 0.01 to 0.12 between them and one drop's error 17 %. Drizzle does not remove the CFA lattice; the
-  gain did, by lifting it.
+  gain did, by lifting it. **A luminance from the drizzle's planes in the demosaic's colours is a verb, not the default** (`planetary-compose
+  luminance` then `lrgb`, #1330): on the twins its mono sharpening lifted the CFA residue 28 times near Nyquist (0.02 to 0.56 %) and red took
+  green's detail; on the real captures its lattice was half to a twentieth of the demosaic's, and its detail against the posts did not beat it.
 - **A planet is de-rotated through the spheroid, as ALBEDO, and only from sources inside 0.9 radii** (R6, `PlanetaryDerotation`,
   `PlanetaryProjection`, which the render shares): the limb darkening and the Sun's lighting belong to the viewing geometry, so each
   sample is relit by Minnaert's law (carried as brightness, 46 % of a rendered rotation went, as albedo 99.3 %), and nearer the limb a

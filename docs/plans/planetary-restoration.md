@@ -4622,6 +4622,65 @@ the three colours, and each colour's limb profile.
 - **No lattice to speak of in any arm**: each plane's power at Nyquist is at most 6e-8 of its whole. Unsharpened, drizzle leaves 2,000 to
   13,000 times the demosaic's in red and blue (0.5 about twice a whole photosite's); sharpened, up to 7.5 times (red, 0.5, seed 2).
 
+### A drizzle luminance with the demosaic's colour (#1330)
+
+**The owner's idea** (2026-10-07): as the deep-sky colour composition makes a synthetic luminance, make one from the Bayer drizzle's planes
+(sensor grid, half-photosite drop) and carry its detail into the demosaic master's sharpened colours. The planetary step is `planetary-compose
+luminance` (`PlanetaryComposition.Luminance`):
+- each plane is put on green's scale by its disk (its mean above its sky inside 0.9 radii, clear of the rings: a planet has no stars);
+- each is weighted by its noise, read over 4 px blocks of the sky past 1.3 radii, and the planes are combined by `SyntheticLuminance.Combine`;
+- with `--onto`, the luminance is placed on the demosaic's disk by the two limb fits.
+
+The luminance is then sharpened as a mono master, band 1 derived, at the weights' mean wavelength (534 to 555 nm here). The deep-sky LRGB step
+(`planetary-compose lrgb`) carries it into the demosaic's sharpened colours.
+
+**The arms:** A the demosaic, B per-channel drizzle, C the drizzle's luminance in A's colours. The rules were registered on #1330 before
+anything ran:
+1. **Detail:** C's band error below A's and B's on every twin.
+2. **Colour:** C's colour no more than 5 % further from the truth than A's.
+3. **Against the posts:** C's detail correlation at least A's, at strength 1 and 2.
+4. **Lattice:** C's no higher than A's.
+
+The twins were stacked as #1092 stacked them, and A and B reproduce that table to the last digit:
+
+| Twin | band error A | B | C | colour from the truth, A / C | lattice, A / C (worst of a channel) |
+|---|---|---|---|---|---|
+| Jupiter `uc-g4` | 4.242 | **4.013** | 5.320 | 0.0474 / 0.0496 | 0.007 to 0.020 / 0.54 to 0.56 % |
+| Jupiter `uc-g4s2` | 4.585 | **4.411** | 6.134 | 0.0522 / **0.0564** | 0.008 to 0.023 / 0.94 to 0.99 % |
+| Saturn `sat-p5` | 3.975 | 3.891 | **3.863** | 0.0200 / 0.0195 | 0.029 to 0.058 / 0.028 to 0.033 % |
+| (Saturn `sat-p5s2`, recorded, not gated) | 4.055 | **3.916** | 4.004 | 0.0223 / 0.0230 | 0.028 to 0.069 / 0.040 to 0.048 % |
+
+The real captures went through `planetary-stack`'s full default chain, each judged against its post:
+
+| Capture | detail vs the post, A | B | C | lattice, A / C |
+|---|---|---|---|---|
+| Jupiter, EdgeHD 11 + 678MC, strength 1 / 2 | **0.943** / **0.955** | 0.922 / 0.944 | 0.937 / 0.953 | 0.064 to 0.066 / 0.032 % |
+| Saturn, Meade 16 + Uranus-C | 0.900 / 0.924 | 0.888 / 0.917 | 0.900 / 0.924 | 0.092 to 0.136 / 0.010 % |
+| Jupiter, 12-inch SCT + 224MC | 0.970 / 0.968 | 0.970 / **0.972** | **0.972** / 0.971 | 0.043 to 0.057 / 0.002 % |
+
+**Not adopted.** Rule 1 fails on both Jupiter twins (it holds on Saturn's), rule 2 on `uc-g4s2` (+8.0 %), rule 3 on the EdgeHD Jupiter at
+both strengths, and rule 4 on the Jupiter twins. The step stays a verb, and what becomes of it is the owner's call (#1330).
+- **On the Jupiter twins the luminance's own sharpening lifts its CFA residue.**
+  - Combined, the luminance carries no more lattice than the stacks (0.020 %). Sharpened as a mono master it carries 0.56 %.
+  - The twins are sampled coarser than their optics resolve (cutoff 1.15 cycles a pixel), so the derived gain near Nyquist is about 28, as it
+    was on a colour master's band 1 before #1187 held it.
+  - The error lands in band 1: summed over the colours, C's band 1 reads 3.35 against A's 2.32, while bands 2 to 4 read 1.97 against 1.92.
+- **Red takes green's detail.** Green is 72 to 93 % of the luminance on the twins and the EdgeHD Jupiter, and red's band 2 error rose from
+  0.49 to 0.60 on `uc-g4`. Per-channel sharpening unmixes colour (#1295), and LRGB mixes it back.
+- **The real captures go the other way on the lattice.** They are sampled finer than their optics resolve (cutoffs 0.23 to 0.53), so the gain
+  near Nyquist is small, and C's lattice is half to a twentieth of A's. Its detail against the posts ties or barely moves: C's band 1
+  correlates best on every capture (0.509 against 0.486 on the EdgeHD Jupiter), and band 2 gives some of it back. This is #1279's caution
+  again: anything acting near the cutoff is unread on today's twins, so an oversampled twin (#1281) is what would decide the lattice half.
+- **The luminance is barely cleaner than green alone.** Its noise on the sky gives 1.01 to 1.08 times the best plane's signal to noise on
+  four of the five arms read, and 0.92 times on the SCT Jupiter, whose weights assume the planes' noise independent.
+- **Two choices, recorded on #1330 before any result.**
+  - **The weights' noise is read on the sky.** Over the whole plane, the deep-sky block noise took in the planet's structure, the more of it
+    the noisier the plane: on a rendered master, blue read 0.0117 for a true 0.008 and green 0.0022 for 0.002. On the sky they read 0.0088
+    and 0.0020.
+  - **The luminance is sharpened at the weights' mean wavelength.**
+- **The placement moved the luminance up to 2 px** on the real captures, where the two stacks' coverage crops differ by whole pixels, and
+  under 0.05 px on the twins.
+
 ### A session of many files, stacked as one run (#1308)
 
 **The owner's idea (2026-10-06):** a long capture saved as many short files can be stacked as one run, every frame carried to one instant.
