@@ -263,7 +263,9 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var outputOpt = new Option<string>("--output", "-o") { Description = "The synthetic SER to write; its truth and record go beside it.", Required = true };
         var planetOpt = new Option<string>("--planet") { Description = "jupiter or saturn.", DefaultValueFactory = _ => "jupiter" };
         var kOpt = new Option<double>("--k") { Description = "Minnaert's exponent for the map's filter.", DefaultValueFactory = _ => 0.95 };
-        var telescopeOpt = new Option<string>("--telescope") { Description = "newtonian or maksutov.", DefaultValueFactory = _ => "newtonian" };
+        // Any telescope (#1281): an aperture and an obstruction, or a known one; the Newtonian when none is given, as before.
+        var pupilOpts = PlanetaryMasterScore.PupilOptions();
+        pupilOpts.ApertureMm.Description = "The aperture, mm, of the telescope the twin is made through (with --obstruction); the 254 mm Newtonian when neither this nor --telescope is given.";
         var wavelengthOpt = new Option<double>("--wavelength") { Description = "The filter's effective wavelength, nm.", DefaultValueFactory = _ => 650 };
         var r0Opt = new Option<double>("--r0") { Description = "The Fried parameter at 500 nm, cm.", DefaultValueFactory = _ => 5 };
         var windOpt = new Option<double>("--wind") { Description = "The wind carrying the screen, m/s.", DefaultValueFactory = _ => 10 };
@@ -316,7 +318,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             "A synthetic capture from a global map with a real capture's own seeing, motion and camera (R2): measure the real one, make the synthetic one, measure it the same way, and compare.")
         {
             Arguments = { inputArg },
-            Options = { mapOpt, outputOpt, planetOpt, kOpt, telescopeOpt, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, localRenewOpt, scatterOpt, scatterCoreOpt, farWingOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, truthUpsampleOpt, spanOpt, truthAtOpt, psfTruthOpt, moonsOpt, moonLevelOpt, highR0Opt, highAltitudeOpt, highWindOpt, highWindAngleOpt, highOuterScaleOpt, fieldGridOpt, ringLevelsOpt, noTwinRingsOpt },
+            Options = { mapOpt, outputOpt, planetOpt, kOpt, pupilOpts.ApertureMm, pupilOpts.Obstruction, pupilOpts.Telescope, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, localRenewOpt, scatterOpt, scatterCoreOpt, farWingOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, truthUpsampleOpt, spanOpt, truthAtOpt, psfTruthOpt, moonsOpt, moonLevelOpt, highR0Opt, highAltitudeOpt, highWindOpt, highWindAngleOpt, highOuterScaleOpt, fieldGridOpt, ringLevelsOpt, noTwinRingsOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -427,7 +429,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 return measured;
             }
 
-            var pupil = (parseResult.GetValue(telescopeOpt) ?? "newtonian").ToLowerInvariant() == "maksutov" ? MaksutovPupil : NewtonianPupil;
+            var pupil = PlanetaryMasterScore.PupilFrom(parseResult, pupilOpts) ?? NewtonianPupil;
             // Everything the air, the telescope, the warp and the draws set: the same for every colour of one capture.
             DegradeOptions Atmosphere(double wavelengthM, double k) => new DegradeOptions(pupil, wavelengthM)
             {
@@ -471,7 +473,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             };
             string Describe(DegradeOptions o, DiskPlacement at, double pixelScale) => string.Create(CultureInfo.InvariantCulture,
                 $"disk at {at.CenterX:0.00}, {at.CenterY:0.00}, R {at.EquatorialRadius:0.00} px ({pixelScale:0.0000}\"/px), north {at.NorthAngleDeg:0.0} deg; " +
-                $"r0 {o.R0M * 100:0.0} cm at 500 nm, outer scale {(double.IsPositiveInfinity(o.OuterScaleM) ? "none" : $"{o.OuterScaleM:0.#} m")}, wind {o.WindMps:0} m/s, exposure {o.ExposureSeconds * 1000:0.#} ms, defocus {o.DefocusNm:0} nm RMS, {(double.IsFinite(o.LocalR0M) ? $"a local layer of r0 {o.LocalR0M * 100:0.0} cm, outer scale {o.LocalOuterScaleM:0.00} m, drifting {o.LocalWindMps:0.#} m/s{(o.LocalRenewSeconds is { } renew ? $", renewing over {renew * 1000:0} ms" : "")}, " : "")}{(o.ScatterFraction > 0 ? $"{o.ScatterFraction * 100:0.##} % scattered with a core of {o.ScatterCoreArcsec:0.#}\", " : "")}{o.WavelengthM * 1e9:0} nm, oversampled {PlanetaryDegrade.OversampleFor(pixelScale, pupil.DiameterM, o.WavelengthM)}x; " +
+                $"r0 {o.R0M * 100:0.0} cm at 500 nm, outer scale {(double.IsPositiveInfinity(o.OuterScaleM) ? "none" : $"{o.OuterScaleM:0.#} m")}, wind {o.WindMps:0} m/s, exposure {o.ExposureSeconds * 1000:0.#} ms, defocus {o.DefocusNm:0} nm RMS, {(double.IsFinite(o.LocalR0M) ? $"a local layer of r0 {o.LocalR0M * 100:0.0} cm, outer scale {o.LocalOuterScaleM:0.00} m, drifting {o.LocalWindMps:0.#} m/s{(o.LocalRenewSeconds is { } renew ? $", renewing over {renew * 1000:0} ms" : "")}, " : "")}{(o.ScatterFraction > 0 ? $"{o.ScatterFraction * 100:0.##} % scattered with a core of {o.ScatterCoreArcsec:0.#}\", " : "")}{o.WavelengthM * 1e9:0} nm through a {pupil.DiameterM * 1000:0} mm pupil {pupil.ObstructionRatio * 100:0.#} % obstructed{(pupil.Vanes > 0 ? $" with {pupil.Vanes} vanes" : "")} (cutoff {pupil.DiameterM / o.WavelengthM * pixelScale / 206264.806:0.000} cycles a pixel), oversampled {PlanetaryDegrade.OversampleFor(pixelScale, pupil.DiameterM, o.WavelengthM)}x; " +
                 $"camera offset {o.OffsetAdu:0.00}, read noise {o.ReadNoiseAdu:0.000} ADU, {o.ElectronsPerAdu:0.0} e-/ADU, disk {o.DiskLevelAdu:0.0} ADU; {DescribeWarp(o)}" +
                 $"{(o.KeepScreenTilt ? "the screen's tilt on the mount's drift" : "the real shifts replayed")}");
             // The planet's own level: the one measured is a frame's, through the seeing, the diffraction and the scatter, which carry
