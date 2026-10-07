@@ -213,6 +213,45 @@ public sealed class SyntheticBackground
         return amplitude;
     }
 
+    /// <summary>
+    /// A plate's own pixel noise per channel, from the pixels' differences (<see cref="PointSourceFinder.DifferenceNoise"/>,
+    /// the canvas ring <paramref name="absent"/> left out): the sigma a preview's knots are scaled by and its noise drawn at,
+    /// where the exporter has the master's calibrated noise instead. NaN for a channel the differences do not fit.
+    /// </summary>
+    public static double[] PlateNoise(Image unitPlate, BitMatrix? absent)
+    {
+        var (channels, width, height) = unitPlate.Shape;
+        var sigma = new double[channels];
+        for (var c = 0; c < channels; c++)
+        {
+            sigma[c] = PointSourceFinder.DifferenceNoise(unitPlate.GetChannelSpan(c), width, height, absent).PixelSigma;
+        }
+        return sigma;
+    }
+
+    /// <summary>
+    /// A preview of what the exporter draws, to set beside the plate it was drawn from: the <paramref name="size"/> px cell
+    /// CENTRED on (<paramref name="centreX"/>, <paramref name="centreY"/>), and, when <paramref name="noisy"/>, white noise at
+    /// <paramref name="noiseSigma"/> per channel on it. The exporter's noise is the master's own, in its shape; a preview's is
+    /// white, so its grain is finer than a demosaiced master's.
+    /// </summary>
+    public float[][] Preview(int centreX, int centreY, int size, ReadOnlySpan<double> noiseSigma, bool noisy, Random random)
+    {
+        var planes = Cell(centreX - (size / 2), centreY - (size / 2), size, noiseSigma, random, out _);
+        if (noisy)
+        {
+            for (var c = 0; c < planes.Length; c++)
+            {
+                var sigma = c < noiseSigma.Length ? noiseSigma[c] : noiseSigma[^1];
+                for (var i = 0; i < planes[c].Length; i++)
+                {
+                    planes[c][i] += (float)(sigma * Gaussian(random));
+                }
+            }
+        }
+        return planes;
+    }
+
     /// <summary>One knot a cell holds, in the cell's coordinates, its peak per channel in the plate's units.</summary>
     public readonly record struct Knot(double X, double Y, double SigmaMajorPx, double SigmaMinorPx, double AngleRad, double[] Peak);
 

@@ -108,4 +108,24 @@ public sealed class SyntheticBackgroundTests
         }
         seen.ShouldBeGreaterThan(20, "about three knots a cell");
     }
+
+    [Fact]
+    public void APreviewReadsThePlatesNoiseAndPutsItBackOnItsCentredCell()
+    {
+        var plate = Plate(6);
+        var noise = SyntheticBackground.PlateNoise(plate, absent: null);
+        noise[0].ShouldBe(Noise, 0.1 * Noise, "the plate's white noise, read off its differences");
+
+        var background = SyntheticBackground.Build(plate, absent: null, Fwhm);
+        var quiet = background.Preview(300, 200, 128, noise, noisy: false, new Random(7));
+        var noisy = background.Preview(300, 200, 128, noise, noisy: true, new Random(7));
+
+        // Centred: the cell's median is the gradient's 0.1 + 0.02 x / Size at the frame's x = 300 (a median, so a knot that
+        // fell on the middle does not move it).
+        var sorted = quiet[0].Order().ToArray();
+        ((double)sorted[sorted.Length / 2]).ShouldBe(0.1 + (0.02 * 300 / Size), Noise);
+        var added = noisy[0].Zip(quiet[0], static (a, b) => (double)(a - b)).ToArray();
+        var sd = Math.Sqrt(added.Select(static d => d * d).Average());
+        sd.ShouldBe(noise[0], 0.1 * noise[0], "the preview's grain is the plate's noise");
+    }
 }

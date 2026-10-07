@@ -497,6 +497,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 BuildDegradeCommand(),
                 BuildStarlessEvalCommand(),
                 BuildSkyTextureCommand(),
+                BuildSyntheticBackgroundCommand(),
                 BuildPlateMasksCommand(),
                 BuildBrightCellsCommand(),
                 BuildNoiseCheckCommand(),
@@ -1121,6 +1122,52 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 $"[sky-texture] {(result.Stopped ? $"STOPPED by {SkyTextureReport.StopFileName}: " : "")}measured {result.Measured}, " +
                 $"skipped {result.Skipped}, failed {result.Failed}; report: {result.OutPath}");
             return result.Failed > 0 && result.Measured == 0 ? 2 : 0;
+        });
+        return command;
+    }
+
+    /// <summary>
+    /// <c>tianwen dataset synthetic-background</c>: R2d's D2 and D3 generator over any starless plate, a cell centred on each
+    /// point asked for beside the plate's own cutout (<see cref="SyntheticBackgroundPreview"/>).
+    /// </summary>
+    private Command BuildSyntheticBackgroundCommand()
+    {
+        var plateOpt = new Option<string>("--plate") { Description = "A starless plate FITS on its master's unit scale (a plate builder's, or a starless from image remove-stars).", Required = true };
+        var fwhmOpt = new Option<double>("--fwhm") { Description = "The master's PSF width in pixels: the plate's scales from 4 of them up are kept, the finer drawn anew.", Required = true };
+        var atOpt = new Option<string?>("--at") { Description = "Cell centres, x,y pairs separated by ';' (default: the frame's middle)." };
+        var sizeOpt = new Option<int>("--size") { Description = "The cell's size in pixels (the exporter's is 256).", DefaultValueFactory = _ => 256 };
+        var seedOpt = new Option<int>("--seed") { Description = "Seed for the texture, the knots and the noise.", DefaultValueFactory = _ => 1 };
+        var noNoiseOpt = new Option<bool>("--no-noise") { Description = "The noise-free background (default: white noise at the plate's own)." };
+        var outOpt = new Option<string>("--out", "-o") { Description = "The folder plate_<x>_<y>.fits and synthetic_<x>_<y>.fits are written to. Never inside a bake store.", Required = true };
+        var command = new Command("synthetic-background",
+            "Draw R2d's synthetic starless background (the plate's coarse scales, a turbulent texture at the scales a star lives " +
+            "at held to the plate's own local signal, and knots that are never the PSF) at cells centred where asked, each " +
+            "beside the plate's own cutout there.")
+        {
+            Options = { plateOpt, fwhmOpt, atOpt, sizeOpt, seedOpt, noNoiseOpt, outOpt },
+        };
+        command.SetAction(parseResult =>
+        {
+            var centres = new List<(int X, int Y)>();
+            foreach (var pair in (parseResult.GetValue(atOpt) ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var xy = pair.Split(',', StringSplitOptions.TrimEntries);
+                if (xy.Length != 2 || !int.TryParse(xy[0], CultureInfo.InvariantCulture, out var x) || !int.TryParse(xy[1], CultureInfo.InvariantCulture, out var y))
+                {
+                    consoleHost.WriteError($"--at takes x,y pairs separated by ';': '{pair}' is not one");
+                    return 1;
+                }
+                centres.Add((x, y));
+            }
+            var (written, noise) = SyntheticBackgroundPreview.Run(parseResult.Required(plateOpt), parseResult.Required(outOpt),
+                parseResult.GetValue(fwhmOpt), centres, parseResult.GetValue(sizeOpt), parseResult.GetValue(seedOpt), !parseResult.GetValue(noNoiseOpt));
+            consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                $"[synthetic-background] the plate's noise {string.Join(" / ", noise.Select(static n => n.ToString("G3", CultureInfo.InvariantCulture)))}; {written.Length} cell(s):"));
+            foreach (var w in written)
+            {
+                consoleHost.WriteScrollable($"[synthetic-background]   ({w.X}, {w.Y}): {w.PlatePath} | {w.SyntheticPath}");
+            }
+            return 0;
         });
         return command;
     }
