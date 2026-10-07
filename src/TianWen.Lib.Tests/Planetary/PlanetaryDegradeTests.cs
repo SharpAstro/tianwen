@@ -429,6 +429,45 @@ public class PlanetaryDegradeTests
     }
 
     [Fact(Timeout = 120_000)]
+    public async Task ACropTooTightForTheFarSkyReadsTheCamerasTermsOnItsFarthestPixels()
+    {
+        // A disk of 24 px in a 64 px frame: the corners lie 1.9 radii out, nowhere near the 3 radii the far sky starts at, as on a PIPP
+        // crop of a capture sampled finer than its optics (the 2023-11-11 EdgeHD 11 + ASI678MC, #1281). The camera's offset, read noise and
+        // the disk's level came back NaN there, and a twin cannot be made from NaN; they are read on the farthest tenth past 1.3 radii.
+        const int frames = 200;
+        var none = ImmutableArray.CreateRange(Enumerable.Repeat(0.0, frames));
+        var made = await MakeAsync(none, none, size: 64, radius: 24, r0M: 0.3, readNoiseAdu: 20);
+        var planes = new float[frames][,];
+        var times = new DateTimeOffset[frames];
+        for (var i = 0; i < frames; i++)
+        {
+            planes[i] = new float[64, 64];
+            for (var y = 0; y < 64; y++)
+            {
+                for (var x = 0; x < 64; x++)
+                {
+                    planes[i][y, x] = made[i][(y * 64) + x] / (float)FullScale;
+                }
+            }
+            times[i] = Night + TimeSpan.FromMilliseconds(5 * i);
+        }
+
+        using var stream = new InMemoryFrameStream(planes, times);
+        var s = await PlanetaryCaptureStatistics.MeasureAsync(stream, new CaptureStatisticsOptions(new LimbFitOptions(0.935)) { FullScaleAdu = FullScale, Pairs = 20 },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        s.ShouldNotBeNull();
+        var camera = s.Camera;
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"far sky {camera.FarSkyLevel:0.00} ADU, noise {camera.FarSkyNoise:0.00} (read noise 20, offset 100); local sky {camera.LocalSkyLevel:0.00}; disk {camera.DiskLevel:0.0} ADU over it");
+        camera.FarSkyNoise.ShouldBe(20, 3, "the read noise, from each pixel's own spread frame to frame");
+        camera.FarSkyLevel.ShouldBeGreaterThanOrEqualTo(99, "the offset, with what is left of the planet's halo out there");
+        camera.FarSkyLevel.ShouldBeLessThan(100 + (0.05 * DiskLevel));
+        camera.LocalSkyLevel.ShouldBe(camera.FarSkyLevel, "on a crop this tight the local sky is the far sky");
+        camera.DiskLevel.ShouldBeGreaterThan(0.5 * DiskLevel);
+    }
+
+    [Fact(Timeout = 120_000)]
     public async Task AWarpedFrameKeepsTheLightThatReachedThePupil()
     {
         // A screen bends rays and never adds or takes light, so a warped frame holds the unwarped one's light; moved without its
@@ -924,7 +963,7 @@ public class PlanetaryDegradeTests
         bool keepTilt = false, Action<ImmutableArray<SyntheticFrame>>? made = null, double warpRms = 0, bool flat = false, double defocusNm = 0,
         Pupil? pupil = null, double localR0M = double.PositiveInfinity, double localOuterScaleM = 0.25, double scatter = 0,
         Action<int, SyntheticWarp>? warps = null, double highR0M = double.PositiveInfinity, double highAltitudeM = 10_000,
-        Action<int, SyntheticFieldFrame>? field = null, double electronsPerAdu = 1000, bool atShownLevel = false, bool farWing = false)
+        Action<int, SyntheticFieldFrame>? field = null, double electronsPerAdu = 1000, bool atShownLevel = false, bool farWing = false, double readNoiseAdu = 0)
     {
         var map = BandedMap(flat);
         var builder = ImmutableArray.CreateBuilder<DateTimeOffset>(shiftX.Length);
@@ -938,7 +977,7 @@ public class PlanetaryDegradeTests
             R0M = r0M,
             FullScaleAdu = FullScale,
             OffsetAdu = 100,
-            ReadNoiseAdu = 0,
+            ReadNoiseAdu = readNoiseAdu,
             ElectronsPerAdu = electronsPerAdu,
             DiskLevelAdu = DiskLevel,
             ScreenSamples = 128,

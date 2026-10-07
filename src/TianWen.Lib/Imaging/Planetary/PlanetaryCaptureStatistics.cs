@@ -321,7 +321,8 @@ public static class PlanetaryCaptureStatistics
             // Every frame's shift against the sharpest, and its light over the sky around its disk.
             var seconds = Seconds(stream, n, options.FramesPerSecond);
             var skyLevel = SkyLevel(plane, width, height, disk, rings, options.FullScaleAdu);
-            var (farSkyBright, farSkySpread) = FarSkyBright(plane, width, height, disk, rings, options.FullScaleAdu);
+            var skyRegions = SkyRegionsFor(width, height, disk, rings);
+            var (farSkyBright, farSkySpread) = FarSkyBright(plane, width, height, disk, rings, options.FullScaleAdu, skyRegions.FarInner);
             var shiftX = new double[n];
             var shiftY = new double[n];
             var flux = new double[n];
@@ -456,7 +457,7 @@ public static class PlanetaryCaptureStatistics
 
             var warp = Warp(aps, residuals, options.AlignmentPatchSize, options.AlignmentPointSpacing);
             var bandNoise = MedianNoise(noise, options.Bands);
-            var sky = await MeasureSkyAsync(stream, n, shiftX, shiftY, disk, rings, farSkyBright, farSkySpread, options.FullScaleAdu, cancellationToken).ConfigureAwait(false);
+            var sky = await MeasureSkyAsync(stream, n, shiftX, shiftY, disk, rings, farSkyBright, farSkySpread, options.FullScaleAdu, skyRegions, cancellationToken).ConfigureAwait(false);
             var diskLevel = DiskLevel(plane, width, height, disk, options.FullScaleAdu) - sky.LocalLevel;
             var camera = new CameraEstimate(options.FullScaleAdu, skyLevel, Median(skyNoise), diskLevel, sky.FarLevel, sky.FarNoise, sky.LocalLevel);
             var halo = sky.Halo;
@@ -495,7 +496,7 @@ public static class PlanetaryCaptureStatistics
     /// The version a saved file's statistics must carry to be read back (<see cref="TryLoadAsync"/>): raised whenever what is
     /// measured, or how, changes, so a file from before is measured again rather than compared as if it were current.
     /// </summary>
-    public const int FileVersion = 6;
+    public const int FileVersion = 7;
 
     /// <summary>
     /// Saves <paramref name="statistics"/> to <paramref name="path"/> under <paramref name="key"/> (the capture, its frames and the
@@ -1275,15 +1276,16 @@ public static class PlanetaryCaptureStatistics
     // The value, in ADU, above which a far-sky pixel is taken as lit by something: its median plus FarSkyBrightAdu or five robust
     // sigmas, whichever is more (an 8-bit sky's robust sigma is zero); and that robust sigma. Infinite and NaN when the frame
     // reaches no far sky.
-    private static (double Bright, double Spread) FarSkyBright(float[] plane, int width, int height, (double X, double Y, double Radius) disk, RingFootprint? rings, double scale)
+    private static (double Bright, double Spread) FarSkyBright(float[] plane, int width, int height, (double X, double Y, double Radius) disk, RingFootprint? rings, double scale,
+        double farInner)
     {
         var values = new List<double>();
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
             {
-                if (rings is null ? Math.Sqrt(((x - disk.X) * (x - disk.X)) + ((y - disk.Y) * (y - disk.Y))) >= FarSkyRadii * disk.Radius
-                    : Radii(x, y, disk.X, disk.Y, disk.Radius, rings) >= FarSkyRadii)
+                if (rings is null ? Math.Sqrt(((x - disk.X) * (x - disk.X)) + ((y - disk.Y) * (y - disk.Y))) >= farInner * disk.Radius
+                    : Radii(x, y, disk.X, disk.Y, disk.Radius, rings) >= farInner)
                 {
                     values.Add(plane[(y * width) + x] * scale);
                 }
@@ -1303,16 +1305,51 @@ public static class PlanetaryCaptureStatistics
     private const int SkyBinsEachSide = 4;
     private static readonly (double Inner, double Outer) LocalSkyAnnulus = (2.5, 3.5);
 
+    // Where the far sky starts and the local sky lies, in radii (Radii): FarSkyRadii and LocalSkyAnnulus wherever the frame reaches the
+    // far sky at all, so a capture with sky reads it exactly as before. A crop too tight for it (a PIPP crop of a capture sampled finer
+    // than its optics: the 2023-11-11 EdgeHD 11 + ASI678MC's planes reach 1.9 radii, #1281) left the far sky, the local sky and so the
+    // camera's offset, read noise and disk level NaN; there both are the farthest tenth of the pixels past 1.3 radii, the fallback
+    // PlanetaryMetrics.SkyLevel takes (#1188), whose levels then carry what is left of the planet's halo out there.
+    private const double TightCropInnerRadii = 1.3;
+
+    private static (double FarInner, double LocalInner, double LocalOuter) SkyRegionsFor(int width, int height, (double X, double Y, double Radius) disk, RingFootprint? rings)
+    {
+        var outer = new List<double>();
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var r = Radii(x, y, disk.X, disk.Y, disk.Radius, rings);
+                if (r >= FarSkyRadii)
+                {
+                    return (FarSkyRadii, LocalSkyAnnulus.Inner, LocalSkyAnnulus.Outer);
+                }
+                if (r >= TightCropInnerRadii)
+                {
+                    outer.Add(r);
+                }
+            }
+        }
+        if (outer.Count == 0)
+        {
+            return (FarSkyRadii, LocalSkyAnnulus.Inner, LocalSkyAnnulus.Outer);
+        }
+        outer.Sort();
+        var inner = outer[outer.Count - Math.Max(1, outer.Count / 10)];
+        return (inner, inner, double.PositiveInfinity);
+    }
+
     // The sky, from each pixel's own values over the first SkyFrames frames, around the disk where it stood on average meanwhile:
     // the far sky's level and read noise, the local sky's level, and each halo annulus's level over the local sky's. A pixel that
     // ever reads past `bright`, or outside the bins kept, is left out (a moon, a star, a hot pixel). A sky whose noise spans more
     // than an ADU (16 bits) is read by each pixel's own moments instead, where rounding no longer matters.
     private static async Task<(double FarLevel, double FarNoise, double LocalLevel, ImmutableArray<double> Halo)> MeasureSkyAsync(IPlanetaryFrameStream stream, int n,
-        double[] shiftX, double[] shiftY, (double X, double Y, double Radius) disk, RingFootprint? rings, double bright, double spread, double scale, CancellationToken cancellationToken)
+        double[] shiftX, double[] shiftY, (double X, double Y, double Radius) disk, RingFootprint? rings, double bright, double spread, double scale,
+        (double FarInner, double LocalInner, double LocalOuter) regions, CancellationToken cancellationToken)
     {
         if (!(spread <= 1))
         {
-            return await MeasureWideSkyAsync(stream, n, shiftX, shiftY, disk, rings, bright, scale, cancellationToken).ConfigureAwait(false);
+            return await MeasureWideSkyAsync(stream, n, shiftX, shiftY, disk, rings, bright, scale, regions, cancellationToken).ConfigureAwait(false);
         }
         var frames = Math.Min(n, SkyFrames);
         var (cx, cy) = (disk.X + shiftX.AsSpan(0, frames).ToArray().Average(), disk.Y + shiftY.AsSpan(0, frames).ToArray().Average());
@@ -1374,8 +1411,8 @@ public static class PlanetaryCaptureStatistics
             }
             return pixels;
         }
-        var (farLevel, farNoise) = SkyByPixels(counts, bins, first, Region(FarSkyRadii, double.PositiveInfinity));
-        var (localLevel, _) = SkyByPixels(counts, bins, first, Region(LocalSkyAnnulus.Inner, LocalSkyAnnulus.Outer));
+        var (farLevel, farNoise) = SkyByPixels(counts, bins, first, Region(regions.FarInner, double.PositiveInfinity));
+        var (localLevel, _) = SkyByPixels(counts, bins, first, Region(regions.LocalInner, regions.LocalOuter));
         var halo = ImmutableArray.CreateBuilder<double>(HaloAnnuli.Length - 1);
         for (var j = 0; j + 1 < HaloAnnuli.Length; j++)
         {
@@ -1387,7 +1424,8 @@ public static class PlanetaryCaptureStatistics
     // MeasureSkyAsync for a sky whose noise spans ADU: each pixel's own mean and frame-to-frame variance, averaged over each region
     // (less the rounding's twelfth); a pixel's own variance holds no gradient over the frame.
     private static async Task<(double FarLevel, double FarNoise, double LocalLevel, ImmutableArray<double> Halo)> MeasureWideSkyAsync(IPlanetaryFrameStream stream, int n,
-        double[] shiftX, double[] shiftY, (double X, double Y, double Radius) disk, RingFootprint? rings, double bright, double scale, CancellationToken cancellationToken)
+        double[] shiftX, double[] shiftY, (double X, double Y, double Radius) disk, RingFootprint? rings, double bright, double scale,
+        (double FarInner, double LocalInner, double LocalOuter) regions, CancellationToken cancellationToken)
     {
         var frames = Math.Min(n, SkyFrames);
         var (cx, cy) = (disk.X + shiftX.AsSpan(0, frames).ToArray().Average(), disk.Y + shiftY.AsSpan(0, frames).ToArray().Average());
@@ -1446,8 +1484,8 @@ public static class PlanetaryCaptureStatistics
             }
             return count > 0 ? (level / count, Math.Sqrt(Math.Max(0, (variance / count * frames / Math.Max(1, frames - 1)) - (1.0 / 12)))) : (double.NaN, double.NaN);
         }
-        var (farLevel, farNoise) = Region(FarSkyRadii, double.PositiveInfinity);
-        var (localLevel, _) = Region(LocalSkyAnnulus.Inner, LocalSkyAnnulus.Outer);
+        var (farLevel, farNoise) = Region(regions.FarInner, double.PositiveInfinity);
+        var (localLevel, _) = Region(regions.LocalInner, regions.LocalOuter);
         var halo = ImmutableArray.CreateBuilder<double>(HaloAnnuli.Length - 1);
         for (var j = 0; j + 1 < HaloAnnuli.Length; j++)
         {
