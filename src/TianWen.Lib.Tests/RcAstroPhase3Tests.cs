@@ -19,8 +19,12 @@ namespace TianWen.Lib.Tests;
 /// is asserted via which factory ran, tuning via the captured CLI args.
 /// </summary>
 [Collection("Imaging")]
-public class RcAstroPhase3Tests
+public class RcAstroPhase3Tests : IDisposable
 {
+    private readonly TempFolders _folders = new TempFolders();
+
+    public void Dispose() => _folders.Dispose();
+
     /// <summary>Fake CLI: configurable presence/license, captures the extra args, and echoes
     /// the input FITS the base just wrote to the output path so the FITS round-trip succeeds.</summary>
     private sealed class FakeRcAstroCli(bool available = true, bool licensed = true) : IRcAstroCli
@@ -193,25 +197,18 @@ public class RcAstroPhase3Tests
     [InlineData(false, 3, false)]  // no weights on disk: nothing to run
     public void Denoise_AvailabilityIsTheInHouseModelsOwnAnswer(bool weightsOnDisk, int channels, bool expected)
     {
-        var dir = Directory.CreateTempSubdirectory("tw-n2n-avail-").FullName;
-        try
+        var dir = _folders.Create("tw-n2n-avail-").FullName;
+        // Presence is all CanServe probes (content is never read), but the file must not LOOK
+        // like a Git LFS pointer stub, which ModelResolver refuses by design.
+        if (weightsOnDisk)
         {
-            // Presence is all CanServe probes (content is never read), but the file must not LOOK
-            // like a Git LFS pointer stub, which ModelResolver refuses by design.
-            if (weightsOnDisk)
-            {
-                File.WriteAllText(Path.Combine(dir, TianWen.AI.Imaging.Onnx.N2nDenoiser.ModelFileName), "weights");
-            }
-            var resolver = new TianWen.AI.Imaging.ModelResolver([dir]);
-            var cli = new FakeRcAstroCli(available: false);
-            var deferred = new DeferredDenoiser(cli, () => new RecordingEnhancer("rc"),
-                () => new TianWen.AI.Imaging.Onnx.N2nDenoiser(resolver));
+            File.WriteAllText(Path.Combine(dir, TianWen.AI.Imaging.Onnx.N2nDenoiser.ModelFileName), "weights");
+        }
+        var resolver = new TianWen.AI.Imaging.ModelResolver([dir]);
+        var cli = new FakeRcAstroCli(available: false);
+        var deferred = new DeferredDenoiser(cli, () => new RecordingEnhancer("rc"),
+            () => new TianWen.AI.Imaging.Onnx.N2nDenoiser(resolver));
 
-            deferred.CanServe(channels, EnhanceOptions.Default).ShouldBe(expected);
-        }
-        finally
-        {
-            Directory.Delete(dir, recursive: true);
-        }
+        deferred.CanServe(channels, EnhanceOptions.Default).ShouldBe(expected);
     }
 }

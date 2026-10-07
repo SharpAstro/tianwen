@@ -24,7 +24,7 @@ public class ViewerBestStackTests
     [InlineData(1.5f)]
     public async Task ShiftKShowsTheWholeCaptureAsTheBestViewAndWritesBothMasters(float dpi)
     {
-        using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.Start(dpi);
         var ct = TestContext.Current.CancellationToken;
         var capture = WriteCapture(Path.Combine(e2e.Folder, "2024-12-15-1256_7-Jupiter.ser"));
         e2e.Host.HandleDropFile(capture);
@@ -61,7 +61,7 @@ public class ViewerBestStackTests
     public async Task AStrengthChosenInThePanelTakesTheBestStackPastTheTruth(float dpi)
     {
         // #1251: the truth by default, a post's look as an option. The panel's strength reaches the run, and its note says so.
-        using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.Start(dpi);
         var ct = TestContext.Current.CancellationToken;
         var capture = WriteCapture(Path.Combine(e2e.Folder, "2024-12-15-1256_7-Jupiter.ser"));
         e2e.Host.HandleDropFile(capture);
@@ -88,7 +88,7 @@ public class ViewerBestStackTests
     public async Task ACaptureWhoseNameGivesNoPlanetTakesThePlanetChosenInThePanel(float dpi)
     {
         // A twin named "calibrated" gave the run no planet, so its sharpening was the preset's (reported 2026-10-02).
-        using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.Start(dpi);
         var ct = TestContext.Current.CancellationToken;
         var capture = WriteCapture(Path.Combine(e2e.Folder, "calibrated.ser"));
         e2e.Host.HandleDropFile(capture);
@@ -108,7 +108,7 @@ public class ViewerBestStackTests
     [InlineData(1.5f)]
     public async Task AFrameWhoseObjectNamesAPlanetOpensInThePlanetaryStretchBetweenDeepSkyFrames(float dpi)
     {
-        using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.Start(dpi);
         var ct = TestContext.Current.CancellationToken;
         var deepSky = e2e.WriteColourFits("deep-sky.fits");
         await e2e.OpenAsync(deepSky, ct);
@@ -141,7 +141,7 @@ public class ViewerBestStackTests
     public async Task ACaptureWhoseHeaderNamesItsTelescopeGivesTheBestStackThatTelescope(float dpi)
     {
         // A TianWen recording says in its header which telescope took it (#1179), and its best stack needs no telescope set by hand.
-        using var e2e = ViewerE2E.Start(dpi);
+        await using var e2e = ViewerE2E.Start(dpi);
         var ct = TestContext.Current.CancellationToken;
         e2e.State.PlanetaryApertureMm = null;
         e2e.State.PlanetaryDesign = TianWen.Lib.Devices.OpticalDesign.Refractor;

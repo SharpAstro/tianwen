@@ -27,10 +27,9 @@ public class InheritedWhiteBalanceStampTests(ITestOutputHelper output)
 {
     private static readonly ColourCalibration Donor = new(1.52208054f, 1.0f, 1.77573335f, "SPCC");
 
-    private static async Task<string> RunAsync(MasterRenderOutputs renderOutputs, ITestOutputHelper output)
+    private static async Task<string> RunAsync(TempStackingWorkspace workspace, MasterRenderOutputs renderOutputs, ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
-        var workspace = new TempStackingWorkspace();
         var darksDir = Path.Combine(workspace.RootDir, "DARK");
         Directory.CreateDirectory(darksDir);
         RgbBayerSyntheticFixture.WriteSyntheticLights(workspace.LightsDir);
@@ -62,7 +61,8 @@ public class InheritedWhiteBalanceStampTests(ITestOutputHelper output)
     {
         // Both cases, deliberately. No-preview is the regression; with-preview is there so a future
         // change that fixes one by breaking the other cannot pass.
-        var masterPath = await RunAsync(renderOutputs, output);
+        using var workspace = new TempStackingWorkspace();
+        var masterPath = await RunAsync(workspace, renderOutputs, output);
 
         using var bf = new nom.tam.util.BufferedFile(masterPath, FileAccess.Read, FileShare.Read, 1024);
         using var fits = new nom.tam.fits.Fits(bf, false);

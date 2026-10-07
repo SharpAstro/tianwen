@@ -53,7 +53,7 @@ public class ViewerE2ETests
     public async Task APressOnThePanelsAtlasLinkOpensThePageOnce(float dpiScale)
     {
         var ct = TestContext.Current.CancellationToken;
-        using var e2e = ViewerE2E.Start(dpiScale);
+        await using var e2e = ViewerE2E.Start(dpiScale);
         await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
         var opened = new List<string>();
         e2e.Bus.Subscribe<OpenUrlSignal>(sig => opened.Add(sig.Url));
@@ -78,7 +78,7 @@ public class ViewerE2ETests
     public async Task CrossingOntoAPanelLinkRepaintsAndMovingWithinItDoesNot(float dpiScale)
     {
         var ct = TestContext.Current.CancellationToken;
-        using var e2e = ViewerE2E.Start(dpiScale);
+        await using var e2e = ViewerE2E.Start(dpiScale);
         await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
         var link = SelectAndFindTheAtlasLink(e2e);
         var y = link.Y + (link.Height / 2f);
@@ -110,7 +110,7 @@ public class ViewerE2ETests
     public async Task APopoverDialFollowsADragAcrossItsTrack(float dpiScale)
     {
         var ct = TestContext.Current.CancellationToken;
-        using var e2e = ViewerE2E.Start(dpiScale);
+        await using var e2e = ViewerE2E.Start(dpiScale);
         await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
 
         // The soft clip's Amount rather than Boost: Boost wants stars, which this synthetic frame has none
@@ -152,7 +152,7 @@ public class ViewerE2ETests
     public async Task EveryToolbarMenuOpensAtTheButtonsScaleAndEscapeClosesIt(float dpiScale)
     {
         var ct = TestContext.Current.CancellationToken;
-        using var e2e = ViewerE2E.Start(dpiScale);
+        await using var e2e = ViewerE2E.Start(dpiScale);
         await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
 
         foreach (var action in MenuButtons)
@@ -186,7 +186,7 @@ public class ViewerE2ETests
     public async Task AnOpenToolbarMenuFollowsItsButtonWhenTheWindowResizes(float dpiScale)
     {
         var ct = TestContext.Current.CancellationToken;
-        using var e2e = ViewerE2E.Start(dpiScale);
+        await using var e2e = ViewerE2E.Start(dpiScale);
         await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
 
         // Narrower than the window the menu opened in, then narrower than the "?" menu ITSELF (as wide as its
@@ -235,7 +235,7 @@ public class ViewerE2ETests
     public async Task TheWheelOverALongMenuScrollsTheMenuNotThePicture(float dpiScale)
     {
         var ct = TestContext.Current.CancellationToken;
-        using var e2e = ViewerE2E.Start(dpiScale, width: 1600, height: 500);
+        await using var e2e = ViewerE2E.Start(dpiScale, width: 1600, height: 500);
         await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
         e2e.Click(ToolbarAction.Shortcuts);
 
@@ -266,7 +266,7 @@ public class ViewerE2ETests
     public async Task TheToneAndWhiteBalancePopoversOpenAndEscapeClosesThem(float dpiScale)
     {
         var ct = TestContext.Current.CancellationToken;
-        using var e2e = ViewerE2E.Start(dpiScale);
+        await using var e2e = ViewerE2E.Start(dpiScale);
         await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
 
         foreach (var (action, popover) in new[]
@@ -286,9 +286,9 @@ public class ViewerE2ETests
     }
 
     [Fact]
-    public void EscapeWithNothingOpenAsksToExit()
+    public async Task EscapeWithNothingOpenAsksToExit()
     {
-        using var e2e = ViewerE2E.Start(1f);
+        await using var e2e = ViewerE2E.Start(1f);
 
         e2e.Key(InputKey.Escape);
 
@@ -300,7 +300,7 @@ public class ViewerE2ETests
     public async Task TheToggleButtonsChangeWhatTheyToggle(float dpiScale)
     {
         var ct = TestContext.Current.CancellationToken;
-        using var e2e = ViewerE2E.Start(dpiScale);
+        await using var e2e = ViewerE2E.Start(dpiScale);
         await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
 
         var stretch = e2e.State.StretchMode;
@@ -323,7 +323,7 @@ public class ViewerE2ETests
     public async Task TheZoomKeysReachTheViewer(float dpiScale)
     {
         var ct = TestContext.Current.CancellationToken;
-        using var e2e = ViewerE2E.Start(dpiScale);
+        await using var e2e = ViewerE2E.Start(dpiScale);
         await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
 
         e2e.Key(InputKey.R);
@@ -342,7 +342,7 @@ public class ViewerE2ETests
     public async Task AFileListRowOpensItsFile(float dpiScale)
     {
         var ct = TestContext.Current.CancellationToken;
-        using var e2e = ViewerE2E.Start(dpiScale);
+        await using var e2e = ViewerE2E.Start(dpiScale);
         var first = e2e.WriteColourFits("a.fits");
         var second = e2e.WriteColourFits("b.fits", level: 500f);
         await e2e.OpenAsync(first, ct);
@@ -361,7 +361,7 @@ public class ViewerE2ETests
     public async Task ARightPressOnThePictureOpensItsContextMenu(float dpiScale)
     {
         var ct = TestContext.Current.CancellationToken;
-        using var e2e = ViewerE2E.Start(dpiScale);
+        await using var e2e = ViewerE2E.Start(dpiScale);
         await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
 
         // The fallback the router hands an unclaimed press to, which exists only in this host.
@@ -375,7 +375,7 @@ public class ViewerE2ETests
     public async Task ALeftDragOnThePicturePansIt(float dpiScale)
     {
         var ct = TestContext.Current.CancellationToken;
-        using var e2e = ViewerE2E.Start(dpiScale);
+        await using var e2e = ViewerE2E.Start(dpiScale);
         await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
         e2e.Key(InputKey.R);
 

@@ -32,13 +32,14 @@ namespace TianWen.Lib.Tests;
 /// catalogue, and neither is what a viewer e2e is for. Everything else is the production object.
 /// </para>
 /// </remarks>
-internal sealed class ViewerE2E : IDisposable
+internal sealed class ViewerE2E : IAsyncDisposable
 {
     internal const int ImageW = 64;
     internal const int ImageH = 48;
 
     private readonly RgbaImageRenderer _renderer;
     private readonly CancellationTokenSource _appCts = new CancellationTokenSource();
+    private readonly TempFolders _folders = new TempFolders();
     private int _exitRequests;
 
     private ViewerE2E(uint width, uint height, float dpiScale)
@@ -55,7 +56,7 @@ internal sealed class ViewerE2E : IDisposable
         Viewer = new Surface(_renderer, Bus) { DpiScale = dpiScale };
         Host = new StandaloneViewerHost<RgbaImage>(Viewer, State, Controller, Tracker, Bus,
             NullLogger.Instance, external: null, _appCts.Token);
-        Folder = Directory.CreateTempSubdirectory("tianwen-viewer-e2e-").FullName;
+        Folder = _folders.Create("tianwen-viewer-e2e-").FullName;
     }
 
     /// <summary>A viewer the size of an ordinary window at the given DPI scale, with nothing open.</summary>
@@ -232,20 +233,17 @@ internal sealed class ViewerE2E : IDisposable
         return new RectF32(regions[0].X, regions[0].Y, regions[0].Width, regions[0].Height);
     }
 
-    public void Dispose()
+    /// <summary>
+    /// Ends the viewer as <c>Program.cs</c> does at exit, <see cref="ViewerController.ShutdownAsync"/>, before the
+    /// scratch folder goes: a SER source holds its file mapped until then, and the folder survived every delete.
+    /// </summary>
+    public async ValueTask DisposeAsync()
     {
         _appCts.Cancel();
+        await Controller.ShutdownAsync();
         _appCts.Dispose();
         _renderer.Dispose();
-        try
-        {
-            Directory.Delete(Folder, recursive: true);
-        }
-        catch (IOException)
-        {
-            // A document still holding the file open on a slow machine. The folder is under the system
-            // temp directory, so leaving it is harmless and failing the test over it would not be.
-        }
+        _folders.Dispose();
     }
 
     /// <summary>The viewer on a CPU surface. Only the GPU-facing members are stubbed. Not sealed, so a test can host it

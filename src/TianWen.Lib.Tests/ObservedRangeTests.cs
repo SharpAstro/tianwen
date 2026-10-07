@@ -17,8 +17,12 @@ namespace TianWen.Lib.Tests;
 /// reference here is the obvious scalar loop, never the previous form, so a disagreement says which
 /// side moved.
 /// </remarks>
-public class ObservedRangeTests
+public class ObservedRangeTests : IDisposable
 {
+    private readonly TempFolders _folders = new TempFolders();
+
+    public void Dispose() => _folders.Dispose();
+
     private static (float Min, float Max) ScalarReference(float[][,] channels)
     {
         var min = float.MaxValue;
@@ -123,20 +127,13 @@ public class ObservedRangeTests
             }
         }
 
-        var dir = Directory.CreateTempSubdirectory("ObservedRangeTests_");
-        try
-        {
-            var path = Path.Combine(dir.FullName, "all-nan.fits");
-            new Image(planes, BitDepth.Float32, float.NaN, float.NaN, 0f, new ImageMeta { SensorType = SensorType.Monochrome })
-                .WriteToFitsFile(path);
+        var dir = _folders.Create("ObservedRangeTests_");
+        var path = Path.Combine(dir.FullName, "all-nan.fits");
+        new Image(planes, BitDepth.Float32, float.NaN, float.NaN, 0f, new ImageMeta { SensorType = SensorType.Monochrome })
+            .WriteToFitsFile(path);
 
-            Image.TryReadFitsFile(path, out var read).ShouldBeTrue();
-            float.IsNaN(read.MaxValue).ShouldBeTrue($"MaxValue read back as {read.MaxValue}");
-            float.IsNaN(read.MinValue).ShouldBeTrue($"MinValue read back as {read.MinValue}");
-        }
-        finally
-        {
-            try { dir.Delete(recursive: true); } catch (IOException) { /* best effort */ }
-        }
+        Image.TryReadFitsFile(path, out var read).ShouldBeTrue();
+        float.IsNaN(read.MaxValue).ShouldBeTrue($"MaxValue read back as {read.MaxValue}");
+        float.IsNaN(read.MinValue).ShouldBeTrue($"MinValue read back as {read.MinValue}");
     }
 }

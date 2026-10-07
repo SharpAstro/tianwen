@@ -13,8 +13,12 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 [Collection("Imaging")]
-public class FitsFolderFrameSourceTests
+public class FitsFolderFrameSourceTests : IDisposable
 {
+    private readonly TempFolders _folders = new TempFolders();
+
+    public void Dispose() => _folders.Dispose();
+
     // Smallest possible synthetic FITS file: 4x4 mono float32. Constructor
     // signature mirrors the real ImageMeta layout so the only thing the tests
     // vary per call is what we want to assert against.
@@ -56,12 +60,8 @@ public class FitsFolderFrameSourceTests
         return path;
     }
 
-    private static string CreateTempDir([System.Runtime.CompilerServices.CallerMemberName] string? name = null)
-    {
-        var dir = Path.Combine(Path.GetTempPath(), "TianWen.FrameSourceTests", name ?? "unnamed", Guid.NewGuid().ToString("N")[..8]);
-        Directory.CreateDirectory(dir);
-        return dir;
-    }
+    private string CreateTempDir([System.Runtime.CompilerServices.CallerMemberName] string? name = null)
+        => _folders.Create((name ?? "unnamed") + "-").FullName;
 
     [Fact]
     public async Task ConstructingWithMissingFolderThrows()

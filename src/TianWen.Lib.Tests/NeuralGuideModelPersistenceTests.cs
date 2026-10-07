@@ -12,16 +12,17 @@ namespace TianWen.Lib.Tests;
 [Collection("Guider")]
 public class NeuralGuideModelPersistenceTests : IDisposable
 {
+    private readonly TempFolders _folders = new TempFolders();
     private readonly DirectoryInfo _tempDir;
 
     public NeuralGuideModelPersistenceTests()
     {
-        _tempDir = Directory.CreateTempSubdirectory("neural_guide_test_");
+        _tempDir = _folders.Create("neural_guide_test_");
     }
 
     public void Dispose()
     {
-        try { _tempDir.Delete(true); } catch { /* best effort */ }
+        _folders.Dispose();
     }
 
     private static GuiderCalibrationResult MakeCalibration()

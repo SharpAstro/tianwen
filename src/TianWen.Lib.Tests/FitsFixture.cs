@@ -22,12 +22,11 @@ namespace TianWen.Lib.Tests
         public const int Block = FitsHeaderEditor.BlockSize;
         public const int Card = FitsHeaderEditor.CardSize;
 
-        /// <summary>A directory of this test's own, named after the caller so a failure says which
-        /// test left it behind.</summary>
-        public static string CreateTempDir(string suite, string name)
+        /// <summary>A directory of this test's own from its <paramref name="folders"/>, named after the
+        /// caller so a failure says which test left it behind.</summary>
+        public static string CreateTempDir(TempFolders folders, string name)
         {
-            var dir = Path.Combine(Path.GetTempPath(), suite, name, Guid.NewGuid().ToString("N")[..8]);
-            Directory.CreateDirectory(dir);
+            var dir = folders.Create(name + "-").FullName;
             // The REAL path. The temp path is commonly an 8.3 short form ("C:\Users\ABCDEF~1\..."),
             // which the prune sweep rightly refuses as an alias: hand the tests the name the file
             // system uses, as a person running the sweep would be told to.

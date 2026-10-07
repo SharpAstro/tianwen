@@ -30,8 +30,12 @@ namespace TianWen.Lib.Tests;
 /// the trail's residue, not anything the fixture's own noise or phase sampling puts there.</para>
 /// </remarks>
 [Collection("Imaging")]
-public class DrizzleOutlierRejectionTests
+public class DrizzleOutlierRejectionTests : IDisposable
 {
+    private readonly TempFolders _folders = new TempFolders();
+
+    public void Dispose() => _folders.Dispose();
+
     private const int FrameSize = 64;
     private const int FrameCount = 60;
     private const int Margin = 6;
@@ -297,56 +301,49 @@ public class DrizzleOutlierRejectionTests
         var frames = BuildFrames(withTrail: true, height: tallHeight, count: count, extraStars: BoundaryStarPositions);
         var options = new IntegrationOptions(Rejector: StackingPipeline.BuildRejector(count), ApplyNormalization: false);
 
-        var dir = Directory.CreateTempSubdirectory("DrizzleOutlierRejectionTests_");
-        try
+        var dir = _folders.Create("DrizzleOutlierRejectionTests_");
+        var sources = new List<RawLightSource>(count);
+        for (var f = 0; f < count; f++)
         {
-            var sources = new List<RawLightSource>(count);
-            for (var f = 0; f < count; f++)
-            {
-                var path = Path.Combine(dir.FullName, $"bayer{f}.fits");
-                frames[f].RawCfa.WriteToFitsFile(path);
-                sources.Add(new RawLightSource(path, frames[f].TransformToCanvas));
-            }
+            var path = Path.Combine(dir.FullName, $"bayer{f}.fits");
+            frames[f].RawCfa.WriteToFitsFile(path);
+            sources.Add(new RawLightSource(path, frames[f].TransformToCanvas));
+        }
 
-            var full = await new DrizzleStrategy(minFrameCount: 1).RunAsync(
-                BuildJob(frames, options, CanvasSize, tallHeight + Margin * 2), ct);
-            var tiled = await new TilePipelinedDrizzleStrategy(minFrameCount: 1).RunAsync(
-                BuildJob(frames, options, CanvasSize, tallHeight + Margin * 2) with { RawBayerFrames = null, RawLightSources = sources, Calibrator = new Calibrator() }, ct);
+        var full = await new DrizzleStrategy(minFrameCount: 1).RunAsync(
+            BuildJob(frames, options, CanvasSize, tallHeight + Margin * 2), ct);
+        var tiled = await new TilePipelinedDrizzleStrategy(minFrameCount: 1).RunAsync(
+            BuildJob(frames, options, CanvasSize, tallHeight + Margin * 2) with { RawBayerFrames = null, RawLightSources = sources, Calibrator = new Calibrator() }, ct);
 
-            tiled.DrizzleTotalDeposits.ShouldBe(full.DrizzleTotalDeposits, "both strategies judge every deposit");
-            tiled.DrizzleRejectedDeposits.ShouldBe(full.DrizzleRejectedDeposits, "and reject the same ones");
-            full.DrizzleRejectedDeposits.ShouldBeGreaterThan(0, "the fixture's trail was clipped, so the comparison saw a clip");
-            // The standard error too (E16c step 2): the same kept deposits and moments, strip by strip or whole.
-            var fullError = full.StandardError.ShouldNotBeNull("a rejecting drizzle measures its standard error");
-            var tiledError = tiled.StandardError.ShouldNotBeNull("in either layout");
-            for (var c = 0; c < 3; c++)
+        tiled.DrizzleTotalDeposits.ShouldBe(full.DrizzleTotalDeposits, "both strategies judge every deposit");
+        tiled.DrizzleRejectedDeposits.ShouldBe(full.DrizzleRejectedDeposits, "and reject the same ones");
+        full.DrizzleRejectedDeposits.ShouldBeGreaterThan(0, "the fixture's trail was clipped, so the comparison saw a clip");
+        // The standard error too (E16c step 2): the same kept deposits and moments, strip by strip or whole.
+        var fullError = full.StandardError.ShouldNotBeNull("a rejecting drizzle measures its standard error");
+        var tiledError = tiled.StandardError.ShouldNotBeNull("in either layout");
+        for (var c = 0; c < 3; c++)
+        {
+            var a = full.Master.GetChannelArray(c);
+            var b = tiled.Master.GetChannelArray(c);
+            var ea = fullError.GetChannelArray(c);
+            var eb = tiledError.GetChannelArray(c);
+            for (var y = 0; y < a.GetLength(0); y++)
             {
-                var a = full.Master.GetChannelArray(c);
-                var b = tiled.Master.GetChannelArray(c);
-                var ea = fullError.GetChannelArray(c);
-                var eb = tiledError.GetChannelArray(c);
-                for (var y = 0; y < a.GetLength(0); y++)
+                for (var x = 0; x < a.GetLength(1); x++)
                 {
-                    for (var x = 0; x < a.GetLength(1); x++)
+                    if (!(float.IsNaN(ea[y, x]) && float.IsNaN(eb[y, x])))
                     {
-                        if (!(float.IsNaN(ea[y, x]) && float.IsNaN(eb[y, x])))
-                        {
-                            eb[y, x].ShouldBe(ea[y, x], MathF.Max(1e-9f, ea[y, x] * 1e-4f), $"standard error, channel {c} at ({x}, {y})");
-                        }
-
-                        if (float.IsNaN(a[y, x]) && float.IsNaN(b[y, x]))
-                        {
-                            continue;
-                        }
-
-                        b[y, x].ShouldBe(a[y, x], 1e-6f, $"channel {c} at ({x}, {y})");
+                        eb[y, x].ShouldBe(ea[y, x], MathF.Max(1e-9f, ea[y, x] * 1e-4f), $"standard error, channel {c} at ({x}, {y})");
                     }
+
+                    if (float.IsNaN(a[y, x]) && float.IsNaN(b[y, x]))
+                    {
+                        continue;
+                    }
+
+                    b[y, x].ShouldBe(a[y, x], 1e-6f, $"channel {c} at ({x}, {y})");
                 }
             }
-        }
-        finally
-        {
-            try { dir.Delete(recursive: true); } catch (IOException) { /* best effort */ }
         }
     }
 

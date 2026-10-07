@@ -25,8 +25,12 @@ namespace TianWen.Lib.Tests
     /// is the original bug.</para>
     /// </remarks>
     [Collection("UI")]
-    public class ViewerCursorReadoutTests
+    public class ViewerCursorReadoutTests : IDisposable
     {
+        private readonly TempFolders _folders = new TempFolders();
+
+        public void Dispose() => _folders.Dispose();
+
         private const int Width = 8;
         private const int Height = 6;
 
@@ -117,30 +121,23 @@ namespace TianWen.Lib.Tests
         [Fact]
         public async Task AnEightBitCaptureQuotesItsOwnCounts()
         {
-            var folder = Directory.CreateTempSubdirectory("tianwen-readout-");
-            try
+            var folder = _folders.Create("tianwen-readout-");
+            var path = Path.Combine(folder.FullName, "capture.ser");
+            using (var writer = new SerWriter(path, Width, Height, SerColorId.Mono, 8))
             {
-                var path = Path.Combine(folder.FullName, "capture.ser");
-                using (var writer = new SerWriter(path, Width, Height, SerColorId.Mono, 8))
-                {
-                    var frame = new byte[Width * Height];
-                    Array.Fill(frame, (byte)10);
-                    frame[(2 * Width) + 3] = 74;
-                    writer.AppendFrame(frame, DateTimeOffset.UnixEpoch);
-                }
-
-                await using var source = await SerPreviewSource.OpenAsync(path, new FakeTimeProviderWrapper(), TestContext.Current.CancellationToken);
-                var state = new ViewerState();
-                ViewerActions.UpdateCursorInfo(source, null, state, 3, 2);
-
-                state.CursorPixelInfo.ShouldNotBeNull().FullScaleAdu.ShouldBe(255f);
-                InfoPanelData.GetCursorLines(state).ShouldContain(line => line.StartsWith("Val: ", StringComparison.Ordinal)
-                    && line.EndsWith(" (74)", StringComparison.Ordinal));
+                var frame = new byte[Width * Height];
+                Array.Fill(frame, (byte)10);
+                frame[(2 * Width) + 3] = 74;
+                writer.AppendFrame(frame, DateTimeOffset.UnixEpoch);
             }
-            finally
-            {
-                folder.Delete(recursive: true);
-            }
+
+            await using var source = await SerPreviewSource.OpenAsync(path, new FakeTimeProviderWrapper(), TestContext.Current.CancellationToken);
+            var state = new ViewerState();
+            ViewerActions.UpdateCursorInfo(source, null, state, 3, 2);
+
+            state.CursorPixelInfo.ShouldNotBeNull().FullScaleAdu.ShouldBe(255f);
+            InfoPanelData.GetCursorLines(state).ShouldContain(line => line.StartsWith("Val: ", StringComparison.Ordinal)
+                && line.EndsWith(" (74)", StringComparison.Ordinal));
         }
 
         /// <summary>A document quotes the counts its file recorded: the divisor it scaled by, read before the scaling spends it.</summary>

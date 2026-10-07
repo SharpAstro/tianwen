@@ -34,8 +34,12 @@ namespace TianWen.Lib.Tests;
 /// </para>
 /// </remarks>
 [Collection("Stacking")]
-public class MasterUnitScaleTests
+public class MasterUnitScaleTests : IDisposable
 {
+    private readonly TempFolders _folders = new TempFolders();
+
+    public void Dispose() => _folders.Dispose();
+
     private const int Size = 64;
     private const int StarX = 30;
     private const int StarY = 20;
@@ -145,36 +149,29 @@ public class MasterUnitScaleTests
     [Fact]
     public async Task AMasterAboveUnitScaleIsWrittenWithItsPeakAtOne()
     {
-        var dir = Directory.CreateTempSubdirectory("MasterUnitScaleTests_");
-        try
-        {
-            var (full, crop, input) = await WriteAsync(SyntheticMaster(StarR, StarG, StarB), dir.FullName);
+        var dir = _folders.Create("MasterUnitScaleTests_");
+        var (full, crop, input) = await WriteAsync(SyntheticMaster(StarR, StarG, StarB), dir.FullName);
 
-            FinitePeak(full).ShouldBe(1f, 1e-5f, "the brightest finite pixel of the written master is exactly 1");
-            full.MaxValue.ShouldBe(FinitePeak(full), 1e-5f, "and its label is that peak, not a claim over bigger data");
-            full.ImageMeta.SensorFullScaleAdu.ShouldBeNull("no SATURATE card claims a raw-ADU saturation level");
+        FinitePeak(full).ShouldBe(1f, 1e-5f, "the brightest finite pixel of the written master is exactly 1");
+        full.MaxValue.ShouldBe(FinitePeak(full), 1e-5f, "and its label is that peak, not a claim over bigger data");
+        full.ImageMeta.SensorFullScaleAdu.ShouldBeNull("no SATURATE card claims a raw-ADU saturation level");
 
-            // One scalar for every channel: the star keeps its colour and its height above the sky.
-            var r = full.GetChannelArray(0)[StarY, StarX];
-            var g = full.GetChannelArray(1)[StarY, StarX];
-            var b = full.GetChannelArray(2)[StarY, StarX];
-            (r / g).ShouldBe(StarR / StarG, 1e-4f, "the star's R/G is unchanged");
-            (b / g).ShouldBe(StarB / StarG, 1e-4f, "the star's B/G is unchanged");
-            (full.GetChannelArray(1)[40, 40] / g).ShouldBe(Background / StarG, 1e-5f,
-                "the sky keeps its level relative to the star");
-            float.IsNaN(full.GetChannelArray(1)[5, 5]).ShouldBeTrue("a hole stays a hole");
+        // One scalar for every channel: the star keeps its colour and its height above the sky.
+        var r = full.GetChannelArray(0)[StarY, StarX];
+        var g = full.GetChannelArray(1)[StarY, StarX];
+        var b = full.GetChannelArray(2)[StarY, StarX];
+        (r / g).ShouldBe(StarR / StarG, 1e-4f, "the star's R/G is unchanged");
+        (b / g).ShouldBe(StarB / StarG, 1e-4f, "the star's B/G is unchanged");
+        (full.GetChannelArray(1)[40, 40] / g).ShouldBe(Background / StarG, 1e-5f,
+            "the sky keeps its level relative to the star");
+        float.IsNaN(full.GetChannelArray(1)[5, 5]).ShouldBeTrue("a hole stays a hole");
 
-            // The autocrop is the same master in the same units, not rescaled by its own peak.
-            crop.GetChannelArray(0)[StarY - 4, StarX - 4].ShouldBe(r, 1e-6f, "the crop shares the full frame's scale");
+        // The autocrop is the same master in the same units, not rescaled by its own peak.
+        crop.GetChannelArray(0)[StarY - 4, StarX - 4].ShouldBe(r, 1e-6f, "the crop shares the full frame's scale");
 
-            // The pipeline keeps using the integration it handed over (the comet composite is built from
-            // it afterwards), so the rescale must be a new image, never an in-place division.
-            input.GetChannelArray(0)[StarY, StarX].ShouldBe(StarR, "the input master is not rescaled in place");
-        }
-        finally
-        {
-            try { dir.Delete(recursive: true); } catch (IOException) { /* best effort */ }
-        }
+        // The pipeline keeps using the integration it handed over (the comet composite is built from
+        // it afterwards), so the rescale must be a new image, never an in-place division.
+        input.GetChannelArray(0)[StarY, StarX].ShouldBe(StarR, "the input master is not rescaled in place");
     }
 
     /// <summary>
@@ -191,42 +188,28 @@ public class MasterUnitScaleTests
     [Fact]
     public async Task AMasterPeakingInsideTheUnitScaleToleranceIsStillWrittenWithItsPeakAtOne()
     {
-        var dir = Directory.CreateTempSubdirectory("MasterUnitScaleTests_");
-        try
-        {
-            const float starR = 1.5f;
-            const float starG = 0.6f;
-            const float starB = 0.9f;
-            var (full, _, _) = await WriteAsync(SyntheticMaster(starR, starG, starB), dir.FullName);
+        var dir = _folders.Create("MasterUnitScaleTests_");
+        const float starR = 1.5f;
+        const float starG = 0.6f;
+        const float starB = 0.9f;
+        var (full, _, _) = await WriteAsync(SyntheticMaster(starR, starG, starB), dir.FullName);
 
-            FinitePeak(full).ShouldBe(1f, 1e-5f, "a peak of 1.5 is inside HasUnitScalePeak's tolerance and must still land on 1");
-            full.MaxValue.ShouldBe(FinitePeak(full), 1e-5f, "and its label is that peak");
-            var g = full.GetChannelArray(1)[StarY, StarX];
-            (full.GetChannelArray(0)[StarY, StarX] / g).ShouldBe(starR / starG, 1e-4f, "one scalar for every channel");
-            (full.GetChannelArray(1)[40, 40] / g).ShouldBe(Background / starG, 1e-5f, "the sky keeps its level relative to the star");
-        }
-        finally
-        {
-            try { dir.Delete(recursive: true); } catch (IOException) { /* best effort */ }
-        }
+        FinitePeak(full).ShouldBe(1f, 1e-5f, "a peak of 1.5 is inside HasUnitScalePeak's tolerance and must still land on 1");
+        full.MaxValue.ShouldBe(FinitePeak(full), 1e-5f, "and its label is that peak");
+        var g = full.GetChannelArray(1)[StarY, StarX];
+        (full.GetChannelArray(0)[StarY, StarX] / g).ShouldBe(starR / starG, 1e-4f, "one scalar for every channel");
+        (full.GetChannelArray(1)[40, 40] / g).ShouldBe(Background / starG, 1e-5f, "the sky keeps its level relative to the star");
     }
 
     [Fact]
     public async Task AMasterAlreadyInUnitScaleIsWrittenWithItsValuesUnchanged()
     {
-        var dir = Directory.CreateTempSubdirectory("MasterUnitScaleTests_");
-        try
-        {
-            // Background 0.5 cannot sit under a star below 1, so use a sky and star already in unit scale.
-            var master = SyntheticMaster(0.9f, 0.3f, 0.45f);
-            var (full, _, _) = await WriteAsync(master, dir.FullName);
+        var dir = _folders.Create("MasterUnitScaleTests_");
+        // Background 0.5 cannot sit under a star below 1, so use a sky and star already in unit scale.
+        var master = SyntheticMaster(0.9f, 0.3f, 0.45f);
+        var (full, _, _) = await WriteAsync(master, dir.FullName);
 
-            full.GetChannelArray(0)[StarY, StarX].ShouldBe(0.9f, 1e-6f, "a master already in [0, 1] is not stretched to its peak");
-            full.GetChannelArray(1)[40, 40].ShouldBe(Background, 1e-6f);
-        }
-        finally
-        {
-            try { dir.Delete(recursive: true); } catch (IOException) { /* best effort */ }
-        }
+        full.GetChannelArray(0)[StarY, StarX].ShouldBe(0.9f, 1e-6f, "a master already in [0, 1] is not stretched to its peak");
+        full.GetChannelArray(1)[40, 40].ShouldBe(Background, 1e-6f);
     }
 }
