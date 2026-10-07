@@ -682,7 +682,8 @@ refused by every R1 run, the first included: its plate fails the exporter's line
 
 **The training exports (started 2026-10-04).** The pool is the store's train split less the three plates the exporter's
 linearity test refuses (ZWO ASI294MM luminance, a bright sky: Leo Triplet 2022-03-26 and the Rosette 2021-12-31 and
-2022-01-09, at 0.196, 0.176 and 0.138 against the auto-detect's 0.125; `PlateLinearityProbe`, 3 of 190) and less one whole
+2022-01-09, at 0.196, 0.176 and 0.138 against the auto-detect's 0.125; `PlateLinearityProbe`, 3 of 190; left out for
+good, the owner's call 2026-10-07) and less one whole
 held-out train, the SVBONY SV605CC on the SH61 at 270 mm (19 sessions, a camera, sensor family and scope apart from the
 dominant ASI533 and Samyang 135): 138 sessions, 40 cells and 4 draws each, the field profile, saturated fraction 0.25,
 warped noise as the checks. Three arms from one binary: random (the training arm), Gaussian (H2) and at-site (H3's
@@ -1128,6 +1129,15 @@ with the interquartile range:
   -Patience 12 -Steps 240000 -LossMask`) started 2026-10-07 07:13. **Arm B's export** (`C:\temp\e2\run-r2d-export.ps1`,
   R1's pool, field arm, seed and noise shape, `--background synthetic`, into `D:\tianwen-scratch\r1-train-synth`) started
   08:41; its cache and training follow arm A on the GPU.
+- *Interim, one model of six (2026-10-07; nothing is judged until both arms' seeds are in).* `r2da_random_s0` stopped
+  on its own at 121,000 steps (its best held-out at 115,000; the unmasked convergence run stopped at 110,000). Against
+  that run (`r2cconv_random_s0`; one seed each, so well inside R2b's seed spread of 15 to 18 points) on the random arm's
+  draws with the fixed eval: clean removal 64.9 percent at 5-20 sigma (65.9), 53.3 at 20-100 (56.2) and 21.5 at
+  100-1000 (28.9), with less digging there (33.8 percent dug against 47.2; the core's mean +0.93 sigma against -0.07,
+  so it leaves bright cores rather than digging them). It takes more of the plate's own sources (16.3 percent against
+  13.8) and moves the sky far from them more, not less (0.390 sigma RMS against 0.221; the registered sky RMS 0.620
+  against 0.399). If the seeds hold it, the mask frees the model to take faint source-like structure, and it takes it
+  from the star-free sky too.
 
 Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
 residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,
