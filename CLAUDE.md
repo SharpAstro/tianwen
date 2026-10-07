@@ -996,7 +996,8 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   the frames; `PlanetaryStackOptions.Legacy` and `planetary-stack --legacy` are the recipe before. **The rolling stack (live capture,
   the GUI's playback) takes the gradient and the plain correlation, never Lanczos-3** (`RollingWindowOptions`, `.Legacy` the recipe
   before), measured as it runs by `tianwen planetary-live` through the node's own loop (`LiveStackLoop`): Lanczos-3 folded two fifths
-  as many frames a second (re-measured at the defaults below on a quiet machine, #1272). **The rolling stack folds its best quarter and
+  as many frames a second, and at the defaults below it still falls behind (#1272: 82 and 80 % graded, over 1 s behind, most masters
+  rebuilt, where the plain correlation grades 99 and 96 %), though its masters are sharper. **The rolling stack folds its best quarter and
   keeps its reference in place** (`RollingWindowOptions.KeepFraction` 0.25, `ReReferenceInPlace`, #1174; `.Legacy` folds every frame
   and rebuilds): it keeps up with 216 and 250 frames a second (99 and 96 % graded, under 0.75 s behind), where folding every frame fell
   behind with every recipe and folded its whole window again on nearly every master, mostly as its reference aged out of the 500-frame
