@@ -152,7 +152,7 @@ internal sealed partial class ImageSubCommand
     {
         var mastersArg = new Argument<string[]>("masters") { Description = "FITS images to split; several go through on one scale.", Arity = ArgumentArity.OneOrMore };
         var outputOpt = new Option<string?>("--output", "-o") { Description = "The starless FITS, with one input only. Default: <input>_starless.fits." };
-        var noStarsOpt = new Option<bool>("--no-stars") { Description = "Write the starless plate only, not the stars (<input>_stars.fits, the input less its starless plate)." };
+        var noStarsOpt = new Option<bool>("--no-stars") { Description = "Write the starless plate only, not the stars (the input less its starless plate, written beside the starless output: <input>_stars.fits by default, <name>_stars.fits beside an -o of <name>_starless.fits or <name>.fits)." };
         var cmd = new Command("remove-stars", "Star removal (RC-Astro StarXTerminator; TianWen's own star remover is planned): the starless "
             + "plate and the stars it took out, each on its input's scale, so image add-stars puts them back exactly. Several masters "
             + "go through on one scale, so a scale measured between two of them still holds between their plates.")
@@ -175,7 +175,7 @@ internal sealed partial class ImageSubCommand
                 WriteStep(starless[i], dst, wcs, "remove-stars");
                 if (!parseResult.GetValue(noStarsOpt))
                 {
-                    WriteStep(stars[i], DefaultOut(dst.EndsWith("_starless.fits", StringComparison.OrdinalIgnoreCase) ? paths[i] : dst, "_stars"), wcs, "remove-stars");
+                    WriteStep(stars[i], StarsOutput(dst), wcs, "remove-stars");
                 }
             }
             return 0;
@@ -443,6 +443,15 @@ internal sealed partial class ImageSubCommand
     // -o names the output of a step with one input; with several each goes beside its input.
     private static string StepOutput(string input, string suffix, string? output, int inputs)
         => output is not null && inputs == 1 ? EnsureFitsExtension(output) : DefaultOut(input, suffix);
+
+    // The stars go beside the STARLESS output, wherever -o put it: a _starless name becomes _stars, any other gains it.
+    // It used to fall back to the input's folder whenever -o's name ended in _starless, so a master read from a store
+    // had its stars written into that store (an Omega Cen session master, 2026-10-07).
+    internal static string StarsOutput(string starlessPath)
+    {
+        var stem = StripExtension(starlessPath);
+        return (stem.EndsWith("_starless", StringComparison.OrdinalIgnoreCase) ? stem[..^"_starless".Length] : stem) + "_stars.fits";
+    }
 
     // On the image's own scale, never divided by its own peak: a step's results must still relate as its inputs did.
     private void WriteStep(Image image, string path, WCS? wcs, string verb)
