@@ -1,4 +1,5 @@
 using System;
+using System.Numerics;
 using TianWen.Lib.Geometry;
 
 namespace TianWen.Lib.Imaging.Planetary;
@@ -80,37 +81,70 @@ public static class PlanetaryDisk
     // walks); the frame's edge cuts it when the blob reaches the edge, and a blob under PlanetPixels is no planet. A whole one is still
     // cut when a straight line inside the frame cuts it (CutInside).
     //
-    // Every frame of every stack, and every frame a live capture sends, is graded through this, so only two passes read the whole
-    // frame (#1310): the first takes the mean, the spread and the range, the second the box, the histogram the planet's level is read
-    // from, and each row's brightest pixel. Everything after reads only the rows that can hold a pixel above its own level, which on a
-    // frame larger than its planet is a fraction of them. Each pass was a whole-frame pass of its own once, and grading an 800 by 600
-    // frame cost 2.9 times what it had.
+    // Every frame of every stack, and every frame a live capture sends, is graded through this, so the whole frame is read once in
+    // vector lanes and once by scalar sums (#1310): the first takes the range and each row's brightest pixel, the second the mean and
+    // the spread, their sums in the order they always had (so the same bits), and in the same loop the histogram the planet's level is
+    // read from, whose increments run while each sum waits on the one before. The box is read afterwards from the rows whose brightest
+    // pixel clears its level, as is everything after, which on a frame larger than its planet is a fraction of them. Each of these was a
+    // whole-frame pass of its own once, and grading an 800 by 600 frame cost 2.9 times what it had. A frame holding a NaN is walked as it
+    // always was, which skips the NaN.
     private static (PixelRect Box, bool CutOrEmpty, float Elongation, PixelRect Graded, float Brightness) BoxAndCut(ReadOnlySpan<float> luma, int width, int height)
     {
-        var (mean, deviation, min, max, count) = Moments(luma);
+        var n = width * height;
+        using var rentedPeaks = ArrayPoolHelper.Rent<float>(height);
+        var rowPeaks = rentedPeaks.AsSpan(0, height);
+        Span<int> tallies = stackalloc int[4 * HistogramBins];
+        tallies.Clear();
+        double mean, deviation, scale;
+        float min, max;
+        int count;
+        bool ranged;
+        if (RangeAndRowPeaks(luma, width, height, rowPeaks, out min, out max))
+        {
+            count = n;
+            ranged = max > min;
+            scale = ranged ? (HistogramBins - 1) / (double)(max - min) : 0;
+            (mean, deviation) = SumsAndTally(luma, min, scale, ranged ? tallies : default);
+        }
+        else
+        {
+            (mean, deviation, min, max, count) = Moments(luma);
+            ranged = max > min;
+            scale = ranged ? (HistogramBins - 1) / (double)(max - min) : 0;
+            for (var y = 0; y < height; y++)
+            {
+                var row = luma.Slice(y * width, width);
+                var rowPeak = float.NegativeInfinity;
+                foreach (var v in row)
+                {
+                    if (v > rowPeak)
+                    {
+                        rowPeak = v;
+                    }
+                }
+                rowPeaks[y] = rowPeak;
+                if (ranged)
+                {
+                    Tally(row, min, scale, tallies);
+                }
+            }
+        }
         var level = (float)(mean + (3.0 * deviation));
         const int pad = 4;
         const int minPixels = 16;
         int minX = width, minY = height, maxX = -1, maxY = -1;
         long bright = 0;
-        var ranged = max > min;
-        var scale = ranged ? (HistogramBins - 1) / (double)(max - min) : 0;
-        Span<int> tallies = stackalloc int[4 * HistogramBins];
-        tallies.Clear();
-        using var rentedPeaks = ArrayPoolHelper.Rent<float>(height);
-        var rowPeaks = rentedPeaks.AsSpan(0, height);
         for (var y = 0; y < height; y++)
         {
+            // A row whose brightest pixel does not clear the level holds no pixel of the box.
+            if (!(rowPeaks[y] > level))
+            {
+                continue;
+            }
             var row = luma.Slice(y * width, width);
-            var rowPeak = float.NegativeInfinity;
             for (var x = 0; x < width; x++)
             {
-                var v = row[x];
-                if (v > rowPeak)
-                {
-                    rowPeak = v;
-                }
-                if (!(v > level))
+                if (!(row[x] > level))
                 {
                     continue;
                 }
@@ -120,13 +154,7 @@ public static class PlanetaryDisk
                 if (y > maxY) maxY = y;
                 bright++;
             }
-            rowPeaks[y] = rowPeak;
-            if (ranged)
-            {
-                Tally(row, min, scale, tallies);
-            }
         }
-        var n = width * height;
         using var rentedSeen = ArrayPoolHelper.Rent<bool>(n);
         var seen = rentedSeen.AsSpan(0, n);
         using var rentedQueue = ArrayPoolHelper.Rent<int>(n);
@@ -360,12 +388,12 @@ public static class PlanetaryDisk
     }
 
     // The bins of the quantiles' histogram.
-    private const int HistogramBins = 1024;
+    internal const int HistogramBins = 1024;
 
     // Adds `values` to a histogram of HistogramBins bins from `min` at `scale` bins a unit, NaN skipped, kept as four interleaved tallies
     // (Edges sums them): a frame's sky falls into a handful of bins, and with one tally each increment waits for the one before (#1310).
     // The bins are one tally's.
-    private static void Tally(ReadOnlySpan<float> values, float min, double scale, Span<int> tallies)
+    internal static void Tally(ReadOnlySpan<float> values, float min, double scale, Span<int> tallies)
     {
         var i = 0;
         for (; i + 4 <= values.Length; i += 4)
@@ -609,7 +637,7 @@ public static class PlanetaryDisk
     // The mean of the luminance and its standard deviation.
     // MeanAndDeviation, its sums taken in the same order, and in the same pass the range and the count Quantiles would read, NaN
     // skipped as it skips them (#1310).
-    private static (double Mean, double Deviation, float Min, float Max, int Count) Moments(ReadOnlySpan<float> luma)
+    internal static (double Mean, double Deviation, float Min, float Max, int Count) Moments(ReadOnlySpan<float> luma)
     {
         double sum = 0, sum2 = 0;
         var (min, max, count) = (float.PositiveInfinity, float.NegativeInfinity, 0);
@@ -626,6 +654,103 @@ public static class PlanetaryDisk
         var mean = sum / luma.Length;
         var variance = (sum2 / luma.Length) - (mean * mean);
         return (mean, Math.Sqrt(Math.Max(variance, 0)), min, max, count);
+    }
+
+    // The luminance's range and each row's brightest pixel, read in vector lanes, which take no rounding; false when a sample is NaN, which
+    // a lane's minimum or maximum does not skip as the scalar comparisons do, so the caller walks that frame as it always did.
+    internal static bool RangeAndRowPeaks(ReadOnlySpan<float> luma, int width, int height, Span<float> rowPeaks, out float min, out float max)
+    {
+        var lanes = Vector<float>.Count;
+        var lowest = new Vector<float>(float.PositiveInfinity);
+        var unordered = Vector<int>.Zero;
+        (min, max) = (float.PositiveInfinity, float.NegativeInfinity);
+        for (var y = 0; y < height; y++)
+        {
+            var row = luma.Slice(y * width, width);
+            var peaks = new Vector<float>(float.NegativeInfinity);
+            var x = 0;
+            for (; x + lanes <= width; x += lanes)
+            {
+                var v = new Vector<float>(row.Slice(x, lanes));
+                unordered |= ~Vector.Equals(v, v);
+                peaks = Vector.Max(peaks, v);
+                lowest = Vector.Min(lowest, v);
+            }
+            var rowPeak = float.NegativeInfinity;
+            for (var lane = 0; lane < lanes; lane++)
+            {
+                rowPeak = Math.Max(rowPeak, peaks[lane]);
+            }
+            for (; x < width; x++)
+            {
+                var v = row[x];
+                if (float.IsNaN(v))
+                {
+                    return false;
+                }
+                rowPeak = Math.Max(rowPeak, v);
+                min = Math.Min(min, v);
+            }
+            rowPeaks[y] = rowPeak;
+            max = Math.Max(max, rowPeak);
+        }
+        if (unordered != Vector<int>.Zero)
+        {
+            return false;
+        }
+        for (var lane = 0; lane < lanes; lane++)
+        {
+            min = Math.Min(min, lowest[lane]);
+        }
+        return true;
+    }
+
+    // Moments' mean and spread over a luminance with no NaN, the sums taken in the order Moments takes them (so the same bits), and in
+    // the same loop the histogram Tally adds (`tallies` empty when the luminance holds one value). The increments are independent of
+    // the sums, so they run while each addition waits on the one before.
+    internal static (double Mean, double Deviation) SumsAndTally(ReadOnlySpan<float> luma, float min, double scale, Span<int> tallies)
+    {
+        double sum = 0, sum2 = 0;
+        var i = 0;
+        if (tallies.IsEmpty)
+        {
+            for (; i < luma.Length; i++)
+            {
+                double v = luma[i];
+                sum += v;
+                sum2 += v * v;
+            }
+        }
+        else
+        {
+            for (; i + 4 <= luma.Length; i += 4)
+            {
+                var (a, b, c, d) = (luma[i], luma[i + 1], luma[i + 2], luma[i + 3]);
+                double va = a, vb = b, vc = c, vd = d;
+                sum += va;
+                sum2 += va * va;
+                sum += vb;
+                sum2 += vb * vb;
+                sum += vc;
+                sum2 += vc * vc;
+                sum += vd;
+                sum2 += vd * vd;
+                tallies[(int)((a - min) * scale)]++;
+                tallies[HistogramBins + (int)((b - min) * scale)]++;
+                tallies[(2 * HistogramBins) + (int)((c - min) * scale)]++;
+                tallies[(3 * HistogramBins) + (int)((d - min) * scale)]++;
+            }
+            for (; i < luma.Length; i++)
+            {
+                double v = luma[i];
+                sum += v;
+                sum2 += v * v;
+                tallies[(int)((luma[i] - min) * scale)]++;
+            }
+        }
+        var mean = sum / luma.Length;
+        var variance = (sum2 / luma.Length) - (mean * mean);
+        return (mean, Math.Sqrt(Math.Max(variance, 0)));
     }
 
     private static (double Mean, double Deviation) MeanAndDeviation(ReadOnlySpan<float> luma)
