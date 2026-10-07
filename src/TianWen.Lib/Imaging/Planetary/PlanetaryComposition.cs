@@ -480,22 +480,23 @@ public static class PlanetaryComposition
     /// <see cref="SyntheticLuminance.Combine"/>. With <paramref name="onto"/>,
     /// another master of the same capture, the luminance is placed on that master's disk by the two limb fits (<see cref="Register"/>,
     /// <paramref name="onto"/>'s green the reference), so a Bayer drizzle's luminance can detail the demosaic's colours. Also returns the
-    /// luminance's effective wavelength, the weights' mean of <paramref name="wavelengthsNm"/>, which it is sharpened at. Null with the
+    /// luminance's own noise, read on the sky as the planes' is (before any placement, which resamples it), and its effective wavelength,
+    /// the weights' mean of <paramref name="wavelengthsNm"/>, which it is sharpened at. Null with the
     /// reason in words for a master that is not three planes, a limb that does not fit, or a placement <see cref="Register"/> refuses.
     /// </summary>
-    public static (Image? Luminance, SyntheticLuminance.Channel[] Parts, double WavelengthNm, string? Refusal) Luminance(Image colour, CatalogIndex planet,
+    public static (Image? Luminance, SyntheticLuminance.Channel[] Parts, double Noise, double WavelengthNm, string? Refusal) Luminance(Image colour, CatalogIndex planet,
         DateTimeOffset instant, IReadOnlyList<double> wavelengthsNm, Image? onto = null, Action<string>? say = null)
     {
         ArgumentNullException.ThrowIfNull(colour);
         ArgumentNullException.ThrowIfNull(wavelengthsNm);
         if (colour.ChannelCount != 3 || wavelengthsNm.Count != 3)
         {
-            return (null, [], double.NaN, $"a colour master has three planes and three wavelengths, this one {colour.ChannelCount} and {wavelengthsNm.Count}");
+            return (null, [], double.NaN, double.NaN, $"a colour master has three planes and three wavelengths, this one {colour.ChannelCount} and {wavelengthsNm.Count}");
         }
         var options = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, instant));
         if (PlanetaryLimbFit.Fit(colour, options) is not { } fit)
         {
-            return (null, [], double.NaN, "the master's limb did not fit");
+            return (null, [], double.NaN, double.NaN, "the master's limb did not fit");
         }
         var disk = MetricDisk.From(fit, options);
         var (width, height) = (colour.Width, colour.Height);
@@ -522,7 +523,7 @@ public static class PlanetaryComposition
             levels[c] = count > 0 && PlanetaryMetrics.SkyLevel(span, width, height, disk) is { } sky ? (sum / count) - sky : double.NaN;
             if (!(levels[c] > 0))
             {
-                return (null, [], double.NaN, $"plane {c}: no level above its sky on the disk to scale it by");
+                return (null, [], double.NaN, double.NaN, $"plane {c}: no level above its sky on the disk to scale it by");
             }
         }
         // Green the reference, as the deep-sky luminance puts it: each plane's scale is green's level over its own.
@@ -550,13 +551,18 @@ public static class PlanetaryComposition
             wavelength += parts[c].Weight * wavelengthsNm[c];
         }
         var luminance = SyntheticLuminance.Combine(planes, parts, reference: 1);
+        var luminanceNoise = SkyBlockNoise(luminance, disk);
+        if (!double.IsFinite(luminanceNoise))
+        {
+            luminanceNoise = SyntheticLuminance.BlockNoise(luminance);
+        }
         if (onto is null)
         {
-            return (luminance, parts, wavelength, null);
+            return (luminance, parts, luminanceNoise, wavelength, null);
         }
         if (onto.ChannelCount != 3)
         {
-            return (null, parts, wavelength, $"the master to place it on has {onto.ChannelCount} planes, where a colour master has three");
+            return (null, parts, luminanceNoise, wavelength, $"the master to place it on has {onto.ChannelCount} planes, where a colour master has three");
         }
         var green = onto.GetChannelArray(1);
         var (gMax, gMin) = Extent([green]);
@@ -567,8 +573,8 @@ public static class PlanetaryComposition
         ];
         var (registration, refusal) = Register(pair, say);
         return registration is null
-            ? (null, parts, wavelength, refusal)
-            : (registration.Stacks[1].Image, parts, wavelength, null);
+            ? (null, parts, luminanceNoise, wavelength, refusal)
+            : (registration.Stacks[1].Image, parts, luminanceNoise, wavelength, null);
     }
 
     /// <summary>

@@ -195,7 +195,7 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
                 consoleHost.WriteError("--wavelength: red, green and blue");
                 return 1;
             }
-            var (luminance, parts, wavelengthNm, refusal) = await Task.Run(() => PlanetaryComposition.Luminance(master, planet, instant, wavelengths, onto, Say), ct);
+            var (luminance, parts, noise, wavelengthNm, refusal) = await Task.Run(() => PlanetaryComposition.Luminance(master, planet, instant, wavelengths, onto, Say), ct);
             if (luminance is null)
             {
                 consoleHost.WriteError(refusal ?? "no luminance");
@@ -208,10 +208,9 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
                 consoleHost.WriteScrollable(string.Create(inv,
                     $"{names[c]}: scale {parts[c].Scale:0.0000} onto green by the disk, noise {parts[c].ScaledNoise:G4} on green's scale, weight {parts[c].Weight:P1}"));
             }
-            var noise = SyntheticLuminance.BlockNoise(luminance);
             var best = parts.Min(p => p.ScaledNoise);
             consoleHost.WriteScrollable(string.Create(inv,
-                $"the luminance's noise {noise:G4} against the best single channel's {best:G4}: {best / noise:F2}x its signal to noise; sharpen it at {wavelengthNm:0} nm"));
+                $"the luminance's noise {noise:G4} on the sky against the best single channel's {best:G4}: {best / noise:F2}x its signal to noise; sharpen it at {wavelengthNm:0} nm"));
             var output = parseResult.GetValue(outputOpt) ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(masterPath)) ?? ".", Path.GetFileNameWithoutExtension(masterPath) + "_luminance.fits");
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output)) ?? ".");
             luminance.WriteToFitsFile(output);
