@@ -1138,6 +1138,17 @@ with the interquartile range:
   13.8) and moves the sky far from them more, not less (0.390 sigma RMS against 0.221; the registered sky RMS 0.620
   against 0.399). If the seeds hold it, the mask frees the model to take faint source-like structure, and it takes it
   from the star-free sky too.
+- *Arm A's three seeds, and arm B's training (2026-10-08; still no B-against-A read).* The runs stopped on their own:
+  A at 121,000, 112,500 and 85,000 steps (best held-out at 115,000, 106,500 and 79,000), B at 75,500, 67,500 and 80,000
+  (best at 69,500, 43,500 and 68,000). B's seed 1 stalled: its best, 1.83e-5, came 24,000 steps before it stopped,
+  against 1.16e-5 and 1.14e-5 for the other two (B's held-out loss is on its own draws, not comparable with A's). On A's
+  draws, against the unmasked convergence run in brackets: clean removal 64.4 to 67.5 percent at 5-20 sigma (65.9), 53.3
+  to 56.8 at 20-100 (56.2) and 21.5 to 26.1 at 100-1000 (28.9); dug at 100-1000 33.8 to 58.3 (47.2); the plate's own
+  sources taken 16.3 to 23.1 (13.8); the sky far from them moved 0.115 to 0.390 sigma RMS (0.221). **The seeds do not
+  hold seed 0's sky reading**: the unmasked run sits inside the masked arm's range, so the far sky is a seed's, and the
+  mask's one effect all three seeds share is taking more of the plate's own sources. On B's synthetic draws the
+  plate-trained models move the far sky 1.14 to 1.28 sigma and take 34 to 37 percent of the sources the eval finds the
+  synthetic truth keeping (its knots and texture peaks): taught on plates, they remove the synthetic sky's own structure.
 - **The generator against the Pleiades, by eye (2026-10-07).** `tianwen dataset synthetic-background` draws it over any
   starless plate beside the plate's own cutout (`SyntheticBackgroundPreview`). Over StarXTerminator's starless of the
   iTelescope M45 stack (RASA 11, FWHM 7.22 px, so 1 to 16 px drawn anew): on smooth sky it is the plate plus its knots,
@@ -1147,6 +1158,50 @@ with the interquartile range:
   orientation. A star remover taught on it never sees a filament cross a star, which is the Pleiades' whole difficulty;
   the fix is an anisotropic texture whose orientation follows the plate's own coarse structure, measured first on the
   plates (the structure tensor's coherence per scale and class, beside D1's index).
+
+#### What the loss weighs, and the bar StarXTerminator sets (2026-10-07 and 08)
+
+The owner asked why the training does not stop a model changing star-free sky, and whether synthetics can teach it to
+leave no black dots. Both answers are in where the squared error sits.
+- **The sky is in the loss, but it hardly drives the gradient.** The loss is L2 over the tile (less the 16 px rim) plus
+  two band terms, so wherever no star was injected any change costs. Split by region, the stars' footprints carry 80
+  percent of the squared error, the sky near the plate's own sources 14 and the sky far from every source 6. At low SNR a
+  faint star, a noise peak and a small knot look alike, and the lowest-error answer partly removes anything star-shaped,
+  which shaves the sky's own structure. Three ways to make it hold the sky: a leave-alone term (the star-free pixels
+  weighted up, or a change in the fine bands penalised only where no star was injected, which a synthetic draw knows
+  exactly); targets that show what to keep (D3's knots, R2e's filaments crossing stars); and a gate on the fixed eval's
+  far-sky RMS.
+- **The black dots are the bright cores' error, and the loss has finished with them.** Bright cores carry about 2.5
+  percent of the trained models' squared error, with a core error of 2.2 to 2.7 sigma RMS, so a third to a half of them
+  land under the sky: 47.2 percent of 100-1000 sigma stars are dug in the convergence run. Those stars are 3.5 percent of
+  the eval's, and a quarter of the draws carry a saturated one. R0's own dots are not the cause: an injected star is placed
+  at least 3 FWHM from every site R0 subtracted, so no target shows a star turning into a dot. What would teach it, in
+  order: the speckle teacher (section 4; not built, and no issue yet); a truth term on the injected footprints that only a
+  synthetic draw allows (undershoot under the truth weighted above overshoot, or H5's flux term star by star); more bright
+  stars a draw.
+- **StarXTerminator, measured where it can be** (`tianwen image remove-stars` over the iTelescope stacks, crops and
+  profiles in `C:\temp\rc-sxt-test`). On M45 (RASA 11, 46 frames), at the six largest saturated stars (4,000 to 4,700
+  sigma): what it removed, scaled to its value 10 to 20 px out, reads 0.010 to 0.012 at 45 to 60 px around most stars
+  (one 0.007), the clean-sky star 0.0102 inside that range and the two stars in thick nebula 10 to 30 percent higher at
+  45 to 80 px, within the stars' own scatter: one halo shape, not nebula taken with it. No holes: round the two nebula
+  stars its starless stays 10 to 14 sigma over the sky and rises toward the star, as reflection nebula does, and nowhere
+  falls 5 sigma under the sky; the RASA's spikes go too. That shows it consistent, not right, since the true halo is
+  unknown. On omega Centauri (ASI533MC) its starless is flat sky: it erases the cluster, unresolved glow included.
+
+#### Two scenes no real master can give (the owner's direction, 2026-10-07)
+
+A globular cluster or the Pleiades has no starless truth, so these are the cases synthetics are for. Both are next arms,
+on whichever background R2d picks, beside the speckle teacher: the scenes put the training signal into the bright cores,
+the teacher makes digging cost.
+- **A globular cluster** (M13, omega Centauri, 47 Tuc): stars placed on a King profile with a realistic luminosity mix,
+  overlapping, each drawn with the master's own PSF per channel, the core blended into a glow. What the truth keeps of the
+  unresolved light is the owner's decision (section 8). The test fields with no truth: the denoiser's crowded set (omega
+  Centauri, NGC 362, M22, M28) and M4, whose core glow and bar stars R0 already leaves.
+- **A bright star in nebulosity** (the Pleiades): a star thousands of sigma bright, saturated over tens of pixels, with
+  its far halo, spikes and ghosts where the optics make them, injected onto a plate with nebula. The truth is exact: the
+  halo is the star's and goes, the nebula is the sky's and stays. Today's injector draws a Moffat at the master's width
+  saturated through 8 simulated subs with no far halo, so this scene waits on R0's near wings (#1241) and the physical
+  PSF's halo and spikes (#1296 to #1298), and on R2e's filaments to put under it.
 
 Open from it, under #902: R0's saturated fit on a fixed annulus in FWHM units with a 0.1 to 0.3 core cut (#1240); a
 residual table that holds bright stars' near wings (#1241); the Lagoon's and eta Carinae's photometric offsets (1.4 to 1.7,
@@ -1222,6 +1277,10 @@ Tracked by #902.
   A third way since 2026-10-06: a physical PSF draws spikes from the pupil's vanes with no spike model of its
   own, so they generalise to any vane count and width a profile gives ([physical-psf-model.md](physical-psf-model.md),
   P3, #1298).
+- **A globular cluster's unresolved glow (the owner's decision, open).** The cluster scene's truth either keeps it as a
+  smooth glow, the stars under the eval's own detection rule left in (consistent with the plates, which keep faint stars,
+  and so training and scoring agree), or removes every star, which is what StarXTerminator does on omega Centauri. The
+  recommendation is the glow; choosing it means ours knowingly differs from RC on a cluster.
 - **The bright saturated tail** is the acknowledged hard case; whether v1 should refuse it (leave stars
   above a flux threshold in place, documented) or attempt it is a product decision for R2's spot
   checks.
