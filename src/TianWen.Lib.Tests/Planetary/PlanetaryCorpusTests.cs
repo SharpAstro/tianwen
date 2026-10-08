@@ -94,7 +94,7 @@ public class PlanetaryCorpusTests : IDisposable
     /// </summary>
     private static void WriteCapture(string path, int width = 320, int height = 240, int frames = 12, int radius = 18, double vx = 1.5,
         double vy = 0.75, SerColorId color = SerColorId.BayerRGGB, int bytesPerSample = 1, bool timestamps = true, int[]? dark = null,
-        int littleEndianFlag = -1)
+        int littleEndianFlag = -1, Func<int, DateTimeOffset>? timeOf = null)
     {
         var depth = bytesPerSample == 1 ? 8 : 12;
         using var writer = new SerWriter(path, width, height, color, depth, "observer", "ZWO ASI462MC", "Skywatcher 10 inch", littleEndianFlag: littleEndianFlag);
@@ -132,7 +132,7 @@ public class PlanetaryCorpusTests : IDisposable
             }
             if (timestamps)
             {
-                writer.AppendFrame(frame, T0.AddMilliseconds(i * 2.25));
+                writer.AppendFrame(frame, timeOf?.Invoke(i) ?? T0.AddMilliseconds(i * 2.25));
             }
             else
             {
@@ -415,6 +415,24 @@ public class PlanetaryCorpusTests : IDisposable
         LastUtc = first.AddMinutes(minutes).UtcDateTime.ToString("O"),
         Flags = flags,
     };
+
+    [Fact(Timeout = 60_000)]
+    public async Task ACaptureSortedByQualityIsSurveyedOverItsEarliestAndLatestFramesNeverItsFirstAndLast()
+    {
+        // #1292, found again by the audit on #1343: PIPP writes a capture sorted by quality, so its first frame was taken mid-run and its
+        // last before the end. The survey's span is what Sessions chains captures on, so it is the frames' earliest and latest times.
+        var ct = TestContext.Current.CancellationToken;
+        var night = NewFolder().CreateSubdirectory("Saturn");
+        int[] takenAt = [5, 0, 9, 2, 11, 7, 1, 4, 10, 3, 8, 6]; // frame i was taken takenAt[i] seconds into the run
+        WriteCapture(Path.Combine(night.FullName, "sorted.ser"), timeOf: i => T0.AddSeconds(takenAt[i]));
+
+        var survey = await PlanetaryCorpus.SurveyAsync([night.FullName], new CorpusSurveyOptions(), NullLogger.Instance, ct);
+
+        var capture = survey.Captures.ShouldHaveSingleItem();
+        capture.TimestampsMonotonic.ShouldBe(false);
+        capture.FirstUtc.ShouldBe("2024-12-15T12:33:50.0000000Z", "the earliest frame, not the first, which was taken 5 s in");
+        capture.LastUtc.ShouldBe("2024-12-15T12:34:01.0000000Z", "the latest frame, not the last, which was taken 6 s in");
+    }
 
     [Fact]
     public void ASessionIsBackToBackCapturesOfOneFolderAndFrameSizeAndAGapEndsIt()

@@ -61,7 +61,8 @@ internal sealed class PlanetaryDriftSubCommand(IConsoleHost consoleHost)
                 return 1;
             }
             using var run = PlanetaryFrameSequence.OpenSer(parseResult.GetValue(capturesArg) ?? []);
-            if (run.TimestampOf(0) is not { } start || run.TimestampOf(run.FrameCount - 1) is not { } end)
+            // The run's span is its frames' earliest and latest times, never its first and last frames' (#1292).
+            if (run.CaptureSpan is not (var start, var end))
             {
                 consoleHost.WriteError("the captures carry no timestamps");
                 return 1;

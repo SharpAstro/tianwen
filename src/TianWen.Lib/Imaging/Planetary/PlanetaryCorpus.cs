@@ -83,10 +83,13 @@ public sealed record CaptureRecord
     /// <summary>Where the capture's per-frame times come from: <c>trailer</c>, <c>date-obs</c>, <c>none</c>, or <c>unknown</c> (inside an archive).</summary>
     public required string Timestamps { get; init; }
 
-    /// <summary>The first frame's time, ISO 8601 UTC.</summary>
+    /// <summary>
+    /// The earliest frame's time, ISO 8601 UTC: where the capture's span starts, which for a SER is never simply its first frame's (#1292:
+    /// PIPP writes a capture sorted by quality). A FITS folder's is its first file's by name, the order a capture program names them in.
+    /// </summary>
     public string? FirstUtc { get; init; }
 
-    /// <summary>The last frame's time, ISO 8601 UTC.</summary>
+    /// <summary>The latest frame's time, ISO 8601 UTC, where the capture's span ends (see <see cref="FirstUtc"/>).</summary>
     public string? LastUtc { get; init; }
 
     public double? FramesPerSecond { get; init; }
@@ -412,17 +415,28 @@ public static class PlanetaryCorpus
             {
                 var times = reader.Timestamps;
                 timestampsSource = "trailer";
-                firstUtc = Iso(times[0]);
-                lastUtc = Iso(times[^1]);
+                // The span is the frames' earliest and latest times, never the first and last frames' (#1292): PIPP writes a capture
+                // sorted by quality, and Sessions chains captures on this span.
+                var (earliest, latest) = (times[0], times[0]);
                 monotonic = true;
                 for (var i = 1; i < times.Length; i++)
                 {
-                    if (times[i] < times[i - 1])
+                    var time = times[i];
+                    if (time < times[i - 1])
                     {
                         monotonic = false;
-                        break;
+                    }
+                    if (time < earliest)
+                    {
+                        earliest = time;
+                    }
+                    if (time > latest)
+                    {
+                        latest = time;
                     }
                 }
+                firstUtc = Iso(earliest);
+                lastUtc = Iso(latest);
             }
             else
             {
