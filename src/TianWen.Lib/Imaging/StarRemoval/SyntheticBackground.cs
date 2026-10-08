@@ -645,6 +645,37 @@ public sealed class SyntheticBackground
         return planes;
     }
 
+    /// <summary>
+    /// The drawn texture alone over the <paramref name="size"/> px cell at (<paramref name="x0"/>, <paramref name="y0"/>),
+    /// per channel: the replaced scales' amplitude times the texture, with no coarse part and no knots. What R2e's S4 fill
+    /// draws its structure from (<see cref="TexturedHoleFill"/>).
+    /// </summary>
+    internal float[][] TextureOnly(int x0, int y0, int size, Random random)
+    {
+        var texture = TextureScales(x0, y0, size, random);
+        var planes = new float[Channels][];
+        for (var c = 0; c < Channels; c++)
+        {
+            var plane = new float[size * size];
+            for (var y = 0; y < size; y++)
+            {
+                var fy = Math.Clamp(y0 + y, 0, Height - 1);
+                for (var x = 0; x < size; x++)
+                {
+                    var f = (fy * Width) + Math.Clamp(x0 + x, 0, Width - 1);
+                    var v = 0.0;
+                    for (var j = 0; j < FirstKept; j++)
+                    {
+                        v += _amplitude[c][j][f] * texture[j][(y * size) + x];
+                    }
+                    plane[(y * size) + x] = (float)v;
+                }
+            }
+            planes[c] = plane;
+        }
+        return planes;
+    }
+
     /// <summary>One knot a cell holds, in the cell's coordinates, its peak per channel in the plate's units.</summary>
     public readonly record struct Knot(double X, double Y, double SigmaMajorPx, double SigmaMinorPx, double AngleRad, double[] Peak);
 
