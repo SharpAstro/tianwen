@@ -187,28 +187,37 @@ public sealed class SyntheticBackground
             }
         }
         var (sources, _) = PointSourceFinder.Find(luminance, width, height, absent, fwhm, AmplitudeMaskSigma);
-        var clean = new float[n];
-        for (var i = 0; i < n; i++)
+        float[] Clean(float minSignificance)
         {
-            clean[i] = absent is { } a && a[i / width, i % width] ? 0f : 1f;
-        }
-        var reach = 2.0 * fwhm;
-        var r = (int)Math.Ceiling(reach);
-        foreach (var s in sources)
-        {
-            var cx = (int)Math.Round(s.X);
-            var cy = (int)Math.Round(s.Y);
-            for (var y = Math.Max(0, cy - r); y <= Math.Min(height - 1, cy + r); y++)
+            var mask = new float[n];
+            for (var i = 0; i < n; i++)
             {
-                for (var x = Math.Max(0, cx - r); x <= Math.Min(width - 1, cx + r); x++)
+                mask[i] = absent is { } a && a[i / width, i % width] ? 0f : 1f;
+            }
+            var reach = 2.0 * fwhm;
+            var r = (int)Math.Ceiling(reach);
+            foreach (var s in sources)
+            {
+                if (s.Significance < minSignificance)
                 {
-                    if (((x - s.X) * (x - s.X)) + ((y - s.Y) * (y - s.Y)) <= reach * reach)
+                    continue;
+                }
+                var cx = (int)Math.Round(s.X);
+                var cy = (int)Math.Round(s.Y);
+                for (var y = Math.Max(0, cy - r); y <= Math.Min(height - 1, cy + r); y++)
+                {
+                    for (var x = Math.Max(0, cx - r); x <= Math.Min(width - 1, cx + r); x++)
                     {
-                        clean[(y * width) + x] = 0f;
+                        if (((x - s.X) * (x - s.X)) + ((y - s.Y) * (y - s.Y)) <= reach * reach)
+                        {
+                            mask[(y * width) + x] = 0f;
+                        }
                     }
                 }
             }
+            return mask;
         }
+        var clean = Clean(float.NegativeInfinity);
 
         var coarse = new float[channels][];
         var amplitude = new float[channels][][];
@@ -259,7 +268,12 @@ public sealed class SyntheticBackground
             orientation = new Orientation(cos2, sin2, coherence,
                 steering.Value.Fine > 0 ? FineStructure(luminance, clean, width, height, firstKept) : null);
         }
-        var logNormalWidth = tailsFromPlate ? LogNormalWidthFromTails(luminance, clean, width, height, firstKept) : null;
+        // The tails are read clear of the sources S1's measure masks (4 sigma), not the amplitude maps' 3: S3 judges the
+        // texture through that measure, and masked from 3 sigma the read lost the clumps' cores and drew the texture too
+        // smooth (eta Carinae's textured sky read kurtosis 1.5 to 2.5 against the plate's 3.1 to 3.8).
+        var logNormalWidth = tailsFromPlate
+            ? LogNormalWidthFromTails(luminance, Clean(PlateSources.DefaultThresholdSigma), width, height, firstKept)
+            : null;
         return new SyntheticBackground(width, height, firstKept, fwhm, brightKnotsWide, steering, orientation, logNormalWidth, coarse, amplitude);
     }
 
