@@ -4984,15 +4984,36 @@ binary may be run as a reference, as torchmfbd was.
   overshoots there. Kolivas's own step after our sharpening sharpens twice (band 1 at 2.5 to 2.6 of the truth): his tool expects a stack
   sharpened lightly first, so it is read as a reference only. Both stay as `--finish adaptive` and `--finish kolivas`, measured and not
   adopted.
-- **A, the low-pass at the pupil's cutoff, ships as an option** (`--finish cutoff`, `PlanetaryFinish.Cutoff`). On the four real
-  captures with a post it raised band 1's correlation with the post (0.492 to 0.550, 0.645 to 0.705, 0.473 to 0.487, 0.549 to 0.606)
-  and left the detail both hold (band 1's shared gain within 2 %) and bands 2 to 4 unchanged. But it changed nothing on any twin, so its
-  rule against the truth is UNREAD, and the default waits on #1281.
+- **A, the low-pass at the pupil's cutoff, ships as an option, and stays one** (`--finish cutoff`, `PlanetaryFinish.Cutoff`). On the
+  four real captures with a post it raised band 1's correlation with the post (0.492 to 0.550, 0.645 to 0.705, 0.473 to 0.487, 0.549 to
+  0.606) and left the detail both hold (band 1's shared gain within 2 %) and bands 2 to 4 unchanged: A2 holds. It changed nothing on the
+  undersampled twins, and on the one oversampled twin (#1281, below) it took 12 % of red's band error and 2 to 4 % of green's and blue's,
+  where A1 asks 5 % on every colour: not the default.
 - **Every twin is sampled coarser than its optics resolve; the outside captures are sampled finer.** The cutoff `p / (lambda N)` lies
   past Nyquist on every twin (0.943 cycles a pixel on the calibrated Jupiter twin, 0.61 to 0.81 on the Saturn twin's colours) and inside
   it on the four outside captures (0.23 to 0.53) and on two of the owner's five Jupiters (2021-12-16, 2025-01-02). The sharpening now
-  reports each channel's cutoff (`PlanetarySharpenResult.Cutoffs`). Anything that acts near the cutoff is unread on today's twins until
-  one is made at an oversampled capture's scale (#1281).
+  reports each channel's cutoff (`PlanetarySharpenResult.Cutoffs`). Anything that acts near the cutoff was unread on those twins until
+  one was made at an oversampled capture's scale (#1281, below).
+
+#### The oversampled twin (#1281)
+
+- **What it is.** The 2023-11-11 EdgeHD 11 + ASI678MC Jupiter (f/14, cutoffs 0.229, 0.264 and 0.304 cycles a pixel), made through its
+  own pupil (`planetary-degrade --aperture-mm 280 --obstruction 0.375`) at 2,600 frames, the most a colour twin of 640 x 640 holds (its
+  frames sit in one array of at most 2 GiB). Eleven trials at 300 frames met the real capture's limb motion and each colour's
+  single-frame blur within 10 %, which took a still layer of 3.6 cm at a 0.12 m outer scale and a static defocus a colour
+  (`--bayer-defocus-nm 99,78,83`): red's single frames read 1.37 times as blurred as green's, which no air shared by the colours gives.
+- **Read on the cutoff low-pass, two seeds** (`planetary-sharpen --finish none,cutoff` against the truth, bands 1 to 4): red -11.5 and
+  -11.8 %, green -3.8 and -4.1 %, blue -2.4 and -2.3 %, the limb profile untouched. What it takes is band 1, as on the real captures.
+- **Its calibration does not carry from 300 frames to 2,600.** The real capture's single-frame limb edge is 0.3 px wider over its first
+  87 s than over its first 10 s and the twin's is not, so at 2,600 frames the twin's single frames read 0.87 to 0.93 of the real's edge
+  width and its limb moves 1.29 times as far (1.02 at 300). **A twin that stands in for a long capture is calibrated at that capture's
+  length.** Its master is also 1.44 times noisier than the real one's (2,600 frames of 5,392), which favours a low-pass, while its
+  sharper frames lower the derived gains, which does the reverse; how far either moves the reading was not measured.
+- **Read the limb's edge width, not its fitted blur sigma**, when comparing a colour's frames: the core sigma trades with the fitted
+  halo, and between 300 and 2,600 frames the real capture's red sigma fell from 3.29 to 2.53 px while its edge widened 7.07 to 7.39.
+- **Two tools changed on the way.** A twin's master stacked with `--truth` keeps the frames' full grid: cropped to its coverage (#1300)
+  it was off the truth's grid and nothing was scored. And the saved statistics are parsed whole (`PlanetaryCaptureStatistics.TryLoadAsync`):
+  read through a stream, a 2,600-frame file failed at a buffer boundary inside a frame limb that the same bytes parse through (#1356).
 - **C, Kolivas's FFT denoise, is not kept** (`--finish wiener`, `PlanetaryFinishing.WienerLowPass`: a smootherstep low-pass fitted to
   the sharpened window's Wiener target, the noise being the stack's white floor carried through the sharpening's transfer). The derived
   gains are already fitted to the Wiener deconvolution target, so a second Wiener after them shrinks the same noise twice, as predicted

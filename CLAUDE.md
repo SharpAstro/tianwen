@@ -1094,8 +1094,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   **fitted through the routine that ships**: ported from a fit read as shown it missed a post by 26 %, since the look works linear. The
   linear masters are what is processed further; in the viewer it is the tone popover's choice (#1277), a looked COPY swapped in for a master on show and back, never the file, made by `PlanetaryColourLook.Prepare` / `OnMaster`, the one routine `planetary-look` runs. **Every twin is sampled coarser than its optics resolve**
   (the pupil's cutoff `p / (lambda N)` past Nyquist, 0.61 to 0.94 cycles a pixel; `PlanetarySharpenResult.Cutoffs` reports it), while the
-  outside captures are sampled finer (0.23 to 0.53): anything acting near the cutoff is unread on today's twins (#1279, #1281), and
-  `--finish cutoff` (the low-pass there) is an option until an oversampled twin decides it. **The derived gains are already a Wiener**, so a
+  outside captures are sampled finer (0.23 to 0.53): anything acting near the cutoff is unread on those twins (#1279), and `--finish cutoff`
+  (the low-pass there) stays an option: on the one oversampled twin (#1281) it took 12 % of red's band error and 2 to 4 % of green's and
+  blue's. **A twin that stands in for a long capture is calibrated at that capture's length**: trial 11's, met at 300 frames, read 0.87 to
+  0.93 of the real's single-frame edge width at 2,600. **The derived gains are already a Wiener**, so a
   finish that shrinks the noise again (`--finish wiener`) or moves their strength to where the stack has contrast (`--finish adaptive`) made
   every twin worse (#1279). **Nor does shrinking each band against the master's own noise before them pay** (#1313, `--shrink`, an option:
   within 0.3 % on the twins, less shared detail on the real captures): a master's two halves (`planetary-stack --halves`) read its noise
