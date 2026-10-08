@@ -143,6 +143,51 @@ public sealed class SyntheticBackgroundTests
         bright.ShouldBeGreaterThan(3, "and the wide ones still reach past 20 sigma");
     }
 
+    // A frame whose coarse structure is a wave along y (its gradient vertical everywhere) and whose right half holds a texture
+    // above the noise, so the generator has a signal to draw there and one orientation to draw it along.
+    private static Image WavePlate()
+    {
+        const int size = 1024;
+        var rng = new Random(11);
+        var texture = SyntheticBackground.PowerLawField(size, 1.0, new Random(12));
+        var sd = Math.Sqrt(texture.Sum(static v => v * v) / texture.Length);
+        var plane = new float[size, size];
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var fine = x >= size / 2 ? 5 * Noise * texture[(y * size) + x] / sd : 0.0;
+                plane[y, x] = (float)(0.1 + (0.2 * Math.Sin(2 * Math.PI * y / 400.0)) + (Noise * Gaussian(rng)) + fine);
+            }
+        }
+        return new Image([plane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+    }
+
+    [Fact]
+    public void ASteeredTextureRunsAlongThePlatesCoarseContoursWhereAnIsotropicOneDoesNot()
+    {
+        var plate = WavePlate();
+        var isotropic = SyntheticBackground.Build(plate, absent: null, Fwhm);
+        var steered = SyntheticBackground.Build(plate, absent: null, Fwhm, steering: new SyntheticBackground.Steering(Strength: 1.0, Exponent: 4.0));
+
+        SkyTexture.Measurement Read(SyntheticBackground background)
+        {
+            const int size = 384;
+            var cell = background.Preview(768, 512, size, [Noise], noisy: true, new Random(21));
+            return SkyTexture.Measure(cell[0], size, size, absent: null, fwhm: Fwhm);
+        }
+        var plain = Read(isotropic);
+        var along = Read(steered);
+
+        // The drawn scales at 2 and 4 px, read against the plate's own coarse wave by S1's measure.
+        foreach (var j in new[] { 1, 2 })
+        {
+            Math.Abs(plain.Scales[j].Alignment).ShouldBeLessThan(0.15, $"an isotropic texture has no orientation at {1 << j} px");
+            along.Scales[j].Alignment.ShouldBeGreaterThan(0.4, $"the steered one runs along the coarse contours at {1 << j} px");
+            along.Scales[j].Coherence.ShouldBeGreaterThan(plain.Scales[j].Coherence + 0.05, $"and runs one way at {1 << j} px");
+        }
+    }
+
     [Fact]
     public void APreviewReadsThePlatesNoiseAndPutsItBackOnItsCentredCell()
     {
