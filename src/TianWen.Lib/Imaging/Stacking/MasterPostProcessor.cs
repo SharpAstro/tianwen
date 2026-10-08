@@ -306,8 +306,8 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             // fallback the moment it is inherited.
             var source = inheritedWhiteBalance?.Source
                 ?? (render.Value.Spcc is not null
-                    ? ColourCalibration.SpccSource
-                    : ColourCalibration.SkyBackgroundSource);
+                    ? ColourCalibrationSource.Spcc
+                    : ColourCalibrationSource.SkyBackground);
             await StampColourCalibrationAsync(masterPath, croppedResult is not null, enhance, wb, source, ct);
         }
         else if (inheritedWhiteBalance is { } inherited)
@@ -347,7 +347,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
     /// </summary>
     private async Task StampColourCalibrationAsync(
         string masterPath, bool hasAutocrop, bool enhanced, (float R, float G, float B) wb,
-        string source, CancellationToken ct)
+        ColourCalibrationSource source, CancellationToken ct)
     {
         var targets = ImmutableArray.CreateBuilder<string>();
         targets.Add(masterPath);
@@ -369,7 +369,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             {
                 // overwriteExisting: a re-run must be able to correct a calibration, and these cards are
                 // ours -- nothing else writes them, so there is no user value to preserve.
-                await FitsHeaderEditor.SetStringCardAsync(target, "WBSOURCE", source,
+                await FitsHeaderEditor.SetStringCardAsync(target, "WBSOURCE", ColourCalibration.CardOf(source),
                     "How the white balance was derived", overwriteExisting: true, apply: true, cancellationToken: ct);
                 await FitsHeaderEditor.SetNumericCardAsync(target, "WBRED", wb.R,
                     "Red white-balance multiplier", overwriteExisting: true, apply: true, cancellationToken: ct);

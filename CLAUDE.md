@@ -2205,12 +2205,16 @@ Canonical example: `AppSignalHandler.PollCameraTelemetry` and `EquipmentTabState
   the block, so removing one `!` can make a later line warn. Tests and benchmarks are deliberately
   exempt: `= null!` on a `[GlobalSetup]` field is the BenchmarkDotNet idiom, and `null!` passed to
   prove a guard throws is the point of that test.
-- **No JSON type holds a nullable struct (`T?`) whose last property can be null**, unless `JsonStreamReadTrapTests` lists
-  it with the reason no stream read can trip on it (#1356). A stream read (`DeserializeAsync`, `ReadFromJsonAsync`) throws
+- **No JSON type holds a nullable struct (`T?`) whose last property can be null** (`JsonStreamReadTrapTests`, #1356; its
+  list of exceptions is empty and meant to stay so). A stream read (`DeserializeAsync`, `ReadFromJsonAsync`) throws
   "could not be converted" when its buffer ends between that trailing `null` and the brace, while the same bytes parse
   whole: System.Text.Json's own bug, open as dotnet/runtime#110450. One offset in about 350, and only past the first
-  16 KiB, since the reader fills its buffer before parsing. Parse such a payload from its bytes
-  (`PlanetaryCaptureStatistics.TryLoadAsync`).
+  16 KiB, since the reader fills its buffer before parsing. **Make the TYPE safe, never the read**: end the struct on a
+  value that cannot be null, a number or an enum where the data allows (`ColourCalibration.Source`, which was a string of
+  two known values), or a last property saying what the nullable ones mean (`LimbFit.Ringed`, read off `RingLevels`; never
+  a `[JsonIgnore]`d one, which writes nothing), or write it through a context that omits nulls or defaults
+  (`HostingJsonContext`), which writes no null at all and which the guard counts as safe by itself. Parsing from bytes
+  (`PlanetaryCaptureStatistics.TryLoadAsync`) is a second protection, not a reason: nothing checks how a payload is read.
 - **Directory walks go through `FileEnumeration` (`TianWen.Lib/IO`), never the `SearchOption`
   overloads of `Directory.EnumerateFiles`/`GetFiles`.** Those run with the legacy defaults: they ENTER
   every reparse point (the organized archive's `targets/` junction farm was scanned once per link, and a

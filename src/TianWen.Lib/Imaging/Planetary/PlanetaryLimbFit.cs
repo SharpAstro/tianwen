@@ -76,7 +76,15 @@ public readonly record struct LimbFit(
     double HaloFraction = 0,
     double HaloWidth = 0,
     double[]? RingLevels = null,
-    double[]? RingSlopes = null);
+    double[]? RingSlopes = null)
+{
+    /// <summary>
+    /// Whether the fit modelled rings (<see cref="RingLevels"/> and <see cref="RingSlopes"/> are then given). Declared after them, so a
+    /// fit's JSON ends on it and never on their <c>null</c> (#1356): System.Text.Json's stream read of a nullable struct whose last value
+    /// is <c>null</c> throws when its buffer ends between that null and the brace (dotnet/runtime#110450). Written, never read back.
+    /// </summary>
+    public bool Ringed => RingLevels is not null;
+}
 
 /// <summary>
 /// Fits a planet's disk at its limb with a forward model (docs/plans/planetary-restoration.md, R1): an oblate disk of the

@@ -398,7 +398,7 @@ internal sealed class StackSubCommand(
                 }
                 inheritedWb = donorWb;
                 consoleHost.WriteScrollable(
-                    $"[stack] inheriting {donorWb.Source} white balance ({donorWb.R:F3}, {donorWb.G:F3}, {donorWb.B:F3}) "
+                    $"[stack] inheriting {ColourCalibration.CardOf(donorWb.Source)} white balance ({donorWb.R:F3}, {donorWb.G:F3}, {donorWb.B:F3}) "
                     + $"from {Path.GetFileName(donorPath)}");
             }
 

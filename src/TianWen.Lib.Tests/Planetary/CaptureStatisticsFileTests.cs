@@ -53,4 +53,28 @@ public sealed class CaptureStatisticsFileTests : IDisposable
             double.IsNaN(read.Halo[3]).ShouldBeTrue();
         }
     }
+
+    [Fact(Timeout = 120_000)]
+    public async Task EvenAStreamReadOfTheStatisticsDoesNotTripOnAFitsTrailingNull()
+    {
+        // LimbFit ends on Ringed, not on RingSlopes (null off Saturn), so a stream read meets no trailing null at any buffer
+        // boundary (#1356, dotnet/runtime#110450); the whole-file read above is then a second protection, not the only one.
+        var ct = TestContext.Current.CancellationToken;
+        var statistics = Statistics(40);
+        var limbJson = System.Text.Json.JsonSerializer.Serialize(statistics.FrameLimbs[0], PlanetaryStatisticsJsonContext.Default.FrameLimb);
+        limbJson.ShouldContain("\"ringSlopes\":null,\"ringed\":false}");
+        var oneLimb = limbJson.Length;
+        for (var pad = 0; pad <= oneLimb + 16; pad++)
+        {
+            var bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+                new CaptureStatisticsFile(PlanetaryCaptureStatistics.FileVersion, new string('k', pad + 1), statistics),
+                PlanetaryStatisticsJsonContext.Default.CaptureStatisticsFile);
+            using var stream = new MemoryStream(bytes);
+            var read = await System.Text.Json.JsonSerializer.DeserializeAsync(stream, PlanetaryStatisticsJsonContext.Default.CaptureStatisticsFile, ct);
+            read.ShouldNotBeNull($"padding {pad}");
+            read.Statistics.FrameLimbs.Length.ShouldBe(40, $"padding {pad}");
+            read.Statistics.FrameLimbs[39].Fit.ShouldNotBeNull();
+            read.Statistics.FrameLimbs[39].Fit!.Value.CenterX.ShouldBe(statistics.FrameLimbs[39].Fit!.Value.CenterX);
+        }
+    }
 }

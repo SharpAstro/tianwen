@@ -23,42 +23,47 @@ namespace TianWen.Lib.Tests;
 /// file's bytes whole, #1357).
 /// </para>
 /// <para>
+/// The remedies make the TYPE safe: end the struct on a value that cannot be null, a number or an enum where the data allows
+/// (<see cref="TianWen.Lib.Imaging.ColourCalibration"/>'s source), or a last property saying what the nullable ones mean
+/// (<see cref="TianWen.Lib.Imaging.Planetary.LimbFit.Ringed"/>); or write it through a context that omits nulls or defaults
+/// (<c>WhenWritingNull</c>, <c>WhenWritingDefault</c>), which writes no null at all, so this guard counts it as safe by itself.
+/// Parsing a payload from its bytes protects only the reads that do it.
+/// </para>
+/// <para>
 /// The shape lives in the type graph, which only the serializer's own metadata and the types show, so this reads types,
-/// as <see cref="SignalDefaultsTests"/> does for a record struct's defaults. A new entry below is a decision: say why no
-/// stream read can trip on it (the payload stays under 16 KiB, or it is parsed from bytes), or make the read whole.
+/// as <see cref="SignalDefaultsTests"/> does for a record struct's defaults.
 /// </para>
 /// </summary>
 public class JsonStreamReadTrapTests
 {
-    /// <summary>The shapes in the build today, each as "Holder.property is Inner?", with why none can trip a stream read.</summary>
-    private static readonly Dictionary<string, string> Allowed = new(StringComparer.Ordinal)
-    {
-        // PlanetaryCaptureStatistics.TryLoadAsync parses the file's bytes whole (#1357); nothing reads it through a stream.
-        ["FrameLimb.fit is LimbFit?"] = "read whole",
-        ["CaptureStatistics.limbAll is LimbFit?"] = "read whole",
-        ["CaptureStatistics.limbBest is LimbFit?"] = "read whole",
-        // FrameWire parses its header from bytes; Image.FromStreamAsync reads an ImageMeta of a few KB, from test data only.
-        ["ImageMeta.colour_calibration is ColourCalibration?"] = "bytes, or a payload under 16 KiB",
-        // A profile answer is about 1 KB (the largest profile 1,118 bytes): the first 16 KiB fill holds it whole.
-        ["ProfileDetailDto.data is ProfileData?"] = "a payload under 16 KiB",
-    };
+    /// <summary>
+    /// Shapes allowed although they could end in null, each as "Holder.property is Inner?", with why no stream read can trip on it.
+    /// Empty, and meant to stay so: a reason that rests on how a payload is read (from bytes, or under 16 KiB) is a promise
+    /// nothing checks, where a sentinel makes the type itself safe whoever reads it. A line here is a decision made in review.
+    /// </summary>
+    private static readonly Dictionary<string, string> Allowed = new(StringComparer.Ordinal);
 
     [Fact]
     public void NoJsonTypeHoldsANullableStructThatEndsInNullUnlessItsReadIsSafe()
     {
         var found = new SortedSet<string>(StringComparer.Ordinal);
+        var reached = new List<string>();
         foreach (var context in Contexts())
         {
+            reached.Add(context.GetType().Name);
             Walk(context, found);
         }
 
-        // Every context of the build was reached: a scan that found none would pass on nothing.
-        found.ShouldContain("FrameLimb.fit is LimbFit?");
+        // The build's contexts were reached: a scan that found none would pass on nothing.
+        reached.ShouldContain("PlanetaryStatisticsJsonContext");
+        reached.ShouldContain("HostingJsonContext");
         var unexplained = found.Where(f => !Allowed.ContainsKey(f)).ToArray();
         unexplained.ShouldBeEmpty(
             "a JSON type holds a nullable struct whose last property can be null: a stream read throws when its buffer ends "
-            + "between that null and the brace (#1356, dotnet/runtime#110450). Parse the payload whole, or keep it under "
-            + "16 KiB and add it to Allowed with the reason: " + string.Join("; ", unexplained));
+            + "between that null and the brace (#1356, dotnet/runtime#110450). End the struct on a value that cannot be null: "
+            + "a number or an enum where the data allows (ColourCalibration's source), or a last property saying what the "
+            + "nullable ones mean (LimbFit.Ringed; never a [JsonIgnore]d one), or write it through a context that omits nulls; "
+            + "only as a last resort add it to Allowed with the reason: " + string.Join("; ", unexplained));
         Allowed.Keys.Where(k => !found.Contains(k)).ShouldBeEmpty("an allowed shape no longer exists: delete its line");
     }
 
@@ -91,9 +96,14 @@ public class JsonStreamReadTrapTests
         }
     }
 
-    // Breadth first from the context's own types through every element, key and property type.
+    // Breadth first from the context's own types through every element, key and property type. A context that omits nulls
+    // (or every default) never writes a trailing null, so nothing it writes can trip the read.
     private static void Walk(JsonSerializerContext context, SortedSet<string> found)
     {
+        if (context.Options.DefaultIgnoreCondition is JsonIgnoreCondition.WhenWritingNull or JsonIgnoreCondition.WhenWritingDefault)
+        {
+            return;
+        }
         var seen = new HashSet<Type>();
         var queue = new Queue<Type>(context.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.PropertyType.IsGenericType && p.PropertyType.GetGenericTypeDefinition() == typeof(JsonTypeInfo<>))

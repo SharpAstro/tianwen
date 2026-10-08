@@ -599,8 +599,7 @@ public partial class Image
         var wbG = hdu.Header.GetFloatValue("WBGREEN", float.NaN);
         var wbB = hdu.Header.GetFloatValue("WBBLUE", float.NaN);
         var colourCalibration = float.IsFinite(wbR) && float.IsFinite(wbG) && float.IsFinite(wbB)
-            ? new ColourCalibration(wbR, wbG, wbB,
-                hdu.Header.GetStringValue("WBSOURCE") ?? ColourCalibration.SpccSource)
+            ? new ColourCalibration(wbR, wbG, wbB, ColourCalibration.FromCard(hdu.Header.GetStringValue("WBSOURCE")))
             : (ColourCalibration?)null;
         // Guiding: GUIDERMS alone decides presence. The others are refinements of it, and a frame that
         // states a total RMS has been guided whether or not it also managed to record a peak.
@@ -1157,7 +1156,7 @@ public partial class Image
         AddHeaderValueIfHasValue("SITEELEV", imageMeta.SiteElevation, "metres above mean sea level");
         if (imageMeta.ColourCalibration is { } wb)
         {
-            AddHeaderValueIfHasValue("WBSOURCE", wb.Source, "How the white balance was derived");
+            AddHeaderValueIfHasValue("WBSOURCE", ColourCalibration.CardOf(wb.Source), "How the white balance was derived");
             AddHeaderValueIfHasValue("WBRED", wb.R, "Red white-balance multiplier");
             AddHeaderValueIfHasValue("WBGREEN", wb.G, "Green white-balance multiplier");
             AddHeaderValueIfHasValue("WBBLUE", wb.B, "Blue white-balance multiplier");

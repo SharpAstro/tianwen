@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json.Serialization;
 using TianWen.Lib.Geometry;
 using TianWen.Lib.Astrometry;
 
@@ -122,16 +123,42 @@ namespace TianWen.Lib.Imaging;
 /// <param name="R">Red multiplier.</param>
 /// <param name="G">Green multiplier.</param>
 /// <param name="B">Blue multiplier.</param>
-/// <param name="Source">Where the triple came from: <c>SPCC</c> (a photometric fit against Tycho-2)
-/// or <c>SKYBG</c> (the sky-background fallback). Kept because the two are not equally trustworthy and
-/// a consumer inheriting a calibration deserves to know which it got.</param>
-public readonly record struct ColourCalibration(float R, float G, float B, string Source)
+/// <param name="Source">Where the triple came from. Kept because the two are not equally trustworthy and
+/// a consumer inheriting a calibration deserves to know which it got. An enum, not the card's string: it is a
+/// value that cannot be null, so a calibration's JSON never ends in one (#1356, dotnet/runtime#110450).</param>
+public readonly record struct ColourCalibration(float R, float G, float B, ColourCalibrationSource Source)
 {
-    /// <summary>The photometric fit against catalogue stars.</summary>
-    public const string SpccSource = "SPCC";
+    /// <summary>The FITS <c>WBSOURCE</c> card's value for <paramref name="source"/>: <c>SPCC</c> or <c>SKYBG</c>.</summary>
+    public static string CardOf(ColourCalibrationSource source) => source switch
+    {
+        ColourCalibrationSource.SkyBackground => "SKYBG",
+        _ => "SPCC",
+    };
 
-    /// <summary>The sky-background fallback, used when SPCC could not converge.</summary>
-    public const string SkyBackgroundSource = "SKYBG";
+    /// <summary>
+    /// The source a <c>WBSOURCE</c> card names. <c>SKYBG</c> is the sky-background fallback; anything else, an absent card
+    /// included, is SPCC, as an absent card has always read: the cards are TianWen's own and nothing else writes them.
+    /// </summary>
+    public static ColourCalibrationSource FromCard(string? card) =>
+        string.Equals(card?.Trim(), "SKYBG", StringComparison.OrdinalIgnoreCase)
+            ? ColourCalibrationSource.SkyBackground
+            : ColourCalibrationSource.Spcc;
+}
+
+/// <summary>
+/// How a frame's white balance was derived (FITS <c>WBSOURCE</c>, through <see cref="ColourCalibration.CardOf"/>). Its JSON names
+/// are the card's, so the image metadata a frame carries (<c>FrameWire</c>, written with enum names) reads as it did while the
+/// source was the card's string.
+/// </summary>
+public enum ColourCalibrationSource
+{
+    /// <summary>The photometric fit against catalogue stars (<c>SPCC</c>).</summary>
+    [JsonStringEnumMemberName("SPCC")]
+    Spcc,
+
+    /// <summary>The sky-background fallback, used when SPCC could not converge (<c>SKYBG</c>).</summary>
+    [JsonStringEnumMemberName("SKYBG")]
+    SkyBackground,
 }
 
 /// <summary>How well this ONE frame was guided, measured over its OWN exposure window.</summary>

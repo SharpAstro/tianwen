@@ -337,7 +337,7 @@ public class FitsPixelScaleTests
         var testDir = SharedTestData.CreateTempTestOutputDir();
         var fitsPath = Path.Combine(testDir, "colour-cal.fits");
         ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN,
-                colourCalibration: new ColourCalibration(1.522f, 1.0f, 1.776f, ColourCalibration.SpccSource)))
+                colourCalibration: new ColourCalibration(1.522f, 1.0f, 1.776f, ColourCalibrationSource.Spcc)))
             .WriteToFitsFile(fitsPath);
 
         Image.TryReadFitsFile(fitsPath, out var viaPixels).ShouldBeTrue();
@@ -347,7 +347,7 @@ public class FitsPixelScaleTests
         wb.R.ShouldBe(1.522f, tolerance: 1e-4f);
         wb.G.ShouldBe(1.0f, tolerance: 1e-4f);
         wb.B.ShouldBe(1.776f, tolerance: 1e-4f);
-        wb.Source.ShouldBe("SPCC");
+        wb.Source.ShouldBe(ColourCalibrationSource.Spcc);
         viaHeader.Meta.ColourCalibration.ShouldBe(viaPixels.ImageMeta.ColourCalibration);
     }
 
@@ -360,7 +360,7 @@ public class FitsPixelScaleTests
         var testDir = SharedTestData.CreateTempTestOutputDir();
         var fitsPath = Path.Combine(testDir, "partial-wb.fits");
         ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN,
-                colourCalibration: new ColourCalibration(1.522f, 1.0f, 1.776f, ColourCalibration.SpccSource)))
+                colourCalibration: new ColourCalibration(1.522f, 1.0f, 1.776f, ColourCalibrationSource.Spcc)))
             .WriteToFitsFile(fitsPath);
         RenameCard(fitsPath, "WBBLUE", "WBBLUEX");
 
