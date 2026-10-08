@@ -1177,7 +1177,8 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   reads the span; a de-rotation whose north the run cannot tell is not done (`NorthUnread`). **A long run saved as many files is
   one SESSION** (`PlanetaryCorpus.Sessions`: one folder, frame size and colour, each file within 10 minutes of the last; `planetary-stack
   --session`, `--epoch`, #1308): stacked as one run carried to its middle, 2022-09-29's 46 minutes had 5 to 6 times less noise than one file
-  and kept all of its detail.
+  and kept all of its detail. **A mono chain is split by the filter its file names say AFTER it is chained** (#1336): a filter wheel keeps
+  every filter in one folder, so a chain of every file mixed red, green and blue, and a filter's own files lie further apart than the gap.
 - **A colour master is sharpened per channel, and that UNMIXES colour, it does not add it** (#1295): on the twins it moved the globe, the
   rings and the gap toward the truth, where sharpening the luminance alone and keeping the stack's colour (`LuminanceOnly`,
   `--sharpen-luminance`, an option) left them as mixed as the blur made them. Read a colour change against a truth
