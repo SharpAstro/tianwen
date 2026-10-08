@@ -31,11 +31,12 @@ public static class SyntheticBackgroundPreview
     /// carries white noise at the plate's own (<see cref="SyntheticBackground.PlateNoise"/>) unless <paramref name="noisy"/>
     /// is false; the noise read is returned per channel. With <paramref name="measure"/> both cells' luminance is read by
     /// S1's measure and every pair goes into <c>structure.jsonl</c> beside them. <paramref name="tailsFromPlate"/> draws the
-    /// texture's tails from the plate's own (<see cref="SyntheticBackground.TailsFromPlate"/>).
+    /// texture's tails from the plate's own (<see cref="SyntheticBackground.TailsFromPlate"/>); without <paramref name="knots"/>
+    /// the synthetic cells hold the texture alone.
     /// </summary>
     public static (ImmutableArray<Written> Written, double[] Noise) Run(
         string platePath, string outDir, double fwhm, IReadOnlyList<(int X, int Y)> centres, int size, int seed, bool noisy,
-        SyntheticBackground.Steering? steering = null, int textured = 0, bool measure = false, bool tailsFromPlate = false)
+        SyntheticBackground.Steering? steering = null, int textured = 0, bool measure = false, bool tailsFromPlate = false, bool knots = true)
     {
         if (!Image.TryReadFitsFile(platePath, out var plate))
         {
@@ -61,7 +62,7 @@ public static class SyntheticBackgroundPreview
         for (var k = 0; k < points.Count; k++)
         {
             var (cx, cy) = points[k];
-            var synthetic = background.Preview(cx, cy, size, noise, noisy, new Random(HashCode.Combine(seed, cx, cy)));
+            var synthetic = background.Preview(cx, cy, size, noise, noisy, new Random(HashCode.Combine(seed, cx, cy)), knots);
             var plateCut = new float[plate.ChannelCount][];
             for (var c = 0; c < plate.ChannelCount; c++)
             {
