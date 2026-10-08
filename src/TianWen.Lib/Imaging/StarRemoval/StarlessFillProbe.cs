@@ -18,8 +18,20 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// <param name="StructureErrorStructured">The same over the holes on structure.</param>
 /// <param name="GrainRatio">Median ratio of the filled hole's pixel-to-pixel scatter to the original's: 1 is the plate's
 /// grain, below 1 a fill smoother than the sky around it.</param>
+/// <param name="LevelStructured">Median over the structured holes of the mean residual, filled minus original, in local
+/// sigma (R2e's S4: a fill that adds no bias reads 0).</param>
+/// <param name="EnergyStructured">Median over the structured holes of the band energy at <paramref name="ReadScalePx"/>
+/// inside the hole's interior (where its own edge is out of the scale's kernel), filled over original; NaN for a hole too
+/// small to have one.</param>
+/// <param name="AlignmentStructured">Median over the structured holes of the alignment between the fill's structure at
+/// <paramref name="ReadScalePx"/> in the interior and the original's in the ring round the hole (one to two radii), +1
+/// running the same way, -1 across: whether the fill carries the sky's direction into the hole.</param>
+/// <param name="AlignmentTruth">The same read on the original's interior: how far the sky's own direction carries.</param>
+/// <param name="ReadScalePx">The starlet scale the energy and alignment are read at, pixels; 0 where the hole is too small.</param>
 public readonly record struct FillProbeBand(
-    int Radius, int Holes, int SmoothHoles, int StructuredHoles, float StructureErrorSmooth, float StructureErrorStructured, float GrainRatio);
+    int Radius, int Holes, int SmoothHoles, int StructuredHoles, float StructureErrorSmooth, float StructureErrorStructured, float GrainRatio,
+    float LevelStructured = float.NaN, float EnergyStructured = float.NaN, float AlignmentStructured = float.NaN, float AlignmentTruth = float.NaN,
+    int ReadScalePx = 0);
 
 /// <summary>
 /// Measures the starless plate's fill on pixels whose truth is known (docs/plans/star-remover-training.md, R0, "Fill
@@ -38,15 +50,8 @@ public static class StarlessFillProbe
         StarlessPlate plate, IReadOnlyList<int> radii, int holesPerRadius = 100, int seed = 1, CancellationToken cancellationToken = default)
     {
         var image = plate.Plate;
-        var (channels, width, height) = image.Shape;
+        var (_, width, height) = image.Shape;
         var absent = image.AbsentPixels();
-        var fwhm = plate.Statistics.FwhmPx[^1];
-        var original = new float[channels][];
-        for (var c = 0; c < channels; c++)
-        {
-            original[c] = image.GetChannelSpan(c).ToArray();
-        }
-        var lum = Luminance(original, width * height);
         var excluded = new BitMatrix(height, width);
         for (var y = 0; y < height; y++)
         {
@@ -55,6 +60,27 @@ public static class StarlessFillProbe
                 excluded[y, x] = plate.Subtracted[y, x] || plate.Inpainted[y, x] || (absent is { } a && a[y, x]);
             }
         }
+        return Measure(image, excluded, plate.Statistics.FwhmPx[^1], radii, holesPerRadius, seed, textured: null, cancellationToken);
+    }
+
+    /// <summary>
+    /// The same probe on any plate: <paramref name="excluded"/> the pixels no hole may come near (a plate's subtracted and
+    /// filled pixels and its ring), <paramref name="fwhm"/> its PSF width. With <paramref name="textured"/> the holes are
+    /// filled by R2e's S4 (<see cref="TexturedHoleFill"/>, that steer); the holes, the grain and the seed are the same
+    /// either way, so the two fills are compared on the same holes.
+    /// </summary>
+    public static ImmutableArray<FillProbeBand> Measure(
+        Image image, BitMatrix excluded, double fwhm, IReadOnlyList<int> radii, int holesPerRadius, int seed,
+        SyntheticBackground.Steering? textured, CancellationToken cancellationToken)
+    {
+        var (channels, width, height) = image.Shape;
+        var absent = image.AbsentPixels();
+        var original = new float[channels][];
+        for (var c = 0; c < channels; c++)
+        {
+            original[c] = image.GetChannelSpan(c).ToArray();
+        }
+        var lum = Luminance(original, width * height);
         var sky = BackgroundMap.Estimate(lum, width, height, excluded, new BackgroundMapOptions(BlockSize: PointSourceFinder.SkyBlockFor(fwhm)));
         var rms = new float[width * height];
         sky.FillRms(rms);
@@ -80,22 +106,61 @@ public static class StarlessFillProbe
             {
                 filled[c] = (float[])original[c].Clone();
             }
-            HoleFill.Fill(filled, width, height, holes, absent, fwhm, seed + radius, ceiling: null, cancellationToken);
+            if (textured is { } steering)
+            {
+                TexturedHoleFill.Fill(filled, width, height, holes, absent, fwhm, seed + radius, ceiling: null, steering, cancellationToken);
+            }
+            else
+            {
+                HoleFill.Fill(filled, width, height, holes, absent, fwhm, seed + radius, ceiling: null, cancellationToken);
+            }
             var filledLum = Luminance(filled, width * height);
+
+            // The scale the energy and the direction are read at: the largest whose kernel (2^(j+1) px either way) leaves
+            // the hole an interior of at least half its radius; none for a hole too small for one.
+            var j = radius >= 24 ? 2 : radius >= 12 ? 1 : -1;
+            var interior = j >= 0 ? radius - (2 << j) : 0;
+            Structure? truth = null, fill = null;
+            if (j >= 0)
+            {
+                truth = Structure.Of(lum, width, height, j);
+                fill = Structure.Of(filledLum, width, height, j);
+            }
 
             var smooth = new List<float>();
             var structured = new List<float>();
             var grain = new List<float>();
+            var level = new List<float>();
+            var energy = new List<float>();
+            var alignment = new List<float>();
+            var alignmentTruth = new List<float>();
             foreach (var (cx, cy) in centres)
             {
-                var (error, structure, ratio) = Compare(lum, filledLum, rms, cx, cy, radius, width);
+                var (error, structure, ratio, mean) = Compare(lum, filledLum, rms, cx, cy, radius, width);
                 (structure > 1f ? structured : smooth).Add(error);
                 if (float.IsFinite(ratio))
                 {
                     grain.Add(ratio);
                 }
+                if (structure <= 1f)
+                {
+                    continue;
+                }
+                level.Add(mean);
+                if (truth is { } t && fill is { } f && cx - (2 * radius) >= 0 && cy - (2 * radius) >= 0 && cx + (2 * radius) < width && cy + (2 * radius) < height)
+                {
+                    var (eTruth, ringTruth, inTruth) = t.Read(cx, cy, interior, radius);
+                    var (eFill, _, inFill) = f.Read(cx, cy, interior, radius);
+                    if (eTruth > 0)
+                    {
+                        energy.Add((float)(eFill / eTruth));
+                    }
+                    alignment.Add((float)Structure.Agreement(inFill, ringTruth));
+                    alignmentTruth.Add((float)Structure.Agreement(inTruth, ringTruth));
+                }
             }
-            bands.Add(new FillProbeBand(radius, centres.Count, smooth.Count, structured.Count, Median(smooth), Median(structured), Median(grain)));
+            bands.Add(new FillProbeBand(radius, centres.Count, smooth.Count, structured.Count, Median(smooth), Median(structured), Median(grain),
+                Median(level), Median(energy), Median(alignment), Median(alignmentTruth), j >= 0 ? 1 << j : 0));
         }
         return bands.MoveToImmutable();
     }
@@ -218,10 +283,10 @@ public static class StarlessFillProbe
     }
 
     // Over one hole, in local sigma: the signal the fill got wrong (both noises out), how much structure the original
-    // carried above its noise, and the filled hole's pixel-to-pixel scatter over the original's.
-    private static (float Error, float Structure, float GrainRatio) Compare(float[] original, float[] filled, float[] rms, int cx, int cy, int radius, int width)
+    // carried above its noise, the filled hole's pixel-to-pixel scatter over the original's, and the mean residual.
+    private static (float Error, float Structure, float GrainRatio, float Level) Compare(float[] original, float[] filled, float[] rms, int cx, int cy, int radius, int width)
     {
-        double diff2 = 0, sum = 0, sum2 = 0, sigma2 = 0, dOrig = 0, dFill = 0;
+        double diff = 0, diff2 = 0, sum = 0, sum2 = 0, sigma2 = 0, dOrig = 0, dFill = 0;
         var n = 0;
         var nd = 0;
         for (var y = cy - radius; y <= cy + radius; y++)
@@ -236,6 +301,7 @@ public static class StarlessFillProbe
                 var s = Math.Max(rms[i], 1e-12f);
                 var o = original[i] / s;
                 var f = filled[i] / s;
+                diff += f - o;
                 diff2 += (f - o) * (f - o);
                 sum += o;
                 sum2 += o * o;
@@ -255,7 +321,53 @@ public static class StarlessFillProbe
         var variance = sum2 / n - (sum / n) * (sum / n);
         var structure = (float)Math.Sqrt(Math.Max(0.0, variance - sigma2 / n));
         var grain = nd > 0 && dOrig > 0 ? (float)Math.Sqrt(dFill / dOrig) : float.NaN;
-        return (error, structure, grain);
+        return (error, structure, grain, (float)(diff / n));
+    }
+
+    // One luminance's starlet scale j over the frame, with its structure tensor (a window of twice the scale): what S4's
+    // energy and direction reads take per hole.
+    private sealed record Structure(float[] Detail, float[] Coherence, float[] Cos2, float[] Sin2, int Width)
+    {
+        public static Structure Of(float[] luminance, int width, int height, int j)
+        {
+            var detail = ATrousWaveletTransform.Decompose(luminance, width, height, j + 1).Detail(j).ToArray();
+            var (coherence, cos2, sin2, _) = SkyTexture.StructureTensor(detail, width, height, (float)(SkyTexture.TensorWindowScales * (1 << j)));
+            return new Structure(detail, coherence, cos2, sin2, width);
+        }
+
+        // The energy inside the interior, and the coherence-weighted doubled-angle direction of the ring (one to two radii)
+        // and of the interior.
+        public (double Energy, (double C, double S) Ring, (double C, double S) Inside) Read(int cx, int cy, int interior, int radius)
+        {
+            double energy = 0, rc = 0, rs = 0, ic = 0, iS = 0;
+            for (var y = cy - (2 * radius); y <= cy + (2 * radius); y++)
+            {
+                for (var x = cx - (2 * radius); x <= cx + (2 * radius); x++)
+                {
+                    var r2 = ((x - cx) * (x - cx)) + ((y - cy) * (y - cy));
+                    var i = (y * Width) + x;
+                    if (r2 <= interior * interior)
+                    {
+                        energy += Detail[i] * Detail[i];
+                        ic += Coherence[i] * Cos2[i];
+                        iS += Coherence[i] * Sin2[i];
+                    }
+                    else if (r2 > radius * radius && r2 <= 4 * radius * radius)
+                    {
+                        rc += Coherence[i] * Cos2[i];
+                        rs += Coherence[i] * Sin2[i];
+                    }
+                }
+            }
+            return (energy, (rc, rs), (ic, iS));
+        }
+
+        // cos 2 (theta_a - theta_b) of two doubled-angle directions: +1 the same way, -1 across, 0 for no direction.
+        public static double Agreement((double C, double S) a, (double C, double S) b)
+        {
+            var norm = Math.Sqrt(((a.C * a.C) + (a.S * a.S)) * ((b.C * b.C) + (b.S * b.S)));
+            return norm > 0 ? ((a.C * b.C) + (a.S * b.S)) / norm : 0;
+        }
     }
 
     private static float Median(List<float> values)
