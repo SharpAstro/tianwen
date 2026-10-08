@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using System.Numerics;
+using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -105,8 +106,8 @@ public class PlanetaryDegradeTests
         // With the pupil's far wing (#1222) the sky past the PSF grid's 32 px reach is lit with no scatter at all, the frame's light is
         // the same, and the disk inside 0.8 radii gives up about the wing's share.
         ImmutableArray<double> none = [0, 0];
-        var without = await MakeAsync(none, none, size: 128, radius: 12, r0M: 10);
-        var with = await MakeAsync(none, none, size: 128, radius: 12, r0M: 10, farWing: true);
+        var without = await MakeAsync(none, none, size: 128, radius: 12, r0M: 10, cancellationToken: TestContext.Current.CancellationToken);
+        var with = await MakeAsync(none, none, size: 128, radius: 12, r0M: 10, farWing: true, cancellationToken: TestContext.Current.CancellationToken);
         static (double Total, double Disk, double FarSky) Light(ushort[] frame)
         {
             double total = 0, disk = 0, far = 0;
@@ -277,7 +278,7 @@ public class PlanetaryDegradeTests
     {
         ImmutableArray<double> shiftX = [0, 3.4, -2.25];
         ImmutableArray<double> shiftY = [0, -1.7, 0.5];
-        var frames = await MakeAsync(shiftX, shiftY, size: 96, radius: 20, r0M: 0.1);
+        var frames = await MakeAsync(shiftX, shiftY, size: 96, radius: 20, r0M: 0.1, cancellationToken: TestContext.Current.CancellationToken);
 
         var (x0, y0, _) = CentroidAndLevel(frames[0], 96, 20);
         for (var i = 0; i < frames.Length; i++)
@@ -296,8 +297,8 @@ public class PlanetaryDegradeTests
         // A small disk under poor seeing and the telescope's scatter: a level is read inside 0.8 radii of a frame, which the blur and
         // the scatter have taken light from, so a twin's planet is the measured level times ShownLevelGain (S3, #1233).
         ImmutableArray<double> none = [0, 0, 0, 0, 0, 0, 0, 0];
-        var asMeasured = await MakeAsync(none, none, size: 96, radius: 12, r0M: 0.05, scatter: 0.05);
-        var putBack = await MakeAsync(none, none, size: 96, radius: 12, r0M: 0.05, scatter: 0.05, atShownLevel: true);
+        var asMeasured = await MakeAsync(none, none, size: 96, radius: 12, r0M: 0.05, scatter: 0.05, cancellationToken: TestContext.Current.CancellationToken);
+        var putBack = await MakeAsync(none, none, size: 96, radius: 12, r0M: 0.05, scatter: 0.05, atShownLevel: true, cancellationToken: TestContext.Current.CancellationToken);
 
         var measuredLevel = asMeasured.Average(f => CentroidAndLevel(f, 96, 12).Level);
         var putBackLevel = putBack.Average(f => CentroidAndLevel(f, 96, 12).Level);
@@ -312,7 +313,7 @@ public class PlanetaryDegradeTests
         // No shift given: the seeing alone moves the disk, by its screen's tilt, and the record must say where it put it.
         ImmutableArray<double> none = [0, 0, 0, 0];
         var truths = ImmutableArray<SyntheticFrame>.Empty;
-        var frames = await MakeAsync(none, none, size: 96, radius: 20, r0M: 0.05, keepTilt: true, made: t => truths = t);
+        var frames = await MakeAsync(none, none, size: 96, radius: 20, r0M: 0.05, keepTilt: true, made: t => truths = t, cancellationToken: TestContext.Current.CancellationToken);
 
         var (x0, y0, _) = CentroidAndLevel(frames[0], 96, 20);
         var moved = 0.0;
@@ -348,7 +349,7 @@ public class PlanetaryDegradeTests
             drawnY.Add(sy);
         }
         var (shiftX, shiftY) = (drawnX.MoveToImmutable(), drawnY.MoveToImmutable());
-        var made = await MakeAsync(shiftX, shiftY, size: 64, radius: 12, r0M: 0.3);
+        var made = await MakeAsync(shiftX, shiftY, size: 64, radius: 12, r0M: 0.3, cancellationToken: TestContext.Current.CancellationToken);
         var planes = new float[frames][,];
         var times = new DateTimeOffset[frames];
         for (var i = 0; i < frames; i++)
@@ -436,7 +437,7 @@ public class PlanetaryDegradeTests
         // the disk's level came back NaN there, and a twin cannot be made from NaN; they are read on the farthest tenth past 1.3 radii.
         const int frames = 200;
         var none = ImmutableArray.CreateRange(Enumerable.Repeat(0.0, frames));
-        var made = await MakeAsync(none, none, size: 64, radius: 24, r0M: 0.3, readNoiseAdu: 20);
+        var made = await MakeAsync(none, none, size: 64, radius: 24, r0M: 0.3, readNoiseAdu: 20, cancellationToken: TestContext.Current.CancellationToken);
         var planes = new float[frames][,];
         var times = new DateTimeOffset[frames];
         for (var i = 0; i < frames; i++)
@@ -474,8 +475,8 @@ public class PlanetaryDegradeTests
         // Jacobian, the total jittered with the warp's divergence and doubled a Saturn twin's flux variation (S3, #1233). A small
         // disk and a short warp, where the jitter is largest.
         ImmutableArray<double> none = [0, 0, 0, 0, 0, 0];
-        var still = await MakeAsync(none, none, size: 96, radius: 12, r0M: 0.1);
-        var warped = await MakeAsync(none, none, size: 96, radius: 12, r0M: 0.1, warpRms: 0.8);
+        var still = await MakeAsync(none, none, size: 96, radius: 12, r0M: 0.1, cancellationToken: TestContext.Current.CancellationToken);
+        var warped = await MakeAsync(none, none, size: 96, radius: 12, r0M: 0.1, warpRms: 0.8, cancellationToken: TestContext.Current.CancellationToken);
         for (var i = 0; i < still.Length; i++)
         {
             var (a, b) = (Light(still[i]), Light(warped[i]));
@@ -496,8 +497,8 @@ public class PlanetaryDegradeTests
         // region's edge moves the levels too (0.8 % on the banded map), and only the quartiles of the middle, where the limb
         // darkening is gentle.
         ImmutableArray<double> none = [0, 0, 0, 0];
-        var still = await MakeAsync(none, none, size: 96, radius: 30, r0M: 0.1, flat: true);
-        var warped = await MakeAsync(none, none, size: 96, radius: 30, r0M: 0.1, warpRms: 0.5, flat: true);
+        var still = await MakeAsync(none, none, size: 96, radius: 30, r0M: 0.1, flat: true, cancellationToken: TestContext.Current.CancellationToken);
+        var warped = await MakeAsync(none, none, size: 96, radius: 30, r0M: 0.1, warpRms: 0.5, flat: true, cancellationToken: TestContext.Current.CancellationToken);
         var moved = 0.0;
         for (var i = 0; i < still.Length; i++)
         {
@@ -550,7 +551,7 @@ public class PlanetaryDegradeTests
         ImmutableArray<double> shiftY = [0, 0, 1, 0];
         var reported = new SyntheticWarp[4];
         var seen = 0;
-        await MakeAsync(shiftX, shiftY, size: 96, radius: 30, r0M: 0.1, keepTilt: true, warpRms: 0.5, warps: (index, warp) => { reported[index] = warp; seen++; });
+        await MakeAsync(shiftX, shiftY, size: 96, radius: 30, r0M: 0.1, keepTilt: true, warpRms: 0.5, warps: (index, warp) => { reported[index] = warp; seen++; }, cancellationToken: TestContext.Current.CancellationToken);
         seen.ShouldBe(4);
         (reported[1].OriginX - reported[0].OriginX).ShouldBe(3);
         (reported[2].OriginX - reported[0].OriginX, reported[2].OriginY - reported[0].OriginY).ShouldBe((3, 1));
@@ -560,7 +561,7 @@ public class PlanetaryDegradeTests
         (Math.Abs(x) + Math.Abs(y)).ShouldBeGreaterThan(0);
 
         var none = 0;
-        await MakeAsync(shiftX, shiftY, size: 96, radius: 30, r0M: 0.1, warps: (_, _) => none++);
+        await MakeAsync(shiftX, shiftY, size: 96, radius: 30, r0M: 0.1, warps: (_, _) => none++, cancellationToken: TestContext.Current.CancellationToken);
         none.ShouldBe(0);
     }
 
@@ -575,8 +576,8 @@ public class PlanetaryDegradeTests
         // which puts every later draw out of step, so at the helper's gain the two frames would differ by their noise.
         var none = ImmutableArray.Create(0.0, 0.0, 0.0, 0.0);
         // With the pupil's far wing (#1222) both paths move it with the frame's tilt.
-        var one = await MakeAsync(none, none, size: 96, radius: 20, r0M: 0.1, keepTilt: true, localR0M: 0.05, electronsPerAdu: 1e7, farWing: farWing);
-        var layered = await MakeAsync(none, none, size: 96, radius: 20, r0M: 0.1, keepTilt: true, localR0M: 0.05, highR0M: 1e6, highAltitudeM: 0, electronsPerAdu: 1e7, farWing: farWing);
+        var one = await MakeAsync(none, none, size: 96, radius: 20, r0M: 0.1, keepTilt: true, localR0M: 0.05, electronsPerAdu: 1e7, farWing: farWing, cancellationToken: TestContext.Current.CancellationToken);
+        var layered = await MakeAsync(none, none, size: 96, radius: 20, r0M: 0.1, keepTilt: true, localR0M: 0.05, highR0M: 1e6, highAltitudeM: 0, electronsPerAdu: 1e7, farWing: farWing, cancellationToken: TestContext.Current.CancellationToken);
         var (differing, largest, total) = (0, 0, 0);
         for (var f = 0; f < one.Length; f++)
         {
@@ -658,7 +659,7 @@ public class PlanetaryDegradeTests
         foreach (var altitude in new[] { 0.0, 10_000.0 })
         {
             var frames = new System.Collections.Generic.List<SyntheticFieldFrame>();
-            await MakeAsync(none, none, size: 96, radius: 20, r0M: 0.2, keepTilt: true, highR0M: 0.1, highAltitudeM: altitude, field: (_, f) => frames.Add(f));
+            await MakeAsync(none, none, size: 96, radius: 20, r0M: 0.2, keepTilt: true, highR0M: 0.1, highAltitudeM: altitude, field: (_, f) => frames.Add(f), cancellationToken: TestContext.Current.CancellationToken);
             at[altitude] = frames;
         }
         (double StrehlSpread, double TiltRms, double MeanBand1, double MeanBand4) Read(System.Collections.Generic.List<SyntheticFieldFrame> frames)
@@ -752,8 +753,8 @@ public class PlanetaryDegradeTests
         // warp is kept on a grid of nodes 4 px apart, and a Jacobian taken from the interpolated displacement jumped at every
         // node line: pixel-to-pixel steps of the ratio well above its smooth trend.
         ImmutableArray<double> none = [0, 0, 0, 0];
-        var still = await MakeAsync(none, none, size: 96, radius: 30, r0M: 0.1);
-        var warped = await MakeAsync(none, none, size: 96, radius: 30, r0M: 0.1, warpRms: 0.35);
+        var still = await MakeAsync(none, none, size: 96, radius: 30, r0M: 0.1, cancellationToken: TestContext.Current.CancellationToken);
+        var warped = await MakeAsync(none, none, size: 96, radius: 30, r0M: 0.1, warpRms: 0.35, cancellationToken: TestContext.Current.CancellationToken);
         double steps = 0, trend = 0;
         var count = 0;
         for (var i = 0; i < still.Length; i++)
@@ -786,8 +787,8 @@ public class PlanetaryDegradeTests
         const int frames = 48;
         ImmutableArray<double> none = [.. Enumerable.Repeat(0.0, frames)];
         var (local, free) = (ImmutableArray<SyntheticFrame>.Empty, ImmutableArray<SyntheticFrame>.Empty);
-        await MakeAsync(none, none, size: 64, radius: 12, r0M: 100, keepTilt: true, made: t => local = t, localR0M: 0.008, localOuterScaleM: 0.05);
-        await MakeAsync(none, none, size: 64, radius: 12, r0M: 0.05, keepTilt: true, made: t => free = t);
+        await MakeAsync(none, none, size: 64, radius: 12, r0M: 100, keepTilt: true, made: t => local = t, localR0M: 0.008, localOuterScaleM: 0.05, cancellationToken: TestContext.Current.CancellationToken);
+        await MakeAsync(none, none, size: 64, radius: 12, r0M: 0.05, keepTilt: true, made: t => free = t, cancellationToken: TestContext.Current.CancellationToken);
 
         static (double Tilt, double Strehl) Measure(ImmutableArray<SyntheticFrame> made)
         {
@@ -809,8 +810,8 @@ public class PlanetaryDegradeTests
         // A tenth of the light scattered wide: the frame's light is the same, the disk's inside 0.8 radii a tenth less, less its
         // own share of the scatter back, and the sky beyond the PSF grid's 32 px reach is lit where without it there is nothing.
         ImmutableArray<double> none = [0, 0];
-        var still = await MakeAsync(none, none, size: 96, radius: 12, r0M: 10);
-        var scattered = await MakeAsync(none, none, size: 96, radius: 12, r0M: 10, scatter: 0.1);
+        var still = await MakeAsync(none, none, size: 96, radius: 12, r0M: 10, cancellationToken: TestContext.Current.CancellationToken);
+        var scattered = await MakeAsync(none, none, size: 96, radius: 12, r0M: 10, scatter: 0.1, cancellationToken: TestContext.Current.CancellationToken);
         static (double Total, double Disk, double FarSky) Light(ushort[] frame)
         {
             double total = 0, disk = 0, far = 0;
@@ -853,7 +854,7 @@ public class PlanetaryDegradeTests
         // (it scored 0.81).
         ImmutableArray<double> none = [0, 0, 0];
         var truths = ImmutableArray<SyntheticFrame>.Empty;
-        await MakeAsync(none, none, size: 64, radius: 12, r0M: 10, made: t => truths = t, defocusNm: 50, pupil: new Pupil(0.254));
+        await MakeAsync(none, none, size: 64, radius: 12, r0M: 10, made: t => truths = t, defocusNm: 50, pupil: new Pupil(0.254), cancellationToken: TestContext.Current.CancellationToken);
         var expected = Math.Exp(-Math.Pow(2 * Math.PI * 50 / 650, 2));
         foreach (var frame in truths)
         {
@@ -963,7 +964,8 @@ public class PlanetaryDegradeTests
         bool keepTilt = false, Action<ImmutableArray<SyntheticFrame>>? made = null, double warpRms = 0, bool flat = false, double defocusNm = 0,
         Pupil? pupil = null, double localR0M = double.PositiveInfinity, double localOuterScaleM = 0.25, double scatter = 0,
         Action<int, SyntheticWarp>? warps = null, double highR0M = double.PositiveInfinity, double highAltitudeM = 10_000,
-        Action<int, SyntheticFieldFrame>? field = null, double electronsPerAdu = 1000, bool atShownLevel = false, bool farWing = false, double readNoiseAdu = 0)
+        Action<int, SyntheticFieldFrame>? field = null, double electronsPerAdu = 1000, bool atShownLevel = false, bool farWing = false, double readNoiseAdu = 0,
+        CancellationToken cancellationToken = default)
     {
         var map = BandedMap(flat);
         var builder = ImmutableArray.CreateBuilder<DateTimeOffset>(shiftX.Length);
@@ -1000,7 +1002,7 @@ public class PlanetaryDegradeTests
             options = options with { DiskLevelAdu = DiskLevel * PlanetaryDegrade.ShownLevelGain(map, CatalogIndex.Jupiter, times, reference, 0.49, options) };
         }
         var truths = await PlanetaryDegrade.MakeAsync(map, CatalogIndex.Jupiter, times, reference, 0.49, shiftX, shiftY, [], size, size, options,
-            (index, samples) => frames[index] = samples, warps: warps, field: field, cancellationToken: TestContext.Current.CancellationToken);
+            (index, samples) => frames[index] = samples, warps: warps, field: field, cancellationToken: cancellationToken);
         made?.Invoke(truths);
         return frames;
     }
