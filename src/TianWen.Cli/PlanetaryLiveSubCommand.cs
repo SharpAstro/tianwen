@@ -125,7 +125,9 @@ internal sealed class PlanetaryLiveSubCommand(IConsoleHost consoleHost, ITimePro
             {
                 rate = asked;
             }
-            else if (source.TimestampOf(0) is { } first && source.TimestampOf(source.FrameCount - 1) is { } last && last > first)
+            // Over the capture's span, its frames' earliest and latest times, never its first and last frames' (#1292): a capture sorted by
+            // quality read a rate from two frames taken anywhere in the run.
+            else if (source.CaptureSpan is (var first, var last) && last > first)
             {
                 rate = (source.FrameCount - 1) / (last - first).TotalSeconds;
             }
