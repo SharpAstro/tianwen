@@ -584,6 +584,30 @@ part way, and the claims are not yet read. Until they are, the alignment-point s
   - Two more trials were running when it was parked (the high layer 12 cm at 6 and 4 m/s, the pupil's outer scale 8 m); their logs are
     `layered/cal/trialC.log` and `trialD.log` in the planetary scratch. Then three seeds of the closest, and part 3 on it.
 
+##### R4 per-point keep, Strata's Warp+ (#1350)
+
+**Issue:** #1350. **Built 2026-10-08 as an option** (`PlanetaryStackOptions.PointKeep`, `planetary-stack --point-keep K`,
+`PlanetaryPointKeep`): the candidates are the frames the global keep selects; each alignment point scores every candidate by its 32 px
+patch's reference gain in a trous band 2 against the stacked reference (`PlanetaryPointQuality.BandGain`, read through the frame's own
+mesh), and keeps its best K of them; a frame is folded with a weight a pixel that is the share of the nearby points (a tent over the mesh's
+reach) that kept it, and every candidate counts where no point reaches. Two passes over the candidates: score, then fold.
+`--keep 1 --point-keep K` is Warp+. With every candidate kept it stacks as the plain keep does (`PlanetaryPointKeepTests`).
+
+- **Rule 1, on the layered twin (trial C, 3,000 frames, as stacked against the truth): fails.** At a matched number of frames a point,
+  band errors 1 to 4 summed:
+
+  | K | frame keep (`--keep K`) | point keep (`--keep 1 --point-keep K`) | point over frame | time, frame / point |
+  |---|---|---|---|---|
+  | 0.05 | 0.749, 0.494, 0.241, 0.096 (1.581) | 0.773, 0.521, 0.247, 0.096 (1.637) | +3.5 % | 39 / 124 s |
+  | 0.10 | 0.753, 0.507, 0.247, 0.099 (1.606) | 0.780, 0.532, 0.253, 0.099 (1.664) | +3.6 % | 52 / 349 s |
+  | 0.25 | 0.777, 0.531, 0.258, 0.103 (1.670) | 0.795, 0.549, 0.263, 0.103 (1.709) | +2.3 % | 144 / 315 s |
+
+  Worse at every K, in bands 1 to 3, at 2.2 to 6.7 times the time. It is part 3's finding seen through the stacker's own registration: a
+  point's quality is partly its own (27.4 %), but the best local score on an 8-bit patch ranks a point's frames worse than the frame's
+  whole-disk gradient (+0.46 against +0.73), so each point keeps frames the frame's ranking would have left out.
+- **Rule 2, on the owner's 2026-10-07 Saturn session against set 10** (`planetary-judge`), read at #1349's 10 % keep from the best quarter
+  (`--keep 0.25 --point-keep 0.4`): on #1350.
+
 #### R4 keeps are scored after restoration
 
 **Issue:** #1083 (the literature: `docs/architecture/planetary-literature.md`, theme A). **Done 2026-10-02**: once sharpened, the best
