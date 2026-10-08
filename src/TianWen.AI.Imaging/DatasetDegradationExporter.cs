@@ -398,6 +398,9 @@ namespace TianWen.AI.Imaging
         /// <param name="BrightKnotsWide">With <paramref name="SyntheticBackground"/>: only a knot at least
         /// <see cref="TianWen.Lib.Imaging.StarRemoval.SyntheticBackground.BrightKnotMinWidths"/> PSF widths across peaks above
         /// <see cref="TianWen.Lib.Imaging.StarRemoval.SyntheticBackground.BrightKnotSigma"/> sigma (R2d's knots test).</param>
+        /// <param name="NebulaKnots">With <paramref name="SyntheticBackground"/>: the knots drawn as a nebula's, where the plate's
+        /// fine scales hold signal, at its colour and a few times its RMS
+        /// (<see cref="TianWen.Lib.Imaging.StarRemoval.SyntheticBackground.NebulaKnots"/>).</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -434,7 +437,8 @@ namespace TianWen.AI.Imaging
             bool MeasureInjection = false,
             double? MonoWarpResampleSigma = null,
             bool SyntheticBackground = false,
-            bool BrightKnotsWide = false);
+            bool BrightKnotsWide = false,
+            bool NebulaKnots = false);
 
         /// <summary>
         /// The options one session's draws are made with: the warped shape's smoothing chosen by what made the master's noise.

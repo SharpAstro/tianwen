@@ -32,11 +32,12 @@ public static class SyntheticBackgroundPreview
     /// is false; the noise read is returned per channel. With <paramref name="measure"/> both cells' luminance is read by
     /// S1's measure and every pair goes into <c>structure.jsonl</c> beside them. <paramref name="tailsFromPlate"/> draws the
     /// texture's tails from the plate's own (<see cref="SyntheticBackground.TailsFromPlate"/>); without <paramref name="knots"/>
-    /// the synthetic cells hold the texture alone.
+    /// the synthetic cells hold the texture alone; <paramref name="nebulaKnots"/> draws them as a nebula's
+    /// (<see cref="SyntheticBackground.NebulaKnots"/>).
     /// </summary>
     public static (ImmutableArray<Written> Written, double[] Noise) Run(
         string platePath, string outDir, double fwhm, IReadOnlyList<(int X, int Y)> centres, int size, int seed, bool noisy,
-        SyntheticBackground.Steering? steering = null, int textured = 0, bool measure = false, bool tailsFromPlate = false, bool knots = true)
+        SyntheticBackground.Steering? steering = null, int textured = 0, bool measure = false, bool tailsFromPlate = false, bool knots = true, bool nebulaKnots = false)
     {
         if (!Image.TryReadFitsFile(platePath, out var plate))
         {
@@ -44,7 +45,7 @@ public static class SyntheticBackgroundPreview
         }
         var absent = plate.AbsentPixels();
         var noise = SyntheticBackground.PlateNoise(plate, absent);
-        var background = SyntheticBackground.Build(plate, absent, fwhm, steering: steering, tailsFromPlate: tailsFromPlate);
+        var background = SyntheticBackground.Build(plate, absent, fwhm, steering: steering, tailsFromPlate: tailsFromPlate, nebulaKnots: nebulaKnots);
         Directory.CreateDirectory(outDir);
 
         var points = new List<(int X, int Y)>(centres);

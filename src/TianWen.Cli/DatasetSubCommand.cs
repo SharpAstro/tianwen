@@ -1159,12 +1159,17 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "write every pair to structure.jsonl beside them.",
         };
         var noKnotsOpt = new Option<bool>("--no-knots") { Description = "S3: the synthetic cells without their knots, the texture alone (the exporter always draws them)." };
+        var previewNebulaKnotsOpt = new Option<bool>("--nebula-knots")
+        {
+            Description = "The knots drawn as a nebula's: where the plate's fine scales hold signal, a few times its RMS, at its colour, " +
+                          "an elongated one along the local contour under a steer (default: D3's, three a cell at 5 to 200 noise sigma).",
+        };
         var command = new Command("synthetic-background",
             "Draw R2d's synthetic starless background (the plate's coarse scales, a turbulent texture at the scales a star lives " +
             "at held to the plate's own local signal, and knots that are never the PSF) at cells centred where asked, each " +
             "beside the plate's own cutout there.")
         {
-            Options = { plateOpt, fwhmOpt, atOpt, sizeOpt, seedOpt, noNoiseOpt, outOpt, steerOpt, texturedOpt, measureOpt, tailsOpt, noKnotsOpt },
+            Options = { plateOpt, fwhmOpt, atOpt, sizeOpt, seedOpt, noNoiseOpt, outOpt, steerOpt, texturedOpt, measureOpt, tailsOpt, noKnotsOpt, previewNebulaKnotsOpt },
         };
         command.SetAction(parseResult =>
         {
@@ -1197,7 +1202,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             var fwhm = parseResult.GetValue(fwhmOpt);
             var (written, noise) = SyntheticBackgroundPreview.Run(parseResult.Required(plateOpt), parseResult.Required(outOpt),
                 fwhm, centres, parseResult.GetValue(sizeOpt), parseResult.GetValue(seedOpt), !parseResult.GetValue(noNoiseOpt),
-                steering, parseResult.GetValue(texturedOpt), parseResult.GetValue(measureOpt), parseResult.GetValue(tailsOpt), !parseResult.GetValue(noKnotsOpt));
+                steering, parseResult.GetValue(texturedOpt), parseResult.GetValue(measureOpt), parseResult.GetValue(tailsOpt), !parseResult.GetValue(noKnotsOpt), parseResult.GetValue(previewNebulaKnotsOpt));
             consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
                 $"[synthetic-background] the plate's noise {string.Join(" / ", noise.Select(static n => n.ToString("G3", CultureInfo.InvariantCulture)))}; {written.Length} cell(s):"));
             var drawn = SyntheticBackground.FirstKeptScale(fwhm);
@@ -1438,6 +1443,11 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "coarse scales, synthetic fine ones to its own local signal, the master's noise, and knots the target keeps).",
             DefaultValueFactory = _ => "plate",
         };
+        var nebulaKnotsOpt = new Option<bool>("--nebula-knots")
+        {
+            Description = "--background synthetic: the knots drawn as a nebula's, where the plate's fine scales hold signal, a few times " +
+                          "its RMS, at its colour (R2e; default: D3's, three a cell at 5 to 200 noise sigma).",
+        };
         var brightKnotsWideOpt = new Option<bool>("--bright-knots-wide")
         {
             Description = "--background synthetic: a knot under 2.5 PSF widths across peaks under 20 sigma, so only a wide knot is " +
@@ -1453,7 +1463,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -1489,9 +1499,10 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 return 1;
             }
             var brightKnotsWide = parseResult.GetValue(brightKnotsWideOpt);
-            if (brightKnotsWide && backgroundText != "synthetic")
+            var nebulaKnots = parseResult.GetValue(nebulaKnotsOpt);
+            if ((brightKnotsWide || nebulaKnots) && backgroundText != "synthetic")
             {
-                consoleHost.WriteError("--bright-knots-wide shapes the synthetic background's knots; it needs --background synthetic");
+                consoleHost.WriteError("--bright-knots-wide and --nebula-knots shape the synthetic background's knots; they need --background synthetic");
                 return 1;
             }
             var saturatedFraction = parseResult.GetValue(saturatedFractionOpt);
@@ -1569,7 +1580,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 MeasureInjection: parseResult.GetValue(measureInjectionOpt),
                 MonoWarpResampleSigma: parseResult.GetValue(warpSigmaMonoOpt),
                 SyntheticBackground: backgroundText == "synthetic",
-                BrightKnotsWide: brightKnotsWide);
+                BrightKnotsWide: brightKnotsWide,
+                NebulaKnots: nebulaKnots);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);
