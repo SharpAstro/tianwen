@@ -851,7 +851,7 @@ public partial class Image
     /// (<see cref="Planetary.DisplacementMesh.Derotation"/>) relights each sample as it lands.
     /// </summary>
     internal void AccumulateByMeshInto(float[][,] channelAccum, float[,] weightAccum, Planetary.DisplacementMesh mesh, float weight,
-        WarpInterpolation interpolation = WarpInterpolation.Bilinear)
+        WarpInterpolation interpolation = WarpInterpolation.Bilinear, float[,]? outputWeight = null)
     {
         var outH = weightAccum.GetLength(0);
         var outW = weightAccum.GetLength(1);
@@ -891,13 +891,20 @@ public partial class Image
                         continue;
                     }
 
-                    var gain = relit ? weight * mesh.RelightAt(x, y) : weight;
+                    // A pixel's own share of the frame (PlanetaryStackOptions.PointKeep: the points about it that kept the frame).
+                    var pixelWeight = outputWeight is null ? weight : weight * outputWeight[y, x];
+                    if (pixelWeight <= 0f)
+                    {
+                        continue;
+                    }
+
+                    var gain = relit ? pixelWeight * mesh.RelightAt(x, y) : pixelWeight;
                     for (var c = 0; c < channels; c++)
                     {
                         channelAccum[c][y, x] += gain * samples[c];
                     }
 
-                    weightAccum[y, x] += weight;
+                    weightAccum[y, x] += pixelWeight;
                 }
             }
         });
@@ -921,7 +928,7 @@ public partial class Image
     /// </para>
     /// </summary>
     internal void AccumulateByMeshWeightedInto(float[][,] channelAccum, float[,] weightAccum, Planetary.DisplacementMesh mesh, float[,] frameLocalQuality, float globalWeight, float[,]? signalConfidence = null,
-        WarpInterpolation interpolation = WarpInterpolation.Bilinear)
+        WarpInterpolation interpolation = WarpInterpolation.Bilinear, float[,]? outputWeight = null)
     {
         var outH = weightAccum.GetLength(0);
         var outW = weightAccum.GetLength(1);
@@ -973,7 +980,7 @@ public partial class Image
                     var q = signalConfidence is null
                         ? localQ
                         : (signalConfidence[y, x] * localQ) + (1f - signalConfidence[y, x]);
-                    var weight = globalWeight * q;
+                    var weight = outputWeight is null ? globalWeight * q : globalWeight * q * outputWeight[y, x];
                     if (weight <= 0f)
                     {
                         continue;
