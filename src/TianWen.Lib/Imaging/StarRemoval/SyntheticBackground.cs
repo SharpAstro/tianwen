@@ -101,10 +101,11 @@ public sealed class SyntheticBackground
     /// <summary>The widest log-normal the plate's tails can ask for (its kurtosis grows steeply past it).</summary>
     public const double MaxLogNormalSigma = 1.6;
 
-    private SyntheticBackground(int width, int height, int firstKept, double fwhm, bool brightKnotsWide, Steering? steering,
+    private SyntheticBackground(int width, int height, int firstKept, double fwhm, bool brightKnotsWide, bool nebulaKnots, Steering? steering,
         Orientation? orientation, float[]? logNormalWidth, float[][] coarse, float[][][] amplitude)
     {
         BrightKnotsWide = brightKnotsWide;
+        NebulaKnots = nebulaKnots;
         Steered = steering;
         _orientation = orientation;
         _logNormalWidth = logNormalWidth;
@@ -119,6 +120,18 @@ public sealed class SyntheticBackground
     /// <summary>Whether a knot under <see cref="BrightKnotMinWidths"/> PSF widths across peaks under
     /// <see cref="BrightKnotSigma"/> (only the wide knots reach <see cref="KnotMaxSigma"/>).</summary>
     public bool BrightKnotsWide { get; }
+
+    /// <summary>
+    /// R2e's knots drawn as a nebula's (S3: D3's knots, three a cell at 5 to 200 noise sigma wherever the cell lay, added
+    /// more tail than the real sky holds, and on M45 read as pink trails). A knot falls where the plate's own fine scales
+    /// hold signal, in proportion to it (none on a noise-only sky); it peaks <see cref="NebulaKnotMin"/> to
+    /// <see cref="NebulaKnotMax"/> times that signal's RMS, channel by channel, so it takes the nebula's colour there; and
+    /// an elongated one lies along the local contour where the generator holds an orientation (a steer).
+    /// </summary>
+    public bool NebulaKnots { get; }
+
+    /// <summary>A nebula knot's peak, as a multiple of the local fine-scale signal's RMS: a log-uniform draw between these.</summary>
+    public const double NebulaKnotMin = 2.0, NebulaKnotMax = 8.0;
 
     /// <summary>The texture's steering, or null for the isotropic texture R2d's arm B was taught on.</summary>
     public Steering? Steered { get; }
@@ -168,10 +181,11 @@ public sealed class SyntheticBackground
     /// them, <see cref="PlateSources.DefaultThresholdSigma"/>) and the canvas ring <paramref name="absent"/> left out.
     /// <paramref name="brightKnotsWide"/> keeps a compact knot faint (<see cref="BrightKnotsWide"/>); a
     /// <paramref name="steering"/> draws the texture along the plate's coarse orientation (<see cref="Steering"/>);
-    /// <paramref name="tailsFromPlate"/> sets its tails from the plate's own (<see cref="TailsFromPlate"/>).
+    /// <paramref name="tailsFromPlate"/> sets its tails from the plate's own (<see cref="TailsFromPlate"/>);
+    /// <paramref name="nebulaKnots"/> draws the knots as a nebula's (<see cref="NebulaKnots"/>).
     /// </summary>
     public static SyntheticBackground Build(Image unitPlate, BitMatrix? absent, double fwhm, bool brightKnotsWide = false, Steering? steering = null,
-        bool tailsFromPlate = false)
+        bool tailsFromPlate = false, bool nebulaKnots = false)
     {
         var (channels, width, height) = unitPlate.Shape;
         var n = width * height;
@@ -274,7 +288,7 @@ public sealed class SyntheticBackground
         var logNormalWidth = tailsFromPlate
             ? LogNormalWidthFromTails(luminance, Clean(PlateSources.DefaultThresholdSigma), width, height, firstKept)
             : null;
-        return new SyntheticBackground(width, height, firstKept, fwhm, brightKnotsWide, steering, orientation, logNormalWidth, coarse, amplitude);
+        return new SyntheticBackground(width, height, firstKept, fwhm, brightKnotsWide, nebulaKnots, steering, orientation, logNormalWidth, coarse, amplitude);
     }
 
     // S2b: the structure tensor of the luminance's replaced scales from 2 px up (1 px is the master's noise on every class,
@@ -666,7 +680,7 @@ public sealed class SyntheticBackground
             }
             planes[c] = plane;
         }
-        knots = withKnots ? AddKnots(planes, size, noiseSigma, random) : [];
+        knots = !withKnots ? [] : NebulaKnots ? AddNebulaKnots(planes, x0, y0, size, noiseSigma, random) : AddKnots(planes, size, noiseSigma, random);
         return planes;
     }
 
@@ -938,26 +952,143 @@ public sealed class SyntheticBackground
             {
                 peak[c] = level * (c < noiseSigma.Length ? noiseSigma[c] : noiseSigma[^1]);
             }
-            var (sin, cos) = Math.SinCos(angle);
-            var reach = (int)Math.Ceiling(4 * major);
-            for (var y = Math.Max(0, (int)cy - reach); y <= Math.Min(size - 1, (int)cy + reach); y++)
-            {
-                for (var x = Math.Max(0, (int)cx - reach); x <= Math.Min(size - 1, (int)cx + reach); x++)
-                {
-                    var dx = x - cx;
-                    var dy = y - cy;
-                    var u = ((dx * cos) + (dy * sin)) / major;
-                    var v = ((-dx * sin) + (dy * cos)) / minor;
-                    var g = Math.Exp(-0.5 * ((u * u) + (v * v)));
-                    for (var c = 0; c < planes.Length; c++)
-                    {
-                        planes[c][(y * size) + x] += (float)(peak[c] * g);
-                    }
-                }
-            }
+            DrawKnot(planes, size, cx, cy, major, minor, angle, peak);
             knots.Add(new Knot(cx, cy, major, minor, angle, peak));
         }
         return knots.MoveToImmutable();
+    }
+
+    // One knot: an elliptical Gaussian of sigmas major along angle and minor across it, at peak per channel.
+    private static void DrawKnot(float[][] planes, int size, double cx, double cy, double major, double minor, double angle, double[] peak)
+    {
+        var (sin, cos) = Math.SinCos(angle);
+        var reach = (int)Math.Ceiling(4 * major);
+        for (var y = Math.Max(0, (int)cy - reach); y <= Math.Min(size - 1, (int)cy + reach); y++)
+        {
+            for (var x = Math.Max(0, (int)cx - reach); x <= Math.Min(size - 1, (int)cx + reach); x++)
+            {
+                var dx = x - cx;
+                var dy = y - cy;
+                var u = ((dx * cos) + (dy * sin)) / major;
+                var v = ((-dx * sin) + (dy * cos)) / minor;
+                var g = Math.Exp(-0.5 * ((u * u) + (v * v)));
+                for (var c = 0; c < planes.Length; c++)
+                {
+                    planes[c][(y * size) + x] += (float)(peak[c] * g);
+                }
+            }
+        }
+    }
+
+    // R2e's nebula knots (NebulaKnots). T_c is the plate's fine-scale signal RMS in channel c at a pixel (its amplitude
+    // maps over the replaced scales), and rho, the channels' mean of T_c over their noise, capped at one, how much of that
+    // pixel is nebula. The count is a Poisson draw of KnotsPerCell times rho's mean over the cell, each knot placed by
+    // rejection on rho (none where it is zero); its peak a log-uniform NebulaKnotMin to NebulaKnotMax times T_c, channel
+    // by channel, so its colour is the nebula's there; its shapes D3's, an elongated one laid along the local contour where
+    // a steer gives an orientation, at a random angle otherwise. BrightKnotsWide still caps a compact one.
+    private ImmutableArray<Knot> AddNebulaKnots(float[][] planes, int x0, int y0, int size, ReadOnlySpan<double> noiseSigma, Random random)
+    {
+        var psfSigma = Fwhm / 2.3548;
+        var channels = planes.Length;
+        var noise = new double[channels];
+        for (var c = 0; c < channels; c++)
+        {
+            noise[c] = c < noiseSigma.Length ? noiseSigma[c] : noiseSigma[^1];
+        }
+        int FrameIndex(double x, double y)
+            => (Math.Clamp(y0 + (int)y, 0, Height - 1) * Width) + Math.Clamp(x0 + (int)x, 0, Width - 1);
+        double SignalRms(int c, int f)
+        {
+            var sum = 0.0;
+            for (var j = 0; j < FirstKept; j++)
+            {
+                var a = (double)_amplitude[c][j][f];
+                sum += a * a;
+            }
+            return Math.Sqrt(sum);
+        }
+        double Rho(int f)
+        {
+            var sum = 0.0;
+            for (var c = 0; c < channels; c++)
+            {
+                sum += noise[c] > 0 ? SignalRms(c, f) / noise[c] : 0;
+            }
+            return Math.Min(1.0, sum / channels);
+        }
+
+        var (rhoSum, samples) = (0.0, 0);
+        for (var y = 0; y < size; y += 8)
+        {
+            for (var x = 0; x < size; x += 8)
+            {
+                rhoSum += Rho(FrameIndex(x, y));
+                samples++;
+            }
+        }
+        var count = Poisson(KnotsPerCell * (samples > 0 ? rhoSum / samples : 0), random);
+        var knots = ImmutableArray.CreateBuilder<Knot>(count);
+        for (var k = 0; k < count; k++)
+        {
+            double cx = 0, cy = 0;
+            var placed = false;
+            for (var attempt = 0; attempt < 64 && !placed; attempt++)
+            {
+                cx = 16 + (random.NextDouble() * (size - 32));
+                cy = 16 + (random.NextDouble() * (size - 32));
+                placed = random.NextDouble() < Rho(FrameIndex(cx, cy));
+            }
+            if (!placed)
+            {
+                continue;
+            }
+            double major, minor;
+            var round = random.NextDouble() < 0.5;
+            if (round)
+            {
+                major = minor = psfSigma * (1.6 + (2.4 * random.NextDouble()));
+            }
+            else
+            {
+                minor = psfSigma * (1.0 + (0.5 * random.NextDouble()));
+                major = minor * (2.5 + (2.5 * random.NextDouble()));
+            }
+            var f = FrameIndex(cx, cy);
+            var randomAngle = random.NextDouble() * Math.PI;
+            // The major axis along the contour: a quarter turn from the gradient the orientation reads.
+            var angle = !round && GradientAngle(f) is { } gradient ? gradient + (Math.PI / 2) : randomAngle;
+            var level = NebulaKnotMin * Math.Pow(NebulaKnotMax / NebulaKnotMin, random.NextDouble());
+            var peak = new double[channels];
+            for (var c = 0; c < channels; c++)
+            {
+                peak[c] = level * SignalRms(c, f);
+                if (BrightKnotsWide && minor < BrightKnotMinWidths * psfSigma)
+                {
+                    peak[c] = Math.Min(peak[c], BrightKnotSigma * noise[c]);
+                }
+            }
+            DrawKnot(planes, size, cx, cy, major, minor, angle, peak);
+            knots.Add(new Knot(cx, cy, major, minor, angle, peak));
+        }
+        return knots.ToImmutable();
+    }
+
+    // The gradient's angle the texture is steered by at a frame pixel (the coarse orientation, blended toward the plate's own
+    // fine one where it holds signal, as SteeredField blends them), or null without a steer.
+    private double? GradientAngle(int f)
+    {
+        if (_orientation is not { } o)
+        {
+            return null;
+        }
+        double cos2 = o.Cos2[f], sin2 = o.Sin2[f];
+        if (o.Fine is { } fine)
+        {
+            var w = (double)fine.Weight[f];
+            cos2 = (w * fine.Cos2[f]) + ((1 - w) * cos2);
+            sin2 = (w * fine.Sin2[f]) + ((1 - w) * sin2);
+        }
+        return 0.5 * Math.Atan2(sin2, cos2);
     }
 
     private static int Poisson(double mean, Random random)

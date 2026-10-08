@@ -319,6 +319,69 @@ public sealed class SyntheticBackgroundTests
     }
 
     [Fact]
+    public void NebulaKnotsFallWhereThePlateHasNebulaAtAFewTimesItsSignalAndInItsColour()
+    {
+        // Two channels, the second's texture half the first's: the nebula's colour.
+        const int size = 1024;
+        var rng = new Random(17);
+        var field = SyntheticBackground.PowerLawField(size, 2.5, new Random(18));
+        var sd = Math.Sqrt(field.Sum(static v => v * v) / field.Length);
+        var (red, green) = (new float[size, size], new float[size, size]);
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var fine = x >= size / 2 ? 4 * Noise * field[(y * size) + x] / sd : 0.0;
+                red[y, x] = (float)(0.1 + (Noise * Gaussian(rng)) + fine);
+                green[y, x] = (float)(0.1 + (Noise * Gaussian(rng)) + (0.5 * fine));
+            }
+        }
+        var background = SyntheticBackground.Build(new Image([red, green], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta()), absent: null, Fwhm,
+            nebulaKnots: true);
+        var noise = new double[] { Noise, Noise };
+
+        var (onSky, onNebula) = (0, 0);
+        for (var draw = 0; draw < 20; draw++)
+        {
+            background.Cell(64, 384, 256, noise, new Random(200 + draw), out var sky);
+            onSky += sky.Length;
+            background.Cell(640, 384, 256, noise, new Random(300 + draw), out var nebula);
+            foreach (var k in nebula)
+            {
+                onNebula++;
+                var (fx, fy) = (640 + (int)k.X, 384 + (int)k.Y);
+                double Rms(int c) => Math.Sqrt(Enumerable.Range(0, background.FirstKept).Sum(j => Math.Pow(background.Amplitude(c, j, fx, fy), 2)));
+                (k.Peak[0] / Rms(0)).ShouldBeInRange(SyntheticBackground.NebulaKnotMin * 0.999, SyntheticBackground.NebulaKnotMax * 1.001,
+                    "a knot is a few times the nebula's own signal there");
+                (k.Peak[0] / k.Peak[1]).ShouldBe(Rms(0) / Rms(1), 1e-6, "in the nebula's colour there");
+                (k.Peak[0] / k.Peak[1]).ShouldBeGreaterThan(1.5, "which is redder than green, as the plate is");
+            }
+        }
+        onSky.ShouldBe(0, "a noise-only sky holds no nebula to hold a knot");
+        onNebula.ShouldBeGreaterThan(20, "about three knots a cell of nebula");
+    }
+
+    [Fact]
+    public void AnElongatedNebulaKnotLiesAlongTheContourItIsSteeredBy()
+    {
+        // The wave's gradient is vertical everywhere, so its contours, and an elongated knot, run along x.
+        var background = SyntheticBackground.Build(WavePlate(), absent: null, Fwhm, steering: new SyntheticBackground.Steering(1.0, 4.0),
+            nebulaKnots: true);
+        var elongated = 0;
+        for (var draw = 0; draw < 20; draw++)
+        {
+            background.Cell(640, 384, 256, [Noise], new Random(400 + draw), out var knots);
+            foreach (var k in knots.Where(static k => k.SigmaMajorPx > 2 * k.SigmaMinorPx))
+            {
+                elongated++;
+                var off = Math.Abs(Math.Sin(k.AngleRad));
+                off.ShouldBeLessThan(0.3, $"along the contour, not across it (angle {k.AngleRad:F2} rad)");
+            }
+        }
+        elongated.ShouldBeGreaterThan(5);
+    }
+
+    [Fact]
     public void APreviewReadsThePlatesNoiseAndPutsItBackOnItsCentredCell()
     {
         var plate = Plate(6);
