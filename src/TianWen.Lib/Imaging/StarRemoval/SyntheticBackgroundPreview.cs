@@ -63,7 +63,7 @@ public static class SyntheticBackgroundPreview
         for (var k = 0; k < points.Count; k++)
         {
             var (cx, cy) = points[k];
-            var synthetic = background.Preview(cx, cy, size, noise, noisy, new Random(HashCode.Combine(seed, cx, cy)), knots);
+            var synthetic = background.Preview(cx, cy, size, noise, noisy, new Random(CellSeed(seed, cx, cy)), knots);
             var plateCut = new float[plate.ChannelCount][];
             for (var c = 0; c < plate.ChannelCount; c++)
             {
@@ -142,6 +142,13 @@ public static class SyntheticBackgroundPreview
         }
         return [.. cells.OrderByDescending(static c => c.Amplitude).Take(count).Select(static c => (c.X, c.Y))];
     }
+
+    /// <summary>
+    /// A centre's seed: fixed arithmetic, as the exporters derive theirs. <c>HashCode.Combine</c> was the first form, and .NET
+    /// seeds it afresh in every process, so every run drew its own texture and S3's settings were compared on different
+    /// draws.
+    /// </summary>
+    internal static int CellSeed(int seed, int cx, int cy) => seed ^ (cx * 73856093) ^ (cy * 19349663);
 
     private static float[] Luminance(float[][] planes)
     {

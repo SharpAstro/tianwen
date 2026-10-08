@@ -382,6 +382,15 @@ public sealed class SyntheticBackgroundTests
     }
 
     [Fact]
+    public void APreviewCellsSeedIsTheSameInEveryProcess()
+    {
+        // HashCode.Combine is seeded afresh per process, so a cell seeded by it drew another texture on every run; a value
+        // pinned here fails in any process if it comes back.
+        // 1 ^ (3881 * 73856093) ^ (961 * 19349663), wrapped to 32 bits.
+        SyntheticBackgroundPreview.CellSeed(1, 3881, 961).ShouldBe(-392756933);
+    }
+
+    [Fact]
     public void APreviewReadsThePlatesNoiseAndPutsItBackOnItsCentredCell()
     {
         var plate = Plate(6);
