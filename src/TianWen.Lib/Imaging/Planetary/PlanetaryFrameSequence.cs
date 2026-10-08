@@ -78,17 +78,19 @@ public sealed class PlanetaryFrameSequence : IPlanetaryFrameStream
     {
         ArgumentNullException.ThrowIfNull(paths);
         var readers = new List<SerReader>();
+        var opened = new List<string>();
         try
         {
             foreach (var path in paths)
             {
                 readers.Add(SerReader.Open(path));
+                opened.Add(System.IO.Path.GetFullPath(path));
             }
             if (readers.Count > 0 && readers.FirstOrDefault(reader => reader.ColorId != readers[0].ColorId) is { } other)
             {
                 throw new ArgumentException($"Every capture of a sequence has one colour arrangement: {other.ColorId} against {readers[0].ColorId}.", nameof(paths));
             }
-            return new PlanetaryFrameSequence(readers.Select(reader => new SerFrameStream(reader, splitBayer, ownsReader: true)));
+            return new PlanetaryFrameSequence(readers.Select((reader, i) => new SerFrameStream(reader, splitBayer, ownsReader: true) { SourcePath = opened[i] }));
         }
         catch
         {
@@ -102,6 +104,9 @@ public sealed class PlanetaryFrameSequence : IPlanetaryFrameStream
 
     /// <summary>How many captures the sequence joins.</summary>
     public int PartCount => _parts.Length;
+
+    /// <summary>Capture <paramref name="part"/> itself, the captures in time order.</summary>
+    internal IPlanetaryFrameStream PartAt(int part) => _parts[part];
 
     /// <summary>The index of capture <paramref name="part"/>'s first frame, the captures in time order.</summary>
     public int StartOf(int part) => _starts[part];

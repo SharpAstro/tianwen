@@ -129,6 +129,10 @@ internal sealed class PlanetaryStackSubCommand(
         {
             Description = "Each alignment point keeps its own best share of the frames --keep selects (#1350, Strata's Warp+): every such frame scored at every point by its patch's gain in a trous band 2 against the stacked reference, a pixel weighted by the share of the points about it that kept the frame. --keep 1 --point-keep K is Warp+; --keep 0.25 --point-keep 0.2 keeps 5 % of the frames a point from the best quarter. The alignment-point stack only.",
         };
+        var gradeCacheOpt = new Option<string?>("--grade-cache")
+        {
+            Description = "A folder each capture file's frame grades are kept in between stacks (#1351): a second stack of the same file, at another --keep or in a session, does not grade it again. Keyed by the file's path, size and time and the grading's estimator.",
+        };
         var qualityOpt = new Option<QualityMetric?>("--quality")
         {
             Description = "Sharpness metric for grading + per-AP best-of: gradient (Sobel energy, the default; R4 ranks 8-bit frames by it at +0.87 against their true transfer) or laplacian (variance, +0.19; the --legacy metric).",
@@ -276,7 +280,7 @@ internal sealed class PlanetaryStackSubCommand(
             Arguments = { serArg },
             Options =
             {
-                outputOpt, labelOpt, keepOpt, pointKeepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt,
+                outputOpt, labelOpt, keepOpt, pointKeepOpt, gradeCacheOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt,
                 noPerPointOpt, noSignalGateOpt, noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt,
                 noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, strengthOpt, sharpenLuminanceOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt, estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt,
@@ -460,6 +464,7 @@ internal sealed class PlanetaryStackSubCommand(
             {
                 KeepFraction = keep,
                 PointKeep = pointKeep,
+                GradeCache = parseResult.GetValue(gradeCacheOpt),
                 QualityEstimator = metric switch
                 {
                     QualityMetric.Gradient => new GradientEnergyEstimator(),

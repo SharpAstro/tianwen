@@ -43,7 +43,10 @@ public sealed class SerFrameStream : IPlanetaryFrameStream
 
     /// <summary>Opens <paramref name="path"/> as a planetary frame stream (owns the reader).</summary>
     public static SerFrameStream Open(string path, bool splitBayer = true)
-        => new SerFrameStream(SerReader.Open(path), splitBayer, ownsReader: true);
+        => new SerFrameStream(SerReader.Open(path), splitBayer, ownsReader: true) { SourcePath = System.IO.Path.GetFullPath(path) };
+
+    /// <summary>The file the stream reads, when it was opened from one (<see cref="Open"/>): what its grades are kept under (#1351).</summary>
+    public string? SourcePath { get; init; }
 
     /// <inheritdoc/>
     public int FrameCount => _reader.FrameCount;

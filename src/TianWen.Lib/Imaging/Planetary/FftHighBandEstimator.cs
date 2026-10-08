@@ -51,6 +51,10 @@ public sealed class FftHighBandEstimator(FrequencyBand band, bool debias = false
     public const double CornerRadius = 0.5;
 
     /// <inheritdoc/>
+    public string CacheKey => string.Create(System.Globalization.CultureInfo.InvariantCulture,
+        $"fft {band.Low:R} {band.High:R}{(debias ? " debiased" : "")}{(normalizeBrightness ? "" : " raw")}");
+
+    /// <inheritdoc/>
     public float Score(Image frame, PixelRect region)
     {
         return Measure(frame, region, [band]) is { } powers ? (float)powers.Detail(0, debias, normalizeBrightness) : 0f;

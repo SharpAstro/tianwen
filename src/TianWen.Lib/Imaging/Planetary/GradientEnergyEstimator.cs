@@ -18,6 +18,9 @@ namespace TianWen.Lib.Imaging.Planetary;
 public sealed class GradientEnergyEstimator(bool normalizeBrightness = true) : IFrameQualityEstimator
 {
     /// <inheritdoc/>
+    public string CacheKey => normalizeBrightness ? "gradient" : "gradient raw";
+
+    /// <inheritdoc/>
     public float Score(Image frame, PixelRect region)
     {
         if (region.IsEmpty)

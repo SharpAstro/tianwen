@@ -30,6 +30,12 @@ public sealed class FrameGrader(IFrameQualityEstimator estimator)
     public IFrameQualityEstimator Estimator => estimator;
 
     /// <summary>
+    /// Where each capture file's own grades are kept between stacks (#1351), or null to grade every frame every time. A file found there
+    /// is not graded again; what depends on the run (<see cref="WithoutCutSmearedOrDimFrames"/>) is decided again either way.
+    /// </summary>
+    public FrameGradeCache? Cache { get; init; }
+
+    /// <summary>
     /// Grades every frame. When <paramref name="region"/> is <see cref="PixelRect.Empty"/> the disk
     /// bounding box is auto-detected per frame (<see cref="PlanetaryDisk.BoundingBox"/>) so each frame is
     /// scored over its own disk, robust to the planet drifting before alignment. The returned grades are
@@ -52,15 +58,57 @@ public sealed class FrameGrader(IFrameQualityEstimator estimator)
         var cut = new bool[count];
         var elongation = new float[count];
         var brightness = new float[count];
-        var every = ImmutableArray.CreateBuilder<int>(count);
+        // Each capture file's own grades from the cache where it holds them; the frames of every other file graded, and kept.
+        var files = Cache is not null ? FrameGradeCache.FilesOf(stream) : null;
+        var entries = new string?[files?.Count ?? 0];
+        var graded = new bool[count];
+        if (Cache is { } cache && files is not null)
+        {
+            for (var f = 0; f < files.Count; f++)
+            {
+                var (path, start, frames) = files[f];
+                entries[f] = cache.EntryFor(path, estimator.CacheKey, stream.Layout, region);
+                if (entries[f] is { } entry && FrameGradeCache.Read(entry, frames) is { } kept)
+                {
+                    for (var i = 0; i < frames; i++)
+                    {
+                        (scores[start + i], cut[start + i], elongation[start + i], brightness[start + i]) = kept[i];
+                        graded[start + i] = true;
+                    }
+                }
+            }
+        }
+        var toGrade = ImmutableArray.CreateBuilder<int>(count);
         for (var i = 0; i < count; i++)
         {
-            every.Add(i);
+            if (!graded[i])
+            {
+                toGrade.Add(i);
+            }
         }
-        await PlanetaryFrameBatches.RunAsync(stream, every.MoveToImmutable(),
-            (image, _, _) => GradeAndShape(estimator, image, region),
-            (_, index, graded) => (scores[index], cut[index], elongation[index], brightness[index]) = graded,
-            cancellationToken).ConfigureAwait(false);
+        if (toGrade.Count > 0)
+        {
+            await PlanetaryFrameBatches.RunAsync(stream, toGrade.ToImmutable(),
+                (image, _, _) => GradeAndShape(estimator, image, region),
+                (_, index, grade) => (scores[index], cut[index], elongation[index], brightness[index]) = grade,
+                cancellationToken).ConfigureAwait(false);
+            if (Cache is { } writer && files is not null)
+            {
+                for (var f = 0; f < files.Count; f++)
+                {
+                    var (_, start, frames) = files[f];
+                    if (entries[f] is { } entry && !graded[start])
+                    {
+                        var own = new FrameGradeCache.OwnGrade[frames];
+                        for (var i = 0; i < frames; i++)
+                        {
+                            own[i] = new FrameGradeCache.OwnGrade(scores[start + i], cut[start + i], elongation[start + i], brightness[start + i]);
+                        }
+                        writer.Write(entry, own);
+                    }
+                }
+            }
+        }
 
         var grades = ImmutableArray.CreateBuilder<FrameGrade>(count);
         for (var i = 0; i < count; i++)

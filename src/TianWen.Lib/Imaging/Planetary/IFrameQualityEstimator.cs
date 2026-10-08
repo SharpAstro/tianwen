@@ -28,4 +28,10 @@ public interface IFrameQualityEstimator
     /// mean). Pass <see cref="PixelRect.Empty"/> to score the whole frame.
     /// </summary>
     float Score(Image frame, PixelRect region);
+
+    /// <summary>
+    /// What a grade this estimator gave is kept under (<see cref="FrameGradeCache"/>, #1351): its kind and every parameter that moves a
+    /// score, so a grade is never read back for an estimator that would have scored the frame otherwise. Its type's name by default.
+    /// </summary>
+    string CacheKey => GetType().FullName ?? GetType().Name;
 }

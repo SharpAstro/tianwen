@@ -102,6 +102,10 @@ public sealed class LuckyImagingStacker
         return weighted.Length;
     }
 
+    // The grader a stack grades its frames by: the options' estimator, and their grade cache when they name one (#1351).
+    private static FrameGrader GraderFor(PlanetaryStackOptions options)
+        => new FrameGrader(options.QualityEstimator) { Cache = options.GradeCache is { } folder ? new FrameGradeCache(folder) : null };
+
     // The frames a stack adds, in the order given: those weighted above zero.
     private static ImmutableArray<int> Weighted(ImmutableArray<int> frames, Func<int, float> weightOf)
     {
@@ -620,7 +624,7 @@ public sealed class LuckyImagingStacker
             throw new InvalidOperationException("The frame stream is empty.");
         }
 
-        var grader = new FrameGrader(options.QualityEstimator);
+        var grader = GraderFor(options);
         var grades = await grader.GradeAllAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
         var referenceIndex = FrameGrader.Reference(grades);
         var selected = FrameGrader.SelectBest(grades, options.KeepFraction);
@@ -797,7 +801,7 @@ public sealed class LuckyImagingStacker
         {
             throw new ArgumentException("A north is read for a de-rotation: the options carry none.", nameof(options));
         }
-        var grades = await new FrameGrader(options.QualityEstimator).GradeAllAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var grades = await GraderFor(options).GradeAllAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
         var referenceIndex = FrameGrader.Reference(grades);
         var reference = await stream.LoadAsync(referenceIndex, cancellationToken).ConfigureAwait(false);
         try

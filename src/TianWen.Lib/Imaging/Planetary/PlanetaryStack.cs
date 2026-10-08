@@ -78,6 +78,12 @@ public sealed record PlanetaryStackOptions
     public double? PointKeep { get; init; }
 
     /// <summary>
+    /// A folder each capture file's frame grades are kept in between stacks (<see cref="FrameGradeCache"/>, #1351), so a second stack of
+    /// the same file, at another keep or as part of a session, does not grade it again. Null, the default, grades every time.
+    /// </summary>
+    public string? GradeCache { get; init; }
+
+    /// <summary>
     /// The sharpness metric, which grades the frames and weights them. The gradient by default: at 8 bits a frame's finest scale is
     /// its noise, and the Laplacian ranked the twin's frames at +0.19 against their true transfer where the gradient ranks them at
     /// +0.87 (R4).
