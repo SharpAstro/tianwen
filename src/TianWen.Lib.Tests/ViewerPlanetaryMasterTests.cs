@@ -192,7 +192,9 @@ public class ViewerPlanetaryMasterTests
         colour.WriteToFitsFile(path);
         colour.Release();
         await e2e.OpenAsync(path, ct);
-        await e2e.PumpUntilAsync(() => e2e.State.IsPlanetaryMaster, "the master's sharpening layer", ct);
+        // The layer exists once the header names a planet, but it makes its first master on a later tick: a Derive pressed before
+        // that answers "no stacked master yet", which a loaded machine showed.
+        await e2e.PumpUntilAsync(() => e2e.State.IsPlanetaryMaster && e2e.Controller.ViewLayers.Live is { HasMaster: true }, "the master's sharpening layer", ct);
         (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (254, OpticalDesign.Newtonian);
         ViewerWaveletDeriveTests.PressDerive(e2e);
         await e2e.PumpUntilAsync(() => e2e.State.WaveletDeriveNote is not null && !e2e.State.WaveletDeriving, "the derivation's answer", ct, untilTimeout: true);
@@ -336,7 +338,9 @@ public class ViewerPlanetaryMasterTests
         stack.WriteToFitsFile(path);
         stack.Release();
         await e2e.OpenAsync(path, ct);
-        await e2e.PumpUntilAsync(() => e2e.State.IsPlanetaryMaster, "the master's sharpening layer", ct);
+        // The layer exists once the header names a planet, but it makes its first master on a later tick: a Derive pressed before
+        // that answers "no stacked master yet", which a loaded machine showed.
+        await e2e.PumpUntilAsync(() => e2e.State.IsPlanetaryMaster && e2e.Controller.ViewLayers.Live is { HasMaster: true }, "the master's sharpening layer", ct);
         return path;
     }
 }
