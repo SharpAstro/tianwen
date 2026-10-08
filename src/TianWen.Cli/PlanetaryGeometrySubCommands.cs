@@ -296,6 +296,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var bayerWavelengthsOpt = new Option<string>("--bayer-wavelengths") { Description = "The camera's red, green and blue effective wavelengths, nm.", DefaultValueFactory = _ => "610,535,460" };
         var truthUpsampleOpt = new Option<string?>("--truth-upsample") { Description = "A colour twin's truths rendered at these scales too, a comma list (1.5 for a Bayer drizzle at 1.5x; R5a), each .truth.<colour>.x<scale>.fits." };
         var bayerKOpt = new Option<string?>("--bayer-k") { Description = "Minnaert's exponent for each colour's map, red, green and blue (OPAL's: 0.999, 0.950, 0.850); --k for all three by default." };
+        var bayerDefocusOpt = new Option<string?>("--bayer-defocus-nm") { Description = "Each colour's own defocus, red, green and blue, RMS wavefront error in nm (#1281: a capture focused on green leaves red its own blur); --defocus-nm for all three by default." };
         var spanOpt = new Option<double?>("--span-minutes") { Description = "Spread the synthetic capture's frames evenly in time over this many minutes, in their order, so the planet turns as it would over a run (R6 part 2: a de-rotation's twin). Each frame keeps the real capture's seeing; the air between two frames is no longer the next instant's." };
         var truthAtOpt = new Option<string>("--truth-at") { Description = "The instant the truth is rendered at: reference (the statistics' reference frame's) or middle (the capture's middle, where a de-rotated stack shows the planet).", DefaultValueFactory = _ => "reference" };
         var psfTruthOpt = new Option<bool>("--psf-truth") { Description = "Write every frame's PSF, shift and brightness beside the capture (<capture>.psf), the truth a multi-frame bound is computed against (R8 part 1; about 64 KB a frame). Mono only." };
@@ -318,7 +319,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             "A synthetic capture from a global map with a real capture's own seeing, motion and camera (R2): measure the real one, make the synthetic one, measure it the same way, and compare.")
         {
             Arguments = { inputArg },
-            Options = { mapOpt, outputOpt, planetOpt, kOpt, pupilOpts.ApertureMm, pupilOpts.Obstruction, pupilOpts.Telescope, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, localRenewOpt, scatterOpt, scatterCoreOpt, farWingOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, truthUpsampleOpt, spanOpt, truthAtOpt, psfTruthOpt, moonsOpt, moonLevelOpt, highR0Opt, highAltitudeOpt, highWindOpt, highWindAngleOpt, highOuterScaleOpt, fieldGridOpt, ringLevelsOpt, noTwinRingsOpt },
+            Options = { mapOpt, outputOpt, planetOpt, kOpt, pupilOpts.ApertureMm, pupilOpts.Obstruction, pupilOpts.Telescope, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, localRenewOpt, scatterOpt, scatterCoreOpt, farWingOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, bayerDefocusOpt, truthUpsampleOpt, spanOpt, truthAtOpt, psfTruthOpt, moonsOpt, moonLevelOpt, highR0Opt, highAltitudeOpt, highWindOpt, highWindAngleOpt, highOuterScaleOpt, fieldGridOpt, ringLevelsOpt, noTwinRingsOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -626,9 +627,10 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 }
                 var wavelengths = CommaNumbers(parseResult.GetValue(bayerWavelengthsOpt));
                 var ks = parseResult.GetValue(bayerKOpt) is { } kText ? CommaNumbers(kText) : [parseResult.GetValue(kOpt), parseResult.GetValue(kOpt), parseResult.GetValue(kOpt)];
-                if (wavelengths.Length != 3 || ks.Length != 3)
+                var defocus = parseResult.GetValue(bayerDefocusOpt) is { } defocusText ? CommaNumbers(defocusText) : [parseResult.GetValue(defocusOpt), parseResult.GetValue(defocusOpt), parseResult.GetValue(defocusOpt)];
+                if (wavelengths.Length != 3 || ks.Length != 3 || defocus.Length != 3)
                 {
-                    consoleHost.WriteError("--bayer-wavelengths and --bayer-k take three numbers each, red, green and blue");
+                    consoleHost.WriteError("--bayer-wavelengths, --bayer-k and --bayer-defocus-nm take three numbers each, red, green and blue");
                     return 1;
                 }
                 // The colours are held until the last is made: a synthetic capture this size is made in parts.
@@ -699,11 +701,11 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                     return 1;
                 }
                 var red = new BayerColour(colourMaps[0], redPlacement,
-                    AtShownLevel(WithCamera(Atmosphere(wavelengths[0] * 1e-9, ks[0]) with { Rings = colourRings[0] }, redTruth.Camera, redGain), colourMaps[0], redPlacement, sensorScale, "red"));
+                    AtShownLevel(WithCamera(Atmosphere(wavelengths[0] * 1e-9, ks[0]) with { Rings = colourRings[0], DefocusNm = defocus[0] }, redTruth.Camera, redGain), colourMaps[0], redPlacement, sensorScale, "red"));
                 var green = new BayerColour(colourMaps[1], greenPlacement,
-                    AtShownLevel(WithCamera(Atmosphere(wavelengths[1] * 1e-9, ks[1]) with { Rings = colourRings[1] }, greenTruth.Camera, greenGain), colourMaps[1], greenPlacement, sensorScale, "green"));
+                    AtShownLevel(WithCamera(Atmosphere(wavelengths[1] * 1e-9, ks[1]) with { Rings = colourRings[1], DefocusNm = defocus[1] }, greenTruth.Camera, greenGain), colourMaps[1], greenPlacement, sensorScale, "green"));
                 var blue = new BayerColour(colourMaps[2], bluePlacement,
-                    AtShownLevel(WithCamera(Atmosphere(wavelengths[2] * 1e-9, ks[2]) with { Rings = colourRings[2] }, blueTruth.Camera, blueGain), colourMaps[2], bluePlacement, sensorScale, "blue"));
+                    AtShownLevel(WithCamera(Atmosphere(wavelengths[2] * 1e-9, ks[2]) with { Rings = colourRings[2], DefocusNm = defocus[2] }, blueTruth.Camera, blueGain), colourMaps[2], bluePlacement, sensorScale, "blue"));
                 foreach (var (name, colour) in new[] { ("red", red), ("green", green), ("blue", blue) })
                 {
                     consoleHost.WriteScrollable($"making {Path.GetFileName(output)}, {name}: {Describe(colour.Options, colour.Placement, sensorScale)}");
