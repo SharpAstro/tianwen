@@ -1196,6 +1196,18 @@ What it says:
   - B's earlier stops (67,500 to 80,000 steps against A's 85,000 to 121,000, each at its own plateau).
 
   R2c's split of where the squared error sits, run on B's models, tells the second from the other two, on the CPU.
+- **That split rules the texture out** (read the same evening from the reports' own `Loss`, in the units the loss sees; an
+  identity puts 43 percent in the bright cores). The trained A models leave 2.4 to 3.0 percent of their error in the
+  bright cores, as R2c found. B's leave 8 to 28 percent (seeds 0 to 2) on its own draws as on A's, while the sky near
+  and far from sources holds only 3 to 12 percent of it. In absolute terms, on its own draws B's bright-core error is 3.6
+  to 26 times the mean of what A's models leave on those same draws. So the texture never crowded the cores out of B's loss. B
+  stopped on its plateau with the cores still carrying the error, which leaves the knots and the stops.
+- **The knots overlap the bright stars.** They peak 5 to 200 sigma, log-uniform, so 62 percent of them sit above 20
+  sigma and 19 percent above 100. The round ones are 1.6 to 4 times the PSF's width, and a knot at 1.6 widths and 150
+  sigma is close to a bright star, whose core a saturating stack widens anyway. B keeps the knots (it takes 15 to 17
+  percent of what the synthetic truth keeps, the plate-trained models 34 to 37), and seeds 1 and 2 leave bright cores
+  in. Telling the knots from the stops needs the GPU: B's seed 0 resumed with a longer patience (the stops), or an export
+  whose knots stay out of the PSF's neighbourhood, at least 2.5 widths or under 20 sigma (the knots).
 
 So the synthetic background as built does not help, and what it cost is the bright stars. That cost is B's training,
 not the background's realism. R2e's structure is still worth having for the fill and for a later arm, but it would not
