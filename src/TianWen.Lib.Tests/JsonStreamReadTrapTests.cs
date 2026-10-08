@@ -11,14 +11,16 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// A shape guard (#1356): no JSON type holds a nullable struct (<c>T?</c>) that is read through its constructor and whose
-/// last property can be null, unless it is listed below with the reason no stream read can trip on it.
+/// A shape guard (#1356): no JSON type holds a nullable struct (<c>T?</c>) whose last property can be null, unless it is
+/// listed below with the reason no stream read can trip on it.
 /// <para>
 /// A STREAM read of that shape (<c>JsonSerializer.DeserializeAsync</c>, <c>ReadFromJsonAsync</c>) throws "The JSON value
 /// could not be converted" when the reader's buffer ends between the struct's trailing <c>null</c> and its closing brace,
-/// while the same bytes parse whole. Measured: about one buffer offset in 350; the struct non-nullable, a record class,
-/// or a struct ending in a number never failed; the reader fills its 16 KiB buffer before parsing, so only a payload past
-/// 16 KiB is exposed. It broke #1281's 2,600-frame statistics file (fixed by parsing the file's bytes whole, #1357).
+/// while the same bytes parse whole. It is System.Text.Json's own bug, open upstream as dotnet/runtime#110450 (a plain
+/// settable struct fails there too, so a constructor is not needed). Measured: about one buffer offset in 350; the struct
+/// non-nullable, a record class, or a struct ending in a number never failed; the reader fills its 16 KiB buffer before
+/// parsing, so only a payload past 16 KiB is exposed. It broke #1281's 2,600-frame statistics file (fixed by parsing the
+/// file's bytes whole, #1357).
 /// </para>
 /// <para>
 /// The shape lives in the type graph, which only the serializer's own metadata and the types show, so this reads types,
@@ -54,8 +56,8 @@ public class JsonStreamReadTrapTests
         found.ShouldContain("FrameLimb.fit is LimbFit?");
         var unexplained = found.Where(f => !Allowed.ContainsKey(f)).ToArray();
         unexplained.ShouldBeEmpty(
-            "a JSON type holds a nullable struct read through its constructor whose last property can be null: a stream read "
-            + "throws when its buffer ends between that null and the brace (#1356). Parse the payload whole, or keep it under "
+            "a JSON type holds a nullable struct whose last property can be null: a stream read throws when its buffer ends "
+            + "between that null and the brace (#1356, dotnet/runtime#110450). Parse the payload whole, or keep it under "
             + "16 KiB and add it to Allowed with the reason: " + string.Join("; ", unexplained));
         Allowed.Keys.Where(k => !found.Contains(k)).ShouldBeEmpty("an allowed shape no longer exists: delete its line");
     }
@@ -122,8 +124,7 @@ public class JsonStreamReadTrapTests
                     continue;
                 }
                 queue.Enqueue(inner);
-                if (TypeInfo(context, inner) is not { Kind: JsonTypeInfoKind.Object, Properties.Count: > 0 } innerInfo
-                    || !inner.GetConstructors().Any(c => c.GetParameters().Length > 0))
+                if (TypeInfo(context, inner) is not { Kind: JsonTypeInfoKind.Object, Properties.Count: > 0 } innerInfo)
                 {
                     continue;
                 }
