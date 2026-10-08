@@ -1222,8 +1222,17 @@ draws with the fixed eval:
 - **They are part of it** in between.
 
 The knots test runs whatever this reads, unless the stops alone reach A's range. **The knots**: B's export again, with
-every knot either at least 2.5 PSF widths across or peaking under 20 sigma, then one seed at B's patience of 12. Read the
-same way, with its own predictions written before it trains.
+every knot either at least 2.5 PSF widths across or peaking under 20 sigma (`tianwen dataset degrade --bright-knots-wide`,
+`C:\temp\e2\run-r2dk-export.ps1`: B's sessions, cells, draws, noise shape and seed, into `D:\tianwen-scratch\r1-train-synthk`),
+then one seed at B's patience of 12 (`run-r2.ps1 -Tag r2dk -Arms synthk -SeedCount 1 -Patience 12`), queued behind the stops
+on the GPU. The option changes no knot's place, width or angle, only the brightness of the compact ones: 62 percent of
+B's knots peaked above 20 sigma, under 20 percent do now. Written before it trains, on A's draws with the fixed eval and
+against B's three seeds:
+- **The knots are the cause** if its clean removal at 100-1000 sigma reaches A's range (at least 21.5 percent) and the
+  bright cores hold under 5 percent of its error.
+- **They are not** if that removal stays under 10 percent.
+- **They are part of it** in between.
+- Either way it keeps what B learned of the sky: on B's draws it moves the far sky within B's 0.17 to 0.27 sigma.
 
 So the synthetic background as built does not help, and what it cost is the bright stars. That cost is B's training,
 not the background's realism. R2e's structure is still worth having for the fill and for a later arm, but it would not
