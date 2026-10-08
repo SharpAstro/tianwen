@@ -588,33 +588,13 @@ public sealed class LuckyImagingStacker
             // keeps the frame as its reference.
             try
             {
-                // The disk is fitted on a stack of the capture's best frames as they are, never on one frame: the limb does not
-                // turn with the planet, and one 8-bit frame's fit put north anywhere from 260.5 to 268.2 degrees on 2024-12-15
-                // (a stack of 150, 263.8), which tilts every frame's rotation by the difference.
-                var plain = AlignerFor(reference, PlanetaryDisk.BoundingBox(reference), options.AlignTileSize, options.WhitenedCorrelation);
-                var steady = stream.CaptureSpan is { } span
-                    ? await QuarterStackAsync(stream, grades, span.Earliest, span.Latest, plain, reference.ChannelCount, reference.Width, reference.Height, reference.ImageMeta, options, cancellationToken).ConfigureAwait(false)
-                    : null;
-                FrameDerotator fitted;
-                try
-                {
-                    fitted = FrameDerotator.Create(stream, steady?.Stack ?? reference, referenceIndex, derotation, options.AlignTileSize, options.WhitenedCorrelation);
-                }
-                finally
-                {
-                    steady?.Stack.Release();
-                }
-                var (asFitted, turned) = await AgreementBothWaysAsync(stream, grades, fitted, plain, reference.ChannelCount, reference.Width, reference.Height, reference.ImageMeta, options, cancellationToken).ConfigureAwait(false);
-                // North comes from agreement, never the limb fit alone (R6): a run whose quarters cannot tell it (no frames in one, or a
-                // turn under PlanetaryDerotation.LeastTurnToTellNorthDeg) is stacked as taken and says so (#1292), but for a de-rotation
-                // asked for whatever the turn (MinimumTurnPx 0), which keeps the limb fit's north.
-                northUnread = (double.IsNaN(asFitted) || double.IsNaN(turned)) && derotation.MinimumTurnPx > 0;
-                if (!northUnread)
-                {
-                    derotator = (turned < asFitted) != derotation.TurnNorthOver ? fitted.TurnedOver() : fitted;
-                    north = new PlanetaryNorthDecision(derotator.Placement.NorthAngleDeg, asFitted, turned);
-                    derotator.UseTemplate(derotator.ToEpoch(reference, derotator.AspectOf(referenceIndex)));
-                }
+                // A run whose quarters cannot tell its north (no frames in one, or a turn under
+                // PlanetaryDerotation.LeastTurnToTellNorthDeg) is stacked as taken and says so (#1292), but for a de-rotation asked for
+                // whatever the turn (MinimumTurnPx 0), which keeps the limb fit's north.
+                (derotator, north) = await DecideNorthAsync(stream, grades, referenceIndex, reference, derotation, options,
+                    keepFitUnread: derotation.MinimumTurnPx <= 0, cancellationToken).ConfigureAwait(false);
+                northUnread = derotator is null;
+                derotator?.UseTemplate(derotator.ToEpoch(reference, derotator.AspectOf(referenceIndex)));
             }
             finally
             {
@@ -738,6 +718,74 @@ public sealed class LuckyImagingStacker
         var weightAccum = new float[height, width];
         await AccumulateGlobalAsync(stream, frames, aligner, _ => 1f, channelAccum, weightAccum, null, options.Interpolation, cancellationToken).ConfigureAwait(false);
         return PlanetaryMaster.NormalizeInPlace(channelAccum, weightAccum, meta);
+    }
+
+    /// <summary>
+    /// Which way round <paramref name="stream"/>'s planet turns, read as a de-rotated stack reads it and nothing more stacked
+    /// (R6 part 2): its frames graded, its disk fitted on a stack of its best, and its first and last quarters' agreement both ways
+    /// round. A session's north is read so (#1347): the stream is its first and last captures, hours apart, where one capture's own
+    /// quarters, minutes apart, can tie on a bland globe, and every capture of the session then takes it
+    /// (<see cref="PlanetaryDerotationOptions.North"/>). Null when the stream turns the planet too little to tell, or a quarter holds no frame.
+    /// </summary>
+    public static async Task<PlanetaryNorthDecision?> ReadNorthAsync(IPlanetaryFrameStream stream, PlanetaryStackOptions options, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(options);
+        if (options.Derotation is not { } derotation)
+        {
+            throw new ArgumentException("A north is read for a de-rotation: the options carry none.", nameof(options));
+        }
+        var grades = await new FrameGrader(options.QualityEstimator).GradeAllAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var referenceIndex = FrameGrader.Reference(grades);
+        var reference = await stream.LoadAsync(referenceIndex, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var (_, north) = await DecideNorthAsync(stream, grades, referenceIndex, reference, derotation with { North = null }, options,
+                keepFitUnread: false, cancellationToken).ConfigureAwait(false);
+            return north;
+        }
+        finally
+        {
+            reference.Release();
+        }
+    }
+
+    // The derotator a capture is stacked with and the north it took (R6 part 2). The disk is fitted on a stack of the capture's best
+    // frames as they are, never on one frame: the limb does not turn with the planet, and one 8-bit frame's fit put north anywhere from
+    // 260.5 to 268.2 degrees on 2024-12-15 (a stack of 150, 263.8), which tilts every frame's rotation by the difference. Which end of
+    // the fit's axis is north comes from agreement, never the fit alone: the capture's first and last quarters, or a north its caller
+    // decided (a session's, #1347). A null derotator when the quarters cannot tell, unless the fit's north is to be kept then.
+    private static async Task<(FrameDerotator? Derotator, PlanetaryNorthDecision? North)> DecideNorthAsync(IPlanetaryFrameStream stream,
+        ImmutableArray<FrameGrade> grades, int referenceIndex, Image reference, PlanetaryDerotationOptions derotation, PlanetaryStackOptions options,
+        bool keepFitUnread, CancellationToken cancellationToken)
+    {
+        var plain = AlignerFor(reference, PlanetaryDisk.BoundingBox(reference), options.AlignTileSize, options.WhitenedCorrelation);
+        var steady = stream.CaptureSpan is { } span
+            ? await QuarterStackAsync(stream, grades, span.Earliest, span.Latest, plain, reference.ChannelCount, reference.Width, reference.Height, reference.ImageMeta, options, cancellationToken).ConfigureAwait(false)
+            : null;
+        FrameDerotator fitted;
+        try
+        {
+            fitted = FrameDerotator.Create(stream, steady?.Stack ?? reference, referenceIndex, derotation, options.AlignTileSize, options.WhitenedCorrelation);
+        }
+        finally
+        {
+            steady?.Stack.Release();
+        }
+        if (derotation.North is { } given)
+        {
+            // The fit's axis kept, and of its two ways round the one nearer the north given (turned over too, when that is asked).
+            var wanted = given + (derotation.TurnNorthOver ? 180 : 0);
+            var taken = Math.Abs(Math.IEEERemainder(fitted.Placement.NorthAngleDeg - wanted, 360)) <= 90 ? fitted : fitted.TurnedOver();
+            return (taken, new PlanetaryNorthDecision(taken.Placement.NorthAngleDeg, double.NaN, double.NaN) { Given = given });
+        }
+        var (asFitted, turned) = await AgreementBothWaysAsync(stream, grades, fitted, plain, reference.ChannelCount, reference.Width, reference.Height, reference.ImageMeta, options, cancellationToken).ConfigureAwait(false);
+        if ((double.IsNaN(asFitted) || double.IsNaN(turned)) && !keepFitUnread)
+        {
+            return (null, null);
+        }
+        var derotator = (turned < asFitted) != derotation.TurnNorthOver ? fitted.TurnedOver() : fitted;
+        return (derotator, new PlanetaryNorthDecision(derotator.Placement.NorthAngleDeg, asFitted, turned));
     }
 
     // Which way round the planet turns in this capture (R6 part 2, PlanetaryDerotation.AgreementBothWays). The best frames of the

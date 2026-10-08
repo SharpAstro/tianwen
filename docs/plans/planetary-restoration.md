@@ -4708,6 +4708,13 @@ middle (R6 part 2). What was missing was a way to find the runs, and a way to na
   split by the filter each file's name says (`PlanetaryCaptureName.WavelengthNm`, mono captures only: a colour capture's name has no
   filter to say). A session with a filter is named with its wavelength (`Light 2026-10-07 1134 650 nm`), and `--session` finds the
   sessions again from the manifest's captures, so a manifest written before the split is read by the rule in force.
+- **A file stacked as part of a session takes the session's north** (#1347, the owner's choice of 2026-10-08). Each file of the owner's
+  2026-10-07 Saturn, stacked on its own, read its north from its own first and last quarters, inside the file's 158 seconds: 29 of 30 read 184 deg, by
+  margins of 0.25 to 12.7 %, and 12:39:36 Blue read it turned over on a tie (0.02008 against 0.02009), so its frames were de-rotated
+  backwards. A margin rule would have had to be set off that one failure, so none was: `planetary-stack --session NAME --each-file` reads the
+  session's north once, from its first and last files (`LuckyImagingStacker.ReadNorthAsync`, the stacker's own agreement over a stream of
+  those two files, hours apart), and stacks each file with it (`PlanetaryDerotationOptions.North`, `--north` by hand). A given north keeps the
+  limb fit's axis, which is precise, and takes of its two ways round the one nearer it; the file's quarters are not read.
 - **`planetary-stack --session NAME --manifest PATH`** stacks one as a run. **`--epoch`** carries it to an instant of the caller's choosing:
   a UTC time, or a capture whose best frame (`FrameGrader.BestFrameTimeAsync`, graded as the stack grades) gives it. The default stays the
   run's middle.

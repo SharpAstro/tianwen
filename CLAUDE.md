@@ -1179,6 +1179,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   --session`, `--epoch`, #1308): stacked as one run carried to its middle, 2022-09-29's 46 minutes had 5 to 6 times less noise than one file
   and kept all of its detail. **A mono chain is split by the filter its file names say AFTER it is chained** (#1336): a filter wheel keeps
   every filter in one folder, so a chain of every file mixed red, green and blue, and a filter's own files lie further apart than the gap.
+  **A file stacked as part of a session takes the session's north** (#1347; `PlanetaryDerotationOptions.North`,
+  `LuckyImagingStacker.ReadNorthAsync`, `planetary-stack --session NAME --each-file`): read once from the session's first and last files,
+  hours apart, where one file's own quarters, minutes apart, can tie on a bland globe (one Saturn file of 30 read it turned over, 0.02008
+  against 0.02009). A given north keeps the limb fit's axis and takes, of its two ways round, the one nearer it.
 - **A colour master is sharpened per channel, and that UNMIXES colour, it does not add it** (#1295): on the twins it moved the globe, the
   rings and the gap toward the truth, where sharpening the luminance alone and keeping the stack's colour (`LuminanceOnly`,
   `--sharpen-luminance`, an option) left them as mixed as the blur made them. Read a colour change against a truth
