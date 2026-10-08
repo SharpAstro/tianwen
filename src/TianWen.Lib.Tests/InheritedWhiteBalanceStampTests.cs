@@ -25,7 +25,7 @@ namespace TianWen.Lib.Tests;
 [Collection("Imaging")]
 public class InheritedWhiteBalanceStampTests(ITestOutputHelper output)
 {
-    private static readonly ColourCalibration Donor = new(1.52208054f, 1.0f, 1.77573335f, "SPCC");
+    private static readonly ColourCalibration Donor = new(1.52208054f, 1.0f, 1.77573335f, ColourCalibrationSource.Spcc);
 
     private static async Task<string> RunAsync(TempStackingWorkspace workspace, MasterRenderOutputs renderOutputs, ITestOutputHelper output)
     {
@@ -69,7 +69,7 @@ public class InheritedWhiteBalanceStampTests(ITestOutputHelper output)
         var hdu = fits.ReadHDUHeaderOnly();
         hdu.ShouldNotBeNull();
 
-        hdu.Header.GetStringValue("WBSOURCE").ShouldBe(Donor.Source,
+        hdu.Header.GetStringValue("WBSOURCE").ShouldBe(ColourCalibration.CardOf(Donor.Source),
             "an inherited triple keeps the DONOR's provenance -- how a white balance was derived is a " +
             "fact about the white balance, not about which process stamped it");
         hdu.Header.GetDoubleValue("WBRED", -1).ShouldBe(Donor.R, 1e-5);
