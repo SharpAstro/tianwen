@@ -23,7 +23,10 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// master's own, in its shape, as it does to an injected star.</para>
 /// <para><b>The knots it adds (D3).</b> Compact structure that is not the PSF: round ones 1.6 to 4 times its width, elongated
 /// ones 2.5 to 5 to one. Every star in a frame shares its PSF, and a knot does not, which is the cue a remover must learn and a
-/// label no real plate can give: the knots are in the target, so the net is taught to keep them.</para>
+/// label no real plate can give: the knots are in the target, so the net is taught to keep them. With
+/// <see cref="BrightKnotsWide"/> a knot under <see cref="BrightKnotMinWidths"/> PSF widths across peaks under
+/// <see cref="BrightKnotSigma"/>, so nothing bright and compact is kept that a bright star could be taken for (R2d's knots
+/// test: arm B, taught to keep knots up to 200 sigma at 1.6 widths, left bright stars' cores in).</para>
 /// </remarks>
 public sealed class SyntheticBackground
 {
@@ -45,6 +48,10 @@ public sealed class SyntheticBackground
     /// <summary>The faintest and brightest knot's peak, in the cell's noise sigma.</summary>
     public const double KnotMinSigma = 5.0, KnotMaxSigma = 200.0;
 
+    /// <summary>With <see cref="BrightKnotsWide"/>, a knot whose narrowest width is under <see cref="BrightKnotMinWidths"/>
+    /// PSF widths peaks under this many noise sigma.</summary>
+    public const double BrightKnotSigma = 20.0, BrightKnotMinWidths = 2.5;
+
     /// <summary>The threshold the plate's sources are masked from in the amplitude maps: under the 4 sigma the eval finds the
     /// kept sources at, so a faint star the finder only just misses raises no texture where it was.</summary>
     public const float AmplitudeMaskSigma = 3f;
@@ -60,8 +67,9 @@ public sealed class SyntheticBackground
     private readonly float[][] _coarse;      // [channel][y * width + x]
     private readonly float[][][] _amplitude; // [channel][scale < FirstKept][y * width + x]
 
-    private SyntheticBackground(int width, int height, int firstKept, double fwhm, float[][] coarse, float[][][] amplitude)
+    private SyntheticBackground(int width, int height, int firstKept, double fwhm, bool brightKnotsWide, float[][] coarse, float[][][] amplitude)
     {
+        BrightKnotsWide = brightKnotsWide;
         Width = width;
         Height = height;
         FirstKept = firstKept;
@@ -69,6 +77,10 @@ public sealed class SyntheticBackground
         _coarse = coarse;
         _amplitude = amplitude;
     }
+
+    /// <summary>Whether a knot under <see cref="BrightKnotMinWidths"/> PSF widths across peaks under
+    /// <see cref="BrightKnotSigma"/> (only the wide knots reach <see cref="KnotMaxSigma"/>).</summary>
+    public bool BrightKnotsWide { get; }
 
     /// <summary>The frame's width.</summary>
     public int Width { get; }
@@ -97,8 +109,9 @@ public sealed class SyntheticBackground
     /// Reads <paramref name="unitPlate"/> (a plate on its master's unit scale) once per session: its coarse part, and per
     /// replaced scale and channel the local signal above the noise, with the plate's own sources (found as the builder finds
     /// them, <see cref="PlateSources.DefaultThresholdSigma"/>) and the canvas ring <paramref name="absent"/> left out.
+    /// <paramref name="brightKnotsWide"/> keeps a compact knot faint (<see cref="BrightKnotsWide"/>).
     /// </summary>
-    public static SyntheticBackground Build(Image unitPlate, BitMatrix? absent, double fwhm)
+    public static SyntheticBackground Build(Image unitPlate, BitMatrix? absent, double fwhm, bool brightKnotsWide = false)
     {
         var (channels, width, height) = unitPlate.Shape;
         var n = width * height;
@@ -169,7 +182,7 @@ public sealed class SyntheticBackground
                 amplitude[c][j] = SignalAmplitude(decomposition.Detail(j), clean, width, height, j);
             }
         }
-        return new SyntheticBackground(width, height, firstKept, fwhm, coarse, amplitude);
+        return new SyntheticBackground(width, height, firstKept, fwhm, brightKnotsWide, coarse, amplitude);
     }
 
     // The local RMS of a detail plane over the clean pixels, smoothed at twice the scale or AmplitudeWindowPx, less its noise
@@ -359,7 +372,8 @@ public sealed class SyntheticBackground
     }
 
     // The knots: a Poisson count, each round and wider than the PSF or elongated, inside the cell's 16 px rim, its peak per
-    // channel a log-uniform draw in noise sigma.
+    // channel a log-uniform draw in noise sigma: up to KnotMaxSigma, or with BrightKnotsWide up to BrightKnotSigma where the
+    // knot is narrower than BrightKnotMinWidths PSF widths (the same draws either way, so the option moves no other knot).
     private ImmutableArray<Knot> AddKnots(float[][] planes, int size, ReadOnlySpan<double> noiseSigma, Random random)
     {
         var psfSigma = Fwhm / 2.3548;
@@ -380,7 +394,8 @@ public sealed class SyntheticBackground
             var angle = random.NextDouble() * Math.PI;
             var cx = 16 + (random.NextDouble() * (size - 32));
             var cy = 16 + (random.NextDouble() * (size - 32));
-            var level = KnotMinSigma * Math.Pow(KnotMaxSigma / KnotMinSigma, random.NextDouble());
+            var ceiling = BrightKnotsWide && minor < BrightKnotMinWidths * psfSigma ? BrightKnotSigma : KnotMaxSigma;
+            var level = KnotMinSigma * Math.Pow(ceiling / KnotMinSigma, random.NextDouble());
             var peak = new double[planes.Length];
             for (var c = 0; c < planes.Length; c++)
             {

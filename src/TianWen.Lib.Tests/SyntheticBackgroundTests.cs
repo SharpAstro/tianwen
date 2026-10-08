@@ -110,6 +110,40 @@ public sealed class SyntheticBackgroundTests
     }
 
     [Fact]
+    public void WithBrightKnotsWideOnlyAWideKnotIsBrightAndNoKnotMoves()
+    {
+        var plate = Plate(5);
+        var plain = SyntheticBackground.Build(plate, absent: null, Fwhm);
+        var wide = SyntheticBackground.Build(plate, absent: null, Fwhm, brightKnotsWide: true);
+        var psfSigma = Fwhm / 2.3548;
+        var (compact, bright) = (0, 0);
+        for (var draw = 0; draw < 20; draw++)
+        {
+            plain.Cell(0, 0, 256, [Noise], new Random(100 + draw), out var before);
+            wide.Cell(0, 0, 256, [Noise], new Random(100 + draw), out var after);
+            after.Length.ShouldBe(before.Length);
+            for (var k = 0; k < after.Length; k++)
+            {
+                // The same draws: where, how wide and which way are the plain generator's.
+                (after[k].X, after[k].Y, after[k].SigmaMinorPx, after[k].SigmaMajorPx, after[k].AngleRad)
+                    .ShouldBe((before[k].X, before[k].Y, before[k].SigmaMinorPx, before[k].SigmaMajorPx, before[k].AngleRad));
+                if (after[k].SigmaMinorPx < SyntheticBackground.BrightKnotMinWidths * psfSigma)
+                {
+                    compact++;
+                    after[k].Peak[0].ShouldBeLessThanOrEqualTo(SyntheticBackground.BrightKnotSigma * Noise * 1.001, "a compact knot stays faint");
+                }
+                else if (after[k].Peak[0] > SyntheticBackground.BrightKnotSigma * Noise)
+                {
+                    bright++;
+                    after[k].Peak[0].ShouldBe(before[k].Peak[0], 1e-12, "a wide knot keeps its brightness");
+                }
+            }
+        }
+        compact.ShouldBeGreaterThan(10, "most knots are compact");
+        bright.ShouldBeGreaterThan(3, "and the wide ones still reach past 20 sigma");
+    }
+
+    [Fact]
     public void APreviewReadsThePlatesNoiseAndPutsItBackOnItsCentredCell()
     {
         var plate = Plate(6);
