@@ -1504,6 +1504,23 @@ sky's alignment says the steering should follow the local coherence everywhere, 
   The exporters were never affected: they derive their seeds by fixed arithmetic, which the preview now does too
   (`SyntheticBackgroundPreview.CellSeed`, pinned by a test that fails in any process if `HashCode` comes back). Every
   setting's texture is now the same draw, so a knots comparison differs in the knots alone.
+- **The knots compared on paired draws (the same texture in every setting; `C:\temp\e2\s3_paired.py`).**
+
+  | tails score, lower is closer | D3's knots | no knots | nebula knots |
+  |---|---|---|---|
+  | mean of the eight views | 0.266 | 0.253 | 0.231 |
+
+  - **The nebula knots are the closest in five views of eight**, by most on eta Carinae's textured sky, unsteered: 0.096
+    against D3's 0.310, kurtosis 3.4/4.3/3.2 against the plate's 3.4/3.1/3.9 and D3's 5.3/5.7/6.5.
+  - **They are never far behind:** D3's are closer on eta Carinae's textured sky under the fine steer (0.145 against
+    0.174), and all three are level on the held-out strongly textured sky. The structure scores are level in every view.
+  - **They are the knots of the next synthetic export.**
+  - **How noisy the unpaired runs were:** the same texture alone read 3.4 to 3.6 at 2 and 4 px there, and reads 4.2 to
+    6.0 on these draws.
+- **What the knots cannot fix: the strongly textured sky's tails are short whatever the knots.** Kurtosis 1.6 to 3.0
+  against eta Carinae's 3.4 to 4.9, and about 5.5 against the held-out 10.5. That is the texture's one width (0.8),
+  light for that class. **Next:** a heavier width for the strongly textured class, read off the plate's own class map
+  (SkyTexture's), calibrated on the harness the same way.
 
 #### S2: generate it, S3: check it, S4: fill with it
 
