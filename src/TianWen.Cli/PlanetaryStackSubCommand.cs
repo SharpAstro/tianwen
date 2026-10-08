@@ -98,7 +98,7 @@ internal sealed class PlanetaryStackSubCommand(
         };
         var truthOpt = new Option<string?>("--truth")
         {
-            Description = "A synthetic capture's truth (planetary-degrade's .truth.fits; a colour capture's .truth.r/.g/.b.fits beside it): every master written is scored against it, R3's band transfer and error and the limb's undershoot.",
+            Description = "A synthetic capture's truth (planetary-degrade's .truth.fits; a colour capture's .truth.r/.g/.b.fits beside it): every master written is scored against it, R3's band transfer and error and the limb's undershoot. The master then keeps the frames' full size (--no-crop), the truth's grid.",
         };
         var turnNorthOverOpt = new Option<bool>("--turn-north-over")
         {
@@ -496,7 +496,8 @@ internal sealed class PlanetaryStackSubCommand(
                 // The planet into the master's OBJECT, which a viewer opens linear by.
                 Planet = planet,
                 AlignChannels = baseline.AlignChannels && !parseResult.GetValue(noChannelAlignOpt),
-                CropToCoverage = baseline.CropToCoverage && !parseResult.GetValue(noCropOpt),
+                // A truth lies on the frames' full grid, so a master scored against it keeps that grid (#1281: cropped, nothing was scored).
+                CropToCoverage = baseline.CropToCoverage && !parseResult.GetValue(noCropOpt) && parseResult.GetValue(truthOpt) is null,
                 Halves = halves,
                 // The raw integrated master stays linear/unsharpened (downstream-friendly); the sharpen
                 // pass is applied separately below so we can emit both the raw and sharpened masters.
