@@ -344,9 +344,10 @@ Enforced via `src/.editorconfig` (it sits beside the solution, not at the repo r
   way at 62 / 106): write a new file file-scoped, match the file you are in when editing, and never
   churn a file from one form to the other. This line used to say the opposite.
 - Primary constructors preferred for DI
-- No implicit `new(...)`, always `new SomeType()`
-- Expression-bodied: properties yes; a method only while it is small enough to sit on one line
-  (`when_on_single_line` in `src/.editorconfig`), a block body once it wraps; constructors no
+- Target-typed `new(...)` where the type is apparent (a declared field, local, parameter, return or collection element type),
+  `new SomeType()` where it is not (the owner relaxed "always `new SomeType()`" on 2026-10-09)
+- Expression-bodied: properties yes; a method while it is small, one that fits on one line (`when_on_single_line` in
+  `src/.editorconfig`) or a single switch expression, wrapped or not; a block body otherwise; constructors no
 - Interfaces prefixed with `I`; PascalCase types/properties/methods; `_camelCase` private fields
 
 ## Architecture

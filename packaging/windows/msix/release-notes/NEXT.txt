@@ -64,6 +64,11 @@ which is what that listing now tells users:
     there names the display HDR the viewer cannot do. TRUE at submission. It goes
     stale the moment P2 of docs/plans/hdr-display.md ships real display HDR, which
     would make that line the wrong answer on a capable machine.
+    AUDITED 2026-10-09: ITS LAST SENTENCE IS STALE. "B and H still step them" went
+    out of date on 2026-09-24 ("feat(viewer): H is the histogram, and the soft clip
+    gives up its key"): H now shows the histogram, and the soft clip has no key,
+    only the Tone popover and the wheel. A CORRECTION this release's block owes,
+    and it goes first. The other three claims are not audited yet.
   - Hovering the sky atlas washes the object a click would select. Check the wash
     and the click still come from one resolver; two would drift apart silently.
   - Auto crop reads neither a drizzle stack's interior holes nor a dither strip
