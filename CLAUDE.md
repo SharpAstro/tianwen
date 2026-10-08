@@ -345,7 +345,8 @@ Enforced via `src/.editorconfig` (it sits beside the solution, not at the repo r
   churn a file from one form to the other. This line used to say the opposite.
 - Primary constructors preferred for DI
 - No implicit `new(...)`, always `new SomeType()`
-- Expression-bodied: properties yes, methods/constructors no
+- Expression-bodied: properties yes; a method only while it is small enough to sit on one line
+  (`when_on_single_line` in `src/.editorconfig`), a block body once it wraps; constructors no
 - Interfaces prefixed with `I`; PascalCase types/properties/methods; `_camelCase` private fields
 
 ## Architecture
