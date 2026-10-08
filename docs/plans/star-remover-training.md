@@ -1385,6 +1385,25 @@ sky's alignment says the steering should follow the local coherence everywhere, 
   steer by the plate's own fine-scale structure tensor where it holds signal, read as the amplitude maps are (sources
   masked, energy smoothed over the clean pixels), so its local coherence sets how one-way the texture is, with the coarse
   orientation only where the fine scales are noise. Then the same harness, and M45 again.
+- **S2b as built** (`Steering.Fine`, the same evening). The luminance's replaced scales from 2 px up are read, each scale's
+  gradient tensor over the clean pixels in units of its own noise. The noise is a low quantile of the smoothed trace; a
+  median read the stripes of a half-striped test frame as noise. Where their signal matches the noise of the scales read,
+  they set the orientation and a share of `Fine` times their coherence, and the coarse steer holds elsewhere. Pinned by a
+  test whose fine stripes run across the coarse wave: the coarse steer turns the texture along the wave, the fine one
+  across it, as the plate's stripes run.
+  - **On M45 it gets the orientation and the one-wayness right at 4 to 16 px.** In the striated cell at (2663, 1359),
+    exponent 2 and gain 1 read coherence +0.54, +0.56, +0.46 against the plate's +0.54, +0.58, +0.53. By eye the texture
+    streaks along the arc.
+  - **Two faults remain, both measurable.** At 1 and 2 px it is one-way where the plate is noise: +0.15 to +0.45 against
+    +0.04 to +0.05. One steer serves every scale; a per-scale steer would follow the plate's own per-scale structure.
+  - **The tails are wrong, and steering makes them worse.** On the smooth arc the plate's kurtosis is 1.0 to 1.75 at 2 to
+    16 px, with 0.05 to 0.2 percent past 5 sigma. The isotropic texture reads 5 to 13 there and every steer 5 to 24, with
+    2 to 7 percent past 5 sigma. The log-normal's clumps (`LogNormalSigma` 0.8 everywhere) are the dark mottling seen in
+    the bright nebula, and a streak is sparser than a blob of the same variance.
+  - It is not shot noise counted as signal: the plate's local pixel noise there, 1.6 to 2.9e-5, is its global 2.7e-5,
+    since M45's nebula is about a fifth over its sky.
+  - **Next:** the S3 score takes the tails (kurtosis and the share past 5 sigma per scale) beside coherence and alignment;
+    the log-normal's width is set from the plate's own local tails rather than one constant; then the per-scale steer.
 
 #### S2: generate it, S3: check it, S4: fill with it
 
