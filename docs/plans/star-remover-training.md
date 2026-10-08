@@ -1520,7 +1520,39 @@ sky's alignment says the steering should follow the local coherence everywhere, 
 - **What the knots cannot fix: the strongly textured sky's tails are short whatever the knots.** Kurtosis 1.6 to 3.0
   against eta Carinae's 3.4 to 4.9, and about 5.5 against the held-out 10.5. That is the texture's one width (0.8),
   light for that class. **Next:** a heavier width for the strongly textured class, read off the plate's own class map
-  (SkyTexture's), calibrated on the harness the same way.
+  (SkyTexture's), calibrated on the harness the same way. Deferred: the class is a small share of the sky (57 plates of
+  190 hold 20,000 px of it), and S4 is the owner's reason for R2e.
+
+#### S4, pre-registered: the fill as a conditional draw (2026-10-09)
+
+R0's fill (`HoleFill`) is a push-pull level plus the plate's grain, so a hole on a nebula comes out smooth: every
+filament ends at its edge.
+
+**The method.** S4 adds the steered texture as a conditional draw:
+- draw the texture T over the hole and its surroundings (the generator's own amplitude maps and orientation, read with
+  the holes masked, so both come from the sky around the hole);
+- fill the hole with push-pull(data) + (T - push-pull(T)).
+
+T minus its own push-pull is zero at the edge and the full texture deep inside, so the drawn structure fades in from
+the real sky, scales under the hole's size only, along the orientation round it. It is opt-in: R0's plates are unchanged
+until it is chosen.
+
+**The measure.** Judged on R0's own probe (`StarlessFillProbe`: discs of 3, 6, 12 and 24 px cut where the plate has no
+star, filled, compared with what was there), extended by two reads:
+- the band energy inside the hole at each scale under its size, against the original's;
+- the alignment between the fill's fine structure and the ring round the hole (S1's measure).
+
+Written before it is built, on the plates' structured holes:
+1. **Energy:** S4's fill holds 75 to 125 percent of the original's band energy at 2 to 8 px, where today's holds under
+   half (its grain ratio sits under one). Moderate.
+2. **Level:** its mean residual stays within today's plus 0.1 sigma; the draw adds no bias. High.
+3. **Price:** its structure error (filled against original, noise taken out) rises no more than the square root of two
+   times today's on structured holes. A random texture of the right energy costs that much and no more; it buys
+   realism, not prediction. On smooth holes it stays within 0.1 sigma of today's. Moderate.
+4. **Continuity:** the fill's fine structure aligns with the ring round it at +0.2 or more, where today's reads no
+   structure to align. Low to moderate.
+
+**Kill:** (2) or (3) misses. Then the fill stays the push-pull and the texture serves the synthetic background only.
 
 #### S2: generate it, S3: check it, S4: fill with it
 
