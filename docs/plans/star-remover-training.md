@@ -1444,6 +1444,26 @@ sky's alignment says the steering should follow the local coherence everywhere, 
     since M45's nebula is about a fifth over its sky.
   - **Next:** the S3 score takes the tails (kurtosis and the share past 5 sigma per scale) beside coherence and alignment;
     the log-normal's width is set from the plate's own local tails rather than one constant; then the per-scale steer.
+- **Tails from the plate, built and read (2026-10-09; `--tails-from-plate`, opt-in).**
+  - **How it works:** per replaced scale from 2 px up, the luminance's local second and fourth moments over the clean
+    pixels give the signal's kurtosis, with the noise's share taken out (Gaussian noise adds 6SN + 3N^2 to the fourth
+    moment). A table of the texture's own kurtosis per width turns it into a width. Each drawn scale is held to unit local
+    RMS, so the amplitude maps still set its strength.
+  - **A bug found on the way:** the first table was read over the whole field, where the log-normal's envelope swings
+    through its range (17 at width 0.8, 72 at 1.2). A plate is read over a window, so every plate mapped near zero. The
+    table is read locally now. Pinned by two tests: the read recovers a texture's local kurtosis above the noise, and a
+    smooth plate draws a smoother texture than the one width.
+  - **M45:** the dark mottling is gone. Where the nebula is rough, the tails match the plate's (kurtosis 6.4/7.7/5.8/5.6
+    against 6.5/5.7/4.0/4.1). Where it is a smooth arc, it is still too clumpy.
+  - **Over the eight plates it does not beat the one width.** Read clear of the amplitude maps' 3 sigma sources, it drew
+    the texture too smooth: eta Carinae's textured sky read 1.5 to 2.5 against the plate's 3.1 to 3.8. Read clear of the
+    measure's 4 sigma instead, it is close there (3.0 to 4.4). Elsewhere it swings: the held-out textured sky reads 11.7
+    to 16.3 against 3.5 to 4.5 with the fine steer, while the held-out strongly textured sky is closer (5.3 to 7.2 against
+    about 10, where the one width reads 5).
+  - **A confound:** the synthetic knots (D3) add tails of their own to every read. On M45 one elongated knot took a
+    cell's kurtosis to 87. The texture's tails cannot be tuned against the plate's while the knots ride in both.
+  - **Next:** S3 read with the knots left out, so the texture alone is compared, before the tails read is kept, damped,
+    or replaced by a width per texture class.
 
 #### S2: generate it, S3: check it, S4: fill with it
 
