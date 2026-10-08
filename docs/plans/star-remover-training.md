@@ -1464,6 +1464,25 @@ sky's alignment says the steering should follow the local coherence everywhere, 
     cell's kurtosis to 87. The texture's tails cannot be tuned against the plate's while the knots ride in both.
   - **Next:** S3 read with the knots left out, so the texture alone is compared, before the tails read is kept, damped,
     or replaced by a width per texture class.
+- **The texture alone (`--no-knots`, the same evening): the knots hid the read's bias, and they overshoot.**
+  - **The tails read draws the texture too smooth.** Without knots it reads kurtosis 1.0 to 1.8 at every scale and class,
+    where the plates read 3 to 4 (about 10 on the held-out strongly textured sky). Its apparent match at 4 sigma was the
+    knots' tails added to it. The read is parked; a round trip (a texture of known width, read back) would find its bias.
+  - **The one width, texture alone, matches the emission nebulae's textured sky at 2 and 4 px:** 3.4 to 3.6 against
+    eta Carinae's 3.1 to 3.3. It is too smooth at 8 px (2.0 against 3.8) and on the strongly textured sky (1.4 to 1.6
+    against 2.5 to 4.5, held out 6.4 against 10.5).
+  - **The knots overshoot.** With them the one width's textured sky reads 5.6 to 7.1 against the plate's 3.1 to 3.8:
+    D3's knots, three a cell at 5 to 200 sigma wherever the cell is, add more tail than the real sky has. This is R2d's
+    knots test seen from the sky's side (bright compact knots cost the bright stars).
+  - **Kept:** the one width (`LogNormalSigma`) as the texture's tails.
+- **Next: knots drawn as a nebula's, not as a cell's.** Each one should be:
+  - placed where the plate's amplitude maps say there is nebula, not uniformly;
+  - as bright as a few times the local texture, not 5 to 200 sigma of noise;
+  - coloured as the plate is there, not equal in noise sigma per channel (which made them pink on M45, like satellite
+    trails);
+  - when elongated, laid along the local orientation (S2b's), not at a random angle.
+
+  Judged by S3 with the knots in (the tails per class) and by R2d's knots test's reading of the bright stars.
 
 #### S2: generate it, S3: check it, S4: fill with it
 
