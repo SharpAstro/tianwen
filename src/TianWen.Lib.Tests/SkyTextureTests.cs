@@ -98,4 +98,66 @@ public sealed class SkyTextureTests
         knotted.Scales[2].TailFraction.ShouldBeGreaterThan(10 * Math.Max(flat.Scales[2].TailFraction, 1e-6));
         knotted.Scales[2].RobustRms.ShouldBe(flat.Scales[2].RobustRms, 0.2 * flat.Scales[2].RobustRms);
     }
+
+    [Fact]
+    public void StripesReadFullyCoherentWithTheirGradientAcrossThem()
+    {
+        // Stripes that vary along y only: every gradient is vertical, so the doubled angle's cosine is -1.
+        var stripes = new float[Size * Size];
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                stripes[(y * Size) + x] = (float)Math.Sin(2 * Math.PI * y / 8.0);
+            }
+        }
+
+        var (coherence, cos2, _, _) = SkyTexture.StructureTensor(stripes, Size, Size, sigma: 4f);
+
+        var i = (Size / 2 * Size) + (Size / 2);
+        ((double)coherence[i]).ShouldBe(1.0, 1e-3);
+        ((double)cos2[i]).ShouldBe(-1.0, 1e-3);
+    }
+
+    // White noise, a coarse wave along y (the structure the generator keeps) and fine stripes along x or y on it.
+    private static float[] Striated(bool fineAcrossTheCoarse)
+    {
+        var field = WhiteNoise(7, 0.01);
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                var fine = fineAcrossTheCoarse ? Math.Sin(2 * Math.PI * x / 8.0) : Math.Sin(2 * Math.PI * y / 8.0);
+                field[(y * Size) + x] += (float)((0.2 * Math.Sin(2 * Math.PI * y / 400.0)) + (0.03 * fine));
+            }
+        }
+        return field;
+    }
+
+    [Fact]
+    public void FineStructureAlongTheCoarseContoursReadsAlignedAndAcrossThemAntiAligned()
+    {
+        var along = SkyTexture.Measure(Striated(fineAcrossTheCoarse: false), Size, Size, absent: null, fwhm: 2.5);
+        var across = SkyTexture.Measure(Striated(fineAcrossTheCoarse: true), Size, Size, absent: null, fwhm: 2.5);
+
+        // Read at the scale the 8 px stripes live at, the one holding the most energy among 2 to 16 px.
+        var j = Enumerable.Range(1, 4).MaxBy(k => along.Scales[k].RobustRms);
+        along.Scales[j].Coherence.ShouldBeGreaterThan(along.NoiseCoherence[j] + 0.3, $"the stripes run one way at {1 << j} px");
+        along.Scales[j].Alignment.ShouldBeGreaterThan(0.8, $"stripes along the coarse contours at {1 << j} px");
+        across.Scales[j].Alignment.ShouldBeLessThan(-0.8, $"stripes across the coarse contours at {1 << j} px");
+    }
+
+    [Fact]
+    public void WhiteNoiseReadsTheNullCoherenceAndNoAlignment()
+    {
+        var m = SkyTexture.Measure(WhiteNoise(8, 0.01), Size, Size, absent: null, fwhm: 2.5);
+
+        foreach (var s in m.Scales.Where(static s => s.ScalePx <= 8))
+        {
+            var j = System.Numerics.BitOperations.Log2((uint)s.ScalePx);
+            s.Coherence.ShouldBe(m.NoiseCoherence[j], 0.05, $"an isotropic field reads the null at {s.ScalePx} px");
+            Math.Abs(s.Alignment).ShouldBeLessThan(0.1, $"and no preferred orientation at {s.ScalePx} px");
+            Math.Abs(m.NoiseAlignment[j]).ShouldBeLessThan(0.1, $"two octaves apart, band overlap reads no alignment at {s.ScalePx} px");
+        }
+    }
 }
