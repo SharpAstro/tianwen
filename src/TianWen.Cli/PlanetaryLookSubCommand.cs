@@ -83,11 +83,11 @@ internal sealed class PlanetaryLookSubCommand(IConsoleHost consoleHost, MasterPr
                     return 1;
                 }
                 var (disk, options) = (ready.Disk, ready.Options);
-                if (ready.Balanced is { } howBalanced)
+                if (ready.Balance is { } balance)
                 {
                     master.Release();
                     master = ready.Master;
-                    consoleHost.WriteScrollable($"the master was in the camera's colours; {howBalanced}");
+                    consoleHost.WriteScrollable($"the master was in the camera's colours; {balance.Describe()}");
                 }
 
                 // The look: fitted to the reference when there is one, the contrast raised by the factor asked (the boosted look's) when not.
@@ -194,7 +194,7 @@ internal sealed class PlanetaryLookSubCommand(IConsoleHost consoleHost, MasterPr
                 if (parseResult.GetValue(fitsOpt))
                 {
                     var fitsPath = Path.ChangeExtension(pngPath, ".fits");
-                    looked.WriteToFitsFile(fitsPath, null, Cards(masterPath, look));
+                    looked.WriteToFitsFile(fitsPath, null, Cards(masterPath, ready.Balance, look));
                     consoleHost.WriteScrollable($"wrote {fitsPath} (the look in its planes, not scene-linear)");
                 }
 
@@ -251,15 +251,25 @@ internal sealed class PlanetaryLookSubCommand(IConsoleHost consoleHost, MasterPr
     private static double GainAtQuantile(System.Collections.Immutable.ImmutableArray<double> gains, double q)
         => gains[PlanetaryColourReading.QuantileGrid.IndexOf(q)];
 
-    // The master's colour balance cards carried over (their CBALSAT is what marks a balanced master's one black point, #1229), and the look's.
-    private static Dictionary<string, (object Value, string Comment)> Cards(string masterPath, ColourLook look)
+    // The look's FITS cards: the colour balance's (their CBALSAT is what marks a balanced master's one black point, #1229), and the look's.
+    // The balance is the one Prepare made where it had to balance the master (`madeHere`), whose own file then carries no cards: copied from
+    // the file alone, such a look read back as unbalanced, a black point a channel (the audit on #1343). Otherwise the master's are carried over.
+    internal static Dictionary<string, (object Value, string Comment)> Cards(string masterPath, ColourBalance? madeHere, ColourLook look)
     {
         var cards = new Dictionary<string, (object Value, string Comment)>();
-        using (var fits = Image.OpenFitsHeader(masterPath))
+        if (madeHere is not null)
         {
+            foreach (var (key, value) in madeHere.HeaderCards())
+            {
+                cards[key] = value;
+            }
+        }
+        else
+        {
+            using var fits = Image.OpenFitsHeader(masterPath);
             if (fits.ReadFirstImageHduHeaderOnly()?.Header is { } header)
             {
-                foreach (var key in (ReadOnlySpan<string>)["CBALGNR", "CBALGNB", "CBALSAT"])
+                foreach (var key in ColourBalance.Cards)
                 {
                     if (header.ContainsKey(key))
                     {

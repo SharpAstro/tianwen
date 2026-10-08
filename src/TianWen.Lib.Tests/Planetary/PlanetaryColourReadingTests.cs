@@ -238,7 +238,7 @@ public class PlanetaryColourReadingTests
         var balanced = RenderedJupiter(at, balanced: true);
         var (prepared, refusal) = PlanetaryColourLook.Prepare(balanced, CatalogIndex.Jupiter, at);
         var ready = prepared.ShouldNotBeNull(refusal);
-        ready.Balanced.ShouldBeNull("a balanced master is taken as it is");
+        ready.Balance.ShouldBeNull("a balanced master is taken as it is");
         ReferenceEquals(ready.Master, balanced).ShouldBeTrue("and is not copied");
         ready.Disk.Radius.ShouldBe(40, 1, "the limb fit finds the rendered disk");
 
@@ -251,7 +251,7 @@ public class PlanetaryColourReadingTests
         // A master left in the camera's colours is balanced first, into a new image the caller owns.
         var (fromCamera, cameraRefusal) = PlanetaryColourLook.Prepare(RenderedJupiter(at, balanced: false), CatalogIndex.Jupiter, at);
         var balancedFirst = fromCamera.ShouldNotBeNull(cameraRefusal);
-        balancedFirst.Balanced.ShouldNotBeNull("it says how it was balanced");
+        balancedFirst.Balance.ShouldNotBeNull("it says how it was balanced");
         balancedFirst.Master.ImageMeta.IsColourBalanced.ShouldBeTrue();
 
         PlanetaryColourLook.Prepare(Image.FromChannel(new float[16, 16]), CatalogIndex.Jupiter, at).Refusal.ShouldNotBeNull().ShouldContain("three-channel");
