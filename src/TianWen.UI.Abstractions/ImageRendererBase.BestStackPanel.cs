@@ -48,8 +48,7 @@ namespace TianWen.UI.Abstractions
         private Layout.Node BuildTelescopeTree(ViewerState state, bool mono)
         {
             var inv = CultureInfo.InvariantCulture;
-            var style = new Layout.ButtonGroupStyle(TransportTrackFill, ToolbarButtonBg, ViewerTheme.Palette.BodyText, ViewerTheme.Palette.BodyText,
-                GuiTheme.Hover(ToolbarButtonBg));
+            var style = PlanetaryChoiceStyle;
 
             // A capture's name, or a planetary master's file's (#1314), whose OBJECT names the planet first.
             var capture = state.SequencePath ?? state.MasterPath;

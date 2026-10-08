@@ -1972,6 +1972,10 @@ popover for boost and the soft clip:
   controls, and `ShowStacked || ShowBest || IsPlanetaryMaster` for the dials). The deep-sky models do
   not serve a planetary frame, so neither half shares the popover with the other.
 - **The button is lit** while either half's enhancement is in force; `E` keeps its toggle.
+- **Its choices take their fills from the palette, not only their text.** Today the planet, telescope and colour-look groups
+  (`PlanetaryChoiceStyle`) draw palette text on the toolbar's fixed dark greys (`ToolbarButtonBg`), which in Light is near black on dark
+  grey, unreadable; the transport's Frames / Live / Best switch keeps a literal light text for that reason, which Night cannot tint. Found
+  by the audit on #1343 (its rows 24 and 22).
 
 The strip goes back to what it reports. The Frames / Live / Best switch stays in the transport: it
 chooses what is shown, not how it is enhanced.

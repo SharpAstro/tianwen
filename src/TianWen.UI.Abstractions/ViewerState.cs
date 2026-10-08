@@ -532,14 +532,47 @@ public sealed class ViewerState
     public void ChooseStrength(double strength)
     {
         PlanetaryStrength = strength;
-        if (WaveletDerived && DerivedWaveletGains is { } derived && derived.GainsAt(strength) is { IsDefaultOrEmpty: false } gains)
+        if (WaveletDerived && DerivedWaveletGains is { } derived && !derived.GainsAt(strength).IsDefaultOrEmpty)
         {
-            WaveletGains = gains;
-            WaveletSharpenEnabled = true;
-            WaveletDeriveNote = $"Gains {derived.HowAt(strength)}";
-            WaveletDirty = true;
+            ShowDerivedAt(derived, strength);
         }
         NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// <paramref name="derived"/>'s gains at the stop <paramref name="strength"/> on the dials, the derivation and its limb kept for the next
+    /// stop: the one way a derivation reaches the dials, from Derive's result and from a stop chosen after it (<see cref="ChooseStrength"/>;
+    /// the audit on #1343 found the two written out apart). A stop the derivation holds no gains for shows its gains as derived.
+    /// </summary>
+    public void ShowDerivedAt(TianWen.Lib.Imaging.Planetary.DerivedGains derived, double strength)
+    {
+        var atStop = derived.GainsAt(strength);
+        WaveletGains = atStop.IsDefaultOrEmpty ? derived.Gains : atStop;
+        WaveletDerived = true;
+        WaveletLimb = derived.Limb;
+        DerivedWaveletGains = derived;
+        WaveletSharpenEnabled = true;
+        WaveletDirty = true;
+        WaveletDeriveNote = $"Gains {(atStop.IsDefaultOrEmpty ? derived.How : derived.HowAt(strength))}";
+    }
+
+    /// <summary>
+    /// Forgets the derivation and the limb it read, which belong to the capture or the master they were read on (#1201, #1314): another
+    /// file, or a capture start, drops them. <paramref name="switchOff"/> also clears the derived mark, its note and the sharpening, which a
+    /// planetary master opened as a file starts without; a SER's dials stay as they stand. One reset for every opening (the audit on #1343
+    /// found two that disagreed without a word on why).
+    /// </summary>
+    public void ForgetDerivation(bool switchOff)
+    {
+        WaveletLimb = null;
+        DerivedWaveletGains = null;
+        if (switchOff)
+        {
+            WaveletDerived = false;
+            WaveletDeriveNote = null;
+            WaveletSharpenEnabled = false;
+        }
+        WaveletDirty = true;
     }
 
     /// <summary>Set by the Derive button; the controller starts a derivation over the master on show, or ignores it while one runs, and clears it.</summary>
@@ -639,9 +672,6 @@ public sealed class ViewerState
     /// linear. Kept while the viewer runs, not saved, as <see cref="PlanetaryStrength"/> is.
     /// </summary>
     public TianWen.Lib.Imaging.Planetary.ColourLook? PlanetaryLook { get; set; }
-
-    /// <summary>Set when <see cref="PlanetaryLook"/> changes, so the host applies it to the master on show; cleared once it has.</summary>
-    public bool PlanetaryLookChanged { get; set; }
 
     /// <summary>Why the look cannot go on the master on show (no planet, mono, not balanced, no limb), or null; said under the choice.</summary>
     public string? PlanetaryLookNote { get; set; }

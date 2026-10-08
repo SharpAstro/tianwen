@@ -255,8 +255,7 @@ partial class ImageRendererBase<TSurface>
         var (lookShown, lookReason) = PlanetaryLookReach(state);
         if (lookShown)
         {
-            var lookStyle = new Layout.ButtonGroupStyle(TransportTrackFill, ToolbarButtonBg, ViewerTheme.Palette.BodyText,
-                ViewerTheme.Palette.BodyText, GuiTheme.Hover(ToolbarButtonBg));
+            var lookStyle = PlanetaryChoiceStyle;
             ReadOnlySpan<Layout.ButtonGroupOption<ColourLook?>> looks =
             [
                 new(null, "True colour") { Hit = new HitResult.ButtonHit("LookTrueColour") },

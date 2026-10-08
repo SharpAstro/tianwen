@@ -309,9 +309,7 @@ public sealed class ViewerController(
                     state.SequencePath = requestedPath;
                     (state.MasterPlanet, state.MasterPath) = (null, null);
                     // The limb a derivation fitted belongs to the capture it was fitted on (#1201).
-                    state.WaveletLimb = null;
-                    state.DerivedWaveletGains = null;
-                    state.WaveletDirty = true;
+                    state.ForgetDerivation(switchOff: false);
                     // Stamped at ADOPTION, never at request: a superseded or failed load must not
                     // invalidate a comparison that is still valid for what is on screen.
                     state.NotifySourceReplaced();
@@ -425,12 +423,7 @@ public sealed class ViewerController(
                 if (masterLayer is not null)
                 {
                     // The limb and the stops a derivation read belong to the master they were read on (#1201, #1314).
-                    state.WaveletLimb = null;
-                    state.DerivedWaveletGains = null;
-                    state.WaveletDerived = false;
-                    state.WaveletDeriveNote = null;
-                    state.WaveletSharpenEnabled = false;
-                    state.WaveletDirty = true;
+                    state.ForgetDerivation(switchOff: true);
                 }
 
                 // A crop is a property of the FRAME it was scanned against, not of the viewer, so a
@@ -1349,7 +1342,7 @@ public sealed class ViewerController(
             var (looked, refusal) = PlanetaryColourLook.OnMaster(image, planet, instant, look);
             if (looked is null)
             {
-                return ((AstroImageDocument?)null, refusal);
+                return (null as AstroImageDocument, refusal);
             }
             var document = await AstroImageDocument.AdoptImageAsync(looked, DebayerAlgorithm.None, wcs, path, cancellationToken: token).ConfigureAwait(false);
             return (document, null);

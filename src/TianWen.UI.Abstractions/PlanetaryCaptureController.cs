@@ -240,9 +240,7 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
             _source?.Dispose();
             _source = next;
             // The limb a derivation fitted belongs to the capture it was fitted on (#1201).
-            _state.WaveletLimb = null;
-            _state.DerivedWaveletGains = null;
-            _state.WaveletDirty = true;
+            _state.ForgetDerivation(switchOff: false);
             _hasLiveFrame = false; // the last capture's frame is not this one's
         }
 
