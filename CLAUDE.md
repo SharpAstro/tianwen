@@ -2205,6 +2205,11 @@ Canonical example: `AppSignalHandler.PollCameraTelemetry` and `EquipmentTabState
   the block, so removing one `!` can make a later line warn. Tests and benchmarks are deliberately
   exempt: `= null!` on a `[GlobalSetup]` field is the BenchmarkDotNet idiom, and `null!` passed to
   prove a guard throws is the point of that test.
+- **No JSON type holds a nullable struct (`T?`) read through its constructor whose last property can be null**, unless
+  `JsonStreamReadTrapTests` lists it with the reason no stream read can trip on it (#1356). A stream read
+  (`DeserializeAsync`, `ReadFromJsonAsync`) throws "could not be converted" when its buffer ends between that trailing
+  `null` and the brace, while the same bytes parse whole: one offset in about 350, and only past the first 16 KiB, since
+  the reader fills its buffer before parsing. Parse such a payload from its bytes (`PlanetaryCaptureStatistics.TryLoadAsync`).
 - **Directory walks go through `FileEnumeration` (`TianWen.Lib/IO`), never the `SearchOption`
   overloads of `Directory.EnumerateFiles`/`GetFiles`.** Those run with the legacy defaults: they ENTER
   every reparse point (the organized archive's `targets/` junction farm was scanned once per link, and a
