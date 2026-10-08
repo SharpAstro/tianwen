@@ -60,7 +60,7 @@ seam, a controller + tab on top, and a recenter controller.
 | A | `IVideoCameraDriver` + `LiveCameraFrameStream` + engine gaps (non-owning stream, follow-latest, empty-stream guard) | no | DONE 2026-06-24 |
 | B | rapid-exposure fallback + Fake video (`SyntheticPlanetRenderer`) + `PlanetaryCaptureController` + 🪐 tab + signals | no | **DONE**. The GUI shipped as the Live Session **Planetary mode** (`LiveSessionMode.Planetary`), not a tab, as decided on 2026-06-24 (below); this row said "GUI tab remaining" until 2026-09-25 |
 | C | `PlanetaryRecenterController` (ROI auto + mount opt-in) + `JogMountSignal` + manual nudge | no | DONE 2026-06-28 |
-| D | native ZWO + QHY raw video (DAL `ICMOSNativeInterface` + ring buffer + ROI-jog bypass) | **yes (DAL -> 2 SDKs -> TianWen)** | TODO (#813; Player One and ToupTek are DAL cameras now too) -- detailed plan: [planetary-native-video.md](planetary-native-video.md) |
+| D | native ZWO + QHY raw video (DAL `ICMOSNativeInterface` + ring buffer + ROI-jog bypass) | **yes (DAL -> 2 SDKs -> TianWen)** | **DONE for ZWO** ("feat(devices): a DAL camera streams native video (#813)": one shared loop, `DALCameraDriver.Video.cs`, 92 frames a second at 640x360 on an ASI462MC). **QHY, Player One and ToupTek do not stream yet**: their SDKs implement none of the DAL's video members, so they run the single-exposure loop, and #813 stays open for them. Detailed plan: [planetary-native-video.md](planetary-native-video.md) |
 | E | Canon Live View `IVideoCameraDriver` (JPEG) via FC.SDK | core: no / zoom-pan: yes | **core DONE 2026-07-16** (full-frame stream, `CanJogRoi=false`); **EVF zoom + pan DONE 2026-08-03** on FC.SDK 3.0.751 ("feat(canon): the magnified EVF crop is the planetary ROI, and it pans"; E.3 in the detail doc, where this row had said deferred). Detail: [planetary-native-video.md](planetary-native-video.md) |
 
 > **Phases D + E are fleshed out in [`planetary-native-video.md`](planetary-native-video.md)** (the two
@@ -68,6 +68,9 @@ seam, a controller + tab on top, and a recenter controller.
 > symbol inventory). Recommended order there is **E before D** (E is a single low-risk in-tree commit against
 > the already-published FC.SDK Live View; D is the High-risk DAL -> 2 SDKs -> TianWen NuGet chain).
 | F | decompose the ~3000-line `ImageRendererBase` (see below) | no | DONE 2026-06-28 |
+| G | a mono night: a Record control in the GUI (#1344), then a filter-wheel sequence as a node run (#1340) | no | NOT STARTED ([Phase G](#phase-g-a-mono-filter-wheel-sequence)) |
+| H | focusing on the planet: a burst's sharpness, a readout for focusing by hand, an autofocus, per-filter offsets (#1341) | no | NOT STARTED ([Phase H](#phase-h-focusing-on-the-planet)) |
+| I | a recording writes its camera settings beside it (#1342) | no | NOT STARTED ([Phase I](#phase-i-a-recording-says-how-it-was-taken)) |
 
 ## Phase F: decompose `ImageRendererBase` (~3000 lines)
 
@@ -146,10 +149,11 @@ releases). D and E are hardware/quality upgrades behind the same contract.
   falling behind; `NodeTransport.OpenFrameStreamAsync` on the client. The live frame is dated when it arrived.
 - `TianWen.Lib/Imaging/Planetary/SerRecording.cs` -- a recording to disk (P5 part 5d): `PlanetaryCapture.TryStartRecording`
   writes every frame for a duration into a SER file (`PlanetaryCapture.RecordingPath`, `Planetary/<date>/` beside the
-  snapshots), in the camera's own shape at 16 bits with each frame's arrival time; the loop converts and queues, a
-  writer task of its own does the disk (a frame the disk cannot take is dropped and counted); a frame of another size
-  ends it. The node's `/api/v1/planetary/record` finishes its duration unwatched. The GUI has no Record control yet
-  (P6), and #814's memory-mapped SER, the recording and the frame ring in one, is the optimisation still ahead.
+  snapshots), in the camera's own shape and the depth it streams (8 bits for an 8-bit stream, else 16) with each frame's
+  arrival time; the loop converts and queues, a writer task of its own does the disk (a frame the disk cannot take is
+  dropped and counted); a frame of another size ends it. The node's `/api/v1/planetary/record` finishes its duration
+  unwatched. **Nothing in the GUI or the CLI asks for a recording yet** (#1344, Phase G), and #814's memory-mapped SER,
+  the recording and the frame ring in one, is the optimisation still ahead.
 - `TianWen.UI.Abstractions/PlanetaryCaptureController.cs` -- owns a `PlanetaryCapture`; `Tick()` (render
   thread) follows latest + publishes the master + pushes wavelet-sharpen changes.
 - `ViewerState.BuildWaveletOptions()` -- the single source for live-stack wavelet options, now shared by
@@ -619,3 +623,95 @@ mount actuation in the controller, and a RECENTER panel section on top.
 of the uncalibrated flip flags), and drag-to-set ROI on the image. The coarse auto mount-jog + manual nudge are
 enough for first light; calibration is the natural next refinement. Confirming the sign on a real planet is
 bench issue #651.
+
+## A mono planetary night (2026-10-08)
+
+**What it is measured against: the owner's Saturn of 2026-10-07** (`E:/Astro/Saturn/2026-10-07/Light`), taken with SharpCap's
+sequencer through the 254 mm Newtonian and a barlow (about 1750 mm) on a ToupTek 678 mono (2 um pixels) behind a ZWO filter wheel,
+on an equatorial mount. Ten sets of Red, Green and Blue between 11:34 and 13:36 UTC; each file 10,000 frames of 640x480 MONO8 (158 s
+at 63 frames a second); a set about 7.7 minutes; one folder, with a `.CameraSettings.txt` beside each file. Within a set nothing
+changed. Between the first and second sets the gain went from 1620 to 2252 and the black level from 11 to 17, and between the third
+and fourth the owner refocused by hand (12993 to 12987), focusing on SharpCap's FFT score, which the owner found worked fairly well.
+
+**What TianWen could not have done that night**, in the order it has to be built:
+1. **Stream from that camera** (#813): only ZWO streams natively; a ToupTek, QHY or Player One body runs the single-exposure loop.
+2. **Record from the GUI** (#1344): the node records (`SerRecording`), but nothing in the GUI or the CLI asks it to.
+3. **Say how a file was taken** (#1342, Phase I): our recording writes no exposure, gain, offset or focuser position.
+4. **Run the sequence** (#1340, Phase G): nothing moves the filter wheel during a planetary capture.
+5. **Focus on the planet** (#1341, Phase H): every focus routine and aid measures stars.
+
+The processing side of such a night is the restoration plan's: each file stacked on its own, the run read as a session per filter
+(#1336), the stacks composed with one north decided across the run, and a filter's stacks put on one level before they are averaged
+(#1337).
+
+### Phase G: a mono filter-wheel sequence
+
+**Issues:** #1344 (the Record control, first), #1340 (the sequence).
+
+- **A run of the node** (`INodeRun`, as the planetary capture is), claiming the camera, the filter wheel and the focuser (the
+  per-filter offset moves it). The mount is touched only by the recentre's nudges, which ask `DeviceOwnershipGate` as they do now.
+  A refused start names the run going on.
+- **Steps and sets.** A step is a filter, an exposure, a gain, an offset, a bit depth, and a frame count or a duration; a set is the
+  steps in order. The run repeats the set N times, until a time, or until the planet sinks below an altitude, with an optional pause
+  between sets and an optional refocus every K sets (Phase H).
+- **One filter change, the session's.** `Session.SwitchFilterIfNeededAsync` (the wheel moved, its arrival awaited, the focus offset
+  applied relative to the luminance filter) is hoisted into one routine both call; the offset rule is never copied.
+- **A stream's controls are the ones set when it starts** (the DAL's video contract). Between steps the run stops the stream, moves
+  the wheel, sets the controls and restarts, then drops the first frames after the change before it records.
+- **Each step is one `SerRecording`**, named by `PlanetaryCaptureName.RecordingFileName` (planet, filter, time) into one folder per
+  run. The survey then reads the run as one session per filter (#1336), and `planetary-compose` takes the stacks as they are.
+- **How long a step lasts is the planet's turn.** The stacker de-rotates a file only once the turn moves the disk's middle a pixel,
+  and it reads north from the file's own quarters, which a bland globe cannot tell apart: on 11:34 Red the two ways read 0.01585 and
+  0.01589. A file kept under that turn needs no north at all, and files far apart in time get theirs at compose, from two stacks of
+  one filter. So the editor offers, for the planet and the pixel scale, the duration at which the turn reaches a pixel, computed from
+  the ephemeris before any frame is taken.
+- **The live view runs through every step**: the rolling stack shows each filter as it records.
+
+**Needs** native video on the camera (#813). **Done when** a functional test on the fake camera, wheel and focuser runs two sets of
+R, G and B into six SERs named per filter, the wheel moved five times and each offset applied, and the survey reads three sessions;
+then a night on the bench.
+
+### Phase H: focusing on the planet
+
+**Issue:** #1341.
+
+What exists: the focuser jog in the panel's FOCUSER section, and the live view for focusing by eye (#1111). Every routine that reads
+focus reads stars: the session's V-curve autofocus, F6's planned video autofocus (`focus-tolerance.md`) and the focus aid (#1112).
+
+**What reads a planet's focus.** R4 measured it (`planetary-restoration.md`): at 8 bits the Laplacian ranks frames near chance
+against their true transfer, while the gradient grader and an FFT's power in a mid band (`FftHighBandEstimator`, 0.06 to 0.12 cycles
+a pixel there) rank them at +0.87 to +0.99. The FFT score is the family SharpCap's FFT focus belongs to, the one the owner focused
+with on 2026-10-07. Its band is a choice that matters: the finest band of an 8-bit frame is its noise, and R4's band was read at
+one train's sampling, so the band is set as a fraction of the pupil's cutoff (0.45 to 0.63 cycles a pixel on the 2026-10-07 Saturn),
+never in fixed cycles a pixel. One frame's sharpness is mostly the seeing's, so a
+focus reading is a BURST's: a high percentile (the best tenth) of the score over one to two seconds of frames at one focuser position.
+The limb fit's edge width on a stack of the burst's best frames is a second reading, in pixels, that does not depend on how much
+contrast the planet shows that night.
+
+- **One routine** for the burst reading (the gradient score and the FFT band score side by side until the validation below picks),
+  behind a live readout and the autofocus alike.
+- **A live readout** in the FOCUSER section, with the best so far marked: a V by hand.
+- **An autofocus**: the focuser stepped across a range, a burst at each position, a peak fitted through the top readings, the focuser
+  moved to it through its backlash rule (`BacklashEstimator`'s overshoot), and a last burst to verify.
+- **Per-filter offsets** measured by the same routine and written to the filter wheel's profile (`InstalledFilter`), which the
+  sequence's filter change then applies.
+- **A refocus step** in the sequence: every K sets, or when the readout's trend falls below the set's start.
+
+**Validated before it is used**, by a rule written first: on twins at a known defocus (`planetary-degrade --defocus-nm`) and on the
+fake camera's defocus (#818), the fitted peak lies within one step's depth of focus of zero defocus, and the reading falls
+monotonically with defocus across the range swept. The same rule picks between the gradient and the FFT band score, and the band.
+**Needs** native video (#813): at a single-exposure loop's rate one burst takes minutes.
+
+### Phase I: a recording says how it was taken
+
+**Issue:** #1342.
+
+SharpCap writes a `.CameraSettings.txt` beside every SER (exposure, gain, black level, frame rate, the focuser's position and
+temperature, the filter, the mount's position, the capture's start, middle and end), and the survey reads it into
+`CaptureRecord.Settings`; that file is how the 2026-10-07 night's gain change and refocus were found. Our `SerRecording` writes the
+SER header (camera, telescope) and the name (planet, filter, #1179), and nothing else.
+
+- Write the settings beside each recording in a key=value form the survey's reader already takes.
+- `planetary-stack` carries the exposure and gain into the master's header, so a compose can say why two stacks' levels differ
+  (#1337).
+- **Done when** a recording on the fake camera round-trips its settings through the survey.
