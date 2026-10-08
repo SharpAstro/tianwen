@@ -19,6 +19,9 @@ namespace TianWen.Lib.Imaging.Planetary;
 public sealed class LaplacianEnergyEstimator(bool normalizeBrightness = true) : IFrameQualityEstimator
 {
     /// <inheritdoc/>
+    public string CacheKey => normalizeBrightness ? "laplacian" : "laplacian raw";
+
+    /// <inheritdoc/>
     public float Score(Image frame, PixelRect region)
     {
         if (region.IsEmpty)
