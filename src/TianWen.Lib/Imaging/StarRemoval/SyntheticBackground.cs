@@ -95,12 +95,19 @@ public sealed class SyntheticBackground
 
     private readonly Orientation? _orientation;
 
+    // With tails from the plate, the log-normal's width per frame pixel (TailsFromPlate); else LogNormalSigma everywhere.
+    private readonly float[]? _logNormalWidth;
+
+    /// <summary>The widest log-normal the plate's tails can ask for (its kurtosis grows steeply past it).</summary>
+    public const double MaxLogNormalSigma = 1.6;
+
     private SyntheticBackground(int width, int height, int firstKept, double fwhm, bool brightKnotsWide, Steering? steering,
-        Orientation? orientation, float[][] coarse, float[][][] amplitude)
+        Orientation? orientation, float[]? logNormalWidth, float[][] coarse, float[][][] amplitude)
     {
         BrightKnotsWide = brightKnotsWide;
         Steered = steering;
         _orientation = orientation;
+        _logNormalWidth = logNormalWidth;
         Width = width;
         Height = height;
         FirstKept = firstKept;
@@ -115,6 +122,17 @@ public sealed class SyntheticBackground
 
     /// <summary>The texture's steering, or null for the isotropic texture R2d's arm B was taught on.</summary>
     public Steering? Steered { get; }
+
+    /// <summary>
+    /// Whether the texture's tails follow the plate's own (S3's read of the tails): the log-normal's width set per pixel from
+    /// the kurtosis the plate's replaced scales hold above their noise, and each drawn scale held to unit LOCAL RMS so the
+    /// amplitude maps still set its strength where the width varies. Without it the width is <see cref="LogNormalSigma"/>
+    /// everywhere and the scales are held to unit RMS over the cell, as R2d's arm B was drawn.
+    /// </summary>
+    public bool TailsFromPlate => _logNormalWidth is not null;
+
+    /// <summary>The log-normal's width at a frame pixel.</summary>
+    public double LogNormalWidthAt(int x, int y) => _logNormalWidth is { } w ? w[(y * Width) + x] : LogNormalSigma;
 
     /// <summary>The frame's width.</summary>
     public int Width { get; }
@@ -149,9 +167,11 @@ public sealed class SyntheticBackground
     /// replaced scale and channel the local signal above the noise, with the plate's own sources (found as the builder finds
     /// them, <see cref="PlateSources.DefaultThresholdSigma"/>) and the canvas ring <paramref name="absent"/> left out.
     /// <paramref name="brightKnotsWide"/> keeps a compact knot faint (<see cref="BrightKnotsWide"/>); a
-    /// <paramref name="steering"/> draws the texture along the plate's coarse orientation (<see cref="Steering"/>).
+    /// <paramref name="steering"/> draws the texture along the plate's coarse orientation (<see cref="Steering"/>);
+    /// <paramref name="tailsFromPlate"/> sets its tails from the plate's own (<see cref="TailsFromPlate"/>).
     /// </summary>
-    public static SyntheticBackground Build(Image unitPlate, BitMatrix? absent, double fwhm, bool brightKnotsWide = false, Steering? steering = null)
+    public static SyntheticBackground Build(Image unitPlate, BitMatrix? absent, double fwhm, bool brightKnotsWide = false, Steering? steering = null,
+        bool tailsFromPlate = false)
     {
         var (channels, width, height) = unitPlate.Shape;
         var n = width * height;
@@ -239,7 +259,8 @@ public sealed class SyntheticBackground
             orientation = new Orientation(cos2, sin2, coherence,
                 steering.Value.Fine > 0 ? FineStructure(luminance, clean, width, height, firstKept) : null);
         }
-        return new SyntheticBackground(width, height, firstKept, fwhm, brightKnotsWide, steering, orientation, coarse, amplitude);
+        var logNormalWidth = tailsFromPlate ? LogNormalWidthFromTails(luminance, clean, width, height, firstKept) : null;
+        return new SyntheticBackground(width, height, firstKept, fwhm, brightKnotsWide, steering, orientation, logNormalWidth, coarse, amplitude);
     }
 
     // S2b: the structure tensor of the luminance's replaced scales from 2 px up (1 px is the master's noise on every class,
@@ -335,6 +356,184 @@ public sealed class SyntheticBackground
             share[i] = scales > 0 ? Math.Clamp((t - ((float)NoiseMargin * scales)) / scales, 0f, 1f) : 0f;
         }
         return new FineOrientation(cos2, sin2, coherence, share);
+    }
+
+    // The tails (TailsFromPlate): per replaced scale from 2 px up, the luminance's local second and fourth moments over the
+    // clean pixels, smoothed as the amplitude maps are, with the noise's share taken out (Gaussian noise of variance N under a
+    // signal of variance S adds 6 S N + 3 N^2 to the fourth moment), give the signal's own excess kurtosis wherever the
+    // signal is at least the noise. Weighted by the signal over the scales and smoothed, it becomes the log-normal width whose
+    // texture reads that kurtosis on those scales (TailTable); LogNormalSigma where no scale holds signal enough to read.
+    private static float[] LogNormalWidthFromTails(float[] luminance, float[] clean, int width, int height, int firstKept)
+    {
+        var (kurtosis, scales) = SignalKurtosis(luminance, clean, width, height, firstKept);
+        var table = TailTable.Value;
+        var widths = new float[kurtosis.Length];
+        for (var i = 0; i < widths.Length; i++)
+        {
+            widths[i] = (float)(float.IsNaN(kurtosis[i]) ? LogNormalSigma : WidthForKurtosis(kurtosis[i], scales, table));
+        }
+        return Image.SeparableGaussianBlur(widths, width, height, 2 * AmplitudeWindowPx);
+    }
+
+    // The signal's excess kurtosis per pixel over the replaced scales from 2 px up, weighted by the signal (NaN where no scale
+    // holds signal enough to read), and the scales read.
+    internal static (float[] Kurtosis, int[] Scales) SignalKurtosis(float[] luminance, float[] clean, int width, int height, int firstKept)
+    {
+        var n = width * height;
+        var decomposition = ATrousWaveletTransform.Decompose(luminance, width, height, firstKept);
+        var sumK = new float[n];
+        var sumS = new float[n];
+        var sample = new float[n];
+        var scales = Enumerable.Range(1, Math.Max(0, firstKept - 1)).ToArray();
+        foreach (var j in scales)
+        {
+            var detail = decomposition.Detail(j);
+            var count = 0;
+            for (var i = 0; i < n; i++)
+            {
+                if (clean[i] > 0f)
+                {
+                    sample[count++] = detail[i];
+                }
+            }
+            if (count == 0)
+            {
+                continue;
+            }
+            var span = sample.AsSpan(0, count);
+            var median = StatisticsHelper.NthSmallest(span, count / 2);
+            for (var i = 0; i < count; i++)
+            {
+                span[i] = Math.Abs(span[i] - median);
+            }
+            var robust = 1.4826 * StatisticsHelper.NthSmallest(span, count / 2);
+            var noise = robust * robust;
+
+            var sigma = Math.Max(AmplitudeWindowPx, 2f * (1 << j));
+            var d2 = new float[n];
+            var d4 = new float[n];
+            for (var i = 0; i < n; i++)
+            {
+                var v = clean[i] * detail[i] * detail[i];
+                d2[i] = v;
+                d4[i] = v * detail[i] * detail[i];
+            }
+            var weight = Image.SeparableGaussianBlur(clean, width, height, sigma);
+            d2 = Image.SeparableGaussianBlur(d2, width, height, sigma);
+            d4 = Image.SeparableGaussianBlur(d4, width, height, sigma);
+            for (var i = 0; i < n; i++)
+            {
+                if (weight[i] <= 0.05f)
+                {
+                    continue;
+                }
+                var m2 = (double)d2[i] / weight[i];
+                var m4 = (double)d4[i] / weight[i];
+                var s = m2 - noise;
+                if (s < noise)
+                {
+                    continue;
+                }
+                var kurtosis = ((m4 - (6 * s * noise) - (3 * noise * noise)) / (s * s)) - 3;
+                sumK[i] += (float)(s * kurtosis);
+                sumS[i] += (float)s;
+            }
+        }
+
+        var kurtosisMap = new float[n];
+        for (var i = 0; i < n; i++)
+        {
+            kurtosisMap[i] = sumS[i] > 0f ? sumK[i] / sumS[i] : float.NaN;
+        }
+        return (kurtosisMap, scales);
+    }
+
+    /// <summary>The texture's excess kurtosis per starlet scale at each tabled log-normal width (0 to
+    /// <see cref="MaxLogNormalSigma"/> in steps of 0.1).</summary>
+    internal static double[][] TailTableForTests => TailTable.Value;
+
+    // The log-normal widths TailTable is read at: 0 to MaxLogNormalSigma in steps of TailTableStep.
+    private const double TailTableStep = 0.1;
+
+    // Per starlet scale, the texture's LOCAL excess kurtosis at each width, read as SignalKurtosis reads a plate's: the
+    // coefficients' second and fourth moments smoothed over the same window, a kurtosis per pixel, averaged with the local
+    // variance as its weight. One field of TextureIndex (a fixed seed), exp(width g), read inside a margin; width zero is
+    // the Gaussian limit. A whole-field kurtosis was the first form, and it was not this: the log-normal's envelope swings
+    // through its whole range over a field (17 at width 0.8, 72 at 1.2) and barely over a window, where a plate is read,
+    // so every plate mapped to a width near zero. The amplitude maps draw the envelope.
+    private static readonly Lazy<double[][]> TailTable = new(static () =>
+    {
+        const int size = 512;
+        const int margin = 48;
+        var field = PowerLawField(size, TextureIndex, new Random(1));
+        var mean = field.Average();
+        var sd = Math.Sqrt(field.Sum(v => (v - mean) * (v - mean)) / field.Length);
+        var steps = (int)Math.Round(MaxLogNormalSigma / TailTableStep) + 1;
+        var table = new double[ScaleCount][];
+        for (var j = 0; j < ScaleCount; j++)
+        {
+            table[j] = new double[steps];
+        }
+        for (var k = 1; k < steps; k++)
+        {
+            var w = k * TailTableStep;
+            var logNormal = new float[field.Length];
+            for (var i = 0; i < field.Length; i++)
+            {
+                logNormal[i] = (float)Math.Exp(w * (field[i] - mean) / sd);
+            }
+            var decomposition = ATrousWaveletTransform.Decompose(logNormal, size, size, ScaleCount);
+            for (var j = 0; j < ScaleCount; j++)
+            {
+                var detail = decomposition.Detail(j);
+                var d2 = new float[detail.Length];
+                var d4 = new float[detail.Length];
+                for (var i = 0; i < detail.Length; i++)
+                {
+                    d2[i] = detail[i] * detail[i];
+                    d4[i] = d2[i] * d2[i];
+                }
+                var sigma = Math.Max(AmplitudeWindowPx, 2f * (1 << j));
+                d2 = Image.SeparableGaussianBlur(d2, size, size, sigma);
+                d4 = Image.SeparableGaussianBlur(d4, size, size, sigma);
+                double sumK = 0, sumW = 0;
+                for (var y = margin; y < size - margin; y++)
+                {
+                    for (var x = margin; x < size - margin; x++)
+                    {
+                        var i = (y * size) + x;
+                        if (d2[i] > 0f)
+                        {
+                            sumK += d2[i] * ((d4[i] / ((double)d2[i] * d2[i])) - 3);
+                            sumW += d2[i];
+                        }
+                    }
+                }
+                table[j][k] = sumW > 0 ? sumK / sumW : 0;
+            }
+        }
+        return table;
+    });
+
+    // The width whose texture's kurtosis, averaged over the scales read, is the one asked for: linear between the table's
+    // widths, clamped to its range.
+    private static double WidthForKurtosis(double kurtosis, int[] scales, double[][] table)
+    {
+        double Mean(int k) => scales.Length == 0 ? 0 : scales.Average(j => table[j][k]);
+        var steps = table[0].Length;
+        if (kurtosis <= Mean(0))
+        {
+            return 0;
+        }
+        for (var k = 1; k < steps; k++)
+        {
+            var (lo, hi) = (Mean(k - 1), Mean(k));
+            if (kurtosis <= hi)
+            {
+                return TailTableStep * ((k - 1) + (hi > lo ? (kurtosis - lo) / (hi - lo) : 0));
+            }
+        }
+        return MaxLogNormalSigma;
     }
 
     // The local RMS of a detail plane over the clean pixels, smoothed at twice the scale or AmplitudeWindowPx, less its noise
@@ -476,9 +675,26 @@ public sealed class SyntheticBackground
         mean /= field.Length;
         var sd = Math.Sqrt(field.Sum(v => (v - mean) * (v - mean)) / field.Length);
         var logNormal = new float[field.Length];
-        for (var i = 0; i < field.Length; i++)
+        if (_logNormalWidth is { } widths)
         {
-            logNormal[i] = (float)Math.Exp(LogNormalSigma * (field[i] - mean) / (sd > 0 ? sd : 1.0));
+            // The plate's own tails: each grid pixel's width read at its frame pixel, the cell at the grid's middle.
+            for (var v = 0; v < n; v++)
+            {
+                var fy = Math.Clamp(y0 - offset + v, 0, Height - 1);
+                for (var u = 0; u < n; u++)
+                {
+                    var i = (v * n) + u;
+                    var w = widths[(fy * Width) + Math.Clamp(x0 - offset + u, 0, Width - 1)];
+                    logNormal[i] = (float)Math.Exp(w * (field[i] - mean) / (sd > 0 ? sd : 1.0));
+                }
+            }
+        }
+        else
+        {
+            for (var i = 0; i < field.Length; i++)
+            {
+                logNormal[i] = (float)Math.Exp(LogNormalSigma * (field[i] - mean) / (sd > 0 ? sd : 1.0));
+            }
         }
         var decomposition = ATrousWaveletTransform.Decompose(logNormal, n, n, ScaleCount);
         var scales = new float[FirstKept][];
@@ -493,12 +709,30 @@ public sealed class SyntheticBackground
                     cut[(y * size) + x] = detail[((y + offset) * n) + x + offset];
                 }
             }
-            var abs = cut.Select(static v => Math.Abs(v)).ToArray();
-            var mad = StatisticsHelper.NthSmallest(abs.AsSpan(), abs.Length / 2);
-            var scale = mad > 0 ? 1.0 / (1.4826 * mad) : 0.0;
-            for (var i = 0; i < cut.Length; i++)
+            if (TailsFromPlate)
             {
-                cut[i] = (float)(cut[i] * scale);
+                // Unit LOCAL RMS, over the amplitude maps' own window: where the width varies, so does the log-normal's
+                // spread, and a cell-wide scale would leave it in the texture's strength, which the amplitude maps set.
+                var energy = new float[cut.Length];
+                for (var i = 0; i < cut.Length; i++)
+                {
+                    energy[i] = cut[i] * cut[i];
+                }
+                energy = Image.SeparableGaussianBlur(energy, size, size, Math.Max(AmplitudeWindowPx, 2f * (1 << j)));
+                for (var i = 0; i < cut.Length; i++)
+                {
+                    cut[i] = energy[i] > 0f ? cut[i] / MathF.Sqrt(energy[i]) : 0f;
+                }
+            }
+            else
+            {
+                var abs = cut.Select(static v => Math.Abs(v)).ToArray();
+                var mad = StatisticsHelper.NthSmallest(abs.AsSpan(), abs.Length / 2);
+                var scale = mad > 0 ? 1.0 / (1.4826 * mad) : 0.0;
+                for (var i = 0; i < cut.Length; i++)
+                {
+                    cut[i] = (float)(cut[i] * scale);
+                }
             }
             scales[j] = cut;
         }

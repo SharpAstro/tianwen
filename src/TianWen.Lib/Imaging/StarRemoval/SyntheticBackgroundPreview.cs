@@ -30,11 +30,12 @@ public static class SyntheticBackgroundPreview
     /// the most texture to draw (<see cref="MostTextured"/>); none at all means the frame's middle. The synthetic cell
     /// carries white noise at the plate's own (<see cref="SyntheticBackground.PlateNoise"/>) unless <paramref name="noisy"/>
     /// is false; the noise read is returned per channel. With <paramref name="measure"/> both cells' luminance is read by
-    /// S1's measure and every pair goes into <c>structure.jsonl</c> beside them.
+    /// S1's measure and every pair goes into <c>structure.jsonl</c> beside them. <paramref name="tailsFromPlate"/> draws the
+    /// texture's tails from the plate's own (<see cref="SyntheticBackground.TailsFromPlate"/>).
     /// </summary>
     public static (ImmutableArray<Written> Written, double[] Noise) Run(
         string platePath, string outDir, double fwhm, IReadOnlyList<(int X, int Y)> centres, int size, int seed, bool noisy,
-        SyntheticBackground.Steering? steering = null, int textured = 0, bool measure = false)
+        SyntheticBackground.Steering? steering = null, int textured = 0, bool measure = false, bool tailsFromPlate = false)
     {
         if (!Image.TryReadFitsFile(platePath, out var plate))
         {
@@ -42,7 +43,7 @@ public static class SyntheticBackgroundPreview
         }
         var absent = plate.AbsentPixels();
         var noise = SyntheticBackground.PlateNoise(plate, absent);
-        var background = SyntheticBackground.Build(plate, absent, fwhm, steering: steering);
+        var background = SyntheticBackground.Build(plate, absent, fwhm, steering: steering, tailsFromPlate: tailsFromPlate);
         Directory.CreateDirectory(outDir);
 
         var points = new List<(int X, int Y)>(centres);

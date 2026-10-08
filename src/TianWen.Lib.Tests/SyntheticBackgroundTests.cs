@@ -253,6 +253,71 @@ public sealed class SyntheticBackgroundTests
         byFine.Scales[2].Alignment.ShouldBeLessThan(-0.3, "a fine steer follows the plate's own stripes across them");
     }
 
+    // A frame whose right half holds a fine texture above the noise: a Gaussian field, or the same field's log-normal, a
+    // nebula's clumps, at the same RMS.
+    private static Image TexturedPlate(bool clumpy)
+    {
+        const int size = 1024;
+        var rng = new Random(15);
+        // Index 2.5: clumps wider than the PSF, which the source finder does not take for stars (the tails are read off the
+        // pixels clear of the plate's sources, as the amplitude maps are).
+        var field = SyntheticBackground.PowerLawField(size, 2.5, new Random(16));
+        var sd = Math.Sqrt(field.Sum(static v => v * v) / field.Length);
+        var texture = field.Select(v => clumpy ? Math.Exp(1.2 * v / sd) : v / sd).ToArray();
+        var mean = texture.Average();
+        var rms = Math.Sqrt(texture.Sum(v => (v - mean) * (v - mean)) / texture.Length);
+        var plane = new float[size, size];
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var fine = x >= size / 2 ? 4 * Noise * (texture[(y * size) + x] - mean) / rms : 0.0;
+                plane[y, x] = (float)(0.1 + (0.02 * x / size) + (Noise * Gaussian(rng)) + fine);
+            }
+        }
+        return new Image([plane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+    }
+
+    [Fact]
+    public void TheTailsReadRecoversATexturesLocalKurtosisAboveTheNoise()
+    {
+        // Every pixel clean: the read alone, without the source finder's mask (which takes a bright clump for a star).
+        static float[] Luminance(Image image) => image.GetChannelSpan(0).ToArray();
+        const int size = 1024;
+        var clean = Enumerable.Repeat(1f, size * size).ToArray();
+        var (smooth, _) = SyntheticBackground.SignalKurtosis(Luminance(TexturedPlate(clumpy: false)), clean, size, size, firstKept: 4);
+        var (clumpy, _) = SyntheticBackground.SignalKurtosis(Luminance(TexturedPlate(clumpy: true)), clean, size, size, firstKept: 4);
+
+        static double MedianOver(float[] map, int x0, int x1)
+        {
+            var v = Enumerable.Range(64, 1024 - 128).SelectMany(y => Enumerable.Range(x0, x1 - x0).Select(x => map[(y * 1024) + x]))
+                .Where(static k => !float.IsNaN(k)).Order().ToArray();
+            return v.Length > 0 ? v[v.Length / 2] : double.NaN;
+        }
+        MedianOver(smooth, 576, 960).ShouldBeLessThan(1.0, "a Gaussian texture's signal has no excess kurtosis");
+        MedianOver(clumpy, 576, 960).ShouldBeGreaterThan(2.5, "a log-normal's clumps have (a width of 1.2 reads 2 to 7 per scale locally)");
+        var unread = Enumerable.Range(64, 1024 - 128).SelectMany(y => Enumerable.Range(64, 384).Select(x => smooth[(y * 1024) + x]))
+            .Count(static k => float.IsNaN(k));
+        ((double)unread / ((1024 - 128) * 384)).ShouldBeGreaterThan(0.9, "and a noise-only sky holds no signal to read");
+    }
+
+    [Fact]
+    public void TailsFromASmoothPlateDrawASmootherTextureThanTheOneWidth()
+    {
+        var plate = TexturedPlate(clumpy: false);
+        var oneWidth = SyntheticBackground.Build(plate, absent: null, Fwhm);
+        var fromPlate = SyntheticBackground.Build(plate, absent: null, Fwhm, tailsFromPlate: true);
+        fromPlate.LogNormalWidthAt(768, 512).ShouldBeLessThan(SyntheticBackground.LogNormalSigma - 0.3, "the plate's texture is near Gaussian");
+
+        double Kurtosis(SyntheticBackground background)
+        {
+            const int cell = 384;
+            var planes = background.Preview(768, 512, cell, [Noise], noisy: true, new Random(25));
+            return SkyTexture.Measure(planes[0], cell, cell, absent: null, fwhm: Fwhm).Scales[2].Kurtosis;
+        }
+        Kurtosis(fromPlate).ShouldBeLessThan(Kurtosis(oneWidth) - 1, "so its drawn texture has lighter tails at 4 px than the one width's");
+    }
+
     [Fact]
     public void APreviewReadsThePlatesNoiseAndPutsItBackOnItsCentredCell()
     {
