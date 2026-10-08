@@ -23,6 +23,15 @@ public sealed record PlanetaryDerotationOptions(CatalogIndex Planet)
     public bool TurnNorthOver { get; init; }
 
     /// <summary>
+    /// A north its caller decided, degrees as <see cref="DiskPlacement.NorthAngleDeg"/> (#1347): a session's, read once from its first
+    /// and last captures hours apart (<see cref="LuckyImagingStacker.ReadNorthAsync"/>), where one capture's own quarters, minutes apart,
+    /// can tie on a bland globe (one file of 30 of the owner's 2026-10-07 Saturn read it turned over, 0.02008 against 0.02009). The
+    /// capture's quarters are then not read: the limb fit's axis is kept, and of its two ways round the one nearer this. Null, the
+    /// default, reads the capture's own.
+    /// </summary>
+    public double? North { get; init; }
+
+    /// <summary>
     /// How far apart in time the global aligner's references are, seconds: each frame is registered against the reference turned
     /// to the nearest of them, since a reference taken minutes away has its belts where the frame's are not, and a whole-disk
     /// correlation would split the difference between them and the limb. Ten seconds turns Jupiter 0.1 degrees, 0.04 px of a
@@ -194,10 +203,17 @@ internal sealed class FrameDerotator
 /// Which way round a de-rotated stack took the planet's north (docs/plans/planetary-restoration.md, R6 part 2): the north it used,
 /// and how far apart the best frames of the capture's first and last quarters were once the earlier was carried to the later's
 /// instant with the limb fit's north and with it turned over (<see cref="PlanetaryDerotation.DifferenceRms"/>). Both are NaN
-/// for a capture the planet turned too little in to tell, where the fit's north is kept.
+/// for a capture the planet turned too little in to tell, where the fit's north is kept, and for a north its caller gave
+/// (<see cref="Given"/>).
 /// </summary>
 public sealed record PlanetaryNorthDecision(double NorthAngleDeg, double AgreementAsFitted, double AgreementTurnedOver)
 {
     /// <summary>Whether the fit's north was turned over: the capture agreed better that way round.</summary>
     public bool TurnedOver => AgreementTurnedOver < AgreementAsFitted;
+
+    /// <summary>
+    /// The north the caller gave (<see cref="PlanetaryDerotationOptions.North"/>, a session's, #1347), which the capture took instead
+    /// of reading its own quarters; null when its quarters decided.
+    /// </summary>
+    public double? Given { get; init; }
 }

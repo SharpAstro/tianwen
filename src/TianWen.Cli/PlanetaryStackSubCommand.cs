@@ -104,6 +104,14 @@ internal sealed class PlanetaryStackSubCommand(
         {
             Description = "Under --derotate, turn the north the run agreed on over: the planet then turns backwards (a check, never a stack).",
         };
+        var northOpt = new Option<double?>("--north")
+        {
+            Description = "The planet's north, degrees from +x toward +y, that a de-rotation takes instead of reading the run's own first and last quarters (#1347): a session's, as --each-file decides it. The limb fit's axis is kept and, of its two ways round, the one nearer this.",
+        };
+        var eachFileOpt = new Option<bool>("--each-file")
+        {
+            Description = "With --session (or several SER files of one run): read the session's north once, from its first and last captures, and stack each capture on its own with it, a master each in a folder of its own named after it (#1347). A capture's own quarters, minutes apart, can tie on a bland globe; the session's ends, hours apart, do not.",
+        };
 
         var outputOpt = new Option<string?>("--output", "-o")
         {
@@ -268,7 +276,7 @@ internal sealed class PlanetaryStackSubCommand(
                 noPerPointOpt, noSignalGateOpt, noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt,
                 noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, strengthOpt, sharpenLuminanceOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt, estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt,
-                derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, legacyOpt, truthOpt, halvesOpt, sessionOpt, manifestOpt, epochOpt,
+                derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, northOpt, eachFileOpt, legacyOpt, truthOpt, halvesOpt, sessionOpt, manifestOpt, epochOpt,
             },
         };
 
@@ -465,7 +473,7 @@ internal sealed class PlanetaryStackSubCommand(
                 // Asked for, every run is de-rotated; otherwise a run of a planet with a rotation model is, once its turn moves the
                 // disk's middle a pixel (the stacker measures it), and never under --legacy or --no-derotate.
                 Derotation = (derotate || !(legacy || parseResult.GetValue(noDerotateOpt))) && PlanetaryBestStack.DerotationFor(planet, always: derotate) is { } rotation
-                    ? rotation with { TurnNorthOver = parseResult.GetValue(turnNorthOverOpt), Epoch = carriedTo }
+                    ? rotation with { TurnNorthOver = parseResult.GetValue(turnNorthOverOpt), Epoch = carriedTo, North = parseResult.GetValue(northOpt) }
                     : null,
                 // The planet into the master's OBJECT, which a viewer opens linear by.
                 Planet = planet,
@@ -482,156 +490,219 @@ internal sealed class PlanetaryStackSubCommand(
                 return 1;
             }
 
-            var label = parseResult.GetValue(labelOpt);
-            var prefix = string.IsNullOrWhiteSpace(label) ? "" : label.Trim() + "_";
-            // A run is named by its first capture and how many follow it.
-            var baseName = Path.GetFileNameWithoutExtension(serPaths.Order(StringComparer.OrdinalIgnoreCase).First())
-                + (serPaths.Length > 1 ? $"+{serPaths.Length - 1}" : "");
-            var sw = Stopwatch.StartNew();
-
-            PlanetaryStackResult result;
-            using (IPlanetaryFrameStream stream = serPaths.Length == 1 ? SerFrameStream.Open(serPath) : PlanetaryFrameSequence.OpenSer(serPaths))
+            if (parseResult.GetValue(northOpt) is not null && options.Derotation is null)
             {
-                consoleHost.WriteScrollable(
-                    $"[planetary] {baseName}: {stream.FrameCount} frames{(serPaths.Length > 1 ? $" of {serPaths.Length} captures" : "")}, {stream.Width}x{stream.Height}, layout {stream.Layout}");
-                var mode = useDrizzle ? $"Bayer drizzle x{drizzleScale:0.0#}"
-                    : useGlobal ? "global-translate"
-                    : "alignment-point mesh";
-                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                    $"[planetary] grading + {mode} stack{(legacy ? " (legacy)" : "")}, keeping the best {keep:P0} by {Describe(options.QualityEstimator)}, {(options.WhitenedCorrelation ? "phase" : "plain")} correlation against {(options.ReferenceFrames > 1 ? $"a stack of the best {options.ReferenceFrames}" : "the best frame")}, {options.Interpolation} resampling..."));
-
-                var stacker = new LuckyImagingStacker();
-                result = useDrizzle ? await stacker.StackDrizzleAsync(stream, options, ct)
-                    : useGlobal ? await stacker.StackGlobalAsync(stream, options, ct)
-                    : await stacker.StackAsync(stream, options, ct);
+                consoleHost.WriteError("--north is the north a de-rotation takes: this run is not de-rotated (--no-derotate, --legacy, or no planet with a rotation model).");
+                return 1;
             }
-
-            var master = result.Master;
-            consoleHost.WriteScrollable(
-                $"[planetary] {baseName}: stacked {result.FramesUsed}/{result.FramesGraded} frames " +
-                $"(reference #{result.ReferenceIndex}{(result.AlignmentPoints > 0 ? $", {result.AlignmentPoints} alignment points{(result.AlignmentPointCandidates > result.AlignmentPoints ? $" of {result.AlignmentPointCandidates}, capped" : "")}" : "")}) in {sw.Elapsed.TotalSeconds:F1}s");
-            if (result.FramesCut > 0)
+            if (parseResult.GetValue(eachFileOpt))
             {
-                consoleHost.WriteScrollable($"[planetary] left out {result.FramesCut} frames whose planet is cut, by the frame's edge or a straight line inside it, or which hold none (it drifted out of the field)");
-            }
-            if (result.FramesCutKept > 0)
-            {
-                consoleHost.WriteScrollable($"[planetary] kept {result.FramesCutKept} frames whose planet reads as cut or missing: fewer than one frame in twenty is whole, too few to stack without them");
-            }
-            if (!result.Cropped.IsEmpty)
-            {
-                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                    $"[planetary] cropped to {result.Cropped.Width}x{result.Cropped.Height} at ({result.Cropped.X}, {result.Cropped.Y}): the edges fewer than {PlanetaryStackOptions.CoverageCropFraction:0%} of the frames reached"));
-            }
-            if (result.FramesDim > 0)
-            {
-                consoleHost.WriteScrollable($"[planetary] left out {result.FramesDim} frames whose planet is dim, under {FrameGrader.DimRatio:0.#} of the run's brightness (cloud, a bump or defocus)");
-            }
-            if (result.FramesSmeared > 0)
-            {
-                consoleHost.WriteScrollable($"[planetary] left out {result.FramesSmeared} frames whose planet is smeared, taken as the telescope moved (more than {FrameGrader.SmearRatio} times as elongated as the run's)");
-            }
-            if (result.NorthUnread && result.TurnPx is { } unreadTurn)
-            {
-                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                    $"[planetary] stacked as taken: the planet's turn moves its disk's middle {unreadTurn:0.00} px over the run, but its first and last quarters could not tell the planet's north, which a de-rotation needs"));
-            }
-            else if (result.Epoch is null && result.TurnPx is { } turn)
-            {
-                consoleHost.WriteScrollable(double.IsNaN(turn)
-                    ? "[planetary] stacked as taken: the frames carry no times to de-rotate by"
-                    : string.Create(CultureInfo.InvariantCulture, $"[planetary] stacked as taken: the planet's turn moves its disk's middle {turn:0.00} px over the run, under the {PlanetaryBestStack.TurnWorthDerotatingPx:0.#} px a de-rotation is worth"));
-            }
-            if (result.ChannelAlignment is { } aligned)
-            {
-                consoleHost.WriteScrollable($"[planetary] {aligned.Describe()}");
-            }
-            if (result.Epoch is { } epoch && result.North is { } north)
-            {
-                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                    $"[planetary] every frame carried to {epoch:yyyy-MM-dd HH:mm:ss.f} UTC, north at {north.NorthAngleDeg:0.0} deg (the run's quarters {north.AgreementAsFitted:0.00000} apart with the limb fit's north, {north.AgreementTurnedOver:0.00000} turned over)"));
-            }
-
-            // A colour master of Jupiter or Saturn is balanced to that planet's own colour (#1212, S6 #1235): the stack as written, and the sharpening once it has
-            // read each channel's edge through that channel's own diffraction (the saturation mixes the channels).
-            var (balance, howBalanced) = legacy || parseResult.GetValue(noColourBalanceOpt)
-                ? (null, "colours left as captured")
-                : PlanetaryColourBalance.For(master, planet, result.Epoch, parseResult.GetValue(colourSaturationOpt));
-            var written = balance?.Apply(master) ?? master;
-            var (masterFits, sharpenedFits) = PlanetaryBestStack.OutputPaths(outputDir, baseName, prefix);
-            written.WriteToFitsFile(masterFits, null, balance?.HeaderCards());
-            consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(masterFits)} (linear master, {master.ChannelCount}ch {master.Width}x{master.Height})");
-            if (result.Halves is { } halfStacks)
-            {
-                // Balanced as the master is, so half their difference is the written master's noise.
-                foreach (var (half, name) in new[] { (halfStacks.A, "A"), (halfStacks.B, "B") })
+                if (serPaths.Length < 2)
                 {
-                    var halfFits = Path.ChangeExtension(masterFits, null) + $"_half{name}.fits";
-                    var balancedHalf = balance?.Apply(half);
-                    (balancedHalf ?? half).WriteToFitsFile(halfFits, null, balance?.HeaderCards());
-                    balancedHalf?.Release();
-                    half.Release();
-                    consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(halfFits)} (half {name} of the frames, on the master's grid)");
+                    consoleHost.WriteError("--each-file stacks each capture of a session (--session) or of several SER files of one run.");
+                    return 1;
                 }
+                if (options.Derotation is not { } sessionRotation)
+                {
+                    consoleHost.WriteError("--each-file gives each capture its session's north, for a de-rotation: this run is not de-rotated (--no-derotate, --legacy, or no planet with a rotation model).");
+                    return 1;
+                }
+                // The session's ends by their frames' times (#1292: a capture's span, whatever order its frames come in).
+                var byTime = serPaths.Select(path =>
+                {
+                    using var capture = SerFrameStream.Open(path);
+                    return (Path: path, Earliest: capture.CaptureSpan?.Earliest);
+                }).OrderBy(c => c.Earliest).Select(c => c.Path).ToArray();
+                var sessionNorth = sessionRotation.North;
+                if (sessionNorth is null)
+                {
+                    var read = Stopwatch.StartNew();
+                    PlanetaryNorthDecision? decided;
+                    using (var ends = PlanetaryFrameSequence.OpenSer([byTime[0], byTime[^1]]))
+                    {
+                        decided = await LuckyImagingStacker.ReadNorthAsync(ends, options, ct);
+                    }
+                    if (decided is null)
+                    {
+                        consoleHost.WriteError($"The session's first and last captures ({Path.GetFileName(byTime[0])}, {Path.GetFileName(byTime[^1])}) turn the planet too little to tell its north, or one holds no frame to stack.");
+                        return 1;
+                    }
+                    sessionNorth = decided.NorthAngleDeg;
+                    consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                        $"[planetary] the session's north, read once from {Path.GetFileName(byTime[0])} and {Path.GetFileName(byTime[^1])}: {Wrapped(decided.NorthAngleDeg):0.0} deg (RMS apart {decided.AgreementAsFitted:0.00000} with the limb fit's north, {decided.AgreementTurnedOver:0.00000} turned over) in {read.Elapsed.TotalSeconds:F1}s"));
+                }
+                var each = options with { Derotation = sessionRotation with { North = sessionNorth } };
+                foreach (var capturePath in byTime)
+                {
+                    var captureDir = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(capturePath));
+                    Directory.CreateDirectory(captureDir);
+                    if (await StackRunAsync([capturePath], captureDir, each) is var failed and not 0)
+                    {
+                        return failed;
+                    }
+                }
+                return 0;
             }
-            if (master.ChannelCount == 3)
-            {
-                consoleHost.WriteScrollable($"[planetary] {howBalanced}");
-            }
-            var truthPath = parseResult.GetValue(truthOpt);
-            if (truthPath is not null)
-            {
-                PlanetaryMasterScore.AgainstTruth(consoleHost, master, truthPath, planet ?? CatalogIndex.Jupiter, "the stack");
-            }
+            return await StackRunAsync(serPaths, outputDir, options);
 
-            // The display image is the sharpened master when sharpening is on, else the raw master; balanced either way when it is.
-            var display = written;
-            if (sharpen)
+            // One run stacked and written: the captures given, or one capture of a session (--each-file).
+            async Task<int> StackRunAsync(string[] runPaths, string runDir, PlanetaryStackOptions runOptions)
             {
-                var (sharpened, how) = Sharpened(master, sharpenOptions, planet, result.Epoch, wavelengthText, PlanetaryCaptureName.WavelengthNm(serPath), telescope,
-                    parseResult.GetValue(fixOpt), parseResult.GetValue(strengthOpt), parseResult.GetValue(sharpenLuminanceOpt));
-                display = balance?.Apply(sharpened) ?? sharpened;
-                display.WriteToFitsFile(sharpenedFits, null, balance?.HeaderCards());
-                consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(sharpenedFits)} ({how})");
+                var label = parseResult.GetValue(labelOpt);
+                var prefix = string.IsNullOrWhiteSpace(label) ? "" : label.Trim() + "_";
+                // A run is named by its first capture and how many follow it.
+                var baseName = Path.GetFileNameWithoutExtension(runPaths.Order(StringComparer.OrdinalIgnoreCase).First())
+                    + (runPaths.Length > 1 ? $"+{runPaths.Length - 1}" : "");
+                var sw = Stopwatch.StartNew();
+
+                PlanetaryStackResult result;
+                using (IPlanetaryFrameStream stream = runPaths.Length == 1 ? SerFrameStream.Open(runPaths[0]) : PlanetaryFrameSequence.OpenSer(runPaths))
+                {
+                    consoleHost.WriteScrollable(
+                        $"[planetary] {baseName}: {stream.FrameCount} frames{(runPaths.Length > 1 ? $" of {runPaths.Length} captures" : "")}, {stream.Width}x{stream.Height}, layout {stream.Layout}");
+                    var mode = useDrizzle ? $"Bayer drizzle x{drizzleScale:0.0#}"
+                        : useGlobal ? "global-translate"
+                        : "alignment-point mesh";
+                    consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                        $"[planetary] grading + {mode} stack{(legacy ? " (legacy)" : "")}, keeping the best {keep:P0} by {Describe(runOptions.QualityEstimator)}, {(runOptions.WhitenedCorrelation ? "phase" : "plain")} correlation against {(runOptions.ReferenceFrames > 1 ? $"a stack of the best {runOptions.ReferenceFrames}" : "the best frame")}, {runOptions.Interpolation} resampling..."));
+
+                    var stacker = new LuckyImagingStacker();
+                    result = useDrizzle ? await stacker.StackDrizzleAsync(stream, runOptions, ct)
+                        : useGlobal ? await stacker.StackGlobalAsync(stream, runOptions, ct)
+                        : await stacker.StackAsync(stream, runOptions, ct);
+                }
+
+                var master = result.Master;
+                consoleHost.WriteScrollable(
+                    $"[planetary] {baseName}: stacked {result.FramesUsed}/{result.FramesGraded} frames " +
+                    $"(reference #{result.ReferenceIndex}{(result.AlignmentPoints > 0 ? $", {result.AlignmentPoints} alignment points{(result.AlignmentPointCandidates > result.AlignmentPoints ? $" of {result.AlignmentPointCandidates}, capped" : "")}" : "")}) in {sw.Elapsed.TotalSeconds:F1}s");
+                if (result.FramesCut > 0)
+                {
+                    consoleHost.WriteScrollable($"[planetary] left out {result.FramesCut} frames whose planet is cut, by the frame's edge or a straight line inside it, or which hold none (it drifted out of the field)");
+                }
+                if (result.FramesCutKept > 0)
+                {
+                    consoleHost.WriteScrollable($"[planetary] kept {result.FramesCutKept} frames whose planet reads as cut or missing: fewer than one frame in twenty is whole, too few to stack without them");
+                }
+                if (!result.Cropped.IsEmpty)
+                {
+                    consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                        $"[planetary] cropped to {result.Cropped.Width}x{result.Cropped.Height} at ({result.Cropped.X}, {result.Cropped.Y}): the edges fewer than {PlanetaryStackOptions.CoverageCropFraction:0%} of the frames reached"));
+                }
+                if (result.FramesDim > 0)
+                {
+                    consoleHost.WriteScrollable($"[planetary] left out {result.FramesDim} frames whose planet is dim, under {FrameGrader.DimRatio:0.#} of the run's brightness (cloud, a bump or defocus)");
+                }
+                if (result.FramesSmeared > 0)
+                {
+                    consoleHost.WriteScrollable($"[planetary] left out {result.FramesSmeared} frames whose planet is smeared, taken as the telescope moved (more than {FrameGrader.SmearRatio} times as elongated as the run's)");
+                }
+                if (result.NorthUnread && result.TurnPx is { } unreadTurn)
+                {
+                    consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                        $"[planetary] stacked as taken: the planet's turn moves its disk's middle {unreadTurn:0.00} px over the run, but its first and last quarters could not tell the planet's north, which a de-rotation needs"));
+                }
+                else if (result.Epoch is null && result.TurnPx is { } turn)
+                {
+                    consoleHost.WriteScrollable(double.IsNaN(turn)
+                        ? "[planetary] stacked as taken: the frames carry no times to de-rotate by"
+                        : string.Create(CultureInfo.InvariantCulture, $"[planetary] stacked as taken: the planet's turn moves its disk's middle {turn:0.00} px over the run, under the {PlanetaryBestStack.TurnWorthDerotatingPx:0.#} px a de-rotation is worth"));
+                }
+                if (result.ChannelAlignment is { } aligned)
+                {
+                    consoleHost.WriteScrollable($"[planetary] {aligned.Describe()}");
+                }
+                if (result.Epoch is { } epoch && result.North is { } north)
+                {
+                    consoleHost.WriteScrollable(north.Given is { } given
+                        ? string.Create(CultureInfo.InvariantCulture, $"[planetary] every frame carried to {epoch:yyyy-MM-dd HH:mm:ss.f} UTC, north at {Wrapped(north.NorthAngleDeg):0.0} deg, the limb fit's axis the way round nearer the {Wrapped(given):0.0} deg given")
+                        : string.Create(CultureInfo.InvariantCulture, $"[planetary] every frame carried to {epoch:yyyy-MM-dd HH:mm:ss.f} UTC, north at {Wrapped(north.NorthAngleDeg):0.0} deg (the run's quarters {north.AgreementAsFitted:0.00000} apart with the limb fit's north, {north.AgreementTurnedOver:0.00000} turned over)"));
+                }
+
+                // A colour master of Jupiter or Saturn is balanced to that planet's own colour (#1212, S6 #1235): the stack as written, and the sharpening once it has
+                // read each channel's edge through that channel's own diffraction (the saturation mixes the channels).
+                var (balance, howBalanced) = legacy || parseResult.GetValue(noColourBalanceOpt)
+                    ? (null, "colours left as captured")
+                    : PlanetaryColourBalance.For(master, planet, result.Epoch, parseResult.GetValue(colourSaturationOpt));
+                var written = balance?.Apply(master) ?? master;
+                var (masterFits, sharpenedFits) = PlanetaryBestStack.OutputPaths(runDir, baseName, prefix);
+                written.WriteToFitsFile(masterFits, null, balance?.HeaderCards());
+                consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(masterFits)} (linear master, {master.ChannelCount}ch {master.Width}x{master.Height})");
+                if (result.Halves is { } halfStacks)
+                {
+                    // Balanced as the master is, so half their difference is the written master's noise.
+                    foreach (var (half, name) in new[] { (halfStacks.A, "A"), (halfStacks.B, "B") })
+                    {
+                        var halfFits = Path.ChangeExtension(masterFits, null) + $"_half{name}.fits";
+                        var balancedHalf = balance?.Apply(half);
+                        (balancedHalf ?? half).WriteToFitsFile(halfFits, null, balance?.HeaderCards());
+                        balancedHalf?.Release();
+                        half.Release();
+                        consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(halfFits)} (half {name} of the frames, on the master's grid)");
+                    }
+                }
+                if (master.ChannelCount == 3)
+                {
+                    consoleHost.WriteScrollable($"[planetary] {howBalanced}");
+                }
+                var truthPath = parseResult.GetValue(truthOpt);
                 if (truthPath is not null)
                 {
-                    PlanetaryMasterScore.AgainstTruth(consoleHost, display, truthPath, planet ?? CatalogIndex.Jupiter, "the sharpened master");
+                    PlanetaryMasterScore.AgainstTruth(consoleHost, master, truthPath, planet ?? CatalogIndex.Jupiter, "the stack");
                 }
-            }
-            // With no truth, the master shown is read truth-free (R3): the limb's undershoot below the sky and its rebound above it,
-            // what the enhanced pipeline is judged by on a real capture (#1159).
-            if (truthPath is null && planet is { } body && PhysicalEphemeris.Supports(body) && PlanetaryBestStack.InstantOf(display, result.Epoch) is { } instant)
-            {
-                PlanetaryMasterScore.Undershoot(consoleHost, display, body, instant, sharpen ? "the sharpened master" : "the stack");
-            }
 
-            if (!parseResult.GetValue(noPngOpt))
-            {
-                var pngPath = Path.Combine(outputDir, $"{prefix}master_{baseName}.png");
-                try
+                // The display image is the sharpened master when sharpening is on, else the raw master; balanced either way when it is.
+                var display = written;
+                if (sharpen)
                 {
-                    // Planets are a bright disk on a dark sky: use the high-key PLANETARY stretch
-                    // (per-channel black point + common scale + gentle gamma), NOT the deep-sky MTF
-                    // auto-stretch, which targets a faint background and blows the disk out to a white blob.
-                    await previewRenderer.RenderPlanetaryAsync(
-                        display,
-                        pngPath,
-                        gamma: parseResult.GetValue(pngGammaOpt),
-                        ct: ct);
-                    consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(pngPath)} (high-key planetary preview)");
+                    var (sharpened, how) = Sharpened(master, sharpenOptions, planet, result.Epoch, wavelengthText, PlanetaryCaptureName.WavelengthNm(runPaths[0]), telescope,
+                        parseResult.GetValue(fixOpt), parseResult.GetValue(strengthOpt), parseResult.GetValue(sharpenLuminanceOpt));
+                    display = balance?.Apply(sharpened) ?? sharpened;
+                    display.WriteToFitsFile(sharpenedFits, null, balance?.HeaderCards());
+                    consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(sharpenedFits)} ({how})");
+                    if (truthPath is not null)
+                    {
+                        PlanetaryMasterScore.AgainstTruth(consoleHost, display, truthPath, planet ?? CatalogIndex.Jupiter, "the sharpened master");
+                    }
                 }
-                catch (Exception ex)
+                // With no truth, the master shown is read truth-free (R3): the limb's undershoot below the sky and its rebound above it,
+                // what the enhanced pipeline is judged by on a real capture (#1159).
+                if (truthPath is null && planet is { } body && PhysicalEphemeris.Supports(body) && PlanetaryBestStack.InstantOf(display, result.Epoch) is { } instant)
                 {
-                    consoleHost.WriteError($"[planetary] PNG render failed: {ex.Message}");
+                    PlanetaryMasterScore.Undershoot(consoleHost, display, body, instant, sharpen ? "the sharpened master" : "the stack");
                 }
-            }
 
-            consoleHost.WriteScrollable($"[planetary] done in {sw.Elapsed.TotalSeconds:F1}s -> {outputDir}");
-            return 0;
+                if (!parseResult.GetValue(noPngOpt))
+                {
+                    var pngPath = Path.Combine(runDir, $"{prefix}master_{baseName}.png");
+                    try
+                    {
+                        // Planets are a bright disk on a dark sky: use the high-key PLANETARY stretch
+                        // (per-channel black point + common scale + gentle gamma), NOT the deep-sky MTF
+                        // auto-stretch, which targets a faint background and blows the disk out to a white blob.
+                        await previewRenderer.RenderPlanetaryAsync(
+                            display,
+                            pngPath,
+                            gamma: parseResult.GetValue(pngGammaOpt),
+                            ct: ct);
+                        consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(pngPath)} (high-key planetary preview)");
+                    }
+                    catch (Exception ex)
+                    {
+                        consoleHost.WriteError($"[planetary] PNG render failed: {ex.Message}");
+                    }
+                }
+
+                consoleHost.WriteScrollable($"[planetary] done in {sw.Elapsed.TotalSeconds:F1}s -> {runDir}");
+                return 0;
+            }
         });
 
         return command;
     }
+
+    // A north as printed: an angle in 0 to 360, however many turns its sums took it round (a fit's north turned over twice read 544).
+    private static double Wrapped(double degrees) => ((degrees % 360) + 360) % 360;
 
     private static string Describe(IFrameQualityEstimator estimator) => estimator switch
     {
