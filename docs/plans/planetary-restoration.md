@@ -4702,6 +4702,12 @@ middle (R6 part 2). What was missing was a way to find the runs, and a way to na
   colour, chained in time order while each starts within `SessionGap` (10 minutes) of the previous one's last frame. A duplicate, a
   calibration video or a synthetic capture never joins one. Over `D:/SharpCap Captures` and `D:/Astro-Unsorted` it finds eight, among them
   2022-09-29's 36 PIPP crops (540,651 frames, 46 minutes, one 6-minute break) and 2024-12-15's 17 Uranus-C files (441,558 frames).
+- **A mono run is a session per filter** (#1336, manifest version 3). A filter wheel keeps every filter in one folder, a file of each in
+  turn, so a chain of every file joined red, green and blue frames into one mono stack. The chain is still made over every file (the
+  camera never paused; on the owner's 2026-10-07 Saturn a filter's own files are up to 21 minutes apart, the run's files seconds), then
+  split by the filter each file's name says (`PlanetaryCaptureName.WavelengthNm`, mono captures only: a colour capture's name has no
+  filter to say). A session with a filter is named with its wavelength (`Light 2026-10-07 1134 650 nm`), and `--session` finds the
+  sessions again from the manifest's captures, so a manifest written before the split is read by the rule in force.
 - **`planetary-stack --session NAME --manifest PATH`** stacks one as a run. **`--epoch`** carries it to an instant of the caller's choosing:
   a UTC time, or a capture whose best frame (`FrameGrader.BestFrameTimeAsync`, graded as the stack grades) gives it. The default stays the
   run's middle.

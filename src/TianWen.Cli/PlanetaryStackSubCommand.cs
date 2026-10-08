@@ -287,8 +287,11 @@ internal sealed class PlanetaryStackSubCommand(
                     consoleHost.WriteError("--session names a session of the survey's manifest: give it with --manifest (planetary-survey -o).");
                     return 1;
                 }
+                // The sessions are found again from the manifest's captures, by the rule this build holds: a manifest written before
+                // #1336 lists a filter-wheel run as one session of every filter.
                 var manifest = await PlanetaryCorpus.ReadManifestAsync(manifestPath, ct);
-                if (manifest?.Sessions.FirstOrDefault(s => string.Equals(s.Name, sessionName, StringComparison.OrdinalIgnoreCase)) is not { } session)
+                if (manifest is null
+                    || PlanetaryCorpus.Sessions(manifest.Captures).FirstOrDefault(s => string.Equals(s.Name, sessionName, StringComparison.OrdinalIgnoreCase)) is not { } session)
                 {
                     consoleHost.WriteError($"No session named '{sessionName}' in {manifestPath}; planetary-survey prints the sessions it found.");
                     return 1;

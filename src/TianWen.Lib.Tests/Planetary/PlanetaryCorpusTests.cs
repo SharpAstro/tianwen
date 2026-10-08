@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -400,23 +401,26 @@ public class PlanetaryCorpusTests : IDisposable
         cramped.Refusal.ShouldNotBeNull().ShouldContain("kept free");
         Directory.GetFiles(output).ShouldBeEmpty("a refusal writes nothing");
     }
+    // A surveyed SER capture as the session rule reads it: its path, frame size, colour and the span of its frames' times.
+    private static CaptureRecord Ser(string path, DateTimeOffset first, double minutes, int width = 640, int frames = 1000,
+        SerColorId colour = SerColorId.BayerRGGB, params string[] flags) => new CaptureRecord
+    {
+        Id = path,
+        Kind = CaptureKind.Ser,
+        Path = path,
+        LengthBytes = 1,
+        Header = new SerHeaderRecord(0, colour.ToString(), 0, width, 480, 8, frames, "", "", "", 0, 0),
+        Timestamps = "trailer",
+        FirstUtc = first.UtcDateTime.ToString("O"),
+        LastUtc = first.AddMinutes(minutes).UtcDateTime.ToString("O"),
+        Flags = flags,
+    };
+
     [Fact]
     public void ASessionIsBackToBackCapturesOfOneFolderAndFrameSizeAndAGapEndsIt()
     {
         // #1308: a capture program saves a long run as many files seconds apart. They join in time order while each starts within ten
         // minutes of the last one's end; a longer pause, another folder, another frame size, a copy or a calibration video does not join.
-        static CaptureRecord Ser(string path, DateTimeOffset first, double minutes, int width = 640, int frames = 1000, params string[] flags) => new CaptureRecord
-        {
-            Id = path,
-            Kind = CaptureKind.Ser,
-            Path = path,
-            LengthBytes = 1,
-            Header = new SerHeaderRecord(0, nameof(SerColorId.BayerRGGB), 0, width, 480, 8, frames, "", "", "", 0, 0),
-            Timestamps = "trailer",
-            FirstUtc = first.UtcDateTime.ToString("O"),
-            LastUtc = first.AddMinutes(minutes).UtcDateTime.ToString("O"),
-            Flags = flags,
-        };
         var t = new DateTimeOffset(2022, 9, 29, 12, 0, 0, TimeSpan.Zero);
         CaptureRecord[] captures =
         [
@@ -425,8 +429,8 @@ public class PlanetaryCorpusTests : IDisposable
             Ser("D:/Jupiter 4ms/c.ser", t.AddMinutes(12), 1),      // 9.5 minutes after b ends: still the session
             Ser("D:/Jupiter 4ms/d.ser", t.AddMinutes(30), 1),      // 17 minutes after c ends: a new chain, alone, so no session
             Ser("D:/Jupiter 4ms/e.ser", t.AddMinutes(2), 1, width: 320), // another frame size
-            Ser("D:/Jupiter 4ms/copy.ser", t.AddMinutes(3), 1, flags: "duplicate"),
-            Ser("D:/Jupiter 4ms/dark.ser", t.AddMinutes(4), 1, flags: "calibration"),
+            Ser("D:/Jupiter 4ms/copy.ser", t.AddMinutes(3), 1, flags: ["duplicate"]),
+            Ser("D:/Jupiter 4ms/dark.ser", t.AddMinutes(4), 1, flags: ["calibration"]),
             Ser("D:/Saturn/s1.ser", t, 1),                          // another folder, alone
         ];
 
@@ -443,6 +447,38 @@ public class PlanetaryCorpusTests : IDisposable
         var manifest = new CorpusManifest(PlanetaryCorpus.ManifestVersion, ["D:/"], captures) { Sessions = sessions };
         var back = JsonSerializer.Deserialize(PlanetaryCorpus.ManifestBytes(manifest), PlanetaryCorpusJsonContext.Default.CorpusManifest).ShouldNotBeNull();
         back.Sessions.ShouldHaveSingleItem().Captures.ShouldBe(session.Captures);
+    }
+
+    [Fact]
+    public void AMonoFilterWheelRunInOneFolderIsASessionPerFilter()
+    {
+        // #1336: the owner's Saturn of 2026-10-07 is ten bursts of red, green and blue, 158 s each, every file started about two and a
+        // half minutes after the last, all in one folder, the bursts 13 minutes apart: a filter's own files are further apart than the
+        // gap while the run goes on. Each filter is a session of its own, named for its wavelength; a capture whose name says no filter
+        // joins none, and a pause longer than the gap still ends the run.
+        var t = new DateTimeOffset(2026, 10, 7, 11, 34, 0, TimeSpan.Zero);
+        var captures = new List<CaptureRecord>();
+        string[] filters = ["Red", "Green", "Blue"];
+        for (var burst = 0; burst < 3; burst++)
+        {
+            for (var f = 0; f < filters.Length; f++)
+            {
+                var start = t.AddMinutes((burst * 13) + (f * 2.6));
+                captures.Add(Ser($"E:/Saturn/2026-10-07/Light/{start:HH_mm_ss}Z_{filters[f]}.ser", start, 158 / 60.0, colour: SerColorId.Mono));
+            }
+        }
+        captures.Add(Ser("E:/Saturn/2026-10-07/Light/11_45_00Z.ser", t.AddMinutes(11), 2, colour: SerColorId.Mono));
+        captures.Add(Ser("E:/Saturn/2026-10-07/Light/13_00_00Z_Red.ser", t.AddMinutes(86), 2.6, colour: SerColorId.Mono)); // 40 minutes on
+
+        var sessions = PlanetaryCorpus.Sessions(captures).ToArray();
+
+        sessions.Select(s => s.Name).ShouldBe(["Light 2026-10-07 1134 650 nm", "Light 2026-10-07 1136 530 nm", "Light 2026-10-07 1139 460 nm"]);
+        for (var f = 0; f < filters.Length; f++)
+        {
+            sessions[f].Captures.Length.ShouldBe(3);
+            sessions[f].Captures.ShouldAllBe(path => path.EndsWith($"_{filters[f]}.ser", StringComparison.Ordinal));
+            sessions[f].Frames.ShouldBe(3000);
+        }
     }
 
     [Fact]

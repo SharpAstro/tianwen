@@ -123,10 +123,11 @@ public sealed record CorpusManifest(int Version, string[] Roots, CaptureRecord[]
 }
 
 /// <summary>
-/// One session of the corpus (#1308): two or more captures of one folder, frame size and colour, each starting within
-/// <see cref="PlanetaryCorpus.SessionGap"/> of the one before ending, which a stack joins in time order as one run.
+/// One session of the corpus (#1308): two or more captures of one folder, frame size, colour and, for a mono run, filter (#1336), each
+/// starting within <see cref="PlanetaryCorpus.SessionGap"/> of the one before ending, which a stack joins in time order as one run.
 /// </summary>
-/// <param name="Name">The folder's name and the first frame's UTC time, which <c>planetary-stack --session</c> asks for.</param>
+/// <param name="Name">The folder's name, the first frame's UTC time and a filter's wavelength, which <c>planetary-stack --session</c>
+/// asks for.</param>
 /// <param name="Captures">The captures' paths, in time order.</param>
 public sealed record SessionRecord(string Name, string Folder, int Width, int Height, string ColorId, int Frames, string FirstUtc, string LastUtc,
     string[] Captures);
@@ -149,8 +150,8 @@ public sealed record CorpusSurveyOptions(SevenZipTool? SevenZip = null, int MinF
 /// </summary>
 public static class PlanetaryCorpus
 {
-    /// <summary>The manifest's format version: 2 adds <see cref="CorpusManifest.Sessions"/> (#1308).</summary>
-    public const int ManifestVersion = 2;
+    /// <summary>The manifest's format version: 2 adds <see cref="CorpusManifest.Sessions"/> (#1308), 3 splits them by filter (#1336).</summary>
+    public const int ManifestVersion = 3;
 
     /// <summary>
     /// The longest pause between one capture's last frame and the next one's first that still joins them into one session: a capture
@@ -298,8 +299,14 @@ public static class PlanetaryCorpus
 
     /// <summary>
     /// The sessions among <paramref name="captures"/> (#1308): plain SER files, not a duplicate, a calibration or a synthetic capture,
-    /// with their frames' times, grouped by folder, frame size and colour and chained in time order while each starts within
-    /// <see cref="SessionGap"/> of the previous one's last frame. A chain of one capture is no session.
+    /// with their frames' times, grouped by folder, frame size and colour, chained in time order while each starts within
+    /// <see cref="SessionGap"/> of the previous one's last frame, and a mono chain split by the filter its files' names say
+    /// (<see cref="PlanetaryCaptureName.WavelengthNm"/>, a mono capture's rule: a colour capture's name has no filter to say, and a stray
+    /// <c>b</c> in it is no blue). A filter's files of one chain are its session; one capture is none. The split
+    /// is #1336's: a mono filter-wheel run keeps every filter in one folder, a file of each in turn, and chained whole its red, green
+    /// and blue frames were one mono stack. It comes AFTER the chain, since the camera never paused: a filter's own files lie further
+    /// apart than the gap (11 minutes on the owner's 2026-10-07 Saturn) while the run goes on. A session with a filter names its
+    /// wavelength.
     /// </summary>
     public static IEnumerable<SessionRecord> Sessions(IEnumerable<CaptureRecord> captures)
     {
@@ -318,14 +325,23 @@ public static class PlanetaryCorpus
             {
                 if (chain.Count > 0 && Utc(capture.FirstUtc) - Utc(chain[^1].LastUtc) > SessionGap)
                 {
-                    AddIfSession(chain);
+                    AddPerFilter(chain);
                     chain.Clear();
                 }
                 chain.Add(capture);
             }
-            AddIfSession(chain);
+            AddPerFilter(chain);
 
-            void AddIfSession(List<CaptureRecord> run)
+            void AddPerFilter(List<CaptureRecord> run)
+            {
+                var mono = group.Key.ColorId == nameof(SerColorId.Mono);
+                foreach (var filtered in run.GroupBy(c => mono ? PlanetaryCaptureName.WavelengthNm(c.Path) : null))
+                {
+                    AddIfSession([.. filtered], filtered.Key);
+                }
+            }
+
+            void AddIfSession(List<CaptureRecord> run, double? filterNm)
             {
                 if (run.Count < 2)
                 {
@@ -333,7 +349,8 @@ public static class PlanetaryCorpus
                 }
                 var first = run[0];
                 var folder = group.Key.Folder;
-                var name = $"{System.IO.Path.GetFileName(folder)} {Utc(first.FirstUtc).ToString("yyyy-MM-dd HHmm", CultureInfo.InvariantCulture)}";
+                var name = $"{System.IO.Path.GetFileName(folder)} {Utc(first.FirstUtc).ToString("yyyy-MM-dd HHmm", CultureInfo.InvariantCulture)}"
+                    + (filterNm is { } nm ? string.Create(CultureInfo.InvariantCulture, $" {nm:0} nm") : "");
                 sessions.Add(new SessionRecord(name, folder, group.Key.Width ?? 0, group.Key.Height ?? 0, group.Key.ColorId ?? "",
                     run.Sum(c => c.Header?.FrameCount ?? 0), first.FirstUtc ?? "", run.Max(c => c.LastUtc) ?? "", [.. run.Select(c => c.Path)]));
             }
