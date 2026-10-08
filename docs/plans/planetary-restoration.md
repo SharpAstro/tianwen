@@ -4759,7 +4759,11 @@ middle (R6 part 2). What was missing was a way to find the runs, and a way to na
   backwards. A margin rule would have had to be set off that one failure, so none was: `planetary-stack --session NAME --each-file` reads the
   session's north once, from its first and last files (`LuckyImagingStacker.ReadNorthAsync`, the stacker's own agreement over a stream of
   those two files, hours apart), and stacks each file with it (`PlanetaryDerotationOptions.North`, `--north` by hand). A given north keeps the
-  limb fit's axis, which is precise, and takes of its two ways round the one nearer it; the file's quarters are not read.
+  limb fit's axis, which is precise, and takes of its two ways round the one nearer it; the file's quarters are not read. Read on the
+  night's six sessions (each filter's run of 3 files before the refocus and of 7 after it), the sessions' norths lie between 184.0 and
+  184.1 deg and each prefers its way round by 23 to 86 % (5 % was asked); all 30 files, stacked with their session's north, read within
+  0.2 deg of it, and 12:39:36 Blue so stacked equals its `--turn-north-over` restack bit for bit. A session's north costs one stack of
+  its first and last files, 47 to 384 s.
 - **A keep sweep grades a capture file once** (#1351, the owner, 2026-10-08: a sweep over 70,000-frame sessions graded every frame for
   every arm, though a grade never depends on the keep). `planetary-stack --grade-cache DIR` (`PlanetaryStackOptions.GradeCache`,
   `FrameGradeCache`) keeps each file's own grades (score, cut, elongation, brightness), keyed by the file's full path, size and last write
