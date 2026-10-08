@@ -1209,6 +1209,22 @@ What it says:
   in. Telling the knots from the stops needs the GPU: B's seed 0 resumed with a longer patience (the stops), or an export
   whose knots stay out of the PSF's neighbourhood, at least 2.5 widths or under 20 sigma (the knots).
 
+#### The stops or the knots, pre-registered (2026-10-08)
+
+The owner chose both tests, the stops first. **The stops**: B's seed 0 trained again from scratch with a patience of 24
+evaluations instead of 12 (`run-r2.ps1 -Tag r2dblong -Arms synth -SeedCount 1 -Patience 24 -Steps 240000`); the cache,
+the seed, the cap, the four halvings and the trainer are B's (no change to `training/denoise` since B ran). A GPU run is
+not bit-reproducible, so it is read against B's three seeds, not against seed 0 alone. Written before it runs, on A's
+draws with the fixed eval:
+- **The stops are the cause** if its clean removal at 100-1000 sigma reaches A's range (at least 21.5 percent) and the
+  bright cores hold under 5 percent of its error.
+- **They are not** if that removal stays under 10 percent (B's seeds read 5.9 to 8.4).
+- **They are part of it** in between.
+
+The knots test runs whatever this reads, unless the stops alone reach A's range. **The knots**: B's export again, with
+every knot either at least 2.5 PSF widths across or peaking under 20 sigma, then one seed at B's patience of 12. Read the
+same way, with its own predictions written before it trains.
+
 So the synthetic background as built does not help, and what it cost is the bright stars. That cost is B's training,
 not the background's realism. R2e's structure is still worth having for the fill and for a later arm, but it would not
 recover what B lost.
