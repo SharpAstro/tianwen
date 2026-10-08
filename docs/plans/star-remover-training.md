@@ -1234,6 +1234,46 @@ against B's three seeds:
 - **They are part of it** in between.
 - Either way it keeps what B learned of the sky: on B's draws it moves the far sky within B's 0.17 to 0.27 sigma.
 
+#### The stops and the knots read: each is part of it, and each repairs a different part (2026-10-09)
+
+Both trained overnight, the stops to 180,000 steps (best at 168,000), the knots at B's patience. They were scored
+through the fixed eval on A's draws and B's (`C:\temp\e2\score-r2dtests.ps1`, read by `C:\temp\e2\read_r2dtests.py`):
+
+| on A's draws | the stops | the knots | A's seeds | B's seeds |
+|---|---|---|---|---|
+| clean 100-1000 sigma | 24.3 | 17.2 | 21.5 to 26.1 | 5.9 to 8.4 |
+| bright cores' share of the error | 7.0 % | 3.0 % | 2.4 to 3.0 % | 7.5 to 27.9 % |
+| core mean / RMS at 100-1000 | +1.07 / 6.4 | -0.54 / 3.7 | -0.20 to +0.93 / 2.7 to 5.8 | +0.11 to +9.07 / 6.7 to 19.1 |
+| clean saturated | 17.4 | 22.4 | 21.9 to 26.0 | 8.7 to 11.0 |
+| clean 5-20 sigma | 73.4 | 65.9 | 64.4 to 67.5 | 50.5 to 67.5 |
+| far sky | 0.23 | 0.21 | 0.12 to 0.39 | 0.25 to 0.27 |
+
+- **The stops are part of it.** Trained longer, B's model removes bright stars as A's do (24.3, inside A's range) but
+  scatters them more (7.0 percent of its error, against the 5 registered). Its faint-star removal, 73.4 at 5-20 sigma, is
+  the best of any model so far.
+- **The knots are part of it.** With the compact knots faint the bright cores carry A's share of the error (3.0
+  percent) and the saturated stars are removed as A removes them. Bright stars are removed short of A (17.2), dug rather
+  than left (66 percent dug, core mean -0.54).
+- **The knots test's sky misses.** On B's draws it moves the far sky 0.34 sigma, outside B's 0.17 to 0.27: with fewer
+  bright knots in its targets it takes more of the sky's own faint structure.
+- **What the 73.4 is not:** evidence that the synthetic background beats A. A never trained at a patience of 24, so the
+  schedule and the background are confounded in it.
+
+#### The two fixes together, against A at the same schedule, pre-registered (2026-10-09)
+
+Written before either trains. **Combined**: the knots' export at a patience of 24 (`run-r2.ps1 -Tag r2dkl -Arms synthk
+-SeedCount 1 -Patience 24`). **A's control**: today's plates with D4's mask at a patience of 24 (`run-r2.ps1 -Tag r2dal
+-Arms random -SeedCount 1 -Patience 24 -LossMask`). One seed each, so a difference under A's three-seed range at 12 (3.1
+points at 5-20 sigma) is not read. Both are scored on A's draws with the fixed eval.
+1. A's control at a patience of 24 lifts A's own clean removal at 5-20 sigma to at least 70. If it does, the stops'
+   73.4 is the schedule's. Moderate.
+2. Combined reaches A's control at 100-1000 sigma (within 3 points) with the bright cores under 5 percent of its error,
+   so both of B's losses are repaired at once. Moderate.
+3. Combined against A's control at 5-20 sigma is R2d's prediction (1) at a matched schedule: at least 5 points over. Low
+   to moderate.
+4. **Kill**: Combined under A's control at 5-20 sigma by more than 5 points. Then the synthetic background costs faint
+   stars at a matched schedule, and the truth is fixed by D4 and a deeper plate builder.
+
 So the synthetic background as built does not help, and what it cost is the bright stars. That cost is B's training,
 not the background's realism. R2e's structure is still worth having for the fill and for a later arm, but it would not
 recover what B lost.
