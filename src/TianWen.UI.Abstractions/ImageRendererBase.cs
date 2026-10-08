@@ -373,6 +373,15 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 TransportBg = RGBAColor32.FromFloat(0.16f, 0.16f, 0.18f, 0.95f);
         private static readonly RGBAColor32 TransportTrackBg = RGBAColor32.FromFloat(0.30f, 0.30f, 0.34f, 1f);
         private static readonly RGBAColor32 TransportTrackFill = RGBAColor32.FromFloat(0.30f, 0.50f, 0.80f, 1f);
+
+        /// <summary>
+        /// The style the Best stack panel's planet and telescope groups and the tone popover's colour look are drawn in, read per paint since
+        /// the palette changes with the theme. Its text is the palette's but its fills are the toolbar's fixed greys, so in Light the text is
+        /// near black on dark grey: the transport's Frames / Live / Best switch keeps its literal light text until the fills come from the
+        /// palette too, which the Enhance popover that rehouses these controls owes (P36, #1345; found by the audit on #1343).
+        /// </summary>
+        private static Layout.ButtonGroupStyle PlanetaryChoiceStyle => new Layout.ButtonGroupStyle(TransportTrackFill, ToolbarButtonBg,
+            ViewerTheme.Palette.BodyText, ViewerTheme.Palette.BodyText, GuiTheme.Hover(ToolbarButtonBg));
         private static readonly RGBAColor32 TransportHandle = RGBAColor32.FromFloat(0.85f, 0.85f, 0.90f, 1f);
         // Shared chrome for every track slider (WB / wavelet / scrub) -- identical at all call sites; the
         // DrawTrackSlider control lives in DIR.Lib PixelWidgetBase and takes these two colours as a param.
