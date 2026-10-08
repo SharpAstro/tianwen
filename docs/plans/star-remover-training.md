@@ -1554,6 +1554,42 @@ Written before it is built, on the plates' structured holes:
 
 **Kill:** (2) or (3) misses. Then the fill stays the push-pull and the texture serves the synthetic background only.
 
+#### S4's read: right in level and direction, over the price, and the kill fires (2026-10-09)
+
+**As built.** `TexturedHoleFill`: R0's fill, then each hole's draw from a generator read off the sky round the holes.
+Pinned by a test on broadband filaments: in the holes' interiors the push-pull keeps 0.04 of their energy, the draw
+1.09, running their way.
+
+**The probe.** `tianwen dataset fill-probe` runs R0's probe twice on the same holes, today's fill and the draw: the
+fine steer, 100 holes a radius on the eight S3 plates, `C:\temp\e2\s4\fill-probe.jsonl`, read by
+`C:\temp\e2\s4_summary.py`. It gained a read of a hole's interior, where the hole's own edge is out of the scale's
+kernel; read at every hole pixel, a smooth fill's edge against the structure was 3.5 times that structure's energy.
+Medians over the plates:
+
+| | 3 px | 6 px | 12 px (read at 2 px) | 24 px (read at 4 px) |
+|---|---|---|---|---|
+| structure error, structured holes | 0.28 -> 0.53 | 0 -> 0 | 0 -> 0 | 0.25 -> 0.65 |
+| structure error, smooth holes | 0 -> 0 | 0 -> 0.12 | 0.29 -> 0.35 | 0.15 -> 0.15 |
+| mean residual, structured holes | -0.03 -> -0.12 | +0.08 -> +0.03 | -0.08 -> -0.06 | +0.08 -> +0.11 |
+| energy in the interior, of the original's | | | 0.30 -> 1.59 | 0.14 -> 1.16 |
+| alignment with the ring (the truth's own) | | | +0.37 -> +0.58 (+0.54) | +0.60 -> +0.87 (+0.89) |
+
+1. **Energy: holds at 24 px, misses at 12 px.** It overshoots there (1.59), where today's fill holds a third.
+2. **Level: holds at every radius.** The draw adds no bias.
+3. **Price: misses.** The structure error roughly doubles on the structured holes of 3 and 24 px, against the square
+   root of two allowed, and the smooth holes of 6 px rise 0.12 against 0.1.
+4. **Continuity: holds.** The fill carries the sky's direction into the hole as far as the sky's own carries.
+
+**The kill fires.** R0's fill stays the push-pull, and the texture serves the synthetic background. Two things to read
+beside it:
+- **The square root of two was the floor:** a random texture of exactly the right energy, uncorrelated with what was
+  there, costs that and no less, so any overshoot misses. Passing would take a fill that predicts the hidden structure
+  (patch-based, or one that continues a filament's own pixels), not one that only has its statistics.
+- **The 24 px read rests on few holes:** most plates hold 0 to 2 structured holes of that size.
+
+What the draw buys, the right energy and direction with no bias, is realism rather than accuracy. Whether a user-facing
+AI-free remover wants that is a product question, the owner's.
+
 #### S2: generate it, S3: check it, S4: fill with it
 
 - **S2.** The texture drawn along an orientation field, isotropic where the coarse plate shows none (a steerable sum of
