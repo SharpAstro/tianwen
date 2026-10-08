@@ -1141,9 +1141,10 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         var outOpt = new Option<string>("--out", "-o") { Description = "The folder plate_<x>_<y>.fits and synthetic_<x>_<y>.fits are written to. Never inside a bake store.", Required = true };
         var steerOpt = new Option<string?>("--steer")
         {
-            Description = "R2e's S2: draw the texture along the plate's coarse orientation, as strength,exponent (the share of its " +
-                          "variance steered where the coarse structure is fully coherent, and the angular window's cos power). " +
-                          "Default: the isotropic texture R2d's arm B was taught on.",
+            Description = "R2e's S2: draw the texture along the plate's coarse orientation, as strength,exponent[,wander] (the share " +
+                          "of its variance steered where the coarse structure is fully coherent, the angular window's cos power, and " +
+                          "the spread in radians of a smooth random turn away from the coarse orientation). Default: the isotropic " +
+                          "texture R2d's arm B was taught on.",
         };
         var texturedOpt = new Option<int>("--textured") { Description = "Also the centres of this many cells of a --size grid that hold the most texture to draw." };
         var measureOpt = new Option<bool>("--measure")
@@ -1175,13 +1176,15 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             if (parseResult.GetValue(steerOpt) is { } steerText)
             {
                 var parts = steerText.Split(',', StringSplitOptions.TrimEntries);
-                if (parts.Length != 2 || !double.TryParse(parts[0], CultureInfo.InvariantCulture, out var strength)
-                    || !double.TryParse(parts[1], CultureInfo.InvariantCulture, out var exponent) || strength is < 0 or > 1 || exponent <= 0)
+                var wander = 0.0;
+                if (parts.Length is not (2 or 3) || !double.TryParse(parts[0], CultureInfo.InvariantCulture, out var strength)
+                    || !double.TryParse(parts[1], CultureInfo.InvariantCulture, out var exponent) || strength is < 0 or > 1 || exponent <= 0
+                    || (parts.Length == 3 && (!double.TryParse(parts[2], CultureInfo.InvariantCulture, out wander) || wander < 0)))
                 {
-                    consoleHost.WriteError($"--steer takes strength,exponent with strength in [0, 1] and a positive exponent, got '{steerText}'");
+                    consoleHost.WriteError($"--steer takes strength,exponent[,wander] with strength in [0, 1], a positive exponent and a wander in radians, got '{steerText}'");
                     return 1;
                 }
-                steering = new SyntheticBackground.Steering(strength, exponent);
+                steering = new SyntheticBackground.Steering(strength, exponent, wander);
             }
             var fwhm = parseResult.GetValue(fwhmOpt);
             var (written, noise) = SyntheticBackgroundPreview.Run(parseResult.Required(plateOpt), parseResult.Required(outOpt),

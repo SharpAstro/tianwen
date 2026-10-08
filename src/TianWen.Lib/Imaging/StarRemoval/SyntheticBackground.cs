@@ -60,9 +60,11 @@ public sealed class SyntheticBackground
     /// orientation, where S1 found the real sky's fine structure running along its coarse contours. Each oriented field passes
     /// the frequencies within <c>cos^(2 Exponent)</c> of its direction; <see cref="Strength"/> is the share of the texture's
     /// variance that follows the orientation where the coarse structure is fully coherent, scaled by the local coherence
-    /// everywhere else.
+    /// everywhere else. <see cref="Wander"/> (radians) turns the orientation drawn along away from the coarse one by a smooth
+    /// random angle of that spread, correlated over the coarse window: S3 found the real sky's fine structure more one-way
+    /// than a weak steer makes it and less tied to the coarse contours than a strong one.
     /// </summary>
-    public readonly record struct Steering(double Strength, double Exponent);
+    public readonly record struct Steering(double Strength, double Exponent, double Wander = 0);
 
     // The plate's coarse orientation (the structure tensor of its kept scales' luminance, SkyTexture's own), per frame pixel.
     private sealed record Orientation(float[] Cos2, float[] Sin2, float[] Coherence);
@@ -438,6 +440,24 @@ public sealed class SyntheticBackground
             }
         }
 
+        // The wander: white noise smoothed over the coarse orientation's own window, at unit spread, times Wander. Drawn after
+        // the spectrum and only when asked, so a steer without it draws what it drew before.
+        float[]? wander = null;
+        if (steering.Wander > 0)
+        {
+            var white = new float[n * n];
+            for (var i = 0; i < white.Length; i++)
+            {
+                white[i] = (float)Gaussian(random);
+            }
+            wander = Image.SeparableGaussianBlur(white, n, n, (float)(SkyTexture.TensorWindowScales * (1 << FirstKept)));
+            var spread = Math.Sqrt(wander.Sum(static w => (double)w * w) / wander.Length);
+            for (var i = 0; i < wander.Length; i++)
+            {
+                wander[i] = (float)(steering.Wander * wander[i] / spread);
+            }
+        }
+
         // The window's mean over angle is one, so every field keeps the isotropic one's radial law.
         var norm = 1.0 / MeanCosPower(steering.Exponent);
         var fields = new double[SteerDirections + 1][];
@@ -484,8 +504,9 @@ public sealed class SyntheticBackground
             for (var u = 0; u < n; u++)
             {
                 var f = (fy * Width) + Math.Clamp(fx0 + u, 0, Width - 1);
-                var theta = 0.5 * Math.Atan2(orientation.Sin2[f], orientation.Cos2[f]);
-                var t = (theta < 0 ? theta + Math.PI : theta) / (Math.PI / SteerDirections);
+                var theta = (0.5 * Math.Atan2(orientation.Sin2[f], orientation.Cos2[f])) + (wander?[(v * n) + u] ?? 0.0);
+                theta -= Math.PI * Math.Floor(theta / Math.PI);
+                var t = theta / (Math.PI / SteerDirections);
                 var d1 = (int)Math.Floor(t) % SteerDirections;
                 var d2 = (d1 + 1) % SteerDirections;
                 var (w2, w1) = Math.SinCos((t - Math.Floor(t)) * Math.PI / 2);

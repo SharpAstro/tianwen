@@ -189,6 +189,30 @@ public sealed class SyntheticBackgroundTests
     }
 
     [Fact]
+    public void AWanderLoosensTheTieToTheCoarseContoursButKeepsTheTextureOneWay()
+    {
+        var plate = WavePlate();
+        var isotropic = SyntheticBackground.Build(plate, absent: null, Fwhm);
+        var tied = SyntheticBackground.Build(plate, absent: null, Fwhm, steering: new SyntheticBackground.Steering(1.0, 4.0));
+        var loose = SyntheticBackground.Build(plate, absent: null, Fwhm, steering: new SyntheticBackground.Steering(1.0, 4.0, Wander: 1.0));
+
+        SkyTexture.Measurement Read(SyntheticBackground background)
+        {
+            const int size = 384;
+            var cell = background.Preview(768, 512, size, [Noise], noisy: true, new Random(21));
+            return SkyTexture.Measure(cell[0], size, size, absent: null, fwhm: Fwhm);
+        }
+        var (plain, along, wandering) = (Read(isotropic), Read(tied), Read(loose));
+
+        foreach (var j in new[] { 1, 2 })
+        {
+            wandering.Scales[j].Alignment.ShouldBeLessThan(along.Scales[j].Alignment - 0.2, $"a wander turns it off the coarse contours at {1 << j} px");
+            wandering.Scales[j].Alignment.ShouldBeGreaterThan(plain.Scales[j].Alignment, $"but not against them at {1 << j} px");
+            wandering.Scales[j].Coherence.ShouldBeGreaterThan(plain.Scales[j].Coherence + 0.05, $"and it still runs one way at {1 << j} px");
+        }
+    }
+
+    [Fact]
     public void APreviewReadsThePlatesNoiseAndPutsItBackOnItsCentredCell()
     {
         var plate = Plate(6);
