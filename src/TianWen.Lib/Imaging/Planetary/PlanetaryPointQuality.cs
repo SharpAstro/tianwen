@@ -71,6 +71,67 @@ public static class PlanetaryPointQuality
         }
     }
 
+    /// <summary>
+    /// As <see cref="Cut"/>, read through Lanczos-3 instead (#1350): bilinear's blur depends on where between the plane's samples the patch
+    /// lands, up to a fifth of band 2 at half a pixel either way, so a score read through it ranks frames partly by that offset. Every sample
+    /// of a patch shares one offset, so the weights are made once and applied an axis at a time.
+    /// </summary>
+    public static void CutLanczos3(ReadOnlySpan<float> plane, int width, int height, double cx, double cy, int size, Span<float> into)
+    {
+        ArgumentOutOfRangeException.ThrowIfNotEqual(plane.Length, width * height);
+        ArgumentOutOfRangeException.ThrowIfNotEqual(into.Length, size * size);
+        var (x0, y0) = (cx - (size / 2), cy - (size / 2));
+        var (ix, iy) = ((int)Math.Floor(x0), (int)Math.Floor(y0));
+        Span<float> wx = stackalloc float[6];
+        Span<float> wy = stackalloc float[6];
+        Image.Lanczos3Weights((float)(x0 - ix), wx);
+        Image.Lanczos3Weights((float)(y0 - iy), wy);
+        Normalise(wx);
+        Normalise(wy);
+
+        // Rows iy - 2 to iy + size + 2, each filtered across, then down.
+        var span = size + 5;
+        var rows = new float[span * size];
+        for (var r = 0; r < span; r++)
+        {
+            var sy = iy - 2 + r;
+            for (var i = 0; i < size; i++)
+            {
+                var v = 0f;
+                for (var k = 0; k < 6; k++)
+                {
+                    v += wx[k] * Sample(plane, width, height, ix + i - 2 + k, sy);
+                }
+                rows[(r * size) + i] = v;
+            }
+        }
+        for (var j = 0; j < size; j++)
+        {
+            for (var i = 0; i < size; i++)
+            {
+                var v = 0f;
+                for (var k = 0; k < 6; k++)
+                {
+                    v += wy[k] * rows[((j + k) * size) + i];
+                }
+                into[(j * size) + i] = v;
+            }
+        }
+    }
+
+    private static void Normalise(Span<float> w)
+    {
+        var sum = 0f;
+        foreach (var v in w)
+        {
+            sum += v;
+        }
+        for (var i = 0; i < w.Length; i++)
+        {
+            w[i] /= sum;
+        }
+    }
+
     private static float Sample(ReadOnlySpan<float> plane, int width, int height, int x, int y)
         => x >= 0 && y >= 0 && x < width && y < height ? plane[(y * width) + x] : 0f;
 

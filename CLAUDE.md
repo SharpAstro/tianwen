@@ -1201,9 +1201,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   square difference (`PlanetaryPointEstimator.SquareDifference`) reads the shift unshrunk and reaches the bound on a clean rigid shift,
   but scatters a pixel on a twin (#1207), and beats plain only on the dense grid, so it goes with #1195 or not at all.
   **Each point keeping its own best frames is an option, never the default** (Strata's Warp+; `PlanetaryStackOptions.PointKeep`,
-  `--point-keep`, #1350): on #1071's layered twin it lost to the frame's own keep at every keep (2.3 to 3.6 % more band error, 2 to 7
-  times the time). A point's quality is partly its own (27.4 %), but no score on a 32 px 8-bit patch reads it as well as the frame's
-  whole-disk gradient (+0.46 against +0.73), so each point keeps frames the frame's ranking would have left out.
+  `--point-keep`, #1350): on #1071's layered twin it lost to the frame's own keep at every keep (1.2 to 1.9 % more band error, 2 to 7
+  times the time), and **even an oracle that knew each point's true quality lost to one that knew each frame's** (0.3 to 1.0 %): 73 % of a
+  point's quality is its frame's, and choosing point by point and blending between the points gives back what the own part gains. Strata's
+  gain is a lunar field's, many isoplanatic patches wide; a planet's disk is one or two. **A point's choice blends between neighbours only**
+  (the tents reach one `AlignmentPointSpacing`): reaching the mesh's 48 px, a pixel took a vote of a dozen points' sets and half the loss was that.
   **Bayer drizzle to the sensor grid beats the demosaic above a plane's Nyquist, UNSHARPENED; nothing past the sensor grid pays** at a
   warp of 0.6 px. **Sharpened as the pipeline sharpens, the demosaic stays the colour default until the owner says otherwise** (#1091):
   on 2026-10-03, once a colour master's finest band was kept as stacked (#1187), drizzle lost seed 1 (4.49 against 4.37); re-read on

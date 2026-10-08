@@ -589,8 +589,8 @@ part way, and the claims are not yet read. Until they are, the alignment-point s
 **Issue:** #1350. **Built 2026-10-08 as an option** (`PlanetaryStackOptions.PointKeep`, `planetary-stack --point-keep K`,
 `PlanetaryPointKeep`): the candidates are the frames the global keep selects; each alignment point scores every candidate by its 32 px
 patch's reference gain in a trous band 2 against the stacked reference (`PlanetaryPointQuality.BandGain`, read through the frame's own
-mesh), and keeps its best K of them; a frame is folded with a weight a pixel that is the share of the nearby points (a tent over the mesh's
-reach) that kept it, and every candidate counts where no point reaches. Two passes over the candidates: score, then fold.
+mesh), and keeps its best K of them; a frame is folded with a weight a pixel that is the share of the nearby points (a tent reaching one
+point spacing, so between neighbours only) that kept it, and every candidate counts where no point reaches. Two passes over the candidates: score, then fold.
 `--keep 1 --point-keep K` is Warp+. With every candidate kept it stacks as the plain keep does (`PlanetaryPointKeepTests`).
 
 - **Rule 1, on the layered twin (trial C, 3,000 frames, as stacked against the truth): fails.** At a matched number of frames a point,
@@ -605,8 +605,29 @@ reach) that kept it, and every candidate counts where no point reaches. Two pass
   Worse at every K, in bands 1 to 3, at 2.2 to 6.7 times the time. It is part 3's finding seen through the stacker's own registration: a
   point's quality is partly its own (27.4 %), but the best local score on an 8-bit patch ranks a point's frames worse than the frame's
   whole-disk gradient (+0.46 against +0.73), so each point keeps frames the frame's ranking would have left out.
+- **Why it failed where Strata's worked, measured** (the owner's question; `planetary-grade --points` on trial C with the true registration,
+  extended with a Lanczos-3 cut, the phase test, a pooled score and two oracles; hypotheses set on #1350 before measuring). Band errors 1 to
+  4 summed:
+
+  | keep | point, bilinear gain | point, Lanczos-3 gain | point, pooled ranks | point, ORACLE | frame, gradient | frame, ORACLE |
+  |---|---|---|---|---|---|---|
+  | 5 % | 1.634 | 1.629 | **1.609** | 1.629 | 1.634 | 1.613 |
+  | 10 % | 1.668 | 1.664 | **1.649** | 1.663 | 1.663 | 1.646 |
+  | 20 % | 1.712 | 1.709 | **1.698** | 1.710 | 1.714 | 1.698 |
+  | 50 % | 1.790 | 1.788 | **1.782** | 1.791 | 1.794 | 1.785 |
+
+  - **The regime, mostly:** the per-point ORACLE (each point keeping its best by its true quality) loses to the frame oracle at every keep.
+    Strata measured one lunar capture, 3856 x 2180 with 2,816 points, a field many isoplanatic patches wide, where a frame-wide ranking is a
+    poor proxy for local seeing; a planet's disk sits inside one or two.
+  - **Our blend, half of the stacker's loss:** the tents reached the mesh's 48 px with points 24 px apart, a vote of about a dozen points'
+    sets. Reaching one spacing, rule 1's point keep loses 1.6, 1.9 and 1.2 % (was 3.5, 3.6 and 2.3) at K 0.05, 0.10 and 0.25.
+  - **Not the cut's sub-pixel phase** (the score against bilinear's transfer at the frame's offset: median Spearman +0.024; Lanczos-3 ranks
+    +0.007 better), **nor the measure** (rule 1's point keep reads 0.79 to 0.91 of the frame keep's Laplacian contrast in 16 px tiles,
+    Strata's measure).
+  - **A pooled score pays a little** (the frame's gradient rank plus the point's local rank, equal weights): the best non-oracle arm at every
+    keep, 0.7 to 1.5 % under the frame keep, short of the 1 % at two keeps pre-registered.
 - **Rule 2, on the owner's 2026-10-07 Saturn session against set 10** (`planetary-judge`), read at #1349's 10 % keep from the best quarter
-  (`--keep 0.25 --point-keep 0.4`): on #1350.
+  (`--keep 0.25 --point-keep 0.4`), on the tents reaching one spacing: on #1350.
 
 #### R4 keeps are scored after restoration
 

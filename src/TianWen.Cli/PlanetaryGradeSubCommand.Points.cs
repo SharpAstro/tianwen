@@ -105,9 +105,12 @@ internal sealed partial class PlanetaryGradeSubCommand
             wholeGradient[g.Index] = g.Score;
         }
         var (map, gradient, fft3) = (new double[frames * count], new double[frames * count], new double[frames * count]);
+        // Bilinear's transfer at band 2's middle (0.18 cycles a pixel) where the frame put the point between samples (#1350, H1).
+        var phase = new double[frames * count];
         var fft3Estimator = new FftHighBandEstimator(FftBands[2]);
         var gradientEstimator = new GradientEnergyEstimator();
-        var sums = new double[count * GainPatch * GainPatch];
+        var patchLength = GainPatch * GainPatch;
+        var (sums, sumsLanczos) = (new double[count * patchLength], new double[count * patchLength]);
         var sumsLock = new Lock();
         await Parallel.ForAsync(0, frames, new ParallelOptions { CancellationToken = ct }, async (t, token) =>
         {
@@ -116,8 +119,8 @@ internal sealed partial class PlanetaryGradeSubCommand
             {
                 var sharpness = FrameSharpnessMap.Build(frame);
                 var plane = frame.GetChannelSpan(0);
-                var local = new double[count * GainPatch * GainPatch];
-                var patch = new float[GainPatch * GainPatch];
+                var (local, localLanczos) = (new double[count * patchLength], new double[count * patchLength]);
+                var patch = new float[patchLength];
                 for (var k = 0; k < count; k++)
                 {
                     var (x, y) = At(t, k);
@@ -127,10 +130,16 @@ internal sealed partial class PlanetaryGradeSubCommand
                     var region = new PixelRect(ix - (PointPatch / 2), iy - (PointPatch / 2), PointPatch, PointPatch);
                     gradient[i] = gradientEstimator.Score(frame, region);
                     fft3[i] = fft3Estimator.Score(frame, region);
+                    phase[i] = BilinearTransfer(x - Math.Floor(x)) * BilinearTransfer(y - Math.Floor(y));
                     PlanetaryPointQuality.Cut(plane, width, height, x, y, GainPatch, patch);
                     for (var s = 0; s < patch.Length; s++)
                     {
                         local[(k * patch.Length) + s] = patch[s];
+                    }
+                    PlanetaryPointQuality.CutLanczos3(plane, width, height, x, y, GainPatch, patch);
+                    for (var s = 0; s < patch.Length; s++)
+                    {
+                        localLanczos[(k * patch.Length) + s] = patch[s];
                     }
                 }
                 // Each frame's patches added to every point's stack at once: one short hold a frame, against a lock-free merge of
@@ -140,6 +149,7 @@ internal sealed partial class PlanetaryGradeSubCommand
                     for (var s = 0; s < sums.Length; s++)
                     {
                         sums[s] += local[s];
+                        sumsLanczos[s] += localLanczos[s];
                     }
                 }
             }
@@ -149,29 +159,36 @@ internal sealed partial class PlanetaryGradeSubCommand
             }
         });
 
-        // Pass 2, each frame's patch gain at each point against the point's stack of every frame.
-        var references = new float[count][];
-        for (var k = 0; k < count; k++)
+        // Pass 2, each frame's patch gain at each point against the point's stack of every frame, cut bilinearly and by Lanczos-3.
+        float[][] References(double[] from)
         {
-            references[k] = new float[GainPatch * GainPatch];
-            for (var s = 0; s < references[k].Length; s++)
+            var references = new float[count][];
+            for (var k = 0; k < count; k++)
             {
-                references[k][s] = (float)(sums[(k * references[k].Length) + s] / frames);
+                references[k] = new float[patchLength];
+                for (var s = 0; s < patchLength; s++)
+                {
+                    references[k][s] = (float)(from[(k * patchLength) + s] / frames);
+                }
             }
+            return references;
         }
-        var referenceGain = new double[frames * count];
+        var (references, referencesLanczos) = (References(sums), References(sumsLanczos));
+        var (referenceGain, referenceGainLanczos) = (new double[frames * count], new double[frames * count]);
         await Parallel.ForAsync(0, frames, new ParallelOptions { CancellationToken = ct }, async (t, token) =>
         {
             var frame = await stream.LoadAsync(t, token);
             try
             {
                 var plane = frame.GetChannelSpan(0);
-                var patch = new float[GainPatch * GainPatch];
+                var patch = new float[patchLength];
                 for (var k = 0; k < count; k++)
                 {
                     var (x, y) = At(t, k);
                     PlanetaryPointQuality.Cut(plane, width, height, x, y, GainPatch, patch);
                     referenceGain[(t * count) + k] = PlanetaryPointQuality.BandGain(patch, references[k], GainPatch, PointBand, PointPatch);
+                    PlanetaryPointQuality.CutLanczos3(plane, width, height, x, y, GainPatch, patch);
+                    referenceGainLanczos[(t * count) + k] = PlanetaryPointQuality.BandGain(patch, referencesLanczos[k], GainPatch, PointBand, PointPatch);
                 }
             }
             finally
@@ -179,6 +196,26 @@ internal sealed partial class PlanetaryGradeSubCommand
                 frame.Release();
             }
         });
+
+        // Pooled (H3): the frame's whole-disk gradient rank and the point's local rank (Lanczos-3), added with equal weights, set before
+        // measuring. And the oracle frame score (H4): the true quality averaged over the points.
+        var wholeRank = Ranks(wholeGradient);
+        var pooled = new double[frames * count];
+        var oracleFrame = new double[frames];
+        for (var k = 0; k < count; k++)
+        {
+            var column = new double[frames];
+            for (var t = 0; t < frames; t++)
+            {
+                column[t] = referenceGainLanczos[(t * count) + k];
+            }
+            var localRank = Ranks(column);
+            for (var t = 0; t < frames; t++)
+            {
+                pooled[(t * count) + k] = wholeRank[t] + localRank[t];
+                oracleFrame[t] += trueGain[(t * count) + k] / count;
+            }
+        }
 
         // Each estimator ranked against the true quality at every point, Spearman over the frames, then the median over the points.
         (double Median, double P25, double P75) Ranking(double[] score, bool perFrame)
@@ -204,6 +241,9 @@ internal sealed partial class PlanetaryGradeSubCommand
             ("fft3 on the patch", Ranking(fft3, perFrame: false)),
             ("the reference gain on the patch", Ranking(referenceGain, perFrame: false)),
             ("the frame's whole-disk gradient", Ranking(wholeGradient, perFrame: true)),
+            ("the reference gain, cut by Lanczos-3", Ranking(referenceGainLanczos, perFrame: false)),
+            ("the two ranks added (pooled)", Ranking(pooled, perFrame: false)),
+            ("the true quality over the points", Ranking(oracleFrame, perFrame: true)),
         };
 
         consoleHost.WriteScrollable(string.Create(inv,
@@ -220,17 +260,68 @@ internal sealed partial class PlanetaryGradeSubCommand
         consoleHost.WriteScrollable(string.Create(inv,
             $"    the sharpness map against the gradient on the patch: {sharpnessMap - patchGradient:+0.000;-0.000} (claimed within 0.05; {(Math.Abs(sharpnessMap - patchGradient) <= 0.05 ? "holds" : "FAILS")})"));
 
-        // Pass 3, each point's best frames by its patch gain stacked against the whole frames' best by the gradient.
-        await StackPointsAsync(stream, frames, truth, keeps, points, all, windowX, windowY, moveX, moveY, warps, first, referenceGain, wholeGradient, ct);
+        // #1350's hypotheses. H1: each cut's gain against bilinear's transfer where the frame put the point (the median over the points of
+        // the Spearman over the frames, and of its size). H2: Lanczos-3's gain over the bilinear one's. H3: pooled over the whole-disk gradient.
+        (double Median, double MedianSize) AgainstPhase(double[] score)
+        {
+            var (rhos, sizes) = (new List<double>(), new List<double>());
+            for (var k = 0; k < count; k++)
+            {
+                var good = Enumerable.Range(0, frames).Where(t => double.IsFinite(score[(t * count) + k])).ToArray();
+                if (good.Length > 2)
+                {
+                    var rho = StatisticsHelper.Spearman([.. good.Select(t => score[(t * count) + k])], [.. good.Select(t => phase[(t * count) + k])]);
+                    rhos.Add(rho);
+                    sizes.Add(Math.Abs(rho));
+                }
+            }
+            return rhos.Count == 0 ? (double.NaN, double.NaN) : (rhos.Order().ElementAt(rhos.Count / 2), sizes.Order().ElementAt(sizes.Count / 2));
+        }
+        var (bilinearPhase, lanczosPhase, truthPhase) = (AgainstPhase(referenceGain), AgainstPhase(referenceGainLanczos), AgainstPhase(trueGain));
+        consoleHost.WriteScrollable(string.Create(inv,
+            $"    H1, each score against bilinear's transfer where the frame put the point (median Spearman, median size): the bilinear gain {bilinearPhase.Median:+0.000;-0.000} ({bilinearPhase.MedianSize:0.000}), Lanczos-3's {lanczosPhase.Median:+0.000;-0.000} ({lanczosPhase.MedianSize:0.000}), the true quality {truthPhase.Median:+0.000;-0.000} ({truthPhase.MedianSize:0.000}); claimed at least 0.2 for the bilinear gain: {(bilinearPhase.MedianSize >= 0.2 ? "holds" : "FAILS")}"));
+        var (lanczosRho, pooledRho, oracleRho) = (rankings[5].Rho.Median, rankings[6].Rho.Median, rankings[7].Rho.Median);
+        consoleHost.WriteScrollable(string.Create(inv,
+            $"    H2, Lanczos-3's gain over the bilinear one's: {lanczosRho - patchGain:+0.000;-0.000} (claimed at least +0.1; {(lanczosRho - patchGain >= 0.1 ? "holds" : "FAILS")})"));
+        consoleHost.WriteScrollable(string.Create(inv,
+            $"    H3, the pooled ranks over the whole-disk gradient: {pooledRho - wholeFrame:+0.000;-0.000} (claimed at least +0.03; {(pooledRho - wholeFrame >= 0.03 ? "holds" : "FAILS")}); the true quality over the points ranks a point's frames at {oracleRho:+0.000;-0.000}, the most any score shared by a frame's points can"));
+
+        // Pass 3, each point's best frames by each score stacked against the whole frames' best, the oracles' (H4) among them.
+        await StackPointsAsync(stream, frames, truth, keeps, points, all, windowX, windowY, moveX, moveY, warps, first,
+            [
+                ("each point's best by its patch gain (bilinear)", referenceGain, 0),
+                ("each point's best by its patch gain (Lanczos-3)", referenceGainLanczos, 0),
+                ("each point's best by the two ranks added", pooled, 0),
+                ("each point's best by its TRUE quality (oracle)", trueGain, 1),
+            ],
+            [
+                ("the whole frames' best by the gradient", wholeGradient),
+                ("the whole frames' best by their TRUE quality (oracle)", oracleFrame),
+            ], ct);
         return 0;
     }
 
-    // Each point's best frames (by `pointScore`) against the whole frames' best (by `frameScore`) at each keep, every frame registered onto
-    // the truth by its true motion and warp, each pixel weighted by the tents of the points about it (the whole frames' choice where no
-    // point reaches), scored by band against the truth.
+    // Bilinear interpolation's transfer at band 2's middle, 0.18 cycles a pixel, for a sample `t` of the way between two.
+    private static double BilinearTransfer(double t) => Math.Sqrt(1 - (2 * t * (1 - t) * (1 - Math.Cos(2 * Math.PI * 0.18))));
+
+    // Each value's rank among them, from 0 (the lowest); one not a number is ranked lowest.
+    private static double[] Ranks(double[] values)
+    {
+        var order = Enumerable.Range(0, values.Length).OrderBy(i => Finite(values[i])).ToArray();
+        var ranks = new double[values.Length];
+        for (var r = 0; r < order.Length; r++)
+        {
+            ranks[order[r]] = r;
+        }
+        return ranks;
+    }
+
+    // Each point's best frames (by each point arm's score) against the whole frames' best (by each frame arm's) at each keep, every frame
+    // registered onto the truth by its true motion and warp, each pixel weighted by the tents of the points about it (where no point
+    // reaches, the choice of the frame arm the point arm names), scored by band against the truth.
     private async Task StackPointsAsync(IPlanetaryFrameStream stream, int frames, Target truth, double[] keeps, ImmutableArray<int> points,
         ImmutableArray<(double X, double Y)> all, int windowX, int windowY, double[] moveX, double[] moveY, ImmutableArray<SyntheticWarp> warps, int first,
-        double[] pointScore, double[] frameScore, CancellationToken ct)
+        (string Name, double[] Score, int Fallback)[] pointArms, (string Name, double[] Score)[] frameArms, CancellationToken ct)
     {
         var inv = CultureInfo.InvariantCulture;
         var (width, height, size, count) = (stream.Width, stream.Height, truth.Size, points.Length);
@@ -263,29 +354,42 @@ internal sealed partial class PlanetaryGradeSubCommand
             }
         }
 
-        // The selections: each point's best frames, and the whole frames' best.
-        var selectedAt = new bool[keeps.Length][];
-        var selectedWhole = new bool[keeps.Length][];
+        // The selections: each point arm's best frames at each point, and each frame arm's best frames.
+        var (pa, fa) = (pointArms.Length, frameArms.Length);
+        var selectedAt = new bool[keeps.Length, pa][];
+        var selectedWhole = new bool[keeps.Length, fa][];
         for (var q = 0; q < keeps.Length; q++)
         {
             var keep = Math.Max(1, (int)Math.Round(keeps[q] * frames));
-            selectedAt[q] = new bool[frames * count];
-            for (var k = 0; k < count; k++)
+            for (var a = 0; a < pa; a++)
             {
-                foreach (var t in Enumerable.Range(0, frames).OrderByDescending(t => Finite(pointScore[(t * count) + k])).Take(keep))
+                var score = pointArms[a].Score;
+                var chosen = new bool[frames * count];
+                for (var k = 0; k < count; k++)
                 {
-                    selectedAt[q][(t * count) + k] = true;
+                    foreach (var t in Enumerable.Range(0, frames).OrderByDescending(t => Finite(score[(t * count) + k])).Take(keep))
+                    {
+                        chosen[(t * count) + k] = true;
+                    }
                 }
+                selectedAt[q, a] = chosen;
             }
-            selectedWhole[q] = new bool[frames];
-            foreach (var t in Enumerable.Range(0, frames).OrderByDescending(t => Finite(frameScore[t])).Take(keep))
+            for (var b = 0; b < fa; b++)
             {
-                selectedWhole[q][t] = true;
+                var score = frameArms[b].Score;
+                var chosen = new bool[frames];
+                foreach (var t in Enumerable.Range(0, frames).OrderByDescending(t => Finite(score[t])).Take(keep))
+                {
+                    chosen[t] = true;
+                }
+                selectedWhole[q, b] = chosen;
             }
         }
 
-        // Every frame registered onto the truth's square and added to each stack with its weights.
-        var stacks = keeps.Length * 2;
+        // Every frame registered onto the truth's square and added to each stack with its weights: per keep, the point arms, then the
+        // frame arms.
+        var perKeep = pa + fa;
+        var stacks = keeps.Length * perKeep;
         var sum = new double[stacks * size * size];
         var weight = new double[stacks * size * size];
         var merge = new Lock();
@@ -308,15 +412,23 @@ internal sealed partial class PlanetaryGradeSubCommand
                         var i = (y * size) + x;
                         for (var q = 0; q < keeps.Length; q++)
                         {
-                            var whole = selectedWhole[q][t] ? 1.0 : 0.0;
-                            var local = (1 - covered[i]) * whole;
-                            foreach (var (k, w) in cover[i])
+                            for (var a = 0; a < pa; a++)
                             {
-                                local += selectedAt[q][(t * count) + k] ? w : 0;
+                                var chosen = selectedAt[q, a];
+                                var local = (1 - covered[i]) * (selectedWhole[q, pointArms[a].Fallback][t] ? 1.0 : 0.0);
+                                foreach (var (k, w) in cover[i])
+                                {
+                                    local += chosen[(t * count) + k] ? w : 0;
+                                }
+                                var s = (((q * perKeep) + a) * size * size) + i;
+                                (localSum[s], localWeight[s]) = (localSum[s] + (local * value), localWeight[s] + local);
                             }
-                            var (a, b) = ((2 * q * size * size) + i, (((2 * q) + 1) * size * size) + i);
-                            (localSum[a], localWeight[a]) = (localSum[a] + (local * value), localWeight[a] + local);
-                            (localSum[b], localWeight[b]) = (localSum[b] + (whole * value), localWeight[b] + whole);
+                            for (var b = 0; b < fa; b++)
+                            {
+                                var whole = selectedWhole[q, b][t] ? 1.0 : 0.0;
+                                var s = (((q * perKeep) + pa + b) * size * size) + i;
+                                (localSum[s], localWeight[s]) = (localSum[s] + (whole * value), localWeight[s] + whole);
+                            }
                         }
                     }
                 }
@@ -339,7 +451,8 @@ internal sealed partial class PlanetaryGradeSubCommand
         consoleHost.WriteScrollable("    stacked, every frame registered onto the truth by its true motion and warp: band errors 1 to 4 (sum)");
         for (var q = 0; q < keeps.Length; q++)
         {
-            foreach (var (name, s) in new[] { ("each point's best by its patch gain", 2 * q), ("the whole frames' best by the gradient", (2 * q) + 1) })
+            var arms = pointArms.Select((arm, a) => (arm.Name, (q * perKeep) + a)).Concat(frameArms.Select((arm, b) => (arm.Name, (q * perKeep) + pa + b)));
+            foreach (var (name, s) in arms)
             {
                 var plane = new float[size * size];
                 for (var i = 0; i < plane.Length; i++)
@@ -349,7 +462,7 @@ internal sealed partial class PlanetaryGradeSubCommand
                 }
                 var bands = truth.Fidelity(PlanetaryMetrics.Normalise(plane, size, size, truth.Disk));
                 consoleHost.WriteScrollable(string.Create(inv,
-                    $"        keep {keeps[q]:P0}, {name,-40} {string.Join(", ", bands.Select(b => b.Error.ToString("0.000", inv)))} ({bands.Sum(b => b.Error):0.000})"));
+                    $"        keep {keeps[q]:P0}, {name,-54} {string.Join(", ", bands.Select(b => b.Error.ToString("0.000", inv)))} ({bands.Sum(b => b.Error):0.000})"));
             }
         }
     }

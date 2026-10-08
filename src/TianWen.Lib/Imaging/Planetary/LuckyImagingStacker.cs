@@ -210,7 +210,7 @@ public sealed class LuckyImagingStacker
                     "A point keep scores each frame through its own mesh as it is folded; pooled points and the median geometry read every frame's points first, so they do not combine with it.");
             }
             pointKeep = new PlanetaryPointKeep(matcher.AlignmentPoints, ctx.PointReferences, Weighted(ctx.Selected, index => ctx.ScoreByIndex[index]),
-                share, ctx.Width, ctx.Height, options.MeshInfluence);
+                share, ctx.Width, ctx.Height, options.AlignmentPointSpacing);
         }
 
         // A frame folded through its mesh, best-of weighted by its own sharpness map when one was made, into the master and into its half.
