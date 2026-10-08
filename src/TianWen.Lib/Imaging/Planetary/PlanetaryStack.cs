@@ -66,6 +66,17 @@ public sealed record PlanetaryStackOptions
     public double KeepFraction { get; init; } = 0.5;
 
     /// <summary>
+    /// Each alignment point keeps its own best share of the frames <see cref="KeepFraction"/> selects (#1350, Strata's Warp+): every
+    /// such frame scored at every point by its patch's gain in a trous band 2 against the stacked reference, each point keeping this
+    /// fraction of them, and a frame folded with a weight a pixel that is the share of the points about it that kept it (every
+    /// candidate where no point reaches). A keep of one with a point keep of K is Warp+ itself; a keep of a quarter with a point keep of
+    /// a fifth keeps 5 % of the frames a point from the best quarter, at a quarter of the cost. Null, the default, folds every selected
+    /// frame everywhere. An option, measured on #1350: on #1071's layered twin per-point selection by this score tied the whole frame's.
+    /// The alignment-point stack only (<see cref="LuckyImagingStacker.StackAsync"/>), never with pooled points or the median geometry.
+    /// </summary>
+    public double? PointKeep { get; init; }
+
+    /// <summary>
     /// The sharpness metric, which grades the frames and weights them. The gradient by default: at 8 bits a frame's finest scale is
     /// its noise, and the Laplacian ranked the twin's frames at +0.19 against their true transfer where the gradient ranks them at
     /// +0.87 (R4).
@@ -342,6 +353,15 @@ public sealed record PlanetaryStackResult(Image Master, int ReferenceIndex, int 
 
     /// <summary>How many cells qualified for a point before <see cref="PlanetaryStackOptions.MaxAlignmentPoints"/> capped them; 0 for a global stack.</summary>
     public int AlignmentPointCandidates { get; init; }
+
+    /// <summary>
+    /// With a point keep (<see cref="PlanetaryStackOptions.PointKeep"/>, #1350), the frames every point chose from and how many each kept;
+    /// <see cref="FramesUsed"/> is then the frames some point kept. Both 0 without one.
+    /// </summary>
+    public int PointKeepCandidates { get; init; }
+
+    /// <inheritdoc cref="PointKeepCandidates"/>
+    public int PointKeptEach { get; init; }
 
     /// <summary>
     /// The master's two halves on its own grid (<see cref="PlanetaryStackOptions.Halves"/>), each finished as the master is: its colours

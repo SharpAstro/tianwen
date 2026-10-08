@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Geometry;
 using System.Numerics;
@@ -199,9 +200,23 @@ public sealed class LuckyImagingStacker
         // The master's two halves (#1313), folded beside it when asked for.
         var halves = options.Halves ? new HalfStacks(ctx) : null;
 
+        // Each point keeping its own best frames (#1350): every frame the global keep selected is a candidate.
+        PlanetaryPointKeep? pointKeep = null;
+        if (options.PointKeep is { } share)
+        {
+            if (tracks is not null)
+            {
+                throw new InvalidOperationException(
+                    "A point keep scores each frame through its own mesh as it is folded; pooled points and the median geometry read every frame's points first, so they do not combine with it.");
+            }
+            pointKeep = new PlanetaryPointKeep(matcher.AlignmentPoints, ctx.PointReferences, Weighted(ctx.Selected, index => ctx.ScoreByIndex[index]),
+                share, ctx.Width, ctx.Height, options.MeshInfluence);
+        }
+
         // A frame folded through its mesh, best-of weighted by its own sharpness map when one was made, into the master and into its half.
         void Fold(Image frame, int index, DisplacementMesh mesh, float[,]? quality, float weight)
         {
+            var pixelShare = pointKeep?.WeightFor(index);
             FoldInto(channelAccum, weightAccum);
             if (halves is not null)
             {
@@ -214,11 +229,11 @@ public sealed class LuckyImagingStacker
             {
                 if (quality is not null)
                 {
-                    frame.AccumulateByMeshWeightedInto(channels, weights, mesh, quality, weight, ctx.SignalConfidence, options.Interpolation);
+                    frame.AccumulateByMeshWeightedInto(channels, weights, mesh, quality, weight, ctx.SignalConfidence, options.Interpolation, pixelShare);
                 }
                 else
                 {
-                    frame.AccumulateByMeshInto(channels, weights, mesh, weight, options.Interpolation);
+                    frame.AccumulateByMeshInto(channels, weights, mesh, weight, options.Interpolation, pixelShare);
                 }
             }
         }
@@ -255,11 +270,36 @@ public sealed class LuckyImagingStacker
         if (ctx.Derotator is { } derotator)
         {
             // Each point matched where the rotation and the shift put it, over the frame's de-rotation (R6 part 2).
-            used = await WalkAsync(InCaptureOrder(ctx.Selected), (frame, index) =>
+            DisplacementMesh DerotatedMesh(Image frame, int index)
             {
                 var shift = derotator.Shift(frame, index);
                 return matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, derotator.FieldFor(index), options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain);
-            }).ConfigureAwait(false);
+            }
+            var order = InCaptureOrder(ctx.Selected);
+            if (pointKeep is not null)
+            {
+                // Every candidate scored at every point through its own mesh, a frame at a time in capture order as the fold walks.
+                foreach (var index in order)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (ctx.ScoreByIndex[index] <= 0f)
+                    {
+                        continue;
+                    }
+                    var frame = await stream.LoadAsync(index, cancellationToken).ConfigureAwait(false);
+                    try
+                    {
+                        pointKeep.Record(index, pointKeep.Score(frame, DerotatedMesh(frame, index)));
+                    }
+                    finally
+                    {
+                        frame.Release();
+                    }
+                }
+                pointKeep.Decide();
+                order = [.. order.Where(index => ctx.ScoreByIndex[index] > 0f && pointKeep.Folds(index))];
+            }
+            used = await WalkAsync(order, DerotatedMesh).ConfigureAwait(false);
         }
         else if (tracks is not null)
         {
@@ -278,6 +318,21 @@ public sealed class LuckyImagingStacker
             var weighted = Weighted(ctx.Selected, index => ctx.ScoreByIndex[index]);
             var aligners = new GlobalAligner?[PlanetaryFrameBatches.MaxSlots];
             var matchers = new AlignmentPointMatcher?[PlanetaryFrameBatches.MaxSlots];
+            if (pointKeep is not null)
+            {
+                // Every candidate scored at every point through the mesh the fold will build for it, side by side as the fold runs.
+                await PlanetaryFrameBatches.RunAsync(stream, weighted,
+                    (frame, _, slot) =>
+                    {
+                        var shift = (aligners[slot] ??= ctx.Aligner.Twin()).Estimate(frame, PlanetaryDisk.BoundingBox(frame));
+                        var mesh = (matchers[slot] ??= matcher.Twin()).BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain);
+                        return pointKeep.Score(frame, mesh);
+                    },
+                    (_, index, scores) => pointKeep.Record(index, scores),
+                    cancellationToken).ConfigureAwait(false);
+                pointKeep.Decide();
+                weighted = [.. weighted.Where(pointKeep.Folds)];
+            }
             await PlanetaryFrameBatches.RunAsync(stream, weighted,
                 (frame, _, slot) =>
                 {
@@ -300,6 +355,8 @@ public sealed class LuckyImagingStacker
             Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, NorthUnread = ctx.NorthUnread, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades), FramesCutKept = FramesKeptThoughCut(ctx.Grades), FramesSmeared = FramesLeftOutAsSmeared(ctx.Grades), FramesDim = FramesLeftOutAsDim(ctx.Grades), Cropped = cropped,
             AlignmentPoints = ctx.Matcher?.AlignmentPoints.Length ?? 0,
             AlignmentPointCandidates = ctx.AlignmentPointCandidates,
+            PointKeepCandidates = pointKeep?.Candidates ?? 0,
+            PointKeptEach = pointKeep?.KeptEach ?? 0,
         };
     }
 
@@ -552,7 +609,8 @@ public sealed class LuckyImagingStacker
         PlanetaryNorthDecision? North,
         bool NorthUnread,
         double? TurnPx,
-        int AlignmentPointCandidates);
+        int AlignmentPointCandidates,
+        ImmutableArray<float[]> PointReferences);
 
     private static async Task<StackContext> PrepareAsync(IPlanetaryFrameStream stream, PlanetaryStackOptions options, bool includeAlignmentPoints, CancellationToken cancellationToken)
     {
@@ -660,8 +718,12 @@ public sealed class LuckyImagingStacker
             {
                 masterMeta = masterMeta with { ObjectName = planet.ToString() };
             }
+            // Each point's patch of the stacked reference, which a point keep scores every frame's against (#1350).
+            var pointReferences = options.PointKeep is not null && matcher is { } pointMatcher
+                ? PlanetaryPointKeep.ReferencePatches(reference, pointMatcher.AlignmentPoints)
+                : [];
             return new StackContext(grades, referenceIndex, selected, scoreByIndex, aligner, matcher, signalConfidence,
-                reference.Width, reference.Height, reference.ChannelCount, masterMeta, derotator, north, northUnread, turnPx, apCandidates);
+                reference.Width, reference.Height, reference.ChannelCount, masterMeta, derotator, north, northUnread, turnPx, apCandidates, pointReferences);
         }
         finally
         {

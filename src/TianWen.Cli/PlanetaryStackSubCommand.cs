@@ -125,6 +125,10 @@ internal sealed class PlanetaryStackSubCommand(
         {
             Description = "Fraction of frames to keep, sharpest first (lucky imaging). By default half when the master is sharpened (#1083: restoration divides the blur out, and every frame then lowers the noise) and a tenth under --no-sharpen (R4); a quarter under --legacy.",
         };
+        var pointKeepOpt = new Option<double?>("--point-keep")
+        {
+            Description = "Each alignment point keeps its own best share of the frames --keep selects (#1350, Strata's Warp+): every such frame scored at every point by its patch's gain in a trous band 2 against the stacked reference, a pixel weighted by the share of the points about it that kept the frame. --keep 1 --point-keep K is Warp+; --keep 0.25 --point-keep 0.2 keeps 5 % of the frames a point from the best quarter. The alignment-point stack only.",
+        };
         var qualityOpt = new Option<QualityMetric?>("--quality")
         {
             Description = "Sharpness metric for grading + per-AP best-of: gradient (Sobel energy, the default; R4 ranks 8-bit frames by it at +0.87 against their true transfer) or laplacian (variance, +0.19; the --legacy metric).",
@@ -272,7 +276,7 @@ internal sealed class PlanetaryStackSubCommand(
             Arguments = { serArg },
             Options =
             {
-                outputOpt, labelOpt, keepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt,
+                outputOpt, labelOpt, keepOpt, pointKeepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt,
                 noPerPointOpt, noSignalGateOpt, noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt,
                 noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, strengthOpt, sharpenLuminanceOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt, estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt,
@@ -363,6 +367,14 @@ internal sealed class PlanetaryStackSubCommand(
             var drizzleScale = parseResult.GetValue(drizzleOpt);
             var useDrizzle = drizzleScale > 0f;
             var halves = parseResult.GetValue(halvesOpt);
+            var pointKeep = parseResult.GetValue(pointKeepOpt);
+            if (pointKeep is { } pointShare && (pointShare is <= 0 or > 1 || useDrizzle || useGlobal))
+            {
+                consoleHost.WriteError(useDrizzle || useGlobal
+                    ? "--point-keep chooses each alignment point's frames: the alignment-point stack only, not a drizzle or a global one."
+                    : $"--point-keep must be in (0, 1]; got {pointShare}.");
+                return 1;
+            }
             if (halves && (useDrizzle || useGlobal))
             {
                 consoleHost.WriteError("--halves folds its halves beside the alignment-point stack, not a drizzle or a global one.");
@@ -447,6 +459,7 @@ internal sealed class PlanetaryStackSubCommand(
             var options = baseline with
             {
                 KeepFraction = keep,
+                PointKeep = pointKeep,
                 QualityEstimator = metric switch
                 {
                     QualityMetric.Gradient => new GradientEnergyEstimator(),
@@ -576,6 +589,11 @@ internal sealed class PlanetaryStackSubCommand(
                 consoleHost.WriteScrollable(
                     $"[planetary] {baseName}: stacked {result.FramesUsed}/{result.FramesGraded} frames " +
                     $"(reference #{result.ReferenceIndex}{(result.AlignmentPoints > 0 ? $", {result.AlignmentPoints} alignment points{(result.AlignmentPointCandidates > result.AlignmentPoints ? $" of {result.AlignmentPointCandidates}, capped" : "")}" : "")}) in {sw.Elapsed.TotalSeconds:F1}s");
+                if (result.PointKeptEach > 0)
+                {
+                    consoleHost.WriteScrollable(
+                        $"[planetary] each of {result.AlignmentPoints} points kept its best {result.PointKeptEach} of {result.PointKeepCandidates} frames by its patch's gain in band 2; {result.FramesUsed} frames kept by some point were folded");
+                }
                 if (result.FramesCut > 0)
                 {
                     consoleHost.WriteScrollable($"[planetary] left out {result.FramesCut} frames whose planet is cut, by the frame's edge or a straight line inside it, or which hold none (it drifted out of the field)");
