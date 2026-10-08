@@ -1148,6 +1148,11 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "arm B was taught on.",
         };
         var texturedOpt = new Option<int>("--textured") { Description = "Also the centres of this many cells of a --size grid that hold the most texture to draw." };
+        var tailsOpt = new Option<bool>("--tails-from-plate")
+        {
+            Description = "S3's tails: the log-normal's width set per pixel from the kurtosis the plate's own fine scales hold above " +
+                          "their noise, each drawn scale held to unit local RMS (default: one width, 0.8, as R2d's arm B was drawn).",
+        };
         var measureOpt = new Option<bool>("--measure")
         {
             Description = "R2e's S3: read both cells' luminance with sky-texture's measure (coherence and alignment per scale) and " +
@@ -1158,7 +1163,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "at held to the plate's own local signal, and knots that are never the PSF) at cells centred where asked, each " +
             "beside the plate's own cutout there.")
         {
-            Options = { plateOpt, fwhmOpt, atOpt, sizeOpt, seedOpt, noNoiseOpt, outOpt, steerOpt, texturedOpt, measureOpt },
+            Options = { plateOpt, fwhmOpt, atOpt, sizeOpt, seedOpt, noNoiseOpt, outOpt, steerOpt, texturedOpt, measureOpt, tailsOpt },
         };
         command.SetAction(parseResult =>
         {
@@ -1191,7 +1196,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             var fwhm = parseResult.GetValue(fwhmOpt);
             var (written, noise) = SyntheticBackgroundPreview.Run(parseResult.Required(plateOpt), parseResult.Required(outOpt),
                 fwhm, centres, parseResult.GetValue(sizeOpt), parseResult.GetValue(seedOpt), !parseResult.GetValue(noNoiseOpt),
-                steering, parseResult.GetValue(texturedOpt), parseResult.GetValue(measureOpt));
+                steering, parseResult.GetValue(texturedOpt), parseResult.GetValue(measureOpt), parseResult.GetValue(tailsOpt));
             consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
                 $"[synthetic-background] the plate's noise {string.Join(" / ", noise.Select(static n => n.ToString("G3", CultureInfo.InvariantCulture)))}; {written.Length} cell(s):"));
             var drawn = SyntheticBackground.FirstKeptScale(fwhm);
