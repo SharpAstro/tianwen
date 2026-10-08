@@ -690,6 +690,15 @@ contrast the planet shows that night.
 
 - **One routine** for the burst reading (the gradient score and the FFT band score side by side until the validation below picks),
   behind a live readout and the autofocus alike.
+- **Two new `SampleKind`s through the star autofocus's own `MetricSampleMap`**, whose fit is chosen by the kind:
+  - `LimbBlur`, the limb fit's blur sigma in pixels on a stack of the burst's best frames, is a WIDTH like HFD. The seeing's blur
+    and the defocus add in quadrature, `sigma(x) = sqrt(s0^2 + k^2 (x - p)^2)`, which is the hyperbola `Hyperbola.FindBestHyperbolaFit`
+    already fits, so it drops in unchanged and reads absolutely. It costs a limb fit (2 to 3 s cold) a position.
+  - `FftBandPower` is a POWER, highest at focus and relative only (its level is the planet's and the night's), so the hyperbola does
+    not fit it. Under a blur near Gaussian at its band, `ln P(x) = A - B (x - p)^2`: a parabola in the log, a three-parameter
+    relative fit, which is in effect SharpCap's relative curve (SharpCap offers no hyperbolic autofocus on it).
+  - A burst is aggregated by a high PERCENTILE, which `AggregationMethod` gains (its `Maximum` throws in `MetricSampleMap.Aggregate`
+    today, and one lucky frame is no reading). Both may stay: the power for the live readout, the blur for the autofocus.
 - **A live readout** in the FOCUSER section, with the best so far marked: a V by hand.
 - **An autofocus**: the focuser stepped across a range, a burst at each position, a peak fitted through the top readings, the focuser
   moved to it through its backlash rule (`BacklashEstimator`'s overshoot), and a last burst to verify.
