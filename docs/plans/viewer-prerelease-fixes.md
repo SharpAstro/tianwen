@@ -41,7 +41,7 @@ the 35 TIFF / import / codec tests pass against it.
 | P8 | A solver exception puts raw binary in the status bar | **FIXED** |
 | P9 | Stray text fragment at the left edge (needs confirmation) | UNCONFIRMED |
 | P10 | Hand-off may select the adjacent row (needs confirmation) | UNCONFIRMED |
-| P11 | `--help` reports no version, and the AI enhancer status is invisible | **HALF FIXED**: version + status shipped, model download remains |
+| P11 | `--help` reports no version, and the AI enhancer status is invisible | **FIXED**: version + status shipped; the model download it left open went with the SETI Astro tier (removed 2026-09-26) |
 | P12 | Gain/ISO and offset are parsed but never shown in the info pane | **FIXED** |
 | P13 | No in-depth user documentation | **FIXED** 2026-09-06 (on the org site) |
 | P14 | An EMPTY instance does not adopt a file, because the gate is folder-scoped | **FIXED** |
@@ -60,7 +60,13 @@ the 35 TIFF / import / codec tests pass against it.
 | P27 | Escape and an open panel: NOT a defect, and now pinned. My first diagnosis was wrong | **VERIFIED** 2026-09-08 |
 | P28 | The menu cannot name the object under the cursor, and the atlas link only copies | **FIXED** 2026-09-08 |
 | P29 | A touchscreen pinch does not zoom: the events were raised and dropped | **FIXED** 2026-09-09 |
+| P30 | `Auto` renders an enhanced frame as a flat colour field | **FIXED** 2026-09-10 |
+| P31 | Pan is dead in the strip where the collapsed file list used to be | **FIXED** 2026-09-10 |
+| P32 | A failed catalogue load would rethrow on every frame | **FIXED** 2026-09-10 |
+| P33 | The info strip: statistics roll up into a table, white balance moves to a toolbar popover | **DONE** 2026-09-11 |
+| P34 | A tap resolves against what is DRAWN; the ring's name is the selected object's only label | **FIXED** 2026-09-12 |
 | P35 | Save opens to Explorer's last folder, not the currently-open file's folder | **SHIPPED** 2026-09-27 (#904) |
+| P36 | One Enhance popover: the AI program for deep sky, the sharpening for a planet | PLANNED 2026-10-08 (#1345), for 10.0 |
 
 ---
 
@@ -1936,3 +1942,43 @@ record its arguments and answer "cancelled" (no window, nothing written), for bo
 fallbacks (no path, blank path, a folder that has gone). The end-to-end pair fails with the controller
 passing `null`.
 
+
+## P36. One Enhance popover: the AI program for deep sky, the sharpening for a planet  (PLANNED 2026-10-08)
+
+Tracked by #1345, wanted in 10.0.
+
+**The ask.** "wonder if we need an enhance supergroup that has sharpen here etc and the AI one for deep
+sky" (the owner, 2026-10-08, on hearing that the audit of #1343 found the planetary controls in the
+info strip, its row 22).
+
+**Today the viewer's enhancement is in three places.** The AI enhance is `ToolbarAction.Enhance`, the
+sparkles mark (`E`): a bare toggle, whose backend (Auto / RC / N2N) is a right-click cycle nothing on
+screen mentions. The planetary sharpening is drawn in the docked strip (`RenderTelescopeControls`, the
+planet, filter, aperture, design and strength groups since #1159 and #1314, then
+`RenderWaveletControls`), which breaks the rule P33 set: the strip REPORTS, controls are toolbar
+popovers. The Best stack has its own panel.
+
+**The shape.** The sparkles button opens one popover, the fold P33 made for white balance and the tone
+popover for boost and the soft clip:
+
+- **A deep-sky frame**: the AI program as `CanonicalProgram` would run it, from what SERVES
+  (`SharpenPipeline.CapabilitiesFor`), the backend as a `Layout.Builder.ButtonGroup` of the backends
+  that serve (one way to choose, so the right-click cycle goes), run / cancel with its progress, and off.
+- **A planet** (a SER, the live stack, a planetary master): the strip's planetary controls moved whole,
+  as P33 moved the white balance section whole: planet, filter, aperture, design, the strength stops,
+  Derive, the wavelet dials and Reset.
+- **One rule says which half shows**, a predicate on `ViewerState` that replaces the strip's two
+  conditions today (`ShowStacked || SequencePath is not null || IsPlanetaryMaster` for the telescope
+  controls, and `ShowStacked || ShowBest || IsPlanetaryMaster` for the dials). The deep-sky models do
+  not serve a planetary frame, so neither half shares the popover with the other.
+- **The button is lit** while either half's enhancement is in force; `E` keeps its toggle.
+
+The strip goes back to what it reports. The Frames / Live / Best switch stays in the transport: it
+chooses what is shown, not how it is enhanced.
+
+**Why in 10.0.** It is the first release to ship the planetary controls, so they should arrive where
+they will stay, before the Store listing describes them in the strip.
+
+**How it will be pinned.** As P33's popover is: through the hit tracker, so a closed popover has
+registered nothing and the strip registers no control (`ViewerWhiteBalancePopoverTests` is the model),
+and through `ViewerE2E` at DPI 1 and 1.5.
