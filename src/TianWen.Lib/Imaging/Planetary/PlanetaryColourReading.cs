@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Globalization;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
@@ -49,6 +50,16 @@ public readonly record struct ColourReading(OkLab Cast, double Spread, OkLab Rim
 
     /// <summary>How far the rim's hue lies from the cast's, degrees: a cyan rim on a yellow planet reads near 180.</summary>
     public double RimHueOffsetDeg => OkLab.HueDistanceDeg(Cast.HueDeg, Rim.HueDeg);
+
+    /// <summary>
+    /// The reading in words, for a verb's report: the interior's cast, spread and chroma quantiles, and the rim's, for <c>planetary-judge</c>
+    /// and <c>planetary-look</c> alike (the audit on #1343 found the line written twice).
+    /// </summary>
+    public string Describe()
+    {
+        return string.Create(CultureInfo.InvariantCulture,
+            $"(OKLab at one luminance, {InteriorPixels} px inside 0.9 of the outline): cast chroma {Cast.Chroma:0.0000} at hue {Cast.HueDeg:0.0} deg, spread {Spread:0.0000}, chroma p10/p50/p90 {ChromaAt(0.10):0.0000}/{ChromaAt(0.50):0.0000}/{ChromaAt(0.90):0.0000}; the rim ({RimPixels} px, 0.9 to 1.1) chroma {Rim.Chroma:0.0000}, {RimOverCast:0.00} of the cast's, hue {Rim.HueDeg:0.0} deg ({RimHueOffsetDeg:0.0} from the cast's); off the cast's hue, pixel by pixel, chroma {RimOffHue:0.0000} (p90)");
+    }
 }
 
 /// <summary>

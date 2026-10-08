@@ -57,13 +57,7 @@ internal sealed class PlanetaryLookSubCommand(IConsoleHost consoleHost, MasterPr
             Image? looked = null;
             try
             {
-                CatalogIndex? planet = parseResult.GetValue(planetOpt)?.ToLowerInvariant() switch
-                {
-                    null => PlanetaryCaptureName.Planet(masterPath),
-                    "jupiter" => CatalogIndex.Jupiter,
-                    "saturn" => CatalogIndex.Saturn,
-                    _ => null,
-                };
+                var planet = PlanetaryGeometrySubCommands.ParsePlanet(parseResult.GetValue(planetOpt), masterPath);
                 if (planet is not { } body)
                 {
                     consoleHost.WriteError("name the planet (--planet jupiter or saturn)");
@@ -107,8 +101,8 @@ internal sealed class PlanetaryLookSubCommand(IConsoleHost consoleHost, MasterPr
                         return 1;
                     }
                     var referenceDisk = MetricDisk.From(referenceFit, options);
-                    var placement = await Task.Run(() => PlanetaryReferenceJudge.Place(PlanetaryReferenceJudge.Luminance(master), master.Width, master.Height, disk,
-                        PlanetaryReferenceJudge.Luminance(read), read.Width, read.Height, referenceDisk), ct);
+                    var placement = await Task.Run(() => PlanetaryReferenceJudge.Place(PlanetaryLimbFit.Luminance(master), master.Width, master.Height, disk,
+                        PlanetaryLimbFit.Luminance(read), read.Width, read.Height, referenceDisk), ct);
                     placed = (referenceDisk, placement);
                     var (_, theirs) = PlanetaryReferenceJudge.ReadColours(master, disk, read, referenceDisk, placement);
                     look = ColourLook.FittedTo(theirs);
@@ -245,8 +239,7 @@ internal sealed class PlanetaryLookSubCommand(IConsoleHost consoleHost, MasterPr
         return PlanetaryColourReading.Read(r, g, b, image.Width, image.Height, disk, PlanetaryColour.SkyOrBlack(r, g, b, image.Width, image.Height, disk));
     }
 
-    private void Line(string title, in ColourReading reading) => consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-        $"{title}: cast chroma {reading.Cast.Chroma:0.0000} at hue {reading.Cast.HueDeg:0.0} deg, spread {reading.Spread:0.0000}, chroma p10/p50/p90 {reading.ChromaAt(0.10):0.0000}/{reading.ChromaAt(0.50):0.0000}/{reading.ChromaAt(0.90):0.0000}; the rim off the cast's hue, pixel by pixel, chroma {reading.RimOffHue:0.0000} (p90)"));
+    private void Line(string title, in ColourReading reading) => consoleHost.WriteScrollable($"{title} {reading.Describe()}");
 
     private static double GainAtQuantile(System.Collections.Immutable.ImmutableArray<double> gains, double q)
         => gains[PlanetaryColourReading.QuantileGrid.IndexOf(q)];

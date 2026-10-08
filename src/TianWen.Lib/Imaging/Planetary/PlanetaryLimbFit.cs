@@ -142,6 +142,21 @@ public static class PlanetaryLimbFit
     {
         ArgumentNullException.ThrowIfNull(image);
         var plane = new float[image.Width * image.Height];
+        Luminance(image, plane);
+        return plane;
+    }
+
+    /// <summary>
+    /// <see cref="Luminance(Image)"/> into <paramref name="into"/> (row-major, overwritten): the one channel mean a planetary master's
+    /// luminance is read by, for the limb fit, the judge, the composition and the sharpening alike (the audit on #1343 found it written out
+    /// five times). Each channel is divided by their count and then summed, in channel order, so every caller gets the limb fit's bits;
+    /// <see cref="LumaProxy"/>, the frame graders' proxy over a region, sums first and scales once, and rounds differently.
+    /// </summary>
+    public static void Luminance(Image image, Span<float> into)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        var plane = into[..(image.Width * image.Height)];
+        plane.Clear();
         var channels = image.ChannelCount;
         for (var c = 0; c < channels; c++)
         {
@@ -151,7 +166,6 @@ public static class PlanetaryLimbFit
                 plane[i] += source[i] / channels;
             }
         }
-        return plane;
     }
 
     /// <summary>

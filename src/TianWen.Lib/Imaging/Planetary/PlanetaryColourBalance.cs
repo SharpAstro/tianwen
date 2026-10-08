@@ -174,18 +174,21 @@ public static class PlanetaryColourBalance
     /// </summary>
     public static LinearRgb GainsThrough(in LinearRgb mean, in LinearRgb target, ReadOnlySpan<float> cameraMatrix)
     {
-        // The camera colour, white-balanced, that the matrix takes to the target: M^-1 target, by Cramer's rule.
-        var (m00, m01, m02, m10, m11, m12, m20, m21, m22) = ((double)cameraMatrix[0], (double)cameraMatrix[1], (double)cameraMatrix[2],
-            (double)cameraMatrix[3], (double)cameraMatrix[4], (double)cameraMatrix[5], (double)cameraMatrix[6], (double)cameraMatrix[7], (double)cameraMatrix[8]);
-        var det = (m00 * ((m11 * m22) - (m12 * m21))) - (m01 * ((m10 * m22) - (m12 * m20))) + (m02 * ((m10 * m21) - (m11 * m20)));
-        if (Math.Abs(det) < 1e-12)
+        // The camera colour, white-balanced, that the matrix takes to the target: M^-1 target.
+        Span<double> matrix = stackalloc double[9];
+        for (var i = 0; i < 9; i++)
+        {
+            matrix[i] = cameraMatrix[i];
+        }
+        Span<double> inverse = stackalloc double[9];
+        if (!CameraColorMatrix.TryInvert3(matrix, inverse))
         {
             return new LinearRgb(double.NaN, double.NaN, double.NaN);
         }
         var (t0, t1, t2) = (target.R, target.G, target.B);
-        var u0 = ((t0 * ((m11 * m22) - (m12 * m21))) - (m01 * ((t1 * m22) - (m12 * t2))) + (m02 * ((t1 * m21) - (m11 * t2)))) / det;
-        var u1 = ((m00 * ((t1 * m22) - (m12 * t2))) - (t0 * ((m10 * m22) - (m12 * m20))) + (m02 * ((m10 * t2) - (t1 * m20)))) / det;
-        var u2 = ((m00 * ((m11 * t2) - (t1 * m21))) - (m01 * ((m10 * t2) - (t1 * m20))) + (t0 * ((m10 * m21) - (m11 * m20)))) / det;
+        var u0 = (inverse[0] * t0) + (inverse[1] * t1) + (inverse[2] * t2);
+        var u1 = (inverse[3] * t0) + (inverse[4] * t1) + (inverse[5] * t2);
+        var u2 = (inverse[6] * t0) + (inverse[7] * t1) + (inverse[8] * t2);
         var (gr, gg, gb) = (u0 / mean.R, u1 / mean.G, u2 / mean.B);
         return new LinearRgb(gr / gg, 1, gb / gg);
     }

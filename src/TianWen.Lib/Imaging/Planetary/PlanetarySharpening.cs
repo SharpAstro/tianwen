@@ -306,7 +306,7 @@ public static class PlanetarySharpening
                 }
                 var physical = options.EdgeReach is { } reach
                     ? PlanetaryFinestBand.FitPhysical(edge, pupil.DiameterM / (wavelengthNm * 1e-9) / ShortExposurePsf.ArcsecPerRadian * limbWindow.ArcsecPerPixel, 0.02, reach)
-                    : (PhysicalKernel?)null;
+                    : null as PhysicalKernel?;
                 var kernel = Tabulated(f => Math.Clamp(physical is { } p ? p.TransferAt(f) : edge.TransferAt(f), 0, 1));
                 var power = PlanetaryWaveletGains.StackPower(window, size, size, disk);
                 var white = PlanetaryInverse.WhiteNoise(PlanetaryWaveletGains.Interior(window, size, size, disk), size, size);
@@ -447,19 +447,8 @@ public static class PlanetarySharpening
     // The mean of a colour image's three planes, a one-channel image on its grid.
     private static Image MeanOfPlanes(Image image)
     {
-        var (width, height) = (image.Width, image.Height);
-        var mean = new float[height, width];
-        for (var c = 0; c < 3; c++)
-        {
-            var plane = image.GetChannelSpan(c);
-            for (var y = 0; y < height; y++)
-            {
-                for (var x = 0; x < width; x++)
-                {
-                    mean[y, x] += plane[(y * width) + x] / 3;
-                }
-            }
-        }
+        var mean = new float[image.Height, image.Width];
+        PlanetaryLimbFit.Luminance(image, System.Runtime.InteropServices.MemoryMarshal.CreateSpan(ref mean[0, 0], mean.Length));
         return new Image([mean], BitDepth.Float32, image.MaxValue, image.MinValue, image.Pedestal, image.ImageMeta);
     }
 

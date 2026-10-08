@@ -56,11 +56,7 @@ public static class PlanetaryFinishing
         => pupil.DiameterM / (wavelengthNm * 1e-9) / ShortExposurePsf.ArcsecPerRadian * arcsecPerPixel;
 
     /// <summary>The low-pass's transfer at <paramref name="cyclesPerPixel"/>: one to <see cref="CutoffStart"/> of the cutoff, zero past it.</summary>
-    public static double CutoffTransfer(double cyclesPerPixel, double cutoff)
-    {
-        var t = Math.Clamp((cyclesPerPixel - (CutoffStart * cutoff)) / ((1 - CutoffStart) * cutoff), 0, 1);
-        return 1 - (t * t * t * ((t * ((6 * t) - 15)) + 10));
-    }
+    public static double CutoffTransfer(double cyclesPerPixel, double cutoff) => Smootherstep(cyclesPerPixel, CutoffStart * cutoff, cutoff);
 
     /// <summary>
     /// <paramref name="window"/> low-passed at the pupil's cutoff (<see cref="CutoffTransfer"/>), radially: what a sharpening raised past it
@@ -266,10 +262,10 @@ public static class PlanetaryFinishing
                 double sum = 0, squares = 0;
                 for (var dy = -half; dy <= half; dy++)
                 {
-                    var row = Mirror(y + dy, size) * size;
+                    var row = ATrousWaveletTransform.Reflect(y + dy, size) * size;
                     for (var dx = -half; dx <= half; dx++)
                     {
-                        double v = plane[row + Mirror(x + dx, size)];
+                        double v = plane[row + ATrousWaveletTransform.Reflect(x + dx, size)];
                         (sum, squares) = (sum + v, squares + (v * v));
                     }
                 }
@@ -292,10 +288,10 @@ public static class PlanetaryFinishing
                 double sum = 0;
                 for (var dy = -1; dy <= 1; dy++)
                 {
-                    var row = Mirror(y + dy, size) * size;
+                    var row = ATrousWaveletTransform.Reflect(y + dy, size) * size;
                     for (var dx = -1; dx <= 1; dx++)
                     {
-                        sum += plane[row + Mirror(x + dx, size)];
+                        sum += plane[row + ATrousWaveletTransform.Reflect(x + dx, size)];
                     }
                 }
                 result[(y * size) + x] = (float)(plane[(y * size) + x] - (sum / 9));
@@ -339,25 +335,15 @@ public static class PlanetaryFinishing
                 double sum = 0;
                 for (var dy = -radius; dy <= radius; dy++)
                 {
-                    var row = Mirror(y + dy, size) * size;
+                    var row = ATrousWaveletTransform.Reflect(y + dy, size) * size;
                     for (var dx = -radius; dx <= radius; dx++)
                     {
-                        sum += kernel[((dy + radius) * side) + dx + radius] * plane[row + Mirror(x + dx, size)];
+                        sum += kernel[((dy + radius) * side) + dx + radius] * plane[row + ATrousWaveletTransform.Reflect(x + dx, size)];
                     }
                 }
                 result[(y * size) + x] = (float)sum;
             }
         }
         return result;
-    }
-
-    // An index mirrored about the edges: -1 is 1, size is size - 2.
-    private static int Mirror(int i, int size)
-    {
-        if (i < 0)
-        {
-            return Math.Min(-i, size - 1);
-        }
-        return i >= size ? Math.Max(0, (2 * size) - 2 - i) : i;
     }
 }

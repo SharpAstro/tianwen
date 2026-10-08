@@ -123,7 +123,7 @@ public static class PlanetaryComposition
         nameof(Filter.Green) => Filter.Green,
         nameof(Filter.Blue) => Filter.Blue,
         nameof(Filter.Luminance) => Filter.Luminance,
-        _ => (Filter?)null,
+        _ => null as Filter?,
     };
 
     /// <summary>The composing role of a filter by its effective wavelength (<see cref="PlanetaryCaptureName.WavelengthNm"/>): 650 red, 530 green, 460 blue, an IR-pass's 750 or an L's 550 the luminance.</summary>
@@ -133,7 +133,7 @@ public static class PlanetaryComposition
         530 => Filter.Green,
         460 => Filter.Blue,
         750 or 550 => Filter.Luminance,
-        _ => (Filter?)null,
+        _ => null as Filter?,
     };
 
     /// <summary>
@@ -411,27 +411,11 @@ public static class PlanetaryComposition
         var after = new LinearRgb(MeanInside(detailed.GetChannelSpan(0)), MeanInside(detailed.GetChannelSpan(1)), MeanInside(detailed.GetChannelSpan(2)));
 
         // The detailed master's luminance as the mean of its planes, against the luminance, band by band.
-        var mean = new float[width * height];
-        for (var c = 0; c < 3; c++)
-        {
-            var plane = detailed.GetChannelSpan(c);
-            for (var i = 0; i < mean.Length; i++)
-            {
-                mean[i] += plane[i] / 3;
-            }
-        }
+        var mean = PlanetaryLimbFit.Luminance(detailed);
         const int bands = 4;
         var ours = ATrousWaveletTransform.Decompose(mean, width, height, bands);
         var theirs = ATrousWaveletTransform.Decompose(luminance.GetChannelSpan(0), width, height, bands);
-        var colourMean = new float[width * height];
-        for (var c = 0; c < 3; c++)
-        {
-            var plane = rgb.GetChannelSpan(c);
-            for (var i = 0; i < colourMean.Length; i++)
-            {
-                colourMean[i] += plane[i] / 3;
-            }
-        }
+        var colourMean = PlanetaryLimbFit.Luminance(rgb);
         var colours = ATrousWaveletTransform.Decompose(colourMean, width, height, bands);
         var (colourLevel, luminanceLevel) = (MeanInside(colourMean), lMean);
         var (colourRms, luminanceRms) = (new double[bands], new double[bands]);
@@ -493,12 +477,11 @@ public static class PlanetaryComposition
         {
             return (null, [], double.NaN, double.NaN, $"a colour master has three planes and three wavelengths, this one {colour.ChannelCount} and {wavelengthsNm.Count}");
         }
-        var options = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, instant));
-        if (PlanetaryLimbFit.Fit(colour, options) is not { } fit)
+        if (PlanetaryLimbFit.FitAt(colour, planet, instant) is not { } limb)
         {
             return (null, [], double.NaN, double.NaN, "the master's limb did not fit");
         }
-        var disk = MetricDisk.From(fit, options);
+        var disk = limb.Disk;
         var (width, height) = (colour.Width, colour.Height);
         var planes = new Image[3];
         var levels = new double[3];
@@ -639,8 +622,7 @@ public static class PlanetaryComposition
     }
 
     // A stack's limb, fitted at its own instant (Saturn's rings in the model).
-    private static LimbFit? FitOf(PlanetaryMonoStack stack)
-        => PlanetaryLimbFit.Fit(stack.Image, PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(stack.Planet, stack.Instant)));
+    private static LimbFit? FitOf(PlanetaryMonoStack stack) => PlanetaryLimbFit.FitAt(stack.Image, stack.Planet, stack.Instant)?.Fit;
 
     // The mean of a filter's stacks' planes, or null for none.
     private static float[,]? Mean(IReadOnlyList<PlanetaryMonoStack> stacks, Filter filter)

@@ -764,16 +764,13 @@ public static class PlanetaryMetrics
                 (sz, sxz, syz) = (sz + z, sxz + (dx * z), syz + (dy * z));
             }
         }
-        // The normal equations [n sx sy; sx sxx sxy; sy sxy syy] (A B C) = (sz sxz syz), by Cramer's rule.
-        var det = (n * ((sxx * syy) - (sxy * sxy))) - (sx * ((sx * syy) - (sxy * sy))) + (sy * ((sx * sxy) - (sxx * sy)));
-        if (n < 3 || Math.Abs(det) < 1e-9)
+        // The normal equations [n sx sy; sx sxx sxy; sy sxy syy] (A B C) = (sz sxz syz), through the one normal-equation solve.
+        if (n < 3)
         {
             return null;
         }
-        var a = ((sz * ((sxx * syy) - (sxy * sxy))) - (sx * ((sxz * syy) - (sxy * syz))) + (sy * ((sxz * sxy) - (sxx * syz)))) / det;
-        var b = ((n * ((sxz * syy) - (sxy * syz))) - (sz * ((sx * syy) - (sxy * sy))) + (sy * ((sx * syz) - (sxz * sy)))) / det;
-        var c = ((n * ((sxx * syz) - (sxz * sxy))) - (sx * ((sx * syz) - (sxz * sy))) + (sz * ((sx * sxy) - (sxx * sy)))) / det;
-        return (a, b, c);
+        var normal = new double[,] { { n, sx, sy }, { sx, sxx, sxy }, { sy, sxy, syy } };
+        return PolynomialLeastSquares.SolveNormalEquations(normal, [sz, sxz, syz]) is { } abc ? (abc[0], abc[1], abc[2]) : null;
     }
 
     private static bool IsLocalMaximum(ReadOnlySpan<float> plane, int width, int x, int y)

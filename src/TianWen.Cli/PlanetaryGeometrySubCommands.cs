@@ -1179,4 +1179,20 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
 
     internal static DateTimeOffset? ParseUtc(string? text)
         => DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var utc) ? utc : null;
+
+    /// <summary>
+    /// The planet a verb's <c>--planet</c> names, Jupiter or Saturn (the planets these verbs read), or, given none, the one the capture's own
+    /// name says (<see cref="PlanetaryCaptureName.Planet"/>, when there is a <paramref name="path"/>); null for any other name, so the verb
+    /// can say what it takes. One reading for every planetary verb: the audit on #1343 found the same switch in seven.
+    /// </summary>
+    internal static CatalogIndex? ParsePlanet(string? text, string? path)
+    {
+        return text?.ToLowerInvariant() switch
+        {
+            null => path is not null ? PlanetaryCaptureName.Planet(path) : null,
+            "jupiter" => CatalogIndex.Jupiter,
+            "saturn" => CatalogIndex.Saturn,
+            _ => null,
+        };
+    }
 }

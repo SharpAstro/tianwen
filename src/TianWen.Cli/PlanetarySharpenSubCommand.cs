@@ -91,22 +91,15 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     halves = new PlanetaryStackHalves(halfA, halfB);
                 }
                 var planetName = parseResult.GetValue(planetOpt)?.ToLowerInvariant();
-                CatalogIndex? planet = planetName switch
-                {
-                    null => PlanetaryCaptureName.Planet(path),
-                    "jupiter" => CatalogIndex.Jupiter,
-                    "saturn" => CatalogIndex.Saturn,
-                    _ => null,
-                };
+                var planet = PlanetaryGeometrySubCommands.ParsePlanet(planetName, path);
                 if (planet is not { } body)
                 {
                     consoleHost.WriteError($"{path}: name the planet (--planet jupiter or saturn)");
                     return 1;
                 }
                 var truthPath = parseResult.GetValue(truthOpt);
-                var meta = master.ImageMeta;
-                DateTimeOffset? when = PlanetaryGeometrySubCommands.ParseUtc(parseResult.GetValue(utcOpt))
-                    ?? (meta.ExposureStartTime.Year > 1 ? meta.ExposureStartTime + (meta.ExposureDuration / 2) : (DateTimeOffset?)null)
+                var when = PlanetaryGeometrySubCommands.ParseUtc(parseResult.GetValue(utcOpt))
+                    ?? PlanetaryBestStack.InstantOf(master, epoch: null)
                     ?? (truthPath is not null ? PlanetaryMeasureSubCommand.ReadTruth(colourTruth(truthPath, master), consoleHost)?.Time : null);
                 if (when is not { } instant)
                 {

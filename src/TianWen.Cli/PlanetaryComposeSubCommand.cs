@@ -248,7 +248,7 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
             var inv = CultureInfo.InvariantCulture;
             if (PlanetaryCaptureName.Named(master.ImageMeta.ObjectName) is { } planet
                 && PlanetaryBestStack.InstantOf(master, epoch: null) is { } instant
-                && await Task.Run(() => LimbOf(master, planet, instant), ct) is { } disk)
+                && await Task.Run(() => PlanetaryLimbFit.FitAt(master, planet, instant), ct) is (_, var disk, _))
             {
                 var (ratios, chromaShift, correlations, colourRms, luminanceRms) = PlanetaryComposition.ReadLuminance(master, luminance, detailed, disk);
                 string[] names = ["red", "green", "blue"];
@@ -270,13 +270,6 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
             return await WriteComposedAsync(new PlanetaryComposed(detailed, null), output, ct) ? 0 : 1;
         });
         return command;
-    }
-
-    // A master's disk, its limb fitted at its instant (Saturn's rings in the model), or null when it does not fit.
-    private static MetricDisk? LimbOf(Image master, CatalogIndex planet, DateTimeOffset instant)
-    {
-        var options = PlanetaryLimbFit.OptionsFor(TianWen.Lib.Astrometry.PhysicalEphemeris.Compute(planet, instant));
-        return PlanetaryLimbFit.Fit(master, options) is { } fit ? MetricDisk.From(fit, options) : null;
     }
 
     // A line of the run's report.
@@ -310,7 +303,7 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         DateTimeOffset? utc = null;
         if (parseResult.GetValue(labels.Utc) is { } utcText)
         {
-            if (!DateTimeOffset.TryParse(utcText, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+            if (PlanetaryGeometrySubCommands.ParseUtc(utcText) is not { } parsed)
             {
                 consoleHost.WriteError($"--utc {utcText}: not an ISO 8601 time");
                 return null;

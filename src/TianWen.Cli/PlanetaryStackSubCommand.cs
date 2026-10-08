@@ -343,13 +343,7 @@ internal sealed class PlanetaryStackSubCommand(
                 return 1;
             }
             var planetName = parseResult.GetValue(planetOpt)?.ToLowerInvariant();
-            CatalogIndex? planet = planetName switch
-            {
-                null => PlanetaryCaptureName.Planet(serPaths[0]),
-                "jupiter" => CatalogIndex.Jupiter,
-                "saturn" => CatalogIndex.Saturn,
-                _ => null,
-            };
+            var planet = PlanetaryGeometrySubCommands.ParsePlanet(planetName, serPaths[0]);
             if (planetName is not null && planet is null)
             {
                 consoleHost.WriteError($"--planet {planetName}: jupiter or saturn.");

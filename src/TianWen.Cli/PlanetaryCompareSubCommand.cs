@@ -63,13 +63,7 @@ internal sealed class PlanetaryCompareSubCommand(IConsoleHost consoleHost)
                 }
                 var first = masters[0].Image;
                 var planetName = parseResult.GetValue(planetOpt)?.ToLowerInvariant();
-                CatalogIndex? planet = planetName switch
-                {
-                    null => PlanetaryCaptureName.Planet(items[0].Path),
-                    "jupiter" => CatalogIndex.Jupiter,
-                    "saturn" => CatalogIndex.Saturn,
-                    _ => null,
-                };
+                var planet = PlanetaryGeometrySubCommands.ParsePlanet(planetName, items[0].Path);
                 if (planet is not { } body)
                 {
                     consoleHost.WriteError("name the planet (--planet jupiter)");
