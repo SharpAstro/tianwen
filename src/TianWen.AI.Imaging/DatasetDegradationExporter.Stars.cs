@@ -288,11 +288,12 @@ public static partial class DatasetDegradationExporter
             var population = InjectionPopulation.Build(catalogue, master, plate, 1.0 / divisor, psf, absent, field);
             // R2d's D2: in place of the plate, a starless background from its coarse scales up (SyntheticBackground).
             var synthetic = options.SyntheticBackground
-                ? SyntheticBackground.Build(unitPlate, absent, field?.Luminance.Fwhm ?? psf.Average(static p => p.Fwhm))
+                ? SyntheticBackground.Build(unitPlate, absent, field?.Luminance.Fwhm ?? psf.Average(static p => p.Fwhm), options.BrightKnotsWide)
                 : null;
             if (synthetic is not null)
             {
-                logger?.LogInformation("[degrade] {Session}: synthetic background, the plate's scales from {Kept} px kept", sessionId, 1 << synthetic.FirstKept);
+                logger?.LogInformation("[degrade] {Session}: synthetic background, the plate's scales from {Kept} px kept{Knots}", sessionId, 1 << synthetic.FirstKept,
+                    synthetic.BrightKnotsWide ? ", compact knots kept faint" : "");
             }
             var drawnWith = options.Profile == StarProfileFamily.Field && field is { } f
                 ? f.Channels.Select(static p => string.Create(CultureInfo.InvariantCulture, $"{p.Fwhm:F2} px b{p.Beta:F2} + table {p.Table.Length}"))
