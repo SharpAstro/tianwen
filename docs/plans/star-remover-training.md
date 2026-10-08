@@ -1483,6 +1483,27 @@ sky's alignment says the steering should follow the local coherence everywhere, 
   - when elongated, laid along the local orientation (S2b's), not at a random angle.
 
   Judged by S3 with the knots in (the tails per class) and by R2d's knots test's reading of the bright stars.
+- **The nebula knots as built** (`--nebula-knots` on `synthetic-background` and `degrade`, opt-in; D3's knots draw exactly
+  as before).
+  - **Placement:** a Poisson count of `KnotsPerCell` times the share of the cell that is nebula, each knot placed by
+    rejection on the plate's fine-scale signal over the noise.
+  - **Brightness and colour:** peaks of 2 to 8 times that signal's RMS, channel by channel.
+  - **Shape:** elongated knots lie along the steer's contour.
+  - **Tests:** none on a noise-only sky, the peaks a few times the local signal and in its colour, and the elongated
+    ones along the contour.
+  - **On M45 by eye:** no knots on empty sky (D3's put pink blobs there) and no pink trails.
+  - **Over the eight plates** the tails score's mean over the eight views falls from 0.282 with D3's knots to 0.230. It
+    is closer in five of eight views, worse in two, and most of all where D3's overshot (eta Carinae's textured sky,
+    unsteered: kurtosis 2.8 to 4.3 against the plate's 3.1 to 3.8, where D3's read 5.6 to 7.1).
+- **Every S3 preview so far drew its own texture.** A cell's seed was `HashCode.Combine`, which .NET seeds afresh in every
+  process, so the S2b build no longer reproduced its own cell. Every setting was compared on different random draws:
+  - the sweeps' medians over 40 to 64 cells are fair but noisier than they looked;
+  - a close call is within that noise (the steer's pick, 0.063, against 0.071);
+  - the M45 panels set two different textures side by side.
+
+  The exporters were never affected: they derive their seeds by fixed arithmetic, which the preview now does too
+  (`SyntheticBackgroundPreview.CellSeed`, pinned by a test that fails in any process if `HashCode` comes back). Every
+  setting's texture is now the same draw, so a knots comparison differs in the knots alone.
 
 #### S2: generate it, S3: check it, S4: fill with it
 
