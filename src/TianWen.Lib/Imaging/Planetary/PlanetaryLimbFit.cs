@@ -123,6 +123,18 @@ public static class PlanetaryLimbFit
     }
 
     /// <summary>
+    /// The limb of <paramref name="planet"/> on <paramref name="image"/> at <paramref name="instant"/>: fitted with the options its
+    /// ephemeris gives (<see cref="OptionsFor"/>, Saturn's rings in the model), the disk it makes, and those options, to fit another
+    /// picture of the planet the same way; null where it does not fit. The one routine a picture's disk is found by: the audit on #1343
+    /// found these three steps written out six times.
+    /// </summary>
+    public static (LimbFit Fit, MetricDisk Disk, LimbFitOptions Options)? FitAt(Image image, CatalogIndex planet, DateTimeOffset instant)
+    {
+        var options = OptionsFor(PhysicalEphemeris.Compute(planet, instant));
+        return Fit(image, options) is { } fit ? (fit, MetricDisk.From(fit, options), options) : null;
+    }
+
+    /// <summary>
     /// Fits the disk in <paramref name="image"/>: its luminance (the mean of its channels), started from <see cref="Start"/>.
     /// Null when no disk stands out of the sky, or it leaves too few pixels around the limb inside the frame.
     /// </summary>

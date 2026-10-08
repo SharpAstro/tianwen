@@ -694,7 +694,7 @@ public partial class Image
             BiasSection = biasSection,
             FrameSequence = frameSequence,
             FrameCounterSource = frameCounterSource,
-            IsColourBalanced = hdu.Header.ContainsKey("CBALSAT"),
+            IsColourBalanced = hdu.Header.ContainsKey(Planetary.ColourBalance.SaturationCard),
             // Ours (ImageMeta.FluxScale): absent is 1, a value that is not a positive number is not a scale.
             FluxScale = hdu.Header.GetDoubleValue("FLUXSCAL", double.NaN) is var fluxScale && fluxScale > 0 ? fluxScale : null
         };

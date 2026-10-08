@@ -151,10 +151,11 @@ public sealed record ColourLook
 
 /// <summary>
 /// A master made ready for a colour look (<see cref="PlanetaryColourLook.Prepare"/>, #1277): the image the look goes on, the planet's disk on
-/// it, the limb fit's options (to fit another picture of the planet the same way), and, where the master had to be balanced first, how; then
-/// <see cref="Master"/> is a new image its caller owns.
+/// it, the limb fit's options (to fit another picture of the planet the same way), and, where the master had to be balanced first, the
+/// balance; then <see cref="Master"/> is a new image its caller owns, and a writer records the balance's cards
+/// (<see cref="ColourBalance.HeaderCards"/>), since the master's own file carries none.
 /// </summary>
-public readonly record struct PreparedMaster(Image Master, MetricDisk Disk, LimbFitOptions Options, string? Balanced);
+public readonly record struct PreparedMaster(Image Master, MetricDisk Disk, LimbFitOptions Options, ColourBalance? Balance);
 
 /// <summary>
 /// A colour look applied to a balanced planetary master (#1273, docs/plans/planetary-restoration.md). Every pixel is read in OKLab exactly as
@@ -204,7 +205,7 @@ public static class PlanetaryColourLook
     /// <paramref name="master"/> made ready for a look, ONE routine for the viewer's colour control and <c>planetary-look</c> (#1277): the
     /// planet's limb fitted at <paramref name="instant"/> for the disk the look reads its colour over, and a master left in the camera's colours
     /// balanced to the planet's colour first, as <c>planetary-stack</c> balances it, since on the camera's tint the curve would raise the tint,
-    /// most of every pixel's chroma. Where it balanced, <see cref="PreparedMaster.Balanced"/> says how and its image is a new one the caller
+    /// most of every pixel's chroma. Where it balanced, <see cref="PreparedMaster.Balance"/> is the balance and its image is a new one the caller
     /// owns; otherwise its image is <paramref name="master"/>. A refusal says why the master could not be made ready.
     /// </summary>
     public static (PreparedMaster? Prepared, string? Refusal) Prepare(Image master, CatalogIndex planet, DateTimeOffset instant)
@@ -218,20 +219,19 @@ public static class PlanetaryColourLook
         {
             return (null, $"a colour look is for Jupiter and Saturn, whose colour is measured; not {planet}");
         }
-        var options = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, instant));
-        if (PlanetaryLimbFit.Fit(master, options) is not { } fit)
+        if (PlanetaryLimbFit.FitAt(master, planet, instant) is not { } limb)
         {
             return (null, "the planet's limb could not be fitted");
         }
-        var disk = MetricDisk.From(fit, options);
         if (master.ImageMeta.IsColourBalanced)
         {
-            return (new PreparedMaster(master, disk, options, Balanced: null), null);
+            return (new PreparedMaster(master, limb.Disk, limb.Options, Balance: null), null);
         }
-        var (balance, how) = PlanetaryColourBalance.For(master, planet, instant);
+        // Over the disk just fitted: a second fit of the same limb was seconds for nothing.
+        var (balance, how) = PlanetaryColourBalance.For(master, planet, limb.Disk);
         return balance is null
             ? (null, $"not colour balanced, and it could not be balanced ({how})")
-            : (new PreparedMaster(balance.Apply(master), disk, options, how), null);
+            : (new PreparedMaster(balance.Apply(master), limb.Disk, limb.Options, balance), null);
     }
 
     /// <summary>
@@ -254,7 +254,7 @@ public static class PlanetaryColourLook
         }
         finally
         {
-            if (ready.Balanced is not null)
+            if (ready.Balance is not null)
             {
                 ready.Master.Release();
             }

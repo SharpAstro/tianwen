@@ -19,12 +19,24 @@ public sealed record ColourBalance(LinearRgb Gains, MetricDisk Disk, double Satu
     public string Describe() => string.Create(CultureInfo.InvariantCulture,
         $"balanced to {(Planet == CatalogIndex.Saturn ? "Saturn" : "Jupiter")}'s colour: gains R {Gains.R:0.000}, B {Gains.B:0.000} over green, saturation {Saturation:0.0#}");
 
+    /// <summary>The FITS card holding the red gain over green.</summary>
+    public const string RedGainCard = "CBALGNR";
+
+    /// <summary>The FITS card holding the blue gain over green.</summary>
+    public const string BlueGainCard = "CBALGNB";
+
+    /// <summary>The FITS card holding the saturation; its presence is what marks a balanced master (<see cref="ImageMeta.IsColourBalanced"/>, #1229).</summary>
+    public const string SaturationCard = "CBALSAT";
+
+    /// <summary>Every card <see cref="HeaderCards"/> writes, for a writer that carries a balanced master's cards over from its file.</summary>
+    public static IReadOnlyList<string> Cards { get; } = [RedGainCard, BlueGainCard, SaturationCard];
+
     /// <summary>FITS cards recording the balance, so a balanced master says so and by how much.</summary>
     public IReadOnlyDictionary<string, (object Value, string Comment)> HeaderCards() => new Dictionary<string, (object Value, string Comment)>
     {
-        ["CBALGNR"] = (Gains.R, "colour balance: red gain over green (#1212)"),
-        ["CBALGNB"] = (Gains.B, "colour balance: blue gain over green (#1212)"),
-        ["CBALSAT"] = (Saturation, "colour balance: saturation about the disk's colour (#1212)"),
+        [RedGainCard] = (Gains.R, "colour balance: red gain over green (#1212)"),
+        [BlueGainCard] = (Gains.B, "colour balance: blue gain over green (#1212)"),
+        [SaturationCard] = (Saturation, "colour balance: saturation about the disk's colour (#1212)"),
     };
 
     /// <summary><paramref name="master"/> balanced: its own sky taken off, these gains, this saturation. A new image.</summary>
@@ -106,18 +118,32 @@ public static class PlanetaryColourBalance
         {
             return (null, "colours left as captured: the master carries no time to fit its limb at");
         }
-        var options = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(body, instant));
-        if (PlanetaryLimbFit.Fit(stacked, options) is not { } fit)
+        return PlanetaryLimbFit.FitAt(stacked, body, instant) is { } limb
+            ? For(stacked, body, limb.Disk, saturation)
+            : (null, "colours left as captured: the limb did not fit");
+    }
+
+    /// <summary>
+    /// The balance <paramref name="stacked"/> asks for over a <paramref name="disk"/> its caller has already fitted
+    /// (<see cref="PlanetaryColourLook.Prepare"/>'s), or null with the reason in words: a limb fit costs seconds, so one master is never
+    /// fitted twice for it.
+    /// </summary>
+    public static (ColourBalance? Balance, string How) For(Image stacked, CatalogIndex planet, in MetricDisk disk, double saturation = DefaultSaturation)
+    {
+        if (stacked.ChannelCount != 3)
         {
-            return (null, "colours left as captured: the limb did not fit");
+            return (null, "a mono master, so no colour to balance");
         }
-        var disk = MetricDisk.From(fit, options);
+        if (DiskColourOf(planet) is not { } target)
+        {
+            return (null, "colours left as captured: only Jupiter's and Saturn's colours are measured (#1212, #1235)");
+        }
         var (gains, _) = GainsFor(stacked, disk, target);
         if (!double.IsFinite(gains.R) || !double.IsFinite(gains.B) || gains.R <= 0 || gains.B <= 0)
         {
             return (null, "colours left as captured: the disk's mean colour could not be read");
         }
-        var balance = new ColourBalance(gains, disk, saturation, target) { Planet = body };
+        var balance = new ColourBalance(gains, disk, saturation, target) { Planet = planet };
         return (balance, balance.Describe());
     }
 
