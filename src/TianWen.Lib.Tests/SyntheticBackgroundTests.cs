@@ -213,6 +213,47 @@ public sealed class SyntheticBackgroundTests
     }
 
     [Fact]
+    public void AFineSteerFollowsThePlatesOwnFineStructureWhereItDisagreesWithTheCoarse()
+    {
+        // The coarse wave's gradient is vertical; the right half's fine stripes vary along x, so their gradient is horizontal:
+        // fine structure ACROSS the coarse contours, which a coarse steer would turn the other way.
+        const int size = 1024;
+        var rng = new Random(13);
+        var plane = new float[size, size];
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var stripes = x >= size / 2 ? 1.5 * Noise * Math.Sin(2 * Math.PI * x / 8.0) : 0.0;
+                plane[y, x] = (float)(0.1 + (0.2 * Math.Sin(2 * Math.PI * y / 400.0)) + (Noise * Gaussian(rng)) + stripes);
+            }
+        }
+        var plate = new Image([plane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+        var coarse = SyntheticBackground.Build(plate, absent: null, Fwhm, steering: new SyntheticBackground.Steering(1.0, 4.0));
+        var fine = SyntheticBackground.Build(plate, absent: null, Fwhm, steering: new SyntheticBackground.Steering(1.0, 4.0, Fine: 1.0));
+
+        SkyTexture.Measurement Read(SyntheticBackground background)
+        {
+            const int cell = 384;
+            var planes = background.Preview(768, 512, cell, [Noise], noisy: true, new Random(23));
+            return SkyTexture.Measure(planes[0], cell, cell, absent: null, fwhm: Fwhm);
+        }
+        // The fine read sees the stripes where they are (signal, one-way, gradient along x) and nothing where they are not.
+        var (weight, coherence, cos2) = fine.FineAt(768, 512);
+        weight.ShouldBeGreaterThan(0.5f, $"the stripes are signal (coherence {coherence}, cos2 {cos2}, amplitude at 4 px {fine.Amplitude(0, 2, 768, 512)})");
+        coherence.ShouldBeGreaterThan(0.5f, "and run one way");
+        cos2.ShouldBeGreaterThan(0.5f, "with their gradient along x");
+        fine.FineAt(256, 512).Weight.ShouldBeLessThan(0.2f, "while the noise-only half holds none");
+
+        var (byCoarse, byFine) = (Read(coarse), Read(fine));
+
+        // At 4 px, where the 8 px stripes' energy is: against the coarse wave, the coarse steer runs along it and the fine
+        // steer across it, as the plate's stripes do.
+        byCoarse.Scales[2].Alignment.ShouldBeGreaterThan(0.3, "a coarse steer runs along the coarse contours");
+        byFine.Scales[2].Alignment.ShouldBeLessThan(-0.3, "a fine steer follows the plate's own stripes across them");
+    }
+
+    [Fact]
     public void APreviewReadsThePlatesNoiseAndPutsItBackOnItsCentredCell()
     {
         var plate = Plate(6);

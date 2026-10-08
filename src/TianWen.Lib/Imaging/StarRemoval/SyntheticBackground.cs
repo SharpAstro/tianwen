@@ -62,12 +62,21 @@ public sealed class SyntheticBackground
     /// variance that follows the orientation where the coarse structure is fully coherent, scaled by the local coherence
     /// everywhere else. <see cref="Wander"/> (radians) turns the orientation drawn along away from the coarse one by a smooth
     /// random angle of that spread, correlated over the coarse window: S3 found the real sky's fine structure more one-way
-    /// than a weak steer makes it and less tied to the coarse contours than a strong one.
+    /// than a weak steer makes it and less tied to the coarse contours than a strong one. <see cref="Fine"/> (S2b) steers by
+    /// the plate's OWN replaced scales where they hold signal: their orientation, and a steered share of <see cref="Fine"/>
+    /// times their coherence, blended toward the coarse steer by how much of their energy is signal (S3 on M45: a
+    /// reflection nebula's striations are far more one-way than an emission nebula's clumps, which one global steer cannot
+    /// serve both).
     /// </summary>
-    public readonly record struct Steering(double Strength, double Exponent, double Wander = 0);
+    public readonly record struct Steering(double Strength, double Exponent, double Wander = 0, double Fine = 0);
 
-    // The plate's coarse orientation (the structure tensor of its kept scales' luminance, SkyTexture's own), per frame pixel.
-    private sealed record Orientation(float[] Cos2, float[] Sin2, float[] Coherence);
+    // The plate's coarse orientation (the structure tensor of its kept scales' luminance, SkyTexture's own), per frame pixel,
+    // and with Steering.Fine its replaced scales' own.
+    private sealed record Orientation(float[] Cos2, float[] Sin2, float[] Coherence, FineOrientation? Fine);
+
+    // The replaced scales' structure where they hold signal: its orientation, its coherence with the noise's isotropic share
+    // taken out, and the share of its energy that is signal (zero on a noise-only sky).
+    private sealed record FineOrientation(float[] Cos2, float[] Sin2, float[] Coherence, float[] Weight);
 
     /// <summary>The threshold the plate's sources are masked from in the amplitude maps: under the 4 sigma the eval finds the
     /// kept sources at, so a faint star the finder only just misses raises no texture where it was.</summary>
@@ -125,6 +134,11 @@ public sealed class SyntheticBackground
     /// <summary>The first starlet scale index kept for a PSF of <paramref name="fwhm"/> pixels: the smallest whose
     /// 2^j px reaches <see cref="KeepFromFwhm"/> widths.</summary>
     public static int FirstKeptScale(double fwhm) => Math.Clamp((int)Math.Ceiling(Math.Log2(KeepFromFwhm * Math.Max(0.5, fwhm))), 1, ScaleCount);
+
+    /// <summary>S2b's read of the plate's own replaced scales at a pixel (zeros without a fine steer): the share of their
+    /// energy that is signal, the signal's coherence, and its doubled-angle cosine.</summary>
+    internal (float Weight, float Coherence, float Cos2) FineAt(int x, int y)
+        => _orientation?.Fine is { } fine ? (fine.Weight[(y * Width) + x], fine.Coherence[(y * Width) + x], fine.Cos2[(y * Width) + x]) : default;
 
     /// <summary>The plate's local signal above its noise at replaced scale <paramref name="scale"/>, channel
     /// <paramref name="channel"/>, at a pixel.</summary>
@@ -222,9 +236,105 @@ public sealed class SyntheticBackground
             }
             var (coherence, cos2, sin2, _) = SkyTexture.StructureTensor(luminanceCoarse, width, height,
                 (float)(SkyTexture.TensorWindowScales * (1 << firstKept)));
-            orientation = new Orientation(cos2, sin2, coherence);
+            orientation = new Orientation(cos2, sin2, coherence,
+                steering.Value.Fine > 0 ? FineStructure(luminance, clean, width, height, firstKept) : null);
         }
         return new SyntheticBackground(width, height, firstKept, fwhm, brightKnotsWide, steering, orientation, coarse, amplitude);
+    }
+
+    // S2b: the structure tensor of the luminance's replaced scales from 2 px up (1 px is the master's noise on every class,
+    // S1), each scale's gradients over the clean pixels only (sources and the ring out, as the amplitude maps read them),
+    // smoothed over AmplitudeWindowPx or the first kept scale, whichever is wider, and divided by that scale's own noise level
+    // (the clean pixels' 20th percentile of its smoothed trace: smoothed, a noise-only sky's trace barely spreads, and a low
+    // quantile holds while a fifth of the frame is that sky, where a median falls on a nebula filling half of it), so every
+    // scale counts in noise units. Noise adds the
+    // same to both eigenvalues and nothing to their difference, so the signal's coherence is the spread over the trace less
+    // the scales' count. The weight the plate's own structure takes is its signal against the noise: the trace less
+    // NoiseMargin times the count, over the count, so it is one where the signal's energy matches the noise of the scales
+    // read and zero on a noise-only sky. A share of the total was not: a gradient lifts the noise, and stripes clear to the
+    // eye (1.5 sigma a pixel) took 0.39 of it, which left the coarse orientation steering them.
+    private static FineOrientation FineStructure(float[] luminance, float[] clean, int width, int height, int firstKept)
+    {
+        var n = width * height;
+        var sigma = Math.Max(AmplitudeWindowPx, 1 << firstKept);
+        var weight = Image.SeparableGaussianBlur(clean, width, height, sigma);
+        var decomposition = ATrousWaveletTransform.Decompose(luminance, width, height, firstKept);
+        var sxx = new float[n];
+        var syy = new float[n];
+        var sxy = new float[n];
+        var scales = 0;
+        var trace = new float[n];
+        var sample = new float[n];
+        for (var j = 1; j < firstKept; j++)
+        {
+            var detail = decomposition.Detail(j);
+            var jxx = new float[n];
+            var jyy = new float[n];
+            var jxy = new float[n];
+            for (var y = 0; y < height; y++)
+            {
+                var up = Math.Max(0, y - 1);
+                var down = Math.Min(height - 1, y + 1);
+                for (var x = 0; x < width; x++)
+                {
+                    var i = (y * width) + x;
+                    var left = Math.Max(0, x - 1);
+                    var right = Math.Min(width - 1, x + 1);
+                    // A gradient is clean only where its every tap is.
+                    var w = clean[i] * clean[(y * width) + left] * clean[(y * width) + right] * clean[(up * width) + x] * clean[(down * width) + x];
+                    var gx = (detail[(y * width) + right] - detail[(y * width) + left]) / (right - left);
+                    var gy = (detail[(down * width) + x] - detail[(up * width) + x]) / (down - up);
+                    jxx[i] = w * gx * gx;
+                    jyy[i] = w * gy * gy;
+                    jxy[i] = w * gx * gy;
+                }
+            }
+            jxx = Image.SeparableGaussianBlur(jxx, width, height, sigma);
+            jyy = Image.SeparableGaussianBlur(jyy, width, height, sigma);
+            jxy = Image.SeparableGaussianBlur(jxy, width, height, sigma);
+            var count = 0;
+            for (var i = 0; i < n; i++)
+            {
+                var norm = weight[i] > 0.05f ? 1f / weight[i] : 0f;
+                jxx[i] *= norm;
+                jyy[i] *= norm;
+                jxy[i] *= norm;
+                trace[i] = jxx[i] + jyy[i];
+                if (clean[i] > 0f && norm > 0f)
+                {
+                    sample[count++] = trace[i];
+                }
+            }
+            var noise = count > 0 ? StatisticsHelper.NthSmallest(sample.AsSpan(0, count), count / 5) : 0f;
+            if (noise <= 0f)
+            {
+                continue;
+            }
+            for (var i = 0; i < n; i++)
+            {
+                sxx[i] += jxx[i] / noise;
+                syy[i] += jyy[i] / noise;
+                sxy[i] += jxy[i] / noise;
+            }
+            scales++;
+        }
+
+        var cos2 = new float[n];
+        var sin2 = new float[n];
+        var coherence = new float[n];
+        var share = new float[n];
+        for (var i = 0; i < n; i++)
+        {
+            var t = sxx[i] + syy[i];
+            var d = sxx[i] - syy[i];
+            var spread = MathF.Sqrt((d * d) + (4f * sxy[i] * sxy[i]));
+            var signal = t - scales;
+            cos2[i] = spread > 0f ? d / spread : 0f;
+            sin2[i] = spread > 0f ? 2f * sxy[i] / spread : 0f;
+            coherence[i] = signal > 0f ? Math.Clamp(spread / signal, 0f, 1f) : 0f;
+            share[i] = scales > 0 ? Math.Clamp((t - ((float)NoiseMargin * scales)) / scales, 0f, 1f) : 0f;
+        }
+        return new FineOrientation(cos2, sin2, coherence, share);
     }
 
     // The local RMS of a detail plane over the clean pixels, smoothed at twice the scale or AmplitudeWindowPx, less its noise
@@ -504,13 +614,24 @@ public sealed class SyntheticBackground
             for (var u = 0; u < n; u++)
             {
                 var f = (fy * Width) + Math.Clamp(fx0 + u, 0, Width - 1);
-                var theta = (0.5 * Math.Atan2(orientation.Sin2[f], orientation.Cos2[f])) + (wander?[(v * n) + u] ?? 0.0);
+                double cos2 = orientation.Cos2[f], sin2 = orientation.Sin2[f];
+                var s = Math.Clamp(steering.Strength * orientation.Coherence[f], 0.0, 1.0);
+                var wandering = 1.0;
+                if (orientation.Fine is { } fine)
+                {
+                    // Where the plate's own replaced scales hold signal, their orientation and their coherence steer.
+                    var signal = (double)fine.Weight[f];
+                    cos2 = (signal * fine.Cos2[f]) + ((1 - signal) * cos2);
+                    sin2 = (signal * fine.Sin2[f]) + ((1 - signal) * sin2);
+                    s = (signal * Math.Clamp(steering.Fine * fine.Coherence[f], 0.0, 1.0)) + ((1 - signal) * s);
+                    wandering = 1 - signal;
+                }
+                var theta = (0.5 * Math.Atan2(sin2, cos2)) + (wandering * (wander?[(v * n) + u] ?? 0.0));
                 theta -= Math.PI * Math.Floor(theta / Math.PI);
                 var t = theta / (Math.PI / SteerDirections);
                 var d1 = (int)Math.Floor(t) % SteerDirections;
                 var d2 = (d1 + 1) % SteerDirections;
                 var (w2, w1) = Math.SinCos((t - Math.Floor(t)) * Math.PI / 2);
-                var s = Math.Clamp(steering.Strength * orientation.Coherence[f], 0.0, 1.0);
                 var a = Math.Sqrt(1 - s);
                 var b = Math.Sqrt(s);
                 var variance = (a * a * varIso)
