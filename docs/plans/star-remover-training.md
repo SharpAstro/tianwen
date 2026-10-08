@@ -1159,6 +1159,48 @@ with the interquartile range:
   the fix is an anisotropic texture whose orientation follows the plate's own coarse structure, measured first on the
   plates (the structure tensor's coherence per scale and class, beside D1's index).
 
+#### R2d's read: every prediction misses, the kill does not fire, and B loses the bright stars on its own draws too (2026-10-08)
+
+All six models through the fixed eval (`C:\temp\e2\score-r2d.ps1`, read by `C:\temp\e2\compare_r2d.py`), each arm's three
+seeds as a range, the unmasked convergence run for reference:
+
+| model, on whose draws | clean 5-20 sigma | 20-100 | 100-1000 | saturated | core RMS 100-1000 | far sky | plate sources taken |
+|---|---|---|---|---|---|---|---|
+| unmasked, A's | 65.9 | 56.2 | 28.9 | 21.5 | 2.2 | 0.221 | 13.8 |
+| A, A's | 64.4 to 67.5 | 53.3 to 56.8 | 21.5 to 26.1 | 21.9 to 26.0 | 2.7 to 5.8 | 0.115 to 0.390 | 16.3 to 23.1 |
+| B, A's | 50.5 to 67.5 | 32.8 to 44.2 | 5.9 to 8.4 | 8.7 to 11.0 | 6.7 to 19.1 | 0.246 to 0.269 | 20.4 to 34.6 |
+| A, B's | 66.9 to 69.8 | 56.0 to 58.8 | 22.3 to 28.0 | 21.0 to 28.3 | 3.2 to 6.2 | 1.14 to 1.28 | 34.1 to 37.3 |
+| B, B's | 51.3 to 70.1 | 33.6 to 45.7 | 5.5 to 8.5 | 7.3 to 8.2 | 7.0 to 18.7 | 0.169 to 0.271 | 14.9 to 17.1 |
+
+Against the pre-registration:
+1. **Misses.** On A's draws B's clean removal at 5-20 sigma is 60.0 against A's 65.6, 5.5 points under, where at least 5
+   over was registered.
+2. **Misses.** B moves the far sky 0.256 (0.246 to 0.269) against A's 0.246 (0.115 to 0.390): tighter, not lower.
+3. **Misses.** On its own draws B cleans 61.9 (51.3 to 70.1), under the registered 70.
+4. Unread: it waits on the runner path scoring a real master.
+
+**The kill does not fire**: A's lead of 5.5 points is inside B's seed range, 17.0, which the stalled seed 1 widens.
+Without that seed nothing changes (B 64.8, 62.1 to 67.5, against A's 65.6; A's lead 0.8 against a range of 5.4, (3) at
+67.3).
+
+What it says:
+- **B learned the generator's sky, not the real one.** On its own draws it holds the far sky at 0.17 to 0.27 sigma,
+  where the plate-trained models move it 1.1 to 1.3. On real plates it holds the sky no better than A.
+- **B removes bright stars worse on its own draws as much as on A's**: 5.5 to 8.5 percent clean at 100-1000 sigma
+  against A's 22 to 28 on B's draws, its core RMS two to four times A's. On B's own draws A beats B in every band but the
+  sky, so the deficit is not a domain gap. Seed 0's error is unbiased scatter (core mean +0.1 sigma, 71 percent dug);
+  seeds 1 and 2 leave the cores in (+3.8 and +9.1 sigma).
+- **The cause is not measured.** Candidates:
+  - D3's knots, labelled keep, teaching the net to leave compact bright things;
+  - the texture taking the share of the loss the bright cores had;
+  - B's earlier stops (67,500 to 80,000 steps against A's 85,000 to 121,000, each at its own plateau).
+
+  R2c's split of where the squared error sits, run on B's models, tells the second from the other two, on the CPU.
+
+So the synthetic background as built does not help, and what it cost is the bright stars. That cost is B's training,
+not the background's realism. R2e's structure is still worth having for the fill and for a later arm, but it would not
+recover what B lost.
+
 #### What the loss weighs, and the bar StarXTerminator sets (2026-10-07 and 08)
 
 The owner asked why the training does not stop a model changing star-free sky, and whether synthetics can teach it to
