@@ -53,13 +53,7 @@ internal sealed class PlanetaryJudgeSubCommand(IConsoleHost consoleHost, MasterP
             }
             try
             {
-                CatalogIndex? planet = parseResult.GetValue(planetOpt)?.ToLowerInvariant() switch
-                {
-                    null => PlanetaryCaptureName.Planet(masterPath),
-                    "jupiter" => CatalogIndex.Jupiter,
-                    "saturn" => CatalogIndex.Saturn,
-                    _ => null,
-                };
+                var planet = PlanetaryGeometrySubCommands.ParsePlanet(parseResult.GetValue(planetOpt), masterPath);
                 if (planet is not { } body)
                 {
                     consoleHost.WriteError("name the planet (--planet jupiter or saturn)");
@@ -70,22 +64,19 @@ internal sealed class PlanetaryJudgeSubCommand(IConsoleHost consoleHost, MasterP
                     consoleHost.WriteError($"{masterPath}: no time in its header; give --utc");
                     return 1;
                 }
-                var options = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(body, instant));
-                if (await Task.Run(() => PlanetaryLimbFit.Fit(master, options), ct) is not { } masterFit)
+                if (await Task.Run(() => PlanetaryLimbFit.FitAt(master, body, instant), ct) is not (var masterFit, var masterDisk, _))
                 {
                     consoleHost.WriteError($"{masterPath}: the planet's limb could not be fitted");
                     return 1;
                 }
-                if (await Task.Run(() => PlanetaryLimbFit.Fit(reference, options), ct) is not { } referenceFit)
+                if (await Task.Run(() => PlanetaryLimbFit.FitAt(reference, body, instant), ct) is not (var referenceFit, var referenceDisk, _))
                 {
                     consoleHost.WriteError($"{referencePath}: the planet's limb could not be fitted");
                     return 1;
                 }
-                var masterDisk = MetricDisk.From(masterFit, options);
-                var referenceDisk = MetricDisk.From(referenceFit, options);
                 var (width, height) = (master.Width, master.Height);
-                var ours = PlanetaryReferenceJudge.Luminance(master);
-                var theirs = PlanetaryReferenceJudge.Luminance(reference);
+                var ours = PlanetaryLimbFit.Luminance(master);
+                var theirs = PlanetaryLimbFit.Luminance(reference);
 
                 var placement = await Task.Run(() => PlanetaryReferenceJudge.Place(ours, width, height, masterDisk, theirs, reference.Width, reference.Height, referenceDisk), ct);
                 var placed = PlanetaryReferenceJudge.Resample(theirs, reference.Width, reference.Height, referenceDisk, width, height, masterDisk, placement);
@@ -195,11 +186,7 @@ internal sealed class PlanetaryJudgeSubCommand(IConsoleHost consoleHost, MasterP
         consoleHost.WriteScrollable(line.ToString());
     }
 
-    private void ColourLine(string title, in ColourReading reading)
-    {
-        consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-            $"{title} (OKLab at one luminance, {reading.InteriorPixels} px inside 0.9 of the outline): cast chroma {reading.Cast.Chroma:0.0000} at hue {reading.Cast.HueDeg:0.0} deg, spread {reading.Spread:0.0000}, chroma p10/p50/p90 {reading.ChromaAt(0.10):0.0000}/{reading.ChromaAt(0.50):0.0000}/{reading.ChromaAt(0.90):0.0000}; the rim ({reading.RimPixels} px, 0.9 to 1.1) chroma {reading.Rim.Chroma:0.0000}, {reading.RimOverCast:0.00} of the cast's, hue {reading.Rim.HueDeg:0.0} deg ({reading.RimHueOffsetDeg:0.0} from the cast's); off the cast's hue, pixel by pixel, chroma {reading.RimOffHue:0.0000} (p90)"));
-    }
+    private void ColourLine(string title, in ColourReading reading) => consoleHost.WriteScrollable($"{title} {reading.Describe()}");
 
     // A disk's mean colour, its sky taken off; a sky the picture does not reach (a reference cropped inside 2.5 radii) is its black, zero.
     private static LinearRgb DiskColour(ReadOnlySpan<float> red, ReadOnlySpan<float> green, ReadOnlySpan<float> blue, int width, int height, MetricDisk disk)

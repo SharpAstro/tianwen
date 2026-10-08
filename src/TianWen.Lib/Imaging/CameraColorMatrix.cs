@@ -70,7 +70,10 @@ public static class CameraColorMatrix
             }
         }
         Span<double> gramInverse = stackalloc double[9];
-        Invert3(gram, gramInverse);
+        if (!TryInvert3(gram, gramInverse))
+        {
+            throw new InvalidOperationException("the CIE functions' Gram matrix is singular; spectral input is degenerate.");
+        }
 
         var camXyz = new double[9];
         for (var c = 0; c < 3; c++)
@@ -159,7 +162,10 @@ public static class CameraColorMatrix
         // direction (apply to a WB-corrected camera-RGB pixel to get sRGB) =
         // matrix inverse.
         Span<double> rgbCam = stackalloc double[9];
-        Invert3(camRgb, rgbCam);
+        if (!TryInvert3(camRgb, rgbCam))
+        {
+            throw new InvalidOperationException("the camera-to-sRGB matrix is singular; spectral input is degenerate.");
+        }
         var result = new float[9];
         for (var i = 0; i < 9; i++)
             result[i] = (float)rgbCam[i];
@@ -167,7 +173,12 @@ public static class CameraColorMatrix
     }
 
     /// <summary>A row-major 3x3 inverse by cofactor expansion; throws on a singular matrix (degenerate spectral input).</summary>
-    private static void Invert3(ReadOnlySpan<double> m, Span<double> inverse)
+    /// <summary>
+    /// The inverse of the row-major 3x3 <paramref name="m"/> into <paramref name="inverse"/>, by its adjugate; false, writing nothing, where
+    /// <paramref name="m"/> is singular (a determinant under 1e-12). The one 3x3 inverse the colour code takes (the audit on #1343 found a
+    /// second, by Cramer's rule, in <see cref="Planetary.PlanetaryColourBalance.GainsThrough"/>).
+    /// </summary>
+    internal static bool TryInvert3(ReadOnlySpan<double> m, Span<double> inverse)
     {
         var m00 = m[0]; var m01 = m[1]; var m02 = m[2];
         var m10 = m[3]; var m11 = m[4]; var m12 = m[5];
@@ -176,8 +187,9 @@ public static class CameraColorMatrix
                 - m01 * (m10 * m22 - m12 * m20)
                 + m02 * (m10 * m21 - m11 * m20);
         if (Math.Abs(det) < 1e-12)
-            throw new InvalidOperationException(
-                $"3x3 matrix is singular (det={det:E3}); spectral input is degenerate.");
+        {
+            return false;
+        }
 
         var invDet = 1.0 / det;
         inverse[0] = (m11 * m22 - m12 * m21) * invDet;
@@ -189,6 +201,7 @@ public static class CameraColorMatrix
         inverse[6] = (m10 * m21 - m11 * m20) * invDet;
         inverse[7] = (m01 * m20 - m00 * m21) * invDet;
         inverse[8] = (m00 * m11 - m01 * m10) * invDet;
+        return true;
     }
 
     /// <summary>Trapezoidal integration of a curve's throughput against its

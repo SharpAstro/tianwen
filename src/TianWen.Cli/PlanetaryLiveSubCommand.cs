@@ -112,12 +112,7 @@ internal sealed class PlanetaryLiveSubCommand(IConsoleHost consoleHost, ITimePro
                 Directory.CreateDirectory(lastMasterOut);
             }
             var truthPath = parseResult.GetValue(truthOpt);
-            CatalogIndex planet = parseResult.GetValue(planetOpt)?.ToLowerInvariant() switch
-            {
-                "saturn" => CatalogIndex.Saturn,
-                "jupiter" => CatalogIndex.Jupiter,
-                _ => PlanetaryCaptureName.Planet(path) ?? CatalogIndex.Jupiter,
-            };
+            var planet = PlanetaryGeometrySubCommands.ParsePlanet(parseResult.GetValue(planetOpt), path) ?? PlanetaryCaptureName.Planet(path) ?? CatalogIndex.Jupiter;
 
             using var source = SerFrameStream.Open(path);
             double rate;

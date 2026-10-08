@@ -2,11 +2,35 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using TianWen.Lib.Geometry;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Planetary;
+
+/// <summary>Why a frame is left out of a stack (<see cref="FrameGrader.LeftOutBecause(in FrameGrade, in FrameRun)"/>), or <see cref="None"/>.</summary>
+public enum FrameExclusion
+{
+    /// <summary>Kept.</summary>
+    None,
+
+    /// <summary>Its planet is cut or missing, in a capture that drops cut frames (<see cref="FrameGrader.DropsCutFrames"/>).</summary>
+    Cut,
+
+    /// <summary>Its planet lies too long for the run (<see cref="FrameGrader.IsSmeared"/>).</summary>
+    Smeared,
+
+    /// <summary>Its planet is too faint for the run (<see cref="FrameGrader.IsDim"/>).</summary>
+    Dim,
+}
+
+/// <summary>
+/// What a run says about its frames (<see cref="FrameGrader.RunOf"/>): whether it drops its cut frames, and its whole frames' median
+/// elongation and brightness, NaN when unread.
+/// </summary>
+public readonly record struct FrameRun(bool DropsCut, double Elongation, double Brightness);
 
 /// <summary>A frame's sharpness score (higher = sharper), keyed by its index in the stream.</summary>
 /// <param name="Index">The frame's index in the stream.</param>
@@ -127,36 +151,64 @@ public sealed class FrameGrader(IFrameQualityEstimator estimator)
     /// </summary>
     public static ImmutableArray<FrameGrade> WithoutCutSmearedOrDimFrames(ImmutableArray<FrameGrade> grades)
     {
-        var cut = 0;
-        foreach (var grade in grades)
-        {
-            cut += grade.Cut ? 1 : 0;
-        }
-        var dropCut = cut > 0 && DropsCutFrames(grades.Length - cut, grades.Length);
-        var runElongation = RunElongation(grades);
-        var runBrightness = RunBrightness(grades);
+        var run = RunOf(grades);
         var builder = grades.ToBuilder();
         var changed = false;
         for (var i = 0; i < builder.Count; i++)
         {
             var grade = builder[i];
-            if (dropCut && grade.Cut)
+            switch (LeftOutBecause(grade, run))
             {
-                builder[i] = grade with { Score = 0 };
-                changed = true;
-            }
-            else if (!grade.Cut && IsSmeared(grade.Elongation, runElongation))
-            {
-                builder[i] = grade with { Score = 0, Smeared = true };
-                changed = true;
-            }
-            else if (!grade.Cut && IsDim(grade.Brightness, runBrightness))
-            {
-                builder[i] = grade with { Score = 0, Dim = true };
-                changed = true;
+                case FrameExclusion.Cut:
+                    builder[i] = grade with { Score = 0 };
+                    changed = true;
+                    break;
+                case FrameExclusion.Smeared:
+                    builder[i] = grade with { Score = 0, Smeared = true };
+                    changed = true;
+                    break;
+                case FrameExclusion.Dim:
+                    builder[i] = grade with { Score = 0, Dim = true };
+                    changed = true;
+                    break;
             }
         }
         return changed ? builder.MoveToImmutable() : grades;
+    }
+
+    /// <summary>
+    /// What <paramref name="grades"/>' run says about its frames: whether it drops its cut frames (<see cref="DropsCutFrames"/>), and its
+    /// whole frames' median elongation (<see cref="RunElongation"/>) and brightness (<see cref="RunBrightness"/>).
+    /// </summary>
+    public static FrameRun RunOf(ImmutableArray<FrameGrade> grades)
+    {
+        var cut = 0;
+        foreach (var grade in grades)
+        {
+            cut += grade.Cut ? 1 : 0;
+        }
+        return new FrameRun(cut > 0 && DropsCutFrames(grades.Length - cut, grades.Length), RunElongation(grades), RunBrightness(grades));
+    }
+
+    /// <summary>Whether, and why, <paramref name="grade"/> is left out of a stack of <paramref name="run"/>'s.</summary>
+    public static FrameExclusion LeftOutBecause(in FrameGrade grade, in FrameRun run)
+        => LeftOutBecause(grade.Cut, run.DropsCut, grade.Elongation, run.Elongation, grade.Brightness, run.Brightness);
+
+    /// <summary>
+    /// Whether, and why, a frame is left out of a stack (#1237, #1300, #1307): a <paramref name="cut"/> frame when the capture drops its cut
+    /// frames (<paramref name="dropsCut"/>, <see cref="DropsCutFrames"/>), else a whole one smeared (<see cref="IsSmeared"/>) or dim
+    /// (<see cref="IsDim"/>) against the run's medians. ONE rule for the batch's grades, the capture statistics and the live stack, which
+    /// keeps running medians of its own (the audit on #1343 found it written out three times).
+    /// </summary>
+    public static FrameExclusion LeftOutBecause(bool cut, bool dropsCut, float elongation, double runElongation, float brightness, double runBrightness)
+    {
+        if (cut)
+        {
+            return dropsCut ? FrameExclusion.Cut : FrameExclusion.None;
+        }
+        return IsSmeared(elongation, runElongation) ? FrameExclusion.Smeared
+            : IsDim(brightness, runBrightness) ? FrameExclusion.Dim
+            : FrameExclusion.None;
     }
 
     /// <summary>
@@ -219,17 +271,8 @@ public sealed class FrameGrader(IFrameQualityEstimator estimator)
         return MedianOf(read);
     }
 
-    // The median of `values`, NaN when there are none; reorders the list.
-    internal static double MedianOf(List<float> values)
-    {
-        if (values.Count == 0)
-        {
-            return double.NaN;
-        }
-        values.Sort();
-        var middle = values.Count / 2;
-        return values.Count % 2 == 1 ? values[middle] : (values[middle - 1] + (double)values[middle]) / 2;
-    }
+    // The median of `values`, NaN when there are none; reorders the list (StatisticsHelper.MedianFast, the one median).
+    internal static double MedianOf(List<float> values) => StatisticsHelper.MedianFast(CollectionsMarshal.AsSpan(values));
 
     /// <summary>
     /// Whether cut frames are left out of a capture of which <paramref name="whole"/> of <paramref name="graded"/> frames hold their

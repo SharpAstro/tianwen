@@ -275,11 +275,9 @@ public static class PlanetaryCaptureStatistics
             quality[index] = score;
             corrupt[index] = FrameGrader.IsCorruptReadout(frame);
         }, cancellationToken).ConfigureAwait(false);
-        var dropCut = FrameGrader.DropsCutFrames(cut.Count(c => !c), n);
-        var runElongation = FrameGrader.MedianOf([.. elongation.Where((e, i) => !cut[i] && float.IsFinite(e))]);
-        var runBrightness = FrameGrader.MedianOf([.. brightness.Where((b, i) => !cut[i] && float.IsFinite(b))]);
-        bool[] leftOut = [.. corrupt.Select((c, i) => c || (dropCut && cut[i])
-            || (!cut[i] && (FrameGrader.IsSmeared(elongation[i], runElongation) || FrameGrader.IsDim(brightness[i], runBrightness))))];
+        ImmutableArray<FrameGrade> grades = [.. Enumerable.Range(0, n).Select(i => new FrameGrade(i, (float)quality[i], cut[i], elongation[i], Brightness: brightness[i]))];
+        var run = FrameGrader.RunOf(grades);
+        bool[] leftOut = [.. grades.Select(grade => corrupt[grade.Index] || FrameGrader.LeftOutBecause(grade, run) != FrameExclusion.None)];
         var usableQuality = quality.Where((_, i) => !leftOut[i]).ToArray();
         if (usableQuality.Length < 3)
         {
@@ -1357,31 +1355,30 @@ public static class PlanetaryCaptureStatistics
             return await MeasureWideSkyAsync(stream, n, shiftX, shiftY, disk, rings, bright, scale, regions, cancellationToken).ConfigureAwait(false);
         }
         var frames = Math.Min(n, SkyFrames);
+        if (frames == 0)
+        {
+            return (double.NaN, double.NaN, double.NaN, [.. Enumerable.Repeat(double.NaN, HaloAnnuli.Length - 1)]);
+        }
         var (cx, cy) = (disk.X + shiftX.AsSpan(0, frames).ToArray().Average(), disk.Y + shiftY.AsSpan(0, frames).ToArray().Average());
         const int bins = (2 * SkyBinsEachSide) + 1;
-        short[]? counts = null;
-        bool[]? left = null;
-        var (width, height, first) = (0, 0, 0);
+        // Sized from the stream, every frame's size, so nothing here is null for a frame loop to assert past (the audit on #1343).
+        var (width, height) = (stream.Width, stream.Height);
+        var counts = new short[width * height * bins];
+        var left = new bool[width * height];
+        var first = (int)Math.Round(bright - FarSkyBrightAdu) - SkyBinsEachSide;
         for (var f = 0; f < frames; f++)
         {
             var frame = await stream.LoadAsync(f, cancellationToken).ConfigureAwait(false);
             try
             {
                 var plane = frame.GetChannelSpan(0);
-                if (counts is null)
-                {
-                    (width, height) = (frame.Width, frame.Height);
-                    counts = new short[width * height * bins];
-                    left = new bool[width * height];
-                    first = (int)Math.Round(bright - FarSkyBrightAdu) - SkyBinsEachSide;
-                }
                 for (var p = 0; p < width * height; p++)
                 {
                     var v = (int)Math.Round(plane[p] * scale);
                     var bin = v - first;
                     if (bin < 0 || bin >= bins || v > bright)
                     {
-                        left![p] = true;
+                        left[p] = true;
                     }
                     else
                     {
@@ -1393,10 +1390,6 @@ public static class PlanetaryCaptureStatistics
             {
                 frame.Release();
             }
-        }
-        if (counts is null || left is null)
-        {
-            return (double.NaN, double.NaN, double.NaN, [.. Enumerable.Repeat(double.NaN, HaloAnnuli.Length - 1)]);
         }
 
         // The pixels of each region, by their distance from the disk's mean place in radii.
@@ -1433,40 +1426,35 @@ public static class PlanetaryCaptureStatistics
         (double FarInner, double LocalInner, double LocalOuter) regions, CancellationToken cancellationToken)
     {
         var frames = Math.Min(n, SkyFrames);
+        if (frames == 0)
+        {
+            return (double.NaN, double.NaN, double.NaN, [.. Enumerable.Repeat(double.NaN, HaloAnnuli.Length - 1)]);
+        }
         var (cx, cy) = (disk.X + shiftX.AsSpan(0, frames).ToArray().Average(), disk.Y + shiftY.AsSpan(0, frames).ToArray().Average());
-        double[]? sum = null, squares = null;
-        bool[]? left = null;
-        var (width, height) = (0, 0);
+        // Sized from the stream, every frame's size, as MeasureSkyAsync's are.
+        var (width, height) = (stream.Width, stream.Height);
+        var (sum, squares, left) = (new double[width * height], new double[width * height], new bool[width * height]);
         for (var f = 0; f < frames; f++)
         {
             var frame = await stream.LoadAsync(f, cancellationToken).ConfigureAwait(false);
             try
             {
                 var plane = frame.GetChannelSpan(0);
-                if (sum is null)
-                {
-                    (width, height) = (frame.Width, frame.Height);
-                    (sum, squares, left) = (new double[width * height], new double[width * height], new bool[width * height]);
-                }
                 for (var p = 0; p < width * height; p++)
                 {
                     var v = plane[p] * scale;
                     if (v > bright)
                     {
-                        left![p] = true;
+                        left[p] = true;
                     }
                     sum[p] += v;
-                    squares![p] += v * v;
+                    squares[p] += v * v;
                 }
             }
             finally
             {
                 frame.Release();
             }
-        }
-        if (sum is null || squares is null || left is null)
-        {
-            return (double.NaN, double.NaN, double.NaN, [.. Enumerable.Repeat(double.NaN, HaloAnnuli.Length - 1)]);
         }
         (double Level, double Noise) Region(double inner, double outer)
         {

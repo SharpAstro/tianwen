@@ -53,12 +53,7 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
         command.SetAction(async (parseResult, ct) =>
         {
             var inv = CultureInfo.InvariantCulture;
-            CatalogIndex? named = parseResult.GetValue(planetOpt)?.ToLowerInvariant() switch
-            {
-                "jupiter" => CatalogIndex.Jupiter,
-                "saturn" => CatalogIndex.Saturn,
-                _ => null,
-            };
+            var named = PlanetaryGeometrySubCommands.ParsePlanet(parseResult.GetValue(planetOpt), path: null);
             if (named is not { } planet)
             {
                 consoleHost.WriteError("--planet: jupiter or saturn");

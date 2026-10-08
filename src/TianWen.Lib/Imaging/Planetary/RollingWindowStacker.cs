@@ -4,6 +4,7 @@ using System.Linq;
 using TianWen.Lib.Geometry;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
@@ -136,17 +137,11 @@ public sealed class RollingWindowStacker
     // has read SmearRefresh of them (FrameGrader.IsSmeared, #1300).
     private const int SmearWindow = 512;
     private const int SmearRefresh = 32;
-    private readonly float[] _elongations = new float[SmearWindow];
-    private readonly List<float> _elongationScratch = new(SmearWindow);
-    private int _elongationsRead;
-    private double _runElongation = double.NaN;
+    private readonly RollingMedian _runElongation = new RollingMedian(SmearWindow, SmearRefresh);
 
     // The planet's brightness (its peak above the sky) in the same frames, read the same way: a frame under half the run's median is
     // left out as dim (FrameGrader.IsDim, #1307).
-    private readonly float[] _brightnesses = new float[SmearWindow];
-    private readonly List<float> _brightnessScratch = new(SmearWindow);
-    private int _brightnessesRead;
-    private double _runBrightness = double.NaN;
+    private readonly RollingMedian _runBrightness = new RollingMedian(SmearWindow, SmearRefresh);
 
     // The folded contribution of each in-window frame, so eviction can subtract exactly what was added
     // (same shift, negated weight) without re-grading. Weight 0 = graded-but-not-folded (kept so the
@@ -688,27 +683,15 @@ public sealed class RollingWindowStacker
         _wholeFrames += cut ? 0 : 1;
         if (!cut && float.IsFinite(elongation))
         {
-            _elongations[_elongationsRead++ % SmearWindow] = elongation;
-            if (_elongationsRead % SmearRefresh == 0)
-            {
-                _elongationScratch.Clear();
-                _elongationScratch.AddRange(_elongations.AsSpan(0, Math.Min(_elongationsRead, SmearWindow)));
-                _runElongation = FrameGrader.MedianOf(_elongationScratch);
-            }
+            _runElongation.Add(elongation);
         }
         if (!cut && float.IsFinite(brightness))
         {
-            _brightnesses[_brightnessesRead++ % SmearWindow] = brightness;
-            if (_brightnessesRead % SmearRefresh == 0)
-            {
-                _brightnessScratch.Clear();
-                _brightnessScratch.AddRange(_brightnesses.AsSpan(0, Math.Min(_brightnessesRead, SmearWindow)));
-                _runBrightness = FrameGrader.MedianOf(_brightnessScratch);
-            }
+            _runBrightness.Add(brightness);
         }
-        var smeared = !cut && FrameGrader.IsSmeared(elongation, _runElongation);
-        var dim = !cut && FrameGrader.IsDim(brightness, _runBrightness);
-        var score = (cut && FrameGrader.DropsCutFrames(_wholeFrames, _gradedFrames)) || smeared || dim ? 0f : MathF.Max(0f, graded);
+        var leftOut = FrameGrader.LeftOutBecause(cut, FrameGrader.DropsCutFrames(_wholeFrames, _gradedFrames), elongation, _runElongation.Value,
+            brightness, _runBrightness.Value);
+        var score = leftOut != FrameExclusion.None ? 0f : MathF.Max(0f, graded);
         _scoreCache[index] = (score, box);
         if (index < _scoreCacheFloor)
         {
@@ -787,5 +770,27 @@ public sealed class RollingWindowStacker
         }
 
         return p;
+    }
+
+    // A median over the last `window` values added, read again every `refresh` of them: the live stack's run elongation and brightness
+    // (#1300, #1307), which were one block written twice with the names swapped (the audit on #1343). NaN until `refresh` values are in.
+    private sealed class RollingMedian(int window, int refresh)
+    {
+        private readonly float[] _ring = new float[window];
+        private readonly float[] _scratch = new float[window];
+        private int _added;
+
+        public double Value { get; private set; } = double.NaN;
+
+        public void Add(float value)
+        {
+            _ring[_added++ % window] = value;
+            if (_added % refresh == 0)
+            {
+                var count = Math.Min(_added, window);
+                _ring.AsSpan(0, count).CopyTo(_scratch);
+                Value = StatisticsHelper.MedianFast(_scratch.AsSpan(0, count));
+            }
+        }
     }
 }

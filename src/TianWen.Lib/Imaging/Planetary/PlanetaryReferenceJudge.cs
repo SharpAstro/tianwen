@@ -188,22 +188,6 @@ public static class PlanetaryReferenceJudge
         }
     }
 
-    /// <summary>A picture's luminance as the judge places and matches it: its channels' mean, one plane.</summary>
-    public static float[] Luminance(Image image)
-    {
-        ArgumentNullException.ThrowIfNull(image);
-        var result = new float[image.Width * image.Height];
-        for (var c = 0; c < image.ChannelCount; c++)
-        {
-            var plane = image.GetChannelSpan(c);
-            for (var i = 0; i < result.Length; i++)
-            {
-                result[i] += plane[i] / image.ChannelCount;
-            }
-        }
-        return result;
-    }
-
     /// <summary>
     /// The colour of <paramref name="master"/> and of <paramref name="reference"/> placed on it at <paramref name="placement"/>, as the eye reads
     /// each (#1273, <see cref="PlanetaryColourReading"/>): the reference decoded from sRGB, resampled onto the master's grid, its luminance (the

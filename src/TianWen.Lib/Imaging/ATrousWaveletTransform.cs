@@ -192,8 +192,9 @@ public static class ATrousWaveletTransform
         }
     }
 
-    // Reflect-101 index mirror (a[-1]=a[1], a[n]=a[n-2]); loops to cover large dilation steps near small dims.
-    private static int Reflect(int i, int n)
+    // Reflect-101 index mirror (a[-1]=a[1], a[n]=a[n-2]); loops to cover large dilation steps near small dims. The one such mirror: the
+    // planetary finishing reads its windows through it too (the audit on #1343 found a private copy there).
+    internal static int Reflect(int i, int n)
     {
         if (n == 1)
         {
