@@ -498,6 +498,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 BuildStarlessEvalCommand(),
                 BuildSkyTextureCommand(),
                 BuildSyntheticBackgroundCommand(),
+                BuildFillProbeCommand(),
                 BuildPlateMasksCommand(),
                 BuildBrightCellsCommand(),
                 BuildNoiseCheckCommand(),
@@ -1130,6 +1131,49 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
     /// <c>tianwen dataset synthetic-background</c>: R2d's D2 and D3 generator over any starless plate, a cell centred on each
     /// point asked for beside the plate's own cutout (<see cref="SyntheticBackgroundPreview"/>).
     /// </summary>
+    /// <summary>
+    /// <c>tianwen dataset fill-probe</c>: R2e's S4 read over a store's starless plates, R0's fill probe with today's fill
+    /// and with the conditional draw of the steered texture, on the same holes (<see cref="StarlessFillProbeRun"/>).
+    /// </summary>
+    private Command BuildFillProbeCommand()
+    {
+        var platesOpt = new Option<string>("--plates") { Description = "The store's starless plates folder (<stem>_plate.fits with its masks and profile beside it).", Required = true };
+        var listOpt = new Option<string?>("--list") { Description = "A file of plate stems, one a line, to probe (default: every plate)." };
+        var holesOpt = new Option<int>("--holes") { Description = "Holes cut a radius, at 3, 6, 12 and 24 px.", DefaultValueFactory = _ => 100 };
+        var steerOpt = new Option<string>("--steer")
+        {
+            Description = "The textured fill's steer, strength,exponent[,wander[,fine]] (synthetic-background's --steer).",
+            DefaultValueFactory = _ => "0.5,2,0.8,1",
+        };
+        var outOpt = new Option<string>("--out", "-o") { Description = "The JSONL report, a row a plate; a plate already in it is skipped.", Required = true };
+        var command = new Command("fill-probe",
+            "Probe R0's fill and R2e's textured fill on the same holes cut where each plate's truth is known, and write a row a plate. " +
+            "Resumes; <out folder>/" + StarlessFillProbeRun.StopFileName + " stops it before the next plate.")
+        {
+            Options = { platesOpt, listOpt, holesOpt, steerOpt, outOpt },
+        };
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var parts = parseResult.Required(steerOpt).Split(',', StringSplitOptions.TrimEntries);
+            var values = new double[4];
+            if (parts.Length is < 2 or > 4 || parts.Select((p, i) => double.TryParse(p, CultureInfo.InvariantCulture, out values[i])).Any(static ok => !ok))
+            {
+                consoleHost.WriteError($"--steer takes strength,exponent[,wander[,fine]], got '{parseResult.Required(steerOpt)}'");
+                return 1;
+            }
+            var stems = parseResult.GetValue(listOpt) is { } list
+                ? (await File.ReadAllLinesAsync(list, ct)).Select(static l => l.Trim()).Where(static l => l.Length > 0).ToArray()
+                : [];
+            var result = await StarlessFillProbeRun.RunAsync(parseResult.Required(platesOpt), parseResult.Required(outOpt), stems,
+                parseResult.GetValue(holesOpt), new SyntheticBackground.Steering(values[0], values[1], values[2], values[3]),
+                new Progress<string>(line => consoleHost.WriteScrollable(line)), ct);
+            consoleHost.WriteScrollable(
+                $"[fill-probe] {(result.Stopped ? "STOPPED: " : "")}measured {result.Measured}, skipped {result.Skipped}, failed {result.Failed}; report: {result.OutPath}");
+            return result.Failed > 0 ? 1 : 0;
+        });
+        return command;
+    }
+
     private Command BuildSyntheticBackgroundCommand()
     {
         var plateOpt = new Option<string>("--plate") { Description = "A starless plate FITS on its master's unit scale (a plate builder's, or a starless from image remove-stars).", Required = true };
