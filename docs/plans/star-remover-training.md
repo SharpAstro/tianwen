@@ -1355,6 +1355,37 @@ generator keeps. The two agree from 4 px up, which is every scale the reads abov
 drawn steered along the plate's coarse orientation, with its anisotropy set per class from these numbers. The smooth
 sky's alignment says the steering should follow the local coherence everywhere, not switch on with a class.
 
+#### S2 and S3 as built: the steer, calibrated on emission nebulae, short of M45 (2026-10-08)
+
+- **The steer** (`SyntheticBackground.Steering`, opt-in, so arm B's isotropic texture is unchanged). PowerLawField's
+  spectrum, the same draws, goes through the isotropic window and eight angular ones (`cos^2m` about each direction). Per
+  pixel the two directions either side of the plate's coarse orientation are blended. That is mixed with the isotropic
+  field by a strength times the coarse coherence, and the mix's variance, read off the fields' covariances, divided out.
+  The coarse orientation is S1's structure tensor of the kept scales' luminance. A wander turns the orientation drawn
+  along by a smooth random angle. Pinned by `SyntheticBackgroundTests` on a plate whose coarse structure runs one way.
+- **S3's harness** (`tianwen dataset synthetic-background --steer s,m[,w] --textured N --measure`): the most textured
+  384 px cells of a plate, each read beside its synthetic by S1's measure. Read class by class by
+  `C:\temp\e2\s3_summary.py`. The score is the mean distance between synthetic and plate, coherence over noise and
+  alignment, at 2 to 8 px.
+- **Calibrated on five eta Carinae plates** (8 cells each, 28 settings in three sweeps). The rule, fixed before the
+  held-out plates were read, is the lowest mean of the textured and strongly textured classes' scores. It picked strength
+  0.5, exponent 1, wander 0.8 rad, at 0.063 against the isotropic texture's 0.160.
+  - The isotropic texture reads no alignment, where the plates read +0.15 to +0.42, and little coherence.
+  - A steer with no wander overshoots the alignment (+0.6 to +0.9) before it reaches the plates' coherence, so the real
+    fine structure is about as one-way as a strong steer makes it but follows the coarse contours less tightly.
+  - Held out (Lagoon, Orion; Vela's cells hold too little textured sky to score): 0.061 against the isotropic 0.175.
+  - Two faults remain. At 2 px the pick is too one-way (+0.11 coherence against the plates' +0.03): their anisotropy
+    grows with scale, and one steer is the same at every scale. Over whole cells, mostly smooth sky, it is no closer
+    than the isotropic texture (0.080 against 0.075).
+- **M45 by eye misses** (StarXTerminator's starless of the iTelescope stack, the six centres of the first preview,
+  `C:\temp\rc-sxt-test\m45-steered.png`). The steer gives a hint of streaking along the arc where the isotropic texture
+  gives none. It is still clumpy where the reflection nebula is long smooth striations. In the two striated cells the
+  plate's coherence at 4 to 16 px reads +0.41 to +0.58, the steered texture's +0.13 to +0.29. The calibration came from
+  emission nebulae, whose fine structure is far less one-way, and one global setting cannot serve both. **Next (S2b):**
+  steer by the plate's own fine-scale structure tensor where it holds signal, read as the amplitude maps are (sources
+  masked, energy smoothed over the clean pixels), so its local coherence sets how one-way the texture is, with the coarse
+  orientation only where the fine scales are noise. Then the same harness, and M45 again.
+
 #### S2: generate it, S3: check it, S4: fill with it
 
 - **S2.** The texture drawn along an orientation field, isotropic where the coarse plate shows none (a steerable sum of
