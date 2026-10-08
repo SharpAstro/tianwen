@@ -510,14 +510,19 @@ public static class PlanetaryCaptureStatistics
     }
 
     /// <summary>The statistics saved at <paramref name="path"/> when they are this version's, under <paramref name="key"/>; else null.</summary>
+    /// <remarks>
+    /// The file is read whole and parsed from its bytes, never from the stream: read through a stream's buffer, a frame limb a
+    /// buffer boundary fell inside could not be converted (#1281's 2,600 frames saved and failed at limb 208 of 650; the same
+    /// bytes parse whole). A file is a megabyte or so.
+    /// </remarks>
     public static async Task<CaptureStatistics?> TryLoadAsync(string path, string key, CancellationToken cancellationToken)
     {
         if (!File.Exists(path))
         {
             return null;
         }
-        await using var stream = File.OpenRead(path);
-        var file = await JsonSerializer.DeserializeAsync(stream, PlanetaryStatisticsJsonContext.Default.CaptureStatisticsFile, cancellationToken).ConfigureAwait(false);
+        var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
+        var file = JsonSerializer.Deserialize(bytes, PlanetaryStatisticsJsonContext.Default.CaptureStatisticsFile);
         return file is { Version: FileVersion } && file.Key == key ? file.Statistics : null;
     }
 
