@@ -1320,6 +1320,41 @@ read against white noise's (`Measurement.NoiseAlignment`). Pre-registered, befor
 If (1) misses, the striations are a few fields' and the generator draws them per class without a coarse guide; if (2)
 misses, the orientation is drawn rather than read.
 
+#### S1's read: the nebula's fine structure runs along its coarse contours (2026-10-08)
+
+All 190 plates (`C:\temp\e2\sky-texture-s1\sky-texture.jsonl`, from the commit that added the measure; summarised by
+`C:\temp\e2\sky_structure_summary.py`). Medians across plates, with the interquartile range:
+
+| class, plates | | 2 px | 4 px | 8 px | 16 px |
+|---|---|---|---|---|---|
+| textured, 106 | coherence over noise | +0.07 | +0.11 (+0.05 to +0.20) | +0.15 (+0.07 to +0.21) | +0.14 (+0.08 to +0.22) |
+| | alignment | +0.13 | +0.30 (+0.19 to +0.39) | +0.38 (+0.14 to +0.49) | +0.43 (+0.26 to +0.55) |
+| strongly textured, 57 | coherence over noise | +0.13 | +0.15 (+0.09 to +0.21) | +0.19 (+0.11 to +0.24) | +0.15 (+0.11 to +0.25) |
+| | alignment | +0.27 | +0.38 (+0.26 to +0.51) | +0.43 (+0.14 to +0.56) | +0.32 (+0.14 to +0.52) |
+| smooth, 190 | coherence over noise | +0.02 | +0.01 | +0.01 | +0.16 |
+| | alignment | +0.02 | +0.04 | +0.10 | +0.26 |
+
+White noise's alignment is -0.003 to -0.054 at these scales.
+1. **Holds, narrowly.** The textured classes' coherence at 4 to 16 px is over noise's by +0.11 to +0.19 at the median,
+   0.1 or more on 58 to 79 percent of the plates. The anisotropy is real but modest: no plate's sky is all striations.
+2. **Holds, strongly.** Where it is, the fine structure runs along the coarse contours. The alignment is +0.30 to +0.43
+   at the median, positive on 88 to 98 percent of the plates. The plate's kept scales can steer the texture.
+3. **Misses.** The smooth class's coherence is noise's to 8 px but +0.16 over it at 16 px. Its alignment departs from
+   noise's by more than 0.05 from 4 px, on 177 to 180 plates of 190.
+   - Read afterwards, not registered: white noise's slightly negative alignment comes from its fine and coarse scales
+     sharing one field. On a plate the coarse scales are the sky's own and the noise is independent of them, so 0 is
+     the null that applies there.
+   - Against 0, the smooth class is noise to 4 px and departs from 8 px (+0.10, then +0.26). That is the large-scale sky
+     D1 found from 16 px up, faint enough to read as smooth, and it runs along the coarse shape as the nebulae do.
+
+The null's alignment takes the coarse scales from two octaves up, while a plate starts no finer than the first scale the
+generator keeps. The two agree from 4 px up, which is every scale the reads above rest on.
+
+**What it sets for S2.** The generator draws the scales under its first kept one: 1 to 4 px on 147 plates, 1 to 8 px on
+43. There the textured sky reads coherence +0.07 to +0.19 over noise and alignment +0.13 to +0.43, so the texture is
+drawn steered along the plate's coarse orientation, with its anisotropy set per class from these numbers. The smooth
+sky's alignment says the steering should follow the local coherence everywhere, not switch on with a class.
+
 #### S2: generate it, S3: check it, S4: fill with it
 
 - **S2.** The texture drawn along an orientation field, isotropic where the coarse plate shows none (a steerable sum of
