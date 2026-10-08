@@ -44,7 +44,7 @@ internal static class PlanetaryMasterScore
                 var label = colour ? $"{what}, {name}" : what;
                 if (plane.Width * plane.Height != truth.Plane.Length)
                 {
-                    consoleHost.WriteError($"[planetary] {path}: {label} is {plane.Width} x {plane.Height}, the truth {truth.Plane.Length} px");
+                    consoleHost.WriteError($"[planetary] {path}: {label} is {plane.Width} x {plane.Height}, the truth {truth.Plane.Length} px (a master cropped to its coverage is off the truth's grid: stack it with --truth or --no-crop)");
                     continue;
                 }
                 if (PlanetaryMeasureSubCommand.Register(plane, limbOptions, disk) is not { } fitted)
