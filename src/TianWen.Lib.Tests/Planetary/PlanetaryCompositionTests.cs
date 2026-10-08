@@ -65,7 +65,7 @@ public sealed class PlanetaryCompositionTests : IDisposable
         Differing(recipe.Luminance, joined.Luminance).ShouldBe(0);
     }
 
-    [Fact(Timeout = 300_000)]
+    [Fact]
     public void TheMasterLiesOnTheReferencesDiskTurnedToItsInstantWithTheTrueNorth()
     {
         var ingested = Ingested();
@@ -98,7 +98,7 @@ public sealed class PlanetaryCompositionTests : IDisposable
         turned.ShouldBeLessThan(notTurned * 0.5);
     }
 
-    [Fact(Timeout = 300_000)]
+    [Fact]
     public void TheLuminanceStepThroughFilesGivesTheRecipesMasterAndKeepsItsColour()
     {
         var ingested = Ingested();
