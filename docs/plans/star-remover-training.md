@@ -1156,6 +1156,49 @@ a V against luminance colour term is the likely reading, #1242); the mono noise 
 their 15 mono sessions, which R2a's 3-channel trainer leaves out); and theme C's validations,
 R0 run on R1's draws, a noise-free twin draw and a zero-flux draw (#1244).
 
+### R2e: the nebula's structure, for the background and the fill (the owner's direction, 2026-10-08)
+
+The Pleiades preview (above) showed D2's texture right in energy and wrong in shape: the real reflection nebula's fine
+scales are striations aligned over hundreds of pixels, ours are isotropic clumps. The same model serves twice, so it is one
+model: the synthetic background a remover is taught on (a filament under a bright star is a target that keeps it), and
+R0's fill (`HoleFill`, a push-pull pyramid plus grain), which today ends every filament at a hole's edge and leaves the
+inside smooth and a little dark ("What R0 leaves": eta Carinae's Keyhole, the Trapezium). Physics before shape: dust
+filaments run along the magnetic field, which is why a reflection nebula is striated; it brightens toward the star that
+lights it; a dark lane absorbs, so it multiplies what lies behind it and ends sharply on one side; an ionisation front is
+one-sided too. Turbulence (D2's log-normal) is right for the emission between them.
+
+#### S1: measure the structure on the plates
+
+D1's measure (`SkyTexture`, every plate of the store, per starlet scale and background class) gains the structure tensor
+of each scale's coefficients over a window twice the scale: its **coherence** (`(l1 - l2) / (l1 + l2)`, energy-weighted
+over the class's pixels, against the same read of white noise, which is not zero over a finite window), and its
+**alignment** with the coarse structure the generator keeps (from `SyntheticBackground.FirstKeptScale` up, and never
+closer than two octaves above the scale read, `SkyTexture.CoarseStart`: adjacent starlet scales share frequencies, and on
+white noise 8 px against 16 px up read 0.23 before that rule): the mean of `cos 2(theta_fine - theta_coarse)` weighted by
+both coherences, +1 where the fine structure runs along the coarse contours, -1 across them, 0 where they are unrelated,
+read against white noise's (`Measurement.NoiseAlignment`). Pre-registered, before any plate is read:
+1. On the textured and strongly textured classes, the coherence at 4 to 16 px is above white noise's by at least 0.1.
+   Moderate: the Pleiades shows it, an emission nebula may not.
+2. Where it is, the alignment is positive (fine structure along the coarse contours, so the plate's kept scales can steer
+   the texture). Low to moderate.
+3. On the smooth class neither departs from noise's by more than 0.05. High.
+
+If (1) misses, the striations are a few fields' and the generator draws them per class without a coarse guide; if (2)
+misses, the orientation is drawn rather than read.
+
+#### S2: generate it, S3: check it, S4: fill with it
+
+- **S2.** The texture drawn along an orientation field, isotropic where the coarse plate shows none (a steerable sum of
+  oriented power-law fields, each one's weight the local orientation's), its anisotropy set by S1's coherence per class;
+  absorption as a multiplicative layer with one-sided edges; brightening toward a bright star where it sits in nebula.
+- **S3.** The synthetic read by the same measure, class by class: index, tails, coherence and alignment within S1's
+  ranges, then the M45 three-way again by eye.
+- **S4.** R0's fill takes the coarse level it interpolates today and S2's texture for the scales under the hole's size,
+  steered by the orientation round it. Judged where the answer is known: holes cut where no star is (sized as R0's are),
+  filled, and compared with what was there, the orientation's continuity across the edge and each band's energy and the
+  level inside, against today's fill.
+- Tracked by #1338.
+
 ## 7. Phasing
 
 Tracked by #902.
