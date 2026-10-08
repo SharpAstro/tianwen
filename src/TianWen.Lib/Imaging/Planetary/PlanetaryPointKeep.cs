@@ -9,8 +9,9 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// Each alignment point keeping its own best frames (<see cref="PlanetaryStackOptions.PointKeep"/>, #1350; Strata's Warp+): every
 /// candidate frame scored at every point by its patch's gain in a trous band 2 against the stacked reference
 /// (<see cref="PlanetaryPointQuality.BandGain"/>, the best local estimator #1071 measured), each point keeping its best share of the
-/// candidates, and a frame folded with a weight a pixel that is the share of the points about it (a tent over the mesh's reach) that kept
-/// it. Where no point reaches, the sky, every candidate counts.
+/// candidates, and a frame folded with a weight a pixel that is the share of the points about it (a tent reaching one point spacing, so
+/// between neighbours only: reaching the mesh's 48 px it was a vote of a dozen points' sets) that kept it. Where no point reaches, the sky,
+/// every candidate counts.
 /// </summary>
 internal sealed class PlanetaryPointKeep
 {

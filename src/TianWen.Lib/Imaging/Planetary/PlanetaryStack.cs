@@ -71,7 +71,8 @@ public sealed record PlanetaryStackOptions
     /// fraction of them, and a frame folded with a weight a pixel that is the share of the points about it that kept it (every
     /// candidate where no point reaches). A keep of one with a point keep of K is Warp+ itself; a keep of a quarter with a point keep of
     /// a fifth keeps 5 % of the frames a point from the best quarter, at a quarter of the cost. Null, the default, folds every selected
-    /// frame everywhere. An option, measured on #1350: on #1071's layered twin per-point selection by this score tied the whole frame's.
+    /// frame everywhere. An option, measured on #1350: on #1071's layered twin it loses 1.2 to 1.9 % of band error to the frame's own keep,
+    /// and an oracle per point loses to an oracle per frame, since most of a point's quality on a planet's disk is its frame's.
     /// The alignment-point stack only (<see cref="LuckyImagingStacker.StackAsync"/>), never with pooled points or the median geometry.
     /// </summary>
     public double? PointKeep { get; init; }
