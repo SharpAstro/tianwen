@@ -1158,12 +1158,13 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Description = "R2e's S3: read both cells' luminance with sky-texture's measure (coherence and alignment per scale) and " +
                           "write every pair to structure.jsonl beside them.",
         };
+        var noKnotsOpt = new Option<bool>("--no-knots") { Description = "S3: the synthetic cells without their knots, the texture alone (the exporter always draws them)." };
         var command = new Command("synthetic-background",
             "Draw R2d's synthetic starless background (the plate's coarse scales, a turbulent texture at the scales a star lives " +
             "at held to the plate's own local signal, and knots that are never the PSF) at cells centred where asked, each " +
             "beside the plate's own cutout there.")
         {
-            Options = { plateOpt, fwhmOpt, atOpt, sizeOpt, seedOpt, noNoiseOpt, outOpt, steerOpt, texturedOpt, measureOpt, tailsOpt },
+            Options = { plateOpt, fwhmOpt, atOpt, sizeOpt, seedOpt, noNoiseOpt, outOpt, steerOpt, texturedOpt, measureOpt, tailsOpt, noKnotsOpt },
         };
         command.SetAction(parseResult =>
         {
@@ -1196,7 +1197,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             var fwhm = parseResult.GetValue(fwhmOpt);
             var (written, noise) = SyntheticBackgroundPreview.Run(parseResult.Required(plateOpt), parseResult.Required(outOpt),
                 fwhm, centres, parseResult.GetValue(sizeOpt), parseResult.GetValue(seedOpt), !parseResult.GetValue(noNoiseOpt),
-                steering, parseResult.GetValue(texturedOpt), parseResult.GetValue(measureOpt), parseResult.GetValue(tailsOpt));
+                steering, parseResult.GetValue(texturedOpt), parseResult.GetValue(measureOpt), parseResult.GetValue(tailsOpt), !parseResult.GetValue(noKnotsOpt));
             consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
                 $"[synthetic-background] the plate's noise {string.Join(" / ", noise.Select(static n => n.ToString("G3", CultureInfo.InvariantCulture)))}; {written.Length} cell(s):"));
             var drawn = SyntheticBackground.FirstKeptScale(fwhm);

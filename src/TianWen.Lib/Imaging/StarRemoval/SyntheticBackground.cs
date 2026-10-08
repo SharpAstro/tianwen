@@ -611,11 +611,12 @@ public sealed class SyntheticBackground
     /// A preview of what the exporter draws, to set beside the plate it was drawn from: the <paramref name="size"/> px cell
     /// CENTRED on (<paramref name="centreX"/>, <paramref name="centreY"/>), and, when <paramref name="noisy"/>, white noise at
     /// <paramref name="noiseSigma"/> per channel on it. The exporter's noise is the master's own, in its shape; a preview's is
-    /// white, so its grain is finer than a demosaiced master's.
+    /// white, so its grain is finer than a demosaiced master's. Without <paramref name="withKnots"/> the texture alone (S3's
+    /// read of its tails, which the knots' own would confound; the exporter always draws them).
     /// </summary>
-    public float[][] Preview(int centreX, int centreY, int size, ReadOnlySpan<double> noiseSigma, bool noisy, Random random)
+    public float[][] Preview(int centreX, int centreY, int size, ReadOnlySpan<double> noiseSigma, bool noisy, Random random, bool withKnots = true)
     {
-        var planes = Cell(centreX - (size / 2), centreY - (size / 2), size, noiseSigma, random, out _);
+        var planes = Cell(centreX - (size / 2), centreY - (size / 2), size, noiseSigma, random, out _, withKnots);
         if (noisy)
         {
             for (var c = 0; c < planes.Length; c++)
@@ -637,9 +638,11 @@ public sealed class SyntheticBackground
     /// The noise-free background of the <paramref name="size"/> px cell at (<paramref name="x0"/>, <paramref name="y0"/>):
     /// the plate's coarse part, the texture at the replaced scales, and the knots, each channel's knots peaking at a draw
     /// between <see cref="KnotMinSigma"/> and <see cref="KnotMaxSigma"/> times <paramref name="noiseSigma"/> (the cell's noise
-    /// per channel, the plate's units). Pixels outside the frame take the nearest one's.
+    /// per channel, the plate's units). Pixels outside the frame take the nearest one's. Without <paramref name="withKnots"/>
+    /// none are drawn.
     /// </summary>
-    public float[][] Cell(int x0, int y0, int size, ReadOnlySpan<double> noiseSigma, Random random, out ImmutableArray<Knot> knots)
+    public float[][] Cell(int x0, int y0, int size, ReadOnlySpan<double> noiseSigma, Random random, out ImmutableArray<Knot> knots,
+        bool withKnots = true)
     {
         var texture = TextureScales(x0, y0, size, random);
         var planes = new float[Channels][];
@@ -663,7 +666,7 @@ public sealed class SyntheticBackground
             }
             planes[c] = plane;
         }
-        knots = AddKnots(planes, size, noiseSigma, random);
+        knots = withKnots ? AddKnots(planes, size, noiseSigma, random) : [];
         return planes;
     }
 
