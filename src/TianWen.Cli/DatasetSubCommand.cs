@@ -1139,12 +1139,24 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         var seedOpt = new Option<int>("--seed") { Description = "Seed for the texture, the knots and the noise.", DefaultValueFactory = _ => 1 };
         var noNoiseOpt = new Option<bool>("--no-noise") { Description = "The noise-free background (default: white noise at the plate's own)." };
         var outOpt = new Option<string>("--out", "-o") { Description = "The folder plate_<x>_<y>.fits and synthetic_<x>_<y>.fits are written to. Never inside a bake store.", Required = true };
+        var steerOpt = new Option<string?>("--steer")
+        {
+            Description = "R2e's S2: draw the texture along the plate's coarse orientation, as strength,exponent (the share of its " +
+                          "variance steered where the coarse structure is fully coherent, and the angular window's cos power). " +
+                          "Default: the isotropic texture R2d's arm B was taught on.",
+        };
+        var texturedOpt = new Option<int>("--textured") { Description = "Also the centres of this many cells of a --size grid that hold the most texture to draw." };
+        var measureOpt = new Option<bool>("--measure")
+        {
+            Description = "R2e's S3: read both cells' luminance with sky-texture's measure (coherence and alignment per scale) and " +
+                          "write every pair to structure.jsonl beside them.",
+        };
         var command = new Command("synthetic-background",
             "Draw R2d's synthetic starless background (the plate's coarse scales, a turbulent texture at the scales a star lives " +
             "at held to the plate's own local signal, and knots that are never the PSF) at cells centred where asked, each " +
             "beside the plate's own cutout there.")
         {
-            Options = { plateOpt, fwhmOpt, atOpt, sizeOpt, seedOpt, noNoiseOpt, outOpt },
+            Options = { plateOpt, fwhmOpt, atOpt, sizeOpt, seedOpt, noNoiseOpt, outOpt, steerOpt, texturedOpt, measureOpt },
         };
         command.SetAction(parseResult =>
         {
@@ -1159,13 +1171,35 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 }
                 centres.Add((x, y));
             }
+            SyntheticBackground.Steering? steering = null;
+            if (parseResult.GetValue(steerOpt) is { } steerText)
+            {
+                var parts = steerText.Split(',', StringSplitOptions.TrimEntries);
+                if (parts.Length != 2 || !double.TryParse(parts[0], CultureInfo.InvariantCulture, out var strength)
+                    || !double.TryParse(parts[1], CultureInfo.InvariantCulture, out var exponent) || strength is < 0 or > 1 || exponent <= 0)
+                {
+                    consoleHost.WriteError($"--steer takes strength,exponent with strength in [0, 1] and a positive exponent, got '{steerText}'");
+                    return 1;
+                }
+                steering = new SyntheticBackground.Steering(strength, exponent);
+            }
+            var fwhm = parseResult.GetValue(fwhmOpt);
             var (written, noise) = SyntheticBackgroundPreview.Run(parseResult.Required(plateOpt), parseResult.Required(outOpt),
-                parseResult.GetValue(fwhmOpt), centres, parseResult.GetValue(sizeOpt), parseResult.GetValue(seedOpt), !parseResult.GetValue(noNoiseOpt));
+                fwhm, centres, parseResult.GetValue(sizeOpt), parseResult.GetValue(seedOpt), !parseResult.GetValue(noNoiseOpt),
+                steering, parseResult.GetValue(texturedOpt), parseResult.GetValue(measureOpt));
             consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
                 $"[synthetic-background] the plate's noise {string.Join(" / ", noise.Select(static n => n.ToString("G3", CultureInfo.InvariantCulture)))}; {written.Length} cell(s):"));
+            var drawn = SyntheticBackground.FirstKeptScale(fwhm);
             foreach (var w in written)
             {
                 consoleHost.WriteScrollable($"[synthetic-background]   ({w.X}, {w.Y}): {w.PlatePath} | {w.SyntheticPath}");
+                if (w is { Plate: { } p, Synthetic: { } s })
+                {
+                    // Per drawn scale: coherence over white noise's, and alignment with the coarse structure, plate then synthetic.
+                    consoleHost.WriteScrollable("[synthetic-background]     " + string.Join("; ", Enumerable.Range(0, drawn).Select(j => string.Create(CultureInfo.InvariantCulture,
+                        $"{1 << j} px coherence {p.Scales[j].Coherence - p.NoiseCoherence[j]:+0.000;-0.000} / {s.Scales[j].Coherence - s.NoiseCoherence[j]:+0.000;-0.000}, " +
+                        $"alignment {p.Scales[j].Alignment:+0.000;-0.000} / {s.Scales[j].Alignment:+0.000;-0.000}"))));
+                }
             }
             return 0;
         });

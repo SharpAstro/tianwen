@@ -52,6 +52,21 @@ public sealed class SyntheticBackground
     /// PSF widths peaks under this many noise sigma.</summary>
     public const double BrightKnotSigma = 20.0, BrightKnotMinWidths = 2.5;
 
+    /// <summary>The oriented fields a <see cref="Steering"/> texture is blended from, their directions spread over 180 degrees.</summary>
+    public const int SteerDirections = 8;
+
+    /// <summary>
+    /// R2e's S2 (docs/plans/star-remover-training.md, "S2: generate it"): the texture drawn along the plate's own coarse
+    /// orientation, where S1 found the real sky's fine structure running along its coarse contours. Each oriented field passes
+    /// the frequencies within <c>cos^(2 Exponent)</c> of its direction; <see cref="Strength"/> is the share of the texture's
+    /// variance that follows the orientation where the coarse structure is fully coherent, scaled by the local coherence
+    /// everywhere else.
+    /// </summary>
+    public readonly record struct Steering(double Strength, double Exponent);
+
+    // The plate's coarse orientation (the structure tensor of its kept scales' luminance, SkyTexture's own), per frame pixel.
+    private sealed record Orientation(float[] Cos2, float[] Sin2, float[] Coherence);
+
     /// <summary>The threshold the plate's sources are masked from in the amplitude maps: under the 4 sigma the eval finds the
     /// kept sources at, so a faint star the finder only just misses raises no texture where it was.</summary>
     public const float AmplitudeMaskSigma = 3f;
@@ -67,9 +82,14 @@ public sealed class SyntheticBackground
     private readonly float[][] _coarse;      // [channel][y * width + x]
     private readonly float[][][] _amplitude; // [channel][scale < FirstKept][y * width + x]
 
-    private SyntheticBackground(int width, int height, int firstKept, double fwhm, bool brightKnotsWide, float[][] coarse, float[][][] amplitude)
+    private readonly Orientation? _orientation;
+
+    private SyntheticBackground(int width, int height, int firstKept, double fwhm, bool brightKnotsWide, Steering? steering,
+        Orientation? orientation, float[][] coarse, float[][][] amplitude)
     {
         BrightKnotsWide = brightKnotsWide;
+        Steered = steering;
+        _orientation = orientation;
         Width = width;
         Height = height;
         FirstKept = firstKept;
@@ -81,6 +101,9 @@ public sealed class SyntheticBackground
     /// <summary>Whether a knot under <see cref="BrightKnotMinWidths"/> PSF widths across peaks under
     /// <see cref="BrightKnotSigma"/> (only the wide knots reach <see cref="KnotMaxSigma"/>).</summary>
     public bool BrightKnotsWide { get; }
+
+    /// <summary>The texture's steering, or null for the isotropic texture R2d's arm B was taught on.</summary>
+    public Steering? Steered { get; }
 
     /// <summary>The frame's width.</summary>
     public int Width { get; }
@@ -109,9 +132,10 @@ public sealed class SyntheticBackground
     /// Reads <paramref name="unitPlate"/> (a plate on its master's unit scale) once per session: its coarse part, and per
     /// replaced scale and channel the local signal above the noise, with the plate's own sources (found as the builder finds
     /// them, <see cref="PlateSources.DefaultThresholdSigma"/>) and the canvas ring <paramref name="absent"/> left out.
-    /// <paramref name="brightKnotsWide"/> keeps a compact knot faint (<see cref="BrightKnotsWide"/>).
+    /// <paramref name="brightKnotsWide"/> keeps a compact knot faint (<see cref="BrightKnotsWide"/>); a
+    /// <paramref name="steering"/> draws the texture along the plate's coarse orientation (<see cref="Steering"/>).
     /// </summary>
-    public static SyntheticBackground Build(Image unitPlate, BitMatrix? absent, double fwhm, bool brightKnotsWide = false)
+    public static SyntheticBackground Build(Image unitPlate, BitMatrix? absent, double fwhm, bool brightKnotsWide = false, Steering? steering = null)
     {
         var (channels, width, height) = unitPlate.Shape;
         var n = width * height;
@@ -182,7 +206,23 @@ public sealed class SyntheticBackground
                 amplitude[c][j] = SignalAmplitude(decomposition.Detail(j), clean, width, height, j);
             }
         }
-        return new SyntheticBackground(width, height, firstKept, fwhm, brightKnotsWide, coarse, amplitude);
+        Orientation? orientation = null;
+        if (steering is not null)
+        {
+            // Read as S1 reads the coarse structure: the kept scales and the residual, over a window twice the first kept scale.
+            var luminanceCoarse = new float[n];
+            for (var c = 0; c < channels; c++)
+            {
+                for (var i = 0; i < n; i++)
+                {
+                    luminanceCoarse[i] += coarse[c][i] / channels;
+                }
+            }
+            var (coherence, cos2, sin2, _) = SkyTexture.StructureTensor(luminanceCoarse, width, height,
+                (float)(SkyTexture.TensorWindowScales * (1 << firstKept)));
+            orientation = new Orientation(cos2, sin2, coherence);
+        }
+        return new SyntheticBackground(width, height, firstKept, fwhm, brightKnotsWide, steering, orientation, coarse, amplitude);
     }
 
     // The local RMS of a detail plane over the clean pixels, smoothed at twice the scale or AmplitudeWindowPx, less its noise
@@ -276,7 +316,7 @@ public sealed class SyntheticBackground
     /// </summary>
     public float[][] Cell(int x0, int y0, int size, ReadOnlySpan<double> noiseSigma, Random random, out ImmutableArray<Knot> knots)
     {
-        var texture = TextureScales(size, random);
+        var texture = TextureScales(x0, y0, size, random);
         var planes = new float[Channels][];
         for (var c = 0; c < Channels; c++)
         {
@@ -303,15 +343,19 @@ public sealed class SyntheticBackground
     }
 
     // One log-normal field of index TextureIndex at twice the cell's size (so no scale meets a periodic edge), decomposed into
-    // the replaced starlet scales, each cut to the cell and scaled to unit robust RMS.
-    private float[][] TextureScales(int size, Random random)
+    // the replaced starlet scales, each cut to the cell and scaled to unit robust RMS. Steered, the Gaussian field under the
+    // log-normal follows the plate's coarse orientation over the whole grid, the cell at its middle.
+    private float[][] TextureScales(int x0, int y0, int size, Random random)
     {
         var n = 1;
         while (n < 2 * size)
         {
             n <<= 1;
         }
-        var field = PowerLawField(n, TextureIndex, random);
+        var offset = (n - size) / 2;
+        var field = Steered is { } steering && _orientation is { } orientation
+            ? SteeredField(n, x0 - offset, y0 - offset, steering, orientation, random)
+            : PowerLawField(n, TextureIndex, random);
         var mean = 0.0;
         foreach (var v in field)
         {
@@ -325,7 +369,6 @@ public sealed class SyntheticBackground
             logNormal[i] = (float)Math.Exp(LogNormalSigma * (field[i] - mean) / (sd > 0 ? sd : 1.0));
         }
         var decomposition = ATrousWaveletTransform.Decompose(logNormal, n, n, ScaleCount);
-        var offset = (n - size) / 2;
         var scales = new float[FirstKept][];
         for (var j = 0; j < FirstKept; j++)
         {
@@ -369,6 +412,107 @@ public sealed class SyntheticBackground
         }
         Fft2D.Inverse(c, n, n);
         return [.. c.Select(static z => z.Real)];
+    }
+
+    // R2e's S2: PowerLawField's spectrum (the same draws) through the isotropic window and SteerDirections angular ones, each
+    // passing cos^(2 Exponent) of the angle between a frequency and its direction (a frequency along a direction is a gradient
+    // along it, which is what the structure tensor reads). Per grid pixel the two directions either side of the coarse
+    // orientation at the frame pixel (fx0 + u, fy0 + v) are blended by angle, and that is mixed with the isotropic field by
+    // Strength times the coarse coherence. The fields share one noise, so the mix's variance is read off the fields'
+    // covariances and divided out: the texture's variance does not follow the orientation.
+    private double[] SteeredField(int n, int fx0, int fy0, Steering steering, Orientation orientation, Random random)
+    {
+        var spectrum = new Complex[n * n];
+        var psi = new double[n * n];
+        for (var ky = 0; ky < n; ky++)
+        {
+            var fy = ky < n / 2 ? ky : ky - n;
+            for (var kx = 0; kx < n; kx++)
+            {
+                var fx = kx < n / 2 ? kx : kx - n;
+                var k = Math.Sqrt((fx * fx) + (fy * fy));
+                spectrum[(ky * n) + kx] = k == 0
+                    ? Complex.Zero
+                    : new Complex(Gaussian(random), Gaussian(random)) * Math.Pow(k, -TextureIndex / 2.0);
+                psi[(ky * n) + kx] = Math.Atan2(fy, fx);
+            }
+        }
+
+        // The window's mean over angle is one, so every field keeps the isotropic one's radial law.
+        var norm = 1.0 / MeanCosPower(steering.Exponent);
+        var fields = new double[SteerDirections + 1][];
+        for (var d = 0; d <= SteerDirections; d++)
+        {
+            var filtered = new Complex[n * n];
+            var direction = d * Math.PI / SteerDirections;
+            for (var i = 0; i < filtered.Length; i++)
+            {
+                filtered[i] = d == SteerDirections
+                    ? spectrum[i]
+                    : spectrum[i] * Math.Sqrt(norm * Math.Pow(Math.Abs(Math.Cos(psi[i] - direction)), 2 * steering.Exponent));
+            }
+            Fft2D.Inverse(filtered, n, n);
+            fields[d] = [.. filtered.Select(static z => z.Real)];
+        }
+        var iso = fields[SteerDirections];
+
+        // Covariances over the grid (every field is zero-mean: no power at k = 0).
+        double Cov(double[] a, double[] b)
+        {
+            var s = 0.0;
+            for (var i = 0; i < a.Length; i++)
+            {
+                s += a[i] * b[i];
+            }
+            return s / a.Length;
+        }
+        var varIso = Cov(iso, iso);
+        var varDir = new double[SteerDirections];
+        var covIso = new double[SteerDirections];
+        var covNext = new double[SteerDirections];
+        for (var d = 0; d < SteerDirections; d++)
+        {
+            varDir[d] = Cov(fields[d], fields[d]);
+            covIso[d] = Cov(iso, fields[d]);
+            covNext[d] = Cov(fields[d], fields[(d + 1) % SteerDirections]);
+        }
+
+        var field = new double[n * n];
+        for (var v = 0; v < n; v++)
+        {
+            var fy = Math.Clamp(fy0 + v, 0, Height - 1);
+            for (var u = 0; u < n; u++)
+            {
+                var f = (fy * Width) + Math.Clamp(fx0 + u, 0, Width - 1);
+                var theta = 0.5 * Math.Atan2(orientation.Sin2[f], orientation.Cos2[f]);
+                var t = (theta < 0 ? theta + Math.PI : theta) / (Math.PI / SteerDirections);
+                var d1 = (int)Math.Floor(t) % SteerDirections;
+                var d2 = (d1 + 1) % SteerDirections;
+                var (w2, w1) = Math.SinCos((t - Math.Floor(t)) * Math.PI / 2);
+                var s = Math.Clamp(steering.Strength * orientation.Coherence[f], 0.0, 1.0);
+                var a = Math.Sqrt(1 - s);
+                var b = Math.Sqrt(s);
+                var variance = (a * a * varIso)
+                    + (b * b * ((w1 * w1 * varDir[d1]) + (w2 * w2 * varDir[d2]) + (2 * w1 * w2 * covNext[d1])))
+                    + (2 * a * b * ((w1 * covIso[d1]) + (w2 * covIso[d2])));
+                var i = (v * n) + u;
+                var mix = (a * iso[i]) + (b * ((w1 * fields[d1][i]) + (w2 * fields[d2][i])));
+                field[i] = variance > 0 ? mix * Math.Sqrt(varIso / variance) : iso[i];
+            }
+        }
+        return field;
+    }
+
+    // The mean over angle of |cos|^(2m) (Gamma(m + 1/2) / (sqrt(pi) Gamma(m + 1))), summed over the half turn so any m serves.
+    private static double MeanCosPower(double m)
+    {
+        var sum = 0.0;
+        const int steps = 4096;
+        for (var i = 0; i < steps; i++)
+        {
+            sum += Math.Pow(Math.Abs(Math.Cos((i + 0.5) * Math.PI / steps)), 2 * m);
+        }
+        return sum / steps;
     }
 
     // The knots: a Poisson count, each round and wider than the PSF or elongated, inside the cell's 16 px rim, its peak per
