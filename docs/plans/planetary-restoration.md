@@ -4760,6 +4760,13 @@ middle (R6 part 2). What was missing was a way to find the runs, and a way to na
   session's north once, from its first and last files (`LuckyImagingStacker.ReadNorthAsync`, the stacker's own agreement over a stream of
   those two files, hours apart), and stacks each file with it (`PlanetaryDerotationOptions.North`, `--north` by hand). A given north keeps the
   limb fit's axis, which is precise, and takes of its two ways round the one nearer it; the file's quarters are not read.
+- **A keep sweep grades a capture file once** (#1351, the owner, 2026-10-08: a sweep over 70,000-frame sessions graded every frame for
+  every arm, though a grade never depends on the keep). `planetary-stack --grade-cache DIR` (`PlanetaryStackOptions.GradeCache`,
+  `FrameGradeCache`) keeps each file's own grades (score, cut, elongation, brightness), keyed by the file's full path, size and last write
+  time, the estimator's `CacheKey`, the layout, the region and the grading's version; what depends on the run (smeared, dim, the cut frames
+  dropped) is decided again over the run, so a session reads its files' grades and a file's grades serve every session it joins. Timed on
+  the 2026-10-07 green session (7 files, 70,000 frames): the first stack (25 %) wrote the grades, the second (10 %) read them in 347 s
+  against 448 s for the same stack without the cache, and the two masters agree bit for bit.
 - **`planetary-stack --session NAME --manifest PATH`** stacks one as a run. **`--epoch`** carries it to an instant of the caller's choosing:
   a UTC time, or a capture whose best frame (`FrameGrader.BestFrameTimeAsync`, graded as the stack grades) gives it. The default stays the
   run's middle.

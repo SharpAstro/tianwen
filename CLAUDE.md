@@ -1183,6 +1183,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   `LuckyImagingStacker.ReadNorthAsync`, `planetary-stack --session NAME --each-file`): read once from the session's first and last files,
   hours apart, where one file's own quarters, minutes apart, can tie on a bland globe (one Saturn file of 30 read it turned over, 0.02008
   against 0.02009). A given north keeps the limb fit's axis and takes, of its two ways round, the one nearer it.
+  **A keep sweep grades a capture file once** (`planetary-stack --grade-cache DIR`, `FrameGradeCache`, #1351): what is each frame's OWN
+  (its score, a cut planet, its elongation, its brightness) is kept per file, keyed by the file's path, size and time, the estimator's
+  `CacheKey` and the layout and region; what depends on the run (smeared, dim, the cut frames dropped) is decided again, so a session reads its
+  files' grades. A second arm on a 70,000-frame session skipped 101 s of its 448 and gave the same master bit for bit. **A new estimator owes
+  a `CacheKey` naming every parameter that moves a score**, or a cached grade answers for a different one.
 - **A colour master is sharpened per channel, and that UNMIXES colour, it does not add it** (#1295): on the twins it moved the globe, the
   rings and the gap toward the truth, where sharpening the luminance alone and keeping the stack's colour (`LuminanceOnly`,
   `--sharpen-luminance`, an option) left them as mixed as the blur made them. Read a colour change against a truth
