@@ -495,7 +495,8 @@ the per-capture tune is worth exactly as much as the twin's calibration.
 ### A1. The twin calibrated automatically
 
 **Tracked by #1388.** `planetary twin <capture>`: measure the capture (`PlanetaryCaptureStatistics`), fit the twin generator's options
-(`DegradeOptions`) to those statistics, and write the options beside the capture with the twin they make. #1281 took
+(`DegradeOptions`) to those statistics, and write the options with the twin they make (`twin.json` in `--output`, never
+beside the capture, whose folder is read-only). #1281 took
 eleven trials by hand to calibrate one colour twin, and R2 (`planetary-restoration.md`) as many for 2022-09-03 Red;
 this is that search, run by the code. A Bayer capture's statistics are measured per colour plane first (they are
 mono-only today). What R2's calibration settled, and so what the search is:
@@ -510,6 +511,31 @@ mono-only today). What R2's calibration settled, and so what the search is:
   R2 found that reading to be noise.
 - **Searched on a short twin, confirmed at the capture's length**: #1281's trial 11, met at 300 frames, read 0.87 to
   0.93 of the real capture's single-frame edge width at 2,600, so the last step measures at full length.
+
+**What is built** (`planetary twin`, `PlanetaryTwinCalibration`, `TwinComparison`, `OpalMaps`):
+- **One comparison** for `planetary degrade` and the search (`TwinComparison.Compare`): every statistic's real, twin and
+  ratio, the fitted ones marked, and one mismatch, the mean squared log ratio over the fitted ones, so a ratio high and
+  low cost alike and an unmeasured one is left out.
+- **The map by planet and date** (`OpalMaps.ForCapture`): the OPAL apparition nearest the capture's year (the later on a
+  tie), each plane's filter nearest its wavelength, so a 650 nm red capture of 2022 takes F658N.
+- **The search** (`PlanetaryTwinCalibration.FitAsync`): Nelder-Mead over the knobs' logarithms, every trial on one seed so
+  two differ by their knobs alone. A colour capture is fitted over its three photosite colours' rows together, with a
+  static defocus a colour as three more knobs: #1281's twin needed one (red's single frames read 1.37 times as blurred
+  as green's, which no shared air gives).
+- **Each window's disks are placed on that window's own reference**: a statistic's zero shift is its window's
+  reference frame, and the mount drifts about a pixel a second, so the search's placement put the confirmation's disk
+  pixels away from the real one's (0.0329 against 0.0441 for the same knobs).
+- **`--trials 0` confirms given knobs with no search**: the baseline a search is judged against.
+
+**Measured on 2022-09-03 Red (arm A, #1388)**: 80 twins of the first 300 frames from R2's hand values found r0 7.75 cm,
+wind 24 m/s, still layer 2.28 cm, scatter 4.65 % with a 7.2" core, a third of the hand values' mismatch on that window
+(0.021 against 0.068), in 89 minutes. At 3,000 frames it matches no better than the hand values (0.044 against 0.047)
+and fails rule 1 on four statistics: the aligner's error (1.20 against the hand's 0.86), the two inner halo annuli (1.30
+and 1.24 against 1.10 and 1.00) and the frame-to-frame flux (1.80 against 1.05). **The first 300 frames are not a small
+copy of the capture**: over them the real frame-to-frame flux reads 0.0053, equal to the quarter-second figure, and over
+3,000 frames 0.0012, so a 1.2 s window cannot split the flux into its slow and fast parts; the aligner's error reads 0.94
+against 0.71; and the twin's halo, fitted through the 8-bit rounding, reads its outer annulus low over 300 frames while
+the real one does not move. The search fitted the window. Arm B searches on 1,000 frames.
 
 ### A2. The per-capture tune
 
