@@ -85,7 +85,22 @@ parity checks and unrelated to the .NET DirectML path. Re-run the one-liner befo
 **Provenance contract.** Each exported model ships a `<model>.contract.json` (dataset manifest
 SHA-256, git commit, ONNX SHA-256, tensor conventions incl. domain and stretch constants, psf01
 encoding where relevant, timestamp) asserted at load by the C# enhancer: mismatch means refuse, log,
-fall back to the next backend. `N2nDenoiser` ships without one today.
+fall back to the next backend.
+
+**The loader exists since #824 (`ModelContract`, `src/TianWen.AI.Imaging/Onnx/`), and `N2nDenoiser` is the
+first model on it.** The sidecar `<model stem>.contract.json` sits beside the resolved `.onnx` (never in
+another search directory) and is checked when the session is built, against three things: the WEIGHTS (the
+file's SHA-256), the GRAPH (every input by name and role with its channel count and tile, and the output) and
+the RUNNER (`ModelFeed`, which the runner states from its own constants: the domain it feeds, the stretch
+median it stretches to, the units of a conditioning plane). **An absent sidecar is a refusal, never an
+unchecked pass**, and so is a field the runner relies on that the contract does not state, an unknown or
+misspelt property, and a contract version this build does not read; the refusal names the model and every
+mismatch at once (`ModelContractException`). The first fields are the ones the C# side can check on its own:
+the dataset manifest SHA-256 and the training git commit are NOT in it yet, since nothing in the repo records
+them for a shipped checkpoint (the export JSON names the checkpoint and the cache folder only), and they
+belong to the exporter: `n2n_export.py` should write the whole sidecar, the SHA and the stretch constants
+included, so that a re-export cannot forget one. A retrain gets a new file name AND a new contract. The
+deconvolver (E7) and the star remover state their own `ModelFeed` and reuse the rest.
 
 **One shared degradation exporter: SHIPPED 2026-09-03** as `DatasetDegradationExporter`
 (`tianwen dataset degrade`), in C# beside `DatasetTileExporter` and reusing its `ToUnitRange`,

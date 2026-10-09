@@ -488,6 +488,16 @@ inside it and `strength` pinned at 1.0; `N2nLinearRunner` chunking, rim drop and
 weights are absent. A `<model>.contract.json` (dataset manifest SHA, git commit, ONNX SHA, tensor
 conventions) ships beside v2 and is asserted at load, the gate-and-refuse pattern from the roadmap.
 
+**Shipped with #824 for `convmapb_s2`** (`tianwen_denoise_osc_convmapb_s2.contract.json`, loaded by `ModelContract`;
+the mechanism is in the roadmap, section 2). It states the weights' SHA-256, the graph (`image` 3 x 256 x 256 and
+`plane` 1 x 256 x 256 in, `output` out), the domain the graph is fed (MTF-stretched, per-channel median 0.25, which is
+`AiNafnetInputs.TargetMedian` and what the tiles measured, fact 0 above) and the plane's units (67.45, which is
+`StretchedNoise.PlaneScale` and the export JSON's `plane_scale`). `N2nDenoiser` states what it actually feeds from those
+same constants and the first use refuses on any difference, so the H0 skew (a runner feeding linear pixels to a graph
+trained on stretched ones) now stops the load instead of producing a plausible picture. The dataset manifest SHA and the
+training commit are left out until the exporter records them. A checkpoint compared through the seam probe's model
+directory override (`TIANWEN_N2N_SEAM_MODEL_DIR`) needs its own contract beside it, with that file's SHA-256.
+
 **The comparison nobody ran stays un-run in the automated loop.** Whether the in-house model should
 become Auto's preferred OSC denoiser over the SAS AI4 model is a benchmark against a third-party
 model's output, which the RC-Astro EULA forbids for RC and which the unverified SAS licence puts under
@@ -518,7 +528,7 @@ Tracked by #846, #847.
 | D2 | H1/H2/H3 answered with three seeds per arm and a posted comparison | E2, E3 |
 | D3 | Broadband transfer answered; N3 restated in the programme doc and in `N2nDenoiser`'s XML doc | E4, E5 |
 | D4 | Capacity answered or retired | E6 |
-| D5 | **SHIPPED 2026-09-06** (below): v2 exported, parity-pinned, LFS exemption reverted. Still open: the contract JSON asserted at load, and the photometric gate | E7 |
+| D5 | **SHIPPED 2026-09-06** (below): v2 exported, parity-pinned, LFS exemption reverted. The contract JSON asserted at load SHIPPED with #824 (below, section 5). Still open: the photometric gate | E7 |
 | D6 | **SHIPPED 2026-10-01** (below): `convmapb_s2`, the first plane-conditioned graph; the runner computes the plane as the eval did, pinned by the parity fixture | E16b |
 
 ### D5, shipped 2026-09-06: `e2_wide_s2`

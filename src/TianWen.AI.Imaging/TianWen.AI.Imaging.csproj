@@ -31,9 +31,12 @@
        and publish dir, None stops here - which is why only the test project (with its own copy
        rule) could load these weights, and every app failed to resolve them. TargetPath lands
        them in the app-local models/ that ModelResolver probes first. Pack="false" keeps them
-       out of any nupkg built from this project; they are runtime assets, not package content. -->
+       out of any nupkg built from this project; they are runtime assets, not package content.
+       Each model's <stem>.contract.json travels with it: the loader refuses a model whose contract
+       is not beside it (ModelContract). The contract is a plain tracked file, NOT an LFS object, so
+       it is deliberately outside the *.onnx patterns in .gitattributes and APP_LFS_INCLUDE. -->
   <ItemGroup>
-    <Content Include="models\*.onnx"
+    <Content Include="models\*.onnx;models\*.contract.json"
              TargetPath="models\%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest"
              Pack="false" />

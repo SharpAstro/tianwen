@@ -1,0 +1,25 @@
+{
+  "contractVersion": 1,
+  "model": "tianwen_denoise_osc_convmapb_s2.onnx",
+  "onnxSha256": "26c111099ff5dc093d758a666128ec7caf2829e4d441562da8aa56db83de01cb",
+  "domain": "mtfStretched",
+  "stretchMedianTarget": 0.25,
+  "inputs": [
+    {
+      "name": "image",
+      "role": "image",
+      "channels": 3,
+      "height": 256,
+      "width": 256
+    },
+    {
+      "name": "plane",
+      "role": "plane",
+      "channels": 1,
+      "height": 256,
+      "width": 256,
+      "scale": 67.45
+    }
+  ],
+  "output": "output"
+}

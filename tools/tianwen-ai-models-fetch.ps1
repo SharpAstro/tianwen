@@ -157,7 +157,9 @@ if (-not $NoGraXpert) {
 # pointer stub instead of weights, in which case the LFS object bytes are fetched
 # from GitHub's media host (which serves the real content for a public repo; the
 # plain raw host would serve the stub again).
-$tianwenNativeModels = @('tianwen_denoise_osc_e2wide_s2.onnx')
+# Each model travels with its <stem>.contract.json (a plain tracked file, not an LFS object): the loader
+# refuses a model whose contract is not beside it in the same directory (#824).
+$tianwenNativeModels = @('tianwen_denoise_osc_convmapb_s2.onnx', 'tianwen_denoise_osc_convmapb_s2.contract.json')
 $tianwenRepoModelsDir = Join-Path $PSScriptRoot '..' 'src' 'TianWen.AI.Imaging' 'models'
 $tianwenLfsMediaBase = 'https://media.githubusercontent.com/media/SharpAstro/tianwen/main/src/TianWen.AI.Imaging/models'
 
