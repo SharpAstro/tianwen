@@ -1048,7 +1048,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   stacked. **The derived gains are the truth's, and anything past it is the strength OPTION, never the default** (the owner, #1251;
   `PlanetarySharpenOptions.Strength`, `--strength`): the gains fitted to a texture target with bands 2 and 3 at that many times the
   truth (`PlanetaryWaveletGains.Boost`), the disk still to its own model and the finest band at its truth gain; never multiply
-  derived gains (the layers overlap, and it multiplies their oscillation). **Read a gain set by its FILTER**
+  derived gains (the layers overlap, and it multiplies their oscillation). **"The truth" is the planet through the pupil's own
+  diffraction**: undoing the telescope too (`PlanetarySharpenTarget.Aperture`, `--target aperture`, #1366) is an option, never the
+  default, since it divides by the edge's kernel where that kernel is a guess and lost on three twins of five, though it lands
+  nearest the posts on real captures; score such an arm with `--score-against aperture`. **Read a gain set by its FILTER**
   (`PlanetaryWaveletGains.Transfer`, printed by `planetary-sharpen`): a negative band 3 beside a large band 2 makes no dip, and the
   truth's own joint gains swing so too (#1251). The posts sit at about 1.5 to 2.5; the panel's
   `PlanetaryStrength` is never saved, so a launch starts at the truth. **One Derive fits every stop**
