@@ -48,6 +48,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var scoreAgainstOpt = new Option<string>("--score-against") { Description = "With --truth, what every sharpening is scored against (#1366): telescope (the default: the truth as rendered, through the pupil) or aperture (the truth carried to the aperture target, the pupil's diffraction divided out and the taper put in).", DefaultValueFactory = _ => "telescope" };
         var gainsOpt = new Option<string?>("--gains") { Description = "Apply these a trous gains instead of deriving them, finest first, comma separated, one set per channel separated by ';' (the last repeated): a twin's own best gains, say, applied through the same limb window (#817). Layers past a set are held at 1." };
         var shrinkOpt = new Option<bool>("--shrink") { Description = "Shrink each a trous band against the master's own noise, read off its two halves (--halves), before the gains are derived (BayesShrink, #1313)." };
+        var kernelOpt = new Option<string>("--kernel") { Description = "The stack's kernel the gains are derived through: edge (the default, read off the limb's edge) or truth (with --truth: the stack measured against the twin's truth, a diagnostic of whether a gain set misses by the kernel or by the fit, #1376).", DefaultValueFactory = _ => "edge" };
         var noiseOpt = new Option<string>("--noise") { Description = "The noise the derived gains' Wiener target is read against (#1373): white (the default: one level, read past 0.4 cycles a pixel), halves (ring by ring off the master's two halves, --halves, whose difference is the stack's own noise, coloured as a demosaic colours it), or both to compare them.", DefaultValueFactory = _ => "white" };
         var halvesOpt = new Option<string[]>("--halves")
         {
@@ -60,7 +61,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var command = new Command("sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
         {
             Arguments = { masterArg },
-            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, gainsOpt, shrinkOpt, noiseOpt, halvesOpt },
+            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, gainsOpt, shrinkOpt, noiseOpt, kernelOpt, halvesOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -216,6 +217,23 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 {
                     PlanetaryMasterScore.Undershoot(consoleHost, master, body, instant, "the master as stacked");
                 }
+                var kernelName = (parseResult.GetValue(kernelOpt) ?? "edge").ToLowerInvariant();
+                if (kernelName is not ("edge" or "truth"))
+                {
+                    consoleHost.WriteError($"--kernel {kernelName}: edge or truth");
+                    return 1;
+                }
+                if (kernelName == "truth")
+                {
+                    if (truthPath is null || PlanetaryMasterScore.TrueKernels(consoleHost, master, truthPath, body) is not { } trueKernels)
+                    {
+                        consoleHost.WriteError("--kernel truth measures the stack against its twin's truth: give --truth");
+                        return 1;
+                    }
+                    options = options with { GivenKernels = trueKernels };
+                    consoleHost.WriteScrollable(string.Create(inv,
+                        $"[planetary] the true kernel, each channel, at 0.05, 0.1, 0.2, 0.3 and 0.4 cycles a pixel: {string.Join("; ", trueKernels.Select(k => string.Join(", ", new[] { 0.05, 0.1, 0.2, 0.3, 0.4 }.Select(f => k.At(f).ToString("0.000", inv)))))}"));
+                }
                 // A colour master's 2-pixel lattice, the stack's and each sharpening's on the stack's own disk (#1376).
                 var latticeDisk = master.ChannelCount == 3 ? PlanetaryMasterScore.Disk(master, body, instant) : null;
                 if (latticeDisk is { } stackDisk)
@@ -318,6 +336,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             + (finishes.Count > 1 ? "_f" + finishWord.Replace('+', '-') : "")
                             + (luminances.Length > 1 ? (luminance ? "_luminance" : "_perchannel") : "")
                             + (target == PlanetarySharpenTarget.Aperture ? "_aperture" : "")
+                            + (options.GivenKernels.IsDefaultOrEmpty ? "" : "_truekernel")
                             + (halvesNoise ? "_halvesnoise" : "")
                             + (shrink ? "_shrunk" : ""));
                         var finestWords = finests.Length > 1 ? $", the colour's finest band {finest.ToString().ToLowerInvariant()}" : "";
@@ -326,6 +345,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             + (luminance && master.ChannelCount == 3 ? ", the luminance sharpened, the stack's colour kept" : "")
                             + (target == PlanetarySharpenTarget.Aperture ? ", toward the aperture (the telescope undone)" : "")
                             + (options.FixedGains.IsDefaultOrEmpty ? "" : ", the gains given, not derived")
+                            + (options.GivenKernels.IsDefaultOrEmpty ? "" : ", through the true kernel")
                             + (halvesNoise ? ", the noise read off its halves" : "")
                             + (shrink ? ", shrunk by its halves" : "");
                         var what = result.Derived ? $"derived{(nonNegative ? " non-negative" : "")}, {PlanetaryBestStack.Describe(fix)}{finestWords}{strengthWords}" : $"PlanetaryDefault{strengthWords}, the limb kept as stacked";

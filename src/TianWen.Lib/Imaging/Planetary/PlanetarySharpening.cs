@@ -223,6 +223,13 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     /// </summary>
     public PlanetaryStackHalves? NoiseHalves { get; init; }
 
+    /// <summary>
+    /// The stack's kernel per channel, given rather than read off the limb's edge: a twin's true transfer, its stack measured against its
+    /// truth (<see cref="PlanetaryInverse.Measure"/>), the last repeated for any channel beyond it. A diagnostic (#1376): through it a gain
+    /// set that misses the truth's own misses by the fit, through the edge's kernel by the kernel. Empty, the default, reads the edge.
+    /// </summary>
+    public ImmutableArray<RadialTransfer> GivenKernels { get; init; } = [];
+
     // The master being sharpened is a colour master's luminance (LuminanceOnly): its finest band holds the colour filter's residue as the
     // colour planes do, so it follows ColourFinestBand as they would (#1187).
     internal bool OfColour { get; init; }
@@ -362,7 +369,8 @@ public static class PlanetarySharpening
                 var physical = options.EdgeReach is { } reach
                     ? PlanetaryFinestBand.FitPhysical(edge, pupil.DiameterM / (wavelengthNm * 1e-9) / ShortExposurePsf.ArcsecPerRadian * limbWindow.ArcsecPerPixel, 0.02, reach)
                     : null as PhysicalKernel?;
-                var kernel = Tabulated(f => Math.Clamp(physical is { } p ? p.TransferAt(f) : edge.TransferAt(f), 0, 1));
+                var given = options.GivenKernels.IsDefaultOrEmpty ? null : options.GivenKernels[Math.Min(c, options.GivenKernels.Length - 1)];
+                var kernel = Tabulated(f => Math.Clamp(given is { } g ? g.At(f) : physical is { } p ? p.TransferAt(f) : edge.TransferAt(f), 0, 1));
                 var power = PlanetaryWaveletGains.StackPower(window, size, size, disk);
                 var white = PlanetaryInverse.WhiteNoise(PlanetaryWaveletGains.Interior(window, size, size, disk), size, size);
                 // The halves cut as the master is, so half their difference is the master's own noise, ring by ring (#1373).

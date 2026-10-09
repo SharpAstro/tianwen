@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.CommandLine;
 using System.Globalization;
 using System.IO;
@@ -321,6 +322,47 @@ internal static class PlanetaryMasterScore
             throw new InvalidOperationException($"{path}: no WAVELEN in its header, so it cannot be carried to the aperture target");
         }
         return PlanetaryFinishing.ApertureTruth(truth, width, height, pupil, wavelengthNm, aspect.AngularDiameterArcsec / 2 / disk.Radius);
+    }
+
+    /// <summary>
+    /// Each channel of <paramref name="master"/> measured against its twin's truth (<see cref="PlanetaryInverse.Measure"/>), registered as
+    /// <see cref="AgainstTruth"/> registers it: the stack's true transfer over the truth through the pupil, the kernel a perfect reading of the
+    /// limb's edge would give (#1376's diagnostic). Null, said why, where a truth or a limb is missing.
+    /// </summary>
+    public static ImmutableArray<RadialTransfer>? TrueKernels(IConsoleHost consoleHost, Image master, string truthPath, CatalogIndex planet)
+    {
+        var colour = master.ChannelCount == 3;
+        var kernels = ImmutableArray.CreateBuilder<RadialTransfer>();
+        foreach (var (channel, name) in colour ? new[] { (0, "r"), (1, "g"), (2, "b") } : [(0, "")])
+        {
+            var path = colour ? Path.ChangeExtension(truthPath, $".{name}.fits") : truthPath;
+            if (PlanetaryMeasureSubCommand.ReadTruth(path, consoleHost) is not { } truth || truth.Time is not { } when)
+            {
+                consoleHost.WriteError($"[planetary] {path}: no truth with a time to measure the kernel against");
+                return null;
+            }
+            var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, when));
+            var disk = PlanetaryMeasureSubCommand.WithPlanet(truth.Disk, limbOptions);
+            var plane = colour ? master.ChannelImage(channel) : master;
+            try
+            {
+                if (plane.Width * plane.Height != truth.Plane.Length || PlanetaryMeasureSubCommand.Register(plane, limbOptions, disk) is not { } fitted)
+                {
+                    consoleHost.WriteError($"[planetary] {path}: the master is off the truth's grid or its limb could not be fitted");
+                    return null;
+                }
+                var reference = PlanetaryMetrics.Normalise(truth.Plane, plane.Width, plane.Height, disk);
+                kernels.Add(PlanetaryInverse.Measure(fitted.Plane, reference, plane.Width, plane.Height));
+            }
+            finally
+            {
+                if (colour)
+                {
+                    plane.Release();
+                }
+            }
+        }
+        return kernels.ToImmutable();
     }
 
     /// <summary><paramref name="master"/>'s disk, its limb fitted to the whole master; null where the limb cannot be fitted.</summary>
