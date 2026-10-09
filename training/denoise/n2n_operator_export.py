@@ -470,6 +470,8 @@ def main():
     if not args.skip_parity:
         rows, frame = parity(operator, graph, sess, args, log)
     fixture = write_fixture(args, log)
+    for graph_path in (path, os.path.join(args.out, args.fixture_name)):
+        log(f"contract -> {write_contract(graph_path)}")
 
     record = {
         "model_file": args.name, "checkpoint": args.ckpt, "cache": args.cache, "opset": OPSET, "params": int(nparam),
@@ -486,12 +488,43 @@ def main():
         record["parity_frame"] = {"master": args.master, "divisor": frame[2],
                                   "stretch_min": [float(v) for v in frame[0]],
                                   "stretch_balance": [float(v) for v in frame[1]]}
-    with io.open(os.path.splitext(path)[0] + "_contract.json", "w", encoding="utf-8", newline="\n") as f:
+    with io.open(os.path.splitext(path)[0] + "_export.json", "w", encoding="utf-8", newline="\n") as f:
         json.dump(record, f, indent=1)
     with io.open(os.path.join(args.out, "export-log.txt"), "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(lines) + "\n")
-    log(f"written {os.path.splitext(args.name)[0]}_contract.json and export-log.txt")
+    log(f"written {os.path.splitext(args.name)[0]}_export.json and export-log.txt")
     return 0
+
+
+def write_contract(path):
+    """The model contract (#824, ModelContract in C#) beside a graph, which the loader checks before it builds a session
+    and refuses the model without: the weights' SHA-256, every input by name and role (the kernel and the two stretch
+    vectors by their rank, the channel axis first), and the domain the image is fed in, MTF-stretched to
+    n2n_operator.TARGET_MEDIAN. The C# reader is strict, so this writes no field it does not know; the descriptive record
+    of the export is `<stem>_export.json`."""
+    import hashlib
+
+    with open(path, "rb") as f:
+        sha = hashlib.sha256(f.read()).hexdigest()
+    contract = {
+        "contractVersion": 1,
+        "model": os.path.basename(path),
+        "onnxSha256": sha,
+        "domain": "mtfStretched",
+        "stretchMedianTarget": OP.TARGET_MEDIAN,
+        "inputs": [
+            {"name": "image", "role": "image", "channels": CHANNELS},
+            {"name": "kernel", "role": "kernel", "channels": CHANNELS, "rank": 3},
+            {"name": "stretch_min", "role": "stretchMin", "channels": CHANNELS, "rank": 1},
+            {"name": "stretch_balance", "role": "stretchBalance", "channels": CHANNELS, "rank": 1},
+        ],
+        "output": "output",
+    }
+    out = os.path.splitext(path)[0] + ".contract.json"
+    with io.open(out, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(contract, f, indent=2)
+        f.write("\n")
+    return out
 
 
 if __name__ == "__main__":

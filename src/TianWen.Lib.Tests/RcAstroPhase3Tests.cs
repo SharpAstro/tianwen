@@ -188,14 +188,16 @@ public class RcAstroPhase3Tests : IDisposable
 
     /// <summary>
     /// Availability passes through the proxy to the in-house model's own answer: with no RC-Astro,
-    /// the denoise role serves 3-channel input exactly when the N2N weights resolve, and never mono.
+    /// the denoise role serves 3-channel input exactly when the N2N weights resolve WITH their contract
+    /// beside them (#824: weights without one are refused at load, so they do not serve), and never mono.
     /// This is what the canonical program asks before it puts a denoise step in the program.
     /// </summary>
     [Theory]
-    [InlineData(true, 3, true)]
-    [InlineData(true, 1, false)]   // the N2N model is one-shot-colour; mono is left out, not failed
-    [InlineData(false, 3, false)]  // no weights on disk: nothing to run
-    public void Denoise_AvailabilityIsTheInHouseModelsOwnAnswer(bool weightsOnDisk, int channels, bool expected)
+    [InlineData(true, true, 3, true)]
+    [InlineData(true, true, 1, false)]   // the N2N model is one-shot-colour; mono is left out, not failed
+    [InlineData(false, false, 3, false)] // no weights on disk: nothing to run
+    [InlineData(true, false, 3, false)]  // weights with no contract: refused at load, so left out
+    public void Denoise_AvailabilityIsTheInHouseModelsOwnAnswer(bool weightsOnDisk, bool contractOnDisk, int channels, bool expected)
     {
         var dir = _folders.Create("tw-n2n-avail-").FullName;
         // Presence is all CanServe probes (content is never read), but the file must not LOOK
@@ -203,6 +205,10 @@ public class RcAstroPhase3Tests : IDisposable
         if (weightsOnDisk)
         {
             File.WriteAllText(Path.Combine(dir, TianWen.AI.Imaging.Onnx.N2nDenoiser.ModelFileName), "weights");
+        }
+        if (contractOnDisk)
+        {
+            File.WriteAllText(Path.Combine(dir, TianWen.AI.Imaging.Onnx.ModelContract.ContractFileName(TianWen.AI.Imaging.Onnx.N2nDenoiser.ModelFileName)), "{}");
         }
         var resolver = new TianWen.AI.Imaging.ModelResolver([dir]);
         var cli = new FakeRcAstroCli(available: false);

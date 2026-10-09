@@ -84,6 +84,10 @@
   <ItemGroup>
     <None Include="Data\CR2\*.CR2" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Data\CR3\*.CR3" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The deconvolution operator's fixture graph (n2n_operator_export.py: a random base-2 prior at K = 2, the shipped
+         graph's interface), its contract and torch's answer for a 32 px sample: a file, because the loader checks
+         the graph's SHA-256 and reads the contract from beside it. -->
+    <None Include="Data\Deconv\*.onnx;Data\Deconv\*.contract.json;Data\Deconv\*.json.gz" CopyToOutputDirectory="PreserveNewest" />
     <!-- The in-house AI models used to be copied here by a rule of this project's own. They now
          arrive with the TianWen.AI.Imaging project reference (a Content item there), which is
          what makes the apps able to load them too - this project having its own copy rule while

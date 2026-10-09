@@ -3549,18 +3549,60 @@ named rather than 48 of 50 with none.
 
 Tracked by #844.
 
-`OnnxTianWenDeconvolver : INonStellarDeconvolver` in `src/TianWen.AI.Imaging/Onnx/`, thin over
-`ChunkedNafnetRunner` (the stretched domain is the RIGHT one here, unlike the denoiser's runner),
-model file `tianwen_deconv_nonstellar_psf_v1.onnx` plus contract JSON asserted at load. The psf01
-comes from an `IPsfEstimator` carrying the trained model's own encoding (the SAS models and their estimator
-went with the SAS tier, 2026-09-26, after its upstream licence changed; the encoding `IPsfEstimator` documents
-is theirs, so check the trainer's before reusing it).
+*The plan as first written (before E3), kept for its reasons:* `OnnxTianWenDeconvolver : INonStellarDeconvolver`
+thin over `ChunkedNafnetRunner`, a `tianwen_deconv_nonstellar_psf_v1.onnx` conditioned on a psf01 scalar from an
+`IPsfEstimator`. E3 replaced the psf01 net with an operator that takes the KERNEL itself, and what shipped is below
+("Wired, 2026-10-09").
+
 Backend selection: the run log's `--ai-backend n2n` is defined as "the in-house model where this role
 has one", so when the deconvolver lands the flag's NAME is wrong (it names the denoiser's method);
 rename to `tianwen` (the programme doc's original `ForceTianWen`). **Renamed 2026-10-09 with no alias** (the owner:
-not that level of compatibility at this stage); `n2n` is refused with a message naming the new value. Auto stays RC first,
-and **the in-house deconvolver serves Auto where RC is absent, as the denoiser does** (the owner, 2026-10-09: "so we can
-drive it better"), which puts the single-frame kernel rule and its decline (#741) on the path to shipping it.
+not that level of compatibility at this stage); `n2n` is refused with a message naming the new value. Auto stays RC first.
+The owner wanted the in-house deconvolver to serve Auto where RC is absent ("so we can drive it better"), and **chose
+to wire it now and let Auto pick it only once #741 gives it a kernel rule and a decline** (option 2 of three, 2026-10-09).
+
+### Wired, 2026-10-09: the whole-frame deblur, served only when asked
+
+**It is the whole-frame `IImageDeblurrer`, not the starless `INonStellarDeconvolver` the plan named**, for two reasons
+the plan predates. It was MEASURED on frames with their stars in (every E3 and E7 readout judged it by the stars: width,
+skirt, ring, stars kept), and the starless role runs only in the split program, which needs a star remover, which only
+RC-Astro has: as the starless deconvolver it could never run on a machine without RC-Astro. As the deblur it runs first in
+either program, before any star removal, where BlurX runs.
+
+- **`OnnxTianWenDeconvolver`** (`src/TianWen.AI.Imaging/Onnx/`) serves a three-channel frame **only under
+  `EnhanceBackend.TianWen` with a kernel stated** (`EnhanceTuning.Deconvolution`, a `DeconvolutionKernel`: a Moffat
+  FWHM per channel in native pixels, its beta, and the resample factor), and only where its weights resolve with their
+  contract beside them. That rule is its `CanServe` and nowhere else; unasked, it declines by handing the frame back,
+  which the pipeline reads as a skipped deblur, as it read the passthrough an unlicensed BlurX used to resolve to
+  (removed, since the in-house lane now declines the same way). When #741 lands, Auto is one line there.
+- **Registration**: `AddTianWenAi` registers it as the deblur; `AddRcAstroAi`, where the CLI is installed, puts it
+  behind `DeferredDeblurrer` as the in-house lane (BlurX where licensed, else it, which under Auto declines).
+- **`OperatorDeconvolutionRunner`** is `n2n_operator_master.py`'s prior arm step for step: the stretch once on the
+  native frame (covered pixels only, the rule `n2n_operator_real.py` used for the published row, and never skipped,
+  since the graph unstretches inside itself), the linear frame up by the factor through `SplineZoom` (scipy's order-3
+  zoom, ported to its numbers, since ONNX's Resize is not that spline; in its `mode='mirror'`, the readouts' default to
+  the bit except on the frame sizes where the last coordinate rounds a hair past the edge and the default zeroes the
+  whole last row or column, 481 of the sizes from 1000 to 8000 on the way down, 3008 among them), stretched; the kernels at the scaled widths
+  (`PsfKernel.Moffat`, padded to one size, the delta at a width of 0); 1312 px tiles at 1.28125 with the 96 px margin
+  cut, the edge replicated; down in STRETCHED units, unstretched, the canvas ring put back as it came in.
+- **The weights ship** in `src/TianWen.AI.Imaging/models/` with their strict contract (`ModelContract` gained `rank`
+  for the kernel [3, k, k] and the two stretch vectors [3], the channel axis first, and the roles `kernel`,
+  `stretchMin`, `stretchBalance`); `n2n_operator_export.py` writes it, and its descriptive record is `_export.json`.
+- **The CLI**: `--deconv-kernel 0.77,0.91,0.98` (or one value), `--deconv-beta`, `--deconv-resample` on `image sharpen`
+  and `stack --enhance`, and the same three on the hosted enhance endpoint, through one parser
+  (`DeconvolutionKernel.TryParse`). The viewer has no kernel control yet, so under TianWen its enhance leaves the deblur
+  out.
+- **Parity** (`OnnxTianWenDeconvolverTests`, measured 2026-10-09): the C# kernel is the exporter's to 3.7e-9; the
+  runner reproduces `training/denoise/n2n_operator_runtime.py` (the same runtime in Python, through the same graph,
+  scipy's own zoom) to 1.2e-7 over nine 224 px tiles of the fixture graph and to 9.5e-7 over four 256 px tiles of the
+  shipped weights, in linear units, on outputs that move up to 0.76 and 0.60 from their inputs. The tests bound both at
+  1e-5.
+- **The CPU, not DirectML**: DirectML refuses the graph as its session is BUILT ("The parameter is incorrect" in
+  `MLOperatorAuthorImpl`, a GTX 1070 at driver 582.66), most likely its Conv whose weight is a runtime input, so the
+  deconvolver opens a CPU session of its own rather than `ExecutionProviderResolver`'s. A GPU path is a re-export with
+  the kernel as a fixed-size padded input, or another provider, and waits on a reason to pay for it.
+- **Cost**: three operator passes of 20 steps a tile, so a whole master is tens of minutes on the CPU (a 1312 px tile
+  took about a minute on a loaded 16-core box; four 256 px tiles of a 61 x 53 frame, 16 s).
 
 **The split (2026-10-09).** The ONNX export of E3.4d's checkpoint, which fixes the graph's inputs, is local work:
 the checkpoint is on the training machine and the export script covers the denoiser's plane-conditioned graph
@@ -3609,23 +3651,23 @@ bake now holds that session three times (the whole night and both flip halves). 
 the master blurred by the read's kernels) at the 1.28 round trip, the graph's row equals torch's in every column (0.947 /
 1.04 / -0.43 / 0.91) and their outputs differ by at most 2.2e-6.
 
-#### Open before the C# side
+#### Open after the wiring
 
-1. **The stretch minimum has two rules in the trainer.** `n2n_operator_real` skips NaN, so on a master with a NaN ring
+Two of the five items this list had before the C# side were settled by it: the runner always stretches and hands the
+graph its own minimum and balance, and the contract is `ModelContract`'s (both under "Wired, 2026-10-09" above). Three
+stay open:
+
+1. **Which stretch minimum the prior was trained on.** `n2n_operator_real` skips NaN, so on a master with a NaN ring
    the minimum is the darkest covered pixel; `n2n_operator_master` turns NaN into 0 first. On the Statue master they give
-   balances 0.0049 / 0.0083 / 0.0102 against 0.0175 / 0.0433 / 0.0459, and the training cache predates the ring fix, so
-   which minimum the prior was trained on is a measurement owed before the runner picks one. (The C# runner already
-   leaves the ring out, `ChunkedNafnetRunner.ApplyInputStretch`.)
-2. **The graph needs its stretch parameters every time.** `ChunkedNafnetRunner` can skip the stretch (`NeedsStretch`,
-   for a frame it reads as already stretched); the deconvolver's runner must always stretch and pass its own minimum
-   and balance.
-3. **DirectML is untested.** The graph relies on a Conv with a runtime weight (group 9), an edge Pad with runtime pads,
-   IsInf / IsNaN and a Slice with a negative step.
-4. **Its contract is not yet `ModelContract`'s** (#824): the exporter writes a descriptive `_contract.json` and the same
-   keys into the model's metadata, while the loader reads `<stem>.contract.json` strictly, with no role for a kernel or a
-   stretch parameter today. The deconvolver states its own `ModelFeed` when the runner lands, and the exporter then
-   writes the strict sidecar as `n2n_export.py` does for the denoiser.
-5. **The kernel rule is still #741's.** The graph takes any kernel, so changing the rule needs no re-export.
+   balances 0.0049 / 0.0083 / 0.0102 against 0.0175 / 0.0433 / 0.0459, and the training cache predates the ring fix. The
+   runner takes the covered pixels' (the rule the published row was read with, and every C# runner's); a frame with no
+   ring is the same either way, and a ringed master is where a measurement could still move it. Tracked by #1374.
+2. **A GPU path.** DirectML refuses the graph at session build (above), so it runs on the CPU. The graph relies on a
+   Conv with a runtime weight (group 9), an edge Pad with runtime pads, IsInf / IsNaN and a Slice with a negative step;
+   finding which one DirectML refuses, and whether a fixed-size kernel input re-export clears it, is the next step if a
+   whole master on the CPU proves too slow to use. Tracked by #1375.
+3. **The kernel rule is still #741's.** The graph takes any kernel, so changing the rule needs no re-export, and Auto
+   picking the deconvolver is one line of `OnnxTianWenDeconvolver.CanServe` once #741 gives it a kernel and a decline.
 
 ## 7. Phasing
 

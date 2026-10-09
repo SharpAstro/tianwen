@@ -49,16 +49,18 @@ namespace TianWen.AI.Imaging.RcAstro
                     sp.GetRequiredService<IRcAstroCli>(),
                     () => new RcAstroNonStellarDeconvolver(sp.GetRequiredService<IRcAstroCli>(), sp.GetService<ILogger<RcAstroNonStellarDeconvolver>>()))));
 
-            // IImageDeblurrer (full-image BlurX) is RC-only. Registered ONLY when the CLI is installed
-            // (a cheap filesystem check, no subprocess); the bxt license probe stays deferred, and an
-            // installed-but-unlicensed bxt resolves to a passthrough that reports it cannot serve.
+            // IImageDeblurrer (full-image deconvolution) is BlurX where the CLI is installed (a cheap filesystem
+            // check, no subprocess; the bxt license probe stays deferred), with TianWen's own deconvolver as the
+            // in-house lane. That lane serves only --ai-backend tianwen with a stated kernel, so an unlicensed bxt
+            // under Auto still reports that nothing serves the deblur. Without the CLI the role stays the in-house
+            // deconvolver AddTianWenAi registered.
             if (RcAstroCli.IsInstalled)
             {
-                services.TryAddSingleton<IImageDeblurrer>(sp =>
+                services.Replace(ServiceDescriptor.Singleton<IImageDeblurrer>(sp =>
                     new DeferredDeblurrer(
                         sp.GetRequiredService<IRcAstroCli>(),
                         () => new RcAstroDeblurrer(sp.GetRequiredService<IRcAstroCli>(), sp.GetService<ILogger<RcAstroDeblurrer>>()),
-                        () => new PassthroughDeblurrer()));
+                        () => new OnnxTianWenDeconvolver(sp.GetRequiredService<IModelResolver>(), sp.GetService<ILogger<OnnxTianWenDeconvolver>>()))));
             }
 
             return services;

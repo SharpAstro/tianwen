@@ -962,11 +962,13 @@ internal sealed partial class ImageSubCommand(
             DefaultValueFactory = _ => 0,
         };
 
-        var cmd = new Command("sharpen", "The canonical AI enhance: with a star remover (RC-Astro StarXTerminator), deblur, gradient, remove stars, denoise (and deconvolve) the starless plate, optional SCNR on stars, recombine; without one, whole-frame gradient correction and denoise. Every step runs only where a backend serves it.")
+        var cmd = new Command("sharpen", "The canonical AI enhance: with a star remover (RC-Astro StarXTerminator), deblur, gradient, remove stars, denoise (and deconvolve) the starless plate, optional SCNR on stars, recombine; without one, whole-frame deblur, gradient correction and denoise. Every step runs only where a backend serves it; TianWen's own deblur (E3.4d) only with --ai-backend tianwen and --deconv-kernel.")
         {
             Arguments = { inputArg },
             Options = { outputOpt, modeOpt, stellarSharpenOpt, noGradientOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, starStretchModeOpt, starlessStretchModeOpt, stretchModeOpt, ghsConvergeOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsStagesOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, asinhBetaOpt, asinhBlackPointOpt, asinhLumaOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt, aiBackendOpt, deblurSharpenOpt, denoiseStrengthOpt, denoiseIterationsOpt },
         };
+        var deconvKernelOpts = new DeconvolutionKernelOptions();
+        deconvKernelOpts.AddTo(cmd);
         cmd.SetAction(async (parseResult, ct) =>
         {
             var input = parseResult.Required(inputArg);
@@ -995,11 +997,17 @@ internal sealed partial class ImageSubCommand(
             // Backend + per-product tuning parse is shared with `stack --enhance` and the server
             // enhance endpoint via EnhanceOptions.TryParse (single source of truth). CLI sentinels
             // (-1 / 0 = "unset") map to a null override before the call.
+            if (!deconvKernelOpts.TryRead(parseResult, out var deconvKernel, out var kernelError))
+            {
+                consoleHost.WriteError(kernelError);
+                return 1;
+            }
             if (!EnhanceOptions.TryParse(
                     parseResult.GetValue(aiBackendOpt),
                     deblurSharpen >= 0 ? (float)deblurSharpen : null,
                     denoiseStrength >= 0 ? (float)denoiseStrength : null,
                     denoiseIterations >= 1 ? denoiseIterations : null,
+                    deconvKernel,
                     out var enhanceOptions, out var enhanceError))
             {
                 consoleHost.WriteError(enhanceError);

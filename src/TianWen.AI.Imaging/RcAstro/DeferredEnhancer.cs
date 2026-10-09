@@ -110,11 +110,12 @@ namespace TianWen.AI.Imaging.RcAstro
     {
     }
 
-    /// <summary>Deferred bxt -&gt; <see cref="IImageDeblurrer"/> dispatcher (full-image
-    /// deconvolution). Declines to a no-op passthrough when bxt is present but unlicensed, which
-    /// reports that it cannot serve, so the canonical program leaves the step out.</summary>
-    internal sealed class DeferredDeblurrer(IRcAstroCli cli, Func<IImageEnhancer> rcFactory, Func<IImageEnhancer> declinedFactory)
-        : DeferredEnhancer(cli, "bxt", "whole-frame deblur", rcFactory, declinedFactory: declinedFactory), IImageDeblurrer
+    /// <summary>Deferred bxt -&gt; <see cref="IImageDeblurrer"/> dispatcher (full-image deconvolution): BlurX where
+    /// licensed, else TianWen's own deconvolver, which serves only <see cref="EnhanceBackend.TianWen"/> with a stated
+    /// kernel and otherwise declines (it reports that it cannot serve and passes a frame through), so an unlicensed bxt
+    /// under Auto still leaves the step out of the canonical program.</summary>
+    internal sealed class DeferredDeblurrer(IRcAstroCli cli, Func<IImageEnhancer> rcFactory, Func<IImageEnhancer> inHouseFactory)
+        : DeferredEnhancer(cli, "bxt", "whole-frame deblur", rcFactory, inHouseFactory), IImageDeblurrer
     {
     }
 

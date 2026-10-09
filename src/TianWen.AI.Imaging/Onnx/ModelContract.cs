@@ -37,6 +37,17 @@ internal static class ModelRoles
 
     /// <summary>A scalar strength dial (every denoiser before E16).</summary>
     public const string Strength = "strength";
+
+    /// <summary>The blur kernel a deconvolution operator inverts, one normalised kernel per channel ([C, k, k], the
+    /// deconvolver's).</summary>
+    public const string Kernel = "kernel";
+
+    /// <summary>The stretch's per-channel minimum ([C]), for a graph that unstretches inside itself (the deconvolver's).</summary>
+    public const string StretchMin = "stretchMin";
+
+    /// <summary>The stretch's per-channel midtones balance ([C]), for a graph that unstretches inside itself (the
+    /// deconvolver's).</summary>
+    public const string StretchBalance = "stretchBalance";
 }
 
 /// <summary>One graph input as a contract describes it.</summary>
@@ -48,8 +59,14 @@ internal sealed record ModelContractInput
     /// <summary>What the tensor is (<see cref="ModelRoles"/>); the runner finds it by this.</summary>
     public required string Role { get; init; }
 
-    /// <summary>The channel count of an NCHW input; absent for a scalar.</summary>
+    /// <summary>The channel count of an NCHW input, or the length of the channel axis of a <see cref="Rank"/> 3 or 1
+    /// input; absent for a scalar.</summary>
     public int? Channels { get; init; }
+
+    /// <summary>The input's rank where it is not NCHW: 3 for a per-channel kernel <c>[C, k, k]</c>, 1 for a per-channel
+    /// vector <c>[C]</c>, the channel axis then the FIRST. Absent for an NCHW input (rank 4, the channel axis second) and
+    /// for a scalar.</summary>
+    public int? Rank { get; init; }
 
     /// <summary>The tile height the graph was trained on; absent where the graph leaves it open.</summary>
     public int? Height { get; init; }
@@ -287,6 +304,18 @@ internal sealed record ModelContract
             {
                 problems.Add($"'{input.Name}' is a scalar input in the contract and the graph declares {tensor.Describe()}");
             }
+            return;
+        }
+        if (input.Rank is { } rank and not 4)
+        {
+            // A per-channel kernel or vector: the channel axis first, and nothing else the contract states (a kernel's
+            // size is the runner's to choose).
+            if (dims.Length != rank)
+            {
+                problems.Add($"'{input.Name}' has rank {rank} in the contract and the graph declares {tensor.Describe()}");
+                return;
+            }
+            CheckDimension(input, tensor, "channels", dims[0], channels, problems);
             return;
         }
         if (dims.Length != 4)

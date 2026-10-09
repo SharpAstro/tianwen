@@ -41,22 +41,4 @@ namespace TianWen.AI.Imaging.RcAstro
             ];
         }
     }
-
-    /// <summary>
-    /// No-op <see cref="IImageDeblurrer"/>: returns the input unchanged. The
-    /// DeferredDeblurrer fallback for an installed-but-unlicensed bxt -- the
-    /// SharpenPipeline detects the identity return and skips the deblur step
-    /// rather than failing the whole enhance.
-    /// </summary>
-    internal sealed class PassthroughDeblurrer : IImageDeblurrer, IEnhancerAvailability
-    {
-        public string Name => "RC-Astro BlurXTerminator (unavailable; passthrough)";
-
-        /// <summary>Never: a passthrough deblurs nothing, so the canonical program leaves the step out
-        /// rather than spending a step on the identity.</summary>
-        public bool CanServe(int channelCount, EnhanceOptions options) => false;
-
-        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
-            => Task.FromResult(input);
-    }
 }
