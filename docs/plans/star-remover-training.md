@@ -171,6 +171,8 @@ parity fixture and runner path are the template R5 follows.
 
 ### The speckle teacher
 
+Tracked by #1362.
+
 **A learned remover is penalised for dark speckles, not only scored on them** (the owner, 2026-10-03, after R0's
 plates showed them). A speckle is a core pixel left more than 4 sigma below the plate's own sky where a star was: a
 star subtracted a fraction of a pixel off leaves a dark pixel beside a bright one, and a mean over the core, which is
@@ -1309,6 +1311,8 @@ leave no black dots. Both answers are in where the squared error sits.
 
 #### Two scenes no real master can give (the owner's direction, 2026-10-07)
 
+Tracked by #1363.
+
 A globular cluster or the Pleiades has no starless truth, so these are the cases synthetics are for. Both are next arms,
 on whichever background R2d picks, beside the speckle teacher: the scenes put the training signal into the bright cores,
 the teacher makes digging cost.
@@ -1638,7 +1642,7 @@ Tracked by #902.
   A third way since 2026-10-06: a physical PSF draws spikes from the pupil's vanes with no spike model of its
   own, so they generalise to any vane count and width a profile gives ([physical-psf-model.md](physical-psf-model.md),
   P3, #1298).
-- **A globular cluster's unresolved glow (the owner's decision, open).** The cluster scene's truth either keeps it as a
+- **A globular cluster's unresolved glow (the owner's decision, open; #1363).** The cluster scene's truth either keeps it as a
   smooth glow, the stars under the eval's own detection rule left in (consistent with the plates, which keep faint stars,
   and so training and scoring agree), or removes every star, which is what StarXTerminator does on omega Centauri. The
   recommendation is the glow; choosing it means ours knowingly differs from RC on a cluster.
