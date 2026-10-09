@@ -230,6 +230,7 @@ public class PlanetaryColourReadingTests
     }
 
     [Fact]
+    [Trait("Category", "Heavy")]
     public void AMasterIsMadeReadyForALookByTheRoutineTheViewerAndPlanetaryLookShare()
     {
         // #1277: the viewer's colour control and `planetary look` make a master ready by one routine, the limb fitted for the disk the look

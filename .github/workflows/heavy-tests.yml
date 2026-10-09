@@ -1,0 +1,74 @@
+name: Heavy tests
+
+# The unit tests that take 30 s or more on a CI runner, tagged [Trait("Category", "Heavy")]: mostly planetary end-to-end
+# measurements that stack, sharpen or fit whole synthetic captures. dotnet.yml's PR legs filter them out (the owner,
+# 2026-10-10: 28 of them were 46 % of the suite's summed time and held the x64 leg at 21 to 28 minutes), so they run
+# here, every night against main and on demand against any ref, and locally in a plain `dotnet test`. A failure here is
+# a regression the PR path did not see: the night's run names the commit range.
+#   gh workflow run heavy-tests.yml -f ref=<branch-or-sha>
+
+on:
+  schedule:
+    - cron: '30 15 * * *'   # 15:30 UTC, the small hours of the morning in Australia
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch/SHA to test'
+        required: false
+        default: 'main'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  heavy:
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    name: heavy (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    steps:
+      # The unit-test job's own steps, not copies of them, referenced at main as gpu-stress.yml does: the workspace holds
+      # the code under test, and a ref older than the composites has no such directory.
+      - name: Install unit-test system packages
+        uses: SharpAstro/tianwen/.github/actions/unit-test-deps@main
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || 'main' }}
+          submodules: recursive
+          lfs: false
+      - name: Fetch required LFS objects
+        uses: SharpAstro/tianwen/.github/actions/lfs-pull@main
+        with:
+          include: '*.lz,*.ttf,*.bin.gz,*.fits.gz,*.CR2,*.CR3,*.cr2,*.cr3,*.onnx'
+          cache-prefix: lfs-tests
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: Build test project (Release, matches CI)
+        run: dotnet build TianWen.Lib.Tests -c Release
+        working-directory: src
+      - name: Heavy unit tests
+        # --minimum-expected-tests guards the filter: a renamed trait would otherwise make this a green no-op.
+        env:
+          DOTNET_DbgEnableMiniDump: "1"
+          DOTNET_DbgMiniDumpType: "2"
+          DOTNET_DbgMiniDumpName: /tmp/coredump-%e-%p-%t.dmp
+        run: |
+          dotnet test TianWen.Lib.Tests -c Release --no-build --filter "Category=Heavy" \
+            --minimum-expected-tests 20 --output Detailed \
+            --crashdump --hangdump --hangdump-timeout 10min --crash-sequence on --results-directory test-results/
+        working-directory: src
+      - name: Upload test-blame + crash dumps on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: heavy-test-blame-${{ matrix.runner }}
+          path: |
+            src/test-results/
+            /tmp/coredump-*.dmp
+          if-no-files-found: ignore
+          retention-days: 14

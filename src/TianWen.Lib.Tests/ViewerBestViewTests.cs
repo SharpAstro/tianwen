@@ -24,6 +24,7 @@ public class ViewerBestViewTests
     [InlineData(1f, false)]
     [InlineData(1.5f, false)]
     [InlineData(1f, true)]
+    [Trait("Category", "Heavy")]
     public async Task TheBestViewAtEachStopIsWhatPlanetaryStackWritesAtThatStrength(float dpi, bool colour)
     {
         // Rule 5: at each stop, every channel on show equals the run's sharpened master at that strength (the same routine, the same

@@ -26,6 +26,7 @@ public class PlanetarySessionNorthTests
     };
 
     [Fact(Timeout = 300_000)]
+    [Trait("Category", "Heavy")]
     public async Task ANorthReadOnceAndGivenBackStacksAsTheCapturesOwnQuartersDo()
     {
         var capture = FrameDerotationCaptures.Capture(frames: 41, minutes: 16, seed: 5);
@@ -51,6 +52,7 @@ public class PlanetarySessionNorthTests
     }
 
     [Fact(Timeout = 300_000)]
+    [Trait("Category", "Heavy")]
     public async Task AGivenNorthIsTakenEvenWhereTheCapturesQuartersDisagree()
     {
         // Given the wrong way round, the stack takes the fit's axis the way round nearer the north given: the quarters, which tell this

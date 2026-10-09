@@ -173,6 +173,7 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
     [InlineData(RGGBImage, "AHD", 10, 3)]
     [InlineData(VelaColor, "None", 15, 3)]
     [InlineData(VelaMono, "None", 15, 1)]
+    [Trait("Category", "Heavy")]
     public async Task GivenImage_WhenStretched_BoostDarkensBackgroundAndIncreasesContrast(string imageName, string algorithmStr, int stretchPct, int expectedChannels)
     {
         var algorithm = Enum.Parse<DebayerAlgorithm>(algorithmStr);

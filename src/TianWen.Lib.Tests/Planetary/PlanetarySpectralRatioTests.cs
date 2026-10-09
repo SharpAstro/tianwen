@@ -90,6 +90,7 @@ public class PlanetarySpectralRatioTests
     }
 
     [Fact]
+    [Trait("Category", "Heavy")]
     public void TheFitTellsAWarpFromTheSeeingOverAWideEnoughBand()
     {
         // The same air at 9 cm, and every frame displaced 0.5 px per axis against the mean: the ratio loses exp(-4 pi^2 s^2 f^2).

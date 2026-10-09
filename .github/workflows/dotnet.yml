@@ -385,11 +385,15 @@ jobs:
       # not just on the test-process crash the platform detects. Type=2 = "Heap"
       # (managed heap + all threads, no full process memory). Path templated
       # so multiple dumps don't overwrite each other.
+      #
+      # --filter "Category!=Heavy" leaves the tests that take 30 s or more on this runner to the nightly
+      # heavy-tests.yml (the owner, 2026-10-10): 28 of them were 46 % of the suite's summed time and held the
+      # x64 leg at 21 to 28 minutes. A test is tagged by MEASUREMENT on a green x64 run, never by guess.
       env:
         DOTNET_DbgEnableMiniDump: "1"
         DOTNET_DbgMiniDumpType: "2"
         DOTNET_DbgMiniDumpName: /tmp/coredump-%e-%p-%t.dmp
-      run: dotnet test TianWen.Lib.Tests -c $BUILD_CONF --no-build --output Detailed --crashdump --hangdump --hangdump-timeout 5min --crash-sequence on --results-directory test-results/
+      run: dotnet test TianWen.Lib.Tests -c $BUILD_CONF --no-build --filter "Category!=Heavy" --output Detailed --crashdump --hangdump --hangdump-timeout 5min --crash-sequence on --results-directory test-results/
       working-directory: src
     # ---------------------------------------------------------------------------------------
     # DEBUG leg. Some instrumentation is compiled out of Release, so the Release run above
