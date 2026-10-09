@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -98,13 +99,19 @@ public sealed class N2nDenoiser(
     public string Name => "Denoiser (TianWen N2N, OSC)";
 
     /// <summary>
-    /// Serves 3-channel input whose weights resolve, and nothing else: a mono frame is refused by
-    /// design (one-shot-colour model, no mono bundle), and a checkout without the weights (or with an
-    /// LFS pointer stub) has nothing to run. Answered by a file probe, never a session build, so the
-    /// canonical program can ask it before any inference.
+    /// Serves 3-channel input whose weights resolve with a contract beside them, and nothing else: a mono
+    /// frame is refused by design (one-shot-colour model, no mono bundle), a checkout without the weights
+    /// (or with an LFS pointer stub) has nothing to run, and weights with no contract are refused at load
+    /// (#824), so the canonical program leaves the denoise out rather than failing the whole enhance on it.
+    /// Answered by file probes, never a session build or a hash, so the canonical program can ask it
+    /// before any inference; a contract that is PRESENT but wrong still refuses loudly at first use, since
+    /// that is a broken install, not a capability this host lacks.
     /// </summary>
     public bool CanServe(int channelCount, EnhanceOptions options)
-        => channelCount == ColourChannels && modelResolver.TryResolve(ModelFileName, out _);
+        => channelCount == ColourChannels
+            && modelResolver.TryResolve(ModelFileName, out var modelPath)
+            && modelPath is { } path
+            && File.Exists(ModelContract.PathBeside(path));
 
     public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
         => EnhanceAsync(input, defaultStrength, cancellationToken);
