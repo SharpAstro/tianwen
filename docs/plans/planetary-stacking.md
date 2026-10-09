@@ -472,6 +472,14 @@ the alignment-point count and the wavelet gains from the capture itself (frame c
 asking for them. It had lived only in session memory since the 2026-06 parameter study, and moved here on
 2026-09-25.
 
+**The design, the owner's (2026-10-09): a base model adjusted per capture.** A base model trained on a grid of synthetic twins
+(seeing, noise, frame count, planet, aperture; each twin's truth known) predicts the settings from what a capture shows of itself
+(its quality curve's shape, its noise, its limb's edge, its frame count); the capture's own twin, calibrated to its statistics,
+then tunes them in a small neighbourhood, and every tuned night adds to the base model's grid. The look (saturation, contrast)
+is no twin's to learn and stays fitted to the posts and the owner's eye. **Step 0 is #1369**: whether a twin's own best gains
+carry to another realisation of the same night (`planetary-sharpen --gains`). Across three models of one night's air they do
+not (#1366); the same model's two seeds decide. Since #1083 a sharpened stack keeps about half the frames, not the 10 % below.
+
 The study ran on the real 30k-frame Bayer Jupiter SER. What it measured decides where such a mode spends its effort:
 
 1. **The keep fraction is minor.** 5, 10 and 25 % look the same, and going lower only adds noise; about 10 % is

@@ -3218,6 +3218,40 @@ band 4's residual over noise 1.81 against 5.97 without the wing.
   the fourth at 0.72), against the real capture's halo profile at a finer step than four rings. The wing costs nothing: the twin took
   774 s against 1,022 s, on a box another session's bake was loading.
 
+### The telescope's own diffraction, undone (#1366)
+
+**The derived gains restore toward the planet through the pupil, never the planet itself.** Their Wiener target maps the stack's total
+transfer (the kernel read off the limb's edge times the pupil's diffraction) onto the pupil's diffraction alone, and the twins' truth is
+OPAL through that same diffraction: 1x is what a perfect telescope of the capture's aperture would show, and the owner found it soft. A
+23 % obstructed pupil passes 0.61 of the scene at a quarter of its cutoff and 0.36 at half, so undoing it asks 1.6 to 2.8 times more,
+where the posts sit (#1251). `PlanetarySharpenTarget.Aperture` (`planetary-sharpen --target aperture`) restores toward the planet itself,
+band-limited by a Tukey taper (flat to half the cutoff, a raised cosine to nothing at it; `PlanetaryFinishing.ApertureTaper`) through the
+same noise floor; `--score-against aperture` carries a twin's truth to that target (`PlanetaryFinishing.ApertureTruth`) so every arm is
+scored on one scale. The rules were set on #1366 before anything ran.
+
+| Twin, bands 1 to 4 against the aperture truth | telescope 1x | 1.5x | 2x | aperture |
+|---|---|---|---|---|
+| calibrated (2022-09-03 Red) | **0.766** | 1.294 | 2.129 | 0.778 |
+| nostill | 0.737 | 1.020 | 1.752 | **0.451** |
+| warped | **0.909** | 1.327 | 2.093 | 0.986 |
+| colour Jupiter (r+g+b) | 6.234 | **5.592** | 6.692 | 8.367 |
+| Saturn 2022-10-09 (r+g+b) | 4.879 | 5.133 | 6.259 | **4.612** |
+
+- **Not the default**: it beat every strength only on nostill and Saturn. It never rang more than the telescope target at 1.5x (limb
+  profile error 0.004 to 0.037 against 0.018 to 0.052).
+- **Where it loses, the kernel is the cause**: on the calibrated twin it derived 8.43, 1.24, 1.53, 0.82 where the truth's own gains against
+  the same truth are 7.48, 0.68, 1.48, 1.02, band 2 lifted almost twice as far. Dividing more by a kernel that is a model's guess in the
+  finest bands (#1120, #1140) amplifies the guess; where the edge's kernel is right (nostill: no still layer, no warp) it pays 39 %.
+- **Past 1x the strength knob moves away from even this truth** (1.5x: 30 to 70 % more error on the mono twins): the posts' strength is a
+  look.
+- **On the real captures it lands nearest the posts**: the globe's gain on what both hold in bands 2 and 3 was 0.83 / 0.92, 0.99 / 1.02 and
+  0.86 / 0.90 against the Meade 16 Saturn's, the EdgeHD 678MC Jupiter's and the 12-inch SCT Jupiter's posts (2x: 0.79 / 0.97, 0.84 / 1.08,
+  1.13 / 1.17), and it lifts band 1 more than 2x on each. An option for a post-like sharpening with a physical meaning.
+
+The deconvolution's headroom is the kernel: each Red twin's own best gains, applied through the derived window with
+`planetary-sharpen --gains`, leave 22 to 30 % less error than the derived ones, but they do not carry across twins with different air.
+Whether a night's own twin can supply them is #1369 (the AUTO mode's step 0, `planetary-stacking.md`).
+
 ### The batch stack on every core
 
 The owner saw the viewer's Best stack hold one core, and it did: 1.00 core over a 3,000-frame stack of the calibrated twin (233 s,
