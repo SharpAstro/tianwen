@@ -62,8 +62,9 @@ public enum PlanetaryLimbFix
 
 /// <summary>
 /// What a colour master's finest a trous band (0.25 to 0.5 cycles a pixel) gets (#1187): its derived gain, or held at 1, as stacked, on
-/// every colour, or on red and blue only. That band lies above a colour plane's own Nyquist (a red or blue photosite every second pixel,
-/// green's quincunx somewhat finer), where a colour stack holds little but noise and the CFA's residue, which a derived gain of 12 to 20
+/// every colour, or on red and blue only. That band lies above the Nyquist of the planes a split-CFA stack integrates
+/// (<see cref="PlanetarySharpening.SplitCfaPlaneNyquist"/>: every photosite, both greens included, every second pixel), where a colour stack
+/// holds little but noise and the CFA's residue, which a derived gain of 12 to 20
 /// lifted into a 2-pixel lattice over the disk (2024-12-15 Uranus-C, 2022-10-09, the colour twin; a mono master has none).
 /// <see cref="Bounded"/> fits it jointly with the others but never above as stacked, free to fall to nothing (#1376): the colour twins'
 /// own best gains take it to about zero and carry its detail on band 2's overlap.
@@ -231,12 +232,15 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     public ImmutableArray<RadialTransfer> GivenKernels { get; init; } = [];
 
     /// <summary>
-    /// Cut a colour master's Wiener TARGET to nothing at its colour planes' own Nyquist (<see cref="PlanetarySharpening.ColourPlaneNyquist"/>),
-    /// by #1366's taper (<see cref="PlanetaryFinishing.ApertureTaper"/>): nothing is restored where a demosaiced plane carries nothing
-    /// (#1376, arm C'). A twin's true kernel is zero there, so the target through it was; the limb's edge reads noise there instead. Cutting
-    /// the KERNEL (arm C) did the opposite, since a smaller kernel raises the target's 1/H. A mono master is untouched.
+    /// The layout a colour master was stacked from, given to cut its Wiener TARGET to nothing at the Nyquist of the planes that layout
+    /// integrates, by #1366's taper (<see cref="PlanetaryFinishing.ApertureTaper"/>), which starts at half of it: from 0.125 cycles a pixel to
+    /// nothing at 0.25 for <see cref="PlanetaryFrameLayout.SplitCfa"/> (<see cref="PlanetarySharpening.SplitCfaPlaneNyquist"/>), the only layout
+    /// whose Nyquist is known here; any other throws, so a colour path that integrates on the full grid (the Bayer drizzle of #1091) cannot
+    /// inherit a cut that is not its own. Nothing is restored where a demosaiced plane carries nothing (#1376, arm C'): a twin's true kernel
+    /// is zero there, so the target through it was; the limb's edge reads noise there instead. Cutting the KERNEL (arm C) did the opposite,
+    /// since a smaller kernel raises the target's 1/H. Null, the default, cuts nothing, and a mono master is untouched.
     /// </summary>
-    public bool ColourTargetCut { get; init; }
+    public PlanetaryFrameLayout? ColourTargetCutFor { get; init; }
 
     // The master being sharpened is a colour master's luminance (LuminanceOnly): its finest band holds the colour filter's residue as the
     // colour planes do, so it follows ColourFinestBand as they would (#1187).
@@ -305,10 +309,13 @@ public readonly record struct GainStop(double Strength, ImmutableArray<Immutable
 public static class PlanetarySharpening
 {
     /// <summary>
-    /// The Nyquist of a demosaiced colour master's planes, cycles a pixel on the master's grid: a red or blue photosite every second pixel
-    /// along each axis. A twin's true kernel reads nothing past it on any colour (#1376).
+    /// The Nyquist of the planes a split-CFA stack integrates (<see cref="PlanetaryFrameLayout.SplitCfa"/>), cycles a pixel on the demosaiced
+    /// master's grid: red, both greens and blue are each a photosite every second pixel along each axis, and G1 and G2 are integrated APART,
+    /// so green's quincunx, finer along the axes, never forms before the one demosaic. A twin's true kernel reads nothing past it on any
+    /// colour (#1376). It is the split stack's, not the mosaic's: a colour path that integrates on the full grid has a Nyquist of its own,
+    /// which is why the target's cut asks for the layout (<see cref="PlanetarySharpenOptions.ColourTargetCutFor"/>).
     /// </summary>
-    public const double ColourPlaneNyquist = 0.25;
+    public const double SplitCfaPlaneNyquist = 0.25;
 
     /// <summary>The sharpened master, a new image the caller owns, and what it took; null when the limb cannot be fitted.</summary>
     public static PlanetarySharpenResult? Sharpen(Image master, PlanetarySharpenOptions options)
@@ -322,6 +329,12 @@ public static class PlanetarySharpening
                 throw new ArgumentException("The halves must lie on the master's grid, with its channels.", nameof(options));
             }
         }
+        double? colourPlaneNyquist = options.ColourTargetCutFor switch
+        {
+            null => null,
+            PlanetaryFrameLayout.SplitCfa => SplitCfaPlaneNyquist,
+            var layout => throw new ArgumentException($"The colour target is cut only for a split-CFA master, whose planes' Nyquist is known; not for {layout}.", nameof(options)),
+        };
         if (options.LuminanceOnly && master.ChannelCount == 3)
         {
             return SharpenLuminance(master, options);
@@ -385,8 +398,8 @@ public static class PlanetarySharpening
                     : null as PhysicalKernel?;
                 var given = options.GivenKernels.IsDefaultOrEmpty ? null : options.GivenKernels[Math.Min(c, options.GivenKernels.Length - 1)];
                 var kernel = Tabulated(f => Math.Clamp(given is { } g ? g.At(f) : physical is { } p ? p.TransferAt(f) : edge.TransferAt(f), 0, 1));
-                Func<double, double>? targetCut = options.ColourTargetCut && (options.OfColour ? 3 : master.ChannelCount) == 3
-                    ? f => PlanetaryFinishing.ApertureTaper(f, ColourPlaneNyquist)
+                Func<double, double>? targetCut = colourPlaneNyquist is { } nyquist && (options.OfColour ? 3 : master.ChannelCount) == 3
+                    ? f => PlanetaryFinishing.ApertureTaper(f, nyquist)
                     : null;
                 var power = PlanetaryWaveletGains.StackPower(window, size, size, disk);
                 var white = PlanetaryInverse.WhiteNoise(PlanetaryWaveletGains.Interior(window, size, size, disk), size, size);

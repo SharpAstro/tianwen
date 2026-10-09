@@ -49,7 +49,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var gainsOpt = new Option<string?>("--gains") { Description = "Apply these a trous gains instead of deriving them, finest first, comma separated, one set per channel separated by ';' (the last repeated): a twin's own best gains, say, applied through the same limb window (#817). Layers past a set are held at 1." };
         var shrinkOpt = new Option<bool>("--shrink") { Description = "Shrink each a trous band against the master's own noise, read off its two halves (--halves), before the gains are derived (BayesShrink, #1313)." };
         var kernelOpt = new Option<string>("--kernel") { Description = "The stack's kernel the gains are derived through: edge (the default, read off the limb's edge) or truth (with --truth: the stack measured against the twin's truth, a diagnostic of whether a gain set misses by the kernel or by the fit, #1376).", DefaultValueFactory = _ => "edge" };
-        var colourTargetOpt = new Option<string>("--colour-target") { Description = "A colour master's Wiener target (#1376): full (the default) or cut (taken to nothing at the colour planes' own Nyquist, 0.25 cycles a pixel, by #1366's taper: nothing restored where a demosaiced plane carries nothing), or both to compare them.", DefaultValueFactory = _ => "full" };
+        var colourTargetOpt = new Option<string>("--colour-target") { Description = "A colour master's Wiener target (#1376): full (the default) or cut (for a master stacked from split-CFA planes, the stack's way: tapered from 0.125 cycles a pixel to nothing at those planes' Nyquist, 0.25, by #1366's taper, so nothing is restored where a demosaiced plane carries nothing; not for a Bayer drizzle, whose Nyquist is its own), or both to compare them.", DefaultValueFactory = _ => "full" };
         var noiseOpt = new Option<string>("--noise") { Description = "The noise the derived gains' Wiener target is read against (#1373): white (the default: one level, read past 0.4 cycles a pixel), halves (ring by ring off the master's two halves, --halves, whose difference is the stack's own noise, coloured as a demosaic colours it), or both to compare them.", DefaultValueFactory = _ => "white" };
         var halvesOpt = new Option<string[]>("--halves")
         {
@@ -337,7 +337,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 foreach (var (fix, nonNegative, finest, strength, (finish, finishWord), luminance, target, halvesNoise, targetCut) in variants)
                 {
                     ct.ThrowIfCancellationRequested();
-                    if (PlanetarySharpening.Sharpen(master, options with { Fix = fix, NonNegative = nonNegative, ColourFinestBand = finest, Strength = strength, EdgeReach = parseResult.GetValue(edgeReachOpt), RingEdge = parseResult.GetValue(ringEdgeOpt), Finish = finish, KolivasAmount = kolivasAmount, LuminanceOnly = luminance, ShrinkHalves = shrink ? halves : null, NoiseHalves = halvesNoise ? halves : null, Target = target, ColourTargetCut = targetCut }) is not { } result)
+                    if (PlanetarySharpening.Sharpen(master, options with { Fix = fix, NonNegative = nonNegative, ColourFinestBand = finest, Strength = strength, EdgeReach = parseResult.GetValue(edgeReachOpt), RingEdge = parseResult.GetValue(ringEdgeOpt), Finish = finish, KolivasAmount = kolivasAmount, LuminanceOnly = luminance, ShrinkHalves = shrink ? halves : null, NoiseHalves = halvesNoise ? halves : null, Target = target, ColourTargetCutFor = targetCut ? PlanetaryFrameLayout.SplitCfa : null }) is not { } result)
                     {
                         consoleHost.WriteError($"{path}: the planet's limb could not be fitted");
                         return 1;
@@ -362,7 +362,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             + (options.FixedGains.IsDefaultOrEmpty ? "" : ", the gains given, not derived")
                             + (options.GivenKernels.IsDefaultOrEmpty ? "" : ", through the true kernel")
                             + (halvesNoise ? ", the noise read off its halves" : "")
-                            + (targetCut && master.ChannelCount == 3 ? ", the colour target cut at the planes' Nyquist" : "")
+                            + (targetCut && master.ChannelCount == 3 ? ", the colour target cut at the split planes' Nyquist" : "")
                             + (shrink ? ", shrunk by its halves" : "");
                         var what = result.Derived ? $"derived{(nonNegative ? " non-negative" : "")}, {PlanetaryBestStack.Describe(fix)}{finestWords}{strengthWords}" : $"PlanetaryDefault{strengthWords}, the limb kept as stacked";
                         consoleHost.WriteScrollable(string.Create(inv,

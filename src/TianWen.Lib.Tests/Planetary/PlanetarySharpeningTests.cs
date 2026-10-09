@@ -490,6 +490,22 @@ public class PlanetarySharpeningTests
         toward.Skip(16).ShouldAllBe(w => w == 0);
     }
 
+    [Theory]
+    [InlineData(PlanetaryFrameLayout.BayerMosaic)]
+    [InlineData(PlanetaryFrameLayout.Rgb)]
+    [InlineData(PlanetaryFrameLayout.Mono)]
+    public void TheColourTargetIsCutOnlyForASplitCfaMaster(PlanetaryFrameLayout layout)
+    {
+        // #1398: 0.25 is the Nyquist of the planes the split stack integrates (G1 and G2 apart), not of a colour path on the full grid, such
+        // as the Bayer drizzle (#1091), which must not inherit the cut. Refused before anything is read, so any master will do.
+        var master = new Image(Image.CreateChannelData(3, 8, 8), BitDepth.Float32, 1f, 0f, 0f, new ImageMeta { SensorType = SensorType.Color });
+        var options = new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650], ColourTargetCutFor = layout };
+
+        Should.Throw<ArgumentException>(() => PlanetarySharpening.Sharpen(master, options)).Message.ShouldContain(layout.ToString());
+        PlanetarySharpening.SplitCfaPlaneNyquist.ShouldBe(0.25);
+        (PlanetaryFinishing.ApertureTaperStart * PlanetarySharpening.SplitCfaPlaneNyquist).ShouldBe(0.125, "the cut's taper starts at 0.125");
+    }
+
     [Fact(Timeout = 300_000)]
     public async Task TheApertureTargetTakesTheMidBandsPastTheTelescopesOwnTruth()
     {
