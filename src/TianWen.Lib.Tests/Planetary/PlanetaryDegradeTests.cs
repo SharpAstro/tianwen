@@ -331,6 +331,7 @@ public class PlanetaryDegradeTests
     }
 
     [Fact]
+    [Trait("Category", "Heavy")]
     public async Task TheStatisticsSplitAKnownMotionIntoTheMountsAndTheSeeings()
     {
         // A drift of 3 px/s under a seeing that shakes the disk by a known RMS, at 200 frames a second for four seconds, four
@@ -430,6 +431,7 @@ public class PlanetaryDegradeTests
     }
 
     [Fact(Timeout = 120_000)]
+    [Trait("Category", "Heavy")]
     public async Task ACropTooTightForTheFarSkyReadsTheCamerasTermsOnItsFarthestPixels()
     {
         // A disk of 24 px in a 64 px frame: the corners lie 1.9 radii out, nowhere near the 3 radii the far sky starts at, as on a PIPP

@@ -27,6 +27,7 @@ public class SaturnLimbFitTests
     [InlineData(3.0, 3.0)]
     [InlineData(6.0, 3.0)]
     [InlineData(6.0, 2.0)]
+    [Trait("Category", "Heavy")]
     public void TheLimbFitFindsARenderedSaturnWhereItWasPut(double seeingFwhm, double beta)
     {
         var aspect = PhysicalEphemeris.Compute(CatalogIndex.Saturn, Capture);
@@ -66,6 +67,7 @@ public class SaturnLimbFitTests
     }
 
     [Fact]
+    [Trait("Category", "Heavy")]
     public void TheFitsSlopesReadTheRingsStructure()
     {
         // A real B ring brightens outward to the Cassini division and the A ring dims outward. With one flat level a ring the fit read

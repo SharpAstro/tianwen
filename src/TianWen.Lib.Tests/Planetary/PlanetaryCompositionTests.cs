@@ -39,6 +39,7 @@ public sealed class PlanetaryCompositionTests : IDisposable
     ];
 
     [Fact(Timeout = 300_000)]
+    [Trait("Category", "Heavy")]
     public void TheStepsRunOneByOneThroughFilesGiveTheRecipesMaster()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -66,6 +67,7 @@ public sealed class PlanetaryCompositionTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "Heavy")]
     public void TheMasterLiesOnTheReferencesDiskTurnedToItsInstantWithTheTrueNorth()
     {
         var ingested = Ingested();
@@ -99,6 +101,7 @@ public sealed class PlanetaryCompositionTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "Heavy")]
     public void TheLuminanceStepThroughFilesGivesTheRecipesMasterAndKeepsItsColour()
     {
         var ingested = Ingested();
@@ -133,6 +136,7 @@ public sealed class PlanetaryCompositionTests : IDisposable
     }
 
     [Fact]
+    [Trait("Category", "Heavy")]
     public void StacksCroppedToWhereTheirFramesReachedAreMovedOntoTheReferencesGrid()
     {
         // Each stack is cropped to where its own frames reached (#1300), so one night's stacks differ in size: a stack cut five columns

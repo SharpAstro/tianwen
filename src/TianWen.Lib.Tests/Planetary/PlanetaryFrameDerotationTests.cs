@@ -94,6 +94,7 @@ public class PlanetaryFrameDerotationTests
     }
 
     [Fact(Timeout = 300_000)]
+    [Trait("Category", "Heavy")]
     public async Task ACaptureStackedAcrossSixteenMinutesIsThePlanetAtItsMiddle()
     {
         var capture = FrameDerotationCaptures.Capture(frames: 41, minutes: 16, seed: 5);
@@ -193,6 +194,7 @@ public class PlanetaryFrameDerotationPointsTests
     private const double MinnaertK = FrameDerotationCaptures.MinnaertK;
 
     [Fact(Timeout = 300_000)]
+    [Trait("Category", "Heavy")]
     public async Task AlignmentPointsOverADerotationBeatAlignmentPointsAlone()
     {
         // Points follow a rotation locally, as far as their patch reaches, so over minutes they take out part of what a
@@ -235,6 +237,7 @@ public class PlanetaryFrameDerotationDrizzleTests
     private const double MinnaertK = FrameDerotationCaptures.MinnaertK;
 
     [Fact(Timeout = 300_000)]
+    [Trait("Category", "Heavy")]
     public async Task ABayerDrizzleOfADerotatedRunIsThePlanetAtItsMiddle()
     {
         // A colour run as a Bayer mosaic, the planet grey in every photosite: drizzled to the sensor's grid as taken, and with

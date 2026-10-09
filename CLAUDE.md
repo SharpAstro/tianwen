@@ -219,6 +219,10 @@ and `LALR.CC` is deliberately exempt from the shared shape, so leave it alone.
   from several threads for wall-clock time measures the runner, and on a shared 4-core runner its loops held the thread
   pool and stalled the whole test process into the hang dump (#1385). Its loops take threads of their own
   (`TaskCreationOptions.LongRunning`), never pool workers. A deterministic test of a known interleaving runs on CI as any other.
+- **A test that takes 30 s or more on a CI runner is `[Trait("Category", "Heavy")]`** (the owner, 2026-10-10): the PR legs
+  filter it out (`dotnet.yml`) and `heavy-tests.yml` runs it nightly against main and on dispatch; a local `dotnet test`
+  runs everything. Tag by MEASUREMENT on a green x64 leg (its log prints each test's time), never by guess: 28 such tests
+  were 46 % of the suite's summed time and held the x64 leg at 21 to 28 minutes.
 - **Avoid duplication**: extract shared setup to helpers (e.g., `SessionTestHelper`)
 - **A shared fixture plus an assertion about a FIRST write is an order dependency**, whether or not
   today's order satisfies it. `IClassFixture<T>` lives for the whole class, so its state carries from

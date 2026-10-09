@@ -850,6 +850,7 @@ namespace TianWen.Lib.Tests
         /// bound is relative to.
         /// </summary>
         [Fact]
+        [Trait("Category", "Heavy")]
         public async Task TheBlurSweepIsCappedAgainstTheFramesOwnWidthNotAPixelCount()
         {
             var bake = BuildBake();

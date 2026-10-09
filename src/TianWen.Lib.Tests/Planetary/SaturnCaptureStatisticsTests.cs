@@ -28,6 +28,7 @@ public class SaturnCaptureStatisticsTests
     private const double Peak = 102;
 
     [Fact(Timeout = 300_000)]
+    [Trait("Category", "Heavy")]
     public async Task TheSkyAroundSaturnIsReadClearOfItsRings()
     {
         var aspect = PhysicalEphemeris.Compute(CatalogIndex.Saturn, Capture);

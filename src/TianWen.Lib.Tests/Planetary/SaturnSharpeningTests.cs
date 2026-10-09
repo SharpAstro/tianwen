@@ -58,6 +58,7 @@ public class SaturnSharpeningTests
     }
 
     [Fact]
+    [Trait("Category", "Heavy")]
     public void TheDerivedSharpeningSharpensASaturnAndKeepsItsRings()
     {
         // A Saturn drawn by S1 through the Newtonian, blurred by a seeing the sharpening does not know, with a little noise: the

@@ -164,6 +164,7 @@ public class ViewerPlanetaryMasterTests
     [Theory(Timeout = 600_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
+    [Trait("Category", "Heavy")]
     public async Task AColourMastersStopShowsWhatTheBatchWritesInEveryChannel(float dpi)
     {
         // Rule 1 on a colour master: each channel at each stop equals the batch's (colours moved onto green, sharpened per channel, then

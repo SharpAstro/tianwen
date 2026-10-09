@@ -389,6 +389,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 600_000)]
+    [Trait("Category", "Heavy")]
     public async Task TheSameImageGivesTheSamePlate()
     {
         var field = MakeField(1);
@@ -403,6 +404,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     /// is the same profile to the bit, its luminance beta the report's; through its file it reads back unchanged.
     /// </summary>
     [Fact(Timeout = 600_000)]
+    [Trait("Category", "Heavy")]
     public async Task TheProfileMeasuredAloneIsThePlatesOwn()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -438,6 +440,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 300_000)]
+    [Trait("Category", "Heavy")]
     public async Task EachColourChannelLosesItsOwnShareOfTheStar()
     {
         var field = MakeField(3);

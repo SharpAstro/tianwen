@@ -201,6 +201,7 @@ public class PlanetarySharpeningTests
     }
 
     [Fact(Timeout = 300_000)]
+    [Trait("Category", "Heavy")]
     public async Task AKeptLimbFollowsTheDiskWhereItMovesAndIsFittedAgainWhereItGrows()
     {
         // The live master's disk moves when the stack takes another reference or the mount is recentred (#1201): the kept limb follows it by
@@ -367,6 +368,7 @@ public class PlanetarySharpeningTests
     }
 
     [Fact(Timeout = 600_000)]
+    [Trait("Category", "Heavy")]
     public async Task AColourLiveViewIsBalancedAsTheBatchBalancesItsMaster()
     {
         // #1212: one balance for planetary stack, the viewer's Best stack and the live view. Derive reads the balance the batch would give
@@ -522,6 +524,7 @@ public class PlanetarySharpeningTests
     }
 
     [Fact(Timeout = 300_000)]
+    [Trait("Category", "Heavy")]
     public async Task AColourLiveViewMovesItsColoursOntoGreenAsTheBatchMovesItsMaster()
     {
         // #1202: the atmosphere's dispersion leaves a live master's colours apart (6.4 px red to blue on 2022-10-09), where the batch moves

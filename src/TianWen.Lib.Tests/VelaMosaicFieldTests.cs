@@ -351,6 +351,7 @@ namespace TianWen.Lib.Tests
         /// "matches" to exactly this question.
         /// </summary>
         [Fact]
+        [Trait("Category", "Heavy")]
         public void UnrelatedDenseFieldsMustNotLock()
         {
             var footprints = new Dictionary<string, HashSet<int>>();
