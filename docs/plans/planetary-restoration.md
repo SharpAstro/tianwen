@@ -3293,6 +3293,41 @@ The shape is #1376: a colour twin's own true kernel (a degrade with `--psf-truth
 derivation through it either reaches the twin's own gains (the edge's kernel is the cause) or does not (the gain fit is), and its arm lets
 the held finest band fall below 1, never rise above it.
 
+### A colour master's finest band, bounded, and its target cut (#1376)
+
+**The gap between the derived gains and the colour twin's own is the kernel, and nothing reshaped around it closes half of it.** Four
+arms and a diagnostic, their rules set on #1376 before each ran, on #1373's colour twin masters (keep a half, with halves) against their
+truth, and on four real colour captures against their posts:
+
+| Bands 1 to 4, r+g+b | held (default) | bounded | held + target cut | bounded + target cut | the twin's own gains |
+|---|---|---|---|---|---|
+| seed 1 | 5.987 | 5.711 | 5.756 | **5.474** | 3.762 |
+| seed 2 | 5.876 | 5.598 | 5.649 | **5.359** | 3.767 |
+
+- **Diagnostic A, the true kernel** (`planetary sharpen --kernel truth`): each channel's kernel measured against the twin's truth
+  (`PlanetaryInverse.Measure`, the stack registered as `--truth` registers it), everything else as shipped. Through it the derivation
+  closes 82 and 80 % of the gap, its gains moving toward the twin's own. A demosaiced plane's true kernel is about nothing by 0.2 cycles a
+  pixel; the limb's edge reads noise there.
+- **Arm B, bounded** (`PlanetaryColourFinestBand.Bounded`, `--colour-finest bounded`): the finest band fitted jointly with the others but
+  held within [0, 1] (`PlanetaryWaveletGains.FitFinestWithin`, which clamps the free fit's finest gain and fits the rest around it, exact
+  for this convex fit). It closes 12.4 and 13.2 % of the gap and beats held by 4.6 % on both seeds. Its lattice is at most held's
+  everywhere, and its band-1 detail against the posts at least held's.
+- **Arm C, the kernel cut at the colour planes' Nyquist** (0.25 cycles a pixel, #1366's taper): worse on every choice (6.50 and 6.34
+  held), since a smaller kernel raises the Wiener target's 1/H. Removed.
+- **Arm C', the Wiener target cut there instead** (`PlanetarySharpenOptions.ColourTargetCut`, `--colour-target cut`): 3 to 4 % better on
+  every choice of the finest band, but held + cut closes only 10.4 and 10.8 %, and on the EdgeHD Saturn its lattice is a hair above held's
+  on every channel (red along x 0.00229 against 0.00227).
+- **Bounded + cut is the strongest pair**: 23.1 and 24.5 % of the gap, and the highest band-1 detail against the post on three captures
+  of four (the EdgeHD Saturn 0.571 against held's 0.532, the Meade 16 Saturn 0.727 against 0.670, the EdgeHD Jupiter 0.547 against
+  0.468; the 12-inch SCT Jupiter 0.494 against 0.488 and bounded alone's 0.496). Its lattice falls below held's on the Meade 16 Saturn,
+  the EdgeHD Jupiter and the EdgeHD Saturn's green and blue (its red a hair above), and rises above it along x on the 12-inch SCT Jupiter
+  (red 0.00021 against 0.00016).
+
+**Not adopted**: neither arm meets the half-the-gap rule, so held stays the default and bounded and the cut target are options; the
+pair is the owner's call. **The 2-pixel lattice is read on 2 by 2 blocks** (`PlanetaryMetrics.Lattice`, along x, along y and diagonal per
+channel, printed by `planetary sharpen` for a colour master): a per-pixel projection was biased by an odd row count. Closing the rest of
+the gap needs a kernel the capture itself can give past 0.2 cycles a pixel, which the limb's edge cannot (R8 follow-up 3).
+
 ### The batch stack on every core
 
 The owner saw the viewer's Best stack hold one core, and it did: 1.00 core over a 3,000-frame stack of the calibrated twin (233 s,
