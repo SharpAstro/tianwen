@@ -15,7 +15,7 @@ using TianWen.UI.Abstractions;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>tianwen planetary-stack &lt;ser-file&gt;...</c> -- end-to-end planetary lucky-imaging stack of a SER video, or of a
+/// <c>tianwen planetary stack &lt;ser-file&gt;...</c> -- end-to-end planetary lucky-imaging stack of a SER video, or of a
 /// run of them joined in time order (<see cref="PlanetaryFrameSequence"/>), each frame carried through the planet's rotation to
 /// the run's middle first when the turn moves the disk's middle a pixel or more (docs/plans/planetary-restoration.md, R6 part 2):
 /// grade the frames by sharpness, keep the best, align (global disk-COM + cross-correlation against a stack of the best frames,
@@ -70,11 +70,11 @@ internal sealed class PlanetaryStackSubCommand(
         };
         var sessionOpt = new Option<string?>("--session")
         {
-            Description = "Stack a session of the survey's manifest (--manifest) as one run, its captures joined in time order, by its name (planetary-survey prints them; #1308).",
+            Description = "Stack a session of the survey's manifest (--manifest) as one run, its captures joined in time order, by its name (planetary survey prints them; #1308).",
         };
         var manifestOpt = new Option<string?>("--manifest")
         {
-            Description = "The survey's manifest (planetary-survey -o) that --session names a session of.",
+            Description = "The survey's manifest (planetary survey -o) that --session names a session of.",
         };
         var epochOpt = new Option<string?>("--epoch")
         {
@@ -98,7 +98,7 @@ internal sealed class PlanetaryStackSubCommand(
         };
         var truthOpt = new Option<string?>("--truth")
         {
-            Description = "A synthetic capture's truth (planetary-degrade's .truth.fits; a colour capture's .truth.r/.g/.b.fits beside it): every master written is scored against it, R3's band transfer and error and the limb's undershoot. The master then keeps the frames' full size (--no-crop), the truth's grid.",
+            Description = "A synthetic capture's truth (planetary degrade's .truth.fits; a colour capture's .truth.r/.g/.b.fits beside it): every master written is scored against it, R3's band transfer and error and the limb's undershoot. The master then keeps the frames' full size (--no-crop), the truth's grid.",
         };
         var turnNorthOverOpt = new Option<bool>("--turn-north-over")
         {
@@ -272,10 +272,10 @@ internal sealed class PlanetaryStackSubCommand(
 
         var halvesOpt = new Option<bool>("--halves")
         {
-            Description = "Also fold the frames into two halves, alternately by rank, and write them beside the master on its grid (master_*_halfA.fits, _halfB.fits): half their difference is the master's noise, which planetary-sharpen --shrink reads (#1313). The alignment-point stack only.",
+            Description = "Also fold the frames into two halves, alternately by rank, and write them beside the master on its grid (master_*_halfA.fits, _halfB.fits): half their difference is the master's noise, which planetary sharpen --shrink reads (#1313). The alignment-point stack only.",
         };
 
-        var command = new Command("planetary-stack", "Stack a planetary SER video into a sharpened lucky-imaging master.")
+        var command = new Command("stack", "Stack a planetary SER video into a sharpened lucky-imaging master.")
         {
             Arguments = { serArg },
             Options =
@@ -300,7 +300,7 @@ internal sealed class PlanetaryStackSubCommand(
                 }
                 if (parseResult.GetValue(manifestOpt) is not { } manifestPath || !File.Exists(manifestPath))
                 {
-                    consoleHost.WriteError("--session names a session of the survey's manifest: give it with --manifest (planetary-survey -o).");
+                    consoleHost.WriteError("--session names a session of the survey's manifest: give it with --manifest (planetary survey -o).");
                     return 1;
                 }
                 // The sessions are found again from the manifest's captures, by the rule this build holds: a manifest written before
@@ -309,7 +309,7 @@ internal sealed class PlanetaryStackSubCommand(
                 if (manifest is null
                     || PlanetaryCorpus.Sessions(manifest.Captures).FirstOrDefault(s => string.Equals(s.Name, sessionName, StringComparison.OrdinalIgnoreCase)) is not { } session)
                 {
-                    consoleHost.WriteError($"No session named '{sessionName}' in {manifestPath}; planetary-survey prints the sessions it found.");
+                    consoleHost.WriteError($"No session named '{sessionName}' in {manifestPath}; planetary survey prints the sessions it found.");
                     return 1;
                 }
                 serPaths = session.Captures;

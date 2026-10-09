@@ -16,7 +16,7 @@ namespace TianWen.Cli;
 /// <summary>
 /// A planetary master scored as R3's metrics score a stack: against a synthetic capture's truth (band transfer and error inside 0.9 radii,
 /// the limb's undershoot), a colour at a time for a colour master; or, with no truth, its limb's undershoot alone, the truth-free metric
-/// that ranks stacks as the truth does (R3). Shared by <c>planetary-stack</c> and <c>planetary-sharpen</c>.
+/// that ranks stacks as the truth does (R3). Shared by <c>planetary stack</c> and <c>planetary sharpen</c>.
 /// </summary>
 internal static class PlanetaryMasterScore
 {

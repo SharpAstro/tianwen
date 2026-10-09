@@ -472,7 +472,7 @@ namespace TianWen.UI.Abstractions
                     state.ShowInfoPanel = !state.ShowInfoPanel;
                     return true;
                 case InputKey.K when shift:
-                    // The Best view: the whole capture stacked as planetary-stack stacks it (once), or the run going on cancelled (a SER only).
+                    // The Best view: the whole capture stacked as planetary stack stacks it (once), or the run going on cancelled (a SER only).
                     if (state.SequencePath is not null)
                     {
                         state.BestStackRequested = true;

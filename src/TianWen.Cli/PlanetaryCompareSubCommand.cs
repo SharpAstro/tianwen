@@ -16,7 +16,7 @@ using TianWen.Lib.Imaging.Planetary;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>tianwen planetary-compare &lt;label=master.fits&gt;...</c>: several masters of one capture side by side in numbers
+/// <c>tianwen planetary compare &lt;label=master.fits&gt;...</c>: several masters of one capture side by side in numbers
 /// (<see cref="PlanetaryPicture"/>): the disk's contrast and detail and what is clipped, the light past the limb against the glow the
 /// planet's own model through the pupil expects there, and the sky's noise, gradient, structure and outliers. A master the size of the
 /// first is read on the FIRST's disk, model and moons: the limb is steep, so a refit 0.1 px larger moved several disk pixels' worth of
@@ -34,7 +34,7 @@ internal sealed class PlanetaryCompareSubCommand(IConsoleHost consoleHost)
         var wavelengthOpt = new Option<string?>("--wavelength") { Description = "The filter's effective wavelength, nm, a comma list for a colour master's channels (550 when not given)." };
         var pupil = PlanetaryMasterScore.PupilOptions();
 
-        var command = new Command("planetary-compare", "Several masters of one capture side by side in numbers: contrast, the limb's light against the glow expected, the sky's uniformity.")
+        var command = new Command("compare", "Several masters of one capture side by side in numbers: contrast, the limb's light against the glow expected, the sky's uniformity.")
         {
             Arguments = { mastersArg },
             Options = { planetOpt, utcOpt, wavelengthOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope },
@@ -148,7 +148,7 @@ internal sealed class PlanetaryCompareSubCommand(IConsoleHost consoleHost)
         var inv = CultureInfo.InvariantCulture;
         const int nameWidth = 52;
         var width = Math.Max(14, labels.Max(l => l.Length) + 2);
-        var lines = new List<string> { "", $"[planetary-compare] {title}, every value in each master's own disk units (its sky 0, its disk 1)" };
+        var lines = new List<string> { "", $"[planetary compare] {title}, every value in each master's own disk units (its sky 0, its disk 1)" };
         void Row(string name, Func<PlanetaryPicture, string> cell)
         {
             var row = new StringBuilder(name.PadRight(nameWidth));

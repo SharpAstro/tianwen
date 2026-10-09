@@ -14,7 +14,7 @@ using TianWen.Lib.Imaging.Stacking;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>tianwen planetary-compose &lt;stack&gt;... -o &lt;master.fits&gt;</c> (#1278, <see cref="PlanetaryComposition"/>): a colour master from a
+/// <c>tianwen planetary compose &lt;stack&gt;... -o &lt;master.fits&gt;</c> (#1278, <see cref="PlanetaryComposition"/>): a colour master from a
 /// mono camera's stacks, one a filter and several runs of each, de-rotated to one instant and joined. The planetary twin of
 /// <c>image combine</c>: the command itself runs the recipe, and its steps are verbs of their own through FITS files
 /// (<c>ingest</c>, <c>register</c>, <c>derotate</c>, <c>join</c>), each on the same routine, so run one by one they give the recipe's
@@ -30,7 +30,7 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         var outputOpt = new Option<string?>("--output", "-o") { Description = "The colour master to write (FITS); <planet>_<yyyy-MM-dd-HHmm>_composed.fits in the current folder when not given." };
         var labels = LabelOptions();
         var lrgbOpt = new Option<bool>("--lrgb") { Description = "Carry the IR or L stacks' detail into the colour planes by the deep-sky LRGB step (the lrgb step); an option, since IR's belt contrast is its own." };
-        var command = new Command("planetary-compose", "A colour master from mono planetary stacks (#1278): each moved onto one disk by its limb, de-rotated to one instant, each filter averaged, red, green and blue joined; IR or L beside it as the luminance.")
+        var command = new Command("compose", "A colour master from mono planetary stacks (#1278): each moved onto one disk by its limb, de-rotated to one instant, each filter averaged, red, green and blue joined; IR or L beside it as the luminance.")
         {
             Arguments = { stacksArg },
             Options = { outputOpt, labels.Planet, labels.Utc, labels.Filter, lrgbOpt },

@@ -16,8 +16,8 @@ namespace TianWen.Cli;
 
 /// <summary>
 /// The product's two ends of a multi-frame blind deconvolution run as a reference (docs/plans/planetary-restoration.md, R8 follow-up 4
-/// part 3, #1140): <c>planetary-lucky-frames</c> writes the frames a stack keeps, registered onto it and normalised, as a FITS cube beside
-/// the stack and the truth in one window; <c>planetary-score</c> scores what comes back against that truth, and a mean PSF against the
+/// part 3, #1140): <c>planetary lucky-frames</c> writes the frames a stack keeps, registered onto it and normalised, as a FITS cube beside
+/// the stack and the truth in one window; <c>planetary score</c> scores what comes back against that truth, and a mean PSF against the
 /// oracle. The deconvolution between them is glue around an outside tool; every number read is read here.
 /// </summary>
 internal sealed class PlanetaryMfbdSubCommands(IConsoleHost consoleHost)
@@ -29,7 +29,7 @@ internal sealed class PlanetaryMfbdSubCommands(IConsoleHost consoleHost)
     {
         var inputArg = new Argument<string>("capture") { Description = "A SER capture of a planet." };
         var outputOpt = new Option<string>("--output", "-o") { Description = "The stem the cube, the stack and the truth are written at.", Required = true };
-        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary-degrade's .truth.fits), written in the same window." };
+        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary degrade's .truth.fits), written in the same window." };
         var planetOpt = new Option<string>("--planet") { Description = "jupiter or saturn.", DefaultValueFactory = _ => "jupiter" };
         var framesOpt = new Option<int?>("--frames") { Description = "Only the first frames." };
         var keepOpt = new Option<double>("--keep") { Description = "The share of the frames kept, by the gradient, as the stack keeps them.", DefaultValueFactory = _ => 0.05 };
@@ -37,7 +37,7 @@ internal sealed class PlanetaryMfbdSubCommands(IConsoleHost consoleHost)
         var wavelengthOpt = new Option<double>("--wavelength") { Description = "The filter's effective wavelength, nm.", DefaultValueFactory = _ => 650 };
         var windowOpt = new Option<int>("--window") { Description = "The side of the window about the disk, px (a power of two).", DefaultValueFactory = _ => 128 };
 
-        var command = new Command("planetary-lucky-frames",
+        var command = new Command("lucky-frames",
             "The frames a stack keeps, registered onto it and normalised, as a FITS cube beside the stack and the truth in one window: the input to a multi-frame deconvolution run as a reference (R8 follow-up 4 part 3, #1140).")
         {
             Arguments = { inputArg },
@@ -106,15 +106,15 @@ internal sealed class PlanetaryMfbdSubCommands(IConsoleHost consoleHost)
 
     public Command BuildScore()
     {
-        var restoredArg = new Argument<string>("restored") { Description = "A restoration in the window planetary-lucky-frames wrote (its first plane)." };
-        var truthOpt = new Option<string?>("--truth") { Description = "The window's truth (planetary-lucky-frames' .truth.fits): the scores; without it, only the PSFs are read." };
+        var restoredArg = new Argument<string>("restored") { Description = "A restoration in the window planetary lucky-frames wrote (its first plane)." };
+        var truthOpt = new Option<string?>("--truth") { Description = "The window's truth (planetary lucky-frames' .truth.fits): the scores; without it, only the PSFs are read." };
         var stackOpt = new Option<string?>("--stack") { Description = "The window's stack (.stack.fits): scored beside it, and the oracle a PSF is read against." };
         var psfOpt = new Option<string?>("--psf") { Description = "A cube of PSFs, one a frame (any centring): their mean's transfer over the pupil's diffraction, against the oracle." };
         var telescopeOpt = new Option<string>("--telescope") { Description = "newtonian or maksutov: the pupil the PSF's transfer is over.", DefaultValueFactory = _ => "newtonian" };
         var wavelengthOpt = new Option<double>("--wavelength") { Description = "The filter's effective wavelength, nm.", DefaultValueFactory = _ => 650 };
 
-        var command = new Command("planetary-score",
-            "A restoration scored against the truth in the window planetary-lucky-frames wrote: R8's band errors inside 0.9 radii, and a mean PSF's transfer against the oracle (R8 follow-up 4 part 3, #1140).")
+        var command = new Command("score",
+            "A restoration scored against the truth in the window planetary lucky-frames wrote: R8's band errors inside 0.9 radii, and a mean PSF's transfer against the oracle (R8 follow-up 4 part 3, #1140).")
         {
             Arguments = { restoredArg },
             Options = { truthOpt, stackOpt, psfOpt, telescopeOpt, wavelengthOpt },

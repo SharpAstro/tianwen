@@ -295,7 +295,7 @@ public sealed class AstroImageDocument : IPreviewSource
 
     private readonly bool _hasDuplicateChannels;
 
-    // The high-key planetary stretch of this frame (StretchMode.Planetary), the one planetary-stack's preview renders with.
+    // The high-key planetary stretch of this frame (StretchMode.Planetary), the one planetary stack's preview renders with.
     private readonly Lazy<StretchUniforms> _planetaryStretch;
 
     /// <summary>
@@ -870,7 +870,7 @@ public sealed class AstroImageDocument : IPreviewSource
 
         if (mode is StretchMode.Planetary)
         {
-            // planetary-stack's preview stretch, from the frame's own percentiles. Only the MANUAL white balance applies: a planet has
+            // planetary stack's preview stretch, from the frame's own percentiles. Only the MANUAL white balance applies: a planet has
             // no stars to calibrate on, and its common scale already keeps the stack's colour as stacked.
             var planetary = Basis._planetaryStretch.Value with
             {

@@ -10,7 +10,7 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// The enhanced pipeline's best stack as one routine (<see cref="PlanetaryBestStack"/>, #1159): what <c>planetary-stack</c> and the
+/// The enhanced pipeline's best stack as one routine (<see cref="PlanetaryBestStack"/>, #1159): what <c>planetary stack</c> and the
 /// GUI's "Best stack" both run. The telescope a profile describes becomes the pupil the derived sharpening needs; a capture whose
 /// planet is unknown is sharpened by the preset and says so; a run reports its progress to the end.
 /// </summary>

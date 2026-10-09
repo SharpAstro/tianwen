@@ -145,7 +145,7 @@ namespace TianWen.Lib.Tests
         {
             // A planetary master: a sky at 0.066 with noise of a few 1e-4, a textured disk up to about 0.3, OBJECT the planet. The
             // deep-sky auto-stretch lifts that sky to a quarter as grain (reported in the viewer, 2026-10-02); the thumbnail must show
-            // what the viewer opens it in (StretchMode.ForFrame): planetary-stack's preview stretch, byte for byte.
+            // what the viewer opens it in (StretchMode.ForFrame): planetary stack's preview stretch, byte for byte.
             const int n = 64;
             var plane = new float[n, n];
             var random = new Random(3);

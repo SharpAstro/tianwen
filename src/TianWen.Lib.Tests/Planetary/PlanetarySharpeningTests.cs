@@ -147,7 +147,7 @@ public class PlanetarySharpeningTests
     {
         // #1314: Derive fits every strength stop at once, so the panel's stops switch the dials without deriving again. A stop's gains
         // and words must be exactly a derivation's at that strength, or a stop switched to would be a different picture from the same
-        // stop chosen before Derive (and from planetary-sharpen --strength, which sharpens with that derivation's gains).
+        // stop chosen before Derive (and from planetary sharpen --strength, which sharpens with that derivation's gains).
         var ct = TestContext.Current.CancellationToken;
         var (_, stack) = NoisyStack();
 
@@ -369,7 +369,7 @@ public class PlanetarySharpeningTests
     [Fact(Timeout = 600_000)]
     public async Task AColourLiveViewIsBalancedAsTheBatchBalancesItsMaster()
     {
-        // #1212: one balance for planetary-stack, the viewer's Best stack and the live view. Derive reads the balance the batch would give
+        // #1212: one balance for planetary stack, the viewer's Best stack and the live view. Derive reads the balance the batch would give
         // the master on show and keeps it with the limb, and every master the live view draws is given it last, as the batch gives its
         // sharpened master: the same colour on the disk, and a master that says it is balanced (the flag the planetary stretch reads, #1229).
         var ct = TestContext.Current.CancellationToken;

@@ -15,7 +15,7 @@ using Console.Lib;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-dering</c> (docs/plans/planetary-restoration.md, R8 follow-up 2): the presets and R8's derived gains, each plain and with
+/// <c>planetary dering</c> (docs/plans/planetary-restoration.md, R8 follow-up 2): the presets and R8's derived gains, each plain and with
 /// four ways round a ring below the sky (a floor at the sky, the limb as its own channel, gains feathered at the limb, gains under a
 /// non-negative composite), scored per band inside the disk, on the limb's undershoot and on the limb profile against a twin's truth.
 /// </summary>
@@ -28,7 +28,7 @@ internal sealed class PlanetaryDeringSubCommand(IConsoleHost consoleHost, Master
     public Command Build()
     {
         var inputArg = new Argument<string>("capture") { Description = "A SER capture of a planet." };
-        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary-degrade's .truth.fits)." };
+        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary degrade's .truth.fits)." };
         var planetOpt = new Option<string>("--planet") { Description = "jupiter or saturn.", DefaultValueFactory = _ => "jupiter" };
         var framesOpt = new Option<int?>("--frames") { Description = "Only the first frames." };
         var keepOpt = new Option<double>("--keep") { Description = "The share of the frames stacked, by the gradient.", DefaultValueFactory = _ => 0.05 };
@@ -38,7 +38,7 @@ internal sealed class PlanetaryDeringSubCommand(IConsoleHost consoleHost, Master
         var trueFloorOpt = new Option<double>("--true-floor") { Description = "Where the truth's power falls below this share of its second ring's, the true kernel reads zero (1e-3 as pre-registered; 1e-6, R8's, post hoc).", DefaultValueFactory = _ => 1e-3 };
         var panelOpt = new Option<string?>("--panel") { Description = "A PNG: PlanetaryDefault plain, floored, as a limb channel and feathered; then the derived gains plain and under a non-negative composite." };
 
-        var command = new Command("planetary-dering",
+        var command = new Command("dering",
             "The presets and R8's derived gains with a floor at the sky, the limb as its own channel, gains feathered at the limb, and gains under a non-negative composite (R8 follow-up 2).")
         {
             Arguments = { inputArg },

@@ -17,8 +17,8 @@ using TianWen.Lib.Stat;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>tianwen planetary-sharpen &lt;master.fits&gt;</c>: a planetary master sharpened again without stacking it again, as
-/// <c>planetary-stack</c> sharpens it (<see cref="PlanetarySharpening"/>: gains derived through the limb's edge given the telescope, the
+/// <c>tianwen planetary sharpen &lt;master.fits&gt;</c>: a planetary master sharpened again without stacking it again, as
+/// <c>planetary stack</c> sharpens it (<see cref="PlanetarySharpening"/>: gains derived through the limb's edge given the telescope, the
 /// limb kept from ringing). With <c>--fix all</c> and a synthetic capture's <c>--truth</c> it is also how the enhanced pipeline's
 /// sharpening was chosen (docs/plans/planetary-restoration.md).
 /// </summary>
@@ -26,15 +26,15 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
 {
     public Command Build()
     {
-        var masterArg = new Argument<string>("master") { Description = "A linear planetary master (planetary-stack's master_*.fits)." };
+        var masterArg = new Argument<string>("master") { Description = "A linear planetary master (planetary stack's master_*.fits)." };
         var planetOpt = new Option<string?>("--planet") { Description = "jupiter or saturn; read off the file's name when not given." };
         var utcOpt = new Option<string?>("--utc") { Description = "The instant the master shows the planet at (ISO 8601, UTC); its own DATE-OBS and EXPTIME's middle when not given, else the truth's." };
         var wavelengthOpt = new Option<string?>("--wavelength") { Description = "The filter's effective wavelength, nm, a comma list for a colour master's channels (550 when not given)." };
         var fixOpt = new Option<string>("--fix") { Description = "How the limb is kept from ringing: modelfeathered (the default: outside the limb the planet's model through the pupil, feathered to the stack far out, #1171), bounded (never brighter than the stack outside the limb but for its moons), floored, limb (the limb as its own channel), feathered, plain, heldoutside, modelfloor, blended, modelglow, modeloutside, glowswapped or modelfeathered (#1171's candidates against bounded's trough), all to compare the first five, or outside to compare bounded with #1171's.", DefaultValueFactory = _ => "modelfeathered" };
-        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary-degrade's .truth.fits): every sharpening scored against it." };
+        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary degrade's .truth.fits): every sharpening scored against it." };
         var outputOpt = new Option<string?>("--output", "-o") { Description = "Where the sharpened masters go (master_*_sharpened[_fix].fits); the master's folder when not given." };
         var noWriteOpt = new Option<bool>("--no-write") { Description = "Score only, write nothing." };
-        var stackedPreviewOpt = new Option<bool>("--stacked-preview") { Description = "Also write the master as stacked through the same high-key planetary preview as the sharpened one (<name>_stacked.png), so the two are seen through one renderer: planetary-stack's own preview is of the sharpened master." };
+        var stackedPreviewOpt = new Option<bool>("--stacked-preview") { Description = "Also write the master as stacked through the same high-key planetary preview as the sharpened one (<name>_stacked.png), so the two are seen through one renderer: planetary stack's own preview is of the sharpened master." };
         var fitOpt = new Option<string>("--fit") { Description = "How the gains are fitted: free, nonnegative (their composite through the kernel held at or above zero), or both to compare them.", DefaultValueFactory = _ => "free" };
         var finestOpt = new Option<string>("--colour-finest") { Description = "A colour master's finest band (#1187): held (as stacked on every colour, the default), derived (its derived gain), heldbutgreen (as stacked on red and blue), or all to compare them.", DefaultValueFactory = _ => "held" };
         var ringEdgeOpt = new Option<bool>("--ring-edge") { Description = "Read Saturn's edge off its rings' outer rim as well as its polar limb (#1256)." };
@@ -51,13 +51,13 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var noiseOpt = new Option<string>("--noise") { Description = "The noise the derived gains' Wiener target is read against (#1373): white (the default: one level, read past 0.4 cycles a pixel), halves (ring by ring off the master's two halves, --halves, whose difference is the stack's own noise, coloured as a demosaic colours it), or both to compare them.", DefaultValueFactory = _ => "white" };
         var halvesOpt = new Option<string[]>("--halves")
         {
-            Description = "The master's two halves (planetary-stack --halves: master_*_halfA.fits and _halfB.fits), which --shrink and --noise halves read its noise off.",
+            Description = "The master's two halves (planetary stack --halves: master_*_halfA.fits and _halfB.fits), which --shrink and --noise halves read its noise off.",
             Arity = new ArgumentArity(2, 2),
             AllowMultipleArgumentsPerToken = true,
         };
         var pupil = PlanetaryMasterScore.PupilOptions();
 
-        var command = new Command("planetary-sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
+        var command = new Command("sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
         {
             Arguments = { masterArg },
             Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, gainsOpt, shrinkOpt, noiseOpt, halvesOpt },

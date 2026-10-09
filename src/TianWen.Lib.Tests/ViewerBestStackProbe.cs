@@ -16,7 +16,7 @@ namespace TianWen.Lib.Tests;
 /// <summary>
 /// On demand (#1159): the viewer's Best stack of a REAL capture, run as <c>tianwen-fits</c> runs it (<see cref="ViewerE2E"/>: the SER
 /// dropped, the panel's planet and telescope set, Shift+K), and the master it opens rendered as the viewer shows it, through the
-/// CPU mirror of the shader with the uniforms the viewer computes for it. The picture to put beside <c>planetary-stack</c>'s preview of
+/// CPU mirror of the shader with the uniforms the viewer computes for it. The picture to put beside <c>planetary stack</c>'s preview of
 /// the same capture. Set <c>TIANWEN_BEST_STACK_PROBE</c> to the capture's path, and optionally <c>TIANWEN_BEST_STACK_PROBE_PLANET</c>
 /// (a planet's name, when the path names none) and <c>TIANWEN_BEST_STACK_PROBE_APERTURE</c> (mm, a Newtonian, 254 when unset). The
 /// masters are written beside the capture, as the viewer writes them, and the rendering beside them as <c>*.viewer.png</c>.

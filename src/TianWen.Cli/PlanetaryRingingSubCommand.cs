@@ -19,7 +19,7 @@ using SharpAstro.Ser;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-ringing</c> (docs/plans/planetary-restoration.md, R8 follow-up 1): many restorations of twins' stacks, each read for
+/// <c>planetary ringing</c> (docs/plans/planetary-restoration.md, R8 follow-up 1): many restorations of twins' stacks, each read for
 /// its largest band transfer against the truth, a linear one's composite kernel for its negative mass, and the limb's undershoot,
 /// to test that a ring below the sky comes only with a transfer above one; and another program's sharpening fitted as a kernel of its
 /// own stack, its residual read by region, then carried to the twins.
@@ -35,7 +35,7 @@ internal sealed class PlanetaryRingingSubCommand(IConsoleHost consoleHost)
 
     public Command Build()
     {
-        var capturesArg = new Argument<string[]>("captures") { Description = "Synthetic captures (planetary-degrade's SERs), each with its truth.", Arity = ArgumentArity.OneOrMore };
+        var capturesArg = new Argument<string[]>("captures") { Description = "Synthetic captures (planetary degrade's SERs), each with its truth.", Arity = ArgumentArity.OneOrMore };
         var truthsOpt = new Option<string[]>("--truth") { Description = "Each capture's truth (.truth.fits), in order.", AllowMultipleArgumentsPerToken = true, Required = true };
         var gainsOpt = new Option<string[]>("--gains") { Description = "Wavelet gains to read beside the presets, one set per capture in order, sets of a capture split by '/', each name=g1,g2,... (R8's derived gains, say).", AllowMultipleArgumentsPerToken = true };
         var otherStackOpt = new Option<string?>("--other-stack") { Description = "Another program's stack of a real capture (an AutoStakkert TIFF)." };
@@ -48,7 +48,7 @@ internal sealed class PlanetaryRingingSubCommand(IConsoleHost consoleHost)
         var wavelengthOpt = new Option<double>("--wavelength") { Description = "The filter's effective wavelength, nm.", DefaultValueFactory = _ => 650 };
         var windowOpt = new Option<int>("--window") { Description = "The side of the window about the disk, px.", DefaultValueFactory = _ => 256 };
 
-        var command = new Command("planetary-ringing",
+        var command = new Command("ringing",
             "Whether a ring below the sky comes only with a band transfer above one against the truth, over many restorations of twins' stacks, and another program's sharpening fitted as a kernel (R8 follow-up 1).")
         {
             Arguments = { capturesArg },

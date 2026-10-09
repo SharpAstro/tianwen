@@ -14,7 +14,7 @@ namespace TianWen.UI.Abstractions
         // Planet and telescope (info panel)
         //
         // What the derived sharpening is made for: the planet and the telescope's pupil, for a SER's Best view (the whole capture stacked
-        // as `tianwen planetary-stack` stacks it, PlanetaryBestStack, #1159, chosen on the transport's view switch since #1314 part 2), the
+        // as `tianwen planetary stack` stacks it, PlanetaryBestStack, #1159, chosen on the transport's view switch since #1314 part 2), the
         // live view's Derive and a planetary master's. Without them the sharpening is the preset's.
         // -----------------------------------------------------------------------
 

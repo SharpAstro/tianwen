@@ -13,7 +13,7 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// The viewer's Best stack (#1159) end to end through the host <c>tianwen-fits</c> runs (<see cref="ViewerE2E"/>): a SER opened, Shift+K,
-/// and the capture is stacked by the routine <c>planetary-stack</c> runs, both masters written beside it under that verb's names, the
+/// and the capture is stacked by the routine <c>planetary stack</c> runs, both masters written beside it under that verb's names, the
 /// sharpened one opened in its place.
 /// </summary>
 [Collection("Viewer")]
@@ -45,7 +45,7 @@ public class ViewerBestStackTests
         e2e.State.PlanetaryView.ShouldBe(PlanetaryView.Best);
         // No telescope given, so the sharpening is the preset's, and the note says so.
         e2e.State.StatusMessage.ShouldNotBeNull().ShouldContain("PlanetaryDefault");
-        // The master names its planet, and shows in the stretch planetary-stack's preview is rendered with, never the deep-sky
+        // The master names its planet, and shows in the stretch planetary stack's preview is rendered with, never the deep-sky
         // auto-stretch: the same uniforms, so the viewer shows what the PNG shows.
         var document = e2e.Controller.ShownDocument.ShouldNotBeNull();
         document.UnstretchedImage.ImageMeta.ObjectName.ShouldBe("Jupiter");

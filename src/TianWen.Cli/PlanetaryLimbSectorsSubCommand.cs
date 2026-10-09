@@ -11,7 +11,7 @@ using TianWen.Lib.Imaging.Planetary;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-limb-sectors</c> (docs/plans/planetary-restoration.md, "The trough at the limb", #1171): a master's limb read sector by
+/// <c>planetary limb-sectors</c> (docs/plans/planetary-restoration.md, "The trough at the limb", #1171): a master's limb read sector by
 /// sector against the limb fit's outline, the radius at which each sector's profile falls through half its level, and, given the master
 /// sharpened, how deep its trough falls below the stack there; then the first and second harmonics of the radii (an outline off the
 /// planet's centre, or misshapen) and where the deepest trough lies against the sector whose edge lies furthest inside the outline.
@@ -20,12 +20,12 @@ internal sealed class PlanetaryLimbSectorsSubCommand(IConsoleHost consoleHost)
 {
     public Command Build()
     {
-        var masterArg = new Argument<string>("master") { Description = "A linear planetary master (planetary-stack's master_*.fits)." };
+        var masterArg = new Argument<string>("master") { Description = "A linear planetary master (planetary stack's master_*.fits)." };
         var sharpenedOpt = new Option<string?>("--sharpened") { Description = "The master sharpened: each sector's trough below the stack." };
         var planetOpt = new Option<string>("--planet") { Description = "jupiter or saturn.", DefaultValueFactory = _ => "jupiter" };
         var sectorsOpt = new Option<int>("--sectors") { Description = "How many position-angle sectors.", DefaultValueFactory = _ => 16 };
 
-        var command = new Command("planetary-limb-sectors",
+        var command = new Command("limb-sectors",
             "A master's limb read sector by sector against the limb fit's outline, and the trough of its sharpening there (#1171).")
         {
             Arguments = { masterArg },

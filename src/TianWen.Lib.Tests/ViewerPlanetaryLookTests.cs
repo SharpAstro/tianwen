@@ -16,7 +16,7 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// The planet's colour look as a viewer control (#1277), through the host <c>tianwen-fits</c> runs: the tone popover's choice on a balanced
-/// master on show, made by the routine <c>planetary-look</c> runs and given back on "True colour" with the file untouched; no choice on a
+/// master on show, made by the routine <c>planetary look</c> runs and given back on "True colour" with the file untouched; no choice on a
 /// deep-sky frame; and the live stacked view drawing the look on its masters once a Derive has balanced them.
 /// </summary>
 [Collection("Viewer")]
@@ -43,14 +43,14 @@ public class ViewerPlanetaryLookTests
         await e2e.PumpUntilAsync(() => !ReferenceEquals(e2e.Controller.Document, master) && !e2e.Controller.IsPlanetaryLookPending,
             "the master's look", ct, untilTimeout: true);
 
-        // What is shown is the routine planetary-look runs, on the master as it was read, adopted as any image is.
+        // What is shown is the routine planetary look runs, on the master as it was read, adopted as any image is.
         var looked = e2e.Controller.Document.ShouldNotBeNull();
         e2e.State.PlanetaryLookNote.ShouldBeNull();
         var instant = PlanetaryBestStack.InstantOf(master.UnstretchedImage, epoch: null).ShouldNotBeNull();
         var (expected, refusal) = PlanetaryColourLook.OnMaster(master.UnstretchedImage, CatalogIndex.Jupiter, instant, ColourLook.Boosted);
         var expectedDocument = await AstroImageDocument.AdoptImageAsync(expected.ShouldNotBeNull(refusal), DebayerAlgorithm.None,
             cancellationToken: ct);
-        Differing(looked.UnstretchedImage, expectedDocument.UnstretchedImage).ShouldBe(0, "the viewer's look is planetary-look's");
+        Differing(looked.UnstretchedImage, expectedDocument.UnstretchedImage).ShouldBe(0, "the viewer's look is planetary look's");
         Differing(looked.UnstretchedImage, master.UnstretchedImage).ShouldBeGreaterThan(0, "and it moves the colour");
         looked.FilePath.ShouldBe(path, "a Save of what is shown is named for the master");
 

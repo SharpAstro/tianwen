@@ -16,7 +16,7 @@ using SharpAstro.Ser;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-ghost</c> (docs/plans/planetary-restoration.md, R7a): each capture stacked, each plane of its master fitted for a ghost
+/// <c>planetary ghost</c> (docs/plans/planetary-restoration.md, R7a): each capture stacked, each plane of its master fitted for a ghost
 /// (an elliptical defocused copy of the planet beside a free round glow) and for coma (a flare) in its place, the non-round part read
 /// band by band before and after the copy's non-round part is taken out, and, with <c>--halves</c>, the capture's two halves fitted
 /// apart. <c>--inject</c> adds a ghost of known shape first; <c>--removed</c> writes each plane with the shell taken out.
@@ -35,7 +35,7 @@ internal sealed class PlanetaryGhostSubCommand(IConsoleHost consoleHost, MasterP
         var marginOpt = new Option<double>("--margin") { Description = "Pixels nearer the planet than this are left out of the fits.", DefaultValueFactory = _ => PlanetaryGhost.FitMargin };
         var stacksOpt = new Option<string?>("--stacks") { Description = "A folder each stack is kept in and read back from (a capture's, and its halves'), so a refit does not restack." };
 
-        var command = new Command("planetary-ghost",
+        var command = new Command("ghost",
             "A ghost fitted beyond a planet as a defocused copy of it beside a free round glow, coma as a flare in its place, the residual read for a shell, and the copy taken out (R7a).")
         {
             Arguments = { capturesArg },

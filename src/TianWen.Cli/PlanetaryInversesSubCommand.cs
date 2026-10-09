@@ -16,7 +16,7 @@ using SharpAstro.Ser;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-inverses</c> (docs/plans/planetary-restoration.md, R8 part 2): a stack restored three regularised ways, a Wiener filter
+/// <c>planetary inverses</c> (docs/plans/planetary-restoration.md, R8 part 2): a stack restored three regularised ways, a Wiener filter
 /// with Conan's power-law prior, Richardson-Lucy with positivity at the sky, and an L1-L2 edge-preserving prior, each with the limb's
 /// measured kernel and with a single Gaussian of its width, every one set to the same band 3 transfer (1.00 against a twin's truth, or
 /// a given rise over the stack on a real capture) and scored on the limb's undershoot. <c>--panel</c> draws them side by side.
@@ -28,7 +28,7 @@ internal sealed class PlanetaryInversesSubCommand(IConsoleHost consoleHost, Mast
     public Command Build()
     {
         var inputArg = new Argument<string>("capture") { Description = "A SER capture of a planet." };
-        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary-degrade's .truth.fits): band 3 set to 1.00 against it, and the scores." };
+        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary degrade's .truth.fits): band 3 set to 1.00 against it, and the scores." };
         var planetOpt = new Option<string>("--planet") { Description = "jupiter or saturn.", DefaultValueFactory = _ => "jupiter" };
         var framesOpt = new Option<int?>("--frames") { Description = "Only the first frames." };
         var keepOpt = new Option<double>("--keep") { Description = "The share of the frames stacked, by the gradient.", DefaultValueFactory = _ => 0.05 };
@@ -40,7 +40,7 @@ internal sealed class PlanetaryInversesSubCommand(IConsoleHost consoleHost, Mast
         var gaussianBandOpt = new Option<int?>("--gaussian-band") { Description = "Fit the single Gaussian's width on this band alone (1 to 4) rather than on bands 1 to 4: one whose band 3 transfer is (b')'s can be set to band 3 at all." };
         var panelOpt = new Option<string?>("--panel") { Description = "A PNG of the disk: the truth (a twin's) and the stack, then Wiener, Richardson-Lucy and L1-L2 with (b'), and below them with the Gaussian, each clipped to 1.3 of the disk and stretched as one." };
 
-        var command = new Command("planetary-inverses",
+        var command = new Command("inverses",
             "A stack restored by Wiener with Conan's power-law prior, Richardson-Lucy with positivity at the sky and an L1-L2 edge-preserving prior, each with the limb's kernel and a single Gaussian of its width, all set to one band 3 transfer and scored on the limb (R8 part 2).")
         {
             Arguments = { inputArg },

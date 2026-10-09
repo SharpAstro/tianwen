@@ -15,7 +15,7 @@ using TianWen.Lib.Imaging.Planetary;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>tianwen planetary-live &lt;capture.ser&gt;</c>: how the live stack keeps up with a capture, measured as it runs. The capture is
+/// <c>tianwen planetary live &lt;capture.ser&gt;</c>: how the live stack keeps up with a capture, measured as it runs. The capture is
 /// replayed into the node's own ring (<see cref="LiveCameraFrameStream"/>, sized as <see cref="PlanetaryCapture"/> sizes it) at its
 /// own frame rate, read off its timestamps, while the node's own loop (<see cref="LiveStackLoop"/>) stacks to the newest frame, for
 /// each recipe asked: the masters' interval, the frames the stack folds a second against the capture's, how far behind the newest
@@ -39,13 +39,13 @@ internal sealed class PlanetaryLiveSubCommand(IConsoleHost consoleHost, ITimePro
         var recipeOpt = new Option<string>("--recipe") { Description = "legacy, gradient, plain (the gradient and plain correlation), pipeline (and Lanczos-3), defaults (the rolling stack's as built), or all.", DefaultValueFactory = _ => "all" };
         var secondsOpt = new Option<double>("--seconds") { Description = "How long each recipe's replay runs, seconds of wall time (the capture's end stops it sooner).", DefaultValueFactory = _ => 90 };
         var rateOpt = new Option<double?>("--rate") { Description = "Frames a second to replay at; the capture's own, from its timestamps, when not given." };
-        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary-degrade's .truth.fits): the last master of each recipe scored against it." };
+        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary degrade's .truth.fits): the last master of each recipe scored against it." };
         var planetOpt = new Option<string?>("--planet") { Description = "jupiter or saturn, for the truth's scoring; read off the file's name when not given." };
         var agedOpt = new Option<string>("--aged-reference") { Description = "What the stack does when its reference ages out of the window (#1174): rebuild, in-place, or a comma list to replay each recipe with each." };
         var lastMasterOpt = new Option<string?>("--last-master") { Description = "A folder to write each recipe's last master to, as FITS, to read past the truth's score (#1319)." };
         var keepOpt = new Option<string>("--keep") { Description = "The share of the window's frames folded (#1174), a comma list to replay each recipe at each (e.g. '1,0.5,0.25'); the recipe's own when not given." };
 
-        var command = new Command("planetary-live", "Measure how the live rolling stack keeps up with a capture replayed at its own rate, recipe by recipe.")
+        var command = new Command("live", "Measure how the live rolling stack keeps up with a capture replayed at its own rate, recipe by recipe.")
         {
             Arguments = { captureArg },
             Options = { recipeOpt, secondsOpt, rateOpt, truthOpt, planetOpt, keepOpt, agedOpt, lastMasterOpt },

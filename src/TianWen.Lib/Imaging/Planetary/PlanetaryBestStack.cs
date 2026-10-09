@@ -74,7 +74,7 @@ public sealed record PlanetaryBestStackResult(PlanetaryStackResult Stack, Image 
 
 /// <summary>
 /// The enhanced pipeline's batch stack and sharpening as ONE routine (#1159, docs/plans/planetary-restoration.md, "The enhanced
-/// pipeline"): <c>tianwen planetary-stack</c> and the GUI's "Best stack" of a recorded capture both run it, so the two cannot drift.
+/// pipeline"): <c>tianwen planetary stack</c> and the GUI's "Best stack" of a recorded capture both run it, so the two cannot drift.
 /// The alignment-point stack at the measured defaults (<see cref="PlanetaryStackOptions"/>), de-rotated once the planet's turn moves
 /// its disk's middle a pixel, then sharpened by gains derived through the limb's edge (<see cref="PlanetarySharpening"/>) when the
 /// planet, the capture's time and the telescope are known, else by the preset.
@@ -319,7 +319,7 @@ public static class PlanetaryBestStack
     /// sharpening keeps what it lifts past the stack's brightest pixel, and a ceiling there cut a Best view at strength 1.5 by 0.27 of the
     /// disk's level from the batch (#1314; at the truth the lift had stayed under the peak). Outside the limb a master is then drawn by the
     /// limb the derivation kept (<see cref="PlanetaryLiveLimb.Draw"/>, #1201), which holds the inside at the sky. One builder, so the GUI's
-    /// sliders and <c>planetary-sharpen --sliders</c>, which measures them, sharpen alike.
+    /// sliders and <c>planetary sharpen --sliders</c>, which measures them, sharpen alike.
     /// </summary>
     public static WaveletSharpenOptions SliderOptions(ImmutableArray<float> gains)
         => new WaveletSharpenOptions { Gains = gains, HoldAtDarkest = true, Clamp = false };
@@ -349,7 +349,7 @@ public static class PlanetaryBestStack
 
     /// <summary>
     /// Where a best stack of <paramref name="baseName"/> is written in <paramref name="outputDir"/>: the linear master and the sharpened
-    /// one, under the names <c>planetary-stack</c> gives them (<paramref name="prefix"/> its <c>--label</c>).
+    /// one, under the names <c>planetary stack</c> gives them (<paramref name="prefix"/> its <c>--label</c>).
     /// </summary>
     public static (string Master, string Sharpened) OutputPaths(string outputDir, string baseName, string prefix = "")
         => (System.IO.Path.Combine(outputDir, $"{prefix}master_{baseName}.fits"), System.IO.Path.Combine(outputDir, $"{prefix}master_{baseName}_sharpened.fits"));

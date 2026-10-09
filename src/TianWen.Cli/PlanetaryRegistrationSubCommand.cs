@@ -16,7 +16,7 @@ using Console.Lib;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-registration</c> (docs/plans/planetary-restoration.md, R5 part 3): every frame of a capture registered several
+/// <c>planetary registration</c> (docs/plans/planetary-restoration.md, R5 part 3): every frame of a capture registered several
 /// ways, the stacker's cross-correlation against the best frame and against a stack of the best, whitened and plain, a limb fit,
 /// and AutoStakkert's own track from its session file, set side by side with no truth. Each pair's difference is the sum of
 /// their errors, and the three-cornered hat splits any three into each one's own; a synthetic capture's recorded motion scores
@@ -28,7 +28,7 @@ internal sealed class PlanetaryRegistrationSubCommand(IConsoleHost consoleHost)
     {
         var captureArg = new Argument<string>("capture") { Description = "A mono SER capture of a planet." };
         var as3Opt = new Option<string?>("--as3") { Description = "An AutoStakkert session file (.as3) of the same capture, whose planet track is set beside ours." };
-        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's recorded motion (planetary-degrade's .frames.csv); by default the one beside the capture, where there is one." };
+        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's recorded motion (planetary degrade's .frames.csv); by default the one beside the capture, where there is one." };
         var planetOpt = new Option<string>("--planet") { Description = "jupiter or saturn.", DefaultValueFactory = _ => "jupiter" };
         var utcOpt = new Option<string?>("--utc") { Description = "The capture's time (ISO 8601, UTC), for a SER without timestamps." };
         var framesOpt = new Option<int?>("--frames") { Description = "Only the capture's first frames." };
@@ -38,7 +38,7 @@ internal sealed class PlanetaryRegistrationSubCommand(IConsoleHost consoleHost)
         var fastOpt = new Option<int>("--fast-window") { Description = "The frames either side a difference's slow part is taken over; what is left is each frame's own error.", DefaultValueFactory = _ => 25 };
         var outOpt = new Option<string?>("--out") { Description = "Every track, frame by frame, as a CSV (frame, then each track's x and y)." };
 
-        var command = new Command("planetary-registration",
+        var command = new Command("registration",
             "Every frame of a capture registered several ways (the stacker's correlation, a limb fit, AutoStakkert's track) and compared with no truth by the three-cornered hat; against a synthetic capture's recorded motion as well (R5).")
         {
             Arguments = { captureArg },

@@ -8,7 +8,7 @@ using TianWen.Lib.Stat;
 namespace TianWen.Lib.Imaging.Planetary;
 
 /// <summary>
-/// A planetary master's picture in numbers, for setting several of one capture side by side (<c>tianwen planetary-compare</c>): the
+/// A planetary master's picture in numbers, for setting several of one capture side by side (<c>tianwen planetary compare</c>): the
 /// stack, the batch's sharpening, the live view's, another program's. Every value is in the image's own disk units (its sky 0, its disk's
 /// mean inside 0.8 radii 1, <see cref="PlanetaryMetrics.Normalise"/>), so pictures of different brightness compare. Three regions:
 /// <list type="bullet">

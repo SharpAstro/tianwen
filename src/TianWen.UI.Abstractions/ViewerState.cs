@@ -584,7 +584,7 @@ public sealed class ViewerState
     /// <summary>What the last derivation did, in words: what the gains were derived for, or why none were. Null before any, and after Reset.</summary>
     public string? WaveletDeriveNote { get; set; }
 
-    // --- Best stack (a recorded capture stacked whole, as planetary-stack stacks it, #1159) ---
+    // --- Best stack (a recorded capture stacked whole, as planetary stack stacks it, #1159) ---
 
     /// <summary>The SER the sequence on screen was opened from; null for any other file. What a best stack stacks.</summary>
     public string? SequencePath { get; set; }

@@ -88,7 +88,7 @@ public class PlanetaryCeilingsTests
     public async Task ATwinsFramesAreTheirTrueTransferTimesTheTruth(bool farWing)
     {
         // A small twin with the still layer and the scatter on, its PSFs taken as it is made, and the truth rendered as
-        // planetary-degrade renders it, at the instant the twin's first render is.
+        // planetary degrade renders it, at the instant the twin's first render is.
         const int size = 128;
         const double scale = 0.49;
         var map = PlanetaryDegradeTests.BandedMap();
@@ -339,7 +339,7 @@ public class PlanetaryCeilingsTests
 
     // The truth through the diffraction on the frames' own scale: a twin made at a raw level sets its SHARP render's disk mean to it, and
     // the diffraction then carries light out of 0.8 radii (2.6 % on this small disk, its far wing included, #1222), so the gain is read off
-    // `sharp`. planetary-degrade's truth file sets the diffracted render's own disk mean to the level instead, which every metric
+    // `sharp`. planetary degrade's truth file sets the diffracted render's own disk mean to the level instead, which every metric
     // normalises away by the disk.
     private static float[] ScaledLikeTheTwin(float[] render, float[] sharp, int size, DiskPlacement placement, double diskLevel)
     {

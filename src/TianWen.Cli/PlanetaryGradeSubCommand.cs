@@ -19,10 +19,10 @@ using Console.Lib;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-grade</c> (docs/plans/planetary-restoration.md, R4): which frames a capture should keep. Every frame is scored by
+/// <c>planetary grade</c> (docs/plans/planetary-restoration.md, R4): which frames a capture should keep. Every frame is scored by
 /// each candidate estimator, and by its gain in each a trous band on the stack of every frame (the reference gain, registered by
 /// the correlation). With a truth (a synthetic capture's), also by its true transfer in each band against it (and, where
-/// planetary-degrade wrote one, its Strehl): each estimator's ranking is compared with the true one (Spearman), and the frames
+/// planetary degrade wrote one, its Strehl): each estimator's ranking is compared with the true one (Spearman), and the frames
 /// each selection keeps are stacked at the same counts and scored against the truth, whether a better selection reaches the
 /// stack at all. Without one, the estimators are ranked against the reference gain, and each score's correlation from one frame
 /// to the next says whether it follows the seeing, which is coherent over a few frames, or the noise, which is not.
@@ -35,8 +35,8 @@ internal sealed partial class PlanetaryGradeSubCommand(IConsoleHost consoleHost)
     public Command Build()
     {
         var captureArg = new Argument<string>("capture") { Description = "A mono SER capture of a planet, a synthetic one with its truth." };
-        var truthOpt = new Option<string?>("--truth") { Description = "The truth planetary-degrade wrote beside a synthetic capture; without it, the estimators are ranked against the reference gain and nothing is stacked." };
-        var strehlOpt = new Option<string?>("--strehl") { Description = "The frames' Strehl ratios (planetary-degrade's .frames.csv); by default the one beside the capture, where there is one." };
+        var truthOpt = new Option<string?>("--truth") { Description = "The truth planetary degrade wrote beside a synthetic capture; without it, the estimators are ranked against the reference gain and nothing is stacked." };
+        var strehlOpt = new Option<string?>("--strehl") { Description = "The frames' Strehl ratios (planetary degrade's .frames.csv); by default the one beside the capture, where there is one." };
         var planetOpt = new Option<string>("--planet") { Description = "jupiter or saturn.", DefaultValueFactory = _ => "jupiter" };
         var firstOpt = new Option<int>("--first") { Description = "The first frame measured.", DefaultValueFactory = _ => 0 };
         var framesOpt = new Option<int?>("--frames") { Description = "Only this many frames, from --first." };
@@ -44,9 +44,9 @@ internal sealed partial class PlanetaryGradeSubCommand(IConsoleHost consoleHost)
         var cropOpt = new Option<int>("--crop") { Description = "The edge of the square about the disk each frame is measured in, a power of two.", DefaultValueFactory = _ => 256 };
         var pipelineOpt = new Option<string>("--pipeline") { Description = "The selections also stacked by the stacker's own aligner, a comma list of sources.", DefaultValueFactory = _ => "laplacian,strehl,every" };
         var outOpt = new Option<string?>("--out") { Description = "Write the per-frame scores to this CSV, and the stacks' fidelity beside it (.stacks.csv)." };
-        var pointsOpt = new Option<bool>("--points") { Description = "Per point instead (R4 per-point, #1071): on a layered twin (planetary-degrade --high-r0) with its truth, the share of each point's true quality that is its own, each local estimator ranked against it at every point, and each point's best frames stacked against the whole frames' best at the --keep fractions." };
+        var pointsOpt = new Option<bool>("--points") { Description = "Per point instead (R4 per-point, #1071): on a layered twin (planetary degrade --high-r0) with its truth, the share of each point's true quality that is its own, each local estimator ranked against it at every point, and each point's best frames stacked against the whole frames' best at the --keep fractions." };
 
-        var command = new Command("planetary-grade",
+        var command = new Command("grade",
             "Scores every frame of a capture by each quality estimator and by its gain on the stack of every frame; with a synthetic capture's truth, by its true transfer too, ranks the estimators against it and stacks each selection at the same counts (R4).")
         {
             Arguments = { captureArg },
@@ -298,7 +298,7 @@ internal sealed partial class PlanetaryGradeSubCommand(IConsoleHost consoleHost)
     }
 
     // The Strehl of frames `first` onwards, numbered from zero as the window numbers them.
-    // One column of a synthetic capture's record (planetary-degrade's .frames.csv) over the frames measured; NaN where a frame has
+    // One column of a synthetic capture's record (planetary degrade's .frames.csv) over the frames measured; NaN where a frame has
     // none, null when the record has no such column or is not there.
     private static double[]? ReadColumn(string path, string name, int first, int frames)
     {

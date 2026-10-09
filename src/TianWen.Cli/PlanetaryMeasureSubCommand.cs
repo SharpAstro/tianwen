@@ -20,7 +20,7 @@ using Console.Lib;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-measure</c> (docs/plans/planetary-restoration.md, R3): stacks a capture as each candidate asks (a keep fraction,
+/// <c>planetary measure</c> (docs/plans/planetary-restoration.md, R3): stacks a capture as each candidate asks (a keep fraction,
 /// a sharpening preset, a method), and its two halves the same way from disjoint frames, then measures every stack with
 /// <see cref="PlanetaryMetrics"/>, registered onto one disk by the limb fit. With a truth (a synthetic capture's), each stack's
 /// fidelity and limb against it, and how the truth-free metrics rank the candidates against the truth-based ones (Spearman,
@@ -31,7 +31,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
     public Command Build()
     {
         var captureArg = new Argument<string>("capture") { Description = "A SER capture of a planet, mono or colour (a colour one is scored a colour at a time against its truths beside it)." };
-        var truthOpt = new Option<string?>("--truth") { Description = "The truth to score the stacks against (planetary-degrade writes it beside a synthetic capture); without it, only the truth-free metrics." };
+        var truthOpt = new Option<string?>("--truth") { Description = "The truth to score the stacks against (planetary degrade writes it beside a synthetic capture); without it, only the truth-free metrics." };
         var planetOpt = new Option<string>("--planet") { Description = "jupiter or saturn.", DefaultValueFactory = _ => "jupiter" };
         var utcOpt = new Option<string?>("--utc") { Description = "The capture's time (ISO 8601, UTC), for a SER without timestamps and no truth." };
         var framesOpt = new Option<int?>("--frames") { Description = "Only the capture's first frames." };
@@ -51,13 +51,13 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
         var geometryOpt = new Option<string>("--geometry") { Description = "The geometry the points put the stack on, a comma list of reference (the reference frame's) and median (each point's median over the frames); ap methods only.", DefaultValueFactory = _ => "reference" };
         var interpolationOpt = new Option<string>("--interpolation") { Description = "The kernel each frame is resampled by as it is stacked, a comma list of bilinear, lanczos3 and lanczos3-clamped.", DefaultValueFactory = _ => "bilinear" };
         var referenceOpt = new Option<string>("--reference-frames") { Description = "What frames are registered against, a comma list: 0 the best frame, N a stack of the best N.", DefaultValueFactory = _ => "0" };
-        var drizzleOpt = new Option<string>("--drizzle") { Description = "A colour capture's Bayer drizzle stacks, a comma list of scales (1 the sensor's grid, 1.5 past it); R5a. Each is scored against the truths at its scale, which planetary-degrade --truth-upsample writes.", DefaultValueFactory = _ => "" };
+        var drizzleOpt = new Option<string>("--drizzle") { Description = "A colour capture's Bayer drizzle stacks, a comma list of scales (1 the sensor's grid, 1.5 past it); R5a. Each is scored against the truths at its scale, which planetary degrade --truth-upsample writes.", DefaultValueFactory = _ => "" };
         var pixfracOpt = new Option<float>("--pixfrac") { Description = "The drizzle's drop size, a fraction of a photosite (0.5 by default, #1092).", DefaultValueFactory = _ => PlanetaryDrizzleOptions.DefaultPixfrac };
         var noHalvesOpt = new Option<bool>("--no-halves") { Description = "Stack each candidate only, not its two halves: no halves' agreement, in a third of the time." };
         var cutoffOpt = new Option<double?>("--cutoff") { Description = "The telescope's cutoff in cycles a pixel, for the power past it (fabrication); none past Nyquist." };
         var derotateOpt = new Option<string>("--derotate") { Description = "Each frame as taken (none) or carried through the planet's rotation to the truth's instant, or the capture's middle without one (frames; R6), a comma list.", DefaultValueFactory = _ => "none" };
 
-        var command = new Command("planetary-measure",
+        var command = new Command("measure",
             "Stacks a capture as each candidate asks, and its two halves, and measures every stack (R3): fidelity per wavelet band and the limb against a truth, the halves' agreement per band, the limb's undershoot; with a truth, how the truth-free metrics rank the candidates against the truth-based ones.")
         {
             Arguments = { captureArg },
@@ -231,7 +231,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
             }
             return 0;
 
-            // A colour capture (R5a): its truths beside it, one per colour at every scale a stack is made at (planetary-degrade
+            // A colour capture (R5a): its truths beside it, one per colour at every scale a stack is made at (planetary degrade
             // writes them), and every stack scored a colour at a time against that colour's truth, a demosaiced stack's colours
             // and a Bayer drizzle's alike, each on the grid it made. No halves: R3 found their agreement sees only the noise.
             async Task<int> MeasureColourAsync()
@@ -366,7 +366,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
     }
 
     /// <summary>
-    /// A truth planetary-degrade wrote: its plane, the disk it was rendered with (DISKX, DISKY, DISKR, NORTHANG; round, the
+    /// A truth planetary degrade wrote: its plane, the disk it was rendered with (DISKX, DISKY, DISKR, NORTHANG; round, the
     /// caller sets the axis ratio) and its time. Null, said on the console, when the file or its cards are missing.
     /// </summary>
     internal static (float[] Plane, MetricDisk Disk, DateTimeOffset? Time)? ReadTruth(string path, IConsoleHost consoleHost)
@@ -380,10 +380,10 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
         var header = fits.ReadFirstImageHduHeaderOnly()?.Header;
         if (header is null || !double.IsFinite(header.GetDoubleValue("DISKX", double.NaN)))
         {
-            consoleHost.WriteError($"{path}: no DISKX, DISKY, DISKR in its header (planetary-degrade writes them)");
+            consoleHost.WriteError($"{path}: no DISKX, DISKY, DISKR in its header (planetary degrade writes them)");
             return null;
         }
-        // AXISRAT is written by planetary-lucky-frames, whose window is scored with the stack's own oblate disk; a degrade truth has none.
+        // AXISRAT is written by planetary lucky-frames, whose window is scored with the stack's own oblate disk; a degrade truth has none.
         var disk = new MetricDisk(header.GetDoubleValue("DISKX", double.NaN), header.GetDoubleValue("DISKY", double.NaN),
             header.GetDoubleValue("DISKR", double.NaN), header.GetDoubleValue("AXISRAT", 1), header.GetDoubleValue("NORTHANG", 0));
         return (image.GetChannelSpan(0).ToArray(), disk, PlanetaryGeometrySubCommands.ParseUtc(header.GetStringValue("DATE-OBS")));

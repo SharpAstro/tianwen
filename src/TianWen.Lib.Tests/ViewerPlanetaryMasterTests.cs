@@ -19,7 +19,7 @@ namespace TianWen.Lib.Tests;
 /// A planetary master opened as a file gets the sharpening layer the stacked view has (#1314 part 1b): the planet and telescope,
 /// the dials, Derive and its stops, over the same source (<see cref="LiveStackPreviewSource"/> on a <see cref="FixedMaster"/>), and
 /// a Save writes what is on show. The master is <c>PlanetarySharpeningTests</c>' noisy Jupiter stack, written with a header that names
-/// the planet and the instant, as <c>planetary-stack</c> writes one.
+/// the planet and the instant, as <c>planetary stack</c> writes one.
 /// </summary>
 [Collection("Viewer")]
 public class ViewerPlanetaryMasterTests
@@ -93,7 +93,7 @@ public class ViewerPlanetaryMasterTests
     [InlineData(1.5f)]
     public async Task AMastersStopShowsWhatPlanetarySharpenWritesAtThatStrength(float dpi)
     {
-        // Rule 1: at each stop the planes on show equal planetary-sharpen --strength's for that master (PlanetarySharpening, its own
+        // Rule 1: at each stop the planes on show equal planetary sharpen --strength's for that master (PlanetarySharpening, its own
         // derivation at that strength), to within 1e-4 of the disk's level, inside the limb and outside it. Measured 1.2e-6 inside and
         // 5e-10 outside at every stop when it was written: the dials take the derivation's own gains, and the limb is drawn as the batch
         // draws it (#1201).
@@ -167,7 +167,7 @@ public class ViewerPlanetaryMasterTests
     public async Task AColourMastersStopShowsWhatTheBatchWritesInEveryChannel(float dpi)
     {
         // Rule 1 on a colour master: each channel at each stop equals the batch's (colours moved onto green, sharpened per channel, then
-        // balanced, as planetary-stack writes it) to within 1e-4 of that channel's disk level. With the first channel's gains on every
+        // balanced, as planetary stack writes it) to within 1e-4 of that channel's disk level. With the first channel's gains on every
         // channel, green read 3.0e-3 and blue 5.5e-3 inside the limb: each derives its own, through its own diffraction.
         await using var e2e = ViewerE2E.Start(dpi);
         var ct = TestContext.Current.CancellationToken;
@@ -328,7 +328,7 @@ public class ViewerPlanetaryMasterTests
         return e2e.Viewer.PaintedRegions().Any(r => r.Result is HitResult.ButtonHit { Action: var a } && a == action);
     }
 
-    // The noisy Jupiter stack written as planetary-stack writes a master: OBJECT names the planet, DATE-OBS and EXPTIME its span.
+    // The noisy Jupiter stack written as planetary stack writes a master: OBJECT names the planet, DATE-OBS and EXPTIME its span.
     internal static async Task<string> OpenMasterAsync(ViewerE2E e2e, CancellationToken ct)
     {
         var meta = new ImageMeta("e2e", PlanetarySharpeningTests.Night - (Exposure / 2), Exposure, FrameType.Light, "",

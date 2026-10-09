@@ -129,7 +129,7 @@ public sealed record CorpusManifest(int Version, string[] Roots, CaptureRecord[]
 /// One session of the corpus (#1308): two or more captures of one folder, frame size, colour and, for a mono run, filter (#1336), each
 /// starting within <see cref="PlanetaryCorpus.SessionGap"/> of the one before ending, which a stack joins in time order as one run.
 /// </summary>
-/// <param name="Name">The folder's name, the first frame's UTC time and a filter's wavelength, which <c>planetary-stack --session</c>
+/// <param name="Name">The folder's name, the first frame's UTC time and a filter's wavelength, which <c>planetary stack --session</c>
 /// asks for.</param>
 /// <param name="Captures">The captures' paths, in time order.</param>
 public sealed record SessionRecord(string Name, string Folder, int Width, int Height, string ColorId, int Frames, string FirstUtc, string LastUtc,

@@ -17,10 +17,10 @@ using SharpAstro.Ser;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-limb</c> (docs/plans/planetary-restoration.md, R1): fits a planet's disk at its limb, with the shape and
-/// lighting its ephemeris gives, and, handed WinJUPOS's measurement of an image, compares the two. <c>planetary-aperture</c>
+/// <c>planetary limb</c> (docs/plans/planetary-restoration.md, R1): fits a planet's disk at its limb, with the shape and
+/// lighting its ephemeris gives, and, handed WinJUPOS's measurement of an image, compares the two. <c>planetary aperture</c>
 /// says which of the corpus' two telescopes took a Jupiter capture, by the rules the plan pre-registered.
-/// <c>planetary-render-truth</c> renders a global map at a capture's geometry through its telescope (T1, R2).
+/// <c>planetary render-truth</c> renders a global map at a capture's geometry through its telescope (T1, R2).
 /// </summary>
 internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
 {
@@ -36,7 +36,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var phaseOpt = new Option<double?>("--phase") { Description = "Override the ephemeris' phase angle, in degrees (0 fits a fully lit disk): a diagnostic." };
         var sunSideOpt = new Option<int?>("--sun-side") { Description = "Force which end of the equator is lit (+1 or -1) instead of fitting both: a diagnostic." };
 
-        var command = new Command("planetary-limb", "Fit a planet's disk at its limb (centre, equatorial radius, axis) with the ephemeris' shape and phase; compare with WinJUPOS's own outline.")
+        var command = new Command("limb", "Fit a planet's disk at its limb (centre, equatorial radius, axis) with the ephemeris' shape and phase; compare with WinJUPOS's own outline.")
         {
             Arguments = { inputsArg },
             Options = { planetOpt, utcOpt, phaseOpt, sunSideOpt },
@@ -105,7 +105,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var utcOpt = new Option<string?>("--utc") { Description = "The capture's time (ISO 8601, UTC), for a SER without timestamps." };
         var stacksOpt = new Option<string?>("--stacks") { Description = "A folder to write each capture's stack of best frames to, as <name>.stack.fits, to look at the halo the spider was sought in." };
 
-        var command = new Command("planetary-aperture", "Which telescope took a Jupiter capture: the aperture's cutoff in each plane's averaged power spectrum, read as a lower bound, and a spider's spikes in the stack's halo (R1).")
+        var command = new Command("aperture", "Which telescope took a Jupiter capture: the aperture's cutoff in each plane's averaged power spectrum, read as a lower bound, and a spider's spikes in the stack's halo (R1).")
         {
             Arguments = { inputsArg },
             Options = { bestOpt, utcOpt, stacksOpt },
@@ -193,7 +193,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var framesOpt = new Option<int?>("--frames") { Description = "Only this many frames, from --first." };
         var planeOpt = new Option<string?>("--plane") { Description = "A colour capture's photosite colour to measure: r, g (the greens on the red rows), g2 or b (R5a)." };
 
-        var command = new Command("planetary-seeing",
+        var command = new Command("seeing",
             "A capture's statistics, measured as a synthetic capture's are (R2): the shift's seeing and mount parts, the warp, the quality distribution, each band's noise, the camera's levels and gain.")
         {
             Arguments = { inputsArg },
@@ -315,7 +315,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         };
         var noTwinRingsOpt = new Option<bool>("--no-rings") { Description = "Draw Saturn's globe alone, without its rings." };
 
-        var command = new Command("planetary-degrade",
+        var command = new Command("degrade",
             "A synthetic capture from a global map with a real capture's own seeing, motion and camera (R2): measure the real one, make the synthetic one, measure it the same way, and compare.")
         {
             Arguments = { inputArg },
@@ -551,7 +551,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
             using (var warpWriter = warped ? new SyntheticWarpFile.Writer(warpPartial) : null)
             using (var psfWriter = psfTruth ? new SyntheticPsfFile.Writer(psfPartial, SyntheticPsfHeader.For(options, scale)) : null)
             using (var fieldWriter = options.HasHighLayer ? new SyntheticFieldFile.Writer(fieldPartial, PlanetaryDegrade.FieldPatchPx) : null)
-            using (var writer = new SerWriter(partial, reader.Width, reader.Height, SerColorId.Mono, depth, instrument: "TianWen planetary-degrade"))
+            using (var writer = new SerWriter(partial, reader.Width, reader.Height, SerColorId.Mono, depth, instrument: "TianWen planetary degrade"))
             {
                 var buffer = new byte[reader.Width * reader.Height * bytesPerSample];
                 var done = new Progress<int>(frames => { if (frames % 2048 < 64) { consoleHost.WriteScrollable($"    {frames} of {times.Length} frames"); } });
@@ -720,7 +720,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 var colourWarpPartial = SyntheticWarpFile.PathFor(output) + ".partial";
                 (ImmutableArray<SyntheticFrame> Red, ImmutableArray<SyntheticFrame> Green, ImmutableArray<SyntheticFrame> Blue) madeColours;
                 using (var warpWriter = green.Options.WarpRmsPx > 0 ? new SyntheticWarpFile.Writer(colourWarpPartial) : null)
-                using (var writer = new SerWriter(colourPartial, reader.Width, reader.Height, reader.ColorId, colourDepth, instrument: "TianWen planetary-degrade"))
+                using (var writer = new SerWriter(colourPartial, reader.Width, reader.Height, reader.ColorId, colourDepth, instrument: "TianWen planetary degrade"))
                 {
                     var buffer = new byte[reader.Width * reader.Height * (colourDepth == 8 ? 1 : 2)];
                     var done = new Progress<int>(frames => { if (frames % 2048 < 64) { consoleHost.WriteScrollable($"    {frames} of {times.Length} frames"); } });
@@ -1016,7 +1016,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         var outputOpt = new Option<string?>("--output", "-o") { Description = "Where to write the render (FITS)." };
         var noRingsOpt = new Option<bool>("--no-rings") { Description = "Render Saturn's globe alone, without its rings (S1, #1231)." };
 
-        var command = new Command("planetary-render-truth",
+        var command = new Command("render-truth",
             "Render a planet's global map at an instant and a disk's geometry, through the telescope's pupil: the truth the limb fit and the restoration are measured against (T1).")
         {
             Options = { mapOpt, utcOpt, planetOpt, likeOpt, centerOpt, radiusOpt, northOpt, sizeOpt, mirroredOpt, kOpt, telescopeOpt, wavelengthOpt, seeingFwhmOpt, seeingBetaOpt, fitOpt, upsampleOpt, outputOpt, noRingsOpt },

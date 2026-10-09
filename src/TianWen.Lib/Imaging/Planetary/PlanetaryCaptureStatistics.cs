@@ -30,8 +30,8 @@ public sealed record CaptureStatisticsOptions(LimbFitOptions Limb)
     /// <summary>
     /// The alignment points' spacing and patch the warp is read with by default, for every verb that measures a capture: finer than
     /// the stacker's (24 and 32), because only a patch that lies wholly on the disk is kept, and a 32 px patch leaves about two
-    /// points on a disk 98 px across (2022-09-03's). <c>planetary-seeing</c> once defaulted to the stacker's while
-    /// <c>planetary-degrade</c> read with these, so the one statistic read two different ways.
+    /// points on a disk 98 px across (2022-09-03's). <c>planetary seeing</c> once defaulted to the stacker's while
+    /// <c>planetary degrade</c> read with these, so the one statistic read two different ways.
     /// </summary>
     public const int DefaultAlignmentPointSpacing = 12;
 

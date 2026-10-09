@@ -11,7 +11,7 @@ using Console.Lib;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-elongated</c> (docs/plans/planetary-restoration.md, R8 follow-up 4 part 2, #1140): an elongated kernel read off the limb's
+/// <c>planetary elongated</c> (docs/plans/planetary-restoration.md, R8 follow-up 4 part 2, #1140): an elongated kernel read off the limb's
 /// edge in two sectors, (e), the physical kernel along the planet's axis times a jitter along its equator; against a twin's oracle read in
 /// the same two sectors and interpolated between them; and Richardson-Lucy with the round physical kernel (a), (e), the round oracle and
 /// the 2-D oracle, each set to band 3 = 1.00 against the truth and scored on the bands.
@@ -24,7 +24,7 @@ internal sealed class PlanetaryElongatedSubCommand(IConsoleHost consoleHost)
     public Command Build()
     {
         var inputArg = new Argument<string>("capture") { Description = "A SER capture of a planet." };
-        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary-degrade's .truth.fits): the oracle, the restorations and the claims." };
+        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary degrade's .truth.fits): the oracle, the restorations and the claims." };
         var planetOpt = new Option<string>("--planet") { Description = "jupiter or saturn.", DefaultValueFactory = _ => "jupiter" };
         var framesOpt = new Option<int?>("--frames") { Description = "Only the first frames." };
         var keepOpt = new Option<double>("--keep") { Description = "The share of the frames stacked, by the gradient.", DefaultValueFactory = _ => 0.05 };
@@ -33,7 +33,7 @@ internal sealed class PlanetaryElongatedSubCommand(IConsoleHost consoleHost)
         var windowOpt = new Option<int>("--window") { Description = "The side of the window about the disk, px.", DefaultValueFactory = _ => 256 };
         var maxStepsOpt = new Option<int>("--max-steps") { Description = "Richardson-Lucy's most steps.", DefaultValueFactory = _ => 200 };
 
-        var command = new Command("planetary-elongated",
+        var command = new Command("elongated",
             "An elongated kernel off the limb's edge in two sectors, against the oracle read in the same two, and Richardson-Lucy with it, the round kernel and both oracles (R8 follow-up 4 part 2, #1140).")
         {
             Arguments = { inputArg },

@@ -16,7 +16,7 @@ using SharpAstro.Ser;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-gains</c> (docs/plans/planetary-restoration.md, R8, #1055): the wavelet gains a stack's own power, its two halves'
+/// <c>planetary gains</c> (docs/plans/planetary-restoration.md, R8, #1055): the wavelet gains a stack's own power, its two halves'
 /// noise, a kernel and the limb fit's disk give (<see cref="PlanetaryWaveletGains"/>), against <c>PlanetaryDefault</c>, <c>Bandpass</c>
 /// and <c>Combo</c> as shipped and at the derived gains' noise, scored per band against a twin's truth and on the limb.
 /// </summary>
@@ -27,7 +27,7 @@ internal sealed class PlanetaryGainsSubCommand(IConsoleHost consoleHost, MasterP
     public Command Build()
     {
         var inputArg = new Argument<string>("capture") { Description = "A SER capture of a planet." };
-        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary-degrade's .truth.fits): the scores, and the oracle's kernel." };
+        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary degrade's .truth.fits): the scores, and the oracle's kernel." };
         var planetOpt = new Option<string>("--planet") { Description = "jupiter or saturn.", DefaultValueFactory = _ => "jupiter" };
         var framesOpt = new Option<int?>("--frames") { Description = "Only the first frames." };
         var keepOpt = new Option<double>("--keep") { Description = "The share of the frames stacked, by the gradient (each half its own share of its frames).", DefaultValueFactory = _ => 0.05 };
@@ -39,7 +39,7 @@ internal sealed class PlanetaryGainsSubCommand(IConsoleHost consoleHost, MasterP
         var holdOpt = new Option<int>("--hold") { Description = "Also derive with this many finest layers held at 1 (a kernel not measured there, R7 part 4's band 1).", DefaultValueFactory = _ => 0 };
         var panelOpt = new Option<string?>("--panel") { Description = "A PNG of the disk: the truth (a twin's), the stack, the derived gains with (b') and the presets as shipped, then the presets at matched noise below." };
 
-        var command = new Command("planetary-gains",
+        var command = new Command("gains",
             "Wavelet gains derived from a stack's own power, its halves' noise, the limb's kernel and its disk, against the presets as shipped and at matched noise (R8, #1055).")
         {
             Arguments = { inputArg },

@@ -18,7 +18,7 @@ public sealed record PlanetaryDerotationOptions(CatalogIndex Planet)
     /// <summary>
     /// Turn the limb fit's north over. Near opposition the planet is lit almost evenly, and the fit's north, which only its sun
     /// side decides, can be the south (R5a saw it turned over 175 degrees between two runs of one capture); turned the wrong way,
-    /// a de-rotation turns the planet backwards. Two stacks' agreement settles it (<c>tianwen planetary-derotate</c>).
+    /// a de-rotation turns the planet backwards. Two stacks' agreement settles it (<c>tianwen planetary derotate</c>).
     /// </summary>
     public bool TurnNorthOver { get; init; }
 

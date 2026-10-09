@@ -43,7 +43,7 @@ public sealed record DewarpReport(int Points, int Frames, int ReferenceIndex, do
 
 /// <summary>
 /// The warp a synthetic capture was drawn with, for a kriging that knows it (#1081): each axis's RMS, px, and the distance at which
-/// its correlation falls to 1/e, px (<c>planetary-degrade --warp-rms --warp-length</c>, whose correlation is exp(-d^2 / L^2)).
+/// its correlation falls to 1/e, px (<c>planetary degrade --warp-rms --warp-length</c>, whose correlation is exp(-d^2 / L^2)).
 /// </summary>
 public readonly record struct WarpModel(double RmsPx, double LengthPx);
 

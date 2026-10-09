@@ -232,7 +232,7 @@ public class PlanetaryColourReadingTests
     [Fact]
     public void AMasterIsMadeReadyForALookByTheRoutineTheViewerAndPlanetaryLookShare()
     {
-        // #1277: the viewer's colour control and `planetary-look` make a master ready by one routine, the limb fitted for the disk the look
+        // #1277: the viewer's colour control and `planetary look` make a master ready by one routine, the limb fitted for the disk the look
         // reads and a master in the camera's colours balanced first, and the viewer's look is the verb's to the bit.
         var at = new DateTimeOffset(2024, 12, 15, 12, 56, 42, TimeSpan.Zero);
         var balanced = RenderedJupiter(at, balanced: true);

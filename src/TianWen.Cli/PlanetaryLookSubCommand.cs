@@ -14,7 +14,7 @@ using TianWen.Lib.Imaging.Stacking;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>tianwen planetary-look &lt;master.fits&gt; [--reference &lt;post&gt;]</c>: a colour look on a balanced planetary master (#1273,
+/// <c>tianwen planetary look &lt;master.fits&gt; [--reference &lt;post&gt;]</c>: a colour look on a balanced planetary master (#1273,
 /// <see cref="PlanetaryColourLook"/>), without stacking again. Given another program's result of the same capture it fits the look to it
 /// (the reference's cast, then its chroma about grey at every quantile, read by <see cref="PlanetaryReferenceJudge.ReadColours"/>); without
 /// one it applies <see cref="ColourLook.Boosted"/>'s S-curve, or one <c>--gain</c>, the tint as balanced. A look is a RENDERING of the
@@ -26,7 +26,7 @@ internal sealed class PlanetaryLookSubCommand(IConsoleHost consoleHost, MasterPr
 {
     public Command Build()
     {
-        var masterArg = new Argument<string>("master") { Description = "A balanced planetary master (FITS), as planetary-stack writes its _sharpened.fits." };
+        var masterArg = new Argument<string>("master") { Description = "A balanced planetary master (FITS), as planetary stack writes its _sharpened.fits." };
         var referenceOpt = new Option<string?>("--reference") { Description = "Another program's result of the same capture (its _post), to fit the look to: its colour contrast and its tint." };
         var gainOpt = new Option<double?>("--gain") { Description = "With no reference, one gain on every pixel's chroma about grey (the boosted look's curve when not given)." };
         var gainsOpt = new Option<string?>("--chroma-gains") { Description = "With no reference, a gain on the chroma at each quantile of the colour reading's grid (1st, 5th, 10th ... 95th, 99th percentiles: 21 values, comma separated), in place of the boosted look's." };
@@ -38,7 +38,7 @@ internal sealed class PlanetaryLookSubCommand(IConsoleHost consoleHost, MasterPr
         var outputOpt = new Option<string?>("--output", "-o") { Description = "The preview PNG to write; <master>_look.png beside the master when not given." };
         var fitsOpt = new Option<bool>("--fits") { Description = "Also write the look's planes as a FITS beside the PNG (for measuring; not scene-linear, so not a master to process further)." };
 
-        var command = new Command("planetary-look", "A colour look on a balanced planetary master (#1273): its chroma about grey raised in OKLab, keeping each colour's hue, or fitted to another program's result of the same capture.")
+        var command = new Command("look", "A colour look on a balanced planetary master (#1273): its chroma about grey raised in OKLab, keeping each colour's hue, or fitted to another program's result of the same capture.")
         {
             Arguments = { masterArg },
             Options = { referenceOpt, gainOpt, gainsOpt, postedOpt, spreadOpt, meanOpt, planetOpt, utcOpt, outputOpt, fitsOpt },
