@@ -295,6 +295,10 @@ The fits include the process's start. The row-ordered column pass was kept on an
 
 ### R2 part 2: the synthetic capture
 
+**Open: #1394.** The statistics register whitened by default (R2's calibration), and on a large disk the whitened global
+aligner jumps between wrong peaks: on the EdgeHD Jupiter it read an aligner's error of 2.38 px where plain read 0.15, and the
+mount drift a twin replays comes from it (#1388). Whether plain becomes `degrade`'s and `seeing`'s default is #1394's.
+
 **Done** (2026-09-29), the kill line firing on the sky's finest bands (below). `tianwen planetary degrade <capture> --map --output` measures the real capture, makes the synthetic one, measures it the same way and prints the comparison; `tianwen planetary seeing` measures any capture alone.
 
 - **How a synthetic frame is made** (`PlanetaryDegrade`):
