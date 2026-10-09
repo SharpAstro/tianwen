@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using TianWen.AI.Inference;
+using TianWen.Lib;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Stat;
@@ -109,10 +110,13 @@ public sealed class OnnxBackgroundExtractor(
         var (channels, srcW, srcH) = input.Shape;
         logger?.LogDebug("OnnxBackgroundExtractor: input {W}x{H}x{C}", srcW, srcH, channels);
 
-        // 1) Bilinear downscale source to 240x240.
+        // 1) Bilinear downscale to 240x240, of a frame the model can read: the canvas ring no frame covered and any
+        //    interior hole are given values first (ModelSource), since a single NaN spreads through the resize and the
+        //    model into the whole background, and the subtraction then made every pixel of the frame NaN.
         var prepSw = Stopwatch.StartNew();
         ct.ThrowIfCancellationRequested();
-        var shrunk = input.BilinearResize(ShrinkSize, ShrinkSize);
+        var absent = input.AbsentPixels();
+        var shrunk = ModelSource(input, absent).BilinearResize(ShrinkSize, ShrinkSize);
 
         // 2) Edge-pad to 256x256 (so the model never sees a hard zero border).
         ct.ThrowIfCancellationRequested();
@@ -250,6 +254,12 @@ public sealed class OnnxBackgroundExtractor(
         // to paper over, and papering is worse than not breaking it.
         var channelBg = ChannelMedians(background);
         var corrected = input.Subtract(background, channelBg).WithPedestal(input.Pedestal);
+        if (absent is { } ring)
+        {
+            // The ring comes back exactly as it went in, as every runner here hands it back: a zero ring would
+            // otherwise become the add-back less the background there, and a NaN ring stays NaN either way.
+            corrected = WithRingFrom(input, corrected, ring);
+        }
         var stitchMs = stitchSw.ElapsedMilliseconds;
 
         logger?.LogInformation(
@@ -287,6 +297,83 @@ public sealed class OnnxBackgroundExtractor(
     }
 
     // ---- private helpers below: BGE-specific, kept local to this wrapper ----
+
+    /// <summary>
+    /// The frame the model is shown: interior holes filled (<see cref="Image.WithInteriorHolesFilled"/>), and the canvas
+    /// ring (<paramref name="absent"/>), with any sample still not finite, set to its channel's median over the COVERED
+    /// pixels, so the model meets a flat sky at the frame's own level where there is no frame, never a NaN (which made
+    /// the whole background NaN) or a zero (a dark border the model would read as a gradient). The input is not mutated.
+    /// </summary>
+    internal static Image ModelSource(Image input, BitMatrix? absent)
+    {
+        var filled = input.WithInteriorHolesFilled();
+        var (channels, width, height) = filled.Shape;
+        if (absent is null && AllFinite(filled))
+        {
+            return filled;
+        }
+
+        var planes = new float[channels][,];
+        for (var c = 0; c < channels; c++)
+        {
+            var (min, shiftedMedian) = filled.MinAndShiftedMedian(c, absent);
+            var level = float.IsFinite(min) && float.IsFinite(shiftedMedian) ? min + shiftedMedian : 0f;
+            var plane = new float[height, width];
+            var dst = MemoryMarshal.CreateSpan(ref plane[0, 0], width * height);
+            filled.GetChannelSpan(c).CopyTo(dst);
+            if (absent is { } ring)
+            {
+                for (var y = 0; y < height; y++)
+                {
+                    for (var x = ring.NextSetBit(y, 0); x >= 0; x = ring.NextSetBit(y, x + 1))
+                    {
+                        dst[(y * width) + x] = level;
+                    }
+                }
+            }
+            for (var i = 0; i < dst.Length; i++)
+            {
+                if (!float.IsFinite(dst[i]))
+                {
+                    dst[i] = level;
+                }
+            }
+            planes[c] = plane;
+        }
+        return new Image(planes, BitDepth.Float32, filled.MaxValue, filled.MinValue, filled.Pedestal, filled.ImageMeta);
+    }
+
+    private static bool AllFinite(Image image)
+    {
+        for (var c = 0; c < image.ChannelCount; c++)
+        {
+            foreach (var v in image.GetChannelSpan(c))
+            {
+                if (!float.IsFinite(v))
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /// <summary><paramref name="corrected"/> with the pixels in <paramref name="ring"/> copied back from
+    /// <paramref name="input"/>, in new planes.</summary>
+    private static Image WithRingFrom(Image input, Image corrected, BitMatrix ring)
+    {
+        var (channels, width, height) = corrected.Shape;
+        var planes = new float[channels][,];
+        for (var c = 0; c < channels; c++)
+        {
+            var plane = new float[height, width];
+            var dst = MemoryMarshal.CreateSpan(ref plane[0, 0], width * height);
+            corrected.GetChannelSpan(c).CopyTo(dst);
+            ChunkedNafnetRunner.CopyAbsent(input.GetChannelSpan(c), dst, width, ring);
+            planes[c] = plane;
+        }
+        return new Image(planes, BitDepth.Float32, corrected.MaxValue, corrected.MinValue, corrected.Pedestal, corrected.ImageMeta);
+    }
 
     /// <summary>
     /// Edge-replication pad: outputs an Image with (srcW + 2*pad) x (srcH + 2*pad)
