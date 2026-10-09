@@ -159,6 +159,40 @@ public class OnnxTianWenDeconvolverTests(ITestOutputHelper output) : IDisposable
         worst.ShouldBeLessThan(2e-6f);
     }
 
+    /// <summary>
+    /// The SHIPPED graph against torch's own readout call (#1401): the exporter's 64 px sample of the Statue master, which
+    /// until now lived only beside the export, so CI compared the shipped weights with the Python runtime and never with
+    /// torch. The exporter measured 2.4e-7 on it.
+    /// </summary>
+    [Fact]
+    public void TheShippedGraphMatchesTorch()
+    {
+        if (!new ModelResolver().TryResolve(OnnxTianWenDeconvolver.ModelFileName, out var modelPath))
+        {
+            Assert.Skip($"{OnnxTianWenDeconvolver.ModelFileName} not found (or is an unmaterialised LFS pointer); run 'git lfs pull'.");
+            return;
+        }
+        var io = ReadFixture("tianwen_deconv_operator_e34d_s0_io.json.gz");
+        var imageShape = io.GetProperty("image_shape").EnumerateArray().Select(static v => v.GetInt32()).ToArray();
+        var kernelShape = io.GetProperty("kernel_shape").EnumerateArray().Select(static v => v.GetInt32()).ToArray();
+
+        using var session = new InferenceSession(modelPath);
+        using var results = session.Run(
+        [
+            NamedOnnxValue.CreateFromTensor("image", new DenseTensor<float>(Floats(io.GetProperty("image")), imageShape)),
+            NamedOnnxValue.CreateFromTensor("kernel", new DenseTensor<float>(Floats(io.GetProperty("kernel")), kernelShape)),
+            NamedOnnxValue.CreateFromTensor("stretch_min", new DenseTensor<float>(Floats(io.GetProperty("stretch_min")), [3])),
+            NamedOnnxValue.CreateFromTensor("stretch_balance", new DenseTensor<float>(Floats(io.GetProperty("stretch_balance")), [3])),
+        ]);
+        var got = results[0].AsTensor<float>().ToArray();
+        var expected = Floats(io.GetProperty("expected"));
+
+        got.Length.ShouldBe(expected.Length);
+        var worst = got.Zip(expected, static (a, b) => Math.Abs(a - b)).Max();
+        output.WriteLine($"shipped graph against torch: max |diff| {worst:E2} (the exporter read {io.GetProperty("onnx_max_abs").GetDouble():E2})");
+        worst.ShouldBeLessThan(2e-6f);
+    }
+
     [Fact]
     public void TheRunnerIsThePythonRuntimeOverSeveralTiles()
     {
@@ -265,6 +299,133 @@ public class OnnxTianWenDeconvolverTests(ITestOutputHelper output) : IDisposable
         (await deconvolver.EnhanceAsync(frame, Asking(AKernel, EnhanceBackend.Auto), null, TestContext.Current.CancellationToken)).ShouldBeSameAs(frame);
         (await deconvolver.EnhanceAsync(frame, Asking(null), null, TestContext.Current.CancellationToken)).ShouldBeSameAs(frame);
         (await deconvolver.EnhanceAsync(frame, TestContext.Current.CancellationToken)).ShouldBeSameAs(frame);
+    }
+
+    /// <summary>
+    /// A NaN never reaches the zoom (#1401). SplineZoom's prefilter is recursive along each row and then each column, so one
+    /// NaN made the whole zoomed frame NaN; the graph's clip then turned it into a finite frame unrelated to the input, so
+    /// a finiteness check alone passes against the bug. A frame with a NaN canvas ring and one interior NaN must come back
+    /// as the same frame with a zero ring does (the ring both ways is absent), away from the ring and the hole; the ring
+    /// comes back as it went in, and the hole, filled from its neighbours as the pipeline fills it, is finite.
+    /// </summary>
+    [Fact]
+    public void ANanRingAndAnInteriorHoleDeconvolveAsAZeroRingDoes()
+    {
+        if (!TryFixtureFolder(out var folder))
+        {
+            Assert.Skip($"{FixtureGraph} is an unmaterialised LFS pointer; run 'git lfs pull'.");
+            return;
+        }
+        var fixture = ReadFixture("operator_runtime_fixture.json.gz");
+        var (height, width) = (fixture.GetProperty("height").GetInt32(), fixture.GetProperty("width").GetInt32());
+        const int ring = 6;
+        const int clear = 12;
+        var (holeY, holeX) = (height / 2, width / 3);
+        bool InRing(int y, int x) => y < ring || x < ring || y >= height - ring || x >= width - ring;
+        float[] Ringed(float fill, bool withHole)
+        {
+            var chw = Floats(fixture.GetProperty("frame"));
+            for (var c = 0; c < 3; c++)
+            {
+                for (var y = 0; y < height; y++)
+                {
+                    for (var x = 0; x < width; x++)
+                    {
+                        if (InRing(y, x))
+                        {
+                            chw[(c * height * width) + (y * width) + x] = fill;
+                        }
+                    }
+                }
+                if (withHole)
+                {
+                    chw[(c * height * width) + (holeY * width) + holeX] = float.NaN;
+                }
+            }
+            return chw;
+        }
+
+        // Through the runner on a CPU session, as the rule lives there (DirectML's arithmetic on this graph moves an output by
+        // up to 1.3e-3 for a one-ulp change of its input, which would be read here as the rule's).
+        using var session = new InferenceSession(Path.Combine(folder, FixtureGraph));
+        var tile = fixture.GetProperty("tile").GetInt32();
+        var nanRinged = OperatorDeconvolutionRunner.Run(ImageOf(Ringed(float.NaN, withHole: true), height, width), session, GraphNames, AKernel, tile).Output;
+        var zeroRinged = OperatorDeconvolutionRunner.Run(ImageOf(Ringed(0f, withHole: false), height, width), session, GraphNames, AKernel, tile).Output;
+
+        var worst = 0f;
+        for (var c = 0; c < 3; c++)
+        {
+            var nan = nanRinged.GetChannelSpan(c);
+            var zero = zeroRinged.GetChannelSpan(c);
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    var i = (y * width) + x;
+                    if (InRing(y, x))
+                    {
+                        float.IsNaN(nan[i]).ShouldBeTrue($"the ring comes back as it went in, channel {c} at ({x}, {y})");
+                        continue;
+                    }
+                    float.IsFinite(nan[i]).ShouldBeTrue($"channel {c} at ({x}, {y})");
+                    var nearRing = y < ring + clear || x < ring + clear || y >= height - ring - clear || x >= width - ring - clear;
+                    var nearHole = Math.Abs(y - holeY) <= clear / 2 && Math.Abs(x - holeX) <= clear / 2;
+                    if (!nearRing && !nearHole)
+                    {
+                        worst = Math.Max(worst, Math.Abs(nan[i] - zero[i]));
+                    }
+                }
+            }
+        }
+        output.WriteLine($"largest interior difference from the zero ring: {worst}");
+        worst.ShouldBeLessThan(0.05f);
+    }
+
+    /// <summary>
+    /// A frame past 1 runs scaled under it, as training unit-scaled every frame by its own peak, and is scaled back after
+    /// (#1401): before, the stretch clipped those pixels at 1 and they came back at 1 plus the stretch minimum. So a frame
+    /// and the same frame times 1.4 come back the same but for that factor (the Python mirror reads 7.5e-7 between them;
+    /// clipped, 0.40). Through the runner on a CPU session: DirectML on this graph's random prior moves an output by up to
+    /// 1.3e-3 for a one-ulp change of its input, which is the GPU's arithmetic, not this rule.
+    /// </summary>
+    [Fact]
+    public void AFramePastOneIsDeconvolvedAsTheSameFrameUnderIt()
+    {
+        if (!TryFixtureFolder(out var folder))
+        {
+            Assert.Skip($"{FixtureGraph} is an unmaterialised LFS pointer; run 'git lfs pull'.");
+            return;
+        }
+        var fixture = ReadFixture("operator_runtime_fixture.json.gz");
+        var (height, width) = (fixture.GetProperty("height").GetInt32(), fixture.GetProperty("width").GetInt32());
+        var chw = Floats(fixture.GetProperty("frame"));
+        var peak = chw.Max();
+        for (var i = 0; i < chw.Length; i++)
+        {
+            chw[i] /= peak;
+        }
+        var underOne = ImageOf(chw, height, width);
+        const float factor = 1.4f;
+        var pastOne = underOne.Affine(factor, 0);
+        pastOne.MaxValue.ShouldBe(factor);
+
+        using var session = new InferenceSession(Path.Combine(folder, FixtureGraph));
+        var tile = fixture.GetProperty("tile").GetInt32();
+        var fromUnder = OperatorDeconvolutionRunner.Run(underOne, session, GraphNames, AKernel, tile).Output;
+        var fromPast = OperatorDeconvolutionRunner.Run(pastOne, session, GraphNames, AKernel, tile).Output;
+
+        var worst = 0f;
+        for (var c = 0; c < 3; c++)
+        {
+            var under = fromUnder.GetChannelSpan(c);
+            var past = fromPast.GetChannelSpan(c);
+            for (var i = 0; i < under.Length; i++)
+            {
+                worst = Math.Max(worst, Math.Abs(past[i] - (factor * under[i])));
+            }
+        }
+        output.WriteLine($"largest difference from {factor} times the frame under 1: {worst}");
+        worst.ShouldBeLessThan(1e-5f);
     }
 
     [Fact]

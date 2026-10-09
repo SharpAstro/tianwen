@@ -418,6 +418,40 @@ public class ModelContractTests : IDisposable
         refusal.Message.ShouldContain("has no contract");
     }
 
+    /// <summary>
+    /// The psf01 shell loads against a contract as the shipped models do (#1401 found it the one TianWen load path
+    /// without one): weights alone are refused before any session is built, naming the model.
+    /// </summary>
+    [Fact]
+    public async Task TheNonStellarShellRefusesWeightsWithoutAContract()
+    {
+        const string modelFileName = "tianwen_deconv_nonstellar_psf_probe.onnx";
+        var folder = _temp.Create("contract-");
+        await File.WriteAllBytesAsync(Path.Combine(folder.FullName, modelFileName), RandomNumberGenerator.GetBytes(1024), TestContext.Current.CancellationToken);
+        using var deconvolver = new OnnxNonStellarDeconvolver(modelFileName, new ModelResolver([folder.FullName]), new FixedPsf01(0.2f));
+
+        var refusal = await Should.ThrowAsync<ModelContractException>(
+            async () => await deconvolver.EnhanceAsync(TinyColourFrame(), TestContext.Current.CancellationToken));
+
+        refusal.ModelFileName.ShouldBe(modelFileName);
+        refusal.Message.ShouldContain("has no contract");
+    }
+
+    [Fact]
+    public void TheShellFeedsTheStretchedPictureAndItsScalarPsf01()
+    {
+        var feed = OnnxNonStellarDeconvolver.Feed(3);
+
+        feed.Domain.ShouldBe(ModelDomain.MtfStretched);
+        feed.StretchMedianTarget.ShouldBe(AiNafnetInputs.TargetMedian);
+        feed.Inputs.ShouldBe([new ModelFeedInput(ModelRoles.Image, 3), new ModelFeedInput(ModelRoles.Psf01, null)]);
+    }
+
+    private sealed class FixedPsf01(float psf01) : IPsfEstimator
+    {
+        public Task<float> EstimateAsync(Image image, System.Threading.CancellationToken cancellationToken = default) => Task.FromResult(psf01);
+    }
+
     [Fact]
     public void TheShippedInstallServesAColourFrame()
     {

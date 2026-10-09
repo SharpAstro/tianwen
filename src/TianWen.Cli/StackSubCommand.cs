@@ -274,7 +274,7 @@ internal sealed class StackSubCommand(
         // mirrored from `image sharpen` so `stack --enhance` honours the same knobs.
         var aiBackendOpt = new Option<string>("--ai-backend")
         {
-            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else TianWen's own model where the role has one - default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), or 'tianwen' (TianWen's own model wherever a role has one: today the denoise step's, OSC-only, shipped with the app; other roles behave as auto; 'n2n' until 2026-10-09). A role nothing serves is left out: with no star remover the master is enhanced whole-frame. No effect on gradient correction (GraXpert, else the classical fit). 'sas' was removed on 2026-09-26. Implies --enhance unless 'auto'.",
+            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else TianWen's own model where the role has one - default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), or 'tianwen' (TianWen's own model wherever a role has one, both OSC-only and shipped with the app: the denoise step's, and the deblur's when --deconv-kernel states the blur; other roles behave as auto). 'n2n', the old name of 'tianwen', was removed on 2026-10-09 with no alias. A role nothing serves is left out: with no star remover the master is enhanced whole-frame. No effect on gradient correction (GraXpert, else the classical fit). 'sas' was removed on 2026-09-26. Implies --enhance unless 'auto'.",
             DefaultValueFactory = _ => "auto",
         };
         var deblurSharpenOpt = new Option<double>("--deblur-sharpen")
@@ -284,7 +284,7 @@ internal sealed class StackSubCommand(
         };
         var denoiseStrengthOpt = new Option<double>("--denoise-strength")
         {
-            Description = "Denoise strength in [0, 1]. RC-Astro maps it to NoiseXTerminator's nxt --dn (< 0, the default, = noise-adaptive auto); the n2n backend maps it to its blend dial (out = in + s*(den - in), default 1.0). The SAS backend ignores it. Implies --enhance.",
+            Description = "Denoise strength in [0, 1]. RC-Astro maps it to NoiseXTerminator's nxt --dn (< 0, the default, = noise-adaptive auto); TianWen's own denoiser maps it to its blend dial (out = in + s*(den - in), default 1.0). Implies --enhance.",
             DefaultValueFactory = _ => -1.0,
         };
         var denoiseIterationsOpt = new Option<int>("--denoise-iterations")

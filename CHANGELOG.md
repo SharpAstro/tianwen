@@ -42,6 +42,11 @@ INSIDE the group (`planetary render-truth`, `planetary spectral-ratio`, `planeta
 everywhere, a space between group and verb, a dash only within a name. A script or alias that
 invoked a dashed `planetary-*` verb needs the space in its place.
 
+`--ai-backend n2n` is now `--ai-backend tianwen`, also with no alias (#844): the backend picks
+TianWen's own model for every role that has one, which since the deblur (`--deconv-kernel`) is
+more than the N2N denoiser. `n2n` is refused with a message naming the new value, on the CLI and
+on the hosted enhance endpoint alike.
+
 ## 9.0
 
 Breaking, so a major. The ZWO and QHYCCD drivers move to a package of their own, the geometry types

@@ -3,7 +3,7 @@
 **Status: PLANNED (written 2026-09-02). Nothing below has run.** The shipped model is
 `n2n_v19d_s2` (the GATE-SELECTED step-1500 checkpoint; task N4 shipped its step-4000 sibling until
 2026-09-04, see section 9), an 0.81 M-parameter noise-conditioned U-Net trained by
-Noise2Noise on eight OSC narrowband sessions, reachable as `--ai-backend n2n`. Everything measured
+Noise2Noise on eight OSC narrowband sessions, reachable then as `--ai-backend n2n` (renamed `tianwen` on 2026-10-09, with no alias). Everything measured
 about it is in [osc-narrowband-denoiser.md](osc-narrowband-denoiser.md) (the v15 to v24 run log) and
 [ai-denoise-deconv.md](ai-denoise-deconv.md) sections 2.1, 2.4, 3a and 3b. This document does not
 repeat those results; it states what they leave open, as testable hypotheses with the arm, the
@@ -483,9 +483,9 @@ session's background shell, and never read a file a running job appends to.
 
 Unchanged from N4 unless a hypothesis forces it: the baked graph with sigma computed per 256 px tile
 inside it and `strength` pinned at 1.0; `N2nLinearRunner` chunking, rim drop and per-chunk
-`RestoreLevel`; the blend as the only user dial via `EnhanceTuning.DenoiseStrength`; opt-in
-`AddTianWenN2nDenoiser` and `--ai-backend n2n`; Auto's rescue tier fires only when the SAS AI4
-weights are absent. A `<model>.contract.json` (dataset manifest SHA, git commit, ONNX SHA, tensor
+`RestoreLevel`; the blend as the only user dial via `EnhanceTuning.DenoiseStrength`; `AddTianWenAi()`'s
+default local denoiser, reached by `--ai-backend tianwen` (`n2n` until 2026-10-09) and by Auto wherever
+NoiseXTerminator does not serve (the SAS AI4 tier it once stood behind was removed on 2026-09-26). A `<model>.contract.json` (dataset manifest SHA, git commit, ONNX SHA, tensor
 conventions) ships beside v2 and is asserted at load, the gate-and-refuse pattern from the roadmap.
 
 **Shipped with #824 for `convmapb_s2`** (`tianwen_denoise_osc_convmapb_s2.contract.json`, loaded by `ModelContract`;

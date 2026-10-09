@@ -48,6 +48,10 @@ internal static class ModelRoles
     /// <summary>The stretch's per-channel midtones balance ([C]), for a graph that unstretches inside itself (the
     /// deconvolver's).</summary>
     public const string StretchBalance = "stretchBalance";
+
+    /// <summary>The frame's PSF radius as <c>psf01</c> in [0, 1], a scalar the graph broadcasts (the psf01-conditioned
+    /// shell's, <see cref="OnnxNonStellarDeconvolver"/>).</summary>
+    public const string Psf01 = "psf01";
 }
 
 /// <summary>One graph input as a contract describes it.</summary>
@@ -103,6 +107,11 @@ internal sealed record ModelContractInput
 /// checked" is the rule, and a model with no contract is exactly the unstated input a contract exists to rule out. The
 /// sidecar is read from the directory of the RESOLVED model file, not from wherever the resolver would find a file of
 /// that name, so weights from one directory are never paired with a contract from another.</para>
+///
+/// <para><b>It binds TianWen's own models, every one of them</b> (the denoiser, the deconvolver and the psf01 shell),
+/// and nothing else. A vendor's weights are read where the vendor put them and are not ours to state a contract for:
+/// GraXpert's <c>graxpert_bge.onnx</c>, which the background extractor finds in GraXpert's own cache, loads without
+/// one, and its runner owes GraXpert's documented input instead (#1401 wrote this exemption down).</para>
 ///
 /// <para>The file is read with a source-generated context (the apps are AOT), strictly: an unknown or misspelt
 /// property is a refusal, since a field that is silently ignored is a check that silently did not run.</para>

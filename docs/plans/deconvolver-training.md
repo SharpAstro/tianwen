@@ -3724,6 +3724,58 @@ and the ratio read on a known-clean session first: subs registered to well under
 near the registration blur alone. The validation is then the seeing split's (E2.10): a master's estimate against the
 matched-star difference to its sharpest third, within E7.1's tolerance of a tenth.
 
+#### The review's fixes: a NaN, the seams, a frame past 1 (#1401, 2026-10-10)
+
+An agent's review of the wiring (#1401) found the runner trusted its input more than the pipeline in front of it
+promised, and that two inherited claims had never been measured. What changed, and what was measured:
+
+- **A NaN never reaches the zoom.** `SplineZoom`'s prefilter is recursive along each row and then each column, so one
+  NaN made the whole zoomed frame NaN (measured: 2,601 of 2,601 samples from one NaN in a 40 px plane), and the graph's
+  clip then turned that into a FINITE frame unrelated to the input, so a finiteness check passes against the bug. The
+  runner now fills interior holes as the pipeline fills them (`Image.WithInteriorHolesFilled`) and gives what is left,
+  the canvas ring, the median of the channel's finite samples for the zoom only; the ring is put back as it came in.
+  `ANanRingAndAnInteriorHoleDeconvolveAsAZeroRingDoes` reads the fixture frame with a NaN ring and an interior NaN
+  against the same frame with a zero ring, through the runner on the CPU: 1.8e-4 apart in the interior with the fill,
+  0.55 without it.
+- **The 96 px margin covers the shipped graph's reach, read on a real master.** The claim that the margin "covers"
+  Richardson-Lucy's border was inherited, and twenty iterations of a blur and its adjoint, with the prior after each,
+  reach further on paper. `DeconvolverTileSeamProbe` deconvolves a 1200 px centre crop of the Centaurus A master
+  (QHY294 Pro C) on the CPU at the default tile (1312 px, 2 x 2 tiles over the 1538 px zoomed frame) and against a
+  second run whose boundaries fall elsewhere, then reads their difference at the native rows and columns where a core
+  boundary falls against everywhere else:
+
+  | kernel FWHM (native px) | against | within 2 px of a boundary, max | farther than 32 px, max | the deconvolution moved, p99 / max |
+  |---|---|---|---|---|
+  | 0.77 / 0.91 / 0.98 (the published row) | one 1744 px tile | 4.2e-6 | 4.2e-5 | 7.4e-4 / 0.98 |
+  | 2.5 | 1024 px tiles (boundaries at 649 and 874) | 5.2e-5 | 2.7e-4 | 2.5e-3 / 0.98 |
+
+  A seam would show as a difference concentrated at the boundaries; there is none beyond the arithmetic two tile sizes
+  differ by anywhere, so the margin stays. A single tile at the 2.5 px kernel asked the CPU for a 21.9 GB buffer at a
+  convolution (the kernel is 15 px at the zoom), which is why that row reads against another tiling. The default tile
+  ran at that kernel on the CPU; whether DirectML on an 8 GB card does is not measured, and a wide stated kernel is
+  where to look first if a deblur fails for memory.
+- **A frame past 1 runs scaled under it** (`OperatorDeconvolutionRunner`; the enhancer admits a peak up to 1.5, an
+  earlier enhancer's overshoot). Training unit-scaled every frame by its own peak, and the stretch clipped anything
+  above 1, so those pixels came back at 1 plus the stretch minimum. The rule is the runner's, beside the NaN fill and
+  the stretch:
+  `AFramePastOneIsDeconvolvedAsTheSameFrameUnderIt` reads the fixture frame scaled to a peak of 1 against the same frame
+  times 1.4, through the runner on the CPU: 7.7e-7 from 1.4 times the first with the rule (the Python mirror reads
+  7.5e-7), 0.40 without it.
+- **DirectML is not a reference for the FIXTURE graph.** Read through the enhancer, which takes DirectML on this
+  machine, the fixture graph's random prior moved an output by up to 1.3e-3 for a one-ulp change of its input and sat
+  8e-3 from the CPU, while two runs on one input agreed exactly. The shipped weights agree with the CPU through DirectML
+  (`TheShippedDeconvolverIsThePythonRuntime`), so this is the random prior's conditioning; a fixture test that reads a
+  small difference runs the runner on a CPU session.
+- **CI compares the SHIPPED graph with torch**, not only with the Python runtime: the exporter's 64 px sample of the
+  Statue master is committed beside the fixture's (`tianwen_deconv_operator_e34d_s0_io.json.gz`), and the shipped graph
+  reads 2.38e-7 against torch's readout call on it, the value the exporter recorded.
+- **Smaller:** `session_stretch_params` now says it takes the minimum over every finite pixel where the C# side takes
+  the covered pixels' (the difference #1374 measured); the exporter's `allowzero` guard reads `Constant` nodes' shapes
+  as well as initializers' (the shipped graph has none, so nothing changed); a DirectML or CUDA provider that is compiled
+  in and fails to start is a Warning, since the model then runs several times slower on the CPU; and the psf01 shell
+  (`OnnxNonStellarDeconvolver`) loads against a contract like every TianWen model, with GraXpert's weights the one
+  written exemption (`ModelContract`).
+
 ## 7. Phasing
 
 | Phase | Deliverable | Exit |

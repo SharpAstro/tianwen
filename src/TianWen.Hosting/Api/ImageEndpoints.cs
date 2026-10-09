@@ -22,6 +22,25 @@ internal static class ImageEndpoints
         // ENHANCE-COMPLETED WebSocket events or GET /api/v1/image/enhance/status.
         group.MapPost("/enhance", (EnhanceRequestDto request, HostedImageEnhancer enhancer, IHostApplicationLifetime lifetime) =>
         {
+            if (string.IsNullOrWhiteSpace(request.InputPath))
+            {
+                return EnvelopeResults.Json(
+                    ResponseEnvelope<string>.Fail("InputPath is required"),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            // The request first: a malformed one is a 400 whatever this server holds (#1401). Same parsers the CLI uses
+            // (single source of truth for auto/rc/tianwen, the tuning and the kernel).
+            if (!DeconvolutionKernel.TryParse(request.DeconvKernel, request.DeconvBeta, request.DeconvResample, out var kernel, out var error)
+                || !EnhanceOptions.TryParse(
+                    request.Backend, request.DeblurSharpen, request.DenoiseStrength, request.DenoiseIterations, kernel,
+                    out var options, out error))
+            {
+                return EnvelopeResults.Json(
+                    ResponseEnvelope<string>.Fail(error),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
             // Presence gate: AddRcAstroAi()/AddTianWenAi() registers the pipeline; a host without it
             // (no AI models) can't enhance anything, so reject with 503 -- mirrors the viewer hiding
             // its Enhance button when no pipeline is wired (the host's ToolbarOffer leaves it out).
@@ -32,28 +51,10 @@ internal static class ImageEndpoints
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
-            if (string.IsNullOrWhiteSpace(request.InputPath))
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail("InputPath is required"),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
             if (!File.Exists(request.InputPath))
             {
                 return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail($"Input not found: {request.InputPath}", 404),
-                    HostingJsonContext.Default.ResponseEnvelopeString);
-            }
-
-            // Same parsers the CLI uses (single source of truth for auto/rc/tianwen, the tuning and the kernel).
-            if (!DeconvolutionKernel.TryParse(request.DeconvKernel, request.DeconvBeta, request.DeconvResample, out var kernel, out var error)
-                || !EnhanceOptions.TryParse(
-                    request.Backend, request.DeblurSharpen, request.DenoiseStrength, request.DenoiseIterations, kernel,
-                    out var options, out error))
-            {
-                return EnvelopeResults.Json(
-                    ResponseEnvelope<string>.Fail(error),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 

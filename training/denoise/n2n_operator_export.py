@@ -183,7 +183,13 @@ def clear_reshape_allowzero(model):
     torch `view` never asks for the copy, so a 0 there could only be a dimension of size 0, which no tensor in this graph
     has. Cleared, the CPU's output is unchanged and DirectML's agrees with it to 4.8e-7 on the shipped weights."""
     from onnx import numpy_helper
+    # A constant shape is an initializer or a Constant node's output (#1401: the guard read only the first).
     constants = {i.name: numpy_helper.to_array(i) for i in model.graph.initializer}
+    for node in model.graph.node:
+        if node.op_type == "Constant":
+            value = next((a.t for a in node.attribute if a.name == "value"), None)
+            if value is not None:
+                constants[node.output[0]] = numpy_helper.to_array(value)
     changed = 0
     for node in model.graph.node:
         if node.op_type != "Reshape":
