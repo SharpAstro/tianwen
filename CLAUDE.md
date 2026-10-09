@@ -1034,6 +1034,11 @@ choose AND probe the licence on the FIRST `EnhanceAsync`, never at DI registrati
 - **In-house N2N denoiser** (`N2nDenoiser`, OSC-only): the default local `IDenoiseEnhancer` and the fallback behind
   NoiseXTerminator, weights an LFS object in `src/TianWen.AI.Imaging/models/`; **any new LFS file type the apps ship
   must be added to `APP_LFS_INCLUDE` in `dotnet.yml`**, or the publish ships a pointer stub as the model.
+- **A TianWen model loads only against its contract** (#824, `ModelContract`): `<stem>.contract.json` beside the
+  `.onnx` states the weights' SHA-256, the graph's inputs and output and the domain it is FED, checked at first use
+  against the file, the graph and the runner's own `ModelFeed`; an absent sidecar, or a field the runner relies on
+  left out, is a refusal. A retrain gets a new file name and contract (a plain tracked `Content` file, not LFS), and
+  a new model ships its contract in its first commit.
 - **RC-Astro (BlurX / NoiseX / StarXTerminator)** is driven through the `rc-astro` CLI's `--json` NDJSON protocol,
   never loaded into ORT (encrypted weights). **A plate outside `[0, 1]` is mapped in and back by
   `RcAstroEnhancerBase`**; **BlurX stops at 1**, so a deblur hands it the brightest star at a quarter of the ceiling

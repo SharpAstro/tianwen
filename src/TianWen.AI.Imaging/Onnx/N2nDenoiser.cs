@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.ML.OnnxRuntime;
 using TianWen.AI.Inference;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Degradation;
 using TianWen.Lib.Imaging.Enhancement;
 
 namespace TianWen.AI.Imaging.Onnx;
@@ -40,6 +41,12 @@ namespace TianWen.AI.Imaging.Onnx;
 /// calibration per channel from the frame itself, then each chunk's plane from the tile the net is fed,
 /// exactly as the eval's planes were made. A frame whose noise cannot be estimated (no 32 px block free
 /// of the canvas ring) is refused rather than guessed at.</para>
+///
+/// <para><b>It loads only against its contract</b> (#824): <c>tianwen_denoise_osc_convmapb_s2.contract.json</c>, beside
+/// the weights, states the file's SHA-256, the graph's inputs and output, the domain the graph was trained in
+/// (MTF-stretched, per-channel median 0.25) and the plane's units, and the first use refuses with a message naming every
+/// mismatch against the weights, the graph or what <see cref="N2nLinearRunner"/> feeds (<see cref="ModelContract"/>). A
+/// missing sidecar is a refusal too. The 100x domain skew this model once ran with is a mismatch of exactly this kind.</para>
 ///
 /// <para><b>Domain semantics: linear in, linear out, the exporter's stretch in between.</b> The
 /// contract at this boundary is a linear <c>[0, 1]</c> frame, the one every enhancer here takes, and
@@ -81,6 +88,9 @@ public sealed class N2nDenoiser(
     /// </summary>
     public const string ModelFileName = "tianwen_denoise_osc_convmapb_s2.onnx";
 
+    /// <summary>One-shot-colour only: the graph takes red, green and blue, and a mono frame is refused.</summary>
+    private const int ColourChannels = 3;
+
     private readonly System.Threading.Lock _gate = new(); // serializes lazy InferenceSession creation and Dispose; session build is a one-time cold path, not a hot-path hand-off
     private InferenceSession? _session;
     private bool _disposed;
@@ -94,7 +104,7 @@ public sealed class N2nDenoiser(
     /// canonical program can ask it before any inference.
     /// </summary>
     public bool CanServe(int channelCount, EnhanceOptions options)
-        => channelCount == 3 && modelResolver.TryResolve(ModelFileName, out _);
+        => channelCount == ColourChannels && modelResolver.TryResolve(ModelFileName, out _);
 
     public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
         => EnhanceAsync(input, defaultStrength, cancellationToken);
@@ -145,7 +155,7 @@ public sealed class N2nDenoiser(
             throw new ArgumentOutOfRangeException(
                 nameof(strength), strength, "strength must lie in (0, 1]; it is a blend fraction toward the denoised result.");
         }
-        if (input.ChannelCount != 3)
+        if (input.ChannelCount != ColourChannels)
         {
             throw new NotSupportedException(
                 $"{nameof(N2nDenoiser)} is a one-shot-colour model and requires 3 channels, got {input.ChannelCount}. " +
@@ -202,16 +212,58 @@ public sealed class N2nDenoiser(
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_session is null)
-            {
-                var modelPath = modelResolver.Resolve(ModelFileName);
-                logger?.LogInformation("N2nDenoiser: loading {Model} from {Path}", ModelFileName, modelPath);
-                using var options = ExecutionProviderResolver.CreateSessionOptions(deviceId: 0, logger: logger);
-                _session = new InferenceSession(modelPath, options);
-            }
+            _session ??= OpenSession();
             return _session;
         }
     }
+
+    /// <summary>
+    /// Builds the session for the resolved weights, and only against the contract beside them. The contract is read
+    /// first (an absent or unreadable one refuses before a session is built) and checked once the graph is open; a
+    /// session that fails its contract is disposed and never kept. A refusal is logged here as well as thrown, so it
+    /// reaches the log whatever the caller does with the exception.
+    /// </summary>
+    private InferenceSession OpenSession()
+    {
+        var modelPath = modelResolver.Resolve(ModelFileName);
+        logger?.LogInformation("N2nDenoiser: loading {Model} from {Path}", ModelFileName, modelPath);
+        try
+        {
+            var contract = ModelContract.LoadBeside(modelPath);
+            using var options = ExecutionProviderResolver.CreateSessionOptions(deviceId: 0, logger: logger);
+            var session = new InferenceSession(modelPath, options);
+            var problems = contract.Check(modelPath, Feed(OnnxIoNames.IsImagePlusPlane(session)), ModelGraph.From(session));
+            if (problems.Length > 0)
+            {
+                session.Dispose();
+                throw ModelContractException.Refused(ModelFileName, ModelContract.PathBeside(modelPath), problems);
+            }
+            logger?.LogInformation(
+                "N2nDenoiser: {Model} matches its contract (v{Version}, domain {Domain}, weights {Sha})",
+                ModelFileName, contract.ContractVersion, contract.Domain, contract.OnnxSha256);
+            return session;
+        }
+        catch (ModelContractException e)
+        {
+            logger?.LogError(e, "N2nDenoiser: {Model} refused by its contract", ModelFileName);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// What this runner feeds the graph, from its own constants and never from the contract it is checked against: the
+    /// frame MTF-stretched to <see cref="AiNafnetInputs.TargetMedian"/> (the exporter's stretch, which
+    /// <see cref="N2nLinearRunner"/> applies), as <see cref="ColourChannels"/> channels, and beside it the graph's second
+    /// input: a per-pixel plane in <see cref="StretchedNoise.PlaneScale"/> units where the graph takes one
+    /// (<paramref name="planeConditioned"/>, <see cref="OnnxIoNames.IsImagePlusPlane"/>), else the scalar strength. A change
+    /// to any of these without a re-export, or a re-export without the change, is a contract mismatch at load.
+    /// </summary>
+    internal static ModelFeed Feed(bool planeConditioned) => new(
+        ModelDomain.MtfStretched,
+        AiNafnetInputs.TargetMedian,
+        planeConditioned
+            ? [new ModelFeedInput(ModelRoles.Image, ColourChannels), new ModelFeedInput(ModelRoles.Plane, 1, StretchedNoise.PlaneScale)]
+            : [new ModelFeedInput(ModelRoles.Image, ColourChannels), new ModelFeedInput(ModelRoles.Strength, null)]);
 
     public void Dispose()
     {
