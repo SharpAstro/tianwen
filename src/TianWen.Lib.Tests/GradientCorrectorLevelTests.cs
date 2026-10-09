@@ -129,6 +129,74 @@ public class GradientCorrectorLevelTests
         }
     }
 
+    /// <summary>
+    /// A master's canvas ring (the border no frame covered, NaN or exact zero) comes back exactly as it went in, and every
+    /// covered pixel comes back finite and flattened. The GraXpert path made a NaN ring's master entirely NaN: one NaN
+    /// spread through the 240 px resize and the model into the whole background (found 2026-10-09 on a 2026-09-29 bake
+    /// session master, 40,508 NaN on its border, 35,317,392 of 35,317,404 samples NaN after `image flatten`).
+    /// </summary>
+    [Theory]
+    [InlineData(true, float.NaN)]
+    [InlineData(true, 0f)]
+    [InlineData(false, float.NaN)]
+    public async Task TheCanvasRingComesBackAsItWentInAndTheRestStaysFinite(bool graxpert, float ringValue)
+    {
+        IGradientCorrector corrector;
+        if (graxpert)
+        {
+            var resolver = new ModelResolver();
+            Assert.SkipUnless(resolver.TryResolve(OnnxBackgroundExtractor.ModelName, out _),
+                "graxpert_bge.onnx not installed; run tools/tianwen-ai-models-fetch.ps1 to enable this test.");
+            corrector = new OnnxBackgroundExtractor(resolver, NullLogger<OnnxBackgroundExtractor>.Instance);
+        }
+        else
+        {
+            corrector = new ClassicalBackgroundExtractor();
+        }
+        const int ring = 5;
+        var input = ColouredPlateWithGradient();
+        var planes = new float[3][,];
+        for (var c = 0; c < 3; c++)
+        {
+            planes[c] = new float[Size, Size];
+            input.GetChannelSpan(c).CopyTo(System.Runtime.InteropServices.MemoryMarshal.CreateSpan(ref planes[c][0, 0], Size * Size));
+            for (var y = 0; y < Size; y++)
+            {
+                for (var x = 0; x < Size; x++)
+                {
+                    if (y < ring || x < ring || y >= Size - ring || x >= Size - ring)
+                    {
+                        planes[c][y, x] = ringValue;
+                    }
+                }
+            }
+        }
+        var ringed = new Image(planes, BitDepth.Float32, 1.0f, 0f, 0f, new ImageMeta());
+
+        var corrected = await corrector.EnhanceAsync(ringed, TestContext.Current.CancellationToken);
+
+        for (var c = 0; c < 3; c++)
+        {
+            var span = corrected.GetChannelSpan(c);
+            for (var y = 0; y < Size; y++)
+            {
+                for (var x = 0; x < Size; x++)
+                {
+                    var v = span[(y * Size) + x];
+                    if (y < ring || x < ring || y >= Size - ring || x >= Size - ring)
+                    {
+                        if (float.IsNaN(ringValue)) v.ShouldBe(float.NaN); else v.ShouldBe(ringValue);
+                    }
+                    else
+                    {
+                        float.IsFinite(v).ShouldBeTrue($"channel {c} ({x}, {y}) is {v}");
+                    }
+                }
+            }
+        }
+        (corrector as IDisposable)?.Dispose();
+    }
+
     /// <summary>Three channels at genuinely different levels, each carrying the same smooth
     /// horizontal gradient, which is what the corrector is supposed to take out.</summary>
     private static Image ColouredPlateWithGradient()
