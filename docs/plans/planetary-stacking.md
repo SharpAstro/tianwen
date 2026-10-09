@@ -188,6 +188,10 @@ mid-high band, not the very top octave where noise dominates (chiefly for the FF
   quality-weighted top-K, per decision 3; a stack of the best 1,000 since #1159).
 - **Per-AP local score** (same estimator over each AP patch) drives per-AP best-of selection - the
   lucky-imaging edge: different parts of the disk are sharp in different frames.
+- **The run's quality curve as a picture** (#1364, `planetary-stack --report`): AutoStakkert's graph, every frame's grade
+  sorted best first with the keep's cut marked, and the grades through the run in time order, drawn from the grades the
+  stacker already keeps (`--grade-cache`), so a keep can be chosen before anything is stacked. Drawn by hand for the
+  2026-10-07 Saturn it fell steeply only over its best 5 to 6 % and gently after, which is why that night kept half.
 
 ### C. Alignment - global bootstrap, then alignment points
 
