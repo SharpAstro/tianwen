@@ -300,9 +300,14 @@ def read_master(bake_root, session_id):
 
 
 def session_stretch_params(master, divisor):
-    """(mins[C], betas[C]) exactly as `DatasetTileExporter.ToUnitRange` + `Image.MtfStretch` derive
-    them: unit = master * (1 / divisor) in float32, per channel the NaN-skipped minimum, the median
-    of the shifted channel, `MidtonesBalanceFor(median, 0.25)` (0.5, the identity, on a flat plane)."""
+    """(mins[C], betas[C]) as `DatasetTileExporter.ToUnitRange` + `Image.MtfStretch` derive them, but
+    for one difference: unit = master * (1 / divisor) in float32, per channel the minimum over every
+    FINITE pixel, the median of the shifted channel, `MidtonesBalanceFor(median, 0.25)` (0.5, the
+    identity, on a flat plane). The C# side takes the minimum and the median over COVERED pixels
+    (`Image.AbsentPixels()` left out), so a zero canvas ring is this function's floor and not theirs;
+    a NaN ring, which `n2n_operator_master` and `n2n_operator_export.read_frame` turn into zero first,
+    becomes one (#1401). Parity checks are unaffected, since both sides of each share their parameters,
+    but readouts on a ringed master ran in the zero rule's domain (#1374 measured the two rules)."""
     inv = np.float32(1.0) / np.float32(divisor) if divisor != 1.0 else np.float32(1.0)
     unit = master * inv if divisor != 1.0 else master
     mins = np.zeros(unit.shape[0], dtype=np.float32)

@@ -82,9 +82,11 @@ public static class ExecutionProviderResolver
             catch (Exception ex)
             {
                 // Runtime append failure -- EP compiled in but couldn't init
-                // (e.g. CUDA driver missing). CPU EP is always appended last
-                // by ORT so we still get a working session.
-                logger?.LogDebug(ex, "ONNX EP {Provider} append failed at runtime, falling through.", ep);
+                // (e.g. CUDA driver missing, or no DXCore for DirectML on an old
+                // Windows). CPU EP is always appended last by ORT so we still get
+                // a working session, but the user has lost the GPU and should be
+                // told so, not left to wonder why a model runs several times slower (#1401).
+                logger?.LogWarning(ex, "ONNX EP {Provider} is compiled in but failed to start, so this model runs on the CPU.", ep);
             }
         }
 

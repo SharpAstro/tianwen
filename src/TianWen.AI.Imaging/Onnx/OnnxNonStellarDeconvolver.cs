@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -20,7 +21,8 @@ namespace TianWen.AI.Imaging.Onnx;
 /// internally and concatenates as a 4th input channel. Delegates the chunked-inference pipeline to
 /// <see cref="ChunkedNafnetRunner"/>; this class owns PSF estimation, session management, and the
 /// per-call log line. Nothing registers it until that model exists: the SETI Astro graph it used to
-/// run went with the SAS tier on 2026-09-26.
+/// run went with the SAS tier on 2026-09-26. Like every TianWen model it loads only against the contract beside its
+/// weights (#824; #1401 found this one the exception), so a graph exported for it ships its contract with it.
 /// </summary>
 /// <remarks>
 /// <para><b><paramref name="perChunkPsf"/> conditions each tile on its own region's PSF</b>
@@ -178,16 +180,58 @@ public sealed class OnnxNonStellarDeconvolver(
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_session is null)
-            {
-                var modelPath = modelResolver.Resolve(modelFileName);
-                logger?.LogInformation("OnnxNonStellarDeconvolver: loading {Model} from {Path}", modelFileName, modelPath);
-                using var options = ExecutionProviderResolver.CreateSessionOptions(deviceId: 0, logger: logger);
-                _session = new InferenceSession(modelPath, options);
-            }
-            return _session;
+            return _session ??= OpenSession();
         }
     }
+
+    /// <summary>
+    /// Builds the session against the contract beside the resolved weights, as <see cref="N2nDenoiser"/> and
+    /// <see cref="OnnxTianWenDeconvolver"/> do: the contract is read first (an absent one refuses before a session is
+    /// built), checked once the graph is open, and a session that fails it is disposed and never kept.
+    /// </summary>
+    private InferenceSession OpenSession()
+    {
+        var modelPath = modelResolver.Resolve(modelFileName);
+        logger?.LogInformation("OnnxNonStellarDeconvolver: loading {Model} from {Path}", modelFileName, modelPath);
+        try
+        {
+            var contract = ModelContract.LoadBeside(modelPath);
+            using var options = ExecutionProviderResolver.CreateSessionOptions(deviceId: 0, logger: logger);
+            var session = new InferenceSession(modelPath, options);
+            var problems = contract.Check(modelPath, Feed(GraphImageChannels(session)), ModelGraph.From(session));
+            if (problems.Length > 0)
+            {
+                session.Dispose();
+                throw ModelContractException.Refused(modelFileName, ModelContract.PathBeside(modelPath), problems);
+            }
+            logger?.LogInformation(
+                "OnnxNonStellarDeconvolver: {Model} matches its contract (v{Version}, domain {Domain}, weights {Sha})",
+                modelFileName, contract.ContractVersion, contract.Domain, contract.OnnxSha256);
+            return session;
+        }
+        catch (ModelContractException e)
+        {
+            logger?.LogError(e, "OnnxNonStellarDeconvolver: {Model} refused by its contract", modelFileName);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// What this shell feeds its graph: the frame MTF-stretched to <see cref="AiNafnetInputs.TargetMedian"/> (the
+    /// stretch <see cref="ChunkedNafnetRunner"/> applies) with the graph's own channel count, which the runner builds the
+    /// picture with, and the scalar <c>psf01</c> beside it.
+    /// </summary>
+    internal static ModelFeed Feed(int imageChannels) => new(
+        ModelDomain.MtfStretched,
+        AiNafnetInputs.TargetMedian,
+        [new ModelFeedInput(ModelRoles.Image, imageChannels), new ModelFeedInput(ModelRoles.Psf01, null)]);
+
+    // The channel axis of the graph's picture input, the only input above rank 2; a graph that leaves it open is fed a
+    // colour frame's three.
+    private static int GraphImageChannels(InferenceSession session)
+        => session.InputMetadata.Values.FirstOrDefault(static m => m.Dimensions.Length > 2) is { Dimensions: [_, > 0 and var channels, ..] }
+            ? channels
+            : 3;
 
     public void Dispose()
     {

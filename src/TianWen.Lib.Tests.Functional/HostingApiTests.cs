@@ -345,7 +345,7 @@ public class HostingApiTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         // took a required SharpenPipeline (the whole functional suite failed to start). The body-binding
         // path also exercises the AOT-fragile EnhanceRequestDto deserialization.
         var body = new StringContent(
-            """{"inputPath":"/does/not/matter.fits","backend":"sas"}""",
+            """{"inputPath":"/does/not/matter.fits","backend":"auto"}""",
             System.Text.Encoding.UTF8, "application/json");
         var response = await _client.PostAsync("/api/v1/image/enhance", body, ct);
 
@@ -353,6 +353,24 @@ public class HostingApiTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         doc.RootElement.GetProperty("success").GetBoolean().ShouldBeFalse();
         doc.RootElement.GetProperty("statusCode").GetInt32().ShouldBe(503);
         doc.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("not available");
+    }
+
+    [Fact(Timeout = 10_000)]
+    public async Task ImageEnhance_WithABadDeconvolutionKernel_ReturnsBadRequestNamingIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // The request is read before the server's state (#1401): a kernel the shared parser refuses is a 400 naming it,
+        // even on this host, which has no pipeline and so would answer anything well-formed with a 503.
+        var body = new StringContent(
+            """{"inputPath":"/does/not/matter.fits","backend":"tianwen","deconvKernel":"0.9,abc,1.0","deconvBeta":4}""",
+            System.Text.Encoding.UTF8, "application/json");
+        var response = await _client.PostAsync("/api/v1/image/enhance", body, ct);
+
+        var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        doc.RootElement.GetProperty("success").GetBoolean().ShouldBeFalse();
+        doc.RootElement.GetProperty("statusCode").GetInt32().ShouldBe(400);
+        doc.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("'abc'");
     }
 
     [Fact(Timeout = 10_000)]

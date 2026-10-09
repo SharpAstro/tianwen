@@ -8,6 +8,7 @@ using TianWen.Lib;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Degradation;
 using TianWen.Lib.Imaging.Enhancement;
+using TianWen.Lib.Stat;
 
 namespace TianWen.AI.Imaging.Onnx;
 
@@ -87,9 +88,21 @@ internal static class OperatorDeconvolutionRunner
         var total = Stopwatch.StartNew();
         var phase = Stopwatch.StartNew();
 
+        // 0. Every sample the zoom reads is finite. SplineZoom's prefilter is recursive along each row and then each column,
+        //    so one NaN made its row NaN, then every column, and the graph's clip turned the NaN frame into a finite one
+        //    unrelated to the input (#1401); the pipeline's sanitiser shielded it, but nothing else did. Interior holes are
+        //    filled from their neighbours, as the pipeline fills them, and what is left (a NaN canvas ring) takes the median
+        //    of the channel's finite samples for the zoom only: the ring is put back as it came in at the end.
+        //    A frame past 1 runs scaled under it and is scaled back at the end: training unit-scaled every frame by its own
+        //    peak, and the stretch clips at 1, so those pixels came back at 1 plus the stretch minimum (#1401; the enhancer
+        //    admits a peak up to 1.5, an earlier enhancer's overshoot).
+        var peak = input.MaxValue;
+        var overRange = peak > 1f;
+        var source = (overRange ? input.Affine(1.0 / peak, 0) : input).WithInteriorHolesFilled();
+
         // 1. The stretch, once, on the native frame's covered pixels; the ring is put back at the end.
         var absent = input.AbsentPixels();
-        var (stretchMin, balances) = input.MtfStretchParameters(AiNafnetInputs.TargetMedian, absent);
+        var (stretchMin, balances) = source.MtfStretchParameters(AiNafnetInputs.TargetMedian, absent);
 
         // 2. Up in LINEAR, then stretched in place with the native parameters, exactly as Image.MtfStretchWith maps a
         //    pixel (the minimum off, clamped at zero, the MTF), without a second zoomed-size copy.
@@ -99,7 +112,9 @@ internal static class OperatorDeconvolutionRunner
         var native = new float[height, width];
         for (var c = 0; c < channels; c++)
         {
-            input.GetChannelSpan(c).CopyTo(MemoryMarshal.CreateSpan(ref native[0, 0], width * height));
+            var nativeSpan = MemoryMarshal.CreateSpan(ref native[0, 0], width * height);
+            source.GetChannelSpan(c).CopyTo(nativeSpan);
+            ReplaceNonFiniteWithFiniteMedian(nativeSpan);
             var plane = SplineZoom.Zoom(native, zoomHeight, zoomWidth, cancellationToken);
             StretchInPlace(MemoryMarshal.CreateSpan(ref plane[0, 0], zoomWidth * zoomHeight), stretchMin[c], balances[c]);
             stretched[c] = plane;
@@ -172,6 +187,10 @@ internal static class OperatorDeconvolutionRunner
             back[c] = SplineZoom.Zoom(output[c], height, width, cancellationToken);
         }
         var deconvolved = new Image(back, BitDepth.Float32, 1.0f, 0f, 0f, input.ImageMeta).MtfUnstretch(stretchMin, balances);
+        if (overRange)
+        {
+            deconvolved = deconvolved.Affine(peak, 0);
+        }
         if (absent is { } ring)
         {
             var ringed = new float[channels][,];
@@ -190,6 +209,43 @@ internal static class OperatorDeconvolutionRunner
         return new OperatorDeconvolutionResult(
             deconvolved, tilesY * tilesX, tileEdge, zoomWidth, zoomHeight, kernelTensor.Dimensions[1], stretchMin, balances,
             resampleUpMs, inferMs, resampleDownMs, total.ElapsedMilliseconds);
+    }
+
+    /// <summary>
+    /// Sets every non-finite sample of <paramref name="plane"/> to the median of its finite ones (0 when it has none), in
+    /// place; a plane with no non-finite sample is left untouched and costs one read.
+    /// </summary>
+    internal static void ReplaceNonFiniteWithFiniteMedian(Span<float> plane)
+    {
+        var nonFinite = 0;
+        foreach (var v in plane)
+        {
+            if (!float.IsFinite(v))
+            {
+                nonFinite++;
+            }
+        }
+        if (nonFinite == 0)
+        {
+            return;
+        }
+        var finite = new float[plane.Length - nonFinite];
+        var n = 0;
+        foreach (var v in plane)
+        {
+            if (float.IsFinite(v))
+            {
+                finite[n++] = v;
+            }
+        }
+        var fill = finite.Length == 0 ? 0f : StatisticsHelper.NthSmallest(finite.AsSpan(), finite.Length / 2);
+        for (var i = 0; i < plane.Length; i++)
+        {
+            if (!float.IsFinite(plane[i]))
+            {
+                plane[i] = fill;
+            }
+        }
     }
 
     /// <summary>
