@@ -210,6 +210,15 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     /// </summary>
     public PlanetaryStackHalves? ShrinkHalves { get; init; }
 
+    /// <summary>
+    /// The master's two halves, when given: the Wiener target the gains are fitted to takes the master's noise ring by ring from half
+    /// their difference (<see cref="PlanetaryWaveletGains.HalvesNoise"/>) instead of one white level read past 0.4 cycles a pixel
+    /// (<see cref="PlanetaryInverse.WhiteNoise"/>), #1373. A demosaiced plane's noise is not white: the demosaic interpolates it, so its
+    /// finest rings hold less than its middle ones and a level read at the finest scale is too low where the gains go. On the master's
+    /// grid, with its channels, in its units. Null, the default, keeps the white level.
+    /// </summary>
+    public PlanetaryStackHalves? NoiseHalves { get; init; }
+
     // The master being sharpened is a colour master's luminance (LuminanceOnly): its finest band holds the colour filter's residue as the
     // colour planes do, so it follows ColourFinestBand as they would (#1187).
     internal bool OfColour { get; init; }
@@ -281,9 +290,12 @@ public static class PlanetarySharpening
     {
         ArgumentNullException.ThrowIfNull(master);
         ArgumentNullException.ThrowIfNull(options);
-        if (options.ShrinkHalves is { } given && (!OnGridOf(given.A, master) || !OnGridOf(given.B, master)))
+        foreach (var given in new[] { options.ShrinkHalves, options.NoiseHalves })
         {
-            throw new ArgumentException("The halves must lie on the master's grid, with its channels.", nameof(options));
+            if (given is not null && (!OnGridOf(given.A, master) || !OnGridOf(given.B, master)))
+            {
+                throw new ArgumentException("The halves must lie on the master's grid, with its channels.", nameof(options));
+            }
         }
         if (options.LuminanceOnly && master.ChannelCount == 3)
         {
@@ -349,7 +361,11 @@ public static class PlanetarySharpening
                 var kernel = Tabulated(f => Math.Clamp(physical is { } p ? p.TransferAt(f) : edge.TransferAt(f), 0, 1));
                 var power = PlanetaryWaveletGains.StackPower(window, size, size, disk);
                 var white = PlanetaryInverse.WhiteNoise(PlanetaryWaveletGains.Interior(window, size, size, disk), size, size);
-                var noise = ImmutableArray.CreateRange(Enumerable.Repeat(white, power.Length));
+                // The halves cut as the master is, so half their difference is the master's own noise, ring by ring (#1373).
+                var noise = options.NoiseHalves is { } noiseHalves
+                    ? PlanetaryWaveletGains.HalvesNoise(limbWindow.Cut(noiseHalves.A.GetChannelSpan(c), width, height, level, scale),
+                        limbWindow.Cut(noiseHalves.B.GetChannelSpan(c), width, height, level, scale), size, size, disk)
+                    : ImmutableArray.CreateRange(Enumerable.Repeat(white, power.Length));
                 var wiener = ReferenceEquals(target, diffraction)
                     ? PlanetaryWaveletGains.Wiener(power, noise, kernel)
                     : PlanetaryWaveletGains.Wiener(power, noise, f => kernel(f) * diffraction.At(f), target.At);
@@ -453,18 +469,21 @@ public static class PlanetarySharpening
         var luminance = MeanOfPlanes(master);
         // Halves to shrink by are the luminance's too (#1313).
         var halves = options.ShrinkHalves is { } given ? new PlanetaryStackHalves(MeanOfPlanes(given.A), MeanOfPlanes(given.B)) : null;
+        var noiseHalves = options.NoiseHalves is { } noisy ? new PlanetaryStackHalves(MeanOfPlanes(noisy.A), MeanOfPlanes(noisy.B)) : null;
         var wavelengthNm = (options.WavelengthsNm[0] + options.WavelengthsNm[Math.Min(1, options.WavelengthsNm.Length - 1)]
             + options.WavelengthsNm[Math.Min(2, options.WavelengthsNm.Length - 1)]) / 3;
         PlanetarySharpenResult? sharpened;
         try
         {
-            sharpened = Sharpen(luminance, options with { LuminanceOnly = false, OfColour = true, WavelengthsNm = [wavelengthNm], ShrinkHalves = halves });
+            sharpened = Sharpen(luminance, options with { LuminanceOnly = false, OfColour = true, WavelengthsNm = [wavelengthNm], ShrinkHalves = halves, NoiseHalves = noiseHalves });
         }
         finally
         {
             luminance.Release();
             halves?.A.Release();
             halves?.B.Release();
+            noiseHalves?.A.Release();
+            noiseHalves?.B.Release();
         }
         if (sharpened is null)
         {
