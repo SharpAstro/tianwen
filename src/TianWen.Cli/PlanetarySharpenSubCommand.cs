@@ -48,9 +48,10 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var scoreAgainstOpt = new Option<string>("--score-against") { Description = "With --truth, what every sharpening is scored against (#1366): telescope (the default: the truth as rendered, through the pupil) or aperture (the truth carried to the aperture target, the pupil's diffraction divided out and the taper put in).", DefaultValueFactory = _ => "telescope" };
         var gainsOpt = new Option<string?>("--gains") { Description = "Apply these a trous gains instead of deriving them, finest first, comma separated, one set per channel separated by ';' (the last repeated): a twin's own best gains, say, applied through the same limb window (#817). Layers past a set are held at 1." };
         var shrinkOpt = new Option<bool>("--shrink") { Description = "Shrink each a trous band against the master's own noise, read off its two halves (--halves), before the gains are derived (BayesShrink, #1313)." };
+        var noiseOpt = new Option<string>("--noise") { Description = "The noise the derived gains' Wiener target is read against (#1373): white (the default: one level, read past 0.4 cycles a pixel), halves (ring by ring off the master's two halves, --halves, whose difference is the stack's own noise, coloured as a demosaic colours it), or both to compare them.", DefaultValueFactory = _ => "white" };
         var halvesOpt = new Option<string[]>("--halves")
         {
-            Description = "The master's two halves (planetary-stack --halves: master_*_halfA.fits and _halfB.fits), which --shrink reads its noise off.",
+            Description = "The master's two halves (planetary-stack --halves: master_*_halfA.fits and _halfB.fits), which --shrink and --noise halves read its noise off.",
             Arity = new ArgumentArity(2, 2),
             AllowMultipleArgumentsPerToken = true,
         };
@@ -59,7 +60,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var command = new Command("planetary-sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
         {
             Arguments = { masterArg },
-            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, gainsOpt, shrinkOpt, halvesOpt },
+            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, gainsOpt, shrinkOpt, noiseOpt, halvesOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -74,11 +75,25 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
             PlanetaryStackHalves? halves = null;
             try
             {
-                if (parseResult.GetValue(shrinkOpt))
+                var shrink = parseResult.GetValue(shrinkOpt);
+                var noiseName = (parseResult.GetValue(noiseOpt) ?? "white").ToLowerInvariant();
+                bool[] halvesNoises = noiseName switch
+                {
+                    "white" => [false],
+                    "halves" => [true],
+                    "both" => [false, true],
+                    _ => [],
+                };
+                if (halvesNoises.Length == 0)
+                {
+                    consoleHost.WriteError($"--noise {noiseName}: white, halves or both");
+                    return 1;
+                }
+                if (shrink || halvesNoises.Contains(true))
                 {
                     if (parseResult.GetValue(halvesOpt) is not [var halfAPath, var halfBPath])
                     {
-                        consoleHost.WriteError("--shrink reads the master's noise off its two halves: give --halves A B");
+                        consoleHost.WriteError("--shrink and --noise halves read the master's noise off its two halves: give --halves A B");
                         return 1;
                     }
                     if (!Image.TryReadFitsFile(halfAPath, out var halfA))
@@ -286,11 +301,11 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 var kolivasAmount = parseResult.GetValue(kolivasAmountOpt);
                 var outputDir = parseResult.GetValue(outputOpt) ?? Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".";
                 var variants = (options.Pupil is null ? [PlanetaryLimbFix.LimbChannel] : fixes)
-                    .SelectMany(f => fits.SelectMany(n => finests.SelectMany(b => strengths.SelectMany(k => finishes.SelectMany(e => luminances.SelectMany(l => targets.Select(t => (Fix: f, NonNegative: n, Finest: b, Strength: k, Finish: e, Luminance: l, Target: t)))))))).ToArray();
-                foreach (var (fix, nonNegative, finest, strength, (finish, finishWord), luminance, target) in variants)
+                    .SelectMany(f => fits.SelectMany(n => finests.SelectMany(b => strengths.SelectMany(k => finishes.SelectMany(e => luminances.SelectMany(l => targets.SelectMany(t => halvesNoises.Select(h => (Fix: f, NonNegative: n, Finest: b, Strength: k, Finish: e, Luminance: l, Target: t, HalvesNoise: h))))))))).ToArray();
+                foreach (var (fix, nonNegative, finest, strength, (finish, finishWord), luminance, target, halvesNoise) in variants)
                 {
                     ct.ThrowIfCancellationRequested();
-                    if (PlanetarySharpening.Sharpen(master, options with { Fix = fix, NonNegative = nonNegative, ColourFinestBand = finest, Strength = strength, EdgeReach = parseResult.GetValue(edgeReachOpt), RingEdge = parseResult.GetValue(ringEdgeOpt), Finish = finish, KolivasAmount = kolivasAmount, LuminanceOnly = luminance, ShrinkHalves = halves, Target = target }) is not { } result)
+                    if (PlanetarySharpening.Sharpen(master, options with { Fix = fix, NonNegative = nonNegative, ColourFinestBand = finest, Strength = strength, EdgeReach = parseResult.GetValue(edgeReachOpt), RingEdge = parseResult.GetValue(ringEdgeOpt), Finish = finish, KolivasAmount = kolivasAmount, LuminanceOnly = luminance, ShrinkHalves = shrink ? halves : null, NoiseHalves = halvesNoise ? halves : null, Target = target }) is not { } result)
                     {
                         consoleHost.WriteError($"{path}: the planet's limb could not be fitted");
                         return 1;
@@ -298,19 +313,21 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     try
                     {
                         var stem = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(path) + "_sharpened"
-                            + (variants.Length > strengths.Count * finishes.Count * luminances.Length * targets.Length ? "_" + fix.ToString().ToLowerInvariant() + (nonNegative ? "_nonnegative" : "") + (finests.Length > 1 ? "_" + finest.ToString().ToLowerInvariant() : "") : "")
+                            + (variants.Length > strengths.Count * finishes.Count * luminances.Length * targets.Length * halvesNoises.Length ? "_" + fix.ToString().ToLowerInvariant() + (nonNegative ? "_nonnegative" : "") + (finests.Length > 1 ? "_" + finest.ToString().ToLowerInvariant() : "") : "")
                             + (strengths.Count > 1 ? string.Create(inv, $"_s{strength:0.##}") : "")
                             + (finishes.Count > 1 ? "_f" + finishWord.Replace('+', '-') : "")
                             + (luminances.Length > 1 ? (luminance ? "_luminance" : "_perchannel") : "")
                             + (target == PlanetarySharpenTarget.Aperture ? "_aperture" : "")
-                            + (halves is null ? "" : "_shrunk"));
+                            + (halvesNoise ? "_halvesnoise" : "")
+                            + (shrink ? "_shrunk" : ""));
                         var finestWords = finests.Length > 1 ? $", the colour's finest band {finest.ToString().ToLowerInvariant()}" : "";
                         var strengthWords = (strength == 1 ? "" : string.Create(inv, $", strength {strength:0.##}"))
                             + (finish == PlanetaryFinish.None ? "" : $", finished {finishWord}")
                             + (luminance && master.ChannelCount == 3 ? ", the luminance sharpened, the stack's colour kept" : "")
                             + (target == PlanetarySharpenTarget.Aperture ? ", toward the aperture (the telescope undone)" : "")
                             + (options.FixedGains.IsDefaultOrEmpty ? "" : ", the gains given, not derived")
-                            + (halves is null ? "" : ", shrunk by its halves");
+                            + (halvesNoise ? ", the noise read off its halves" : "")
+                            + (shrink ? ", shrunk by its halves" : "");
                         var what = result.Derived ? $"derived{(nonNegative ? " non-negative" : "")}, {PlanetaryBestStack.Describe(fix)}{finestWords}{strengthWords}" : $"PlanetaryDefault{strengthWords}, the limb kept as stacked";
                         consoleHost.WriteScrollable(string.Create(inv,
                             $"[planetary] {what}: gains {string.Join(", ", result.Gains.Select(g => g.ToString("0.00", inv)))}; the limb's edge at 0.1 and 0.3 cycles a pixel {result.EdgeAtTenth:0.000}, {result.EdgeAtThreeTenths:0.000}"));
