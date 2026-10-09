@@ -19,8 +19,11 @@ public sealed record TwinKnobs(double R0M, double WindMps, double LocalR0M, doub
     /// <summary>The fewest and most each knob may take: a scatter of a thousandth is the floor for "none" (the search is in logarithms).</summary>
     public static readonly TwinKnobs Lower = new TwinKnobs(0.02, 2, 0.005, 0.001, 1);
 
-    /// <summary>The upper bounds: a still layer of 1 m is no layer at all at these apertures.</summary>
-    public static readonly TwinKnobs Upper = new TwinKnobs(0.3, 40, 1, 0.3, 20);
+    /// <summary>
+    /// The upper bounds: a still layer of 1 m is no layer at all at these apertures, and the free air reaches a metre because #1281's EdgeHD
+    /// twin put 45 cm there, the blur being the still layer's and the defocus'.
+    /// </summary>
+    public static readonly TwinKnobs Upper = new TwinKnobs(1, 40, 1, 0.3, 20);
 
     /// <summary>The least and most defocus a colour may take, nm RMS: 5 nm is none to these statistics (the search is in logarithms).</summary>
     public const double DefocusLowerNm = 5, DefocusUpperNm = 300;
@@ -30,6 +33,9 @@ public sealed record TwinKnobs(double R0M, double WindMps, double LocalR0M, doub
 
     /// <summary>A colour twin's static defocus a colour, nm RMS; null on a mono twin, which has none (R2 ruled a static defocus out there).</summary>
     public ColourDefocus? Defocus { get; init; }
+
+    /// <summary>How many knobs a search over these varies: five, or eight with a colour twin's defocus.</summary>
+    public int KnobCount => Defocus is null ? 5 : 8;
 
     /// <summary>
     /// <paramref name="options"/> with these knobs in it, and with <paramref name="colour"/>'s defocus where the twin is a colour one
@@ -126,7 +132,7 @@ public static class PlanetaryTwinCalibration
     {
         ArgumentNullException.ThrowIfNull(start);
         ArgumentNullException.ThrowIfNull(compare);
-        var n = start.ToLog().Length;
+        var n = start.KnobCount;
         ArgumentOutOfRangeException.ThrowIfLessThan(maxTrials, n + 1);
 
         var trials = ImmutableArray.CreateBuilder<TwinTrial>();
