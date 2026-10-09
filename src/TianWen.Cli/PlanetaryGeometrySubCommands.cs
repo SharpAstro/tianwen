@@ -635,44 +635,12 @@ internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleH
                     return 1;
                 }
 
-                // Green's placement, found as the mono path finds a disk's, on its plane: the limb of a stack of the best frames,
-                // carried onto the statistics' reference by that frame's shift.
-                var greenStack = await new LuckyImagingStacker().StackGlobalAsync(greenPlane, new PlanetaryStackOptions { KeepFraction = 0.05 }, ct);
-                var limbOptions = PlanetaryLimbFit.OptionsFor(aspect);
-                if (PlanetaryLimbFit.Fit(greenStack.Master, limbOptions) is not { } greenLimb)
+                if (await PlaceColoursAsync(real, greenPlane, greenTruth, aspect, ox, oy, ct) is not { } placed)
                 {
-                    consoleHost.WriteError($"{input}: the green stack's limb could not be fitted");
+                    consoleHost.WriteError($"{input}: the green stack's limb, or a colour plane's, could not be fitted");
                     return 1;
                 }
-                var (gx, gy) = (greenLimb.CenterX - greenTruth.ShiftX[greenStack.ReferenceIndex], greenLimb.CenterY - greenTruth.ShiftY[greenStack.ReferenceIndex]);
-
-                // The dispersion: the four planes stacked on ONE registration, each colour's limb against green's in the same stack.
-                var planes = await new LuckyImagingStacker().StackPlanesAsync(real, [.. Enumerable.Range(0, real.FrameCount)], greenStack.ReferenceIndex, whiten: false, ct);
-                (double X, double Y)? Offset(int channel)
-                {
-                    var ownFit = PlanetaryLimbFit.Fit(planes.ChannelImage(channel), limbOptions);
-                    var greenFit = PlanetaryLimbFit.Fit(planes.ChannelImage(CfaPlaneStream.Green1), limbOptions);
-                    return ownFit is { } of && greenFit is { } gf ? (of.CenterX - gf.CenterX, of.CenterY - gf.CenterY) : null;
-                }
-                var redOffset = Offset(CfaPlaneStream.Red);
-                var blueOffset = Offset(CfaPlaneStream.Blue);
-                planes.Release();
-                if (redOffset is not { } dr || blueOffset is not { } db)
-                {
-                    consoleHost.WriteError($"{input}: a colour plane's limb could not be fitted");
-                    return 1;
-                }
-
-                // On the sensor: a plane's pixel (i, j) is the photosite (2i + px, 2j + py) of its colour.
-                DiskPlacement OnSensor(double x, double y, int channel)
-                {
-                    var (px, py) = CfaPlaneStream.PhaseOf(channel, ox, oy);
-                    return new DiskPlacement((2 * x) + px, (2 * y) + py, 2 * greenLimb.EquatorialRadius, greenLimb.NorthAngleDeg);
-                }
-                var greenPlacement = OnSensor(gx, gy, CfaPlaneStream.Green1);
-                var redPlacement = OnSensor(gx + dr.X, gy + dr.Y, CfaPlaneStream.Red);
-                var bluePlacement = OnSensor(gx + db.X, gy + db.Y, CfaPlaneStream.Blue);
-                var sensorScale = aspect.AngularDiameterArcsec / 2 / greenPlacement.EquatorialRadius;
+                var (redPlacement, greenPlacement, bluePlacement, sensorScale) = placed;
                 consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
                     $"the colours' dispersion, sensor px from green: red {redPlacement.CenterX - greenPlacement.CenterX:+0.00;-0.00}, {redPlacement.CenterY - greenPlacement.CenterY:+0.00;-0.00}; blue {bluePlacement.CenterX - greenPlacement.CenterX:+0.00;-0.00}, {bluePlacement.CenterY - greenPlacement.CenterY:+0.00;-0.00}"));
 
@@ -866,6 +834,46 @@ internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleH
         var reference = new DiskPlacement(limb.CenterX - truth.ShiftX[stacked.ReferenceIndex], limb.CenterY - truth.ShiftY[stacked.ReferenceIndex],
             limb.EquatorialRadius, limb.NorthAngleDeg);
         return (reference, aspect.AngularDiameterArcsec / 2 / limb.EquatorialRadius);
+    }
+
+    // A colour capture's disks on the sensor (R5a): green's found as the mono path finds a disk's, on its plane (the limb of a stack of the
+    // best frames, carried onto the statistics' reference by that frame's shift), and red's and blue's moved from it by the atmosphere's
+    // dispersion, read as each colour's limb against green's in the four planes stacked on ONE registration. A plane's pixel (i, j) is the
+    // photosite (2i + px, 2j + py) of its colour. Null where the green stack's limb or a colour plane's could not be fitted.
+    internal static async Task<(DiskPlacement Red, DiskPlacement Green, DiskPlacement Blue, double SensorScale)?> PlaceColoursAsync(IPlanetaryFrameStream real,
+        IPlanetaryFrameStream greenPlane, CaptureStatistics greenTruth, PlanetAspect aspect, int bayerOffsetX, int bayerOffsetY, CancellationToken cancellationToken)
+    {
+        var greenStack = await new LuckyImagingStacker().StackGlobalAsync(greenPlane, new PlanetaryStackOptions { KeepFraction = 0.05 }, cancellationToken);
+        var limbOptions = PlanetaryLimbFit.OptionsFor(aspect);
+        if (PlanetaryLimbFit.Fit(greenStack.Master, limbOptions) is not { } greenLimb)
+        {
+            return null;
+        }
+        var (gx, gy) = (greenLimb.CenterX - greenTruth.ShiftX[greenStack.ReferenceIndex], greenLimb.CenterY - greenTruth.ShiftY[greenStack.ReferenceIndex]);
+
+        var planes = await new LuckyImagingStacker().StackPlanesAsync(real, [.. Enumerable.Range(0, real.FrameCount)], greenStack.ReferenceIndex, whiten: false, cancellationToken);
+        (double X, double Y)? Offset(int channel)
+        {
+            var ownFit = PlanetaryLimbFit.Fit(planes.ChannelImage(channel), limbOptions);
+            var greenFit = PlanetaryLimbFit.Fit(planes.ChannelImage(CfaPlaneStream.Green1), limbOptions);
+            return ownFit is { } of && greenFit is { } gf ? (of.CenterX - gf.CenterX, of.CenterY - gf.CenterY) : null;
+        }
+        var redOffset = Offset(CfaPlaneStream.Red);
+        var blueOffset = Offset(CfaPlaneStream.Blue);
+        planes.Release();
+        if (redOffset is not { } dr || blueOffset is not { } db)
+        {
+            return null;
+        }
+
+        DiskPlacement OnSensor(double x, double y, int channel)
+        {
+            var (px, py) = CfaPlaneStream.PhaseOf(channel, bayerOffsetX, bayerOffsetY);
+            return new DiskPlacement((2 * x) + px, (2 * y) + py, 2 * greenLimb.EquatorialRadius, greenLimb.NorthAngleDeg);
+        }
+        var green = OnSensor(gx, gy, CfaPlaneStream.Green1);
+        return (OnSensor(gx + dr.X, gy + dr.Y, CfaPlaneStream.Red), green, OnSensor(gx + db.X, gy + db.Y, CfaPlaneStream.Blue),
+            aspect.AngularDiameterArcsec / 2 / green.EquatorialRadius);
     }
 
     // Every statistic side by side, the synthetic's over the real's (R2's pre-registration: within 10 %), and the mismatch the twin's
