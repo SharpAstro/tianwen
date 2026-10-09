@@ -289,12 +289,13 @@ public static partial class DatasetDegradationExporter
             // R2d's D2: in place of the plate, a starless background from its coarse scales up (SyntheticBackground).
             var synthetic = options.SyntheticBackground
                 ? SyntheticBackground.Build(unitPlate, absent, field?.Luminance.Fwhm ?? psf.Average(static p => p.Fwhm), options.BrightKnotsWide,
-                    nebulaKnots: options.NebulaKnots)
+                    steering: options.Steering, nebulaKnots: options.NebulaKnots)
                 : null;
             if (synthetic is not null)
             {
                 logger?.LogInformation("[degrade] {Session}: synthetic background, the plate's scales from {Kept} px kept{Knots}", sessionId, 1 << synthetic.FirstKept,
-                    (synthetic.BrightKnotsWide ? ", compact knots kept faint" : "") + (synthetic.NebulaKnots ? ", knots drawn as the nebula's" : ""));
+                    (synthetic.BrightKnotsWide ? ", compact knots kept faint" : "") + (synthetic.NebulaKnots ? ", knots drawn as the nebula's" : "")
+                    + (synthetic.Steered is { } st ? string.Create(CultureInfo.InvariantCulture, $", steered {st.Strength},{st.Exponent},{st.Wander},{st.Fine}") : ""));
             }
             var drawnWith = options.Profile == StarProfileFamily.Field && field is { } f
                 ? f.Channels.Select(static p => string.Create(CultureInfo.InvariantCulture, $"{p.Fwhm:F2} px b{p.Beta:F2} + table {p.Table.Length}"))
