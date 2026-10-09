@@ -540,7 +540,16 @@ and 1.24 against 1.10 and 1.00) and the frame-to-frame flux (1.80 against 1.05).
 copy of the capture**: over them the real frame-to-frame flux reads 0.0053, equal to the quarter-second figure, and over
 3,000 frames 0.0012, so a 1.2 s window cannot split the flux into its slow and fast parts; the aligner's error reads 0.94
 against 0.71; and the twin's halo, fitted through the 8-bit rounding, reads its outer annulus low over 300 frames while
-the real one does not move. The search fitted the window. Arm B searches on 1,000 frames.
+the real one does not move. The search fitted the window.
+
+**Arm C (plain correlation, 1,000-frame trials, #1388)**: 60 twins from the hand values in 120 minutes found r0 8.89 cm,
+wind 12.5 m/s, still layer 2.57 cm, scatter 2.59 % with a 16.7" core. At 3,000 frames it matches five times nearer than the
+hand values (0.0070 against 0.036; 12 of 14 fitted statistics within 10 %), its r0 4.6 % and its still layer 5 % from the
+hand's (rule 2), in under three hours (rule 4). **Rule 1 fails as written on two rows**: the disk's motion (0.875 against
+the hand's 0.898, both short of the real) and the halo at 1.3 to 1.6 radii (1.12 against 0.99). One scatter of one core can
+lift the outer annuli to the real ones (0.81 and 1.06 against the hand's 0.58 and 0.67) only by over-lifting that ring, so
+the halo's shape is the residual, and a second term (the pupil's far wing, #1222) is the generator's, not the search's. The
+1,000-frame window holds: its flux, aligner's error and noise confirm at 3,000 within 3 %. A2 proceeds on this twin.
 
 ### A2. The per-capture tune
 
