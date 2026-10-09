@@ -743,7 +743,7 @@ TIFFs; **never apply the mask primitives to a LINEAR master** (the luminance mas
 tightens stars; the SAS sharpener turns tight cores into square white blocks):
 `docs/plans/rc-astro-enhancers.md`.
 
-**CLI flags + viewer Enhance action.** `--ai-backend auto|rc|sas|n2n` + tuning flags parse through the
+**CLI flags + viewer Enhance action.** `--ai-backend auto|rc|tianwen` (`sas` removed 2026-09-26, `n2n` renamed `tianwen` 2026-10-09) + tuning flags parse through the
 shared **`EnhanceOptions.TryParse`** (also used by the server endpoint) into an immutable
 `EnhanceOptions` -- no mutable settings singleton, so parallel enhances cannot tear. `tianwen-fits`'s
 Enhance action runs off the render thread via `ViewerController._enhanceTask`; the GUI has no

@@ -17,7 +17,7 @@ public sealed class EnhanceStatusDto
     /// <summary>Output FITS path: set while running and on success; null on failure / before the first run.</summary>
     public string? OutputPath { get; init; }
 
-    /// <summary>Resolved backend for the current/last run (<c>Auto</c>/<c>ForceRcAstro</c>/<c>N2n</c>), or null.</summary>
+    /// <summary>Resolved backend for the current/last run (<c>Auto</c>/<c>ForceRcAstro</c>/<c>TianWen</c>), or null.</summary>
     public string? Backend { get; init; }
 
     /// <summary>Current pipeline step name (e.g. "denoise-starless"), or null between runs.</summary>

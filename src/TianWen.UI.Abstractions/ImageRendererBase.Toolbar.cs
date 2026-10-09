@@ -2306,7 +2306,7 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.Enhance => state.PreferredEnhanceBackend switch
                 {
                     EnhanceBackend.ForceRcAstro => "RC",
-                    EnhanceBackend.N2n => "N2N",
+                    EnhanceBackend.TianWen => "TianWen",
                     _ => "Auto",
                 },
                 // No ":Pinned" suffix: pinned settings are the DEFAULT comparison, so the activated

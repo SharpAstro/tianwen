@@ -554,7 +554,7 @@ public class N2nDenoiserTests(ITestOutputHelper output)
         using var enhancer = new N2nDenoiser(CreateResolver());
 
         var viaOptions = await enhancer.EnhanceAsync(plate, DenoiseVariant.Default,
-            new EnhanceOptions(EnhanceBackend.N2n, new EnhanceTuning(DenoiseStrength: 0.5f)),
+            new EnhanceOptions(EnhanceBackend.TianWen, new EnhanceTuning(DenoiseStrength: 0.5f)),
             progress: null, TestContext.Current.CancellationToken);
         var direct = await enhancer.EnhanceAsync(plate, 0.5f, TestContext.Current.CancellationToken);
 

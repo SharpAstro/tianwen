@@ -807,7 +807,7 @@ Planetary stacker below.
 - **A captured non-light says so in `IMAGETYP`** (`FrameType.Focus`, `FrameType.Scout`); never widen a
   consumer's filter to admit them.
 - **`--enhance`** runs `SharpenPipeline` ONCE (`CanonicalProgram`, shaped by what SERVES); options parse once in
-  `EnhanceOptions.TryParse`; `--ai-backend auto|rc|n2n`. Stellar-sharpen is opt-in and served by nothing today.
+  `EnhanceOptions.TryParse`; `--ai-backend auto|rc|tianwen`. Stellar-sharpen is opt-in and served by nothing today.
 - **Render model:** ONE SPCC white balance, then each plate self-stretches; SPCC's clip test reads the OBSERVED
   peak; the normaliser anchors on `Image.Pedestal`; enhanced masters use `MasterPreviewRenderer.WithZeroPedestal`.
   **SPCC is broadband-only as a MODEL, not a gate** (`docs/plans/narrowband-colour.md`; `ResolveAuto` refuses to

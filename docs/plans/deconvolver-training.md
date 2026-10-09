@@ -3557,9 +3557,10 @@ went with the SAS tier, 2026-09-26, after its upstream licence changed; the enco
 is theirs, so check the trainer's before reusing it).
 Backend selection: the run log's `--ai-backend n2n` is defined as "the in-house model where this role
 has one", so when the deconvolver lands the flag's NAME is wrong (it names the denoiser's method);
-rename to `tianwen` (the programme doc's original `ForceTianWen`) with `n2n` kept as an alias for one
-release. Auto stays RC first; whether the in-house deconvolver serves Auto where RC is absent (as the
-denoiser does) is the owner's call after a side-by-side, so it serves only when asked for until then.
+rename to `tianwen` (the programme doc's original `ForceTianWen`). **Renamed 2026-10-09 with no alias** (the owner:
+not that level of compatibility at this stage); `n2n` is refused with a message naming the new value. Auto stays RC first,
+and **the in-house deconvolver serves Auto where RC is absent, as the denoiser does** (the owner, 2026-10-09: "so we can
+drive it better"), which puts the single-frame kernel rule and its decline (#741) on the path to shipping it.
 
 **The split (2026-10-09).** The ONNX export of E3.4d's checkpoint, which fixes the graph's inputs, is local work:
 the checkpoint is on the training machine and the export script covers the denoiser's plane-conditioned graph

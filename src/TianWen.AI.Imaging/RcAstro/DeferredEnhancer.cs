@@ -59,7 +59,7 @@ namespace TianWen.AI.Imaging.RcAstro
         /// <summary>
         /// Picks the backend for <paramref name="backend"/>: <see cref="EnhanceBackend.ForceRcAstro"/>
         /// -&gt; RC whenever the CLI binary is present (license gate skipped), else the in-house model;
-        /// <see cref="EnhanceBackend.N2n"/> -&gt; the in-house model where this role HAS one, and the
+        /// <see cref="EnhanceBackend.TianWen"/> -&gt; the in-house model where this role HAS one, and the
         /// Auto behaviour where it does not -- the same options record reaches every role in a pipeline
         /// run, so a role without an in-house lane must keep working rather than throw;
         /// <see cref="EnhanceBackend.Auto"/> -&gt; RC when present AND licensed, else the in-house model.
@@ -68,7 +68,7 @@ namespace TianWen.AI.Imaging.RcAstro
         private protected IImageEnhancer? Resolve(EnhanceBackend backend) => (backend switch
         {
             EnhanceBackend.ForceRcAstro => cli.IsAvailable ? Rc : InHouse,
-            EnhanceBackend.N2n when InHouse is { } inHouse => inHouse,
+            EnhanceBackend.TianWen when InHouse is { } inHouse => inHouse,
             _ => cli.IsAvailable && cli.IsLicensed(productKey) ? Rc : InHouse,
         }) ?? Declined;
 
@@ -120,7 +120,7 @@ namespace TianWen.AI.Imaging.RcAstro
 
     /// <summary>
     /// Deferred nxt -&gt; <see cref="IDenoiseEnhancer"/> dispatcher: RC-Astro NoiseXTerminator where
-    /// licensed, else the in-house N2N model (3-channel input), else nothing. <see cref="EnhanceBackend.N2n"/>
+    /// licensed, else the in-house N2N model (3-channel input), else nothing. <see cref="EnhanceBackend.TianWen"/>
     /// routes to the in-house model explicitly.
     /// </summary>
     internal sealed class DeferredDenoiser(IRcAstroCli cli, Func<IImageEnhancer> rcFactory, Func<IImageEnhancer>? inHouseFactory = null)
