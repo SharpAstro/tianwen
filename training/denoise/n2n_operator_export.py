@@ -140,8 +140,9 @@ def torch_reference(operator, stretched, fwhms, beta, mins, betas):
 
 def export(graph, path, sample, metadata):
     """torch.export's exporter with the dynamic dimensions declared with their constraints (H and W multiples of 4, k
-    odd); then the exporter's per-node stack traces dropped (80 percent of the file), the symbolic dimensions renamed to
-    the contract's names, and the contract's fields stored in the model's metadata."""
+    odd); then the exporter's per-node stack traces dropped (80 percent of the file), every Reshape's allowzero cleared
+    (`clear_reshape_allowzero`, what lets DirectML run the graph), the symbolic dimensions renamed to the contract's
+    names, and the contract's fields stored in the model's metadata."""
     import onnx
     import torch
     from torch.export import Dim
@@ -158,6 +159,7 @@ def export(graph, path, sample, metadata):
     model = onnx.load(path)
     for node in model.graph.node:
         del node.metadata_props[:]
+    clear_reshape_allowzero(model)
     names = {"4*h4": "h", "4*w4": "w", "2*kr + 1": "k"}
     for v in list(model.graph.input) + list(model.graph.output) + list(model.graph.value_info):
         for d in v.type.tensor_type.shape.dim:
@@ -169,6 +171,31 @@ def export(graph, path, sample, metadata):
     onnx.checker.check_model(model)
     onnx.save(model, path)
     return os.path.getsize(path) / 2 ** 20
+
+
+def clear_reshape_allowzero(model):
+    """Set allowzero = 0 on every Reshape, in place; returns how many it changed.
+
+    torch.export writes allowzero = 1 on every Reshape a torch `view` becomes, and DirectML refuses that flag: a Reshape
+    whose constant shape holds a -1 with it fails the session BUILD ("The parameter is incorrect" in MLOperatorAuthorImpl),
+    and one whose shape is computed fails at run time (measured 2026-10-09, onnxruntime-directml 1.24.4, a GTX 1070).
+    The flag only decides what a 0 in the target shape means (a dimension of size 0, against "copy the input's"), and a
+    torch `view` never asks for the copy, so a 0 there could only be a dimension of size 0, which no tensor in this graph
+    has. Cleared, the CPU's output is unchanged and DirectML's agrees with it to 4.8e-7 on the shipped weights."""
+    from onnx import numpy_helper
+    constants = {i.name: numpy_helper.to_array(i) for i in model.graph.initializer}
+    changed = 0
+    for node in model.graph.node:
+        if node.op_type != "Reshape":
+            continue
+        shape = constants.get(node.input[1])
+        if shape is not None and (shape == 0).any():
+            raise SystemExit(f"{node.name}: a constant target shape with a 0 in it, where allowzero would matter")
+        for attribute in node.attribute:
+            if attribute.name == "allowzero" and attribute.i != 0:
+                attribute.i = 0
+                changed += 1
+    return changed
 
 
 def session(path, threads=0):
