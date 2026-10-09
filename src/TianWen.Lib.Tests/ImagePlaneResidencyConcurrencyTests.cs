@@ -36,6 +36,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void ConcurrentReadersOfAnEvictedImageAllSeeTheRealValues()
         {
+            StressTestGate.SkipOnCi();
             var image = WithRaster();
             image.TryEvictFloatPlanes().ShouldBeTrue();
             image.PlanesResident.ShouldBeFalse();
@@ -52,6 +53,7 @@ namespace TianWen.Lib.Tests
             // The writer keeps flipping residency underneath the readers, so every reader is repeatedly
             // meeting an image mid-transition -- which is the interleaving a single-threaded test can
             // never produce.
+            StressTestGate.SkipOnCi();
             var testToken = TestContext.Current.CancellationToken;
             var image = WithRaster();
 
@@ -61,7 +63,11 @@ namespace TianWen.Lib.Tests
             stop.CancelAfter(TimeSpan.FromSeconds(2));
             var failures = new ConcurrentQueue<string>();
 
-            var writer = Task.Run(() =>
+            // Every loop runs on a thread of its OWN (LongRunning), never a pool worker. Seven tight loops on the pool
+            // held seven of a 4-core runner's nine workers while the multicore planetary tests held the rest, so the
+            // timer behind CancelAfter, which fires on a pool worker, waited minutes for one: the hammer ran on, and
+            // every test in the process stalled with it until the hang dump (#1385).
+            var writer = Task.Factory.StartNew(() =>
             {
                 while (!stop.IsCancellationRequested)
                 {
@@ -69,12 +75,12 @@ namespace TianWen.Lib.Tests
                     // Reading restores, so the pair loops without needing a restore API of its own.
                     _ = image[0, 0, 0];
                 }
-            }, testToken);
+            }, testToken, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
             var readers = new Task[6];
             for (var r = 0; r < readers.Length; r++)
             {
-                readers[r] = Task.Run(() =>
+                readers[r] = Task.Factory.StartNew(() =>
                 {
                     while (!stop.IsCancellationRequested)
                     {
@@ -83,7 +89,7 @@ namespace TianWen.Lib.Tests
                             failures.Enqueue(f);
                         }
                     }
-                }, testToken);
+                }, testToken, TaskCreationOptions.LongRunning, TaskScheduler.Default);
             }
 
             await Task.WhenAll([writer, .. readers]);
@@ -115,7 +121,9 @@ namespace TianWen.Lib.Tests
             var tasks = new Task[readers];
             for (var r = 0; r < readers; r++)
             {
-                tasks[r] = Task.Run(() =>
+                // A thread of its own, as in the racing test above: a reader parked on the start gate and then spinning
+                // must not hold a pool worker another test is waiting for (#1385).
+                tasks[r] = Task.Factory.StartNew(() =>
                 {
                     start.Wait();
                     for (var i = 0; i < iterations; i++)
@@ -125,7 +133,7 @@ namespace TianWen.Lib.Tests
                             failures.Enqueue(f);
                         }
                     }
-                });
+                }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
             }
 
             start.Set();

@@ -215,6 +215,10 @@ and `LALR.CC` is deliberately exempt from the shared shape, so leave it alone.
   `KeptNode`). A helper that names a folder after its test takes the test's `TempFolders` (`FitsFixture.CreateTempDir`,
   `TempStackingWorkspace`): a fixed parent of its own under `%TEMP%` is a folder nothing sweeps (#1323: about
   9,000 folders and 1.1 GB in a week). `TestTempFoldersTests` fails on a bare `CreateTempSubdirectory` in any test project.
+- **A thread stress test runs off CI** (the owner, 2026-10-10; `StressTestGate.SkipOnCi`): one that hammers an object
+  from several threads for wall-clock time measures the runner, and on a shared 4-core runner its loops held the thread
+  pool and stalled the whole test process into the hang dump (#1385). Its loops take threads of their own
+  (`TaskCreationOptions.LongRunning`), never pool workers. A deterministic test of a known interleaving runs on CI as any other.
 - **Avoid duplication**: extract shared setup to helpers (e.g., `SessionTestHelper`)
 - **A shared fixture plus an assertion about a FIRST write is an order dependency**, whether or not
   today's order satisfies it. `IClassFixture<T>` lives for the whole class, so its state carries from
