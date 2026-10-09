@@ -25,7 +25,7 @@ analysis throughout.
 | Correlation for registration: phase correlation (whitened) and a plain cross-correlation, the peak climbed on the Fourier-interpolated surface | `PhaseCorrelation`, `GlobalAligner`, `AlignmentPointMatcher`, `CorrelationRegistrar` |
 | A shift exact to the sub-pixel, by the Fourier shift theorem | `PlanetaryMetrics.Shift` |
 | Band power: frame scoring and the power past a cutoff | `FftHighBandEstimator`, `PlanetaryMetrics.PowerAbove` |
-| The telescope's cutoff read off a power spectrum | R1, `tianwen planetary-aperture` |
+| The telescope's cutoff read off a power spectrum | R1, `tianwen planetary aperture` |
 | The twin's optics: phase screens, short-exposure PSFs, the scatter kernel | `PlanetaryDegrade`, `Imaging/Optics` |
 
 | We do not (yet) | What it is | Where it would go |

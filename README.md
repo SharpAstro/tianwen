@@ -201,13 +201,13 @@ never brighter than the stack; without it the
 `default` preset sharpens with the limb kept as stacked. `--legacy` stacks and sharpens as before.
 
 ```
-tianwen planetary-stack <ser-file>... [-o <dir>]
+tianwen planetary stack <ser-file>... [-o <dir>]
     --keep <0..1>                # fraction of sharpest frames to keep (default 0.5 sharpened, 0.1 with --no-sharpen)
     --quality <gradient|laplacian>
     --correlation <plain|whitened>  --interpolation <lanczos3clamped|lanczos3|bilinear>  --reference-frames <n>
     --derotate / --no-derotate   # force or forbid de-rotation; --planet <jupiter|saturn> when the file name does not say
     --legacy                     # the recipe before the enhanced pipeline: Laplacian, a quarter, phase correlation, bilinear
-    --truth <file>               # score every master against a synthetic capture's truth (planetary-degrade)
+    --truth <file>               # score every master against a synthetic capture's truth (planetary degrade)
     --drizzle <scale>            # Bayer drizzle, e.g. 1.5 (sub-Bayer resolution); --drizzle-global for whole-disk
     --telescope <newtonian|maksutov>  --aperture-mm <mm> --obstruction <0..1>   # the pupil the derived sharpening needs
     --wavelength <nm[,nm,nm]>    # the filter's (550 mono, 610,530,460 colour by default); --limb-fix <bounded|floored|limbchannel|feathered|plain>
@@ -217,14 +217,14 @@ tianwen planetary-stack <ser-file>... [-o <dir>]
     # advanced: --ap-spacing / --max-ap / --ap-patch / --mesh-spacing / --align-tile
 ```
 
-`tianwen planetary-sharpen <master.fits>` sharpens a master again the same way without restacking it (`--fix all` and a synthetic
+`tianwen planetary sharpen <master.fits>` sharpens a master again the same way without restacking it (`--fix all` and a synthetic
 capture's `--truth` compare the limb fixes).
 
 For interactive planetary work (live rolling-window stack + wavelet sliders), open the SER in the FITS viewer (`tianwen-fits <file.ser>`) and press `K`.
-`Shift+K` (or the info panel's Best stack button) stacks the whole capture as `planetary-stack` does, in the background, writes both
+`Shift+K` (or the info panel's Best stack button) stacks the whole capture as `planetary stack` does, in the background, writes both
 masters beside it and opens the sharpened one; the panel's aperture and design give the derived sharpening its telescope, and are
 remembered. The planet (and a mono capture's filter) come from the capture's name, or the panel's choice where the name gives none,
-since without a planet the sharpening is only a preset. A planetary master opens in the planetary stretch, the one `planetary-stack`'s
+since without a planet the sharpening is only a preset. A planetary master opens in the planetary stretch, the one `planetary stack`'s
 PNG preview is drawn with (also on the stretch menu for any frame). In the stacked view, Derive works out the derived sharpening's
 gains for the master on show (about half a minute) and seeds the six wavelet sliders with them; the GUI's planetary capture has the
 same button, its telescope taken from the profile.

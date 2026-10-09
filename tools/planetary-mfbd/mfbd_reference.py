@@ -1,6 +1,6 @@
 """
 Glue only (docs/plans/planetary-restoration.md, R8 follow-up 4 part 3, #1140): runs torchmfbd (Asensio Ramos, MIT) on the cube
-`tianwen planetary-lucky-frames` wrote, and writes its object and its PSFs back for `tianwen planetary-score`. Every number is read by
+`tianwen planetary lucky-frames` wrote, and writes its object and its PSFs back for `tianwen planetary score`. Every number is read by
 tianwen, never here: this file only moves arrays in and out of the outside tool.
 
 Run it from a venv that has torchmfbd beside the system's PyTorch (`python -m venv --system-site-packages`, then `pip install torchmfbd`):

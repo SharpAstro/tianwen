@@ -425,7 +425,7 @@ intrinsic to the format -- not SDK gaps:
    only the `Record` property (drive via `SetPropertyAsync`), not a record-and-stream method.
 
 **The legitimate use of a recorded movie is offline, through the *batch* stacker -- a separate feature, not
-Phase E.** The planetary engine's batch path (`LuckyImagingStacker`, CLI `tianwen planetary-stack`) ingests a
+Phase E.** The planetary engine's batch path (`LuckyImagingStacker`, CLI `tianwen planetary stack`) ingests a
 frame sequence offline via `IPlanetaryFrameStream`. A Canon-recorded MOV / MP4 -> decode frames -> a
 `MovieFrameStream : IPlanetaryFrameStream` -> the batch stack is real and worthwhile for a DSLR shooter (still
 H.264-hampered vs SER, but it is their reality). That is a **file-ingest** addition alongside the SER path, not

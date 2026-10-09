@@ -939,12 +939,12 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   a colour sensor's video frame is a 1-channel Bayer mosaic, and the stream layout derives from the
   ACTUAL frame, **NOT** the camera's `SensorType`; **no driver call crosses onto the render thread**
   (it stages, the capture loop drains + applies). Preview defaults to **linear** (`StretchMode.None`).
-- **The planetary corpus is read, never written** (`docs/plans/planetary-restoration.md`, R0): `planetary-survey`
+- **The planetary corpus is read, never written** (`docs/plans/planetary-restoration.md`, R0): `planetary survey`
   registers every capture into one manifest (a content id per capture, so a copy shows as a duplicate; a FITS folder
   only when its DATE-OBS span says VIDEO, at 5 fps or more, since a file count cannot tell it from deep-sky subs),
-  `planetary-convert` makes a video SharpCap saved one FITS a frame the SER it should have been (checked against the
+  `planetary convert` makes a video SharpCap saved one FITS a frame the SER it should have been (checked against the
   files' bytes and DATE-OBS text, which is how FITS.Lib's dropped millisecond zeros were found), and
-  `planetary-crop` cuts a window tracked on the disk that keeps EVERY frame (a PIPP crop does not), the Bayer phase (an
+  `planetary crop` cuts a window tracked on the disk that keeps EVERY frame (a PIPP crop does not), the Bayer phase (an
   even origin), each frame's origin, and the source's header and trailer BYTE FOR BYTE (`SerReader.CropTo`: a `SerWriter`
   copy writes a new header, which lost a capture's time zone), verified before it is kept. The originals stay (the
   user, 2026-09-29); a crop is a working copy on the SSD. Every write goes through `ScratchSpace`, which asks the drive
@@ -977,13 +977,13 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   dispersion is known). A sub-plane's photosite phase is taken out, and the two greens read zero when that is right. **A live
   view's colours are read ONCE, by its Derive** (`PlanetaryLiveLimb.Channels`), and every later master is moved by that reading
   before it is sharpened (`TryAlign`): a limb fit per colour costs seconds, and a master comes several times a second.
-- **Which telescope took a capture is read off its frames, one-sided** (R1, `tianwen planetary-aperture`): **a measured
+- **Which telescope took a capture is read off its frames, one-sided** (R1, `tianwen planetary aperture`): **a measured
   cutoff is only a LOWER bound** on the aperture, and **spikes say Newtonian, their absence says nothing** (a Blue read 2.4
   minutes after its Red read 18.3 through one Newtonian), least of all over a halo clipped at black. `Imaging/Optics` is R2's
   too: **a plain FFT screen is 28 % short of Kolmogorov** without subharmonics, and **a small render grid prints a four-fold
   halo** of its own.
 - **A synthetic capture is compared through `PlanetaryCaptureStatistics`, one routine for it and the real one** (R2, `tianwen
-  planetary-degrade`), and three things in it bite. **The disk's motion is the limb fit's** (single frames, `LimbSeeingRms`): the
+  planetary degrade`), and three things in it bite. **The disk's motion is the limb fit's** (single frames, `LimbSeeingRms`): the
   global aligner's shift carries its own error, larger than the seeing on 2022-09-03 (0.71 px of a 0.96 px reading). **An 8-bit
   sky's camera terms are fitted through the rounding, pixel by pixel** (`SkyByPixels`): its rounded mean is not its level, its
   spread is set by the mean alone, and a sky that slopes over the frame widens any pooled fit. **A statistic is read against its
@@ -995,9 +995,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   at 0.01) and the statistics read Saturn's sky and halo around its rings (`RingFootprint`).
 - **The planetary stack's defaults ARE the measured best, and today's recipe is one switch away** (the enhanced pipeline, #1159):
   `PlanetaryStackOptions` defaults to the gradient, plain correlation, clamped Lanczos-3 and a reference of the best 1,000 at half
-  the frames; `PlanetaryStackOptions.Legacy` and `planetary-stack --legacy` are the recipe before. **The rolling stack (live capture,
+  the frames; `PlanetaryStackOptions.Legacy` and `planetary stack --legacy` are the recipe before. **The rolling stack (live capture,
   the GUI's playback) takes the gradient and the plain correlation, never Lanczos-3** (`RollingWindowOptions`, `.Legacy` the recipe
-  before), measured as it runs by `tianwen planetary-live` through the node's own loop (`LiveStackLoop`): Lanczos-3 folded two fifths
+  before), measured as it runs by `tianwen planetary live` through the node's own loop (`LiveStackLoop`): Lanczos-3 folded two fifths
   as many frames a second, and at the defaults below it still falls behind (#1272: 82 and 80 % graded, over 1 s behind, most masters
   rebuilt, where the plain correlation grades 99 and 96 %), though its masters are sharper. **The rolling stack folds its best quarter and
   keeps its reference in place** (`RollingWindowOptions.KeepFraction` 0.25, `ReReferenceInPlace`, #1174; `.Legacy` folds every frame
@@ -1015,20 +1015,20 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   unasked only once the planet's turn moves its disk's middle a pixel (`PlanetaryDerotationOptions.MinimumTurnPx`,
   `PlanetaryStackResult.TurnPx`), its planet read off the capture's path (`PlanetaryCaptureName`); **whether the limb fit's north
   was right is incidental**, the run's quarters decide it (graded by the gradient, the fixture's limb fit had it upside down).
-- **A recorded capture's best stack is `PlanetaryBestStack`, ONE routine for `planetary-stack` and `tianwen-fits`' Best stack**
+- **A recorded capture's best stack is `PlanetaryBestStack`, ONE routine for `planetary stack` and `tianwen-fits`' Best stack**
   (Shift+K on a SER, #1159): the batch stack at its defaults, de-rotated by `DerotationFor`, sharpened by `Sharpen` (the fallbacks
   worded), both masters written under `OutputPaths`' names beside the capture; the telescope a profile gives through `PupilFor` (the
   owner's obstructions by design), the viewer's from its panel (`PlanetaryTelescopePersistence`) or the capture's own header (#1179). The GUI has no SER playback: its
   planetary stack is the live capture's rolling one. The planet and a mono capture's filter are the panel's choice or the name's
   (`PlanetaryCaptureName`), said before the run: a name that gave none left the sharpening the preset's, blurred and ringed. **A
   planetary master names its planet in `OBJECT` (`PlanetaryStackOptions.Planet`), and a frame whose `OBJECT` names a planet opens
-  in `StretchMode.Planetary`**, the stretch `planetary-stack`'s preview is rendered with (`StretchMode.ForFrame`, ONE rule for the
+  in `StretchMode.Planetary`**, the stretch `planetary stack`'s preview is rendered with (`StretchMode.ForFrame`, ONE rule for the
   viewer, the thumbnail and `tianwen view`): the deep-sky auto-stretch lifted a stack's 3e-5 sky thirty thousand times, and linear
   showed its 0.07-to-0.3 range as a dim disk on a grey sky. **The batch stack runs on every
   core and gives the same bits as one walk**: a fold in bands of OUTPUT rows (`ParallelFor.RunBands`, each pixel gathering into its own
   cell), each frame's own work in batches on aligner and matcher twins (`PlanetaryFrameBatches`), folded in the order given; never
   split a fold across FRAMES, whose sum is ordered (233 s to 55 s for 3,000 frames, byte-identical).
-- **A planetary master is sharpened by `PlanetarySharpening`, ONE routine for `planetary-stack`, `planetary-sharpen` and the live view's
+- **A planetary master is sharpened by `PlanetarySharpening`, ONE routine for `planetary stack`, `planetary sharpen` and the live view's
   Derive** (`PlanetaryBestStack.DeriveGains` seeds the wavelet dials through `WaveletDerivation`, ONE for the viewer's stacked view and
   the GUI's capture, and keeps the limb it fitted, `PlanetaryLiveLimb`, so every later master, whatever the dials, is drawn outside the
   limb as the batch draws it, through the batch's own window, `PlanetaryLimbWindow`: equal to it outside the limb on every twin and the real
@@ -1054,7 +1054,7 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   diffraction**: undoing the telescope too (`PlanetarySharpenTarget.Aperture`, `--target aperture`, #1366) is an option, never the
   default, since it divides by the edge's kernel where that kernel is a guess and lost on three twins of five, though it lands
   nearest the posts on real captures; score such an arm with `--score-against aperture`. **Read a gain set by its FILTER**
-  (`PlanetaryWaveletGains.Transfer`, printed by `planetary-sharpen`): a negative band 3 beside a large band 2 makes no dip, and the
+  (`PlanetaryWaveletGains.Transfer`, printed by `planetary sharpen`): a negative band 3 beside a large band 2 makes no dip, and the
   truth's own joint gains swing so too (#1251). The posts sit at about 1.5 to 2.5; the panel's
   `PlanetaryStrength` is never saved, so a launch starts at the truth. **One Derive fits every stop**
   (`PlanetarySharpening.StrengthStops`, `DerivedGains.GainsAt`, #1314), each bit for bit a derivation's at that strength, so a stop
@@ -1082,7 +1082,7 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   diffraction, and a saturation mixes the channels; the live view's Derive keeps the same balance with its limb and every master it draws takes
   it last, `PlanetaryLiveLimb.Balance`). **Its saturation is 1 by default and 1.4 an option** (the owner, 2026-10-06; `EyeSaturation`,
   `--colour-saturation`): shown, 1.4 moved each pixel 0.002 to 0.003 in OKLab, a tenth of what the eye tells, and the camera's own matrix
-  (`planetary-colour --camera`, `PlanetaryColourBalance.GainsThrough`, #1279 rule E) lifts the chroma 1.45 to 1.52 times as invisibly; Jupiter's
+  (`planetary colour --camera`, `PlanetaryColourBalance.GainsThrough`, #1279 rule E) lifts the chroma 1.45 to 1.52 times as invisibly; Jupiter's
   true colour is that pale, and what is SEEN is the look (#1273, #1277). **A camera matrix from spectral curves is a least-squares FIT onto the CIE functions**
   (`CameraColorMatrix.ComputeCamXyz`, through their Gram inverse), never the curves' projections, which read red as green (a 5D Mark II's red
   row came out 11.99 and -12.07 against dcraw's measured 2.07 and -1.32; pinned against dcraw in `CameraColorMatrixTests`). **Saturn's globe is read where its rings leave it clear** (S6, #1235; `MetricDisk.RingTouched`, the rings
@@ -1092,12 +1092,12 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   black point a channel rendered it navy; an unbalanced one keeps a black point a channel. **A master's colour is compared with a post
   AS SHOWN, never by its linear planes** (`PlanetaryReferenceJudge.ReadShown`, #1273): the preview's mid-tone lift bends each channel
   before the sRGB curve, so a master is shown at 1.7 to 2 times the chroma its planes read, and a study read linear against shown was void
-  for it. **A colour look is a RENDERING, never a master** (`PlanetaryColourLook`, `tianwen planetary-look`): a curve on each pixel's OKLab
+  for it. **A colour look is a RENDERING, never a master** (`PlanetaryColourLook`, `tianwen planetary look`): a curve on each pixel's OKLab
   chroma about GREY, its hue kept (about the planet's mean it pushed every zone and ring past grey to blue); `ColourLook.Boosted` is the
   owner's S-curve by eye, a taste four posts share (built from three, it met the fourth within 25 % on three captures of four);
   `ColourLook.Posted` moves each pixel about the PLANET's own colour (C2, a (spread, mean) per planet, resolved by `For(planet)`, #1305),
   **fitted through the routine that ships**: ported from a fit read as shown it missed a post by 26 %, since the look works linear. The
-  linear masters are what is processed further; in the viewer it is the tone popover's choice (#1277), a looked COPY swapped in for a master on show and back, never the file, made by `PlanetaryColourLook.Prepare` / `OnMaster`, the one routine `planetary-look` runs. **Every twin is sampled coarser than its optics resolve**
+  linear masters are what is processed further; in the viewer it is the tone popover's choice (#1277), a looked COPY swapped in for a master on show and back, never the file, made by `PlanetaryColourLook.Prepare` / `OnMaster`, the one routine `planetary look` runs. **Every twin is sampled coarser than its optics resolve**
   (the pupil's cutoff `p / (lambda N)` past Nyquist, 0.61 to 0.94 cycles a pixel; `PlanetarySharpenResult.Cutoffs` reports it), while the
   outside captures are sampled finer (0.23 to 0.53): anything acting near the cutoff is unread on those twins (#1279), and `--finish cutoff`
   (the low-pass there) stays an option: on the one oversampled twin (#1281) it took 12 % of red's band error and 2 to 4 % of green's and
@@ -1105,7 +1105,7 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   0.93 of the real's single-frame edge width at 2,600. **The derived gains are already a Wiener**, so a
   finish that shrinks the noise again (`--finish wiener`) or moves their strength to where the stack has contrast (`--finish adaptive`) made
   every twin worse (#1279). **Nor does shrinking each band against the master's own noise before them pay** (#1313, `--shrink`, an option:
-  within 0.3 % on the twins, less shared detail on the real captures): a master's two halves (`planetary-stack --halves`) read its noise
+  within 0.3 % on the twins, less shared detail on the real captures): a master's two halves (`planetary stack --halves`) read its noise
   band by band, and every master read holds at least 6 times its noise from band 2 up, so a shrink takes detail, not noise. **Nor does
   reading the Wiener target's noise off those halves, ring by ring** (#1373, `PlanetarySharpenOptions.NoiseHalves`, `--noise halves`, an
   option), though a demosaiced plane's noise is not white: it closed a ninth of the colour twins' gap to their own best gains and cost the
@@ -1120,23 +1120,23 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   the limb channel read truest on the twins and rang out to 1.3 radii on 2022-09-03 Red. `LimbRebound` reads a ring above the sky but
   not a soft limb, so it failed R3's rule; a dark trough at the limb is left (#1171). **The edge reads its own noise floor where the seeing passes little at 0.3 cycles a pixel**, so judge it on
   a core-and-halo kernel, never a single Gaussian.
-- **A stack is scored through `PlanetaryMetrics` and `tianwen planetary-measure`** (R3), and **a truth-free metric judges a real
+- **A stack is scored through `PlanetaryMetrics` and `tianwen planetary measure`** (R3), and **a truth-free metric judges a real
   capture only once it ranks candidate stacks as its truth-based twin does on a synthetic one** (Spearman at least 0.8). The limb's
   undershoot does (+0.95); the two halves' agreement does not (it sees noise, never a per-band gain or the blur), and waits on R7's
-  measured PSF. **A real capture is judged against its own `_stack`/`_post` through `tianwen planetary-judge`** (`PlanetaryReferenceJudge`,
+  measured PSF. **A real capture is judged against its own `_stack`/`_post` through `tianwen planetary judge`** (`PlanetaryReferenceJudge`,
   #1250), never by a display picture's raw values: the reference is placed (scale, turn, mirror) on each plane's detail equalised by rank and
   band-passed at matched PHYSICAL scales, clear of the limb, then tone-matched by histogram before any band is read.
-- **A frame's quality is read in the MID bands, never the finest, and `tianwen planetary-grade` measures an estimator** (R4). At
+- **A frame's quality is read in the MID bands, never the finest, and `tianwen planetary grade` measures an estimator** (R4). At
   8 bits a frame's finest scale is its noise: the Laplacian (the stack's default until #1159) ranks the twin's frames at +0.19 against their
   true transfer, its score is white from frame to frame (lag 1 0.01, the real capture 0.08) where the seeing is coherent, and its
   selection stacks no better than none. The gradient, `FftHighBandEstimator` at 0.06 to 0.12 cycles a pixel and the **reference
   gain** (a frame's least-squares gain per a trous band on the stack of every frame, noise-unbiased) rank at +0.87 to +0.99. **Never
   judge a quality statistic read by the Laplacian**: R2's quality spread and lag 1 were noise. **Register onto a truth with
   `CorrelationRegistrar`** (not whitened, peak climbed by Newton's method), never a phase correlation, which follows the noise.
-  **A keep is chosen where it is used, after the sharpening** (#1083, `planetary-keeps`): a raw stack's best band 1 keep is 5 to 10 %,
+  **A keep is chosen where it is used, after the sharpening** (#1083, `planetary keeps`): a raw stack's best band 1 keep is 5 to 10 %,
   a sharpened one's about half the frames (through the limb's edge a third less error on every twin). Per-frequency selection gains
   little once restored, and Fourier burst accumulation's weights read each frame's own noise, so a Wiener on their transfer over-restores.
-- **A twin's blur varies over the disk only with a layer at an altitude** (#1071, `planetary-degrade --high-r0`, `PlanetaryDegrade.Layered`):
+- **A twin's blur varies over the disk only with a layer at an altitude** (#1071, `planetary degrade --high-r0`, `PlanetaryDegrade.Layered`):
   each field point's PSF splits into its tilt (the warp) and its tilt-removed blur, blended by tents; without the layer every frame is made
   byte for byte as before. **A real capture's coherent quality needs the still layer to renew in place** (`--local-renew-ms`, about 200 ms):
   no wind at the pupil gives the real capture's band 2 lag 10 (0.35).
@@ -1145,15 +1145,15 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   `CaptureStatisticsOptions.WhitenedCorrelation` switch the global aligner and the alignment points (the stack plain by default
   since #1159; the statistics, R2's calibration, still whitened). **A warp statistic read whitened is the matching's noise** (1 px injected moved it 0.04): read it with
   `--plain-correlation`, and with the one alignment-point default both verbs take (`CaptureStatisticsOptions.DefaultAlignmentPatchSize`).
-- **A dewarp is judged against the TRUE warp, at the mesh the stack applies, never at the points alone** (R5 part 2): `planetary-degrade`
-  writes `<capture>.warp`, `tianwen planetary-dewarp` scores against it. On 2022-09-03 the points read 11 to 19 % of the warp and
+- **A dewarp is judged against the TRUE warp, at the mesh the stack applies, never at the points alone** (R5 part 2): `planetary degrade`
+  writes `<capture>.warp`, `tianwen planetary dewarp` scores against it. On 2022-09-03 the points read 11 to 19 % of the warp and
   the mesh (48 px reach) applies 0 to 3 %, so the stacks never moved; pooling (`WarpPoolFrames`) and the median geometry
   (`MedianGeometry`) change neither. A warp that varies over less than a patch cannot be followed by that patch.
 - **A stack's resampling kernel is its own blur, and a correlation's peak is CLIMBED** (R5 part 3). Bilinear at sub-pixel phases
   spread evenly averages to its triangle, sinc^2 an axis in transfer (0.81 at 0.25 cycles a pixel): `PlanetaryStackOptions.Interpolation`
   (Lanczos-3 lifts band 1 10 to 12 %; it and a stacked reference are the defaults since #1159), pinned by `PlanetaryResamplingTests`. A disk's correlation peaks in a
   cone, and a parabola through it locked frames 0.2 px off along the belts, so the unwhitened path climbs the Fourier-interpolated
-  surface (`PhaseCorrelation.ClimbPeak`, the one climb; never a second). **The three-cornered hat (`tianwen planetary-registration`)
+  surface (`PhaseCorrelation.ClimbPeak`, the one climb; never a second). **The three-cornered hat (`tianwen planetary registration`)
   credits two estimators that share an error with too little, SILENTLY**: rank registrations with no truth only in a triple the
   twin's recorded motion clears (a limb fit and AutoStakkert's track both read the outline). The literature behind all of R4 to
   R9: `docs/architecture/planetary-literature.md`.
@@ -1186,15 +1186,15 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   onto the reference's grid. **A capture's span is its frames' earliest and latest TIMES, never its first and last frames** (#1292,
   `CaptureSpan`): PIPP writes a capture sorted by quality, whose first frame was taken mid-run, and every epoch, quarter, turn and DATE-OBS
   reads the span; a de-rotation whose north the run cannot tell is not done (`NorthUnread`). **A long run saved as many files is
-  one SESSION** (`PlanetaryCorpus.Sessions`: one folder, frame size and colour, each file within 10 minutes of the last; `planetary-stack
+  one SESSION** (`PlanetaryCorpus.Sessions`: one folder, frame size and colour, each file within 10 minutes of the last; `planetary stack
   --session`, `--epoch`, #1308): stacked as one run carried to its middle, 2022-09-29's 46 minutes had 5 to 6 times less noise than one file
   and kept all of its detail. **A mono chain is split by the filter its file names say AFTER it is chained** (#1336): a filter wheel keeps
   every filter in one folder, so a chain of every file mixed red, green and blue, and a filter's own files lie further apart than the gap.
   **A file stacked as part of a session takes the session's north** (#1347; `PlanetaryDerotationOptions.North`,
-  `LuckyImagingStacker.ReadNorthAsync`, `planetary-stack --session NAME --each-file`): read once from the session's first and last files,
+  `LuckyImagingStacker.ReadNorthAsync`, `planetary stack --session NAME --each-file`): read once from the session's first and last files,
   hours apart, where one file's own quarters, minutes apart, can tie on a bland globe (one Saturn file of 30 read it turned over, 0.02008
   against 0.02009). A given north keeps the limb fit's axis and takes, of its two ways round, the one nearer it.
-  **A keep sweep grades a capture file once** (`planetary-stack --grade-cache DIR`, `FrameGradeCache`, #1351): what is each frame's OWN
+  **A keep sweep grades a capture file once** (`planetary stack --grade-cache DIR`, `FrameGradeCache`, #1351): what is each frame's OWN
   (its score, a cut planet, its elongation, its brightness) is kept per file, keyed by the file's path, size and time, the estimator's
   `CacheKey` and the layout and region; what depends on the run (smeared, dim, the cut frames dropped) is decided again, so a session reads its
   files' grades. A second arm on a 70,000-frame session skipped 101 s of its 448 and gave the same master bit for bit. **A new estimator owes
@@ -1212,7 +1212,7 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   Shifting the window undoes the shrink and lifts the noise more; a gain on the readings leaves less warp at the points and a worse
   stack (`PlanetaryStackOptions.MeshGain` stays one). **Dense points pay instead** (16 px patches 4 px apart: band 1's error 0.020 to
   0.042 under a global stack on two twins, adoption #1195), and **`MaxAlignmentPoints` (64) caps any grid silently**, which hid it.
-  **Judge a point estimator against its Cramer-Rao bound** (#1082, `AlignmentPointMatcher.Bound`, `planetary-dewarp`): plain sits 4.6
+  **Judge a point estimator against its Cramer-Rao bound** (#1082, `AlignmentPointMatcher.Bound`, `planetary dewarp`): plain sits 4.6
   to 11 times it on the twins; the maximum-likelihood weight IS plain against a stacked reference (identical readings); Loefdahl's
   square difference (`PlanetaryPointEstimator.SquareDifference`) reads the shift unshrunk and reaches the bound on a clean rigid shift,
   but scatters a pixel on a twin (#1207), and beats plain only on the dense grid, so it goes with #1195 or not at all.
@@ -1229,77 +1229,77 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   (`PlanetaryDrizzleOptions.DefaultPixfrac`, 4.01 and 4.41 against the demosaic's 4.24 and 4.59). Read those margins against the
   derived gains' own swing: every drop's unsharpened stack is within 0.4 % of a whole photosite's, while the finest-band edge reading
   the gains are fitted through moves 0.01 to 0.12 between them and one drop's error 17 %. Drizzle does not remove the CFA lattice; the
-  gain did, by lifting it. **A luminance from the drizzle's planes in the demosaic's colours is a verb, not the default** (`planetary-compose
+  gain did, by lifting it. **A luminance from the drizzle's planes in the demosaic's colours is a verb, not the default** (`planetary compose
   luminance` then `lrgb`, #1330): on the twins its mono sharpening lifted the CFA residue 28 times near Nyquist (0.02 to 0.56 %) and red took
   green's detail; on the real captures its lattice was half to a twentieth of the demosaic's, and its detail against the posts did not beat it.
 - **A planet is de-rotated through the spheroid, as ALBEDO, and only from sources inside 0.9 radii** (R6, `PlanetaryDerotation`,
   `PlanetaryProjection`, which the render shares): the limb darkening and the Sun's lighting belong to the viewing geometry, so each
   sample is relit by Minnaert's law (carried as brightness, 46 % of a rendered rotation went, as albedo 99.3 %), and nearer the limb a
   stack is its blurred edge, which a relight blew to 195 times its peak. **North comes from agreement, never the limb fit alone**: two
-  stacks' (`planetary-derotate`), or a run's first and last quarters inside the stacker, or two stacks of ONE filter in a compose, all
+  stacks' (`planetary derotate`), or a run's first and last quarters inside the stacker, or two stacks of ONE filter in a compose, all
   through `PlanetaryDerotation.AgreementBothWays`; turned over, the planet turns backwards. **A mono camera's stacks are composed by
-  `PlanetaryComposition`** (`planetary-compose` and its step verbs, #1278): each moved onto the reference's disk by its own limb fit
+  `PlanetaryComposition`** (`planetary compose` and its step verbs, #1278): each moved onto the reference's disk by its own limb fit
   FIRST, then de-rotated on that shared disk, since a de-rotation turns only what lies inside 0.9 radii and leaves the limb and the
   rings where they were. Its IR luminance is an option (`--lrgb`), never the default: IR blurs a thin ring feature more than blue does.
   **Each frame is carried inside the stacker** (`PlanetaryStackOptions.Derotation`, part 2): its field beneath the registration in the
   mesh, registered against the reference turned to its own instant, the disk fitted on a STACK of the best frames (one 8-bit frame's
   north scattered 8 degrees). **Two stacks of one camera are moved onto each other with ONE north**: each its own turned the image by
   the fits' difference, 2.9 degrees, which alone read as a de-rotation worse than none. **A night's zonal drift is below what two
-  stacks of that night agree on** (part 3, `planetary-drift`): stacks of different frames differ in local geometry by about half a
+  stacks of that night agree on** (part 3, `planetary drift`): stacks of different frames differ in local geometry by about half a
   pixel (0.2 at one instant), both colours alike, more than a jet moves in any run here, and a red-green floor cannot see an
-  achromatic error. A belt's latitude is right to half a degree (`planetary-belts`); no wind is read from one night.
-- **The spectral ratio (R7 part 1, `planetary-spectral-ratio`) cancels a static CONVOLUTION, never a static phase**: the telescope's
+  achromatic error. A belt's latitude is right to half a degree (`planetary belts`); no wind is read from one night.
+- **The spectral ratio (R7 part 1, `planetary spectral-ratio`) cancels a static CONVOLUTION, never a static phase**: the telescope's
   still layer adds to the air's phase before the PSF forms, so read as free air alone it put the calibrated twin's 8.5 cm at 5.71.
   **An 8-bit sky's noise is its pixels' own spread from frame to frame**, never the camera model's rounding twelfth (a sky that rounds
   to one value nine times in ten spreads half as much, and took the ratio over one). And a warp the registration leaves cannot be
   told from the seeing over the band an 8-bit capture's noise leaves (to about 0.12 cycles a pixel).
-- **A stack's blur is its lucky frames' own** (R7 part 2, `planetary-blur`): the frames ranked 1 to 5 % add 0.33 to 0.43 px of
+- **A stack's blur is its lucky frames' own** (R7 part 2, `planetary blur`): the frames ranked 1 to 5 % add 0.33 to 0.43 px of
   equivalent Gaussian to the best 1 %. **The limb fit's kernel is not the stack's in the finest bands**: its halo sits at the
   two-Gaussian model's bound (49.9 %) on every capture measured and it reads bands 1 and 2 at 0.61 to 0.83 of the true transfer,
   so it is never an inverse's kernel as fitted. **A limb kernel is the TOTAL blur, the telescope's diffraction included** (part 3): it
   is fitted against a sharp disk, while a twin's truth is rendered through the diffraction limit, so set it against the scene rendered
-  WITHOUT diffraction (`planetary-blur --map`), never against the truth; there it holds within 6 % in bands 2 to 4. **An inverse
-  with it lands as far past the truth as the kernel is too wide** (part 4, `planetary-inverse`, the kernel over the pupil's own
+  WITHOUT diffraction (`planetary blur --map`), never against the truth; there it holds within 6 % in bands 2 to 4. **An inverse
+  with it lands as far past the truth as the kernel is too wide** (part 4, `planetary inverse`, the kernel over the pupil's own
   diffraction): Richardson-Lucy restores bands 2 to 4 about 4 % past the truth with 7.6 times the oracle's undershoot, and band 1's
   kernel is the model's tail, not a measurement (0.05 to 0.19 at 0.3 cycles a pixel against a true 0.28; #1120).
-- **A per-band gain is fitted JOINTLY over the a trous bands, never one band at a time** (R8 part 1, `planetary-ceilings`, on the
-  twins' per-frame PSFs from `planetary-degrade --psf-truth`): the bands overlap in frequency, and band by band the gains left 40 %
+- **A per-band gain is fitted JOINTLY over the a trous bands, never one band at a time** (R8 part 1, `planetary ceilings`, on the
+  twins' per-frame PSFs from `planetary degrade --psf-truth`): the bands overlap in frequency, and band by band the gains left 40 %
   more error than the best isotropic filter on the calibrated twin, jointly 4 %. An exact 2-D kernel is worth 13 to 21 % beyond that
   filter, and weighting each frame per frequency only 2 to 4 % on the kept frames.
-  **An inverse set to one band 3 is judged by what its knob does to the OTHER bands** (part 2, `planetary-inverses`): one noise scale
+  **An inverse set to one band 3 is judged by what its knob does to the OTHER bands** (part 2, `planetary inverses`): one noise scale
   on a power-law prior, holding band 3 down against a kernel about 5 % too blurred there, cut band 1 until the Wiener did worse than the
   stack it restored, while Richardson-Lucy's count lifted every band together. Its sky held at zero is what keeps Richardson-Lucy and
   L1-L2 out of the limb's trough, and that trough is (b')'s r^-3 wing more than any gain's ringing: a single Gaussian rang less.
-  **Wavelet gains derived from the blur and the noise are only as good as the kernel's finest bands** (part 3, `planetary-gains`,
+  **Wavelet gains derived from the blur and the noise are only as good as the kernel's finest bands** (part 3, `planetary gains`,
   `PlanetaryWaveletGains`): with a twin's true kernel they come within 3 to 11 % of the per-band ceiling, with the limb's they put 11 to
   19 on the finest layer, whose transfer is the model's tail (#1120). A gain fit also needs the planet's DISK as a term of its own
   (the limb fit's sharp model through the kernel): no spectrum of the interior sees the limb, and without it the gains oscillate.
-  **A ring below the sky is a composite kernel's negative lobe, and two things make one** (follow-up 1, `planetary-ringing`): a band lifted
+  **A ring below the sky is a composite kernel's negative lobe, and two things make one** (follow-up 1, `planetary ringing`): a band lifted
   past the truth (every linear filter that did, rang) and a steep cut (a hard-regularised Wiener rang with no band above 1.013). So hold
   the COMPOSITE non-negative, never just the transfer under one; a floor at the sky stops both. Read a composite through a twin's true
   kernel: through a transfer measured against the truth, its noise sets the negative mass (the stack's own blur read 0.88).
-  **Sharpen the limb as its own channel** (follow-up 2, `planetary-dering`, `PlanetaryDering.LimbChannel`): take the limb fit's model
+  **Sharpen the limb as its own channel** (follow-up 2, `planetary dering`, `PlanetaryDering.LimbChannel`): take the limb fit's model
   through the kernel out, sharpen the residual, put the model back through the diffraction alone. The presets' ring fell under 0.015 of
   the disk and their limb profile became 11 to 64 times truer; feathering the gains at the limb removes the ring but not the rind.
-- **The finest band is read off the limb's EDGE, never the limb fit's kernel** (R8 follow-up 3, `planetary-finest-band`,
+- **The finest band is read off the limb's EDGE, never the limb fit's kernel** (R8 follow-up 3, `planetary finest-band`,
   `PlanetaryFinestBand`): bin the stack by distance from the limb fit's outline at a tenth of a pixel, 16 px either side, the belts
   flattened by the zonal brightness, and divide its line spread's transform by the sharp model's through the diffraction. It reads 0.3
   cycles a pixel within 0.011 of a twin's oracle where the kernel said a fifth of it; check it on the truth's own edge first (a warped
   stack's limb fit fails that). Another year's spectrum is no object below 0.2 cycles a pixel: the belts change by a third.
   R8's gains through the edge improve a stack (0.92 against 1.415) where the kernel's doubled its error, but miss the true kernel's by a
   quarter to two fifths: band 1 runs to 0.5 cycles a pixel and the edge is noise past about 0.3 (step 4, #1140, is the kernel there).
-- **A moon read is the kernel's SHAPE and DIRECTIONS, never its level** (R8 follow-up 4, `planetary-finest-band --moons`,
+- **A moon read is the kernel's SHAPE and DIRECTIONS, never its level** (R8 follow-up 4, `planetary finest-band --moons`,
   `PlanetaryMoonProbe`, `GalileanMoons`): its model is analytic in frequency (a disk drawn in pixels and moved by a phase read a blur 4 %
   high), and its normalisation is the light in its square, which a halo leaves (the twins' square held 66 to 83 % of the moon), so it
   read every twin's oracle too high; a wider square lands its rim on the planet's glow. Three moons at three distances read the
   registration's tilt anisoplanatism on a real capture, so a moon bounds the disk's kernel, never gives it. Every stack's kernel is wider
   along the planet's EQUATOR (only the limb places a frame along the belts): read a kernel in sectors before calling it round. But
-  that anisotropy is not measurable off the limb (part 2, `planetary-elongated`): the POLAR limb is a poor edge (darker, past the zonal
+  that anisotropy is not measurable off the limb (part 2, `planetary elongated`): the POLAR limb is a poor edge (darker, past the zonal
   profile's reach), and an oracle read along the equator is starved of the planet's power past 0.4 cycles a pixel, so never trust a 2-D
-  oracle interpolated from it. A blind multi-frame deconvolution (torchmfbd, run as a reference through `planetary-lucky-frames` and
-  `planetary-score`, part 3) leaves its PSFs at the diffraction limit on these undersampled 8-bit frames: the kernel past 0.3 cycles a
+  oracle interpolated from it. A blind multi-frame deconvolution (torchmfbd, run as a reference through `planetary lucky-frames` and
+  `planetary score`, part 3) leaves its PSFs at the diffraction limit on these undersampled 8-bit frames: the kernel past 0.3 cycles a
   pixel is unmeasured on a real capture, and the one probe left is a defocused burst on a night (#1155).
-- **A ghost is taken out as what is NOT ROUND, never as a fitted copy's strength** (R7a, `planetary-ghost`, `PlanetaryGhost`): no round glow
+- **A ghost is taken out as what is NOT ROUND, never as a fitted copy's strength** (R7a, `planetary ghost`, `PlanetaryGhost`): no round glow
   tells a copy's round part from scatter, so read and remove the copy's non-round part (`PlanetaryGhost.Shell`), from where the planet's own
   blurred limb has died away (8 px past the 2 % edge), with the moons out of the copy and out of every read. A non-round read about that edge
   is biased by whatever moves it: judge a removal against the plane before the ghost through the SAME source. The 2022 shell is a smear
@@ -1329,7 +1329,7 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   the loop converts and queues, a writer task of its own does the disk, and a frame the disk cannot take is dropped
   and counted. It finishes its duration unwatched. **It says what it was taken of and through** (#1179): its name is the planet
   the mount points at and the filter in the beam (`PlanetaryCaptureName.RecordingFileName`, `PointedAt`), its SER header the camera
-  and the OTA's telescope (`TelescopeField`), which the viewer's Best stack and `planetary-stack` read back.
+  and the OTA's telescope (`TelescopeField`), which the viewer's Best stack and `planetary stack` read back.
   It claims only the camera, so **a recenter nudge asks `DeviceOwnershipGate` over the mount first**.
 
 ### AI Image Enhancement: RC-Astro (CLI) + TianWen's own models (ONNX)

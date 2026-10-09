@@ -659,7 +659,7 @@ The processing side of such a night is the restoration plan's: each file stacked
 - **A stream's controls are the ones set when it starts** (the DAL's video contract). Between steps the run stops the stream, moves
   the wheel, sets the controls and restarts, then drops the first frames after the change before it records.
 - **Each step is one `SerRecording`**, named by `PlanetaryCaptureName.RecordingFileName` (planet, filter, time) into one folder per
-  run. The survey then reads the run as one session per filter (#1336), and `planetary-compose` takes the stacks as they are.
+  run. The survey then reads the run as one session per filter (#1336), and `planetary compose` takes the stacks as they are.
 - **How long a step lasts is the planet's turn.** The stacker de-rotates a file only once the turn moves the disk's middle a pixel,
   and it reads north from the file's own quarters, which a bland globe cannot tell apart: on 11:34 Red the two ways read 0.01585 and
   0.01589. A file kept under that turn needs no north at all, and files far apart in time get theirs at compose, from two stacks of
@@ -706,7 +706,7 @@ contrast the planet shows that night.
   sequence's filter change then applies.
 - **A refocus step** in the sequence: every K sets, or when the readout's trend falls below the set's start.
 
-**Validated before it is used**, by a rule written first: on twins at a known defocus (`planetary-degrade --defocus-nm`) and on the
+**Validated before it is used**, by a rule written first: on twins at a known defocus (`planetary degrade --defocus-nm`) and on the
 fake camera's defocus (#818), the fitted peak lies within one step's depth of focus of zero defocus, and the reading falls
 monotonically with defocus across the range swept. The same rule picks between the gradient and the FFT band score, and the band.
 **Needs** native video (#813): at a single-exposure loop's rate one burst takes minutes.
@@ -721,6 +721,6 @@ temperature, the filter, the mount's position, the capture's start, middle and e
 SER header (camera, telescope) and the name (planet, filter, #1179), and nothing else.
 
 - Write the settings beside each recording in a key=value form the survey's reader already takes.
-- `planetary-stack` carries the exposure and gain into the master's header, so a compose can say why two stacks' levels differ
+- `planetary stack` carries the exposure and gain into the master's header, so a compose can say why two stacks' levels differ
   (#1337).
 - **Done when** a recording on the fake camera round-trips its settings through the survey.

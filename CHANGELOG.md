@@ -31,6 +31,17 @@ stay, their dates stay verifiable, and `git log v3.6.493..v4.0.564` answers the 
 always did. Hashes quoted in the docs from before the migration were re-pointed the same way. Any
 other commit hash from before 2026-04-22 no longer resolves anywhere.
 
+## 10.0
+
+Breaking, so a major. Every planetary CLI verb moves under one `planetary` group command:
+`tianwen planetary stack`, not `tianwen planetary-stack` (#1276). The 39 dashed top-level
+`planetary-*` names are gone, with no alias and no shim. A multi-word verb keeps its dash
+INSIDE the group (`planetary render-truth`, `planetary spectral-ratio`, `planetary limb-sectors`,
+`planetary finest-band`, `planetary lucky-frames`, `planetary derotate-run`), the same rule the
+`image`, `dataset`, `node` and `profile` groups already followed; now one naming rule holds
+everywhere, a space between group and verb, a dash only within a name. A script or alias that
+invoked a dashed `planetary-*` verb needs the space in its place.
+
 ## 9.0
 
 Breaking, so a major. The ZWO and QHYCCD drivers move to a package of their own, the geometry types

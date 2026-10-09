@@ -10,7 +10,7 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// <c>planetary-look --fits</c> over a master left in the camera's colours (the audit on #1343): the look balances the master first, and its
+/// <c>planetary look --fits</c> over a master left in the camera's colours (the audit on #1343): the look balances the master first, and its
 /// FITS must say so, or it reads back as unbalanced and its stretch takes a black point a channel (#1229).
 /// </summary>
 public sealed class PlanetaryLookFitsTests : IDisposable

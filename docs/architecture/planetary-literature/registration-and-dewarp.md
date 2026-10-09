@@ -313,7 +313,7 @@ For TianWen's planetary restoration plan, phases R5 (alignment and dewarp) and R
 
 ## 9. Ranked: the three approaches most worth measuring next
 
-A zero-cost **diagnostic first** (P0), on the calibrated twin, with the existing `planetary-dewarp` readings: split every point's error against truth into (a) its time mean over the capture (common-mode) and (b) the frame-to-frame remainder, and regress measured on window-averaged true shift (slope and scatter). If (a) dominates, rank 2 below becomes rank 1. If the slope is well below the window-averaging prediction, add Scarano-style iteration to rank 3.
+A zero-cost **diagnostic first** (P0), on the calibrated twin, with the existing `planetary dewarp` readings: split every point's error against truth into (a) its time mean over the capture (common-mode) and (b) the frame-to-frame remainder, and regress measured on window-averaged true shift (slope and scatter). If (a) dominates, rank 2 below becomes rank 1. If the slope is well below the window-averaging prediction, add Scarano-style iteration to rank 3.
 
 1. **Dense points with a statistically matched interpolator (P2).** Literature: Hardie 2021 (the model that predicts the loss), Zhu and Milanfar 2013 and torchmfbd 2025 (dense fields with smoothness), TMFS 2026 (a warp prior shaped by its own PSD), Shimizu 2008 (information-weighted shrinkage), the DST ladder (spacing down to the correlation length).
    - *Test:* 16 px patches 4 px apart, applied field on 4 px nodes; (i) the existing Gaussian blend with `--mesh-influence 4` instead of 12 or 48; (ii) kriging with the twin's known warp covariance and the measured point error variance (a linear solve per frame, or a Wiener filter in the Fourier domain on the node grid).
@@ -388,7 +388,7 @@ A zero-cost **diagnostic first** (P0), on the calibrated twin, with the existing
 
 - **Warp model:** isotropic Gaussian covariance σ_w^2 exp(-r^2 / (2 ℓ^2)) with σ_w = 0.6 px per axis. The calibrated twin's correlation of +0.05 at 9 px implies ℓ ≈ 9 / sqrt(6) ≈ 3.7 px, so I used ℓ = 4 and 5 px (7 px as an optimistic bound). The twin's exact covariance should replace this.
 - **Point model:** each point measures the box average of the warp over a W x W window, with Gaussian error σ_e = 0.35 px x (16 / W) (the Cramér-Rao 1/W scaling for uniform texture from the measured 16 px figure), errors of overlapping windows correlated in proportion to their overlap, and a noise-free reference on the true (mean) geometry. Single frame, no temporal pooling. A second run used 0.25 px at 16 px (the "stacked reference" case).
-- **Metric:** RMS reduction over every pixel of a central 12 x 12 px region (the applied field, like `planetary-dewarp`'s mesh sampled every 4 px), 1 - sqrt(residual variance / σ_w^2).
+- **Metric:** RMS reduction over every pixel of a central 12 x 12 px region (the applied field, like `planetary dewarp`'s mesh sampled every 4 px), 1 - sqrt(residual variance / σ_w^2).
 - **Estimators compared:** the present Gaussian blend (Nadaraya-Watson weights exp(-d^2 / (2 reach^2)), normalised with the 0.25 regularisation in the denominator, evaluated at each pixel, no node grid), and the MMSE linear estimate (kriging).
 
 | ℓ | error at 16 px | Grid (window, spacing) | Blend, reach 48 | Blend, reach 12 | Blend, reach 4 | Kriging |
