@@ -69,7 +69,7 @@ public class MasterPreviewMaskedBoostTests
     public void Saturation_boosts_signal_protects_background_and_highlights()
     {
         var rgba = SyntheticStretchedRgba();
-        var before = (ushort[])rgba.Clone();
+        ushort[] before = [.. rgba];
 
         MasterPreviewRenderer.ApplyMaskedBoost(rgba, channelCount: 3, W, H,
             new ImageMeta { SensorType = SensorType.Color },

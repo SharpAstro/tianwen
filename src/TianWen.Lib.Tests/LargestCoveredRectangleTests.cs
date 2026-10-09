@@ -236,7 +236,7 @@ namespace TianWen.Lib.Tests
         public void AFrameWithNoNaNIsNotTouched()
         {
             var image = Frame(["####", "####"]);
-            var before = (float[,]) image.GetChannelArray(0).Clone();
+            var before = image.GetChannelArray(0).Copy();
 
             image.FillInteriorHolesInPlace().ShouldBe(0);
 

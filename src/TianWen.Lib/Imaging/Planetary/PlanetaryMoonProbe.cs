@@ -297,7 +297,8 @@ public static class PlanetaryMoonProbe
     // The correlation surface's highest sample within `reach` of the origin, as a start for the climb.
     private static (double X, double Y)? Peak(Complex[] cross, int grid, int reach)
     {
-        var surface = (Complex[])cross.Clone();
+        // The caller climbs the spectrum afterwards, so the transform runs on a copy.
+        Complex[] surface = [.. cross];
         Fft2D.Inverse(surface, grid, grid);
         (double X, double Y)? best = null;
         var top = double.NegativeInfinity;

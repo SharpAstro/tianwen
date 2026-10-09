@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Immutable;
-using System.Runtime.InteropServices;
 
 namespace TianWen.Lib.Imaging.Degradation
 {
@@ -294,6 +293,6 @@ namespace TianWen.Lib.Imaging.Degradation
         }
 
         /// <summary>The weights as an immutable array, for a caller that wants to keep or compare one.</summary>
-        public ImmutableArray<float> ToImmutable() => ImmutableCollectionsMarshal.AsImmutableArray((float[])_weights.Clone());
+        public ImmutableArray<float> ToImmutable() => [.. _weights];
     }
 }

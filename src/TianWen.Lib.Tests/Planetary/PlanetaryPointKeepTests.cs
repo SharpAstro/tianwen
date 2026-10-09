@@ -39,10 +39,11 @@ public class PlanetaryPointKeepTests
     // A 3x3 box blur, `passes` times, over the columns from `x0` to `x1` only.
     private static float[,] BlurColumns(float[,] src, int x0, int x1, int passes)
     {
-        var cur = (float[,])src.Clone();
+        // Each pass copies cur into the plane it writes, so the source is read as it is.
+        var cur = src;
         for (var p = 0; p < passes; p++)
         {
-            var next = (float[,])cur.Clone();
+            var next = cur.Copy();
             for (var y = 1; y < N - 1; y++)
             {
                 for (var x = Math.Max(1, x0); x < Math.Min(N - 1, x1); x++)

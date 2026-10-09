@@ -306,7 +306,7 @@ public static class DewarpResidual
         var (slopeInWindow, errorInWindowX, errorInWindowY) = Regress(rx, ry, wx, wy);
 
         // The truth at the places, less each frame's mean over them, and the odd frames everything is scored on.
-        var (px, py) = ((double[])placeX.Clone(), (double[])placeY.Clone());
+        double[] px = [.. placeX], py = [.. placeY];
         Center(px, frames, m);
         Center(py, frames, m);
         var odd = Enumerable.Range(0, frames).Where(f => f % 2 == 1).ToArray();
@@ -363,7 +363,7 @@ public static class DewarpResidual
         // The same with the errors correlated as the windows overlap: two patches closer than their size read some of the same
         // pixels, their noise the same noise, weighted by the window squared on each, so the correlation is that weight's own
         // correlation at their offset, an axis at a time.
-        var overlap = (double[])cov.Clone();
+        double[] overlap = [.. cov];
         double selfOverlap = 0;
         for (var i = 0; i < size; i++)
         {
@@ -553,7 +553,7 @@ public static class DewarpResidual
                 a[(i * n) + j] = s / l;
             }
         }
-        var x = (double[])b.Clone();
+        double[] x = [.. b];
         for (var c = 0; c < columns; c++)
         {
             for (var i = 0; i < n; i++)

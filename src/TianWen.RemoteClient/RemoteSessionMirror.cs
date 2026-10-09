@@ -879,8 +879,8 @@ namespace TianWen.RemoteClient
                     continue;
                 }
 
-                images ??= (Image?[])held.Clone();
-                numbers ??= (int?[])heldNumbers.Clone();
+                images ??= [.. held];
+                numbers ??= [.. heldNumbers];
                 if (images[i] is { } old)
                 {
                     (replaced ??= []).Add(old);

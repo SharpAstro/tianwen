@@ -270,7 +270,7 @@ namespace TianWen.Lib.Tests
 
             // The frame as the host builds it: last frame's pixels everywhere, replaced inside the box
             // only where this frame drew something.
-            var shown = (byte[])before.Clone();
+            byte[] shown = [.. before];
             for (var y = y0; y < y1; y++)
             {
                 for (var x = x0; x < x1; x++)
@@ -357,7 +357,7 @@ namespace TianWen.Lib.Tests
             viewer.Render(source, state);
         }
 
-        private static byte[] Snapshot(ResidueViewer viewer) => (byte[])viewer.Pixels.Clone();
+        private static byte[] Snapshot(ResidueViewer viewer) => [.. viewer.Pixels];
 
         private static int Differences(byte[] shown, byte[] expected)
         {

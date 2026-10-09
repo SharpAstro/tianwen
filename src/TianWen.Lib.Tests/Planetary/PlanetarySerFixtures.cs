@@ -51,7 +51,7 @@ internal static class PlanetarySerFixtures
     /// <summary>Box-blurs <paramref name="src"/> <paramref name="passes"/> times (3x3, edge-clamped) -- a softer frame.</summary>
     public static ushort[] Blur(ushort[] src, int width, int height, int passes)
     {
-        var cur = (ushort[])src.Clone();
+        ushort[] cur = [.. src];
         var next = new ushort[src.Length];
         for (var p = 0; p < passes; p++)
         {

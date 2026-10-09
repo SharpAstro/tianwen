@@ -358,7 +358,7 @@ public static class ClassicalStarRemover
             _original = new float[_channels][];
             for (var c = 0; c < _channels; c++)
             {
-                _original[c] = (float[])_work[c].Clone();
+                _original[c] = image.GetChannelSpan(c).ToArray();
             }
             _fullScale = new float[_channels];
             for (var c = 0; c < _channels; c++)
@@ -1676,7 +1676,7 @@ public static class ClassicalStarRemover
                 var map = BackgroundMap.Estimate(_original[c], _width, _height, _absent, new BackgroundMapOptions(BlockSize: PointSourceFinder.SkyBlockFor(lumPsf.Fwhm)));
                 var background = new float[n];
                 map.FillBackground(background);
-                var plane = (float[])_original[c].Clone();
+                float[] plane = [.. _original[c]];
                 for (var i = 0; i < n; i++)
                 {
                     if (float.IsFinite(background[i]) && plane[i] < background[i])

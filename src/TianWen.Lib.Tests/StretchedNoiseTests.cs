@@ -33,7 +33,7 @@ public class StretchedNoiseTests(ITestOutputHelper output)
                 plane[(y * Size) + x] = (float)(0.02 + (0.58 * Math.Exp(-((dx * dx) + (dy * dy)) / (2 * 70.0 * 70.0))));
             }
         }
-        return [.. Enumerable.Range(0, Channels).Select(_ => (float[])plane.Clone())];
+        return [.. Enumerable.Range(0, Channels).Select(_ => plane.AsSpan().ToArray())];
     }
 
     /// <summary>
@@ -220,7 +220,7 @@ public class StretchedNoiseTests(ITestOutputHelper output)
         var noisy = new float[Channels][];
         for (var c = 0; c < Channels; c++)
         {
-            noisy[c] = (float[])clean[c].Clone();
+            noisy[c] = [.. clean[c]];
             LinearDegradation.AddNoiseInPlace(noisy[c], NoiseField.White(Size, Size, rng), calibration, depthScale);
         }
         var cleanStretched = cleanImage.MtfStretchWith(origMin, balances);
@@ -377,7 +377,7 @@ public class StretchedNoiseTests(ITestOutputHelper output)
                 }
             }
             clean[c] = p;
-            noisy[c] = (float[])p.Clone();
+            noisy[c] = [.. p];
             LinearDegradation.AddNoiseInPlace(noisy[c], NoiseField.White(size, size, rng), truths[c], 1.0);
         }
         var noisyImage = ToImage(noisy, size);
@@ -445,7 +445,7 @@ public class StretchedNoiseTests(ITestOutputHelper output)
         var rng = new Random(11);
         var noisy = sky.Select(p =>
         {
-            var copy = (float[])p.Clone();
+            float[] copy = [.. p];
             LinearDegradation.AddNoiseInPlace(copy, NoiseField.White(Size, Size, rng), calibration, 1.0);
             return copy;
         }).ToArray();

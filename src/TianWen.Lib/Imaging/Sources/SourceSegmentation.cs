@@ -731,7 +731,7 @@ public static class SourceSegmentation
         }
 
         var pixels = new int[start[count + 1]];
-        var fill = (int[])start.Clone();
+        int[] fill = [.. start];
         for (var i = 0; i < labels.Length; i++)
         {
             var l = labels[i];

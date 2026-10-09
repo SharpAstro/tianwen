@@ -73,7 +73,7 @@ public class PlanetaryDegradeTests
         var options = new DegradeOptions(new Pupil(0.254, ObstructionRatio: 58.0 / 254, Vanes: 4, VaneWidthM: 0.001), 650e-9);
         var (spectrum, share) = PlanetaryDegrade.FarWingSpectrum(options, 0.497, fine);
 
-        var wing = (Complex[])spectrum.Clone();
+        Complex[] wing = [.. spectrum];
         Fft2D.Inverse(wing, fine, fine);
         double inside = 0, outside = 0;
         for (var y = 0; y < fine; y++)

@@ -491,7 +491,7 @@ public class SkyMapHoverAndPictureTests
         tab.State.CenterDec = Nebula.Dec;
         tab.State.FieldOfViewDeg = 2.0;
         tab.Render(plannerState, rect, time);
-        var without = (byte[])renderer.Surface.Pixels.Clone();
+        byte[] without = [.. renderer.Surface.Pixels];
 
         // Park the pointer on the nebula's own screen position (the view is centred on it).
         tab.HandleInput(new InputEvent.MouseMove(size / 2f, size / 2f));
@@ -536,7 +536,7 @@ public class SkyMapHoverAndPictureTests
         tab.State.CenterDec = Nebula.Dec;
         tab.State.FieldOfViewDeg = 0.5;
         tab.Render(plannerState, rect, time);
-        var without = (byte[])renderer.Surface.Pixels.Clone();
+        byte[] without = [.. renderer.Surface.Pixels];
 
         tab.HandleInput(new InputEvent.MouseMove(size / 2f, size / 2f));
         tab.State.HoverTarget.ShouldNotBeNull().Index.ShouldBe(Nebula.Index, "still the resolver's answer, so a click selects it");
@@ -582,7 +582,7 @@ public class SkyMapHoverAndPictureTests
         tab.State.CenterDec = Nebula.Dec;
         tab.State.FieldOfViewDeg = 2.0;
         tab.Render(plannerState, rect, time);
-        var without = (byte[])renderer.Surface.Pixels.Clone();
+        byte[] without = [.. renderer.Surface.Pixels];
 
         tab.HandleInput(new InputEvent.MouseMove(size / 2f, size / 2f));
         tab.State.HoverTarget.ShouldNotBeNull().Shape.ShouldNotBeNull();

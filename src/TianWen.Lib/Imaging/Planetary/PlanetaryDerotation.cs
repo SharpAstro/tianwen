@@ -50,8 +50,9 @@ public static class PlanetaryDerotation
     public static Derotation Derotate(Image image, in PlanetAspect from, in DiskPlacement fromPlacement, in PlanetAspect to, in DiskPlacement toPlacement, double minnaertK)
     {
         ArgumentNullException.ThrowIfNull(image);
+        // The field is this call's own, so its mask passes to the result as it is.
         var field = new DerotationTarget(to, toPlacement, image.Width, image.Height, minnaertK).FieldFrom(from, fromPlacement);
-        return new Derotation(Resample(image, field), field.CoveredMask());
+        return new Derotation(Resample(image, field), field.Covered);
     }
 
     /// <summary><see cref="Derotate(Image, in PlanetAspect, in DiskPlacement, in PlanetAspect, in DiskPlacement, double)"/> on one disk.</summary>
@@ -311,9 +312,6 @@ public sealed class DerotationField
     internal float[] Relight { get; }
 
     internal bool[] Covered { get; }
-
-    /// <summary>Which pixels were de-rotated, as a copy.</summary>
-    public bool[] CoveredMask() => (bool[])Covered.Clone();
 
     /// <summary>
     /// How far the source of output position (<paramref name="x"/>, <paramref name="y"/>) lies from it, interpolated bilinearly

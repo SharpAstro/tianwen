@@ -57,7 +57,7 @@ public sealed class WaveletDecomposition
             throw new ArgumentException($"Expected 0 or {ScaleCount} thresholds, got {thresholds.Length}.", nameof(thresholds));
         }
 
-        var result = (float[])_residual.Clone();
+        float[] result = [.. _residual];
         for (var j = 0; j < ScaleCount; j++)
         {
             var g = gains[j];

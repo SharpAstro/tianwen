@@ -106,18 +106,19 @@ public static class LevenbergMarquardt
         return 0.5 * sum;
     }
 
-    // Forward differences: column k is (r(p + h_k e_k) - r(p)) / h_k.
+    // Forward differences: column k is (r(p + h_k e_k) - r(p)) / h_k. p is the fit's own vector, so each parameter is moved in
+    // place and its exact value put back: the residuals see what a shifted copy would have shown them.
     private static void Jacobian(double[] p, double[] r, ResidualFunction residuals, ReadOnlySpan<double> step, double[] jacobian, double[] scratch)
     {
         var n = p.Length;
         var m = r.Length;
-        var shifted = (double[])p.Clone();
         for (var k = 0; k < n; k++)
         {
             var h = step[k];
-            shifted[k] = p[k] + h;
-            residuals(shifted, scratch);
-            shifted[k] = p[k];
+            var held = p[k];
+            p[k] = held + h;
+            residuals(p, scratch);
+            p[k] = held;
             for (var i = 0; i < m; i++)
             {
                 jacobian[(i * n) + k] = (scratch[i] - r[i]) / h;
@@ -223,11 +224,11 @@ public static class LevenbergMarquardt
         return Array.TrueForAll(x, double.IsFinite);
     }
 
-    // sqrt(diag((J^T J)^-1) * s^2), with s^2 = sum of squares / (m - n).
+    // sqrt(diag((J^T J)^-1) * s^2), with s^2 = sum of squares / (m - n). The fit is done with `normal`, so it is factorised in place.
     private static double[] StandardErrors(double[] normal, double cost, int m, int n)
     {
         var errors = new double[n];
-        var a = (double[])normal.Clone();
+        var a = normal;
         if (m <= n || !Cholesky(a, n))
         {
             Array.Fill(errors, double.NaN);

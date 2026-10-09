@@ -19,7 +19,7 @@ public class Fft2DTests
             original[i] = new Complex(rng.NextDouble(), rng.NextDouble() - 0.5);
         }
 
-        var work = (Complex[])original.Clone();
+        Complex[] work = [.. original];
         Fft2D.Forward(work, w, h);
         Fft2D.Inverse(work, w, h);
 

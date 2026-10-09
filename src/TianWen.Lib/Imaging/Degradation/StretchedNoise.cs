@@ -588,7 +588,7 @@ public static class StretchedNoise
         {
             ArrayPool<float>.Shared.Return(finite);
         }
-        var copy = (float[])src.Clone();
+        float[] copy = [.. src];
         for (var i = 0; i < copy.Length; i++)
         {
             if (float.IsNaN(copy[i]))

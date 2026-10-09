@@ -90,9 +90,16 @@ public static class LinearFit
             Array.Resize(ref ys, n);
         }
 
-        // Start from the ratio of the two spreads about their medians: the slope a pure scale would have.
-        var (_, tMad) = StatisticsHelper.MedianAndMad((float[])xs.Clone());
-        var (_, rMad) = StatisticsHelper.MedianAndMad((float[])ys.Clone());
+        // Start from the ratio of the two spreads about their medians: the slope a pure scale would have. The median reorders
+        // what it reads and the pairs must keep their order for the fit, so each is read from one pooled scratch.
+        float tMad, rMad;
+        using (var scratch = ArrayPoolHelper.Rent<float>(n))
+        {
+            xs.CopyTo(scratch.AsSpan());
+            (_, tMad) = StatisticsHelper.MedianAndMad(scratch.AsSpan());
+            ys.CopyTo(scratch.AsSpan());
+            (_, rMad) = StatisticsHelper.MedianAndMad(scratch.AsSpan());
+        }
         var start = tMad > 0 ? (double)rMad / tMad : 1.0;
         var line = LeastAbsoluteDeviation.Fit(xs, ys, start);
         return new Fit(line.Offset, line.Slope, qualifying, line.MeanAbsoluteDeviation);

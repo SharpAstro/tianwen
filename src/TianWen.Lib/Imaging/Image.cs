@@ -538,7 +538,7 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
         var data = new float[ChannelCount][,];
         for (var c = 0; c < ChannelCount; c++)
         {
-            data[c] = (float[,])GetChannelArray(c).Clone();
+            data[c] = GetChannelArray(c).Copy();
         }
         return new Image(data, BitDepth, MaxValue, MinValue, Pedestal, imageMeta, SamplesAreUnitReferred);
     }
@@ -709,7 +709,7 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// Channel <paramref name="channel"/> as a mono image of its own, its plane copied: how a measurement built for one plane
     /// (a limb fit, a band's fidelity) reads one colour of a colour image.
     /// </summary>
-    public Image ChannelImage(int channel) => FromChannel((float[,])GetChannelArray(channel).Clone(), MaxValue, MinValue);
+    public Image ChannelImage(int channel) => FromChannel(GetChannelArray(channel).Copy(), MaxValue, MinValue);
 
     /// <summary>
     /// <see cref="FromChannel(float[,], float, float)"/> with the container depth stated, for a plane

@@ -39,7 +39,7 @@ public class RollingWindowStackerTests
     private static float[,] BoxBlur(float[,] src, int passes)
     {
         int h = src.GetLength(0), w = src.GetLength(1);
-        var cur = (float[,])src.Clone();
+        var cur = src.Copy();
         for (var p = 0; p < passes; p++)
         {
             var next = new float[h, w];

@@ -159,7 +159,7 @@ public static class RegistrationComparison
     // The track with every frame the other two do not both place set to NaN.
     private static RegistrationTrack Common(RegistrationTrack track, RegistrationTrack other1, RegistrationTrack other2)
     {
-        var (x, y) = ((double[])track.X.Clone(), (double[])track.Y.Clone());
+        double[] x = [.. track.X], y = [.. track.Y];
         for (var f = 0; f < x.Length; f++)
         {
             if (!double.IsFinite(other1.X[f]) || !double.IsFinite(other1.Y[f]) || !double.IsFinite(other2.X[f]) || !double.IsFinite(other2.Y[f])

@@ -218,7 +218,7 @@ internal sealed class PlanetaryRingingSubCommand(IConsoleHost consoleHost)
             {
                 if (step is 2 or 4 or 8)
                 {
-                    steps[step] = (float[])p.Clone();
+                    steps[step] = [.. p];
                 }
             }, offset: 1e-3);
             foreach (var (step, plane) in steps.OrderBy(s => s.Key))

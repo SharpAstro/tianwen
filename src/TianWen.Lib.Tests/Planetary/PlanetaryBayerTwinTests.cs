@@ -121,7 +121,7 @@ public class PlanetaryBayerTwinTests
         var frames = new ushort[times.Length][];
 
         var (r, g, b) = await PlanetaryDegrade.MakeBayerAsync(CatalogIndex.Jupiter, times, red, green, blue, 0.49, none, none, [], Size, Size, 0, 0,
-            (index, samples) => frames[index] = (ushort[])samples.Clone(), cancellationToken: TestContext.Current.CancellationToken);
+            (index, samples) => frames[index] = [.. samples], cancellationToken: TestContext.Current.CancellationToken);
 
         for (var t = 0; t < times.Length; t++)
         {

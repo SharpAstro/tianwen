@@ -361,7 +361,7 @@ public static class PlanetaryInverse
             {
                 r[i] = rhs[i] - ax[i];
             }
-            var p = (double[])r.Clone();
+            double[] p = [.. r];
             var rr = Dot(r, r);
             for (var step = 0; step < steps && rr > 1e-20; step++)
             {

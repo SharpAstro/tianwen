@@ -163,7 +163,7 @@ public static class PlanetaryWaveletGains
                 af[j, k] = a[held + j, held + k];
             }
         }
-        var solved = PlanetaryCeilings.Solve(af, bf);
+        var solved = PlanetaryCeilings.SolveInPlace(af, bf);
         var gains = ImmutableArray.CreateBuilder<double>(scales);
         for (var j = 0; j < scales; j++)
         {
@@ -214,11 +214,15 @@ public static class PlanetaryWaveletGains
         }
         var tolerance = 1e-6 * Math.Max(peak, 1e-12);
         var rho = diagonal / Math.Max(rowScale, 1e-300);
+        // Each pass penalises its own violated rows on a fresh copy of the system, solved in place: one pair of scratches for them all.
+        var m = new double[n, n];
+        var r = new double[n];
         for (var outer = 0; outer < 16; outer++)
         {
             for (var inner = 0; inner < 50; inner++)
             {
-                var (m, r) = ((double[,])a.Clone(), (double[])b.Clone());
+                Array.Copy(a, m, a.Length);
+                b.CopyTo(r, 0);
                 for (var i = 0; i < rows.Length; i++)
                 {
                     var value = offsets[i];
@@ -239,13 +243,14 @@ public static class PlanetaryWaveletGains
                         }
                     }
                 }
-                var next = PlanetaryCeilings.Solve(m, r);
+                var next = PlanetaryCeilings.SolveInPlace(m, r);
                 double change = 0;
                 for (var j = 0; j < n; j++)
                 {
                     change = Math.Max(change, Math.Abs(next[j] - x[j]));
                 }
-                x = next;
+                // next IS the scratch r, refilled by the next pass, so the solution is copied out of it.
+                next.CopyTo(x, 0);
                 if (change < 1e-12)
                 {
                     break;
@@ -295,7 +300,7 @@ public static class PlanetaryWaveletGains
     {
         ArgumentOutOfRangeException.ThrowIfGreaterThan(fitted, scales);
         var (a, b) = TextureNormalEquations(stackPower, wiener, fitted, strength: 1);
-        return Gains(PlanetaryCeilings.Solve(a, b), scales);
+        return Gains(PlanetaryCeilings.SolveInPlace(a, b), scales);
     }
 
     // The fitted gains, then 1 for every coarser layer.

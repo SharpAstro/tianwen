@@ -159,7 +159,7 @@ namespace TianWen.Lib.Tests
                         : 0.066f + (0.0003f * (float)(random.NextDouble() - 0.5));
                 }
             }
-            Image Master(string objectName) => new Image([(float[,])plane.Clone()], BitDepth.Float32, 0.3f, 0f, 0f,
+            Image Master(string objectName) => new Image([plane.Copy()], BitDepth.Float32, 0.3f, 0f, 0f,
                 new ImageMeta("e2e", DateTimeOffset.UnixEpoch, TimeSpan.FromSeconds(1), FrameType.Light, "",
                     0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
                     RowOrder.TopDown, float.NaN, float.NaN, ObjectName: objectName));

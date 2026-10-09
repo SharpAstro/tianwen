@@ -192,7 +192,7 @@ public class PlanetaryFrameBatchesTests
 
         public ValueTask<Image> LoadAsync(int index, CancellationToken cancellationToken = default)
         {
-            var image = Image.FromChannel((float[,])frames[index].Clone(), 1f, 0f);
+            var image = Image.FromChannel(frames[index].Copy(), 1f, 0f);
             Loaded.Add(image);
             return ValueTask.FromResult(image);
         }

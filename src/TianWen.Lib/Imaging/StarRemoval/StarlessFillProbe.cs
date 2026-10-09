@@ -78,7 +78,7 @@ public static class StarlessFillProbe
             var filled = new float[channels][];
             for (var c = 0; c < channels; c++)
             {
-                filled[c] = (float[])original[c].Clone();
+                filled[c] = [.. original[c]];
             }
             HoleFill.Fill(filled, width, height, holes, absent, fwhm, seed + radius, ceiling: null, cancellationToken);
             var filledLum = Luminance(filled, width * height);

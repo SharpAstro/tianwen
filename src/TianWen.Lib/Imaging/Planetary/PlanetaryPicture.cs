@@ -380,14 +380,18 @@ public sealed record PlanetaryPicture(
         return expected > 0 ? blockStd / expected : double.NaN;
     }
 
-    // A 3 by 3 system by Cramer's rule; null when it is singular.
+    // A 3 by 3 system by Cramer's rule; null when it is singular. Column k's determinant reads r in place of that column, so no
+    // matrix is copied to substitute it.
     private static double[]? Solve3(double[,] m, double[] r)
     {
-        static double Det(double[,] a) =>
-            (a[0, 0] * ((a[1, 1] * a[2, 2]) - (a[1, 2] * a[2, 1])))
-            - (a[0, 1] * ((a[1, 0] * a[2, 2]) - (a[1, 2] * a[2, 0])))
-            + (a[0, 2] * ((a[1, 0] * a[2, 1]) - (a[1, 1] * a[2, 0])));
-        var det = Det(m);
+        double Det(int column)
+        {
+            double A(int row, int col) => col == column ? r[row] : m[row, col];
+            return (A(0, 0) * ((A(1, 1) * A(2, 2)) - (A(1, 2) * A(2, 1))))
+                - (A(0, 1) * ((A(1, 0) * A(2, 2)) - (A(1, 2) * A(2, 0))))
+                + (A(0, 2) * ((A(1, 0) * A(2, 1)) - (A(1, 1) * A(2, 0))));
+        }
+        var det = Det(-1);
         if (Math.Abs(det) < 1e-12)
         {
             return null;
@@ -395,12 +399,7 @@ public sealed record PlanetaryPicture(
         var result = new double[3];
         for (var k = 0; k < 3; k++)
         {
-            var mk = (double[,])m.Clone();
-            for (var row = 0; row < 3; row++)
-            {
-                mk[row, k] = r[row];
-            }
-            result[k] = Det(mk) / det;
+            result[k] = Det(k) / det;
         }
         return result;
     }

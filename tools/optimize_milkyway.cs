@@ -316,7 +316,7 @@ static double ComputeFitness(
 
     // Stellarium brightness split: top 50 % of pixels are "structure"
     // (bright galactic plane + bulge), bottom 50 % are "dark" (off plane).
-    var sortedRef = (float[])refd.Luma.Clone();
+    float[] sortedRef = [.. refd.Luma];
     Array.Sort(sortedRef);
     var brightThreshold = sortedRef[(int)(sortedRef.Length * 0.5)];
 

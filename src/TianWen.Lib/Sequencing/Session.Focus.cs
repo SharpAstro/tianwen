@@ -437,8 +437,9 @@ internal partial record Session
         var obsIndex = ActiveObservationIndex;
         _driftBaselines[DriftBaselineKey.For(obsIndex, telescopeIndex, baseline)] = baseline;
 
-        var baselines = _baselineByObservation.TryGetValue(obsIndex, out var existing)
-            ? (FrameMetrics[])existing.Clone()
+        // Copied, never written in place: a reader may hold the array this replaces.
+        FrameMetrics[] baselines = _baselineByObservation.TryGetValue(obsIndex, out var existing)
+            ? [.. existing]
             : new FrameMetrics[Setup.Telescopes.Length];
         baselines[telescopeIndex] = baseline;
         _baselineByObservation[obsIndex] = baselines;

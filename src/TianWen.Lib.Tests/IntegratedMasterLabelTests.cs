@@ -218,7 +218,7 @@ public class IntegratedMasterLabelTests : IDisposable
         var withBody = new float[3][,];
         for (var c = 0; c < 3; c++)
         {
-            withBody[c] = (float[,])layer.GetChannelArray(c).Clone();
+            withBody[c] = layer.GetChannelArray(c).Copy();
             withBody[c][10, 10] += 25f;
         }
 

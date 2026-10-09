@@ -273,7 +273,8 @@ public sealed class BackgroundMap
     /// <summary>Cells without an estimate take the mean of their valid 8-neighbours, repeated until every cell has one.</summary>
     private static void FillInvalidCells(float[] mesh, bool[] valid, int cellsX, int cellsY)
     {
-        var state = (bool[])valid.Clone();
+        // The mask is the caller's, for the next mesh too, so the fill marks its own copy.
+        bool[] state = [.. valid];
         var remaining = 0;
         foreach (var v in state)
         {
@@ -349,7 +350,10 @@ public sealed class BackgroundMap
     private static void MedianFilterMesh(float[] mesh, int cellsX, int cellsY, int size)
     {
         var half = size / 2;
-        var source = (float[])mesh.Clone();
+        // The filter writes the mesh it reads, so it reads the cells as they were from a pooled scratch.
+        using var scratch = ArrayPoolHelper.Rent<float>(mesh.Length);
+        var source = scratch.AsSpan();
+        mesh.CopyTo(source);
         Span<float> window = stackalloc float[size * size];
         for (var cy = 0; cy < cellsY; cy++)
         {
@@ -371,9 +375,12 @@ public sealed class BackgroundMap
         }
     }
 
+    // The median reorders what it reads, and the mesh is the map, so it reads a pooled scratch.
     private static float MedianOf(float[] mesh)
     {
-        var copy = (float[])mesh.Clone();
+        using var scratch = ArrayPoolHelper.Rent<float>(mesh.Length);
+        var copy = scratch.AsSpan();
+        mesh.CopyTo(copy);
         return StatisticsHelper.MedianFast(copy);
     }
 

@@ -46,12 +46,13 @@ public sealed class CorrelationRegistrar
         // through its neighbours start the search; the parabola alone is biased by hundredths of a pixel, because a disk's
         // correlation peaks in a rounded cone, so Newton's method then climbs the correlation itself, evaluated exactly
         // between the pixels from its spectrum.
+        // The climb below reads the spectrum again, so the inverse transform runs on a second array, filled in the same pass.
         var cross = new Complex[n * n];
+        var correlation = new Complex[n * n];
         for (var i = 0; i < cross.Length; i++)
         {
-            cross[i] = spectrum[i] * Complex.Conjugate(_target[i]);
+            correlation[i] = cross[i] = spectrum[i] * Complex.Conjugate(_target[i]);
         }
-        var correlation = (Complex[])cross.Clone();
         Fft2D.Inverse(correlation, n, n);
         var (px, py, peak) = (0, 0, double.NegativeInfinity);
         for (var i = 0; i < correlation.Length; i++)

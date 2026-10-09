@@ -80,7 +80,7 @@ public readonly struct TextureField
     {
         var spread = new float[luminance.Length];
         sky.FillRms(spread);
-        var noise = (float[])spread.Clone();
+        float[] noise = [.. spread];
         PointSourceFinder.CapByDifferenceNoise(noise, luminance, width, height, absent, PointSourceFinder.SkyBlockFor(fwhm));
         return new TextureField(spread, noise, width);
     }

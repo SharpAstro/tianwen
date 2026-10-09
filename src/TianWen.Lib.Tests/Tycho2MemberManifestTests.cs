@@ -109,7 +109,7 @@ namespace TianWen.Lib.Tests
         {
             const int RegionCount = 12, RegionBytes = 1000;
             var before = SyntheticCatalog(RegionCount, RegionBytes, seed: 1);
-            var after = (byte[])before.Clone();
+            byte[] after = [.. before];
             after[4 + (RegionCount * 4) + (7 * RegionBytes) + 10] ^= 0xFF;
 
             var (_, was) = Tycho2MemberManifest.Bake(before, targetBytes: 3000);
