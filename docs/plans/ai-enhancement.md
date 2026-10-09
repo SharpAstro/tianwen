@@ -389,6 +389,62 @@ model is on disk, leaving the classical fallback for absent ones.
    thinking about; the enhancers are pure `Image -> Image` and could plug into
    the live preview pipeline. Defer until offline batch path is solid.
 
+## Rules in full (moved from CLAUDE.md, 2026-10-09)
+
+CLAUDE.md keeps one line per rule; this is its AI-enhancement section's full text as it stood, moved verbatim, with its paragraph on vendor weights.
+
+`SharpenPipeline` (`TianWen.Lib/Imaging/Enhancement/`) orchestrates role-typed enhancers
+(`IStarRemover` / `IStellarSharpener` / `INonStellarDeconvolver` / `IDenoiseEnhancer` /
+`IGradientCorrector` / `IImageDeblurrer`) over an immutable `SharpenStep[]` program. Selection is
+**RC-preferred, deferred, and license-gated**: `AddRcAstroAi()` wraps `AddTianWenAi()` and `Replace`s
+the RC-servable roles with `DeferredEnhancer` proxies that make the RC-vs-in-house choice AND the
+blocking license probe on the FIRST `EnhanceAsync`, never at DI registration, so composing a service
+collection spawns no `rc-astro` process. Design and every measurement: `docs/plans/ai-enhancement.md`,
+`docs/plans/rc-astro-enhancers.md`, `docs/plans/osc-narrowband-denoiser.md` § 1o and
+`docs/plans/denoiser-training.md`.
+
+- **The program is shaped by what SERVES, never by what is registered.**
+  `SharpenPipeline.CapabilitiesFor(input, options)` asks every role through `IEnhancerAvailability`
+  (a deferred RC role answers by its licence, the N2N denoiser by channel count and weights) and
+  `CanonicalProgram` builds from the answer: the split with a star remover (BlurX-first where a
+  deblurrer serves), whole-frame (gradient + denoise) without one. The viewer, the CLI, `stack
+  --enhance` and the endpoint all run that one program. **A gate on a role asks
+  `IEnhancerAvailability.Serves`, never `is null`**: a deferred RC role is registered on every host,
+  and where the product is absent its first use throws.
+- **The SETI Astro (SAS Pro AI4) tier was REMOVED on 2026-09-26** (the user's call, after its model
+  licence of 2026-09-24 allowed use only within SASpro). Nothing loads its weights or searches
+  SASpro's folder, and `EnhanceBackend` value 2 stays unassigned (enums are numeric on the wire). Its
+  GPL-3.0 Python is still ours to LEARN from (how it feeds its models:
+  `docs/plans/model-training-roadmap.md` § 8); a model file is never opened or derived from. Star
+  removal, deblur and starless deconvolution are RC-only until TianWen's own models ship into the
+  roles, which stay as the extension points.
+- **The NAFNet pre-stretch measures COVERED pixels only.** `ChunkedNafnetRunner.ApplyInputStretch`
+  leaves the canvas ring (`Image.AbsentPixels`, the crop's own absence scan) out of the linearity
+  auto-detect and the stretch's floor and median (`Image.MinAndShiftedMedian`, one measurement for
+  both), and the runners put the ring back exactly (`CopyAbsent`). A ring's zero was every channel's
+  floor: 9 of 190 masters read as already stretched and 108 were stretched from the wrong floor
+  (`docs/known-limitations.md`). An interior zero is a measurement and still counts.
+- **In-house N2N denoiser** (`N2nDenoiser`, OSC-only, declines mono): the default local
+  `IDenoiseEnhancer` (`AddTianWenAi()`) and the fallback behind NoiseXTerminator. Weights ship
+  in-repo (`src/TianWen.AI.Imaging/models/`) as an LFS object; **any new LFS file type the apps ship
+  must be added to `APP_LFS_INCLUDE` in `dotnet.yml`**, or the publish matrix ships a pointer stub as
+  the model (`publish-apps`'s "Verify LFS objects materialised" step is the backstop). Full history,
+  including the two-week bug where the runner fed the graph pixels ~100x below its training band and
+  cut every star's peak 30 percent with no metric catching it: `docs/plans/denoiser-training.md`.
+- **RC-Astro (BlurX / NoiseX / StarXTerminator)**: `AddRcAstroAi()`. `.onnx` files are encrypted at
+  rest (license forbids extracting weights), so driven through the `rc-astro` CLI's `--json` NDJSON
+  protocol, never loaded into ORT. **A plate outside `[0, 1]` is mapped in and back by
+  `RcAstroEnhancerBase`**: RC-Astro rescales such a plate itself and answers on THAT scale (an aligned
+  master's negative border ringing put a starless sky at 3.4 times its level). **BlurX stops at 1**, so a
+  deblur hands it the brightest star at a quarter of the ceiling (`NarrowbandCombination.DeblurAsync`;
+  the enhance pipeline does not yet, #1270).
+
+**A vendor's weights are read WHERE THE VENDOR PUT THEM, never only where a dev script copied them.**
+`ModelResolver` also auto-detects GraXpert's own cache for `graxpert_bge.onnx` (no override: the
+version subdir isn't knowable ahead of time). **Never make a shipped capability depend on a script
+only a checkout can run**: the Store build once shipped an Enhance failure against 207 MB of GraXpert
+weights already on disk because the only bridge was a repo-relative dev script.
+
 ## Cross-references
 
 - [tools/tianwen-ai-models-fetch.ps1](../../tools/tianwen-ai-models-fetch.ps1): dev model fetch (hardlink from SAS Pro, else download)

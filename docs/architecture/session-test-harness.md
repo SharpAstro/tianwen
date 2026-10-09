@@ -71,3 +71,63 @@ a loop that has genuinely stopped still trips it. A real hang stays bounded by `
 Pinned by `FakeTimePumpTests`, whose no-probe case is the old pump kept green as the shape of that
 failure. The pump **throws** with the counters on give-up, so do not read a downstream
 `IsCompleted.ShouldBeTrue` as the diagnosis.
+
+## Test collections and parallelism in full (moved from CLAUDE.md, 2026-10-09)
+
+CLAUDE.md keeps one line per rule; this is the section's full text as it stood, moved verbatim ("this file" in it is CLAUDE.md).
+
+Tests grouped into `[Collection("X")]` by functional area. **Any test that drives a `Session` belongs in
+`[Collection("Session")]`: the rule is about what a test DOES, not what it is CALLED**, and they run
+sequentially so several sessions' concurrent `Task.Run` + `FakeTimeProvider` timer callbacks cannot
+starve the pool. It used to be written as "all `Session*Tests`", and three classes drove real sessions
+from outside every collection because their names did not match: `DeviceOwnershipTests`,
+`SessionFaultCounterTests` and `SessionScoutClassifierTests`. If it calls
+`SessionTestHelper.CreateSessionAsync`, it is a session test.
+
+**A fake-clock `SleepAsync` must throw on a cancelled token, and a guider's `StopCaptureAsync` must not
+return until its loop has exited**, or the next target's guide loop starts on a camera the previous one
+hasn't released yet: `DeviceOwnershipTests.AFinishedRunGivesTheRigBack` was this, a race misdiagnosed
+as starvation for a day. Full story: `docs/architecture/session-test-harness.md`.
+
+**No wall-clock timeout inside a test**, a `CancellationTokenSource` or a `Stopwatch` budget alike;
+use `[Fact(Timeout = ...)]` and wait on `TestContext.Current.CancellationToken`, which xunit cancels at
+it (inner timeouts cause flakes). #940 was one: a 10 s budget inside a 60 s test ran out while a machine
+stalled by other work had not yet scheduled a node's first journal write, 40 ms of work on a quiet one.
+`NodeWait` (the functional tests) is the shape: bounded only by the test's timeout, it logs what it sees
+as it changes, so a timeout says whether the code was stuck or starved. **A test that drives a whole run
+needs that bound**: a wedged run hangs rather than fails, and an unbounded hang is a five-minute
+`--hangdump` timeout plus a multi-GB dump instead of one red test.
+
+**Under xunit 4.x that bound is reliable** with the default `parallelAlgorithm`, Conservative, which all
+three suites use: 4.0.1's `IFactAttribute.Timeout` documentation calls timing and timeouts undefined only
+under `Aggressive`. Older xunit documented them as undefined whenever parallelization was on, and this
+file said so until #940. Never set `parallelAlgorithm: aggressive` without giving that up.
+
+**A `Timeout` on a SYNCHRONOUS test does nothing at all** and the analyzer now says so
+(`xUnit1069`): the framework can fail the test but cannot interrupt a body that never awaits. 36
+such attributes were decoration and were removed in 9.0; if you add one, the test must reference
+`TestContext.Current.CancellationToken` for it to mean anything.
+
+**Less parallelism is faster here, and the config only counts if it is copied to the output.** All three
+test projects carry an `xunit.runner.json` (`maxParallelThreads: 4`; Simulators pins 1 +
+`parallelizeTestCollections: false`) **and** a matching
+`<Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />`. `TianWen.Lib.Tests`
+had neither for a long time while this file claimed otherwise, so xUnit silently defaulted to the core
+count and thrashed the box; adding both cut the suite from 8m45-12m to 7m46 **and made it green**:
+contention was dominating. Never diagnose a slow suite by re-running it repeatedly: one run with a TRX
+logger, then rank durations.
+
+`SessionTestHelper` defaults to `FakeMountDriver`; pass `mountPort: "LX200"` or `"SkyWatcher"` only for
+protocol-specific tests.
+
+**Use the cooperative time pump** (`FakeTimeProviderWrapper.PumpUntilCompletedAsync`) for a session loop
+run via `Task.Run`, **never choose a step** (each advance goes to the next parked sleep or one-shot timer,
+#1122), and **always pass the progress probe**: the budget bounds a STALL, not the run,
+because a `PeriodicTimer` tick coalesces and registers no waiter, so an unobserved advance is budget
+spent for nothing (measured 33-50 minutes of budget for one 30-minute observation). Pattern, the
+measurements and why a naive `while (pumped < budget) { Advance(); }` loop is wrong:
+`docs/architecture/session-test-harness.md`.
+
+**Never** use `SleepAsync(subExposure)` in a pump loop; it advances fake time even when the `Task.Run`
+hasn't been scheduled yet, causing targets to "set" before imaging starts. `Advance` fires timers
+synchronously; `Task.Delay(1)` yields to the thread pool.

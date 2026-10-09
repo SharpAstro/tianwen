@@ -724,3 +724,41 @@ SER header (camera, telescope) and the name (planet, filter, #1179), and nothing
 - `planetary stack` carries the exposure and gain into the master's header, so a compose can say why two stacks' levels differ
   (#1337).
 - **Done when** a recording on the fake camera round-trips its settings through the survey.
+
+## Rules in full (moved from CLAUDE.md, 2026-10-09)
+
+CLAUDE.md keeps one line per rule; this is the full text of its live-capture rules, moved verbatim
+(the rest of its planetary rules are in `planetary-restoration.md`, under the same heading). "The plan
+doc" for the Canon path is `planetary-stacking.md`, "Live-capture drivers and the recenter loop (shipped)".
+
+- **Live capture: camera ADU normalises to [0,1] at the stream boundary** (`LiveCameraFrameStream.DeepCopy`);
+  a colour sensor's video frame is a 1-channel Bayer mosaic, and the stream layout derives from the
+  ACTUAL frame, **NOT** the camera's `SensorType`; **no driver call crosses onto the render thread**
+  (it stages, the capture loop drains + applies). Preview defaults to **linear** (`StretchMode.None`).
+- **Read the plan doc before touching the Canon path**: it is a list of five things that fail
+  SILENTLY. **Recentering is opt-in** (the user, 2026-09-28; it costs the loop about 15 ms a frame at full frame), and
+  so is the mount jog, whose **sign is uncalibrated**.
+- **A stream's depth, high-speed readout and USB bandwidth are its own** (`VideoCaptureOptions`), never the camera's
+  settings, so a planetary capture in 8 bits leaves the next deep-sky frame in 16; a DAL stream takes the whole
+  bandwidth while it runs (16 bits at the 50 a connect sets was 31.9 frames a second on an ASI462MC, 8 bits at 100 is
+  136). **A frame declares the full scale of the depth it was READ OUT in** (`DALCameraDriver.MaxAduFor`): the camera's
+  16-bit full scale on an 8-bit frame puts it at a sixteenth of its brightness in the live stack.
+- **The capture loop is `PlanetaryCapture` (Lib), ONE for the GUI and the node, and for the Preview's live view** (`LiveCaptureKind.LiveView`, `NodeLiveView`, #1111: the whole sensor at the Preview's binning, no frame kept): the camera, the stream, the
+  live controls and the recenter. The GUI's `PlanetaryCaptureController` starts the node's run, sends the panel's
+  controls only as they CHANGE (`NodePlanetaryCapture`: the panel pushes its recenter every frame) and shows the
+  masters the node streams through the same `LiveStackPreviewSource` a SER playback uses (`NodeMasters`); the node
+  stacks it on its run's own task (`NodePlanetary`) and serves the live frame, copied at display rate by
+  `FrameSampler`, and the linear master as frames (`planetary/live`, `planetary/master`). **A live view STREAMS them
+  and the client ASKS for each frame** (`FrameStreamWire`, drop-to-latest): a send is done once the kernel has the
+  bytes, and a loopback socket buffers dozens of planetary frames, so a node that sent on its own fed a reader that
+  paused every stale frame of the pause (measured). **Over this machine's socket every frame goes through shared
+  memory** (P4b, #932), a stream's and a `/frames/{source}/latest` fetch's alike: the node answers with the slot the
+  frame waits in (`FrameSlotDto`), a section per stream or per fetched source (`NodeFrameSlots`) and a seqlock per slot,
+  the slot holding `FrameWire`'s own bytes so one reader serves both carriers; a TCP client, a host without
+  `AddNodeSharedMemory`, or a section the system refuses gets bytes, and `FRAME-AVAILABLE` stays a hint.
+  **A recording to disk (`SerRecording`) never slows the capture**:
+  the loop converts and queues, a writer task of its own does the disk, and a frame the disk cannot take is dropped
+  and counted. It finishes its duration unwatched. **It says what it was taken of and through** (#1179): its name is the planet
+  the mount points at and the filter in the beam (`PlanetaryCaptureName.RecordingFileName`, `PointedAt`), its SER header the camera
+  and the OTA's telescope (`TelescopeField`), which the viewer's Best stack and `planetary stack` read back.
+  It claims only the camera, so **a recenter nudge asks `DeviceOwnershipGate` over the mount first**.

@@ -1574,6 +1574,28 @@ values.
   way `OTAData` sensor specs already are. They are static, so `feedback_no_varying_values_in_profile`
   does not bar them.
 
+## Mono colour composition rules in full (moved from CLAUDE.md, 2026-10-09)
+
+CLAUDE.md keeps one line per rule; this is its mono colour composition section's full text as it stood, moved verbatim.
+
+Red, green and blue mono masters (and H-alpha) on one grid made one colour image as a PixInsight mono
+workflow makes it: `image align`, `linear-fit`, `deblur`, `remove-stars`, `continuum`, `add-line`,
+`add-stars`, `luminance`, `denoise`, `lrgb`, then `combine` for the channels. **Every step is one verb on
+one routine, and `image combine` with its switches is `ColourComposition.RunAsync`, which calls those
+same routines in order and nothing between them** (the owner: a step-by-step tool, never steps conflated
+into one operation, plus one recipe that does the right thing). `ColourCompositionTests` runs the steps
+through a FITS file each against the recipe; they agree to the bit, on LDN 1622's real masters too. In
+full: `docs/plans/narrowband-colour.md`. What holds them together:
+- **A step writes on its input's scale**, never divided by its own peak, and several masters go through
+  one enhancer on ONE scale. **What a later step needs travels in the file**: a linear fit's slope is
+  `ImageMeta.FluxScale` (FITS `FLUXSCAL`); the LRGB scale is measured from the planes it is applied to;
+  the continuum scale is the one number carried by hand (`image continuum --dry-run`, measured on the
+  masters WITH their stars).
+- **A stars image is read unmasked** (`image add-stars`): it is exact zero where the remover left a
+  pixel, which is also how a master marks its absent ring.
+- **Stars are never denoised**, and the luminance's noise weights are read over 4 px blocks before
+  anything is (`PixelNoise.FromBlocks`): pixel to pixel, a 0.55 px blur read 0.45 of the true noise.
+
 ## Deferred
 
 Tracked by #875.

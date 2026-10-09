@@ -337,3 +337,18 @@ populating `ImageData` / `ChannelBuffer`, and `StartExposureAsync` clears them s
 re-downloads. **The HTTP round-trip is validated against a live OmniSim** by
 `AlpacaSimulatorTests.Camera_ExposesAndDownloadsViaImageBytes`; the decoder stays separately byte-pinned
 by `AlpacaImageBytesTests`.
+
+## Serial probing rules in full (moved from CLAUDE.md, 2026-10-09)
+
+CLAUDE.md keeps one line per rule; this is its serial-probe rule's full text as it stood, moved verbatim (the Bluetooth exclusion is newer than the 2026-09-29 move above).
+
+- **A profile scan never probes a COM port, and a port that will not TAKE bytes is given up, not retried.**
+  `DiscoverOnlyDeviceType(type)` runs the serial probe pass only when a source for that type consumes it.
+  Serial.Lib bounds every write twice and the close (a Windows Bluetooth SPP port accepts an open and never
+  completes a write); only a write the driver never completed raises `ISerialConnection.HasAbandonedIo`, on
+  which the pass drops the port for the rest of the discovery; a READ timeout never does (a device at the wrong
+  baud completes the write and stays silent). `docs/plans/mount-safety-limits.md`, "Live verification".
+  **A Bluetooth port whose far end can never be an instrument is not probed at all** (`SerialProbeExclusion`, from
+  Serial.Lib's `SerialPortInfo.Bluetooth`): Windows' incoming port, and a paired headset, phone, computer, keyboard,
+  wearable. A pair of headphones took every write and answered none for 31 s of each discovery; an HC-05 on a mount is
+  uncategorised and is probed, and a pinned port is verified whatever it is.

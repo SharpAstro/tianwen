@@ -456,3 +456,180 @@ channel-sized** (`ComputePostStretchBackground` indexes `[0]`; an empty array cr
   inside a fixed box; the rest change on a discrete action, where a re-layout is the button reporting
   what it did. Measured at 26.4 px of travel across ten buttons. **This is NOT the damage tracker** --
   per-swapchain-image damage is a real flicker mechanism (P15's tooltip) and the wrong suspect here.
+
+## Rules in full (moved from CLAUDE.md, 2026-10-09)
+
+CLAUDE.md keeps one line per rule for the four UI sections below; this is their full text as it stood, moved verbatim.
+
+### The FITS viewer widget (`ImageRendererBase<TSurface>`)
+
+Partial-class structure, one layout root, the shared slider, the live-preview host, the `?` menu and
+toolbar label-width rule: `docs/architecture/widgets-and-controls.md` § The FITS viewer widget.
+
+- **Two live sources, not interchangeable.** `LiveFramePreviewSource` is per-EXPOSURE (Live Session,
+  guider, polar-align), holds no document; `LiveStackPreviewSource` is the video-rate one (planetary)
+  and wraps an `AstroImageDocument`. A cost argument about "the live path" has to name which: free at
+  one frame per 120 s is not free at 60 fps. `StretchSolver.CollectPerChannelStats` (pedestal-removed,
+  what the curve solves from) and `CollectChannelHistograms` (the frame's own levels, what the panel and
+  overlay draw) are two collectors on purpose, for the same reason. Detail moved to
+  `docs/architecture/widgets-and-controls.md`.
+- **GPU resource lifetime**: `docs/architecture/viewer-gpu-lifetime.md`. Never call
+  `UploadDocumentTextures` outside `PrepareFrame`; never destroy a bound Vulkan object or write a shared
+  descriptor set from an upload path (`VulkanContext.DeferDestroy`); a resize is its own GPU-lifetime
+  path; the cached image layer samples in TEXTURE space (divide UVs by CAPACITY). Run under
+  `SDLVK_VALIDATION=1 SDLVK_SYNC_VALIDATION=1` and read `validation_report` whenever this area is touched.
+- **Auto-crop, two tiers**: `Image.LargestCoveredRectangle()` prefers a master's own coverage plane
+  (`MAPKIND=COVERAGE` sidecar) and falls back to `CoverageEdgeWalk`; a master with no coverage plane can
+  defeat the walk (V1045 Ori). A crop is a CLIP every draw path owes (destination AND source UVs),
+  reaching the enhance INPUT too (`WCS.CroppedTo`, `AstroImageDocument.SourceCrop`, remembered across
+  the toggle). Full rules and measurements: `docs/plans/viewer-prerelease-fixes.md` P25.
+- **Absence is BORDER-REACHABLE for NaN as much as zero, and a weight deficit in the MIDDLE of a frame
+  is not an edge**: only reachability from the border counts, or a saturated core (the Great Orion
+  Trapezium) reads as an uncovered rim. `Image.FillInteriorHolesInPlace` then fills every interior hole
+  (never the ring) so nothing downstream sees a NaN; three callers, no fourth implementation. The
+  `BitMatrix` flood, its word-level perf and the full incident: `docs/plans/viewer-prerelease-fixes.md`,
+  issue #250.
+- **The sky behind the frame is its own toolbar button and key (`Y`, `ToolbarAction.SkyBackdrop`), not
+  the annotation ladder's next rung**: a rung ANNOTATES the photograph from its own solution; the
+  backdrop puts a second view BEHIND it and needs a WCS, which a rung has no precondition slot for.
+  `ViewerState.ShowSkyBackdrop` is intent, `SkyBackdropActive` is capability (map + clock + catalog + a
+  CD matrix); keep them apart so an unsolved frame remembers the request. Every other rule (grid
+  ownership, pan clamp, site/instant provenance, object selection, the info panel, and why a click
+  resolves against what is DRAWN rather than the catalogue) is shipped and pinned exactly as designed:
+  `docs/plans/in-app-sky-atlas.md` § What shipped in the viewer, and P28 / P34 in
+  `docs/plans/viewer-prerelease-fixes.md`.
+- **Read the object catalogue through `ImageRendererBase.LoadedCatalog`, never
+  `CelestialObjectDB.Value.Value`.** `AsyncLazy<T>.Value` is a non-blocking PEEK (`Result<T>?`); `Value`
+  RETHROWS a failed load on every frame, so `LoadedCatalog` asks with `TryGet` instead.
+- **The docked info strip REPORTS; it holds no controls.** Statistics collapse to a heading and open as
+  a measured-column TABLE (`InfoPanelData.GetStatisticsTable`); controls live in toolbar popovers
+  instead (white balance, tone).
+- **A popover is a `Layout.Builder.Popover` node plus a `PopoverState`, nothing else to declare.**
+  DIR.Lib 10.0 retired the five-obligations-per-panel `IKeyboardClaimant` pattern for a topmost-first
+  stack of painted popovers (`WindowUiSettings.PaintedPopovers`); a toolbar button still owes its own
+  `onPress` (a handler-less region is silently dead under the router). Design + the incident:
+  `docs/plans/dir-lib-10.md`.
+- The **tone popover** (`ToolbarAction.Tone`) covers curves boost/mode and the highlight soft clip; the
+  math (`HdrAmount`/`HdrKnee`/`Image.ApplyHdr`) is untouched, only the panel changed. Full design:
+  `docs/plans/hdr-display.md`.
+
+### Layout DSL (`DIR.Lib.Layout`)
+
+GUI/TUI panels are immutable `Layout.Node` trees: `Layout.Engine.Arrange` measures,
+`PixelWidgetBase.PaintLayout` draws and binds clicks **from the same arranged rect** (draw == hit by
+construction). Engine + DSL reference: DIR.Lib's README; the engine features TianWen leans on, the five
+traps in full, the alias and conditional-background rules, the TUI row contract and the pointer-cursor
+rule: `docs/architecture/widgets-and-controls.md`, read it before any layout work. The short form:
+
+- **Build trees with `Layout.Builder`** (`VStack/HStack/Text/Box/Fill/Spacer/Grid/Overlay/Split/Dock`)
+  and the fluent `Layout.Node` methods, never `new Layout.Node.X { }` or `cursor += h`.
+- **Alias, don't import**: `global using Layout = DIR.Lib.Layout;` and the qualified `Layout.Node`;
+  `using DIR.Lib.Layout;` drops the `Node`/`Content`/`Size<T>` barewords into scope.
+- **Conditional background**: `.Bg(color)` always sets a value, so `if (cond) n = n.Bg(color);`, never
+  `.Bg(default)`.
+- **Interactive sub-widgets** emit `Layout.Builder.Fill(key: "...")` and draw via `drawFill`; **a text
+  field is NOT one**, it is `Layout.Builder.TextInput(state, fontSize)` (see below).
+- **Responsive sizing is `Sizing.Star(weight, min, max)` + `.CollapseBelow(u)` + `WrapH`/`WrapV`**;
+  orientation is a plain C# branch (canonical: `PlannerTab.BuildFrameLayout`).
+- **Five silent traps** (all found on the Home board), in full in the doc above: `.RowH(h)` eats a
+  preceding `.WFixed(w)`; a `Stack` places children at the cross-axis START; a `Node`'s default
+  `Width` is `Auto`; never pair `.CollapseBelow(u)` with a Star minimum; an icon inks the full square
+  it DECLARES.
+- **A mark is a `Layout.Content.Icon`, never a symbol character in a `Text` run** (a glyph draws
+  .notdef where the face lacks it); every step/jog/pan mark resolves in ONE place,
+  `FormRowLayout.StepMark`.
+- **A choice, a checkbox and a double-click are DECLARATIONS** (DIR.Lib 11.1):
+  `Layout.Builder.ButtonGroup` (never per-segment hand-picked fills), `Layout.Builder.Checkbox` (never
+  `"[x] "` in a label) and `.DoubleClickable(...)` (never a host arm on `clicks >= 2`). What is still
+  hand-built and why: `docs/architecture/widgets-and-controls.md` rule 1.
+- **`.PadX(u)` / `.Pad(across, down)` for a FIXED-height bar**, or the icon becomes a stub while the
+  text overflows and goes on looking correct.
+- **`PushClip(x, y, w, h)` / `PopClip()` on the widget base**, never `Renderer.PushClip` with a
+  hand-built `RectInt`.
+- **TUI rows are trees too** (Console.Lib 4.10): `IRowLayout.BuildRow(in RowContext)`, inline buttons
+  via `.Clickable(...)` resolved by `ScrollableList.DispatchRowHit`; a new capability is a **field on
+  `RowContext`**, never an overload.
+- **A box should be the engine's MEASUREMENT of its content, not a sum of the constants the body draws
+  with.** State a control's widest state as `widthSample:` ON the node. What still does this by hand:
+  `docs/plans/viewer-layout-engine.md` (HIGH PRIORITY).
+- **A declared node takes DESIGN units**: a `Base*` constant, never a `Foo => BaseFoo * DpiScale` property,
+  which the engine would scale a second time (the LOG label read "L..." at 2x), unless the tree is arranged
+  at `DesignScale.One`. `DeclaredLayoutTakesDesignUnitsTests` fails on a device-pixel property named where a
+  node is built; `/chrome-review` reads a diff for the rest (a value carried through a local, a box summed
+  beside a node, a test seam that measures instead of reading the painted region).
+
+### UI primitives: the cursor, a text field, and who holds focus
+
+Full reasoning: `docs/architecture/widgets-and-controls.md` (cursor) and `docs/plans/automatic-text-input.md`
+(field, focus, key routing). **Where this is GOING is `docs/plans/dir-lib-10.md` (HIGH PRIORITY,
+2026-09-15)**: the engine already ships the pointer rule (click places the caret, a second click selects the
+word, a drag extends; DIR.Lib 9.1 `TextInputInteraction.HandlePointer`) and every tianwen host still
+hand-rolls `clicks >= 2 -> SelectAll()`, a node cannot declare a shortcut, and a popover or a slider costs a
+dispatcher line per host. Until that lands, a new field, popover or drag follows the rules below; do not add a
+fourth key router.
+
+- **The pointer's appearance is a property of a REGION, never a host predicate**: declare it beside the click
+  (`RegisterClickable(..., cursor:)` / `.Clickable(hit, onClick, cursor)` / `.WithCursor(kind)`); the host asks
+  `guiRenderer.CursorAt(x, y) ?? CursorKind.Default`; a region stating nothing is transparent (`null`, not
+  Default), so a row inherits its card's cursor.
+- **HOVER needs a z-order answer, `ViewerState.OverlayOwnsPointer`** (hover is decided at PAINT time): add an
+  overlay to that ONE property, never a call site. **It is NOT `WindowUiSettings.PointerOwner`**, which an
+  open `Popover` sets as it paints (a RECORD, free for a `PaintLayout` tree); this one is a PREDICTION for
+  hand-painted chrome (toolbar, histogram, file list) that resolves hover BEFORE any overlay has drawn.
+- **Every host routes through `DIR.Lib.InputRouter`, and the ORDER is the engine's**: an open popover, then
+  any PAINTED node whose declared `Shortcut` matches, then the focused field, then the widget. The desktop
+  (`GuiEventHandlerBase`) and the browser (`Planner.razor`) keep only what is theirs (platform binding,
+  pointer position, the rail's hover repaint, rAF coalescing) and call `AfterPaint()` once the frame is
+  drawn. **A key binding that belongs to a CONTROL is declared with it**: a `.WithShortcut(key, mods)` on its
+  node, or in the viewer its row in `ViewerShortcuts`, the one table its arms, its buttons' keys and its `?`
+  panel come from; a key that is no control's stays an arm, since a declaration pays only where it removes a
+  second copy (measured: `docs/plans/dir-lib-10.md`, "Shortcut adoption, measured"). Whether a binding beats
+  a focused field is `KeyChord.BeatsFocusedField` (Ctrl, Alt or F1..F12 do; a bare letter does not). Matching
+  against the PAINTED tree makes a binding inside a closed panel, or a chord for a locked tab, inert.
+  - Ctrl+Tab / Ctrl+Shift+Tab name the NEXT tab rather than a tab, so they are answered before the router in
+    `GuiEventHandlerBase`.
+  - **A press on a region is CONSUMED there**, so anything that used to run after a hit test runs before the
+    router, off a non-dispatching `HitTest` (the planner's handoff-divider drag, the last such site).
+- **A text field is a declaration**, `Layout.Builder.TextInput(state, fontSize)` (`TextInputRenderer`,
+  `TextInputHit`, `CursorKind.Text`; `CellLayout` on a terminal); `fontSize` is in DESIGN units; intrinsic
+  width comes from the placeholder.
+- **Focus is global but not settable, and there is ONE owner per window**: `DIR.Lib.TextInputFocus` owns the
+  transition, the host binds `FocusChanged` ONCE (SDL `StartTextInput`/`StopTextInput`, web
+  `CanvasTextOverlay`); `Focus` is idempotent and SELECTS its seed, so `Focus(input, value)` is the whole of
+  "open an editor on this value". The instance is `WindowUiSettings.Focus` (`GuiAppState.AdoptWindowSettings`,
+  `WebSkyMapTab.ShareWindowWith`). **Two owners is the bug class.**
+- **`BlurIfUnpainted` is the router's `AfterPaint()`**, once per frame after the paint, with everything
+  painted.
+- **`TextInputInteraction` reads `ctx.Focus.Current`**, takes `KeyContext.TabFields` as a callback, and
+  **swallows every key while a field is focused**, which is why a binding that must survive one is a
+  `.Shortcut`, not a case in the host's key switch.
+
+### Per-window widget state: `DpiScale` / `FontPath` / `EmojiFontPath` are properties, not parameters
+
+A value constant for the whole window is a `virtual` property on `PixelWidgetBase<TSurface>` (DIR.Lib):
+set once by the host, propagated by a composite widget overriding the setter, resolved by
+`RenderLayout`/`ArrangeLayout`/`PaintLayout` as `?? DpiScale` / `?? FontPath`; `dpiScale: 1f` is the
+device-px escape hatch and a `PixelMeasureContext` overload covers a per-axis scale or a cell-authored
+tree (build it ONCE and pass the same instance to Arrange and Paint). **Do NOT reintroduce these as
+`Render`/helper parameters**: per-window constant -> property, per-call derived -> parameter; `fontSize`
+is NEVER a property (`AltitudeChartRenderer`, `SkyMapRenderer` keep theirs). Breakdown:
+`docs/plans/dpi-scale.md`.
+
+**Widgets in one window do NOT share a scale.** The GUI's chrome and tabs carry `GuiTheme.InterfaceScale` (1.15) over
+the window's DPI (DIR.Lib 11.8's per-widget `InterfaceScale`, set in `VkGuiRenderer`); the viewers they embed (the Live
+Session preview, the guide camera, the planetary view) do not, so a viewer's toolbar keeps its `tianwen-fits` size. A
+widget's `DpiScale` and `Scale` include its own scale: **never read `Ui.DpiScale`** (the window's) in a widget
+(`DeclaredLayoutTakesDesignUnitsTests.NoWidgetReadsTheWindowsDpiStraight`), and never carry one widget's scale or metrics
+into another's layout (`chrome-review` rule 7); a rect handed over in surface pixels is fine.
+
+**Which FACE they get is one decision, `BundledFonts.Resolve()`**, returning `(Text, Emoji, Fallback)`
+together for all three hosts; **a direct `FontResolver.` call in production code is a regression**
+(tests exempt). Resolving a subset is the bug it prevents (the viewer had faces but no
+`FontFallback`, could not ask `CanRender`, and every missing glyph was found by eye); bundled first
+because only a bundled face has known COVERAGE. **Both viewer and GUI bundle both faces**, and
+which one draws a given rune is Unicode's DEFAULT PRESENTATION, not coverage order (DIR.Lib 8.15's
+`EmojiPresentation`): a pictograph comes from the emoji face even where DejaVu has an outline for
+it, while text-default marks (checks, stars, arrows, the warning sign) stay on the text face. So a
+NEW mark is picked by what the codepoint IS, and a colour glyph cannot be tinted or dimmed, which
+is what a baked icon is for. The `Lazy<FontSet>` cache and what is outstanding:
+`docs/plans/font-roles-and-icon-baking.md`.
