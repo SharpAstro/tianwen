@@ -5,6 +5,7 @@ using System.CommandLine;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -22,7 +23,7 @@ namespace TianWen.Cli;
 /// says which of the corpus' two telescopes took a Jupiter capture, by the rules the plan pre-registered.
 /// <c>planetary render-truth</c> renders a global map at a capture's geometry through its telescope (T1, R2).
 /// </summary>
-internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
+internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
 {
     public Command BuildLimb()
     {
@@ -462,16 +463,6 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 FieldGridPx = parseResult.GetValue(fieldGridOpt),
                 Rings = twinRings,
             };
-            // The camera's own terms from the far sky, where the planet's scattered light has gone (the synthetic capture scatters
-            // its own light into the ring), as they were before the camera rounded them.
-            static DegradeOptions WithCamera(DegradeOptions atmosphere, CameraEstimate estimate, double gainElectrons) => atmosphere with
-            {
-                FullScaleAdu = estimate.FullScaleAdu,
-                OffsetAdu = estimate.LocalSkyLevel,
-                ReadNoiseAdu = estimate.FarSkyNoise,
-                ElectronsPerAdu = gainElectrons,
-                DiskLevelAdu = estimate.DiskLevel,
-            };
             string Describe(DegradeOptions o, DiskPlacement at, double pixelScale) => string.Create(CultureInfo.InvariantCulture,
                 $"disk at {at.CenterX:0.00}, {at.CenterY:0.00}, R {at.EquatorialRadius:0.00} px ({pixelScale:0.0000}\"/px), north {at.NorthAngleDeg:0.0} deg; " +
                 $"r0 {o.R0M * 100:0.0} cm at 500 nm, outer scale {(double.IsPositiveInfinity(o.OuterScaleM) ? "none" : $"{o.OuterScaleM:0.#} m")}, wind {o.WindMps:0} m/s, exposure {o.ExposureSeconds * 1000:0.#} ms, defocus {o.DefocusNm:0} nm RMS, {(double.IsFinite(o.LocalR0M) ? $"a local layer of r0 {o.LocalR0M * 100:0.0} cm, outer scale {o.LocalOuterScaleM:0.00} m, drifting {o.LocalWindMps:0.#} m/s{(o.LocalRenewSeconds is { } renew ? $", renewing over {renew * 1000:0} ms" : "")}, " : "")}{(o.ScatterFraction > 0 ? $"{o.ScatterFraction * 100:0.##} % scattered with a core of {o.ScatterCoreArcsec:0.#}\", " : "")}{o.WavelengthM * 1e9:0} nm through a {pupil.DiameterM * 1000:0} mm pupil {pupil.ObstructionRatio * 100:0.#} % obstructed{(pupil.Vanes > 0 ? $" with {pupil.Vanes} vanes" : "")} (cutoff {pupil.DiameterM / o.WavelengthM * pixelScale / 206264.806:0.000} cycles a pixel), oversampled {PlanetaryDegrade.OversampleFor(pixelScale, pupil.DiameterM, o.WavelengthM)}x; " +
@@ -507,17 +498,12 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 return 1;
             }
 
-            // The disk's placement at the reference frame: the limb of a stack of the best frames, which the stacker aligns to
-            // its own sharpest frame, carried onto the statistics' reference by that frame's shift.
-            var stacked = await new LuckyImagingStacker().StackGlobalAsync(real, new PlanetaryStackOptions { KeepFraction = 0.05 }, ct);
-            if (PlanetaryLimbFit.Fit(stacked.Master, PlanetaryLimbFit.OptionsFor(aspect)) is not { } limb)
+            if (await PlaceDiskAsync(real, truth, aspect, ct) is not { } placed)
             {
                 consoleHost.WriteError($"{input}: the stack's limb could not be fitted");
                 return 1;
             }
-            var reference = new DiskPlacement(limb.CenterX - truth.ShiftX[stacked.ReferenceIndex], limb.CenterY - truth.ShiftY[stacked.ReferenceIndex],
-                limb.EquatorialRadius, limb.NorthAngleDeg);
-            var scale = aspect.AngularDiameterArcsec / 2 / limb.EquatorialRadius;
+            var (reference, scale) = placed;
 
             var camera = truth.Camera;
             var gain = parseResult.GetValue(gainOpt) ?? PlanetaryDegrade.GainFor(camera.DiskLevel, truth.Noise[0].Disk, camera.FarSkyNoise);
@@ -782,7 +768,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
     }
 
     // A frame's samples as the SER's bytes: one a sample at 8 bits, two (little-endian) at 16.
-    private static byte[] Pack(ushort[] samples, byte[] buffer, int depth)
+    internal static byte[] Pack(ushort[] samples, byte[] buffer, int depth)
     {
         for (var i = 0; i < samples.Length; i++)
         {
@@ -855,22 +841,56 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         }
     }
 
+    // The camera's own terms from the far sky, where the planet's scattered light has gone (the synthetic capture scatters its own light
+    // into the ring), as they were before the camera rounded them.
+    internal static DegradeOptions WithCamera(DegradeOptions atmosphere, CameraEstimate estimate, double gainElectrons) => atmosphere with
+    {
+        FullScaleAdu = estimate.FullScaleAdu,
+        OffsetAdu = estimate.LocalSkyLevel,
+        ReadNoiseAdu = estimate.FarSkyNoise,
+        ElectronsPerAdu = gainElectrons,
+        DiskLevelAdu = estimate.DiskLevel,
+    };
+
+    // The disk's placement at the statistics' reference frame: the limb of a stack of the best frames, which the stacker aligns to its own
+    // sharpest frame, carried onto the statistics' reference by that frame's shift; and the pixel scale the ephemeris' diameter gives it.
+    // Null where the stack's limb could not be fitted.
+    internal static async Task<(DiskPlacement Reference, double Scale)?> PlaceDiskAsync(IPlanetaryFrameStream real, CaptureStatistics truth, PlanetAspect aspect,
+        CancellationToken cancellationToken)
+    {
+        var stacked = await new LuckyImagingStacker().StackGlobalAsync(real, new PlanetaryStackOptions { KeepFraction = 0.05 }, cancellationToken);
+        if (PlanetaryLimbFit.Fit(stacked.Master, PlanetaryLimbFit.OptionsFor(aspect)) is not { } limb)
+        {
+            return null;
+        }
+        var reference = new DiskPlacement(limb.CenterX - truth.ShiftX[stacked.ReferenceIndex], limb.CenterY - truth.ShiftY[stacked.ReferenceIndex],
+            limb.EquatorialRadius, limb.NorthAngleDeg);
+        return (reference, aspect.AngularDiameterArcsec / 2 / limb.EquatorialRadius);
+    }
+
     // Every statistic side by side, the synthetic's over the real's (R2's pre-registration: within 10 %), and the mismatch the twin's
     // calibration minimises over the fitted ones (TwinComparison, docs/plans/planetary-stacking.md, A1).
     private void WriteComparison(CaptureStatistics real, CaptureStatistics synthetic)
     {
         var inv = CultureInfo.InvariantCulture;
         var rows = TwinComparison.Compare(real, synthetic);
-        consoleHost.WriteScrollable("comparison (synthetic over real; * the twin's calibration fits it):");
-        foreach (var row in rows)
-        {
-            consoleHost.WriteScrollable(string.Create(inv,
-                $"  {(row.Fitted ? '*' : ' ')} {row.Name,-34} real {row.Real,10:0.0000}  synthetic {row.Twin,10:0.0000}  ratio {row.Ratio,6:0.000}{(row.Within() ? "" : "  OUTSIDE 10 %")}"));
-        }
+        WriteRows("comparison (synthetic over real; * the twin's calibration fits it):", rows);
         if (real.Warp.Bound != WarpLengthBound.Measured || synthetic.Warp.Bound != WarpLengthBound.Measured)
         {
             consoleHost.WriteScrollable(string.Create(inv,
                 $"    {"warp correlation length (px)",-34} not measured: real {real.Warp.Bound} {real.Warp.CorrelationLength:0.0}, synthetic {synthetic.Warp.Bound} {synthetic.Warp.CorrelationLength:0.0}"));
+        }
+    }
+
+    // A comparison's rows and its mismatch: degrade's, and the twin search's best trial, whose twin the next trial has overwritten.
+    private void WriteRows(string heading, ImmutableArray<TwinStatistic> rows)
+    {
+        var inv = CultureInfo.InvariantCulture;
+        consoleHost.WriteScrollable(heading);
+        foreach (var row in rows)
+        {
+            consoleHost.WriteScrollable(string.Create(inv,
+                $"  {(row.Fitted ? '*' : ' ')} {row.Name,-34} real {row.Real,10:0.0000}  synthetic {row.Twin,10:0.0000}  ratio {row.Ratio,6:0.000}{(row.Within() ? "" : "  OUTSIDE 10 %")}"));
         }
         var (mismatch, used) = TwinComparison.Mismatch(rows);
         consoleHost.WriteScrollable(string.Create(inv, $"    mismatch over the {used} fitted statistics: {mismatch:0.0000} (the sum of their squared log ratios)"));
