@@ -1280,6 +1280,35 @@ So the synthetic background as built does not help, and what it cost is the brig
 not the background's realism. R2e's structure is still worth having for the fill and for a later arm, but it would not
 recover what B lost.
 
+#### The two fixes together, read: a tie on faint stars, a gain on bright ones (2026-10-10)
+
+Both models trained to their plateau at a patience of 24 under a 240,000-step cap (`r2dkl` 07:23 to 17:55 on 2026-10-09,
+`r2dal` 17:58 to 02:14 the next morning) and were scored on A's draws with the fixed eval (`score-r2dmatched.ps1`):
+
+| measure | A at 12, 3 seeds | A's control at 24 (`r2dal`) | combined at 24 (`r2dkl`) |
+|---|---|---|---|
+| clean 5-20 sigma | 64.4 to 67.5 | 73.0 | 71.4 |
+| clean 20-100 sigma | 53.3 to 56.8 | 58.6 | 63.4 |
+| clean 100-1000 sigma | 21.5 to 26.1 | 24.4 | 31.9 |
+| dug 100-1000 sigma | 33.8 to 58.3 | 66.1 | 46.2 |
+| core mean 100-1000 sigma | -0.20 to 0.93 | -1.00 | -0.07 |
+| clean saturated | 21.9 to 26.0 | 29.2 | 26.9 |
+| bright-core share % | 2.4 to 3.0 | 2.8 | 3.0 |
+| far sky | 0.12 to 0.39 | 0.28 | 0.24 |
+
+1. **Holds.** A's control reaches 73.0 at 5-20 sigma, so the stops' 73.4 was the schedule's, not the background's.
+2. **Holds, and past the line.** Combined reaches A's control at 100-1000 sigma and goes 7.5 points over it, beyond A's
+   three-seed range there (4.6), with the bright cores at 3.0 % of its error. The scorer printed MISSES because it tested
+   "within 3" both ways; the prediction is one-sided ("reaches"). It also digs bright stars less (46 % of their error
+   against 66 %) with a core mean near zero.
+3. **Misses, and is not read.** Combined sits 1.6 points UNDER A's control at 5-20 sigma, against a registered 5 over, and
+   inside A's three-seed range of 3.1.
+4. **The kill does not fire.**
+
+So at a matched schedule the synthetic background, with its knots capped, costs no faint stars and removes bright ones
+better than the plates do, and the rule under "R2e's background exported for the next arm" sends that export to training
+next (the owner chose it over second seeds of this pair, 2026-10-10).
+
 #### What the loss weighs, and the bar StarXTerminator sets (2026-10-07 and 08)
 
 The owner asked why the training does not stop a model changing star-free sky, and whether synthetics can teach it to
@@ -1605,6 +1634,22 @@ sessions, cells, draws, noise shape and seed again, with:
 It is written to `E:\tianwen-scratch\r1-train-synth2` by `C:\temp\e2\run-r2ds-export.ps1`, from the build of the commit
 that added the option. Whether an arm trains on it waits on R2d's matched-schedule read: if A beats the two fixes at
 the same schedule, the synthetic background is set aside and this export with it.
+
+#### R2e's arm, pre-registered (2026-10-10)
+
+Written before it trains. **R2e**: the export above at a patience of 24, one seed, as the knots arm trained
+(`run-r2.ps1 -Tag r2ds -Arms synth2 -Export E:/tianwen-scratch/r1-train-synth2 -ExportLog C:/temp/e2/r2ds-export.log
+-SeedCount 1 -Patience 24 -Steps 240000 -Scratch E:/tianwen-scratch`, from a snapshot of `training/denoise` at main, the
+pair's schedule and cap), scored on A's
+draws with the fixed eval beside `r2dkl` and `r2dal`. A difference under A's three-seed range (3.1 points at 5-20 sigma,
+4.6 at 100-1000) is not read.
+1. **The bright stars stay repaired**: R2e at 100-1000 sigma at least A's control (24.4), the bright cores under 5 % of
+   its error. The compact-knot cap is in this export too. Moderate.
+2. **The steer costs no faint stars**: R2e at 5-20 sigma within 3.1 of A's control (73.0). Moderate.
+3. **The steer moves the sky no more than the knots arm**: far sky at most `r2dkl`'s 0.24 plus A's spread about its
+   median (0.13). Low to moderate.
+4. **Kill**: R2e under A's control by more than 5 points at 5-20 sigma, or by more than 4.6 at 100-1000. Then the steered
+   texture costs what the knots repaired, and the synthetic background stays the knots export.
 
 #### S2: generate it, S3: check it, S4: fill with it
 
