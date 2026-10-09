@@ -1132,6 +1132,34 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
     /// point asked for beside the plate's own cutout (<see cref="SyntheticBackgroundPreview"/>).
     /// </summary>
     /// <summary>
+    /// R2e's steer as the verbs take it (<c>--steer</c>): strength,exponent[,wander[,fine]], the strength in [0, 1], the
+    /// exponent positive, the wander (radians) and the fine gain not negative. Null, with the reason, when it does not parse.
+    /// </summary>
+    private static SyntheticBackground.Steering? ParseSteer(string text, out string error)
+    {
+        error = $"--steer takes strength,exponent[,wander[,fine]] with strength in [0, 1], a positive exponent, a wander in radians and a non-negative fine gain, got '{text}'";
+        var parts = text.Split(',', StringSplitOptions.TrimEntries);
+        var values = new double[4];
+        if (parts.Length is < 2 or > 4)
+        {
+            return null;
+        }
+        for (var i = 0; i < parts.Length; i++)
+        {
+            if (!double.TryParse(parts[i], CultureInfo.InvariantCulture, out values[i]))
+            {
+                return null;
+            }
+        }
+        if (values[0] is < 0 or > 1 || values[1] <= 0 || values[2] < 0 || values[3] < 0)
+        {
+            return null;
+        }
+        error = "";
+        return new SyntheticBackground.Steering(values[0], values[1], values[2], values[3]);
+    }
+
+    /// <summary>
     /// <c>tianwen dataset fill-probe</c>: R2e's S4 read over a store's starless plates, R0's fill probe with today's fill
     /// and with the conditional draw of the steered texture, on the same holes (<see cref="StarlessFillProbeRun"/>).
     /// </summary>
@@ -1154,18 +1182,16 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         };
         command.SetAction(async (parseResult, ct) =>
         {
-            var parts = parseResult.Required(steerOpt).Split(',', StringSplitOptions.TrimEntries);
-            var values = new double[4];
-            if (parts.Length is < 2 or > 4 || parts.Select((p, i) => double.TryParse(p, CultureInfo.InvariantCulture, out values[i])).Any(static ok => !ok))
+            if (ParseSteer(parseResult.Required(steerOpt), out var steerError) is not { } steering)
             {
-                consoleHost.WriteError($"--steer takes strength,exponent[,wander[,fine]], got '{parseResult.Required(steerOpt)}'");
+                consoleHost.WriteError(steerError);
                 return 1;
             }
             var stems = parseResult.GetValue(listOpt) is { } list
                 ? (await File.ReadAllLinesAsync(list, ct)).Select(static l => l.Trim()).Where(static l => l.Length > 0).ToArray()
                 : [];
             var result = await StarlessFillProbeRun.RunAsync(parseResult.Required(platesOpt), parseResult.Required(outOpt), stems,
-                parseResult.GetValue(holesOpt), new SyntheticBackground.Steering(values[0], values[1], values[2], values[3]),
+                parseResult.GetValue(holesOpt), steering,
                 new Progress<string>(line => consoleHost.WriteScrollable(line)), ct);
             consoleHost.WriteScrollable(
                 $"[fill-probe] {(result.Stopped ? "STOPPED: " : "")}measured {result.Measured}, skipped {result.Skipped}, failed {result.Failed}; report: {result.OutPath}");
@@ -1231,17 +1257,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             SyntheticBackground.Steering? steering = null;
             if (parseResult.GetValue(steerOpt) is { } steerText)
             {
-                var parts = steerText.Split(',', StringSplitOptions.TrimEntries);
-                var (wander, fine) = (0.0, 0.0);
-                if (parts.Length is < 2 or > 4 || !double.TryParse(parts[0], CultureInfo.InvariantCulture, out var strength)
-                    || !double.TryParse(parts[1], CultureInfo.InvariantCulture, out var exponent) || strength is < 0 or > 1 || exponent <= 0
-                    || (parts.Length >= 3 && (!double.TryParse(parts[2], CultureInfo.InvariantCulture, out wander) || wander < 0))
-                    || (parts.Length == 4 && (!double.TryParse(parts[3], CultureInfo.InvariantCulture, out fine) || fine < 0)))
+                if (ParseSteer(steerText, out var steerError) is not { } parsed)
                 {
-                    consoleHost.WriteError($"--steer takes strength,exponent[,wander[,fine]] with strength in [0, 1], a positive exponent, a wander in radians and a non-negative fine gain, got '{steerText}'");
+                    consoleHost.WriteError(steerError);
                     return 1;
                 }
-                steering = new SyntheticBackground.Steering(strength, exponent, wander, fine);
+                steering = parsed;
             }
             var fwhm = parseResult.GetValue(fwhmOpt);
             var (written, noise) = SyntheticBackgroundPreview.Run(parseResult.Required(plateOpt), parseResult.Required(outOpt),
@@ -1492,6 +1513,11 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Description = "--background synthetic: the knots drawn as a nebula's, where the plate's fine scales hold signal, a few times " +
                           "its RMS, at its colour (R2e; default: D3's, three a cell at 5 to 200 noise sigma).",
         };
+        var degradeSteerOpt = new Option<string?>("--steer")
+        {
+            Description = "--background synthetic: R2e's steered texture, strength,exponent[,wander[,fine]] (synthetic-background's --steer; " +
+                          "default: the isotropic texture R2d's arm B was taught on).",
+        };
         var brightKnotsWideOpt = new Option<bool>("--bright-knots-wide")
         {
             Description = "--background synthetic: a knot under 2.5 PSF widths across peaks under 20 sigma, so only a wide knot is " +
@@ -1507,7 +1533,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -1548,6 +1574,21 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             {
                 consoleHost.WriteError("--bright-knots-wide and --nebula-knots shape the synthetic background's knots; they need --background synthetic");
                 return 1;
+            }
+            SyntheticBackground.Steering? degradeSteering = null;
+            if (parseResult.GetValue(degradeSteerOpt) is { } degradeSteerText)
+            {
+                if (backgroundText != "synthetic")
+                {
+                    consoleHost.WriteError("--steer shapes the synthetic background's texture; it needs --background synthetic");
+                    return 1;
+                }
+                if (ParseSteer(degradeSteerText, out var steerError) is not { } parsed)
+                {
+                    consoleHost.WriteError(steerError);
+                    return 1;
+                }
+                degradeSteering = parsed;
             }
             var saturatedFraction = parseResult.GetValue(saturatedFractionOpt);
             if (saturatedFraction is < 0 or > 1)
@@ -1625,7 +1666,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 MonoWarpResampleSigma: parseResult.GetValue(warpSigmaMonoOpt),
                 SyntheticBackground: backgroundText == "synthetic",
                 BrightKnotsWide: brightKnotsWide,
-                NebulaKnots: nebulaKnots);
+                NebulaKnots: nebulaKnots,
+                Steering: degradeSteering);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);

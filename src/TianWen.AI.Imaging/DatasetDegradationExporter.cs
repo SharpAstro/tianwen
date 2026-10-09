@@ -401,6 +401,8 @@ namespace TianWen.AI.Imaging
         /// <param name="NebulaKnots">With <paramref name="SyntheticBackground"/>: the knots drawn as a nebula's, where the plate's
         /// fine scales hold signal, at its colour and a few times its RMS
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.SyntheticBackground.NebulaKnots"/>).</param>
+        /// <param name="Steering">With <paramref name="SyntheticBackground"/>: R2e's steered texture
+        /// (<see cref="TianWen.Lib.Imaging.StarRemoval.SyntheticBackground.Steering"/>); null for arm B's isotropic one.</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -438,7 +440,8 @@ namespace TianWen.AI.Imaging
             double? MonoWarpResampleSigma = null,
             bool SyntheticBackground = false,
             bool BrightKnotsWide = false,
-            bool NebulaKnots = false);
+            bool NebulaKnots = false,
+            TianWen.Lib.Imaging.StarRemoval.SyntheticBackground.Steering? Steering = null);
 
         /// <summary>
         /// The options one session's draws are made with: the warped shape's smoothing chosen by what made the master's noise.
