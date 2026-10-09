@@ -134,7 +134,7 @@ public static class SplineZoom
 
         if (outHeight == inHeight && outWidth == inWidth)
         {
-            return (float[,])plane.Clone();
+            return plane.Copy();
         }
 
         var intermediateLength = (long)inHeight * outWidth;

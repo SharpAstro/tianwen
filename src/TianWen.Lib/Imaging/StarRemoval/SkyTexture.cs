@@ -93,7 +93,7 @@ public static class SkyTexture
         var read = ReadMask(width, height, absent, sources, fwhm);
 
         // The transform reads every pixel, so a non-finite one takes the finite pixels' median rather than spreading.
-        var plane = (float[])luminance.Clone();
+        float[] plane = [.. luminance];
         var finite = plane.Where(float.IsFinite).ToArray();
         var fill = finite.Length > 0 ? StatisticsHelper.NthSmallest(finite.AsSpan(), finite.Length / 2) : 0f;
         for (var i = 0; i < plane.Length; i++)
