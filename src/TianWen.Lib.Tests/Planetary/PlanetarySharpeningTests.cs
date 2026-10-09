@@ -506,6 +506,21 @@ public class PlanetarySharpeningTests
         (PlanetaryFinishing.ApertureTaperStart * PlanetarySharpening.SplitCfaPlaneNyquist).ShouldBe(0.125, "the cut's taper starts at 0.125");
     }
 
+    [Theory]
+    [InlineData(PlanetaryColourFinestBand.Held)]
+    [InlineData(PlanetaryColourFinestBand.HeldButGreen)]
+    [InlineData(PlanetaryColourFinestBand.Bounded)]
+    public void TheNonNegativeFitRefusesAColourFinestBandItWouldNotGive(PlanetaryColourFinestBand band)
+    {
+        // #1398: the non-negative fit fits every band, the finest included, and used to ignore a colour master's finest-band choice
+        // without a word (the default Held among them). Refused before anything is read, so any colour master will do.
+        var master = new Image(Image.CreateChannelData(3, 8, 8), BitDepth.Float32, 1f, 0f, 0f, new ImageMeta { SensorType = SensorType.Color });
+        var options = new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650], NonNegative = true, ColourFinestBand = band };
+
+        Should.Throw<ArgumentException>(() => PlanetarySharpening.Sharpen(master, options)).Message.ShouldContain(band.ToString());
+        Should.Throw<ArgumentException>(() => PlanetarySharpening.Sharpen(master, options with { LuminanceOnly = true }));
+    }
+
     [Fact(Timeout = 300_000)]
     public async Task TheApertureTargetTakesTheMidBandsPastTheTelescopesOwnTruth()
     {

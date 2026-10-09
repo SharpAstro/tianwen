@@ -122,7 +122,9 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     /// Fit the gains with their composite through the kernel held non-negative (<see cref="PlanetaryWaveletGains.FitNonNegative"/>, R8
     /// follow-up 1) rather than free. Measured and not adopted: the free fit meets a steep Wiener boost with one large gain and a negative
     /// one beside it (9.70 and -0.65 on the warped twin) yet lands near the truth, while the held fit switches the finest band off and
-    /// blurs (1.840 to 1.992 against the stack's 1.500 to 1.667 on the twins).
+    /// blurs (1.840 to 1.992 against the stack's 1.500 to 1.667 on the twins). It fits every band, the finest included, so on a colour
+    /// master it takes <see cref="PlanetaryColourFinestBand.Derived"/> and refuses any other <see cref="ColourFinestBand"/>, which it used
+    /// to ignore without a word (#1398).
     /// </summary>
     public bool NonNegative { get; init; }
 
@@ -335,6 +337,10 @@ public static class PlanetarySharpening
             PlanetaryFrameLayout.SplitCfa => SplitCfaPlaneNyquist,
             var layout => throw new ArgumentException($"The colour target is cut only for a split-CFA master, whose planes' Nyquist is known; not for {layout}.", nameof(options)),
         };
+        if (options.NonNegative && options.ColourFinestBand != PlanetaryColourFinestBand.Derived && (options.OfColour || master.ChannelCount == 3))
+        {
+            throw new ArgumentException($"The non-negative fit fits every band under its own constraint, so it cannot give a colour master's finest band {options.ColourFinestBand}: ask for {PlanetaryColourFinestBand.Derived} with it.", nameof(options));
+        }
         if (options.LuminanceOnly && master.ChannelCount == 3)
         {
             return SharpenLuminance(master, options);

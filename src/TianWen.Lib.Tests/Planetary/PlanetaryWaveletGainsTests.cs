@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Immutable;
 using System.Linq;
 using Shouldly;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 using TianWen.Lib.Stat;
 using Xunit;
@@ -99,23 +101,10 @@ public class PlanetaryWaveletGainsTests
     [Fact]
     public void GainsFromTheWienerFilterRestoreABlurredTextureNearTheJointOracle()
     {
-        // A texture on a disk blurred by a known Gaussian, stacked from two halves with their own noise; the gains derived with the true
-        // kernel and the disk's model (the texture's own mean level), against the gains for the texture alone, which do not see the limb.
-        const int size = 128;
-        var disk = new MetricDisk(63.5, 63.5, 44);
-        var truth = Texture(size, 44, seed: 11);
-        const double sigma = 1.6;
-        Func<double, double> kernel = f => Math.Exp(-2 * Math.PI * Math.PI * sigma * sigma * f * f);
-        var blurred = PlanetaryInverse.Apply(truth, size, size, kernel);
-        var random = new Random(13);
-        var a = blurred.Select(v => (float)(v + (3 * Math.Sqrt(2) * Normal(random)))).ToArray();
-        var b = blurred.Select(v => (float)(v + (3 * Math.Sqrt(2) * Normal(random)))).ToArray();
-        var stack = a.Zip(b, (x, y) => (x + y) / 2).ToArray();
-        var sharpDisk = Texture(size, 44, seed: 11, blobs: 0);
-        var blurredDisk = PlanetaryInverse.Apply(sharpDisk, size, size, kernel);
-
-        var power = PlanetaryWaveletGains.StackPower(stack, size, size, disk);
-        var wiener = PlanetaryWaveletGains.Wiener(power, PlanetaryWaveletGains.HalvesNoise(a, b, size, size, disk), kernel);
+        // The gains derived with the true kernel and the disk's model (the texture's own mean level), against the gains for the texture
+        // alone, which do not see the limb.
+        var (truth, stack, power, wiener, sharpDisk, blurredDisk) = BlurredTexture();
+        var (size, disk) = (BlurredTextureSize, BlurredTextureDisk);
         var gains = PlanetaryWaveletGains.Fit(power, wiener, sharpDisk, blurredDisk, size, size, disk);
         var textureOnly = PlanetaryWaveletGains.FitTexture(power, wiener);
         var (joint, jointGains) = PlanetaryCeilings.PerBandJointOracle(stack, truth, size, size, disk, 4);
@@ -140,6 +129,90 @@ public class PlanetaryWaveletGainsTests
             .ShouldBe(PlanetaryWaveletGains.Fit(power, wiener, sharpDisk, blurredDisk, size, size, disk, held: 1, heldAt: gains[0] + 0.5));
         PlanetaryWaveletGains.FitFinestWithin(power, wiener, sharpDisk, blurredDisk, size, size, disk, gains[0] - 1, gains[0] - 0.5)
             .ShouldBe(PlanetaryWaveletGains.Fit(power, wiener, sharpDisk, blurredDisk, size, size, disk, held: 1, heldAt: gains[0] - 0.5));
+    }
+
+    [Fact]
+    public void TheFinestGainFittedWithinAnIntervalIsTheBestTheIntervalHolds()
+    {
+        // #1398: the clamp-then-refit of FitFinestWithin claimed exact for the convex quadratic the fit minimises, g A g - 2 b g, checked
+        // against a brute-force scan of the finest gain over each interval, the other fitted gains solved for at every step by a solver of
+        // the test's own (TryInvert3, not the fit's elimination). Either bound binding, and an interval holding the free optimum.
+        var (_, _, power, wiener, sharpDisk, blurredDisk) = BlurredTexture();
+        var (size, disk) = (BlurredTextureSize, BlurredTextureDisk);
+        var (a, b) = PlanetaryWaveletGains.NormalEquations(power, wiener, sharpDisk, blurredDisk, size, size, disk, PlanetaryWaveletGains.ScoredBands, 1);
+        a.GetLength(0).ShouldBe(4, "the others are three gains, solved by a 3x3 inverse");
+        double Objective(ReadOnlySpan<double> g)
+        {
+            var sum = 0.0;
+            for (var j = 0; j < 4; j++)
+            {
+                sum -= 2 * b[j] * g[j];
+                for (var k = 0; k < 4; k++)
+                {
+                    sum += g[j] * a[j, k] * g[k];
+                }
+            }
+            return sum;
+        }
+        // The finest gain held at t, the other three at their minimum given it: A_yy y = b_y - A_y0 t.
+        double[] others = [a[1, 1], a[1, 2], a[1, 3], a[2, 1], a[2, 2], a[2, 3], a[3, 1], a[3, 2], a[3, 3]];
+        var inverse = new double[9];
+        CameraColorMatrix.TryInvert3(others, inverse).ShouldBeTrue();
+        double Profile(double t)
+        {
+            Span<double> rhs = [b[1] - (a[1, 0] * t), b[2] - (a[2, 0] * t), b[3] - (a[3, 0] * t)];
+            Span<double> g = [t, 0, 0, 0];
+            for (var j = 0; j < 3; j++)
+            {
+                g[j + 1] = (inverse[j * 3] * rhs[0]) + (inverse[(j * 3) + 1] * rhs[1]) + (inverse[(j * 3) + 2] * rhs[2]);
+            }
+            return Objective(g);
+        }
+
+        var free = PlanetaryWaveletGains.Fit(power, wiener, sharpDisk, blurredDisk, size, size, disk)[0];
+        TestContext.Current.TestOutputHelper?.WriteLine($"the free finest gain {free:0.000}");
+        foreach (var (low, high) in new[] { (free + 0.5, free + 1), (free - 1, free - 0.5), (free - 1, free + 1), (0.0, 1.0) })
+        {
+            var within = PlanetaryWaveletGains.FitFinestWithin(power, wiener, sharpDisk, blurredDisk, size, size, disk, low, high);
+            const int steps = 20_000;
+            var (bestT, bestQ) = (low, Profile(low));
+            for (var i = 1; i <= steps; i++)
+            {
+                var t = low + ((high - low) * i / steps);
+                if (Profile(t) is var q && q < bestQ)
+                {
+                    (bestT, bestQ) = (t, q);
+                }
+            }
+            var reached = Objective([within[0], within[1], within[2], within[3]]);
+            TestContext.Current.TestOutputHelper?.WriteLine($"[{low:0.000}, {high:0.000}]: fitted {within[0]:0.0000} ({reached:G10}), scanned {bestT:0.0000} ({bestQ:G10})");
+            within[0].ShouldBeInRange(low, high);
+            within[0].ShouldBe(bestT, (high - low) / steps + 1e-9, "the finest gain the scan finds best");
+            reached.ShouldBeLessThanOrEqualTo(bestQ + (1e-9 * Math.Abs(bestQ)), "no point of the interval does better");
+        }
+    }
+
+    private const int BlurredTextureSize = 128;
+    private static readonly MetricDisk BlurredTextureDisk = new(63.5, 63.5, 44);
+
+    // A texture on a disk blurred by a known Gaussian, stacked from two halves with their own noise, and what gains are derived from: the
+    // stack's power, the Wiener filter the halves' noise and the true kernel give, and the disk's model sharp and through the kernel.
+    private static (float[] Truth, float[] Stack, ImmutableArray<double> Power, ImmutableArray<double> Wiener, float[] SharpDisk, float[] BlurredDisk) BlurredTexture()
+    {
+        const int size = BlurredTextureSize;
+        var disk = BlurredTextureDisk;
+        var truth = Texture(size, 44, seed: 11);
+        const double sigma = 1.6;
+        Func<double, double> kernel = f => Math.Exp(-2 * Math.PI * Math.PI * sigma * sigma * f * f);
+        var blurred = PlanetaryInverse.Apply(truth, size, size, kernel);
+        var random = new Random(13);
+        var a = blurred.Select(v => (float)(v + (3 * Math.Sqrt(2) * Normal(random)))).ToArray();
+        var b = blurred.Select(v => (float)(v + (3 * Math.Sqrt(2) * Normal(random)))).ToArray();
+        var stack = a.Zip(b, (x, y) => (x + y) / 2).ToArray();
+        var sharpDisk = Texture(size, 44, seed: 11, blobs: 0);
+        var blurredDisk = PlanetaryInverse.Apply(sharpDisk, size, size, kernel);
+        var power = PlanetaryWaveletGains.StackPower(stack, size, size, disk);
+        return (truth, stack, power, PlanetaryWaveletGains.Wiener(power, PlanetaryWaveletGains.HalvesNoise(a, b, size, size, disk), kernel), sharpDisk, blurredDisk);
     }
 
     private static double Normal(Random random) => Math.Sqrt(-2 * Math.Log(1 - random.NextDouble())) * Math.Cos(2 * Math.PI * random.NextDouble());
