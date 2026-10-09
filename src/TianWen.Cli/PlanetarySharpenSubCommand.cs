@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.CommandLine;
 using System.Diagnostics;
 using System.Globalization;
@@ -45,6 +46,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var strengthOpt = new Option<string>("--strength") { Description = "How far past the truth bands 2 and 3 are taken (#1251): 1, the default, is the derived sharpening; a comma list sharpens at each (e.g. '1,1.5,2'), each written and scored.", DefaultValueFactory = _ => "1" };
         var targetOpt = new Option<string>("--target") { Description = "What the derived gains restore toward (#1366): telescope (the default: the planet through the pupil's diffraction), aperture (the telescope's diffraction undone too, up to its cutoff), or both to compare them.", DefaultValueFactory = _ => "telescope" };
         var scoreAgainstOpt = new Option<string>("--score-against") { Description = "With --truth, what every sharpening is scored against (#1366): telescope (the default: the truth as rendered, through the pupil) or aperture (the truth carried to the aperture target, the pupil's diffraction divided out and the taper put in).", DefaultValueFactory = _ => "telescope" };
+        var gainsOpt = new Option<string?>("--gains") { Description = "Apply these a trous gains instead of deriving them, finest first, comma separated, one set per channel separated by ';' (the last repeated): a twin's own best gains, say, applied through the same limb window (#817). Layers past a set are held at 1." };
         var shrinkOpt = new Option<bool>("--shrink") { Description = "Shrink each a trous band against the master's own noise, read off its two halves (--halves), before the gains are derived (BayesShrink, #1313)." };
         var halvesOpt = new Option<string[]>("--halves")
         {
@@ -57,7 +59,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var command = new Command("planetary-sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
         {
             Arguments = { masterArg },
-            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, shrinkOpt, halvesOpt },
+            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, gainsOpt, shrinkOpt, halvesOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -173,6 +175,30 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 }
                 // The truth every score reads: as rendered, or carried to the aperture target (#1366).
                 var scoredAperture = scoreAgainst == "aperture" ? options.Pupil : null;
+                if (parseResult.GetValue(gainsOpt) is { } gainsText)
+                {
+                    var sets = ImmutableArray.CreateBuilder<ImmutableArray<double>>();
+                    foreach (var set in gainsText.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        var gainSet = ImmutableArray.CreateBuilder<double>();
+                        foreach (var word in set.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                        {
+                            if (!double.TryParse(word, NumberStyles.Float, inv, out var gain))
+                            {
+                                consoleHost.WriteError($"--gains {word}: a number");
+                                return 1;
+                            }
+                            gainSet.Add(gain);
+                        }
+                        sets.Add(gainSet.ToImmutable());
+                    }
+                    if (options.Pupil is null || sets.Count == 0)
+                    {
+                        consoleHost.WriteError("--gains needs the telescope (--telescope or --aperture-mm) and at least one gain");
+                        return 1;
+                    }
+                    options = options with { FixedGains = sets.ToImmutable() };
+                }
                 if (truthPath is not null)
                 {
                     PlanetaryMasterScore.AgainstTruth(consoleHost, master, truthPath, body, "the master as stacked", aperture: scoredAperture);
@@ -283,6 +309,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             + (finish == PlanetaryFinish.None ? "" : $", finished {finishWord}")
                             + (luminance && master.ChannelCount == 3 ? ", the luminance sharpened, the stack's colour kept" : "")
                             + (target == PlanetarySharpenTarget.Aperture ? ", toward the aperture (the telescope undone)" : "")
+                            + (options.FixedGains.IsDefaultOrEmpty ? "" : ", the gains given, not derived")
                             + (halves is null ? "" : ", shrunk by its halves");
                         var what = result.Derived ? $"derived{(nonNegative ? " non-negative" : "")}, {PlanetaryBestStack.Describe(fix)}{finestWords}{strengthWords}" : $"PlanetaryDefault{strengthWords}, the limb kept as stacked";
                         consoleHost.WriteScrollable(string.Create(inv,
