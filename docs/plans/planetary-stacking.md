@@ -494,7 +494,7 @@ the per-capture tune is worth exactly as much as the twin's calibration.
 
 ### A1. The twin calibrated automatically
 
-`planetary twin <capture>`: measure the capture (`PlanetaryCaptureStatistics`), fit the twin generator's options
+**Tracked by #1388.** `planetary twin <capture>`: measure the capture (`PlanetaryCaptureStatistics`), fit the twin generator's options
 (`DegradeOptions`) to those statistics, and write the options beside the capture with the twin they make. #1281 took
 eleven trials by hand to calibrate one colour twin, and R2 (`planetary-restoration.md`) as many for 2022-09-03 Red;
 this is that search, run by the code. A Bayer capture's statistics are measured per colour plane first (they are
@@ -513,19 +513,19 @@ mono-only today). What R2's calibration settled, and so what the search is:
 
 ### A2. The per-capture tune
 
-On the calibrated twin, find the settings that serve its truth best (the oracle gains through the limb window, and
+**Tracked by #1389.** On the calibrated twin, find the settings that serve its truth best (the oracle gains through the limb window, and
 the keep the sharpened master's band error prefers) and apply them to the real capture. Judged on the twin's other seed
 against its truth (A0's transfer), and on the real capture against its `_post`.
 
 ### A3. The base model
 
-A grid of twins over seeing, noise, frame count, planet and aperture, each with its tuned settings, and a regression
+**Tracked by #1390.** A grid of twins over seeing, noise, frame count, planet and aperture, each with its tuned settings, and a regression
 from the capture statistics to those settings. It is the first guess A2 starts from, and the viewer's answer while a
 tune has not run.
 
 ### A4. The surfaces
 
-`planetary stack --auto` and `planetary sharpen --auto` in the CLI, and Auto in the viewer's planetary view, which shows
+**Tracked by #1391.** `planetary stack --auto` and `planetary sharpen --auto` in the CLI, and Auto in the viewer's planetary view, which shows
 the base model's master at once and the tuned one when its run finishes. One routine for both, as
 `PlanetaryBestStack` is for Best. The viewer half is verified by driving the app through the SDL inspector.
 
