@@ -219,6 +219,25 @@ public static class PlanetaryMetrics
     private const double SkyRadii = 2.5;
 
     /// <summary>
+    /// A stack's plane (one channel) normalised on its own fitted disk and moved onto <paramref name="onto"/>'s centre (or left where it
+    /// is), with that disk: how every score sets a stack against a truth. Null where its limb does not fit.
+    /// </summary>
+    public static (float[] Plane, MetricDisk Disk)? Register(Image master, LimbFitOptions options, MetricDisk? onto)
+    {
+        ArgumentNullException.ThrowIfNull(master);
+        if (PlanetaryLimbFit.Fit(master, options) is not { } fit)
+        {
+            return null;
+        }
+        var (width, height) = (master.Width, master.Height);
+        var own = MetricDisk.From(fit, options);
+        var plane = Normalise(master.GetChannelSpan(0), width, height, own);
+        return onto is { } target
+            ? (Shift(plane, width, height, target.X - own.X, target.Y - own.Y), target)
+            : (plane, own);
+    }
+
+    /// <summary>
     /// <paramref name="plane"/> less its sky (the median beyond 2.5 radii), over its disk's mean inside 0.8 radii: the disk about 1
     /// and the sky about 0, so a stack in any units and a truth in ADU compare.
     /// </summary>

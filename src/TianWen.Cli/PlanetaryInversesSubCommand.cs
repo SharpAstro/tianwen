@@ -81,7 +81,7 @@ internal sealed class PlanetaryInversesSubCommand(IConsoleHost consoleHost, Mast
                     return 1;
                 }
                 MetricDisk? onto = truth is { } t ? t.Disk with { AxisRatio = limbOptions.AxisRatio } : null;
-                if (PlanetaryMeasureSubCommand.Register(stackImage, limbOptions, onto) is not { } stack
+                if (PlanetaryMetrics.Register(stackImage, limbOptions, onto) is not { } stack
                     || PlanetaryLimbFit.Fit(stackImage, limbOptions) is not { } fit
                     || PlanetaryLimbKernel.Fit(stackImage, fit, limbOptions) is not { } wide)
                 {
