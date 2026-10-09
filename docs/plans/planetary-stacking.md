@@ -526,6 +526,11 @@ mono-only today). What R2's calibration settled, and so what the search is:
   reference frame, and the mount drifts about a pixel a second, so the search's placement put the confirmation's disk
   pixels away from the real one's (0.0329 against 0.0441 for the same knobs).
 - **`--trials 0` confirms given knobs with no search**: the baseline a search is judged against.
+- **The statistics register plainly** (`--whitened-correlation` keeps R2's): on the EdgeHD Jupiter the whitened global
+  aligner jumped between wrong peaks by whole pixels, up to 15, while the disk moved 2. Over 600 green frames it read an
+  aligner's error of 2.38 px and a mount wandering 2.24 px where plain correlation read 0.15 and 0.29, and the limb's own
+  seeing is 0.33. Both the error the search fits and the mount drift the twin replays come from that aligner, which is
+  why the colour twin's disk moved 1.30 times the real one's in every colour.
 
 **Measured on 2022-09-03 Red (arm A, #1388)**: 80 twins of the first 300 frames from R2's hand values found r0 7.75 cm,
 wind 24 m/s, still layer 2.28 cm, scatter 4.65 % with a 7.2" core, a third of the hand values' mismatch on that window
