@@ -126,8 +126,19 @@ namespace TianWen.Lib.Imaging;
 /// <param name="Source">Where the triple came from. Kept because the two are not equally trustworthy and
 /// a consumer inheriting a calibration deserves to know which it got. An enum, not the card's string: it is a
 /// value that cannot be null, so a calibration's JSON never ends in one (#1356, dotnet/runtime#110450).</param>
-public readonly record struct ColourCalibration(float R, float G, float B, ColourCalibrationSource Source)
+/// <param name="Applied">Whether the triple is already IN the pixels (FITS <c>WBAPPLD</c>), so a renderer shows the frame
+/// with no white balance of its own and nothing re-solves one. Set on an enhanced master whose broadband SPCC was applied
+/// to the linear data before the enhance (<see cref="Image.WithWhiteBalanceApplied"/>); the triple stays for provenance and
+/// for a layer that inherits it. False (the default, and an absent card) means the triple is a display multiplier still to
+/// apply, which is what every unenhanced master carries.</param>
+public readonly record struct ColourCalibration(float R, float G, float B, ColourCalibrationSource Source, bool Applied = false)
 {
+    /// <summary>The triple as the renderer's white-balance multiplier.</summary>
+    public (float R, float G, float B) Gains => (R, G, B);
+
+    /// <summary>The FITS card that says a triple is already in the pixels (<see cref="Applied"/>).</summary>
+    public const string AppliedCard = "WBAPPLD";
+
     /// <summary>The FITS <c>WBSOURCE</c> card's value for <paramref name="source"/>: <c>SPCC</c> or <c>SKYBG</c>.</summary>
     public static string CardOf(ColourCalibrationSource source) => source switch
     {

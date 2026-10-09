@@ -1545,8 +1545,10 @@ public sealed class ViewerController(
             state.IsEnhanced = true;
             // The colour calibration measured on the ORIGINAL stars travels with the enhance; without
             // this the auto-retrigger re-fitted SPCC on the enhanced pixels and the frame took on a new
-            // cast the moment that fit landed. See AstroImageDocument.InheritColorCalibration.
-            if (Document is { } original)
+            // cast the moment that fit landed. See AstroImageDocument.InheritColorCalibration. A result whose balance
+            // went INTO its pixels (the original's broadband SPCC, applied before the enhance) already shows it, and
+            // inheriting the multiplier as well would apply it twice.
+            if (Document is { } original && !enhancedDoc.IsColourInPixels)
             {
                 enhancedDoc.InheritColorCalibration(original);
             }

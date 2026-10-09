@@ -1214,8 +1214,17 @@ internal sealed partial class ImageSubCommand(
             //  - Scnr follows whichever canonical program applies unless --scnr overrides it, and
             //    --dual-stretch wants it either way (green stars are a stretched-space artefact).
             //  - Recombine is cleared by --no-recombine, which writes each plate separately.
+            //  - WhiteBalance multiplies a broadband SPCC balance the input states (a stacked master's WB
+            //    cards) into the linear data first, as `stack --enhance` and the viewer apply theirs.
+            var whiteBalance = await MasterPreviewRenderer.StatedToApplyAsync(normalised.ImageMeta.ColourCalibration, normalised.ImageMeta, ct);
+            if (whiteBalance is { } applying)
+            {
+                consoleHost.WriteScrollable(
+                    $"[sharpen] {ColourCalibration.CardOf(applying.Source)} white balance ({applying.R:F3}, {applying.G:F3}, {applying.B:F3}) applied to the linear input before the enhance");
+            }
             var program = LinearEnhanceProgram.For(capabilities) with
             {
+                WhiteBalance = whiteBalance,
                 // Blend left at the step default, as the canonical program has it; --deblur-sharpen
                 // tunes RC-Astro's own sharpening through EnhanceOptions and is a different dial.
                 GradientCorrection = !noGradient && capabilities.GradientCorrection,

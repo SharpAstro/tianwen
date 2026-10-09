@@ -220,6 +220,66 @@ public partial class Image
     }
 
     /// <summary>
+    /// This colour frame with <paramref name="calibration"/>'s white balance multiplied INTO its pixels, and its metadata
+    /// saying so (<see cref="ColourCalibration.Applied"/>), so a renderer shows it with no white balance of its own.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why it exists.</b> A broadband master is balanced by SPCC on its LINEAR data, before the enhance, as
+    /// PixInsight orders it: every enhancer after that (the deblur, the gradient model, the star remover, the denoiser)
+    /// then sees the colour it will be shown in, and nothing has to solve SPCC again on stars the enhance has reshaped,
+    /// which biased the fit 5 to 26 percent in blue on Centaurus A.</para>
+    /// <para><b>The gains are divided by the largest</b>, so no channel is lifted past its own level and a master in
+    /// [0, 1] stays there; a white balance is a ratio, and the recorded triple is the one multiplied in. Each sample
+    /// is taken about the frame's pedestal, as the display multiplies it after the pedestal is subtracted. A fourth
+    /// channel, if any, is copied as it is. NaN propagates.</para>
+    /// </remarks>
+    /// <exception cref="ArgumentException">The frame has fewer than three channels, or a gain is not a positive finite number.</exception>
+    public Image WithWhiteBalanceApplied(ColourCalibration calibration)
+    {
+        if (ChannelCount < 3)
+        {
+            throw new ArgumentException($"A white balance needs a colour frame; this one has {ChannelCount} channel(s).", nameof(calibration));
+        }
+        ReadOnlySpan<float> stated = [calibration.R, calibration.G, calibration.B];
+        foreach (var g in stated)
+        {
+            if (!float.IsFinite(g) || g <= 0f)
+            {
+                throw new ArgumentException($"White-balance gains ({calibration.R}, {calibration.G}, {calibration.B}) must be positive and finite.", nameof(calibration));
+            }
+        }
+        var largest = MathF.Max(calibration.R, MathF.Max(calibration.G, calibration.B));
+        Span<float> gains = [calibration.R / largest, calibration.G / largest, calibration.B / largest];
+
+        var dst = CreateChannelData(ChannelCount, Height, Width);
+        var max = float.NegativeInfinity;
+        var min = float.PositiveInfinity;
+        for (var c = 0; c < ChannelCount; c++)
+        {
+            var src = GetChannelSpan(c);
+            var output = MemoryMarshal.CreateSpan(ref dst[c][0, 0], dst[c].Length);
+            var gain = c < 3 ? gains[c] : 1f;
+            if (pedestal == 0f)
+            {
+                TensorPrimitives.Multiply(src, gain, output);
+            }
+            else
+            {
+                TensorPrimitives.Subtract(src, pedestal, output);
+                TensorPrimitives.Multiply(output, gain, output);
+                TensorPrimitives.Add(output, pedestal, output);
+            }
+            // The line is increasing, so a channel's own extremes go through it to the new ones.
+            var channel = GetChannel(c);
+            max = MathF.Max(max, ((channel.MaxValue - pedestal) * gain) + pedestal);
+            min = MathF.Min(min, ((channel.MinValue - pedestal) * gain) + pedestal);
+        }
+
+        var applied = new ColourCalibration(gains[0], gains[1], gains[2], calibration.Source, Applied: true);
+        return new Image(dst, BitDepth.Float32, max, min, pedestal, imageMeta with { ColourCalibration = applied });
+    }
+
+    /// <summary>
     /// Returns <c>this * scale + offset</c> per pixel, all channels: a straight line through every value, as a linear fit
     /// (<see cref="LinearFit"/>) or a range map applies one. No clamp; NaN propagates. The peak and the floor go through
     /// the line, and so does a pedestal, which is a level in the data's own units; none stays none. The metadata is

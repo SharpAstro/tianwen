@@ -27,7 +27,8 @@ namespace TianWen.UI.Abstractions
         BitDepth BitDepth,
         SensorType SensorType,
         string FilterKey,
-        string ObjectKey)
+        string ObjectKey,
+        bool ColourInPixels)
     {
         public static FrameShape Of(Image image) => new FrameShape(
             image.Width,
@@ -36,7 +37,8 @@ namespace TianWen.UI.Abstractions
             image.BitDepth,
             image.ImageMeta.SensorType,
             FilterKeyOf(image.ImageMeta),
-            ObjectKeyOf(image.ImageMeta));
+            ObjectKeyOf(image.ImageMeta),
+            image.ImageMeta.ColourCalibration is { Applied: true });
 
         /// <summary>
         /// Whether a display mapping solved for <c>this</c> frame is meaningful on <paramref name="other"/>.
@@ -55,7 +57,11 @@ namespace TianWen.UI.Abstractions
             && BitDepth == other.BitDepth
             && SensorType == other.SensorType
             && NamesAgree(FilterKey, other.FilterKey)
-            && NamesAgree(ObjectKey, other.ObjectKey);
+            && NamesAgree(ObjectKey, other.ObjectKey)
+            // A frame whose white balance is already in its pixels and one still to be balanced cannot share a
+            // calibration: the enhanced master beside its raw master in one folder matches it on every other count,
+            // and would have read the raw master's SPCC and had it multiplied in a second time.
+            && ColourInPixels == other.ColourInPixels;
 
         /// <summary>
         /// Two optional names agree when they match, or when either frame does not give one. The

@@ -50,6 +50,24 @@ public readonly record struct PreviewRender(
     SpccDiagnostics? Spcc, StretchUniforms Uniforms, (float R, float G, float B)? WhiteBalance);
 
 /// <summary>
+/// A colour frame's white balance, solved once (<see cref="MasterPreviewRenderer.SolveWhiteBalanceAsync"/>).
+/// </summary>
+/// <param name="Calibration">The triple and how it was derived: SPCC, else the sky-background estimate, else none.</param>
+/// <param name="Spcc">SPCC's diagnostics when SPCC answered, for the CLI summary.</param>
+/// <param name="LineSelective">The light came through a line-selective filter, where SPCC has no continuum to fit
+/// (<see cref="FilterCurveDatabase.IsLineSelective"/>).</param>
+public readonly record struct WhiteBalanceSolve(ColourCalibration? Calibration, SpccDiagnostics? Spcc, bool LineSelective)
+{
+    /// <summary>
+    /// The calibration to multiply into the linear pixels before an enhance (<see cref="Enhancement.WhiteBalanceStep"/>): a
+    /// PHOTOMETRIC one, which is a broadband SPCC fit and nothing else. The sky-background estimate is a guess about the
+    /// sky, and a fit through a line-selective filter is a fit of nothing; both stay display multipliers, so the linear
+    /// data never carries them.
+    /// </summary>
+    public ColourCalibration? ToApply => Calibration is { Source: ColourCalibrationSource.Spcc } c && !LineSelective ? c : null;
+}
+
+/// <summary>
 /// Display-side post-processing for a stacking master: SPCC + sky-bg
 /// fallback WB, background neutralisation gain solve, then a stretched
 /// PNG preview with sRGB ICC. CPU-only (no GPU), so it lives in
@@ -460,30 +478,16 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         // White balance: a supplied (shared) triple short-circuits the
         // solve -- that is the per-plate path, where the master's one
         // SPCC balance is reused and only the bg-neut + stretch below
-        // are recomputed from this plate's own pixels. Otherwise SPCC
-        // first, sky-bg fallback, else identity. All photometry / catalog
-        // / sky-bg sampling runs on `stats`, not `renderImage`, so the
-        // gains are anchored to the well-covered region.
+        // are recomputed from this plate's own pixels. A frame whose
+        // balance is already in its pixels is shown as it is. Otherwise
+        // SPCC first, sky-bg fallback, else identity
+        // (SolveWhiteBalanceCoreAsync). All photometry / catalog / sky-bg
+        // sampling runs on `stats`, not `renderImage`, so the gains are
+        // anchored to the well-covered region.
         // ------------------------------------------------------------
-        // The system throughput (sensor QE x filter) answers TWO questions and is therefore computed
-        // once, here, rather than inside the SPCC block below: it is what SPCC integrates its SEDs
-        // against, AND it is what says whether the light was line-selective. The second answer is a
-        // property of the FRAME, not of which white-balance path ran, and the shared-triple path
-        // skips the SPCC block entirely while still needing it for the stretch mode.
-        (FilterCurve R, FilterCurve G, FilterCurve B)? throughputs = null;
-        var colourIsNotPhotometric = false;
-        if (stats.ChannelCount >= 3)
-        {
-            if (!FilterCurveDatabase.IsLoaded)
-            {
-                await FilterCurveDatabase.LoadAsync(ct);
-            }
-            throughputs = FilterCurveDatabase.BuildChannelThroughputs(sensorMeta);
-            if (throughputs is { } tsys)
-            {
-                colourIsNotPhotometric = FilterCurveDatabase.IsLineSelective(tsys.R, tsys.G, tsys.B);
-            }
-        }
+        // The throughput is computed for every colour frame, whichever white-balance path runs: the shared-triple and
+        // already-applied paths skip the solve but still need to know whether the light was line-selective.
+        var (throughputs, colourIsNotPhotometric) = await ChannelThroughputsAsync(stats.ChannelCount, sensorMeta, ct);
 
         (float R, float G, float B)? wbGains = wbOverride;
         if (wbGains is { } shared)
@@ -491,95 +495,20 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
             logger.LogInformation("  [WB] shared SPCC white balance ({R:F3}, {G:F3}, {B:F3}) -- plate self-stretches its own bg + MTF",
                 shared.R, shared.G, shared.B);
         }
+        else if (stats.ImageMeta.ColourCalibration is { Applied: true } inPixels)
+        {
+            // The balance is already IN the pixels (an enhanced master whose SPCC was applied to its linear data before
+            // the enhance), so the frame is shown as it is. Identity rather than none: a calibration IS active, which is
+            // what makes the stretch Linked, and solving one again here would fit SPCC on enhanced stars.
+            wbGains = (1f, 1f, 1f);
+            logger.LogInformation("  [WB] {Source} white balance ({R:F3}, {G:F3}, {B:F3}) already in the pixels; rendered as it is",
+                ColourCalibration.CardOf(inPixels.Source), inPixels.R, inPixels.G, inPixels.B);
+        }
         else if (stats.ChannelCount >= 3)
         {
-            // Detect stars once (cap at 500 -- SPCC's photometry +
-            // catalog match scales with detection count and the
-            // brightest 500 give the same WB answer as 10k+).
-            StarList? statsStars = null;
-            try
-            {
-                statsStars = await stats.FindStarsAsync(channel: stats.ReferenceStarChannel, snrMin: 5f, maxStars: 500,
-                    minStars: 50, maxRetries: 0, cancellationToken: ct);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning("  [WB] star detection failed: {Type}: {Msg}", ex.GetType().Name, ex.Message);
-            }
-
-            // Post-stack PSF summary on the master. Lets us spot when a
-            // stacked output ends up with broader / more elongated stars
-            // than the per-frame medians would suggest -- a tell for
-            // residual registration drift or aggressive rejection cutting
-            // into the best frames.
-            if (statsStars is { Count: > 0 } detected)
-            {
-                var masterHfd = detected.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median);
-                var masterFwhm = detected.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median);
-                var masterEcc = detected.MapReduceStarProperty(SampleKind.Ellipticity, AggregationMethod.Median);
-                logger.LogInformation(
-                    "  [masterStats] N={N} hfd={Hfd:F2} fwhm={Fwhm:F2} ecc={Ecc:F3}",
-                    detected.Count, masterHfd, masterFwhm, masterEcc);
-            }
-
-            if (effectiveWcs is { } w && statsStars is { Count: >= 3 } && catalogDb is { } db)
-            {
-                var spccSw = Stopwatch.StartNew();
-                try
-                {
-                    // The filter curves are already loaded: the throughput block above runs for every
-                    // colour frame, and this block only runs for one.
-                    // Tycho-2 is what SPCC matches against, and nothing upstream of a bare
-                    // `image render` loads it -- the same reason CatalogPlateSolver self-inits at
-                    // the top of SolveImageAsync. Without this the matcher finds no catalog star
-                    // near any detection and the run reports "insufficient matches", which reads
-                    // like a hard field rather than an uninitialised database. InitDBAsync is
-                    // idempotent, so a caller that already loaded it pays nothing.
-                    await db.InitDBAsync(waitForTycho2BulkLoad: true, ct);
-                    if (throughputs is { } t)
-                    {
-                        var spcc = Tycho2ColorCalibration.ComputeSpectrophotometricWhiteBalance(
-                            stats, statsStars, w, db, t.R, t.G, t.B, logger: logger);
-                        if (spcc is { } gains)
-                        {
-                            wbGains = (gains.R, gains.G, gains.B);
-                            spccDiagnostics = new SpccDiagnostics(
-                                gains.R, gains.G, gains.B,
-                                gains.InitialMatches, gains.FinalMatches,
-                                gains.Iterations,
-                                gains.Funnel,
-                                spccSw.Elapsed);
-                            logger.LogInformation(
-                                "  [SPCC] WB=({R:F3}, {G:F3}, {B:F3}) from {Final}/{Initial} Tycho-2 matches in {Iters} kappa-sigma iter(s) ({Ms} ms)",
-                                gains.R, gains.G, gains.B,
-                                gains.FinalMatches, gains.InitialMatches, gains.Iterations,
-                                spccSw.ElapsedMilliseconds);
-                        }
-                        else
-                        {
-                            logger.LogInformation("  [SPCC] insufficient matches; will try sky-bg fallback");
-                        }
-                    }
-                    else
-                    {
-                        logger.LogInformation("  [SPCC] no channel throughput for this sensor; will try sky-bg fallback");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning("  [SPCC] failed: {Type}: {Msg}", ex.GetType().Name, ex.Message);
-                }
-            }
-
-            if (wbGains is null && statsStars is { StarMask: { } mask })
-            {
-                var skyWb = StretchSolver.ComputeSkyBackgroundWB(stats, mask);
-                if (skyWb is { } w2)
-                {
-                    wbGains = w2;
-                    logger.LogInformation("  [skyBgWB] WB=({R:F3}, {G:F3}, {B:F3})", w2.R, w2.G, w2.B);
-                }
-            }
+            var solve = await SolveWhiteBalanceCoreAsync(stats, effectiveWcs, throughputs, colourIsNotPhotometric, ct);
+            wbGains = solve.Calibration?.Gains;
+            spccDiagnostics = solve.Spcc;
         }
 
         // ------------------------------------------------------------
@@ -677,6 +606,167 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
             uniforms = uniforms with { BackgroundNeutralization = bg2 };
         }
         return (uniforms, spccDiagnostics, wbGains);
+    }
+
+    /// <summary>
+    /// Solves the white balance of a colour frame ONCE, the same solve a render runs: SPCC against the catalogue where the
+    /// frame has a plate solution and enough stars, the sky-background estimate where it does not, and whether the light
+    /// came through a line-selective filter. A host enhancing a master calls this on the LINEAR master first and multiplies
+    /// <see cref="WhiteBalanceSolve.ToApply"/> into it (<see cref="Enhancement.WhiteBalanceStep"/>), so the enhance sees
+    /// balanced colour and nothing solves SPCC again on stars the enhance has reshaped.
+    /// </summary>
+    /// <param name="image">The frame to solve on, in the units it will be enhanced in; its interior holes are filled for
+    /// the solve only, as a render fills them.</param>
+    /// <param name="wcs">Its plate solution, or null (SPCC is then skipped and the sky-background estimate answers).</param>
+    /// <param name="sensorMeta">The capture's metadata, which names the sensor and the filter (see <see cref="RenderAsync"/>).</param>
+    /// <param name="ct">Cancels the solve.</param>
+    /// <returns>No calibration for a frame of fewer than three channels.</returns>
+    public async Task<WhiteBalanceSolve> SolveWhiteBalanceAsync(Image image, WCS? wcs, ImageMeta sensorMeta, CancellationToken ct = default)
+    {
+        if (image.ChannelCount < 3)
+        {
+            return default;
+        }
+        var stats = WithZeroPedestal(image.WithInteriorHolesFilled());
+        var (throughputs, lineSelective) = await ChannelThroughputsAsync(stats.ChannelCount, sensorMeta, ct);
+        return await SolveWhiteBalanceCoreAsync(stats, wcs, throughputs, lineSelective, ct);
+    }
+
+    /// <summary>
+    /// A white balance a frame STATES (its <c>WB*</c> cards, or a triple a caller inherited) when it may be multiplied into
+    /// the linear pixels before an enhance, else null: an SPCC fit, not yet applied, through a throughput the capture's
+    /// metadata shows to be broadband, which is the throughput SPCC itself integrates (a colour frame naming no filter
+    /// reads as unfiltered, as its fit did). A capture no curve describes has none to show, so its triple stays a display
+    /// multiplier, as the sky-background estimate and a line-selective fit always do (<see cref="WhiteBalanceSolve.ToApply"/>
+    /// is the same rule for a balance solved here).
+    /// </summary>
+    public static async Task<ColourCalibration?> StatedToApplyAsync(ColourCalibration? stated, ImageMeta sensorMeta, CancellationToken ct = default)
+    {
+        if (stated is not { Source: ColourCalibrationSource.Spcc, Applied: false } spcc)
+        {
+            return null;
+        }
+        var (throughputs, lineSelective) = await ChannelThroughputsAsync(3, sensorMeta, ct);
+        return throughputs is not null && !lineSelective ? spcc : null;
+    }
+
+    /// <summary>
+    /// The system throughput (sensor QE x filter) and whether it is line-selective, for a colour frame; nothing for one of
+    /// fewer than three channels. It answers TWO questions, which is why it is computed apart from the solve: it is what
+    /// SPCC integrates its SEDs against, AND it says whether the light was line-selective, a property of the FRAME that the
+    /// shared-triple path needs for its stretch mode while skipping the solve.
+    /// </summary>
+    private static async Task<((FilterCurve R, FilterCurve G, FilterCurve B)? Throughputs, bool LineSelective)> ChannelThroughputsAsync(
+        int channelCount, ImageMeta sensorMeta, CancellationToken ct)
+    {
+        if (channelCount < 3)
+        {
+            return (null, false);
+        }
+        if (!FilterCurveDatabase.IsLoaded)
+        {
+            await FilterCurveDatabase.LoadAsync(ct);
+        }
+        var throughputs = FilterCurveDatabase.BuildChannelThroughputs(sensorMeta);
+        return (throughputs, throughputs is { } t && FilterCurveDatabase.IsLineSelective(t.R, t.G, t.B));
+    }
+
+    /// <summary>The solve behind <see cref="SolveWhiteBalanceAsync"/> and a render, on stats already hole-filled and
+    /// rewrapped to a zero pedestal. All photometry, catalogue and sky sampling runs on <paramref name="stats"/>.</summary>
+    private async Task<WhiteBalanceSolve> SolveWhiteBalanceCoreAsync(
+        Image stats, WCS? wcs, (FilterCurve R, FilterCurve G, FilterCurve B)? throughputs, bool lineSelective, CancellationToken ct)
+    {
+        ColourCalibration? calibration = null;
+        SpccDiagnostics? spccDiagnostics = null;
+        // Detect stars once (cap at 500 -- SPCC's photometry +
+        // catalog match scales with detection count and the
+        // brightest 500 give the same WB answer as 10k+).
+        StarList? statsStars = null;
+        try
+        {
+            statsStars = await stats.FindStarsAsync(channel: stats.ReferenceStarChannel, snrMin: 5f, maxStars: 500,
+                minStars: 50, maxRetries: 0, cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("  [WB] star detection failed: {Type}: {Msg}", ex.GetType().Name, ex.Message);
+        }
+
+        // Post-stack PSF summary on the master. Lets us spot when a
+        // stacked output ends up with broader / more elongated stars
+        // than the per-frame medians would suggest -- a tell for
+        // residual registration drift or aggressive rejection cutting
+        // into the best frames.
+        if (statsStars is { Count: > 0 } detected)
+        {
+            var masterHfd = detected.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median);
+            var masterFwhm = detected.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median);
+            var masterEcc = detected.MapReduceStarProperty(SampleKind.Ellipticity, AggregationMethod.Median);
+            logger.LogInformation(
+                "  [masterStats] N={N} hfd={Hfd:F2} fwhm={Fwhm:F2} ecc={Ecc:F3}",
+                detected.Count, masterHfd, masterFwhm, masterEcc);
+        }
+
+        if (wcs is { } w && statsStars is { Count: >= 3 } && catalogDb is { } db)
+        {
+            var spccSw = Stopwatch.StartNew();
+            try
+            {
+                // The filter curves are already loaded: ChannelThroughputsAsync runs for every colour frame
+                // before this, and this block only runs for one.
+                // Tycho-2 is what SPCC matches against, and nothing upstream of a bare
+                // `image render` loads it -- the same reason CatalogPlateSolver self-inits at
+                // the top of SolveImageAsync. Without this the matcher finds no catalog star
+                // near any detection and the run reports "insufficient matches", which reads
+                // like a hard field rather than an uninitialised database. InitDBAsync is
+                // idempotent, so a caller that already loaded it pays nothing.
+                await db.InitDBAsync(waitForTycho2BulkLoad: true, ct);
+                if (throughputs is { } t)
+                {
+                    var spcc = Tycho2ColorCalibration.ComputeSpectrophotometricWhiteBalance(
+                        stats, statsStars, w, db, t.R, t.G, t.B, logger: logger);
+                    if (spcc is { } gains)
+                    {
+                        calibration = new ColourCalibration(gains.R, gains.G, gains.B, ColourCalibrationSource.Spcc);
+                        spccDiagnostics = new SpccDiagnostics(
+                            gains.R, gains.G, gains.B,
+                            gains.InitialMatches, gains.FinalMatches,
+                            gains.Iterations,
+                            gains.Funnel,
+                            spccSw.Elapsed);
+                        logger.LogInformation(
+                            "  [SPCC] WB=({R:F3}, {G:F3}, {B:F3}) from {Final}/{Initial} Tycho-2 matches in {Iters} kappa-sigma iter(s) ({Ms} ms)",
+                            gains.R, gains.G, gains.B,
+                            gains.FinalMatches, gains.InitialMatches, gains.Iterations,
+                            spccSw.ElapsedMilliseconds);
+                    }
+                    else
+                    {
+                        logger.LogInformation("  [SPCC] insufficient matches; will try sky-bg fallback");
+                    }
+                }
+                else
+                {
+                    logger.LogInformation("  [SPCC] no channel throughput for this sensor; will try sky-bg fallback");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning("  [SPCC] failed: {Type}: {Msg}", ex.GetType().Name, ex.Message);
+            }
+        }
+
+        if (calibration is null && statsStars is { StarMask: { } mask })
+        {
+            var skyWb = StretchSolver.ComputeSkyBackgroundWB(stats, mask);
+            if (skyWb is { } w2)
+            {
+                calibration = new ColourCalibration(w2.R, w2.G, w2.B, ColourCalibrationSource.SkyBackground);
+                logger.LogInformation("  [skyBgWB] WB=({R:F3}, {G:F3}, {B:F3})", w2.R, w2.G, w2.B);
+            }
+        }
+
+        return new WhiteBalanceSolve(calibration, spccDiagnostics, lineSelective);
     }
 
     /// <summary>

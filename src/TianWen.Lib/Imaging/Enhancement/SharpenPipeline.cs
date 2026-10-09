@@ -256,6 +256,8 @@ public sealed class SharpenPipeline(
         Image? deconvolvedStarless = null;
         Image? denoisedStarless = null;
         Image? final = null;
+        // The white balance a WhiteBalanceStep multiplied into the source, as its plates record it.
+        ColourCalibration? appliedWhiteBalance = null;
 
         var timings = new List<(string Name, long Ms, ImmutableArray<float> NoiseAfter)>(request.Steps.Length);
         // Tracks the noise σ of the most-processed *linear* starless plate.
@@ -313,6 +315,21 @@ public sealed class SharpenPipeline(
                 var stepProgress = progress is null ? null : new StepProgressRelay(progress, stepName, stepIndex, stepCount);
                 switch (step)
                 {
+                    case WhiteBalanceStep whiteBalanceStep:
+                    {
+                        // The calibration goes into the working source, so every step after it reads the balanced
+                        // pixels through `deblurred ?? source` exactly as it read the unbalanced ones. The balanced copy
+                        // is the pipeline's, like the debayered plate above, and the caller's source is never touched.
+                        source = source.WithWhiteBalanceApplied(whiteBalanceStep.Calibration);
+                        appliedWhiteBalance = source.ImageMeta.ColourCalibration;
+                        // The noise baseline is the balanced frame's, or the run's "noise removed" would read each
+                        // channel's gain as noise reduction.
+                        inputNoise = source.EstimateNoiseProfile();
+                        linearStarlessNoise = inputNoise;
+                        timings.Add(($"white-balance({appliedWhiteBalance?.R:F3},{appliedWhiteBalance?.G:F3},{appliedWhiteBalance?.B:F3})", phaseSw.ElapsedMilliseconds, default));
+                        break;
+                    }
+
                     case DeblurStep deblurStep:
                     {
                         // Full-image deconvolution (BlurX) at the head: tightens
@@ -771,6 +788,43 @@ public sealed class SharpenPipeline(
         // frame at all (only a declined deblur) returns no Final rather than the caller's own source.
         PromoteWholeFrame();
 
+        // Every plate a balanced run returns says the balance is in its pixels, or a renderer would multiply it in a
+        // second time. The in-house enhancers carry their input's metadata through; one that reads its output back from
+        // a file of its own (RC-Astro) does not, and its plates are restamped here. Two slots can hold one image (the
+        // SCNR'd stars), so each image is restamped once.
+        if (appliedWhiteBalance is { } applied)
+        {
+            var restamped = new List<(Image Plate, Image Stamped)>(4);
+            Image? Stamp(Image? plate)
+            {
+                if (plate is null || plate.ImageMeta.ColourCalibration == applied)
+                {
+                    return plate;
+                }
+                foreach (var (seen, stamped) in restamped)
+                {
+                    if (ReferenceEquals(seen, plate))
+                    {
+                        return stamped;
+                    }
+                }
+                var copy = plate.Affine(1.0, 0.0, plate.ImageMeta with { ColourCalibration = applied });
+                restamped.Add((plate, copy));
+                return copy;
+            }
+            final = Stamp(final);
+            starless = Stamp(starless);
+            starsOnly = Stamp(starsOnly);
+            sharpenedStars = Stamp(sharpenedStars);
+            deconvolvedStarless = Stamp(deconvolvedStarless);
+            denoisedStarless = Stamp(denoisedStarless);
+            gradientCorrected = Stamp(gradientCorrected);
+            foreach (var (plate, _) in restamped)
+            {
+                plate.Release();
+            }
+        }
+
         // FinalNoise = the σ of the most-processed *linear* starless plate,
         // tracked separately via linearStarlessNoise so stretch / bg-reduce /
         // compress / GHS steps (which mutate the denoisedStarless SLOT in
@@ -794,7 +848,8 @@ public sealed class SharpenPipeline(
             DenoisedStarless: denoisedStarless,
             GradientCorrected: gradientCorrected,
             InputNoise: inputNoise,
-            FinalNoise: finalNoise);
+            FinalNoise: finalNoise,
+            AppliedWhiteBalance: appliedWhiteBalance);
     }
 
     /// <summary>
@@ -815,6 +870,7 @@ public sealed class SharpenPipeline(
     /// </summary>
     private static string StepDisplayName(SharpenStep step) => step switch
     {
+        WhiteBalanceStep => "white-balance",
         DeblurStep => "deblur",
         GradientCorrectionStep => "gradient-correction",
         RemoveStarsStep => "remove-stars",
@@ -1033,9 +1089,18 @@ public sealed class SharpenPipeline(
             }
             switch (step)
             {
-                case DeblurStep:
+                case WhiteBalanceStep:
                     if (i != 0) throw new ArgumentException(
-                        $"SharpenRequest.Steps[{i}]: DeblurStep must be the FIRST step -- it deconvolves the full source (stars + non-stellar) before gradient correction / star removal (BlurX-first / PixInsight OSC order).",
+                        $"SharpenRequest.Steps[{i}]: WhiteBalanceStep must be the FIRST step -- SPCC is applied to the linear source before any enhancer sees it.",
+                        nameof(request));
+                    // A CFA mosaic counts as colour: it is debayered before the first step runs.
+                    if (request.Source.ChannelCount < 3 && request.Source.ImageMeta.SensorType is not SensorType.RGGB) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: WhiteBalanceStep needs a colour source; this one has {request.Source.ChannelCount} channel(s).",
+                        nameof(request));
+                    break;
+                case DeblurStep:
+                    if (i != 0 && !(i == 1 && request.Steps[0] is WhiteBalanceStep)) throw new ArgumentException(
+                        $"SharpenRequest.Steps[{i}]: DeblurStep must be the FIRST step, or follow only a WhiteBalanceStep -- it deconvolves the full source (stars + non-stellar) before gradient correction / star removal (BlurX-first / PixInsight OSC order).",
                         nameof(request));
                     break;
                 case GradientCorrectionStep:
@@ -1285,11 +1350,23 @@ public abstract record SharpenStep;
 /// gradient correction and star removal) -- the BlurX-first / PixInsight OSC
 /// shape. Because stars are tightened in place, no separate
 /// <see cref="SharpenStarsStep"/> is needed. Backed by
-/// <see cref="IImageDeblurrer"/> (RC-Astro only). Must be the first step.</summary>
+/// <see cref="IImageDeblurrer"/>. Must be the first step, or follow only a <see cref="WhiteBalanceStep"/>.</summary>
 /// <param name="Blend">AI strength in [0, 1], applied as a post-hoc lerp toward
 /// the source (0 = source untouched; 1 = full deblur). The product's own
 /// stellar / non-stellar sharpening amounts are configured on the enhancer.</param>
 public sealed record DeblurStep(float Blend = 1.0f) : SharpenStep;
+
+/// <summary>
+/// Multiplies a colour calibration into the source before anything else runs (<see cref="Image.WithWhiteBalanceApplied"/>):
+/// the PixInsight order, SPCC on the LINEAR data and then the deblur, the gradient, the stars and the denoise, every one of
+/// them seeing the colour it will be shown in. Only ever the FIRST step. Every plate the run returns says the balance is in
+/// its pixels (<see cref="ColourCalibration.Applied"/>), so a renderer shows it as it is and nothing solves SPCC again on
+/// stars the enhance has reshaped. A host passes a calibration here only where it is photometric: a broadband SPCC fit,
+/// never the sky-background fallback nor a fit through a line-selective filter, which stay display multipliers
+/// (<see cref="LinearEnhanceProgram.WhiteBalance"/>).
+/// </summary>
+/// <param name="Calibration">The white balance to multiply in.</param>
+public sealed record WhiteBalanceStep(ColourCalibration Calibration) : SharpenStep;
 
 /// <summary>Gradient / background correction. Slots at the head of the
 /// canonical Frank Sackenheim flow (gradient -> stars -> detail -> stretch)
@@ -1656,6 +1733,13 @@ public enum SharpenIntermediates
 /// </summary>
 public sealed record LinearEnhanceProgram
 {
+    /// <summary>A colour calibration to multiply into the linear source before anything else runs
+    /// (<see cref="WhiteBalanceStep"/>), or null for none. Never set by <see cref="For"/>: the solve needs the frame's
+    /// plate solution and the catalogue, which a host has and the pipeline does not, so a host sets it, and only to a
+    /// PHOTOMETRIC balance (a broadband SPCC fit). The sky-background fallback and a fit through a line-selective filter
+    /// stay display multipliers.</summary>
+    public ColourCalibration? WhiteBalance { get; init; }
+
     /// <summary>Whole-frame deblur (BlurXTerminator) ahead of star extraction.
     /// Requires an <see cref="IImageDeblurrer"/> that serves the input; see <see cref="SharpenPipeline.CapabilitiesFor"/>.</summary>
     public bool Deblur { get; init; }
@@ -1745,7 +1829,8 @@ public sealed record LinearEnhanceProgram
     {
         get
         {
-            var steps = ImmutableArray.CreateBuilder<SharpenStep>(6);
+            var steps = ImmutableArray.CreateBuilder<SharpenStep>(7);
+            if (WhiteBalance is { } whiteBalance) steps.Add(new WhiteBalanceStep(whiteBalance));
             if (Deblur) steps.Add(new DeblurStep(Blend: DeblurBlend));
             if (GradientCorrection) steps.Add(new GradientCorrectionStep());
             if (!SplitStars)
@@ -1889,6 +1974,9 @@ public enum RecombineMode
 /// apples linear-domain "AI removed X% noise" delta -- the composite is
 /// excluded because <c>--dual-stretch</c> renders it in stretched space,
 /// which would conflate AI noise reduction with histogram redistribution.</param>
+/// <param name="AppliedWhiteBalance">The white balance a <see cref="WhiteBalanceStep"/> multiplied into the source, as every
+/// returned plate's metadata records it (<see cref="ColourCalibration.Applied"/>), or null when the run applied none. A host
+/// shows the plates with no white balance of its own when it is set.</param>
 public sealed record SharpenResult(
     Image? Final,
     Image? Starless,
@@ -1898,4 +1986,5 @@ public sealed record SharpenResult(
     Image? DenoisedStarless,
     Image? GradientCorrected = null,
     ImmutableArray<float> InputNoise = default,
-    ImmutableArray<float> FinalNoise = default);
+    ImmutableArray<float> FinalNoise = default,
+    ColourCalibration? AppliedWhiteBalance = null);

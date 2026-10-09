@@ -236,6 +236,29 @@ public sealed class AstroImageDocument : IPreviewSource
 
     private (float R, float G, float B)? _colorCalibration;
 
+    /// <summary>The <see cref="ColorCalibrationSummary.Method"/> a photometric fit reports, which is what makes a
+    /// calibration fit to multiply into the pixels (<see cref="PhotometricColorCalibration"/>).</summary>
+    internal const string SpccMethod = "SPCC";
+
+    /// <summary>
+    /// Whether this frame's white balance is already IN its pixels (<see cref="ColourCalibration.Applied"/>): an
+    /// enhanced master whose broadband SPCC was multiplied into its linear data before the enhance. Such a frame is
+    /// shown with an identity calibration and never fitted again, which would fit SPCC on stars the enhance reshaped.
+    /// </summary>
+    public bool IsColourInPixels => UnstretchedImage.ImageMeta.ColourCalibration is { Applied: true };
+
+    /// <summary>
+    /// The calibration the AI enhance multiplies into the linear pixels before any enhancer runs
+    /// (<see cref="TianWen.Lib.Imaging.Enhancement.LinearEnhanceProgram.WhiteBalance"/>): this document's SPCC fit, when it has one and it is
+    /// PHOTOMETRIC (fitted through a broadband filter), else null. The sky-background estimate and a fit through a
+    /// line-selective filter stay display multipliers, and a frame whose balance is already in its pixels has
+    /// none left to apply.
+    /// </summary>
+    public ColourCalibration? PhotometricColorCalibration
+        => ColorCalibration is { } wb && ColorCalibrationSummary is { Method: SpccMethod } && !IsNarrowbandColorCalibration && !IsColourInPixels
+            ? new ColourCalibration(wb.R, wb.G, wb.B, ColourCalibrationSource.Spcc)
+            : null;
+
     /// <summary>
     /// Whether <see cref="ColorCalibration"/> was fitted through a LINE-SELECTIVE filter, i.e. one that
     /// passes emission lines rather than a stellar continuum.
@@ -503,6 +526,16 @@ public sealed class AstroImageDocument : IPreviewSource
         // rebuild, and it must not happen on the render thread. An ordinary frame exits at the first
         // differing pixel; only a genuinely duplicated pair is scanned in full.
         _hasDuplicateChannels = image.ChannelCount > 1 && image.IndependentChannelCount() < image.ChannelCount;
+
+        // A frame whose balance is already in its pixels is shown as it is: an identity calibration, which is active (so
+        // Auto still renders Linked) and makes the calibration pass return before it fits anything. The triple that was
+        // multiplied in is kept as the provenance beside it.
+        if (image.ImageMeta.ColourCalibration is { Applied: true } inPixels)
+        {
+            _colorCalibration = (1f, 1f, 1f);
+            _colorCalibrationSummary = new ColorCalibrationSummary(
+                $"{ColourCalibration.CardOf(inPixels.Source)}, in the pixels", inPixels.R, inPixels.G, inPixels.B, StarCount: 0, WhiteReference: null);
+        }
 
         // The planetary stretch reads two percentiles off every pixel, so it is taken once, and here, off the render thread, for a
         // frame that opens in it (StretchMode.ForFrame); any other frame takes it on the first render that asks.
@@ -1247,7 +1280,7 @@ public sealed class AstroImageDocument : IPreviewSource
 
         _colorCalibration = (r.R, r.G, r.B);
         var summary = new ColorCalibrationSummary(
-            "SPCC", r.R, r.G, r.B, r.MatchCount, r.WhiteReferenceName);
+            SpccMethod, r.R, r.G, r.B, r.MatchCount, r.WhiteReferenceName);
         _colorCalibrationSummary = summary;
         NeutraliseBackgroundAfterCalibration();
         return (r.MatchCount, summary.Describe());
