@@ -30,6 +30,13 @@
     <VersionPrefix Condition="'$(VersionPrefix)' == ''">$(VersionMajorMinor).0</VersionPrefix>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <CreateHardLinksForCopyLocalIfPossible>true</CreateHardLinksForCopyLocalIfPossible>
+    <CreateHardLinksForCopyFilesToOutputDirectoryIfPossible>true</CreateHardLinksForCopyFilesToOutputDirectoryIfPossible>
+    <CreateHardLinksForCopyAdditionalFilesIfPossible>true</CreateHardLinksForCopyAdditionalFilesIfPossible>
+    <CreateHardLinksForPublishFilesIfPossible>true</CreateHardLinksForPublishFilesIfPossible>
+  </PropertyGroup>
+
   <!--
     Auto-detect sibling SharpAstro working copies.
     When a sibling repo exists locally, its project is used via ProjectReference
