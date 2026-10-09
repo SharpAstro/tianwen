@@ -230,6 +230,14 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     /// </summary>
     public ImmutableArray<RadialTransfer> GivenKernels { get; init; } = [];
 
+    /// <summary>
+    /// Cut a colour master's kernel to nothing at its colour planes' own Nyquist (<see cref="PlanetarySharpening.ColourPlaneNyquist"/>),
+    /// by #1366's taper (<see cref="PlanetaryFinishing.ApertureTaper"/>), so the Wiener target asks nothing of the frequencies a demosaiced
+    /// plane does not carry (#1376, arm C). A twin's true kernel falls to zero there, where the limb's edge reads noise and the target lifted
+    /// it. A mono master is untouched.
+    /// </summary>
+    public bool ColourKernelCut { get; init; }
+
     // The master being sharpened is a colour master's luminance (LuminanceOnly): its finest band holds the colour filter's residue as the
     // colour planes do, so it follows ColourFinestBand as they would (#1187).
     internal bool OfColour { get; init; }
@@ -296,6 +304,12 @@ public readonly record struct GainStop(double Strength, ImmutableArray<Immutable
 /// </summary>
 public static class PlanetarySharpening
 {
+    /// <summary>
+    /// The Nyquist of a demosaiced colour master's planes, cycles a pixel on the master's grid: a red or blue photosite every second pixel
+    /// along each axis. A twin's true kernel reads nothing past it on any colour (#1376).
+    /// </summary>
+    public const double ColourPlaneNyquist = 0.25;
+
     /// <summary>The sharpened master, a new image the caller owns, and what it took; null when the limb cannot be fitted.</summary>
     public static PlanetarySharpenResult? Sharpen(Image master, PlanetarySharpenOptions options)
     {
@@ -370,7 +384,9 @@ public static class PlanetarySharpening
                     ? PlanetaryFinestBand.FitPhysical(edge, pupil.DiameterM / (wavelengthNm * 1e-9) / ShortExposurePsf.ArcsecPerRadian * limbWindow.ArcsecPerPixel, 0.02, reach)
                     : null as PhysicalKernel?;
                 var given = options.GivenKernels.IsDefaultOrEmpty ? null : options.GivenKernels[Math.Min(c, options.GivenKernels.Length - 1)];
-                var kernel = Tabulated(f => Math.Clamp(given is { } g ? g.At(f) : physical is { } p ? p.TransferAt(f) : edge.TransferAt(f), 0, 1));
+                var cut = options.ColourKernelCut && (options.OfColour ? 3 : master.ChannelCount) == 3;
+                var kernel = Tabulated(f => Math.Clamp((given is { } g ? g.At(f) : physical is { } p ? p.TransferAt(f) : edge.TransferAt(f))
+                    * (cut ? PlanetaryFinishing.ApertureTaper(f, ColourPlaneNyquist) : 1), 0, 1));
                 var power = PlanetaryWaveletGains.StackPower(window, size, size, disk);
                 var white = PlanetaryInverse.WhiteNoise(PlanetaryWaveletGains.Interior(window, size, size, disk), size, size);
                 // The halves cut as the master is, so half their difference is the master's own noise, ring by ring (#1373).
