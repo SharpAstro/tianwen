@@ -117,6 +117,19 @@ public sealed class OnnxBackgroundExtractor(
         ct.ThrowIfCancellationRequested();
         var absent = input.AbsentPixels();
         var shrunk = ModelSource(input, absent).BilinearResize(ShrinkSize, ShrinkSize);
+        if (absent is { } ringAtSource)
+        {
+            // The ring reached the model as a flat band at the covered median, which steps away from the sky
+            // at the frame's edge, where a gradient is strongest, and pulled the model toward the median for a
+            // smoothing kernel's width inside it (#1399). At the model's own size the band is extended from the
+            // covered sky beside it instead.
+            var extended = ExtendSkyOverRing(shrunk, ringAtSource, srcW, srcH);
+            if (!ReferenceEquals(extended, shrunk))
+            {
+                shrunk.Release();
+                shrunk = extended;
+            }
+        }
 
         // 2) Edge-pad to 256x256 (so the model never sees a hard zero border).
         ct.ThrowIfCancellationRequested();
@@ -252,13 +265,14 @@ public sealed class OnnxBackgroundExtractor(
         // teal while its unenhanced half was neutral -- the two halves are the same pixels, so the
         // data cannot be the explanation. Leaving the field alone is what `WithZeroPedestal` exists
         // to paper over, and papering is worse than not breaking it.
-        var channelBg = ChannelMedians(background);
+        // Over the covered pixels: in the ring the background is only the model's extrapolation.
+        var channelBg = ChannelMedians(background, absent);
         var corrected = input.Subtract(background, channelBg).WithPedestal(input.Pedestal);
         if (absent is { } ring)
         {
             // The ring comes back exactly as it went in, as every runner here hands it back: a zero ring would
             // otherwise become the add-back less the background there, and a NaN ring stays NaN either way.
-            corrected = WithRingFrom(input, corrected, ring);
+            corrected = corrected.WithRingFrom(input, ring);
         }
         var stitchMs = stitchSw.ElapsedMilliseconds;
 
@@ -343,6 +357,55 @@ public sealed class OnnxBackgroundExtractor(
         return new Image(planes, BitDepth.Float32, filled.MaxValue, filled.MinValue, filled.Pedestal, filled.ImageMeta);
     }
 
+    /// <summary>
+    /// <paramref name="shrunk"/> (the model's input, <paramref name="sourceWidth"/> by <paramref name="sourceHeight"/>
+    /// brought down to the model's size) with every pixel the canvas <paramref name="ring"/> reaches refilled from the
+    /// covered sky nearest it, in new planes; the same instance when the ring reaches none, or every one. A model pixel
+    /// counts as reached when any ring pixel lies in its block of the source, a superset of the bilinear sample's own
+    /// neighbourhood, so no ring value survives into the fill's data.
+    /// </summary>
+    internal static Image ExtendSkyOverRing(Image shrunk, BitMatrix ring, int sourceWidth, int sourceHeight)
+    {
+        var (channels, width, height) = shrunk.Shape;
+        var reached = new BitMatrix(height, width);
+        var any = false;
+        for (var y = 0; y < height; y++)
+        {
+            var y0 = (int)((long)y * sourceHeight / height);
+            var y1 = Math.Max(y0 + 1, (int)((long)(y + 1) * sourceHeight / height));
+            for (var x = 0; x < width; x++)
+            {
+                var x0 = (int)((long)x * sourceWidth / width);
+                var x1 = Math.Max(x0 + 1, (int)((long)(x + 1) * sourceWidth / width));
+                for (var sy = y0; sy < Math.Min(y1, sourceHeight); sy++)
+                {
+                    var hit = ring.NextSetBit(sy, x0);
+                    if (hit >= 0 && hit < x1)
+                    {
+                        reached[y, x] = true;
+                        any = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!any || reached.PopCount() == width * height)
+        {
+            return shrunk;
+        }
+
+        var planes = new float[channels][,];
+        for (var c = 0; c < channels; c++)
+        {
+            var plane = new float[height, width];
+            var dst = MemoryMarshal.CreateSpan(ref plane[0, 0], width * height);
+            shrunk.GetChannelSpan(c).CopyTo(dst);
+            Image.FillAbsentFromCovered(dst, width, height, reached);
+            planes[c] = plane;
+        }
+        return new Image(planes, BitDepth.Float32, shrunk.MaxValue, shrunk.MinValue, shrunk.Pedestal, shrunk.ImageMeta);
+    }
+
     private static bool AllFinite(Image image)
     {
         for (var c = 0; c < image.ChannelCount; c++)
@@ -356,23 +419,6 @@ public sealed class OnnxBackgroundExtractor(
             }
         }
         return true;
-    }
-
-    /// <summary><paramref name="corrected"/> with the pixels in <paramref name="ring"/> copied back from
-    /// <paramref name="input"/>, in new planes.</summary>
-    private static Image WithRingFrom(Image input, Image corrected, BitMatrix ring)
-    {
-        var (channels, width, height) = corrected.Shape;
-        var planes = new float[channels][,];
-        for (var c = 0; c < channels; c++)
-        {
-            var plane = new float[height, width];
-            var dst = MemoryMarshal.CreateSpan(ref plane[0, 0], width * height);
-            corrected.GetChannelSpan(c).CopyTo(dst);
-            ChunkedNafnetRunner.CopyAbsent(input.GetChannelSpan(c), dst, width, ring);
-            planes[c] = plane;
-        }
-        return new Image(planes, BitDepth.Float32, corrected.MaxValue, corrected.MinValue, corrected.Pedestal, corrected.ImageMeta);
     }
 
     /// <summary>
@@ -659,7 +705,7 @@ public sealed class OnnxBackgroundExtractor(
     /// two must agree about what "the level" is, or which corrector a machine happens to have installed
     /// decides where its sky lands.
     /// </summary>
-    internal static float[] ChannelMedians(Image src)
+    internal static float[] ChannelMedians(Image src, BitMatrix? absent = null)
     {
         var (channels, width, height) = src.Shape;
         var medians = new float[channels];
@@ -668,12 +714,15 @@ public sealed class OnnxBackgroundExtractor(
         {
             var ch = src.GetChannelSpan(c);
             var n = 0;
-            for (var i = 0; i < ch.Length; i++)
+            for (var y = 0; y < height; y++)
             {
-                var v = ch[i];
-                if (float.IsFinite(v))
+                for (var x = 0; x < width; x++)
                 {
-                    scratch[n++] = v;
+                    var v = ch[(y * width) + x];
+                    if (float.IsFinite(v) && !(absent is { } ring && ring[y, x]))
+                    {
+                        scratch[n++] = v;
+                    }
                 }
             }
             medians[c] = n > 0 ? StatisticsHelper.MedianFast(scratch.AsSpan(0, n)) : 0f;

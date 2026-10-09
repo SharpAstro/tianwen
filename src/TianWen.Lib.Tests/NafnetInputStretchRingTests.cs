@@ -213,7 +213,7 @@ public class NafnetInputStretchRingTests
         var to = new float[Size * Size];
         to.AsSpan().Fill(7f);
 
-        ChunkedNafnetRunner.CopyAbsent(image.GetChannelSpan(0), to, Size, absent);
+        Image.CopyAbsent(image.GetChannelSpan(0), to, Size, absent);
 
         for (var y = 0; y < Size; y++)
         {

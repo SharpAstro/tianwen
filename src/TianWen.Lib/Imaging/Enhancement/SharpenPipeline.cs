@@ -124,8 +124,9 @@ public sealed class SharpenPipeline(
 
     /// <summary>
     /// The finite-input boundary every enhancer stands behind: interior holes are interpolated from
-    /// their neighbours, and only what is left after that (a border ring no crop removed) falls back
-    /// to the per-channel mean. The same instance comes back when there is nothing to fill.
+    /// their neighbours, a canvas ring no crop removed becomes the pipeline's zero ring, and only what
+    /// is left after both falls back to the per-channel mean. The same instance comes back when there
+    /// is nothing to fill.
     /// </summary>
     /// <remarks>
     /// <para><b>The enhancers -- RC-Astro and the ONNX runners alike -- compute non-NaN-aware global
@@ -142,11 +143,18 @@ public sealed class SharpenPipeline(
     /// neighbours and this path did not. That is the third implementation of the hole fill, and the
     /// wrong one; <see cref="Image.WithInteriorHolesFilled"/> is the rule the viewer's document open
     /// and the headless render already share, and now this shares it too.</para>
-    /// <para>The mean fallback stays for what the interior fill deliberately leaves: a NaN
-    /// connected to the border is the canvas ring, which is evidence for the crop and is never
-    /// interpolated. An enhance on an uncropped master still has to be finite there, and the mean is
-    /// as good as anything for a band the crop discards -- which is the case the old reasoning was
-    /// actually right about.</para>
+    /// <para><b>A NaN connected to the border is the canvas ring, which is evidence for the crop
+    /// and is never interpolated; it becomes the zero ring</b> (<see cref="Image.AbsentPixels"/>:
+    /// exact zero in every channel, or NaN in any, reachable from the border), which is how a TianWen
+    /// master already carries it and what every step holds out of what it measures and hands back as
+    /// it came. It used to get the per-channel mean, on the reasoning that the exact value is not
+    /// critical for a band the crop discards. But a mean is SKY to every step after it: the gradient
+    /// correctors fitted it and wrote their correction into it, GraXpert's ring handling never saw a
+    /// ring at all, and the ring came out of the enhance as data rather than absence (#1399). A pixel
+    /// where only one channel is NaN is absent by the same rule, so it is zeroed in every channel,
+    /// never left a real green beside an invented red.</para>
+    /// <para>The mean fallback stays for what both leave: an interior hole wider than the fill
+    /// reaches.</para>
     /// </remarks>
     internal static Image SanitiseForEnhance(Image source, ILogger? logger)
     {
@@ -156,10 +164,18 @@ public sealed class SharpenPipeline(
             logger?.LogInformation("SharpenPipeline: interior holes (rejection voids) interpolated from their neighbours before enhancement.");
         }
 
+        // A NaN left after the interior fill is the ring (or a hole too wide for the fill); a frame with
+        // none, or whose ring is already zero, keeps its instance.
+        if (filled.AnyNaN() && filled.AbsentPixels() is { } ring)
+        {
+            filled = filled.WithRingSetTo(ring, 0f);
+            logger?.LogInformation("SharpenPipeline: the canvas ring is held as absence (zero) through the enhance; crop before enhancing to drop it.");
+        }
+
         var finite = filled.ReplaceNonFiniteWithChannelMean();
         if (!ReferenceEquals(finite, filled))
         {
-            logger?.LogWarning("SharpenPipeline: source has non-finite samples on its border ring; filled with the per-channel mean. Crop before enhancing so the ring is not fed to the models.");
+            logger?.LogWarning("SharpenPipeline: source has non-finite samples in a hole wider than the interior fill reaches; filled with the per-channel mean.");
         }
 
         return finite;
@@ -269,6 +285,27 @@ public sealed class SharpenPipeline(
         var linearStarlessNoise = inputNoise;
         var splits = request.Steps.Any(static s => s is RemoveStarsStep);
 
+        // The canvas ring is the PIPELINE's, not a step's (#1399). The sanitiser made it the zero ring
+        // every step recognises, but a step is free to write into it (an RC-Astro product does not know it
+        // is there, a deblur spreads its kernel across its edge), and a ring a step wrote over is no longer
+        // absence to the step after it, nor to the crop at the end. So every enhancer's output gets the
+        // ring back from the source before anything reads it: one walk of the ring's bits when the step
+        // kept it, as the ONNX runners and the gradient correctors do, and a copy only when it did not.
+        var ring = source.AbsentPixels();
+        Image HoldRing(Image output, Image stepInput)
+        {
+            if (ring is not { } held || ReferenceEquals(output, stepInput))
+            {
+                return output;
+            }
+            var restored = output.WithRingFrom(source, held);
+            if (!ReferenceEquals(restored, output))
+            {
+                output.Release();
+            }
+            return restored;
+        }
+
         // In the whole-frame program (no split), the most-processed whole frame IS the result: it is
         // promoted to `final` and leaves its intermediate slot, so it is never returned twice. Called by
         // a final-plate stretch that runs before any DenoiseFrameStep made one (a mono frame with no
@@ -344,6 +381,7 @@ public sealed class SharpenPipeline(
                             timings.Add(("deblur(skipped)", phaseSw.ElapsedMilliseconds, default));
                             break;
                         }
+                        raw = HoldRing(raw, source);
                         // Lerp always allocates, so "did the blend produce a new image?" IS
                         // `Blend < 1f` -- the branch above. Asking the reference instead was P1's
                         // convention 5 in its most avoidable form: a runtime restatement of a
@@ -367,7 +405,8 @@ public sealed class SharpenPipeline(
                         // of the pipeline. All downstream steps that consume
                         // the source pick `gradientCorrected ?? source`
                         // so they see the cleaned plate.
-                        gradientCorrected = await Require(gradientCorrector).EnhanceAsync(deblurred ?? source, options, stepProgress, cancellationToken);
+                        var gradientInput = deblurred ?? source;
+                        gradientCorrected = HoldRing(await Require(gradientCorrector).EnhanceAsync(gradientInput, options, stepProgress, cancellationToken), gradientInput);
                         timings.Add(("gradient-correction", phaseSw.ElapsedMilliseconds, gradientCorrected.EstimateNoiseProfile()));
                         break;
                     }
@@ -377,7 +416,7 @@ public sealed class SharpenPipeline(
                         // Read from the corrected plate when GradientCorrectionStep
                         // ran upstream; falls back to the original source otherwise.
                         var starsInput = gradientCorrected ?? deblurred ?? source;
-                        starless = await Require(starRemover).EnhanceAsync(starsInput, options, stepProgress, cancellationToken);
+                        starless = HoldRing(await Require(starRemover).EnhanceAsync(starsInput, options, stepProgress, cancellationToken), starsInput);
                         // Pixel split:
                         //   Additive (default): StarsOnly = max(Source - Starless, 0).
                         //     Physically correct in linear-light photon space.
@@ -417,7 +456,7 @@ public sealed class SharpenPipeline(
                         // starsOnly normally, or an SCNR'd version if ScnrStarsStep
                         // ran earlier in the same request.
                         var inputPlate = Require(starsOnly);
-                        var raw = await Require(stellarSharpener).EnhanceAsync(inputPlate, options, stepProgress, cancellationToken);
+                        var raw = HoldRing(await Require(stellarSharpener).EnhanceAsync(inputPlate, options, stepProgress, cancellationToken), inputPlate);
                         if (sharpStep.Blend < 1f)
                         {
                             sharpenedStars = inputPlate.Lerp(raw, sharpStep.Blend);
@@ -434,7 +473,7 @@ public sealed class SharpenPipeline(
                     case DeconvolveStarlessStep deconvStep:
                     {
                         var inputPlate = Require(starless);
-                        var raw = await Require(nonStellarDeconvolver).EnhanceAsync(inputPlate, options, stepProgress, cancellationToken);
+                        var raw = HoldRing(await Require(nonStellarDeconvolver).EnhanceAsync(inputPlate, options, stepProgress, cancellationToken), inputPlate);
                         if (deconvStep.Blend < 1f)
                         {
                             deconvolvedStarless = inputPlate.Lerp(raw, deconvStep.Blend);
@@ -463,7 +502,7 @@ public sealed class SharpenPipeline(
                         // output if a DeconvolveStarlessStep ran earlier,
                         // otherwise the raw starless plate.
                         var inputPlate = deconvolvedStarless ?? Require(starless);
-                        var raw = await Require(denoiser).EnhanceAsync(inputPlate, denoiseStep.Variant, options, stepProgress, cancellationToken);
+                        var raw = HoldRing(await Require(denoiser).EnhanceAsync(inputPlate, denoiseStep.Variant, options, stepProgress, cancellationToken), inputPlate);
                         if (denoiseStep.Blend < 1f)
                         {
                             denoisedStarless = inputPlate.Lerp(raw, denoiseStep.Blend);
@@ -499,7 +538,7 @@ public sealed class SharpenPipeline(
                         // the most-processed WHOLE frame goes in and what comes out is the result, so it
                         // is `final` directly, with nothing to recombine.
                         var inputPlate = gradientCorrected ?? deblurred ?? source;
-                        var raw = await Require(denoiser).EnhanceAsync(inputPlate, denoiseFrame.Variant, options, stepProgress, cancellationToken);
+                        var raw = HoldRing(await Require(denoiser).EnhanceAsync(inputPlate, denoiseFrame.Variant, options, stepProgress, cancellationToken), inputPlate);
                         if (denoiseFrame.Blend < 1f)
                         {
                             final = inputPlate.Lerp(raw, denoiseFrame.Blend);
@@ -1358,8 +1397,8 @@ public sealed record DeblurStep(float Blend = 1.0f) : SharpenStep;
 
 /// <summary>
 /// Multiplies a colour calibration into the source before anything else runs (<see cref="Image.WithWhiteBalanceApplied"/>):
-/// the PixInsight order, SPCC on the LINEAR data and then the deblur, the gradient, the stars and the denoise, every one of
-/// them seeing the colour it will be shown in. Only ever the FIRST step. Every plate the run returns says the balance is in
+/// SPCC on the LINEAR data and then the deblur, the gradient, the stars and the denoise, every one of them seeing the colour
+/// it will be shown in (an order measured, not PixInsight's: docs/architecture/stacking-render-pipeline.md). Only ever the FIRST step. Every plate the run returns says the balance is in
 /// its pixels (<see cref="ColourCalibration.Applied"/>), so a renderer shows it as it is and nothing solves SPCC again on
 /// stars the enhance has reshaped. A host passes a calibration here only where it is photometric: a broadband SPCC fit,
 /// never the sky-background fallback nor a fit through a line-selective filter, which stay display multipliers

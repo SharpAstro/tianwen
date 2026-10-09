@@ -130,6 +130,87 @@ public class GradientCorrectorLevelTests
     }
 
     /// <summary>
+    /// The add-back reads the model over the COVERED frame (#1399): in the canvas ring the model is only its own
+    /// extrapolation, and a ring a tenth of the frame at ten times the sky moved a whole-frame median.
+    /// </summary>
+    [Fact]
+    public void TheOnnxAddBackLeavesTheRingOut()
+    {
+        var plane = new float[Size, Size];
+        var ring = new BitMatrix(Size, Size);
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                // The model rises to 0.1 across the ring's columns and sits at the sky over the frame.
+                var inRing = x < Size / 5;
+                plane[y, x] = inRing ? 0.1f : 0.01f + (1e-5f * x);
+                ring[y, x] = inRing;
+            }
+        }
+        var model = new Image([plane], BitDepth.Float32, 1.0f, 0f, 0f, new ImageMeta());
+
+        var whole = OnnxBackgroundExtractor.ChannelMedians(model)[0];
+        var covered = OnnxBackgroundExtractor.ChannelMedians(model, ring)[0];
+
+        covered.ShouldBe(0.01f + (1e-5f * (Size / 5 + (Size - Size / 5) / 2f)), tolerance: 2e-5f, "the covered sky's median");
+        whole.ShouldBeGreaterThan(covered, "the ring's extrapolation would have moved it");
+    }
+
+    /// <summary>
+    /// The ring reaches GraXpert's model as the sky beside it, not as a flat band at the covered median (#1399): the band
+    /// steps away from the sky at the frame's edge, where a gradient is strongest. Filled at the model's own size from the
+    /// covered model pixels; every pixel the ring does not reach is left exactly as it was.
+    /// </summary>
+    [Fact]
+    public void TheRingReachesTheModelAsTheSkyBesideIt()
+    {
+        const int Shrunk = 60;
+        const int Source = 4 * Shrunk;
+        const int RingColumns = 40;
+        var ring = new BitMatrix(Source, Source);
+        for (var y = 0; y < Source; y++)
+        {
+            for (var x = 0; x < RingColumns; x++)
+            {
+                ring[y, x] = true;
+            }
+        }
+        // A ramp from 0.1 to 0.5 across the shrunk plate, with the ring's model columns at the flat median ModelSource
+        // gives them.
+        var reachedColumns = RingColumns / 4;
+        var plane = new float[Shrunk, Shrunk];
+        for (var y = 0; y < Shrunk; y++)
+        {
+            for (var x = 0; x < Shrunk; x++)
+            {
+                plane[y, x] = x < reachedColumns ? 0.3f : 0.1f + (0.4f * x / (Shrunk - 1));
+            }
+        }
+        var shrunk = new Image([plane], BitDepth.Float32, 1.0f, 0f, 0f, new ImageMeta());
+
+        var extended = OnnxBackgroundExtractor.ExtendSkyOverRing(shrunk, ring, Source, Source);
+
+        extended.ShouldNotBeSameAs(shrunk);
+        // The sky beside the ring is 0.17; a push-pull fill takes a few columns' blend of it at its coarse levels,
+        // and stays well clear of the flat 0.3 it replaces.
+        for (var y = 0; y < Shrunk; y++)
+        {
+            for (var x = 0; x < Shrunk; x++)
+            {
+                if (x < reachedColumns)
+                {
+                    extended[0, y, x].ShouldBeInRange(0.1f, 0.25f, $"ring ({x}, {y}) takes the sky beside it, not the median");
+                }
+                else
+                {
+                    extended[0, y, x].ShouldBe(plane[y, x], $"covered ({x}, {y}) is untouched");
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// A master's canvas ring (the border no frame covered, NaN or exact zero) comes back exactly as it went in, and every
     /// covered pixel comes back finite and flattened. The GraXpert path made a NaN ring's master entirely NaN: one NaN
     /// spread through the 240 px resize and the model into the whole background (found 2026-10-09 on a 2026-09-29 bake
@@ -139,6 +220,7 @@ public class GradientCorrectorLevelTests
     [InlineData(true, float.NaN)]
     [InlineData(true, 0f)]
     [InlineData(false, float.NaN)]
+    [InlineData(false, 0f)]
     public async Task TheCanvasRingComesBackAsItWentInAndTheRestStaysFinite(bool graxpert, float ringValue)
     {
         IGradientCorrector corrector;

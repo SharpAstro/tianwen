@@ -1,3 +1,5 @@
+using System.Threading;
+using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
@@ -47,16 +49,105 @@ public class SharpenPipelineBoundaryTests
     }
 
     [Fact]
-    public void ABorderNaNStillBecomesFiniteThroughTheMeanFallback()
+    public void ABorderNaNInOneChannelBecomesTheZeroRingInEvery()
     {
         var image = PlateWithABrightCore();
-        // A NaN on the border is the canvas ring, which the interior fill leaves alone by design;
-        // the models still cannot be handed it.
+        // A NaN on the border is the canvas ring, which the interior fill leaves alone by design; the
+        // models still cannot be handed it. It used to get each channel's mean, which every step then read
+        // as sky (#1399); it becomes the zero ring, in every channel, since a pixel with any channel NaN is
+        // absent by the one rule the crop and the steps share.
         image.GetChannelArray(1)[0, 0] = float.NaN;
 
         var finite = SharpenPipeline.SanitiseForEnhance(image, logger: null);
 
-        float.IsFinite(finite[1, 0, 0]).ShouldBeTrue("a ring sample must still be finite for the models");
+        for (var c = 0; c < 3; c++)
+        {
+            finite[c, 0, 0].ShouldBe(0f, $"channel {c} of the ring pixel");
+        }
+        finite.AbsentPixels().ShouldNotBeNull()[0, 0].ShouldBeTrue("the ring is still absence after the sanitiser");
+        finite[0, 1, 1].ShouldBe(0.01f, "a covered pixel beside it keeps its value");
+    }
+
+    /// <summary>
+    /// <b>A NaN canvas ring reaches every step as the zero ring, and leaves the enhance as one</b> (#1399). The
+    /// sanitiser used to write each channel's mean into it, which every step read as sky, so no step's own ring
+    /// handling ever saw a ring. And a step may write into the ring (an RC-Astro product does not know it is there),
+    /// so the pipeline puts it back after every step. The fake corrector adds to EVERY pixel, the ring included, as
+    /// such a product would.
+    /// </summary>
+    [Fact]
+    public async Task ANaNRingReachesTheStepsAsTheZeroRingAndLeavesAsOne()
+    {
+        const int Ring = 4;
+        var image = PlateWithABrightCore();
+        var ringPixels = 0;
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                if (InRing(y, x, Ring))
+                {
+                    ringPixels++;
+                    for (var c = 0; c < 3; c++)
+                    {
+                        image.GetChannelArray(c)[y, x] = float.NaN;
+                    }
+                }
+            }
+        }
+        var corrector = new AddsEverywhere(0.1f);
+        var pipe = new SharpenPipeline(gradientCorrector: corrector);
+
+        var result = await pipe.ProcessAsync(new SharpenRequest(image, [new GradientCorrectionStep()]), TestContext.Current.CancellationToken);
+
+        corrector.RingItSaw.ShouldBe(ringPixels, "the step is handed the ring as absence, not as a band of sky");
+        var final = result.Final.ShouldNotBeNull();
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                for (var c = 0; c < 3; c++)
+                {
+                    if (InRing(y, x, Ring))
+                    {
+                        final[c, y, x].ShouldBe(0f, $"ring ({x}, {y}) channel {c} comes back as absence");
+                    }
+                    else
+                    {
+                        final[c, y, x].ShouldBe(image[c, y, x] + 0.1f, 1e-6f, $"covered ({x}, {y}) channel {c} keeps the step's work");
+                    }
+                }
+            }
+        }
+    }
+
+    private static bool InRing(int y, int x, int ring) => y < ring || x < ring || y >= Size - ring || x >= Size - ring;
+
+    /// <summary>A gradient corrector that adds <paramref name="offset"/> to every sample, the ring included, and
+    /// records how large a ring its input carried.</summary>
+    private sealed class AddsEverywhere(float offset) : IGradientCorrector
+    {
+        public int RingItSaw { get; private set; } = -1;
+
+        public string Name => "Test/AddsEverywhere";
+
+        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
+        {
+            RingItSaw = input.AbsentPixels()?.PopCount() ?? 0;
+            var (channels, width, height) = input.Shape;
+            var planes = new float[channels][,];
+            for (var c = 0; c < channels; c++)
+            {
+                var plane = new float[height, width];
+                var src = input.GetChannelSpan(c);
+                for (var i = 0; i < src.Length; i++)
+                {
+                    plane[i / width, i % width] = src[i] + offset;
+                }
+                planes[c] = plane;
+            }
+            return Task.FromResult(new Image(planes, BitDepth.Float32, 1.1f, 0f, 0f, input.ImageMeta));
+        }
     }
 
     [Fact]

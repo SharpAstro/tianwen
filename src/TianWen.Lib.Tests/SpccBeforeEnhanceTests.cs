@@ -15,8 +15,8 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// A broadband SPCC balance is multiplied into the LINEAR master before the enhance, PixInsight's order (SPCC, then the
-/// deblur, the gradient, the stars and the denoise), and every file and document that carries it says so
+/// A broadband SPCC balance is multiplied into the LINEAR master before the enhance (SPCC, then the deblur, the gradient,
+/// the stars and the denoise; measured, not PixInsight's order), and every file and document that carries it says so
 /// (<see cref="ColourCalibration.Applied"/>, FITS <c>WBAPPLD</c>), so nothing applies it twice or solves SPCC again on
 /// stars the enhance has reshaped. Solved on the enhanced master instead, the fit read 5 to 26 percent bluer on Centaurus A
 /// (BlurX and NoiseX moving the stars it measures). The sky-background estimate and a fit through a line-selective filter
@@ -273,7 +273,20 @@ public sealed class SpccBeforeEnhanceTests : IDisposable
         sharpened.GetChannelSpan(2)[0].ShouldBe(0.10f, 1e-6f);
     }
 
-    private async Task<(Image Raw, Image Sharpened)> StackAndEnhanceAsync(string filterName, MasterRenderOutputs outputs)
+    /// <summary>A triple inherited from a donor whose OWN pixels carry it (its <c>WBAPPLD</c> card) is still this master's
+    /// to apply: the flag describes the donor's pixels, never these, which are as integrated (#1399). Asked about the
+    /// donor's flag, it stayed a display multiplier and this master was enhanced unbalanced.</summary>
+    [Fact]
+    public async Task ATripleInheritedFromABalancedDonorIsAppliedToThisMaster()
+    {
+        var (raw, sharpened) = await StackAndEnhanceAsync(Broadband, MasterRenderOutputs.None, Spcc with { Applied = true });
+
+        raw.ImageMeta.ColourCalibration.ShouldBe(Spcc);
+        raw.GetChannelSpan(2)[0].ShouldBe(0.10f, 1e-6f, "the raw master's pixels stay as integrated");
+        sharpened.GetChannelSpan(2)[0].ShouldBe(0.05f, 1e-6f, "the triple went into the linear master before the enhance");
+    }
+
+    private async Task<(Image Raw, Image Sharpened)> StackAndEnhanceAsync(string filterName, MasterRenderOutputs outputs, ColourCalibration? inherited = null)
     {
         await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
         var dir = _folders.Create("spcc-before-enhance-").FullName;
@@ -290,7 +303,7 @@ public sealed class SpccBeforeEnhanceTests : IDisposable
             masterPath, searchHint: null, imageDim: null, refMeta: master.ImageMeta,
             autocropRect: new PixelRect(0, 0, 32, 32), strategy: IntegrationStrategyKind.InRamAllFrames,
             enhance: true, enhanceBlend: 1f, splitPlates: false, enhanceOptions: EnhanceOptions.Default,
-            outputs: outputs, inheritedWhiteBalance: Spcc, ct: TestContext.Current.CancellationToken);
+            outputs: outputs, inheritedWhiteBalance: inherited ?? Spcc, ct: TestContext.Current.CancellationToken);
 
         Image.TryReadFitsFile(masterPath, out var raw).ShouldBeTrue();
         Image.TryReadFitsFile(Path.Combine(dir, "master_test_sharpened.fits"), out var sharpened).ShouldBeTrue();

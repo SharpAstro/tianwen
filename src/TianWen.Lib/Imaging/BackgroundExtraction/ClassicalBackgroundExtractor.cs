@@ -87,8 +87,15 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
                     width, height);
             }
 
+            // The canvas ring no frame covered is no sky (#1399): a zero ring was fitted as the darkest sky in
+            // the frame and the correction written into it, so the ring stopped being absence to every step
+            // after this one. It goes to the fit as NaN, which the block means skip and the level never reads,
+            // and comes back exactly as it went in.
+            var absent = source.AbsentPixels();
+            var fitted = absent is { } ring ? source.WithRingSetTo(ring, float.NaN) : source;
+
             // The planes the fit sees: the four photosite planes of a mosaic, else the channels as they are.
-            var planes = cfa ? source.SplitBayerChannels() : source;
+            var planes = cfa ? fitted.SplitBayerChannels() : fitted;
             var factor = cfa ? Math.Max(1, options.Downsample / 2) : options.Downsample;
             var fullPixelsPerWorkingPixel = factor * (cfa ? 2 : 1);
             var (planeCount, planeWidth, planeHeight) = planes.Shape;
@@ -111,7 +118,7 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
                 var model = MemoryMarshal.CreateSpan(ref smallModels[p][0, 0], ws * hs);
                 outcomes[p] = RobustBackgroundFit.Run(small, ws, hs, excluded, options, model, ct);
                 levels[p] = options.PreserveLevel
-                    ? MedianOf(model, small)
+                    ? CoveredMedianOf(model, small)
                     : options.Correction == BackgroundCorrection.Divide ? 1f : 0f;
             }
 
@@ -140,6 +147,10 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
 
             var cleanedPlanes = new Image(corrected, BitDepth.Float32, correctedMax, correctedMin, source.Pedestal, source.ImageMeta);
             var cleaned = cfa ? cleanedPlanes.MergeBayerChannels() : cleanedPlanes;
+            if (absent is { } heldRing)
+            {
+                cleaned = cleaned.WithRingFrom(source, heldRing);
+            }
             var background = cfa ? modelAtPlaneRes.MergeBayerChannels() : modelAtPlaneRes;
 
             var diagnostics = ImmutableArray.CreateBuilder<ChannelFitDiagnostics>(planeCount);
@@ -278,6 +289,25 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
         {
             var n = StatisticsHelper.CompactFinite(values, scratch);
             return n > 0 ? StatisticsHelper.MedianFast(scratch[..n]) : 0f;
+        }
+
+        /// <summary>
+        /// The model's median over the working pixels that hold sky, the level "the sky sits where it was" means:
+        /// a block with no finite pixel is the canvas ring, where the model is only its own extrapolation. Reads
+        /// <paramref name="blocks"/> and then reuses it as scratch, so call it last. Every block holds sky on a
+        /// ringless frame, which is the plain median of the model.
+        /// </summary>
+        private static float CoveredMedianOf(ReadOnlySpan<float> model, Span<float> blocks)
+        {
+            var n = 0;
+            for (var i = 0; i < model.Length; i++)
+            {
+                if (float.IsFinite(blocks[i]) && float.IsFinite(model[i]))
+                {
+                    blocks[n++] = model[i];
+                }
+            }
+            return n > 0 ? StatisticsHelper.MedianFast(blocks[..n]) : MedianOf(model, blocks);
         }
 
         private static void Correct(ReadOnlySpan<float> src, ReadOnlySpan<float> background, float level, BackgroundCorrection correction,

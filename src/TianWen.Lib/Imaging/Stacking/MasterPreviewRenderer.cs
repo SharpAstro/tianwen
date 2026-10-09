@@ -38,9 +38,9 @@ public readonly record struct SpccDiagnostics(
 /// <summary>
 /// Result of <see cref="MasterPreviewRenderer.RenderAsync"/>: the SPCC outcome
 /// (for the console summary), the <see cref="StretchUniforms"/> the master was
-/// rendered with, and the white-balance triple actually used. The PixInsight OSC
-/// flow computes the white balance ONCE (gradient correction -> SPCC with stars in),
-/// then star-removal and a per-plate stretch follow. So <see cref="MasterPostProcessor"/>
+/// rendered with, and the white-balance triple actually used. The white balance is
+/// computed ONCE, on the linear master with the stars in, before the enhance, and the
+/// enhance and a per-plate stretch follow. So <see cref="MasterPostProcessor"/>
 /// reuses only <see cref="WhiteBalance"/> for the <c>--split-plates</c> TIFFs --
 /// each plate self-stretches its own background + MTF, sharing just the one colour
 /// calibration. (NOT the full <see cref="Uniforms"/>: a plate whose background
