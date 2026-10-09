@@ -1131,8 +1131,8 @@ public sealed class StackingPipeline(
         timings.Record(StageNames.Register, registerStart, lightList.Count);
         hostTracker.Log(logger, $"register/{slug}");
 
-        // Post-registration quality filter. Off by default; enable via
-        // StackingOptions.QualityRejectSigma. Drops frames whose median
+        // Post-registration quality filter at StackingOptions.QualityRejectSigma
+        // (FrameQualityFilter.DefaultSigma unless set; 0 runs no relative gate). Drops frames whose median
         // HFD or ellipticity exceeds the session's median + sigma * MAD
         // threshold, capped at the worst 20% by severity (the 80% keep
         // floor in FrameQualityFilter). One log line per dropped frame
