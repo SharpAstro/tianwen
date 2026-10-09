@@ -291,8 +291,9 @@ public static class PlanetaryWaveletGains
         return x;
     }
 
-    // Both halves of the fit's least squares, the texture's and the disk's, summed.
-    private static (double[,] A, double[] B) NormalEquations(ImmutableArray<double> stackPower, ImmutableArray<double> wiener, ReadOnlySpan<float> sharpDisk, ReadOnlySpan<float> blurredDisk,
+    // Both halves of the fit's least squares, the texture's and the disk's, summed: the fit minimises g A g - 2 b g over the fitted gains g.
+    // Internal for the brute-force check of the bounded fit (#1398).
+    internal static (double[,] A, double[] B) NormalEquations(ImmutableArray<double> stackPower, ImmutableArray<double> wiener, ReadOnlySpan<float> sharpDisk, ReadOnlySpan<float> blurredDisk,
         int width, int height, MetricDisk disk, int fitted, double strength)
     {
         var (a, b) = TextureNormalEquations(stackPower, wiener, fitted, strength);

@@ -332,8 +332,10 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 }
                 var kolivasAmount = parseResult.GetValue(kolivasAmountOpt);
                 var outputDir = parseResult.GetValue(outputOpt) ?? Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".";
+                // A non-negative fit fits every band, so on a colour master its finest band is derived whatever --colour-finest asks (#1398).
+                PlanetaryColourFinestBand[] FinestsFor(bool nonNegative) => nonNegative && master.ChannelCount == 3 ? [PlanetaryColourFinestBand.Derived] : finests;
                 var variants = (options.Pupil is null ? [PlanetaryLimbFix.LimbChannel] : fixes)
-                    .SelectMany(f => fits.SelectMany(n => finests.SelectMany(b => strengths.SelectMany(k => finishes.SelectMany(e => luminances.SelectMany(l => targets.SelectMany(t => halvesNoises.SelectMany(h => colourTargetCuts.Select(kc => (Fix: f, NonNegative: n, Finest: b, Strength: k, Finish: e, Luminance: l, Target: t, HalvesNoise: h, TargetCut: kc)))))))))).ToArray();
+                    .SelectMany(f => fits.SelectMany(n => FinestsFor(n).SelectMany(b => strengths.SelectMany(k => finishes.SelectMany(e => luminances.SelectMany(l => targets.SelectMany(t => halvesNoises.SelectMany(h => colourTargetCuts.Select(kc => (Fix: f, NonNegative: n, Finest: b, Strength: k, Finish: e, Luminance: l, Target: t, HalvesNoise: h, TargetCut: kc)))))))))).ToArray();
                 foreach (var (fix, nonNegative, finest, strength, (finish, finishWord), luminance, target, halvesNoise, targetCut) in variants)
                 {
                     ct.ThrowIfCancellationRequested();
@@ -354,7 +356,8 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             + (halvesNoise ? "_halvesnoise" : "")
                             + (targetCut ? "_targetcut" : "")
                             + (shrink ? "_shrunk" : ""));
-                        var finestWords = finests.Length > 1 ? $", the colour's finest band {finest.ToString().ToLowerInvariant()}" : "";
+                        var finestWords = nonNegative && master.ChannelCount == 3 ? ", the colour's finest band derived, as a non-negative fit fits every band"
+                            : finests.Length > 1 ? $", the colour's finest band {finest.ToString().ToLowerInvariant()}" : "";
                         var strengthWords = (strength == 1 ? "" : string.Create(inv, $", strength {strength:0.##}"))
                             + (finish == PlanetaryFinish.None ? "" : $", finished {finishWord}")
                             + (luminance && master.ChannelCount == 3 ? ", the luminance sharpened, the stack's colour kept" : "")
