@@ -3552,11 +3552,19 @@ Tracked by #844.
 `OnnxTianWenDeconvolver : INonStellarDeconvolver` in `src/TianWen.AI.Imaging/Onnx/`, thin over
 `ChunkedNafnetRunner` (the stretched domain is the RIGHT one here, unlike the denoiser's runner),
 model file `tianwen_deconv_nonstellar_psf_v1.onnx` plus contract JSON asserted at load. The psf01
-comes from an `IPsfEstimator` carrying the own encoding; the SAS estimator stays for the SAS model.
+comes from an `IPsfEstimator` carrying the trained model's own encoding (the SAS models and their estimator
+went with the SAS tier, 2026-09-26, after its upstream licence changed; the encoding `IPsfEstimator` documents
+is theirs, so check the trainer's before reusing it).
 Backend selection: the run log's `--ai-backend n2n` is defined as "the in-house model where this role
 has one", so when the deconvolver lands the flag's NAME is wrong (it names the denoiser's method);
 rename to `tianwen` (the programme doc's original `ForceTianWen`) with `n2n` kept as an alias for one
-release, and Auto stays RC then SAS then in-house rescue until a human side-by-side says otherwise.
+release. Auto stays RC first; whether the in-house deconvolver serves Auto where RC is absent (as the
+denoiser does) is the owner's call after a side-by-side, so it serves only when asked for until then.
+
+**The split (2026-10-09).** The ONNX export of E3.4d's checkpoint, which fixes the graph's inputs, is local work:
+the checkpoint is on the training machine and the export script covers the denoiser's plane-conditioned graph
+only. The rename and the runtime scaffold (the enhancer, its availability, its registration, tests on the
+weights-absent path) need no weights, so they can go first.
 
 ## 7. Phasing
 
