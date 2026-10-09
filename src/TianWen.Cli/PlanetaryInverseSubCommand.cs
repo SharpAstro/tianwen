@@ -15,7 +15,7 @@ using SharpAstro.Ser;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-inverse</c> (docs/plans/planetary-restoration.md, R7 part 4): a stack restored by Richardson-Lucy with three kernels, the
+/// <c>planetary inverse</c> (docs/plans/planetary-restoration.md, R7 part 4): a stack restored by Richardson-Lucy with three kernels, the
 /// oracle (the stack's own transfer against a twin's truth) and the limb's two (part 3's (b') and (b), each divided by the pupil's
 /// diffraction transfer, since a limb kernel is the total blur and the truth is rendered through the diffraction limit), scored per band
 /// against the truth and on the limb's undershoot. Without a truth, (b') alone at a given count, its undershoot the one check.
@@ -27,7 +27,7 @@ internal sealed class PlanetaryInverseSubCommand(IConsoleHost consoleHost)
     public Command Build()
     {
         var inputArg = new Argument<string>("capture") { Description = "A SER capture of a planet." };
-        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary-degrade's .truth.fits): the oracle and the scores." };
+        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary degrade's .truth.fits): the oracle and the scores." };
         var planetOpt = new Option<string>("--planet") { Description = "jupiter or saturn.", DefaultValueFactory = _ => "jupiter" };
         var planeOpt = new Option<string?>("--plane") { Description = "A colour capture's photosite colour: r, g, g2 or b." };
         var framesOpt = new Option<int?>("--frames") { Description = "Only the first frames." };
@@ -36,7 +36,7 @@ internal sealed class PlanetaryInverseSubCommand(IConsoleHost consoleHost)
         var wavelengthOpt = new Option<double>("--wavelength") { Description = "The filter's effective wavelength, nm.", DefaultValueFactory = _ => 650 };
         var iterationsOpt = new Option<int>("--iterations") { Description = "Richardson-Lucy's steps: the most tried with a truth, the count used without one.", DefaultValueFactory = _ => 40 };
 
-        var command = new Command("planetary-inverse",
+        var command = new Command("inverse",
             "A stack restored by Richardson-Lucy with the oracle's kernel and the limb's two, each limb kernel divided by the pupil's diffraction, scored per band against a twin's truth and on the limb's undershoot (R7 part 4).")
         {
             Arguments = { inputArg },

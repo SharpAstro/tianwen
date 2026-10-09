@@ -13,7 +13,7 @@ using TianWen.Lib.Imaging.Stacking;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>tianwen planetary-judge &lt;master.fits&gt; &lt;reference&gt;</c>: our master against another program's result of the same capture, the
+/// <c>tianwen planetary judge &lt;master.fits&gt; &lt;reference&gt;</c>: our master against another program's result of the same capture, the
 /// <c>_stack</c> or <c>_post</c> beside it (<see cref="PlanetaryReferenceJudge"/>). The reference is placed on the master (scale, turn,
 /// mirror), its tone matched, and each a trous band of the globe, and of Saturn's rings off it, read for what the two share: the correlation,
 /// the master's energy over the reference's, and the master's gain on what they share. Then each disk's mean colour, the reference's decoded
@@ -29,7 +29,7 @@ internal sealed class PlanetaryJudgeSubCommand(IConsoleHost consoleHost, MasterP
         var utcOpt = new Option<string?>("--utc") { Description = "The instant the master shows the planet at (ISO 8601, UTC); its DATE-OBS and EXPTIME's middle when not given." };
         var pictureOpt = new Option<string?>("--picture") { Description = "Write the master beside the reference placed on it to this PNG, each of the reference's channels matched to the master's tone, both through one planetary stretch." };
 
-        var command = new Command("planetary-judge", "Our master against another program's result of the same capture (its _stack or _post): placed, matched in tone, then read band by band for the detail both hold.")
+        var command = new Command("judge", "Our master against another program's result of the same capture (its _stack or _post): placed, matched in tone, then read band by band for the detail both hold.")
         {
             Arguments = { masterArg, referenceArg },
             Options = { planetOpt, utcOpt, pictureOpt },

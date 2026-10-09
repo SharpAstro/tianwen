@@ -15,7 +15,7 @@ namespace TianWen.Cli;
 /// A capture stacked as R7 part 4 and R8 stack it (the best share by the gradient, global, plain, Lanczos-3), with its two halves when
 /// asked, every plane registered onto one disk (the truth's on a twin, the stack's own otherwise), normalised to a sky of zero and a
 /// disk of one and cut to a window about it, beside the limb fit, its kernel (b') over the pupil's diffraction, and the limb fit's
-/// sharp model in the same window. The one preparation <c>planetary-gains</c> and <c>planetary-dering</c> share.
+/// sharp model in the same window. The one preparation <c>planetary gains</c> and <c>planetary dering</c> share.
 /// </summary>
 internal sealed class PlanetaryWindowedStack : IDisposable
 {

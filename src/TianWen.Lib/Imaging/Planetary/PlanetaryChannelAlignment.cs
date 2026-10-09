@@ -41,7 +41,7 @@ public enum PlanetaryChannelReading
 public sealed record PlanetaryChannelAlignmentResult(PlanetaryChannelShift Red, PlanetaryChannelShift Blue, PlanetaryChannelShift? GreenCheck,
     PlanetaryChannelReading Reading, bool Applied, string? Refusal = null)
 {
-    /// <summary>What was read and done, in words: ONE wording for <c>planetary-stack</c> and a live view's derivation.</summary>
+    /// <summary>What was read and done, in words: ONE wording for <c>planetary stack</c> and a live view's derivation.</summary>
     public string Describe()
     {
         var greens = GreenCheck is { } check ? FormattableString.Invariant($"; the greens {check.Length:0.00} px apart") : "";

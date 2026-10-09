@@ -10,9 +10,9 @@ using Console.Lib;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-dewarp</c> (docs/plans/planetary-restoration.md, R5 part 2): how much of a synthetic capture's true warp the
+/// <c>planetary dewarp</c> (docs/plans/planetary-restoration.md, R5 part 2): how much of a synthetic capture's true warp the
 /// alignment points recover. Every frame's points are read as the stacker reads them and compared with the warp
-/// <c>planetary-degrade</c> applied, on the reference frame's geometry and on the median geometry, each frame's own reading and
+/// <c>planetary degrade</c> applied, on the reference frame's geometry and on the median geometry, each frame's own reading and
 /// pooled over the frames either side.
 /// </summary>
 internal sealed class PlanetaryDewarpSubCommand(IConsoleHost consoleHost)
@@ -27,7 +27,7 @@ internal sealed class PlanetaryDewarpSubCommand(IConsoleHost consoleHost)
 
     public Command Build()
     {
-        var captureArg = new Argument<string>("capture") { Description = "A synthetic capture planetary-degrade made with a warp." };
+        var captureArg = new Argument<string>("capture") { Description = "A synthetic capture planetary degrade made with a warp." };
         var warpOpt = new Option<string?>("--warp") { Description = "Its true warp; by default the .warp beside it." };
         var framesOpt = new Option<int?>("--frames") { Description = "Only the capture's first frames." };
         var spacingOpt = new Option<int>("--ap-spacing") { Description = "The alignment points' spacing.", DefaultValueFactory = _ => 24 };
@@ -36,14 +36,14 @@ internal sealed class PlanetaryDewarpSubCommand(IConsoleHost consoleHost)
         var correlationOpt = new Option<string>("--correlation") { Description = "whitened (phase correlation) or plain (cross-correlation).", DefaultValueFactory = _ => "plain" };
         var meshOpt = new Option<float>("--mesh-spacing") { Description = "The displacement mesh's node spacing, px.", DefaultValueFactory = _ => 24f };
         var influenceOpt = new Option<float>("--mesh-influence") { Description = "How far a point's displacement reaches into the mesh, px.", DefaultValueFactory = _ => 48f };
-        var krigeRmsOpt = new Option<double?>("--krige-rms") { Description = "The twin's warp RMS a axis, px (planetary-degrade --warp-rms): with --krige-length, how each point reads the warp and what the blend, a kriging and the best linear weights leave (#1081)." };
-        var krigeLengthOpt = new Option<double?>("--krige-length") { Description = "The twin's warp correlation length, px (planetary-degrade --warp-length)." };
+        var krigeRmsOpt = new Option<double?>("--krige-rms") { Description = "The twin's warp RMS a axis, px (planetary degrade --warp-rms): with --krige-length, how each point reads the warp and what the blend, a kriging and the best linear weights leave (#1081)." };
+        var krigeLengthOpt = new Option<double?>("--krige-length") { Description = "The twin's warp correlation length, px (planetary degrade --warp-length)." };
         var estimatorOpt = new Option<string>("--estimator") { Description = "How each point's shift is read: correlation (windowed, the default), weighted (the correlation by its maximum-likelihood weight) or sdf (square difference, #1082).", DefaultValueFactory = _ => "correlation" };
         var remeasureOpt = new Option<bool>("--remeasure") { Description = "Match every frame against the reference dewarped by its own points (#1081's second pass, PlanetaryStackOptions.RemeasureAgainstStack)." };
         var gainOpt = new Option<float>("--mesh-gain") { Description = "A gain on every point's residual before the mesh blends them (PlanetaryStackOptions.MeshGain).", DefaultValueFactory = _ => 1f };
         var poolOpt = new Option<string>("--pool") { Description = "The frames either side each point's warp is pooled over (a Gaussian's sigma), a comma list.", DefaultValueFactory = _ => "0,1,2,4" };
 
-        var command = new Command("planetary-dewarp",
+        var command = new Command("dewarp",
             "How much of a synthetic capture's true warp the alignment points recover, on the reference and the median geometry, each frame's own and pooled (R5).")
         {
             Arguments = { captureArg },
@@ -56,7 +56,7 @@ internal sealed class PlanetaryDewarpSubCommand(IConsoleHost consoleHost)
             var warpPath = parseResult.GetValue(warpOpt) ?? SyntheticWarpFile.PathFor(input);
             if (!File.Exists(warpPath) || SyntheticWarpFile.Read(warpPath) is not { } truth)
             {
-                consoleHost.WriteError($"{warpPath}: no warp file (planetary-degrade writes one beside a capture made with --warp-rms)");
+                consoleHost.WriteError($"{warpPath}: no warp file (planetary degrade writes one beside a capture made with --warp-rms)");
                 return 1;
             }
             using var reader = SerReader.Open(input);

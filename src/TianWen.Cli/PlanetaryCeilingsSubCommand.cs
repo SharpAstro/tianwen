@@ -15,7 +15,7 @@ using SharpAstro.Ser;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-ceilings</c> (docs/plans/planetary-restoration.md, R8 part 1): on a synthetic capture whose truth and every frame's PSF
+/// <c>planetary ceilings</c> (docs/plans/planetary-restoration.md, R8 part 1): on a synthetic capture whose truth and every frame's PSF
 /// are known, what a sharpening of its stack could reach at best. On the stack: the best real gain per a trous band, the best isotropic
 /// linear filter, and the truth's Fourier magnitude or phase swapped in. Over the frames: shift-and-add at the true shifts restored by
 /// its own true transfer, against the multi-frame Wiener that weights each frame per frequency, on the stack's frames and on all of
@@ -27,14 +27,14 @@ internal sealed class PlanetaryCeilingsSubCommand(IConsoleHost consoleHost)
 
     public Command Build()
     {
-        var inputArg = new Argument<string>("capture") { Description = "A synthetic mono SER capture (planetary-degrade --psf-truth)." };
-        var truthOpt = new Option<string>("--truth") { Description = "Its truth (planetary-degrade's .truth.fits).", Required = true };
-        var psfOpt = new Option<string?>("--psf") { Description = "Its frames' PSFs (planetary-degrade --psf-truth's .psf; beside the capture by default)." };
+        var inputArg = new Argument<string>("capture") { Description = "A synthetic mono SER capture (planetary degrade --psf-truth)." };
+        var truthOpt = new Option<string>("--truth") { Description = "Its truth (planetary degrade's .truth.fits).", Required = true };
+        var psfOpt = new Option<string?>("--psf") { Description = "Its frames' PSFs (planetary degrade --psf-truth's .psf; beside the capture by default)." };
         var planetOpt = new Option<string>("--planet") { Description = "jupiter or saturn.", DefaultValueFactory = _ => "jupiter" };
         var keepOpt = new Option<double>("--keep") { Description = "The share of the frames stacked, by the gradient.", DefaultValueFactory = _ => 0.05 };
         var windowOpt = new Option<int>("--window") { Description = "The side of the window about the disk the multi-frame bound is computed on, px, a power of two.", DefaultValueFactory = _ => 256 };
 
-        var command = new Command("planetary-ceilings",
+        var command = new Command("ceilings",
             "What a sharpening of a synthetic capture's stack could reach at best: per-band and per-ring oracle filters, the oracle swaps, and the multi-frame Wiener with every frame's true PSF against shift-and-add at the true shifts (R8 part 1).")
         {
             Arguments = { inputArg },
@@ -56,7 +56,7 @@ internal sealed class PlanetaryCeilingsSubCommand(IConsoleHost consoleHost)
             using var psfs = SyntheticPsfFile.Reader.Open(psfPath);
             if (psfs is null)
             {
-                consoleHost.WriteError($"{psfPath}: not a PSF file (planetary-degrade --psf-truth writes one)");
+                consoleHost.WriteError($"{psfPath}: not a PSF file (planetary degrade --psf-truth writes one)");
                 return 1;
             }
 

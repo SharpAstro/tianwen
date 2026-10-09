@@ -14,7 +14,7 @@ using Console.Lib;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-derotate</c> (docs/plans/planetary-restoration.md, R6, 6b): two captures of one night stacked, the first carried
+/// <c>planetary derotate</c> (docs/plans/planetary-restoration.md, R6, 6b): two captures of one night stacked, the first carried
 /// through the planet's rotation to the second's epoch and onto its disk (<see cref="PlanetaryDerotation"/>), and the two
 /// compared inside 0.9 radii with the de-rotation and without it. The image's north is decided by the agreement itself: the
 /// limb fit cannot tell north from south near opposition, and north the wrong way round turns the planet backwards.
@@ -30,7 +30,7 @@ internal sealed class PlanetaryDerotateSubCommand(IConsoleHost consoleHost)
         var framesOpt = new Option<int?>("--frames") { Description = "Only each capture's first frames." };
         var outputOpt = new Option<string?>("--output") { Description = "Write the two stacks and the first de-rotated, as FITS, into this folder." };
 
-        var command = new Command("planetary-derotate",
+        var command = new Command("derotate",
             "Two captures stacked, the first de-rotated to the second's epoch through the oblate spheroid (R6, 6b), and the two compared with the de-rotation and without it, north decided by their agreement.")
         {
             Arguments = { firstArg, secondArg },

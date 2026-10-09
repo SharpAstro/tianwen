@@ -13,9 +13,9 @@ using SharpAstro.Ser;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-spectral-ratio</c> (docs/plans/planetary-restoration.md, R7 part 1): a capture's spectral ratio
+/// <c>planetary spectral-ratio</c> (docs/plans/planetary-restoration.md, R7 part 1): a capture's spectral ratio
 /// (<see cref="PlanetarySpectralRatio"/>), the frames' mean spectrum squared over their mean power, and the free air's r0 whose theory
-/// fits it, the theory being the synthetic capture's own seeing model with the options <c>planetary-degrade</c> takes. With a still
+/// fits it, the theory being the synthetic capture's own seeing model with the options <c>planetary degrade</c> takes. With a still
 /// layer given, the fit is made again with it in the theory, which says whether the ratio sees it.
 /// </summary>
 internal sealed class PlanetarySpectralRatioSubCommand(IConsoleHost consoleHost)
@@ -43,7 +43,7 @@ internal sealed class PlanetarySpectralRatioSubCommand(IConsoleHost consoleHost)
         var fitWarpOpt = new Option<bool>("--fit-warp") { Description = "Fit again with a displacement the registration left, its factor exp(-4 pi^2 s^2 f^2) on the theory, s fitted with r0." };
         var outputOpt = new Option<string?>("--output") { Description = "Write the rings as CSV here." };
 
-        var command = new Command("planetary-spectral-ratio",
+        var command = new Command("spectral-ratio",
             "A capture's spectral ratio, abs(mean F)^2 over mean abs(F)^2 of its registered frames, and the free air's r0 whose theory, the synthetic capture's own seeing model, fits it (R7 part 1).")
         {
             Arguments = { inputArg },

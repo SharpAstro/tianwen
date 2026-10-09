@@ -133,85 +133,91 @@ var rootCommand = new RootCommand
             // GetService, not GetRequiredService: --remove-stars is the only thing that needs it, and
             // a host with no AI backend must still be able to run an ordinary stack.
             services.GetService<TianWen.Lib.Imaging.Enhancement.IStarRemover>()).Build(),
-        new PlanetaryStackSubCommand(
-            consoleHost,
-            new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
-                services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
-                services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
-        new PlanetarySharpenSubCommand(
-            consoleHost,
-            new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
-                services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
-                services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
-        new PlanetaryCompareSubCommand(consoleHost).Build(),
-        new PlanetaryJudgeSubCommand(
-            consoleHost,
-            new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
-                services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
-                services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
-        new PlanetaryComposeSubCommand(
-            consoleHost,
-            new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
-                services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
-                services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
-        new PlanetaryLookSubCommand(
-            consoleHost,
-            new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
-                services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
-                services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
-        new PlanetaryColourSubCommand(
-            consoleHost,
-            new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
-                services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
-                services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
-        new PlanetaryLiveSubCommand(consoleHost, services.GetRequiredService<TianWen.Lib.Devices.ITimeProvider>()).Build(),
-        new PlanetaryCorpusSubCommands(consoleHost, services.GetRequiredService<ILogger<PlanetaryCorpusSubCommands>>()).BuildSurvey(),
-        new PlanetaryCorpusSubCommands(consoleHost, services.GetRequiredService<ILogger<PlanetaryCorpusSubCommands>>()).BuildCrop(),
-        new PlanetaryCorpusSubCommands(consoleHost, services.GetRequiredService<ILogger<PlanetaryCorpusSubCommands>>()).BuildConvert(),
-        new PlanetaryGeometrySubCommands(consoleHost).BuildLimb(),
-        new PlanetaryGeometrySubCommands(consoleHost).BuildAperture(),
-        new PlanetaryGeometrySubCommands(consoleHost).BuildRenderTruth(),
-        new PlanetaryGeometrySubCommands(consoleHost).BuildSeeing(),
-        new PlanetarySpectralRatioSubCommand(consoleHost).Build(),
-        new PlanetaryBlurSubCommand(consoleHost).Build(),
-        new PlanetaryInverseSubCommand(consoleHost).Build(),
-        new PlanetaryCeilingsSubCommand(consoleHost).Build(),
-        new PlanetaryInversesSubCommand(
-            consoleHost,
-            new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
-                services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
-                services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
-        new PlanetaryGainsSubCommand(
-            consoleHost,
-            new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
-                services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
-                services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
-        new PlanetaryRingingSubCommand(consoleHost).Build(),
-        new PlanetaryFinestBandSubCommand(consoleHost).Build(),
-        new PlanetaryElongatedSubCommand(consoleHost).Build(),
-        new PlanetaryLimbSectorsSubCommand(consoleHost).Build(),
-        new PlanetaryMfbdSubCommands(consoleHost).BuildLuckyFrames(),
-        new PlanetaryMfbdSubCommands(consoleHost).BuildScore(),
-        new PlanetaryKeepsSubCommand(consoleHost).Build(),
-        new PlanetaryGhostSubCommand(
-            consoleHost,
-            new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
-                services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
-                services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
-        new PlanetaryDeringSubCommand(
-            consoleHost,
-            new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
-                services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
-                services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
-        new PlanetaryGeometrySubCommands(consoleHost).BuildDegrade(),
-        new PlanetaryMeasureSubCommand(consoleHost).Build(),
-        new PlanetaryGradeSubCommand(consoleHost).Build(),
-        new PlanetaryDewarpSubCommand(consoleHost).Build(),
-        new PlanetaryRegistrationSubCommand(consoleHost).Build(),
-        new PlanetaryDerotateSubCommand(consoleHost).Build(),
-        new PlanetaryDerotateRunSubCommand(consoleHost).Build(),
-        new PlanetaryBeltsSubCommand(consoleHost).Build(),
-        new PlanetaryDriftSubCommand(consoleHost).Build(),
+        new Command("planetary", "Planetary lucky-imaging tools: stack, sharpen, compose, de-rotate, measure and restore SER captures of Jupiter, Saturn and the Moon (#1276).")
+        {
+            Subcommands =
+            {
+                new PlanetaryStackSubCommand(
+                    consoleHost,
+                    new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
+                        services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
+                        services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
+                new PlanetarySharpenSubCommand(
+                    consoleHost,
+                    new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
+                        services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
+                        services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
+                new PlanetaryCompareSubCommand(consoleHost).Build(),
+                new PlanetaryJudgeSubCommand(
+                    consoleHost,
+                    new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
+                        services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
+                        services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
+                new PlanetaryComposeSubCommand(
+                    consoleHost,
+                    new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
+                        services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
+                        services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
+                new PlanetaryLookSubCommand(
+                    consoleHost,
+                    new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
+                        services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
+                        services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
+                new PlanetaryColourSubCommand(
+                    consoleHost,
+                    new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
+                        services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
+                        services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
+                new PlanetaryLiveSubCommand(consoleHost, services.GetRequiredService<TianWen.Lib.Devices.ITimeProvider>()).Build(),
+                new PlanetaryCorpusSubCommands(consoleHost, services.GetRequiredService<ILogger<PlanetaryCorpusSubCommands>>()).BuildSurvey(),
+                new PlanetaryCorpusSubCommands(consoleHost, services.GetRequiredService<ILogger<PlanetaryCorpusSubCommands>>()).BuildCrop(),
+                new PlanetaryCorpusSubCommands(consoleHost, services.GetRequiredService<ILogger<PlanetaryCorpusSubCommands>>()).BuildConvert(),
+                new PlanetaryGeometrySubCommands(consoleHost).BuildLimb(),
+                new PlanetaryGeometrySubCommands(consoleHost).BuildAperture(),
+                new PlanetaryGeometrySubCommands(consoleHost).BuildRenderTruth(),
+                new PlanetaryGeometrySubCommands(consoleHost).BuildSeeing(),
+                new PlanetarySpectralRatioSubCommand(consoleHost).Build(),
+                new PlanetaryBlurSubCommand(consoleHost).Build(),
+                new PlanetaryInverseSubCommand(consoleHost).Build(),
+                new PlanetaryCeilingsSubCommand(consoleHost).Build(),
+                new PlanetaryInversesSubCommand(
+                    consoleHost,
+                    new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
+                        services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
+                        services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
+                new PlanetaryGainsSubCommand(
+                    consoleHost,
+                    new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
+                        services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
+                        services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
+                new PlanetaryRingingSubCommand(consoleHost).Build(),
+                new PlanetaryFinestBandSubCommand(consoleHost).Build(),
+                new PlanetaryElongatedSubCommand(consoleHost).Build(),
+                new PlanetaryLimbSectorsSubCommand(consoleHost).Build(),
+                new PlanetaryMfbdSubCommands(consoleHost).BuildLuckyFrames(),
+                new PlanetaryMfbdSubCommands(consoleHost).BuildScore(),
+                new PlanetaryKeepsSubCommand(consoleHost).Build(),
+                new PlanetaryGhostSubCommand(
+                    consoleHost,
+                    new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
+                        services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
+                        services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
+                new PlanetaryDeringSubCommand(
+                    consoleHost,
+                    new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
+                        services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
+                        services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
+                new PlanetaryGeometrySubCommands(consoleHost).BuildDegrade(),
+                new PlanetaryMeasureSubCommand(consoleHost).Build(),
+                new PlanetaryGradeSubCommand(consoleHost).Build(),
+                new PlanetaryDewarpSubCommand(consoleHost).Build(),
+                new PlanetaryRegistrationSubCommand(consoleHost).Build(),
+                new PlanetaryDerotateSubCommand(consoleHost).Build(),
+                new PlanetaryDerotateRunSubCommand(consoleHost).Build(),
+                new PlanetaryBeltsSubCommand(consoleHost).Build(),
+                new PlanetaryDriftSubCommand(consoleHost).Build(),
+            },
+        },
         new SolveSubCommand(
             consoleHost,
             services.GetRequiredService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>(),

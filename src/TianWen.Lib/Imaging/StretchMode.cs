@@ -20,7 +20,7 @@ public enum StretchMode
 
     /// <summary>
     /// The high-key planetary stretch (<see cref="Image.ComputePlanetaryStretchUniforms"/>): black at each channel's 0.5th percentile,
-    /// white at the 99.9th on one common scale, a gamma of 0.75. The one <c>planetary-stack</c>'s preview is rendered with, so a
+    /// white at the 99.9th on one common scale, a gamma of 0.75. The one <c>planetary stack</c>'s preview is rendered with, so a
     /// planet's master looks the same in the viewer as in its PNG. A UI intent like <see cref="Auto"/>: the producer resolves it to
     /// <see cref="Unlinked"/> uniforms from the frame's own percentiles, and it never reaches the shader.
     /// </summary>

@@ -33,7 +33,7 @@ public sealed record RollingWindowOptions
     /// <summary>
     /// The sharpness metric, which picks the reference and weights each frame's contribution (quality-weighted mean): the gradient,
     /// the batch stack's (<see cref="PlanetaryStackOptions.QualityEstimator"/>), since it cost the live stack nothing and its last
-    /// master less error (planetary-live, docs/plans/planetary-restoration.md, "The live stack, given the batch stack's learnings").
+    /// master less error (planetary live, docs/plans/planetary-restoration.md, "The live stack, given the batch stack's learnings").
     /// </summary>
     public IFrameQualityEstimator QualityEstimator { get; init; } = new GradientEnergyEstimator();
 
@@ -76,7 +76,7 @@ public sealed record RollingWindowOptions
 
     /// <summary>
     /// The rolling stack's recipe before the enhanced pipeline (#1159): the Laplacian, phase correlation, bilinear, every frame folded
-    /// and the window folded again whenever its reference ages out (#1174). What <c>planetary-live</c> measures every other recipe against.
+    /// and the window folded again whenever its reference ages out (#1174). What <c>planetary live</c> measures every other recipe against.
     /// </summary>
     public static RollingWindowOptions Legacy { get; } = new RollingWindowOptions
     {
@@ -217,7 +217,7 @@ public sealed class RollingWindowStacker
     public int Rebuilds => _rebuilds;
 
     /// <summary>
-    /// The <see cref="Rebuilds"/> by their cause, for <c>planetary-live</c> (#1174): a window that moved past the last one's end (the
+    /// The <see cref="Rebuilds"/> by their cause, for <c>planetary live</c> (#1174): a window that moved past the last one's end (the
     /// stack fell behind), an alignment reference that aged out of a window still sliding (which a stack that keeps up does too, once a
     /// window), and a ring that dropped a frame the sum held. The first stack, a backward jump and a cancelled stack are the rest.
     /// </summary>

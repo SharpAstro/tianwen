@@ -12,7 +12,7 @@ using Console.Lib;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-finest-band</c> (docs/plans/planetary-restoration.md, R8 follow-up 3, #1139): a stack's transfer at 0.1, 0.2 and 0.3 cycles
+/// <c>planetary finest-band</c> (docs/plans/planetary-restoration.md, R8 follow-up 3, #1139): a stack's transfer at 0.1, 0.2 and 0.3 cycles
 /// a pixel read without a truth, off the limb's edge against the limb fit's sharp model through the diffraction, and off the disk's
 /// spectrum against another year's map rendered at the capture's geometry; beside a twin's oracle and the limb fit's kernel (b').
 /// </summary>
@@ -23,7 +23,7 @@ internal sealed class PlanetaryFinestBandSubCommand(IConsoleHost consoleHost)
     public Command Build()
     {
         var inputArg = new Argument<string>("capture") { Description = "A SER capture of a planet." };
-        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary-degrade's .truth.fits): the oracle, and the edge's self-check." };
+        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary degrade's .truth.fits): the oracle, and the edge's self-check." };
         var mapOpt = new Option<string?>("--map") { Description = "Another year's global map in the filter: the spectrum's object." };
         var killMapOpt = new Option<string?>("--kill-map") { Description = "The capture's own year's map, for the spectrum's kill line where there is no truth (on a twin the truth is it)." };
         var kOpt = new Option<double>("--k") { Description = "Minnaert's exponent for the maps' filter.", DefaultValueFactory = _ => 0.999 };
@@ -38,7 +38,7 @@ internal sealed class PlanetaryFinestBandSubCommand(IConsoleHost consoleHost)
         var moonReachOpt = new Option<string>("--moon-reach") { Description = "The moon read's half side, px, a comma list to read at each.", DefaultValueFactory = _ => "16" };
         var moonQuadraticOpt = new Option<bool>("--moon-quadratic") { Description = "Take a quadratic surface off the moon read's rim, not a plane." };
 
-        var command = new Command("planetary-finest-band",
+        var command = new Command("finest-band",
             "A stack's finest band read off the limb's edge and off its spectrum against another year's map, beside a twin's oracle and the limb's kernel (R8 follow-up 3, #1139).")
         {
             Arguments = { inputArg },

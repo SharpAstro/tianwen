@@ -11,9 +11,9 @@ using TianWen.Lib.IO;
 namespace TianWen.Cli;
 
 /// <summary>
-/// The planetary corpus's verbs (docs/plans/planetary-restoration.md, R0): <c>planetary-survey</c> registers every capture
-/// into one manifest, <c>planetary-convert</c> makes a video saved one FITS file a frame the SER it should have been, and
-/// <c>planetary-crop</c> cuts a SER, or every SER in an archive, to a window tracked on its disk. They only read their
+/// The planetary corpus's verbs (docs/plans/planetary-restoration.md, R0): <c>planetary survey</c> registers every capture
+/// into one manifest, <c>planetary convert</c> makes a video saved one FITS file a frame the SER it should have been, and
+/// <c>planetary crop</c> cuts a SER, or every SER in an archive, to a window tracked on its disk. They only read their
 /// sources, and every write keeps the drive's reserve free.
 /// </summary>
 internal sealed class PlanetaryCorpusSubCommands(IConsoleHost consoleHost, ILogger<PlanetaryCorpusSubCommands> logger)
@@ -49,7 +49,7 @@ internal sealed class PlanetaryCorpusSubCommands(IConsoleHost consoleHost, ILogg
         var keepFreeOpt = KeepFreeOption();
         var sevenZipOpt = SevenZipOption();
 
-        var command = new Command("planetary-survey", "Register every planetary capture (SER, SER in 7z, AVI, FITS sequences) into one manifest.")
+        var command = new Command("survey", "Register every planetary capture (SER, SER in 7z, AVI, FITS sequences) into one manifest.")
         {
             Arguments = { rootsArg },
             Options = { outputOpt, minFitsOpt, keepFreeOpt, sevenZipOpt },
@@ -101,7 +101,7 @@ internal sealed class PlanetaryCorpusSubCommands(IConsoleHost consoleHost, ILogg
             }
             foreach (var session in manifest.Sessions)
             {
-                // A session is a run of several files (#1308): planetary-stack --session joins them as one.
+                // A session is a run of several files (#1308): planetary stack --session joins them as one.
                 consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
                     $"  session '{session.Name}': {session.Captures.Length} captures, {session.Frames} frames, {session.Width}x{session.Height} {session.ColorId}, {session.FirstUtc} to {session.LastUtc}"));
             }
@@ -134,7 +134,7 @@ internal sealed class PlanetaryCorpusSubCommands(IConsoleHost consoleHost, ILogg
         var keepFreeOpt = KeepFreeOption();
         var sevenZipOpt = SevenZipOption();
 
-        var command = new Command("planetary-crop",
+        var command = new Command("crop",
             "Crop a planetary capture to a window tracked on its disk: every frame, the Bayer phase, the timestamps and each frame's window origin kept, verified pixel for pixel.")
         {
             Arguments = { sourceArg },
@@ -194,7 +194,7 @@ internal sealed class PlanetaryCorpusSubCommands(IConsoleHost consoleHost, ILogg
         };
         var keepFreeOpt = KeepFreeOption();
 
-        var command = new Command("planetary-convert",
+        var command = new Command("convert",
             "Make a planetary video saved one FITS file a frame into one SER: the files' own samples, each frame's DATE-OBS in the trailer, verified against the files.")
         {
             Arguments = { foldersArg },

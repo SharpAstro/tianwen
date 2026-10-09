@@ -1235,7 +1235,7 @@ public sealed class ViewerController(
 
     /// <summary>
     /// The colour look on the master on show (#1277, <see cref="ViewerState.PlanetaryLook"/>): the master as balanced, or a copy of it with
-    /// the look, made off the render thread by <see cref="PlanetaryColourLook.OnMaster"/> (the routine <c>planetary-look</c> runs) and kept,
+    /// the look, made off the render thread by <see cref="PlanetaryColourLook.OnMaster"/> (the routine <c>planetary look</c> runs) and kept,
     /// so "True colour" and back is a swap, not a run. Only a still whose <c>OBJECT</c> names a planet; the live stacked view draws the look
     /// on each master itself. A new master on show drops both copies; an enhance result is left as it is. Render thread, between frames;
     /// true when the document on show changed.
@@ -1318,7 +1318,7 @@ public sealed class ViewerController(
         return true;
     }
 
-    // A run making the look's copy of a master: its planet from OBJECT and its instant from the header, as `planetary-look` reads them.
+    // A run making the look's copy of a master: its planet from OBJECT and its instant from the header, as `planetary look` reads them.
     private void StartPlanetaryLook(AstroImageDocument master, ColourLook look, CancellationToken appToken)
     {
         var image = master.UnstretchedImage;
@@ -1359,10 +1359,10 @@ public sealed class ViewerController(
     }
 
     /// <summary>
-    /// The best stack of the SER on screen (#1159, <see cref="PlanetaryBestStack"/>, the routine <c>planetary-stack</c> runs): started
+    /// The best stack of the SER on screen (#1159, <see cref="PlanetaryBestStack"/>, the routine <c>planetary stack</c> runs): started
     /// when asked (<see cref="ViewerState.BestStackRequested"/>), or the running one cancelled; its progress copied into
     /// <see cref="ViewerState.BestStackProgress"/>; a finished run's sharpened master, written beside the capture as
-    /// <c>planetary-stack</c> writes it, opened while that capture is still the one on screen. Render thread, between frames
+    /// <c>planetary stack</c> writes it, opened while that capture is still the one on screen. Render thread, between frames
     /// (<see cref="BestStackWantsFrame"/> asks for them); true when something on screen changed.
     /// </summary>
     public bool TickBestStack(CancellationToken appToken = default)
@@ -1461,7 +1461,7 @@ public sealed class ViewerController(
     }
 
     // The capture stacked off the render thread by the planet the panel chose or its name gives, the filter likewise for a mono
-    // capture, and the telescope the panel holds, both masters written beside it under planetary-stack's names.
+    // capture, and the telescope the panel holds, both masters written beside it under planetary stack's names.
     private void StartBestStack(string capture, CancellationToken appToken)
     {
         _bestStackCts = CancellationTokenSource.CreateLinkedTokenSource(appToken);

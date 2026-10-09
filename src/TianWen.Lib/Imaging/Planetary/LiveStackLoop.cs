@@ -8,7 +8,7 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// <summary>
 /// The live stack's loop: the window ending at the newest frame of a live capture's ring, stacked again and again, each master
 /// handed on. ONE loop for the node's planetary run (<c>NodePlanetary</c>) and the probe that measures it
-/// (<c>tianwen planetary-live</c>, docs/plans/planetary-restoration.md, "The live stack, given the batch stack's learnings"), so what
+/// (<c>tianwen planetary live</c>, docs/plans/planetary-restoration.md, "The live stack, given the batch stack's learnings"), so what
 /// is measured is what runs.
 /// </summary>
 public static class LiveStackLoop

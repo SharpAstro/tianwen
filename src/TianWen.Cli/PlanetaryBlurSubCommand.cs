@@ -16,7 +16,7 @@ using SharpAstro.Ser;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-blur</c> (docs/plans/planetary-restoration.md, R7 part 2): a capture's blur read by two probes. (a), the lucky
+/// <c>planetary blur</c> (docs/plans/planetary-restoration.md, R7 part 2): a capture's blur read by two probes. (a), the lucky
 /// frames against the stack: the frames graded by the gradient, the best 1 % split by rank into two halves, the frames ranked 1 to
 /// 5 % the stack, and the stack's transfer over the lucky frames' in each band from their cross terms
 /// (<see cref="PlanetaryMetrics.CrossTransfer"/>). (b), the limb fit on the stack, its core and its halo, read as band transfers
@@ -28,7 +28,7 @@ internal sealed class PlanetaryBlurSubCommand(IConsoleHost consoleHost)
     public Command Build()
     {
         var inputArg = new Argument<string>("capture") { Description = "A SER capture of a planet." };
-        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary-degrade's .truth.fits): the stack's true transfer." };
+        var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary degrade's .truth.fits): the stack's true transfer." };
         var planetOpt = new Option<string>("--planet") { Description = "jupiter or saturn.", DefaultValueFactory = _ => "jupiter" };
         var planeOpt = new Option<string?>("--plane") { Description = "A colour capture's photosite colour: r, g, g2 or b." };
         var framesOpt = new Option<int?>("--frames") { Description = "Only the first frames." };
@@ -37,7 +37,7 @@ internal sealed class PlanetaryBlurSubCommand(IConsoleHost consoleHost)
         var mapOpt = new Option<string?>("--map") { Description = "The truth's global map: rendered again without the telescope's diffraction, so the stack's TOTAL true transfer and the diffraction's own are read too (the truth is rendered through the diffraction limit, the limb's kernels against a sharp disk)." };
         var kOpt = new Option<double>("--k") { Description = "Minnaert's exponent the truth was rendered with.", DefaultValueFactory = _ => 0.999 };
 
-        var command = new Command("planetary-blur",
+        var command = new Command("blur",
             "A capture's blur by two probes: the stack's band transfer over its lucky frames' (a), and the limb fit's core and halo read as band transfers (b), each set against the truth when a synthetic capture's is given (R7 part 2).")
         {
             Arguments = { inputArg },

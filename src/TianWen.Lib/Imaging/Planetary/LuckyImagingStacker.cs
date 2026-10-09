@@ -932,7 +932,7 @@ public sealed class LuckyImagingStacker
     /// Every frame's global shift as <see cref="StackGlobalAsync"/> would apply it, in capture order, with the same reference
     /// (<see cref="PlanetaryStackOptions.ReferenceFrames"/> included) and aligner, and the best frame's index: sampling frame
     /// <c>f</c> at <c>(x + Dx[f], y + Dy[f])</c> lands it on the reference, so a disk that moves +1 px reads +1. What a
-    /// registration is compared by (<c>tianwen planetary-registration</c>, docs/plans/planetary-restoration.md, R5 part 3).
+    /// registration is compared by (<c>tianwen planetary registration</c>, docs/plans/planetary-restoration.md, R5 part 3).
     /// </summary>
     public static async Task<(double[] Dx, double[] Dy, int ReferenceIndex)> RegisterAllAsync(IPlanetaryFrameStream stream, PlanetaryStackOptions options,
         CancellationToken cancellationToken)

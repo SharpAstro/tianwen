@@ -84,7 +84,7 @@ public static class PlanetaryColourBalance
 
     /// <summary>
     /// The saturation a balance applies by default: none, the gains alone (the owner, 2026-10-06, #1212). <see cref="EyeSaturation"/> was
-    /// the default until then, and it is one switch away (<c>planetary-stack --colour-saturation</c>). Shown on the five colour
+    /// the default until then, and it is one switch away (<c>planetary stack --colour-saturation</c>). Shown on the five colour
     /// captures it moved each pixel 0.002 to 0.003 in OKLab, a tenth of what the eye can tell (0.02), and the disk's mean colour not at
     /// all; what is SEEN is the look (#1273, #1277). Every capture still reads duller than OPAL's reflectance at its resolution, and the
     /// camera's own matrix (<see cref="GainsThrough"/>) lifts the chroma 1.45 to 1.52 times from the sensor's curves (#1279, rule E),

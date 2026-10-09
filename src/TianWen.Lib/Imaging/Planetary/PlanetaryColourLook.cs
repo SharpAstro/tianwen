@@ -202,9 +202,9 @@ public static class PlanetaryColourLook
     public static Image? TryApply(Image master, in MetricDisk disk, ColourLook look) => Applied(master, disk, look).Image;
 
     /// <summary>
-    /// <paramref name="master"/> made ready for a look, ONE routine for the viewer's colour control and <c>planetary-look</c> (#1277): the
+    /// <paramref name="master"/> made ready for a look, ONE routine for the viewer's colour control and <c>planetary look</c> (#1277): the
     /// planet's limb fitted at <paramref name="instant"/> for the disk the look reads its colour over, and a master left in the camera's colours
-    /// balanced to the planet's colour first, as <c>planetary-stack</c> balances it, since on the camera's tint the curve would raise the tint,
+    /// balanced to the planet's colour first, as <c>planetary stack</c> balances it, since on the camera's tint the curve would raise the tint,
     /// most of every pixel's chroma. Where it balanced, <see cref="PreparedMaster.Balance"/> is the balance and its image is a new one the caller
     /// owns; otherwise its image is <paramref name="master"/>. A refusal says why the master could not be made ready.
     /// </summary>

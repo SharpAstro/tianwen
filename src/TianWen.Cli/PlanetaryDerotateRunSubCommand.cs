@@ -14,10 +14,10 @@ using Console.Lib;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-derotate-run</c> (docs/plans/planetary-restoration.md, R6 part 2): a night's captures joined in time order and split
+/// <c>planetary derotate-run</c> (docs/plans/planetary-restoration.md, R6 part 2): a night's captures joined in time order and split
 /// at the run's middle into two halves, each stacked as its frames were taken and with every frame carried to the run's middle
 /// (6a). The halves are then compared three ways over the pixels all three cover: as taken, as finished stacks carried to one
-/// epoch (6b, part 1's <c>planetary-derotate</c>, both ends of the axis as north), and de-rotated frame by frame. With
+/// epoch (6b, part 1's <c>planetary derotate</c>, both ends of the axis as north), and de-rotated frame by frame. With
 /// <c>--whole</c>, the whole run stacked both ways too, and each wavelet band's power in the de-rotated stack against the stack as
 /// taken: the same frames, so the same noise, and a rotation smeared along the belts is detail lost.
 /// </summary>
@@ -34,7 +34,7 @@ internal sealed class PlanetaryDerotateRunSubCommand(IConsoleHost consoleHost)
         var wholeOpt = new Option<bool>("--whole") { Description = "Stack the whole run both ways as well, and compare each band's power." };
         var outputOpt = new Option<string?>("--output") { Description = "Write every stack as FITS into this folder." };
 
-        var command = new Command("planetary-derotate-run",
+        var command = new Command("derotate-run",
             "A run of captures split at its middle, each half stacked as taken and with every frame de-rotated to the run's middle (R6, 6a), and the halves compared as taken, as finished stacks carried to one epoch (6b) and de-rotated frame by frame.")
         {
             Arguments = { capturesArg },

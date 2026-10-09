@@ -11,7 +11,7 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// A planetary master's picture in numbers (<see cref="PlanetaryPicture"/>, <c>tianwen planetary-compare</c>): each region read as it
+/// A planetary master's picture in numbers (<see cref="PlanetaryPicture"/>, <c>tianwen planetary compare</c>): each region read as it
 /// was put in. A Jupiter rendered through a telescope's diffraction is the truth, and its light just past the limb is the glow the
 /// planet's model through the pupil expects; the same Jupiter through a seeing it does not know carries more. A sky with a known noise, gradient and
 /// level reads them back, and its outliers come in at a Gaussian's count.

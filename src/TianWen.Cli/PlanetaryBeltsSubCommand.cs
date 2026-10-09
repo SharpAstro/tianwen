@@ -14,7 +14,7 @@ using Console.Lib;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-belts</c> (docs/plans/planetary-restoration.md, R6 part 3): a capture, or a run of them de-rotated frame by frame,
+/// <c>planetary belts</c> (docs/plans/planetary-restoration.md, R6 part 3): a capture, or a run of them de-rotated frame by frame,
 /// stacked and projected onto the spheroid, its zonal albedo profile read along planetographic latitude
 /// (<see cref="PlanetaryBelts"/>), and its belts' edges compared with a map's, OPAL's, blurred to the stack's own limb PSF. The
 /// check on the projection's latitudes the plan moved here from R1: a belt's edge is where the planet itself puts a latitude.
@@ -33,7 +33,7 @@ internal sealed class PlanetaryBeltsSubCommand(IConsoleHost consoleHost)
         var outputOpt = new Option<string?>("--output") { Description = "Write both profiles as CSV here (latitude, stack, map)." };
         var kernelOpt = new Option<string>("--kernel") { Description = "What the map is blurred by: core (the limb fit's core alone, R6 part 3) or limb (its core and its halo, R7 part 3).", DefaultValueFactory = _ => "core" };
 
-        var command = new Command("planetary-belts",
+        var command = new Command("belts",
             "A capture or a run stacked and projected onto the spheroid, its zonal albedo profile along planetographic latitude and its belts' edges compared with a global map's (R6 part 3).")
         {
             Arguments = { capturesArg },

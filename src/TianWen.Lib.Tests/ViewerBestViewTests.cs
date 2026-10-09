@@ -15,7 +15,7 @@ namespace TianWen.Lib.Tests;
 /// <summary>
 /// A SER's view is one switch, Frames / Live / Best (#1314 part 2): Best runs the whole capture through the batch stack once, shows its
 /// master behind the same sharpening layer, and switches its stops with no Derive, since the run fitted them. Rule 5: what Best shows at a
-/// stop is what <c>planetary-stack --strength</c> writes at it. Rule 7: switching views and stops stacks and derives nothing.
+/// stop is what <c>planetary stack --strength</c> writes at it. Rule 7: switching views and stops stacks and derives nothing.
 /// </summary>
 [Collection("Viewer")]
 public class ViewerBestViewTests

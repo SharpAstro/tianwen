@@ -18,7 +18,7 @@ using TianWen.Lib.IO;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>tianwen planetary-colour &lt;label=master.fits&gt;... --composite &lt;png&gt; --opal &lt;dir&gt;</c>: #1212's measurement, read against
+/// <c>tianwen planetary colour &lt;label=master.fits&gt;... --composite &lt;png&gt; --opal &lt;dir&gt;</c>: #1212's measurement, read against
 /// the rule set before it (docs/plans/planetary-restoration.md, "The rule, set before measuring"). Each colour master's disk-mean
 /// colour and latitude chroma spread, against two targets: (A) an sRGB composite (Wikipedia's OPAL 2024 picture of Jupiter), decoded to linear;
 /// (B) OPAL's reflectance maps taken through the CIE observer under D65 (<see cref="PlanetaryColour"/>). Says whether A and B agree
@@ -44,7 +44,7 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
         var saturationOpt = new Option<string>("--saturation") { Description = "The saturation factors the previews are balanced at, a comma list.", DefaultValueFactory = _ => "1,1.4,2" };
         var cameraOpt = new Option<string?>("--camera") { Description = "The camera every master here was taken with (e.g. ASI462MC, Uranus-C): its colour matrix, from its sensor's QE and the Sony CFA curves, is read after the gains beside the gains alone (#1279, rule E), and the previews add it." };
 
-        var command = new Command("planetary-colour", "Planetary colour (#1212): each colour master's disk-mean colour and chroma spread against an sRGB composite and against OPAL's reflectance through the CIE observer, read against the rule set before measuring.")
+        var command = new Command("colour", "Planetary colour (#1212): each colour master's disk-mean colour and chroma spread against an sRGB composite and against OPAL's reflectance through the CIE observer, read against the rule set before measuring.")
         {
             Arguments = { mastersArg },
             Options = { compositeOpt, compositeUtcOpt, opalOpt, planetOpt, compositeBinOpt, previewOpt, saturationOpt, cameraOpt },

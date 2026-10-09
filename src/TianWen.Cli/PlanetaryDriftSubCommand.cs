@@ -16,7 +16,7 @@ using Console.Lib;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-drift</c> (docs/plans/planetary-restoration.md, R6 part 3): a run's first and last thirds, each stacked with every
+/// <c>planetary drift</c> (docs/plans/planetary-restoration.md, R6 part 3): a run's first and last thirds, each stacked with every
 /// frame carried to its own middle, projected onto planetographic latitude and System III longitude at their own instants
 /// (<see cref="PlanetaryZonalDrift"/>), and the shift along each band of latitude between them: the zonal wind against System
 /// III, which a de-rotation leaves in. Bands are 2 degrees, each the mean of its rows' shifts, and the wind is read from the
@@ -42,7 +42,7 @@ internal sealed class PlanetaryDriftSubCommand(IConsoleHost consoleHost)
             Description = "Instead of the first and last thirds, the captures beginning in the middle third taken alternately and both carried to one instant: two stacks of different frames at one epoch, whose shift is the stacks' own error.",
         };
 
-        var command = new Command("planetary-drift",
+        var command = new Command("drift",
             "A run's first and last thirds stacked, each de-rotated to its own middle, projected onto latitude and System III longitude, and the shift along each band of latitude between them read as the zonal wind (R6 part 3).")
         {
             Arguments = { capturesArg },

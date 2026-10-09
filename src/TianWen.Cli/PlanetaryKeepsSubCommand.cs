@@ -13,8 +13,8 @@ using SharpAstro.Ser;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-keeps</c> (docs/plans/planetary-restoration.md, "R4 keeps are scored after restoration", #1083): R4's keeps judged where
-/// they are used. On a synthetic capture whose every frame's PSF is known (<c>planetary-degrade --psf-truth</c>), the frames are summed at
+/// <c>planetary keeps</c> (docs/plans/planetary-restoration.md, "R4 keeps are scored after restoration", #1083): R4's keeps judged where
+/// they are used. On a synthetic capture whose every frame's PSF is known (<c>planetary degrade --psf-truth</c>), the frames are summed at
 /// their true shifts at each keep (ranked by the gradient as the stacker ranks them) and scored raw and restored by the oracle Wiener with
 /// the sum's own transfer; beside them the matched weights (each frame by its true transfer), Fourier burst accumulation's exponent sweep,
 /// and the ceiling of per-frequency selection over whole-frame selection in band 1.
@@ -25,16 +25,16 @@ internal sealed class PlanetaryKeepsSubCommand(IConsoleHost consoleHost)
 
     public Command Build()
     {
-        var inputArg = new Argument<string>("capture") { Description = "A synthetic mono SER capture (planetary-degrade --psf-truth)." };
-        var truthOpt = new Option<string>("--truth") { Description = "Its truth (planetary-degrade's .truth.fits).", Required = true };
-        var psfOpt = new Option<string?>("--psf") { Description = "Its frames' PSFs (planetary-degrade --psf-truth's .psf; beside the capture by default)." };
+        var inputArg = new Argument<string>("capture") { Description = "A synthetic mono SER capture (planetary degrade --psf-truth)." };
+        var truthOpt = new Option<string>("--truth") { Description = "Its truth (planetary degrade's .truth.fits).", Required = true };
+        var psfOpt = new Option<string?>("--psf") { Description = "Its frames' PSFs (planetary degrade --psf-truth's .psf; beside the capture by default)." };
         var planetOpt = new Option<string>("--planet") { Description = "jupiter or saturn.", DefaultValueFactory = _ => "jupiter" };
         var windowOpt = new Option<int>("--window") { Description = "The window about the disk, px, a power of two.", DefaultValueFactory = _ => 256 };
         var keepsOpt = new Option<string>("--keeps") { Description = "The keeps, shares of the frames by the gradient, a comma list.", DefaultValueFactory = _ => "0.01,0.02,0.05,0.1,0.2,0.5,1" };
         var fbaOpt = new Option<string>("--fba") { Description = "Fourier burst accumulation's exponents, a comma list (0 is a plain average).", DefaultValueFactory = _ => "0,1,2,4,8,11" };
         var ceilingKeepOpt = new Option<double>("--ceiling-keep") { Description = "The share of the frames the per-frequency ceiling keeps at each frequency.", DefaultValueFactory = _ => 0.05 };
 
-        var command = new Command("planetary-keeps",
+        var command = new Command("keeps",
             "R4's keeps scored after restoration on a twin with known PSFs: each keep raw and restored, matched weights, Fourier burst accumulation and the ceiling of per-frequency selection (#1083).")
         {
             Arguments = { inputArg },
@@ -58,7 +58,7 @@ internal sealed class PlanetaryKeepsSubCommand(IConsoleHost consoleHost)
             using var psfs = SyntheticPsfFile.Reader.Open(psfPath);
             if (psfs is null)
             {
-                consoleHost.WriteError($"{psfPath}: not a PSF file (planetary-degrade --psf-truth writes one)");
+                consoleHost.WriteError($"{psfPath}: not a PSF file (planetary degrade --psf-truth writes one)");
                 return 1;
             }
 

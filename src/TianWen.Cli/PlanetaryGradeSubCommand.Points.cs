@@ -14,7 +14,7 @@ using TianWen.Lib.Stat;
 namespace TianWen.Cli;
 
 /// <summary>
-/// <c>planetary-grade --points</c> (docs/plans/planetary-restoration.md, R4 per-point, #1071): on a layered synthetic capture, whose
+/// <c>planetary grade --points</c> (docs/plans/planetary-restoration.md, R4 per-point, #1071): on a layered synthetic capture, whose
 /// <c>.field</c> holds each field point's true quality frame by frame, the share of that quality which is the point's own, each local
 /// estimator ranked against it at every point, and each point's best frames stacked against the whole frames' best.
 /// </summary>
@@ -38,7 +38,7 @@ internal sealed partial class PlanetaryGradeSubCommand
         if (!File.Exists(fieldPath) || SyntheticFieldFile.Read(fieldPath) is not { } field || !File.Exists(warpPath) || SyntheticWarpFile.Read(warpPath) is not { } warps
             || ReadColumn(recordPath, "shift_x", first, frames) is not { } moveX || ReadColumn(recordPath, "shift_y", first, frames) is not { } moveY)
         {
-            consoleHost.WriteError($"{input}: --points needs a layered twin's .field, .warp and .frames.csv beside it (planetary-degrade --high-r0)");
+            consoleHost.WriteError($"{input}: --points needs a layered twin's .field, .warp and .frames.csv beside it (planetary degrade --high-r0)");
             return 1;
         }
         if (field.Frames.Length < first + frames || warps.Length < first + frames)
