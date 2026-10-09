@@ -139,9 +139,9 @@ public sealed class TexturedHoleFillTests
     public void TheConditionalDrawPutsTheFilamentsBackIntoTheHolesWhereThePushPullLeavesThemSmooth()
     {
         var (original, holes, interiors) = FilamentSky();
-        var pushPull = new[] { (float[])original.Clone() };
+        float[][] pushPull = [[.. original]];
         HoleFill.Fill(pushPull, Size, Size, holes, absent: null, Fwhm, seed: 1, ceiling: null, CancellationToken.None);
-        var drawn = new[] { (float[])original.Clone() };
+        float[][] drawn = [[.. original]];
         TexturedHoleFill.Fill(drawn, Size, Size, holes, absent: null, Fwhm, seed: 1, ceiling: null,
             new SyntheticBackground.Steering(Strength: 1.0, Exponent: 4.0, Fine: 1.0), CancellationToken.None);
 

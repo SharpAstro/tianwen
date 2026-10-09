@@ -72,7 +72,7 @@ internal static class TexturedHoleFill
             }
             for (var c = 0; c < planes.Length; c++)
             {
-                var interpolated = (float[])texture[c].Clone();
+                float[] interpolated = [.. texture[c]];
                 PushPullFill.Fill(interpolated, size, size, local, absent: null);
                 for (var y = 0; y < size; y++)
                 {
