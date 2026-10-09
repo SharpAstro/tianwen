@@ -5,6 +5,7 @@ using System.CommandLine;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Console.Lib;
 using TianWen.Lib.Astrometry;
@@ -340,14 +341,7 @@ internal sealed class PlanetaryColourSubCommand(IConsoleHost consoleHost, Master
         }
         var (red, green, blue, width, height) = PlanetaryColour.LinearFromSrgb(image, bin);
         var luminance = new float[height, width];
-        for (var y = 0; y < height; y++)
-        {
-            for (var x = 0; x < width; x++)
-            {
-                var i = (y * width) + x;
-                luminance[y, x] = (red[i] + green[i] + blue[i]) / 3;
-            }
-        }
+        PlanetaryLimbFit.Luminance(red, green, blue, MemoryMarshal.CreateSpan(ref luminance[0, 0], luminance.Length));
         var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, utc);
         var options = PlanetaryLimbFit.OptionsFor(aspect);
         if (PlanetaryLimbFit.Fit(Image.FromChannel(luminance), options) is not { } fit)

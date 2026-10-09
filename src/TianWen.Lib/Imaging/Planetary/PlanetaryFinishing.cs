@@ -93,11 +93,13 @@ public static class PlanetaryFinishing
     /// A twin's truth, which is the scene through the <paramref name="pupil"/>'s diffraction, carried to the aperture target (#1366): divided
     /// by the pupil's radial diffraction where it passes at least <see cref="ApertureTruthFloor"/> and multiplied by
     /// <see cref="ApertureTaper"/>, so it is scored on the target's own scale. The division is by the radial mean of the pupil's transfer, so
-    /// a pupil with vanes leaves their faint spikes in it; the taper is all but nothing where the floor cuts.
+    /// a pupil with vanes leaves their faint spikes in it; the taper is all but nothing where the floor cuts. The transfer is read on the
+    /// truth's own reach, as the sharpening reads its window's: the default grid loses the wing and read the mid frequencies about 1.5 %
+    /// high, so the truth it divided came out that much low (#1398).
     /// </summary>
     public static float[] ApertureTruth(ReadOnlySpan<float> truth, int width, int height, Pupil pupil, double wavelengthNm, double arcsecPerPixel)
     {
-        var diffraction = PlanetaryInverse.Diffraction(pupil, wavelengthNm * 1e-9, arcsecPerPixel);
+        var diffraction = PlanetaryInverse.Diffraction(pupil, wavelengthNm * 1e-9, arcsecPerPixel, reachPx: Math.Max(width, height));
         var cutoff = CutoffCyclesPerPixel(pupil, wavelengthNm, arcsecPerPixel);
         return PlanetaryInverse.Apply(truth, width, height, f => diffraction.At(f) is var d && d >= ApertureTruthFloor ? ApertureTaper(f, cutoff) / d : 0);
     }

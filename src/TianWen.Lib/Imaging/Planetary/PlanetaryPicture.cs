@@ -307,14 +307,17 @@ public sealed record PlanetaryPicture(
                 syv += dy * value;
             }
         }
-        var m = new double[,] { { s1, sx, sy }, { sx, sxx, sxy }, { sy, sxy, syy } };
-        var r = new[] { sv, sxv, syv };
-        if (Solve3(m, r) is not { } p)
+        ReadOnlySpan<double> normal = [s1, sx, sy, sx, sxx, sxy, sy, sxy, syy];
+        Span<double> inverse = stackalloc double[9];
+        if (!CameraColorMatrix.TryInvert3(normal, inverse))
         {
             return (s1 > 0 ? sv / s1 : 0, 0, 0);
         }
+        var a = (inverse[0] * sv) + (inverse[1] * sxv) + (inverse[2] * syv);
+        var b = (inverse[3] * sv) + (inverse[4] * sxv) + (inverse[5] * syv);
+        var c = (inverse[6] * sv) + (inverse[7] * sxv) + (inverse[8] * syv);
         // Back from the frame's centre to its corner.
-        return (p[0] - (p[1] * cx) - (p[2] * cy), p[1], p[2]);
+        return (a - (b * cx) - (c * cy), b, c);
     }
 
     // The scatter of the sky's block means about its plane, over the scatter its noise alone would give a block (its pixels' own
@@ -378,30 +381,6 @@ public sealed record PlanetaryPicture(
         var blockStd = Math.Sqrt(spread / (means.Count - 1));
         var expected = Math.Sqrt(pixelSpread / pixels) / BlockPx;
         return expected > 0 ? blockStd / expected : double.NaN;
-    }
-
-    // A 3 by 3 system by Cramer's rule; null when it is singular. Column k's determinant reads r in place of that column, so no
-    // matrix is copied to substitute it.
-    private static double[]? Solve3(double[,] m, double[] r)
-    {
-        double Det(int column)
-        {
-            double A(int row, int col) => col == column ? r[row] : m[row, col];
-            return (A(0, 0) * ((A(1, 1) * A(2, 2)) - (A(1, 2) * A(2, 1))))
-                - (A(0, 1) * ((A(1, 0) * A(2, 2)) - (A(1, 2) * A(2, 0))))
-                + (A(0, 2) * ((A(1, 0) * A(2, 1)) - (A(1, 1) * A(2, 0))));
-        }
-        var det = Det(-1);
-        if (Math.Abs(det) < 1e-12)
-        {
-            return null;
-        }
-        var result = new double[3];
-        for (var k = 0; k < 3; k++)
-        {
-            result[k] = Det(k) / det;
-        }
-        return result;
     }
 
     // The complementary error function (Abramowitz and Stegun 7.1.26, to 1.5e-7), for the Gaussian's tail.

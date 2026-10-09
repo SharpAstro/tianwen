@@ -67,6 +67,54 @@ public class PlanetaryInverseTests
         diffraction.At(cutoff * 1.05).ShouldBe(0, 0.02);
     }
 
+    // O'Neill (1956): the transfer of an annular aperture of obstruction eps at v, a fraction of the cutoff (the clear term A, the
+    // obstruction's own B, and their overlap C, over the annulus's area).
+    private static double ONeill(double v, double eps)
+    {
+        static double Overlap(double u) => (2 / Math.PI) * (Math.Acos(u) - (u * Math.Sqrt(1 - (u * u))));
+        var a = Overlap(v);
+        var b = v <= eps ? eps * eps * Overlap(v / eps) : 0;
+        double c;
+        if (v <= (1 - eps) / 2)
+        {
+            c = -2 * eps * eps;
+        }
+        else if (v <= (1 + eps) / 2)
+        {
+            var phi = Math.Acos((1 + (eps * eps) - (4 * v * v)) / (2 * eps));
+            c = (-2 * eps * eps) + (2 * eps / Math.PI * Math.Sin(phi)) + ((1 + (eps * eps)) / Math.PI * phi)
+                - (2 * (1 - (eps * eps)) / Math.PI * Math.Atan((1 + eps) / (1 - eps) * Math.Tan(phi / 2)));
+        }
+        else
+        {
+            c = 0;
+        }
+        return (a + b + c) / (1 - (eps * eps));
+    }
+
+    [Theory]
+    [InlineData(0.25)]
+    [InlineData(0.2)]
+    public void AnObstructedPupilsDiffractionIsONeillsTransfer(double scale)
+    {
+        // An obstruction of 0.23 passes 0.612 at a quarter of the cutoff and 0.360 at half, against a clear aperture's 0.685 and 0.391:
+        // the transfers whose inverses, 1.6 and 2.8, the sharpening's docs quote for a 23 % obstructed pupil (#1398). At half the cutoff
+        // the two pupils are 0.031 apart, so the bound is far tighter than the clear pupil's test above. Read on a window's reach, as the
+        // sharpening reads it (PlanetaryLiveLimb.Diffraction): the default 128-sample grid reads both pupils about 0.009 high at a quarter.
+        ONeill(0.25, 0.23).ShouldBe(0.612, 0.001);
+        ONeill(0.5, 0.23).ShouldBe(0.360, 0.001);
+        ONeill(0.5, 0).ShouldBe(0.391, 0.001);
+        var pupil = new Pupil(0.254, ObstructionRatio: 0.23);
+        const double wavelength = 650e-9;
+        var cutoff = pupil.DiameterM / wavelength / ShortExposurePsf.ArcsecPerRadian * scale;
+        var diffraction = PlanetaryInverse.Diffraction(pupil, wavelength, scale, reachPx: 256);
+        foreach (var v in new[] { 0.125, 0.25, 0.375, 0.5, 0.75 })
+        {
+            TestContext.Current.TestOutputHelper?.WriteLine($"at {v} of the cutoff ({cutoff:0.000} cycles a pixel): {diffraction.At(v * cutoff):0.0000} against O'Neill's {ONeill(v, 0.23):0.0000}");
+            diffraction.At(v * cutoff).ShouldBe(ONeill(v, 0.23), 0.005, $"at {v} of the cutoff");
+        }
+    }
+
     [Fact]
     public void TheWhiteNoiseFloorAndThePowerLawPriorAreReadBack()
     {
