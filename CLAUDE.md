@@ -1104,7 +1104,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   finish that shrinks the noise again (`--finish wiener`) or moves their strength to where the stack has contrast (`--finish adaptive`) made
   every twin worse (#1279). **Nor does shrinking each band against the master's own noise before them pay** (#1313, `--shrink`, an option:
   within 0.3 % on the twins, less shared detail on the real captures): a master's two halves (`planetary-stack --halves`) read its noise
-  band by band, and every master read holds at least 6 times its noise from band 2 up, so a shrink takes detail, not noise. **Check what a reference IS before reading it**: the
+  band by band, and every master read holds at least 6 times its noise from band 2 up, so a shrink takes detail, not noise. **Nor does
+  reading the Wiener target's noise off those halves, ring by ring** (#1373, `PlanetarySharpenOptions.NoiseHalves`, `--noise halves`, an
+  option), though a demosaiced plane's noise is not white: it closed a ninth of the colour twins' gap to their own best gains and cost the
+  mono twins 5 to 21 %. That gap is the gains' SHAPE (the twins' own take a colour master's finest band to nothing and lift band 3, the
+  derived lift band 2), not the noise. **Check what a reference IS before reading it**: the
   12-inch SCT Jupiter's PNG is its raw stack, not a post (scale and band energy said so; the source thread's post #6 confirms it).
   **It needs the planet, the instant and the telescope** (a master carries its capture's span, DATE-OBS to EXPTIME, for the
   instant). Measured on the twins it leaves under a third of legacy's error; the free gain fit oscillates where the edge reads the finest
