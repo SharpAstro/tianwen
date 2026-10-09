@@ -5,7 +5,6 @@ using System.CommandLine;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Console.Lib;
 using TianWen.Lib.Astrometry;
@@ -13,7 +12,6 @@ using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 using TianWen.Lib.Imaging.Stacking;
-using TianWen.Lib.IO;
 
 namespace TianWen.Cli;
 
@@ -25,7 +23,7 @@ namespace TianWen.Cli;
 /// (rule 1), whether OPAL's apparitions agree (rule 2), the gains each target asks of each master, and the chroma spreads (rule 3),
 /// each target blurred to the master's resolution. Jupiter or Saturn (<c>--planet</c>), Saturn's globe read where its rings leave it clear.
 /// </summary>
-internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost, MasterPreviewRenderer previewRenderer)
+internal sealed class PlanetaryColourSubCommand(IConsoleHost consoleHost, MasterPreviewRenderer previewRenderer)
 {
     // The rule's thresholds (docs/plans/planetary-restoration.md, "The rule, set before measuring").
     private const double ChromaRule = 0.010;
@@ -73,7 +71,7 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
                 consoleHost.WriteScrollable(string.Create(inv,
                     $"{camera}'s colour matrix, camera RGB to linear sRGB, by row: {string.Join("; ", Enumerable.Range(0, 3).Select(row => string.Join(", ", Enumerable.Range(0, 3).Select(col => matrix[(row * 3) + col].ToString("0.000", inv)))))}"));
             }
-            var apparitions = ReadApparitions(parseResult.GetValue(opalOpt) ?? "", planet);
+            var apparitions = OpalMaps.ReadApparitions(parseResult.GetValue(opalOpt) ?? "", planet);
             if (apparitions.Length == 0)
             {
                 consoleHost.WriteError($"no OPAL maps of {planet}'s visible filters, with their apparition's readme, in --opal");
@@ -333,54 +331,6 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
     private static string Describe(in LinearRgb colour)
         => string.Create(CultureInfo.InvariantCulture, $"R/G {colour.R / colour.G:0.000}, B/G {colour.B / colour.G:0.000}, (r, g) {colour.ChromaR:0.0000}, {colour.ChromaG:0.0000}");
 
-    // OPAL's maps of the planet in the folder, grouped by apparition year, each visible filter's rotations together, every filter's I/F
-    // factor and Minnaert k read from its apparition's readme (the last by name where a year has several). Saturn's maps are filled
-    // zonally where the rings hid the globe.
-    private static ImmutableArray<OpalApparition> ReadApparitions(string folder, CatalogIndex planet)
-    {
-        if (!Directory.Exists(folder))
-        {
-            return [];
-        }
-        var name = planet == CatalogIndex.Saturn ? "saturn" : "jupiter";
-        var maps = new List<(int Year, string Filter, string Path)>();
-        foreach (var path in FileEnumeration.EnumerateFiles(folder, "_globalmap.fits", recursive: false))
-        {
-            if (MapName().Match(Path.GetFileName(path)) is { Success: true } m && string.Equals(m.Groups["planet"].Value, name, StringComparison.OrdinalIgnoreCase))
-            {
-                maps.Add((int.Parse(m.Groups["year"].Value, CultureInfo.InvariantCulture), m.Groups["filter"].Value.ToUpperInvariant(), path));
-            }
-        }
-        var readmes = FileEnumeration.EnumerateFiles(folder, "_readme.txt", recursive: false).Order(StringComparer.OrdinalIgnoreCase).ToArray();
-        var apparitions = ImmutableArray.CreateBuilder<OpalApparition>();
-        foreach (var year in maps.Select(m => m.Year).Distinct().Order())
-        {
-            var key = string.Create(CultureInfo.InvariantCulture, $"{name}-{year}");
-            if (readmes.LastOrDefault(r => Path.GetFileName(r).Contains(key, StringComparison.OrdinalIgnoreCase)) is not { } readme)
-            {
-                continue;
-            }
-            var filters = ImmutableArray.CreateBuilder<OpalFilter>();
-            var byFilter = ImmutableArray.CreateBuilder<ImmutableArray<PlanetMap>>();
-            foreach (var filter in PlanetaryColour.ReadmeFilters(File.ReadLines(readme)))
-            {
-                var rotations = maps.Where(m => m.Year == year && m.Filter == filter.Name).OrderBy(m => m.Path, StringComparer.OrdinalIgnoreCase)
-                    .Select(m => PlanetMap.ReadFits(m.Path)).OfType<PlanetMap>()
-                    .Select(map => planet == CatalogIndex.Saturn ? map.FilledZonally() : map).ToImmutableArray();
-                if (rotations.Length > 0)
-                {
-                    filters.Add(filter);
-                    byFilter.Add(rotations);
-                }
-            }
-            if (filters.Count >= 2)
-            {
-                apparitions.Add(new OpalApparition(year, filters.ToImmutable(), byFilter.ToImmutable()));
-            }
-        }
-        return apparitions.ToImmutable();
-    }
-
     // The composite decoded to linear, binned, its limb fitted at its instant, and its disk mean.
     private static Composite? ReadComposite(string path, DateTimeOffset utc, int bin)
     {
@@ -431,6 +381,4 @@ internal sealed partial class PlanetaryColourSubCommand(IConsoleHost consoleHost
         }
     }
 
-    [GeneratedRegex(@"(?<planet>jupiter|saturn)-(?<year>\d{4})[a-z]_(?<filter>f\w+?)_v1_globalmap\.fits$", RegexOptions.IgnoreCase)]
-    private static partial Regex MapName();
 }
