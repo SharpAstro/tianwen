@@ -117,6 +117,10 @@ def main():
                    help="with --zoom: bring each arm's output back to the native crop (bicubic, the exact inverse "
                         "factor) and read it against the UNZOOMED truth, i.e. the runtime path of deconvolving a "
                         "frame at a scale inside the prior's width band")
+    p.add_argument("--onnx", default=None,
+                   help="E7: an operator graph written by n2n_operator_export.py, read as one more arm through ONNX "
+                        "Runtime on the CPU with the same per-channel kernels, and its output's distance from each "
+                        "checkpoint arm's printed before and after the round trip")
     args = p.parse_args()
     if args.roundtrip and args.zoom == 1.0:
         raise SystemExit("--roundtrip needs --zoom")
@@ -184,6 +188,23 @@ def main():
         outputs[arm] = out
         print(f"  {arm}: {time.perf_counter() - t0:.0f} s")
 
+    def onnx_distance(stage):
+        # The graph against every checkpoint arm with a prior, in the stretched units the rows are read in.
+        for arm, out in outputs.items():
+            if arm.startswith("E3.1 ") and onnx_arm in outputs:
+                d = np.abs(outputs[onnx_arm].astype(np.float64) - out.astype(np.float64))
+                print(f"  {onnx_arm} against {arm} {stage}: max |diff| {d.max():.3e}, mean {d.mean():.3e}")
+
+    onnx_arm = None
+    if args.onnx:
+        import n2n_operator_export as EX
+        onnx_arm = f"ONNX {os.path.basename(args.onnx)}"
+        t0 = time.perf_counter()
+        outputs[onnx_arm] = EX.run_graph(EX.session(args.onnx), soft_s[None], EX.channel_kernels(kernels, args.beta),
+                                         mins, betas)[0]
+        print(f"  {onnx_arm}: {time.perf_counter() - t0:.0f} s")
+        onnx_distance("as computed" + (f" at {zoom_eff:.5f}" if args.zoom != 1.0 else ""))
+
     if args.roundtrip:
         from scipy.ndimage import zoom as ndzoom
         back = size / side
@@ -194,6 +215,8 @@ def main():
         for arm, out in outputs.items():
             if out.shape != soft_s.shape:
                 raise SystemExit(f"round trip of {arm} landed on {out.shape}, wanted {soft_s.shape}")
+        if onnx_arm:
+            onnx_distance("after the round trip")
 
     masks = None
     if args.source_maps:
