@@ -308,36 +308,58 @@ public static class PlanetaryMetrics
 
     /// <summary>
     /// The 2-pixel lattice a demosaic leaves of the CFA's residue (#1187, #1376), inside 0.9 radii, in the <see cref="Normalise"/>d disk's
-    /// level: the mean over the 2 by 2 blocks the sensor's grid makes (even x and y, all four pixels inside) of each block's part that
-    /// alternates along x, along y and on the diagonal. The lattice is locked to the sensor, so its sign holds over the disk and the mean
-    /// keeps it, while the planet's own detail at those frequencies has no fixed phase and averages away. Read over whole blocks, a level
-    /// cancels in each; a sign summed pixel by pixel over the disk did not, since a row inside it with an odd count leaves one pixel over
-    /// (a hundredth planted read 0.0122). Read it per channel: it cancels in the luminance.
+    /// level, along x, along y and on the diagonal. The lattice is locked to the sensor, so its sign holds over the disk and the mean keeps
+    /// it, while the planet's own detail at those frequencies has no fixed phase and averages away. Along each axis every pixel is read
+    /// through a second difference, itself less the mean of its two neighbours on that axis, signed by the sensor's parity there and halved:
+    /// a lattice of amplitude l reads l, while a level and a linear ramp read nothing at all. A first difference over each 2 by 2 block, as
+    /// this read before (#1398), took half the planet's mean gradient over the disk for lattice: an ordinary north-south belt asymmetry read
+    /// about 3.5e-4, the size of the lattices compared. The diagonal is read over the sensor's 2 by 2 blocks (even x and y, all four
+    /// pixels inside), where a ramp already cancels and a level does in each block. Read it per channel: it cancels in the luminance.
     /// </summary>
     public static (double AlongX, double AlongY, double Diagonal) Lattice(ReadOnlySpan<float> plane, int width, int height, MetricDisk disk)
     {
         var normalised = Normalise(plane, width, height, disk);
-        double x = 0, y = 0, diagonal = 0;
+        bool Inside(int column, int row) => disk.RadiiAt(column, row) < InnerRadii;
+        double x = 0, y = 0;
+        int alongX = 0, alongY = 0;
+        for (var row = 0; row < height; row++)
+        {
+            for (var column = 0; column < width; column++)
+            {
+                if (!Inside(column, row))
+                {
+                    continue;
+                }
+                var i = (row * width) + column;
+                var value = normalised[i];
+                if (column >= 1 && column + 1 < width && Inside(column - 1, row) && Inside(column + 1, row))
+                {
+                    x += ((column & 1) == 0 ? 1 : -1) * (value - ((normalised[i - 1] + normalised[i + 1]) / 2)) / 2;
+                    alongX++;
+                }
+                if (row >= 1 && row + 1 < height && Inside(column, row - 1) && Inside(column, row + 1))
+                {
+                    y += ((row & 1) == 0 ? 1 : -1) * (value - ((normalised[i - width] + normalised[i + width]) / 2)) / 2;
+                    alongY++;
+                }
+            }
+        }
+        double diagonal = 0;
         var blocks = 0;
         for (var row = 0; row + 1 < height; row += 2)
         {
             for (var column = 0; column + 1 < width; column += 2)
             {
-                if (disk.RadiiAt(column, row) >= InnerRadii || disk.RadiiAt(column + 1, row) >= InnerRadii
-                    || disk.RadiiAt(column, row + 1) >= InnerRadii || disk.RadiiAt(column + 1, row + 1) >= InnerRadii)
+                if (!Inside(column, row) || !Inside(column + 1, row) || !Inside(column, row + 1) || !Inside(column + 1, row + 1))
                 {
                     continue;
                 }
                 var i = (row * width) + column;
-                double a = normalised[i], b = normalised[i + 1], c = normalised[i + width], d = normalised[i + width + 1];
-                x += (a - b + c - d) / 4;
-                y += (a + b - c - d) / 4;
-                diagonal += (a - b - c + d) / 4;
+                diagonal += (normalised[i] - normalised[i + 1] - normalised[i + width] + normalised[i + width + 1]) / 4;
                 blocks++;
             }
         }
-        var n = Math.Max(blocks, 1);
-        return (Math.Abs(x / n), Math.Abs(y / n), Math.Abs(diagonal / n));
+        return (Math.Abs(x / Math.Max(alongX, 1)), Math.Abs(y / Math.Max(alongY, 1)), Math.Abs(diagonal / Math.Max(blocks, 1)));
     }
 
     /// <summary>
