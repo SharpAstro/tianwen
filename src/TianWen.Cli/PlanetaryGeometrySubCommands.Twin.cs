@@ -32,7 +32,7 @@ internal sealed partial class PlanetaryGeometrySubCommands
         var exposureOpt = new Option<double>("--exposure-ms") { Description = "Each frame's exposure, ms (a SER does not record it).", Required = true };
         var outerScaleOpt = new Option<double>("--outer-scale") { Description = "The free air's outer scale, m (not fitted; R2's calibrated twin had 4).", DefaultValueFactory = _ => 4 };
         var localOuterScaleOpt = new Option<double>("--local-outer-scale") { Description = "The still layer's outer scale, m: about the tube's (not fitted).", DefaultValueFactory = _ => 0.25 };
-        var localWindOpt = new Option<double>("--local-wind") { Description = "The still layer's drift across the pupil, m/s (not fitted).", DefaultValueFactory = _ => 1 };
+        var localWindOpt = new Option<double>("--local-wind") { Description = "The still layer's drift across the pupil, m/s (not fitted; R2's calibrated twin had none).", DefaultValueFactory = _ => 0 };
         var trialFramesOpt = new Option<int>("--frames") { Description = "The frames each trial twin is made and measured over, the capture's first as many.", DefaultValueFactory = _ => 300 };
         var confirmFramesOpt = new Option<int>("--confirm-frames") { Description = "The frames the best knobs are confirmed over (#1281: a twin met at 300 frames read 0.87 to 0.93 of the real edge width at 2,600).", DefaultValueFactory = _ => 3000 };
         var trialsOpt = new Option<int>("--trials") { Description = "The most twins the search makes.", DefaultValueFactory = _ => 40 };
