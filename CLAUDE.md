@@ -1054,8 +1054,13 @@ choose AND probe the licence on the FIRST `EnhanceAsync`, never at DI registrati
   adapter 0 is the Intel UHD 630 beside the GTX 1070 on this desktop, and every TianWen model ran there until
   2026-10-09 (a deconvolution tile 39 s against 9.9 s). Never pass a device index to DirectML.
 - **The NAFNet pre-stretch measures COVERED pixels only** (`ChunkedNafnetRunner.ApplyInputStretch`,
-  `Image.AbsentPixels`, `Image.MinAndShiftedMedian`; the ring put back exactly, `CopyAbsent`); an interior zero
+  `Image.AbsentPixels`, `Image.MinAndShiftedMedian`; the ring put back exactly, `Image.CopyAbsent`); an interior zero
   still counts.
+- **The canvas ring is the PIPELINE's, not a step's** (#1399). `SharpenPipeline.SanitiseForEnhance` makes a border
+  ring the zero ring every step reads as absence (it used to get each channel's mean, which every step read as sky),
+  and `ProcessAsync` puts it back after EVERY enhancer (`Image.WithRingFrom`: one walk of the ring when the step kept
+  it, a copy only when it wrote over it, as an RC-Astro product does). **A gradient corrector holds the ring out of its
+  fit**: the classical one fitted a zero ring as sky, an interior model error of 3.5e-3 against 2.4e-6 on a 0.01 sky.
 - **In-house N2N denoiser** (`N2nDenoiser`, OSC-only): the default local `IDenoiseEnhancer` and the fallback behind
   NoiseXTerminator, weights an LFS object in `src/TianWen.AI.Imaging/models/`; **any new LFS file type the apps ship
   must be added to `APP_LFS_INCLUDE` in `dotnet.yml`**, or the publish ships a pointer stub as the model.

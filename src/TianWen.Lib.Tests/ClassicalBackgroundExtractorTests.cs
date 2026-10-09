@@ -657,6 +657,59 @@ public class ClassicalBackgroundExtractorTests(ITestOutputHelper output)
     /// so the only thing that can move the answer is the border. Asserting on the banded frame alone
     /// cannot show this: a tilt of the model is invisible against the truth it was fitted to.
     /// </remarks>
+    /// <summary>
+    /// <b>The canvas ring is no sky</b> (#1399): a zero ring around a ramp was fitted as the frame's darkest sky, and the
+    /// enhance pipeline hands a ring to this corrector as zero. Held out of the fit, the model over the covered frame is
+    /// as good as the ramp alone gives. That the ring comes back as it went in is
+    /// <c>GradientCorrectorLevelTests.TheCanvasRingComesBackAsItWentInAndTheRestStaysFinite</c>.
+    /// </summary>
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(float.NaN)]
+    public async Task TheCanvasRingIsHeldOutOfTheFit(float ringValue)
+    {
+        const int Ring = 12;
+        static bool InRing(int y, int x) => y < Ring || x < Ring || y >= H - Ring || x >= W - Ring;
+        var clean = Plane(Ramp);
+        AddNoise(clean, new Random(1399), Noise);
+        var ringed = new float[H, W];
+        Array.Copy(clean, ringed, clean.Length);
+        for (var y = 0; y < H; y++)
+        {
+            for (var x = 0; x < W; x++)
+            {
+                if (InRing(y, x))
+                {
+                    ringed[y, x] = ringValue;
+                }
+            }
+        }
+        var extractor = new ClassicalBackgroundExtractor();
+
+        var reference = await extractor.ExtractAsync(Mono(clean), BackgroundExtractionOptions.Default, TestContext.Current.CancellationToken);
+        var result = await extractor.ExtractAsync(Mono(ringed), BackgroundExtractionOptions.Default, TestContext.Current.CancellationToken);
+
+        float InteriorRmsError(ReadOnlySpan<float> model)
+        {
+            var sumSq = 0.0;
+            var n = 0;
+            for (var y = Ring; y < H - Ring; y++)
+            {
+                for (var x = Ring; x < W - Ring; x++)
+                {
+                    var d = model[y * W + x] - Ramp(x, y);
+                    sumSq += (double)d * d;
+                    n++;
+                }
+            }
+            return (float)Math.Sqrt(sumSq / n);
+        }
+        var referenceError = InteriorRmsError(reference.Background.GetChannelSpan(0));
+        var ringedError = InteriorRmsError(result.Background.GetChannelSpan(0));
+        output.WriteLine($"ring {ringValue}: interior model RMS error {ringedError:E2} against {referenceError:E2} with no ring");
+        ringedError.ShouldBeLessThan((3f * referenceError) + (0.05f * Noise), "the ring is not fitted as sky");
+    }
+
     [Fact]
     public async Task ANoisierBorderIsKeptOutOfTheFit()
     {

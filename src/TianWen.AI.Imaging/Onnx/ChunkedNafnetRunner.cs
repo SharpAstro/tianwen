@@ -290,7 +290,7 @@ public static class ChunkedNafnetRunner
                 var plane = new float[srcH, srcW];
                 var dst = MemoryMarshal.CreateSpan(ref plane[0, 0], srcW * srcH);
                 output.GetChannelSpan(c).CopyTo(dst);
-                CopyAbsent(input.GetChannelSpan(c), dst, srcW, ring);
+                Image.CopyAbsent(input.GetChannelSpan(c), dst, srcW, ring);
                 ringed[c] = plane;
             }
             output = new Image(ringed, BitDepth.Float32, output.MaxValue, output.MinValue, output.Pedestal, input.ImageMeta);
@@ -325,7 +325,7 @@ public static class ChunkedNafnetRunner
 
     /// <summary>
     /// <see cref="ApplyInputStretch(Image)"/> for a caller that has already measured the canvas ring,
-    /// because it must also put the ring back after inference (<see cref="CopyAbsent"/>).
+    /// because it must also put the ring back after inference (<see cref="Image.CopyAbsent"/>).
     /// </summary>
     internal static (Image Stretched, bool Applied, float[]? OrigMin, double[]? Balances) ApplyInputStretch(Image input, BitMatrix? absent)
     {
@@ -338,24 +338,6 @@ public static class ChunkedNafnetRunner
         }
         var (origMin, balances) = input.MtfStretchParameters(AiNafnetInputs.TargetMedian, absent);
         return (input.MtfStretchWith(origMin, balances), true, origMin, balances);
-    }
-
-    /// <summary>
-    /// Copies the pixels set in <paramref name="absent"/> from <paramref name="from"/> to
-    /// <paramref name="to"/>, one channel's planes of width <paramref name="width"/>: how a runner
-    /// hands the canvas ring back exactly as it received it. Walks the set bits, so its cost follows
-    /// the ring rather than the frame.
-    /// </summary>
-    internal static void CopyAbsent(ReadOnlySpan<float> from, Span<float> to, int width, BitMatrix absent)
-    {
-        for (var y = 0; y < absent.Rows; y++)
-        {
-            var rowStart = y * width;
-            for (var x = absent.NextSetBit(y, 0); x >= 0; x = absent.NextSetBit(y, x + 1))
-            {
-                to[rowStart + x] = from[rowStart + x];
-            }
-        }
     }
 
     /// <summary>

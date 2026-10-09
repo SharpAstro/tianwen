@@ -273,14 +273,17 @@ reconstruction).
 
 ## 3. Enhance + render: `EnhanceAndWriteAsync`
 
-This is where the **PixInsight OSC order** is enforced: gradient correction, then
-**one** SPCC white balance with the stars in, then star removal, then a **per-plate
-stretch**.
+This is where the order is enforced: **one** SPCC white balance solved on the LINEAR
+master with the stars in (a broadband fit multiplied into the pixels as the program's
+first step), then the deblur, the gradient correction, star removal and denoise, then a
+**per-plate stretch**. Why that order, and why it is measured rather than PixInsight's:
+"The rules in full", under "A broadband SPCC fit goes INTO the pixels before the enhance".
 
 ```mermaid
 flowchart TD
     In([EnhanceAndWriteAsync]) --> GC[GC.Collect compacting<br/>reclaim integration heap<br/>avoid GPU TDR on iGPU]
-    GC --> Steps{"SharpenPipeline.CanonicalProgram:<br/>which roles SERVE this master?"}
+    GC --> Wb["ONE white balance on the LINEAR master<br/>(SolveWhiteBalanceAsync, or the inherited triple)<br/>a broadband SPCC fit -> WhiteBalanceStep heads the program<br/>anything else stays a display multiplier"]
+    Wb --> Steps{"SharpenPipeline.CanonicalProgram:<br/>which roles SERVE this master?"}
 
     Steps -->|BlurX + a star remover| Blur["BlurX-first program:<br/>Deblur (whole frame, auto-PSF)<br/>-> GradientCorrection<br/>-> RemoveStars (the split)<br/>-> DenoiseStarless<br/>-> ScnrStars<br/>-> Recombine"]
     Steps -->|a star remover, no BlurX| Split["Split program:<br/>GradientCorrection<br/>-> RemoveStars (the split)<br/>-> SharpenStars, DeconvolveStarless<br/>(each only where one serves)<br/>-> DenoiseStarless<br/>-> Recombine"]
@@ -290,7 +293,7 @@ flowchart TD
     Split --> Final
     Whole --> Final
     Final --> WriteSharp[Write _sharpened.fits<br/>+ _sharpened_autocrop.fits]
-    WriteSharp --> OneSolve["ONE RenderAsync on the ENHANCED master:<br/>solves SPCC WB (stars in, gradient-corrected)<br/>+ renders the preview PNG"]
+    WriteSharp --> OneSolve["ONE RenderAsync on the ENHANCED master:<br/>the linear solve's balance (identity where it is in the pixels)<br/>+ renders the preview PNG"]
     OneSolve --> Plates{--split-plates?}
     Plates -->|yes| Tiff["Per-plate TIFF:<br/>stars  = self-stretch + shared WB<br/>starless = self-stretch + shared WB"]
     Plates -->|no| Ret([return SpccDiagnostics])
@@ -307,15 +310,15 @@ why, and the enhanced master is still written.
 
 ## 4. The render model: WB once, per-plate self-stretch
 
-This is the load-bearing colour decision. It mirrors the PixInsight OSC workflow:
+This is the load-bearing colour decision:
 
 ```
-gradient correction  ->  SPCC / WB  ONCE (stars in)  ->  star removal  ->  per-plate STRETCH
+SPCC / WB  ONCE on the linear master (stars in)  ->  enhance (deblur, gradient, star removal, denoise)  ->  per-plate STRETCH
 ```
 
 ```mermaid
 flowchart LR
-    Enh[Enhanced master<br/>gradient-corrected, stars in] --> SPCC[SPCC solve ONCE<br/>-> shared WB triple R,G,B]
+    Enh[Linear master<br/>stars in] --> SPCC[SPCC solve ONCE<br/>-> shared WB triple R,G,B]
     SPCC --> P[Preview PNG]
     SPCC --> S[Stars plate]
     SPCC --> SL[Starless plate]
@@ -333,7 +336,7 @@ star colours on the SPCC calibration while every plate's background lands neutra
 
 | Quantity | Source | Shared? |
 |----------|--------|:-------:|
-| White balance (SPCC) | enhanced master, stars in | **yes** (one solve) |
+| White balance (SPCC) | linear master, stars in | **yes** (one solve) |
 | Background neutralisation | each plate's own pixels | no (per-plate) |
 | Shadow / midtones / rescale (MTF) | each plate's own pixels | no (per-plate) |
 
@@ -683,14 +686,21 @@ overwriting the linear masters); deblurrer-aware (RC-Astro present -> BlurX-firs
 flow, no stellar-sharpen; none -> SAS-shaped remove/sharpen/deconvolve). `--split-plates` is the
 SAME AI pass exporting the kept stars/starless plates as edit-ready TIFFs -- NO second enhance run.
 
-**Render model: WB once, per-plate self-stretch (the PixInsight OSC order).** ONE white balance, solved
+**Render model: WB once, per-plate self-stretch.** ONE white balance, solved
 on the LINEAR master before the enhance; each plate then computes its OWN background-neutralisation + MTF
 from its own pixels -- grafting the master's bg-neut onto a plate double-corrects it into a colour cast
 (the original `--split-plates` regression).
 
-**A broadband SPCC fit goes INTO the pixels before the enhance (option B, 2026-10-09).** PixInsight's
-order is SPCC on the linear data, then the deblur, the gradient, the star extraction and the denoise, so
-every enhancer sees the colour it will be shown in. `MasterPostProcessor` solves the balance on the linear
+**A broadband SPCC fit goes INTO the pixels before the enhance (option B, 2026-10-09).** The order is
+SPCC on the linear data, then the deblur, the gradient, the star extraction and the denoise, so every
+enhancer sees the colour it will be shown in, and it is MEASURED, not borrowed (the paragraph below).
+It is not an order PixInsight prescribes, though the code said so until #1399: PixInsight's SPCC
+documentation names none, RC-Astro advises a Correct-Only BlurXTerminator BEFORE SPCC, and common
+workflows remove the gradient first, since background neutralisation reads a reference sky. The gradient
+after SPCC is harmless for a broadband fit, and measured so below: SPCC's photometry subtracts each star's
+local background from an annulus, so a smooth additive gradient cancels to first order; a per-channel
+gain commutes with a per-channel additive model; and background neutralisation is still solved after the
+enhance, on the corrected pixels. `MasterPostProcessor` solves the balance on the linear
 master (the crop where there is one, `MasterPreviewRenderer.SolveWhiteBalanceAsync`) and, where
 `WhiteBalanceSolve.ToApply` answers (an SPCC fit through a broadband throughput), the canonical program
 starts with a `WhiteBalanceStep`: `Image.WithWhiteBalanceApplied` multiplies the gains in about the

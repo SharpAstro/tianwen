@@ -18,11 +18,17 @@ namespace TianWen.Lib.Tests;
 /// </summary>
 public class NoCastArrayCloneTests
 {
-    // An array-typed cast whose statement ends in a clone, or a clone cast with "as". Built from parts, so this file does not
-    // match its own search.
+    // An array-typed cast whose statement ends in a clone, a clone cast with "as" or tested with "is", or a clone handed to
+    // Unsafe.As as an array. Matched over a whole file, so a cast and its clone on two lines are one statement; the element
+    // type may be generic with a comma, a tuple or global::-qualified, and the call may have spaces in it (#1399 found each
+    // of those missed while this read one line at a time with a letters-only type). Built from parts, so this file does not
+    // match its own search, and non-backtracking, since a whole file is a long input.
+    private static readonly string CloneCall = @"\." + "Clone" + @"\s*\(\s*\)";
     private static readonly Regex CastClone = new(
-        @"\(\s*[A-Za-z0-9_.<>?]+(\s*\[[,\s]*\])+\s*\)\s*\(?[^;]*\." + "Clone" + @"\(\)|\." + "Clone" + @"\(\)\s+as\s",
-        RegexOptions.Compiled);
+        @"\(\s*[\w.:<>?,\s()]+?(\s*\[[,\s]*\])+\s*\)\s*\(?[^;]*?" + CloneCall
+        + "|" + CloneCall + @"\s*(as|is)\s"
+        + "|" + @"Unsafe\.As\s*<[^>;]*\[[,\s]*\]\s*>\s*\([^;]*?" + CloneCall,
+        RegexOptions.NonBacktracking);
 
     /// <summary>
     /// Walks up from the test binary to the repository's <c>src</c>. Null when the sources are not beside the binary (a packaged
@@ -55,13 +61,21 @@ public class NoCastArrayCloneTests
 
         var sep = Path.DirectorySeparatorChar;
         var tools = Path.Combine(root, "..", "tools");
+        // .razor too: the web host's @code blocks are C# no .cs search sees.
         var offenders = new[] { root, tools }
             .Where(Directory.Exists)
-            .SelectMany(folder => FileEnumeration.EnumerateFiles(folder, ".cs", recursive: true))
+            .SelectMany(folder => new[] { ".cs", ".razor" }.SelectMany(extension => FileEnumeration.EnumerateFiles(folder, extension, recursive: true)))
             .Where(f => !f.Contains($"{sep}bin{sep}", StringComparison.Ordinal) && !f.Contains($"{sep}obj{sep}", StringComparison.Ordinal))
-            .SelectMany(f => File.ReadLines(f).Select((line, i) => (File: f, Line: i + 1, Text: line)))
-            .Where(l => CastClone.IsMatch(l.Text))
-            .Select(l => $"{Path.GetRelativePath(root, l.File)}:{l.Line}  {l.Text.Trim()}")
+            .SelectMany(f =>
+            {
+                var text = File.ReadAllText(f);
+                return CastClone.Matches(text).Select(m =>
+                {
+                    var line = text.AsSpan(0, m.Index).Count('\n') + 1;
+                    var first = m.Value.Split('\n')[0].Trim();
+                    return $"{Path.GetRelativePath(root, f)}:{line}  {first}";
+                });
+            })
             .Order(StringComparer.Ordinal)
             .ToArray();
 
@@ -69,4 +83,30 @@ public class NoCastArrayCloneTests
             "an array copied through a cast clone; first ask whether the copy is needed (the array or a ReadOnlySpan for a reader, "
             + "a pooled scratch for a routine that reorders its input), else copy it typed: [.. source], or Copy() for two dimensions");
     }
+
+    /// <summary>Every spelling of a cast clone the guard is for, the ones a line-by-line letters-only search missed included
+    /// (#1399). Each sample is built from parts so the guard does not find it in this file.</summary>
+    [Theory]
+    [InlineData("var a = (float[])x." + "Clone" + "();")]
+    [InlineData("var a = (float[,])x." + "Clone" + "();")]
+    [InlineData("var a = (float[][])x?." + "Clone" + "();")]
+    [InlineData("var a = x." + "Clone" + "() as float[];")]
+    [InlineData("var a = (Dictionary<int, float>[])x." + "Clone" + "();")]
+    [InlineData("var a = ((int, int)[])x." + "Clone" + "();")]
+    [InlineData("var a = (global::System.Single[])x." + "Clone" + "();")]
+    [InlineData("var a = (float[])\n        source." + "Clone" + "();")]
+    [InlineData("var a = (float[])x." + "Clone" + " ();")]
+    [InlineData("var a = (float[])x." + "Clone" + "( );")]
+    [InlineData("if (x." + "Clone" + "() is float[] copy) { }")]
+    [InlineData("var a = Unsafe.As<float[]>(x." + "Clone" + "());")]
+    public void TheGuardCatchesEverySpellingOfACastClone(string code) => CastClone.IsMatch(code).ShouldBeTrue(code);
+
+    /// <summary>What the guard must let through: a typed copy, and a clone that is not an array's cast.</summary>
+    [Theory]
+    [InlineData("float[] copy = [.. source];")]
+    [InlineData("var copy = plane.Copy();")]
+    [InlineData("object o = x." + "Clone" + "();")]
+    [InlineData("var t = typeof(float[]); var n = Next(x);")]
+    [InlineData("void M(params float[] values) { }")]
+    public void TheGuardLetsATypedCopyThrough(string code) => CastClone.IsMatch(code).ShouldBeFalse(code);
 }

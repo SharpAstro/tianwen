@@ -412,7 +412,8 @@ collection spawns no `rc-astro` process. Design and every measurement: `docs/pla
   `IEnhancerAvailability.Serves`, never `is null`**: a deferred RC role is registered on every host,
   and where the product is absent its first use throws.
 - **A broadband SPCC balance is the program's FIRST step** (`LinearEnhanceProgram.WhiteBalance`,
-  `WhiteBalanceStep`, 2026-10-09): PixInsight's order, SPCC on the linear data and then every enhancer. The
+  `WhiteBalanceStep`, 2026-10-09): SPCC on the linear data and then every enhancer, an order measured on
+  Centaurus A rather than PixInsight's, which prescribes none (#1399). The
   HOST supplies it, since the solve needs the plate solution and the catalogue (`stack --enhance` solves it on
   the linear master, `image sharpen` and the endpoint take the one the file states, the viewer its own fit),
   and every returned plate says the balance is in its pixels (`ColourCalibration.Applied`), RC-Astro's

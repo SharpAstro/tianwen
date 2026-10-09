@@ -369,7 +369,7 @@ internal static class N2nLinearRunner
             // 0, and 0 unstretches to that floor rather than the zero it was.
             if (absent is { } ring)
             {
-                ChunkedNafnetRunner.CopyAbsent(input.GetChannelSpan(c), dst, srcW, ring);
+                Image.CopyAbsent(input.GetChannelSpan(c), dst, srcW, ring);
             }
             outChannelData[c] = plane;
         }

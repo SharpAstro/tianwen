@@ -180,7 +180,7 @@ internal static class OperatorDeconvolutionRunner
                 var plane = new float[height, width];
                 var dst = MemoryMarshal.CreateSpan(ref plane[0, 0], width * height);
                 deconvolved.GetChannelSpan(c).CopyTo(dst);
-                ChunkedNafnetRunner.CopyAbsent(input.GetChannelSpan(c), dst, width, ring);
+                Image.CopyAbsent(input.GetChannelSpan(c), dst, width, ring);
                 ringed[c] = plane;
             }
             deconvolved = new Image(ringed, BitDepth.Float32, deconvolved.MaxValue, deconvolved.MinValue, deconvolved.Pedestal, input.ImageMeta);

@@ -224,8 +224,8 @@ public partial class Image
     /// saying so (<see cref="ColourCalibration.Applied"/>), so a renderer shows it with no white balance of its own.
     /// </summary>
     /// <remarks>
-    /// <para><b>Why it exists.</b> A broadband master is balanced by SPCC on its LINEAR data, before the enhance, as
-    /// PixInsight orders it: every enhancer after that (the deblur, the gradient model, the star remover, the denoiser)
+    /// <para><b>Why it exists.</b> A broadband master is balanced by SPCC on its LINEAR data, before the enhance, an
+    /// order measured rather than PixInsight's (docs/architecture/stacking-render-pipeline.md): every enhancer after that (the deblur, the gradient model, the star remover, the denoiser)
     /// then sees the colour it will be shown in, and nothing has to solve SPCC again on stars the enhance has reshaped,
     /// which biased the fit 5 to 26 percent in blue on Centaurus A.</para>
     /// <para><b>The gains are divided by the largest</b>, so no channel is lifted past its own level and a master in

@@ -249,7 +249,8 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         // 2.5) AI enhancement: the canonical program (BlurX-first, split or whole-frame) on the master ->
         //      _sharpened.fits (+ _sharpened_autocrop.fits). The raw masters are never
         //      overwritten. ONE white balance is solved, on the LINEAR master before the
-        //      enhance (the PixInsight order: SPCC, then deblur, gradient, stars, denoise), and a
+        //      enhance (SPCC, then deblur, gradient, stars, denoise; measured, not PixInsight's:
+        //      docs/architecture/stacking-render-pipeline.md), and a
         //      broadband SPCC fit is multiplied into the pixels the enhance sees. That one
         //      balance renders the preview PNG AND the --split-plates stars / starless TIFFs.
         EnhanceOutcome? enhanced = null;
@@ -454,7 +455,8 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
     /// to <paramref name="autocropRect"/> reuses the same single forward pass
     /// for the autocrop variant; the raw master FITS (already on disk) is
     /// untouched. The white balance is solved ONCE, on the linear master BEFORE the
-    /// enhance (the PixInsight order: SPCC, then deblur, gradient, stars, denoise); a
+    /// enhance (SPCC, then deblur, gradient, stars, denoise; measured, not PixInsight's:
+    /// docs/architecture/stacking-render-pipeline.md); a
     /// broadband SPCC fit is multiplied into the pixels the enhance sees and the enhanced
     /// masters say so (<see cref="ColourCalibration.Applied"/>), and anything else stays a
     /// display multiplier. That one balance renders the preview PNG and (with
@@ -502,7 +504,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             heapBeforeGB, GC.GetTotalMemory(forceFullCollection: false) / 1e9);
 
         // ONE white balance, solved on the LINEAR master before the enhance (the crop where there is one, as the preview
-        // renders it): the PixInsight order, SPCC first and then every enhancer. Solved on the enhanced master instead
+        // renders it): SPCC first and then every enhancer, an order measured rather than PixInsight's (#1399). Solved on the enhanced master instead
         // it read the stars the deblur and the denoise had reshaped, 5 to 26 percent bluer on Centaurus A
         // (docs/architecture/stacking-render-pipeline.md). A broadband SPCC fit is multiplied into the pixels the
         // enhance sees (WhiteBalanceSolve.ToApply); anything else stays a display multiplier, shared by the preview.
@@ -514,8 +516,12 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         {
             if (inheritedWhiteBalance is { } inherited)
             {
-                solve = new WhiteBalanceSolve(inherited with { Applied = false }, null, LineSelective: false);
-                toApply = await MasterPreviewRenderer.StatedToApplyAsync(inherited, refMeta, ct);
+                // Applied describes the DONOR's pixels (its WBAPPLD card), never this master's, which are as integrated:
+                // asked about the donor's flag, a triple from a balanced donor stayed a display multiplier and this master
+                // was enhanced unbalanced (#1399).
+                var stated = inherited with { Applied = false };
+                solve = new WhiteBalanceSolve(stated, null, LineSelective: false);
+                toApply = await MasterPreviewRenderer.StatedToApplyAsync(stated, refMeta, ct);
             }
             else
             {

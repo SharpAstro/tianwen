@@ -112,6 +112,134 @@ public partial class Image
     }
 
     /// <summary>
+    /// Copies the pixels set in <paramref name="ring"/> from <paramref name="from"/> to <paramref name="to"/>, one
+    /// channel's planes of width <paramref name="width"/>: how a step hands the canvas ring back exactly as it received
+    /// it. Walks the set bits, so its cost follows the ring rather than the frame.
+    /// </summary>
+    public static void CopyAbsent(ReadOnlySpan<float> from, Span<float> to, int width, BitMatrix ring)
+    {
+        for (var y = 0; y < ring.Rows; y++)
+        {
+            var rowStart = y * width;
+            for (var x = ring.NextSetBit(y, 0); x >= 0; x = ring.NextSetBit(y, x + 1))
+            {
+                to[rowStart + x] = from[rowStart + x];
+            }
+        }
+    }
+
+    /// <summary>
+    /// This image with the pixels in <paramref name="ring"/> copied back from <paramref name="source"/>, in new planes;
+    /// the same instance when every one of them already holds the source's value (a NaN matching a NaN), which is what
+    /// a step that kept the ring hands back, so it pays one walk of the ring's bits and no copy.
+    /// </summary>
+    /// <remarks>The extremes take in the ring's finite values, so a zero ring under a frame that rose above zero is
+    /// still counted in <see cref="MinValue"/>.</remarks>
+    public Image WithRingFrom(Image source, BitMatrix ring)
+    {
+        var (channels, width, height) = Shape;
+        if (source.ChannelCount != channels || source.Width != width || source.Height != height)
+        {
+            throw new ArgumentException($"The ring's source is {source.Width}x{source.Height}x{source.ChannelCount}, this image {width}x{height}x{channels}.", nameof(source));
+        }
+
+        if (RingMatches(source, ring))
+        {
+            return this;
+        }
+
+        var planes = new float[channels][,];
+        var min = MinValue;
+        var max = MaxValue;
+        for (var c = 0; c < channels; c++)
+        {
+            var plane = new float[height, width];
+            var dst = MemoryMarshal.CreateSpan(ref plane[0, 0], width * height);
+            GetChannelSpan(c).CopyTo(dst);
+            var from = source.GetChannelSpan(c);
+            CopyAbsent(from, dst, width, ring);
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = ring.NextSetBit(y, 0); x >= 0; x = ring.NextSetBit(y, x + 1))
+                {
+                    var v = from[(y * width) + x];
+                    if (float.IsFinite(v))
+                    {
+                        min = MathF.Min(min, v);
+                        max = MathF.Max(max, v);
+                    }
+                }
+            }
+            planes[c] = plane;
+        }
+        return new Image(planes, BitDepth.Float32, max, min, Pedestal, ImageMeta);
+    }
+
+    private bool RingMatches(Image source, BitMatrix ring)
+    {
+        var width = Width;
+        for (var c = 0; c < ChannelCount; c++)
+        {
+            var mine = GetChannelSpan(c);
+            var theirs = source.GetChannelSpan(c);
+            for (var y = 0; y < ring.Rows; y++)
+            {
+                for (var x = ring.NextSetBit(y, 0); x >= 0; x = ring.NextSetBit(y, x + 1))
+                {
+                    var a = mine[(y * width) + x];
+                    var b = theirs[(y * width) + x];
+                    if (a != b && !(float.IsNaN(a) && float.IsNaN(b)))
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// This image with every channel of the pixels in <paramref name="ring"/> set to <paramref name="value"/>, in new
+    /// planes: zero makes a ring the canonical one every step recognises (<see cref="AbsentPixels"/>), NaN holds it out
+    /// of anything that skips a non-finite sample.
+    /// </summary>
+    public Image WithRingSetTo(BitMatrix ring, float value)
+    {
+        var (channels, width, height) = Shape;
+        var planes = new float[channels][,];
+        var min = MinValue;
+        var max = MaxValue;
+        if (float.IsFinite(value))
+        {
+            min = MathF.Min(min, value);
+            max = MathF.Max(max, value);
+        }
+        for (var c = 0; c < channels; c++)
+        {
+            var plane = new float[height, width];
+            var dst = MemoryMarshal.CreateSpan(ref plane[0, 0], width * height);
+            GetChannelSpan(c).CopyTo(dst);
+            for (var y = 0; y < ring.Rows; y++)
+            {
+                for (var x = ring.NextSetBit(y, 0); x >= 0; x = ring.NextSetBit(y, x + 1))
+                {
+                    dst[(y * width) + x] = value;
+                }
+            }
+            planes[c] = plane;
+        }
+        return new Image(planes, BitDepth.Float32, max, min, Pedestal, ImageMeta);
+    }
+
+    /// <summary>
+    /// Fills the pixels in <paramref name="ring"/> of one channel's plane from the covered sky nearest them at every
+    /// scale (a push-pull pyramid), so a step that must be shown values there meets the frame's own sky running on past
+    /// its edge, never a flat level that steps away from it. Only ring pixels are written.
+    /// </summary>
+    public static void FillAbsentFromCovered(Span<float> plane, int width, int height, BitMatrix ring)
+        => StarRemoval.PushPullFill.Fill(plane, width, height, ring, absent: null);
+
+    /// <summary>
     /// Whether any sample of any channel is NaN, stopping at the first one: the question the hole fill asks
     /// before anything else, since a frame with no NaN has no hole.
     /// </summary>
