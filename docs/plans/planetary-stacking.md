@@ -492,6 +492,11 @@ gains, and either seed's gains recover 1.000 and 0.998 of the other's headroom o
 different models of the air: the 2022-09-03 Red twins' oracle gains do worse than the derived ones on each other. So
 the per-capture tune is worth exactly as much as the twin's calibration.
 
+**The "yes" is not A2's case** (#1398): two seeds of one twin share their model exactly, while A2 always applies a
+tune made on a calibrated twin to a capture that twin only approximates, at least one calibration step away. A0 says a
+tune survives a new realisation of the same air; it says nothing of a tune surviving the calibration's own error, which
+is what A2 rests on, so that is measured before A2 is built (below).
+
 ### A1. The twin calibrated automatically
 
 **Tracked by #1388.** `planetary twin <capture>`: measure the capture (`PlanetaryCaptureStatistics`), fit the twin generator's options
@@ -553,9 +558,21 @@ the halo's shape is the residual, and a second term (the pupil's far wing, #1222
 
 ### A2. The per-capture tune
 
-**Tracked by #1389.** On the calibrated twin, find the settings that serve its truth best (the oracle gains through the limb window, and
-the keep the sharpened master's band error prefers) and apply them to the real capture. Judged on the twin's other seed
-against its truth (A0's transfer), and on the real capture against its `_post`.
+**Tracked by #1389.** On the calibrated twin, find the settings that serve its truth best (the keep the sharpened
+master's band error prefers, and the strength and target the sharpening's gains are derived at: settings the stack
+already has, never free per-band gains) and apply them to the real capture.
+
+**The gate is the real capture against its `_post`** (`planetary judge`): the tuned master no further from it than the
+default master, band by band, within the defaults' own seed spread. The twin's other seed (A0's transfer) is reported
+beside it, never the gate, since it is the one case A2 never faces (#1398).
+
+**Measured first: how a tune carries across a calibration step** (#1398, set on #1389 before it runs). Twins of
+2022-09-03 Red from A1's arm C: its best knobs (seed 1, and seed 2), the search's runner-up (0.13 from the best in the
+knobs' logarithms, a mismatch the calibration cannot tell from the best's) and its fourth best (0.35 away, within 10 %).
+Each is tuned against its own truth, and the best twin's choice is read as the share of each other twin's own headroom
+over the defaults it recovers. If it recovers at least 0.8 of the runner-up's, A2 tunes on the calibrated twin as
+designed; if not, the tune is finer than the calibration can resolve, and A2 takes instead the setting whose worst
+headroom over the three twins is largest, which the `_post` gate then judges.
 
 ### A3. The base model
 

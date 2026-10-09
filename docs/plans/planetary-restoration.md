@@ -3318,7 +3318,7 @@ truth, and on four real colour captures against their posts:
   everywhere, and its band-1 detail against the posts at least held's.
 - **Arm C, the kernel cut at the colour planes' Nyquist** (0.25 cycles a pixel, #1366's taper): worse on every choice (6.50 and 6.34
   held), since a smaller kernel raises the Wiener target's 1/H. Removed.
-- **Arm C', the Wiener target cut there instead** (`PlanetarySharpenOptions.ColourTargetCut`, `--colour-target cut`): 3 to 4 % better on
+- **Arm C', the Wiener target cut there instead** (`PlanetarySharpenOptions.ColourTargetCutFor`, `--colour-target cut`; a split-CFA master's only, since 0.25 is the Nyquist of the planes the split stack integrates, G1 and G2 apart, and not of a full-grid colour path such as the Bayer drizzle, #1398): 3 to 4 % better on
   every choice of the finest band, but held + cut closes only 10.4 and 10.8 %, and on the EdgeHD Saturn its lattice is a hair above held's
   on every channel (red along x 0.00229 against 0.00227).
 - **Bounded + cut is the strongest pair**: 23.1 and 24.5 % of the gap, and the highest band-1 detail against the post on three captures
