@@ -163,6 +163,14 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     public PlanetarySharpenTarget Target { get; init; }
 
     /// <summary>
+    /// Gains to apply in place of the derived ones, finest first, one set per channel (the last repeated for any channel beyond them): a
+    /// layer past a set's end is held at 1. Everything else is as derived (the limb fit, its window and the model drawn outside it), so a
+    /// set fitted elsewhere, a twin's own best gains, say, is applied as the derived ones would be (#817, whether a twin's gains transfer).
+    /// Empty, the default, derives them.
+    /// </summary>
+    public ImmutableArray<ImmutableArray<double>> FixedGains { get; init; } = [];
+
+    /// <summary>
     /// Strengths the first channel's derived gains are also fitted at (<see cref="PlanetarySharpenResult.Stops"/>), the sharpening itself
     /// applied at <see cref="Strength"/>'s: a live view derives once and switches between them at the cost of a wavelet pass (#1314). Each
     /// is one more gain fit, after the limb fit, the edge and the stack's power, which every strength shares. Empty, the default, fits none;
@@ -360,7 +368,7 @@ public static class PlanetarySharpening
                         : PlanetaryWaveletGains.Fit(power, wiener, diskTarget, blurredDisk, size, size, disk, held: 1, strength: strength,
                             heldAt: finestHeld ? 1 : truth[0]);
                 }
-                var gains = AtStrength(options.Strength);
+                var gains = options.FixedGains.IsDefaultOrEmpty ? AtStrength(options.Strength) : Fixed(options.FixedGains[Math.Min(c, options.FixedGains.Length - 1)], truth.Length);
                 channelGains[c] = gains;
                 if (!options.NonNegative)
                 {
@@ -614,6 +622,17 @@ public static class PlanetarySharpening
             builder[b] *= strength;
         }
         return builder.MoveToImmutable();
+    }
+
+    // A fixed gain set as many layers long as the derived ones, the layers past its end held at 1.
+    private static ImmutableArray<double> Fixed(ImmutableArray<double> given, int layers)
+    {
+        var gains = ImmutableArray.CreateBuilder<double>(layers);
+        for (var i = 0; i < layers; i++)
+        {
+            gains.Add(i < given.Length ? given[i] : 1);
+        }
+        return gains.MoveToImmutable();
     }
 
     // Whether channel `c` of a master of `channels` keeps its finest band as stacked.
