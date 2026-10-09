@@ -2,8 +2,13 @@
 """Regenerate src/TianWen.Lib.Tests/Data/spline-zoom-fixture.json.gz.
 
 The oracle for TianWen.Lib.Imaging.SplineZoom, the C# port of
-scipy.ndimage.zoom(plane, factor, order=3) with every other argument at its default
-(mode='constant', cval=0, prefilter=True, grid_mode=False). The in-house deconvolver
+scipy.ndimage.zoom(plane, factor, order=3, mode='mirror'), every other argument at its default
+(prefilter=True, grid_mode=False). Mirror is the default 'constant' mode to the bit (constant's
+prefilter and edge taps ARE mirror), except on the shapes where the last output coordinate rounds
+a hair past the input's last sample and 'constant' writes 0 over that whole row or column: a
+rounding artefact that would draw a black line along the edge of a deconvolved image, so the
+runtime does not reproduce it. Every case asserts the two modes agree, but for those two shapes,
+where it asserts 'constant' zeroes the line and 'mirror' does not. The in-house deconvolver
 (#844) runs its operator on a frame resampled UP by 1.28125 and resamples the result
 back DOWN onto the native grid, and the training and every published readout did both
 with that call (training/denoise/n2n_operator_master.py), so the C# runtime must give
@@ -22,8 +27,8 @@ the C# test exactly and the file stays small. The cases:
     and 3 x 3 down to 1 x 1);
   - values near 0 and 1 with a negative excursion, as a deconvolved output rings;
   - two shapes where scipy's last output row or column falls a rounding error past the
-    input's last sample and scipy writes cval (0) there, one of them the 3844 -> 3000
-    rows a 3000 px frame comes back down through;
+    input's last sample, where 'constant' writes cval (0) and 'mirror' reads the spline at
+    the last sample, one of them the 3844 -> 3000 rows a 3000 px frame comes back down through;
   - an output the shape of the input, through a factor of 1 (scipy returns the input)
     and through 1.01 (it interpolates, at integer coordinates).
 
@@ -97,10 +102,16 @@ def ringing(rng, h, w):
     return p.astype(np.float32)
 
 
-def case(name, plane, factor, note):
+def case(name, plane, factor, note, constant_zeroes_last_line=False):
     plane = np.asarray(plane, np.float32)
-    out = zoom(plane, factor, order=3)
+    out = zoom(plane, factor, order=3, mode="mirror")
     assert out.dtype == np.float32, out.dtype
+    constant = zoom(plane, factor, order=3)
+    if constant_zeroes_last_line:
+        assert not np.array_equal(constant, out), f"{name}: expected 'constant' to zero a last line here"
+    else:
+        assert np.array_equal(constant, out), f"{name}: 'mirror' and 'constant' differ off the zeroed-line shapes"
+
     return {
         "name": name,
         "note": note,
@@ -152,15 +163,20 @@ def main():
     cases.append(case("ringing-down-tuple", ru, (29 / ru.shape[0], 33 / ru.shape[1]), "its up, back down")[0])
 
     q = structured(rng, 22, 26)
-    c, qo = case("cval-last-row-and-column", q, (20 / 22, 12 / 26),
-                 "22 x 26 to 20 x 12: both axes' last coordinate rounds past n_in - 1, so scipy writes 0 there")
-    assert np.all(qo[-1, :] == 0) and np.all(qo[:, -1] == 0), "expected scipy to write cval on the last row and column"
+    zq = zoom(q, (20 / 22, 12 / 26), order=3)
+    assert np.all(zq[-1, :] == 0) and np.all(zq[:, -1] == 0), "expected 'constant' to write cval on the last row and column"
+    c, qo = case("last-line-row-and-column", q, (20 / 22, 12 / 26),
+                 "22 x 26 to 20 x 12: both axes' last coordinate rounds past n_in - 1, where 'constant' writes 0",
+                 constant_zeroes_last_line=True)
+    assert np.all(qo[-1, :] != 0) and np.all(qo[:, -1] != 0)
     cases.append(c)
 
     tall = np.full((3844, 1), 0.5, np.float32)
-    c, to = case("cval-3844-to-3000", tall, (3000 / 3844, 1.0),
-                 "3844 rows down to 3000, as a 3000 px frame comes back down: scipy zeroes the last row")
-    assert to[-1, 0] == 0 and np.all(np.abs(to[:-1, 0] - 0.5) < 1e-6)
+    assert zoom(tall, (3000 / 3844, 1.0), order=3)[-1, 0] == 0, "expected 'constant' to zero the last row"
+    c, to = case("last-line-3844-to-3000", tall, (3000 / 3844, 1.0),
+                 "3844 rows down to 3000, as a 3000 px frame comes back down: 'constant' zeroes the last row",
+                 constant_zeroes_last_line=True)
+    assert np.all(np.abs(to[:, 0] - 0.5) < 1e-6)
     cases.append(c)
 
     same = structured(rng, 5, 6)
@@ -179,7 +195,7 @@ def main():
         "version": 1,
         "scipy": scipy.__version__,
         "numpy": np.__version__,
-        "call": "scipy.ndimage.zoom(plane, factor, order=3), float32 in and out",
+        "call": "scipy.ndimage.zoom(plane, factor, order=3, mode='mirror'), float32 in and out",
         "cases": cases,
         "outputSizes": sizes,
     }
