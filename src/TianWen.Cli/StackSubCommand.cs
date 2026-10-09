@@ -31,6 +31,19 @@ internal sealed class StackSubCommand(
     // must still be able to run an ordinary stack.
     TianWen.Lib.Imaging.Enhancement.IStarRemover? starRemover = null)
 {
+    /// <summary>
+    /// The frame quality gate's sigma when <c>--quality-reject-sigma</c> is not typed: the record's own default, read from it
+    /// rather than restated (<c>FrameQualityFilter</c>, where the number lives, is internal to TianWen.Lib).
+    /// </summary>
+    private static readonly float? DefaultQualityRejectSigma = new StackingOptions(string.Empty, string.Empty).QualityRejectSigma;
+
+    /// <summary>
+    /// Test seam: when set, the command hands this the <see cref="StackingOptions"/> it resolved from the argument line and
+    /// returns its answer as the exit code, instead of starting the pipeline. It lets a test pin what an argument line MEANS
+    /// (an absent option's default above all) through the real option definitions, without scanning a folder.
+    /// </summary>
+    internal Func<StackingOptions, int>? OptionsSink { get; init; }
+
     public Command Build()
     {
         var dataRootArg = new Argument<string>("data-root")
@@ -148,6 +161,10 @@ internal sealed class StackSubCommand(
         var qualityRejectSigmaOpt = new Option<float?>("--quality-reject-sigma")
         {
             Description = "Per-frame quality filtering sigma: a frame is dropped from integration when its median HFD or ellipticity exceeds median + sigma * 1.4826 * MAD of the session, or its star count falls the same distance below. A keep floor caps how much one pass may reject. Defaults to 3, the same value the dataset bake uses, so one session stacked either way is admitted by the same rule; it used to be off here and 3 there. Pass 0 to run no relative gate; a frame with NO stars is rejected either way, being invalid rather than an outlier.",
+            // An absent option must hand the pipeline the record's own default. GetValue answers null for an
+            // absent nullable option, and a null passed by name REPLACES the record's default instead of
+            // deferring to it, which switched the gate off for every run that did not type the flag (#1370).
+            DefaultValueFactory = _ => DefaultQualityRejectSigma,
         };
         var rejectLowSigmaOpt = new Option<float?>("--reject-low-sigma")
         {
@@ -299,7 +316,7 @@ internal sealed class StackSubCommand(
                 snrMinOpt, minStarsOpt, quadStarsOpt,
                 formatOpt, hdrPeakNitsOpt, noPlateSolveOpt,
                 drizzlePixfracOpt, drizzleMinFramesOpt,
-                splitByPierSideOpt, hotPixelSigmaOpt,
+                splitByPierSideOpt, requireGainMatchOpt, hotPixelSigmaOpt,
                 qualityRejectSigmaOpt, rejectLowSigmaOpt, rejectHighSigmaOpt,
                 starRemovalModeOpt, saveCalibratedOpt, saveNormalizedOpt,
                 referenceFrameHintOpt, manifestOpt, removeStarsOpt,
@@ -497,6 +514,11 @@ internal sealed class StackSubCommand(
                 },
                 UltraHdrPeakNits: Math.Clamp(parseResult.GetValue(hdrPeakNitsOpt), 1f, 10000f),
                 PreviewBoost: previewBoost);
+
+            if (OptionsSink is { } optionsSink)
+            {
+                return optionsSink(options);
+            }
 
             var format = parseResult.GetValue(formatOpt);
             var skipPlateSolve = parseResult.GetValue(noPlateSolveOpt);
