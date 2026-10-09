@@ -8,7 +8,9 @@ namespace TianWen.Lib.Imaging;
 
 /// <summary>
 /// <c>scipy.ndimage.zoom(plane, factor, order=3)</c> on a 2-D float32 plane, every other argument at its default
-/// (<c>mode='constant'</c>, <c>cval=0</c>, <c>prefilter=True</c>, <c>grid_mode=False</c>), reproduced to scipy's numbers.
+/// (<c>mode='constant'</c>, <c>cval=0</c>, <c>prefilter=True</c>, <c>grid_mode=False</c>), reproduced to scipy's numbers
+/// everywhere but one rounding artefact, which it does not reproduce: what it computes is scipy's <c>mode='mirror'</c>,
+/// to the bit the same call off that artefact (item 3 below).
 /// The in-house deconvolver (#844) runs its operator on a frame resampled up by a factor and resamples the result back
 /// down onto the native grid; the training and every published readout did both resamples with that call
 /// (<c>training/denoise/n2n_operator_master.py</c>), so the model's measured behaviour includes this resample, and a
@@ -40,8 +42,10 @@ namespace TianWen.Lib.Imaging;
 /// With <c>grid_mode=False</c> the only way out is rounding: <c>(n_out - 1) * ((n_in - 1) / (n_out - 1))</c> can land
 /// one ulp past <c>n_in - 1</c>, and then scipy writes 0 over the WHOLE last output row or column. Through 1.28125 it
 /// hits 185 of the axis sizes from 1000 to 8000 on the way up and 481 on the way down, 3000 and 3008 among them
-/// (3844 back to 3000, 3854 back to 3008), though not 4000 or 6000. This reproduces it, since parity is the
-/// point.</description></item>
+/// (3844 back to 3000, 3854 back to 3008), though not 4000 or 6000. <b>This does NOT reproduce it</b>: the coordinate
+/// is clamped onto the last sample, which is <c>mode='mirror'</c>'s answer there (its prefilter and taps are the ones
+/// above, so it IS this call everywhere else). A zeroed line is no part of what the deconvolver's prior learned, and
+/// on the way back down it would draw a black line along the edge of a user's image.</description></item>
 /// <item><description><b>One output sample</b>: the ratio's divisor is 0, scipy takes the ratio as 1, and the sample is
 /// the spline at coordinate 0. <b>One input sample</b>: the ratio is 0 and every output sample is that input sample.
 /// <b>A factor of 1 on every axis</b> returns the input; an output the shape of the input is returned as a copy here,
@@ -213,12 +217,6 @@ public static class SplineZoom
         for (var o = 0; o < outHeight; o++)
         {
             var destination = target.Slice(o * stride + first, width);
-            if (rows.Outside[o])
-            {
-                destination.Clear();
-                continue;
-            }
-
             var t = 4 * o;
             ReadOnlySpan<double> r0 = intermediate.AsSpan(taps[t] * stride + first, width);
             ReadOnlySpan<double> r1 = intermediate.AsSpan(taps[t + 1] * stride + first, width);
@@ -234,18 +232,6 @@ public static class SplineZoom
             }
         }
 
-        // scipy writes cval itself over an output column whose coordinate fell outside; through the filter
-        // the zeros the row pass stored there come back as negative zeros.
-        for (var k = first; k < end; k++)
-        {
-            if (columns.Outside[k])
-            {
-                for (var o = 0; o < outHeight; o++)
-                {
-                    target[o * stride + k] = 0f;
-                }
-            }
-        }
     }
 
     /// <summary>
@@ -349,8 +335,8 @@ public static class SplineZoom
     }
 
     /// <summary>
-    /// One axis of <c>NI_ZoomShift</c>: for each output sample, its four coefficient taps (mirrored at the edges), their
-    /// cubic B-spline weights, and whether scipy writes <c>cval</c> there instead.
+    /// One axis of <c>NI_ZoomShift</c>: for each output sample, its four coefficient taps (mirrored at the edges) and their
+    /// cubic B-spline weights.
     /// </summary>
     private sealed class AxisPlan
     {
@@ -359,7 +345,6 @@ public static class SplineZoom
             Count = count;
             Taps = new int[4 * count];
             Weights = new double[4 * count];
-            Outside = new bool[count];
         }
 
         public int Count { get; }
@@ -367,11 +352,8 @@ public static class SplineZoom
         /// <summary>Four per output sample: the coefficient index each tap reads, already mirrored into range.</summary>
         public int[] Taps { get; }
 
-        /// <summary>Four per output sample, in <see cref="Taps"/>' order; all zero where <see cref="Outside"/>.</summary>
+        /// <summary>Four per output sample, in <see cref="Taps"/>' order.</summary>
         public double[] Weights { get; }
-
-        /// <summary>The output samples whose coordinate fell past the input's last sample, where scipy writes 0.</summary>
-        public bool[] Outside { get; }
 
         public static AxisPlan Create(int inSize, int outSize)
         {
@@ -381,12 +363,9 @@ public static class SplineZoom
             var ratio = outSize > 1 ? (double)(inSize - 1) / (outSize - 1) : 1.0;
             for (var k = 0; k < outSize; k++)
             {
-                var cc = k * ratio;
-                if (cc < 0 || cc > inSize - 1)
-                {
-                    plan.Outside[k] = true;
-                    continue;
-                }
+                // A last coordinate a rounding error past the last sample is clamped onto it (mode='mirror'), where
+                // scipy's 'constant' would zero the whole line (the class remarks, item 3).
+                var cc = Math.Min(k * ratio, inSize - 1);
 
                 // get_spline_interpolation_weights for order 3, its arithmetic in its order.
                 var floor = Math.Floor(cc);
@@ -421,12 +400,6 @@ public static class SplineZoom
             var weights = Weights;
             for (var k = 0; k < Count; k++)
             {
-                if (Outside[k])
-                {
-                    destination[k] = 0.0;
-                    continue;
-                }
-
                 var t = 4 * k;
                 destination[k] = gain * (weights[t] * coefficients[taps[t]]
                     + weights[t + 1] * coefficients[taps[t + 1]]

@@ -22,8 +22,11 @@ namespace TianWen.Lib.Tests;
 /// the 20 cases bit-identical, two off by 4e-17 on values near zero, and one by 2.4e-7, a single float32 ulp at 3, where
 /// the separable order's double round-off crossed a float rounding boundary. The cases that matter most are the edges
 /// (the mirrored prefilter and taps: scipy's 'reflect', 'nearest' and zero-padded 'grid-constant' miss them by 2e-3 to
-/// 0.13) and the two shapes where scipy writes 0 over a whole last row or column because the last coordinate rounded
-/// past the input's last sample (any boundary rule without that misses them by up to 1.09).
+/// 0.13) and the two shapes where scipy's default 'constant' mode writes 0 over a whole last row or column because the
+/// last coordinate rounded past the input's last sample. There the fixture holds scipy's 'mirror' answer, the spline
+/// at the last sample, which is what <see cref="SplineZoom"/> computes on purpose: a zeroed line is a rounding artefact
+/// that would draw a black edge on a deconvolved image. Every other case is the same in both modes, to the bit, which
+/// the fixture's generator asserts.
 /// </remarks>
 [Collection("Imaging")]
 public class SplineZoomTests(ITestOutputHelper output)
