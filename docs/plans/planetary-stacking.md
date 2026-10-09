@@ -188,7 +188,7 @@ mid-high band, not the very top octave where noise dominates (chiefly for the FF
   quality-weighted top-K, per decision 3; a stack of the best 1,000 since #1159).
 - **Per-AP local score** (same estimator over each AP patch) drives per-AP best-of selection - the
   lucky-imaging edge: different parts of the disk are sharp in different frames.
-- **The run's quality curve as a picture** (#1364, `planetary-stack --report`): AutoStakkert's graph, every frame's grade
+- **The run's quality curve as a picture** (#1364, `planetary stack --report`): AutoStakkert's graph, every frame's grade
   sorted best first with the keep's cut marked, and the grades through the run in time order, drawn from the grades the
   stacker already keeps (`--grade-cache`), so a keep can be chosen before anything is stacked. Drawn by hand for the
   2026-10-07 Saturn it fell steeply only over its best 5 to 6 % and gently after, which is why that night kept half.
@@ -341,7 +341,7 @@ follow.
 
 **Status (2026-06-23):** Phases 1-8 are **implemented + unit-tested** on branch
 `feat/planetary-stacking` (AP-mesh core + wavelet sharpen + CLI; 88 tests) and **validated on a real
-30,000-frame Bayer Jupiter SER** (`tianwen planetary-stack` -> linear + sharpened FITS masters + a PNG;
+30,000-frame Bayer Jupiter SER** (`tianwen planetary stack` -> linear + sharpened FITS masters + a PNG;
 belts resolved). The CPU engine lives in `TianWen.Lib.Imaging` (`WaveletSharpen`/`ATrousWaveletTransform`)
 + `TianWen.Lib.Imaging.Planetary` + `TianWen.Lib.Stat`; the CLI is `TianWen.Cli/PlanetaryStackSubCommand`.
 Phase 6's optional **Bayer drizzle** is now implemented (`LuckyImagingStacker.StackDrizzleAsync` +
@@ -419,10 +419,10 @@ live-planetary-capture Phase A (`LiveStackPreviewSource.RequestFollowLatest`).
 | 5 | **Alignment points**: feature-detector AP placement + per-AP local match + `Image.WarpByMeshAsync` (mesh warp); luminance-proxy mesh applied to all CFA sub-planes | 3,4 | High | DONE |
 | 6 | **Planetary integrator**: per-AP quality-weighted best-of stack + tile blend + optional drizzle; **end-to-end milestone** | 4,5 | High | DONE |
 | 7 | **`WaveletSharpen`** (a-trous, per-scale gain/denoise) | 6 | Medium | DONE |
-| 8 | **CLI**: `tianwen planetary-stack` (or `tianwen stack --planetary`) orchestrator | 6,7 | Low | DONE |
+| 8 | **CLI**: `tianwen planetary stack` (or `tianwen stack --planetary`) orchestrator | 6,7 | Low | DONE |
 | 9 | **Live**: `RollingWindowStacker` (5-min window) + `LiveStackPreviewSource` push-stream wired into the previewer (GUI + tianwen-fits) | 4,6 | Medium | DONE (follow-the-playhead, global align, adjustable wavelet sliders, perf-tuned; the EAA free-run shipped as follow-latest in live-planetary-capture Phase A, `LiveStackPreviewSource.RequestFollowLatest`) |
-| 10 | **De-rotation 6a** (within-capture): Meeus per-planet CM + disk geometry + spheroid reproject; derotate-to-midpoint before stack | 6 | High | DONE (#815, 2026-09-30): `PlanetaryStackOptions.Derotation`, `planetary-stack --derotate`, every stacking path; the IAU ephemeris, not Meeus (planetary-restoration R1); measured in its R6 part 2 |
-| 11 | **De-rotation 6b** (multi-stack / RGB temporal): derotate finished stacks to a common epoch + combine | 10 | High | DONE (#815, 2026-09-30): `PlanetaryDerotation`, `planetary-derotate`; measured in planetary-restoration's R6 part 1 |
+| 10 | **De-rotation 6a** (within-capture): Meeus per-planet CM + disk geometry + spheroid reproject; derotate-to-midpoint before stack | 6 | High | DONE (#815, 2026-09-30): `PlanetaryStackOptions.Derotation`, `planetary stack --derotate`, every stacking path; the IAU ephemeris, not Meeus (planetary-restoration R1); measured in its R6 part 2 |
+| 11 | **De-rotation 6b** (multi-stack / RGB temporal): derotate finished stacks to a common epoch + combine | 10 | High | DONE (#815, 2026-09-30): `PlanetaryDerotation`, `planetary derotate`; measured in planetary-restoration's R6 part 1 |
 | 12 | **Live camera stream** (`LiveCameraFrameStream`) feeding the same windowed stacker (true EAA) | 9 | Medium | DONE on fake (A+B+C, 2026-06-28): `IVideoCameraDriver` contract, `LiveCameraFrameStream` push-stream, `PlanetaryCaptureController` w/ rapid-exposure fallback, fake colour video (drifting Jupiter + realistic noise), Live Session 🪐 planetary mode w/ shared viewer + capture/ROI/focuser panel, and the **COM recenter loop** (ROI auto + opt-in coarse mount jog + manual N/S/E/W nudge). See [live-planetary-capture.md](live-planetary-capture.md). Remaining (hardware, behind the same contract): D native video for the DAL cameras (#813; nothing records the stream to disk either, #814). E Canon Live View DONE (2026-07-16; zoom and pan 2026-08-03) |
 | 13 | **GPU compute acceleration**: headless compute capability in `SdlVulkan.Renderer` (storage buffers, no swapchain) + GPU impls of FFT/quality/NCC/warp/drizzle-scatter/integrate/wavelet, capability-probed; CPU mirror stays source of truth + fallback; software-Vulkan CI shader-exercise | 6,7 | Medium | NOT STARTED (#816) |
 
@@ -477,7 +477,7 @@ asking for them. It had lived only in session memory since the 2026-06 parameter
 (its quality curve's shape, its noise, its limb's edge, its frame count); the capture's own twin, calibrated to its statistics,
 then tunes them in a small neighbourhood, and every tuned night adds to the base model's grid. The look (saturation, contrast)
 is no twin's to learn and stays fitted to the posts and the owner's eye. **Step 0 is #1369**: whether a twin's own best gains
-carry to another realisation of the same night (`planetary-sharpen --gains`). Across three models of one night's air they do
+carry to another realisation of the same night (`planetary sharpen --gains`). Across three models of one night's air they do
 not (#1366); the same model's two seeds decide. Since #1083 a sharpened stack keeps about half the frames, not the 10 % below.
 
 The study ran on the real 30k-frame Bayer Jupiter SER. What it measured decides where such a mode spends its effort:

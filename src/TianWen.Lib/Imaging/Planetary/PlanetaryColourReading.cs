@@ -52,8 +52,8 @@ public readonly record struct ColourReading(OkLab Cast, double Spread, OkLab Rim
     public double RimHueOffsetDeg => OkLab.HueDistanceDeg(Cast.HueDeg, Rim.HueDeg);
 
     /// <summary>
-    /// The reading in words, for a verb's report: the interior's cast, spread and chroma quantiles, and the rim's, for <c>planetary-judge</c>
-    /// and <c>planetary-look</c> alike (the audit on #1343 found the line written twice).
+    /// The reading in words, for a verb's report: the interior's cast, spread and chroma quantiles, and the rim's, for <c>planetary judge</c>
+    /// and <c>planetary look</c> alike (the audit on #1343 found the line written twice).
     /// </summary>
     public string Describe()
     {
