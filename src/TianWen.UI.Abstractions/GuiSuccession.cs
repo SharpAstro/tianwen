@@ -159,7 +159,9 @@ public static class GuiSuccession
     }
 
     private static bool HasExited(Process predecessor)
-        => predecessor.HasExited || OperatingSystem.IsLinux() && IsZombie(predecessor.Id);
+    {
+        return predecessor.HasExited || (OperatingSystem.IsLinux() && IsZombie(predecessor.Id));
+    }
 
     /// <summary>
     /// Whether a Linux process has exited and waits only for its parent to reap it: <c>kill(pid, 0)</c>, which is what
