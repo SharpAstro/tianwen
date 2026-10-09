@@ -65,12 +65,15 @@ public enum PlanetaryLimbFix
 /// every colour, or on red and blue only. That band lies above a colour plane's own Nyquist (a red or blue photosite every second pixel,
 /// green's quincunx somewhat finer), where a colour stack holds little but noise and the CFA's residue, which a derived gain of 12 to 20
 /// lifted into a 2-pixel lattice over the disk (2024-12-15 Uranus-C, 2022-10-09, the colour twin; a mono master has none).
+/// <see cref="Bounded"/> fits it jointly with the others but never above as stacked, free to fall to nothing (#1376): the colour twins'
+/// own best gains take it to about zero and carry its detail on band 2's overlap.
 /// </summary>
 public enum PlanetaryColourFinestBand
 {
     Derived,
     Held,
     HeldButGreen,
+    Bounded,
 }
 
 /// <summary>
@@ -372,9 +375,12 @@ public static class PlanetarySharpening
                     : PlanetaryWaveletGains.Wiener(power, noise, f => kernel(f) * diffraction.At(f), target.At);
                 var blurredDisk = PlanetaryInverse.Apply(throughPupil, size, size, kernel);
                 var finestHeld = FinestHeld(options.OfColour ? 3 : master.ChannelCount, options.OfColour ? 1 : c, options.ColourFinestBand);
+                var finestBounded = (options.OfColour ? 3 : master.ChannelCount) == 3 && options.ColourFinestBand == PlanetaryColourFinestBand.Bounded;
                 var truth = options.NonNegative
                     ? PlanetaryWaveletGains.FitNonNegative(power, wiener, diskTarget, blurredDisk, size, size, disk, kernel, strength: options.Strength)
-                    : PlanetaryWaveletGains.Fit(power, wiener, diskTarget, blurredDisk, size, size, disk, held: finestHeld ? 1 : 0);
+                    : finestBounded
+                        ? PlanetaryWaveletGains.FitFinestWithin(power, wiener, diskTarget, blurredDisk, size, size, disk, 0, 1)
+                        : PlanetaryWaveletGains.Fit(power, wiener, diskTarget, blurredDisk, size, size, disk, held: finestHeld ? 1 : 0);
                 // A strength lifts the mid scales only (#1251): the finest band, mostly noise at 8 bits, keeps the gain the truth gave it (as
                 // stacked on a colour master), and the rest are fitted around it to the boosted target. Fitted freely, it rose with them, 1.04
                 // to 1.36 of the truth on the mono twins at 1.5.

@@ -173,7 +173,23 @@ public static class PlanetaryWaveletGains
     }
 
     /// <summary>
-    /// <see cref="Fit(ImmutableArray{double}, ImmutableArray{double}, ReadOnlySpan{float}, ReadOnlySpan{float}, int, int, MetricDisk, int, int, int)"/>'s
+    /// <see cref="Fit(ImmutableArray{double}, ImmutableArray{double}, ReadOnlySpan{float}, ReadOnlySpan{float}, int, int, MetricDisk, int, int, int, double, double)"/>'s
+    /// gains with the finest one confined to [<paramref name="low"/>, <paramref name="high"/>] (#1376: a colour master's finest band, never
+    /// lifted above as stacked, free to fall). The expected error is a convex quadratic in the gains, so once the others are fitted around
+    /// it, it is a convex parabola in the finest gain alone: the best within the interval is the free fit's finest gain clamped to it, the
+    /// others then fitted again around that value.
+    /// </summary>
+    public static ImmutableArray<double> FitFinestWithin(ImmutableArray<double> stackPower, ImmutableArray<double> wiener, ReadOnlySpan<float> sharpDisk,
+        ReadOnlySpan<float> blurredDisk, int width, int height, MetricDisk disk, double low, double high)
+    {
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(low, high);
+        var free = Fit(stackPower, wiener, sharpDisk, blurredDisk, width, height, disk);
+        var finest = Math.Clamp(free[0], low, high);
+        return finest == free[0] ? free : Fit(stackPower, wiener, sharpDisk, blurredDisk, width, height, disk, held: 1, heldAt: finest);
+    }
+
+    /// <summary>
+    /// <see cref="Fit(ImmutableArray{double}, ImmutableArray{double}, ReadOnlySpan{float}, ReadOnlySpan{float}, int, int, MetricDisk, int, int, int, double, double)"/>'s
     /// gains under the constraint that their filter times <paramref name="kernel"/>, taken to the image, is at or above zero within
     /// <paramref name="reach"/> px of its centre (Magain, Courbin and Sohy 1998: restore toward a non-negative target, never past it):
     /// a composite that cannot dig below the sky (R8 follow-up 1). A small quadratic program over the fitted gains, solved by a quadratic

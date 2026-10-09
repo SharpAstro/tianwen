@@ -307,6 +307,40 @@ public static class PlanetaryMetrics
     }
 
     /// <summary>
+    /// The 2-pixel lattice a demosaic leaves of the CFA's residue (#1187, #1376), inside 0.9 radii, in the <see cref="Normalise"/>d disk's
+    /// level: the mean over the 2 by 2 blocks the sensor's grid makes (even x and y, all four pixels inside) of each block's part that
+    /// alternates along x, along y and on the diagonal. The lattice is locked to the sensor, so its sign holds over the disk and the mean
+    /// keeps it, while the planet's own detail at those frequencies has no fixed phase and averages away. Read over whole blocks, a level
+    /// cancels in each; a sign summed pixel by pixel over the disk did not, since a row inside it with an odd count leaves one pixel over
+    /// (a hundredth planted read 0.0122). Read it per channel: it cancels in the luminance.
+    /// </summary>
+    public static (double AlongX, double AlongY, double Diagonal) Lattice(ReadOnlySpan<float> plane, int width, int height, MetricDisk disk)
+    {
+        var normalised = Normalise(plane, width, height, disk);
+        double x = 0, y = 0, diagonal = 0;
+        var blocks = 0;
+        for (var row = 0; row + 1 < height; row += 2)
+        {
+            for (var column = 0; column + 1 < width; column += 2)
+            {
+                if (disk.RadiiAt(column, row) >= InnerRadii || disk.RadiiAt(column + 1, row) >= InnerRadii
+                    || disk.RadiiAt(column, row + 1) >= InnerRadii || disk.RadiiAt(column + 1, row + 1) >= InnerRadii)
+                {
+                    continue;
+                }
+                var i = (row * width) + column;
+                double a = normalised[i], b = normalised[i + 1], c = normalised[i + width], d = normalised[i + width + 1];
+                x += (a - b + c - d) / 4;
+                y += (a + b - c - d) / 4;
+                diagonal += (a - b - c + d) / 4;
+                blocks++;
+            }
+        }
+        var n = Math.Max(blocks, 1);
+        return (Math.Abs(x / n), Math.Abs(y / n), Math.Abs(diagonal / n));
+    }
+
+    /// <summary>
     /// A stack's fidelity against the truth, band by band, inside 0.9 radii (both normalised and registered on the same disk):
     /// the pipeline's transfer in each band and the error it left.
     /// </summary>
