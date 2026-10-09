@@ -11,6 +11,8 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// The five things about a night's air and telescope a synthetic twin is fitted by (docs/plans/planetary-stacking.md, A1): the free air's
 /// Fried parameter at 500 nm and its wind, the still layer at the telescope's Fried parameter (its outer scale the tube's, set elsewhere),
 /// and the share of the light the telescope scatters wide and that scatter's core. Everything else a twin needs is read off the capture.
+/// A colour twin adds each colour's static defocus (<see cref="Defocus"/>): #1281's colour twin of the EdgeHD Jupiter needed one, red's
+/// single frames reading 1.37 times as blurred as green's, which no air the colours share gives.
 /// </summary>
 public sealed record TwinKnobs(double R0M, double WindMps, double LocalR0M, double ScatterFraction, double ScatterCoreArcsec)
 {
@@ -20,14 +22,24 @@ public sealed record TwinKnobs(double R0M, double WindMps, double LocalR0M, doub
     /// <summary>The upper bounds: a still layer of 1 m is no layer at all at these apertures.</summary>
     public static readonly TwinKnobs Upper = new TwinKnobs(0.3, 40, 1, 0.3, 20);
 
+    /// <summary>The least and most defocus a colour may take, nm RMS: 5 nm is none to these statistics (the search is in logarithms).</summary>
+    public const double DefocusLowerNm = 5, DefocusUpperNm = 300;
+
     /// <summary>R2's hand calibration of 2022-09-03 Red, the search's start where nothing better is known.</summary>
     public static readonly TwinKnobs HandCalibratedRed = new TwinKnobs(0.085, 22, 0.027, 0.05, 5);
 
-    /// <summary><paramref name="options"/> with these knobs in it.</summary>
-    public DegradeOptions ApplyTo(DegradeOptions options)
+    /// <summary>A colour twin's static defocus a colour, nm RMS; null on a mono twin, which has none (R2 ruled a static defocus out there).</summary>
+    public ColourDefocus? Defocus { get; init; }
+
+    /// <summary>
+    /// <paramref name="options"/> with these knobs in it, and with <paramref name="colour"/>'s defocus where the twin is a colour one
+    /// (0 red, 1 green, 2 blue).
+    /// </summary>
+    public DegradeOptions ApplyTo(DegradeOptions options, int colour = -1)
     {
         ArgumentNullException.ThrowIfNull(options);
-        return options with { R0M = R0M, WindMps = WindMps, LocalR0M = LocalR0M, ScatterFraction = ScatterFraction, ScatterCoreArcsec = ScatterCoreArcsec };
+        var applied = options with { R0M = R0M, WindMps = WindMps, LocalR0M = LocalR0M, ScatterFraction = ScatterFraction, ScatterCoreArcsec = ScatterCoreArcsec };
+        return Defocus is { } defocus && colour >= 0 ? applied with { DefocusNm = defocus[colour] } : applied;
     }
 
     /// <summary>The knobs <paramref name="options"/> already holds, a finite still layer and scatter put at their floors where there are none.</summary>
@@ -38,13 +50,34 @@ public sealed record TwinKnobs(double R0M, double WindMps, double LocalR0M, doub
             Math.Max(options.ScatterFraction, Lower.ScatterFraction), options.ScatterCoreArcsec);
     }
 
-    internal double[] ToLog() => [Math.Log(R0M), Math.Log(WindMps), Math.Log(LocalR0M), Math.Log(ScatterFraction), Math.Log(ScatterCoreArcsec)];
+    internal double[] ToLog() => Defocus is { } d
+        ? [Math.Log(R0M), Math.Log(WindMps), Math.Log(LocalR0M), Math.Log(ScatterFraction), Math.Log(ScatterCoreArcsec), Math.Log(d.Red), Math.Log(d.Green), Math.Log(d.Blue)]
+        : [Math.Log(R0M), Math.Log(WindMps), Math.Log(LocalR0M), Math.Log(ScatterFraction), Math.Log(ScatterCoreArcsec)];
 
+    /// <summary>The knobs at <paramref name="x"/>, each clamped to its bounds: five logarithms for a mono twin, eight for a colour one.</summary>
     internal static TwinKnobs FromLog(ReadOnlySpan<double> x) => new TwinKnobs(
         Clamp(x[0], Lower.R0M, Upper.R0M), Clamp(x[1], Lower.WindMps, Upper.WindMps), Clamp(x[2], Lower.LocalR0M, Upper.LocalR0M),
-        Clamp(x[3], Lower.ScatterFraction, Upper.ScatterFraction), Clamp(x[4], Lower.ScatterCoreArcsec, Upper.ScatterCoreArcsec));
+        Clamp(x[3], Lower.ScatterFraction, Upper.ScatterFraction), Clamp(x[4], Lower.ScatterCoreArcsec, Upper.ScatterCoreArcsec))
+    {
+        Defocus = x.Length == 8
+            ? new ColourDefocus(Clamp(x[5], DefocusLowerNm, DefocusUpperNm), Clamp(x[6], DefocusLowerNm, DefocusUpperNm), Clamp(x[7], DefocusLowerNm, DefocusUpperNm))
+            : null,
+    };
 
     private static double Clamp(double log, double low, double high) => Math.Clamp(Math.Exp(log), low, high);
+}
+
+/// <summary>A colour twin's static defocus a colour, nm RMS wavefront error (<see cref="TwinKnobs.Defocus"/>).</summary>
+public sealed record ColourDefocus(double Red, double Green, double Blue)
+{
+    /// <summary>The defocus of colour <paramref name="colour"/>: 0 red, 1 green, 2 blue.</summary>
+    public double this[int colour] => colour switch
+    {
+        0 => Red,
+        1 => Green,
+        2 => Blue,
+        _ => throw new ArgumentOutOfRangeException(nameof(colour), colour, "0 red, 1 green, 2 blue"),
+    };
 }
 
 /// <summary>One twin made with <see cref="Knobs"/> and measured against the capture: its fitted statistics' mean squared log ratio.</summary>
@@ -72,14 +105,29 @@ public static class PlanetaryTwinCalibration
     /// <paramref name="maxTrials"/> twins through <paramref name="measureTwin"/> (null where a twin could not be measured, which scores
     /// infinitely bad). Every trial is returned in the order it ran, the best first beside them.
     /// </summary>
-    public static async Task<(TwinTrial Best, ImmutableArray<TwinTrial> Trials)> FitAsync(CaptureStatistics real, TwinKnobs start,
+    public static Task<(TwinTrial Best, ImmutableArray<TwinTrial> Trials)> FitAsync(CaptureStatistics real, TwinKnobs start,
         Func<TwinKnobs, CancellationToken, Task<CaptureStatistics?>> measureTwin, int maxTrials = 40, IProgress<TwinTrial>? progress = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(real);
-        ArgumentNullException.ThrowIfNull(start);
         ArgumentNullException.ThrowIfNull(measureTwin);
-        ArgumentOutOfRangeException.ThrowIfLessThan(maxTrials, 6);
+        return FitAsync(start, async (knobs, ct) => await measureTwin(knobs, ct).ConfigureAwait(false) is { } twin ? TwinComparison.Compare(real, twin) : [],
+            maxTrials, progress, cancellationToken);
+    }
+
+    /// <summary>
+    /// Searches from <paramref name="start"/> for the knobs whose twin's comparison rows <paramref name="compare"/> scores best, making at
+    /// most <paramref name="maxTrials"/> twins: a colour twin's three planes' rows together, say. No rows (a twin that could not be measured)
+    /// score infinitely bad. A colour start (one with <see cref="TwinKnobs.Defocus"/>) searches its eight knobs, a mono one its five.
+    /// </summary>
+    public static async Task<(TwinTrial Best, ImmutableArray<TwinTrial> Trials)> FitAsync(TwinKnobs start,
+        Func<TwinKnobs, CancellationToken, Task<ImmutableArray<TwinStatistic>>> compare, int maxTrials = 40, IProgress<TwinTrial>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(start);
+        ArgumentNullException.ThrowIfNull(compare);
+        var n = start.ToLog().Length;
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxTrials, n + 1);
 
         var trials = ImmutableArray.CreateBuilder<TwinTrial>();
         // A knob set already tried (the simplex can land on one twice once clamped at a bound) is not made again.
@@ -92,9 +140,8 @@ public static class PlanetaryTwinCalibration
                 return known;
             }
             cancellationToken.ThrowIfCancellationRequested();
-            var twin = await measureTwin(knobs, cancellationToken).ConfigureAwait(false);
-            var rows = twin is null ? [] : TwinComparison.Compare(real, twin);
-            var trial = new TwinTrial(knobs, twin is null ? double.PositiveInfinity : MeanMismatch(rows), rows);
+            var rows = await compare(knobs, cancellationToken).ConfigureAwait(false);
+            var trial = new TwinTrial(knobs, rows.IsDefaultOrEmpty ? double.PositiveInfinity : MeanMismatch(rows), rows.IsDefault ? [] : rows);
             seen[knobs] = trial;
             trials.Add(trial);
             progress?.Report(trial);
@@ -102,7 +149,6 @@ public static class PlanetaryTwinCalibration
         }
 
         // The start and a step of half again along each knob: a twin's statistics move by a few percent for a step that small at best.
-        const int n = 5;
         var step = Math.Log(1.5);
         var simplex = new double[n + 1][];
         var scores = new double[n + 1];
