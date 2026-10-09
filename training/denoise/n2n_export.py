@@ -164,7 +164,39 @@ def export_mapped(model, a, nparam):
     with io.open(os.path.splitext(path)[0] + "_export.json", "w", encoding="utf-8", newline="\n") as f:
         json.dump(meta_out, f, indent=1)
     print(f"\nwritten {os.path.basename(os.path.splitext(path)[0])}_export.json")
+    print(f"written {os.path.basename(write_contract(path))}")
     return 0
+
+
+def write_contract(path):
+    """The model contract (#824, ModelContract in C#) beside a `mapped` export: what the graph was trained on, which the
+    loader checks against what the runner feeds before it builds a session, and refuses the model without. Written from
+    the trainer's own constants, never typed by hand: the domain the cache tiles are stored in (the exporter's whole-frame
+    MTF stretch to n2n_operator.TARGET_MEDIAN), the plane's units (StretchedNoise.PlaneScale) and the weights' SHA-256.
+    The C# reader is strict, so this writes no field it does not know."""
+    import hashlib
+
+    import n2n_operator as OP
+
+    with open(path, "rb") as f:
+        sha = hashlib.sha256(f.read()).hexdigest()
+    contract = {
+        "contractVersion": 1,
+        "model": os.path.basename(path),
+        "onnxSha256": sha,
+        "domain": "mtfStretched",
+        "stretchMedianTarget": OP.TARGET_MEDIAN,
+        "inputs": [
+            {"name": "image", "role": "image", "channels": 3, "height": TILE, "width": TILE},
+            {"name": "plane", "role": "plane", "channels": 1, "height": TILE, "width": TILE, "scale": S.PLANE_SCALE},
+        ],
+        "output": "output",
+    }
+    out = os.path.splitext(path)[0] + ".contract.json"
+    with io.open(out, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(contract, f, indent=2)
+        f.write("\n")
+    return out
 
 
 def export(mod, args, path, input_names, dynamic_axes):

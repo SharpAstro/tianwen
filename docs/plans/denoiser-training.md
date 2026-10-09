@@ -495,8 +495,12 @@ the mechanism is in the roadmap, section 2). It states the weights' SHA-256, the
 `StretchedNoise.PlaneScale` and the export JSON's `plane_scale`). `N2nDenoiser` states what it actually feeds from those
 same constants and the first use refuses on any difference, so the H0 skew (a runner feeding linear pixels to a graph
 trained on stretched ones) now stops the load instead of producing a plausible picture. The dataset manifest SHA and the
-training commit are left out until the exporter records them. A checkpoint compared through the seam probe's model
-directory override (`TIANWEN_N2N_SEAM_MODEL_DIR`) needs its own contract beside it, with that file's SHA-256.
+training commit are left out until the exporter records them. **`n2n_export.py` writes the contract with every `mapped`
+export** (`write_contract`, from the trainer's own constants: `n2n_operator.TARGET_MEDIAN`, `PLANE_SCALE`, the tile),
+and run on the shipped `.onnx` it reproduces the committed sidecar byte for byte, so a retrain ships its contract without
+anyone typing one. A checkpoint compared through the seam probe's model directory override
+(`TIANWEN_N2N_SEAM_MODEL_DIR`) needs its own contract beside it, with that file's SHA-256: `write_contract` on that file
+writes it.
 
 **The comparison nobody ran stays un-run in the automated loop.** Whether the in-house model should
 become Auto's preferred OSC denoiser over the SAS AI4 model is a benchmark against a third-party
