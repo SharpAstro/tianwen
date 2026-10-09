@@ -43,6 +43,36 @@ public class PlanetaryMetricsTests
         Math.Max(texture.AlongX, Math.Max(texture.AlongY, texture.Diagonal)).ShouldBeLessThan(0.001);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ARampAcrossTheDiskIsNoLatticeAndALatticeOnARampStillReads(bool alongX)
+    {
+        // #1398: a disk brighter to one side by 0.004 a pixel (0.24 over its 60 px, more than any belt asymmetry) read half that slope, 0.002,
+        // as lattice along its axis through a first difference; through the second difference it reads nothing, and a hundredth of lattice
+        // planted on the same ramp still reads a hundredth.
+        var ramped = new float[Size * Size];
+        var latticed = new float[Size * Size];
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                if (Disk.RadiiAt(x, y) >= 1)
+                {
+                    continue;
+                }
+                var along = alongX ? x : y;
+                ramped[(y * Size) + x] = 1 + (0.004f * (along - 64));
+                latticed[(y * Size) + x] = ramped[(y * Size) + x] + (0.01f * ((along & 1) == 0 ? 1 : -1));
+            }
+        }
+        var ramp = PlanetaryMetrics.Lattice(ramped, Size, Size, Disk);
+        Math.Max(ramp.AlongX, Math.Max(ramp.AlongY, ramp.Diagonal)).ShouldBeLessThan(0.0001);
+        var (latticeX, latticeY, _) = PlanetaryMetrics.Lattice(latticed, Size, Size, Disk);
+        (alongX ? latticeX : latticeY).ShouldBe(0.01, 0.0005);
+        (alongX ? latticeY : latticeX).ShouldBeLessThan(0.0001);
+    }
+
     [Fact]
     public void AStackIsItsOwnTruthInEveryBand()
     {
