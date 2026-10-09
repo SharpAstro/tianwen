@@ -323,6 +323,25 @@ internal static class PlanetaryMasterScore
         return PlanetaryFinishing.ApertureTruth(truth, width, height, pupil, wavelengthNm, aspect.AngularDiameterArcsec / 2 / disk.Radius);
     }
 
+    /// <summary><paramref name="master"/>'s disk, its limb fitted to the whole master; null where the limb cannot be fitted.</summary>
+    public static MetricDisk? Disk(Image master, CatalogIndex planet, DateTimeOffset when)
+    {
+        var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, when));
+        return PlanetaryLimbFit.Fit(master, limbOptions) is { } fit ? MetricDisk.From(fit, limbOptions) : null;
+    }
+
+    /// <summary>
+    /// <paramref name="image"/>'s 2-pixel lattice per channel on <paramref name="disk"/> (<see cref="PlanetaryMetrics.Lattice"/>, #1376), printed
+    /// as <paramref name="what"/>: the CFA's residue a colour master's sharpening can lift (#1187).
+    /// </summary>
+    public static void Lattice(IConsoleHost consoleHost, Image image, MetricDisk disk, string what)
+    {
+        var inv = CultureInfo.InvariantCulture;
+        var reads = Enumerable.Range(0, image.ChannelCount).Select(c => PlanetaryMetrics.Lattice(image.GetChannelSpan(c), image.Width, image.Height, disk));
+        consoleHost.WriteScrollable(string.Create(inv,
+            $"[planetary] {what}: the 2-pixel lattice per channel (along x, along y, diagonal) {string.Join("; ", reads.Select(l => string.Create(inv, $"{l.AlongX:0.00000}, {l.AlongY:0.00000}, {l.Diagonal:0.00000}")))}"));
+    }
+
     /// <summary><paramref name="master"/>'s limb undershoot below the sky, each channel on the disk fitted to the whole master, printed as <paramref name="what"/>.</summary>
     public static void Undershoot(IConsoleHost consoleHost, Image master, CatalogIndex planet, DateTimeOffset when, string what, Image? stack = null)
     {

@@ -18,6 +18,32 @@ public class PlanetaryMetricsTests
     internal static readonly MetricDisk Disk = new MetricDisk(63.7, 64.2, 30);
 
     [Fact]
+    public void ALatticeLockedToTheSensorIsReadAlongItsAxisAndATextureIsNot()
+    {
+        // #1376: a uniform disk carrying a 2-pixel lattice of a hundredth of its level along x reads that along x and nothing on the other
+        // two axes; the same disk with a random texture reaching two and a half times as far reads under a tenth of it on every axis (its
+        // mean over the disk's 570-odd blocks spreads about 0.0003).
+        var latticed = new float[Size * Size];
+        var textured = new float[Size * Size];
+        var random = new Random(3);
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                var inside = Disk.RadiiAt(x, y) < 1;
+                latticed[(y * Size) + x] = inside ? 1 + (0.01f * ((x & 1) == 0 ? 1 : -1)) : 0;
+                textured[(y * Size) + x] = inside ? 1 + (float)(0.05 * (random.NextDouble() - 0.5)) : 0;
+            }
+        }
+        var (alongX, alongY, diagonal) = PlanetaryMetrics.Lattice(latticed, Size, Size, Disk);
+        alongX.ShouldBe(0.01, 0.0005);
+        alongY.ShouldBeLessThan(0.0005);
+        diagonal.ShouldBeLessThan(0.0005);
+        var texture = PlanetaryMetrics.Lattice(textured, Size, Size, Disk);
+        Math.Max(texture.AlongX, Math.Max(texture.AlongY, texture.Diagonal)).ShouldBeLessThan(0.001);
+    }
+
+    [Fact]
     public void AStackIsItsOwnTruthInEveryBand()
     {
         var truth = Blur(Banded(), 1.0);

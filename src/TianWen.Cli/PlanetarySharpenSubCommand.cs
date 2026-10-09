@@ -36,7 +36,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var noWriteOpt = new Option<bool>("--no-write") { Description = "Score only, write nothing." };
         var stackedPreviewOpt = new Option<bool>("--stacked-preview") { Description = "Also write the master as stacked through the same high-key planetary preview as the sharpened one (<name>_stacked.png), so the two are seen through one renderer: planetary stack's own preview is of the sharpened master." };
         var fitOpt = new Option<string>("--fit") { Description = "How the gains are fitted: free, nonnegative (their composite through the kernel held at or above zero), or both to compare them.", DefaultValueFactory = _ => "free" };
-        var finestOpt = new Option<string>("--colour-finest") { Description = "A colour master's finest band (#1187): held (as stacked on every colour, the default), derived (its derived gain), heldbutgreen (as stacked on red and blue), or all to compare them.", DefaultValueFactory = _ => "held" };
+        var finestOpt = new Option<string>("--colour-finest") { Description = "A colour master's finest band (#1187): held (as stacked on every colour, the default), derived (its derived gain), heldbutgreen (as stacked on red and blue), bounded (fitted with the others, never above as stacked, free to fall, #1376), or all to compare them.", DefaultValueFactory = _ => "held" };
         var ringEdgeOpt = new Option<bool>("--ring-edge") { Description = "Read Saturn's edge off its rings' outer rim as well as its polar limb (#1256)." };
         var edgeReachOpt = new Option<double?>("--edge-reach") { Description = "Take the kernel as the physical one fitted to the limb's edge from 0.02 cycles a pixel to this, carried by its physics to the cutoff, rather than the edge as read at every frequency." };
         var slidersOpt = new Option<bool>("--sliders") { Description = "Also sharpen as a live view's wavelet sliders do once a derivation seeds them (the same gains over the whole master, no denoise, held at its darkest level), then drawn outside the limb by the limb the derivation keeps (#1201), and score both: whether the live view reaches the derived sharpening. Says how far the live drawing lies from this sharpening outside the limb, and what the drawing costs beside the sliders' wavelet pass." };
@@ -216,6 +216,12 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 {
                     PlanetaryMasterScore.Undershoot(consoleHost, master, body, instant, "the master as stacked");
                 }
+                // A colour master's 2-pixel lattice, the stack's and each sharpening's on the stack's own disk (#1376).
+                var latticeDisk = master.ChannelCount == 3 ? PlanetaryMasterScore.Disk(master, body, instant) : null;
+                if (latticeDisk is { } stackDisk)
+                {
+                    PlanetaryMasterScore.Lattice(consoleHost, master, stackDisk, "the master as stacked");
+                }
 
                 var fitName = (parseResult.GetValue(fitOpt) ?? "free").ToLowerInvariant();
                 bool[] fits = fitName switch
@@ -233,15 +239,16 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 var finestName = (parseResult.GetValue(finestOpt) ?? "held").ToLowerInvariant();
                 PlanetaryColourFinestBand[] finests = finestName switch
                 {
-                    "all" => [PlanetaryColourFinestBand.Derived, PlanetaryColourFinestBand.Held, PlanetaryColourFinestBand.HeldButGreen],
+                    "all" => [PlanetaryColourFinestBand.Derived, PlanetaryColourFinestBand.Held, PlanetaryColourFinestBand.HeldButGreen, PlanetaryColourFinestBand.Bounded],
                     "derived" => [PlanetaryColourFinestBand.Derived],
                     "held" => [PlanetaryColourFinestBand.Held],
                     "heldbutgreen" => [PlanetaryColourFinestBand.HeldButGreen],
+                    "bounded" => [PlanetaryColourFinestBand.Bounded],
                     _ => [],
                 };
                 if (finests.Length == 0)
                 {
-                    consoleHost.WriteError($"--colour-finest {finestName}: derived, held, heldbutgreen or all");
+                    consoleHost.WriteError($"--colour-finest {finestName}: derived, held, heldbutgreen, bounded or all");
                     return 1;
                 }
                 var colourName = (parseResult.GetValue(colourOpt) ?? "perchannel").ToLowerInvariant();
@@ -327,6 +334,10 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                         if (!result.Gains.IsDefaultOrEmpty)
                         {
                             consoleHost.WriteScrollable($"[planetary] {what}: {PlanetaryMasterScore.FilterWords(result.Gains.AsSpan())}");
+                        }
+                        if (latticeDisk is { } sharpenedDisk)
+                        {
+                            PlanetaryMasterScore.Lattice(consoleHost, result.Sharpened, sharpenedDisk, what);
                         }
                         for (var c = 0; c < result.Shrinks.Length; c++)
                         {

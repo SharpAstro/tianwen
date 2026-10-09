@@ -132,6 +132,14 @@ public class PlanetaryWaveletGainsTests
         var held = PlanetaryWaveletGains.Fit(power, wiener, sharpDisk, blurredDisk, size, size, disk, held: 1);
         held[0].ShouldBe(1);
         Error(PlanetaryWaveletGains.Apply(stack, size, size, held.AsSpan())).ShouldBeLessThan(e0);
+
+        // The finest layer fitted within an interval (#1376): the free fit's finest gain clamped to it and the rest fitted around that, so
+        // an interval holding the free gain gives the free fit, and one that does not gives the fit held at its nearer end.
+        PlanetaryWaveletGains.FitFinestWithin(power, wiener, sharpDisk, blurredDisk, size, size, disk, gains[0] - 1, gains[0] + 1).ShouldBe(gains);
+        PlanetaryWaveletGains.FitFinestWithin(power, wiener, sharpDisk, blurredDisk, size, size, disk, gains[0] + 0.5, gains[0] + 1)
+            .ShouldBe(PlanetaryWaveletGains.Fit(power, wiener, sharpDisk, blurredDisk, size, size, disk, held: 1, heldAt: gains[0] + 0.5));
+        PlanetaryWaveletGains.FitFinestWithin(power, wiener, sharpDisk, blurredDisk, size, size, disk, gains[0] - 1, gains[0] - 0.5)
+            .ShouldBe(PlanetaryWaveletGains.Fit(power, wiener, sharpDisk, blurredDisk, size, size, disk, held: 1, heldAt: gains[0] - 0.5));
     }
 
     private static double Normal(Random random) => Math.Sqrt(-2 * Math.Log(1 - random.NextDouble())) * Math.Cos(2 * Math.PI * random.NextDouble());
