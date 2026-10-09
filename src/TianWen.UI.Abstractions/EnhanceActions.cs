@@ -59,7 +59,13 @@ public static class EnhanceActions
         // CLI and the enhance endpoint run (SharpenPipeline.CanonicalProgram): BlurX-first where a
         // deblurrer serves, whole-frame where no star remover does. Linear in / linear out: the viewer
         // applies its own stretch, so no final stretch step is included.
-        var program = pipeline.CanonicalProgram(input, options);
+        //
+        // The document's own SPCC, when it is photometric, is multiplied into the linear pixels FIRST (the PixInsight
+        // order, as the stacking --enhance runs it), so every enhancer sees the colour it will be shown in and the
+        // result is shown with no white balance of its own (AstroImageDocument.IsColourInPixels). A frame not yet
+        // calibrated, or calibrated by the sky-background estimate or through a line-selective filter, is enhanced
+        // as it is and inherits the original's multiplier, as before.
+        var program = pipeline.CanonicalProgram(input, options) with { WhiteBalance = source.PhotometricColorCalibration };
         var request = new SharpenRequest(input, program.ToSteps());
 
         // Per-step progress -> viewer status line. Runs on the background thread; these scalar

@@ -810,6 +810,11 @@ Planetary stacker below.
   `EnhanceOptions.TryParse`; `--ai-backend auto|rc|tianwen`. Stellar-sharpen is opt-in and served by nothing today.
 - **Render model:** ONE SPCC white balance, then each plate self-stretches; SPCC's clip test reads the OBSERVED
   peak; the normaliser anchors on `Image.Pedestal`; enhanced masters use `MasterPreviewRenderer.WithZeroPedestal`.
+  **An enhance solves it on the LINEAR master first** (`MasterPreviewRenderer.SolveWhiteBalanceAsync`), and a
+  broadband SPCC fit goes INTO the pixels the enhance sees (`WhiteBalanceStep` at the program head, PixInsight's
+  order); every enhanced file and document says so (`ColourCalibration.Applied`, FITS `WBAPPLD`) and is shown with no
+  balance of its own, while the raw master keeps its pixels and the triple. Nothing solves SPCC on enhanced stars
+  (5 to 26 % bluer on Centaurus A); the sky-background estimate and a line-selective fit stay display multipliers.
   **SPCC is broadband-only as a MODEL, not a gate** (`docs/plans/narrowband-colour.md`; `ResolveAuto` refuses to
   assert the fit as colour).
 - **The filter-curve matcher never answers with a brand, nor a more specific product** (re-run

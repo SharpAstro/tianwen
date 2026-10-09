@@ -248,17 +248,18 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
 
         // 2.5) AI enhancement: the canonical program (BlurX-first, split or whole-frame) on the master ->
         //      _sharpened.fits (+ _sharpened_autocrop.fits). The raw masters are never
-        //      overwritten. When enhancing, ONE SPCC solve is computed on the enhanced
-        //      (gradient-corrected, with-stars) master -- matching the PixInsight OSC flow
-        //      (gradient correction -> SPCC once, stars in) -- and that single white
-        //      balance renders the preview PNG AND stretches the --split-plates stars /
-        //      starless TIFFs, so all three share the one colour calibration.
+        //      overwritten. ONE white balance is solved, on the LINEAR master before the
+        //      enhance (the PixInsight order: SPCC, then deblur, gradient, stars, denoise), and a
+        //      broadband SPCC fit is multiplied into the pixels the enhance sees. That one
+        //      balance renders the preview PNG AND the --split-plates stars / starless TIFFs.
+        EnhanceOutcome? enhanced = null;
         if (enhance && sharpenPipeline is not null)
         {
-            render = await EnhanceAndWriteAsync(
+            enhanced = await EnhanceAndWriteAsync(
                 result, masterPath, solvedWcs, croppedWcs, strategy,
                 croppedResult, autocropRect, enhanceBlend, splitPlates, enhanceOptions,
                 refMeta, renderer, outputs, previewBoost, ultraHdrPeakNits, inheritedWhiteBalance, alignment, ct);
+            render = enhanced.Value.Render;
         }
         else if (enhance && sharpenPipeline is null)
         {
@@ -295,39 +296,55 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         // 4) Stamp the colour calibration onto every linear master this run produced.
         //
         // It has to be an append rather than a card in IntegrationFitsWriter, because the white
-        // balance does not EXIST when the FITS is written: SPCC is solved inside the renderer at
-        // step 2.5/3.5, by which point the file is already on disk. The alternative would be
-        // reordering the whole write around the render, for a header edit that costs milliseconds.
-        if (render is { WhiteBalance: { } wb })
+        // balance does not EXIST when the raw FITS is written: it is solved at step 2.5, or inside
+        // the renderer at 3.5, by which point the file is already on disk. The alternative would be
+        // reordering the whole write around the solve, for a header edit that costs milliseconds.
+        //
+        // Provenance travels WITH the numbers. An inherited triple keeps the donor's source,
+        // because how a white balance was derived is a fact about the white balance -- asking
+        // "did SPCC run in THIS process" labels a real photometric calibration as a grey-world
+        // fallback the moment it is inherited.
+        //
+        // --inherit-wb with no render (--output-format none) still records the stated triple: a layer
+        // built to be COMBINED with another (a comet layer) otherwise carried no WBSOURCE/WBRED/WBGREEN/
+        // WBBLUE, and anything rendering it later had to solve its own from a starless plate.
+        var rendered = render is { WhiteBalance: { } wb }
+            ? new ColourCalibration(wb.R, wb.G, wb.B, inheritedWhiteBalance?.Source
+                ?? (render.Value.Spcc is not null ? ColourCalibrationSource.Spcc : ColourCalibrationSource.SkyBackground))
+            : (ColourCalibration?)null;
+        // The raw masters keep their UNBALANCED pixels and carry the triple still to apply: the linear solve's when
+        // the enhance made one, else the render's, else the inherited one.
+        if ((enhanced?.Linear ?? rendered ?? inheritedWhiteBalance) is { } linear)
         {
-            // Provenance travels WITH the numbers. An inherited triple keeps the donor's source,
-            // because how a white balance was derived is a fact about the white balance -- asking
-            // "did SPCC run in THIS process" labels a real photometric calibration as a grey-world
-            // fallback the moment it is inherited.
-            var source = inheritedWhiteBalance?.Source
-                ?? (render.Value.Spcc is not null
-                    ? ColourCalibrationSource.Spcc
-                    : ColourCalibrationSource.SkyBackground);
-            await StampColourCalibrationAsync(masterPath, croppedResult is not null, enhance, wb, source, ct);
+            await StampColourCalibrationAsync(RawMasterPaths(masterPath, croppedResult is not null), linear with { Applied = false }, ct);
         }
-        else if (inheritedWhiteBalance is { } inherited)
+        // An enhanced master whose balance went into its pixels was WRITTEN with the cards saying so (its metadata
+        // carries them). One whose balance stayed a display multiplier (the sky-background fallback, a line-selective
+        // fit) carries the multiplier its preview was rendered with: the linear solve's, with its own source (the render
+        // was handed it, so the render's diagnostics cannot say it was SPCC), else whatever the render solved itself.
+        if (enhanced is { Written: true, Applied: null } && (enhanced.Value.Linear ?? rendered) is { } display)
         {
-            // --inherit-wb was given a triple and no render exists to carry it. `render` is only
-            // produced when a preview is asked for, so --output-format none skipped it -- and the
-            // flag then did nothing at all, silently, on exactly the cheapest kind of run. The
-            // caller stated a calibration for this master; record it.
-            //
-            // It matters most for a layer built to be COMBINED with another: a comet layer written
-            // with --output-format none carried no WBSOURCE/WBRED/WBGREEN/WBBLUE, so anything
-            // rendering it later had to solve its own white balance from a starless plate rather
-            // than share the star layer's, which is the whole reason the triple was passed in.
-            await StampColourCalibrationAsync(masterPath, croppedResult is not null, enhance,
-                (inherited.R, inherited.G, inherited.B), inherited.Source, ct);
+            await StampColourCalibrationAsync(EnhancedMasterPaths(masterPath, croppedResult is not null), display with { Applied = false }, ct);
         }
 
         logger.LogInformation("  [post] total {Ms} ms", sw.ElapsedMilliseconds);
-        return new MasterWriteResult(result, solvedWcs, render?.Spcc);
+        return new MasterWriteResult(result, solvedWcs, enhanced?.Spcc ?? render?.Spcc);
     }
+
+    /// <summary>What <see cref="EnhanceAndWriteAsync"/> did with the colour: the white balance solved on the linear
+    /// master (<paramref name="Linear"/>), the one multiplied into the enhanced pixels (<paramref name="Applied"/>, null
+    /// when it stayed a display multiplier), SPCC's diagnostics, the preview render, and whether the enhanced masters
+    /// were written.</summary>
+    private readonly record struct EnhanceOutcome(
+        PreviewRender? Render, ColourCalibration? Linear, ColourCalibration? Applied, SpccDiagnostics? Spcc, bool Written);
+
+    private static ImmutableArray<string> RawMasterPaths(string masterPath, bool hasAutocrop)
+        => hasAutocrop ? [masterPath, WithSuffix(masterPath, "_autocrop")] : [masterPath];
+
+    private static ImmutableArray<string> EnhancedMasterPaths(string masterPath, bool hasAutocrop)
+        => hasAutocrop
+            ? [WithSuffix(masterPath, "_sharpened"), WithSuffix(masterPath, "_sharpened_autocrop")]
+            : [WithSuffix(masterPath, "_sharpened")];
 
     /// <summary>
     /// Writes <c>WBSOURCE</c> / <c>WBRED</c> / <c>WBGREEN</c> / <c>WBBLUE</c> onto the linear masters.
@@ -345,19 +362,9 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
     /// <para>Best-effort by design. A master that fails to take the cards is still a perfectly good
     /// master, so a stamping failure is a warning and never fails the group.</para>
     /// </summary>
-    private async Task StampColourCalibrationAsync(
-        string masterPath, bool hasAutocrop, bool enhanced, (float R, float G, float B) wb,
-        ColourCalibrationSource source, CancellationToken ct)
+    private async Task StampColourCalibrationAsync(ImmutableArray<string> targets, ColourCalibration calibration, CancellationToken ct)
     {
-        var targets = ImmutableArray.CreateBuilder<string>();
-        targets.Add(masterPath);
-        if (hasAutocrop) { targets.Add(WithSuffix(masterPath, "_autocrop")); }
-        if (enhanced)
-        {
-            targets.Add(WithSuffix(masterPath, "_sharpened"));
-            if (hasAutocrop) { targets.Add(WithSuffix(masterPath, "_sharpened_autocrop")); }
-        }
-
+        var (wb, source) = (calibration.Gains, calibration.Source);
         var stamped = 0;
         foreach (var target in targets)
         {
@@ -446,16 +453,17 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
     /// writes the sharpened sibling FITS files. Cropping the enhanced master
     /// to <paramref name="autocropRect"/> reuses the same single forward pass
     /// for the autocrop variant; the raw master FITS (already on disk) is
-    /// untouched. Then computes ONE SPCC + bg-neut solve on the enhanced
-    /// (gradient-corrected, with-stars) master -- the PixInsight OSC order
-    /// (gradient correction, then a single SPCC with stars in) -- and uses that
-    /// one white balance to render the preview PNG and (with
-    /// <paramref name="splitPlates"/>) stretch the stars / starless TIFFs, so
-    /// all three share the calibration and the plates Screen-blend back to the
-    /// preview. Failures log + return without throwing so a misbehaving model
-    /// never breaks the canonical stacking output.
+    /// untouched. The white balance is solved ONCE, on the linear master BEFORE the
+    /// enhance (the PixInsight order: SPCC, then deblur, gradient, stars, denoise); a
+    /// broadband SPCC fit is multiplied into the pixels the enhance sees and the enhanced
+    /// masters say so (<see cref="ColourCalibration.Applied"/>), and anything else stays a
+    /// display multiplier. That one balance renders the preview PNG and (with
+    /// <paramref name="splitPlates"/>) the stars / starless TIFFs, so all three share the
+    /// calibration and the plates Screen-blend back to the preview. Failures log + return
+    /// without throwing so a misbehaving model never breaks the canonical stacking output;
+    /// the linear solve is returned either way, for the raw masters' cards.
     /// </summary>
-    private async Task<PreviewRender?> EnhanceAndWriteAsync(
+    private async Task<EnhanceOutcome> EnhanceAndWriteAsync(
         IntegrationResult master,
         string masterPath,
         WCS? solvedWcs,
@@ -493,6 +501,41 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         logger.LogDebug("  [enhance] reclaimed heap before enhance: {Before:F2} GB -> {After:F2} GB",
             heapBeforeGB, GC.GetTotalMemory(forceFullCollection: false) / 1e9);
 
+        // ONE white balance, solved on the LINEAR master before the enhance (the crop where there is one, as the preview
+        // renders it): the PixInsight order, SPCC first and then every enhancer. Solved on the enhanced master instead
+        // it read the stars the deblur and the denoise had reshaped, 5 to 26 percent bluer on Centaurus A
+        // (docs/architecture/stacking-render-pipeline.md). A broadband SPCC fit is multiplied into the pixels the
+        // enhance sees (WhiteBalanceSolve.ToApply); anything else stays a display multiplier, shared by the preview.
+        // An inherited triple is the caller's statement and is not re-solved; whether it is photometric is still a
+        // property of THIS frame's filter.
+        WhiteBalanceSolve solve = default;
+        ColourCalibration? toApply = null;
+        if (master.Master.ChannelCount >= 3)
+        {
+            if (inheritedWhiteBalance is { } inherited)
+            {
+                solve = new WhiteBalanceSolve(inherited with { Applied = false }, null, LineSelective: false);
+                toApply = await MasterPreviewRenderer.StatedToApplyAsync(inherited, refMeta, ct);
+            }
+            else
+            {
+                solve = await (renderer ?? new MasterPreviewRenderer(catalogDb, logger)).SolveWhiteBalanceAsync(
+                    croppedResult?.Master ?? master.Master, croppedResult is not null ? croppedWcs : solvedWcs, refMeta, ct);
+                toApply = solve.ToApply;
+            }
+            if (toApply is { } applying)
+            {
+                logger.LogInformation("  [enhance] {Source} white balance ({R:F3}, {G:F3}, {B:F3}) applied to the linear master before the enhance",
+                    ColourCalibration.CardOf(applying.Source), applying.R, applying.G, applying.B);
+            }
+            else if (solve.Calibration is { } display)
+            {
+                logger.LogInformation("  [enhance] {Source} white balance ({R:F3}, {G:F3}, {B:F3}) stays a display multiplier ({Why})",
+                    ColourCalibration.CardOf(display.Source), display.R, display.G, display.B,
+                    solve.LineSelective ? "line-selective filter" : "not a broadband SPCC fit");
+            }
+        }
+
         try
         {
             // Linear-in / linear-out, with the per-step Blend exposed via
@@ -506,6 +549,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             var blend = Math.Clamp(enhanceBlend, 0f, 1f);
             var program = sharpenPipeline.CanonicalProgram(master.Master, enhanceOptions) with
             {
+                WhiteBalance = toApply,
                 DeblurBlend = blend,
                 StellarBlend = blend,
                 DeconvolveBlend = blend,
@@ -527,7 +571,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             if (sharpenResult.Final is not { } enhancedMaster)
             {
                 logger.LogWarning("  [enhance] SharpenPipeline returned no Final image; skipping write");
-                return null;
+                return new EnhanceOutcome(null, solve.Calibration, null, solve.Spcc, Written: false);
             }
 
             // Reuse the original IntegrationResult shell (FrameCount, RejectionMap,
@@ -549,13 +593,11 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
                 logger.LogInformation("  wrote {Path} (crop {W}x{H})", sharpenedCropPath, autocropRect.Width, autocropRect.Height);
             }
 
-            // ONE SPCC + bg-neut solve on the ENHANCED master (gradient-corrected, with
-            // stars) -- the PixInsight OSC order: gradient correction, then a single SPCC
-            // with the stars in. That single white balance renders the preview PNG AND
-            // stretches the --split-plates stars / starless TIFFs, so all three share the
-            // calibration and the plates Screen-blend back to the preview. The stars-only
-            // + denoised-starless plates are the kept lineage (StarsAndStarlessLineage
-            // above) -- NO second AI pass.
+            // The preview and the --split-plates TIFFs share the ONE white balance solved on the linear master: none of
+            // their own where it is already in the pixels (the renderer reads that off the metadata), else the solved
+            // multiplier. Only a master with no balance to share (no stars to solve on) has one solved here. Background
+            // neutralisation stays per image. The stars-only + denoised-starless plates are the kept lineage
+            // (StarsAndStarlessLineage above) -- NO second AI pass.
             var renderPreviewPng = (outputs & MasterRenderOutputs.PreviewPng) != 0;
             var emitUltraHdr = (outputs & MasterRenderOutputs.UltraHdr) != 0;
             PreviewRender? spcc = null;
@@ -574,7 +616,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
                 var uhdrPath = emitUltraHdr ? Path.ChangeExtension(pngStem, ".jpg") : null;
                 var render = await renderer.RenderAsync(
                     solveImg, refMeta, solveWcs, statsSource: solveImg, pngPath, statsWcs: solveWcs,
-                    peakNits: ultraHdrPeakNits, whiteBalanceOverride: inheritedWhiteBalance is { } inh ? (inh.R, inh.G, inh.B) : null,
+                    peakNits: ultraHdrPeakNits, whiteBalanceOverride: sharpenResult.AppliedWhiteBalance is null ? solve.Calibration?.Gains : null,
                     maskedBoost: previewBoost, ultraHdrPath: uhdrPath, ct: ct);
                 spcc = render;
 
@@ -609,7 +651,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
                 sharpenResult.DeconvolvedStarless?.Release();
                 sharpenResult.DenoisedStarless?.Release();
             }
-            return spcc;
+            return new EnhanceOutcome(spcc, solve.Calibration, sharpenResult.AppliedWhiteBalance, solve.Spcc, Written: true);
         }
         catch (OperationCanceledException)
         {
@@ -619,7 +661,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         catch (Exception ex)
         {
             logger.LogWarning("  [enhance] failed after {Ms} ms: {Type}: {Msg}", sw.ElapsedMilliseconds, ex.GetType().Name, ex.Message);
-            return null;
+            return new EnhanceOutcome(null, solve.Calibration, null, solve.Spcc, Written: false);
         }
     }
 

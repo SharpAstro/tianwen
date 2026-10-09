@@ -411,6 +411,13 @@ collection spawns no `rc-astro` process. Design and every measurement: `docs/pla
   --enhance` and the endpoint all run that one program. **A gate on a role asks
   `IEnhancerAvailability.Serves`, never `is null`**: a deferred RC role is registered on every host,
   and where the product is absent its first use throws.
+- **A broadband SPCC balance is the program's FIRST step** (`LinearEnhanceProgram.WhiteBalance`,
+  `WhiteBalanceStep`, 2026-10-09): PixInsight's order, SPCC on the linear data and then every enhancer. The
+  HOST supplies it, since the solve needs the plate solution and the catalogue (`stack --enhance` solves it on
+  the linear master, `image sharpen` and the endpoint take the one the file states, the viewer its own fit),
+  and every returned plate says the balance is in its pixels (`ColourCalibration.Applied`), RC-Astro's
+  included, whose metadata the pipeline restamps. Why and the measurements:
+  `docs/architecture/stacking-render-pipeline.md`, "A broadband SPCC fit goes INTO the pixels".
 - **The SETI Astro (SAS Pro AI4) tier was REMOVED on 2026-09-26** (the user's call, after its model
   licence of 2026-09-24 allowed use only within SASpro). Nothing loads its weights or searches
   SASpro's folder, and `EnhanceBackend` value 2 stays unassigned (enums are numeric on the wire). Its

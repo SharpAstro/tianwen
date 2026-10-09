@@ -599,7 +599,8 @@ public partial class Image
         var wbG = hdu.Header.GetFloatValue("WBGREEN", float.NaN);
         var wbB = hdu.Header.GetFloatValue("WBBLUE", float.NaN);
         var colourCalibration = float.IsFinite(wbR) && float.IsFinite(wbG) && float.IsFinite(wbB)
-            ? new ColourCalibration(wbR, wbG, wbB, ColourCalibration.FromCard(hdu.Header.GetStringValue("WBSOURCE")))
+            ? new ColourCalibration(wbR, wbG, wbB, ColourCalibration.FromCard(hdu.Header.GetStringValue("WBSOURCE")),
+                Applied: hdu.Header.GetBooleanValue(ColourCalibration.AppliedCard, false))
             : (ColourCalibration?)null;
         // Guiding: GUIDERMS alone decides presence. The others are refinements of it, and a frame that
         // states a total RMS has been guided whether or not it also managed to record a peak.
@@ -1160,6 +1161,10 @@ public partial class Image
             AddHeaderValueIfHasValue("WBRED", wb.R, "Red white-balance multiplier");
             AddHeaderValueIfHasValue("WBGREEN", wb.G, "Green white-balance multiplier");
             AddHeaderValueIfHasValue("WBBLUE", wb.B, "Blue white-balance multiplier");
+            if (wb.Applied)
+            {
+                AddHeaderValueIfHasValue(ColourCalibration.AppliedCard, true, "White balance already applied to the pixels");
+            }
         }
         if (imageMeta.Guiding is { } guiding)
         {

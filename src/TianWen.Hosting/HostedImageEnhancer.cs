@@ -7,6 +7,7 @@ using TianWen.Hosting.Dto;
 using TianWen.Lib;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
+using TianWen.Lib.Imaging.Stacking;
 
 namespace TianWen.Hosting;
 
@@ -99,8 +100,12 @@ internal sealed class HostedImageEnhancer(
 
                 // The canonical program for what serves THIS input, the same one the viewer, the CLI
                 // and MasterPostProcessor run (SharpenPipeline.CanonicalProgram): BlurX-first where a
-                // deblurrer serves, whole-frame where no star remover does.
-                var request = new SharpenRequest(normalised, pipe.CanonicalProgram(normalised, options).ToSteps());
+                // deblurrer serves, whole-frame where no star remover does. A broadband SPCC balance the
+                // file states (a stacked master's WB cards) is multiplied in first, as the stack's own
+                // --enhance applies it, and the output says so.
+                var whiteBalance = await MasterPreviewRenderer.StatedToApplyAsync(normalised.ImageMeta.ColourCalibration, normalised.ImageMeta, ct).ConfigureAwait(false);
+                var program = pipe.CanonicalProgram(normalised, options) with { WhiteBalance = whiteBalance };
+                var request = new SharpenRequest(normalised, program.ToSteps());
 
                 // Synchronous relay (NOT Progress<T>): runs inline on this task thread so the status
                 // snapshot updates in order and never overwrites the terminal status set in finally.

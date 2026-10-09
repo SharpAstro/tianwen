@@ -683,10 +683,38 @@ overwriting the linear masters); deblurrer-aware (RC-Astro present -> BlurX-firs
 flow, no stellar-sharpen; none -> SAS-shaped remove/sharpen/deconvolve). `--split-plates` is the
 SAME AI pass exporting the kept stars/starless plates as edit-ready TIFFs -- NO second enhance run.
 
-**Render model: WB once, per-plate self-stretch (the PixInsight OSC order).** ONE SPCC white balance
-on the enhanced master; each plate then computes its OWN background-neutralisation + MTF from its own
-pixels -- grafting the master's bg-neut onto a plate double-corrects it into a colour cast (the
-original `--split-plates` regression). **Three colour defects fixed on the SWAN/10P sets, measured in
+**Render model: WB once, per-plate self-stretch (the PixInsight OSC order).** ONE white balance, solved
+on the LINEAR master before the enhance; each plate then computes its OWN background-neutralisation + MTF
+from its own pixels -- grafting the master's bg-neut onto a plate double-corrects it into a colour cast
+(the original `--split-plates` regression).
+
+**A broadband SPCC fit goes INTO the pixels before the enhance (option B, 2026-10-09).** PixInsight's
+order is SPCC on the linear data, then the deblur, the gradient, the star extraction and the denoise, so
+every enhancer sees the colour it will be shown in. `MasterPostProcessor` solves the balance on the linear
+master (the crop where there is one, `MasterPreviewRenderer.SolveWhiteBalanceAsync`) and, where
+`WhiteBalanceSolve.ToApply` answers (an SPCC fit through a broadband throughput), the canonical program
+starts with a `WhiteBalanceStep`: `Image.WithWhiteBalanceApplied` multiplies the gains in about the
+pedestal, divided by the largest so no channel is lifted past its level. Every plate the run returns,
+and every file written from them, carries `ColourCalibration.Applied` (FITS `WBAPPLD = T`, the gains as
+applied), and the renderer, the viewer's document (`AstroImageDocument.IsColourInPixels`) and the display
+anchor (`FrameShape.ColourInPixels`) show such a frame with an identity balance and never fit SPCC on it.
+The raw master keeps its UNBALANCED pixels and the triple still to apply. The same rule reaches every
+host of the enhance: `image sharpen` and the enhance endpoint apply the balance a file STATES
+(`MasterPreviewRenderer.StatedToApplyAsync`), the viewer its own broadband SPCC fit
+(`AstroImageDocument.PhotometricColorCalibration`).
+
+Why: solved on the ENHANCED master, SPCC read stars the deblur and the denoise had reshaped. Measured on
+the Centaurus A master (QHY294 Pro C, IDAS LPS D3, 2026-10-09), against the fit on the linear master
+(1.441, 1, 1.585): BlurX alone moved it 5 to 7 %, NoiseX on the starless plate added 18 % in blue, and
+the whole enhance landed at (1.416, 1, 2.003), 26 % bluer. Where the gradient correction sits made under
+1 % of difference (1.453, 1, 1.587 on the flattened master). `image sharpen` with the balance applied
+reproduces the hand-run order to the third figure in the background (R/G 0.360, B/G 0.931).
+
+The sky-background estimate is a guess about the sky and a line-selective fit is a fit of nothing, so
+both stay display multipliers and never enter linear data. **A colour frame naming no filter is taken as
+unfiltered**, which is the throughput its SPCC fit integrated; a dual-band master whose header lost its
+FILTER card therefore has its fit applied, as it was already rendered Linked. The raw master is
+untouched either way. **Three colour defects fixed on the SWAN/10P sets, measured in
 `docs/plans/comet-integration.md` (colour section):** SPCC's clip test reads the frame's OBSERVED peak
 from the pixels, never `MaxValue` (a rewrapped `MaxValue = 1.0` is a display convention; 10P dropped
 545 of 545 stars); SPCC's matcher claims each catalogue star ONCE, brightest detection first (a deep
