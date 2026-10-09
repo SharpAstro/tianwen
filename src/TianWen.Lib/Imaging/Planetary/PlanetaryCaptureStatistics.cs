@@ -273,7 +273,9 @@ public static class PlanetaryCaptureStatistics
         {
             (var score, cut[index], elongation[index], brightness[index]) = FrameGrader.GradeAndShape(estimator, frame);
             quality[index] = score;
-            corrupt[index] = FrameGrader.IsCorruptReadout(frame);
+            // The grade already scanned for a corrupt readout and scored it zero, so only a zero is scanned again, to tell a corrupt
+            // frame from one with nothing in it (#1398): every frame used to be scanned twice.
+            corrupt[index] = score == 0 && FrameGrader.IsCorruptReadout(frame);
         }, cancellationToken).ConfigureAwait(false);
         ImmutableArray<FrameGrade> grades = [.. Enumerable.Range(0, n).Select(i => new FrameGrade(i, (float)quality[i], cut[i], elongation[i], Brightness: brightness[i]))];
         var run = FrameGrader.RunOf(grades);

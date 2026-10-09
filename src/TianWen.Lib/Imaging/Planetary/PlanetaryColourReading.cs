@@ -208,9 +208,12 @@ public static class PlanetaryColourReading
         ReadOnlySpan<float> luminance)
     {
         var (r, g, b) = (new float[red.Length], new float[red.Length], new float[red.Length]);
+        using var rented = ArrayPoolHelper.Rent<float>(red.Length);
+        var owns = rented.AsSpan(0, red.Length);
+        PlanetaryLimbFit.Luminance(red, green, blue, owns);
         for (var i = 0; i < red.Length; i++)
         {
-            var own = (red[i] + green[i] + blue[i]) / 3;
+            var own = owns[i];
             var scale = own > 0 && float.IsFinite(luminance[i]) ? luminance[i] / own : float.NaN;
             (r[i], g[i], b[i]) = (red[i] * scale, green[i] * scale, blue[i] * scale);
         }

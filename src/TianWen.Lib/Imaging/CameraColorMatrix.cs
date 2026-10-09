@@ -172,11 +172,11 @@ public static class CameraColorMatrix
         return result;
     }
 
-    /// <summary>A row-major 3x3 inverse by cofactor expansion; throws on a singular matrix (degenerate spectral input).</summary>
     /// <summary>
     /// The inverse of the row-major 3x3 <paramref name="m"/> into <paramref name="inverse"/>, by its adjugate; false, writing nothing, where
-    /// <paramref name="m"/> is singular (a determinant under 1e-12). The one 3x3 inverse the colour code takes (the audit on #1343 found a
-    /// second, by Cramer's rule, in <see cref="Planetary.PlanetaryColourBalance.GainsThrough"/>).
+    /// <paramref name="m"/> is singular (a determinant under 1e-12). The one 3x3 inverse the colour and planetary code take: the audit on
+    /// #1343 found a second, by Cramer's rule, in <see cref="Planetary.PlanetaryColourBalance.GainsThrough"/>, and the review on #1398 a third
+    /// solving the sky plane's normal equations in <see cref="Planetary.PlanetaryPicture"/>.
     /// </summary>
     internal static bool TryInvert3(ReadOnlySpan<double> m, Span<double> inverse)
     {

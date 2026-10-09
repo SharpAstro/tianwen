@@ -207,11 +207,8 @@ public static class PlanetaryReferenceJudge
         var mr = master.GetChannelSpan(0);
         var mg = master.GetChannelSpan(1);
         var mb = master.GetChannelSpan(2);
-        for (var i = 0; i < theirs.Length; i++)
-        {
-            theirs[i] = (red[i] + green[i] + blue[i]) / 3;
-            ours[i] = (mr[i] + mg[i] + mb[i]) / 3;
-        }
+        PlanetaryLimbFit.Luminance(red, green, blue, theirs);
+        PlanetaryLimbFit.Luminance(mr, mg, mb, ours);
         var (tr, tg, tb) = PlanetaryColourReading.WithLuminance(red, green, blue, MatchTone(ours, theirs, width, height, masterDisk));
         return (
             PlanetaryColourReading.Read(mr, mg, mb, width, height, masterDisk, PlanetaryColour.SkyOrBlack(mr, mg, mb, width, height, masterDisk)),

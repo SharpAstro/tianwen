@@ -85,8 +85,10 @@ public static class PlanetaryInverse
     /// <paramref name="reachPx"/> is the extent, in detector pixels, the transfer is applied over (a window's side): the PSF is computed
     /// on a grid twice that at the fine scale (<see cref="PlanetaryRender.DiffractionGridFor"/>), so the transfer's rings are fine enough
     /// near zero frequency to hold the wing that far (#1213). The 128-sample grid it was left the derived sharpening's model glow 12 to
-    /// 25 % short past the limb; on a window's reach it matched a rendered truth within 2.5 % out to 3 radii. Without a reach, the
-    /// 128-sample grid as before, which every mid-frequency use reads the same.
+    /// 25 % short past the limb; on a window's reach it matched a rendered truth within 2.5 % out to 3 radii, and an obstructed pupil's
+    /// transfer O'Neill's within 0.003 (#1398). Without a reach, the 128-sample grid as before, which loses the wing and so reads every
+    /// frequency past zero high, by about 0.009 at a quarter of the cutoff on a clear pupil and an obstructed one alike: near enough for a
+    /// diagnostic, not for a scorer.
     /// </remarks>
     public static RadialTransfer Diffraction(in Pupil pupil, double wavelengthM, double arcsecPerPixel, int? reachPx = null)
     {

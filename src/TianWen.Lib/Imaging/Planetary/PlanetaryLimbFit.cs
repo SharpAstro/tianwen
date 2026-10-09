@@ -168,11 +168,28 @@ public static class PlanetaryLimbFit
         var channels = image.ChannelCount;
         for (var c = 0; c < channels; c++)
         {
-            var source = image.GetChannelSpan(c);
-            for (var i = 0; i < plane.Length; i++)
-            {
-                plane[i] += source[i] / channels;
-            }
+            AddChannel(plane, image.GetChannelSpan(c), channels);
+        }
+    }
+
+    /// <summary>
+    /// <see cref="Luminance(Image, Span{float})"/> of three planes no image holds (a reference resampled onto a master's grid, a picture
+    /// decoded to linear), into <paramref name="into"/>, by the same steps, so it gives the bits the limb fit would.
+    /// </summary>
+    public static void Luminance(ReadOnlySpan<float> red, ReadOnlySpan<float> green, ReadOnlySpan<float> blue, Span<float> into)
+    {
+        var plane = into[..red.Length];
+        plane.Clear();
+        AddChannel(plane, red, 3);
+        AddChannel(plane, green, 3);
+        AddChannel(plane, blue, 3);
+    }
+
+    private static void AddChannel(Span<float> plane, ReadOnlySpan<float> channel, int channels)
+    {
+        for (var i = 0; i < plane.Length; i++)
+        {
+            plane[i] += channel[i] / channels;
         }
     }
 
