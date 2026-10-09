@@ -13,7 +13,7 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// Phase 3a: the threaded <see cref="EnhanceOptions"/> surface -- per-call backend
-/// selection (Auto / ForceRcAstro / N2n) in <c>DeferredEnhancer</c> and RC-Astro
+/// selection (Auto / ForceRcAstro / TianWen) in <c>DeferredEnhancer</c> and RC-Astro
 /// per-product <see cref="EnhanceTuning"/> flowing into the <c>rc-astro</c> CLI args.
 /// Uses a fake <see cref="IRcAstroCli"/> so it runs with no real binary: backend choice
 /// is asserted via which factory ran, tuning via the captured CLI args.
@@ -114,8 +114,8 @@ public class RcAstroPhase3Tests : IDisposable
     [InlineData(EnhanceBackend.Auto, true, false, false)]         // present but unlicensed -> nothing
     [InlineData(EnhanceBackend.ForceRcAstro, true, false, true)]  // RC when present, license gate skipped
     [InlineData(EnhanceBackend.ForceRcAstro, false, false, false)]// binary absent -> nothing
-    [InlineData(EnhanceBackend.N2n, true, true, true)]            // no in-house lane on this role -> Auto -> RC
-    [InlineData(EnhanceBackend.N2n, false, false, false)]         // no in-house lane, no RC -> nothing
+    [InlineData(EnhanceBackend.TianWen, true, true, true)]            // no in-house lane on this role -> Auto -> RC
+    [InlineData(EnhanceBackend.TianWen, false, false, false)]         // no in-house lane, no RC -> nothing
     public async Task Backend_SelectionMatrix_WithoutAnInHouseLane(EnhanceBackend backend, bool available, bool licensed, bool expectRc)
     {
         var cli = new FakeRcAstroCli(available, licensed);
@@ -141,7 +141,7 @@ public class RcAstroPhase3Tests : IDisposable
 
     /// <summary>
     /// The denoise role's in-house lane: Auto takes RC-Astro where nxt is licensed and the in-house
-    /// model otherwise; <see cref="EnhanceBackend.N2n"/> takes the in-house model even where RC is
+    /// model otherwise; <see cref="EnhanceBackend.TianWen"/> takes the in-house model even where RC is
     /// licensed; ForceRcAstro takes RC whenever the binary exists and the in-house model when it
     /// does not.
     /// </summary>
@@ -149,7 +149,7 @@ public class RcAstroPhase3Tests : IDisposable
     [InlineData(EnhanceBackend.Auto, true, true, "rc")]
     [InlineData(EnhanceBackend.Auto, true, false, "n2n")]
     [InlineData(EnhanceBackend.Auto, false, false, "n2n")]
-    [InlineData(EnhanceBackend.N2n, true, true, "n2n")]
+    [InlineData(EnhanceBackend.TianWen, true, true, "n2n")]
     [InlineData(EnhanceBackend.ForceRcAstro, true, false, "rc")]
     [InlineData(EnhanceBackend.ForceRcAstro, false, false, "n2n")]
     public async Task Denoise_PrefersRcAstroThenTheInHouseModel(EnhanceBackend backend, bool available, bool licensed, string expected)
@@ -169,7 +169,7 @@ public class RcAstroPhase3Tests : IDisposable
 
     /// <summary>
     /// A denoiser built WITHOUT the in-house lane (a composition root that never wired it) degrades
-    /// <see cref="EnhanceBackend.N2n"/> to Auto rather than throwing, because the same options record
+    /// <see cref="EnhanceBackend.TianWen"/> to Auto rather than throwing, because the same options record
     /// reaches roles that cannot serve n2n.
     /// </summary>
     [Fact]
@@ -180,7 +180,7 @@ public class RcAstroPhase3Tests : IDisposable
         var withoutLane = new DeferredDenoiser(cli, () => rc);
         var src = RcAstroTestSupport.BuildNoisyRgb(32, 32, bg: 0.2f, noiseSigma: 0.02f, seed: 7);
 
-        await withoutLane.EnhanceAsync(src, DenoiseVariant.Default, new EnhanceOptions(EnhanceBackend.N2n),
+        await withoutLane.EnhanceAsync(src, DenoiseVariant.Default, new EnhanceOptions(EnhanceBackend.TianWen),
             cancellationToken: TestContext.Current.CancellationToken);
 
         rc.Called.ShouldBeTrue();

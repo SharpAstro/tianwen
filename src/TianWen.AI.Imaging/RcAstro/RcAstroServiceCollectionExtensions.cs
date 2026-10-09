@@ -35,7 +35,7 @@ namespace TianWen.AI.Imaging.RcAstro
                     sp.GetRequiredService<IRcAstroCli>(),
                     () => new RcAstroStarRemover(sp.GetRequiredService<IRcAstroCli>(), sp.GetService<ILogger<RcAstroStarRemover>>()))));
 
-            // The denoise role's in-house lane is the N2N model: EnhanceBackend.N2n selects it
+            // The denoise role's in-house lane is the N2N model: EnhanceBackend.TianWen selects it
             // explicitly, and Auto falls back to it where nxt is unlicensed. Constructed lazily like
             // the others; its model file resolves on first use, never at DI build.
             services.Replace(ServiceDescriptor.Singleton<IDenoiseEnhancer>(sp =>

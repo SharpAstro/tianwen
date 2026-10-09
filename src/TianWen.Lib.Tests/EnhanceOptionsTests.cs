@@ -21,9 +21,9 @@ public class EnhanceOptionsTests
     [InlineData("rcastro", EnhanceBackend.ForceRcAstro)]
     [InlineData("rc-astro", EnhanceBackend.ForceRcAstro)]
     [InlineData("RC", EnhanceBackend.ForceRcAstro)]
-    [InlineData("n2n", EnhanceBackend.N2n)]
-    [InlineData("N2N", EnhanceBackend.N2n)]
-    [InlineData("  n2n ", EnhanceBackend.N2n)]
+    [InlineData("tianwen", EnhanceBackend.TianWen)]
+    [InlineData("TianWen", EnhanceBackend.TianWen)]
+    [InlineData("  tianwen ", EnhanceBackend.TianWen)]
     public void TryParse_ValidBackend_ParsesAndHasNoTuningWhenOverridesNull(string? backend, EnhanceBackend expected)
     {
         var ok = EnhanceOptions.TryParse(backend, null, null, null, out var options, out var error);
@@ -36,6 +36,7 @@ public class EnhanceOptionsTests
 
     [Theory]
     [InlineData("bogus")]
+    [InlineData("n2n")] // renamed 'tianwen' on 2026-10-09 with no alias (the owner: not that level of compatibility yet)
     [InlineData("rc_astro")]
     [InlineData("blurx")]
     public void TryParse_UnknownBackend_FailsWithErrorAndDefaultOptions(string backend)

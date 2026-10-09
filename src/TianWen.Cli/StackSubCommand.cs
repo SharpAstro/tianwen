@@ -274,7 +274,7 @@ internal sealed class StackSubCommand(
         // mirrored from `image sharpen` so `stack --enhance` honours the same knobs.
         var aiBackendOpt = new Option<string>("--ai-backend")
         {
-            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else TianWen's own model where the role has one - default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), or 'n2n' (the in-house TianWen Noise2Noise model for the denoise step - OSC-only, ships with the repo; other roles behave as auto). A role nothing serves is left out: with no star remover the master is enhanced whole-frame. No effect on gradient correction (GraXpert, else the classical fit). 'sas' was removed on 2026-09-26. Implies --enhance unless 'auto'.",
+            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else TianWen's own model where the role has one - default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), or 'tianwen' (TianWen's own model wherever a role has one: today the denoise step's, OSC-only, shipped with the app; other roles behave as auto; 'n2n' until 2026-10-09). A role nothing serves is left out: with no star remover the master is enhanced whole-frame. No effect on gradient correction (GraXpert, else the classical fit). 'sas' was removed on 2026-09-26. Implies --enhance unless 'auto'.",
             DefaultValueFactory = _ => "auto",
         };
         var deblurSharpenOpt = new Option<double>("--deblur-sharpen")

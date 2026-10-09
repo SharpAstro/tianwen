@@ -943,7 +943,7 @@ internal sealed partial class ImageSubCommand(
         // backend-neutral when the n2n lane made them serve more than RC-Astro).
         var aiBackendOpt = new Option<string>("--ai-backend")
         {
-            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else TianWen's own model where the role has one - default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), or 'n2n' (the in-house TianWen Noise2Noise model for the denoise step - OSC-only, ships with the repo; other roles behave as auto). A role nothing serves is left out: with no star remover the program runs whole-frame. No effect on gradient correction (GraXpert, else the classical fit). 'sas' was removed on 2026-09-26.",
+            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else TianWen's own model where the role has one - default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), or 'tianwen' (TianWen's own model wherever a role has one: today the denoise step's, OSC-only, shipped with the app; other roles behave as auto; 'n2n' until 2026-10-09). A role nothing serves is left out: with no star remover the program runs whole-frame. No effect on gradient correction (GraXpert, else the classical fit). 'sas' was removed on 2026-09-26.",
             DefaultValueFactory = _ => "auto",
         };
         var deblurSharpenOpt = new Option<double>("--deblur-sharpen")

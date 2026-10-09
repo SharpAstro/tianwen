@@ -32,7 +32,7 @@ public enum EnhanceBackend
     /// this value too and must keep working. The N2N denoiser is OSC-only (throws on mono, by
     /// design) and is served where the composition root wires it (<c>AddRcAstroAi()</c> does);
     /// a root without the lane falls back to <see cref="Auto"/> for the denoise role as well.</summary>
-    N2n = 3,
+    TianWen = 3,
 }
 
 /// <summary>
@@ -100,15 +100,15 @@ public sealed record EnhanceOptions(EnhanceBackend Backend = EnhanceBackend.Auto
         {
             case "" or "auto": parsed = EnhanceBackend.Auto; break;
             case "rc" or "rcastro" or "rc-astro": parsed = EnhanceBackend.ForceRcAstro; break;
-            case "n2n": parsed = EnhanceBackend.N2n; break;
+            case "tianwen": parsed = EnhanceBackend.TianWen; break;
             case "sas":
                 options = Default;
                 error = "The SETI Astro (SAS) backend was removed on 2026-09-26: its model licence allows use only within SASpro. " +
-                        "Use 'auto' (RC-Astro where licensed, else TianWen's own models), 'rc', or 'n2n'.";
+                        "Use 'auto' (RC-Astro where licensed, else TianWen's own models), 'rc', or 'tianwen'.";
                 return false;
             default:
                 options = Default;
-                error = $"Unknown AI backend '{backend}' (expected 'auto', 'rc', or 'n2n')";
+                error = $"Unknown AI backend '{backend}' (expected 'auto', 'rc', or 'tianwen'; 'n2n' was renamed 'tianwen' on 2026-10-09)";
                 return false;
         }
 
