@@ -35,7 +35,26 @@ def read_master(path):
     with fits.open(path, memmap=False) as h:
         hdu = next(x for x in h if x.data is not None)
         data = np.asarray(hdu.data, dtype=np.float32)
-        return data, int(hdu.header["CANVASX0"]), int(hdu.header["CANVASY0"])
+        # A master stacked alone carries no canvas origin; it is its own frame, at 0, 0.
+        return data, int(hdu.header.get("CANVASX0", 0)), int(hdu.header.get("CANVASY0", 0))
+
+
+def synthetic_soft(sharp, fwhms, beta):
+    """The sharp master blurred by the stated Moffat kernels (the graph's own `channel_kernels`), at its native scale.
+    The convolution is normalised over the COVERED pixels, so the canvas ring stays NaN and its edge is not darkened."""
+    import n2n_operator_export as EX
+    from scipy.signal import fftconvolve
+    kernels = EX.channel_kernels(fwhms, beta)
+    out = np.empty_like(sharp)
+    for c in range(sharp.shape[0]):
+        plane = sharp[c].astype(np.float64)
+        finite = np.isfinite(plane)
+        num = fftconvolve(np.where(finite, plane, 0.0), kernels[c].astype(np.float64), mode="same")
+        den = fftconvolve(finite.astype(np.float64), kernels[c].astype(np.float64), mode="same")
+        blurred = num / np.maximum(den, 1e-12)
+        blurred[~finite] = np.nan
+        out[c] = blurred.astype(np.float32)
+    return out
 
 
 def stretch(unit_crop, mins, betas):
@@ -93,7 +112,7 @@ def gate_read(truth_lum, input_lum, output_lum, masks=None):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--cache", required=True)
+    p.add_argument("--cache", default="", help="the training cache holding --checkpoint; empty reads no checkpoint arm")
     p.add_argument("--checkpoint", default="e31_s0.pt")
     p.add_argument("--sharp", default="C:/temp/e2/e210b-statue/sharp/master_StatueofLibertyNebula_light_60s_-5C_g120.fits")
     p.add_argument("--soft", default="C:/temp/e2/e210b-statue/soft/master_StatueofLibertyNebula_light_60s_-5C_g120.fits")
@@ -117,6 +136,17 @@ def main():
                    help="with --zoom: bring each arm's output back to the native crop (bicubic, the exact inverse "
                         "factor) and read it against the UNZOOMED truth, i.e. the runtime path of deconvolving a "
                         "frame at a scale inside the prior's width band")
+    p.add_argument("--synthetic", action="store_true",
+                   help="#1374: no soft master; the input is the sharp master blurred by --kernels at its native scale "
+                        "(covered pixels only, the canvas ring kept NaN), so the truth is the master itself")
+    p.add_argument("--min-rule", choices=("covered", "zero"), default="covered",
+                   help="#1374: the stretch minimum on a master with a canvas ring. 'covered' skips NaN (the darkest "
+                        "covered pixel: n2n_operator_real's rule, the published row's and every C# runner's); 'zero' "
+                        "turns NaN into 0 first, n2n_operator_master's rule. A frame with no ring reads the same")
+    p.add_argument("--read-rule", choices=("covered", "zero"), default=None,
+                   help="#1374: READ every row in this rule's stretch, whatever --min-rule fed the operator: each output "
+                        "is unstretched with the parameters it was made with and restretched with these, and the truth "
+                        "and the input are stretched with these, so two --min-rule runs can be read in common units")
     p.add_argument("--onnx", default=None,
                    help="E7: an operator graph written by n2n_operator_export.py, read as one more arm through ONNX "
                         "Runtime on the CPU with the same per-channel kernels, and its output's distance from each "
@@ -127,7 +157,11 @@ def main():
 
     dev = torch.device(args.device)
     sharp, sx0, sy0 = read_master(args.sharp)
-    soft, fx0, fy0 = read_master(args.soft)
+    if args.synthetic:
+        soft, fx0, fy0 = synthetic_soft(sharp, [float(v) for v in args.kernels.split(",")], args.beta), sx0, sy0
+        print(f"synthetic pair: the input is {os.path.basename(args.sharp)} blurred by {args.kernels} px at beta {args.beta}")
+    else:
+        soft, fx0, fy0 = read_master(args.soft)
     cx, cy, size = (int(v) for v in args.crop.split(","))
     dx, dy = sx0 - fx0, sy0 - fy0          # sharp pixel -> soft pixel
     sharp_crop = sharp[:, cy:cy + size, cx:cx + size]
@@ -149,10 +183,14 @@ def main():
         print(f"zoom {args.zoom} -> {zoom_eff:.5f}: crops resampled to {side} px, kernels scaled by {zoom_eff:.5f}"
               + (", read at NATIVE scale after the round trip" if args.roundtrip else ""))
 
-    # The soft master's own stretch, from its whole frame, applied to both crops.
+    # The soft master's own stretch, from its whole frame, applied to both crops. The minimum follows --min-rule on a
+    # master with a canvas ring (#1374); session_stretch_params skips NaN, so 'zero' hands it the ring as 0.
     data_max = float(np.nanmax(soft))
     divisor = data_max if data_max > 1.0 else 1.0
-    mins, betas = OP.session_stretch_params(soft, divisor)
+    mins, betas = OP.session_stretch_params(soft if args.min_rule == "covered" else np.nan_to_num(soft, nan=0.0), divisor)
+    ring = float(np.mean(~np.isfinite(soft)))
+    print(f"stretch minimum rule '{args.min_rule}' over a canvas ring of {ring:.4%} of the frame: "
+          f"min ({mins[0]:.5f}, {mins[1]:.5f}, {mins[2]:.5f})")
     inv = np.float32(1.0 / divisor) if divisor != 1.0 else np.float32(1.0)
     soft_s = stretch(soft_crop * inv, mins, betas)
     sharp_s = stretch(sharp_crop * inv, mins, betas)
@@ -171,7 +209,7 @@ def main():
 
     arms = {"E3.0 (no prior)": OP.RLOperator(args.rl_k).to(dev).eval()}
     for name in (args.checkpoint, args.checkpoint.replace(".pt", "_final.pt")):
-        if os.path.exists(os.path.join(args.cache, name)):
+        if args.cache and os.path.exists(os.path.join(args.cache, name)):
             model, _ = S.load_model(args.cache, name, dev)
             arms[f"E3.1 {name}"] = model.eval()
 
@@ -217,6 +255,23 @@ def main():
                 raise SystemExit(f"round trip of {arm} landed on {out.shape}, wanted {soft_s.shape}")
         if onnx_arm:
             onnx_distance("after the round trip")
+
+    if args.read_rule and args.read_rule != args.min_rule:
+        # Back to linear through the stretch each output was made in (MTF(1 - beta) is MTF's inverse), then into the
+        # read rule's stretch, with the truth and the input stretched the same way.
+        read_src = soft if args.read_rule == "covered" else np.nan_to_num(soft, nan=0.0)
+        rmins, rbetas = OP.session_stretch_params(read_src, divisor)
+
+        def restretched(out):
+            lin = np.stack([OP.mtf(1.0 - betas[c], out[c].astype(np.float64)) + mins[c] for c in range(out.shape[0])])
+            return stretch(lin.astype(np.float32), rmins, rbetas)
+
+        outputs = {arm: restretched(out) for arm, out in outputs.items()}
+        native = args.roundtrip or args.zoom == 1.0
+        soft_s = stretch((soft_native if native else soft_crop) * inv, rmins, rbetas)
+        sharp_s = stretch((sharp_native if native else sharp_crop) * inv, rmins, rbetas)
+        print(f"read in the '{args.read_rule}' rule's stretch: min ({rmins[0]:.5f}, {rmins[1]:.5f}, {rmins[2]:.5f}) "
+              f"beta ({rbetas[0]:.4f}, {rbetas[1]:.4f}, {rbetas[2]:.4f})")
 
     masks = None
     if args.source_maps:

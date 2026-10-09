@@ -3664,15 +3664,42 @@ Two of the five items this list had before the C# side were settled by it: the r
 graph its own minimum and balance, and the contract is `ModelContract`'s (both under "Wired, 2026-10-09" above). Of the
 three left, the GPU path was settled the same day:
 
-1. **Which stretch minimum the prior was trained on.** `n2n_operator_real` skips NaN, so on a master with a NaN ring
-   the minimum is the darkest covered pixel; `n2n_operator_master` turns NaN into 0 first. On the Statue master they give
-   balances 0.0049 / 0.0083 / 0.0102 against 0.0175 / 0.0433 / 0.0459, and the training cache predates the ring fix. The
-   runner takes the covered pixels' (the rule the published row was read with, and every C# runner's); a frame with no
-   ring is the same either way, and a ringed master is where a measurement could still move it. Tracked by #1374.
+1. *Settled 2026-10-09:* **the stretch minimum stays the covered pixels'** (#1374, below).
 2. *Settled the same day:* the GPU path (#1375). DirectML refused torch.export's `allowzero = 1` on the graph's
    Reshapes, which the exporter now clears (above), and it runs the graph at about 6.5 times the CPU's speed.
 3. **The kernel rule is still #741's.** The graph takes any kernel, so changing the rule needs no re-export, and Auto
    picking the deconvolver is one line of `OnnxTianWenDeconvolver.CanServe` once #741 gives it a kernel and a decline.
+
+#### The stretch minimum on a ringed master: the covered pixels' (#1374, 2026-10-09)
+
+`n2n_operator_real` skips NaN, so on a master with a NaN ring the minimum is the darkest covered pixel;
+`n2n_operator_master` turns NaN into 0 first, and the training cache predates the ring fix, so which one the prior
+learnt was open. The runner takes the covered pixels' (the rule the published row was read with, and every C# runner's).
+
+Read on the Centaurus A master (QHY294 Pro C, a thin NaN ring over 0.11 % of the frame, its covered minimum (0.0034,
+0.0189, 0.0105) far from 0) as a synthetic pair (`n2n_operator_real.py --synthetic`: the master blurred by the published
+row's kernels, 0.77 / 0.91 / 0.98 px at beta 4, covered pixels only), through the shipped graph at 1.28125 with the round
+trip, fed under each rule (`--min-rule`). The two rules stretch differently, so each output is put back to linear through
+the stretch it was made in and READ in one rule's stretch (`--read-rule`), under both rules in turn and on two 1024 px
+fields, the galaxy and plain star field:
+
+| field, read in | fed | width out/truth | skirt | detail | band residual (1e-3) |
+|---|---|---|---|---|---|
+| galaxy, covered | covered | 0.939 | 0.93 | 1.00 | 0.344 |
+| galaxy, covered | zero | 0.961 | 0.90 | 0.98 | 1.116 |
+| galaxy, zero | covered | 0.944 | 0.96 | 1.00 | 0.180 |
+| galaxy, zero | zero | 0.968 | 0.94 | 1.00 | 0.238 |
+| stars, covered | covered | 0.944 | 0.82 | 1.00 | 0.278 |
+| stars, covered | zero | 0.965 | 0.54 | 0.97 | 1.122 |
+| stars, zero | covered | 0.949 | 0.85 | 1.00 | 0.129 |
+| stars, zero | zero | 0.971 | 0.69 | 1.00 | 0.207 |
+
+The covered rule keeps the star skirt and reads closer to the truth in every cell. The zero rule's narrower overshoot in
+width is not a better deconvolution: it leaves red and blue nearly as they came in (their per-channel width 0.98 to 1.00
+of the truth's, the input's 1.03 to 1.09), and only green is sharpened. So the runner's rule stays. A synthetic pair's
+truth carries the master's own noise, which a band residual counts against any denoising, so the residual column is read
+rule against rule on the same arm, never against the no-prior operator (E3.0, which reads 0.97 in width and about half
+the prior's residual here); the published row's real pair is gone (above).
 
 ## 7. Phasing
 
