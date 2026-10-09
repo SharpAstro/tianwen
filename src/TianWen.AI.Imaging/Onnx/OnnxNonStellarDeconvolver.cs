@@ -13,8 +13,9 @@ using TianWen.Lib.Stat;
 namespace TianWen.AI.Imaging.Onnx;
 
 /// <summary>
-/// PSF-conditional ONNX deconvolver for the starless plate: the runtime TianWen's own deconvolver ships
-/// through (deconvolver-training.md E7), with the model file named by the composition root. Two ONNX
+/// PSF-conditional ONNX deconvolver for the starless plate, for a psf01-conditioned NAFNet graph (the plan's first
+/// shape for TianWen's own deconvolver, before E3 replaced it with an operator that takes the kernel itself, which ships
+/// through <see cref="OnnxTianWenDeconvolver"/>), with the model file named by the composition root. Two ONNX
 /// inputs: the image tensor and a scalar <c>psf01</c> in <c>[0, 1]</c> that the network broadcasts
 /// internally and concatenates as a 4th input channel. Delegates the chunked-inference pipeline to
 /// <see cref="ChunkedNafnetRunner"/>; this class owns PSF estimation, session management, and the

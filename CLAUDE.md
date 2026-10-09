@@ -1028,6 +1028,12 @@ choose AND probe the licence on the FIRST `EnhanceAsync`, never at DI registrati
 - **The SETI Astro (SAS Pro AI4) tier was REMOVED on 2026-09-26** (its licence allows use only within SASpro):
   nothing loads its weights, `EnhanceBackend` value 2 stays unassigned, and a model file is never opened or derived
   from; its GPL-3.0 Python is ours to LEARN from (`docs/plans/model-training-roadmap.md` § 8).
+- **TianWen's own deconvolver is the whole-frame DEBLUR, and it serves only when asked** (`OnnxTianWenDeconvolver`,
+  E3.4d, #844): `--ai-backend tianwen` AND a stated kernel (`EnhanceTuning.Deconvolution`, `--deconv-kernel`), since
+  nothing finds the blur in one frame or declines a frame with none (#741). The graph takes the KERNEL as an input;
+  `OperatorDeconvolutionRunner` is `n2n_operator_master.py` step for step through `SplineZoom` (scipy's order-3
+  zoom), held to `training/denoise/n2n_operator_runtime.py`. **It runs on the CPU**: DirectML refuses the graph at
+  session build. `docs/plans/deconvolver-training.md` § 6.
 - **The NAFNet pre-stretch measures COVERED pixels only** (`ChunkedNafnetRunner.ApplyInputStretch`,
   `Image.AbsentPixels`, `Image.MinAndShiftedMedian`; the ring put back exactly, `CopyAbsent`); an interior zero
   still counts.

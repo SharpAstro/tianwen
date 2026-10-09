@@ -457,4 +457,60 @@ public class ModelContractTests : IDisposable
         await Should.ThrowAsync<ModelContractException>(
             async () => await denoiser.EnhanceAsync(TinyColourFrame(), 1.0f, TestContext.Current.CancellationToken));
     }
+
+    /// <summary>The deconvolver's interface, by hand: an NCHW image, a per-channel kernel [3, k, k] and two per-channel
+    /// vectors [3] (<c>n2n_operator_export.py</c>; ORT reports an open axis as -1).</summary>
+    private static ModelGraph OperatorGraph(int kernelChannels = 3) => new(
+        [
+            new ModelGraphTensor("image", [-1, 3, -1, -1]),
+            new ModelGraphTensor("kernel", [kernelChannels, -1, -1]),
+            new ModelGraphTensor("stretch_min", [3]),
+            new ModelGraphTensor("stretch_balance", [3]),
+        ],
+        ["output"]);
+
+    private static ModelContract OperatorContract(byte[] weights, int kernelRank = 3) => new()
+    {
+        ContractVersion = ModelContract.SupportedVersion,
+        Model = N2nDenoiser.ModelFileName,
+        OnnxSha256 = Sha256Of(weights),
+        Domain = ModelDomain.MtfStretched,
+        StretchMedianTarget = AiNafnetInputs.TargetMedian,
+        Inputs =
+        [
+            new ModelContractInput { Name = "image", Role = ModelRoles.Image, Channels = 3 },
+            new ModelContractInput { Name = "kernel", Role = ModelRoles.Kernel, Channels = 3, Rank = kernelRank },
+            new ModelContractInput { Name = "stretch_min", Role = ModelRoles.StretchMin, Channels = 3, Rank = 1 },
+            new ModelContractInput { Name = "stretch_balance", Role = ModelRoles.StretchBalance, Channels = 3, Rank = 1 },
+        ],
+        Output = "output",
+    };
+
+    [Fact]
+    public void APerChannelKernelAndVectorsAreCheckedByTheirRankWithTheChannelAxisFirst()
+    {
+        var modelPath = Place(StandInWeights, OperatorContract(StandInWeights));
+
+        ModelContract.LoadBeside(modelPath).Check(modelPath, OnnxTianWenDeconvolver.Feed, OperatorGraph()).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void AKernelOfAnotherRankIsRefused()
+    {
+        var modelPath = Place(StandInWeights, OperatorContract(StandInWeights, kernelRank: 1));
+
+        var problems = ModelContract.LoadBeside(modelPath).Check(modelPath, OnnxTianWenDeconvolver.Feed, OperatorGraph());
+
+        problems.ShouldHaveSingleItem().ShouldContain("'kernel' has rank 1 in the contract and the graph declares [3,?,?]");
+    }
+
+    [Fact]
+    public void AKernelWithAnotherChannelCountIsRefused()
+    {
+        var modelPath = Place(StandInWeights, OperatorContract(StandInWeights));
+
+        var problems = ModelContract.LoadBeside(modelPath).Check(modelPath, OnnxTianWenDeconvolver.Feed, OperatorGraph(kernelChannels: 4));
+
+        problems.ShouldHaveSingleItem().ShouldContain("'kernel' has 3 channels in the contract and the graph declares [4,?,?]");
+    }
 }

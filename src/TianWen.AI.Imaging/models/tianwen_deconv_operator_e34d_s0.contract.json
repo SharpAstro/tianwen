@@ -1,0 +1,33 @@
+{
+  "contractVersion": 1,
+  "model": "tianwen_deconv_operator_e34d_s0.onnx",
+  "onnxSha256": "b11c94fa4da2ff88874b16191456bf1f95453d72cbbefeee4ceb8b48024749a3",
+  "domain": "mtfStretched",
+  "stretchMedianTarget": 0.25,
+  "inputs": [
+    {
+      "name": "image",
+      "role": "image",
+      "channels": 3
+    },
+    {
+      "name": "kernel",
+      "role": "kernel",
+      "channels": 3,
+      "rank": 3
+    },
+    {
+      "name": "stretch_min",
+      "role": "stretchMin",
+      "channels": 3,
+      "rank": 1
+    },
+    {
+      "name": "stretch_balance",
+      "role": "stretchBalance",
+      "channels": 3,
+      "rank": 1
+    }
+  ],
+  "output": "output"
+}

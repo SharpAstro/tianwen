@@ -46,10 +46,11 @@ internal static class ImageEndpoints
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
-            // Same parser the CLI uses (single source of truth for auto/rc/sas/n2n + tuning).
-            if (!EnhanceOptions.TryParse(
-                    request.Backend, request.DeblurSharpen, request.DenoiseStrength, request.DenoiseIterations,
-                    out var options, out var error))
+            // Same parsers the CLI uses (single source of truth for auto/rc/tianwen, the tuning and the kernel).
+            if (!DeconvolutionKernel.TryParse(request.DeconvKernel, request.DeconvBeta, request.DeconvResample, out var kernel, out var error)
+                || !EnhanceOptions.TryParse(
+                    request.Backend, request.DeblurSharpen, request.DenoiseStrength, request.DenoiseIterations, kernel,
+                    out var options, out error))
             {
                 return EnvelopeResults.Json(
                     ResponseEnvelope<string>.Fail(error),

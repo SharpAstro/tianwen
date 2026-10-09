@@ -25,13 +25,14 @@ public enum EnhanceBackend
     /// product is licensed). Falls back to the in-house model only when the binary is absent.</summary>
     ForceRcAstro = 1,
 
-    /// <summary>Prefer the in-house TianWen model for any role that has one -- today that is
-    /// the DENOISE role only (the in-house <c>tianwen_denoise_osc_convmapb_s2</c> net) -- and behave
-    /// as <see cref="Auto"/> for every other role. Scoped this way because one options record
-    /// threads through every step of a pipeline run, so the star remover and deconvolver see
-    /// this value too and must keep working. The N2N denoiser is OSC-only (throws on mono, by
-    /// design) and is served where the composition root wires it (<c>AddRcAstroAi()</c> does);
-    /// a root without the lane falls back to <see cref="Auto"/> for the denoise role as well.</summary>
+    /// <summary>Prefer the in-house TianWen model for any role that has one -- the DENOISE role (the
+    /// <c>tianwen_denoise_osc_convmapb_s2</c> net) and the whole-frame DEBLUR (E3.4d's deconvolution
+    /// operator, which also needs its kernel stated, <see cref="EnhanceTuning.Deconvolution"/>) -- and
+    /// behave as <see cref="Auto"/> for every other role. Scoped this way because one options record
+    /// threads through every step of a pipeline run, so the star remover sees this value too and
+    /// must keep working. Both models are OSC-only. The deconvolver is served ONLY under this value:
+    /// <see cref="Auto"/> passes it over until it can find its own kernel and decline a frame with
+    /// nothing to remove (#741).</summary>
     TianWen = 3,
 }
 
@@ -48,10 +49,14 @@ public enum EnhanceBackend
 /// <param name="DenoiseStrength">Denoise strength in [0, 1]. RC maps it to <c>nxt --dn</c>
 /// (overriding the noise-adaptive auto value); the N2N backend maps it to its blend dial.</param>
 /// <param name="DenoiseIterations">Denoiser iterations; RC maps it to <c>nxt --it</c>.</param>
+/// <param name="Deconvolution">The blur TianWen's own deconvolver is asked to remove (<see cref="DeconvolutionKernel"/>):
+/// it takes its kernel as an input and serves only a run that states one, since nothing yet finds a kernel in a single
+/// frame (#741). RC-Astro measures its own and ignores this.</param>
 public sealed record EnhanceTuning(
     float? DeblurSharpen = null,
     float? DenoiseStrength = null,
-    int? DenoiseIterations = null);
+    int? DenoiseIterations = null,
+    DeconvolutionKernel? Deconvolution = null);
 
 /// <summary>
 /// Per-operation enhancement options, threaded immutably from the call site (CLI flags,
@@ -69,14 +74,14 @@ public sealed record EnhanceOptions(EnhanceBackend Backend = EnhanceBackend.Auto
 
     /// <summary>
     /// Parses an immutable <see cref="EnhanceOptions"/> from a backend string and per-product
-    /// strength overrides. The single source of truth for the <c>auto</c>/<c>rc</c>/<c>n2n</c>
+    /// strength overrides. The single source of truth for the <c>auto</c>/<c>rc</c>/<c>tianwen</c>
     /// mapping and the "null override =&gt; enhancer default" tuning gate, shared by the CLI
     /// (<c>image sharpen</c>, <c>stack --enhance</c>) and the server enhance endpoint so they
     /// never drift. Callers convert their own sentinels (e.g. the CLI's <c>-1</c> "unset") to a
     /// <c>null</c> before calling.
     /// </summary>
     /// <param name="backend"><c>auto</c> (<c>null</c>/empty =&gt; auto), <c>rc</c>/<c>rcastro</c>/<c>rc-astro</c>,
-    /// or <c>n2n</c> (case-insensitive). Anything else =&gt; <c>false</c> with <paramref name="error"/> set; <c>sas</c>
+    /// or <c>tianwen</c> (case-insensitive). Anything else =&gt; <c>false</c> with <paramref name="error"/> set; <c>sas</c>
     /// gets its own message, because a script written before 2026-09-26 still says it.</param>
     /// <param name="deblurSharpen">RC <c>bxt --sn</c> override, or <c>null</c> for the enhancer default.</param>
     /// <param name="denoiseStrength">Denoise strength in <c>[0, 1]</c>: RC maps it to <c>nxt --dn</c>
@@ -84,6 +89,8 @@ public sealed record EnhanceOptions(EnhanceBackend Backend = EnhanceBackend.Auto
     /// (<c>out = in + s*(den - in)</c>, <c>null</c> = 1.0, and 0 is rejected there -- run without the
     /// denoise step instead of asking a denoiser to do nothing).</param>
     /// <param name="denoiseIterations">RC <c>nxt --it</c> override, or <c>null</c> for the enhancer default.</param>
+    /// <param name="deconvolution">The kernel TianWen's own deconvolver is asked to remove
+    /// (<see cref="DeconvolutionKernel.TryParse"/>), or <c>null</c> where none was stated.</param>
     /// <param name="options">The parsed options (<see cref="Default"/> when this returns <c>false</c>).</param>
     /// <param name="error">A human-readable reason when this returns <c>false</c>; otherwise <c>null</c>.</param>
     public static bool TryParse(
@@ -91,6 +98,7 @@ public sealed record EnhanceOptions(EnhanceBackend Backend = EnhanceBackend.Auto
         float? deblurSharpen,
         float? denoiseStrength,
         int? denoiseIterations,
+        DeconvolutionKernel? deconvolution,
         out EnhanceOptions options,
         [NotNullWhen(false)] out string? error)
     {
@@ -114,8 +122,8 @@ public sealed record EnhanceOptions(EnhanceBackend Backend = EnhanceBackend.Auto
 
         // A null on every override means "use each enhancer's own default", which is exactly
         // EnhanceTuning == null (no per-product steering) -- bit-identical to the pre-option path.
-        var tuning = deblurSharpen.HasValue || denoiseStrength.HasValue || denoiseIterations.HasValue
-            ? new EnhanceTuning(deblurSharpen, denoiseStrength, denoiseIterations)
+        var tuning = deblurSharpen.HasValue || denoiseStrength.HasValue || denoiseIterations.HasValue || deconvolution is not null
+            ? new EnhanceTuning(deblurSharpen, denoiseStrength, denoiseIterations, deconvolution)
             : null;
         options = new EnhanceOptions(parsed, tuning);
         return true;

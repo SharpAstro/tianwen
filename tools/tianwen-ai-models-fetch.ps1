@@ -159,7 +159,9 @@ if (-not $NoGraXpert) {
 # plain raw host would serve the stub again).
 # Each model travels with its <stem>.contract.json (a plain tracked file, not an LFS object): the loader
 # refuses a model whose contract is not beside it in the same directory (#824).
-$tianwenNativeModels = @('tianwen_denoise_osc_convmapb_s2.onnx', 'tianwen_denoise_osc_convmapb_s2.contract.json')
+$tianwenNativeModels = @(
+    'tianwen_denoise_osc_convmapb_s2.onnx', 'tianwen_denoise_osc_convmapb_s2.contract.json',
+    'tianwen_deconv_operator_e34d_s0.onnx', 'tianwen_deconv_operator_e34d_s0.contract.json')
 $tianwenRepoModelsDir = Join-Path $PSScriptRoot '..' 'src' 'TianWen.AI.Imaging' 'models'
 $tianwenLfsMediaBase = 'https://media.githubusercontent.com/media/SharpAstro/tianwen/main/src/TianWen.AI.Imaging/models'
 

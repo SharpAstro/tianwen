@@ -47,6 +47,11 @@ public static class AiServiceCollectionExtensions
         services.TryAddSingleton<IDenoiseEnhancer>(sp => new N2nDenoiser(
             sp.GetRequiredService<IModelResolver>(),
             sp.GetService<ILogger<N2nDenoiser>>()));
+        // TianWen's own deconvolver is the whole-frame deblur, and it serves only a run that names it and states its
+        // kernel (OnnxTianWenDeconvolver.CanServe), so registering it changes nothing for any other run.
+        services.TryAddSingleton<IImageDeblurrer>(sp => new OnnxTianWenDeconvolver(
+            sp.GetRequiredService<IModelResolver>(),
+            sp.GetService<ILogger<OnnxTianWenDeconvolver>>()));
         // Gradient correction is the one role with an AI-free implementation in TianWen.Lib, so a missing
         // GraXpert install degrades to it instead of to a missing-model failure.
         services.TryAddSingleton<OnnxBackgroundExtractor>();

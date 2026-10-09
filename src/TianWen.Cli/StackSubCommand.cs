@@ -328,6 +328,8 @@ internal sealed class StackSubCommand(
                 saturationOpt, contrastBoostOpt,
             },
         };
+        var deconvKernelOpts = new DeconvolutionKernelOptions();
+        deconvKernelOpts.AddTo(stackCommand);
         stackCommand.SetAction(async (parseResult, ct) =>
         {
             var dataRoot = parseResult.Required(dataRootArg);
@@ -438,11 +440,17 @@ internal sealed class StackSubCommand(
             var denoiseIterations = parseResult.GetValue(denoiseIterationsOpt);
             // Shared backend + tuning parse (see EnhanceOptions.TryParse) -- same source of truth
             // as `image sharpen` and the server enhance endpoint. CLI sentinels (-1 / 0) map to null.
+            if (!deconvKernelOpts.TryRead(parseResult, out var deconvKernel, out var kernelError))
+            {
+                consoleHost.WriteError(kernelError);
+                return 1;
+            }
             if (!EnhanceOptions.TryParse(
                     parseResult.GetValue(aiBackendOpt),
                     deblurSharpen >= 0 ? (float)deblurSharpen : null,
                     denoiseStrength >= 0 ? (float)denoiseStrength : null,
                     denoiseIterations >= 1 ? denoiseIterations : null,
+                    deconvKernel,
                     out var enhanceOptions, out var enhanceError))
             {
                 consoleHost.WriteError(enhanceError);

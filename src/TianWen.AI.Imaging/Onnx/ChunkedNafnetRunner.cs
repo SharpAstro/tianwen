@@ -14,9 +14,9 @@ namespace TianWen.AI.Imaging.Onnx;
 
 /// <summary>
 /// Shared chunked-inference pipeline for the NAFNet-shaped ONNX enhancers. Each
-/// concrete enhancer (<see cref="OnnxNonStellarDeconvolver"/> today, the shell TianWen's own
-/// deconvolver ships through; the SETI Astro star remover and sharpener that also ran here went with
-/// the SAS tier on 2026-09-26) supplies a session + IO names +
+/// concrete enhancer (<see cref="OnnxNonStellarDeconvolver"/> today, a psf01 graph's shell; TianWen's own
+/// deconvolver runs through <see cref="OperatorDeconvolutionRunner"/> instead; the SETI Astro star remover and
+/// sharpener that also ran here went with the SAS tier on 2026-09-26) supplies a session + IO names +
 /// model channel count + any per-call extra inputs (e.g. the
 /// PSF-conditional scalar) and gets a <see cref="ChunkedNafnetResult"/>
 /// back with the output image plus per-phase timings.
