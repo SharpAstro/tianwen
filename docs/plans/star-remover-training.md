@@ -1590,6 +1590,18 @@ beside it:
 What the draw buys, the right energy and direction with no bias, is realism rather than accuracy. Whether a user-facing
 AI-free remover wants that is a product question, the owner's.
 
+#### R2e's background exported for the next arm (2026-10-09)
+
+`degrade --steer` takes the steer into an export (one parser for the three verbs that take one). The export is arm B's
+sessions, cells, draws, noise shape and seed again, with:
+- the fine steer (0.5,2,0.8,1);
+- the nebula knots;
+- the knots test's cap on compact knots.
+
+It is written to `E:\tianwen-scratch\r1-train-synth2` by `C:\temp\e2\run-r2ds-export.ps1`, from the build of the commit
+that added the option. Whether an arm trains on it waits on R2d's matched-schedule read: if A beats the two fixes at
+the same schedule, the synthetic background is set aside and this export with it.
+
 #### S2: generate it, S3: check it, S4: fill with it
 
 - **S2.** The texture drawn along an orientation field, isotropic where the coarse plate shows none (a steerable sum of
