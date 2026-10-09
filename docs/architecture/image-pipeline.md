@@ -499,3 +499,190 @@ survey of the reference archive found zero guiding keywords across N.I.N.A.- and
 lights, so they are ours. The session stamps `ICameraDriver.GuideStats` just before `GetImageAsync`,
 since the statistic is only complete once the shutter closes and that call is the one place an
 `ImageMeta` is built. Pinned by `GuideStatisticsTests` + an end-to-end `SessionImagingTests` case.
+
+## Rules in full (moved from CLAUDE.md, 2026-10-09)
+
+CLAUDE.md keeps one line per rule for the five image sections below; this is their full text as it stood, moved verbatim, with the measurement behind each rule.
+
+### Image pipeline and buffer lifecycle
+
+Camera → `ChannelBuffer` → `Image` → consumer → `image.Release()` → camera recycles. Ownership
+vocabulary (own/borrow/consume), the four conventions and the DEBUG leak leg:
+`docs/plans/frame-lifecycle.md`. Driver coverage matrix, full-scale numbers and the header parse:
+`docs/architecture/image-pipeline.md`. Rules that bite:
+
+- **Who owns a frame is stated ONCE, in the `<remarks>` on `Image`.** Never derive "may I release
+  this?" from a `ReferenceEquals`: the answer is always in hand one branch earlier, else make the
+  producer CONSUME its input.
+- Never hold an `Image` from `GetImageAsync` longer than needed; it pins the camera buffer.
+- **A preview of a frame someone else owns LEASES it for the copy**: `AstroImageDocument.FromLiveFrameAsync`
+  (the TUI; lease, copy, adopt the copy) or `LiveFramePreviewSource.AcceptFrame` (the GUI's live and guider
+  panes; lease, normalise into its own planes). **Never `AdoptImageAsync`**, which consumes its input: the
+  TUI once rescaled the session's own sub to [0, 1] in place while it waited for its FITS write. **And never
+  a bare read, on the render thread either**: the owner releases from ITS thread, and the GUI's unleased
+  read threw mid-autofocus in the P0a live check. A frame released before the lease is skipped, not shown.
+- **A demosaic the viewer OFFERS must have its own branch in `image.frag`**, or a Save's CPU debayer
+  silently writes a different picture from the one on screen. `DebayerAlgorithm.Auto` resolves via
+  `ResolveAuto` before `GpuDebayerMode`, which THROWS on an unresolved Auto rather than falling
+  through to MHC; VNG's thresholds are ABSOLUTE, so both GPU and CPU paths must be fed a `[0, 1]`
+  mosaic. Pinned by `GpuVngDebayerParityTests`.
+- **Every gradient in a demosaic must compare two samples of the SAME colour, or a flat field gets a
+  colour-dependent bias invisible to a self- or GPU-parity test** (VNG's mixed colour differences put
+  a 6.4-level, two-pixel-alternating stripe over every flat background, thirty times what MHC/AHD
+  show). Pinned by `VngFlatFieldBiasTests`, the one test that asserts on a FLAT field. **And a tap past the
+  frame's edge must read its OWN colour: mirror about the edge sample, never repeat it** (#1258; the CPU MHC's
+  `AtMirrored`, SER.Lib's `SerImaging.At`, the shader's `rawAt`): a repeated edge sample is the neighbouring colour,
+  and wherever the colours' levels differ (a planetary sky with a pedestal) the outer two rows and columns read
+  wrong, blue's edge row 13 % low on a Uranus-C master. Pinned by a mosaic whose colours are each FLAT at their
+  own level (`DebayerMhcTests`, `GpuVngDebayerParityTests`), which a one-level flat field passes either way.
+- `Array2DPool` is scratch only; camera buffers use `ChannelBuffer`. A buffer nobody released is
+  findable in DEBUG (`ChannelBufferLeakTracker`); the recycle loop is complete for DAL/Fake/Alpaca/
+  ASCOM/Canon, a streaming driver's multi-plane frames going through `PlaneRecycler`; FC.SDK.Raw's own
+  decode buffers are that library's to recycle. **A full pool budget makes room by evicting the oldest
+  arrays of other shapes, and its policy is tested on an `Array2DPoolCore` of its own, never through the
+  shared pool**, whose Gen2 trim empties it above 90 % memory load and so makes any fill-the-budget
+  test measure the machine (it emptied a 256 MiB fill halfway on a loaded box, and never ran on CI).
+- **A driver's frame is in ADU counts that agree with its `BitDepth` and `MaxADU`** (`ICameraDriver.GetImageAsync` wraps
+  it by them): the Canon driver's unit-referred floats under Int16 and 16383 were divided by 16383 by the unit normalisation
+  whenever the peak passed 1, and written to FITS as 0, 1 and 2 (#1101); its frame is now ADU, clipped at the body's white point
+  (`CanonWhitePoint`), **with the black level kept in** as any camera's offset is: black-subtracted, a dark's noise below zero
+  was written to the 16-bit file as 0 (medians of 0).
+- **`Image.MaxValue` is the peak pixel OBSERVED, not saturation** (`ImageMeta.SensorFullScaleAdu` is
+  the fixed value). Two "full scale" numbers must not be conflated: the BITPIX container width vs the
+  native ADC resolution; never route a native ADC depth through `BitDepthEx.FromValue` (falls back
+  to the container width). `Image.UnitScaleDivisor` is the single source of truth for [0,1]
+  normalisation; a private `1/MaxValue` diverges the moment `SensorFullScaleAdu` is present.
+
+### The image is not necessarily in HDU 0
+
+`Fits.ReadFirstImageHdu()` / `ReadFirstImageHduHeaderOnly()` (`FitsHduExtensions`) walk to the
+first HDU that carries an image, and **every reader of an image file uses them**:
+`Image.TryReadFitsFile`, `Image.TryReadFitsHeader`, `MasterCache.ReadFingerprint`,
+`IntegrationFitsWriter.IsTianWenMaster`. A bare `ReadHDU()` on the read path is a regression.
+
+- **A plain file's pixels come through FITS.Lib's `FitsReader`, and the first image is the first
+  one holding a SAMPLE.** `TryReadFitsFile(path)` reads a plain FITS file through
+  `TryReadThroughFitsReader` (2 MB positional reads straight into the float planes: a pooled 26 MP
+  read went from 39.5 ms and 54 MB to 10.5 ms and 56 KB) and falls back to the HDU reader for `.gz`,
+  `.fz` and anything the reader declines. **Not a memory mapping**: measured, a mapping read the same
+  sub cold SLOWER than the old reader (105.6 against 90.4 ms). The two paths are pinned bit for bit by
+  `FitsReadPathParityTests`, whose reader side must be `TryReadThroughFitsReader` itself: through the
+  public entry, a file the reader quietly declined compares the HDU reader with itself. An image HDU
+  with an axis of length zero holds no sample (FITS.Lib's placeholder primary before a table,
+  `BasicHDU.DummyHDU`: NAXIS = 1, NAXIS1 = 0), so the walk, the header-only walk and the reader all
+  pass over it. `docs/plans/frame-path-allocations.md` P5.
+
+- **A file is OPENED through `Image.OpenFits`, never by constructing a `BufferedFile` beside a
+  `.gz` test.** Handed FITS.Lib's own `BufferedFile`, a gzipped file reads back as an EMPTY HDU list
+  rather than throwing, so every reader answered "unreadable" for one, silently, until the first
+  compressed sidecar was written (2026-09-21). The opener uses a plain `FileStream` for a compressed
+  file. **And a gzip stream cannot seek**, so `ReadFirstImageHduHeaderOnly` throws over one: skipping
+  a data block is a seek. Read the whole HDU there, or arrange not to need the peek.
+
+- **A tile-compressed (`.fz`) image can never be in HDU 0.** It is a binary table, which is only
+  legal as an extension, so an fpack file always opens with an empty primary (`NAXIS = 0`) and
+  carries the pixels in HDU 1. FITS.Lib 5.0 surfaces that extension as an `ImageHDU` with the
+  header translated back to the image's own `BITPIX`/`NAXIS`/`NAXISn`, so nothing downstream
+  knows the difference, but a reader that stops at HDU 0 finds `Axes == null` and rejects the
+  file. Ordinary multi-extension FITS from other capture software has the same shape by choice,
+  and was equally unreadable before the walk.
+- **`WCS.FromFits` deliberately keeps its single `ReadHDU`.** A plate solver's `.wcs` output is a
+  header with `NAXIS = 0` and no data at all; walking past it to find an image would find none
+  and return null, which silently breaks plate solving. Reading that first header IS the point
+  there.
+- **`.fz` is matched on `.fz` alone**, in `Image.Import.cs`, `AstroImageDocument`
+  (`SupportedExtensions` + `FileDialogFilters` + the `OpenAsync` dispatch),
+  `FitsFolderFrameSource.FitsExtensions` and `FileAssociationRegistrar`.
+  `Path.GetExtension("x.fit.fz")` returns `.fz`, so a `.fit.fz` entry would be dead code.
+
+### A FITS header becomes an `ImageMeta` in exactly ONE place: the guiding cards
+
+- **A light carries the guiding quality of ITS OWN exposure** (`ImageMeta.Guiding`;
+  `GUIDERMS`/`GUIRMSRA`/`GUIRMSDE`/`GUIDEPK`/`GUIDEN`, arcsec, ours alone): `GuideStatistics.OverExposure`
+  reduces `Session.GuideSamples` over the exposure window, **never a rolling session average**; **a sample is
+  one guide CORRECTION** (`IGuider.GuideCorrectionEvent`, stamped with the guide frame's time, every driver
+  raises it), **never a poll of `GetStatsAsync`** (#821), so `GUIDEN` counts guide frames; null is
+  not zero (an unguided rig writes NO cards, an unmeasured correction appends nothing); `GUIDEPK` catches the single gust RMS hides. Stamped via
+  `ICameraDriver.GuideStats` just before `GetImageAsync`. Pinned by `GuideStatisticsTests` +
+  `SessionImagingTests`.
+
+### Image mutability: almost-immutable with in-place escape hatches
+
+`Image` is logically immutable (no public setter, `GetChannelSpan -> ReadOnlySpan<float>`). Full
+design, ownership vocabulary and ALL measurements below: `docs/plans/frame-lifecycle.md`,
+`docs/plans/viewer-memory-footprint.md`, `docs/architecture/image-pipeline.md` § How a plane is READ.
+Five things deliberately mutate `data[c]` or its planes in place, and any new mutating public API
+follows the same `Adopt*` naming, never a neutral `CreateFrom*`: `ScaleFloatValuesToUnitInPlace`,
+`Normalizer.ApplyCfaInPlace`, `Calibrator.Apply` (the one deliberate exception to "ownership transfer
+is visible in the name", pinned by `CalibratorOwnershipTests`), `AstroImageDocument.AdoptImageAsync`,
+and plane RESIDENCY (`TryEvictFloatPlanes`/`Image.ResidentPlanes()`), the one that is NOT opt-in,
+costs +8.7% to +20.3% on bilinear resample loops if resolved per-sample instead of once per operation,
+and is pinned by `ImagePlaneResidencyConcurrencyTests`.
+
+**Eviction is NOT release**: `Release()` spends ownership, `TryEvictFloatPlanes` is reversible and
+the image stays usable, and the two words being one apart is the likely way to write an inverted
+guard. **Every read must go through the `Planes` accessor**: `GetChannelArray`, the subpixel sampler
+and `ScaleFloatValuesToUnitInPlace` all once read the evicted 0x0 stub directly, so a FITS write of an
+evicted image emitted nothing and the in-place rescale threw on `plane[0, 0]`.
+
+**A plane is `float[,]` and stays one; what changes is how a LOOP reads it**: span-per-row beats
+both a naive `[y,x]` index and a flat `float[]`, worth 2-3x on hot loops under AOT, but the multiplier
+is per-MACHINE (arm64 and x64 disagree by up to 12x on which optimisation dominates): never quote one
+without naming the box it came off. Full tables, the `Lanczos3Weights` angle-addition rewrite (1.78 to
+1.80x, computed in double, judged against a double reference) and the double-vs-float tap-offset trap:
+`docs/architecture/image-pipeline.md`.
+
+**Every histogram goes through ONE vectorised kernel, `Image.Traverse`, bit for bit, and its running
+sum is ORDERED.**
+- Lanes are added in walk order.
+- A change to it is checked against the scalar walk by `HistogramKernelParityTests`. That test compares
+  the DOUBLE sum, because the float `Mean` hides almost any order change: a lane swap passed every check
+  on the mean.
+- A document open takes its stretch statistics and display histograms in one walk per channel
+  (`Image.GetStats` / `StretchSolver.CollectStats`), with the channels in parallel.
+
+**Parallel row bands reorder that sum, so they go through `Image.TraverseInBands` and nowhere else** (#490).
+- It takes the sum from the bands only when it PROVES no order could change it: every addend is a
+  multiple of the smallest ulp g among them, and a total magnitude below 2^53 g makes every partial sum
+  exact. Otherwise it takes the sum again in walk order.
+- The document open uses it (`GetStats`, the luminance statistic). `Statistics` / `Histogram` keep the
+  single walk, because star detection runs them inside stacking that is already parallel.
+- Real frames pass the bound 99.8 percent of the time; only drizzle weight sidecars failed it.
+  `ExactSumBoundProbe` re-measures that.
+- A parallel site rethrows a body's own exception (`ParallelFor.Run`), because the viewer shows it as the
+  reason a file did not open. Measurements: `docs/plans/viewer-memory-footprint.md` (#631, #490).
+
+**Test fixtures must not share `Image` instances across tests.** `SharedTestData` caches the extracted
+temp file path, not an `Image`: two parallel collections sharing one cached `Image` through
+`AdoptImageAsync` produced a "1 ms / 0 stars" `FindStarsAsync` flake.
+
+### A Canon raw is cropped to its active area on import
+
+**The decoded raster is not the photograph.** Every Canon body records shielded photosites down the
+left edge and across the top (the camera's own black reference), a narrow partly-shielded transition
+after them, and a few spare columns and rows at the far edges. `Image.TryReadCanonRaw` crops to
+`CanonRawFile.ActiveArea` (FC.SDK.Raw 3.1+), so `Image` is the picture: 6720x4480 from a 5D Mark IV's
+6888x4546, 5088x3392 from an R5's 5248x3510. Uncropped it reached a stretched display as a flat black
+L and put ~3% of the frame, pinned at the black level, into every statistic taken over it.
+
+- **FC.SDK.Raw does not crop `BayerMosaic` and must not start**: its CR3 decoder is byte-exact
+  against LibRaw's uncropped `unprocessed_raw`, the only reason to trust it. The crop is metadata;
+  applying it is ours. The overscan therefore stays reachable through `CanonRaw.Open` for anything
+  that wants a per-frame bias or read-noise reference; it is simply not carried on `Image`.
+- **Ask `ActiveArea.CfaPattern`, never `CanonRawFile.CfaPattern`, after cropping.** An odd offset
+  re-phases the CFA, and the uncropped answer would hand the Bayer pipeline a frame with red and blue
+  exchanged: a plausible picture in the wrong colours, not an error. Every body measured offsets
+  evenly, so today they agree.
+- **Measure MaxValue over the pixels you keep.** It used to scan the whole mosaic, so a margin pixel
+  could set the peak the stretch pipeline divides by.
+- **A dimension assertion is not enough in a test.** A crop from the wrong corner is still a
+  photograph; `Cr3ImportTests.Cr3_CropsFromTheDeclaredOrigin` pins the offset, and has to SEARCH for a
+  pixel where cropped and uncropped reads differ because the R5 fixture is almost all zero after black
+  subtraction and every fixed block matched on both sides.
+
+**Canon is the only sensor that is CROPPED.** A DAL camera (QHY first) now reads its effective and
+overscan areas and RECORDS them, as `ImageMeta.DataSection` / `BiasSection` written to the IRAF
+`DATASEC` / `BIASSEC` cards (and read back, `TRIMSEC` as `DATASEC`'s synonym only when it is absent),
+but keeps the whole raster. Those sections are 1-based and inclusive, the same trap as CRPIX, so
+`FitsSection` is the ONE place the convention is converted. Design, phasing and the measurements:
+`docs/plans/sensor-active-area.md`.
