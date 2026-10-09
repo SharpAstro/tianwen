@@ -37,9 +37,8 @@ namespace TianWen.AI.Imaging.Onnx;
 /// unstretches inside itself with the parameters it is handed, so a frame it receives unstretched with a minimum of 0
 /// and a balance of 0.5 would be deconvolved in the wrong units.</para>
 ///
-/// <para><b>Cost.</b> One tile is three passes of a 20-step operator; on the CPU a 1312 px tile took about a minute
-/// (2026-10-09, a 16-core box under load), so a whole master is tens of minutes there, and the CPU is where it runs:
-/// DirectML refuses the graph as its session is built (<see cref="OnnxTianWenDeconvolver"/>).</para>
+/// <para><b>Cost.</b> One tile is three passes of a 20-step operator: a 1312 px tile took 10 s on DirectML (a GTX 1070
+/// that was also training) and 66 s on the CPU (2026-10-09, a 16-core box under load).</para>
 /// </remarks>
 internal static class OperatorDeconvolutionRunner
 {

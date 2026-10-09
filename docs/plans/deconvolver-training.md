@@ -3597,12 +3597,19 @@ either program, before any star removal, where BlurX runs.
   scipy's own zoom) to 1.2e-7 over nine 224 px tiles of the fixture graph and to 9.5e-7 over four 256 px tiles of the
   shipped weights, in linear units, on outputs that move up to 0.76 and 0.60 from their inputs. The tests bound both at
   1e-5.
-- **The CPU, not DirectML**: DirectML refuses the graph as its session is BUILT ("The parameter is incorrect" in
-  `MLOperatorAuthorImpl`, a GTX 1070 at driver 582.66), most likely its Conv whose weight is a runtime input, so the
-  deconvolver opens a CPU session of its own rather than `ExecutionProviderResolver`'s. A GPU path is a re-export with
-  the kernel as a fixed-size padded input, or another provider, and waits on a reason to pay for it.
-- **Cost**: three operator passes of 20 steps a tile, so a whole master is tens of minutes on the CPU (a 1312 px tile
-  took about a minute on a loaded 16-core box; four 256 px tiles of a 61 x 53 frame, 16 s).
+- **DirectML runs it once every Reshape's `allowzero` is cleared** (#1375). torch.export writes `allowzero = 1` on
+  every Reshape a torch `view` becomes, and DirectML refused it: the two whose constant shape holds a -1 failed the
+  session BUILD ("The parameter is incorrect" in `MLOperatorAuthorImpl`), and the computed-shape ones failed at run
+  time (found by building each node as a one-node model on DirectML, onnxruntime-directml 1.24.4, a GTX 1070 at driver
+  582.66; not the runtime-weight Conv first suspected). The flag only decides what a 0 in the target shape means, a
+  `view` never asks for the copy, and no tensor here has a dimension of 0, so the exporter clears it
+  (`clear_reshape_allowzero`, which refuses a constant shape holding a 0): the CPU's output is unchanged to the bit,
+  and DirectML's agrees with it to 4.8e-7 (mean 6e-8) on the shipped weights.
+- **Cost**: three operator passes of 20 steps a tile. A 1312 px tile took 10 s on DirectML on the GTX 1070 (which was
+  also training) against 66 s on the CPU (a 16-core box under load), so a whole master is a few minutes on the GPU; in
+  the CLI, 12 s with the session build. It first read 39 to 54 s on DirectML because the provider resolver asked for
+  adapter 0, which on this desktop is the Intel UHD 630; the resolver now asks for the high-performance GPU, which
+  sped up every TianWen model here (`ExecutionProviderResolver`).
 
 **The split (2026-10-09).** The ONNX export of E3.4d's checkpoint, which fixes the graph's inputs, is local work:
 the checkpoint is on the training machine and the export script covers the denoiser's plane-conditioned graph
@@ -3654,18 +3661,16 @@ the master blurred by the read's kernels) at the 1.28 round trip, the graph's ro
 #### Open after the wiring
 
 Two of the five items this list had before the C# side were settled by it: the runner always stretches and hands the
-graph its own minimum and balance, and the contract is `ModelContract`'s (both under "Wired, 2026-10-09" above). Three
-stay open:
+graph its own minimum and balance, and the contract is `ModelContract`'s (both under "Wired, 2026-10-09" above). Of the
+three left, the GPU path was settled the same day:
 
 1. **Which stretch minimum the prior was trained on.** `n2n_operator_real` skips NaN, so on a master with a NaN ring
    the minimum is the darkest covered pixel; `n2n_operator_master` turns NaN into 0 first. On the Statue master they give
    balances 0.0049 / 0.0083 / 0.0102 against 0.0175 / 0.0433 / 0.0459, and the training cache predates the ring fix. The
    runner takes the covered pixels' (the rule the published row was read with, and every C# runner's); a frame with no
    ring is the same either way, and a ringed master is where a measurement could still move it. Tracked by #1374.
-2. **A GPU path.** DirectML refuses the graph at session build (above), so it runs on the CPU. The graph relies on a
-   Conv with a runtime weight (group 9), an edge Pad with runtime pads, IsInf / IsNaN and a Slice with a negative step;
-   finding which one DirectML refuses, and whether a fixed-size kernel input re-export clears it, is the next step if a
-   whole master on the CPU proves too slow to use. Tracked by #1375.
+2. *Settled the same day:* the GPU path (#1375). DirectML refused torch.export's `allowzero = 1` on the graph's
+   Reshapes, which the exporter now clears (above), and it runs the graph at about 6.5 times the CPU's speed.
 3. **The kernel rule is still #741's.** The graph takes any kernel, so changing the rule needs no re-export, and Auto
    picking the deconvolver is one line of `OnnxTianWenDeconvolver.CanServe` once #741 gives it a kernel and a decline.
 

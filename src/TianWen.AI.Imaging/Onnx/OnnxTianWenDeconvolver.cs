@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.ML.OnnxRuntime;
+using TianWen.AI.Inference;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
 
@@ -140,10 +141,10 @@ public sealed class OnnxTianWenDeconvolver(
         try
         {
             var contract = ModelContract.LoadBeside(modelPath);
-            // The CPU, never the provider ExecutionProviderResolver prefers: DirectML refuses this graph as the session is
-            // BUILT ("The parameter is incorrect" in MLOperatorAuthorImpl, measured 2026-10-09 on a GTX 1070 at driver
-            // 582.66), most likely its Conv whose weight is a runtime input, so a GPU session would fail every first use.
-            using var options = new SessionOptions();
+            // DirectML where the resolver prefers it: about 6.5 times the CPU on a 1312 px tile, agreeing with it to 4.8e-7.
+            // It runs this graph only because the exporter clears allowzero on every Reshape (n2n_operator_export.py's
+            // clear_reshape_allowzero); with torch.export's allowzero = 1 the session BUILD failed.
+            using var options = ExecutionProviderResolver.CreateSessionOptions(deviceId: 0, logger: logger);
             var session = new InferenceSession(modelPath, options);
             var problems = contract.Check(modelPath, Feed, ModelGraph.From(session));
             if (problems.Length > 0)

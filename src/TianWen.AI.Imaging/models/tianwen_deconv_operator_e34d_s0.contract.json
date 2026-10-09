@@ -1,7 +1,7 @@
 {
   "contractVersion": 1,
   "model": "tianwen_deconv_operator_e34d_s0.onnx",
-  "onnxSha256": "b11c94fa4da2ff88874b16191456bf1f95453d72cbbefeee4ceb8b48024749a3",
+  "onnxSha256": "0db794c5b0e5f307a2aeb6de8d57ff6f8ba8ca9c64159649b0c140eaeb14abeb",
   "domain": "mtfStretched",
   "stretchMedianTarget": 0.25,
   "inputs": [

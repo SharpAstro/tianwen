@@ -118,8 +118,9 @@ def main():
         "output_moved_max": moved,
         "frame": f32(frame), "expected": f32(out),
     }
-    with gzip.open(args.out, "wt", encoding="utf-8", compresslevel=9) as f:
-        json.dump(record, f)
+    # mtime 0, so the same fixture is the same bytes on every run.
+    with open(args.out, "wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0, compresslevel=9) as gz:
+        gz.write(json.dumps(record).encode("utf-8"))
     print(f"{args.out}: {args.width}x{args.height} -> {wz}x{hz} at {args.resample}, tile {args.tile}, kernel {k} px, "
           f"min {mins}, balance {betas}; the output moves up to {moved:.4f} from the input")
     return 0
