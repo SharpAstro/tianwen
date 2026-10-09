@@ -208,6 +208,7 @@ var rootCommand = new RootCommand
                         services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
                         services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>())).Build(),
                 new PlanetaryGeometrySubCommands(consoleHost).BuildDegrade(),
+                new PlanetaryGeometrySubCommands(consoleHost).BuildTwin(),
                 new PlanetaryMeasureSubCommand(consoleHost).Build(),
                 new PlanetaryGradeSubCommand(consoleHost).Build(),
                 new PlanetaryDewarpSubCommand(consoleHost).Build(),
