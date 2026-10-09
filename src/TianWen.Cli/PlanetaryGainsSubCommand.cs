@@ -205,8 +205,8 @@ internal sealed class PlanetaryGainsSubCommand(IConsoleHost consoleHost, MasterP
                     }
                     try
                     {
-                        if (PlanetaryMeasureSubCommand.Register(otherStack, limbOptions, null) is not { } os
-                            || PlanetaryMeasureSubCommand.Register(otherSharpened, limbOptions, os.Disk) is not { } oss)
+                        if (PlanetaryMetrics.Register(otherStack, limbOptions, null) is not { } os
+                            || PlanetaryMetrics.Register(otherSharpened, limbOptions, os.Disk) is not { } oss)
                         {
                             consoleHost.WriteError($"{otherStackPath}: the limb could not be fitted");
                             return 1;

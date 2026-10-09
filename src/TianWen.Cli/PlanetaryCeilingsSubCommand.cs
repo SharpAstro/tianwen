@@ -69,7 +69,7 @@ internal sealed class PlanetaryCeilingsSubCommand(IConsoleHost consoleHost)
             }
             var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, when));
             var (width, height) = (reader.Width, reader.Height);
-            var disk = PlanetaryMeasureSubCommand.WithPlanet(truth.Disk, limbOptions);
+            var disk = PlanetaryTruth.WithPlanet(truth.Disk, limbOptions);
             var truthPlane = PlanetaryMetrics.Normalise(truth.Plane, width, height, disk);
 
             // The stack, as R7 part 4 made it, and the frames it kept, graded the same way.
@@ -86,7 +86,7 @@ internal sealed class PlanetaryCeilingsSubCommand(IConsoleHost consoleHost)
             var rows = new List<(string Name, float[] Plane)>();
             try
             {
-                if (PlanetaryMeasureSubCommand.Register(result.Master, limbOptions, disk) is not { } stack)
+                if (PlanetaryMetrics.Register(result.Master, limbOptions, disk) is not { } stack)
                 {
                     consoleHost.WriteError($"{input}: the stack's limb could not be fitted");
                     return 1;

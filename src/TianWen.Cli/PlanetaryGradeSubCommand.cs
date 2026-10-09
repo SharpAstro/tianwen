@@ -70,7 +70,7 @@ internal sealed partial class PlanetaryGradeSubCommand(IConsoleHost consoleHost)
                 return 1;
             }
 
-            (float[] Plane, MetricDisk Disk, DateTimeOffset? Time)? read = null;
+            PlanetaryTruth? read = null;
             if (parseResult.GetValue(truthOpt) is { } truthPath && (read = PlanetaryMeasureSubCommand.ReadTruth(truthPath, consoleHost)) is null)
             {
                 return 1;

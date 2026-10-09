@@ -130,7 +130,7 @@ internal sealed class PlanetaryWindowedStack : IDisposable
                 return null;
             }
             MetricDisk? onto = truth is { } t ? t.Disk with { AxisRatio = limbOptions.AxisRatio } : null;
-            if (PlanetaryMeasureSubCommand.Register(stackImage, limbOptions, onto) is not { } stack
+            if (PlanetaryMetrics.Register(stackImage, limbOptions, onto) is not { } stack
                 || PlanetaryLimbFit.Fit(stackImage, limbOptions) is not { } fit
                 || PlanetaryLimbKernel.Fit(stackImage, fit, limbOptions) is not { } wide)
             {
@@ -140,8 +140,8 @@ internal sealed class PlanetaryWindowedStack : IDisposable
             (float[] Plane, MetricDisk Disk)? a = null, b = null;
             if (halfA is not null && halfB is not null)
             {
-                a = PlanetaryMeasureSubCommand.Register(halfA.Master, limbOptions, stack.Disk);
-                b = PlanetaryMeasureSubCommand.Register(halfB.Master, limbOptions, stack.Disk);
+                a = PlanetaryMetrics.Register(halfA.Master, limbOptions, stack.Disk);
+                b = PlanetaryMetrics.Register(halfB.Master, limbOptions, stack.Disk);
                 if (a is null || b is null)
                 {
                     consoleHost.WriteError($"{input}: a half's limb could not be fitted");

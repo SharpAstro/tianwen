@@ -40,7 +40,7 @@ internal static class PlanetaryMasterScore
             }
             var aspect = PhysicalEphemeris.Compute(planet, when);
             var limbOptions = PlanetaryLimbFit.OptionsFor(aspect);
-            var disk = PlanetaryMeasureSubCommand.WithPlanet(truth.Disk, limbOptions);
+            var disk = PlanetaryTruth.WithPlanet(truth.Disk, limbOptions);
             var plane = colour ? master.ChannelImage(channel) : master;
             try
             {
@@ -50,7 +50,7 @@ internal static class PlanetaryMasterScore
                     consoleHost.WriteError($"[planetary] {path}: {label} is {plane.Width} x {plane.Height}, the truth {truth.Plane.Length} px (a master cropped to its coverage is off the truth's grid: stack it with --truth or --no-crop)");
                     continue;
                 }
-                if (PlanetaryMeasureSubCommand.Register(plane, limbOptions, disk) is not { } fitted)
+                if (PlanetaryMetrics.Register(plane, limbOptions, disk) is not { } fitted)
                 {
                     consoleHost.WriteError($"[planetary] {label}: its limb could not be fitted");
                     continue;
@@ -67,7 +67,7 @@ internal static class PlanetaryMasterScore
                     var stackPlane = colour ? stack.ChannelImage(channel) : stack;
                     try
                     {
-                        if (PlanetaryMeasureSubCommand.Register(stackPlane, limbOptions, disk) is { } stackFitted)
+                        if (PlanetaryMetrics.Register(stackPlane, limbOptions, disk) is { } stackFitted)
                         {
                             againstStack = PlanetaryMetrics.LimbTrough(fitted.Plane, stackFitted.Plane, plane.Width, plane.Height, disk);
                         }
@@ -142,11 +142,11 @@ internal static class PlanetaryMasterScore
                 return;
             }
             var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, when));
-            disk = PlanetaryMeasureSubCommand.WithPlanet(truth.Disk, limbOptions);
+            disk = PlanetaryTruth.WithPlanet(truth.Disk, limbOptions);
             var plane = master.ChannelImage(c);
             try
             {
-                if (PlanetaryMeasureSubCommand.Register(plane, limbOptions, disk) is not { } registered)
+                if (PlanetaryMetrics.Register(plane, limbOptions, disk) is not { } registered)
                 {
                     consoleHost.WriteError($"[planetary] {what}, {names[c]}: its limb could not be fitted to read its colour");
                     return;
@@ -281,12 +281,12 @@ internal static class PlanetaryMasterScore
             }
             var aspect = PhysicalEphemeris.Compute(planet, when);
             var limbOptions = PlanetaryLimbFit.OptionsFor(aspect);
-            var disk = PlanetaryMeasureSubCommand.WithPlanet(truth.Disk, limbOptions);
+            var disk = PlanetaryTruth.WithPlanet(truth.Disk, limbOptions);
             var plane = colour ? master.ChannelImage(channel) : master;
             try
             {
                 var label = colour ? $"the truth's own gains, {name}" : "the truth's own gains";
-                if (plane.Width * plane.Height != truth.Plane.Length || PlanetaryMeasureSubCommand.Register(plane, limbOptions, disk) is not { } fitted)
+                if (plane.Width * plane.Height != truth.Plane.Length || PlanetaryMetrics.Register(plane, limbOptions, disk) is not { } fitted)
                 {
                     consoleHost.WriteError($"[planetary] {label}: the master's limb could not be put on the truth's");
                     continue;
@@ -342,11 +342,11 @@ internal static class PlanetaryMasterScore
                 return null;
             }
             var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, when));
-            var disk = PlanetaryMeasureSubCommand.WithPlanet(truth.Disk, limbOptions);
+            var disk = PlanetaryTruth.WithPlanet(truth.Disk, limbOptions);
             var plane = colour ? master.ChannelImage(channel) : master;
             try
             {
-                if (plane.Width * plane.Height != truth.Plane.Length || PlanetaryMeasureSubCommand.Register(plane, limbOptions, disk) is not { } fitted)
+                if (plane.Width * plane.Height != truth.Plane.Length || PlanetaryMetrics.Register(plane, limbOptions, disk) is not { } fitted)
                 {
                     consoleHost.WriteError($"[planetary] {path}: the master is off the truth's grid or its limb could not be fitted");
                     return null;

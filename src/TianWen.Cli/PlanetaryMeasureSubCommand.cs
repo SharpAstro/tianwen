@@ -198,7 +198,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                             name += $", {cap}";
                         }
                         // Every stack onto one disk: the truth's, or the first stack's own.
-                        if (Register(full.Master, limbOptions, reference) is not { } fullPlane)
+                        if (PlanetaryMetrics.Register(full.Master, limbOptions, reference) is not { } fullPlane)
                         {
                             consoleHost.WriteError($"keep {keep}, {preset}, {name}: the stack's limb could not be fitted");
                             continue;
@@ -211,7 +211,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                             using var halfB = PlanetaryFrameSubset.Half(stream, 1);
                             var a = await StackAsync(stacker, halfA, options, method, ct);
                             var b = await StackAsync(stacker, halfB, options, method, ct);
-                            if (Register(a.Master, limbOptions, reference) is not { } aPlane || Register(b.Master, limbOptions, reference) is not { } bPlane)
+                            if (PlanetaryMetrics.Register(a.Master, limbOptions, reference) is not { } aPlane || PlanetaryMetrics.Register(b.Master, limbOptions, reference) is not { } bPlane)
                             {
                                 consoleHost.WriteError($"keep {keep}, {preset}, {name}: a half's limb could not be fitted");
                                 continue;
@@ -353,7 +353,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                                 consoleHost.WriteError($"keep {keep}, {preset}, {name}, {colour}: a {plane.Width} x {plane.Height} stack against a {truthOne.Width} x {truthOne.Height} truth");
                                 continue;
                             }
-                            if (Register(plane, limbOptions, truthOne.Disk) is not { } fitted)
+                            if (PlanetaryMetrics.Register(plane, limbOptions, truthOne.Disk) is not { } fitted)
                             {
                                 consoleHost.WriteError($"keep {keep}, {preset}, {name}, {colour}: the stack's limb could not be fitted");
                                 continue;
@@ -375,38 +375,17 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
     }
 
     /// <summary>
-    /// A truth planetary degrade wrote: its plane, the disk it was rendered with (DISKX, DISKY, DISKR, NORTHANG; round, the
-    /// caller sets the axis ratio) and its time. Null, said on the console, when the file or its cards are missing.
+    /// A truth planetary degrade wrote (<see cref="PlanetaryTruth.Read"/>); null, said on the console, when the file or its cards are missing.
     /// </summary>
-    internal static (float[] Plane, MetricDisk Disk, DateTimeOffset? Time)? ReadTruth(string path, IConsoleHost consoleHost)
+    internal static PlanetaryTruth? ReadTruth(string path, IConsoleHost consoleHost)
     {
-        if (!Image.TryReadFitsFile(path, out var image))
+        if (PlanetaryTruth.Read(path) is { } truth)
         {
-            consoleHost.WriteError($"{path}: not a readable FITS image");
-            return null;
+            return truth;
         }
-        using var fits = Image.OpenFitsHeader(path);
-        var header = fits.ReadFirstImageHduHeaderOnly()?.Header;
-        if (header is null || !double.IsFinite(header.GetDoubleValue("DISKX", double.NaN)))
-        {
-            consoleHost.WriteError($"{path}: no DISKX, DISKY, DISKR in its header (planetary degrade writes them)");
-            return null;
-        }
-        // AXISRAT is written by planetary lucky-frames, whose window is scored with the stack's own oblate disk; a degrade truth has none.
-        var disk = new MetricDisk(header.GetDoubleValue("DISKX", double.NaN), header.GetDoubleValue("DISKY", double.NaN),
-            header.GetDoubleValue("DISKR", double.NaN), header.GetDoubleValue("AXISRAT", 1), header.GetDoubleValue("NORTHANG", 0));
-        return (image.GetChannelSpan(0).ToArray(), disk, PlanetaryGeometrySubCommands.ParseUtc(header.GetStringValue("DATE-OBS")));
+        consoleHost.WriteError($"{path}: not a readable FITS image with DISKX, DISKY and DISKR in its header (planetary degrade writes them)");
+        return null;
     }
-
-    /// <summary>
-    /// A truth's disk with what the planet's limb options say of it: the axis ratio and, for Saturn, its rings about the north the truth
-    /// was drawn with (S4), so the scores read its sky, moons and limb around them.
-    /// </summary>
-    internal static MetricDisk WithPlanet(MetricDisk truthDisk, LimbFitOptions options) => truthDisk with
-    {
-        AxisRatio = options.AxisRatio,
-        Rings = options.Rings is { } rings ? DiskRings.Of(truthDisk.AxisAngleDeg, truthDisk.AxisAngleDeg, options, rings) : null,
-    };
 
     // A colour master's channels and the name its truths carry.
     private static readonly (int Channel, string Colour)[] Colours = [(0, "r"), (1, "g"), (2, "b")];
@@ -420,20 +399,6 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
         return method == "global" ? await stacker.StackGlobalAsync(stream, options, ct) : await stacker.StackAsync(stream, options, ct);
     }
 
-    // A stack's plane normalised on its own fitted disk and moved onto `onto`'s centre (or left where it is), with that disk.
-    internal static (float[] Plane, MetricDisk Disk)? Register(Image master, LimbFitOptions options, MetricDisk? onto)
-    {
-        if (PlanetaryLimbFit.Fit(master, options) is not { } fit)
-        {
-            return null;
-        }
-        var (width, height) = (master.Width, master.Height);
-        var own = MetricDisk.From(fit, options);
-        var plane = PlanetaryMetrics.Normalise(master.GetChannelSpan(0), width, height, own);
-        return onto is { } target
-            ? (PlanetaryMetrics.Shift(plane, width, height, target.X - own.X, target.Y - own.Y), target)
-            : (plane, own);
-    }
 
     // A master resampled by Lanczos-3 to `scale` times its grid, pixel centres to pixel centres as a drizzle's truth is rendered
     // ((x + 0.5) u - 0.5); the edge the kernel cannot reach reads zero, as a drizzle's uncovered cells do.

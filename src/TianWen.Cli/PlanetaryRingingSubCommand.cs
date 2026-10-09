@@ -143,8 +143,8 @@ internal sealed class PlanetaryRingingSubCommand(IConsoleHost consoleHost)
             {
                 return 1;
             }
-            var onto = PlanetaryMeasureSubCommand.WithPlanet(truth.Disk, limbOptions);
-            if (PlanetaryMeasureSubCommand.Register(stackImage, limbOptions, onto) is not { } stack
+            var onto = PlanetaryTruth.WithPlanet(truth.Disk, limbOptions);
+            if (PlanetaryMetrics.Register(stackImage, limbOptions, onto) is not { } stack
                 || PlanetaryLimbFit.Fit(stackImage, limbOptions) is not { } fit
                 || PlanetaryLimbKernel.Fit(stackImage, fit, limbOptions) is not { } wide)
             {

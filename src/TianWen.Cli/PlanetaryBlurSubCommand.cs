@@ -110,9 +110,9 @@ internal sealed class PlanetaryBlurSubCommand(IConsoleHost consoleHost)
                     return 1;
                 }
                 MetricDisk? onto = truth is { } t ? t.Disk with { AxisRatio = limbOptions.AxisRatio } : null;
-                if (PlanetaryMeasureSubCommand.Register(stackImage, limbOptions, onto) is not { } stack
-                    || PlanetaryMeasureSubCommand.Register(luckyImage1, limbOptions, stack.Disk) is not { } lucky1
-                    || PlanetaryMeasureSubCommand.Register(luckyImage2, limbOptions, stack.Disk) is not { } lucky2
+                if (PlanetaryMetrics.Register(stackImage, limbOptions, onto) is not { } stack
+                    || PlanetaryMetrics.Register(luckyImage1, limbOptions, stack.Disk) is not { } lucky1
+                    || PlanetaryMetrics.Register(luckyImage2, limbOptions, stack.Disk) is not { } lucky2
                     || PlanetaryLimbFit.Fit(stackImage, limbOptions) is not { } fit)
                 {
                     consoleHost.WriteError($"{input}: a stack's limb could not be fitted");
