@@ -51,7 +51,8 @@ public class PlanetaryApStackTests
     private static float[,] BoxBlur(float[,] src, int passes)
     {
         int h = src.GetLength(0), w = src.GetLength(1);
-        var cur = (float[,])src.Clone();
+        // Each pass reads cur and writes a new plane, so the source is read as it is (every caller asks for passes).
+        var cur = src;
         for (var p = 0; p < passes; p++)
         {
             var next = new float[h, w];

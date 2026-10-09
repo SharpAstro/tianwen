@@ -1845,7 +1845,7 @@ public sealed class StackingPipeline(
             var planes = new float[starMaster.ChannelCount][,];
             for (var c = 0; c < planes.Length; c++)
             {
-                planes[c] = (float[,])starMaster.GetChannelArray(c).Clone();
+                planes[c] = starMaster.GetChannelArray(c).Copy();
             }
             var placed = bodyModel.AddTo(planes, bodyOnStarCanvas, gains);
             if (placed == 0)

@@ -18,7 +18,7 @@ public class ComplexFftTests
             original[i] = new Complex(rng.NextDouble() - 0.5, rng.NextDouble() - 0.5);
         }
 
-        var work = (Complex[])original.Clone();
+        Complex[] work = [.. original];
         ComplexFft.Forward(work);
         ComplexFft.Inverse(work);
 

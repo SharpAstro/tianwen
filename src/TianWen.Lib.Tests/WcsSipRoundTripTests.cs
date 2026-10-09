@@ -32,8 +32,8 @@ public class WcsSipRoundTripTests
         double[,]? ap = null, bp = null;
         if (includeInverse)
         {
-            ap = (double[,])a.Clone();
-            bp = (double[,])b.Clone();
+            ap = a.Copy();
+            bp = b.Copy();
             // Inverse coefficients are conceptually the negatives at first order (Newton step),
             // close enough to make the test interesting; for round-trip we only care that the
             // values survive the FITS header.

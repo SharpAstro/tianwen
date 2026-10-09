@@ -203,7 +203,7 @@ public class DrizzleParallelBitIdentityTests
             }
         }
 
-        var expected = flux.Select(p => (float[,])p.Clone()).ToArray();
+        var expected = flux.Select(p => p.Copy()).ToArray();
         long expectedCovered = 0;
         const float InvMax = 1f / 65535f;
         for (var c = 0; c < 3; c++)

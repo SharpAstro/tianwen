@@ -113,7 +113,7 @@ public class PlanetaryCeilingsTests
         var frames = new ushort[times.Length][];
         var optics = new (double[] Psf, double X, double Y, double B)[times.Length];
         await PlanetaryDegrade.MakeAsync(map, CatalogIndex.Jupiter, times, reference, scale, none, none, [], size, size, options,
-            (index, samples) => frames[index] = samples, optics: (index, o) => optics[index] = ((double[])o.Psf.Clone(), o.ShiftX, o.ShiftY, o.Brightness),
+            (index, samples) => frames[index] = samples, optics: (index, o) => optics[index] = ([.. o.Psf], o.ShiftX, o.ShiftY, o.Brightness),
             cancellationToken: TestContext.Current.CancellationToken);
 
         var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night + TimeSpan.FromSeconds(options.RenderEverySeconds / 2));

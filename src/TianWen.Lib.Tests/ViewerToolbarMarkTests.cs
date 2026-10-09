@@ -99,7 +99,7 @@ namespace TianWen.Lib.Tests
                 }
 
                 checkedAny++;
-                var before = (byte[])viewer.Pixels.Clone();
+                byte[] before = [.. viewer.Pixels];
                 viewer.DrawToolbarMarkForTest(action, 8f, 8f, 48f, state, Ink);
 
                 if (viewer.OverlayDraws == 0 && viewer.Pixels.SequenceEqual(before))
@@ -137,7 +137,7 @@ namespace TianWen.Lib.Tests
         public void TheCompareMarkIsAFrameWithOneHalfInked()
         {
             var viewer = NewViewer();
-            var before = (byte[])viewer.Pixels.Clone();
+            byte[] before = [.. viewer.Pixels];
 
             viewer.DrawToolbarMarkForTest(ToolbarAction.Compare, 8f, 8f, 48f, new ViewerState(), Ink);
 

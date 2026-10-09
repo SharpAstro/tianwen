@@ -176,7 +176,7 @@ internal sealed class NodeFrames(IHostedSession hosted)
             {
                 return;
             }
-            var next = (Preview?[])slots.Clone();
+            Preview?[] next = [.. slots];
             next[index] = null;
             if (Interlocked.CompareExchange(ref _previews, next, slots) == slots)
             {

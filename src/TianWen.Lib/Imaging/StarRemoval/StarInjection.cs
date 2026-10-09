@@ -66,7 +66,7 @@ public static class StarInjection
         var unclipped = new float[channels][];
         for (var c = 0; c < channels; c++)
         {
-            planes[c] = (float[])plate[c].Clone();
+            planes[c] = [.. plate[c]];
             unclipped[c] = new float[width * height];
             Array.Fill(unclipped[c], 1f);
         }

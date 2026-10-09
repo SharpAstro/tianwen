@@ -588,9 +588,12 @@ public static class PlanetaryLimbFit
 
     // The sky (a low percentile of the annulus, which is mostly off the disk outside) and the disk's level near the limb's
     // inside (a high percentile).
+    // The selection reorders what it reads, and the caller fits against the values in pixel order, so it reads a pooled scratch.
     private static (double Sky, double Peak) SkyAndPeak(double[] values)
     {
-        var copy = (double[])values.Clone();
+        using var scratch = ArrayPoolHelper.Rent<double>(values.Length);
+        var copy = scratch.AsSpan();
+        values.CopyTo(copy);
         return (StatisticsHelper.NthSmallest(copy, (int)(0.1 * (copy.Length - 1))), StatisticsHelper.NthSmallest(copy, (int)(0.98 * (copy.Length - 1))));
     }
 

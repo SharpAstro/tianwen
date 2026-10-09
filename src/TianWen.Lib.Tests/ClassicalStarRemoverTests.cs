@@ -92,7 +92,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         var gains = channels == 3 ? new[] { 0.8, 1.0, 0.6 } : new[] { 1.0 };
         for (var c = 0; c < channels; c++)
         {
-            var plane = (float[])truth[c].Clone();
+            float[] plane = [.. truth[c]];
             foreach (var s in stars)
             {
                 Render(plane, s.X, s.Y, s.Peak * gains[c], alpha, Beta);

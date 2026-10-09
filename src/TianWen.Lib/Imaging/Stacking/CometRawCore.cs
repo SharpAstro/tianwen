@@ -194,7 +194,7 @@ internal static class CometRawCore
         var neighbourFilled = 0;
         foreach (var plane in planes)
         {
-            var copy = (float[,])plane.Clone();
+            var copy = plane.Copy();
             var around = new List<float>(9);
             for (var y = 0; y < size; y++)
             {

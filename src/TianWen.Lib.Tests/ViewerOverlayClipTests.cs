@@ -115,7 +115,7 @@ namespace TianWen.Lib.Tests
         {
             Array.Clear(viewer.Pixels);
             viewer.Render(source, state);
-            return (byte[])viewer.Pixels.Clone();
+            return [.. viewer.Pixels];
         }
 
         private static async Task<(ClipViewer Viewer, ViewerState State, AstroImageDocument Document)> NewViewerAsync()

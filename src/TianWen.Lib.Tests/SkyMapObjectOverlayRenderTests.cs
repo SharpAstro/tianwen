@@ -76,7 +76,7 @@ public sealed class SkyMapObjectOverlayRenderTests
         tab.State.FieldOfViewDeg = 30.0;
 
         tab.Render(state, content, time);
-        var off = (byte[])renderer.Surface.Pixels.Clone();
+        byte[] off = [.. renderer.Surface.Pixels];
 
         // Same view, overlay ON. Only the [O] catalog markers + labels differ between the two frames,
         // so the pixel diff IS the overlay footprint.

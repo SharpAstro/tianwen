@@ -213,7 +213,7 @@ public class ClassicalBackgroundExtractorTests(ITestOutputHelper output)
         var rng = new Random(2);
         var starless = Plane(Ramp);
         AddNoise(starless, rng, Noise);
-        var withStars = (float[,])starless.Clone();
+        var withStars = starless.Copy();
         var stars = AddRandomStars(withStars, new Random(3), 60);
 
         var extractor = new ClassicalBackgroundExtractor();

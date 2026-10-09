@@ -789,7 +789,8 @@ public static class PlanetaryGhost
                 }
             }
             // A tent that never reaches a fitted pixel is a zero column: a ridge a ten-billionth of the largest diagonal keeps it at zero.
-            var ridged = (double[,])a.Clone();
+            // The cost below reads a and b as they are, so the ridge goes on a copy, solved in place against a copy of b.
+            var ridged = a.Copy();
             var largest = 0.0;
             for (var j = 0; j < m; j++)
             {
@@ -799,7 +800,7 @@ public static class PlanetaryGhost
             {
                 ridged[j, j] += 1e-10 * largest;
             }
-            var c = PlanetaryCeilings.Solve(ridged, b);
+            var c = PlanetaryCeilings.SolveInPlace(ridged, [.. b]);
             var cost = _targetSquared;
             for (var j = 0; j < m; j++)
             {

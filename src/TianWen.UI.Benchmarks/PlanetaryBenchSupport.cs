@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 
@@ -103,7 +104,7 @@ internal sealed class BenchFrameStream(float[][,] data) : IPlanetaryFrameStream
     public DateTimeOffset? TimestampOf(int index) => null;
 
     public ValueTask<Image> LoadAsync(int index, CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(Image.FromChannel((float[,])data[index].Clone(), 1f, 0f));
+        => ValueTask.FromResult(Image.FromChannel(data[index].Copy(), 1f, 0f));
 
     public void Dispose() { }
 }

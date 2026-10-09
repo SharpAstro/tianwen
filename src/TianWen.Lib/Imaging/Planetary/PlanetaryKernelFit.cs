@@ -64,7 +64,7 @@ public static class PlanetaryKernelFit
                 a[j, k] = a[k, j];
             }
         }
-        var solved = PlanetaryCeilings.Solve(a, b);
+        var solved = PlanetaryCeilings.SolveInPlace(a, b);
         return (solved[..taps], solved[taps]);
     }
 

@@ -393,7 +393,7 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
             }
 
             _disposed = true;
-            retained = (Image?[])_ring.Clone();
+            retained = [.. _ring];
             Array.Clear(_ring);
             Array.Clear(_timestamps);
         }

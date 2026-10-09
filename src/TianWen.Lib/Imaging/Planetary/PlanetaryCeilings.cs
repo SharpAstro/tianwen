@@ -51,7 +51,7 @@ public static class PlanetaryCeilings
         int bands = PlanetaryMetrics.Bands)
     {
         var (a, b) = JointNormalEquations(stack, truth, width, height, disk, bands);
-        var solved = Solve(a, b);
+        var solved = SolveInPlace(a, b);
         var gains = new float[bands];
         for (var k = 0; k < bands; k++)
         {
@@ -109,11 +109,13 @@ public static class PlanetaryCeilings
         return (a, b);
     }
 
-    // The n-by-n system a x = b by Gaussian elimination with partial pivoting.
-    internal static double[] Solve(double[,] a, double[] b)
+    // The n-by-n system a x = b by Gaussian elimination with partial pivoting, leaving a and b as they were.
+    internal static double[] Solve(double[,] a, double[] b) => SolveInPlace(a.Copy(), [.. b]);
+
+    // As Solve, for a caller that is done with its system: m is left eliminated and x, which it returns, becomes the solution.
+    internal static double[] SolveInPlace(double[,] m, double[] x)
     {
-        var n = b.Length;
-        var (m, x) = ((double[,])a.Clone(), (double[])b.Clone());
+        var n = x.Length;
         for (var c = 0; c < n; c++)
         {
             var pivot = c;
@@ -392,7 +394,8 @@ public sealed class MultiFrameBound
     {
         ArgumentNullException.ThrowIfNull(spectrum);
         var n = Size;
-        var field = (Complex[])spectrum.Clone();
+        // The transform runs in place, and the spectrum is the caller's.
+        Complex[] field = [.. spectrum];
         Fft2D.Inverse(field, n, n);
         var plane = new float[width * height];
         for (var y = 0; y < n; y++)

@@ -104,7 +104,7 @@ public class HalfPairNoiseTests(ITestOutputHelper output)
     private static float[] Noisy(float[] truth, double[] oneSub, double depth, Random rng)
     {
         var n = Size * Size;
-        var noisy = (float[])truth.Clone();
+        float[] noisy = [.. truth];
         for (var c = 0; c < Channels; c++)
         {
             var calibration = new LinearDegradation.NoiseCalibration(0.0, 0.02, oneSub[c], 1);

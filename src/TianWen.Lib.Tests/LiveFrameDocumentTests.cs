@@ -48,7 +48,7 @@ public class LiveFrameDocumentTests
     public async Task APreviewLeavesTheFramesPixelsAsTheCameraDeliveredThem()
     {
         var (frame, plane, _) = CameraFrame();
-        var before = (float[,])plane.Clone();
+        var before = plane.Copy();
 
         var doc = await AstroImageDocument.FromLiveFrameAsync(frame, TestContext.Current.CancellationToken);
 

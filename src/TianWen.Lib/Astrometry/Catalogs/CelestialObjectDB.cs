@@ -1291,9 +1291,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             {
                 if (_crossIndexLookuptable.TryGetValue(key, out var finalTuple))
                 {
-                    var ext = finalTuple.ext is { } extArr
-                        ? ImmutableCollectionsMarshal.AsImmutableArray((CatalogIndex[])extArr.Clone())
-                        : ImmutableArray<CatalogIndex>.Empty;
+                    ImmutableArray<CatalogIndex> ext = finalTuple.ext is { } extArr ? [.. extArr] : [];
                     edgeBuilder.Add(new EdgeSnapshot(key, finalTuple.i1, ext));
                 }
             }
@@ -1489,9 +1487,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             {
                 continue;
             }
-            var ext = tuple.ext is { } extArr
-                ? ImmutableCollectionsMarshal.AsImmutableArray((CatalogIndex[])extArr.Clone())
-                : ImmutableArray<CatalogIndex>.Empty;
+            ImmutableArray<CatalogIndex> ext = tuple.ext is { } extArr ? [.. extArr] : [];
             edgeBuilder.Add(new EdgeSnapshot(key, tuple.i1, ext));
         }
 
@@ -1505,9 +1501,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             {
                 continue;
             }
-            var ext = tuple.ext is { } extArr
-                ? ImmutableCollectionsMarshal.AsImmutableArray((CatalogIndex[])extArr.Clone())
-                : ImmutableArray<CatalogIndex>.Empty;
+            ImmutableArray<CatalogIndex> ext = tuple.ext is { } extArr ? [.. extArr] : [];
             nmBuilder.Add(new NameMappingSnapshot(name, tuple.i1, ext));
         }
 

@@ -85,7 +85,7 @@ public class NormalizerTests
     {
         var clean = new float[15];
         for (var i = 0; i < 15; i++) clean[i] = 0.20f + 0.01f * i;
-        var spiked = (float[])clean.Clone();
+        float[] spiked = [.. clean];
         spiked[3] = -50f; // one interpolation overshoot, a thousand times the frame's range
 
         var normClean = Normalizer.Apply(Mono(clean), Normalizer.ComputeStats(Mono(clean)), 0.5f);

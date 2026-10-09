@@ -242,7 +242,7 @@ public class ColourCompositionTests(ITestOutputHelper output)
                             window[n++] = src[(yy * width) + xx];
                         }
                     }
-                    plane[y, x] = reduce((float[])window.Clone());
+                    plane[y, x] = reduce(window);
                 }
             }
             planes[c] = plane;

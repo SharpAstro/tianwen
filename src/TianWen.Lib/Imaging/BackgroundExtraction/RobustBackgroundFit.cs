@@ -84,7 +84,7 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
                 return new FitOutcome(0, false, 0f, excludedFraction, 0f, 0f, ImmutableArray<double>.Empty);
             }
 
-            var kept = (bool[])valid.Clone();
+            bool[] kept = [.. valid];
             var keptCount = validCount;
             var residual = new float[n];
             var scratch = new float[n];
@@ -239,7 +239,7 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
                 Array.Copy(valid, kept, n);
                 keptCount = validCount;
             }
-            var compactKept = (bool[])kept.Clone();
+            bool[] compactKept = [.. kept];
 
             InpaintSurface(residual, kept, width, height, radius, options.SurfaceInpaintPasses, surface, scratch);
 

@@ -48,8 +48,8 @@ public class StatisticsHelperTests
                     src[i] = (float)(rng.NextDouble() * 1000.0 - 500.0);
                 }
 
-                var expected = StatisticsHelper.MedianSorted(((float[])src.Clone()).AsSpan());
-                var actual = StatisticsHelper.MedianFast(((float[])src.Clone()).AsSpan());
+                var expected = StatisticsHelper.MedianSorted([.. src]);
+                var actual = StatisticsHelper.MedianFast([.. src]);
                 actual.ShouldBe(expected, $"n={n}, trial={trial}");
             }
         }
@@ -69,8 +69,8 @@ public class StatisticsHelperTests
                     src[i] = rng.NextDouble() * 1000.0 - 500.0;
                 }
 
-                var expected = StatisticsHelper.MedianSorted(((double[])src.Clone()).AsSpan());
-                var actual = StatisticsHelper.MedianFast(((double[])src.Clone()).AsSpan());
+                var expected = StatisticsHelper.MedianSorted([.. src]);
+                var actual = StatisticsHelper.MedianFast([.. src]);
                 actual.ShouldBe(expected, $"n={n}, trial={trial}");
             }
         }

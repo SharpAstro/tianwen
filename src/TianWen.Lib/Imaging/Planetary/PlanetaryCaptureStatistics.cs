@@ -657,7 +657,10 @@ public static class PlanetaryCaptureStatistics
 
     private static double QualityPercentile(double[] values, double percentile)
     {
-        return StatisticsHelper.NthSmallest((double[])values.Clone(), (int)Math.Round(percentile / 100 * (values.Length - 1)));
+        // The selection reorders what it reads, and the qualities stay in frame order for the caller.
+        using var scratch = ArrayPoolHelper.Rent<double>(values.Length);
+        values.CopyTo(scratch.AsSpan());
+        return StatisticsHelper.NthSmallest(scratch.AsSpan(), (int)Math.Round(percentile / 100 * (values.Length - 1)));
     }
 
     // The limb's edge width: along 72 rays from the disk's centre, the level just inside the limb (0.85 radii) over the sky,

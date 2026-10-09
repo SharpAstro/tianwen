@@ -199,12 +199,13 @@ public static class PlanetaryBelts
         return slope;
     }
 
-    // A Gaussian of `sigmaBins` along the profile, over the bins that have a value.
+    // A Gaussian of `sigmaBins` along the profile, over the bins that have a value; no width is the profile itself, which every
+    // caller only reads.
     private static double[] Smooth(double[] values, double sigmaBins)
     {
         if (sigmaBins <= 0)
         {
-            return (double[])values.Clone();
+            return values;
         }
         var reach = (int)Math.Ceiling(3 * sigmaBins);
         var result = new double[values.Length];

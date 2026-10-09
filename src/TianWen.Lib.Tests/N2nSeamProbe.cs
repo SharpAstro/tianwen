@@ -327,7 +327,7 @@ public class N2nSeamProbe(ITestOutputHelper output)
     /// <summary>The value at <paramref name="fraction"/> of the sorted plane, on a copy.</summary>
     private static float Percentile(float[] plane, float fraction)
     {
-        var sorted = (float[])plane.Clone();
+        float[] sorted = [.. plane];
         Array.Sort(sorted);
         var index = Math.Clamp((int)(fraction * (sorted.Length - 1)), 0, sorted.Length - 1);
         return sorted[index];

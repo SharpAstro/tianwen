@@ -158,7 +158,7 @@ internal sealed class TabPictures : IDisposable
             tab,
             [.. _text],
             [.. regions.Select(r => $"{r.X:F1},{r.Y:F1} {r.Width:F1}x{r.Height:F1} {r.Result}")],
-            (byte[])Surface.Pixels.Clone());
+            [.. Surface.Pixels]);
     }
 }
 

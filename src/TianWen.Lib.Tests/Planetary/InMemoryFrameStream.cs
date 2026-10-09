@@ -33,7 +33,7 @@ internal sealed class InMemoryFrameStream(float[][,] frames, DateTimeOffset[]? t
     public ValueTask<Image> LoadAsync(int index, CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _loadCount);
-        return ValueTask.FromResult(Image.FromChannel((float[,])frames[index].Clone(), 1f, 0f));
+        return ValueTask.FromResult(Image.FromChannel(frames[index].Copy(), 1f, 0f));
     }
 
     public void Dispose()

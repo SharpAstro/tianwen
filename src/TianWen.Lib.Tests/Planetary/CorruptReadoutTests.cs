@@ -41,7 +41,7 @@ public class CorruptReadoutTests
     // What the Uranus-C camera did to four frames: its top rows read out at full scale all the way across.
     private static float[,] Glitched(float[,] frame, int rows = 2)
     {
-        var copy = (float[,])frame.Clone();
+        var copy = frame.Copy();
         for (var y = 0; y < rows; y++)
         {
             for (var x = 0; x < Width; x++)
