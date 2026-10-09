@@ -1625,6 +1625,11 @@ Canonical example: `AppSignalHandler.PollCameraTelemetry` and `EquipmentTabState
 ### Code Quality Guidelines
 
 - **Reduced allocations**: prefer `MemoryMarshal`, `stackalloc`, `ArrayPool<T>`, `Span<T>` / `ReadOnlySpan<T>`
+- **Never copy an array through a cast `Clone()`** (`(float[])x.Clone()`, the owner detests it; `NoCastArrayCloneTests`
+  fails on one in `src/` or `tools/`). First ask whether the copy is needed: a reader takes the array or a
+  `ReadOnlySpan<T>`, a routine that reorders its input (a median, a selection) reads a scratch from `ArrayPoolHelper`, and
+  a solver whose caller is done with the system runs in place (`PlanetaryCeilings.SolveInPlace`). A copy that is needed is
+  typed: `float[] copy = [.. source];`, or `Copy()` (`ArrayCopyExtensions`) for a 2-D array.
 - **Immutability with controlled mutability**: types immutable by default; private mutable state with read-only views
 - **Correct abstraction levels**: pure math/data in `TianWen.Lib`, UI state in `TianWen.UI.Abstractions`,
   Vulkan-specific rendering in `TianWen.UI.Shared` / `TianWen.UI.Gui`. Never put GPU calls in Lib or Abstractions.
