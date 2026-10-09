@@ -213,9 +213,10 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     /// <summary>
     /// The master's two halves, when given: the Wiener target the gains are fitted to takes the master's noise ring by ring from half
     /// their difference (<see cref="PlanetaryWaveletGains.HalvesNoise"/>) instead of one white level read past 0.4 cycles a pixel
-    /// (<see cref="PlanetaryInverse.WhiteNoise"/>), #1373. A demosaiced plane's noise is not white: the demosaic interpolates it, so its
-    /// finest rings hold less than its middle ones and a level read at the finest scale is too low where the gains go. On the master's
-    /// grid, with its channels, in its units. Null, the default, keeps the white level.
+    /// (<see cref="PlanetaryInverse.WhiteNoise"/>), #1373. A demosaiced plane's noise is not white, since the demosaic interpolates it, but
+    /// reading it as it is did not bring the gains nearer the truth's own: a ninth of the colour twins' gap closed, and 5 to 21 % more error on
+    /// the mono twins (docs/plans/planetary-restoration.md, "The noise read off the halves"). On the master's grid, with its channels, in its
+    /// units. Null, the default, keeps the white level.
     /// </summary>
     public PlanetaryStackHalves? NoiseHalves { get; init; }
 

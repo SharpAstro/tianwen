@@ -3252,6 +3252,47 @@ The deconvolution's headroom is the kernel: each Red twin's own best gains, appl
 `planetary-sharpen --gains`, leave 22 to 30 % less error than the derived ones, but they do not carry across twins with different air.
 Whether a night's own twin can supply them is #1369 (the AUTO mode's step 0, `planetary-stacking.md`).
 
+### The noise read off the halves (#1373)
+
+**A demosaiced plane's noise is not white, and reading it as it is did not bring the derived gains nearer the twin's own.** #1369 found
+the derived gains on the colour Jupiter twin left more error than none (8.18 and 8.62 against the stack's 7.21 and 7.22), lifting bands 1
+and 2 past the truth where the twin's own best gains hold them under it. The Wiener target the gains are fitted to takes the noise as one
+white level read past 0.4 cycles a pixel (`PlanetaryInverse.WhiteNoise`), and a demosaic interpolates the sensor's noise.
+`PlanetarySharpenOptions.NoiseHalves` (`--noise halves --halves A B`) reads it ring by ring instead, from half the difference of the
+master's two halves (`PlanetaryWaveletGains.HalvesNoise`, #1313's). The rules were set on #1373 before anything ran; every twin was
+restacked with its halves at the sharpened pipeline's own keep, a half.
+
+| Twin, bands 1 to 4 (r+g+b on colour) | the stack | white noise | the halves' noise | the twin's own gains |
+|---|---|---|---|---|
+| colour Jupiter, seed 1 | 7.242 | 5.987 | 5.741 | 3.762 |
+| colour Jupiter, seed 2 | 7.265 | 5.876 | 5.639 | 3.767 |
+| calibrated (2022-09-03 Red) | 1.483 | **0.654** | 0.687 | |
+| nostill | 0.535 | **0.287** | 0.346 | |
+| warped | 1.652 | **0.790** | 0.829 | |
+
+- **Not the default**: on the colour seeds it closed 11.1 and 11.2 % of the gap to the twin's own gains where the rule asked for half, and it cost the
+  mono twins 5.0, 20.6 and 4.9 % where the rule allowed 5.
+- **At the pipeline's own keep the derived gains do help the colour twin**, 5.99 and 5.88 against the stack's 7.24 and 7.27. #1369's
+  "worse than none" was read on masters stacked at a tenth of the frames (`--no-sharpen`'s default keep), whose noise is larger.
+- **The gap is the gains' shape, not the noise.** The twin's own gains take the colour finest band to about nothing (-0.09, -0.15, -0.47 on
+  red, green and blue) and lift band 3 (4.3, 2.7, 3.7), where the derived keep band 1 as stacked (#1187) and lift band 2 far further (5.8
+  on red against 2.5). The noise term moves the gains a little; it does not move them toward that shape.
+- **A mono stack's noise is not white either, by the gains it gave**: the halves raised band 1's gain on every mono twin (4.65 to 5.11, 1.66
+  to 1.95, 9.30 to 9.99), so they read less noise there than the white level, and every twin was the worse for it. The cause was not
+  measured.
+- A unit fixture agrees (`WhereTheNoiseIsWhiteTheHalvesNoiseSharpensAsTheWhiteLevelDoes` pins the white case): noise smoothed by 0.8 px, as
+  a demosaic smooths it, gave 1.069 with the halves against 1.063 with the white level.
+
+- **On the four real colour captures it barely moved against their posts** (the globe's gain on what both hold, bands 1, 2 and 3, the
+  white level's then the halves'): the EdgeHD Saturn 0.52, 1.17, 1.00 and 0.55, 1.24, 1.01; the Meade 16 Saturn 0.33, 0.50, 0.67 both;
+  the EdgeHD 678MC Jupiter 0.13, 0.36, 0.54 and 0.14, 0.37, 0.54; the 12-inch SCT Jupiter 0.16, 0.62, 0.69 and 0.15, 0.60, 0.68. The
+  2026-10-07 Saturn was not run: its colour master is composed from three mono masters, so it has no pair of halves on one grid, and
+  its planes are mono, which the mono twins answer.
+
+The shape is #1376: a colour twin's own true kernel (a degrade with `--psf-truth`) separates its two possible causes, since the
+derivation through it either reaches the twin's own gains (the edge's kernel is the cause) or does not (the gain fit is), and its arm lets
+the held finest band fall below 1, never rise above it.
+
 ### The batch stack on every core
 
 The owner saw the viewer's Best stack hold one core, and it did: 1.00 core over a 3,000-frame stack of the calibrated twin (233 s,

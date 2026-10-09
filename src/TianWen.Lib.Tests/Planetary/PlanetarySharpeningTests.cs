@@ -298,6 +298,74 @@ public class PlanetarySharpeningTests
         return (truth, new Image([plane], BitDepth.Float32, 1f, 0f, 0f, meta ?? new ImageMeta()));
     }
 
+    // Two halves of a stack, each the blurred truth with its own white noise, and the stack their mean.
+    private static (float[] Truth, Image Stack, PlanetaryStackHalves Halves) NoisyHalves()
+    {
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
+        var scale = aspect.AngularDiameterArcsec / 2 / Placement.EquatorialRadius;
+        var truth = PlanetaryRender.RenderDiffracted(BeltedMap(), aspect, Placement, Size, Size, 0.95, Telescope, Wavelength, scale);
+        var blurred = PlanetaryInverse.Apply(truth, Size, Size, Seeing);
+        var random = new Random(5);
+        float[] Noise()
+        {
+            var white = new float[Size * Size];
+            for (var i = 0; i < white.Length; i++)
+            {
+                white[i] = (float)PhaseScreen.Gaussian(random);
+            }
+            return white;
+        }
+        Image Plane(float[] values) => new Image([Array2D(values)], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+        static float[,] Array2D(float[] values)
+        {
+            var plane = new float[Size, Size];
+            for (var i = 0; i < values.Length; i++)
+            {
+                plane[i / Size, i % Size] = values[i];
+            }
+            return plane;
+        }
+        // Each half carries the stack's noise times the square root of two, so their mean carries the stack's 0.002.
+        var (noiseA, noiseB) = (Noise(), Noise());
+        var a = blurred.Select((v, i) => (float)(0.05 + (0.5 * v) + (0.002 * Math.Sqrt(2) * noiseA[i]))).ToArray();
+        var b = blurred.Select((v, i) => (float)(0.05 + (0.5 * v) + (0.002 * Math.Sqrt(2) * noiseB[i]))).ToArray();
+        return (truth, Plane([.. a.Zip(b, (x, y) => (x + y) / 2)]), new PlanetaryStackHalves(Plane(a), Plane(b)));
+    }
+
+    // The band error against the truth, bands 1 to 4, of the derived sharpening with the white level's noise and with the halves'.
+    private static async Task<(double Stack, double White, double Halves)> SharpenedWithEachNoise(System.Threading.CancellationToken ct)
+    {
+        var (truth, stack, halves) = NoisyHalves();
+        var options = new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650] };
+        var white = (await Task.Run(() => PlanetarySharpening.Sharpen(stack, options), ct)).ShouldNotBeNull();
+        var fromHalves = (await Task.Run(() => PlanetarySharpening.Sharpen(stack, options with { NoiseHalves = halves }), ct)).ShouldNotBeNull();
+        var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night));
+        var disk = MetricDisk.From(PlanetaryLimbFit.Fit(stack, limbOptions).ShouldNotBeNull(), limbOptions.AxisRatio);
+        var reference = PlanetaryMetrics.Normalise(truth, Size, Size, disk);
+        double Error(Image image)
+            => PlanetaryMetrics.Fidelity(PlanetaryMetrics.Normalise(image.GetChannelSpan(0), Size, Size, disk), reference, Size, Size, disk, 4).Sum(b => b.Error);
+        var errors = (Error(stack), Error(white.Sharpened), Error(fromHalves.Sharpened));
+        TestContext.Current.TestOutputHelper?.WriteLine($"error, bands 1 to 4, the stack {errors.Item1:0.000}, the white level's "
+            + $"{errors.Item2:0.000} (gains {string.Join(", ", white.Gains.Select(g => g.ToString("0.00")))}), the halves' {errors.Item3:0.000} "
+            + $"(gains {string.Join(", ", fromHalves.Gains.Select(g => g.ToString("0.00")))})");
+        foreach (var image in new[] { stack, halves.A, halves.B, white.Sharpened, fromHalves.Sharpened })
+        {
+            image.Release();
+        }
+        return errors;
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task WhereTheNoiseIsWhiteTheHalvesNoiseSharpensAsTheWhiteLevelDoes()
+    {
+        // #1373: the halves' noise ring by ring is the white level where the noise is white, so the two derivations agree (1.153 and
+        // 1.154 when it was written). Where it is not, the halves did not bring the gains nearer the truth: smoothed by 0.8 px, as a
+        // demosaic smooths it, 1.069 against the white level's 1.063, and on the colour twins it closed a ninth of the gap to the oracle.
+        var (stack, white, halves) = await SharpenedWithEachNoise(TestContext.Current.CancellationToken);
+        white.ShouldBeLessThan(stack);
+        halves.ShouldBe(white, 0.05 * white);
+    }
+
     [Fact(Timeout = 600_000)]
     public async Task AColourLiveViewIsBalancedAsTheBatchBalancesItsMaster()
     {
