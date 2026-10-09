@@ -104,17 +104,21 @@ public static class PlanetaryWaveletGains
 
     /// <summary>
     /// The Wiener filter, ring by ring, that <paramref name="stackPower"/>, <paramref name="noise"/> and <paramref name="transfer"/> give
-    /// (each ring r at r / n cycles a pixel, n the padded grid): (1 - N / P_S)+ / H, zero where H is under <see cref="MinTransfer"/>.
+    /// (each ring r at r / n cycles a pixel, n the padded grid): (1 - N / P_S)+ / H, zero where H is under <see cref="MinTransfer"/>. With a
+    /// <paramref name="target"/>, the stack is restored toward the scene through it rather than toward the scene <paramref name="transfer"/>
+    /// is read against: T (1 - N / P_S)+ / H (#1366, the aperture target over the stack's total transfer).
     /// </summary>
-    public static ImmutableArray<double> Wiener(ImmutableArray<double> stackPower, ImmutableArray<double> noise, Func<double, double> transfer)
+    public static ImmutableArray<double> Wiener(ImmutableArray<double> stackPower, ImmutableArray<double> noise, Func<double, double> transfer,
+        Func<double, double>? target = null)
     {
         ArgumentNullException.ThrowIfNull(transfer);
         var n = stackPower.Length;
         var w = ImmutableArray.CreateBuilder<double>(n);
         for (var r = 0; r < n; r++)
         {
-            var h = transfer(r / (double)n);
-            w.Add(h < MinTransfer || stackPower[r] <= 0 ? 0 : Math.Max(0, 1 - (noise[r] / stackPower[r])) / h);
+            var f = r / (double)n;
+            var h = transfer(f);
+            w.Add(h < MinTransfer || stackPower[r] <= 0 ? 0 : (target?.Invoke(f) ?? 1) * Math.Max(0, 1 - (noise[r] / stackPower[r])) / h);
         }
         return w.MoveToImmutable();
     }

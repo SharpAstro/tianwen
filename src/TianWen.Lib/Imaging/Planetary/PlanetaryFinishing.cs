@@ -55,6 +55,53 @@ public static class PlanetaryFinishing
     public static double CutoffCyclesPerPixel(Pupil pupil, double wavelengthNm, double arcsecPerPixel)
         => pupil.DiameterM / (wavelengthNm * 1e-9) / ShortExposurePsf.ArcsecPerRadian * arcsecPerPixel;
 
+    /// <summary>The aperture target's taper is one to this fraction of the cutoff (a Tukey window, alpha 0.5, #1366).</summary>
+    public const double ApertureTaperStart = 0.5;
+
+    /// <summary>
+    /// The aperture target's transfer at <paramref name="cyclesPerPixel"/> (<see cref="PlanetarySharpenTarget.Aperture"/>, #1366): one to
+    /// <see cref="ApertureTaperStart"/> of the <paramref name="cutoff"/>, a raised cosine from there to nothing at it. The scene band-limited
+    /// where the pupil band-limits it, with no edge of its own to ring.
+    /// </summary>
+    public static double ApertureTaper(double cyclesPerPixel, double cutoff)
+    {
+        var u = cyclesPerPixel / cutoff;
+        return u <= ApertureTaperStart ? 1 : u >= 1 ? 0 : 0.5 * (1 + Math.Cos(Math.PI * (u - ApertureTaperStart) / (1 - ApertureTaperStart)));
+    }
+
+    /// <summary>
+    /// <see cref="ApertureTaper"/> at the <paramref name="pupil"/>'s cutoff for <paramref name="wavelengthNm"/> and the plate scale, as a radial
+    /// transfer read out to 0.75 cycles a pixel (past a square grid's corner).
+    /// </summary>
+    public static RadialTransfer ApertureTarget(Pupil pupil, double wavelengthNm, double arcsecPerPixel)
+    {
+        const int ringsPerCycle = 1024;
+        var cutoff = CutoffCyclesPerPixel(pupil, wavelengthNm, arcsecPerPixel);
+        var rings = (int)Math.Ceiling(0.75 * ringsPerCycle) + 2;
+        var values = new double[rings];
+        for (var r = 0; r < rings; r++)
+        {
+            values[r] = ApertureTaper(r / (double)ringsPerCycle, cutoff);
+        }
+        return new RadialTransfer([.. values], ringsPerCycle);
+    }
+
+    /// <summary>The pupil's diffraction is divided out only where it passes at least this much (<see cref="ApertureTruth"/>).</summary>
+    public const double ApertureTruthFloor = 0.02;
+
+    /// <summary>
+    /// A twin's truth, which is the scene through the <paramref name="pupil"/>'s diffraction, carried to the aperture target (#1366): divided
+    /// by the pupil's radial diffraction where it passes at least <see cref="ApertureTruthFloor"/> and multiplied by
+    /// <see cref="ApertureTaper"/>, so it is scored on the target's own scale. The division is by the radial mean of the pupil's transfer, so
+    /// a pupil with vanes leaves their faint spikes in it; the taper is all but nothing where the floor cuts.
+    /// </summary>
+    public static float[] ApertureTruth(ReadOnlySpan<float> truth, int width, int height, Pupil pupil, double wavelengthNm, double arcsecPerPixel)
+    {
+        var diffraction = PlanetaryInverse.Diffraction(pupil, wavelengthNm * 1e-9, arcsecPerPixel);
+        var cutoff = CutoffCyclesPerPixel(pupil, wavelengthNm, arcsecPerPixel);
+        return PlanetaryInverse.Apply(truth, width, height, f => diffraction.At(f) is var d && d >= ApertureTruthFloor ? ApertureTaper(f, cutoff) / d : 0);
+    }
+
     /// <summary>The low-pass's transfer at <paramref name="cyclesPerPixel"/>: one to <see cref="CutoffStart"/> of the cutoff, zero past it.</summary>
     public static double CutoffTransfer(double cyclesPerPixel, double cutoff)
     {

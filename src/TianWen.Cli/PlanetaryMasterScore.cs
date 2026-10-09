@@ -24,7 +24,8 @@ internal static class PlanetaryMasterScore
     /// <paramref name="master"/> against <paramref name="truthPath"/> (a colour master against its truths .r, .g, .b beside it): its own limb
     /// fitted and moved onto the truth's disk, then the fidelity a band at a time and the undershoot, printed as <paramref name="what"/>.
     /// </summary>
-    public static void AgainstTruth(IConsoleHost consoleHost, Image master, string truthPath, CatalogIndex planet, string what, Image? stack = null)
+    public static void AgainstTruth(IConsoleHost consoleHost, Image master, string truthPath, CatalogIndex planet, string what, Image? stack = null,
+        Pupil? aperture = null)
     {
         var inv = CultureInfo.InvariantCulture;
         var colour = master.ChannelCount == 3;
@@ -36,7 +37,8 @@ internal static class PlanetaryMasterScore
                 consoleHost.WriteError($"[planetary] {path}: no truth with a time to score {what} against");
                 return;
             }
-            var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, when));
+            var aspect = PhysicalEphemeris.Compute(planet, when);
+            var limbOptions = PlanetaryLimbFit.OptionsFor(aspect);
             var disk = PlanetaryMeasureSubCommand.WithPlanet(truth.Disk, limbOptions);
             var plane = colour ? master.ChannelImage(channel) : master;
             try
@@ -52,7 +54,7 @@ internal static class PlanetaryMasterScore
                     consoleHost.WriteError($"[planetary] {label}: its limb could not be fitted");
                     continue;
                 }
-                var reference = PlanetaryMetrics.Normalise(truth.Plane, plane.Width, plane.Height, disk);
+                var reference = PlanetaryMetrics.Normalise(ScoredTruth(truth.Plane, plane.Width, plane.Height, disk, aspect, path, aperture), plane.Width, plane.Height, disk);
                 var bands = PlanetaryMetrics.Fidelity(fitted.Plane, reference, plane.Width, plane.Height, disk);
                 consoleHost.WriteScrollable(string.Create(inv,
                     $"[planetary] {label} against the truth: transfer {string.Join(", ", bands.Select(b => b.Transfer.ToString("0.000", inv)))}; error {string.Join(", ", bands.Select(b => b.Error.ToString("0.000", inv)))} (bands 1 to 4 {bands.Take(4).Sum(b => b.Error):0.000}); undershoot {PlanetaryMetrics.LimbUndershoot(fitted.Plane, plane.Width, plane.Height, disk):0.0000}; limb profile error {PlanetaryMetrics.LimbProfileError(fitted.Plane, reference, plane.Width, plane.Height, disk):0.0000}; rebound {PlanetaryMetrics.LimbRebound(fitted.Plane, plane.Width, plane.Height, disk):0.0000}"));
@@ -264,7 +266,7 @@ internal static class PlanetaryMasterScore
     /// one as the derived sharpening leaves them), their filter, and the band error they leave: what the derived gains are judged against
     /// (#1251).
     /// </summary>
-    public static void TruthGains(IConsoleHost consoleHost, Image master, string truthPath, CatalogIndex planet)
+    public static void TruthGains(IConsoleHost consoleHost, Image master, string truthPath, CatalogIndex planet, Pupil? aperture = null)
     {
         var inv = CultureInfo.InvariantCulture;
         var colour = master.ChannelCount == 3;
@@ -276,7 +278,8 @@ internal static class PlanetaryMasterScore
                 consoleHost.WriteError($"[planetary] {path}: no truth with a time to fit the truth's gains against");
                 return;
             }
-            var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, when));
+            var aspect = PhysicalEphemeris.Compute(planet, when);
+            var limbOptions = PlanetaryLimbFit.OptionsFor(aspect);
             var disk = PlanetaryMeasureSubCommand.WithPlanet(truth.Disk, limbOptions);
             var plane = colour ? master.ChannelImage(channel) : master;
             try
@@ -287,7 +290,7 @@ internal static class PlanetaryMasterScore
                     consoleHost.WriteError($"[planetary] {label}: the master's limb could not be put on the truth's");
                     continue;
                 }
-                var reference = PlanetaryMetrics.Normalise(truth.Plane, plane.Width, plane.Height, disk);
+                var reference = PlanetaryMetrics.Normalise(ScoredTruth(truth.Plane, plane.Width, plane.Height, disk, aspect, path, aperture), plane.Width, plane.Height, disk);
                 var (oracle, gains) = PlanetaryCeilings.PerBandJointOracle(fitted.Plane, reference, plane.Width, plane.Height, disk, PlanetaryWaveletGains.ScoredBands);
                 var bands = PlanetaryMetrics.Fidelity(oracle, reference, plane.Width, plane.Height, disk);
                 consoleHost.WriteScrollable(string.Create(inv,
@@ -301,6 +304,23 @@ internal static class PlanetaryMasterScore
                 }
             }
         }
+    }
+
+    // A truth as the scores read it (#1366): as rendered, through the pupil, or with an aperture given carried to the aperture target
+    // (PlanetaryFinishing.ApertureTruth) at the truth's own wavelength (WAVELEN) and the plate scale its disk gives.
+    private static float[] ScoredTruth(float[] truth, int width, int height, MetricDisk disk, in PlanetAspect aspect, string path, Pupil? aperture)
+    {
+        if (aperture is not { } pupil)
+        {
+            return truth;
+        }
+        using var fits = Image.OpenFitsHeader(path);
+        var wavelengthNm = fits.ReadFirstImageHduHeaderOnly()?.Header.GetDoubleValue("WAVELEN", double.NaN) ?? double.NaN;
+        if (!double.IsFinite(wavelengthNm))
+        {
+            throw new InvalidOperationException($"{path}: no WAVELEN in its header, so it cannot be carried to the aperture target");
+        }
+        return PlanetaryFinishing.ApertureTruth(truth, width, height, pupil, wavelengthNm, aspect.AngularDiameterArcsec / 2 / disk.Radius);
     }
 
     /// <summary><paramref name="master"/>'s limb undershoot below the sky, each channel on the disk fitted to the whole master, printed as <paramref name="what"/>.</summary>

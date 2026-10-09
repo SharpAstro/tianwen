@@ -74,6 +74,23 @@ public enum PlanetaryColourFinestBand
 }
 
 /// <summary>
+/// What the derived sharpening restores toward (#1366). The twins' truth is the OPAL map through the pupil's own diffraction, and so is the
+/// default target: the gains undo the air and the stack, never the telescope, and a capture's own post sits at about 1.5 to 2 times it
+/// (#1251), much as the gain that undoes a 23 % obstructed pupil's diffraction (1.6 at a quarter of its cutoff, 2.8 at half).
+/// </summary>
+public enum PlanetarySharpenTarget
+{
+    /// <summary>The planet through the pupil's own diffraction: what a perfect telescope of this aperture would show.</summary>
+    Telescope,
+
+    /// <summary>
+    /// The planet itself, band-limited to the pupil's cutoff by <see cref="PlanetaryFinishing.ApertureTaper"/>: the telescope's diffraction
+    /// undone too, as far as the stack's noise floor lets the Wiener target go. Past the cutoff nothing of the scene reaches the stack.
+    /// </summary>
+    Aperture,
+}
+
+/// <summary>
 /// What a planetary master is sharpened against: the planet and the instant its aspect is read at, and the telescope's pupil and each
 /// channel's wavelength, which set the diffraction the limb's edge is read over (R8 follow-up 3). Without a pupil the gains cannot be
 /// derived, and <see cref="PlanetarySharpening.Sharpen"/> sharpens by <see cref="WaveletSharpenOptions.PlanetaryDefault"/> with the limb kept
@@ -136,6 +153,14 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     /// twins; a capture's own post sits at about 1.5 to 2 times it there. The limb is still kept from ringing (<see cref="Fix"/>).
     /// </summary>
     public double Strength { get; init; } = 1;
+
+    /// <summary>
+    /// What the derived gains restore toward (<see cref="PlanetarySharpenTarget"/>, #1366): the planet through the pupil's diffraction by
+    /// default, or the planet itself band-limited to the pupil's cutoff. The edge is still read against the limb model through the pupil (the
+    /// stack's blur is the air's over the telescope's), and the model drawn outside the limb is the target's. The batch sharpening's option:
+    /// a live view's limb is drawn through the pupil.
+    /// </summary>
+    public PlanetarySharpenTarget Target { get; init; }
 
     /// <summary>
     /// Strengths the first channel's derived gains are also fitted at (<see cref="PlanetarySharpenResult.Stops"/>), the sharpening itself
@@ -297,12 +322,18 @@ public static class PlanetarySharpening
             {
                 var wavelengthNm = options.WavelengthsNm[Math.Min(c, options.WavelengthsNm.Length - 1)];
                 var diffraction = limbWindow.Diffraction(pupil, wavelengthNm);
-                var diskTarget = limbWindow.Through(diffraction);
-                (models[c], diffractions[c]) = (diskTarget, diffraction);
-                var edge = PlanetaryFinestBand.LimbEdge(window, diskTarget, size, size, disk, fit, aspect);
+                // The model through the pupil is what the edge is read against (the stack's blur is the air's over the telescope's); the
+                // target is what the gains restore toward, the same model unless the telescope is to be undone too (#1366).
+                var throughPupil = limbWindow.Through(diffraction);
+                var target = options.Target is PlanetarySharpenTarget.Aperture
+                    ? PlanetaryFinishing.ApertureTarget(pupil, wavelengthNm, limbWindow.ArcsecPerPixel)
+                    : diffraction;
+                var diskTarget = ReferenceEquals(target, diffraction) ? throughPupil : limbWindow.Through(target);
+                (models[c], diffractions[c]) = (diskTarget, target);
+                var edge = PlanetaryFinestBand.LimbEdge(window, throughPupil, size, size, disk, fit, aspect);
                 if (options.RingEdge && disk.Rings is not null)
                 {
-                    edge = EdgeProfile.Pooled(edge, PlanetaryFinestBand.RingEdge(window, diskTarget, size, size, disk));
+                    edge = EdgeProfile.Pooled(edge, PlanetaryFinestBand.RingEdge(window, throughPupil, size, size, disk));
                 }
                 var physical = options.EdgeReach is { } reach
                     ? PlanetaryFinestBand.FitPhysical(edge, pupil.DiameterM / (wavelengthNm * 1e-9) / ShortExposurePsf.ArcsecPerRadian * limbWindow.ArcsecPerPixel, 0.02, reach)
@@ -311,8 +342,10 @@ public static class PlanetarySharpening
                 var power = PlanetaryWaveletGains.StackPower(window, size, size, disk);
                 var white = PlanetaryInverse.WhiteNoise(PlanetaryWaveletGains.Interior(window, size, size, disk), size, size);
                 var noise = ImmutableArray.CreateRange(Enumerable.Repeat(white, power.Length));
-                var wiener = PlanetaryWaveletGains.Wiener(power, noise, kernel);
-                var blurredDisk = PlanetaryInverse.Apply(diskTarget, size, size, kernel);
+                var wiener = ReferenceEquals(target, diffraction)
+                    ? PlanetaryWaveletGains.Wiener(power, noise, kernel)
+                    : PlanetaryWaveletGains.Wiener(power, noise, f => kernel(f) * diffraction.At(f), target.At);
+                var blurredDisk = PlanetaryInverse.Apply(throughPupil, size, size, kernel);
                 var finestHeld = FinestHeld(options.OfColour ? 3 : master.ChannelCount, options.OfColour ? 1 : c, options.ColourFinestBand);
                 var truth = options.NonNegative
                     ? PlanetaryWaveletGains.FitNonNegative(power, wiener, diskTarget, blurredDisk, size, size, disk, kernel, strength: options.Strength)
@@ -337,7 +370,7 @@ public static class PlanetarySharpening
                         stopGains[k, c] = options.FitStops[k] == options.Strength ? gains : AtStrength(options.FitStops[k]);
                     }
                 }
-                sharpened = Apply(window, size, disk, sharp, f => kernel(f) * diffraction.At(f), diffraction.At, gains.AsSpan(), [], options.Fix, diskTarget, blurredDisk);
+                sharpened = Apply(window, size, disk, sharp, f => kernel(f) * diffraction.At(f), target.At, gains.AsSpan(), [], options.Fix, diskTarget, blurredDisk);
                 cutoffs[c] = PlanetaryFinishing.CutoffCyclesPerPixel(pupil, wavelengthNm, limbWindow.ArcsecPerPixel);
                 var sharpening = gains;
                 (sharpened, var wienerCut) = Finished(window, sharpened, contrastFrom ?? window, size, disk, options, cutoffs[c], white,

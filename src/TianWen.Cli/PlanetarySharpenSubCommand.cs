@@ -43,6 +43,8 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var kolivasAmountOpt = new Option<double>("--kolivas-amount") { Description = "The amount --finish kolivas takes, as his tool's slider (15.6, his PlanetRecon's judging recipe).", DefaultValueFactory = _ => 15.6 };
         var colourOpt = new Option<string>("--colour") { Description = "How a colour master's detail is sharpened (#1295): perchannel (the default: each channel through its own diffraction), luminance (the mean of the planes sharpened once, every plane given the stack's own colour), or both to compare them.", DefaultValueFactory = _ => "perchannel" };
         var strengthOpt = new Option<string>("--strength") { Description = "How far past the truth bands 2 and 3 are taken (#1251): 1, the default, is the derived sharpening; a comma list sharpens at each (e.g. '1,1.5,2'), each written and scored.", DefaultValueFactory = _ => "1" };
+        var targetOpt = new Option<string>("--target") { Description = "What the derived gains restore toward (#1366): telescope (the default: the planet through the pupil's diffraction), aperture (the telescope's diffraction undone too, up to its cutoff), or both to compare them.", DefaultValueFactory = _ => "telescope" };
+        var scoreAgainstOpt = new Option<string>("--score-against") { Description = "With --truth, what every sharpening is scored against (#1366): telescope (the default: the truth as rendered, through the pupil) or aperture (the truth carried to the aperture target, the pupil's diffraction divided out and the taper put in).", DefaultValueFactory = _ => "telescope" };
         var shrinkOpt = new Option<bool>("--shrink") { Description = "Shrink each a trous band against the master's own noise, read off its two halves (--halves), before the gains are derived (BayesShrink, #1313)." };
         var halvesOpt = new Option<string[]>("--halves")
         {
@@ -55,7 +57,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var command = new Command("planetary-sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
         {
             Arguments = { masterArg },
-            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, shrinkOpt, halvesOpt },
+            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, shrinkOpt, halvesOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -145,10 +147,36 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 var options = new PlanetarySharpenOptions(body, instant, PlanetaryMasterScore.PupilFrom(parseResult, pupil)) { WavelengthsNm = [.. wavelengths] };
                 consoleHost.WriteScrollable(string.Create(inv,
                     $"{Path.GetFileName(path)}: {master.ChannelCount}ch {master.Width}x{master.Height}, {body} at {instant:yyyy-MM-dd HH:mm:ss} UTC, {(options.Pupil is { } p ? $"a {p.DiameterM * 1000:0} mm pupil {p.ObstructionRatio:P0} obstructed" : "no telescope (the preset, the limb kept as stacked)")}"));
+                var targetName = (parseResult.GetValue(targetOpt) ?? "telescope").ToLowerInvariant();
+                PlanetarySharpenTarget[] targets = targetName switch
+                {
+                    "both" => [PlanetarySharpenTarget.Telescope, PlanetarySharpenTarget.Aperture],
+                    "telescope" => [PlanetarySharpenTarget.Telescope],
+                    "aperture" => [PlanetarySharpenTarget.Aperture],
+                    _ => [],
+                };
+                if (targets.Length == 0)
+                {
+                    consoleHost.WriteError($"--target {targetName}: telescope, aperture or both");
+                    return 1;
+                }
+                var scoreAgainst = (parseResult.GetValue(scoreAgainstOpt) ?? "telescope").ToLowerInvariant();
+                if (scoreAgainst is not ("telescope" or "aperture"))
+                {
+                    consoleHost.WriteError($"--score-against {scoreAgainst}: telescope or aperture");
+                    return 1;
+                }
+                if (scoreAgainst == "aperture" && options.Pupil is null)
+                {
+                    consoleHost.WriteError("--score-against aperture needs the telescope (--telescope or --aperture-mm)");
+                    return 1;
+                }
+                // The truth every score reads: as rendered, or carried to the aperture target (#1366).
+                var scoredAperture = scoreAgainst == "aperture" ? options.Pupil : null;
                 if (truthPath is not null)
                 {
-                    PlanetaryMasterScore.AgainstTruth(consoleHost, master, truthPath, body, "the master as stacked");
-                    PlanetaryMasterScore.TruthGains(consoleHost, master, truthPath, body);
+                    PlanetaryMasterScore.AgainstTruth(consoleHost, master, truthPath, body, "the master as stacked", aperture: scoredAperture);
+                    PlanetaryMasterScore.TruthGains(consoleHost, master, truthPath, body, scoredAperture);
                 }
                 else
                 {
@@ -232,11 +260,11 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 var kolivasAmount = parseResult.GetValue(kolivasAmountOpt);
                 var outputDir = parseResult.GetValue(outputOpt) ?? Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".";
                 var variants = (options.Pupil is null ? [PlanetaryLimbFix.LimbChannel] : fixes)
-                    .SelectMany(f => fits.SelectMany(n => finests.SelectMany(b => strengths.SelectMany(k => finishes.SelectMany(e => luminances.Select(l => (Fix: f, NonNegative: n, Finest: b, Strength: k, Finish: e, Luminance: l))))))).ToArray();
-                foreach (var (fix, nonNegative, finest, strength, (finish, finishWord), luminance) in variants)
+                    .SelectMany(f => fits.SelectMany(n => finests.SelectMany(b => strengths.SelectMany(k => finishes.SelectMany(e => luminances.SelectMany(l => targets.Select(t => (Fix: f, NonNegative: n, Finest: b, Strength: k, Finish: e, Luminance: l, Target: t)))))))).ToArray();
+                foreach (var (fix, nonNegative, finest, strength, (finish, finishWord), luminance, target) in variants)
                 {
                     ct.ThrowIfCancellationRequested();
-                    if (PlanetarySharpening.Sharpen(master, options with { Fix = fix, NonNegative = nonNegative, ColourFinestBand = finest, Strength = strength, EdgeReach = parseResult.GetValue(edgeReachOpt), RingEdge = parseResult.GetValue(ringEdgeOpt), Finish = finish, KolivasAmount = kolivasAmount, LuminanceOnly = luminance, ShrinkHalves = halves }) is not { } result)
+                    if (PlanetarySharpening.Sharpen(master, options with { Fix = fix, NonNegative = nonNegative, ColourFinestBand = finest, Strength = strength, EdgeReach = parseResult.GetValue(edgeReachOpt), RingEdge = parseResult.GetValue(ringEdgeOpt), Finish = finish, KolivasAmount = kolivasAmount, LuminanceOnly = luminance, ShrinkHalves = halves, Target = target }) is not { } result)
                     {
                         consoleHost.WriteError($"{path}: the planet's limb could not be fitted");
                         return 1;
@@ -244,15 +272,17 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     try
                     {
                         var stem = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(path) + "_sharpened"
-                            + (variants.Length > strengths.Count * finishes.Count * luminances.Length ? "_" + fix.ToString().ToLowerInvariant() + (nonNegative ? "_nonnegative" : "") + (finests.Length > 1 ? "_" + finest.ToString().ToLowerInvariant() : "") : "")
+                            + (variants.Length > strengths.Count * finishes.Count * luminances.Length * targets.Length ? "_" + fix.ToString().ToLowerInvariant() + (nonNegative ? "_nonnegative" : "") + (finests.Length > 1 ? "_" + finest.ToString().ToLowerInvariant() : "") : "")
                             + (strengths.Count > 1 ? string.Create(inv, $"_s{strength:0.##}") : "")
                             + (finishes.Count > 1 ? "_f" + finishWord.Replace('+', '-') : "")
                             + (luminances.Length > 1 ? (luminance ? "_luminance" : "_perchannel") : "")
+                            + (target == PlanetarySharpenTarget.Aperture ? "_aperture" : "")
                             + (halves is null ? "" : "_shrunk"));
                         var finestWords = finests.Length > 1 ? $", the colour's finest band {finest.ToString().ToLowerInvariant()}" : "";
                         var strengthWords = (strength == 1 ? "" : string.Create(inv, $", strength {strength:0.##}"))
                             + (finish == PlanetaryFinish.None ? "" : $", finished {finishWord}")
                             + (luminance && master.ChannelCount == 3 ? ", the luminance sharpened, the stack's colour kept" : "")
+                            + (target == PlanetarySharpenTarget.Aperture ? ", toward the aperture (the telescope undone)" : "")
                             + (halves is null ? "" : ", shrunk by its halves");
                         var what = result.Derived ? $"derived{(nonNegative ? " non-negative" : "")}, {PlanetaryBestStack.Describe(fix)}{finestWords}{strengthWords}" : $"PlanetaryDefault{strengthWords}, the limb kept as stacked";
                         consoleHost.WriteScrollable(string.Create(inv,
@@ -280,7 +310,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                         }
                         if (truthPath is not null)
                         {
-                            PlanetaryMasterScore.AgainstTruth(consoleHost, result.Sharpened, truthPath, body, what, master);
+                            PlanetaryMasterScore.AgainstTruth(consoleHost, result.Sharpened, truthPath, body, what, master, scoredAperture);
                         }
                         else
                         {
@@ -320,7 +350,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                                     }
                                     if (truthPath is not null)
                                     {
-                                        PlanetaryMasterScore.AgainstTruth(consoleHost, image, truthPath, body, label);
+                                        PlanetaryMasterScore.AgainstTruth(consoleHost, image, truthPath, body, label, aperture: scoredAperture);
                                     }
                                     else
                                     {

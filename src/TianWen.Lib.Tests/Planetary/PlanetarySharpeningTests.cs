@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Threading.Tasks;
 using Shouldly;
@@ -389,6 +390,67 @@ public class PlanetarySharpeningTests
         undershoot.ShouldBeLessThan(0.02, "the limb is still kept from ringing below the sky");
         atTruth.Sharpened.Release();
         past.Sharpened.Release();
+    }
+
+    [Fact]
+    public void TheApertureTaperIsFlatToHalfTheCutoffAndNothingFromIt()
+    {
+        // #1366: the aperture target's band limit, a Tukey window (alpha 0.5) over the pupil's cutoff, set before anything was measured.
+        const double cutoff = 0.4;
+        PlanetaryFinishing.ApertureTaper(0, cutoff).ShouldBe(1);
+        PlanetaryFinishing.ApertureTaper(0.5 * cutoff, cutoff).ShouldBe(1);
+        PlanetaryFinishing.ApertureTaper(0.75 * cutoff, cutoff).ShouldBe(0.5, 1e-12);
+        PlanetaryFinishing.ApertureTaper(cutoff, cutoff).ShouldBe(0);
+        PlanetaryFinishing.ApertureTaper(1.3 * cutoff, cutoff).ShouldBe(0);
+
+        // The target as a transfer, at a pupil's own cutoff: nothing is asked past it.
+        var arcsecPerPixel = 0.2;
+        var fc = PlanetaryFinishing.CutoffCyclesPerPixel(Telescope, 650, arcsecPerPixel);
+        var target = PlanetaryFinishing.ApertureTarget(Telescope, 650, arcsecPerPixel);
+        target.At(0.25 * fc).ShouldBe(1, 1e-3);
+        target.At(0.75 * fc).ShouldBe(0.5, 0.01);
+        target.At(Math.Min(1.05 * fc, 0.7)).ShouldBe(0, 1e-9);
+
+        // The Wiener target toward it is the taper times the plain one over the same transfer.
+        ImmutableArray<double> power = [.. Enumerable.Repeat(1.0, 64)];
+        ImmutableArray<double> noise = [.. Enumerable.Repeat(0.25, 64)];
+        var plain = PlanetaryWaveletGains.Wiener(power, noise, f => 0.5);
+        var toward = PlanetaryWaveletGains.Wiener(power, noise, f => 0.5, f => f < 0.25 ? 1 : 0);
+        toward.Take(16).ShouldBe(plain.Take(16));
+        toward.Skip(16).ShouldAllBe(w => w == 0);
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task TheApertureTargetTakesTheMidBandsPastTheTelescopesOwnTruth()
+    {
+        // #1366: the default target is the planet through the pupil's diffraction, so the gains undo the air and the stack and never the
+        // telescope. Toward the aperture (the planet itself band-limited to the cutoff) the Wiener target divides the pupil's transfer out
+        // too, so the mid bands go past where the telescope target leaves them, and the limb is still kept from ringing.
+        var ct = TestContext.Current.CancellationToken;
+        var (truth, stack) = NoisyStack();
+        var options = new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650] };
+
+        var telescope = (await Task.Run(() => PlanetarySharpening.Sharpen(stack, options), ct)).ShouldNotBeNull();
+        var aperture = (await Task.Run(() => PlanetarySharpening.Sharpen(stack, options with { Target = PlanetarySharpenTarget.Aperture }), ct)).ShouldNotBeNull();
+
+        var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night));
+        var disk = MetricDisk.From(PlanetaryLimbFit.Fit(stack, limbOptions).ShouldNotBeNull(), limbOptions.AxisRatio);
+        var reference = PlanetaryMetrics.Normalise(truth, Size, Size, disk);
+        double[] Transfer(Image sharpened)
+            => [.. PlanetaryMetrics.Fidelity(PlanetaryMetrics.Normalise(sharpened.GetChannelSpan(0), Size, Size, disk), reference, Size, Size, disk).Select(b => b.Transfer)];
+        var (kept, undone) = (Transfer(telescope.Sharpened), Transfer(aperture.Sharpened));
+        var undershoot = PlanetaryMetrics.LimbUndershoot(PlanetaryMetrics.Normalise(aperture.Sharpened.GetChannelSpan(0), Size, Size, disk), Size, Size, disk);
+        TestContext.Current.TestOutputHelper?.WriteLine($"gains {string.Join(", ", telescope.Gains.Select(g => g.ToString("0.00")))} -> {string.Join(", ", aperture.Gains.Select(g => g.ToString("0.00")))}; " +
+            $"transfer, bands 1 to {kept.Length}: {string.Join(", ", kept.Select(t => t.ToString("0.000")))} toward the telescope, {string.Join(", ", undone.Select(t => t.ToString("0.000")))} toward the aperture; undershoot {undershoot:0.0000}");
+
+        // The pupil's transfer falls with frequency, so undoing it lifts the finest bands most: 1.40, 1.11 and 1.05 times bands 1 to 3 here
+        // when it was written.
+        (undone[0] / kept[0]).ShouldBeGreaterThan(1.2, "band 1 goes past the telescope's own truth");
+        (undone[1] / kept[1]).ShouldBeGreaterThan(1.05, "and band 2");
+        undone.Zip(kept).ShouldAllBe(pair => pair.First >= pair.Second - 0.005, "no band falls");
+        undershoot.ShouldBeLessThan(0.02, "the limb is still kept from ringing below the sky");
+        telescope.Sharpened.Release();
+        aperture.Sharpened.Release();
     }
 
     [Fact(Timeout = 300_000)]
