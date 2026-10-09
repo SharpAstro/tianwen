@@ -855,93 +855,25 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
         }
     }
 
-    // The plan's five statistics side by side, each as the synthetic's over the real's (R2's pre-registration: within 10 %).
+    // Every statistic side by side, the synthetic's over the real's (R2's pre-registration: within 10 %), and the mismatch the twin's
+    // calibration minimises over the fitted ones (TwinComparison, docs/plans/planetary-stacking.md, A1).
     private void WriteComparison(CaptureStatistics real, CaptureStatistics synthetic)
     {
         var inv = CultureInfo.InvariantCulture;
-        void Row(string name, double a, double b) => consoleHost.WriteScrollable(string.Create(inv,
-            $"    {name,-34} real {a,10:0.0000}  synthetic {b,10:0.0000}  ratio {b / a,6:0.000}{(Math.Abs((b / a) - 1) <= 0.1 ? "" : "  OUTSIDE 10 %")}"));
-        consoleHost.WriteScrollable("comparison (synthetic over real):");
-        Row("shift RMS, seeing part (px)", real.SeeingRms, synthetic.SeeingRms);
-        Row("the same by the limb (px)", real.LimbSeeingRms, synthetic.LimbSeeingRms);
-        Row("aligner's error against the limb (px)", real.AlignerErrorRms, synthetic.AlignerErrorRms);
-        Row("single frames' radius RMS (px)", real.LimbRadiusRms, synthetic.LimbRadiusRms);
-        Row("limb edge width, every frame (px)", real.LimbWidthAll, synthetic.LimbWidthAll);
-        Row("limb edge width, best tenth (px)", real.LimbWidthBest, synthetic.LimbWidthBest);
-        if (real.LimbAll is { } ra && synthetic.LimbAll is { } sa)
+        var rows = TwinComparison.Compare(real, synthetic);
+        consoleHost.WriteScrollable("comparison (synthetic over real; * the twin's calibration fits it):");
+        foreach (var row in rows)
         {
-            Row("limb darkening k, every frame", ra.LimbDarkening, sa.LimbDarkening);
-            Row("limb blur sigma, every frame (px)", ra.PsfSigma, sa.PsfSigma);
-            Row("limb blur wing's share, every frame", ra.HaloFraction, sa.HaloFraction);
-            // Saturn's rings, each over the globe's brightness as the ringed limb fit reads them (S3).
-            if (ra.RingLevels is { } realRings && sa.RingLevels is { } twinRings && realRings.Length == twinRings.Length)
-            {
-                for (var i = 0; i < realRings.Length; i++)
-                {
-                    Row($"ring {SaturnRings.Main.Rings[i].Name} over the globe", realRings[i], twinRings[i]);
-                }
-            }
+            consoleHost.WriteScrollable(string.Create(inv,
+                $"  {(row.Fitted ? '*' : ' ')} {row.Name,-34} real {row.Real,10:0.0000}  synthetic {row.Twin,10:0.0000}  ratio {row.Ratio,6:0.000}{(row.Within() ? "" : "  OUTSIDE 10 %")}"));
         }
-        if (real.LimbBest is { } rb && synthetic.LimbBest is { } sb)
-        {
-            Row("limb blur sigma, best tenth (px)", rb.PsfSigma, sb.PsfSigma);
-        }
-        var (realFrames, syntheticFrames) = (FrameLimbPercentiles(real), FrameLimbPercentiles(synthetic));
-        if (realFrames is { } rf && syntheticFrames is { } sf)
-        {
-            Row("single frames' edge width, p10 (px)", rf.Width[0], sf.Width[0]);
-            Row("single frames' edge width, p50 (px)", rf.Width[1], sf.Width[1]);
-            Row("single frames' edge width, p90 (px)", rf.Width[2], sf.Width[2]);
-            Row("single frames' blur sigma, p10 (px)", rf.Sigma[0], sf.Sigma[0]);
-            Row("single frames' blur sigma, p50 (px)", rf.Sigma[1], sf.Sigma[1]);
-            Row("single frames' blur sigma, p90 (px)", rf.Sigma[2], sf.Sigma[2]);
-        }
-        for (var j = 0; j < real.Halo.Length; j++)
-        {
-            Row($"halo {PlanetaryCaptureStatistics.HaloAnnuli[j]:0.0#} to {PlanetaryCaptureStatistics.HaloAnnuli[j + 1]:0.0#} radii (ADU)", real.Halo[j], synthetic.Halo[j]);
-        }
-        Row("disk level over the local sky (ADU)", real.Camera.DiskLevel, synthetic.Camera.DiskLevel);
-        Row("flux, quarter-second RMS", real.FluxSlowRms, synthetic.FluxSlowRms);
-        Row("flux, frame to frame RMS", real.FluxFastRms, synthetic.FluxFastRms);
-        if (real.Warp.Bound == WarpLengthBound.Measured && synthetic.Warp.Bound == WarpLengthBound.Measured)
-        {
-            Row("warp correlation length (px)", real.Warp.CorrelationLength, synthetic.Warp.CorrelationLength);
-        }
-        else
+        if (real.Warp.Bound != WarpLengthBound.Measured || synthetic.Warp.Bound != WarpLengthBound.Measured)
         {
             consoleHost.WriteScrollable(string.Create(inv,
                 $"    {"warp correlation length (px)",-34} not measured: real {real.Warp.Bound} {real.Warp.CorrelationLength:0.0}, synthetic {synthetic.Warp.Bound} {synthetic.Warp.CorrelationLength:0.0}"));
         }
-        Row("warp RMS (px)", real.Warp.Rms, synthetic.Warp.Rms);
-        for (var i = 0; i < PlanetaryCaptureStatistics.Percentiles.Length; i++)
-        {
-            if (i == 2)
-            {
-                continue;
-            }
-            Row($"quality p{PlanetaryCaptureStatistics.Percentiles[i]:0} over median", real.QualityPercentiles[i] / real.QualityPercentiles[2], synthetic.QualityPercentiles[i] / synthetic.QualityPercentiles[2]);
-        }
-        Row("quality median (absolute)", real.QualityPercentiles[2], synthetic.QualityPercentiles[2]);
-        Row("quality lag-1", real.QualityLag1, synthetic.QualityLag1);
-        for (var j = 0; j < real.Noise.Length; j++)
-        {
-            Row($"noise band {j + 1}, sky (ADU)", real.Noise[j].Sky, synthetic.Noise[j].Sky);
-            Row($"noise band {j + 1}, disk (ADU)", real.Noise[j].Disk, synthetic.Noise[j].Disk);
-        }
-    }
-
-    // The single frames' limb edge widths and fitted blur sigmas at their 10th, 50th and 90th percentiles; null with no frames.
-    private static (ImmutableArray<double> Width, ImmutableArray<double> Sigma, double K)? FrameLimbPercentiles(CaptureStatistics s)
-    {
-        var widths = s.FrameLimbs.Select(f => f.EdgeWidth).Where(double.IsFinite).ToArray();
-        var fits = s.FrameLimbs.Select(f => f.Fit).OfType<LimbFit>().ToArray();
-        if (widths.Length == 0 || fits.Length == 0)
-        {
-            return null;
-        }
-        ImmutableArray<double> tenths = [10, 50, 90];
-        return (PlanetaryCaptureStatistics.PercentilesOf(widths, tenths), PlanetaryCaptureStatistics.PercentilesOf(fits.Select(f => f.PsfSigma).ToArray(), tenths),
-            PlanetaryCaptureStatistics.PercentilesOf(fits.Select(f => f.LimbDarkening).ToArray(), [50])[0]);
+        var (mismatch, used) = TwinComparison.Mismatch(rows);
+        consoleHost.WriteScrollable(string.Create(inv, $"    mismatch over the {used} fitted statistics: {mismatch:0.0000} (the sum of their squared log ratios)"));
     }
 
     private void WriteStatistics(string name, CaptureStatistics s)
@@ -963,7 +895,7 @@ internal sealed class PlanetaryGeometrySubCommands(IConsoleHost consoleHost)
                 ? string.Create(inv, $"    limb fit, {which}: R {f.EquatorialRadius:0.000} px, k {f.LimbDarkening:0.000}, blur sigma {f.PsfSigma:0.000} px with {100 * f.HaloFraction:0} % in a wing of {f.HaloWidth:0.0} px, rms {f.RmsResidual:0.00000}{rings}")
                 : $"    limb fit, {which}: no disk");
         }
-        if (FrameLimbPercentiles(s) is { } frames)
+        if (TwinComparison.FrameLimbPercentiles(s) is { } frames)
         {
             consoleHost.WriteScrollable(string.Create(inv,
                 $"    single frames' limbs ({s.FrameLimbs.Length}): edge width p10 {frames.Width[0]:0.000}, p50 {frames.Width[1]:0.000}, p90 {frames.Width[2]:0.000} px; " +
