@@ -44,7 +44,8 @@ public static class ExecutionProviderResolver
     /// Builds a <see cref="SessionOptions"/> with the best available EP chain
     /// for the current OS/architecture, falling back to CPU on any append failure.
     /// </summary>
-    /// <param name="deviceId">GPU device index (CUDA/DirectML). 0 = first device.</param>
+    /// <param name="deviceId">GPU device index for CUDA; 0 = first device. DirectML ignores it and takes the
+    /// high-performance GPU (see <c>AppendProvider</c>).</param>
     /// <param name="logger">Optional logger; if null, EP probe failures are swallowed.</param>
     /// <returns>Populated session options. Caller owns disposal.</returns>
     public static SessionOptions CreateSessionOptions(int deviceId = 0, ILogger? logger = null)
@@ -69,7 +70,14 @@ public static class ExecutionProviderResolver
             try
             {
                 AppendProvider(options, ep, deviceId);
-                logger?.LogInformation("ONNX EP appended: {Provider} (device {DeviceId})", ep, deviceId);
+                if (ep == ExecutionProvider.DirectML)
+                {
+                    logger?.LogInformation("ONNX EP appended: {Provider} (the high-performance GPU)", ep);
+                }
+                else
+                {
+                    logger?.LogInformation("ONNX EP appended: {Provider} (device {DeviceId})", ep, deviceId);
+                }
             }
             catch (Exception ex)
             {
@@ -145,7 +153,16 @@ public static class ExecutionProviderResolver
         switch (provider)
         {
             case ExecutionProvider.DirectML:
-                options.AppendExecutionProvider_DML(deviceId);
+                // By PREFERENCE, never by index. AppendExecutionProvider_DML(0) is DXGI's adapter 0, which on a desktop
+                // with an integrated GPU can be that iGPU: on this machine (an Intel UHD 630 beside a GTX 1070) every
+                // TianWen model ran there, a 1312 px deconvolution tile in 39 s against 9.9 s on the 1070 (measured
+                // 2026-10-09). The preference asks DirectML for the high-performance GPU, as RC-Astro's tools must be
+                // told by name; on a machine with one GPU it is that one.
+                options.AppendExecutionProvider("DML", new Dictionary<string, string>
+                {
+                    ["performance_preference"] = "high_performance",
+                    ["device_filter"] = "gpu",
+                });
                 break;
             case ExecutionProvider.Cuda:
                 options.AppendExecutionProvider_CUDA(deviceId);

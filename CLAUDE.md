@@ -1032,8 +1032,12 @@ choose AND probe the licence on the FIRST `EnhanceAsync`, never at DI registrati
   E3.4d, #844): `--ai-backend tianwen` AND a stated kernel (`EnhanceTuning.Deconvolution`, `--deconv-kernel`), since
   nothing finds the blur in one frame or declines a frame with none (#741). The graph takes the KERNEL as an input;
   `OperatorDeconvolutionRunner` is `n2n_operator_master.py` step for step through `SplineZoom` (scipy's order-3
-  zoom), held to `training/denoise/n2n_operator_runtime.py`. **It runs on the CPU**: DirectML refuses the graph at
-  session build. `docs/plans/deconvolver-training.md` § 6.
+  zoom), held to `training/denoise/n2n_operator_runtime.py`. **DirectML runs it only because the exporter clears
+  `allowzero` on every Reshape** (`clear_reshape_allowzero`; torch.export writes 1 and DirectML fails the session
+  build on it), and a new graph exported through torch.export owes the same. `docs/plans/deconvolver-training.md` § 6.
+- **DirectML takes the high-performance GPU by PREFERENCE, never adapter 0** (`ExecutionProviderResolver`): DXGI's
+  adapter 0 is the Intel UHD 630 beside the GTX 1070 on this desktop, and every TianWen model ran there until
+  2026-10-09 (a deconvolution tile 39 s against 9.9 s). Never pass a device index to DirectML.
 - **The NAFNet pre-stretch measures COVERED pixels only** (`ChunkedNafnetRunner.ApplyInputStretch`,
   `Image.AbsentPixels`, `Image.MinAndShiftedMedian`; the ring put back exactly, `CopyAbsent`); an interior zero
   still counts.
