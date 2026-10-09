@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Threading.Tasks;
 using Shouldly;
@@ -72,6 +73,58 @@ public class PlanetaryTwinCalibrationTests
         trials.ShouldContain(t => double.IsPositiveInfinity(t.Mismatch) || t.Knobs.R0M <= 0.15);
         double.IsFinite(best.Mismatch).ShouldBeTrue();
         best.Mismatch.ShouldBeLessThan(trials[0].Mismatch);
+    }
+
+    // One colour of a colour twin: the shared air as Twin makes it, and the colour's own defocus widening its limb's edge (an RMS wavefront
+    // error adds to the seeing's blur, so the edge widens with it while the disk's motion, a tilt, does not).
+    private static CaptureStatistics Plane(CaptureStatistics real, TwinKnobs k, TwinKnobs air, int colour)
+    {
+        var shared = Twin(real, k, air);
+        var widening = Math.Pow(k.Defocus?[colour] / air.Defocus?[colour] ?? 1, 0.3);
+        return shared with { LimbWidthBest = shared.LimbWidthBest * widening, LimbWidthAll = shared.LimbWidthAll * widening };
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AColourSearchFindsEachColoursDefocusBesideTheSharedAir()
+    {
+        var real = Real();
+        var air = new TwinKnobs(0.12, 15, 0.04, 0.03, 7) { Defocus = new ColourDefocus(100, 40, 70) };
+        var start = TwinKnobs.HandCalibratedRed with { Defocus = new ColourDefocus(50, 50, 50) };
+        ImmutableArray<TwinStatistic> Rows(TwinKnobs k) =>
+            [.. Enumerable.Range(0, 3).SelectMany(c => TwinComparison.Compare(real, Plane(real, k, air, c)).Select(r => r with { Name = $"{c}: {r.Name}" }))];
+        var (best, trials) = await PlanetaryTwinCalibration.FitAsync(start, (k, _) => Task.FromResult(Rows(k)), maxTrials: 800,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"{trials.Length} trials, mismatch {best.Mismatch:G3}: r0 {best.Knobs.R0M:0.0000}, defocus {best.Knobs.Defocus?.Red:0.0}, {best.Knobs.Defocus?.Green:0.0}, {best.Knobs.Defocus?.Blue:0.0}");
+        best.Mismatch.ShouldBeLessThan(1e-4);
+        best.Knobs.R0M.ShouldBe(air.R0M, 0.05 * air.R0M);
+        var defocus = best.Knobs.Defocus.ShouldNotBeNull();
+        // The defocus moves the edge only as its 0.3 power, so the search's stop at a percent a statistic leaves each colour's to about a
+        // fifth (it landed 94, 36.5 and 60, every one low as the free air's r0 came out 1.4 % low and took a share of the edge). What it must
+        // do is move each colour from the start the three shared, to its own side of it and in their own order.
+        defocus.Red.ShouldBe(100, 20);
+        defocus.Green.ShouldBe(40, 8);
+        defocus.Blue.ShouldBe(70, 14);
+        (defocus.Red > defocus.Blue && defocus.Blue > defocus.Green).ShouldBeTrue();
+        (defocus.Red > 50 && defocus.Green < 50 && defocus.Blue > 50).ShouldBeTrue();
+        // Every trial was a colour one: eight knobs, never five.
+        trials.ShouldAllBe(t => t.Knobs.Defocus != null);
+    }
+
+    [Fact]
+    public void AColoursDefocusGoesIntoThatColoursOptionsOnly()
+    {
+        var options = new DegradeOptions(new TianWen.Lib.Imaging.Optics.Pupil(0.28, ObstructionRatio: 0.375), 650e-9);
+        var knobs = new TwinKnobs(0.085, 22, 0.027, 0.05, 5) { Defocus = new ColourDefocus(99, 78, 83) };
+        (knobs.ApplyTo(options, 0).DefocusNm, knobs.ApplyTo(options, 1).DefocusNm, knobs.ApplyTo(options, 2).DefocusNm).ShouldBe((99.0, 78.0, 83.0));
+        // A mono application leaves the options' own defocus, and the eight logarithms come back as the knobs they were.
+        knobs.ApplyTo(options).DefocusNm.ShouldBe(options.DefocusNm);
+        knobs.ToLog().Length.ShouldBe(8);
+        var back = TwinKnobs.FromLog(knobs.ToLog()).Defocus.ShouldNotBeNull();
+        back.Red.ShouldBe(99, 1e-9);
+        back.Green.ShouldBe(78, 1e-9);
+        back.Blue.ShouldBe(83, 1e-9);
     }
 
     [Fact]
