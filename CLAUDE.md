@@ -916,7 +916,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
     `Prepare` / `OnMaster`, #1277).
   - What was measured and NOT adopted, so do not re-run it as new: `--finish cutoff` / `wiener` / `adaptive`
     (#1279, #1281; **the derived gains are already a Wiener**), `--shrink` (#1313, read off `planetary stack
-    --halves`), `--noise halves` (#1373, `PlanetarySharpenOptions.NoiseHalves`). **Every twin is sampled coarser
+    --halves`), `--noise halves` (#1373, `PlanetarySharpenOptions.NoiseHalves`), `--colour-finest bounded` and
+    `--colour-target cut` (#1376: the colour gap is the KERNEL; a true kernel closes 80 % of it, no reshaping
+    half). **Every twin is sampled coarser
     than its optics resolve** (`PlanetarySharpenResult.Cutoffs`), so anything near the cutoff is unread there;
     **a twin standing in for a long capture is calibrated at that capture's length**.
   - **Check what a reference IS before reading it** (the 12-inch SCT Jupiter's PNG is its raw stack). The
