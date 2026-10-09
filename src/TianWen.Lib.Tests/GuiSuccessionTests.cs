@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Shouldly;
 using TianWen.UI.Abstractions;
 using Xunit;
@@ -101,16 +103,106 @@ public class GuiSuccessionTests
     public async Task TheSuccessorWaitsForItsPredecessorToExit()
     {
         var ct = TestContext.Current.CancellationToken;
-        // A predecessor that lives a moment: a shell asked to wait, the one process every test box has.
-        using var predecessor = Process.Start(OperatingSystem.IsWindows()
-            ? new ProcessStartInfo("cmd.exe", "/c ping -n 3 127.0.0.1 > nul") { UseShellExecute = false, CreateNoWindow = true }
-            : new ProcessStartInfo("/bin/sh", "-c \"sleep 2\"") { UseShellExecute = false }).ShouldNotBeNull();
+        // A predecessor that lives until the test ends it, so no step races its exit. On Unix it is not this process's
+        // child, as a GUI's predecessor never is: a shell starts it in the background, reports its pid and exits.
+        var predecessor = await StartPredecessorAsync(ct);
+        try
+        {
+            (await GuiSuccession.WaitForPredecessorAsync(predecessor, TimeSpan.FromMilliseconds(50), ct))
+                .ShouldBeFalse("it was still running when the budget ran out");
 
-        (await GuiSuccession.WaitForPredecessorAsync(predecessor.Id, TimeSpan.FromMilliseconds(50), ct))
-            .ShouldBeFalse("it was still running when the budget ran out");
-        (await GuiSuccession.WaitForPredecessorAsync(predecessor.Id, TimeSpan.FromSeconds(20), ct))
-            .ShouldBeTrue("it exited within the budget");
-        (await GuiSuccession.WaitForPredecessorAsync(predecessor.Id, TimeSpan.FromMilliseconds(50), ct))
-            .ShouldBeTrue("a predecessor gone already needs no waiting for");
+            var waiting = GuiSuccession.WaitForPredecessorAsync(predecessor, GuiSuccession.PredecessorExitBudget, ct);
+            End(predecessor);
+            (await waiting).ShouldBeTrue("it exited within the budget");
+
+            (await GuiSuccession.WaitForPredecessorAsync(predecessor, TimeSpan.FromMilliseconds(50), ct))
+                .ShouldBeTrue("a predecessor gone already needs no waiting for");
+        }
+        finally
+        {
+            End(predecessor);
+        }
+    }
+
+    private static async Task<int> StartPredecessorAsync(CancellationToken ct)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            using var ping = Process.Start(new ProcessStartInfo("ping.exe", "-n 60 127.0.0.1")
+                { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true }).ShouldNotBeNull();
+            return ping.Id;
+        }
+
+        using var shell = Process.Start(new ProcessStartInfo("/bin/sh", "-c \"sleep 60 >/dev/null 2>&1 & echo $!\"")
+            { UseShellExecute = false, RedirectStandardOutput = true }).ShouldNotBeNull();
+        var pid = int.Parse((await shell.StandardOutput.ReadLineAsync(ct)).ShouldNotBeNull());
+        await shell.WaitForExitAsync(ct);
+        return pid;
+    }
+
+    private static void End(int processId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            process.Kill();
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Win32Exception)
+        {
+            // Gone already.
+        }
+    }
+
+    [Fact(Timeout = 10_000)]
+    public async Task APredecessorThatExitedWhileTheWaitWasStarvedIsAnsweredAsExited()
+    {
+        // #1245: the wait raced the runtime's exit notification, which runs on the thread pool, against its budget's
+        // timer, and on a starved pool the timer won, so a predecessor gone for 18 s was reported running. A wait
+        // whose sleep overruns its budget must answer by LOOKING once it wakes.
+        var time = new FakeTimeProvider();
+        var exited = false;
+        var sleeps = 0;
+
+        var answer = await GuiSuccession.WaitForExitAsync(() => exited, TimeSpan.FromSeconds(1), time,
+            (delay, _) =>
+            {
+                sleeps++;
+                time.Advance(delay + TimeSpan.FromSeconds(18));
+                exited = true;
+                return Task.CompletedTask;
+            }, TestContext.Current.CancellationToken);
+
+        answer.ShouldBeTrue("it had exited by the time the wait looked, however late that look was");
+        sleeps.ShouldBe(1);
+    }
+
+    [Fact(Timeout = 10_000)]
+    public async Task APredecessorStillRunningIsAnsweredOnlyByALookAtTheEndOfTheBudget()
+    {
+        var time = new FakeTimeProvider();
+        var start = time.GetTimestamp();
+        var looks = new List<TimeSpan>();
+
+        var answer = await GuiSuccession.WaitForExitAsync(() => { looks.Add(time.GetElapsedTime(start)); return false; },
+            TimeSpan.FromSeconds(1), time,
+            (delay, _) =>
+            {
+                delay.ShouldBeLessThanOrEqualTo(GuiSuccession.PredecessorPollInterval);
+                time.Advance(delay);
+                return Task.CompletedTask;
+            }, TestContext.Current.CancellationToken);
+
+        answer.ShouldBeFalse();
+        looks[^1].ShouldBe(TimeSpan.FromSeconds(1), "the false is a look taken once the budget has run, never before it");
+    }
+
+    [Fact(Timeout = 10_000)]
+    public async Task AWaitEndsAtOnceWhenItsTokenIsCancelled()
+    {
+        using var cancelled = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        await cancelled.CancelAsync();
+
+        await Should.ThrowAsync<OperationCanceledException>(GuiSuccession.WaitForExitAsync(() => false, TimeSpan.FromMinutes(5),
+            TimeProvider.System, static (delay, ct) => Task.Delay(delay, ct), cancelled.Token));
     }
 }

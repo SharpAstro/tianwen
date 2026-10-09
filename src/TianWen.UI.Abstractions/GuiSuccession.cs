@@ -123,10 +123,21 @@ public static class GuiSuccession
         return process?.Id;
     }
 
+    /// <summary>How often a successor looks again whether its predecessor has exited.</summary>
+    internal static readonly TimeSpan PredecessorPollInterval = TimeSpan.FromMilliseconds(100);
+
     /// <summary>
     /// Waits for the process this one replaces to exit, bounded by <paramref name="budget"/>: true once it has (or it had
     /// already), false when it is still running at the end.
     /// </summary>
+    /// <remarks>
+    /// The answer is always a LOOK at the process, taken at or after the end of the budget, never which of two callbacks
+    /// ran first. <see cref="Process.WaitForExitAsync"/> raced its exit notification against the budget's cancellation,
+    /// and on Unix the notification for a process this one did not start comes only from the runtime's own polling loop,
+    /// which runs on the thread pool, while the budget's timer cancels without it: on a starved pool the budget won, and a
+    /// predecessor that had exited 18 s earlier was reported still running (#1245). <see cref="Process.HasExited"/> on a
+    /// process nobody is watching asks the system straight away (<c>kill(pid, 0)</c> on Unix, the handle on Windows).
+    /// </remarks>
     public static async Task<bool> WaitForPredecessorAsync(int processId, TimeSpan budget, CancellationToken cancellationToken)
     {
         Process predecessor;
@@ -142,17 +153,62 @@ public static class GuiSuccession
 
         using (predecessor)
         {
-            using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            bounded.CancelAfter(budget);
-            try
-            {
-                await predecessor.WaitForExitAsync(bounded.Token).ConfigureAwait(false);
-                return true;
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            return await WaitForExitAsync(() => HasExited(predecessor), budget, TimeProvider.System,
+                static (delay, ct) => Task.Delay(delay, ct), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static bool HasExited(Process predecessor)
+        => predecessor.HasExited || OperatingSystem.IsLinux() && IsZombie(predecessor.Id);
+
+    /// <summary>
+    /// Whether a Linux process has exited and waits only for its parent to reap it: <c>kill(pid, 0)</c>, which is what
+    /// <see cref="Process.HasExited"/> asks for a process this one did not start, still finds a zombie, so without this a
+    /// parent slow to reap would hold the successor for its whole budget.
+    /// </summary>
+    private static bool IsZombie(int processId)
+    {
+        string stat;
+        try
+        {
+            stat = File.ReadAllText($"/proc/{processId}/stat");
+        }
+        catch (Exception ex) when (ex is DirectoryNotFoundException or FileNotFoundException)
+        {
+            // Reaped since: gone.
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+
+        // "pid (comm) state ...": the name may hold spaces and parentheses, the state follows the LAST ')'.
+        var nameEnd = stat.LastIndexOf(')');
+        return nameEnd >= 0 && nameEnd + 2 < stat.Length && stat[nameEnd + 2] is 'Z' or 'X';
+    }
+
+    /// <summary>
+    /// <see cref="WaitForPredecessorAsync"/>'s loop: looks at <paramref name="hasExited"/>, and sleeps
+    /// <see cref="PredecessorPollInterval"/> at most between looks, until it answers true or a look taken once
+    /// <paramref name="budget"/> has passed still answers false. A sleep that overruns (a starved box) delays the answer,
+    /// never changes it.
+    /// </summary>
+    internal static async Task<bool> WaitForExitAsync(Func<bool> hasExited, TimeSpan budget, TimeProvider time,
+        Func<TimeSpan, CancellationToken, Task> sleep, CancellationToken cancellationToken)
+    {
+        var start = time.GetTimestamp();
+        while (!hasExited())
+        {
+            var remaining = budget - time.GetElapsedTime(start);
+            if (remaining <= TimeSpan.Zero)
             {
                 return false;
             }
+
+            await sleep(remaining < PredecessorPollInterval ? remaining : PredecessorPollInterval, cancellationToken).ConfigureAwait(false);
         }
+
+        return true;
     }
 }
