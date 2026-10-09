@@ -231,12 +231,12 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     public ImmutableArray<RadialTransfer> GivenKernels { get; init; } = [];
 
     /// <summary>
-    /// Cut a colour master's kernel to nothing at its colour planes' own Nyquist (<see cref="PlanetarySharpening.ColourPlaneNyquist"/>),
-    /// by #1366's taper (<see cref="PlanetaryFinishing.ApertureTaper"/>), so the Wiener target asks nothing of the frequencies a demosaiced
-    /// plane does not carry (#1376, arm C). A twin's true kernel falls to zero there, where the limb's edge reads noise and the target lifted
-    /// it. A mono master is untouched.
+    /// Cut a colour master's Wiener TARGET to nothing at its colour planes' own Nyquist (<see cref="PlanetarySharpening.ColourPlaneNyquist"/>),
+    /// by #1366's taper (<see cref="PlanetaryFinishing.ApertureTaper"/>): nothing is restored where a demosaiced plane carries nothing
+    /// (#1376, arm C'). A twin's true kernel is zero there, so the target through it was; the limb's edge reads noise there instead. Cutting
+    /// the KERNEL (arm C) did the opposite, since a smaller kernel raises the target's 1/H. A mono master is untouched.
     /// </summary>
-    public bool ColourKernelCut { get; init; }
+    public bool ColourTargetCut { get; init; }
 
     // The master being sharpened is a colour master's luminance (LuminanceOnly): its finest band holds the colour filter's residue as the
     // colour planes do, so it follows ColourFinestBand as they would (#1187).
@@ -384,9 +384,10 @@ public static class PlanetarySharpening
                     ? PlanetaryFinestBand.FitPhysical(edge, pupil.DiameterM / (wavelengthNm * 1e-9) / ShortExposurePsf.ArcsecPerRadian * limbWindow.ArcsecPerPixel, 0.02, reach)
                     : null as PhysicalKernel?;
                 var given = options.GivenKernels.IsDefaultOrEmpty ? null : options.GivenKernels[Math.Min(c, options.GivenKernels.Length - 1)];
-                var cut = options.ColourKernelCut && (options.OfColour ? 3 : master.ChannelCount) == 3;
-                var kernel = Tabulated(f => Math.Clamp((given is { } g ? g.At(f) : physical is { } p ? p.TransferAt(f) : edge.TransferAt(f))
-                    * (cut ? PlanetaryFinishing.ApertureTaper(f, ColourPlaneNyquist) : 1), 0, 1));
+                var kernel = Tabulated(f => Math.Clamp(given is { } g ? g.At(f) : physical is { } p ? p.TransferAt(f) : edge.TransferAt(f), 0, 1));
+                Func<double, double>? targetCut = options.ColourTargetCut && (options.OfColour ? 3 : master.ChannelCount) == 3
+                    ? f => PlanetaryFinishing.ApertureTaper(f, ColourPlaneNyquist)
+                    : null;
                 var power = PlanetaryWaveletGains.StackPower(window, size, size, disk);
                 var white = PlanetaryInverse.WhiteNoise(PlanetaryWaveletGains.Interior(window, size, size, disk), size, size);
                 // The halves cut as the master is, so half their difference is the master's own noise, ring by ring (#1373).
@@ -395,8 +396,8 @@ public static class PlanetarySharpening
                         limbWindow.Cut(noiseHalves.B.GetChannelSpan(c), width, height, level, scale), size, size, disk)
                     : ImmutableArray.CreateRange(Enumerable.Repeat(white, power.Length));
                 var wiener = ReferenceEquals(target, diffraction)
-                    ? PlanetaryWaveletGains.Wiener(power, noise, kernel)
-                    : PlanetaryWaveletGains.Wiener(power, noise, f => kernel(f) * diffraction.At(f), target.At);
+                    ? PlanetaryWaveletGains.Wiener(power, noise, kernel, targetCut)
+                    : PlanetaryWaveletGains.Wiener(power, noise, f => kernel(f) * diffraction.At(f), f => target.At(f) * (targetCut?.Invoke(f) ?? 1));
                 var blurredDisk = PlanetaryInverse.Apply(throughPupil, size, size, kernel);
                 var finestHeld = FinestHeld(options.OfColour ? 3 : master.ChannelCount, options.OfColour ? 1 : c, options.ColourFinestBand);
                 var finestBounded = (options.OfColour ? 3 : master.ChannelCount) == 3 && options.ColourFinestBand == PlanetaryColourFinestBand.Bounded;
