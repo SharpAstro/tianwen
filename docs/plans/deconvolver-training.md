@@ -3669,6 +3669,7 @@ three left, the GPU path was settled the same day:
    Reshapes, which the exporter now clears (above), and it runs the graph at about 6.5 times the CPU's speed.
 3. **The kernel rule is still #741's.** The graph takes any kernel, so changing the rule needs no re-export, and Auto
    picking the deconvolver is one line of `OnnxTianWenDeconvolver.CanServe` once #741 gives it a kernel and a decline.
+   Its groundwork (below): the bake's store cannot give the excess until master and subs are measured alike.
 
 #### The stretch minimum on a ringed master: the covered pixels' (#1374, 2026-10-09)
 
@@ -3700,6 +3701,28 @@ of the truth's, the input's 1.03 to 1.09), and only green is sharpened. So the r
 truth carries the master's own noise, which a band residual counts against any denoising, so the residual column is read
 rule against rule on the same arm, never against the no-prior operator (E3.0, which reads 0.97 in width and about half
 the prior's residual here); the published row's real pair is gone (above).
+
+#### E7.6 groundwork: the bake's store cannot give the blur excess yet (#741, 2026-10-10)
+
+The obvious truth-free excess is a master's width beyond the floor its own sharpest subs reached: deconvolving a master
+back to what its best frames saw is honest, a master at that floor is the decline, and the bake already stores both
+numbers (`psf-sessions.jsonl`: each sub's `SubFwhmGreen`, each master's `MasterProfiles[1].Fwhm`). Read across the 322
+colour sessions of `2026-09-29-full` with at least ten measured subs, the master against the tenth-sharpest sub:
+
+| strategy | sessions | master / p10 sub, p10 | p50 | p90 | narrower than the p10 sub |
+|---|---|---|---|---|---|
+| `BayerDrizzle` | 214 | 1.04 | 1.28 | 1.38 | 20 |
+| `Float16Staged` (demosaiced) | 108 | 0.84 | 1.06 | 1.31 | 38 |
+
+A stack cannot be sharper than its sharpest subs, and a third of the demosaiced masters read so. The two columns are two
+estimators: the subs' width is a profile fit on each sub's own debayered green at its detections, the master's a fit
+over the stacked profile of its common stars, through a different demosaic or none (a drizzle has no demosaic, which is
+why its masters read WIDER here, not narrower). So the ratio carries the estimators' difference as much as any blur,
+and a kernel read off it would be one too. **Before E7.6 is pre-registered, the master and its subs have to be measured
+by ONE estimator on the same stars** (the green plane through the same demosaic, at the master's matched detections),
+and the ratio read on a known-clean session first: subs registered to well under a pixel, where the excess must come out
+near the registration blur alone. The validation is then the seeing split's (E2.10): a master's estimate against the
+matched-star difference to its sharpest third, within E7.1's tolerance of a tenth.
 
 ## 7. Phasing
 
