@@ -12,6 +12,7 @@ using TianWen.AI.Imaging;
 using TianWen.AI.Imaging.Onnx;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Degradation;
+using TianWen.Lib.Imaging.Enhancement;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -407,11 +408,28 @@ public class ModelContractTests : IDisposable
         File.Copy(shippedPath, Path.Combine(folder.FullName, N2nDenoiser.ModelFileName));
         using var denoiser = new N2nDenoiser(new ModelResolver([folder.FullName]));
 
+        // It says so before anything runs, so the canonical program leaves the denoise out rather than failing on it.
+        ((IEnhancerAvailability)denoiser).CanServe(3, EnhanceOptions.Default).ShouldBeFalse();
+
         var refusal = await Should.ThrowAsync<ModelContractException>(
             async () => await denoiser.EnhanceAsync(TinyColourFrame(), 1.0f, TestContext.Current.CancellationToken));
 
         refusal.ModelFileName.ShouldBe(N2nDenoiser.ModelFileName);
         refusal.Message.ShouldContain("has no contract");
+    }
+
+    [Fact]
+    public void TheShippedInstallServesAColourFrame()
+    {
+        if (!CreateResolver().TryResolve(N2nDenoiser.ModelFileName, out _))
+        {
+            Assert.Skip(SkipWithoutWeights);
+            return;
+        }
+
+        using var denoiser = new N2nDenoiser(CreateResolver());
+
+        ((IEnhancerAvailability)denoiser).CanServe(3, EnhanceOptions.Default).ShouldBeTrue();
     }
 
     [Fact]

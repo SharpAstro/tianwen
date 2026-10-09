@@ -98,9 +98,15 @@ misspelt property, and a contract version this build does not read; the refusal 
 mismatch at once (`ModelContractException`). The first fields are the ones the C# side can check on its own:
 the dataset manifest SHA-256 and the training git commit are NOT in it yet, since nothing in the repo records
 them for a shipped checkpoint (the export JSON names the checkpoint and the cache folder only), and they
-belong to the exporter: `n2n_export.py` should write the whole sidecar, the SHA and the stretch constants
-included, so that a re-export cannot forget one. A retrain gets a new file name AND a new contract. The
-deconvolver (E7) and the star remover state their own `ModelFeed` and reuse the rest.
+belong to the exporter. **`n2n_export.py` writes the sidecar with every `mapped` export** (`write_contract`,
+the SHA and the stretch constants from the trainer's own code), and on the shipped `.onnx` it reproduces the
+committed file byte for byte, so a re-export cannot forget one; the provenance fields join it once the exporter
+records them. A retrain gets a new file name AND a new contract. **A model with no contract does not SERVE**
+(`N2nDenoiser.CanServe` probes the sidecar beside the resolved weights, a file test, never a hash), so the
+canonical program leaves its step out rather than failing the whole enhance, which is the roadmap's "fall back"
+for the in-house tier; a contract that is present and WRONG still refuses at first use, loudly, since that is a
+broken install rather than a capability the host lacks. The deconvolver (E7) and the star remover state their
+own `ModelFeed` and reuse the rest.
 
 **One shared degradation exporter: SHIPPED 2026-09-03** as `DatasetDegradationExporter`
 (`tianwen dataset degrade`), in C# beside `DatasetTileExporter` and reusing its `ToUnitRange`,
