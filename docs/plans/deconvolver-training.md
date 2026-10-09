@@ -3567,6 +3567,66 @@ the checkpoint is on the training machine and the export script covers the denoi
 only. The rename and the runtime scaffold (the enhancer, its availability, its registration, tests on the
 weights-absent path) need no weights, so they can go first.
 
+### The E3.4d graph, exported (2026-10-09)
+
+Part of #844. `training/denoise/n2n_operator_export.py` writes `tianwen_deconv_operator_e34d_s0.onnx` from
+`e34d_s0_final.pt` (Richardson-Lucy, K = 20, the base-16 prior after every update; 203,731 parameters, 1.0 MiB,
+opset 18), so the paragraph above naming `tianwen_deconv_nonstellar_psf_v1.onnx`, a psf01 and `IPsfEstimator` is the
+plan before E3; what ships takes the KERNEL itself. Its interface:
+
+| | shape | what it is |
+|---|---|---|
+| `image` | [n, 3, h, w] | the tile STRETCHED with the frame's own parameters, `MTF(balance, max(unit - min, 0))`, in [0, 1]; h and w multiples of 4 (the prior's two poolings, which ONNX Runtime does not check) |
+| `kernel` | [3, k, k] | one normalised kernel per channel, k odd and a runtime size, the three zero-padded about their centre |
+| `stretch_min`, `stretch_balance` | [3] each | the stretch's per-channel minimum and midtones balance (median on 0.25) |
+| `output` | [n, 3, h, w] | the deconvolved tile, stretched with the same parameters |
+
+- **The readouts' per-channel protocol is inside the graph**: each channel's kernel runs the whole operator over all
+  three planes and that channel's plane is kept (the prior mixes the planes), so a call is three operator passes, a
+  caller cannot get the protocol wrong, and a shared kernel is passed as three copies. A window with a kernel of its own
+  is a call of its own.
+- **K and the prior's place are baked**: the prior was trained at that K, so it is not a dial.
+- **Bind its inputs BY NAME**: two of them are rank 1, so a runner that classifies inputs by rank cannot tell them apart.
+- **The 1.28x round trip stays with the caller**: the readouts resampled the whole frame with `scipy.ndimage.zoom(order
+  = 3)`, a cubic B-spline with a global prefilter that ONNX's Resize (a local cubic convolution) does not reproduce, up
+  in LINEAR before the stretch and down in STRETCHED after the tiles are stitched, with each kernel's width scaled by the
+  same factor. The C# side owes the same resample, and the factor is chosen with the kernel.
+- **It is torch.export's graph, not TorchScript's**: the TorchScript exporter refuses a Conv whose weight's shape is
+  unknown at export time, and a kernel whose size is a runtime value is the point.
+
+**Parity, against the readouts' own torch call, on the CPU** (the Statue 2026-02-14 session master): at most 7.7e-7 in
+stretched units on the read's 1312 px crop at 1.28125x (6.6e-7 after the round trip), 3.0e-7 to 1.3e-6 on native 256 px
+tiles with kernels of 5, 17 and 19 px and a Gaussian, 3.0e-7 for a batch of two and 3.6e-7 on a 192 x 320 tile; the
+traced module equals torch bit for bit. ONNX Runtime ran the 1312 px tile in 67 s against torch's 825 s on a CPU other
+jobs held at 100 %. A 64 px sample and a 52 KiB fixture graph with the same signature (a random base-2 prior at K = 2,
+which moves its output by up to 0.15, so a test that drops the prior fails) carry their torch outputs for the C# tests,
+and re-run independently they reproduce them to 2.4e-7 and 6.3e-7. `n2n_operator_real.py --onnx` reads the graph as a
+readout arm, beside the checkpoints.
+
+**E3.4d's published row (1.146 / 1.00 / -0.45 / 0.98) was NOT re-read through the graph**: its input, the Statue split
+pair, is gone (the SH61 cache's tiles were deleted on 2026-09-28), and re-stacking it needs a filtered store, since the
+bake now holds that session three times (the whole night and both flip halves). On a synthetic pair (the master, and
+the master blurred by the read's kernels) at the 1.28 round trip, the graph's row equals torch's in every column (0.947 /
+1.04 / -0.43 / 0.91) and their outputs differ by at most 2.2e-6.
+
+#### Open before the C# side
+
+1. **The stretch minimum has two rules in the trainer.** `n2n_operator_real` skips NaN, so on a master with a NaN ring
+   the minimum is the darkest covered pixel; `n2n_operator_master` turns NaN into 0 first. On the Statue master they give
+   balances 0.0049 / 0.0083 / 0.0102 against 0.0175 / 0.0433 / 0.0459, and the training cache predates the ring fix, so
+   which minimum the prior was trained on is a measurement owed before the runner picks one. (The C# runner already
+   leaves the ring out, `ChunkedNafnetRunner.ApplyInputStretch`.)
+2. **The graph needs its stretch parameters every time.** `ChunkedNafnetRunner` can skip the stretch (`NeedsStretch`,
+   for a frame it reads as already stretched); the deconvolver's runner must always stretch and pass its own minimum
+   and balance.
+3. **DirectML is untested.** The graph relies on a Conv with a runtime weight (group 9), an edge Pad with runtime pads,
+   IsInf / IsNaN and a Slice with a negative step.
+4. **Its contract is not yet `ModelContract`'s** (#824): the exporter writes a descriptive `_contract.json` and the same
+   keys into the model's metadata, while the loader reads `<stem>.contract.json` strictly, with no role for a kernel or a
+   stretch parameter today. The deconvolver states its own `ModelFeed` when the runner lands, and the exporter then
+   writes the strict sidecar as `n2n_export.py` does for the denoiser.
+5. **The kernel rule is still #741's.** The graph takes any kernel, so changing the rule needs no re-export.
+
 ## 7. Phasing
 
 | Phase | Deliverable | Exit |
