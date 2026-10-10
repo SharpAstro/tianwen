@@ -25,7 +25,7 @@ internal sealed class PlanetaryJudgeSubCommand(IConsoleHost consoleHost, MasterP
     {
         var masterArg = new Argument<string>("master") { Description = "Our master (FITS): a stack or its sharpening." };
         var referenceArg = new Argument<string>("reference") { Description = "Another program's result of the same capture: its _stack or _post (PNG, JPEG, TIFF or FITS)." };
-        var planetOpt = new Option<string?>("--planet") { Description = "jupiter or saturn; read off the master's file name when not given." };
+        var planetOpt = new Option<string?>("--planet") { Description = "jupiter or saturn; read off the master's file name when not given, else its OBJECT card (which planetary stack writes)." };
         var utcOpt = new Option<string?>("--utc") { Description = "The instant the master shows the planet at (ISO 8601, UTC); its DATE-OBS and EXPTIME's middle when not given." };
         var pictureOpt = new Option<string?>("--picture") { Description = "Write the master beside the reference placed on it to this PNG, each of the reference's channels matched to the master's tone, both through one planetary stretch." };
 
@@ -53,7 +53,9 @@ internal sealed class PlanetaryJudgeSubCommand(IConsoleHost consoleHost, MasterP
             }
             try
             {
-                var planet = PlanetaryGeometrySubCommands.ParsePlanet(parseResult.GetValue(planetOpt), masterPath);
+                // A master names its planet in OBJECT, which an AUTO master's file name need not (A4, #1391).
+                var planet = PlanetaryGeometrySubCommands.ParsePlanet(parseResult.GetValue(planetOpt), masterPath)
+                    ?? (parseResult.GetValue(planetOpt) is null ? PlanetaryCaptureName.Named(master.ImageMeta.ObjectName) : null);
                 if (planet is not { } body)
                 {
                     consoleHost.WriteError("name the planet (--planet jupiter or saturn)");
