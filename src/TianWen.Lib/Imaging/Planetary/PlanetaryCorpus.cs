@@ -107,7 +107,7 @@ public sealed record CaptureRecord
     /// What the survey noticed, sorted: <c>calibration</c> (a bias, dark or flat video, by its frame type or its folder: the
     /// camera's own noise, which the seeing model measures read noise from), <c>duplicate</c>, <c>no-timestamps</c>,
     /// <c>not-read</c> (an AVI), <c>pipp</c> (a PIPP output, cropped and possibly frame-filtered), <c>synthetic</c>
-    /// (FireCapture's DummyCam), <c>truncated</c>.
+    /// (FireCapture's DummyCam), <c>truncated</c>, <c>unstamped-frames</c> (a trailer with frames stamped zero, which are no time).
     /// </summary>
     public required string[] Flags { get; init; }
 
@@ -411,32 +411,38 @@ public static class PlanetaryCorpus
             string timestampsSource;
             string? firstUtc = null, lastUtc = null;
             bool? monotonic = null;
-            if (reader.HasTimestamps)
+            // A frame the capture stamped zero reads MinValue and is no time (#1409): never the capture's earliest
+            if (reader.HasTimestamps && reader.Timestamps.Any(time => time != DateTimeOffset.MinValue))
             {
                 var times = reader.Timestamps;
                 timestampsSource = "trailer";
                 // The span is the frames' earliest and latest times, never the first and last frames' (#1292): PIPP writes a capture
                 // sorted by quality, and Sessions chains captures on this span.
-                var (earliest, latest) = (times[0], times[0]);
+                DateTimeOffset? earliest = null, latest = null, previous = null;
                 monotonic = true;
-                for (var i = 1; i < times.Length; i++)
+                foreach (var time in times)
                 {
-                    var time = times[i];
-                    if (time < times[i - 1])
+                    if (time == DateTimeOffset.MinValue)
+                    {
+                        flags.Add("unstamped-frames");
+                        continue;
+                    }
+                    if (time < previous)
                     {
                         monotonic = false;
                     }
-                    if (time < earliest)
+                    if (earliest is not { } soonest || time < soonest)
                     {
                         earliest = time;
                     }
-                    if (time > latest)
+                    if (latest is not { } last || time > last)
                     {
                         latest = time;
                     }
+                    previous = time;
                 }
-                firstUtc = Iso(earliest);
-                lastUtc = Iso(latest);
+                firstUtc = earliest is { } first ? Iso(first) : null;
+                lastUtc = latest is { } final ? Iso(final) : null;
             }
             else
             {

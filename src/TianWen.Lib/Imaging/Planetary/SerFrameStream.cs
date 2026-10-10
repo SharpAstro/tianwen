@@ -64,10 +64,11 @@ public sealed class SerFrameStream : IPlanetaryFrameStream
     public bool HasTimestamps => _reader.HasTimestamps;
 
     /// <inheritdoc/>
+    /// <remarks>A frame the capture stamped zero (SER.Lib reads it as <see cref="DateTimeOffset.MinValue"/>) has no time (#1409).</remarks>
     public DateTimeOffset? TimestampOf(int index)
     {
         var ts = _reader.Timestamps;
-        return !ts.IsDefaultOrEmpty && (uint)index < (uint)ts.Length ? ts[index] : null;
+        return !ts.IsDefaultOrEmpty && (uint)index < (uint)ts.Length && ts[index] != DateTimeOffset.MinValue ? ts[index] : null;
     }
 
     /// <inheritdoc/>

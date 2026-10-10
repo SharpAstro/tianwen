@@ -633,6 +633,10 @@ public sealed class LuckyImagingStacker
 
         var grader = GraderFor(options);
         var grades = await grader.GradeAllAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (options.Derotation is not null)
+        {
+            grades = FrameGrader.WithoutUntimedFrames(grades, stream);
+        }
         var referenceIndex = FrameGrader.Reference(grades);
         var selected = FrameGrader.SelectBest(grades, options.KeepFraction);
 
