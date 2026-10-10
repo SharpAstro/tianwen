@@ -293,10 +293,12 @@ public static class PlanetaryComposition
 
     /// <summary>
     /// Step 4: a de-rotated set (<see cref="Derotate"/>, every stack at one instant on one disk) joined: each filter's stacks averaged, red,
-    /// green and blue as one colour master at that instant, the luminance's (IR or L) averaged the same way beside it, null for none. Refuses,
-    /// in words, a set with no red, green or blue, or stacks at more than one instant.
+    /// green and blue as one colour master at that instant, the luminance's (IR or L) averaged the same way beside it, null for none. A
+    /// filter's stacks are first put on one scale by the disk, each weighted by its noise on it (#1337, <see cref="JoinFilter"/>), so a burst
+    /// taken at other settings joins at the night's level. Refuses, in words, a set with no red, green or blue, stacks at more than one
+    /// instant, or a filter of several stacks whose disk does not fit or has no level above its sky.
     /// </summary>
-    public static (PlanetaryComposed? Composed, string? Refusal) Join(IReadOnlyList<PlanetaryMonoStack> derotated)
+    public static (PlanetaryComposed? Composed, string? Refusal) Join(IReadOnlyList<PlanetaryMonoStack> derotated, Action<string>? say = null)
     {
         ArgumentNullException.ThrowIfNull(derotated);
         if (derotated.Count == 0)
@@ -308,11 +310,27 @@ public static class PlanetaryComposition
         {
             return (null, $"{other.Name} is at {other.Instant:HH:mm:ss}, the others at {instant:HH:mm:ss}: de-rotate them to one instant first");
         }
+        // The disk every stack lies on, read once off the reference, where a filter has stacks to scale.
+        MetricDisk? disk = null;
+        if (derotated.GroupBy(s => s.Filter).Any(g => g.Count() > 1))
+        {
+            var reference = derotated[ReferenceIndex(derotated)];
+            if (PlanetaryLimbFit.FitAt(reference.Image, reference.Planet, reference.Instant) is not { } fitted)
+            {
+                return (null, $"{reference.Name}: its limb did not fit, so its filters' stacks cannot be put on one scale");
+            }
+            disk = fitted.Disk;
+        }
         var planes = new float[3][,];
         Filter[] colours = [Filter.Red, Filter.Green, Filter.Blue];
         for (var c = 0; c < 3; c++)
         {
-            if (Mean(derotated, colours[c]) is not { } mean)
+            var (mean, refusal) = JoinFilter(derotated, colours[c], disk, say);
+            if (refusal is not null)
+            {
+                return (null, refusal);
+            }
+            if (mean is null)
             {
                 return (null, $"no {colours[c].DisplayName} stack: a colour master needs red, green and blue");
             }
@@ -323,7 +341,12 @@ public static class PlanetaryComposition
         var (max, min) = Extent(planes);
         var master = new Image(planes, BitDepth.Float32, max, min, 0, meta);
         Image? luminance = null;
-        if (Mean(derotated, Filter.Luminance) is { } l)
+        var (l, luminanceRefusal) = JoinFilter(derotated, Filter.Luminance, disk, say);
+        if (luminanceRefusal is not null)
+        {
+            return (null, luminanceRefusal);
+        }
+        if (l is not null)
         {
             var (lMax, lMin) = Extent([l]);
             luminance = new Image([l], BitDepth.Float32, lMax, lMin, 0, first.ImageMeta with { Filter = Filter.Luminance });
@@ -580,7 +603,7 @@ public static class PlanetaryComposition
         {
             return (null, null, derotateRefusal);
         }
-        var (composed, joinRefusal) = Join(derotation.Stacks);
+        var (composed, joinRefusal) = Join(derotation.Stacks, say);
         if (composed is null || !withLuminance)
         {
             return (composed, derotation, joinRefusal);
@@ -626,21 +649,87 @@ public static class PlanetaryComposition
     // A stack's limb, fitted at its own instant (Saturn's rings in the model).
     private static LimbFit? FitOf(PlanetaryMonoStack stack) => PlanetaryLimbFit.FitAt(stack.Image, stack.Planet, stack.Instant)?.Fit;
 
-    // The mean of a filter's stacks' planes over the stacks that reach each pixel (a moved stack reads NaN where it does not, #1361), or
-    // null for none. A pixel no stack reaches reads 0, as a stack reads where no folded frame reached it (#1319).
-    private static float[,]? Mean(IReadOnlyList<PlanetaryMonoStack> stacks, Filter filter)
+    /// <summary>
+    /// A filter's stacks joined into one plane (#1337): each put on the scale of the filter's median-level stack by the disk, its level above
+    /// its own sky (the mean inside 0.9 radii, rings left out, less <see cref="PlanetaryMetrics.SkyLevel"/>) taken to that stack's and its sky
+    /// to that stack's sky, then averaged weighted by its inverse noise variance on that scale (<see cref="SkyBlockNoise"/>), over the stacks
+    /// that reach each pixel (a moved stack reads NaN where it does not, #1361). A pixel no stack reaches reads 0, as a stack reads where no
+    /// folded frame reached it (#1319). One stack is taken as it is. Null for a filter with no stack; a refusal in words for a stack with no
+    /// level above its sky. The owner's 2026-10-07 Saturn ran its first burst at another gain, exposure and black level: averaged as they
+    /// were, its stacks entered each filter at about three quarters of the others' level and on another sky.
+    /// </summary>
+    internal static (float[,]? Plane, string? Refusal) JoinFilter(IReadOnlyList<PlanetaryMonoStack> stacks, Filter filter, MetricDisk? disk,
+        Action<string>? say = null)
     {
         var of = stacks.Where(s => s.Filter == filter).ToArray();
         if (of.Length == 0)
         {
-            return null;
+            return (null, null);
         }
         var (width, height) = (of[0].Image.Width, of[0].Image.Height);
-        var sum = new double[height, width];
-        var reached = new int[height, width];
-        foreach (var stack in of)
+        var (scales, skies, weights) = (new double[of.Length], new double[of.Length], new double[of.Length]);
+        Array.Fill(scales, 1.0);
+        Array.Fill(weights, 1.0);
+        var referenceSky = 0.0;
+        if (of.Length > 1)
         {
-            var plane = stack.Image.GetChannelSpan(0);
+            if (disk is not { } onDisk)
+            {
+                return (null, $"{filter.DisplayName}: {of.Length} stacks and no disk to put them on one scale by");
+            }
+            var levels = new double[of.Length];
+            for (var s = 0; s < of.Length; s++)
+            {
+                var plane = of[s].Image.GetChannelSpan(0);
+                double sum = 0;
+                var count = 0;
+                for (var y = 0; y < height; y++)
+                {
+                    for (var x = 0; x < width; x++)
+                    {
+                        var v = plane[(y * width) + x];
+                        if (onDisk.RadiiAt(x, y) < 0.9 && !onDisk.RingTouched(x, y) && !float.IsNaN(v))
+                        {
+                            (sum, count) = (sum + v, count + 1);
+                        }
+                    }
+                }
+                skies[s] = PlanetaryMetrics.SkyLevel(plane, width, height, onDisk) ?? 0;
+                levels[s] = count > 0 ? (sum / count) - skies[s] : double.NaN;
+                if (!(levels[s] > 0))
+                {
+                    return (null, $"{of[s].Name}: no level above its sky on the disk to put it on its filter's scale by");
+                }
+            }
+            // The median-level stack sets the scale, so a burst at other settings is the one moved, whichever filter.
+            var reference = Enumerable.Range(0, of.Length).OrderBy(s => levels[s]).ThenBy(s => s).ElementAt((of.Length - 1) / 2);
+            referenceSky = skies[reference];
+            for (var s = 0; s < of.Length; s++)
+            {
+                scales[s] = levels[reference] / levels[s];
+                var noise = SkyBlockNoise(of[s].Image, onDisk) * scales[s];
+                weights[s] = double.IsFinite(noise) && noise > 0 ? 1 / (noise * noise) : double.NaN;
+            }
+            if (weights.Any(w => !double.IsFinite(w)))
+            {
+                say?.Invoke($"{filter.DisplayName}: a stack has no sky past {SkyNoiseRadii} radii to read its noise on; its stacks weighted alike");
+                Array.Fill(weights, 1.0);
+            }
+            var total = weights.Sum();
+            var inv = CultureInfo.InvariantCulture;
+            for (var s = 0; s < of.Length; s++)
+            {
+                say?.Invoke(string.Create(inv,
+                    $"{of[s].Name} ({filter.ShortName}): scale {scales[s]:0.0000} onto {of[reference].Name}, sky {skies[s]:0.00000}, weight {weights[s] / total:P1}"));
+            }
+        }
+
+        var weighted = new double[height, width];
+        var reached = new double[height, width];
+        for (var s = 0; s < of.Length; s++)
+        {
+            var plane = of[s].Image.GetChannelSpan(0);
+            var (scale, sky, weight) = (scales[s], skies[s], weights[s]);
             for (var y = 0; y < height; y++)
             {
                 for (var x = 0; x < width; x++)
@@ -648,21 +737,23 @@ public static class PlanetaryComposition
                     var v = plane[(y * width) + x];
                     if (!float.IsNaN(v))
                     {
-                        sum[y, x] += v;
-                        reached[y, x]++;
+                        // One stack is taken as it is: its scale 1 and no sky moved, so not a bit changes.
+                        var onScale = of.Length > 1 ? referenceSky + ((v - sky) * scale) : v;
+                        weighted[y, x] += weight * onScale;
+                        reached[y, x] += weight;
                     }
                 }
             }
         }
-        var mean = new float[height, width];
+        var joined = new float[height, width];
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
             {
-                mean[y, x] = reached[y, x] > 0 ? (float)(sum[y, x] / reached[y, x]) : 0f;
+                joined[y, x] = reached[y, x] > 0 ? (float)(weighted[y, x] / reached[y, x]) : 0f;
             }
         }
-        return mean;
+        return (joined, null);
     }
 
     // An image with another header.

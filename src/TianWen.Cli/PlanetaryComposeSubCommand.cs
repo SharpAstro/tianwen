@@ -148,7 +148,7 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
             {
                 return 1;
             }
-            var (composed, refusal) = PlanetaryComposition.Join(stacks);
+            var (composed, refusal) = PlanetaryComposition.Join(stacks, Say);
             if (composed is null)
             {
                 consoleHost.WriteError(refusal ?? "nothing joined");
