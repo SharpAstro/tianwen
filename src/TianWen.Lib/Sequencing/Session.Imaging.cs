@@ -575,7 +575,9 @@ internal partial record Session
                         camerDriver,
                         ct => camerDriver.StartExposureAsync(frameExpTime, cancellationToken: ct),
                         ResilientCallOptions.NonIdempotentAction, cancellationToken);
-                    expTicks[i] = subExposureSec / tickSec;
+                    // Rounded UP, so the tick a frame is fetched on comes less than one tick before its shutter closes (the
+                    // ticker's phase is not the exposure's): rounded down, a 20 s sub on 3 s ticks was fetched at 15 to 18 s
+                    expTicks[i] = (subExposureSec + tickSec - 1) / tickSec;
                     filterFrameCounters[i]++;
                     var frameNo = ++frameNumbers[i];
 
@@ -643,13 +645,21 @@ internal partial record Session
                     var frameNo = frameNumbers[i];
                     var polled = TimeSpan.Zero;
 
-                    // How well THIS sub was guided, for its header. Stamped here because the statistic is
-                    // only complete once the shutter has closed and GetImageAsync (just below) is the one
-                    // place an ImageMeta is built. Null on an unguided rig, which writes no cards.
-                    camDriver.GuideStats = GuideStatistics.OverExposure(
-                        GuideSamples, expStartTimes[i], frameExpTime);
+                    // That tick can still come before the shutter closes: wait out the rest, under a tick, rather than
+                    // fail a fetch, log it as an error and try again a tick later (#1414)
+                    var untilClosed = expStartTimes[i] + frameExpTime - _timeProvider.GetUtcNow();
+                    if (untilClosed > TimeSpan.Zero && untilClosed <= tickDuration)
+                    {
+                        await _timeProvider.SleepAsync(untilClosed, cancellationToken);
+                    }
                     do // wait for image loop
                     {
+                        // How well THIS sub was guided, for its header: stamped before each try, since GetImageAsync is the
+                        // one place an ImageMeta is built, so the try that takes the frame carries every guide sample
+                        // recorded by then. One whose guide frame straddles the close may be reported later and missed
+                        // (#1414). Null on an unguided rig, which writes no cards.
+                        camDriver.GuideStats = GuideStatistics.OverExposure(
+                            GuideSamples, expStartTimes[i], frameExpTime);
                         if (await ResilientInvokeAsync(
                                 camDriver, camDriver.GetImageAsync,
                                 ResilientCallOptions.IdempotentRead, cancellationToken) is { Width: > 0, Height: > 0 } image)
