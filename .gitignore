@@ -69,3 +69,7 @@ training/**/*.onnx
 # scratchpad only because a publish reads its supporting files from the working tree.
 .artifact-gallery/
 rows.json
+
+# The training dashboard's local run registry (one machine's paths and PIDs) and its pid file
+tools/training-dashboard/runs.json
+tools/training-dashboard/server.pid

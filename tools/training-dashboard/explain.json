@@ -1,0 +1,38 @@
+{
+  "programme": {
+    "title": "What is being trained: TianWen's own star remover (P4)",
+    "lines": [
+      "A neural net that splits a stacked master into two plates: the stars alone, and the sky without them (the starless plate). The two add back to the input exactly, so the starless plate is what decides quality.",
+      "Its one forbidden artefact is a HOLE: a star's core left darker than the sky around it. StarXTerminator is the bar it is judged against; until it passes, RC-Astro's StarXTerminator stays the only star remover.",
+      "How it learns: real starless plates from our own masters (the 'truth'), with synthetic stars injected on them (the 'input'). The net is asked to give back the plate. Because we drew the stars, we know exactly what it should have returned.",
+      "The arms differ in what that truth plate is (the real plate, or a synthetic background built from it) and in how the stars are drawn. Every model is scored the same way, on held-out validation draws ('A's draws'), by the fixed eval.",
+      "A seed (s0, s1, s2) is the same recipe from a different random start. The spread over seeds is the noise floor: at a patience of 12 it is 3.1 points at 5-20 sigma and 4.6 at 100-1000, so a difference smaller than that is not read.",
+      "Every run is pre-registered: its predictions and its kill line are written down before it trains, and the read is against those (docs/plans/star-remover-training.md)."
+    ]
+  },
+  "metrics": {
+    "clean5": { "label": "clean 5-20", "better": "higher", "what": "Faint injected stars (5 to 20 times the noise) removed CLEANLY, in percent: the core's mean within one sigma of the true sky either way, and no core pixel 4 sigma off it. A dug hole does not count." },
+    "clean20": { "label": "clean 20-100", "better": "higher", "what": "The same for medium stars (20 to 100 sigma)." },
+    "clean100": { "label": "clean 100-1000", "better": "higher", "what": "The same for bright stars (100 to 1,000 sigma), the hardest unsaturated band." },
+    "dug100": { "label": "dug 100-1000", "better": "lower", "what": "Bright stars whose core went UNDER the sky, in percent: the hole this whole programme exists to avoid." },
+    "cleanSat": { "label": "clean saturated", "better": "higher", "what": "Saturated stars (flat-topped cores) removed cleanly, in percent." },
+    "brightCore": { "label": "bright-core %", "better": "lower", "what": "The share of the model's total error that sits in the bright stars' 3x3 cores. High means it leaves bright cores behind (arm B read 17 % against A's 2.7 %); the bar is under 5 %." },
+    "farSky": { "label": "far sky", "better": "lower", "what": "How much the model changed the sky far from any star, in noise sigma (RMS). 0 is untouched; a remover should not repaint empty sky." },
+    "when": { "label": "scored", "better": "", "what": "When this report was written." }
+  },
+  "models": [
+    { "match": "^r2_random_", "what": "R2a, the field arm: field-profile stars at random places on the real plates; plateau patience 4 (stopped early)." },
+    { "match": "^r2_gaussian_", "what": "R2a: the same with Gaussian-profile stars, which leaves the real stars' wings (H2)." },
+    { "match": "^r2_atsite_", "what": "R2a: stars injected where R0 had subtracted real stars; taught less removal, dropped after R2a." },
+    { "match": "^r2b_random_", "what": "R2b: the field arm again at plateau patience 12, so it trains longer before stopping." },
+    { "match": "^r2b_gaussian_", "what": "R2b: the Gaussian arm at patience 12." },
+    { "match": "^r2cconv_", "what": "R2c: the field arm, seed 0, run to convergence (cap 240,000 steps): do steps past R2b's cap buy removal?" },
+    { "match": "^r2da_", "what": "R2d arm A: today's real plates, with D4's loss mask (the sky near the plate's own kept stars is left out of the loss); patience 12." },
+    { "match": "^r2db_", "what": "R2d arm B: a SYNTHETIC background (the plate's coarse scales, a drawn fine texture and knots) under the same stars; patience 12." },
+    { "match": "^r2dblong_", "what": "'The stops': arm B seed 0 retrained at patience 24, to test whether B's early stops cost its bright stars." },
+    { "match": "^r2dk_", "what": "'The knots': arm B's export with the bright compact synthetic knots capped (they looked like stars); patience 12." },
+    { "match": "^r2dal_", "what": "A's control at patience 24: arm A on the matched schedule, the baseline the combined arm is read against." },
+    { "match": "^r2dkl_", "what": "The two fixes together: the capped-knots export at patience 24. Tied A on faint stars, beat it on bright ones (+7.5 points clean, 20 fewer dug)." },
+    { "match": "^r2ds_", "what": "R2e (training now): the synthetic background with the texture steered along the nebula's own structure, nebula-shaped knots and the knots cap; patience 24." }
+  ]
+}
