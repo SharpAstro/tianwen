@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using Shouldly;
@@ -203,7 +204,8 @@ public sealed class PlanetaryCompositionTests : IDisposable
             if (float.IsNaN(cutGreen[i]))
             {
                 unreachedGreen++;
-                joinedGreen[i].ShouldBe(referenceGreen[i], $"pixel {i}: the green only the reference reaches reads the reference's, never half of it");
+                // The two greens at one setting, so the reference's put on the other's scale is itself (#1337); half would be 0.025.
+                joinedGreen[i].ShouldBe(referenceGreen[i], 1e-4f, $"pixel {i}: the green only the reference reaches reads the reference's, never half of it");
             }
             if (float.IsNaN(red[i]))
             {
@@ -227,6 +229,83 @@ public sealed class PlanetaryCompositionTests : IDisposable
         joinedFromFiles.ShouldNotBeNull(filesJoinRefusal);
         Differing(joined.Master, joinedFromFiles.Master).ShouldBe(0, "the steps through files give the recipe's master to the bit");
         joined.Master.GetChannelSpan(0).ToArray().ShouldAllBe(v => float.IsFinite(v), "the master holds no unreached marker");
+    }
+
+    [Fact]
+    public void AFiltersStacksAtOtherSettingsJoinOnItsMedianStacksScaleWeightedByTheirNoise()
+    {
+        // #1337: three greens on one disk, two at one setting (0.8 of the planet over a sky of 0.05) and one at another (0.6 of it over a
+        // sky of 0.08, a lower gain on another black level), each with noise of 0.002 in its own units. Averaged as they were, the master
+        // sat at 0.733 of the planet on a sky of 0.06; put on the median stack's scale it sits at 0.8 on 0.05, the odd stack's noise on
+        // that scale 0.8 / 0.6 of the others' and its weight 0.5625 of theirs.
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Start);
+        var placement = DiskOf(("G", 0, 0, 0, 0));
+        var truth = Render(aspect, placement, 1.0);
+        var random = new Random(1337);
+        (double Level, double Sky)[] settings = [(0.8, 0.05), (0.6, 0.08), (0.8, 0.05)];
+        var stacks = new List<PlanetaryMonoStack>();
+        foreach (var (level, sky) in settings)
+        {
+            var plane = new float[truth.Length];
+            for (var i = 0; i < plane.Length; i++)
+            {
+                var (u1, u2) = (1.0 - random.NextDouble(), random.NextDouble());
+                plane[i] = (float)(sky + (level * truth[i]) + (0.002 * Math.Sqrt(-2 * Math.Log(u1)) * Math.Cos(2 * Math.PI * u2)));
+            }
+            var meta = new ImageMeta { ObjectName = "Jupiter", ExposureStartTime = Start, Filter = Filter.Green };
+            stacks.Add(new PlanetaryMonoStack($"green{stacks.Count}", new Image([ToPlane(plane)], BitDepth.Float32, 1f, 0f, 0, meta), CatalogIndex.Jupiter, Start, Filter.Green));
+        }
+        var disk = new MetricDisk(placement.CenterX, placement.CenterY, placement.EquatorialRadius);
+        var said = new List<string>();
+
+        var (joined, refusal) = PlanetaryComposition.JoinFilter(stacks, Filter.Green, disk, said.Add);
+        refusal.ShouldBeNull();
+        joined.ShouldNotBeNull();
+
+        var flat = new float[truth.Length];
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                flat[(y * Size) + x] = joined[y, x];
+            }
+        }
+        var joinedSky = PlanetaryMetrics.SkyLevel(flat, Size, Size, disk).ShouldNotBeNull();
+        double sum = 0, truthSum = 0;
+        var count = 0;
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                if (disk.RadiiAt(x, y) < 0.9)
+                {
+                    (sum, truthSum, count) = (sum + flat[(y * Size) + x], truthSum + truth[(y * Size) + x], count + 1);
+                }
+            }
+        }
+        foreach (var line in said)
+        {
+            TestContext.Current.TestOutputHelper?.WriteLine(line);
+        }
+        var levelRatio = ((sum / count) - joinedSky) / (truthSum / count);
+        TestContext.Current.TestOutputHelper?.WriteLine($"joined: sky {joinedSky:0.00000}, the disk at {levelRatio:0.0000} of the planet");
+        joinedSky.ShouldBe(0.05, 0.0005, "the median stack's sky, not a blend of the skies");
+        levelRatio.ShouldBe(0.8, 0.004, "the median stack's level, not 0.733");
+
+        // Each stack's scale and weight said: the odd one on 0.8 / 0.6 and weighted 0.5625 of the others, 22 % of the three.
+        said.Count.ShouldBe(3);
+        var odd = said.Single(l => l.StartsWith("green1 ", StringComparison.Ordinal));
+        double.Parse(System.Text.RegularExpressions.Regex.Match(odd, @"scale ([\d.]+)").Groups[1].Value, CultureInfo.InvariantCulture).ShouldBe(0.8 / 0.6, 0.01);
+        double.Parse(System.Text.RegularExpressions.Regex.Match(odd, @"weight ([\d.]+)").Groups[1].Value, CultureInfo.InvariantCulture).ShouldBe(22.0, 3.0);
+
+        // One stack of a filter is taken as it is, to the bit.
+        var (alone, _) = PlanetaryComposition.JoinFilter([stacks[1]], Filter.Green, disk);
+        var single = stacks[1].Image.GetChannelSpan(0);
+        alone.ShouldNotBeNull();
+        for (var i = 0; i < single.Length; i++)
+        {
+            alone[i / Size, i % Size].ShouldBe(single[i]);
+        }
     }
 
     [Fact(Timeout = 300_000)]
@@ -297,6 +376,7 @@ public sealed class PlanetaryCompositionTests : IDisposable
     }
 
     // Stacks of one instant, each through its filter and framed by its own offset, ingested from WinJUPOS-style names.
+    // A sky of 0.05 under each, so a pixel averaged with a zero reads half of it.
     private static List<PlanetaryMonoStack> SameInstant((string Filter, double Dx, double Dy)[] set)
     {
         var stacks = new List<PlanetaryMonoStack>();
@@ -304,6 +384,10 @@ public sealed class PlanetaryCompositionTests : IDisposable
         foreach (var (filter, dx, dy) in set)
         {
             var plane = Render(aspect, DiskOf((filter, 0, 0, dx, dy)), filter == "B" ? 0.6 : 0.8);
+            for (var i = 0; i < plane.Length; i++)
+            {
+                plane[i] += 0.05f;
+            }
             // One instant, so each stack's own number keeps two of one filter apart on disk.
             var name = $"{Start:yyyy-MM-dd-HHmm}_{Start.Second / 6}-Test{stacks.Count}-{filter}-Jup.fits";
             var (stack, refusal) = PlanetaryComposition.Ingest(name, Image.FromChannel(ToPlane(plane)), instant: Start);

@@ -5179,6 +5179,19 @@ against the recipe and they agree to the bit.
   Averaged in as zero, the strip read half the sky: on the owner's 2026-10-07 sets 7 and 8, 501 green pixels sat at 0.500 of the sky,
   and the true-colour look's black point fell to half the sky and drew it grey (18 of 255). Read the stacks that reach, the strip is the
   sky and the look's sky is black.
+- **A filter's stacks are joined on one scale, weighted by their noise** (#1337, `PlanetaryComposition.JoinFilter`). A night's settings
+  can change between bursts: the owner's 2026-10-07 Saturn ran burst 1 at gain 1620, 15.625 ms and black level 11, and bursts 2 to 10
+  at 2252, 15.0 ms and 17. Each stack is put on its filter's median-level stack by the disk, its level above its own sky (the mean
+  inside 0.9 radii, rings left out) taken to that stack's and its sky to that stack's sky, then the mean is weighted by each stack's
+  inverse block noise on that scale (sky past 1.3 radii); a filter of one stack is taken as it is, and the join says every stack's scale
+  and weight. Read against rules set on #1337 before it ran (each channel's level above its sky, and its sky's 4 px block noise):
+  - On bursts 2 to 10 (one setting), against the plain mean: the level within 0.6 %, the block noise +0.03 / -8.7 / -8.4 % (R, G, B).
+  - Burst 1 added (bursts 1 to 10), against bursts 2 to 10: the level within 0.6 %, the block noise -1.3 / -6.6 / -0.4 %. The plain
+    mean of the same 30 stacks sat 3.0 % low in every channel, on a sky of 0.0628 against 0.0651.
+  - Burst 1's three stacks read scales 1.400, 1.401 and 1.413, one setting changed for all three filters; their weights 3 to 5 %.
+
+  A first reader took the sky's pixel-to-pixel noise, not the block noise the rule named; on it the plain-to-weighted noise rose 1.7 to
+  4.0 % on bursts 2 to 10. A stack's sky is a resampled plane, whose neighbours correlate, so the block reading is the measure.
 - **The 2026-09-01 Saturn set** (16 AutoStakkert stacks, four runs of R, G, B and IR over 24 minutes):
   - Every limb fitted, the radii from 165.6 to 166.4 px.
   - The moves were all under a pixel, blue's 0.6 px the atmosphere's dispersion, since AutoStakkert had centred each stack.
