@@ -1,0 +1,58 @@
+{
+  "_doc": "A run registry: copy it beside server.py as runs.json (git ignores that name), or anywhere and pass --runs. The fields are in README.md.",
+  "runs": [
+    {
+      "tag": "r2ds",
+      "title": "Training the star remover on a synthetic sky that follows the nebula's own structure (R2e)",
+      "kind": "training",
+      "what": "One model, seed 0, trained until its validation loss stops improving (patience 24, cap 240,000 steps)",
+      "question": "Does steering the synthetic texture along the nebula's own filaments keep the bright-star gain without costing faint stars?",
+      "setup": "Truth plates from the synthetic background export; the same sessions, cells, stars and noise as arm B.",
+      "predictions": [
+        "Bright stars stay repaired: clean removal at 100-1000 sigma at least A's control (24.4 %).",
+        "The steer costs no faint stars: clean removal at 5-20 sigma within 3.1 points of A's control (73.0 %)."
+      ],
+      "kill": "Under A's control by more than 5 points at 5-20 sigma, or by more than 4.6 at 100-1000.",
+      "caveat": "One seed only.",
+      "pid": 72536,
+      "status": "C:/temp/e2/r2ds.status",
+      "log": "C:/temp/e2/r2ds.log",
+      "stop": "C:/temp/e2/r2ds.stop",
+      "datastore": ["E:/tianwen-scratch/r1-train-synth2"],
+      "progress": { "type": "steps" },
+      "result": "C:/temp/e2/r2ds-read.txt"
+    },
+    {
+      "tag": "s4-1400c",
+      "title": "Filling star holes with drawn texture: does it put the sky back? (hole-fill check on 8 plates)",
+      "kind": "check",
+      "exe": "tianwen",
+      "match": ["fill-probe", "s4-1400c"],
+      "log": "C:/temp/e2/s4-1400c/run.log",
+      "datastore": ["D:/Astro-Dataset/2026-09-29-full/starless/plates"],
+      "progress": { "type": "count", "pattern": "^\\[fill-probe\\] [A-Z]", "total": 8 },
+      "result": "C:/temp/e2/s4-1400c/summary.txt"
+    },
+    {
+      "tag": "f5",
+      "title": "Re-scoring the earlier models without the validation night that overlaps training",
+      "kind": "eval",
+      "exe": "tianwen",
+      "match": ["starless-eval", "/f5/"],
+      "progress": { "type": "files", "glob": "C:/temp/e2/f5/*/starless-eval-v4-nosmc.json", "total": 10 }
+    },
+    {
+      "tag": "unit",
+      "title": "Full unit test suite",
+      "kind": "tests",
+      "exe": "TianWen.Lib.Tests",
+      "match": ["tianwen-neural-training"],
+      "log": "C:/temp/e2/unit.log",
+      "progress": { "type": "lastline" }
+    }
+  ],
+  "scores": [
+    { "name": "Every star remover scored so far, on the validation draws", "glob": "C:/temp/e2/r2-eval/*/on-random/starless-eval-v4.json" }
+  ],
+  "watch": ["tianwen", "python", "dotnet", "pwsh"]
+}
