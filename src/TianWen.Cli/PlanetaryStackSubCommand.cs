@@ -581,9 +581,10 @@ internal sealed class PlanetaryStackSubCommand(
                         consoleHost.WriteError($"The session's first and last captures ({Path.GetFileName(byTime[0])}, {Path.GetFileName(byTime[^1])}) turn the planet too little to tell its north, or one holds no frame to stack.");
                         return 1;
                     }
+                    // The session's own north; each capture's stack turns it over, once, when --turn-north-over asks (#1409)
                     sessionNorth = decided.NorthAngleDeg;
                     consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                        $"[planetary] the session's north, read once from {Path.GetFileName(byTime[0])} and {Path.GetFileName(byTime[^1])}: {Wrapped(decided.NorthAngleDeg):0.0} deg (RMS apart {decided.AgreementAsFitted:0.00000} with the limb fit's north, {decided.AgreementTurnedOver:0.00000} turned over) in {read.Elapsed.TotalSeconds:F1}s"));
+                        $"[planetary] the session's north, read once from {Path.GetFileName(byTime[0])} and {Path.GetFileName(byTime[^1])}: {Wrapped(decided.NorthAngleDeg):0.0} deg (RMS apart {decided.AgreementAsFitted:0.00000} with the limb fit's north, {decided.AgreementTurnedOver:0.00000} turned over){(sessionRotation.TurnNorthOver ? $", each capture taking it turned over, {Wrapped(decided.NorthAngleDeg + 180):0.0} deg" : "")} in {read.Elapsed.TotalSeconds:F1}s"));
                 }
                 var each = options with { Derotation = sessionRotation with { North = sessionNorth } };
                 foreach (var capturePath in byTime)
