@@ -113,10 +113,11 @@ public static class PlanetaryWaveletGains
     /// The Wiener filter, ring by ring, that <paramref name="stackPower"/>, <paramref name="noise"/> and <paramref name="transfer"/> give
     /// (each ring r at r / n cycles a pixel, n the padded grid): (1 - N / P_S)+ / H, zero where H is under <see cref="MinTransfer"/>. With a
     /// <paramref name="target"/>, the stack is restored toward the scene through it rather than toward the scene <paramref name="transfer"/>
-    /// is read against: T (1 - N / P_S)+ / H (#1366, the aperture target over the stack's total transfer).
+    /// is read against: T (1 - N / P_S)+ / H (#1366, the aperture target over the stack's total transfer). With
+    /// <see cref="PlanetaryWienerFloor.Tikhonov"/> the 1 / H is H / (H^2 + e^2), e being <see cref="MinTransfer"/>, and nothing is cut (#1406).
     /// </summary>
     public static ImmutableArray<double> Wiener(ImmutableArray<double> stackPower, ImmutableArray<double> noise, Func<double, double> transfer,
-        Func<double, double>? target = null)
+        Func<double, double>? target = null, PlanetaryWienerFloor floor = PlanetaryWienerFloor.Step)
     {
         ArgumentNullException.ThrowIfNull(transfer);
         var n = stackPower.Length;
@@ -124,11 +125,18 @@ public static class PlanetaryWaveletGains
         for (var r = 0; r < n; r++)
         {
             var f = r / (double)n;
-            var h = transfer(f);
-            w.Add(h < MinTransfer || stackPower[r] <= 0 ? 0 : (target?.Invoke(f) ?? 1) * Math.Max(0, 1 - (noise[r] / stackPower[r])) / h);
+            var inverse = Inverse(transfer(f), floor);
+            w.Add(inverse == 0 || stackPower[r] <= 0 ? 0 : (target?.Invoke(f) ?? 1) * Math.Max(0, 1 - (noise[r] / stackPower[r])) * inverse);
         }
         return w.MoveToImmutable();
     }
+
+    /// <summary>What the Wiener divides by, as <paramref name="floor"/> meets a transfer <paramref name="h"/> near nothing (#1406).</summary>
+    internal static double Inverse(double h, PlanetaryWienerFloor floor) => floor switch
+    {
+        PlanetaryWienerFloor.Tikhonov => h > 0 ? h / ((h * h) + (MinTransfer * MinTransfer)) : 0,
+        _ => h < MinTransfer ? 0 : 1 / h,
+    };
 
     /// <summary>
     /// The <paramref name="scales"/> gains, finest first, that leave the least expected error in the scored bands inside 0.9 radii of

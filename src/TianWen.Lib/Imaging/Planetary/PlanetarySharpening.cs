@@ -95,6 +95,24 @@ public enum PlanetarySharpenTarget
 }
 
 /// <summary>
+/// How the derived Wiener filter treats a transfer near nothing (#1406), where it divides by the kernel (times the pupil's diffraction for the
+/// aperture target).
+/// </summary>
+public enum PlanetaryWienerFloor
+{
+    /// <summary>Nothing restored where the transfer is under <see cref="PlanetaryWaveletGains.MinTransfer"/>, the Wiener as it is above.</summary>
+    Step,
+
+    /// <summary>
+    /// Tikhonov's form: H / (H^2 + e^2) in place of 1 / H, e being <see cref="PlanetaryWaveletGains.MinTransfer"/>, so the filter falls
+    /// smoothly to nothing as the transfer does, within 1 % of 1 / H from H = 0.2 and half of it at H = e. The step cut the warped twin's
+    /// target at its peak inside band 1, yet this closes only 7.8 % of that twin's gap to its own gains and costs the Meade 16 Saturn 0.034
+    /// of band 1's correlation with its post, so it is an option (#1406); toward the aperture target it helped every twin.
+    /// </summary>
+    Tikhonov,
+}
+
+/// <summary>
 /// What a planetary master is sharpened against: the planet and the instant its aspect is read at, and the telescope's pupil and each
 /// channel's wavelength, which set the diffraction the limb's edge is read over (R8 follow-up 3). Without a pupil the gains cannot be
 /// derived, and <see cref="PlanetarySharpening.Sharpen"/> sharpens by <see cref="WaveletSharpenOptions.PlanetaryDefault"/> with the limb kept
@@ -243,6 +261,9 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     /// since a smaller kernel raises the target's 1/H. Null, the default, cuts nothing, and a mono master is untouched.
     /// </summary>
     public PlanetaryFrameLayout? ColourTargetCutFor { get; init; }
+
+    /// <summary>How the derived Wiener filter meets a transfer near nothing (#1406): the step at <see cref="PlanetaryWaveletGains.MinTransfer"/> by default.</summary>
+    public PlanetaryWienerFloor WienerFloor { get; init; }
 
     // The master being sharpened is a colour master's luminance (LuminanceOnly): its finest band holds the colour filter's residue as the
     // colour planes do, so it follows ColourFinestBand as they would (#1187).
@@ -431,8 +452,8 @@ public static class PlanetarySharpening
                     : ImmutableArray.CreateRange(Enumerable.Repeat(white, power.Length));
                 whiteLevels[c] = new PlanetaryWhiteLevel(white, halvesNoise is not null ? PlanetaryInverse.WhiteNoise(halvesNoise, size, size) : double.NaN);
                 var wiener = ReferenceEquals(target, diffraction)
-                    ? PlanetaryWaveletGains.Wiener(power, noise, kernel, targetCut)
-                    : PlanetaryWaveletGains.Wiener(power, noise, f => kernel(f) * diffraction.At(f), f => target.At(f) * (targetCut?.Invoke(f) ?? 1));
+                    ? PlanetaryWaveletGains.Wiener(power, noise, kernel, targetCut, options.WienerFloor)
+                    : PlanetaryWaveletGains.Wiener(power, noise, f => kernel(f) * diffraction.At(f), f => target.At(f) * (targetCut?.Invoke(f) ?? 1), options.WienerFloor);
                 var blurredDisk = PlanetaryInverse.Apply(throughPupil, size, size, kernel);
                 var finestHeld = FinestHeld(options.OfColour ? 3 : master.ChannelCount, options.OfColour ? 1 : c, options.ColourFinestBand);
                 var finestBounded = (options.OfColour ? 3 : master.ChannelCount) == 3 && options.ColourFinestBand == PlanetaryColourFinestBand.Bounded;
