@@ -4388,7 +4388,7 @@ the stack.
 
 Open, found by #1329's rule 1b: at strength 2 the sharpening floors 115 to 227 pixels a channel at the sky inside the Saturn twin's rings'
 footprint (#1471). They lie on the C ring, in the gap between it and the globe, and on the B and A rings' edges. There the truth is dim but
-above the sky (0.04 to 0.21 of the disk's mean). Strength 1 has none.
+above the sky (0.04 to 0.21 of the disk's mean). Strength 1 floors a few too: 8 red and 10 green pixels, all in the gap inside the C ring.
 
 **Rule:** on the S3 twin, the derived sharpening's error in bands 1 to 4 inside 0.9 of the globe's radius falls to at most 0.44 of the
 stack's (the calibrated Jupiter twin's 0.647 of 1.483). Its limb profile error is at most the Jupiter twin's 0.0053. The rings' radial
