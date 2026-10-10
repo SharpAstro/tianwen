@@ -192,13 +192,22 @@ or carry a `ref float y` at all -- earlier waves took them. What is actually lef
 | `ImageRendererBase.Overlays.cs` | 5 | 0 |
 | the other nine | 1-3 each | 0 |
 
-So P3's remaining scope is the viewer's own core file and the sky-map tab, not the live-session panels.
-Still lower value and still piecemeal -- and now ratcheted by P4, so it cannot quietly grow while it
-waits.
+**Corrected 2026-10-10: the live-session panels are NOT clear.** The 2026-09-16 recount counted only the two
+smells above, and these files got past both: they place text by `DrawText` at hand coordinates, which neither
+a `MeasureText` count nor a `ref float y` count sees. A review of the UI against DIR.Lib 11.8 found, still
+hand-placed:
 
-`LiveSessionTab.Polar.cs` (7 cursor lines), `.Panels.cs`, `.Flats.cs`, `GuiderTab.cs`, `VkSkyMapTab.cs`
-(6 measurements). These are reports rather than controls, so the drift costs less and nothing has been
-reported against them; they come last and can come piecemeal.
+| file | what is still placed by hand |
+|---|---|
+| `LiveSessionTab.Panels.cs` | the exposure log, the solve readout and the focus history (about 150 lines: column x positions as fractions of the width, `[..10]` cuts where `TextTrim` would do, a `y +=` cursor, a hand-computed first row) |
+| `LiveSessionTab.Flats.cs` | the running rows (`RenderFlatsRunningRows`: a `y` cursor and a hand `buttonY`; the setup half of the same panel is a tree) |
+| `LiveSessionTab.Polar.cs` | about ten text and LED rows drawn inside the raster `Fill`; only the error bar is raster |
+| `GuiderTab.cs` | the calibration table (`RenderCalibrationText`, `y` anchored from the bottom, `y += lineH`) |
+| `LiveSessionTab.cs` | the frame (top rect, timeline, bottom strip, the OTA / viewer / log columns, the picker) carved by arithmetic, where `GuiderTab` already uses one `Dock` |
+
+So P3's scope is the viewer's own core file, the sky-map tab, and these panels. They are still reports rather
+than controls, so the drift costs less, and they can still come piecemeal. P4's ratchet does not cover them,
+since it counts the same two smells.
 
 ### P4: a guard, so it does not come back (SMALL)
 
