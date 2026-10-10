@@ -87,10 +87,11 @@ public static class PlanetaryBestStack
     /// <summary>
     /// The de-rotation a capture of <paramref name="planet"/> gets: every run when <paramref name="always"/>, else once its turn moves
     /// the disk's middle <see cref="TurnWorthDerotatingPx"/>; null for a planet with no rotation model (or none named). Saturn's globe
-    /// turns under rings that stay where they lie (S5, #1234).
+    /// turns under rings that stay where they lie (S5, #1234). Mars only when asked (#1436): on the EdgeHD 11's 9-minute capture the
+    /// stack not de-rotated read 0.01 to 0.02 closer to the post in every band's correlation than the one de-rotated.
     /// </summary>
     public static PlanetaryDerotationOptions? DerotationFor(CatalogIndex? planet, bool always = false)
-        => planet is { } turning && PhysicalEphemeris.Supports(turning)
+        => planet is { } turning && PhysicalEphemeris.Supports(turning) && (always || turning is not CatalogIndex.Mars)
             ? new PlanetaryDerotationOptions(turning) { MinimumTurnPx = always ? 0 : TurnWorthDerotatingPx }
             : null;
 
@@ -197,7 +198,7 @@ public static class PlanetaryBestStack
         if (SharpenOptionsFor(master, planet, epoch, telescope, wavelengthsNm) is not { } options)
         {
             return (WaveletSharpen.Sharpen(master, PresetAt(strength)),
-                $"PlanetaryDefault{StrengthWords(strength)}: the sharpening is derived only for a named Jupiter or Saturn with frame times", null);
+                $"PlanetaryDefault{StrengthWords(strength)}: the sharpening is derived only for a named Mars, Jupiter or Saturn with frame times", null);
         }
         options = options with { Strength = strength, LuminanceOnly = luminanceOnly, FitStops = fitStops.IsDefault ? [] : fitStops };
         if (fix is { } chosen)
@@ -271,7 +272,7 @@ public static class PlanetaryBestStack
         // The gains and the limb do not depend on the limb fix, which only the batch sharpening applies; floored is the cheapest to make.
         if (SharpenOptionsFor(master, planet, epoch, telescope, wavelengthsNm) is not { } options)
         {
-            return new DerivedGains([], "the gains are derived only for a named Jupiter or Saturn with frame times", null);
+            return new DerivedGains([], "the gains are derived only for a named Mars, Jupiter or Saturn with frame times", null);
         }
         // A live master's colours lie where the atmosphere's dispersion put them, 6.4 px red to blue on 2022-10-09 (#1202): moved onto
         // green here as the batch moves its master's, read once and given to every later master.

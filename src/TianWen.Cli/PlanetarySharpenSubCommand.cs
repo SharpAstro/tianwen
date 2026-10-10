@@ -28,7 +28,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
     public Command Build()
     {
         var masterArg = new Argument<string>("master") { Description = "A linear planetary master (planetary stack's master_*.fits)." };
-        var planetOpt = new Option<string?>("--planet") { Description = "jupiter or saturn; read off the file's name when not given." };
+        var planetOpt = new Option<string?>("--planet") { Description = "mars, jupiter or saturn; read off the file's name when not given." };
         var utcOpt = new Option<string?>("--utc") { Description = "The instant the master shows the planet at (ISO 8601, UTC); its own DATE-OBS and EXPTIME's middle when not given, else the truth's." };
         var wavelengthOpt = new Option<string?>("--wavelength") { Description = "The filter's effective wavelength, nm, a comma list for a colour master's channels (550 when not given)." };
         var fixOpt = new Option<string>("--fix") { Description = "How the limb is kept from ringing: modelfeathered (the default: outside the limb the planet's model through the pupil, feathered to the stack far out, #1171), bounded (never brighter than the stack outside the limb but for its moons), floored, limb (the limb as its own channel), feathered, plain, heldoutside, modelfloor, blended, modelglow, modeloutside, glowswapped or modelfeathered (#1171's candidates against bounded's trough), all to compare the first five, or outside to compare bounded with #1171's.", DefaultValueFactory = _ => "modelfeathered" };

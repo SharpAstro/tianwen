@@ -45,7 +45,7 @@ public class PhysicalEphemerisTests
     public void TheFaceTurnedToUsAndHowItIsLitAreHorizonsOwn(string body, string utc)
     {
         var row = Rows(HorizonsFixture).Single(r => r["body"] == body && r["utc"] == utc);
-        var planet = body == "599" ? CatalogIndex.Jupiter : CatalogIndex.Saturn;
+        var planet = body switch { "499" => CatalogIndex.Mars, "599" => CatalogIndex.Jupiter, _ => CatalogIndex.Saturn };
         var at = DateTimeOffset.ParseExact(utc, "yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
 
         var aspect = PhysicalEphemeris.Compute(planet, at);
@@ -120,15 +120,22 @@ public class PhysicalEphemerisTests
         aspect.SubObserverLatitudeCentric.ShouldBe(Value(row, "de"), 0.02, "the Earth's planetocentric declination");
     }
 
-    [Fact]
-    public void SaturnHasNoSystemsIOrII()
+    [Theory]
+    [InlineData(CatalogIndex.Mars)]
+    [InlineData(CatalogIndex.Saturn)]
+    public void OnlyJupiterHasSystemsIAndII(CatalogIndex planet)
     {
-        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Saturn, new DateTimeOffset(2022, 10, 9, 11, 18, 0, TimeSpan.Zero));
+        var aspect = PhysicalEphemeris.Compute(planet, new DateTimeOffset(2022, 10, 9, 11, 18, 0, TimeSpan.Zero));
 
         double.IsNaN(aspect.CentralMeridianI).ShouldBeTrue();
         double.IsNaN(aspect.CentralMeridianII).ShouldBeTrue();
-        PhysicalEphemeris.Supports(CatalogIndex.Mars).ShouldBeFalse("no rotation model for Mars yet");
-        Should.Throw<ArgumentOutOfRangeException>(() => PhysicalEphemeris.Compute(CatalogIndex.Mars, DateTimeOffset.UnixEpoch));
+    }
+
+    [Fact]
+    public void APlanetWithNoRotationModelIsRefused()
+    {
+        PhysicalEphemeris.Supports(CatalogIndex.Venus).ShouldBeFalse("no rotation model for Venus");
+        Should.Throw<ArgumentOutOfRangeException>(() => PhysicalEphemeris.Compute(CatalogIndex.Venus, DateTimeOffset.UnixEpoch));
     }
 
     private static double AngleBetween(double a, double b)

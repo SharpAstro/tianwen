@@ -77,7 +77,7 @@ public static class PlanetaryComposition
         }
         if (!PhysicalEphemeris.Supports(body))
         {
-            return (null, $"{name}: {body} has no rotation model to de-rotate by (Jupiter and Saturn have)");
+            return (null, $"{name}: {body} has no rotation model to de-rotate by (Mars, Jupiter and Saturn have)");
         }
         if ((instant ?? PlanetaryBestStack.InstantOf(image, epoch: null) ?? PlanetaryCaptureName.Instant(path)) is not { } at)
         {

@@ -71,7 +71,7 @@ public static class PhysicalEphemeris
     private const double SecondsPerDay = 86400.0;
 
     /// <summary>Whether <see cref="Compute"/> has a rotation model for <paramref name="planet"/>.</summary>
-    public static bool Supports(CatalogIndex planet) => planet is CatalogIndex.Jupiter or CatalogIndex.Saturn;
+    public static bool Supports(CatalogIndex planet) => planet is CatalogIndex.Mars or CatalogIndex.Jupiter or CatalogIndex.Saturn;
 
     /// <summary>The planet as the geocentre sees it at <paramref name="utc"/>.</summary>
     /// <exception cref="ArgumentOutOfRangeException">A planet with no rotation model here (<see cref="Supports"/>).</exception>
@@ -79,7 +79,7 @@ public static class PhysicalEphemeris
     {
         if (!Supports(planet))
         {
-            throw new ArgumentOutOfRangeException(nameof(planet), planet, "Only Jupiter and Saturn have a rotation model here");
+            throw new ArgumentOutOfRangeException(nameof(planet), planet, "Only Mars, Jupiter and Saturn have a rotation model here");
         }
         var (equatorialKm, polarKm) = Radii(planet);
 
@@ -173,6 +173,7 @@ public static class PhysicalEphemeris
     // IAU equatorial and polar radii, km (Archinal et al. 2018, table 5).
     internal static (double Equatorial, double Polar) Radii(CatalogIndex planet) => planet switch
     {
+        CatalogIndex.Mars => (3396.19, 3376.20),
         CatalogIndex.Jupiter => (71492, 66854),
         CatalogIndex.Saturn => (60268, 54364),
         _ => throw new ArgumentOutOfRangeException(nameof(planet), planet, null),
@@ -185,6 +186,31 @@ public static class PhysicalEphemeris
         var t = d / DaysPerCentury;
         switch (planet)
         {
+            case CatalogIndex.Mars:
+            {
+                // Four short-period terms each, and one long-period term (0.5042615 degrees a century) that moves the pole by up to
+                // 1.6 degrees and the prime meridian by 0.6: Archinal et al. 2018, table 2.
+                var marsRa = 317.269202 - (0.10927547 * t)
+                    + (0.000068 * Math.Sin(SatelliteArgument(198.991226, 19139.4819985, t)))
+                    + (0.000238 * Math.Sin(SatelliteArgument(226.292679, 38280.8511281, t)))
+                    + (0.000052 * Math.Sin(SatelliteArgument(249.663391, 57420.7251593, t)))
+                    + (0.000009 * Math.Sin(SatelliteArgument(266.183510, 76560.6367950, t)))
+                    + (0.419057 * Math.Sin(SatelliteArgument(79.398797, 0.5042615, t)));
+                var marsDec = 54.432516 - (0.05827105 * t)
+                    + (0.000051 * Math.Cos(SatelliteArgument(122.433576, 19139.9407476, t)))
+                    + (0.000141 * Math.Cos(SatelliteArgument(43.058401, 38280.8753272, t)))
+                    + (0.000031 * Math.Cos(SatelliteArgument(57.663379, 57420.7517205, t)))
+                    + (0.000005 * Math.Cos(SatelliteArgument(79.476401, 76560.6495004, t)))
+                    + (1.591274 * Math.Cos(SatelliteArgument(166.325722, 0.5042615, t)));
+                var marsW = 176.049863 + (350.891982443297 * d)
+                    + (0.000145 * Math.Sin(SatelliteArgument(129.071773, 19140.0328244, t)))
+                    + (0.000157 * Math.Sin(SatelliteArgument(36.352167, 38281.0473591, t)))
+                    + (0.000040 * Math.Sin(SatelliteArgument(56.668646, 57420.9295360, t)))
+                    + (0.000001 * Math.Sin(SatelliteArgument(67.364003, 76560.2552215, t)))
+                    + (0.000001 * Math.Sin(SatelliteArgument(104.792680, 95700.4387578, t)))
+                    + (0.584542 * Math.Sin(SatelliteArgument(95.391654, 0.5042615, t)));
+                return (marsRa * Constants.DEGREES2RADIANS, marsDec * Constants.DEGREES2RADIANS, Wrap(marsW));
+            }
             case CatalogIndex.Jupiter:
                 // The Galilean satellites' nutation terms, Ja to Je, a few thousandths of a degree.
                 var satA = SatelliteArgument(99.360714, 4850.4046, t);

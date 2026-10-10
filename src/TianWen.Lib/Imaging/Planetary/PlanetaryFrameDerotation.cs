@@ -9,7 +9,7 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// How a stack carries each frame to one epoch (docs/plans/planetary-restoration.md, R6 part 2): the planet whose rotation it is,
 /// and the instant.
 /// </summary>
-/// <param name="Planet">Jupiter or Saturn, the two <see cref="PhysicalEphemeris"/> turns.</param>
+/// <param name="Planet">Mars, Jupiter or Saturn, the planets <see cref="PhysicalEphemeris"/> turns.</param>
 public sealed record PlanetaryDerotationOptions(CatalogIndex Planet)
 {
     /// <summary>The instant every frame is carried to; the capture's middle (<see cref="PlanetaryFrameStreamExtensions"/>) when null.</summary>
