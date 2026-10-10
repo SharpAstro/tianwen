@@ -83,10 +83,13 @@ public static class PlanetaryDering
     /// at or above <paramref name="stacked"/> times <paramref name="glowShare"/>, the share of the stack's glow the truth keeps there
     /// (<see cref="OutsideLimb.ModelFloor"/>); or bounded at the limb and blended to the stack by 1.1 radii (<see cref="OutsideLimb.Blended"/>).
     /// With <paramref name="modelInLimbBand"/> and a <paramref name="model"/>, the planet's last band inside its outline (from
-    /// <see cref="LimbBandInner"/> of the globe's, clear of any ring) is floored at the model rather than at the sky (#1329).
+    /// <see cref="LimbBandInner"/> of the globe's, clear of any ring) is floored at the model rather than at the sky (#1329). With
+    /// <paramref name="modelUnderSky"/> and a <paramref name="model"/>, a pixel inside the outline the sharpening drives to or below the sky
+    /// takes the model instead, and nothing the sharpening leaves above the sky moves (#1471).
     /// </summary>
     public static float[] Outside(ReadOnlySpan<float> sharpened, ReadOnlySpan<float> stacked, int width, int height, MetricDisk disk, OutsideLimb outside,
-        ReadOnlySpan<float> glowShare = default, ReadOnlySpan<float> model = default, ReadOnlySpan<float> blurredModel = default, bool modelInLimbBand = false)
+        ReadOnlySpan<float> glowShare = default, ReadOnlySpan<float> model = default, ReadOnlySpan<float> blurredModel = default, bool modelInLimbBand = false,
+        bool modelUnderSky = false)
     {
         var moons = PlanetaryMetrics.CompactSources(stacked, width, height, disk, count: MaxMoons);
         // Where ModelFeathered hands the model back to the stack: by the plane's inscribed circle, at most 2.5 radii, from 0.5 radii inside it.
@@ -104,6 +107,14 @@ public static class PlanetaryDering
                 var r = disk.ClearRadiiAt(x, y);
                 if (r <= 1)
                 {
+                    // Where the sharpening falls to the sky or below it, the model through the pupil rather than the sky: at strength 2 a
+                    // sharpening's negative lobe drove Saturn's C ring, the gap inside it and the rings' edges past the sky, where the truth is a
+                    // dim glow (#1471). A pixel the sharpening leaves above the sky is as it was, so a sharpening the floor never holds is too.
+                    if (modelUnderSky && !model.IsEmpty && sharpened[i] <= 0)
+                    {
+                        result[i] = Math.Max(model[i], 0f);
+                        continue;
+                    }
                     // The globe's last band takes the model as its floor: at the sky, a sharpening's negative lobe on the outline's last pixels
                     // left them at the sky just inside the glow drawn past it, a dotted ring under a hard stretch (#1329).
                     // On Saturn the band runs on past the globe's outline as far as the rings' footprint does (a pixel there is inside the

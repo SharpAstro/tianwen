@@ -4389,6 +4389,7 @@ the stack.
 Open, found by #1329's rule 1b: at strength 2 the sharpening floors 115 to 227 pixels a channel at the sky inside the Saturn twin's rings'
 footprint (#1471). They lie on the C ring, in the gap between it and the globe, and on the B and A rings' edges. There the truth is dim but
 above the sky (0.04 to 0.21 of the disk's mean). Strength 1 floors a few too: 8 red and 10 green pixels, all in the gap inside the C ring.
+The model in their place, where the floor holds, is measured in "Where the sharpening falls below the sky (#1471)" below: an option.
 
 **Rule:** on the S3 twin, the derived sharpening's error in bands 1 to 4 inside 0.9 of the globe's radius falls to at most 0.44 of the
 stack's (the calibrated Jupiter twin's 0.647 of 1.483). Its limb profile error is at most the Jupiter twin's 0.0053. The rings' radial
@@ -4869,6 +4870,35 @@ hard stretch. Strength 1 has none.
       and that was wrong.
 - **So the sky stays the floor by default, and the model is an option.** Floored at the model at every strength, the band moves a strength-1
   sharpening it never needed to. Only the owner can say whether a strength-2 user should get it.
+
+### Where the sharpening falls below the sky (#1471)
+
+**Issue:** #1471. At strength 2 the sharpening drives Saturn's dim ring pixels past the sky, and the sky floor holds them there.
+- **Where:** the C ring, the gap between it and the globe, and the B and A rings' edges, where the truth is a glow of 0.04 to 0.21 of the
+  disk's mean.
+- **The arm:** `PlanetaryUnderSky.Model` (`--under-sky model`). Inside the planet's outline, a pixel the sharpening drives to the sky or
+  below takes the model through the pupil, the one `ModelFeathered` draws just past the outline. A pixel the sharpening leaves above the sky
+  is as it was.
+- It differs from #1329's `--limb-band model` in two ways: it reaches the rings' footprint, which that band leaves to the sky, and it moves
+  only what the floor holds.
+- **Rules,** set on the issue before the arm was built: on the Saturn twin, the Meade 16 Saturn, the uc-g4 colour twin and #1373's three
+  mono twins.
+  1. **Holds.** At strength 2 no pixel inside the outline is left at the sky, on any master:
+     - Saturn twin 241 / 233 / 128 to none;
+     - Meade 16 Saturn 78 / 35 / 0 to none;
+     - colour twin 21 / 14 / 0 to none;
+     - mono twins 34, 54 and 32 to none.
+  2. **Fails.** At strength 1 every master is the same bits but the Saturn twin, which moves 8 red and 10 green pixels.
+     - The rule took strength 1 to leave nothing at the sky, and on the Saturn twin it does: those 18 pixels, all in the gap inside the
+       C ring.
+     - They are exactly what moved, and they moved toward the truth: mean absolute error 0.047 to 0.008 in red, 0.043 to 0.004 in green.
+  3. **Holds.** On the Saturn twin at strength 2 the footprint pixels the sky floor held move nearer the truth, with the truth moved onto
+     the master's disk: mean absolute error 0.136 to 0.035, 0.135 to 0.029, 0.090 to 0.012.
+  4. **Holds.** At strength 2 nothing is worse on any twin, and the bands 1 to 4 error falls by up to 1 %:
+     - the limb profile's error within 6 px inside the limb falls by 0.2 to 2.3 %;
+     - the Saturn twin's rings' profile error falls by 14 % in red and green, 2 % in blue.
+- **So the sky stays the floor by default, and the model is an option**, by the rules as set. Rule 2 failed only where strength 1 itself
+  floored a pixel, and moved that pixel toward the truth. Whether it becomes the floor at every strength is the owner's call.
 
 ### Shrinking each band against the master's own noise (#1313)
 
