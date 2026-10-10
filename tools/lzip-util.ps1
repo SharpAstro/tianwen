@@ -10,7 +10,8 @@ Dot-source this from any script that reads or writes .lz files:
 
 Provides:
   Initialize-Lzip   [-LzipAssembly <path>]  load Lzip.Lib.dll once (explicit path ->
-                    sibling-build probe -> NuGet global-packages probe)
+                    sibling-build probe -> NuGet global-packages probe), and every assembly it
+                    references that the runtime does not carry (Import-AssemblyReferences)
   Expand-LzToFile   <in.lz> <out>           managed decompress (byte-verbatim)
   Compress-FileToLz <path> [-MemberSize n]  managed compress at level 9; writes <path>.lz and
                     deletes the input -- the same contract as the old `lzip -9 <path>` shell-out.
@@ -26,12 +27,67 @@ hand on a catalog refresh, so nothing in CI would have caught the drift.
 
 $script:LzipLoaded = $false
 
+# The newest version folder under a NuGet package's cache folder, compared as VERSIONS: as text,
+# 1.1.91 sorts above 1.1.111. A folder whose name is not a plain version (a prerelease) sorts last.
+function Get-NewestPackageVersionFolder([string] $PackageFolder) {
+    Get-ChildItem -LiteralPath $PackageFolder -Directory -ErrorAction SilentlyContinue |
+        Sort-Object @{ Expression = { $v = $null; if ([version]::TryParse($_.Name, [ref] $v)) { $v } else { [version] '0.0' } } } -Descending |
+        Select-Object -First 1
+}
+
+# Add-Type loads ONE file, and pwsh resolves an assembly reference only from what it already holds,
+# never from the NuGet cache. So every reference of $Dll the runtime cannot load itself is loaded
+# first: from beside $Dll (a build output that copied it), else from the newest version of the
+# package of that name in $NugetRoot, at the highest lib/netX.Y this runtime can run. Lzip.Lib
+# 1.1.111 (2026-10-10) took System.IO.Hashing for its trailer check, and every build that expanded
+# a catalogue failed on it with "Could not load file or assembly 'System.IO.Hashing'".
+function Import-AssemblyReferences([string] $Dll, [string] $NugetRoot) {
+    $stream = [System.IO.File]::OpenRead($Dll)
+    try {
+        $pe = [System.Reflection.PortableExecutable.PEReader]::new($stream)
+        $md = [System.Reflection.Metadata.PEReaderExtensions]::GetMetadataReader($pe)
+        $names = foreach ($handle in $md.AssemblyReferences) { $md.GetString($md.GetAssemblyReference($handle).Name) }
+    }
+    finally {
+        $stream.Dispose()
+    }
+    $runtimeMajor = [Environment]::Version.Major
+    foreach ($name in $names) {
+        if ([AppDomain]::CurrentDomain.GetAssemblies() | Where-Object { $_.GetName().Name -eq $name }) { continue }
+        try {
+            [void][System.Reflection.Assembly]::Load([System.Reflection.AssemblyName]::new($name))
+            continue # the runtime carries it
+        }
+        catch [System.IO.FileNotFoundException] {
+        }
+        $found = Join-Path (Split-Path -Parent $Dll) "$name.dll"
+        if (-not (Test-Path -LiteralPath $found)) {
+            $found = $null
+            $newest = Get-NewestPackageVersionFolder (Join-Path $NugetRoot $name.ToLowerInvariant())
+            if ($newest) {
+                $lib = Get-ChildItem -LiteralPath (Join-Path $newest.FullName 'lib') -Directory -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -match '^net(\d+)\.\d+$' -and [int] $Matches[1] -le $runtimeMajor } |
+                    Sort-Object @{ Expression = { [version] ($_.Name -replace '^net', '') } } -Descending |
+                    Select-Object -First 1
+                if ($lib -and (Test-Path -LiteralPath (Join-Path $lib.FullName "$name.dll"))) {
+                    $found = Join-Path $lib.FullName "$name.dll"
+                }
+            }
+        }
+        if (-not $found) {
+            throw "$(Split-Path -Leaf $Dll) references $name, which neither sits beside it nor is in $NugetRoot. Restore the package that brings it."
+        }
+        Add-Type -LiteralPath $found
+    }
+}
+
 function Initialize-Lzip {
     param([string] $LzipAssembly)
 
     if ($script:LzipLoaded) { return }
 
     $dll = $null
+    $nugetRoot = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $HOME '.nuget\packages' }
     if ($LzipAssembly -and (Test-Path -LiteralPath $LzipAssembly)) {
         $dll = $LzipAssembly
     }
@@ -44,11 +100,11 @@ function Initialize-Lzip {
             $candidates += Get-ChildItem -LiteralPath $siblingBin -Recurse -Filter 'Lzip.Lib.dll' -ErrorAction SilentlyContinue |
                 Sort-Object LastWriteTime -Descending
         }
-        # 2. NuGet global-packages cache (CI + package consumers): lzip.lib/<ver>/lib/netX/Lzip.Lib.dll.
-        $nugetRoot = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $HOME '.nuget\packages' }
-        $lzipPkg = Join-Path $nugetRoot 'lzip.lib'
-        if (Test-Path -LiteralPath $lzipPkg) {
-            $candidates += Get-ChildItem -LiteralPath $lzipPkg -Recurse -Filter 'Lzip.Lib.dll' -ErrorAction SilentlyContinue |
+        # 2. NuGet global-packages cache (CI + package consumers): lzip.lib/<ver>/lib/netX/Lzip.Lib.dll,
+        #    from the newest version.
+        $newest = Get-NewestPackageVersionFolder (Join-Path $nugetRoot 'lzip.lib')
+        if ($newest) {
+            $candidates += Get-ChildItem -LiteralPath $newest.FullName -Recurse -Filter 'Lzip.Lib.dll' -ErrorAction SilentlyContinue |
                 Where-Object { $_.FullName -match '[\\/]lib[\\/]net' } | Sort-Object FullName -Descending
         }
         $dll = ($candidates | Select-Object -First 1).FullName
@@ -58,6 +114,7 @@ function Initialize-Lzip {
         throw "Could not locate Lzip.Lib.dll. Pass -LzipAssembly <path>, build the Lzip.Lib sibling, or restore the Lzip.Lib package."
     }
 
+    Import-AssemblyReferences -Dll $dll -NugetRoot $nugetRoot
     Add-Type -LiteralPath $dll
     $script:LzipLoaded = $true
 }
