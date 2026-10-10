@@ -722,6 +722,16 @@ public sealed class LuckyImagingStacker
             {
                 masterMeta = masterMeta with { ObjectName = planet.ToString() };
             }
+            // And the optics AUTO identified (A4, #1391), in place of a capture program's placeholder ("Telescope").
+            if (options.Optics is { } optics)
+            {
+                masterMeta = masterMeta with
+                {
+                    Telescope = optics.Telescope,
+                    Aperture = optics.ApertureMm ?? -1,
+                    Filter = optics.Filter is { } filter ? Filter.FromName(filter) : masterMeta.Filter,
+                };
+            }
             // Each point's patch of the stacked reference, which a point keep scores every frame's against (#1350).
             var pointReferences = options.PointKeep is not null && matcher is { } pointMatcher
                 ? PlanetaryPointKeep.ReferencePatches(reference, pointMatcher.AlignmentPoints)

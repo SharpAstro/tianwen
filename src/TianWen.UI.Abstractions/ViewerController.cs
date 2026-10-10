@@ -29,7 +29,8 @@ public sealed class ViewerController(
     IPlateSolverFactory plateSolverFactory,
     ITimeProvider timeProvider,
     BackgroundTaskTracker tracker,
-    ILogger<ViewerController> logger)
+    ILogger<ViewerController> logger,
+    TianWen.Lib.Devices.IExternal? external = null)
 {
     private Task? _loadTask;
     private Task? _starDetectionTask;
@@ -122,58 +123,77 @@ public sealed class ViewerController(
     /// <summary>True while an AI enhance pass is in flight; used by the render loop's redraw gate.</summary>
     public bool IsEnhancePending => _enhanceTask is { IsCompleted: false };
 
-    // The best stack of the SER on screen (#1159): one run at a time, its result handed back through the task, its progress a percent
-    // the stack's thread writes and the render thread reads (an int, so the read is never torn).
-    private Task<BestStackOutcome>? _bestStackTask;
-    private CancellationTokenSource? _bestStackCts;
-    private int _bestStackPercent;
-
     // The stacked view's Derive: the derived sharpening's gains for the master on show, seeded into the wavelet sliders (#1159).
     private readonly WaveletDerivation _derivation = new WaveletDerivation();
 
-    // What a finished best stack says (where it was written and how it was sharpened), held until its Best view is on screen: the view's
-    // texture upload clears the status line, so set at completion it would never be read. Keyed by the capture it stacked.
-    private (string Path, string Message)? _bestStackNote;
+    // Where a finished batch stack's sharpened master was written, how it was sharpened, the capture it stacked, and what its view shows
+    // it through (#1314 part 2): the run's layer when its gains were derived, else its sharpened master as written; and, for Auto's, what
+    // the capture was identified as. The render thread takes both images, or releases them.
+    private sealed record BestStackOutcome(string SharpenedPath, string How, string CapturePath, BestStackLayer? Layer, Image? Sharpened,
+        PlanetaryIdentity? Identity);
 
-    // Where a finished best stack's sharpened master was written, how it was sharpened, the capture it stacked, and what the Best view
-    // shows it through (#1314 part 2): the run's layer when its gains were derived, else its sharpened master as written. The render
-    // thread takes both images, or releases them.
-    private sealed record BestStackOutcome(string SharpenedPath, string How, string CapturePath, BestStackLayer? Layer, Image? Sharpened);
+    // A batch view of the SER on screen, the whole capture stacked (#1314 part 2): Best's, from the panel's choices (#1159), and Auto's,
+    // identified with nothing asked (A4, #1391), each kept beside the other so switching between them stacks nothing again. One run at a
+    // time each, its result handed back through the task, its progress a percent the stack's thread writes and the render thread reads (an
+    // int, so the read is never torn); once done, the run's master behind the same sharpening layer, the capture it belongs to, and the dials
+    // it keeps while another view is on show. Render thread only but for the percent: dropped there once its capture is not the one on
+    // show, never from a load.
+    private sealed class BatchView(PlanetaryView kind)
+    {
+        public PlanetaryView Kind { get; } = kind;
+        public Task<BestStackOutcome>? Task { get; set; }
+        public CancellationTokenSource? Cts { get; set; }
 
-    // The Best view of the SER on show (#1314 part 2): the run's master behind the same sharpening layer, the capture it belongs to, and
-    // each view's dials, swapped as the Best view comes on and off show. Render thread only: dropped there once its capture is not the
-    // one on show, never from a load.
-    private LiveStackPreviewSource? _bestLayer;
-    private string? _bestCapture;
+        // A field, so the stack's thread can write it with Volatile.Write.
+        public int Percent;
+
+        // What a finished run says (where it was written and how it was sharpened), held until its view is on screen: the view's texture
+        // upload clears the status line, so set at completion it would never be read. Keyed by the capture it stacked.
+        public (string Path, string Message)? Note { get; set; }
+        public LiveStackPreviewSource? Layer { get; set; }
+        public string? Capture { get; set; }
+        public ViewDials? Dials { get; set; }
+
+        public string Name => Kind is PlanetaryView.Auto ? "Auto stack" : "Best stack";
+    }
+
+    private readonly BatchView _best = new BatchView(PlanetaryView.Best);
+    private readonly BatchView _auto = new BatchView(PlanetaryView.Auto);
+
+    // Whose dials the state holds: a batch view's while it is on show, else (null) the live view's, kept here while one is.
+    private BatchView? _dialsOnShow;
     private ViewDials? _liveDials;
-    private ViewDials? _bestDials;
-    private bool _bestWasOnShow;
 
-    // What a view's sharpening dials hold, kept while the other view is on show.
+    // What a view's sharpening dials hold, kept while another view is on show.
     private sealed record ViewDials(ImmutableArray<float> Gains, bool Derived, PlanetaryLiveLimb? Limb, DerivedGains? DerivedGains, bool Enabled, string? Note);
 
-    /// <summary>How many best stacks this controller has started; the switch between views starts none (#1314 rule 7). For tests.</summary>
+    // The batch view last chosen (ViewerState.ShowAuto), whose run's progress the transport shows and whose master a batch view shows.
+    private BatchView ChosenBatch => state.ShowAuto ? _auto : _best;
+
+    /// <summary>How many batch stacks (Best's and Auto's) this controller has started; the switch between views starts none (#1314 rule 7). For tests.</summary>
     internal int BestStacksStarted { get; private set; }
 
     /// <summary>How many derivations the sharpening layer has started (#1314 rule 7). For tests.</summary>
     internal int DerivationsStarted => _derivation.Started;
 
-    /// <summary>The live view's rolling stack and the Best view's layer, for tests (#1314 part 2).</summary>
-    internal (LiveStackPreviewSource? Live, LiveStackPreviewSource? Best) ViewLayers => (_liveSource, _bestLayer);
+    /// <summary>The live view's rolling stack and the Best and Auto views' layers, for tests (#1314 part 2, A4 #1391).</summary>
+    internal (LiveStackPreviewSource? Live, LiveStackPreviewSource? Best, LiveStackPreviewSource? Auto) ViewLayers => (_liveSource, _best.Layer, _auto.Layer);
 
-    /// <summary>True while a best stack is running.</summary>
-    public bool IsBestStackPending => _bestStackTask is { IsCompleted: false };
+    /// <summary>True while a batch stack is running.</summary>
+    public bool IsBestStackPending => _best.Task is { IsCompleted: false } || _auto.Task is { IsCompleted: false };
 
     /// <summary>
-    /// Whether the best stack needs a frame: one was asked for, one finished, or its progress moved past what the panel shows. No side
-    /// effect, so the loop's redraw gate may ask it every iteration; <see cref="TickBestStack"/> acts on it between frames.
+    /// Whether a batch stack needs a frame: one was asked for, one finished, or the chosen one's progress moved past what the panel shows.
+    /// No side effect, so the loop's redraw gate may ask it every iteration; <see cref="TickBestStack"/> acts on it between frames.
     /// </summary>
     public bool BestStackWantsFrame
         => state.BestStackRequested
             || state.BestViewRequested
-            || _bestStackNote is not null
-            || _bestStackTask is { IsCompleted: true }
-            || (_bestStackTask is not null && Volatile.Read(ref _bestStackPercent) / 100.0 != state.BestStackProgress);
+            || WantsFrame(_best)
+            || WantsFrame(_auto)
+            || (ChosenBatch.Task is not null && Volatile.Read(ref ChosenBatch.Percent) / 100.0 != state.BestStackProgress);
+
+    private static bool WantsFrame(BatchView batch) => batch.Note is not null || batch.Task is { IsCompleted: true };
 
     // The raw source: the document (still) or the SerPreviewSource (SER). Always the playback driver -- the
     // SequencePlayer advances THIS even while the stacked view is shown, so the playhead keeps moving and
@@ -190,11 +210,11 @@ public sealed class ViewerController(
     /// on, #1314) AND it has a master to show (otherwise the raw frame keeps showing while the first is built). For a still image this
     /// is the same object as <see cref="Document"/>; for a SER the raw source is a sequence source and <see cref="Document"/> is null.
     /// </summary>
-    public IPreviewSource? Source => BestOnShow ? _bestLayer : state.SharpenLayerOnShow && _liveSource is { HasMaster: true } ? _liveSource : _rawSource;
+    public IPreviewSource? Source => BatchLayerOnShow is { } batch ? batch
+        : state.SharpenLayerOnShow && _liveSource is { HasMaster: true } ? _liveSource : _rawSource;
 
-    // The Best view is on show once it is chosen and its master is built (#1314 part 2); until then the view under it stays.
-    [System.Diagnostics.CodeAnalysis.MemberNotNullWhen(true, nameof(_bestLayer))]
-    private bool BestOnShow => state.ShowBest && state.IsSequence && _bestLayer is { HasMaster: true };
+    // A batch view's layer, once that view is chosen and its master is built (#1314 part 2); until then the view under it stays.
+    private LiveStackPreviewSource? BatchLayerOnShow => state.ShowBest && state.IsSequence && ChosenBatch.Layer is { HasMaster: true } layer ? layer : null;
 
     /// <summary>
     /// The document on show, which a Save writes (#1314): the sharpening layer's master while it is on show, else the still opened.
@@ -315,6 +335,11 @@ public sealed class ViewerController(
                     state.NotifySourceReplaced();
                     state.ShowStacked = false; // a fresh file starts on the raw view (its stack has no master yet)
                     state.ShowBest = false; // and its best stack, if it gets one, is its own (the render thread drops another capture's)
+                    // What the last capture was taken of and through is not this one's (A4, #1391): its planet and filter go back to the
+                    // panel's Auto, read from this capture, and the Auto view's identity is read again.
+                    (state.PlanetaryBody, state.PlanetaryFilterNm, state.AutoIdentity) = (null, null, null);
+                    // And the camera it names, which a telescope the panel is set to is remembered for.
+                    state.SequenceCamera = PlanetaryIdentification.CameraOf(requestedPath);
                     state.IsSequence = true;
                     // A capture that says which telescope took it (a TianWen recording's header, #1179) gives the Best stack its
                     // telescope; one that says none leaves the panel's own.
@@ -1368,27 +1393,25 @@ public sealed class ViewerController(
     public bool TickBestStack(CancellationToken appToken = default)
     {
         var changed = false;
-        // Said once its Best view is on screen and uploaded (#1314 part 2): the upload clears the status line.
-        if (_bestStackNote is { } note && !state.NeedsTextureUpdate && BestOnShow
-            && string.Equals(_bestCapture, note.Path, StringComparison.OrdinalIgnoreCase))
+        // Said once its view is on screen and uploaded (#1314 part 2): the upload clears the status line.
+        var chosen = ChosenBatch;
+        if (chosen.Note is { } note && !state.NeedsTextureUpdate && BatchLayerOnShow is not null
+            && string.Equals(chosen.Capture, note.Path, StringComparison.OrdinalIgnoreCase))
         {
-            _bestStackNote = null;
+            chosen.Note = null;
             state.StatusMessage = note.Message;
             changed = true;
         }
-        // Another capture's best stack is not this one's (#1314 part 2).
-        if (_bestCapture is not null && !string.Equals(_bestCapture, state.SequencePath, StringComparison.OrdinalIgnoreCase))
-        {
-            DropBestStack();
-            changed = true;
-        }
+        // Another capture's batch stacks are not this one's (#1314 part 2).
+        changed |= DropIfAnotherCapture(_best);
+        changed |= DropIfAnotherCapture(_auto);
         if (state.BestStackRequested)
         {
             state.BestStackRequested = false;
             changed = true;
-            if (_bestStackTask is { IsCompleted: false })
+            if (_best.Task is { IsCompleted: false })
             {
-                _bestStackCts?.Cancel();
+                _best.Cts?.Cancel();
             }
             else if (state.SequencePath is null)
             {
@@ -1404,42 +1427,60 @@ public sealed class ViewerController(
             state.BestViewRequested = false;
             changed = true;
             // Shown at once where the capture has one; started where it has none and none runs (#1314 rule 7: a switch stacks nothing).
-            if (_bestLayer is null && _bestStackTask is not { IsCompleted: false } && state.SequencePath is { } capture)
+            var asked = ChosenBatch;
+            if (asked.Layer is null && asked.Task is not { IsCompleted: false } && state.SequencePath is { } capture)
             {
-                StartBestStack(capture, appToken);
+                StartBatch(asked, capture, appToken);
             }
         }
 
-        if (_bestStackTask is not { } task)
+        changed |= TickBatch(_best);
+        changed |= TickBatch(_auto);
+        // The progress shown is the chosen view's run's, while it runs.
+        var shownProgress = ChosenBatch.Task is { IsCompleted: false } ? Volatile.Read(ref ChosenBatch.Percent) / 100.0 : (double?)null;
+        if (state.BestStackProgress != shownProgress)
         {
-            return changed;
+            state.BestStackProgress = shownProgress;
+            changed = true;
         }
-        if (!task.IsCompleted)
-        {
-            var progress = Volatile.Read(ref _bestStackPercent) / 100.0;
-            if (state.BestStackProgress != progress)
-            {
-                state.BestStackProgress = progress;
-                changed = true;
-            }
-            return changed;
-        }
+        return changed;
+    }
 
-        _bestStackTask = null;
-        _bestStackCts?.Dispose();
-        _bestStackCts = null;
-        state.BestStackProgress = null;
+    // A batch view's stack and layer dropped once the capture on show is another.
+    private bool DropIfAnotherCapture(BatchView batch)
+    {
+        if (batch.Capture is null || string.Equals(batch.Capture, state.SequencePath, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+        DropBatch(batch);
+        return true;
+    }
+
+    // A batch view's finished run taken in: shown behind the layer as its view (#1314 part 2), never opened as a file, the capture staying
+    // on screen; said again once the view is on screen, whose upload clears the line. True when it finished.
+    private bool TickBatch(BatchView batch)
+    {
+        if (batch.Task is not { IsCompleted: true } task)
+        {
+            return false;
+        }
+        batch.Task = null;
+        batch.Cts?.Dispose();
+        batch.Cts = null;
         if (task.IsCompletedSuccessfully)
         {
             var outcome = task.Result;
-            var message = $"Best stack: {Path.GetFileName(outcome.SharpenedPath)} ({outcome.How})";
+            var message = $"{batch.Name}: {Path.GetFileName(outcome.SharpenedPath)} ({outcome.How})";
             state.StatusMessage = message;
             if (string.Equals(state.SequencePath, outcome.CapturePath, StringComparison.OrdinalIgnoreCase))
             {
-                // Shown behind the layer as the Best view (#1314 part 2), never opened as a file: the capture stays on screen. Said
-                // again once the view is on screen, whose upload clears the line.
-                AdoptBestStack(outcome);
-                _bestStackNote = (outcome.CapturePath, message);
+                AdoptBatch(batch, outcome);
+                batch.Note = (outcome.CapturePath, message);
+                if (batch.Kind is PlanetaryView.Auto)
+                {
+                    state.AutoIdentity = outcome.Identity;
+                }
             }
             else
             {
@@ -1449,24 +1490,42 @@ public sealed class ViewerController(
         }
         else if (task.IsCanceled)
         {
-            state.StatusMessage = "Best stack cancelled";
+            state.StatusMessage = $"{batch.Name} cancelled";
         }
         else
         {
-            logger.LogWarning(task.Exception?.GetBaseException(), "Best stack failed");
-            state.StatusMessage = $"Best stack failed: {task.Exception?.GetBaseException().Message}";
+            logger.LogWarning(task.Exception?.GetBaseException(), "{Stack} failed", batch.Name);
+            state.StatusMessage = $"{batch.Name} failed: {task.Exception?.GetBaseException().Message}";
         }
         state.NeedsRedraw = true;
         return true;
     }
 
-    // The capture stacked off the render thread by the planet the panel chose or its name gives, the filter likewise for a mono
-    // capture, and the telescope the panel holds, both masters written beside it under planetary stack's names.
-    private void StartBestStack(string capture, CancellationToken appToken)
+    // The capture stacked off the render thread, both masters written beside it: Best's by the planet the panel chose or the capture says,
+    // the filter likewise for a mono capture, the telescope the panel holds and its strength, under planetary stack's names; Auto's with
+    // nothing asked, the capture identified (PlanetaryIdentification) and stacked by the routine planetary stack --auto runs (PlanetaryAuto),
+    // under its names. One writer for both, PlanetaryAuto.Write.
+    private void StartBatch(BatchView batch, string capture, CancellationToken appToken)
     {
-        _bestStackCts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
-        var token = _bestStackCts.Token;
+        batch.Cts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
+        var token = batch.Cts.Token;
         BestStacksStarted++;
+        Volatile.Write(ref batch.Percent, 0);
+        state.BestStackProgress = 0;
+        var progress = new SynchronousProgress<double>(fraction => Volatile.Write(ref batch.Percent, (int)(fraction * 100)));
+        var directory = Path.GetDirectoryName(Path.GetFullPath(capture)) ?? ".";
+        if (batch.Kind is PlanetaryView.Auto)
+        {
+            state.StatusMessage = "Auto stack running: the capture identified, then stacked at the measured defaults";
+            batch.Task = Task.Run(async () =>
+            {
+                var identity = await PlanetaryIdentification.IdentifyAsync(capture, external: external, cancellationToken: token);
+                using var stream = SerFrameStream.Open(capture);
+                var result = await PlanetaryAuto.RunAsync(stream, identity, progress, token);
+                return Written(result, PlanetaryAuto.OutputPaths(directory, Path.GetFileNameWithoutExtension(capture)), capture, identity);
+            }, token);
+            return;
+        }
         var options = new PlanetaryBestStackOptions(state.PlanetaryBody ?? PlanetaryCaptureName.Planet(capture),
             PlanetaryBestStack.PupilFor(state.PlanetaryApertureMm, state.PlanetaryDesign))
         {
@@ -1475,8 +1534,6 @@ public sealed class ViewerController(
             FitStops = PlanetarySharpening.StrengthStops,
         };
         var filterNm = state.PlanetaryFilterNm ?? PlanetaryCaptureName.WavelengthNm(capture);
-        Volatile.Write(ref _bestStackPercent, 0);
-        state.BestStackProgress = 0;
         state.StatusMessage = "Best stack running";
         if (options.Planet is null)
         {
@@ -1486,38 +1543,40 @@ public sealed class ViewerController(
         {
             state.StatusMessage = "Best stack running; with no aperture given, the sharpening is the preset's";
         }
-        var progress = new SynchronousProgress<double>(fraction => Volatile.Write(ref _bestStackPercent, (int)(fraction * 100)));
-        _bestStackTask = Task.Run(async () =>
+        batch.Task = Task.Run(async () =>
         {
             using var stream = SerFrameStream.Open(capture);
             // A filter is one wavelength for every channel, so only a mono capture takes it; a colour one is sharpened per channel.
             var runOptions = filterNm is { } nm && stream.Layout == PlanetaryFrameLayout.Mono ? options with { WavelengthsNm = [nm] } : options;
             var result = await PlanetaryBestStack.RunAsync(stream, runOptions, progress, token);
-            // The layer's master and, where there is no layer, the sharpened master are handed on to the render thread with the outcome.
-            var handedOn = false;
-            try
-            {
-                var (masterPath, sharpenedPath) = PlanetaryBestStack.OutputPaths(Path.GetDirectoryName(Path.GetFullPath(capture)) ?? ".",
-                    Path.GetFileNameWithoutExtension(capture));
-                result.Stack.Master.WriteToFitsFile(masterPath, null, result.Balance?.HeaderCards());
-                result.Sharpened.WriteToFitsFile(sharpenedPath, null, result.Balance?.HeaderCards());
-                handedOn = true;
-                return new BestStackOutcome(sharpenedPath, result.Balance is null ? result.HowSharpened : $"{result.HowSharpened}; {result.HowBalanced}", capture,
-                    result.Layer, result.Layer is null ? result.Sharpened : null);
-            }
-            finally
-            {
-                result.Stack.Master.Release();
-                if (!handedOn || result.Layer is not null)
-                {
-                    result.Sharpened.Release();
-                }
-                if (!handedOn)
-                {
-                    result.Layer?.Master.Release();
-                }
-            }
+            return Written(result, PlanetaryBestStack.OutputPaths(directory, Path.GetFileNameWithoutExtension(capture)), capture, identity: null);
         }, token);
+    }
+
+    // A finished run's masters written, and handed on to the render thread with the outcome: the layer's master and, where there is no
+    // layer, the sharpened master. Released here if the write throws.
+    private static BestStackOutcome Written(PlanetaryBestStackResult result, (string Master, string Sharpened) paths, string capture, PlanetaryIdentity? identity)
+    {
+        var handedOn = false;
+        try
+        {
+            PlanetaryAuto.Write(result, paths);
+            handedOn = true;
+            return new BestStackOutcome(paths.Sharpened, result.Balance is null ? result.HowSharpened : $"{result.HowSharpened}; {result.HowBalanced}", capture,
+                result.Layer, result.Layer is null ? result.Sharpened : null, identity);
+        }
+        finally
+        {
+            result.Stack.Master.Release();
+            if (!handedOn || result.Layer is not null)
+            {
+                result.Sharpened.Release();
+            }
+            if (!handedOn)
+            {
+                result.Layer?.Master.Release();
+            }
+        }
     }
 
     public void TryApplyPendingEnhance(CancellationToken appToken = default)
@@ -1686,26 +1745,28 @@ public sealed class ViewerController(
 
         var rawPublished = _player.Tick(seq, state, _playbackClock.Elapsed.TotalSeconds);
 
-        // The Best view's layer builds and re-sharpens its one master (#1314 part 2); once it is on show the dials are its own, swapped
-        // with the live view's as it comes and goes, and the live stack stops following.
+        // The chosen batch view's layer builds and re-sharpens its one master (#1314 part 2); once it is on show the dials are its own,
+        // swapped with the other views' as it comes and goes, and the live stack stops following.
         var masterPublished = false;
-        if (_bestLayer is { } best && state.ShowBest)
+        var batch = state.ShowBest ? ChosenBatch : null;
+        if (batch?.Layer is { } chosenLayer)
         {
-            masterPublished = best.TryPublishMaster();
-            best.RequestFollow(0);
+            masterPublished = chosenLayer.TryPublishMaster();
+            chosenLayer.RequestFollow(0);
         }
-        var bestOnShow = BestOnShow;
-        if (bestOnShow != _bestWasOnShow)
+        var batchLayer = BatchLayerOnShow;
+        var dialsOwner = batchLayer is null ? null : ChosenBatch;
+        if (dialsOwner != _dialsOnShow)
         {
-            SwapDials(bestOnShow);
-            _bestWasOnShow = bestOnShow;
+            SwapDials(dialsOwner);
             state.NeedsTextureUpdate = true;
         }
+        var bestOnShow = batchLayer is not null;
 
         // Live rolling-window stack: consume any finished master first (so the just-completed result is
         // published before we kick the next one), then follow the current playhead. Only runs while the
         // stacked view is requested -- no CPU spent stacking when showing the raw frame.
-        LiveStackPreviewSource? sharpening = bestOnShow ? _bestLayer : state.ShowStacked ? _liveSource : null;
+        LiveStackPreviewSource? sharpening = batchLayer ?? (state.ShowStacked ? _liveSource : null);
         if (sharpening is not null)
         {
             // Push changed wavelet-sharpen params (null = off); the source re-sharpens the cached master
@@ -1743,28 +1804,29 @@ public sealed class ViewerController(
         // next mouse event (the "doesn't live adjust while paused" symptom). IsBusy self-clears on publish,
         // so this briefly spins for the ~task duration, then the loop idles again.
         return rawPublished || masterPublished || _player.SeekPending
-            || (state.ShowStacked && _liveSource is { IsBusy: true }) || (state.ShowBest && _bestLayer is { IsBusy: true });
+            || (state.ShowStacked && _liveSource is { IsBusy: true }) || batch?.Layer is { IsBusy: true };
     }
 
-    // The dials follow the view on show (#1314 part 2): the one leaving keeps what it had, the one coming takes what it kept, the Best
-    // view first the run's own derivation, and a derivation's dials take the stop the panel is on.
-    private void SwapDials(bool toBest)
+    // The dials follow the view on show (#1314 part 2): the one leaving keeps what it had, the one coming (a batch view, or null for the
+    // live view) takes what it kept, a batch view first its run's own derivation, and a derivation's dials take the stop the panel is on.
+    private void SwapDials(BatchView? coming)
     {
         var leaving = new ViewDials(state.WaveletGains, state.WaveletDerived, state.WaveletLimb, state.DerivedWaveletGains,
             state.WaveletSharpenEnabled, state.WaveletDeriveNote);
-        if (toBest)
+        if (_dialsOnShow is { } leavingBatch)
         {
-            _liveDials = leaving;
+            leavingBatch.Dials = leaving;
         }
         else
         {
-            _bestDials = leaving;
+            _liveDials = leaving;
         }
-        if ((toBest ? _bestDials : _liveDials) is { } coming)
+        _dialsOnShow = coming;
+        if ((coming is null ? _liveDials : coming.Dials) is { } dials)
         {
             (state.WaveletGains, state.WaveletDerived, state.WaveletLimb, state.DerivedWaveletGains, state.WaveletSharpenEnabled, state.WaveletDeriveNote) =
-                (coming.Gains, coming.Derived, coming.Limb, coming.DerivedGains, coming.Enabled, coming.Note);
-            if (coming.Derived)
+                (dials.Gains, dials.Derived, dials.Limb, dials.DerivedGains, dials.Enabled, dials.Note);
+            if (dials.Derived)
             {
                 state.ChooseStrength(state.PlanetaryStrength);
             }
@@ -1772,43 +1834,42 @@ public sealed class ViewerController(
         state.WaveletDirty = true;
     }
 
-    // A best stack's master shown behind the layer, and the dials it opens with: the run's own derivation where its gains were derived
-    // (no Derive needed), else its sharpened master as written with the sharpening off (#1314 part 2).
-    private void AdoptBestStack(BestStackOutcome outcome)
+    // A batch stack's master shown behind its view's layer, and the dials it opens with: the run's own derivation where its gains were
+    // derived (no Derive needed), else its sharpened master as written with the sharpening off (#1314 part 2).
+    private void AdoptBatch(BatchView batch, BestStackOutcome outcome)
     {
-        DropBestStack();
+        DropBatch(batch);
         var (master, derived) = outcome.Layer is { } layer ? (layer.Master, layer.Derived) : (outcome.Sharpened, null);
         if (master is null)
         {
             return;
         }
-        // A best stack names its planet (OBJECT), so it is shown in the planetary stretch, as opening it as a file did (StretchMode.ForFrame).
+        // A batch stack names its planet (OBJECT), so it is shown in the planetary stretch, as opening it as a file did (StretchMode.ForFrame).
         if (StretchMode.ForFrame(master.ImageMeta, StretchMode.None) is StretchMode.Planetary)
         {
             state.StretchMode = StretchMode.Planetary;
         }
-        _bestLayer = new LiveStackPreviewSource(new FixedMaster(master), outcome.CapturePath, timeProvider, logger);
-        _bestCapture = outcome.CapturePath;
-        _bestDials = derived is { } d
+        batch.Layer = new LiveStackPreviewSource(new FixedMaster(master), outcome.CapturePath, timeProvider, logger);
+        batch.Capture = outcome.CapturePath;
+        batch.Dials = derived is { } d
             ? new ViewDials(d.Gains, true, d.Limb, d, true, $"Gains {d.How}")
             : new ViewDials(state.WaveletGains, false, null, null, false, null);
     }
 
-    // The Best view's layer goes, disposed once nothing renders it, and with it its dials (another capture, or a new run).
-    private void DropBestStack()
+    // A batch view's layer goes, disposed once nothing renders it, and with it its dials (another capture, or a new run).
+    private void DropBatch(BatchView batch)
     {
-        if (_bestLayer is { } layer)
+        if (batch.Layer is { } layer)
         {
-            _bestLayer = null;
+            batch.Layer = null;
             StashForDispose(layer);
         }
-        if (_bestWasOnShow)
+        if (_dialsOnShow == batch)
         {
             // Its dials leave with it: the live view's come back.
-            SwapDials(toBest: false);
-            _bestWasOnShow = false;
+            SwapDials(null);
         }
-        (_bestCapture, _bestDials) = (null, null);
+        (batch.Capture, batch.Dials) = (null, null);
     }
 
     // An enhance result or its revert is shown as it is: a planetary master's sharpening layer goes, disposed once nothing renders it
@@ -1915,10 +1976,15 @@ public sealed class ViewerController(
         {
             try { await _enhanceTask; } catch (OperationCanceledException) { logger.LogDebug("Enhance task cancelled during shutdown"); }
         }
-        if (_bestStackTask is not null)
+        // Both batch stacks told to stop before either is waited on.
+        _best.Cts?.Cancel();
+        _auto.Cts?.Cancel();
+        foreach (var batch in (BatchView[])[_best, _auto])
         {
-            _bestStackCts?.Cancel();
-            try { await _bestStackTask; } catch (OperationCanceledException) { logger.LogDebug("Best stack cancelled during shutdown"); }
+            if (batch.Task is { } running)
+            {
+                try { await running; } catch (OperationCanceledException) { logger.LogDebug("{Stack} cancelled during shutdown", batch.Name); }
+            }
         }
         _derivation.Dispose();
 
@@ -1941,9 +2007,12 @@ public sealed class ViewerController(
         {
             await live.DisposeAsync();
         }
-        if (_bestLayer is { } best)
+        foreach (var batch in (BatchView[])[_best, _auto])
         {
-            await best.DisposeAsync();
+            if (batch.Layer is { } layer)
+            {
+                await layer.DisposeAsync();
+            }
         }
     }
 }

@@ -20,9 +20,10 @@ namespace TianWen.Cli;
 /// <c>tianwen planetary sharpen &lt;master.fits&gt;</c>: a planetary master sharpened again without stacking it again, as
 /// <c>planetary stack</c> sharpens it (<see cref="PlanetarySharpening"/>: gains derived through the limb's edge given the telescope, the
 /// limb kept from ringing). With <c>--fix all</c> and a synthetic capture's <c>--truth</c> it is also how the enhanced pipeline's
-/// sharpening was chosen (docs/plans/planetary-restoration.md).
+/// sharpening was chosen (docs/plans/planetary-restoration.md). <c>--auto</c> (AUTO, #817, A4 #1391) reads the planet, the filter and
+/// the telescope off the master itself (<see cref="PlanetaryIdentification.IdentifyMasterAsync"/>), as <c>planetary stack --auto</c> wrote them.
 /// </summary>
-internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, MasterPreviewRenderer previewRenderer)
+internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, MasterPreviewRenderer previewRenderer, TianWen.Lib.Devices.IExternal external)
 {
     public Command Build()
     {
@@ -58,12 +59,24 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
             AllowMultipleArgumentsPerToken = true,
         };
         var pupil = PlanetaryMasterScore.PupilOptions();
+        var autoOpt = new Option<bool>("--auto")
+        {
+            Description = "AUTO (#817): the planet, the filter and the telescope read off the master itself (OBJECT, FILTER, TELESCOP and APTDIA, which planetary stack --auto writes), then its file and folder names, the telescope else the one last given for its camera; sharpened as the pipeline sharpens, nothing asked. --planet, one --wavelength, --aperture-mm with --design, or --telescope give what it would read; every other setting is refused.",
+        };
+        var designOpt = PlanetaryMasterScore.DesignOption();
 
         var command = new Command("sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
         {
             Arguments = { masterArg },
-            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, gainsOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, halvesOpt },
+            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, gainsOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, halvesOpt, autoOpt, designOpt },
         };
+
+        // What --auto refuses: every setting the pipeline's sharpening otherwise takes (A2, #1389, found none worth tuning per capture).
+        Option[] autoRefuses =
+        [
+            fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, finishOpt, kolivasAmountOpt, targetOpt, gainsOpt,
+            shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, halvesOpt, pupil.Obstruction,
+        ];
 
         command.SetAction(async (parseResult, ct) =>
         {
@@ -124,8 +137,29 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     }
                     halves = new PlanetaryStackHalves(halfA, halfB);
                 }
+                // AUTO reads what the master is off the master itself; otherwise the options and the file's name say.
+                PlanetaryIdentity? identity = null;
+                if (parseResult.GetValue(autoOpt))
+                {
+                    if (autoRefuses.FirstOrDefault(option => parseResult.GetResult(option) is { Implicit: false }) is { } refused)
+                    {
+                        consoleHost.WriteError($"--auto sharpens as the pipeline does: {refused.Name} is a setting it does not take.");
+                        return 1;
+                    }
+                    if (PlanetaryMasterScore.AutoGiven(consoleHost, parseResult, planetOpt, wavelengthOpt, pupil, designOpt) is not { } given)
+                    {
+                        return 1;
+                    }
+                    identity = await PlanetaryIdentification.IdentifyMasterAsync(master, path, given, external, ct);
+                    consoleHost.WriteScrollable($"[planetary] AUTO: {identity.Describe()}");
+                }
+                else if (parseResult.GetValue(designOpt) is not null)
+                {
+                    consoleHost.WriteError("--design gives --auto the telescope's design; without --auto, give --obstruction.");
+                    return 1;
+                }
                 var planetName = parseResult.GetValue(planetOpt)?.ToLowerInvariant();
-                var planet = PlanetaryGeometrySubCommands.ParsePlanet(planetName, path);
+                var planet = identity is not null ? identity.Planet : PlanetaryGeometrySubCommands.ParsePlanet(planetName, path);
                 if (planet is not { } body)
                 {
                     consoleHost.WriteError($"{path}: name the planet (--planet jupiter or saturn)");
@@ -140,7 +174,11 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     consoleHost.WriteError($"{path}: no time in its header; give --utc");
                     return 1;
                 }
-                if (PlanetaryMasterScore.Wavelengths(consoleHost, parseResult.GetValue(wavelengthOpt)) is not { } wavelengths)
+                // AUTO's wavelengths are the pipeline's: a mono master's filter, else 550 mono and 610, 530, 460 in colour (PlanetaryBestStack).
+                double[]? wavelengths = identity is null
+                    ? PlanetaryMasterScore.Wavelengths(consoleHost, parseResult.GetValue(wavelengthOpt))
+                    : !identity.WavelengthsNm.IsEmpty ? [.. identity.WavelengthsNm] : master.ChannelCount == 3 ? [610, 530, 460] : [550];
+                if (wavelengths is null)
                 {
                     return 1;
                 }
@@ -169,7 +207,10 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     consoleHost.WriteError($"--fix {fixName}: floored, bounded, limb, feathered, plain or all");
                     return 1;
                 }
-                var options = new PlanetarySharpenOptions(body, instant, PlanetaryMasterScore.PupilFrom(parseResult, pupil)) { WavelengthsNm = [.. wavelengths] };
+                var options = new PlanetarySharpenOptions(body, instant, identity is not null ? identity.Telescope : PlanetaryMasterScore.PupilFrom(parseResult, pupil))
+                {
+                    WavelengthsNm = [.. wavelengths],
+                };
                 consoleHost.WriteScrollable(string.Create(inv,
                     $"{Path.GetFileName(path)}: {master.ChannelCount}ch {master.Width}x{master.Height}, {body} at {instant:yyyy-MM-dd HH:mm:ss} UTC, {(options.Pupil is { } p ? $"a {p.DiameterM * 1000:0} mm pupil {p.ObstructionRatio:P0} obstructed" : "no telescope (the preset, the limb kept as stacked)")}"));
                 var targetName = (parseResult.GetValue(targetOpt) ?? "telescope").ToLowerInvariant();

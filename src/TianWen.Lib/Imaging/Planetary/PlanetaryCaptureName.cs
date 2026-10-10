@@ -50,7 +50,30 @@ public static partial class PlanetaryCaptureName
     public static double? WavelengthNm(string path)
     {
         ArgumentNullException.ThrowIfNull(path);
-        return FirstWord(Path.GetFileNameWithoutExtension(path), FilterWord);
+        return FilterNm(Path.GetFileNameWithoutExtension(path));
+    }
+
+    /// <summary>
+    /// The effective wavelength, nm, of the filter a free text names by the same words as <see cref="WavelengthNm"/>: a capture program's
+    /// filter setting (FireCapture's <c>Filter=R</c>, SharpCap's filter wheel's <c>Red</c>), a FITS <c>FILTER</c> card, a filter's own name
+    /// (<c>Baader R</c>). An IR-cut filter (<c>UV/IR cut</c>) passes the visible, so it reads as a luminance, 550; a word for an IR-pass reads
+    /// 750. Null when the text names no filter.
+    /// </summary>
+    public static double? FilterNm(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+        var letters = new StringBuilder(text.Length);
+        foreach (var c in text)
+        {
+            if (char.IsAsciiLetter(c))
+            {
+                letters.Append(char.ToLowerInvariant(c));
+            }
+        }
+        return letters.ToString().Contains("ircut", StringComparison.Ordinal) ? 550 : FirstWord(text, FilterWord);
     }
 
     /// <summary>
@@ -92,13 +115,21 @@ public static partial class PlanetaryCaptureName
     /// across, so the tolerance is the mount's pointing and the Moon's size and parallax.
     /// </summary>
     public static CatalogIndex? PointedAt(double raHours, double decDeg, DateTimeOffset utc, double latitude, double longitude, double toleranceDeg = 1.5)
+        => BodiesPointedAt(raHours, decDeg, utc, latitude, longitude, toleranceDeg) is [var nearest, ..] ? nearest : null;
+
+    /// <summary>
+    /// Every body within <paramref name="toleranceDeg"/> of a mount's pointing, nearest first, by the comparison <see cref="PointedAt"/> makes
+    /// (which takes the first). More than one is a pointing that cannot say which (A4, #1391): on 2024-09-17 the Moon passed over Saturn,
+    /// and a capture of the Moon filed under <c>Moon</c> was pointed nearer Saturn.
+    /// </summary>
+    public static System.Collections.Generic.IReadOnlyList<CatalogIndex> BodiesPointedAt(double raHours, double decDeg, DateTimeOffset utc, double latitude,
+        double longitude, double toleranceDeg = 1.5)
     {
         if (!double.IsFinite(raHours) || !double.IsFinite(decDeg))
         {
-            return null;
+            return [];
         }
-        CatalogIndex? nearest = null;
-        var best = toleranceDeg;
+        var near = new System.Collections.Generic.List<(CatalogIndex Body, double Separation)>();
         foreach (var body in Bodies)
         {
             var separation = double.PositiveInfinity;
@@ -110,12 +141,13 @@ public static partial class PlanetaryCaptureName
             {
                 separation = Math.Min(separation, Separation(raHours, decDeg, raJ2000, decJ2000));
             }
-            if (separation <= best)
+            if (separation <= toleranceDeg)
             {
-                (nearest, best) = (body, separation);
+                near.Add((body, separation));
             }
         }
-        return nearest;
+        near.Sort((a, b) => a.Separation.CompareTo(b.Separation));
+        return [.. near.ConvertAll(n => n.Body)];
     }
 
     // The angle between two pointings, degrees.
@@ -130,7 +162,8 @@ public static partial class PlanetaryCaptureName
     /// The file name a TianWen recording takes (#1179): the planet and the filter first, as SharpCap and FireCapture name theirs and
     /// <see cref="Planet"/> and <see cref="WavelengthNm"/> read back, then the start in UTC and the OTA, as in
     /// <c>Jupiter_Red_2026-10-02T12_11_08_OTA1.ser</c>. A planet or a filter not known is left out; a filter's name keeps its letters
-    /// and digits only.
+    /// and digits, its words joined by a hyphen, so <c>Baader R</c> is written <c>Baader-R</c> and reads back as red (run together, as
+    /// <c>BaaderR</c>, it named no filter the reader knows).
     /// </summary>
     public static string RecordingFileName(CatalogIndex? planet, string? filterName, DateTimeOffset utc, int otaIndex)
     {
@@ -140,12 +173,20 @@ public static partial class PlanetaryCaptureName
             name.Append(body).Append('_');
         }
         var before = name.Length;
+        var gap = false;
         foreach (var c in filterName ?? "")
         {
-            if (char.IsAsciiLetterOrDigit(c))
+            if (!char.IsAsciiLetterOrDigit(c))
             {
-                name.Append(c);
+                gap = name.Length > before;
+                continue;
             }
+            if (gap)
+            {
+                name.Append('-');
+                gap = false;
+            }
+            name.Append(c);
         }
         if (name.Length > before)
         {
@@ -183,9 +224,13 @@ public static partial class PlanetaryCaptureName
     }
 
     /// <summary>
-    /// The aperture and the design a SER header's Telescope field names (#1179): a number before "mm" and a design's own word, as
-    /// <see cref="TelescopeField"/> writes them and as a person types them. A null aperture and <see cref="OpticalDesign.Unknown"/>
-    /// where it names neither.
+    /// The aperture and the design a text names (#1179, A4 #1391): a SER header's Telescope field as <see cref="TelescopeField"/> writes
+    /// it, a capture program's own (FireCapture's <c>Scope=30cm SCT</c>), or a capture's file or folder name as a person writes one. The
+    /// aperture is read, the first that answers: a number before "mm", before "cm", or before "inch" or a double quote; Celestron's names
+    /// (<c>EdgeHD 11</c>, <c>edgehd11</c>, the <c>1100 EdgeHD</c>, <c>C9.25</c>, <c>C11</c>); Sky-Watcher's (<c>Skymax 102</c>,
+    /// <c>250PDS</c>, <c>200P</c>); a number beside a design's word, inches up to 24 and millimetres from 50 (<c>Meade 16 SCT</c>,
+    /// <c>12-SCT</c>, <c>102 Mak</c>). The design from its own word, else the one the product's name implies. A null aperture and
+    /// <see cref="OpticalDesign.Unknown"/> where it names neither.
     /// </summary>
     public static (int? ApertureMm, OpticalDesign Design) Telescope(string? field)
     {
@@ -193,27 +238,85 @@ public static partial class PlanetaryCaptureName
         {
             return (null, OpticalDesign.Unknown);
         }
-        int? aperture = null;
-        var mm = field.IndexOf("mm", StringComparison.OrdinalIgnoreCase);
-        if (mm > 0)
+        var (aperture, implied) = ApertureOf(field);
+        return (aperture, FirstWord(field, DesignWord) ?? implied);
+    }
+
+    /// <summary>
+    /// The telescope <paramref name="path"/> names by the words of <see cref="Telescope"/>: its file name first, then each folder outward,
+    /// the nearest that gives an aperture (a capture filed under <c>Jupiter-12-inch SCT-ASI224MC</c> is a 305 mm SCT's). A null aperture and
+    /// <see cref="OpticalDesign.Unknown"/> where nothing on the path gives one.
+    /// </summary>
+    public static (int? ApertureMm, OpticalDesign Design) TelescopeOfPath(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        var parts = Path.GetFullPath(path).Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
+        for (var i = parts.Length - 1; i >= 0; i--)
         {
-            var end = mm;
-            while (end > 0 && field[end - 1] == ' ')
+            if (Telescope(i == parts.Length - 1 ? Path.GetFileNameWithoutExtension(parts[i]) : parts[i]) is { ApertureMm: not null } named)
             {
-                end--;
-            }
-            var start = end;
-            while (start > 0 && char.IsAsciiDigit(field[start - 1]))
-            {
-                start--;
-            }
-            if (end > start && int.TryParse(field.AsSpan(start, end - start), NumberStyles.None, CultureInfo.InvariantCulture, out var value) && value > 0)
-            {
-                aperture = value;
+                return named;
             }
         }
-        return (aperture, FirstWord(field, DesignWord) ?? OpticalDesign.Unknown);
+        return (null, OpticalDesign.Unknown);
     }
+
+    // The aperture a text gives, mm, and the design its product's name implies, by the first of TelescopeWords that answers.
+    private static (int? ApertureMm, OpticalDesign Implied) ApertureOf(string text)
+    {
+        var inv = CultureInfo.InvariantCulture;
+        foreach (var (pattern, unit, implied) in TelescopeWords)
+        {
+            if (pattern.Match(text) is not { Success: true } match
+                || !double.TryParse(match.Groups["n"].Value, NumberStyles.AllowDecimalPoint, inv, out var number) || number <= 0)
+            {
+                continue;
+            }
+            var mm = unit switch
+            {
+                ApertureUnit.Millimetres => number,
+                ApertureUnit.Centimetres => number * 10,
+                ApertureUnit.Inches => number * 25.4,
+                // Celestron numbers its EdgeHDs by a hundred times the inches: the 1100 EdgeHD is 11 inches.
+                ApertureUnit.HundredthsOfAnInch => number / 100 * 25.4,
+                // Beside a design's word, a small number is inches (Meade's 16 SCT) and a large one millimetres (a 102 Mak).
+                _ => number <= 24 ? number * 25.4 : number >= 50 ? number : double.NaN,
+            };
+            // A Celestron C925 is the C9.25.
+            if (unit == ApertureUnit.Inches && implied == OpticalDesign.SCT && number > 100)
+            {
+                mm = number / 100 * 25.4;
+            }
+            if (mm is >= 40 and <= 1100)
+            {
+                return ((int)Math.Round(mm, MidpointRounding.AwayFromZero), implied);
+            }
+        }
+        return (null, OpticalDesign.Unknown);
+    }
+
+    private enum ApertureUnit { Millimetres, Centimetres, Inches, HundredthsOfAnInch, BesideADesign }
+
+    // The ways a text gives an aperture, in the order they are asked: a unit first, then a product's name, then a number beside a design.
+    private static readonly (System.Text.RegularExpressions.Regex Pattern, ApertureUnit Unit, OpticalDesign Implied)[] TelescopeWords =
+    [
+        (Words(@"(?<![\d.])(?<n>\d{2,4})\s*mm(?![a-z])"), ApertureUnit.Millimetres, OpticalDesign.Unknown),
+        (Words(@"(?<![\d.])(?<n>\d{1,3}(?:\.\d)?)\s*cm(?![a-z])"), ApertureUnit.Centimetres, OpticalDesign.Unknown),
+        (Words(@"(?<![\d.])(?<n>\d{1,2}(?:\.\d{1,2})?)\s*-?\s*(?:inch(?:es)?(?![a-z])|in(?![a-z])|"")"), ApertureUnit.Inches, OpticalDesign.Unknown),
+        (Words(@"edge\s*-?\s*hd\s*-?\s*(?<n>\d{1,2}(?:\.\d{1,2})?)(?![\d.])"), ApertureUnit.Inches, OpticalDesign.SCT),
+        (Words(@"(?<![\d.])(?<n>\d{3,4})\s*-?\s*edge\s*-?\s*hd"), ApertureUnit.HundredthsOfAnInch, OpticalDesign.SCT),
+        (Words(@"(?<![a-z\d])c\s?(?<n>5|6|8|9\.25|925|11|14)(?![\d.a-z])"), ApertureUnit.Inches, OpticalDesign.SCT),
+        (Words(@"(?:skymax|maksutov|mak)\s*-?\s*(?<n>\d{2,3})(?![\d.])"), ApertureUnit.Millimetres, OpticalDesign.Cassegrain),
+        (Words(@"(?<![\d.])(?<n>\d{3})\s*-?\s*p(?:ds)?(?![a-z\d])"), ApertureUnit.Millimetres, OpticalDesign.Newtonian),
+        // Never a focal ratio's number (f/4.7, f14) nor one inside a word: only a number standing on its own beside the design.
+        (Words(@"(?<![\d./a-z])(?<n>\d{1,3}(?:\.\d{1,2})?)\s*[-_ ]?\s*(?:sct|maksutov|mak|cassegrain|newtonian|newton|dobsonian|dob|refractor|apo|rasa)(?![a-z])"),
+            ApertureUnit.BesideADesign, OpticalDesign.Unknown),
+        (Words(@"(?<![a-z])(?:sct|maksutov|mak|cassegrain|newtonian|newton|dobsonian|dob|refractor|apo|rasa)\s*[-_ ]?\s*(?<n>\d{1,3}(?:\.\d{1,2})?)(?![\d.a-z])"),
+            ApertureUnit.BesideADesign, OpticalDesign.Unknown),
+    ];
+
+    private static System.Text.RegularExpressions.Regex Words(string pattern)
+        => new(pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     // A field's text kept to the printable ASCII a SER header holds, and to its length.
     private static string Ascii(string text)
@@ -237,11 +340,11 @@ public static partial class PlanetaryCaptureName
     {
         return word.ToLowerInvariant() switch
         {
-            "refractor" => OpticalDesign.Refractor,
-            "newtonian" => OpticalDesign.Newtonian,
+            "refractor" or "apo" => OpticalDesign.Refractor,
+            "newtonian" or "newton" or "dob" or "dobsonian" => OpticalDesign.Newtonian,
             "newtoniancassegrain" => OpticalDesign.NewtonianCassegrain,
-            "sct" => OpticalDesign.SCT,
-            "cassegrain" => OpticalDesign.Cassegrain,
+            "sct" or "edgehd" => OpticalDesign.SCT,
+            "cassegrain" or "mak" or "maksutov" or "skymax" => OpticalDesign.Cassegrain,
             "rasa" => OpticalDesign.RASA,
             "astrograph" => OpticalDesign.Astrograph,
             _ => null,

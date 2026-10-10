@@ -52,6 +52,33 @@ namespace TianWen.UI.Abstractions
 
             // A capture's name, or a planetary master's file's (#1314), whose OBJECT names the planet first.
             var capture = state.SequencePath ?? state.MasterPath;
+
+            // The Auto view (A4, #1391) takes nothing from the panel: it shows what the capture was read as, and where, and the strength
+            // its stops switch between. The planet, filter and telescope rows below are Best's.
+            if (state.PlanetaryView is PlanetaryView.Auto)
+            {
+                var auto = new System.Collections.Generic.List<Layout.Node> { Caption("Auto: the capture read, nothing asked") };
+                if (state.AutoIdentity is { } identity)
+                {
+                    auto.Add(Wrapped(identity.Planet is { } named ? $"Planet: {named}, from {identity.PlanetFrom}" : $"Planet: none, {identity.PlanetFrom}"));
+                    if (identity.Layout is PlanetaryFrameLayout.Mono)
+                    {
+                        auto.Add(Wrapped(identity.FilterNm is { } nm
+                            ? string.Create(inv, $"Filter: {identity.Filter ?? "one"} at {nm:0} nm, from {identity.FilterFrom}")
+                            : $"Filter: broadband, 550 nm ({identity.FilterFrom})"));
+                    }
+                    auto.Add(Wrapped(identity.TelescopeName is { } telescope
+                        ? $"Telescope: {telescope}, from {identity.TelescopeFrom}"
+                        : $"Telescope: none ({identity.TelescopeFrom}), so the preset's sharpening; set it once in the Best view's panel and Auto remembers it for this camera"));
+                }
+                else
+                {
+                    auto.Add(Caption(state.BestStackProgress is null ? "Planet, filter and telescope: read as the stack starts" : "Planet, filter and telescope: being read"));
+                }
+                AddStrength(auto);
+                return Layout.Builder.VStack([.. auto]).WithGap(WaveletGap);
+            }
+
             ReadOnlySpan<Layout.ButtonGroupOption<CatalogIndex?>> planets =
             [
                 new(null, "Auto") { Hit = new HitResult.ButtonHit("PlanetAuto") },
@@ -120,19 +147,36 @@ namespace TianWen.UI.Abstractions
                     style, BaseFontSize)
                 .RowH(BaseFontSize + WaveletGap));
 
+            AddStrength(rows);
+            return Layout.Builder.VStack([.. rows]).WithGap(WaveletGap);
+
             // How far past the truth the sharpening goes (#1251): the truth by default, a post's look as an option. Once derived, a stop
             // switches the dials to its own gains at once (#1314); before, it is what the next Derive and Best stack take.
-            rows.Add(Caption(state.PlanetaryStrength == 1
-                ? "Sharpening: to the truth"
-                : string.Create(inv, $"Sharpening: {state.PlanetaryStrength:0.#} times the truth in the mid scales")));
-            rows.Add(Layout.Builder.ButtonGroup(StrengthOptions, state.PlanetaryStrength, state.ChooseStrength,
-                    style, BaseFontSize)
-                .RowH(BaseFontSize + WaveletGap));
-
-            return Layout.Builder.VStack([.. rows]).WithGap(WaveletGap);
+            void AddStrength(System.Collections.Generic.List<Layout.Node> into)
+            {
+                into.Add(Caption(state.PlanetaryStrength == 1
+                    ? "Sharpening: to the truth"
+                    : string.Create(inv, $"Sharpening: {state.PlanetaryStrength:0.#} times the truth in the mid scales")));
+                into.Add(Layout.Builder.ButtonGroup(StrengthOptions, state.PlanetaryStrength, state.ChooseStrength,
+                        style, BaseFontSize)
+                    .RowH(BaseFontSize + WaveletGap));
+            }
 
             Layout.Node Caption(string text)
                 => Layout.Builder.Text(text, BaseFontSize, ViewerTheme.Palette.DimText).RowH(BaseFontSize + WaveletGap);
+
+            // A sentence that wraps rather than clips: a word a node in a flow (as the profile panel's notice wraps), a third of the font
+            // between words.
+            Layout.Node Wrapped(string text)
+            {
+                var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                var nodes = new Layout.Node[words.Length];
+                for (var i = 0; i < words.Length; i++)
+                {
+                    nodes[i] = Layout.Builder.Text(words[i], BaseFontSize, ViewerTheme.Palette.BodyText).RowH(BaseFontSize + WaveletGap);
+                }
+                return Layout.Builder.WrapH(nodes).WithGap(BaseFontSize / 3).Stretch();
+            }
 
             // What the planet is, and where it comes from: the panel, the capture's name, or neither.
             string PlanetCaption()

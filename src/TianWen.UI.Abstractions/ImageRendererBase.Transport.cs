@@ -28,8 +28,8 @@ namespace TianWen.UI.Abstractions
         // disk I/O. The scrub track rect is captured for the press/drag -> frame mapping in ScrubAt.
         // -----------------------------------------------------------------------
 
-        /// <summary>The widest label a segment of the view switch takes: the best stack's at its end.</summary>
-        private const string ViewSwitchWidestLabel = "Best 100%";
+        /// <summary>The widest label a segment of the view switch takes: a batch stack's at its end, Auto's being the wider word.</summary>
+        private const string ViewSwitchWidestLabel = "Auto 100%";
 
         private void RenderTransportBar(ViewerState state)
         {
@@ -70,14 +70,20 @@ namespace TianWen.UI.Abstractions
             // one ButtonGroup where the RAW / STACK toggle was. "Live..." while the live stack's first master is still computing, and the
             // best stack's progress on its own segment while it runs (the view under it stays on show until it ends). Arranged in device
             // pixels at DesignScale.One, as the toolbar's run is, since the bar around it is.
+            // Auto (A4, #1391) is the capture identified and stacked with nothing asked, Best the panel's choices; the running one of the
+            // two last chosen shows its progress.
             var liveLabel = state.ShowStacked && !state.ShowBest && _source is not LiveStackPreviewSource ? "Live..." : "Live";
-            var bestLabel = state.BestStackProgress is { } done
+            var autoLabel = state.ShowAuto && state.BestStackProgress is { } autoDone
+                ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Auto {autoDone * 100:0}%")
+                : "Auto";
+            var bestLabel = !state.ShowAuto && state.BestStackProgress is { } done
                 ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Best {done * 100:0}%")
                 : "Best";
             ReadOnlySpan<Layout.ButtonGroupOption<PlanetaryView>> views =
             [
                 new(PlanetaryView.Frames, "Frames") { Hit = new HitResult.ButtonHit("ViewFrames") },
                 new(PlanetaryView.Live, liveLabel) { Hit = new HitResult.ButtonHit("ViewLive") },
+                new(PlanetaryView.Auto, autoLabel) { Hit = new HitResult.ButtonHit("ViewAuto") },
                 new(PlanetaryView.Best, bestLabel) { Hit = new HitResult.ButtonHit("ViewBest") },
             ];
             // Every segment as wide as the widest label any of them takes, so a running best stack never moves the scrub track.

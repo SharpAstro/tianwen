@@ -260,6 +260,13 @@ public sealed class StandaloneViewerHost<TSurface>
             if (_external is { } external)
             {
                 _tracker.Run(() => PlanetaryTelescopePersistence.SaveAsync(_state, external, _appToken), "Save the Best stack telescope");
+                // Set with a capture on show, the telescope is that capture's camera's, which AUTO takes next time (A4, #1391).
+                if (_state.SequenceCamera is { } camera && _state.PlanetaryApertureMm is { } apertureMm)
+                {
+                    var design = _state.PlanetaryDesign;
+                    _tracker.Run(() => TianWen.Lib.Imaging.Planetary.PlanetaryTelescopeMemory.RememberAsync(external, camera, apertureMm, design, _appToken),
+                        "Remember the telescope for the capture's camera");
+                }
             }
         }
     }
