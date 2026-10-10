@@ -67,29 +67,68 @@ public readonly record struct MetricDisk(double X, double Y, double Radius, doub
     }
 
     /// <summary>
-    /// Whether a ring the observer sees lies within <paramref name="marginPx"/> of pixel (<paramref name="x"/>, <paramref name="y"/>):
-    /// off the globe, or across it on the near side. Read at the pixel and eight points <paramref name="marginPx"/> about it. The rings'
-    /// shadow on the globe lies within a pixel or two of their near half at Saturn's small phase, inside such a margin. False without rings.
+    /// Whether a ring the observer sees lies within <paramref name="marginPx"/> of pixel (<paramref name="x"/>, <paramref name="y"/>) along
+    /// the disk's axis and across it: off the globe, or across it on the near side. The rings' shadow on the globe lies within a pixel or two
+    /// of their near half at Saturn's small phase, inside such a margin. False without rings.
     /// </summary>
+    /// <remarks>
+    /// The rings are thin only ALONG the axis, where near edge-on they are a fraction of a pixel (1.03 R sin B wide over the globe), so that
+    /// direction is decided exactly: at each offset across the axis, every 1 px of the margin and at the rings' tips, the rings' extent along
+    /// it is two intervals, of which the near half's is seen whole and the far half's where it clears the globe, and the pixel is touched when
+    /// one meets its margin. The nine points 2 px apart this read before missed a band thinner than that (#1410): below a tilt of about 2 to 4
+    /// degrees, every capture of 2024 to 2026, a band passing between pixel centres flagged no pixel at all.
+    /// </remarks>
     public bool RingTouched(double x, double y, double marginPx = 2)
     {
         if (Rings is not { } rings)
         {
             return false;
         }
-        for (var j = -1; j <= 1; j++)
+        var (along, across) = Axes(x, y);
+        var margin = marginPx / Radius;
+        if (Math.Abs(across) - margin > rings.OuterRadii)
         {
-            for (var i = -1; i <= 1; i++)
+            return false;
+        }
+        var steps = Math.Max(1, (int)Math.Ceiling(2 * marginPx));
+        for (var k = 0; k <= steps; k++)
+        {
+            if (RingMeets(rings, across - margin + (2 * margin * k / steps), along - margin, along + margin))
             {
-                var (px, py) = (x + (i * marginPx), y + (j * marginPx));
-                var rho = RingPlaneRadiiAt(px, py, rings);
-                if (rho >= rings.InnerRadii && rho <= rings.OuterRadii && (RadiiAt(px, py) > 1 || Axes(px, py).Along * rings.NearSign > 0))
-                {
-                    return true;
-                }
+                return true;
+            }
+        }
+        // A ring's tip may lie between two offsets across; its last sliver is where the rings reach across, clamped into the margin
+        var tip = Math.Clamp(Math.Abs(across), Math.Abs(across) - margin, rings.OuterRadii) * Math.Sign(across);
+        return Math.Abs(tip - across) <= margin && RingMeets(rings, tip, along - margin, along + margin);
+    }
+
+    // Whether a ring the observer sees lies at `across` (equatorial radii from the axis) between `from` and `to` along the axis: the rings'
+    // ellipses there bound two intervals, one each side of the centre; the near half's is seen whole, the far half's off the globe only.
+    private bool RingMeets(in DiskRings rings, double across, double from, double to)
+    {
+        var a2 = across * across;
+        if (a2 > rings.OuterRadii * rings.OuterRadii)
+        {
+            return false;
+        }
+        var outer = rings.SinB * Math.Sqrt((rings.OuterRadii * rings.OuterRadii) - a2);
+        var inner = a2 < rings.InnerRadii * rings.InnerRadii ? rings.SinB * Math.Sqrt((rings.InnerRadii * rings.InnerRadii) - a2) : 0;
+        // The globe's extent along the axis at this offset across, RadiiAt's ellipse: nothing past its limb
+        var globe = a2 < 1 ? AxisRatio * Math.Sqrt(1 - a2) : 0;
+        for (var side = -1; side <= 1; side += 2)
+        {
+            var (lo, hi) = side > 0 ? (inner, outer) : (-outer, -inner);
+            if (side == rings.NearSign
+                ? Meets(lo, hi, from, to)
+                : Meets(lo, Math.Min(hi, -globe), from, to) || Meets(Math.Max(lo, globe), hi, from, to))
+            {
+                return true;
             }
         }
         return false;
+
+        static bool Meets(double lo, double hi, double from, double to) => lo <= hi && lo <= to && hi >= from;
     }
 
     /// <summary>Pixel (<paramref name="x"/>, <paramref name="y"/>)'s radius in the rings' plane, in equatorial radii; NaN without rings.</summary>

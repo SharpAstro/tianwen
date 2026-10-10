@@ -141,7 +141,7 @@ public static class PlanetaryLimbFit
     public static LimbFit? Fit(Image image, LimbFitOptions options)
     {
         var plane = Luminance(image);
-        var start = options.Rings is { } rings ? StartRinged(plane, image.Width, image.Height, rings) : Start(plane, image.Width, image.Height, options.AxisRatio);
+        var start = options.Rings is not null ? StartRinged(plane, image.Width, image.Height, options) : Start(plane, image.Width, image.Height, options.AxisRatio);
         return start is { } at ? Fit(plane, image.Width, image.Height, at.X, at.Y, at.Radius, options) : null;
     }
 
@@ -236,9 +236,20 @@ public static class PlanetaryLimbFit
     /// the largest connected group of those pixels is read: the 2022-10-09 colour stack carries a line at full brightness across its
     /// top rows, which took the long axis and put the start at 70 px for a globe of 19. Null when nothing stands out of the sky.
     /// </summary>
-    public static (double X, double Y, double Radius)? StartRinged(ReadOnlySpan<float> plane, int width, int height, SaturnRings rings)
+    /// <remarks>
+    /// The rings' reach is the globe's radius only while the rings are in the group. Near edge-on they are a line a seeing blurs below the
+    /// quarter level, the group is the globe alone, and its reach along the long axis over the rings' radius was 0.44 of the globe on every
+    /// capture of 2024 to 2026 (#1410): rendered at B -1.8 degrees, 14.5 px for a globe of 32.2, from which the fit found a globe of 12.6 px
+    /// with its axis 5.9 degrees off. So the group's reach ACROSS its long axis is read too, the globe's polar radius while the rings are
+    /// narrower than the globe (B under about 23 degrees) and their own minor axis past that, over the larger of the axis ratio and the outer
+    /// ring's radius times sin B; and when the rings' reading falls under 0.8 of that one, the rings are not in the group and it is the start.
+    /// It is the start only then: the polar limb, darkened, crosses the quarter level inside the globe, so at B 15 degrees that reading starts
+    /// 3.4 % small where the rings' starts 2.4 % small, and from it T1's sharpest seeing fell into a minimum 1.7 % small.
+    /// </remarks>
+    public static (double X, double Y, double Radius)? StartRinged(ReadOnlySpan<float> plane, int width, int height, LimbFitOptions options)
     {
-        ArgumentNullException.ThrowIfNull(rings);
+        ArgumentNullException.ThrowIfNull(options);
+        var rings = options.Rings ?? throw new ArgumentException("A ringed start needs the rings in its options.", nameof(options));
         var copy = plane.ToArray();
         var sky = StatisticsHelper.NthSmallest(copy, (int)(0.05 * (copy.Length - 1)));
         var disk = StatisticsHelper.NthSmallest(copy, (int)(0.99 * (copy.Length - 1)));
@@ -266,14 +277,18 @@ public static class PlanetaryLimbFit
         var (mx, my) = (sx / n, sy / n);
         var major = 0.5 * Math.Atan2(2 * ((sxy / n) - (mx * my)), ((sxx / n) - (mx * mx)) - ((syy / n) - (my * my)));
         var (cos, sin) = (Math.Cos(major), Math.Sin(major));
-        var reach = new double[blob.Count];
-        for (var i = 0; i < reach.Length; i++)
+        var (along, across) = (new double[blob.Count], new double[blob.Count]);
+        for (var i = 0; i < along.Length; i++)
         {
             var (x, y) = (blob[i] % width, blob[i] / width);
-            reach[i] = Math.Abs(((x - mx) * cos) + ((y - my) * sin));
+            along[i] = Math.Abs(((x - mx) * cos) + ((y - my) * sin));
+            across[i] = Math.Abs((-(x - mx) * sin) + ((y - my) * cos));
         }
-        var extent = StatisticsHelper.NthSmallest(reach, (int)(0.995 * (reach.Length - 1)));
-        return (mx, my, extent / rings.OuterRadii);
+        var percentile = (int)(0.995 * (along.Length - 1));
+        var fromRings = StatisticsHelper.NthSmallest(along, percentile) / rings.OuterRadii;
+        var sinB = Math.Abs(Math.Sin(options.SubObserverLatitudeDeg * Math.PI / 180));
+        var fromGlobe = StatisticsHelper.NthSmallest(across, percentile) / Math.Max(options.AxisRatio, rings.OuterRadii * sinB);
+        return (mx, my, fromRings >= 0.8 * fromGlobe ? fromRings : fromGlobe);
     }
 
     // The largest group of pixels above `level` joined by their edges, as indices into the plane.
