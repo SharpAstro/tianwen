@@ -887,6 +887,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
   **A master names its planet in `OBJECT` and opens in `StretchMode.Planetary`** (`StretchMode.ForFrame`, ONE rule
   for the viewer, the thumbnail and `tianwen view`). **The batch stack runs on every core with one walk's bits**
   (`ParallelFor.RunBands`, `PlanetaryFrameBatches`): **never split a fold across FRAMES**, whose sum is ordered.
+- **AUTO is ONE routine, `PlanetaryAuto`, for `planetary stack --auto` and the viewer's Auto view** (#1391): the capture
+  read by `PlanetaryIdentification` (each fact's source said in words, written into the master), then Best at the
+  defaults. **The frames only tell Jupiter from Saturn** (a crescent Venus is as elongated as the rings); **a mount's
+  pointing and the path that disagree name neither**; a telescope is remembered per CAMERA (`PlanetaryTelescopeMemory`).
 - **A planetary master is sharpened by `PlanetarySharpening`, ONE routine for `planetary stack`, `planetary
   sharpen` and the live view's Derive** (`PlanetaryBestStack.DeriveGains`, `WaveletDerivation`,
   `PlanetaryLiveLimb`, `PlanetaryLimbWindow`, #1201: the limb belongs to the capture, so Reset keeps it):
