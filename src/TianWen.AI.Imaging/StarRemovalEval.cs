@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using TianWen.Lib;
 using TianWen.Lib.Imaging.Dataset;
 using TianWen.Lib.Imaging.StarRemoval;
+using TianWen.Lib.Stat;
 
 namespace TianWen.AI.Imaging;
 
@@ -90,8 +91,15 @@ public static class StarRemovalEval
     /// more than <see cref="CorePixelSigma"/> under it.</param>
     /// <param name="CoreMean">The core's mean left over the plate in sigma, signed, averaged over the band's stars.</param>
     /// <param name="CoreRms">The same, RMS.</param>
+    /// <param name="DugInSky">Stars whose core went under the plate in the SKY's noise, the draw's sigma over its sky off
+    /// every injected footprint (#1400, F6): the same two tests as <paramref name="Dug"/>, at the same thresholds, in that
+    /// one unit. <paramref name="Dug"/>'s sigma at a bright core carries the injected star's own shot noise, the right unit
+    /// for its mean (a remover cannot know that noise) but not for a hole, which is seen against the sky's: at 100 to 1,000
+    /// sigma a dig of several sky sigma passed under it.</param>
+    /// <param name="DugInSkyRate"><paramref name="DugInSky"/> over the band's stars.</param>
     public sealed record BandRow(
-        string Band, int Stars, int Removed, double Rate, int Clean, double CleanRate, int Dug, double DugRate, double CoreMean, double CoreRms);
+        string Band, int Stars, int Removed, double Rate, int Clean, double CleanRate, int Dug, double DugRate, double CoreMean, double CoreRms,
+        int DugInSky, double DugInSkyRate);
 
     /// <summary>One band's speckle rate (<see cref="StarlessSpeckles"/>).</summary>
     public sealed record SpeckleRow(string Band, int Sites, int Speckled, double Rate);
@@ -243,6 +251,7 @@ public static class StarRemovalEval
         public int[] Removed { get; } = new int[BandNames.Length];
         public int[] Clean { get; } = new int[BandNames.Length];
         public int[] Dug { get; } = new int[BandNames.Length];
+        public int[] DugInSky { get; } = new int[BandNames.Length];
         public double[] CoreSum { get; } = new double[BandNames.Length];
         public double[] CoreSq { get; } = new double[BandNames.Length];
         public double FootprintSq { get; set; }
@@ -326,6 +335,7 @@ public static class StarRemovalEval
         var sources = stars.Select(static s => ((float)s.X, (float)s.Y)).ToArray();
 
         var (plateSources, near) = PlateSourceZone(plate, input, sigma, absent, size, rim, PlateFwhm(stars));
+        var skySigma = SkySigma(plate, input, sigma, absent);
 
         // The bright stars' cores (100 sigma and over, saturated ones too), whose share of a plain L2 the loss readout reads.
         var brightCore = new BitMatrix(size, size);
@@ -377,6 +387,10 @@ public static class StarRemovalEval
                 if (core < -RemovedSigma * s || under)
                 {
                     acc.Dug[band]++;
+                }
+                if (skySigma > 0 && (core < -RemovedSigma * skySigma || CoreDugInSky(candidate, plate, absent, size, x, y, skySigma)))
+                {
+                    acc.DugInSky[band]++;
                 }
                 acc.CoreSum[band] += core / s;
                 acc.CoreSq[band] += core / s * (core / s);
@@ -467,13 +481,17 @@ public static class StarRemovalEval
     /// <summary>
     /// The sources the truth itself kept and the sky near them, ONE rule for this eval and for the loss mask a trainer
     /// leaves them out of (<see cref="StarRemovalMasks"/>): the plate's own sources, found as its builder finds them at
-    /// <paramref name="fwhm"/>, on its sky (off every injected footprint, where <paramref name="input"/> is the plate) with a
-    /// 3x3 core inside <paramref name="rim"/>; and every pixel within <see cref="NearSourceFwhm"/> PSF widths of one.
+    /// <paramref name="fwhm"/>, with a 3x3 core inside <paramref name="rim"/>; those on its sky (off every injected footprint,
+    /// where <paramref name="input"/> is the plate) are the ones scored, and the sky within <see cref="NearSourceFwhm"/> PSF
+    /// widths of ANY of them is near one. A source whose centre an injected star covers cannot be scored, but its wings off
+    /// that footprint are still the plate's star (#1400, F8: they were left in the loss and in the far sky, the "remove the
+    /// injected star, keep the identical one" target, concentrated where the bright stars are).
     /// </summary>
     internal static (List<(int X, int Y)> Sources, BitMatrix Near) PlateSourceZone(
         float[] plate, float[] input, float[] sigma, BitMatrix absent, int size, int rim, double fwhm)
     {
         var plateSources = new List<(int X, int Y)>();
+        var every = new List<(int X, int Y)>();
         foreach (var (sx, sy, _) in PlateSources.Find(plate, size, size, absent, fwhm))
         {
             var cx = (int)Math.Round(sx);
@@ -482,6 +500,7 @@ public static class StarRemovalEval
             {
                 continue;
             }
+            every.Add((cx, cy));
             var i = (cy * size) + cx;
             if (input[i] == plate[i] && sigma[i] > 0)
             {
@@ -491,7 +510,7 @@ public static class StarRemovalEval
         var near = new BitMatrix(size, size);
         var reach = (int)Math.Ceiling(NearSourceFwhm * fwhm);
         var reach2 = NearSourceFwhm * fwhm * NearSourceFwhm * fwhm;
-        foreach (var (cx, cy) in plateSources)
+        foreach (var (cx, cy) in every)
         {
             for (var y = Math.Max(0, cy - reach); y <= Math.Min(size - 1, cy + reach); y++)
             {
@@ -566,6 +585,51 @@ public static class StarRemovalEval
         return (over, under);
     }
 
+    // The draw's sky noise: the median sigma over the sky inside the rim, off every injected footprint (where the input is
+    // the plate), so no star's shot noise is in it; 0 where no such pixel has one.
+    private static float SkySigma(float[] plate, float[] input, float[] sigma, BitMatrix absent)
+    {
+        var size = absent.Columns;
+        var sky = new List<float>(plate.Length);
+        for (var i = 0; i < plate.Length; i++)
+        {
+            if (!absent[i / size, i % size] && input[i] == plate[i] && sigma[i] > 0)
+            {
+                sky.Add(sigma[i]);
+            }
+        }
+        if (sky.Count == 0)
+        {
+            return 0f;
+        }
+        var values = sky.ToArray();
+        return StatisticsHelper.NthSmallest(values.AsSpan(), values.Length / 2);
+    }
+
+    // Whether any pixel within the speckle test's core radius of a site is more than CorePixelSigma sky sigma under the plate.
+    private static bool CoreDugInSky(float[] candidate, float[] plate, BitMatrix absent, int size, float cx, float cy, float skySigma)
+    {
+        var r = (int)Math.Ceiling(StarlessSpeckles.CoreRadius);
+        var x0 = (int)Math.Round(cx);
+        var y0 = (int)Math.Round(cy);
+        for (var y = Math.Max(0, y0 - r); y <= Math.Min(size - 1, y0 + r); y++)
+        {
+            for (var x = Math.Max(0, x0 - r); x <= Math.Min(size - 1, x0 + r); x++)
+            {
+                if (((x - cx) * (x - cx)) + ((y - cy) * (y - cy)) > StarlessSpeckles.CoreRadius * StarlessSpeckles.CoreRadius || absent[y, x])
+                {
+                    continue;
+                }
+                var i = (y * size) + x;
+                if ((candidate[i] - plate[i]) / skySigma < -CorePixelSigma)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     // The mean of a candidate minus the plate over the 3x3 about a pixel.
     private static double Core(float[] candidate, float[] plate, int size, int cx, int cy)
     {
@@ -606,6 +670,7 @@ public static class StarRemovalEval
                 total.Removed[b] += d.Removed[b];
                 total.Clean[b] += d.Clean[b];
                 total.Dug[b] += d.Dug[b];
+                total.DugInSky[b] += d.DugInSky[b];
                 total.CoreSum[b] += d.CoreSum[b];
                 total.CoreSq[b] += d.CoreSq[b];
             }
@@ -658,7 +723,8 @@ public static class StarRemovalEval
                 total.Removed[b], rated ? Rate(total.Removed[b], n) : double.NaN,
                 total.Clean[b], rated ? Rate(total.Clean[b], n) : double.NaN,
                 total.Dug[b], rated ? Rate(total.Dug[b], n) : double.NaN,
-                n > 0 ? total.CoreSum[b] / n : double.NaN, n > 0 ? Math.Sqrt(total.CoreSq[b] / n) : double.NaN);
+                n > 0 ? total.CoreSum[b] / n : double.NaN, n > 0 ? Math.Sqrt(total.CoreSq[b] / n) : double.NaN,
+                total.DugInSky[b], rated ? Rate(total.DugInSky[b], n) : double.NaN);
         });
 
         var sky = new SkyDetail(

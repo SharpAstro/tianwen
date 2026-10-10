@@ -42,6 +42,17 @@ public sealed class SyntheticBackground
     /// <summary>The log-normal's width: a Gaussian field <c>g</c> becomes <c>exp(s g)</c>, emission's long bright tail.</summary>
     public const double LogNormalSigma = 0.8;
 
+    /// <summary>
+    /// The grid every texture is drawn on, at least, and the coarsest wavelength its Gaussian field keeps, in pixels (#1400,
+    /// F1). The field's power falls as <c>k^-TextureIndex</c>, so its whole spread is set by its coarsest modes, and a
+    /// width taken against that spread on a larger grid left the fine scales weaker (as <c>n^-0.55</c>): the same
+    /// <see cref="LogNormalSigma"/> was a smoother texture in S3's 384 px cells (a 1,024 px grid) and a far rougher one
+    /// in S4's small fills (64 px) than in the export's 256 px cells. Those always drew on 512 px and are kept exactly;
+    /// every other size now draws on at least 512 px, and a larger grid's modes coarser than 512 px are taken out before
+    /// the field is normalised, so a width means the export's texture at every size.
+    /// </summary>
+    public const int TextureGridPx = 512;
+
     /// <summary>The knots a cell holds, on average (Poisson).</summary>
     public const double KnotsPerCell = 3.0;
 
@@ -491,7 +502,8 @@ public sealed class SyntheticBackground
     // so every plate mapped to a width near zero. The amplitude maps draw the envelope.
     private static readonly Lazy<double[][]> TailTable = new(static () =>
     {
-        const int size = 512;
+        // On the grid every texture is drawn on, whose whole spread is the band TextureScales normalises over.
+        const int size = TextureGridPx;
         const int margin = 48;
         var field = PowerLawField(size, TextureIndex, new Random(1));
         var mean = field.Average();
@@ -656,22 +668,7 @@ public sealed class SyntheticBackground
         var planes = new float[Channels][];
         for (var c = 0; c < Channels; c++)
         {
-            var plane = new float[size * size];
-            for (var y = 0; y < size; y++)
-            {
-                var fy = Math.Clamp(y0 + y, 0, Height - 1);
-                for (var x = 0; x < size; x++)
-                {
-                    var f = (fy * Width) + Math.Clamp(x0 + x, 0, Width - 1);
-                    var v = 0.0;
-                    for (var j = 0; j < FirstKept; j++)
-                    {
-                        v += _amplitude[c][j][f] * texture[j][(y * size) + x];
-                    }
-                    plane[(y * size) + x] = (float)v;
-                }
-            }
-            planes[c] = plane;
+            planes[c] = DrawnTexture(c, x0, y0, size, texture);
         }
         return planes;
     }
@@ -693,20 +690,13 @@ public sealed class SyntheticBackground
         var planes = new float[Channels][];
         for (var c = 0; c < Channels; c++)
         {
-            var plane = new float[size * size];
+            var plane = DrawnTexture(c, x0, y0, size, texture);
             for (var y = 0; y < size; y++)
             {
                 var fy = Math.Clamp(y0 + y, 0, Height - 1);
                 for (var x = 0; x < size; x++)
                 {
-                    var fx = Math.Clamp(x0 + x, 0, Width - 1);
-                    var f = (fy * Width) + fx;
-                    var v = (double)_coarse[c][f];
-                    for (var j = 0; j < FirstKept; j++)
-                    {
-                        v += _amplitude[c][j][f] * texture[j][(y * size) + x];
-                    }
-                    plane[(y * size) + x] = (float)v;
+                    plane[(y * size) + x] += _coarse[c][(fy * Width) + Math.Clamp(x0 + x, 0, Width - 1)];
                 }
             }
             planes[c] = plane;
@@ -715,27 +705,95 @@ public sealed class SyntheticBackground
         return planes;
     }
 
-    // One log-normal field of index TextureIndex at twice the cell's size (so no scale meets a periodic edge), decomposed into
-    // the replaced starlet scales, each cut to the cell and scaled to unit robust RMS. Steered, the Gaussian field under the
-    // log-normal follows the plate's coarse orientation over the whole grid, the cell at its middle.
-    private float[][] TextureScales(int x0, int y0, int size, Random random)
+    /// <summary>How many times <see cref="DrawnTexture"/> re-reads the drawn texture and corrects its gains.</summary>
+    internal const int EnergyMatchPasses = 3;
+
+    /// <summary>The narrowest interior, in pixels, a scale's energy is read over in <see cref="DrawnTexture"/>; a cut with
+    /// less inside its kernel's reach leaves that scale's gain alone.</summary>
+    internal const int MinEnergyReadPx = 16;
+
+    /// <summary>
+    /// Channel <paramref name="c"/>'s drawn texture over the cut: each replaced scale's band times the plate's amplitude
+    /// there, with a gain per scale so that the texture READ BACK at that scale holds the plate's energy (#1400). A starlet
+    /// band re-decomposed spreads into its neighbours, so bands each at their amplitude, summed, re-read under it, and the
+    /// more so the coarser: 0.4 to 0.9 of the plate's on the S3 plates once F2 took out the robust scaling's overshoot,
+    /// which had hidden it. Each pass reads the drawn plane's energy per scale against the amplitude's mean square, over the
+    /// cut's interior that scale's kernel reaches no edge from, and corrects that scale's gain by their ratio; the last
+    /// pass's plane is the draw.
+    /// </summary>
+    private float[] DrawnTexture(int c, int x0, int y0, int size, float[][] texture)
     {
-        var n = 1;
-        while (n < 2 * size)
+        var n = size * size;
+        var amplitude = new float[FirstKept][];
+        for (var j = 0; j < FirstKept; j++)
         {
-            n <<= 1;
+            var a = new float[n];
+            for (var y = 0; y < size; y++)
+            {
+                var row = Math.Clamp(y0 + y, 0, Height - 1) * Width;
+                for (var x = 0; x < size; x++)
+                {
+                    a[(y * size) + x] = _amplitude[c][j][row + Math.Clamp(x0 + x, 0, Width - 1)];
+                }
+            }
+            amplitude[j] = a;
         }
+        var gains = new double[FirstKept];
+        Array.Fill(gains, 1.0);
+        var plane = new float[n];
+        for (var pass = 0; ; pass++)
+        {
+            for (var i = 0; i < n; i++)
+            {
+                var v = 0.0;
+                for (var j = 0; j < FirstKept; j++)
+                {
+                    v += gains[j] * amplitude[j][i] * texture[j][i];
+                }
+                plane[i] = (float)v;
+            }
+            if (pass == EnergyMatchPasses)
+            {
+                return plane;
+            }
+            var decomposition = ATrousWaveletTransform.Decompose(plane, size, size, FirstKept);
+            for (var j = 0; j < FirstKept; j++)
+            {
+                // Read only where the scale's kernel stays inside the cut: at the cut's mirrored edge a band reads weak, and
+                // a small cut (a hole's fill) is mostly edge, so its gains were pumped up and the hole overshot (S4 at
+                // 24 px, 1.62 of the original's energy). A scale with no such interior keeps its gain.
+                var margin = 4 << j;
+                if (size - (2 * margin) < MinEnergyReadPx)
+                {
+                    continue;
+                }
+                var detail = decomposition.Detail(j);
+                double measured = 0, wanted = 0;
+                for (var y = margin; y < size - margin; y++)
+                {
+                    for (var x = margin; x < size - margin; x++)
+                    {
+                        var i = (y * size) + x;
+                        measured += (double)detail[i] * detail[i];
+                        wanted += (double)amplitude[j][i] * amplitude[j][i];
+                    }
+                }
+                if (measured > 0 && wanted > 0)
+                {
+                    gains[j] = Math.Clamp(gains[j] * Math.Sqrt(wanted / measured), 0.1, 10.0);
+                }
+            }
+        }
+    }
+
+    // One log-normal field of index TextureIndex at twice the cell's size (so no scale meets a periodic edge), decomposed into
+    // the replaced starlet scales, each cut to the cell and scaled to unit plain RMS (DrawnTexture then matches its energy). Steered, the Gaussian field under the
+    // log-normal follows the plate's coarse orientation over the whole grid, the cell at its middle.
+    internal float[][] TextureScales(int x0, int y0, int size, Random random)
+    {
+        var n = TextureGridFor(size);
         var offset = (n - size) / 2;
-        var field = Steered is { } steering && _orientation is { } orientation
-            ? SteeredField(n, x0 - offset, y0 - offset, steering, orientation, random)
-            : PowerLawField(n, TextureIndex, random);
-        var mean = 0.0;
-        foreach (var v in field)
-        {
-            mean += v;
-        }
-        mean /= field.Length;
-        var sd = Math.Sqrt(field.Sum(v => (v - mean) * (v - mean)) / field.Length);
+        var field = TextureField(n, x0 - offset, y0 - offset, random);
         var logNormal = new float[field.Length];
         if (_logNormalWidth is { } widths)
         {
@@ -747,7 +805,7 @@ public sealed class SyntheticBackground
                 {
                     var i = (v * n) + u;
                     var w = widths[(fy * Width) + Math.Clamp(x0 - offset + u, 0, Width - 1)];
-                    logNormal[i] = (float)Math.Exp(w * (field[i] - mean) / (sd > 0 ? sd : 1.0));
+                    logNormal[i] = (float)Math.Exp(w * field[i]);
                 }
             }
         }
@@ -755,7 +813,7 @@ public sealed class SyntheticBackground
         {
             for (var i = 0; i < field.Length; i++)
             {
-                logNormal[i] = (float)Math.Exp(LogNormalSigma * (field[i] - mean) / (sd > 0 ? sd : 1.0));
+                logNormal[i] = (float)Math.Exp(LogNormalSigma * field[i]);
             }
         }
         var decomposition = ATrousWaveletTransform.Decompose(logNormal, n, n, ScaleCount);
@@ -788,9 +846,14 @@ public sealed class SyntheticBackground
             }
             else
             {
-                var abs = cut.Select(static v => Math.Abs(v)).ToArray();
-                var mad = StatisticsHelper.NthSmallest(abs.AsSpan(), abs.Length / 2);
-                var scale = mad > 0 ? 1.0 / (1.4826 * mad) : 0.0;
+                // Unit PLAIN RMS, as the amplitude maps are a plain RMS (#1400, F2): a log-normal's bands are heavy-tailed,
+                // and scaled by a robust spread (1.4826 MAD) they drew more energy than the plate's wherever they had tails.
+                var energy = 0.0;
+                foreach (var v in cut)
+                {
+                    energy += (double)v * v;
+                }
+                var scale = energy > 0 ? 1.0 / Math.Sqrt(energy / cut.Length) : 0.0;
                 for (var i = 0; i < cut.Length; i++)
                 {
                     cut[i] = (float)(cut[i] * scale);
@@ -801,10 +864,55 @@ public sealed class SyntheticBackground
         return scales;
     }
 
-    /// <summary>A Gaussian random field on an <paramref name="n"/> x <paramref name="n"/> grid (a power of two) whose power falls
-    /// as <c>k^-beta</c>, zero mean.</summary>
-    internal static double[] PowerLawField(int n, double beta, Random random)
+    /// <summary>The grid a <paramref name="size"/> px cut is drawn on: at least <see cref="TextureGridPx"/>, and twice the cut so
+    /// no scale meets the periodic edge.</summary>
+    internal static int TextureGridFor(int size)
     {
+        var n = TextureGridPx;
+        while (n < 2 * size)
+        {
+            n <<= 1;
+        }
+        return n;
+    }
+
+    /// <summary>
+    /// The Gaussian field under the log-normal on an <paramref name="n"/> px grid whose corner sits at the frame pixel
+    /// (<paramref name="fx0"/>, <paramref name="fy0"/>): steered or isotropic, every mode coarser than
+    /// <see cref="TextureGridPx"/> taken out, at zero mean and unit spread.
+    /// </summary>
+    internal double[] TextureField(int n, int fx0, int fy0, Random random)
+        => UnitSpread(Steered is { } steering && _orientation is { } orientation
+            ? SteeredField(n, fx0, fy0, steering, orientation, random)
+            : PowerLawField(n, TextureIndex, random, TextureGridPx));
+
+    /// <summary><paramref name="field"/> at zero mean and unit spread, in place, and returned.</summary>
+    internal static double[] UnitSpread(double[] field)
+    {
+        var mean = 0.0;
+        foreach (var v in field)
+        {
+            mean += v;
+        }
+        mean /= field.Length;
+        var sd = Math.Sqrt(field.Sum(v => (v - mean) * (v - mean)) / field.Length);
+        if (sd <= 0)
+        {
+            sd = 1.0;
+        }
+        for (var i = 0; i < field.Length; i++)
+        {
+            field[i] = (field[i] - mean) / sd;
+        }
+        return field;
+    }
+
+    /// <summary>A Gaussian random field on an <paramref name="n"/> x <paramref name="n"/> grid (a power of two) whose power falls
+    /// as <c>k^-beta</c>, zero mean; with <paramref name="coarsestWavelengthPx"/>, every mode of a longer wavelength is left
+    /// out (its draw still taken, so the finer modes are the unfiltered field's).</summary>
+    internal static double[] PowerLawField(int n, double beta, Random random, int? coarsestWavelengthPx = null)
+    {
+        var kMin = coarsestWavelengthPx is { } longest ? n / (double)longest : 0.0;
         var c = new Complex[n * n];
         for (var ky = 0; ky < n; ky++)
         {
@@ -815,7 +923,7 @@ public sealed class SyntheticBackground
                 var k = Math.Sqrt((fx * fx) + (fy * fy));
                 c[(ky * n) + kx] = k == 0
                     ? Complex.Zero
-                    : new Complex(Gaussian(random), Gaussian(random)) * Math.Pow(k, -beta / 2.0);
+                    : new Complex(Gaussian(random), Gaussian(random)) * (k < kMin ? 0.0 : Math.Pow(k, -beta / 2.0));
             }
         }
         Fft2D.Inverse(c, n, n);
@@ -830,6 +938,7 @@ public sealed class SyntheticBackground
     // covariances and divided out: the texture's variance does not follow the orientation.
     private double[] SteeredField(int n, int fx0, int fy0, Steering steering, Orientation orientation, Random random)
     {
+        var kMin = n / (double)TextureGridPx;
         var spectrum = new Complex[n * n];
         var psi = new double[n * n];
         for (var ky = 0; ky < n; ky++)
@@ -841,7 +950,7 @@ public sealed class SyntheticBackground
                 var k = Math.Sqrt((fx * fx) + (fy * fy));
                 spectrum[(ky * n) + kx] = k == 0
                     ? Complex.Zero
-                    : new Complex(Gaussian(random), Gaussian(random)) * Math.Pow(k, -TextureIndex / 2.0);
+                    : new Complex(Gaussian(random), Gaussian(random)) * (k < kMin ? 0.0 : Math.Pow(k, -TextureIndex / 2.0));
                 psi[(ky * n) + kx] = Math.Atan2(fy, fx);
             }
         }
@@ -910,18 +1019,11 @@ public sealed class SyntheticBackground
             for (var u = 0; u < n; u++)
             {
                 var f = (fy * Width) + Math.Clamp(fx0 + u, 0, Width - 1);
-                double cos2 = orientation.Cos2[f], sin2 = orientation.Sin2[f];
-                var s = Math.Clamp(steering.Strength * orientation.Coherence[f], 0.0, 1.0);
-                var wandering = 1.0;
-                if (orientation.Fine is { } fine)
-                {
-                    // Where the plate's own replaced scales hold signal, their orientation and their coherence steer.
-                    var signal = (double)fine.Weight[f];
-                    cos2 = (signal * fine.Cos2[f]) + ((1 - signal) * cos2);
-                    sin2 = (signal * fine.Sin2[f]) + ((1 - signal) * sin2);
-                    s = (signal * Math.Clamp(steering.Fine * fine.Coherence[f], 0.0, 1.0)) + ((1 - signal) * s);
-                    wandering = 1 - signal;
-                }
+                var coarseStrength = Math.Clamp(steering.Strength * orientation.Coherence[f], 0.0, 1.0);
+                var (cos2, sin2, s, wandering) = orientation.Fine is { } fine
+                    ? SteerAt(orientation.Cos2[f], orientation.Sin2[f], coarseStrength,
+                        fine.Cos2[f], fine.Sin2[f], Math.Clamp(steering.Fine * fine.Coherence[f], 0.0, 1.0), fine.Weight[f])
+                    : (orientation.Cos2[f], orientation.Sin2[f], coarseStrength, 1.0);
                 var theta = (0.5 * Math.Atan2(sin2, cos2)) + (wandering * (wander?[(v * n) + u] ?? 0.0));
                 theta -= Math.PI * Math.Floor(theta / Math.PI);
                 var t = theta / (Math.PI / SteerDirections);
@@ -939,6 +1041,23 @@ public sealed class SyntheticBackground
             }
         }
         return field;
+    }
+
+    /// <summary>
+    /// One pixel's steer where the plate's own replaced scales hold signal: the coarse orientation and strength blended with
+    /// the fine ones by <paramref name="signal"/>, the share of the fine scales' energy that is signal, as doubled-angle
+    /// vectors; the wander's share is what the fine scales leave.
+    /// </summary>
+    /// <remarks>Both orientations are unit doubled-angle vectors, so the blend's length is how far they agree, and the
+    /// strength is scaled by it: where the fine structure runs across the coarse at half and half the blend is nothing and the
+    /// angle swings through 90 degrees, so the steer fades there rather than drawing a seam (#1400, F7).</remarks>
+    internal static (double Cos2, double Sin2, double Strength, double Wandering) SteerAt(
+        double coarseCos2, double coarseSin2, double coarseStrength, double fineCos2, double fineSin2, double fineStrength, double signal)
+    {
+        var cos2 = (signal * fineCos2) + ((1 - signal) * coarseCos2);
+        var sin2 = (signal * fineSin2) + ((1 - signal) * coarseSin2);
+        var strength = ((signal * fineStrength) + ((1 - signal) * coarseStrength)) * Math.Sqrt((cos2 * cos2) + (sin2 * sin2));
+        return (cos2, sin2, strength, 1 - signal);
     }
 
     // The mean over angle of |cos|^(2m) (Gamma(m + 1/2) / (sqrt(pi) Gamma(m + 1))), summed over the half turn so any m serves.

@@ -222,6 +222,65 @@ public sealed class StarRemovalEvalTests : IDisposable
         (await StarRemovalMasks.RunAsync(export, cancellationToken: TestContext.Current.CancellationToken)).Skipped.ShouldBe(1, "a draw that has its mask is skipped");
     }
 
+    /// <summary>
+    /// F6 of #1400: a hole is seen against the sky's noise, not the injected star's. The noise plane at a bright core carries
+    /// the star's own shot noise (here twenty times the sky's), so a dig of eight sky sigma reads as under half a sigma there
+    /// and <see cref="StarRemovalEval.BandRow.Dug"/> passes it; <see cref="StarRemovalEval.BandRow.DugInSky"/> counts it.
+    /// </summary>
+    [Fact]
+    public async Task AHoleUnderABrightStarsShotNoiseIsCountedAsDugInTheSkysNoise()
+    {
+        var root = _folders.Create("starless-eval-").FullName;
+        var export = Path.Combine(root, "export");
+        var outputs = Path.Combine(root, "outputs");
+        var star = Star(128, 128, 10.0, 3.0);
+        var manifest = new List<string>();
+        var tile = WriteDraw(export, "S", 0, (_, _) => Sky, (_, i) => Sky + star[i], [InjectedAt(128, 128)], manifest);
+        static double Distance(int i) => Math.Sqrt(((i % Size) - 128.0) * ((i % Size) - 128.0) + ((i / Size) - 128.0) * ((i / Size) - 128.0));
+        WriteTile(Path.Combine(export, "tiles", "S", "x0_y0_deg000.sigma.f16"), i => PlaneValue(Distance(i) <= 4 ? 20 * Sigma : Sigma), 1);
+        WriteTile(Path.Combine(outputs, "out0.f16"), i => Distance(i) <= 2 ? Sky - (8 * Sigma) : Sky, Channels);
+
+        var report = await ScoreAsync(export, outputs, manifest, [(tile, "out0.f16")]);
+
+        var output = Band(Arm(report, "output"));
+        (output.Dug, output.DugInSky).ShouldBe((0, 1), "under the star's shot noise the hole is half a sigma; in the sky's it is eight");
+        Band(Arm(report, "plate (removes all)")).DugInSky.ShouldBe(0);
+    }
+
+    /// <summary>
+    /// F8 of #1400: a star the plate kept whose centre an injected star covers is not scored (its core is not the plate's
+    /// there), but its wings off that footprint are still the plate's star, so the loss leaves them out as it does any other
+    /// kept star's. Before, it dropped out of the near zone with its centre, and the net was asked to keep half a star.
+    /// </summary>
+    [Fact]
+    public async Task AKeptStarUnderAnInjectedOneStillHasItsWingsLeftOutOfTheLoss()
+    {
+        var root = _folders.Create("starless-masks-").FullName;
+        var export = Path.Combine(root, "export");
+        var channelSigma = Sigma * MathF.Sqrt(Channels);
+        var rng = new Random(7);
+        var noise = Enumerable.Range(0, Channels).Select(_ => Enumerable.Range(0, Size * Size)
+            .Select(_ => channelSigma * (float)(Math.Sqrt(-2 * Math.Log(1 - rng.NextDouble())) * Math.Cos(2 * Math.PI * rng.NextDouble()))).ToArray()).ToArray();
+        var kept = Star(60, 60, 15 * Sigma, 3.0);
+        // Narrow and faint, so its footprint (where the half-precision input differs from the plate) ends inside 3 px.
+        var injected = Star(60, 60, 5 * Sigma, 1.5);
+        var manifest = new List<string>();
+        var tile = WriteDraw(export, "S", 0, (c, i) => Sky + noise[c][i] + kept[i], (c, i) => Sky + noise[c][i] + kept[i] + injected[i],
+            [InjectedAt(60, 60)], manifest);
+        await File.WriteAllLinesAsync(Path.Combine(export, DatasetDegradationExporter.InjectionManifestFileName), manifest,
+            TestContext.Current.CancellationToken);
+
+        await StarRemovalMasks.RunAsync(export, cancellationToken: TestContext.Current.CancellationToken);
+
+        var bytes = await File.ReadAllBytesAsync(Path.Combine(export, StarRemovalMasks.KeepPathFor(tile).Replace('/', Path.DirectorySeparatorChar)),
+            TestContext.Current.CancellationToken);
+        float At(int x, int y) => (float)BitConverter.ToHalf(bytes, ((y * Size) + x) * 2);
+        At(60, 60).ShouldBe(1f, "the injected star's footprint still counts");
+        At(64, 60).ShouldBe(0f, "the kept star's wing off that footprint is left out");
+        At(60, 65).ShouldBe(0f, "on every side");
+        At(200, 200).ShouldBe(1f, "and the sky far from it counts");
+    }
+
     [Fact]
     public async Task TheSkysChangeIsTakenApartPerSessionIntoLevelColourAndNoise()
     {
