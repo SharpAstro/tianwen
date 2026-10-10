@@ -182,7 +182,9 @@ public static class PlanetaryComposition
         var reference = ReferenceIndex(stacks);
         var referenceFit = fits[reference];
         // Every stack onto the reference's grid: each is cropped to where its own frames reached (#1300), so stacks of one night differ
-        // in size, and its disk's place is its own limb fit's.
+        // in size, and its disk's place is its own limb fit's. Where a moved stack does not reach it reads NaN, which its FITS carries to
+        // the join, so the join averages only the stacks that reach a pixel (#1361); averaged in as zero, a strip of unreached rows read
+        // half the sky on two stacks and turned a look's black point grey.
         var (width, height) = (stacks[reference].Image.Width, stacks[reference].Image.Height);
         var inv = CultureInfo.InvariantCulture;
         var moved = ImmutableArray.CreateBuilder<PlanetaryMonoStack>(stacks.Count);
@@ -200,7 +202,7 @@ public static class PlanetaryComposition
             say?.Invoke(string.Create(inv,
                 $"{stacks[i].Name} ({stacks[i].Filter.ShortName}, {stacks[i].Instant:HH:mm:ss} UTC): disk R {fits[i].EquatorialRadius:0.00} px, moved ({moveX:+0.00;-0.00;0.00}, {moveY:+0.00;-0.00;0.00}) px{(i == reference ? ", the reference" : "")}"));
             var image = stacks[i].Image;
-            var plane = i == reference ? image.GetChannelArray(0) : PlanetaryChannelAlignment.Moved(image.GetChannelArray(0), dx, dy, width, height);
+            var plane = i == reference ? image.GetChannelArray(0) : PlanetaryChannelAlignment.Moved(image.GetChannelArray(0), dx, dy, width, height, float.NaN);
             var (max, min) = Extent([plane]);
             moved.Add(stacks[i] with { Image = new Image([plane], BitDepth.Float32, max, min, 0, image.ImageMeta) });
         }
@@ -624,7 +626,8 @@ public static class PlanetaryComposition
     // A stack's limb, fitted at its own instant (Saturn's rings in the model).
     private static LimbFit? FitOf(PlanetaryMonoStack stack) => PlanetaryLimbFit.FitAt(stack.Image, stack.Planet, stack.Instant)?.Fit;
 
-    // The mean of a filter's stacks' planes, or null for none.
+    // The mean of a filter's stacks' planes over the stacks that reach each pixel (a moved stack reads NaN where it does not, #1361), or
+    // null for none. A pixel no stack reaches reads 0, as a stack reads where no folded frame reached it (#1319).
     private static float[,]? Mean(IReadOnlyList<PlanetaryMonoStack> stacks, Filter filter)
     {
         var of = stacks.Where(s => s.Filter == filter).ToArray();
@@ -634,6 +637,7 @@ public static class PlanetaryComposition
         }
         var (width, height) = (of[0].Image.Width, of[0].Image.Height);
         var sum = new double[height, width];
+        var reached = new int[height, width];
         foreach (var stack in of)
         {
             var plane = stack.Image.GetChannelSpan(0);
@@ -641,7 +645,12 @@ public static class PlanetaryComposition
             {
                 for (var x = 0; x < width; x++)
                 {
-                    sum[y, x] += plane[(y * width) + x];
+                    var v = plane[(y * width) + x];
+                    if (!float.IsNaN(v))
+                    {
+                        sum[y, x] += v;
+                        reached[y, x]++;
+                    }
                 }
             }
         }
@@ -650,7 +659,7 @@ public static class PlanetaryComposition
         {
             for (var x = 0; x < width; x++)
             {
-                mean[y, x] = (float)(sum[y, x] / of.Length);
+                mean[y, x] = reached[y, x] > 0 ? (float)(sum[y, x] / reached[y, x]) : 0f;
             }
         }
         return mean;

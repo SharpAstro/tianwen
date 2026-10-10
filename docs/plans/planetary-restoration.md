@@ -5172,7 +5172,13 @@ against the recipe and they agree to the bit.
 - **Derotate** carries every stack to the reference's instant on its disk. North is decided by agreement between the two stacks of ONE
   filter the planet turned most between (`PlanetaryDerotation.AgreementBothWays`, the routine the stacker's own north decision now
   calls), since stacks of one filter show the same detail.
-- **Join** averages each filter's stacks, makes red, green and blue one colour master, and writes the luminance beside it.
+- **Join** averages each filter's stacks, makes red, green and blue one colour master, and writes the luminance beside it. **It averages
+  each pixel over the stacks that reach it** (#1361): one night's stacks differ in size by a row or two, each cropped to where its own
+  frames reached (#1300), so a stack moved onto the reference's grid reaches none of a strip at its edge. Register marks that strip NaN,
+  the step files carry it, and a pixel no stack of a filter reaches reads 0, as a stack reads where no folded frame reached (#1319).
+  Averaged in as zero, the strip read half the sky: on the owner's 2026-10-07 sets 7 and 8, 501 green pixels sat at 0.500 of the sky,
+  and the true-colour look's black point fell to half the sky and drew it grey (18 of 255). Read the stacks that reach, the strip is the
+  sky and the look's sky is black.
 - **The 2026-09-01 Saturn set** (16 AutoStakkert stacks, four runs of R, G, B and IR over 24 minutes):
   - Every limb fitted, the radii from 165.6 to 166.4 px.
   - The moves were all under a pixel, blue's 0.6 px the atmosphere's dispersion, since AutoStakkert had centred each stack.

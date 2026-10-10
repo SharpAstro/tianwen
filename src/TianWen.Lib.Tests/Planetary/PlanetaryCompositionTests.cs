@@ -171,6 +171,65 @@ public sealed class PlanetaryCompositionTests : IDisposable
     }
 
     [Fact(Timeout = 300_000)]
+    public void TheJoinAveragesOnlyTheStacksThatReachAPixelThroughTheStepFilesAsInTheRecipe()
+    {
+        // #1361: two greens, a red and a blue at one instant, the second green and the red cut six rows from the top (#1300), so moved
+        // onto the reference's grid their top rows are reached by nothing of theirs. Averaged in as zero, those rows read half the sky.
+        var ct = TestContext.Current.CancellationToken;
+        var stacks = SameInstant([("R", 1.2, -0.8), ("G", 0.0, 0.0), ("G", -0.9, 1.1), ("B", 0.6, 0.4)]);
+        var reference = PlanetaryComposition.ReferenceIndex(stacks);
+        reference.ShouldBe(1, "the first green");
+        foreach (var cut in new[] { 0, 2 })
+        {
+            stacks[cut] = stacks[cut] with { Image = stacks[cut].Image.Crop(Geometry.PixelRect.FromLTRB(0, 6, Size, Size)) };
+        }
+
+        var (registration, registerRefusal) = PlanetaryComposition.Register(stacks);
+        registration.ShouldNotBeNull(registerRefusal);
+        var (derotation, derotateRefusal) = PlanetaryComposition.Derotate(registration.Stacks);
+        derotation.ShouldNotBeNull(derotateRefusal);
+        var (joined, joinRefusal) = PlanetaryComposition.Join(derotation.Stacks);
+        joined.ShouldNotBeNull(joinRefusal);
+        ct.ThrowIfCancellationRequested();
+
+        var red = registration.Stacks[0].Image.GetChannelSpan(0);
+        var referenceGreen = registration.Stacks[1].Image.GetChannelSpan(0);
+        var cutGreen = registration.Stacks[2].Image.GetChannelSpan(0);
+        var joinedRed = joined.Master.GetChannelSpan(0);
+        var joinedGreen = joined.Master.GetChannelSpan(1);
+        var (unreachedGreen, unreachedRed) = (0, 0);
+        for (var i = 0; i < cutGreen.Length; i++)
+        {
+            if (float.IsNaN(cutGreen[i]))
+            {
+                unreachedGreen++;
+                joinedGreen[i].ShouldBe(referenceGreen[i], $"pixel {i}: the green only the reference reaches reads the reference's, never half of it");
+            }
+            if (float.IsNaN(red[i]))
+            {
+                unreachedRed++;
+                joinedRed[i].ShouldBe(0f, $"pixel {i}: a red no stack reaches is left empty");
+            }
+        }
+        TestContext.Current.TestOutputHelper?.WriteLine($"unreached: {unreachedGreen} px of the cut green, {unreachedRed} px of the red");
+        unreachedGreen.ShouldBeGreaterThan(Size, "the cut green reaches none of the top row");
+        unreachedRed.ShouldBeGreaterThan(Size, "nor does the red");
+        float.IsNaN(referenceGreen[0]).ShouldBeFalse("the reference reaches its whole grid");
+
+        // The same steps through their FITS files, as the verbs run them: the unreached pixels travel as NaN, and the master is the same
+        // to the bit.
+        var folder = _folders.Create("compose-reach").FullName;
+        var read = RoundTrip(registration.Stacks, folder, "registered");
+        float.IsNaN(read[2].Image.GetChannelSpan(0)[0]).ShouldBeTrue("an unreached pixel reads back as unreached");
+        var (fromFiles, filesRefusal) = PlanetaryComposition.Derotate(read);
+        fromFiles.ShouldNotBeNull(filesRefusal);
+        var (joinedFromFiles, filesJoinRefusal) = PlanetaryComposition.Join(RoundTrip(fromFiles.Stacks, folder, "derotated"));
+        joinedFromFiles.ShouldNotBeNull(filesJoinRefusal);
+        Differing(joined.Master, joinedFromFiles.Master).ShouldBe(0, "the steps through files give the recipe's master to the bit");
+        joined.Master.GetChannelSpan(0).ToArray().ShouldAllBe(v => float.IsFinite(v), "the master holds no unreached marker");
+    }
+
+    [Fact(Timeout = 300_000)]
     public void ALuminanceFromAnotherStackIsScaledByTheDiskWeightedByNoiseAndPlacedOnTheOthersDisk()
     {
         // Two colour masters of one capture (#1330): the "demosaic" to place on, and the "drizzle" the luminance is made from, framed
@@ -231,6 +290,23 @@ public sealed class PlanetaryCompositionTests : IDisposable
             var plane = Render(PhysicalEphemeris.Compute(CatalogIndex.Jupiter, at), DiskOf(s), s.Level);
             var name = $"{at:yyyy-MM-dd-HHmm}_{at.Second / 6}-Test-{s.Filter}-Jup.fits";
             var (stack, refusal) = PlanetaryComposition.Ingest(name, Image.FromChannel(ToPlane(plane)), instant: at);
+            stack.ShouldNotBeNull(refusal);
+            stacks.Add(stack);
+        }
+        return stacks;
+    }
+
+    // Stacks of one instant, each through its filter and framed by its own offset, ingested from WinJUPOS-style names.
+    private static List<PlanetaryMonoStack> SameInstant((string Filter, double Dx, double Dy)[] set)
+    {
+        var stacks = new List<PlanetaryMonoStack>();
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Start);
+        foreach (var (filter, dx, dy) in set)
+        {
+            var plane = Render(aspect, DiskOf((filter, 0, 0, dx, dy)), filter == "B" ? 0.6 : 0.8);
+            // One instant, so each stack's own number keeps two of one filter apart on disk.
+            var name = $"{Start:yyyy-MM-dd-HHmm}_{Start.Second / 6}-Test{stacks.Count}-{filter}-Jup.fits";
+            var (stack, refusal) = PlanetaryComposition.Ingest(name, Image.FromChannel(ToPlane(plane)), instant: Start);
             stack.ShouldNotBeNull(refusal);
             stacks.Add(stack);
         }
