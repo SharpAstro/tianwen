@@ -67,6 +67,30 @@ public class PlanetaryInverseTests
         diffraction.At(cutoff * 1.05).ShouldBe(0, 0.02);
     }
 
+    [Fact]
+    public void APupilsTableIsItsTransferAtFractionsOfTheCutoffAndTheGainsThatUndoIt()
+    {
+        // #1367's planetary pupil: a clear pupil passes the textbook's (2 / pi) (acos v - v sqrt(1 - v^2)) at each fraction v of its
+        // cutoff; the step gain is one over that until it falls below 0.02, Tikhonov's H / (H^2 + 0.02^2) throughout.
+        var pupil = new Pupil(0.254);
+        const double wavelengthNm = 650, scale = 0.25;
+        double[] fractions = [0.25, 0.5, 0.75, 0.99];
+        var rows = PlanetaryFinishing.PupilTransfer(pupil, wavelengthNm, scale, fractions);
+        var cutoff = PlanetaryFinishing.CutoffCyclesPerPixel(pupil, wavelengthNm, scale);
+        rows.Count.ShouldBe(fractions.Length);
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var (v, row) = (fractions[i], rows[i]);
+            var textbook = 2 / Math.PI * (Math.Acos(v) - (v * Math.Sqrt(1 - (v * v))));
+            TestContext.Current.TestOutputHelper?.WriteLine($"{v:0.00} of the cutoff: {row.Transfer:0.0000} (the textbook's {textbook:0.0000}), gains {row.StepGain:0.00} / {row.TikhonovGain:0.00}");
+            row.CyclesPerPixel.ShouldBe(v * cutoff, 1e-12);
+            row.Transfer.ShouldBe(textbook, 0.01);
+            row.StepGain.ShouldBe(row.Transfer < 0.02 ? 0 : 1 / row.Transfer, 1e-12);
+            row.TikhonovGain.ShouldBe(row.Transfer / ((row.Transfer * row.Transfer) + 0.0004), 1e-12);
+        }
+        rows[^1].StepGain.ShouldBe(0, "at the cutoff the pupil passes too little for the step to divide by");
+    }
+
     // O'Neill (1956): the transfer of an annular aperture of obstruction eps at v, a fraction of the cutoff (the clear term A, the
     // obstruction's own B, and their overlap C, over the annulus's area).
     private static double ONeill(double v, double eps)

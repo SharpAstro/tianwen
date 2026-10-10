@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Astrometry;
@@ -81,6 +83,33 @@ public class PlanetaryPictureTests
         ofStack.GlowBrighter.ShouldBeGreaterThan(ofTruth.GlowBrighter * 10);
     }
 
+    [Fact(Timeout = 300_000)]
+    public async Task AMastersLimbEdgeOverThePupilIsOneOnTheTruthAndTheSeeingOnAStackThroughIt()
+    {
+        // #1367: a master's edge over the pupil's own transfer (PlanetaryFinestBand.MasterEdge) reads one where only the telescope blurred
+        // it, and the seeing's own transfer where a known seeing blurred it too, within #1139's 0.05. Held at 0.1 and 0.2 cycles a pixel
+        // only: at 0.3 the edge reads a rendered truth 5 to 10 % short at any disk size (0.935 at 40 px, 0.953 at 80, 0.905 at 120), which
+        // is the edge read's own (#1468) and is printed here, not held.
+        var ct = TestContext.Current.CancellationToken;
+        var (truth, aspect) = Truth();
+        var truthPlane = OnSky(truth, 0.0005, 0, 8);
+        var stackPlane = OnSky(PlanetaryInverse.Apply(truth, Size, Size, Seeing), 0.0005, 0, 9);
+        var limbOptions = PlanetaryLimbFit.OptionsFor(aspect);
+        var fit = (await Task.Run(() => PlanetaryLimbFit.Fit(ToImage(truthPlane), limbOptions), ct)).ShouldNotBeNull();
+
+        var ofTruth = PlanetaryFinestBand.MasterEdge(truthPlane, Size, Size, fit, limbOptions, aspect, Telescope, WavelengthNm);
+        var ofStack = PlanetaryFinestBand.MasterEdge(stackPlane, Size, Size, fit, limbOptions, aspect, Telescope, WavelengthNm);
+        foreach (var f in PlanetaryChannelPicture.EdgeFrequencies)
+        {
+            TestContext.Current.TestOutputHelper?.WriteLine($"{f:0.0} cycles a pixel: truth {ofTruth.TransferAt(f):0.000}, stack {ofStack.TransferAt(f):0.000} (the seeing {Seeing(f):0.000})");
+        }
+        foreach (var f in new[] { 0.1, 0.2 })
+        {
+            ofTruth.TransferAt(f).ShouldBe(1, 0.05, $"the truth at {f}");
+            ofStack.TransferAt(f).ShouldBe(Seeing(f), 0.05, $"the stack at {f}");
+        }
+    }
+
     [Fact]
     public void TheSkysNoiseGradientAndOutliersAreReadAsPutIn()
     {
@@ -102,6 +131,50 @@ public class PlanetaryPictureTests
         picture.SkyBright.ShouldBeInRange((int)(picture.SkyOutliersExpected * 0.6), (int)(picture.SkyOutliersExpected * 1.4) + 1);
         picture.SkyDark.ShouldBeInRange((int)(picture.SkyOutliersExpected * 0.6), (int)(picture.SkyOutliersExpected * 1.4) + 1);
         picture.Moons.ShouldBe(0);
+    }
+
+    [Fact]
+    public void TheSkysNoiseBandByBandAndTheGrainAreReadAsPutIn()
+    {
+        // #1367: white noise read through the a trous bands past 2.5 radii gives Starck's noise per band for the B3 starlet, and the grain
+        // is band 1's over the globe's median level inside half a radius, a ratio the disk units cancel out of. The sky carries a gradient,
+        // which the transform's mirrored edges would fold into the coarse bands if its plane were left in (band 4 a tenth high on 256 px).
+        // A 512 px frame: on 256 px band 4's sky holds so few independent samples that it scatters 3.4 % from seed to seed, against 2 % here.
+        const int size = 512;
+        double[] starck = [0.889, 0.200, 0.086, 0.041];
+        const double noise = 0.002;
+        var disk = new MetricDisk(size / 2.0 + 0.3, size / 2.0 - 0.4, 40);
+        var random = new Random(7);
+        var plane = new float[size * size];
+        var globe = new List<double>();
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                // A limb-darkened disk, so the globe's median is not simply its brightest level.
+                var r = disk.RadiiAt(x, y);
+                var light = r <= 1 ? Disk * Math.Pow(1 - (r * r), 0.25) : 0;
+                plane[(y * size) + x] = (float)(Sky + light + (0.01 * x / size) + (noise * PhaseScreen.Gaussian(random)));
+                if (r <= PlanetaryPicture.GrainRadii)
+                {
+                    globe.Add(light);
+                }
+            }
+        }
+        globe.Sort();
+        var level = globe[globe.Count / 2];
+        var (_, scale) = PlanetaryMetrics.NormalisationLevels(plane, size, size, disk);
+
+        var picture = PlanetaryPicture.Measure(plane, size, size, disk, moons: []);
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"bands {string.Join(", ", picture.SkyBandNoise.Select((b, j) => $"{b * scale / noise:0.000} of {starck[j]:0.000}"))}; grain {picture.Grain:0.00000} (put in {starck[0] * noise / level:0.00000})");
+
+        picture.SkyBandNoise.Length.ShouldBe(starck.Length);
+        for (var j = 0; j < starck.Length; j++)
+        {
+            picture.SkyBandNoise[j].ShouldBe(starck[j] * noise / scale, starck[j] * noise / scale * 0.05, $"band {j + 1}");
+        }
+        picture.Grain.ShouldBe(starck[0] * noise / level, starck[0] * noise / level * 0.05);
     }
 
     [Fact]

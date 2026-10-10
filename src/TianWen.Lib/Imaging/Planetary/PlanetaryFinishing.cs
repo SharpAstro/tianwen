@@ -29,6 +29,14 @@ public enum PlanetaryFinish
     Wiener = 8,
 }
 
+/// <summary>One row of <see cref="PlanetaryFinishing.PupilTransfer"/>.</summary>
+/// <param name="Fraction">The fraction of the cutoff.</param>
+/// <param name="CyclesPerPixel">That frequency, cycles a pixel.</param>
+/// <param name="Transfer">The pupil's diffraction transfer there.</param>
+/// <param name="StepGain">The gain that undoes it with the step floor, the default: one over it, nothing below 0.02.</param>
+/// <param name="TikhonovGain">The gain that undoes it with Tikhonov's floor, <c>H / (H^2 + 0.02^2)</c>.</param>
+public readonly record struct PupilTransferRow(double Fraction, double CyclesPerPixel, double Transfer, double StepGain, double TikhonovGain);
+
 /// <summary>
 /// The finishing steps of <see cref="PlanetaryFinish"/>, each on one channel's window as <see cref="PlanetarySharpening"/> cuts it: a square
 /// of <c>size</c> pixels normalised on the disk (sky 0, disk 1), the planet described by a <see cref="MetricDisk"/> in its own coordinates.
@@ -54,6 +62,28 @@ public static class PlanetaryFinishing
     /// </summary>
     public static double CutoffCyclesPerPixel(Pupil pupil, double wavelengthNm, double arcsecPerPixel)
         => pupil.DiameterM / (wavelengthNm * 1e-9) / ShortExposurePsf.ArcsecPerRadian * arcsecPerPixel;
+
+    /// <summary>
+    /// The <paramref name="pupil"/>'s diffraction transfer at <paramref name="fractions"/> of its cutoff for <paramref name="wavelengthNm"/>
+    /// on a detector of <paramref name="arcsecPerPixel"/> (#1367, <c>planetary pupil</c>, which moved #1366's table out of Python), with
+    /// the gain the Wiener divides by there under each floor (<see cref="PlanetaryWaveletGains"/>, #1406): what undoing the telescope
+    /// asks of each frequency. The transfer is read on a 256 px reach, where it matches O'Neill's within 0.003 (#1398).
+    /// </summary>
+    public static IReadOnlyList<PupilTransferRow> PupilTransfer(Pupil pupil, double wavelengthNm, double arcsecPerPixel, IReadOnlyList<double> fractions)
+    {
+        ArgumentNullException.ThrowIfNull(fractions);
+        var cutoff = CutoffCyclesPerPixel(pupil, wavelengthNm, arcsecPerPixel);
+        var diffraction = PlanetaryInverse.Diffraction(pupil, wavelengthNm * 1e-9, arcsecPerPixel, reachPx: 256);
+        var rows = new PupilTransferRow[fractions.Count];
+        for (var i = 0; i < rows.Length; i++)
+        {
+            var f = fractions[i] * cutoff;
+            var h = diffraction.At(f);
+            rows[i] = new PupilTransferRow(fractions[i], f, h, PlanetaryWaveletGains.Inverse(h, PlanetaryWienerFloor.Step),
+                PlanetaryWaveletGains.Inverse(h, PlanetaryWienerFloor.Tikhonov));
+        }
+        return rows;
+    }
 
     /// <summary>The aperture target's taper is one to this fraction of the cutoff (a Tukey window, alpha 0.5, #1366).</summary>
     public const double ApertureTaperStart = 0.5;

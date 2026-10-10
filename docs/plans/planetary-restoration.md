@@ -433,6 +433,28 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
   - **R4:** frame selection barely moves the fidelity on this twin. From 2 % of the frames to all of them, band 1's error goes from 0.806 to 0.813 and band 4's transfer from 0.930 to 0.928, because its blur is mostly static (R2: a still layer at the telescope and a wide scatter).
   - **R8:** both presets over-sharpen this capture. `PlanetaryDefault` returns 1.5 times the truth in band 3, leaves more than twice the error of no sharpening there, and rings a fifth of the disk's brightness below the sky; `Combo` does less of each. R8 derives the gains from the measured blur and noise instead.
 
+### R3 a master's own numbers, out of Python
+
+**Issue:** #1367. The keep study (#1349) and the aperture target (#1366) measured with Python where our own code should have. Each of those measures is now a verb on the routines the stack and the sharpening use:
+
+- **`planetary compare` with one master is that master's report**, and `--json` writes it (`PlanetaryPictureReport`). Each channel gets:
+  - its limb (centre, radius, north);
+  - the sky's noise in each a trous band past 2.5 radii and the grain (`PlanetaryPicture.SkyBandNoise`, `Grain`);
+  - with a telescope, the limb's edge over the pupil's own transfer at 0.1, 0.2 and 0.3 cycles a pixel (`PlanetaryFinestBand.MasterEdge`) and the pupil's cutoff;
+  - the sky level and disk scale that turn its disk units back into the file's.
+- **The sky's bands are read with its plane taken out first.** The transform mirrors the frame at its edges, which folds a gradient into a kink that the coarse bands read as noise. On a 256 px frame a gradient of 0.01 read band 4 a tenth high, and the sky past 2.5 radii lies mostly near the edges.
+  - Read so, white noise gives Starck's 0.889, 0.200, 0.086 and 0.041 to within 2 % on a 512 px frame (`PlanetaryPictureTests`).
+  - On the 2026-10-07 Saturn's deep and pair masters, band 1 reads `skynoise.py`'s figure to within 0.1 % on all six channels.
+- **The grain is over the globe's level above the sky.** The keep study divided by the raw level, pedestal included, so these figures are 11 to 21 % higher on those masters (their sky sits at 0.065). The ratio between two masters is the same either way (1.107 against 1.106), so the keep study's trade-offs stand.
+- **The edge is held at 0.1 and 0.2 cycles a pixel only.**
+  - There it reads a diffracted render within 0.05 of one, and a known seeing within 0.02.
+  - At 0.3 it reads a plain render 5 to 10 % short at any disk size (#1468), so the report prints 0.3 and nothing is concluded from it.
+  - On the composed Saturn masters it reproduces #1352's seam-inflated edge (0.38 at 0.3 on the deep master).
+- **`planetary pupil`** prints a telescope's diffraction transfer at fractions of its cutoff and the gain that undoes it under each Wiener floor (`PlanetaryFinishing.PupilTransfer`). For a clear 254 mm, 23 % obstructed pupil it gives #1366's table within 0.003: 0.839, 0.614, 0.426, 0.361, 0.299, 0.199 and 0.110 at 0.1 to 0.8 of the cutoff.
+- **The survey's manifest (version 4) carries each capture's exposure and gain** (`CaptureRecord.ExposureMs`, `Gain`, `PlanetaryCorpus.ExposureAndGain`) beside the frame rate its timestamps already gave.
+  - They are read off the 39 settings files the corpus holds: SharpCap's `Exposure` and `Gain`, or `Analogue Gain` for a Player One camera; FireCapture's `Shutter` and `Gain`.
+  - An exposure without its unit is not read.
+
 ## R4 Which frames to keep
 
 **Issue:** #1052 (feeds #817).
@@ -2015,6 +2037,7 @@ Band error summed over bands 1 to 4 inside 0.9 radii, the limb's undershoot, and
   | the real 2022-09-03 Red | | 0.431, 0.082, 0.007 | 0.522, 0.266, 0.207 | | 0.486, 0.214, 0.107 |
 
 - **(b), the edge, reads the finest band; by the letter it fails the claim.** At 0.3 cycles a pixel it reads the oracle within 0.011 and 0.002 on the two twins whose self-check holds (the limb's kernel reads 0.054 and 0.640 there, against 0.282 and 0.743). At 0.2 it reads 0.052 and 0.060 low, past the 0.05 claimed. On the warped twin its self-check fails (the truth's own edge reads 0.88 at 0.3 against the limb fit's model), so it is not read there: the limb fit of a warped stack is not that stack's edge.
+  - Found later (#1367, open as #1468): a plain render with no warp, a uniform map at 40 to 120 px radii, also reads 5 to 10 % short at 0.3 cycles a pixel (0.905 to 0.953), so the self-check's failure is not the warp's alone.
 - **(c), the spectrum, is not read: its kill line fires.** 2024d's texture power over 2022b's, both at the capture's geometry, is 1.33 from 0.10 to 0.15 cycles a pixel and 0.66 from 0.15 to 0.20; a year's belts are not another year's below 0.2 cycles a pixel.
   - Post hoc, not claimed: from 0.2 to 0.3 the two years agree within 5 % (1.005, 1.047), and there (c) reads 0.329, 0.773 and 0.127 at 0.3, each within 0.05 of the oracle, on all three twins. The finest band's texture is a year-free statistic where the coarse bands' is not.
 - **The real capture's finest band is there.** Its edge reads 0.207 at 0.3 cycles a pixel where the limb fit's kernel said 0.007: R8 part 3 derived its gains through a finest band the kernel's tail had put at nothing (#1120). Read along R7a's axis and across it, the edge is lower along it at 0.1 and 0.2 (0.547 against 0.575, 0.275 against 0.306), as an elongated blur would be; at 0.3 the two sectors (0.157, 0.016) are a third of the limb each, one of them beside the terminator's arc, and do not agree with the whole (0.207): too noisy to read.

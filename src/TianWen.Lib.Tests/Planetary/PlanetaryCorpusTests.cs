@@ -191,6 +191,28 @@ public class PlanetaryCorpusTests : IDisposable
         settings.Keys.ToArray().ShouldBe(settings.Keys.Order(StringComparer.Ordinal).ToArray(), "keys sorted, so the manifest's bytes are stable");
     }
 
+    [Theory]
+    // The forms the corpus's 39 settings files hold (#1367): SharpCap with a ZWO camera, SharpCap with a Player One one, FireCapture.
+    [InlineData("[ZWO ASI462MC]\nExposure=10.7550ms\nGain=130\n", 10.755, 130.0)]
+    [InlineData("[Uranus-C (IMX585)]\nAnalogue Gain=511\nExposure=0.0800ms\n", 0.08, 511.0)]
+    [InlineData("FireCapture v2.7 Settings\nShutter=10.00ms\nGain=3600 (100%)\n", 10.0, 3600.0)]
+    [InlineData("Exposure=1.5s\n", 1500.0, null)]
+    [InlineData("Exposure=250us\n", 0.25, null)]
+    [InlineData("Exposure=15\nGain=high\n", null, null)]
+    public void ACapturesExposureAndGainAreReadOffItsSettings(string text, double? exposureMs, double? gain)
+    {
+        var (readExposure, readGain) = PlanetaryCorpus.ExposureAndGain(PlanetaryCorpus.ParseSettings(text));
+        if (exposureMs is { } ms)
+        {
+            readExposure.ShouldNotBeNull().ShouldBe(ms, 1e-9);
+        }
+        else
+        {
+            readExposure.ShouldBeNull("an exposure with no unit could be seconds or milliseconds");
+        }
+        readGain.ShouldBe(gain);
+    }
+
     [Fact(Timeout = 60_000)]
     public async Task AFolderOfFitsFramesIsAPlanetaryVideoOnlyWhenItsTimesSayVideoAndABiasVideoIsFlaggedCalibration()
     {
@@ -283,7 +305,7 @@ public class PlanetaryCorpusTests : IDisposable
         var root = NewFolder();
         var night = root.CreateSubdirectory("Jupiter");
         WriteCapture(Path.Combine(night.FullName, "12_33_50Z_.ser"));
-        File.WriteAllText(Path.Combine(night.FullName, "12_33_50Z_.CameraSettings.txt"), "[ZWO ASI462MC]\nColour Space=RAW8\nGain=121\n");
+        File.WriteAllText(Path.Combine(night.FullName, "12_33_50Z_.CameraSettings.txt"), "[ZWO ASI462MC]\nColour Space=RAW8\nGain=121\nExposure=15.0000ms\n");
         var copies = root.CreateSubdirectory("Copies");
         File.Copy(Path.Combine(night.FullName, "12_33_50Z_.ser"), Path.Combine(copies.FullName, "renamed.ser"));
         WriteCapture(Path.Combine(night.FullName, "12_40_00_pipp.ser"), timestamps: false, vx: 0.5);
@@ -307,6 +329,7 @@ public class PlanetaryCorpusTests : IDisposable
         capture.TimestampsMonotonic.ShouldBe(true);
         capture.FirstUtc.ShouldBe("2024-12-15T12:33:50.0000000Z");
         capture.Settings.ShouldNotBeNull()["Gain"].ShouldBe("121");
+        (capture.ExposureMs, capture.Gain).ShouldBe((15.0, 121.0), "the settings' exposure and gain, typed (#1367)");
 
         var copy = byName["renamed.ser"];
         copy.Id.ShouldBe(capture.Id, "the same bytes under another name are the same capture");

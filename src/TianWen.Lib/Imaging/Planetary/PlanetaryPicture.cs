@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging.Optics;
 using TianWen.Lib.Stat;
@@ -17,10 +18,17 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// <item>the limb's glow (1 to <see cref="GlowRadii"/>): the light found against the light the planet's own model through the pupil
 /// expects there, the truth's diffraction glow, and how many pixels lie further than <see cref="Sigmas"/> noise from it either way;</item>
 /// <item>the sky (past <see cref="SkyRadii"/>): its noise, its gradient across the frame, its structure (block means over what the noise
-/// gives them) and its outliers found against the count a Gaussian of that noise expects.</item>
+/// gives them) and its outliers found against the count a Gaussian of that noise expects; its noise in each a trous band, and the
+/// finished picture's grain.</item>
 /// </list>
 /// A moon (<see cref="PlanetaryMetrics.CompactSources"/>) is left out of the glow and the sky, within <see cref="MoonReachPx"/>.
 /// </summary>
+/// <param name="SkyBandNoise">The sky's noise in each a trous band, finest first, as <see cref="BandRms"/> splits the disk: 1.4826 times
+/// the median deviation of the band's values past <see cref="SkyRadii"/>, moons left out, the sky's plane taken out before the transform
+/// (#1367, which moved the keep study's <c>skynoise.py</c> here). White noise of one reads Starck's 0.889, 0.200, 0.086 and 0.041 in
+/// bands 1 to 4.</param>
+/// <param name="Grain">Band 1's sky noise over the globe's median level inside <see cref="GrainRadii"/>: the grain a finished picture
+/// shows, which the keep study (#1349) traded the keep fraction against.</param>
 public sealed record PlanetaryPicture(
     double Contrast,
     ImmutableArray<double> BandRms,
@@ -42,7 +50,9 @@ public sealed record PlanetaryPicture(
     int SkyDark,
     double SkyOutliersExpected,
     int SkyPixels,
-    int Moons)
+    int Moons,
+    ImmutableArray<double> SkyBandNoise,
+    double Grain)
 {
     /// <summary>The disk's statistics are read inside this many radii, clear of the limb's blur.</summary>
     public const double DiskRadii = 0.9;
@@ -67,6 +77,9 @@ public sealed record PlanetaryPicture(
 
     /// <summary>The side of the sky's blocks, px, whose means set its structure.</summary>
     public const int BlockPx = 32;
+
+    /// <summary>The globe's level the grain is read against is its median inside this many radii, clear of the limb's darkening.</summary>
+    public const double GrainRadii = 0.5;
 
     /// <summary>
     /// <paramref name="plane"/> (<paramref name="width"/> by <paramref name="height"/>, row-major) measured about its planet's
@@ -154,6 +167,7 @@ public sealed record PlanetaryPicture(
             }
         }
         var (noise, gradient, blockScatter, bright, dark, outliersExpected) = (double.NaN, double.NaN, double.NaN, 0, 0, 0.0);
+        var skyBandNoise = Enumerable.Repeat(double.NaN, decomposition.ScaleCount).ToImmutableArray();
         if (skyCount >= 16)
         {
             // The noise is the spread about the plane, so a gradient is not read as noise.
@@ -200,7 +214,40 @@ public sealed record PlanetaryPicture(
                 }
             }
             outliersExpected = skyCount * 0.5 * Erfc(Sigmas / Math.Sqrt(2));
+
+            // The sky's noise band by band, read with its plane taken out first: the transform mirrors the frame at its edges, which folds a
+            // gradient into a kink there that the coarse bands read as noise, and the sky past 2.5 radii is mostly near the edges (on a
+            // 256 px frame a gradient of 0.01 raised band 4 by a tenth).
+            var flat = new float[n];
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    var i = (y * width) + x;
+                    flat[i] = (float)(v[i] - (a + (b * x) + (c * y)));
+                }
+            }
+            skyBandNoise = SkyBandNoiseOf(ATrousWaveletTransform.Decompose(flat, width, height, decomposition.ScaleCount), radii, masked, skyCount);
         }
+
+        // The grain: band 1's sky noise over the globe's median level.
+        var globeCount = 0;
+        for (var i = 0; i < n; i++)
+        {
+            if (radii[i] <= GrainRadii && float.IsFinite(v[i]))
+            {
+                globeCount++;
+            }
+        }
+        var globe = new float[globeCount];
+        for (int i = 0, k = 0; i < n; i++)
+        {
+            if (radii[i] <= GrainRadii && float.IsFinite(v[i]))
+            {
+                globe[k++] = v[i];
+            }
+        }
+        var grain = globeCount > 0 ? skyBandNoise[0] / StatisticsHelper.MedianFast(globe) : double.NaN;
 
         // The limb's glow against the planet's own model through the pupil.
         var threshold = Sigmas * (glowNoise ?? noise);
@@ -243,7 +290,34 @@ public sealed record PlanetaryPicture(
         return new PlanetaryPicture(contrast, bands.MoveToImmutable(), atPeak, heldAtSky, found, expected.IsEmpty ? double.NaN : expectedSum,
             nearFound, expected.IsEmpty ? double.NaN : nearExpected,
             expected.IsEmpty ? double.NaN : excess, expected.IsEmpty ? double.NaN : deficit, brighter, darker, glowPixels,
-            noise, gradient, blockScatter, bright, dark, outliersExpected, skyCount, moonsHere.Length);
+            noise, gradient, blockScatter, bright, dark, outliersExpected, skyCount, moonsHere.Length, skyBandNoise, grain);
+    }
+
+    // Each band's noise over the sky: 1.4826 times the median deviation about the band's own median there, in a decomposition of the plane
+    // with its sky's plane taken out.
+    private static ImmutableArray<double> SkyBandNoiseOf(WaveletDecomposition decomposition, float[] radii, bool[] masked, int skyCount)
+    {
+        var noise = ImmutableArray.CreateBuilder<double>(decomposition.ScaleCount);
+        var sky = new float[skyCount];
+        for (var j = 0; j < decomposition.ScaleCount; j++)
+        {
+            var detail = decomposition.Detail(j);
+            var k = 0;
+            for (var i = 0; i < radii.Length; i++)
+            {
+                if (radii[i] >= SkyRadii && !masked[i])
+                {
+                    sky[k++] = detail[i];
+                }
+            }
+            var median = StatisticsHelper.MedianFast(sky);
+            for (k = 0; k < skyCount; k++)
+            {
+                sky[k] = Math.Abs(sky[k] - median);
+            }
+            noise.Add(1.4826 * StatisticsHelper.MedianFast(sky));
+        }
+        return noise.MoveToImmutable();
     }
 
     /// <summary>The moons in <paramref name="plane"/> about <paramref name="disk"/>, as <see cref="Measure"/> finds them.</summary>
