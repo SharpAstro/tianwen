@@ -253,9 +253,9 @@ public static class PlanetaryChannelAlignment
     // plane(x + dx, y + dy) at every pixel, by the stack's resampling, row bands in parallel (each writes only its own rows).
     internal static float[,] Moved(float[,] plane, double dx, double dy) => Moved(plane, dx, dy, plane.GetLength(1), plane.GetLength(0));
 
-    // The same onto a grid of its own size (a stack cropped to where its frames reached, #1300, moved onto another's): zero where the
-    // plane does not reach.
-    internal static float[,] Moved(float[,] plane, double dx, double dy, int outWidth, int outHeight)
+    // The same onto a grid of its own size (a stack cropped to where its frames reached, #1300, moved onto another's): `unreached`, zero
+    // unless asked, where the plane does not reach (compose marks it NaN, so its join can average only the stacks that do, #1361).
+    internal static float[,] Moved(float[,] plane, double dx, double dy, int outWidth, int outHeight, float unreached = 0f)
     {
         var height = plane.GetLength(0);
         var width = plane.GetLength(1);
@@ -268,7 +268,7 @@ public static class PlanetaryChannelAlignment
                 for (var x = 0; x < outWidth; x++)
                 {
                     var v = Image.Lanczos3Value(flat, width, height, (float)(x + dx), (float)(y + dy), Image.LanczosClampingThreshold);
-                    moved[y, x] = float.IsNaN(v) ? 0f : v;
+                    moved[y, x] = float.IsNaN(v) ? unreached : v;
                 }
             }
         });
