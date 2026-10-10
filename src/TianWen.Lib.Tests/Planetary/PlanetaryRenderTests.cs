@@ -195,7 +195,7 @@ public class PlanetaryRenderTests
     [Theory]
     [InlineData(3.0, 3.0)]
     [InlineData(6.0, 3.0)]
-    [InlineData(6.0, 2.0, Skip = "#1221: through the full diffraction wing (#1213) the fit's halo takes its far branch here and reads the radius +1.33 % large")]
+    [InlineData(6.0, 2.0, Skip = "#1221: through the full diffraction wing (#1213) the fit's halo takes its far branch here and reads the radius +1.33 % large; with OPAL's k held it passes (WithOpalsKHeldTheLimbFitFindsARenderedJupiterUnderABroadWing), an option")]
     public void TheLimbFitFindsARenderedJupiterWhereItWasPut(double seeingFwhm, double beta)
     {
         var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
@@ -230,6 +230,60 @@ public class PlanetaryRenderTests
         Math.Abs(f.CenterX - placement.CenterX).ShouldBeLessThan(0.2);
         Math.Abs(f.CenterY - placement.CenterY).ShouldBeLessThan(0.2);
         Math.Abs(radiusError).ShouldBeLessThan(0.005);
+    }
+
+    /// <summary>
+    /// #1221: the three seeings under which the fitted k takes the far branch and T1 fails (+0.64, +1.33 and +0.56 % in the radius) pass
+    /// with Minnaert's k held at OPAL's at 550 nm (0.97), though the render's is 0.95: held, k cannot wander to that branch.
+    /// </summary>
+    [Theory]
+    [InlineData(4.0, 2.0)]
+    [InlineData(6.0, 2.0)]
+    [InlineData(7.0, 2.0)]
+    public void WithOpalsKHeldTheLimbFitFindsARenderedJupiterUnderABroadWing(double seeingFwhm, double beta)
+    {
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
+        var scale = 0.487;
+        var radius = aspect.AngularDiameterArcsec / 2 / scale;
+        var placement = new DiskPlacement(160.37, 120.62, radius, NorthAngleDeg: 112.3);
+        var newtonian = new Pupil(0.254, ObstructionRatio: 58.0 / 254, Vanes: 4, VaneWidthM: 0.001, VaneAngleDeg: 28);
+        var truth = PlanetaryRender.RenderDiffracted(SyntheticJupiter(), aspect, placement, 320, 240, minnaertK: 0.95, newtonian, 550e-9, scale);
+        var seen = PsfKernel.Moffat(seeingFwhm, beta).Convolve(truth, 320, 240);
+        var image = new float[240, 320];
+        for (var y = 0; y < 240; y++)
+        {
+            for (var x = 0; x < 320; x++)
+            {
+                image[y, x] = seen[(y * 320) + x];
+            }
+        }
+        var options = PlanetaryLimbFit.OptionsFor(aspect, [550.0]);
+        var held = options.LimbDarkening.ShouldNotBeNull();
+
+        var f = PlanetaryLimbFit.Fit(Image.FromChannel(image), options).ShouldNotBeNull();
+
+        var radiusError = (f.EquatorialRadius - radius) / radius;
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"seeing FWHM {seeingFwhm} px, beta {beta}, k held at {held:0.000}: centre off {f.CenterX - placement.CenterX:+0.000;-0.000}, {f.CenterY - placement.CenterY:+0.000;-0.000} px, radius {radiusError:+0.00%;-0.00%}, k {f.LimbDarkening:0.0000}");
+        f.LimbDarkening.ShouldBe(held, 1e-3, "held, not fitted");
+        Math.Abs(f.CenterX - placement.CenterX).ShouldBeLessThan(0.2);
+        Math.Abs(f.CenterY - placement.CenterY).ShouldBeLessThan(0.2);
+        Math.Abs(radiusError).ShouldBeLessThan(0.005);
+    }
+
+    [Fact]
+    public void OpalsMinnaertKIsItsReadmesTableInterpolatedByWavelengthForJupiterAlone()
+    {
+        PlanetaryLimbFit.OpalMinnaertK(CatalogIndex.Jupiter, 395.3).ShouldNotBeNull().ShouldBe(0.85);
+        PlanetaryLimbFit.OpalMinnaertK(CatalogIndex.Jupiter, 300).ShouldNotBeNull().ShouldBe(0.85, "held flat past the bluest filter");
+        PlanetaryLimbFit.OpalMinnaertK(CatalogIndex.Jupiter, 480).ShouldNotBeNull().ShouldBe(0.95, "flat between F467M and F502N");
+        PlanetaryLimbFit.OpalMinnaertK(CatalogIndex.Jupiter, 650).ShouldNotBeNull().ShouldBe(0.999);
+        PlanetaryLimbFit.OpalMinnaertK(CatalogIndex.Jupiter, 750).ShouldNotBeNull().ShouldBe(0.999, "held flat past the reddest");
+        PlanetaryLimbFit.OpalMinnaertK(CatalogIndex.Jupiter, 550).ShouldNotBeNull().ShouldBe(0.95 + ((550 - 501.0) / (630.4 - 501.0) * 0.049), 1e-12);
+        PlanetaryLimbFit.OpalMinnaertK(CatalogIndex.Saturn, 650).ShouldBeNull("Saturn's readmes change from one apparition to the next");
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
+        PlanetaryLimbFit.OptionsFor(aspect, [650.0, 460.0]).LimbDarkening.ShouldNotBeNull().ShouldBe((0.999 + PlanetaryLimbFit.OpalMinnaertK(CatalogIndex.Jupiter, 460).ShouldNotBeNull()) / 2, 1e-12);
+        PlanetaryLimbFit.OptionsFor(aspect, []).LimbDarkening.ShouldBeNull("no wavelength, k fitted");
     }
 
     // A Jupiter to measure against: belts where Jupiter's are (planetographic), the polar regions darker from 50 degrees, and

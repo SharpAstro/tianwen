@@ -36,16 +36,18 @@ internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleH
         var utcOpt = new Option<string?>("--utc") { Description = "The image's time (ISO 8601, UTC), for an image with no .ims.xml." };
         var phaseOpt = new Option<double?>("--phase") { Description = "Override the ephemeris' phase angle, in degrees (0 fits a fully lit disk): a diagnostic." };
         var sunSideOpt = new Option<int?>("--sun-side") { Description = "Force which end of the equator is lit (+1 or -1) instead of fitting both: a diagnostic." };
+        var limbKOpt = new Option<string>("--limb-k") { Description = "Minnaert's k (#1221): fitted (the default) or opal, held at OPAL's for the image's filter (its file name's filter word, a colour image's three channels, else broadband 550 nm).", DefaultValueFactory = _ => "fitted" };
 
         var command = new Command("limb", "Fit a planet's disk at its limb (centre, equatorial radius, axis) with the ephemeris' shape and phase; compare with WinJUPOS's own outline.")
         {
             Arguments = { inputsArg },
-            Options = { planetOpt, utcOpt, phaseOpt, sunSideOpt },
+            Options = { planetOpt, utcOpt, phaseOpt, sunSideOpt, limbKOpt },
         };
 
         command.SetAction((parseResult, ct) =>
         {
             var failed = 0;
+            var opalK = (parseResult.GetValue(limbKOpt) ?? "fitted").Equals("opal", StringComparison.OrdinalIgnoreCase);
             consoleHost.WriteScrollable("image                                   x0        y0        R       axis   k     sigma  side  rms       rms/disk | WinJUPOS dx     dy     dR (%)   rotation");
             foreach (var input in parseResult.GetValue(inputsArg) ?? [])
             {
@@ -66,7 +68,9 @@ internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleH
                     continue;
                 }
                 var aspect = PhysicalEphemeris.Compute(planet, utc);
-                var options = PlanetaryLimbFit.OptionsFor(aspect) with { SunSide = parseResult.GetValue(sunSideOpt) };
+                // The file name's filter word first: a mono stack saved as a three-channel TIFF is still its filter's.
+                double[] wavelengthsNm = PlanetaryCaptureName.WavelengthNm(imagePath) is { } named ? [named] : image.ChannelCount == 3 ? [650, 530, 460] : [550];
+                var options = (opalK ? PlanetaryLimbFit.OptionsFor(aspect, wavelengthsNm) : PlanetaryLimbFit.OptionsFor(aspect)) with { SunSide = parseResult.GetValue(sunSideOpt) };
                 if (parseResult.GetValue(phaseOpt) is { } phase)
                 {
                     options = options with { PhaseAngleDeg = phase };

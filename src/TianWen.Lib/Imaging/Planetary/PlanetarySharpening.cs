@@ -140,6 +140,18 @@ public enum PlanetaryUnderSky
 }
 
 /// <summary>
+/// How the limb fit the derived sharpening reads takes Minnaert's k (#1221).
+/// </summary>
+public enum PlanetaryLimbDarkening
+{
+    /// <summary>Fitted from the annulus, as the limb fit does everywhere.</summary>
+    Fitted,
+
+    /// <summary>Held at OPAL's for the channels' wavelengths (<see cref="PlanetaryLimbFit.OpalMinnaertK"/>), where OPAL's table has the planet.</summary>
+    Opal,
+}
+
+/// <summary>
 /// What a planetary master is sharpened against: the planet and the instant its aspect is read at, and the telescope's pupil and each
 /// channel's wavelength, which set the diffraction the limb's edge is read over (R8 follow-up 3). Without a pupil the gains cannot be
 /// derived, and <see cref="PlanetarySharpening.Sharpen"/> sharpens by <see cref="WaveletSharpenOptions.PlanetaryDefault"/> with the limb kept
@@ -292,6 +304,9 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     /// <summary>How the derived Wiener filter meets a transfer near nothing (#1406): the step at <see cref="PlanetaryWaveletGains.MinTransfer"/> by default.</summary>
     public PlanetaryWienerFloor WienerFloor { get; init; }
 
+    /// <summary>How the limb fit takes Minnaert's k (#1221): fitted by default.</summary>
+    public PlanetaryLimbDarkening LimbDarkening { get; init; }
+
     /// <summary>What the planet's last band inside its outline is floored at under <see cref="PlanetaryLimbFix.ModelFeathered"/> (#1329).</summary>
     public PlanetaryLimbBand LimbBand { get; init; }
 
@@ -411,7 +426,9 @@ public static class PlanetarySharpening
             return SharpenLuminance(master, options);
         }
         var aspect = PhysicalEphemeris.Compute(options.Planet, options.When);
-        var limbOptions = PlanetaryLimbFit.OptionsFor(aspect);
+        var limbOptions = options.LimbDarkening is PlanetaryLimbDarkening.Opal
+            ? PlanetaryLimbFit.OptionsFor(aspect, options.WavelengthsNm.Take(Math.Min(master.ChannelCount, options.WavelengthsNm.Length)).ToArray())
+            : PlanetaryLimbFit.OptionsFor(aspect);
         if (PlanetaryLimbFit.Fit(master, limbOptions) is not { } fit)
         {
             return null;
