@@ -237,6 +237,49 @@ public class PlanetaryDeringTests
     }
 
     [Fact]
+    public void APixelTheSharpeningDrivesBelowTheSkyTakesTheModelWhenAskedAndNothingAboveTheSkyMoves()
+    {
+        // #1471: at strength 2 a sharpening's negative lobe drove Saturn's C ring and the gap inside it past the sky, where the truth is a dim
+        // glow. Asked, a pixel inside the outline the sharpening leaves at or below the sky takes the model; any other pixel is as it was.
+        var (sharpened, stacked, model) = (new float[Size * Size], new float[Size * Size], new float[Size * Size]);
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                var (i, r) = ((y * Size) + x, Disk.RadiiAt(x, y));
+                stacked[i] = r <= 1 ? 1f : 0f;
+                model[i] = r <= 1.2 ? 0.4f : 0f;
+                // Below the sky in a ring about half the radius, at it on a row, above it everywhere else inside.
+                sharpened[i] = r is >= 0.45 and <= 0.55 ? -0.2f : y == 63 && r < 0.4 ? 0f : r <= 1 ? 0.1f : 0.3f;
+            }
+        }
+
+        var atSky = PlanetaryDering.Outside(sharpened, stacked, Size, Size, Disk, PlanetaryDering.OutsideLimb.ModelFeathered, model: model);
+        var atModel = PlanetaryDering.Outside(sharpened, stacked, Size, Size, Disk, PlanetaryDering.OutsideLimb.ModelFeathered, model: model, modelUnderSky: true);
+
+        int under = 0, elsewhereMoved = 0;
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                var i = (y * Size) + x;
+                if (Disk.RadiiAt(x, y) <= 1 && sharpened[i] <= 0)
+                {
+                    under++;
+                    atSky[i].ShouldBe(0f, "floored at the sky, as before");
+                    atModel[i].ShouldBe(0.4f, "the model where the sharpening reached the sky");
+                }
+                else if (BitConverter.SingleToInt32Bits(atSky[i]) != BitConverter.SingleToInt32Bits(atModel[i]))
+                {
+                    elsewhereMoved++;
+                }
+            }
+        }
+        under.ShouldBeGreaterThan(100);
+        elsewhereMoved.ShouldBe(0, "a pixel the sharpening leaves above the sky, and any past the outline, is as it was to the bit");
+    }
+
+    [Fact]
     public void AMoonKeptInTheModelsZoneAddsItsOwnLightAndNoneOfTheGlowItSitsIn()
     {
         // #1301: a moon's sharpening was kept whole within its reach, the stack's glow with it, while the planet's model was drawn around it;

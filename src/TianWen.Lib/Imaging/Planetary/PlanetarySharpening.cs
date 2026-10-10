@@ -127,6 +127,19 @@ public enum PlanetaryLimbBand
 }
 
 /// <summary>
+/// What a pixel inside the planet's outline takes when the derived sharpening drives it to the sky or below (#1471), under
+/// <see cref="PlanetaryLimbFix.ModelFeathered"/>.
+/// </summary>
+public enum PlanetaryUnderSky
+{
+    /// <summary>The sky: the sharpening is floored there.</summary>
+    Sky,
+
+    /// <summary>The planet's model through the pupil, which <see cref="PlanetaryLimbFix.ModelFeathered"/> draws just past the outline.</summary>
+    Model,
+}
+
+/// <summary>
 /// What a planetary master is sharpened against: the planet and the instant its aspect is read at, and the telescope's pupil and each
 /// channel's wavelength, which set the diffraction the limb's edge is read over (R8 follow-up 3). Without a pupil the gains cannot be
 /// derived, and <see cref="PlanetarySharpening.Sharpen"/> sharpens by <see cref="WaveletSharpenOptions.PlanetaryDefault"/> with the limb kept
@@ -281,6 +294,9 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
 
     /// <summary>What the planet's last band inside its outline is floored at under <see cref="PlanetaryLimbFix.ModelFeathered"/> (#1329).</summary>
     public PlanetaryLimbBand LimbBand { get; init; }
+
+    /// <summary>What a pixel inside the planet's outline the sharpening drives to the sky or below takes under <see cref="PlanetaryLimbFix.ModelFeathered"/> (#1471).</summary>
+    public PlanetaryUnderSky UnderSky { get; init; }
 
     // The master being sharpened is a colour master's luminance (LuminanceOnly): its finest band holds the colour filter's residue as the
     // colour planes do, so it follows ColourFinestBand as they would (#1187).
@@ -500,7 +516,7 @@ public static class PlanetarySharpening
                     }
                 }
                 sharpened = Apply(window, size, disk, sharp, f => kernel(f) * diffraction.At(f), target.At, gains.AsSpan(), [], options.Fix, diskTarget, blurredDisk,
-                    options.LimbBand);
+                    options.LimbBand, options.UnderSky);
                 cutoffs[c] = PlanetaryFinishing.CutoffCyclesPerPixel(pupil, wavelengthNm, limbWindow.ArcsecPerPixel);
                 var sharpening = gains;
                 (sharpened, var wienerCut) = Finished(window, sharpened, contrastFrom ?? window, size, disk, options, cutoffs[c], white,
@@ -760,7 +776,8 @@ public static class PlanetarySharpening
 
     // The window sharpened by the gains, the limb kept from ringing as asked.
     private static float[] Apply(float[] window, int size, MetricDisk disk, float[] sharp, Func<double, double> total, Func<double, double> diffraction,
-        ReadOnlySpan<double> gains, ReadOnlySpan<double> thresholds, PlanetaryLimbFix fix, float[] diskTarget, float[] blurredDisk, PlanetaryLimbBand limbBand)
+        ReadOnlySpan<double> gains, ReadOnlySpan<double> thresholds, PlanetaryLimbFix fix, float[] diskTarget, float[] blurredDisk, PlanetaryLimbBand limbBand,
+        PlanetaryUnderSky underSky)
     {
         var (g, t) = (gains.ToArray(), thresholds.ToArray());
         return fix switch
@@ -780,7 +797,7 @@ public static class PlanetarySharpening
             PlanetaryLimbFix.GlowSwapped => PlanetaryDering.Outside(PlanetaryDering.Sharpen(window, size, size, g, t), window, size, size, disk, PlanetaryDering.OutsideLimb.GlowSwapped,
                 model: diskTarget, blurredModel: blurredDisk),
             PlanetaryLimbFix.ModelFeathered => PlanetaryDering.Outside(PlanetaryDering.Sharpen(window, size, size, g, t), window, size, size, disk, PlanetaryDering.OutsideLimb.ModelFeathered,
-                model: diskTarget, modelInLimbBand: limbBand == PlanetaryLimbBand.Model),
+                model: diskTarget, modelInLimbBand: limbBand == PlanetaryLimbBand.Model, modelUnderSky: underSky == PlanetaryUnderSky.Model),
             _ => PlanetaryDering.Sharpen(window, size, size, g, t),
         };
     }
