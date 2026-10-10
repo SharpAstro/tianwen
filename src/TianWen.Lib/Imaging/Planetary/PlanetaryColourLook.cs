@@ -62,9 +62,10 @@ public sealed record ColourLook
     /// <summary>
     /// The look a capture with no reference gets on asking, the owner's pick by eye (2026-10-05, #1273): an S-curve on each pixel's chroma
     /// about grey, its hue kept, the tint as balanced. It holds the less coloured half of the planet below the master's chroma (0.69 to 0.97,
-    /// rings and zones whiter) and raises the more coloured half (1.04 to 1.68, belts redder). It is the mean, at every quantile, of four
-    /// observers' posts' chroma over our default master's (the EdgeHD 11 and 16-inch Saturns, the 678MC Jupiter, the 12-inch SCT Jupiter).
-    /// Built from three of them, the curve met the fourth within 25 % on three captures of four (#1273's V5, one value of twelve over): a
+    /// rings and zones whiter) and raises the more coloured half (1.04 to 1.68, belts redder). It was the mean, at every quantile, of four
+    /// observers' posts' chroma over our default master's (the EdgeHD 11 and 16-inch Saturns, the 678MC Jupiter, the 12-inch SCT Jupiter) as
+    /// the judge read them before #1407 made its sky level continuous; read through that fix the mean is 3 to 10 % higher, the same S shape.
+    /// Built from three of them, the curve met the fourth within 25 % on three captures of four (#1273's V5, and again through the fix): a
     /// taste the posts share, which the owner chose by eye.
     /// </summary>
     public static ColourLook Boosted { get; } = new ColourLook { ChromaGains = [.. BoostedGains] };

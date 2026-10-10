@@ -224,6 +224,41 @@ public class PlanetaryMetricsTests
     }
 
     [Fact]
+    public void TheSkysLevelIsTheMedianOfItsFinitePixelsWhereverItsNaNsFall()
+    {
+        // #1407: a reference's tone-matched sky holds NaN where its shown luminance is zero. A median over those is undefined, and the
+        // judge's colour read the red sky at 0 or at its level on a last-bit change elsewhere. Here every draw scatters NaNs differently.
+        var rng = new Random(1407);
+        for (var draw = 0; draw < 25; draw++)
+        {
+            var plane = new float[Size * Size];
+            var finite = new System.Collections.Generic.List<float>();
+            for (var y = 0; y < Size; y++)
+            {
+                for (var x = 0; x < Size; x++)
+                {
+                    var value = 0.03f + (0.01f * (float)rng.NextDouble());
+                    var sky = Disk.ClearRadiiAt(x, y) >= PlanetaryPicture.SkyRadii;
+                    if (sky && rng.NextDouble() < 0.05)
+                    {
+                        value = float.NaN;
+                    }
+                    else if (sky)
+                    {
+                        finite.Add(value);
+                    }
+                    plane[(y * Size) + x] = value;
+                }
+            }
+            finite.Sort();
+            var n = finite.Count;
+            var median = (n & 1) == 1 ? finite[n / 2] : (finite[(n / 2) - 1] + finite[n / 2]) / 2.0;
+
+            PlanetaryMetrics.SkyLevel(plane, Size, Size, Disk).ShouldNotBeNull().ShouldBe(median, 1e-6, $"draw {draw}");
+        }
+    }
+
+    [Fact]
     public void TheLimbsTroughIsTheDeepestFallBelowTheReferenceJustOutsideTheLimb()
     {
         // #1171: a dip of 0.05 laid 1.05 radii out reads 0.05 below the plane it was cut from, and nothing below itself.
