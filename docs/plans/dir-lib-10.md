@@ -1122,9 +1122,15 @@ nothing read, went with the declaration. **Corrected 2026-10-10:** this used to 
 was left, and that it waits until the file list is a tree. Neither waits on T3: each one's region already
 registers an `onPress` that sets the flag and returns `null` (`ImageRendererBase.FileList.cs`, the grab;
 `ImageRendererBase.Transport.cs`, the scrub track), so returning a `DragCapture` from that same `onPress`
-deletes the flag and its move and release branches. `ImageRendererBase.TryBeginRegionDrag`, the viewer's stopgap
-for holding a capture outside the router, has no callers since `StandaloneViewerHost` routes press, move and
-release through the router, and can go too. Ctrl+Tab and Ctrl+Shift+Tab are not outstanding: they name the NEXT
+deletes each one's move and release branches. For `IsScrubbing` that is the whole flag: nothing else reads it.
+`IsResizingFileList` has two more readers, which a capture gives nothing to read: the divider's active colour
+(`ImageRendererBase.Layout.cs`, `dividerColor`) and `tianwen-fits`' cursor held through the drag
+(`UpdateCursor` in `TianWen.UI.FitsViewer/Program.cs`). Each needs an answer of its own before the flag can
+go, such as a field the capture sets and clears for the colour, and the router saying what cursor a running drag
+shows. `ImageRendererBase.TryBeginRegionDrag`, the viewer's stopgap for holding a capture outside the router, has
+no callers since `StandaloneViewerHost` routes press, move and release through the router. It can go too, and
+with it `_regionDrag`, `_regionDragButton`, `_regionDragModifiers` and their move and release branches in
+`ImageRendererBase.Input.cs`. Ctrl+Tab and Ctrl+Shift+Tab are not outstanding: they name the NEXT
 tab, so they have no node to sit on and are answered before the router in `GuiEventHandlerBase`, by decision.
 
 ## Acceptance for the whole plan
