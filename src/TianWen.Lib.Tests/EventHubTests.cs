@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.WebSockets;
 using System.Text;
 using System.Threading;
@@ -50,6 +51,10 @@ public class EventHubTests
             .Returns(call => new ValueTask(Task.Delay(Timeout.Infinite, call.ArgAt<CancellationToken>(3))));
         return socket;
     }
+
+    // Whether the hub has aborted the socket. It drops a client before it aborts its socket (EventHub.Evict), so a test that waits
+    // only for the client count to fall can look in between and find no abort yet.
+    private static bool Aborted(WebSocket socket) => socket.ReceivedCalls().Any(c => c.GetMethodInfo().Name == nameof(WebSocket.Abort));
 
     /// <summary>
     /// Waits until <paramref name="condition"/> holds, bounded by the test's own timeout (its token) and nothing shorter.
@@ -187,7 +192,7 @@ public class EventHubTests
             hub.Broadcast(Event(n));
         }
 
-        await UntilAsync(() => hub.ClientCount == 0, () => $"{hub.ClientCount} client(s) still attached", ct);
+        await UntilAsync(() => hub.ClientCount == 0 && Aborted(stalled), () => $"{hub.ClientCount} client(s) still attached, aborted {Aborted(stalled)}", ct);
         stalled.Received(1).Abort();
     }
 
@@ -201,7 +206,7 @@ public class EventHubTests
 
         hub.Broadcast(Event(0));
 
-        await UntilAsync(() => hub.ClientCount == 0, () => $"{hub.ClientCount} client(s) still attached", ct);
+        await UntilAsync(() => hub.ClientCount == 0 && Aborted(stalled), () => $"{hub.ClientCount} client(s) still attached, aborted {Aborted(stalled)}", ct);
         stalled.Received(1).Abort();
     }
 
