@@ -215,7 +215,9 @@ public static class PlanetaryColourLook
         {
             return (null, "a colour look needs a three-channel master");
         }
-        if (!PhysicalEphemeris.Supports(planet))
+        // The planets whose disk colour is measured (PlanetaryColourBalance), never every planet with a rotation model: Mars has one (#1436)
+        // and no measured colour, and a look would be fitted about Jupiter's.
+        if (PlanetaryColourBalance.DiskColourOf(planet) is null)
         {
             return (null, $"a colour look is for Jupiter and Saturn, whose colour is measured; not {planet}");
         }

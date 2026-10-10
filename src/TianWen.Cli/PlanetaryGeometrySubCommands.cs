@@ -1150,6 +1150,7 @@ internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleH
         return text?.ToLowerInvariant() switch
         {
             null => path is not null ? PlanetaryCaptureName.Planet(path) : null,
+            "mars" => CatalogIndex.Mars,
             "jupiter" => CatalogIndex.Jupiter,
             "saturn" => CatalogIndex.Saturn,
             _ => null,

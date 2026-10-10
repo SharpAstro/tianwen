@@ -260,7 +260,7 @@ public class PlanetarySharpeningTests
 
         var noTelescope = PlanetaryBestStack.DeriveGains(stack, CatalogIndex.Jupiter, Night, telescope: null);
         var noPlanet = PlanetaryBestStack.DeriveGains(stack, planet: null, Night, Telescope);
-        var noModel = PlanetaryBestStack.DeriveGains(stack, CatalogIndex.Mars, Night, Telescope);
+        var noModel = PlanetaryBestStack.DeriveGains(stack, CatalogIndex.Venus, Night, Telescope);
 
         noTelescope.Gains.ShouldBeEmpty();
         noTelescope.How.ShouldContain("aperture");
@@ -278,7 +278,10 @@ public class PlanetarySharpeningTests
         // its de-rotation; a planet with no rotation model gets none.
         PlanetaryBestStack.DerotationFor(CatalogIndex.Saturn, always: true).ShouldNotBeNull().Planet.ShouldBe(CatalogIndex.Saturn);
         PlanetaryBestStack.DerotationFor(CatalogIndex.Jupiter).ShouldNotBeNull();
+        // Mars has a rotation model (#1436) and is de-rotated only when asked: a 9-minute capture read no closer to its post de-rotated.
         PlanetaryBestStack.DerotationFor(CatalogIndex.Mars).ShouldBeNull();
+        PlanetaryBestStack.DerotationFor(CatalogIndex.Mars, always: true).ShouldNotBeNull().Planet.ShouldBe(CatalogIndex.Mars);
+        PlanetaryBestStack.DerotationFor(CatalogIndex.Venus, always: true).ShouldBeNull();
     }
 
     // The fixture's truth and its stack: the truth blurred by the seeing, on a sky at 0.05, with a large stack's noise. The planet where

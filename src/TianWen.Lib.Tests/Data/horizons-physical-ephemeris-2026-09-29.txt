@@ -1,5 +1,6 @@
 # JPL Horizons observer ephemerides, fetched 2026-09-29 (api/horizons.api): EPHEM_TYPE=OBSERVER, CENTER=500@399 (geocentre),
-# TIME_TYPE=UT, QUANTITIES=13,14,15,17,19,20,24, ANG_FORMAT=DEG, EXTRA_PREC=YES, CSV_FORMAT=YES. 599 is Jupiter, 699 Saturn.
+# TIME_TYPE=UT, QUANTITIES=13,14,15,17,19,20,24, ANG_FORMAT=DEG, EXTRA_PREC=YES, CSV_FORMAT=YES. 599 is Jupiter, 699 Saturn,
+# 499 Mars (its two rows fetched 2026-10-10, #1436: the EdgeHD 11 capture 2022-12-10-0254_3, and a 46-degree phase).
 # Times are the planetary corpus's capture sessions (docs/plans/planetary-restoration.md, R1), plus 1992-12-16 00:00 UT,
 # Meeus's worked example 43.a. Longitudes are System III, west; latitudes planetodetic; np_ang east of ICRF north.
 body,utc,ang_diam_arcsec,obs_sub_lon,obs_sub_lat,sun_sub_lon,sun_sub_lat,np_ang,np_dist_arcsec,r_au,rdot_kms,delta_au,deldot_kms,sto_deg
@@ -13,3 +14,5 @@ body,utc,ang_diam_arcsec,obs_sub_lon,obs_sub_lat,sun_sub_lon,sun_sub_lat,np_ang,
 699,2021-12-16 11:16,15.69857,208.043866,21.958099,204.103696,20.150506,6.7058,6.567,9.923098433341,-0.3582086,10.5865944003301,20.4817014,4.0662
 699,2022-08-27 11:11,18.71464,224.542413,17.419472,223.350400,16.593970,6.4246,8.054,9.866528830450,-0.4106327,8.88044922053190,6.4945943,1.3423
 699,2022-10-09 11:18,17.90441,172.813667,18.521810,168.276523,15.954685,6.5005,7.657,9.856202530059,-0.4192798,9.28231933627636,24.1554784,4.8943
+499,2022-12-10 02:58,16.94691,192.729508,-5.679660,191.892871,-3.544100,327.0491,-8.382,1.536807459424,2.2261203,0.55262590113713,3.1420363,2.2653
+499,2022-08-20 00:00,9.119081,104.303132,-9.025901,149.899430,-24.061877,323.1148,-4.477,1.405895802666,1.3737409,1.02700047013867,-9.7449435,45.9712
