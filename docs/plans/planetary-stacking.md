@@ -501,6 +501,11 @@ mode in both, on top of the `_post` fidelity the pipeline already reaches.
 - The look (saturation, contrast) is no twin's to learn. It stays fitted to the posts and the owner's eye
   (`PlanetaryColourLook`).
 
+**Where it stands (2026-10-10):** A1 built the calibrated twin; A2 found no per-capture tune that carries, and A3 no regime
+of seeing or frame count whose best setting the seed spread can tell from the defaults. So the base model is the measured
+defaults, and AUTO (A4) adds what a user still had to supply: what the capture is (planet, filter, telescope), read off the
+capture itself.
+
 **What an AUTO setting is**: the keep fraction, the sharpening (the gains, or the strength and target they are
 derived at), and a colour master's finest-band choice. These move a master's error. The alignment-point count and the
 resampling kernel did not (the 2026-06 study below, #1195).
@@ -619,6 +624,34 @@ headroom over the three twins is largest, which the `_post` gate then judges.
 **Tracked by #1390.** A grid of twins over seeing, noise, frame count, planet and aperture, each with its tuned settings, and a regression
 from the capture statistics to those settings. It is the first guess A2 starts from, and the viewer's answer while a
 tune has not run.
+
+**Measured (2026-10-10): no regime has an optimum away from the defaults, so the base model IS the defaults.** A2 left one
+question (#817): does any regime have its best setting away from the defaults by more than the seed spread? Rules set on
+#1390 before the run (amended once, before it, to tune A2's whole search of 32 settings, since `planetary tune`'s settings are
+fixed). Six regimes around A1's calibrated twin of 2022-09-03 Red, each made as A2 made its twins (`planetary twin --trials 0
+--start`), its two r0s times 0.7, 1 and 1.4 at 1,000 and 3,000 frames, tuned by `planetary tune` on A2's binary (unmerged,
+`feat/auto-tune`):
+
+| Regime (r0s, frames) | Defaults | Its best (seed 1) | Seed 2 |
+|---|---|---|---|
+| 1, 3,000 (A2's twin) | 0.6736 | keep 0.75: 0.6645 (1.4 %) | |
+| 1, 1,000 | 0.9048 | keep 0.75: 0.8957 (1.0 %) | |
+| 0.7, 3,000 | 1.8882 | keep 0.25: 1.5566 (17.6 %) | defaults 1.0936; keep 0.25 1.3 % worse |
+| 0.7, 1,000 | 2.3654 | the defaults | |
+| 1.4, 3,000 | 0.4698 | the defaults | |
+| 1.4, 1,000 | 0.5312 | keep 0.25: 0.4494 (15.4 %) | defaults 0.5392; keep 0.25 1.2 % worse |
+
+- A2's twin reproduced A2's numbers exactly, so the binary and the twin are the ones A2 measured.
+- The two regimes past the 3 % bar (rule 2) both failed rule 3: a seed-2 twin of each picked another setting, and on both
+  keep 0.25 was worse than the defaults. **In poor seeing the band error swings between two realisations of one air**: at
+  0.7 and 3,000 frames the defaults read 1.89 and 1.09, so the seed-1 twin was an unlucky draw on which one keep landed
+  better.
+- Over all eight tuned twins strength 1 through the pupil was the best strength and target every time, and the keep the
+  tune prefers flipped with the seed: A2's finding again, over seeing from 0.7 to 1.4 times the night's and 1,000 to 3,000
+  frames. So nothing predicts a better setting than the defaults, and AUTO runs them (A4).
+- **Not covered, named (rule 5):** the planet (no mono Saturn twin is calibrated), the aperture (one telescope), and a frame's
+  own noise apart from the frame count (`planetary twin` reads the camera's gain off the capture). Eight twins and eight
+  tunes took 2 h 10 min.
 
 ### A4. The surfaces
 
