@@ -52,6 +52,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var kernelOpt = new Option<string>("--kernel") { Description = "The stack's kernel the gains are derived through: edge (the default, read off the limb's edge) or truth (with --truth: the stack measured against the twin's truth, a diagnostic of whether a gain set misses by the kernel or by the fit, #1376).", DefaultValueFactory = _ => "edge" };
         var colourTargetOpt = new Option<string>("--colour-target") { Description = "A colour master's Wiener target (#1376): full (the default) or cut (for a master stacked from split-CFA planes, the stack's way: tapered from 0.125 cycles a pixel to nothing at those planes' Nyquist, 0.25, by #1366's taper, so nothing is restored where a demosaiced plane carries nothing; not for a Bayer drizzle, whose Nyquist is its own), or both to compare them.", DefaultValueFactory = _ => "full" };
         var wienerFloorOpt = new Option<string>("--wiener-floor") { Description = "How the derived Wiener filter meets a kernel's transfer near nothing (#1406): step (the default: nothing restored under 0.02), tikhonov (H / (H^2 + 0.02^2) in place of 1 / H, so nothing steps), or both to compare them.", DefaultValueFactory = _ => "step" };
+        var limbBandOpt = new Option<string>("--limb-band") { Description = "What the globe's last band inside its outline is floored at (#1329): sky (the default), model (the planet's model through the pupil, as drawn just past the outline), or both to compare them.", DefaultValueFactory = _ => "sky" };
         var noiseOpt = new Option<string>("--noise") { Description = "The noise the derived gains' Wiener target is read against (#1373): white (the default: one level, read past 0.4 cycles a pixel), halves (ring by ring off the master's two halves, --halves, whose difference is the stack's own noise, coloured as a demosaic colours it), or both to compare them.", DefaultValueFactory = _ => "white" };
         var halvesOpt = new Option<string[]>("--halves")
         {
@@ -69,14 +70,14 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var command = new Command("sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
         {
             Arguments = { masterArg },
-            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, gainsOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, halvesOpt, autoOpt, designOpt },
+            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, gainsOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbBandOpt, halvesOpt, autoOpt, designOpt },
         };
 
         // What --auto refuses: every setting the pipeline's sharpening otherwise takes (A2, #1389, found none worth tuning per capture).
         Option[] autoRefuses =
         [
             fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, finishOpt, kolivasAmountOpt, targetOpt, gainsOpt,
-            shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, halvesOpt, pupil.Obstruction,
+            shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbBandOpt, halvesOpt, pupil.Obstruction,
         ];
 
         command.SetAction(async (parseResult, ct) =>
@@ -119,6 +120,19 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 if (wienerFloors.Length == 0)
                 {
                     consoleHost.WriteError($"--wiener-floor {wienerFloorName}: step, tikhonov or both");
+                    return 1;
+                }
+                var limbBandName = (parseResult.GetValue(limbBandOpt) ?? "sky").ToLowerInvariant();
+                PlanetaryLimbBand[] limbBands = limbBandName switch
+                {
+                    "sky" => [PlanetaryLimbBand.Sky],
+                    "model" => [PlanetaryLimbBand.Model],
+                    "both" => [PlanetaryLimbBand.Sky, PlanetaryLimbBand.Model],
+                    _ => [],
+                };
+                if (limbBands.Length == 0)
+                {
+                    consoleHost.WriteError($"--limb-band {limbBandName}: sky, model or both");
                     return 1;
                 }
                 if (colourTargetCuts.Length == 0)
@@ -390,11 +404,11 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 // A non-negative fit fits every band, so on a colour master its finest band is derived whatever --colour-finest asks (#1398).
                 PlanetaryColourFinestBand[] FinestsFor(bool nonNegative) => nonNegative && master.ChannelCount == 3 ? [PlanetaryColourFinestBand.Derived] : finests;
                 var variants = (options.Pupil is null ? [PlanetaryLimbFix.LimbChannel] : fixes)
-                    .SelectMany(f => fits.SelectMany(n => FinestsFor(n).SelectMany(b => strengths.SelectMany(k => finishes.SelectMany(e => luminances.SelectMany(l => targets.SelectMany(t => halvesNoises.SelectMany(h => colourTargetCuts.SelectMany(kc => wienerFloors.Select(wf => (Fix: f, NonNegative: n, Finest: b, Strength: k, Finish: e, Luminance: l, Target: t, HalvesNoise: h, TargetCut: kc, WienerFloor: wf))))))))))).ToArray();
-                foreach (var (fix, nonNegative, finest, strength, (finish, finishWord), luminance, target, halvesNoise, targetCut, wienerFloor) in variants)
+                    .SelectMany(f => fits.SelectMany(n => FinestsFor(n).SelectMany(b => strengths.SelectMany(k => finishes.SelectMany(e => luminances.SelectMany(l => targets.SelectMany(t => halvesNoises.SelectMany(h => colourTargetCuts.SelectMany(kc => wienerFloors.SelectMany(wf => limbBands.Select(lb => (Fix: f, NonNegative: n, Finest: b, Strength: k, Finish: e, Luminance: l, Target: t, HalvesNoise: h, TargetCut: kc, WienerFloor: wf, LimbBand: lb)))))))))))).ToArray();
+                foreach (var (fix, nonNegative, finest, strength, (finish, finishWord), luminance, target, halvesNoise, targetCut, wienerFloor, limbBand) in variants)
                 {
                     ct.ThrowIfCancellationRequested();
-                    if (PlanetarySharpening.Sharpen(master, options with { Fix = fix, NonNegative = nonNegative, ColourFinestBand = finest, Strength = strength, EdgeReach = parseResult.GetValue(edgeReachOpt), RingEdge = parseResult.GetValue(ringEdgeOpt), Finish = finish, KolivasAmount = kolivasAmount, LuminanceOnly = luminance, ShrinkHalves = shrink ? halves : null, NoiseHalves = halvesNoise ? halves : null, Target = target, ColourTargetCutFor = targetCut ? PlanetaryFrameLayout.SplitCfa : null, WienerFloor = wienerFloor }) is not { } result)
+                    if (PlanetarySharpening.Sharpen(master, options with { Fix = fix, NonNegative = nonNegative, ColourFinestBand = finest, Strength = strength, EdgeReach = parseResult.GetValue(edgeReachOpt), RingEdge = parseResult.GetValue(ringEdgeOpt), Finish = finish, KolivasAmount = kolivasAmount, LuminanceOnly = luminance, ShrinkHalves = shrink ? halves : null, NoiseHalves = halvesNoise ? halves : null, Target = target, ColourTargetCutFor = targetCut ? PlanetaryFrameLayout.SplitCfa : null, WienerFloor = wienerFloor, LimbBand = limbBand }) is not { } result)
                     {
                         consoleHost.WriteError($"{path}: the planet's limb could not be fitted");
                         return 1;
@@ -402,7 +416,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     try
                     {
                         var stem = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(path) + "_sharpened"
-                            + (variants.Length > strengths.Count * finishes.Count * luminances.Length * targets.Length * halvesNoises.Length * colourTargetCuts.Length * wienerFloors.Length ? "_" + fix.ToString().ToLowerInvariant() + (nonNegative ? "_nonnegative" : "") + (finests.Length > 1 ? "_" + finest.ToString().ToLowerInvariant() : "") : "")
+                            + (variants.Length > strengths.Count * finishes.Count * luminances.Length * targets.Length * halvesNoises.Length * colourTargetCuts.Length * wienerFloors.Length * limbBands.Length ? "_" + fix.ToString().ToLowerInvariant() + (nonNegative ? "_nonnegative" : "") + (finests.Length > 1 ? "_" + finest.ToString().ToLowerInvariant() : "") : "")
                             + (strengths.Count > 1 ? string.Create(inv, $"_s{strength:0.##}") : "")
                             + (finishes.Count > 1 ? "_f" + finishWord.Replace('+', '-') : "")
                             + (luminances.Length > 1 ? (luminance ? "_luminance" : "_perchannel") : "")
@@ -411,6 +425,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             + (halvesNoise ? "_halvesnoise" : "")
                             + (targetCut ? "_targetcut" : "")
                             + (wienerFloor == PlanetaryWienerFloor.Tikhonov ? "_tikhonov" : "")
+                            + (limbBand == PlanetaryLimbBand.Model ? "_limbmodel" : "")
                             + (shrink ? "_shrunk" : ""));
                         var finestWords = nonNegative && master.ChannelCount == 3 ? ", the colour's finest band derived, as a non-negative fit fits every band"
                             : finests.Length > 1 ? $", the colour's finest band {finest.ToString().ToLowerInvariant()}" : "";
@@ -423,6 +438,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             + (halvesNoise ? ", the noise read off its halves" : "")
                             + (targetCut && master.ChannelCount == 3 ? ", the colour target cut at the split planes' Nyquist" : "")
                             + (wienerFloor == PlanetaryWienerFloor.Tikhonov ? ", the Wiener floored by Tikhonov's form" : "")
+                            + (limbBand == PlanetaryLimbBand.Model ? ", the limb's last band floored at the model" : "")
                             + (shrink ? ", shrunk by its halves" : "");
                         var what = result.Derived ? $"derived{(nonNegative ? " non-negative" : "")}, {PlanetaryBestStack.Describe(fix)}{finestWords}{strengthWords}" : $"PlanetaryDefault{strengthWords}, the limb kept as stacked";
                         consoleHost.WriteScrollable(string.Create(inv,

@@ -195,6 +195,48 @@ public class PlanetaryDeringTests
     }
 
     [Fact]
+    public void TheLimbsLastBandTakesTheModelAsItsFloorWhenAskedAndNothingElseMoves()
+    {
+        // #1329: at strength 2 a sharpening's negative lobe left the outline's last pixels at the sky, just inside the glow drawn past it.
+        // Asked, the band from 0.95 of the outline to it is floored at the model; inside it and past the outline nothing changes.
+        var (sharpened, stacked, model) = (new float[Size * Size], new float[Size * Size], new float[Size * Size]);
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                var (i, r) = ((y * Size) + x, Disk.RadiiAt(x, y));
+                stacked[i] = r <= 1 ? 1f : 0f;
+                model[i] = r <= 1.2 ? 0.4f : 0f;
+                sharpened[i] = r is >= 0.95 and <= 1 ? -0.2f : r < 0.95 ? 0.1f : 0.3f;
+            }
+        }
+
+        var atSky = PlanetaryDering.Outside(sharpened, stacked, Size, Size, Disk, PlanetaryDering.OutsideLimb.ModelFeathered, model: model);
+        var atModel = PlanetaryDering.Outside(sharpened, stacked, Size, Size, Disk, PlanetaryDering.OutsideLimb.ModelFeathered, model: model, modelInLimbBand: true);
+
+        int band = 0, elsewhereMoved = 0;
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                var (i, r) = ((y * Size) + x, Disk.RadiiAt(x, y));
+                if (r is >= PlanetaryDering.LimbBandInner and <= 1)
+                {
+                    band++;
+                    atSky[i].ShouldBe(0f, "floored at the sky, as before");
+                    atModel[i].ShouldBe(0.4f, "floored at the model");
+                }
+                else if (atSky[i] != atModel[i])
+                {
+                    elsewhereMoved++;
+                }
+            }
+        }
+        band.ShouldBeGreaterThan(100);
+        elsewhereMoved.ShouldBe(0, "inside the band's start and past the outline everything is as it was");
+    }
+
+    [Fact]
     public void AMoonKeptInTheModelsZoneAddsItsOwnLightAndNoneOfTheGlowItSitsIn()
     {
         // #1301: a moon's sharpening was kept whole within its reach, the stack's glow with it, while the planet's model was drawn around it;

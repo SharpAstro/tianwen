@@ -4386,6 +4386,9 @@ The sharpening reads its gains through the globe's limb where the rings leave it
 planet's model (globe and rings) through the pupil, so the rings keep their sharpening, as a moon does (#1181). It no longer holds them at
 the stack.
 
+Open, found by #1329's rule 1b: at strength 2 the sharpening floors 115 to 227 pixels a channel at the sky inside the Saturn twin's rings'
+footprint, where the truth is the bright globe and rings (#1471). Strength 1 has none.
+
 **Rule:** on the S3 twin, the derived sharpening's error in bands 1 to 4 inside 0.9 of the globe's radius falls to at most 0.44 of the
 stack's (the calibrated Jupiter twin's 0.647 of 1.483). Its limb profile error is at most the Jupiter twin's 0.0053. The rings' radial
 profile is truer than the stack's. And nothing is drawn in the sky clear of the rings.
@@ -4830,6 +4833,37 @@ planetary tab) has no recording to stack whole, so its switch is Frames and Live
 - **Rule 7 holds, counted**: Live to Best and back twice, a stop each way, starts no best stack (one, the first), publishes no live stack
   afresh and starts no derivation (`SwitchingViewsAndStopsStacksAndDerivesNothing`, DPI 1 and 1.5; the capture held at one frame, since a
   capture opens playing and a live stack following a moving playhead is stacked again by right).
+
+### The limb's last band at strength 2 (#1329)
+
+**Issue:** #1329. At strength 2 a few pixels at the limb sit exactly at the sky, just inside the glow drawn past it: a dotted ring under a
+hard stretch. Strength 1 has none.
+
+- **The cause:** `PlanetaryDering.Outside` floors the sharpening at the sky inside the planet's outline. At strength 2 the negative lobe of
+  bands 2 and 3 takes the outline's last pixels below it.
+  - On the colour Jupiter twin the floored pixels are the last pixel row (clear radii 0.994 to 1.000).
+  - On Saturn they also lie past the globe's outline, inside the rings' footprint, where the band runs on.
+- **The arm:** `PlanetaryLimbBand.Model` (`--limb-band model`). From 0.95 of the globe's outline to the planet's, clear of any ring, the
+  sharpening is floored at the model through the pupil instead of the sky.
+  - Capped at the globe's outline, it left the Saturn twin 14, 10 and 13 pixels a channel floored just past it, so the band runs on as far
+    as the footprint does.
+- **Rules, set on the issue before it was built.** Rule 1 was amended first, to the limb band only. The named twins are #1373's three mono
+  twins and the uc-g4 colour twin.
+  1. **Holds.** At strength 2 no limb-band pixel is floored at the sky:
+     - the colour twin went from 21 / 16 / 0 to none;
+     - the Meade 16 Saturn from 1 to none.
+  2. **Fails.** At strength 1 everything outside the band is unchanged to the bit, but the bands 1 to 4 error moves by more than 0.5 % on
+     three of four twins: calibrated +0.79 %, nostill +2.17 %, warped −0.26 %, uc-g4 +0.78 %.
+  3. **Holds.** At strength 2 the limb profile's error within 6 px inside the limb is no worse on any twin:
+     - calibrated 0.0622 to 0.0576;
+     - nostill 0.0556 to 0.0500;
+     - warped 0.0573 to 0.0538;
+     - uc-g4 lower on all three channels.
+  - 1b, new: the Saturn twin's floored pixels inside the rings' footprint were to be ring gaps, where the truth is the sky. **It fails:**
+    115 to 227 a channel, none within one sky noise of the sky, their truth near the disk's level. That is a second fault, #1471, left out of
+    this arm.
+- **So the sky stays the floor by default, and the model is an option.** Floored at the model at every strength, the band moves a strength-1
+  sharpening it never needed to. Only the owner can say whether a strength-2 user should get it.
 
 ### Shrinking each band against the master's own noise (#1313)
 

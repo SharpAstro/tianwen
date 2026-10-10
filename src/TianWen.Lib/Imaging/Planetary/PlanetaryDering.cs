@@ -74,14 +74,19 @@ public static class PlanetaryDering
         ModelFeathered,
     }
 
+    /// <summary>Where the planet's last band inside its outline starts, in the globe's radii (#1329).</summary>
+    public const double LimbBandInner = 0.95;
+
     /// <summary>
     /// <see cref="Bounded"/>'s three successors measured against its dark trough at the limb (#1171), held at the sky inside the limb and
     /// free about a moon as it is (<see cref="KeepMoon"/>). Outside the limb: the stack as it is (<see cref="OutsideLimb.Stack"/>); bounded and
     /// at or above <paramref name="stacked"/> times <paramref name="glowShare"/>, the share of the stack's glow the truth keeps there
     /// (<see cref="OutsideLimb.ModelFloor"/>); or bounded at the limb and blended to the stack by 1.1 radii (<see cref="OutsideLimb.Blended"/>).
+    /// With <paramref name="modelInLimbBand"/> and a <paramref name="model"/>, the planet's last band inside its outline (from
+    /// <see cref="LimbBandInner"/> of the globe's, clear of any ring) is floored at the model rather than at the sky (#1329).
     /// </summary>
     public static float[] Outside(ReadOnlySpan<float> sharpened, ReadOnlySpan<float> stacked, int width, int height, MetricDisk disk, OutsideLimb outside,
-        ReadOnlySpan<float> glowShare = default, ReadOnlySpan<float> model = default, ReadOnlySpan<float> blurredModel = default)
+        ReadOnlySpan<float> glowShare = default, ReadOnlySpan<float> model = default, ReadOnlySpan<float> blurredModel = default, bool modelInLimbBand = false)
     {
         var moons = PlanetaryMetrics.CompactSources(stacked, width, height, disk, count: MaxMoons);
         // Where ModelFeathered hands the model back to the stack: by the plane's inscribed circle, at most 2.5 radii, from 0.5 radii inside it.
@@ -99,7 +104,14 @@ public static class PlanetaryDering
                 var r = disk.ClearRadiiAt(x, y);
                 if (r <= 1)
                 {
-                    result[i] = v;
+                    // The globe's last band takes the model as its floor: at the sky, a sharpening's negative lobe on the outline's last pixels
+                    // left them at the sky just inside the glow drawn past it, a dotted ring under a hard stretch (#1329).
+                    // On Saturn the band runs on past the globe's outline as far as the rings' footprint does (a pixel there is inside the
+                    // planet's outline but not on a ring), where the model holds the globe's glow: capped at the globe's outline, the twin kept
+                    // 14, 10 and 13 pixels a channel floored at the sky just past it.
+                    result[i] = modelInLimbBand && !model.IsEmpty && disk.RadiiAt(x, y) >= LimbBandInner && !disk.RingTouched(x, y)
+                        ? Math.Max(v, model[i])
+                        : v;
                     continue;
                 }
                 var stack = Math.Max(stacked[i], 0f);
