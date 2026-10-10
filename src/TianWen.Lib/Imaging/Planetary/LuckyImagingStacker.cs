@@ -474,8 +474,13 @@ public sealed class LuckyImagingStacker
         }
 
         DrizzleKernel.FinaliseDivide(flux, weight, invMaxValue: 1f, canvasH, canvasW);
-        // Uncovered cells come back NaN; planetary masters want a solid background, so floor them to 0
-        // (also keeps a NaN out of the optional wavelet pass).
+        // A colour cell no drop reached comes back NaN. Inside the canvas it is a hole among measured cells, filled from them by the one
+        // routine (#250); floored to 0 it was a black speck in the planet that nothing reported (#1412: about 1.6 % of red and blue cells
+        // after 10 frames at the default drop, and the steadier the capture the more). Only the canvas ring no frame reached stays absent,
+        // floored to 0 below for a solid background (which also keeps a NaN out of the optional wavelet pass).
+        var masterMeta = ctx.MasterMeta with { SensorType = SensorType.Color };
+        var master = new Image(flux, BitDepth.Float32, 1f, 0f, 0f, masterMeta);
+        var holesFilled = master.FillInteriorHolesInPlace();
         for (var c = 0; c < 3; c++)
         {
             var plane = flux[c];
@@ -491,8 +496,6 @@ public sealed class LuckyImagingStacker
             }
         }
 
-        var masterMeta = ctx.MasterMeta with { SensorType = SensorType.Color };
-        var master = new Image(flux, BitDepth.Float32, 1f, 0f, 0f, masterMeta);
         // Each sample landed at its own photosite in its own colour, so the colours are aligned as the three planes they are.
         PlanetaryChannelAlignmentResult? alignment = null;
         if (options.AlignChannels)
@@ -514,6 +517,7 @@ public sealed class LuckyImagingStacker
             Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, NorthUnread = ctx.NorthUnread, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades), FramesCutKept = FramesKeptThoughCut(ctx.Grades), FramesSmeared = FramesLeftOutAsSmeared(ctx.Grades), FramesDim = FramesLeftOutAsDim(ctx.Grades), Grades = ctx.Grades, Cropped = cropped,
             AlignmentPoints = ctx.Matcher?.AlignmentPoints.Length ?? 0,
             AlignmentPointCandidates = ctx.AlignmentPointCandidates,
+            DrizzleHolesFilled = holesFilled,
         };
     }
 
