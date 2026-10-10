@@ -231,8 +231,12 @@ internal sealed record PlanetaryLimbWindow(int Size, int X0, int Y0, MetricDisk 
     /// <summary>The pupil's diffraction at <paramref name="wavelengthNm"/>, at this window's plate scale.</summary>
     public RadialTransfer Diffraction(Pupil pupil, double wavelengthNm) => PlanetaryInverse.Diffraction(pupil, wavelengthNm * 1e-9, ArcsecPerPixel, reachPx: Size);
 
-    /// <summary>The planet's sharp model through <paramref name="diffraction"/>: the disk the truth has, in the window's units.</summary>
-    public float[] Through(RadialTransfer diffraction) => PlanetaryInverse.Apply(Sharp, Size, Size, diffraction.At);
+    /// <summary>
+    /// The planet's sharp model through <paramref name="diffraction"/> on a detector's pixel (<see cref="PlanetaryLimbFit.DetectorPixel"/>,
+    /// #1468): the disk the truth has, in the window's units.
+    /// </summary>
+    public float[] Through(RadialTransfer diffraction) => PlanetaryInverse.Apply(Sharp, Size, Size,
+        (fx, fy) => diffraction.At(Math.Sqrt((fx * fx) + (fy * fy))) * PlanetaryLimbFit.DetectorPixel(fx, fy));
 
     /// <summary>The window cut from a full-frame plane and normalised by <paramref name="levels"/> (sky 0, disk 1).</summary>
     public float[] Cut(ReadOnlySpan<float> plane, int width, int height, (double Level, double Scale) levels) => Cut(plane, width, height, levels.Level, levels.Scale);

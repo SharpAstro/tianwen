@@ -45,9 +45,10 @@ public static class PlanetaryFinestBand
 
     /// <summary>
     /// The edge across the limb of a finished master (#1367, <c>planetary compare</c>): <paramref name="plane"/> as it was saved, normalised
-    /// on <paramref name="fit"/>'s disk, against the fit's sharp model through <paramref name="pupil"/>'s diffraction at
-    /// <paramref name="wavelengthNm"/>, read as <see cref="LimbEdge"/> reads a stack's. Its <see cref="EdgeProfile.TransferAt"/> is the
-    /// master's transfer over the pupil's own: one where nothing but the telescope blurs it.
+    /// on <paramref name="fit"/>'s disk, against the fit's sharp model on a detector's pixel (<see cref="PlanetaryLimbFit.DetectorPixel"/>,
+    /// #1468) through <paramref name="pupil"/>'s diffraction at <paramref name="wavelengthNm"/>, read as <see cref="LimbEdge"/> reads a
+    /// stack's. Its <see cref="EdgeProfile.TransferAt"/> is the master's transfer over the pupil's own: one where nothing but the telescope
+    /// blurs it.
     /// </summary>
     public static EdgeProfile MasterEdge(ReadOnlySpan<float> plane, int width, int height, in LimbFit fit, LimbFitOptions limbOptions, in PlanetAspect aspect,
         Pupil pupil, double wavelengthNm)
@@ -55,8 +56,9 @@ public static class PlanetaryFinestBand
         var disk = MetricDisk.From(fit, limbOptions);
         var diffraction = PlanetaryInverse.Diffraction(pupil, wavelengthNm * 1e-9, aspect.AngularDiameterArcsec / 2 / fit.EquatorialRadius);
         var sharp = PlanetaryMetrics.Normalise(PlanetaryLimbFit.SharpModel(fit, limbOptions, width, height), width, height, disk);
-        return LimbEdge(PlanetaryMetrics.Normalise(plane, width, height, disk), PlanetaryInverse.Apply(sharp, width, height, diffraction.At), width, height,
-            disk, fit, aspect);
+        var reference = PlanetaryInverse.Apply(sharp, width, height,
+            (fx, fy) => diffraction.At(Math.Sqrt((fx * fx) + (fy * fy))) * PlanetaryLimbFit.DetectorPixel(fx, fy));
+        return LimbEdge(PlanetaryMetrics.Normalise(plane, width, height, disk), reference, width, height, disk, fit, aspect);
     }
 
     // Each limb point's brightness relative to the plane's mean, by the zonal brightness at its latitude: Saturn's read clear of its rings.
