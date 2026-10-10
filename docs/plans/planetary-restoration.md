@@ -3282,8 +3282,12 @@ restacked with its halves at the sharpened pipeline's own keep, a half.
   red, green and blue) and lift band 3 (4.3, 2.7, 3.7), where the derived keep band 1 as stacked (#1187) and lift band 2 far further (5.8
   on red against 2.5). The noise term moves the gains a little; it does not move them toward that shape.
 - **A mono stack's noise is not white either, by the gains it gave**: the halves raised band 1's gain on every mono twin (4.65 to 5.11, 1.66
-  to 1.95, 9.30 to 9.99), so they read less noise there than the white level, and every twin was the worse for it. The cause was not
-  measured.
+  to 1.95, 9.30 to 9.99), so they read less noise there than the white level, and every twin was the worse for it. **The cause, measured
+  on #1398: the white level reads scene.** The mono twins are sampled coarser than their optics resolve (cutoff 0.94 cycles a pixel), so
+  past 0.4 the stack holds planet as well as noise: by the same estimator, the stack's white level is 7.7, 22.5 and 5.2 times half its
+  halves' difference, which holds the noise alone (`PlanetarySharpenResult.WhiteLevels`, printed by `planetary sharpen` given `--halves`).
+  The white level overstates the noise that much, and the extra regularisation is what scored better. The colour twins, sampled finer
+  than their optics (cutoffs 0.23 to 0.30), read 1.5 to 2.0 times: there it is the demosaic's residue of the scene, which both halves share.
 - A unit fixture agrees (`WhereTheNoiseIsWhiteTheHalvesNoiseSharpensAsTheWhiteLevelDoes` pins the white case): noise smoothed by 0.8 px, as
   a demosaic smooths it, gave 1.069 with the halves against 1.063 with the white level.
 
@@ -3296,6 +3300,16 @@ restacked with its halves at the sharpened pipeline's own keep, a half.
 The shape is #1376: a colour twin's own true kernel (a degrade with `--psf-truth`) separates its two possible causes, since the
 derivation through it either reaches the twin's own gains (the edge's kernel is the cause) or does not (the gain fit is), and its arm lets
 the held finest band fall below 1, never rise above it.
+
+### The Wiener's transfer floor, measured (#1398)
+
+**Open: #1406.** `PlanetaryWaveletGains.Wiener` sets the target to nothing wherever the transfer it divides by is under `MinTransfer`
+(0.02): the edge's kernel, times the pupil's diffraction for the aperture target. The Wiener itself has no singularity there (its factor
+falls as the transfer squared), so the floor steps only where the Wiener is still large as the transfer crosses it. Read on #1373's mono
+twins with a probe that was not kept: on the calibrated and no-still twins it crosses only past 0.83 cycles a pixel, with the aperture
+target, where the Wiener factor is already nothing; on the warped twin it crosses at 0.36, inside band 1, and cuts the target at its peak
+(0.93 of it through the pupil, the peak itself toward the aperture). The fit smooths the step (the warped twin's band 1 lands at 0.959 of
+the truth's transfer); whether a floor that does not step serves the twins better is #1406's question.
 
 ### A colour master's finest band, bounded, and its target cut (#1376)
 
