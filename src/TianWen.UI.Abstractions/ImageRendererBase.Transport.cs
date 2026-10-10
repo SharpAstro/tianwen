@@ -31,6 +31,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>The widest label a segment of the view switch takes: a batch stack's at its end, Auto's being the wider word.</summary>
         private const string ViewSwitchWidestLabel = "Auto 100%";
 
+        /// <summary>The play / pause button's fill, which the bar draws its mark into.</summary>
+        private const string PlayPauseFillKey = "PlayPause";
+
         private void RenderTransportBar(ViewerState state)
         {
             var r = _transportRect;
@@ -52,19 +55,10 @@ namespace TianWen.UI.Abstractions
                 return;
             }
             var textY = r.Y + (r.Height - fs) / 2f;
-
-            // Play/pause button (ASCII glyphs to stay font/atlas-safe): show the action's target -- ">"
-            // when paused (click to play), "||" when playing (click to pause). Self-contained via OnClick,
-            // so both mouse-down paths (FitsViewer Program + GUI tab) toggle it without bespoke handling.
             var btnX = r.X + pad;
             var btnY = r.Y + pad;
             var btnSize = contentH;
-            var ppLabel = state.IsPlaying ? "||" : ">";
-            FillRect(btnX, btnY, btnSize, btnSize, ToolbarButtonBg);
-            var ppW = MeasureText(ppLabel, fs);
-            DrawText(ppLabel, btnX + (btnSize - ppW) / 2f, textY, fs, RGBAColor32.FromFloat(0.9f, 0.9f, 0.9f, 1f));
-            RegisterClickable(btnX, btnY, btnSize, btnSize, new HitResult.ButtonHit("PlayPause"),
-                _ => { state.IsPlaying = !state.IsPlaying; state.NeedsRedraw = true; });
+            var ink = RGBAColor32.FromFloat(0.92f, 0.92f, 0.95f, 1f);
 
             // The view switch (#1314 part 2): the frames, the live rolling stack about the playhead, or the whole capture's best stack,
             // one ButtonGroup where the RAW / STACK toggle was. "Live..." while the live stack's first master is still computing, and the
@@ -87,8 +81,7 @@ namespace TianWen.UI.Abstractions
                 new(PlanetaryView.Best, bestLabel) { Hit = new HitResult.ButtonHit("ViewBest") },
             ];
             // Every segment as wide as the widest label any of them takes, so a running best stack never moves the scrub track.
-            var viewStyle = new Layout.ButtonGroupStyle(TransportTrackFill, ToolbarButtonBg, RGBAColor32.FromFloat(0.92f, 0.92f, 0.95f, 1f),
-                RGBAColor32.FromFloat(0.92f, 0.92f, 0.95f, 1f), GuiTheme.Hover(ToolbarButtonBg))
+            var viewStyle = new Layout.ButtonGroupStyle(TransportTrackFill, ToolbarButtonBg, ink, ink, GuiTheme.Hover(ToolbarButtonBg))
             {
                 Gap = pad,
                 SegmentWidth = MeasureText(ViewSwitchWidestLabel, fs) + pad * 2,
@@ -96,11 +89,42 @@ namespace TianWen.UI.Abstractions
             // A live capture (no SER on screen, the GUI's planetary tab) has no recording to stack whole: Frames and Live only.
             var offered = state.SequencePath is null ? views[..2] : views;
             var viewSwitch = Layout.Builder.ButtonGroup(offered, state.PlanetaryView, state.ChoosePlanetaryView, viewStyle, fs);
-            var switchCtx = MeasureContext(scale: DesignScale.One);
-            var switchW = Layout.Engine.Measure(viewSwitch, new Layout.Size<float>(float.MaxValue, btnSize), switchCtx).Width;
-            var stackBtnX = btnX + btnSize + pad;
-            var stackBtnW = switchW;
-            PaintLayout(ArrangeLayout(viewSwitch, new RectF32(stackBtnX, btnY, stackBtnW, btnSize), switchCtx), switchCtx);
+            var controlsCtx = MeasureContext(scale: DesignScale.One);
+            var segmentH = Layout.Engine.Measure(viewSwitch, new Layout.Size<float>(float.MaxValue, btnSize), controlsCtx).Height;
+
+            // Play/pause: the mark of the action a press takes, a triangle when paused and two bars when playing, on a square button as
+            // tall as the view switch's segments beside it. A Fill the bar draws, since no IconKind is a transport mark: the family keeps
+            // a kind only with a painting in a cell too, and no terminal plays a capture.
+            var playPause = Layout.Builder.Fill(key: PlayPauseFillKey)
+                .WFixed(segmentH).HFixed(segmentH)
+                .Bg(ToolbarButtonBg).BgHover(GuiTheme.Hover(ToolbarButtonBg))
+                .Clickable(new HitResult.ButtonHit("PlayPause"), _ => { state.IsPlaying = !state.IsPlaying; state.NeedsRedraw = true; });
+
+            // The row centred in the bar, as the readout is.
+            var controls = Layout.Builder.HStack(playPause, viewSwitch).WithGap(pad);
+            var controlsW = Layout.Engine.Measure(controls, new Layout.Size<float>(float.MaxValue, segmentH), controlsCtx).Width;
+            var controlsY = r.Y + (r.Height - segmentH) / 2f;
+            PaintLayout(ArrangeLayout(controls, new RectF32(btnX, controlsY, controlsW, segmentH), controlsCtx), controlsCtx, (fill, rect) =>
+            {
+                if (fill.Key != PlayPauseFillKey)
+                {
+                    return;
+                }
+                // The mark at the size a mark beside the segments' text takes, centred on the button.
+                var side = MathF.Round(fs * Layout.Content.Icon.TextSizeRatio);
+                var mark = new RectF32(MathF.Round(rect.X + (rect.Width - side) / 2f), MathF.Round(rect.Y + (rect.Height - side) / 2f), side, side);
+                if (state.IsPlaying)
+                {
+                    var bar = MathF.Max(1f, MathF.Round(side * 0.34f));
+                    FillRect(mark.X, mark.Y, bar, side, ink);
+                    FillRect(mark.X + side - bar, mark.Y, bar, side, ink);
+                }
+                else
+                {
+                    // Play is drawn as the right caret's triangle, never declared as it: that kind means "next".
+                    DrawLayoutIcon(Layout.IconKind.CaretRight, mark, ink);
+                }
+            });
 
             // Right-aligned readout: frame n/total, capture timestamp (if present), playback fps.
             var idx = state.FrameIndex;
@@ -125,7 +149,7 @@ namespace TianWen.UI.Abstractions
             DrawText(readout, readoutX, textY, fs, RGBAColor32.FromFloat(0.85f, 0.85f, 0.85f, 1f));
 
             // Scrub track fills the gap between the buttons and the readout.
-            var trackX = stackBtnX + stackBtnW + pad * 2;
+            var trackX = btnX + controlsW + pad * 2;
             var trackRight = readoutX - pad * 2;
             var trackW = MathF.Max(0f, trackRight - trackX);
             if (trackW <= 0f)
