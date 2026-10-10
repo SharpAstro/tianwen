@@ -3325,6 +3325,36 @@ band 4's residual over noise 1.81 against 5.97 without the wing.
   the fourth at 0.72), against the real capture's halo profile at a finer step than four rings. The wing costs nothing: the twin took
   774 s against 1,022 s, on a box another session's bake was loading.
 
+##### The scatter refitted beside the wing: measured, the wing still an option
+
+**Measured** (2026-10-11), three rules written first on #1222. Rules 1 and 2 failed, so the wing stays an option. It is also on the search
+now, `planetary twin --far-wing`.
+
+- **The arm:** A1's arm C (`planetary-stacking.md`, A1) run again with the wing in every frame.
+  - The search: 2022-09-03 Red, plain correlation, 60 twins of the first 1,000 frames from the hand values, confirmed at 3,000.
+  - Arm C fits the scatter's share and core together, so this is the refit the last item asked for, made by the search.
+- **The baseline:** arm C's knobs confirmed on the same build without the wing, mismatch 0.00669.
+- **Disclosure:** both were measured on the build before "a twin's statistic it cannot measure costs it" (#1413). Every fitted statistic was
+  measured in both runs, so that change does not touch them.
+
+**What the search found with the wing:** r0 9.27 cm, wind 38.6 m/s, the still layer 2.78 cm, and a scatter of 3.53 % with a 3.7" core, where
+arm C's was 2.59 % at 16.7". Confirmed at 3,000 frames:
+
+| Halo annulus, twin over real | Baseline (no wing) | With the wing |
+|---|---|---|
+| 1.15 to 1.3 radii | 1.062 | 1.046 |
+| 1.3 to 1.6 radii | 1.113 | 1.083 |
+| 1.6 to 2.0 radii | 0.821 | 0.770 |
+| 2.0 to 2.5 radii | 1.079 | 0.977 |
+
+- **Rule 1 (every annulus within 10 %) fails** on the 1.6 to 2.0 ring, which falls further. The other three come within 10 %.
+- **Rule 2 (the mismatch no larger) fails:** 0.00938 against 0.00669.
+- **Rule 3 (no other fitted statistic newly past 10 %) holds.** Each moves under 5 %.
+
+The wing takes the outer ring's share, and the scatter shrinks to a tight core to carry the inner two. The 1.6 to 2.0 ring is left wanting
+more than either term gives, as the linear fit above found: it asks twice the scatter the others do. The light there is not the pupil's
+wing or a one-core scatter; the moons add a sixth of the gap. What holds the rest is still to find.
+
 ### The telescope's own diffraction, undone (#1366)
 
 **The derived gains restore toward the planet through the pupil, never the planet itself.** Their Wiener target maps the stack's total
