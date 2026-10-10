@@ -4474,6 +4474,41 @@ Mars and every other planet stay as captured. On the EdgeHD capture `planetary s
 colour: gains R 1.081, B 0.759 over green, saturation 1.4", and the near-grey disk the camera recorded takes the warm colour its
 `_post` shows (the post is a tighter crop, turned, its pole bluer).
 
+## Mars (#1436)
+
+The owner found the EdgeHD 11 Mars of 2022-12-10 (32,282 frames, two days after opposition) sharpened disappointingly. That was
+because nothing was derived for it: the derived sharpening needs the planet's orientation at the capture's instant, and
+`PhysicalEphemeris` had rotation models for Jupiter and Saturn only, so Mars took `WaveletSharpenOptions.PlanetaryDefault`, a
+preset made for nothing in particular. Nothing else in the derivation is planet-specific (the limb fit fits its own Minnaert k;
+the phase comes from the geometry). So Mars needed:
+- **its rotation model**: the IAU WGCCRE 2015 pole and prime meridian, periodic terms included (Archinal et al. 2018, table 2),
+  and its radii;
+- **`planetary judge` for Mars**;
+- **its own gate on the colour look**, which knows Jupiter's and Saturn's colours only. A Mars master stays as captured.
+
+**Measured (2026-10-10), against the rules set on #1436:**
+- **Rule 1:** Mars is Horizons' own at the capture's instant and at a 46-degree phase: central meridian and sub-Earth latitude
+  to 0.0000 degree, the pole's angle within 0.0021, the phase within 0.0076, inside the 0.01 that Jupiter and Saturn are held to
+  (`PhysicalEphemerisTests`).
+- **Rule 2 (amended before the stack was read):** the limb fit converges in every colour, and the colours moved by their limbs
+  lie within 0.5 px of green. Red was at (-0.07, +0.16) px, blue at (-0.12, -0.26), and the two greens 0.01 apart.
+- **Rule 3: fails as written at the truth, so the owner decided.** Correlation / gain on the detail both hold, against the capture's own `_post`:
+
+  | arm | placed | b1 | b2 | b3 | b4 | b5 |
+  |---|---|---|---|---|---|---|
+  | the preset, as A4 shipped it | 0.406 | .218/.029 | .481/.163 | .791/.889 | .947/2.17 | .910/2.17 |
+  | the preset's gains, the new stack, one limb window | 0.474 | .239/.074 | .569/.235 | .850/.966 | .958/2.11 | .912/2.05 |
+  | derived (1.00, 7.16, -0.14, 1.05), the truth | 0.801 | .768/.139 | .813/.225 | .816/.549 | .955/1.17 | .991/1.45 |
+  | derived, strength 2.5 | 0.924 | .851/.401 | .913/.598 | .966/.875 | .991/1.21 | .997/1.37 |
+
+  At the truth, the derived master is closer to the post than the preset's in bands 1, 4 and 5 and further in band 2's and band
+  3's gain. At strength 2.5 it beats the preset's correlation in every band and its gain in four of five. The preset's masters
+  place doubtfully on the post (0.47, 0.41). **The owner chose the derived sharpening at the truth by default** (2026-10-10), the
+  same rule as Jupiter and Saturn, with the strength stops one click away.
+- **De-rotation is not adopted for Mars:** not de-rotated, the stack read 0.01 to 0.02 closer to the post in every band's
+  correlation than de-rotated (about 2 degrees of turn over 9 minutes). `PlanetaryBestStack.DerotationFor` gives Mars a
+  de-rotation only when asked (`planetary stack --derotate`).
+
 ## The judge: a master against its capture's own stack and post
 
 #1250. A real capture has no truth, but several carry another program's result of the same frames beside them: `<capture>_stack` (an
