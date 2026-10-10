@@ -277,6 +277,10 @@ linear master. CPU first (SIMD), structured so it can later move to the Vulkan p
 CPU path as the source of truth (CLAUDE.md mirror rule). The sharpened master then flows into the
 existing AI-enhancement / GHS path for any further processing.
 
+**Open: the viewer's gain dials span 0 to 10, and a derived gain does not** (#1435). The 12-inch SCT
+Jupiter derives 12.7 for band 2 and -1.4 for band 3: both dials draw pinned at an end, and touching
+either clamps the gain into the track. The value column reads them in full since A4.
+
 ### G. Live - rolling 5-minute window + push preview
 
 - `RollingWindowStacker`: maintains a time-based window (~5 min of capture time from frame
@@ -605,6 +609,45 @@ tune has not run.
 **Tracked by #1391.** `planetary stack --auto` and `planetary sharpen --auto` in the CLI, and Auto in the viewer's planetary view, which shows
 the base model's master at once and the tuned one when its run finishes. One routine for both, as
 `PlanetaryBestStack` is for Best. The viewer half is verified by driving the app through the SDL inspector.
+
+**Built (2026-10-10).** A2 found no tune that carries, so AUTO's settings are the measured defaults and what it adds is
+reading what the capture **is**, nothing asked. One routine, `PlanetaryAuto` (identify, then `PlanetaryBestStack` at the
+defaults, then one writer), runs behind `planetary stack --auto` and the viewer's **Auto** view (Frames, Live, Auto, Best:
+Auto's result is kept beside Best's, so switching stacks nothing again). The master says what it was read as (`OBJECT`,
+`TELESCOP`, `APTDIA`, `FILTER`, through `PlanetaryStackOptions.Optics`), which `planetary sharpen --auto` reads back.
+`PlanetaryIdentification` takes each fact from the first source that gives it, and says where in words:
+
+| | given | the capture's own words | then |
+|---|---|---|---|
+| planet | `--planet` | FireCapture's `Profile`; the mount's pointing in SharpCap's settings against the ephemeris; the file's name, then its folders | the frames tell a Jupiter from a Saturn the path named |
+| filter (mono) | `--wavelength` | FireCapture's `Filter`, SharpCap's filter wheel; the file's name | broadband, 550 nm |
+| telescope | `--aperture-mm` with `--design`, or `--telescope` | the SER header (a TianWen recording's); FireCapture's `Scope`; the file's name, then its folders (inches, cm, EdgeHD, C-series, Skymax, PDS, a number beside a design's word) | the telescope last said for the same camera (`PlanetaryTelescopeMemory`), else none and the preset |
+
+The rules for the frames were set on #1391 before anything was read, and amended twice after the reading, both said there:
+- **The ring test.** Over the 200 SERs on hand, every Jupiter's median blob elongation read 1.064 to 1.112 and every
+  Saturn's 2.401 to 3.139, so the threshold is their geometric mean, **1.63**, used only where Saturn's rings are at least
+  **7.3 degrees** open (the smallest opening measured, 7.339, the owner's 2026-10-07 Saturn). It unnamed the two
+  `own-saturn` files that are the owner's 2021 Jupiter.
+- **It decides only between Jupiter and Saturn** (amended): a crescent Venus reads 1.54 to 3.55 and a partial Moon up to
+  2.34, as elongated as the rings, so the frames never name a planet themselves nor overrule any other.
+- **A mount's pointing and a path that disagree name neither** (amended): on 2024-09-17 SharpCap recorded the mount
+  0.69 degrees from Saturn while the frames show the full Moon, 9.15 degrees away from that pointing; the folder said Moon.
+- A telescope is remembered per camera when a person states it: the viewer's panel while a capture is open, and
+  `--auto`'s given telescope. None of the owner's captures names its telescope anywhere, so for those it is said once.
+
+**Measured (2026-10-10), on the five captures with a `_post`** (the 12-inch SCT and EdgeHD 11 Jupiters, the EdgeHD 11 and
+Meade 16-inch Saturns, the EdgeHD 11 Mars), each read with nothing given:
+- **Rule 1 holds on all five**: the viewer, driven through the SDL inspector (open, Auto, wait, read back), wrote masters
+  identical to `planetary stack --auto`'s, pixels and every header card.
+- **Rule 2 holds within A2's seed spread (2.1 %) on every band and column but one.** `planetary judge` against each post,
+  Auto beside Best with the telescopes those captures were judged with before (305 mm at 0.35, 280 mm at 0.375, 406 mm at
+  0.37): on three captures Auto is as close to the post as Best or closer in every band and column (band 2's gain on the
+  detail both hold 0.617 / 0.609, 0.476 / 0.439, 0.522 / 0.500), its correlation never lower. **The EdgeHD Saturn is the
+  exception**: its band 2 gain is closer (0.967 / 0.935), but its globe's band 2 carries more energy than the post, 1.040
+  against Best's 1.008, past the spread, and in bands 3 to 5, where both masters overshoot the post, Auto overshoots by 0.1
+  to 0.9 % more (within it). Auto modelled the EdgeHD as a generic SCT (obstruction 0.33) where the judged runs used 0.375,
+  which sharpens harder. Mars has no `_post` judge yet (#1436).
+- Rule 3 has nothing to show (no tune carries, A2). Rule 4's screenshots are on the PR.
 
 ### The 2026-06 parameter study
 
