@@ -491,6 +491,19 @@ namespace TianWen.UI.Abstractions
             return false;
         }
 
+        /// <summary>The label a toolbar button was placed with this frame, or null if it is not on the bar. Test seam.</summary>
+        internal string? PaintedToolbarLabel(ToolbarAction action)
+        {
+            foreach (var box in _toolbarBoxes)
+            {
+                if (box.Action == action)
+                {
+                    return box.Label;
+                }
+            }
+            return null;
+        }
+
         /// <summary>Every button placed this frame, in layout order. Test seam.</summary>
         internal IEnumerable<(ToolbarAction Action, RectF32 Rect)> PaintedToolbarButtons
         {
@@ -742,10 +755,9 @@ namespace TianWen.UI.Abstractions
                         var modes = ViewerActions.StretchLinkModes;
                         if ((uint)idx < (uint)modes.Length)
                         {
-                            state.StretchMode = modes[idx];
-                            state.NeedsRedraw = true;
+                            ViewerActions.ChooseStretchLink(state, modes[idx]);
                         }
-                    }, Array.IndexOf(ViewerActions.StretchLinkModes, state.StretchMode));
+                    }, Array.IndexOf(ViewerActions.StretchLinkModes, state.StretchModeOn));
                     return true;
 
                 case ToolbarAction.Channel:
@@ -2226,7 +2238,8 @@ namespace TianWen.UI.Abstractions
             return action switch
             {
                 ToolbarAction.StretchToggle => "STF",
-                ToolbarAction.StretchLink => state.StretchMode switch
+                // While the stretch is off the button names the one STF turns on (StretchModeOn), never a mode not in effect (#1440).
+                ToolbarAction.StretchLink => state.StretchModeOn switch
                 {
                     // Auto names what it resolved to, so the mode it picked is never a mystery.
                     StretchMode.Auto => $"Auto ({ResolvedAutoLabel(_source, document, state)})",

@@ -369,9 +369,12 @@ public sealed class ViewerController(
                     // SER viewer instead: show the linear [0,1] frame (StretchMode.None); FillUnitFloat has
                     // already normalised the raw samples by the SER bit depth. Only reset the mode when
                     // entering sequence mode, so the user's pick is preserved while scrubbing SER->SER.
+                    // And STF turns on the planetary stretch, the one planetary stack's preview renders with, never the deep-sky
+                    // default the last frame left (#1440): a SER is a planet's, the Moon's or the Sun's.
                     if (!wasSequence)
                     {
                         state.StretchMode = StretchMode.None;
+                        state.StretchModeBeforeLinear = StretchMode.Planetary;
                     }
                     state.HistogramLogScale = state.StretchMode is StretchMode.None;
                     state.NeedsTextureUpdate = true;
@@ -496,11 +499,12 @@ public sealed class ViewerController(
 
                 // No stretch for a pre-stretched image, the planetary stretch for a planet's frame (StretchMode.ForFrame, which the
                 // Explorer thumbnail asks too), and the auto-stretch back for a deep-sky frame after either.
+                var planetsFrame = StretchMode.ForFrame(newDoc.UnstretchedImage.ImageMeta, StretchMode.None) is StretchMode.Planetary;
                 if (newDoc.IsPreStretched)
                 {
                     state.StretchMode = StretchMode.None;
                 }
-                else if (StretchMode.ForFrame(newDoc.UnstretchedImage.ImageMeta, StretchMode.None) is StretchMode.Planetary)
+                else if (planetsFrame)
                 {
                     state.StretchMode = StretchMode.Planetary;
                 }
@@ -513,6 +517,11 @@ public sealed class ViewerController(
                 else if (state.StretchMode is StretchMode.None or StretchMode.Planetary)
                 {
                     state.StretchMode = ViewerActions.DefaultStretchMode;
+                }
+                // Nor does STF turn on the planetary stretch a SER or a planet's master left, for a frame that is not a planet's (#1440).
+                if (!planetsFrame && state.StretchModeBeforeLinear is StretchMode.Planetary)
+                {
+                    state.StretchModeBeforeLinear = ViewerActions.DefaultStretchMode;
                 }
                 state.HistogramLogScale = state.StretchMode is StretchMode.None;
 

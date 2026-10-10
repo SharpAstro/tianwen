@@ -103,7 +103,8 @@ The two producers resolve it with what only they know -- `AstroImageDocument` fr
 `autoWb is not null` (which already honours the SPCC toggle), `LiveFramePreviewSource` from channel
 count with no calibration. So running SPCC on an Auto frame flips it to Linked on its own, which is the
 decision the user otherwise made by hand. The StretchLink button names what Auto resolved to
-("Auto (Linked)"). Pinned by `ColorCalibrationToggleTests`, `ViewerActionsTests.DefaultStretchMode_IsAuto`
+("Auto (Linked)"), and while the stretch is off it names the stretch STF would turn on
+(`ViewerState.StretchModeOn`, #1440): Planetary on a SER, never a mode in effect nowhere. Pinned by `ColorCalibrationToggleTests`, `ViewerActionsTests.DefaultStretchMode_IsAuto`
 and `NarrowbandStretchModeTests.TheHeadlessRendererHonoursTheSameLineSelectiveVeto` (whose broadband row
 is the control). A test or renderer that needs a fixed curve passes an explicit mode, never Auto.
 

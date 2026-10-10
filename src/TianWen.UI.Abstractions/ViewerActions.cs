@@ -70,13 +70,27 @@ public static class ViewerActions
     /// </summary>
     public static StretchMode DefaultStretchMode => StretchLinkModes[0];
 
+    /// <summary>
+    /// The mode button steps from the mode it names (<see cref="ViewerState.StretchModeOn"/>), so while the stretch is off it steps
+    /// from the one STF would turn on, and shows the step, as a choice from its menu does (<see cref="ChooseStretchLink"/>).
+    /// </summary>
     public static void CycleStretchLink(ViewerState state, bool reverse = false)
     {
-        var idx = Array.IndexOf(StretchLinkModes, state.StretchMode);
+        var idx = Array.IndexOf(StretchLinkModes, state.StretchModeOn);
         if (idx < 0) idx = 0;
         var len = StretchLinkModes.Length;
         idx = (idx + (reverse ? len - 1 : 1)) % len;
-        state.StretchMode = StretchLinkModes[idx];
+        ChooseStretchLink(state, StretchLinkModes[idx]);
+    }
+
+    /// <summary>A stretch chosen on the mode button is shown, and the histogram leaves the log scale linear frames read in.</summary>
+    internal static void ChooseStretchLink(ViewerState state, StretchMode mode)
+    {
+        if (state.StretchMode is StretchMode.None)
+        {
+            state.HistogramLogScale = false;
+        }
+        state.StretchMode = mode;
         state.NeedsRedraw = true;
     }
 
