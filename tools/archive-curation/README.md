@@ -67,6 +67,7 @@ same sensor.
 | `asi585_filter.py` | ASI585MC Pro | every session against the body's own L-eNhance reference frame; B/G separates nothing here, R/G does |
 | `groupK_filter.py` | group K, ASI585 | flat ratios and bias-corrected sky, two independent measurements |
 | `filter_from_flats.py` | group J, SV605CC | a closer calibration set, and the filter in a manual holder read from the flats |
+| `filter_from_stars.py LIGHTS...` | any colour session | dual-band or broadband from the STARS, sky-free: the slope of ln B/G on ln R/G across a night's stars (broadband -0.49 to -0.98, L-eNhance -0.04 and +0.11 on the IMX585), darks matched from the calibration tree, white balance undone, any number of sessions side by side. The reference for #1146; it settled the Uranus-C Lagoon of 2023-08-09 as dual-band (`filter-inference.md` 9a) |
 | `imx294_reference.py`, `imx294_star_colours.py`, `etacar_filter_class.py` | group M, ASI294MC | same-sensor flats, star colours as the one light source constant across nights, and the nebula-over-stars ratio of ratios inside one frame |
 
 ## Step 3 and 4b: is the calibration safe, and may a flat be borrowed
