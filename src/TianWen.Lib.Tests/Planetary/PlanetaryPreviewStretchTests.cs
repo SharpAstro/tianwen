@@ -172,7 +172,7 @@ public class PlanetaryPreviewStretchTests : IDisposable
                 }
             }
         }
-        return new Image(planes, BitDepth.Float32, 0.5f, -0.05f, 0f, new ImageMeta { SensorType = SensorType.Color, IsColourBalanced = marked });
+        return new Image(planes, BitDepth.Float32, 0.5f, -0.05f, 0f, new ImageMeta { SensorType = SensorType.Color, ColourBalanceSaturation = marked ? 1 : null });
     }
 
     // The rendered sky's mean in each channel, levels of 255, past 40 px from the disk's middle.

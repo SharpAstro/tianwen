@@ -40,4 +40,25 @@ public sealed class PlanetaryLookFitsTests : IDisposable
         Image.TryReadFitsFile(lookPath, out var back).ShouldBeTrue();
         back.ImageMeta.IsColourBalanced.ShouldBeTrue("read back, its sky takes ONE black point, as the master the look was made on did");
     }
+
+    [Fact]
+    public void ABalancedMasterWrittenWithNoCardsOfItsOwnReadsBackBalanced()
+    {
+        // #1411: CBALSAT was written only where a caller passed the balance's cards, so planetary sharpen, compose, derotate and the
+        // image verbs wrote a balanced master unmarked, and reopened it took a black point a channel again, the navy sky of #1229. The one
+        // writer writes it from the frame's own meta, the one reader reads it back.
+        var at = new DateTimeOffset(2024, 12, 15, 12, 56, 42, TimeSpan.Zero);
+        var folder = _folders.Create("twbalanced");
+        var balanced = PlanetaryColourReadingTests.RenderedJupiter(at, balanced: false) is var master
+            && PlanetaryColourLook.Prepare(master, CatalogIndex.Jupiter, at) is ({ Balance: not null } ready, _)
+            ? ready.Master : throw new InvalidOperationException("the rendered Jupiter was not balanced");
+        balanced.ImageMeta.IsColourBalanced.ShouldBeTrue();
+        var path = Path.Combine(folder.FullName, "jupiter_sharpened.fits");
+
+        balanced.WriteToFitsFile(path);
+
+        Image.TryReadFitsFile(path, out var back).ShouldBeTrue();
+        back.ImageMeta.IsColourBalanced.ShouldBeTrue("its sky takes ONE black point, however it was written");
+        back.ImageMeta.ColourBalanceSaturation.ShouldBe(balanced.ImageMeta.ColourBalanceSaturation);
+    }
 }
