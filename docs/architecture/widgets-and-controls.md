@@ -83,8 +83,8 @@ chromeless Live Session / polar / guide-cam previews (`ViewerState.HideChrome`).
    defect of layering -- adopt (or create) a control.
 
    **A drag is not just math, it is state plus three handler branches, and that is the part that bites.**
-   The shape to avoid is a flag on the shared view state (`IsResizingFileList`, `WaveletDragBand`,
-   `IsScrubbing`) plus a press, a move and a release branch. It costs more than it
+   The shape to avoid is a flag on the shared view state (`IsResizingFileList`, `WaveletDragBand`
+   (since converted), `IsScrubbing`) plus a press, a move and a release branch. It costs more than it
    looks, because **the viewer has TWO press dispatchers** -- the embedded host routes through
    `HandleInput`, and `tianwen-fits`'s `Program.cs` has its own for dropdowns and DI-backed actions -- so
    every such branch has to be written twice and nothing connects the copies. The before/after split
@@ -96,7 +96,8 @@ chromeless Live Session / polar / guide-cam previews (`ViewerState.HideChrome`).
    same rect the control painted -- so "draw == hit" (rule 3) extends to "draw == drag". Only motion and
    release are routed, in ONE line, in the one place both hosts already forward to. `SplitCompareController`
    is the reference consumer. Of the three drag flags above, `WaveletDragBand` went to a `Content.Slider`;
-   `IsResizingFileList` and `IsScrubbing` predate it and are the remaining conversions (2026-10-10).
+   `IsResizingFileList` and `IsScrubbing` predate `SplitCompareController` and are the remaining conversions
+   (2026-10-10).
 
    **A `Layout.Content.Slider` leaf is the finished form of this** (DIR.Lib 9.2): the engine paints the
    track, registers it, and arms a `DragCapture` holding the rect it was just painted into, so "draw ==
