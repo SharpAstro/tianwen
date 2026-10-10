@@ -1709,6 +1709,35 @@ What would turn this into a decision, the owner's to choose among: R2e's seeds 1
 which every read since the matched pair has lacked); an export from the fixed generator, trained the same way; and the
 bar StarXTerminator sets ("What the loss weighs, and the bar StarXTerminator sets").
 
+#### R2e's second seed and R2f, pre-registered (2026-10-10)
+
+Written before either trains (the owner's goal for the night: meaningful training). Both on the 1070, one after the other,
+by R2e's own runner and snapshot of the trainer (`C:\temp\e2\r2ds-run`), patience 24, cap 240,000; both scored on A's
+draws by the binary that scored the matched pair and R2e, so every number below compares with every number above.
+
+**R2e's spread: `r2ds_synth2_s1`.** R2e's export, recipe and schedule again, seed 1 (`run-r2.ps1 -Tag r2ds -Arms synth2
+-SeedCount 2`, which skips seed 0's checkpoint). It is the first second seed at a patience of 24, so it measures the spread
+every read since the matched pair has borrowed from patience 12.
+1. **The gain is not the seed's**: seed 1 beats A's control at 5-20 sigma (73.0) and at 100-1000 (24.4). Moderate.
+2. **Patience 12's spread holds at 24**: seed 1 within 3.1 points of seed 0 at 5-20 (79.6) and within 4.6 at 100-1000
+   (46.3), either side. Low to moderate.
+3. **Kill**: seed 1 under A's control at either band. Then R2e's read was its seed, and nothing past it is read until a
+   third seed is in.
+
+**R2f: R2e's recipe on the fixed generator.** An export from main as it stands after #1400's fixes (`synth3`): R2e's
+command again, the same sessions, cells, draws, noise shape and seed, the fine steer (0.5,2,0.8,1), the nebula knots and the
+compact-knot cap, so the one change is the generator's texture (its width on a fixed grid, its energy at the plate's, the
+steer's seam; "#1400's review" below). `run-r2.ps1 -Tag r2f -Arms synth3 -SeedCount 1`, after R2e's seed 1. The band below
+is the larger of A's three-seed range at 12 and R2e's own two-seed spread, once seed 1 is read.
+1. **The bright stars stay repaired**: R2f at 100-1000 sigma at least A's control (24.4), the bright cores under 5 % of its
+   error. Moderate.
+2. **The fix costs R2e nothing**: R2f no more than the band below R2e's seed 0 at 5-20 (79.6) and at 100-1000 (46.3).
+   One-sided by design, written so now: R2f above R2e is a pass, not a miss. Low to moderate: R2e's texture held 1.2 to 1.9
+   times the plates' energy, and some of its gain may have been that.
+3. **The sky**: far sky at most 0.37, R2e's bar. Moderate.
+4. **Kill**: R2f under A's control by more than 5 points at 5-20 sigma or 4.6 at 100-1000. Then the gain rested on the
+   too-strong texture, and the fixed generator does not train as well as the one it replaced.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
