@@ -205,7 +205,7 @@ hand-placed:
 | `GuiderTab.cs` | the calibration table (`RenderCalibrationText`, `y` anchored from the bottom, `y += lineH`) |
 | `LiveSessionTab.cs` | the frame (top rect, timeline, bottom strip, the OTA / viewer / log columns, the picker) carved by arithmetic, where `GuiderTab` already uses one `Dock` |
 
-So P3's scope is the viewer's own core file, the sky-map tab, and these panels. They are still reports rather
+These panels are tracked by #1455. So P3's scope is the viewer's own core file, the sky-map tab, and these panels. They are still reports rather
 than controls, so the drift costs less, and they can still come piecemeal. P4's ratchet does not cover them,
 since it counts the same two smells.
 
