@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Immutable;
 using System.CommandLine;
 using System.Diagnostics;
 using System.Globalization;
@@ -221,6 +222,14 @@ internal sealed class PlanetaryStackSubCommand(
             Description = "Midtones gamma for the high-key planetary PNG preview. 1.0 = pure linear (planets need little stretching); lower lifts the belts. Default 0.75. Ignored under --no-png.",
             DefaultValueFactory = _ => 0.75,
         };
+        var reportOpt = new Option<bool>("--report")
+        {
+            Description = "Also draw the run's frame-quality curve beside its master (<master>_quality.png, #1364): the frames sorted best first with the keep's cut marked, and their quality through the run in time order, a segment a file.",
+        };
+        var reportOnlyOpt = new Option<bool>("--report-only")
+        {
+            Description = "Grade the run and draw its frame-quality curve as --report does, stacking nothing: with --grade-cache from the grades a stack already kept, so a keep can be chosen before the stack runs.",
+        };
 
         // Advanced alignment knobs (sensible defaults; only touch for tuning).
         var tileSizeOpt = new Option<int>("--align-tile")
@@ -289,7 +298,7 @@ internal sealed class PlanetaryStackSubCommand(
             {
                 outputOpt, labelOpt, keepOpt, pointKeepOpt, gradeCacheOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt,
                 noPerPointOpt, noSignalGateOpt, noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt,
-                noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, strengthOpt, sharpenLuminanceOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt,
+                noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, strengthOpt, sharpenLuminanceOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt, reportOpt, reportOnlyOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt, estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt,
                 derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, northOpt, eachFileOpt, legacyOpt, truthOpt, halvesOpt, sessionOpt, manifestOpt, epochOpt,
                 autoOpt, designOpt,
@@ -303,7 +312,7 @@ internal sealed class PlanetaryStackSubCommand(
             noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt, noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, fixOpt, strengthOpt,
             sharpenLuminanceOpt, pupil.Obstruction, tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt,
             estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt, derotateOpt, noDerotateOpt, turnNorthOverOpt, northOpt, eachFileOpt,
-            legacyOpt, truthOpt, halvesOpt, epochOpt,
+            legacyOpt, truthOpt, halvesOpt, epochOpt, reportOnlyOpt,
         ];
 
         command.SetAction(async (parseResult, ct) =>
@@ -619,9 +628,11 @@ internal sealed class PlanetaryStackSubCommand(
                     + (serPaths.Length > 1 ? $"+{serPaths.Length - 1}" : "");
                 var sw = Stopwatch.StartNew();
                 PlanetaryBestStackResult result;
+                ImmutableArray<int> autoFileStarts;
                 using (IPlanetaryFrameStream stream = serPaths.Length == 1 ? SerFrameStream.Open(serPaths[0]) : PlanetaryFrameSequence.OpenSer(serPaths))
                 {
                     consoleHost.WriteScrollable($"[planetary] {baseName}: {stream.FrameCount} frames, {stream.Width}x{stream.Height}, layout {stream.Layout}, at the measured defaults...");
+                    autoFileStarts = PlanetaryQualityCurve.FileStartsOf(stream);
                     result = await PlanetaryAuto.RunAsync(stream, identity, progress: null, ct);
                 }
                 try
@@ -631,6 +642,11 @@ internal sealed class PlanetaryStackSubCommand(
                     var paths = PlanetaryAuto.OutputPaths(autoDir, prefix + baseName);
                     PlanetaryAuto.Write(result, paths);
                     consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(paths.Master)} (linear master) and {Path.GetFileName(paths.Sharpened)} ({result.HowSharpened})");
+                    if (parseResult.GetValue(reportOpt))
+                    {
+                        // AUTO stacks at the measured defaults, so its keep is theirs.
+                        await WriteReportAsync(result.Stack.Grades, new PlanetaryStackOptions().KeepFraction, autoFileStarts, paths.Master, baseName);
+                    }
                     if (result.Stack.Master.ChannelCount == 3)
                     {
                         consoleHost.WriteScrollable($"[planetary] {result.HowBalanced}");
@@ -657,6 +673,22 @@ internal sealed class PlanetaryStackSubCommand(
             PlanetaryIdentityGiven? AutoGiven() => PlanetaryMasterScore.AutoGiven(consoleHost, parseResult, planetOpt, wavelengthOpt, pupil, designOpt);
 
             // One run stacked and written: the captures given, or one capture of a session (--each-file).
+            // The run's frame-quality curve beside its master (#1364), read off the grades the keep was chosen on: nothing graded again.
+            async Task WriteReportAsync(ImmutableArray<FrameGrade> grades, double keepFraction, ImmutableArray<int> starts, string masterFits, string name)
+            {
+                if (grades.IsDefaultOrEmpty)
+                {
+                    consoleHost.WriteError($"[planetary] {name}: no grades to draw a quality curve from");
+                    return;
+                }
+                var curve = PlanetaryQualityCurve.From(grades, keepFraction, starts);
+                var path = Path.ChangeExtension(masterFits, null) + "_quality.png";
+                await PlanetaryQualityReport.WritePngAsync(curve, $"{name}: frame quality", path, ct);
+                var cuts = string.Join(", ", curve.ReferenceCuts.Select(cut => string.Create(CultureInfo.InvariantCulture, $"{cut.Share:0%} {cut.Quality:0}")));
+                consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                    $"[planetary] wrote {Path.GetFileName(path)} (frame quality): keep {keepFraction:0.##%} cuts at {curve.KeepQuality:0} of the best frame's 100{(cuts.Length > 0 ? $" (at {cuts})" : "")}; {PlanetaryQualityReport.Caption(curve)}"));
+            }
+
             async Task<int> StackRunAsync(string[] runPaths, string runDir, PlanetaryStackOptions runOptions)
             {
                 var label = parseResult.GetValue(labelOpt);
@@ -667,10 +699,20 @@ internal sealed class PlanetaryStackSubCommand(
                 var sw = Stopwatch.StartNew();
 
                 PlanetaryStackResult result;
+                ImmutableArray<int> fileStarts;
                 using (IPlanetaryFrameStream stream = runPaths.Length == 1 ? SerFrameStream.Open(runPaths[0]) : PlanetaryFrameSequence.OpenSer(runPaths))
                 {
                     consoleHost.WriteScrollable(
                         $"[planetary] {baseName}: {stream.FrameCount} frames{(runPaths.Length > 1 ? $" of {runPaths.Length} captures" : "")}, {stream.Width}x{stream.Height}, layout {stream.Layout}");
+                    fileStarts = PlanetaryQualityCurve.FileStartsOf(stream);
+                    if (parseResult.GetValue(reportOnlyOpt))
+                    {
+                        // Graded as the stack would grade it, and drawn where its master would go, with nothing stacked (#1364).
+                        var grades = await LuckyImagingStacker.GradeAsync(stream, runOptions, ct);
+                        consoleHost.WriteScrollable($"[planetary] {baseName}: graded {grades.Length} frames in {sw.Elapsed.TotalSeconds:F1}s, stacking nothing (--report-only)");
+                        await WriteReportAsync(grades, runOptions.KeepFraction, fileStarts, PlanetaryBestStack.OutputPaths(runDir, baseName, prefix).Master, baseName);
+                        return 0;
+                    }
                     var mode = useDrizzle ? $"Bayer drizzle x{drizzleScale:0.0#}"
                         : useGlobal ? "global-translate"
                         : "alignment-point mesh";
@@ -744,6 +786,10 @@ internal sealed class PlanetaryStackSubCommand(
                 var (masterFits, sharpenedFits) = PlanetaryBestStack.OutputPaths(runDir, baseName, prefix);
                 written.WriteToFitsFile(masterFits, null, balance?.HeaderCards());
                 consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(masterFits)} (linear master, {master.ChannelCount}ch {master.Width}x{master.Height})");
+                if (parseResult.GetValue(reportOpt))
+                {
+                    await WriteReportAsync(result.Grades, runOptions.KeepFraction, fileStarts, masterFits, baseName);
+                }
                 if (result.Halves is { } halfStacks)
                 {
                     // Balanced as the master is, so half their difference is the written master's noise.

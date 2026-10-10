@@ -1664,6 +1664,51 @@ draws with the fixed eval beside `r2dkl` and `r2dal`. A difference under A's thr
 4. **Kill**: R2e under A's control by more than 5 points at 5-20 sigma, or by more than 4.6 at 100-1000. Then the steered
    texture costs what the knots repaired, and the synthetic background stays the knots export.
 
+#### R2e's read: the steer gains at every brightness, and (2) misses by over-reaching (2026-10-10)
+
+`r2ds_synth2_s0` trained to the 240,000-step cap with its held-out objective still falling (best at 235,500, four
+halvings), as the knots arm did (best at 239,000); A's control converged on its own at 178,500. Scored on A's draws by
+the binary that scored the matched pair (`C:\temp\e2\score-r2ds.ps1`, `read_r2ds.py`, `C:\temp\e2\r2ds-read.txt`):
+
+| measure | A, 3 seeds at 12 | A's control `r2dal` | the knots `r2dkl` | R2e `r2ds` |
+|---|---|---|---|---|
+| clean 5-20 sigma | 64.4 to 67.5 | 73.0 | 71.4 | **79.6** |
+| clean 20-100 sigma | 53.3 to 56.8 | 58.6 | 63.4 | **70.0** |
+| clean 100-1000 sigma | 21.5 to 26.1 | 24.4 | 31.9 | **46.3** |
+| dug 100-1000 sigma | 33.8 to 58.3 | 66.1 | 46.2 | 42.2 |
+| core RMS 100-1000 | 2.7 to 5.8 | 3.0 | 5.9 | **1.8** |
+| clean saturated | 21.9 to 26.0 | 29.2 | 26.9 | **37.9** |
+| bright-core share % | 2.4 to 3.0 | 2.83 | 2.96 | **1.59** |
+| far sky | 0.12 to 0.39 | 0.28 | 0.24 | 0.29 |
+
+1. **The bright stars: holds.** 46.3 at 100-1000 sigma against A's control's 24.4, the bright cores 1.6 % of its
+   error.
+2. **The faint stars: misses as registered, by over-reaching.** It was registered as "within 3.1 of A's control (73.0)",
+   and R2e reads 79.6, 6.6 above. The scorer read it one-sided (no more than 3.1 below), the same slip the #1400 review
+   corrected on the matched read's point (2), and it is recorded here as a miss. What the prediction was written to
+   guard, that the steer costs no faint stars, holds.
+3. **The sky: holds.** Far sky 0.29 against the knots arm's 0.24 plus A's spread (0.37).
+4. **The kill does not fire.**
+
+**Against the knots arm, on the same schedule** (both at the cap): +8.2 points at 5-20 sigma, +6.7 at 20-100, +14.3 at
+100-1000, +11.0 on saturated stars, the bright cores' share of the error halved and their RMS a third. Each gain is past
+A's three-seed range at its band (3.1 points at 5-20 sigma, 4.6 at 100-1000), the only seed spread measured. It beats
+A's control at every brightness, where the knots arm tied it on the faint stars.
+
+Read with it:
+- **One seed**, and the spread at a patience of 24 is unmeasured: patience 12's stands in.
+- **Its training data predates #1400's fixes**: its texture held 1.2 to 1.9 times the plates' energy at 1 to 8 px, and
+  F7's seam. Whether the fixed generator trains as well is untested; the gain may rest partly on texture that is too
+  strong.
+- **The synthetic arms stopped at the cap, A's control at its own convergence**, so against A the comparison is each
+  arm's best within the cap, not the same number of steps.
+- **The eval and the export predate F6 and F8**: no count of digs in the sky's noise, and the near zone that leaves half
+  a kept star in the loss.
+
+What would turn this into a decision, the owner's to choose among: R2e's seeds 1 and 2 (its spread at a patience of 24,
+which every read since the matched pair has lacked); an export from the fixed generator, trained the same way; and the
+bar StarXTerminator sets ("What the loss weighs, and the bar StarXTerminator sets").
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
@@ -1706,7 +1751,7 @@ The structure moves within its noise: S3's score at 2 to 4 px, the fine steer, 0
 moves with the draw, swings the 2 to 8 px score more than any arm does). On the filament test the fill's energy is 0.86
 of the truth's (1.09 before, all of it the overshoot, 0.47 on plain RMS alone).
 
-**R2e, training now, draws the BEFORE column**: its export was made from the generator before these fixes, so its
+**R2e drew the BEFORE column** ("R2e's read", above): its export was made from the generator before these fixes, so its
 texture holds 1.2 to 1.9 times the plate's energy at 1 to 8 px and F7's seam. Its read is read with that beside it.
 
 **S4 again, the same eight plates and holes** (`C:\temp\e2\s4-1400` with F1 and F2, `s4-1400m` matched over the cut,
