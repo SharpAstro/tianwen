@@ -33,6 +33,7 @@
     { "match": "^r2dk_", "what": "'The knots': arm B's export with the bright compact synthetic knots capped (they looked like stars); patience 12." },
     { "match": "^r2dal_", "what": "A's control at patience 24: arm A on the matched schedule, the baseline the combined arm is read against." },
     { "match": "^r2dkl_", "what": "The two fixes together: the capped-knots export at patience 24. Tied A on faint stars, beat it on bright ones (+7.5 points clean, 20 fewer dug)." },
-    { "match": "^r2ds_", "what": "R2e (training now): the synthetic background with the texture steered along the nebula's own structure, nebula-shaped knots and the knots cap; patience 24." }
+    { "match": "^r2ds_", "what": "R2e: the synthetic background with the texture steered along the nebula's own structure, nebula-shaped knots and the knots cap; patience 24. Seed 0 beat A's control at every brightness; seed 1 measures the spread." },
+    { "match": "^r2f_", "what": "R2f: R2e's recipe on an export from the generator as #1400 fixed it (the texture's width on a fixed grid, its energy at the plate's, the steer's seam); the one change is the texture. Does R2e's gain survive the fix?" }
   ]
 }
