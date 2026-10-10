@@ -2706,6 +2706,11 @@ showed a dim, flat disk on a grey sky. The data was never the difference.
 - **`StretchMode.ForFrame` is the ONE rule for which frames open in it**: a frame whose `OBJECT` names a planet or the Moon.
   `tianwen-fits`, the Explorer thumbnail and `tianwen view` all ask it, so a master's thumbnail is its preview. A deep-sky frame
   opened after one goes back to `Auto`, and the linear toggle (T) returns to the stretch it left.
+- **A SER's frames open linear, and STF turns on this stretch** (#1440, the owner's report of 2026-10-10). The toggle used to turn
+  on the deep-sky `Auto` the frame before had left, Unlinked on a colour capture: the speckled sky and white disk the linear default
+  exists to avoid. A SER now remembers `Planetary` as the stretch STF turns on (`ViewerState.StretchModeBeforeLinear`), and a frame
+  that is not a planet's puts `Auto` back there. While the stretch is off, the mode button names that stretch
+  (`ViewerState.StretchModeOn`); it read "Unlinked", a mode in effect nowhere. Pinned by `ViewerSerStretchTests`.
 - **What it does to the real capture** is in "The best stack of a real capture, as the viewer shows it", below.
 
 #### The best stack of a real capture, as the viewer shows it

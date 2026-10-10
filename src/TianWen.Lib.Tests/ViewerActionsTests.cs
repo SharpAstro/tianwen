@@ -140,17 +140,31 @@ public class ViewerActionsTests
         }
     }
 
-    [Fact]
-    public void CycleStretchLink_WhenNone_StartsFromTheTableHead()
+    // None is not in the cycle. While the stretch is off the mode button names the stretch STF would turn on (#1440), so a step goes
+    // on from that one, whichever it is: the default on a fresh viewer, the planetary stretch on a SER. The step is shown, and the
+    // histogram leaves the log scale linear frames read in.
+    [Theory]
+    [InlineData(StretchMode.Auto)]
+    [InlineData(StretchMode.Planetary)]
+    [InlineData(StretchMode.Luma)]
+    public void CycleStretchLink_WhenNone_StepsOnFromTheStretchStfWouldTurnOn(StretchMode remembered)
     {
-        // None is not in the cycle, so an unknown index falls back to slot 0 and one step lands on
-        // slot 1 -- the first mode a user reaches from a linear view.
         var modes = ViewerActions.StretchLinkModes;
-        var state = new ViewerState { StretchMode = StretchMode.None };
+        var state = new ViewerState { StretchMode = StretchMode.None, StretchModeBeforeLinear = remembered, HistogramLogScale = true };
+        state.StretchModeOn.ShouldBe(remembered);
 
         ViewerActions.CycleStretchLink(state);
 
-        state.StretchMode.ShouldBe(modes[1]);
+        state.StretchMode.ShouldBe(modes[(Array.IndexOf(modes, remembered) + 1) % modes.Length]);
+        state.HistogramLogScale.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void StretchModeOn_NamesTheStretchInEffectWhileOneIsOn()
+    {
+        var state = new ViewerState { StretchMode = StretchMode.Linked, StretchModeBeforeLinear = StretchMode.Planetary };
+
+        state.StretchModeOn.ShouldBe(StretchMode.Linked);
     }
 
     // --- CycleCurvesBoost ---

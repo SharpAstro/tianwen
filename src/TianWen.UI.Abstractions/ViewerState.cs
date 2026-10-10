@@ -31,8 +31,17 @@ public sealed class ViewerState
 
     public StretchMode StretchMode { get; set; } = ViewerActions.DefaultStretchMode;
 
-    /// <summary>The stretch the linear toggle (T) left, and goes back to (<see cref="ViewerActions.ToggleStretch"/>).</summary>
+    /// <summary>
+    /// The stretch the linear toggle (T) left, and goes back to (<see cref="ViewerActions.ToggleStretch"/>). A SER opens linear
+    /// with <see cref="StretchMode.Planetary"/> here, so STF turns on the planetary stretch, never the deep-sky default (#1440).
+    /// </summary>
     public StretchMode StretchModeBeforeLinear { get; set; } = ViewerActions.DefaultStretchMode;
+
+    /// <summary>
+    /// The stretch the mode button names: the one in effect, or while the stretch is off, the one STF turns on. Never
+    /// <see cref="StretchMode.None"/>, which is the STF button's state, not a mode (#1440).
+    /// </summary>
+    public StretchMode StretchModeOn => StretchMode is StretchMode.None ? StretchModeBeforeLinear : StretchMode;
     public StretchParameters StretchParameters { get; set; } = StretchParameters.Default;
     public ChannelView ChannelView { get; set; } = ChannelView.Composite;
     public DebayerAlgorithm DebayerAlgorithm { get; set; } = ViewerActions.DefaultDebayerAlgorithm;
