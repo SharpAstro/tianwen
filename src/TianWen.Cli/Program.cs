@@ -150,6 +150,7 @@ var rootCommand = new RootCommand
                         services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>()),
                     services.GetRequiredService<TianWen.Lib.Devices.IExternal>()).Build(),
                 new PlanetaryCompareSubCommand(consoleHost).Build(),
+                new PlanetaryPupilSubCommand(consoleHost).Build(),
                 new PlanetaryJudgeSubCommand(
                     consoleHost,
                     new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(

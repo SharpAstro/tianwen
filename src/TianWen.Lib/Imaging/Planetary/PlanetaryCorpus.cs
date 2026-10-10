@@ -103,6 +103,12 @@ public sealed record CaptureRecord
     /// <summary>That file's <c>key=value</c> lines, keys sorted; the section header SharpCap writes becomes <c>Camera</c>.</summary>
     public SortedDictionary<string, string>? Settings { get; init; }
 
+    /// <summary>The exposure a frame, ms, as those settings give it (<see cref="PlanetaryCorpus.ExposureAndGain"/>); null where they do not.</summary>
+    public double? ExposureMs { get; init; }
+
+    /// <summary>The camera's gain in its own units, as those settings give it; null where they do not.</summary>
+    public double? Gain { get; init; }
+
     /// <summary>
     /// What the survey noticed, sorted: <c>calibration</c> (a bias, dark or flat video, by its frame type or its folder: the
     /// camera's own noise, which the seeing model measures read noise from), <c>duplicate</c>, <c>no-timestamps</c>,
@@ -153,8 +159,11 @@ public sealed record CorpusSurveyOptions(SevenZipTool? SevenZip = null, int MinF
 /// </summary>
 public static class PlanetaryCorpus
 {
-    /// <summary>The manifest's format version: 2 adds <see cref="CorpusManifest.Sessions"/> (#1308), 3 splits them by filter (#1336).</summary>
-    public const int ManifestVersion = 3;
+    /// <summary>
+    /// The manifest's format version: 2 adds <see cref="CorpusManifest.Sessions"/> (#1308), 3 splits them by filter (#1336), 4 adds each
+    /// capture's <see cref="CaptureRecord.ExposureMs"/> and <see cref="CaptureRecord.Gain"/> (#1367).
+    /// </summary>
+    public const int ManifestVersion = 4;
 
     /// <summary>
     /// The longest pause between one capture's last frame and the next one's first that still joins them into one session: a capture
@@ -180,6 +189,56 @@ public static class PlanetaryCorpus
         Span<byte> hash = stackalloc byte[32];
         sha.GetHashAndReset(hash);
         return Convert.ToHexStringLower(hash[..8]);
+    }
+
+    /// <summary>
+    /// The exposure (ms) and gain a capture program's <paramref name="settings"/> give (#1367): SharpCap's <c>Exposure</c> and
+    /// <c>Gain</c> (<c>Analogue Gain</c> for a Player One camera), FireCapture's <c>Shutter</c> and <c>Gain</c>. An exposure counts only
+    /// with its unit (ms, s or us), since a bare number could be either; a gain is its leading number (FireCapture writes
+    /// <c>3600 (100%)</c>).
+    /// </summary>
+    public static (double? ExposureMs, double? Gain) ExposureAndGain(IReadOnlyDictionary<string, string>? settings)
+    {
+        if (settings is null)
+        {
+            return (null, null);
+        }
+        var exposure = (settings.TryGetValue("Exposure", out var e) ? e : settings.TryGetValue("Shutter", out var s) ? s : null) is { } exposureText
+            ? Milliseconds(exposureText)
+            : null;
+        var gain = (settings.TryGetValue("Gain", out var g) ? g : settings.TryGetValue("Analogue Gain", out var a) ? a : null) is { } gainText
+            && LeadingNumber(gainText) is { } number
+            ? double.Parse(number, CultureInfo.InvariantCulture)
+            : (double?)null;
+        return (exposure, gain);
+
+        static double? Milliseconds(string text)
+        {
+            if (LeadingNumber(text) is not { } number)
+            {
+                return null;
+            }
+            var unit = text.Trim()[number.Length..].Trim();
+            var value = double.Parse(number, CultureInfo.InvariantCulture);
+            return unit.ToLowerInvariant() switch
+            {
+                "ms" => value,
+                "s" or "sec" => value * 1000,
+                "us" or "µs" => value / 1000,
+                _ => null,
+            };
+        }
+
+        static string? LeadingNumber(string text)
+        {
+            var trimmed = text.Trim();
+            var end = 0;
+            while (end < trimmed.Length && (char.IsAsciiDigit(trimmed[end]) || trimmed[end] == '.' || (end == 0 && trimmed[end] == '-')))
+            {
+                end++;
+            }
+            return end > 0 && double.TryParse(trimmed[..end], NumberStyles.Float, CultureInfo.InvariantCulture, out _) ? trimmed[..end] : null;
+        }
     }
 
     /// <summary>
@@ -458,6 +517,8 @@ public static class PlanetaryCorpus
                 TimestampsMonotonic = monotonic,
                 SettingsFile = settingsFile is not null ? Normalise(settingsFile) : null,
                 Settings = settings,
+                ExposureMs = ExposureAndGain(settings).ExposureMs,
+                Gain = ExposureAndGain(settings).Gain,
                 Flags = [.. flags.Distinct().Order(StringComparer.Ordinal)],
             };
         }
@@ -636,6 +697,8 @@ public static class PlanetaryCorpus
         Timestamps = "unknown",
         SettingsFile = settingsFile is not null ? Normalise(settingsFile) : null,
         Settings = settings,
+        ExposureMs = ExposureAndGain(settings).ExposureMs,
+        Gain = ExposureAndGain(settings).Gain,
         Flags = flag is null ? [] : [flag],
         Problem = problem,
     };
