@@ -106,6 +106,75 @@ public class SaturnLimbFitTests
         }
     }
 
+    [Theory]
+    [InlineData("2022-10-09T11:25:00Z", 1.0)]
+    [InlineData("2024-11-15T19:00:00Z", 1.0)]
+    [InlineData("2025-09-21T03:00:00Z", 1.0)]
+    [InlineData("2025-11-25T19:00:00Z", 1.0)]
+    [InlineData("2025-11-25T19:00:00Z", 0.3)]
+    public void TheStartReadsTheGlobeWhereverTheRingsAreTilted(string instant, double ringLevel)
+    {
+        // #1410: the start read the globe's radius as the blob's reach along its long axis over the rings' outer radius, 2.27. Near edge-on
+        // the rings are a line that a seeing blurs below the quarter level the blob is cut at, so the blob was the globe alone and the start
+        // 0.44 of it, on every capture of 2024 to 2026 and in the channel alignment, the de-rotation's turn and the capture statistics.
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Saturn, DateTimeOffset.Parse(instant, CultureInfo.InvariantCulture));
+        const double Scale = 0.302;
+        var radius = aspect.AngularDiameterArcsec / 2 / Scale;
+        var placement = new DiskPlacement(160.37, 120.62, radius, NorthAngleDeg: 96.3);
+        var newtonian = new Pupil(0.254, ObstructionRatio: 58.0 / 254, Vanes: 4, VaneWidthM: 0.001, VaneAngleDeg: 28);
+        var truth = PlanetaryRender.RenderDiffracted(SyntheticSaturn(), aspect, placement, 320, 240, minnaertK: 0.9, newtonian, 550e-9, Scale,
+            rings: SaturnRings.Structured(0.12 * ringLevel, 0.85 * ringLevel, 0.1 * ringLevel, 0.6 * ringLevel));
+        var seen = PsfKernel.Moffat(6, 3).Convolve(truth, 320, 240);
+
+        var start = PlanetaryLimbFit.StartRinged(seen, 320, 240, PlanetaryLimbFit.OptionsFor(aspect));
+
+        start.ShouldNotBeNull();
+        TestContext.Current.TestOutputHelper?.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"{instant}: B {aspect.SubObserverLatitudeCentric:+0.00;-0.00} deg, rings at {ringLevel} of their levels: start radius {start.Value.Radius:0.0} px against a globe of {radius:0.0}"));
+        (start.Value.Radius / radius).ShouldBeInRange(0.85, 1.15);
+    }
+
+    [Theory]
+    [InlineData("2025-09-21T03:00:00Z")]
+    [InlineData("2025-11-25T19:00:00Z")]
+    public void TheLimbFitFindsAnEdgeOnSaturnWhereItWasPut(string instant)
+    {
+        // #1410: near edge-on, at B -1.8 and -0.4 degrees, through the middle of T1's seeings. From the start the rings' reach gave, 0.44
+        // of the globe, the fit found a globe of 12.6 px for 32.2 (-61 %), its axis 5.9 degrees off, and at -0.4 degrees -59 % and 51
+        // degrees. From the globe's own reach it holds T1's centre (0.2 px) and axis (0.2 degree), and the radius to 1.1 and 1.3 %, not
+        // T1's 0.5 %: what is left is the model's near edge-on (the rings dropped below a sin B of 0.01, their line in the annulus).
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Saturn, DateTimeOffset.Parse(instant, CultureInfo.InvariantCulture));
+        const double Scale = 0.302;
+        var radius = aspect.AngularDiameterArcsec / 2 / Scale;
+        var placement = new DiskPlacement(160.37, 120.62, radius, NorthAngleDeg: 96.3);
+        var newtonian = new Pupil(0.254, ObstructionRatio: 58.0 / 254, Vanes: 4, VaneWidthM: 0.001, VaneAngleDeg: 28);
+        var truth = PlanetaryRender.RenderDiffracted(SyntheticSaturn(), aspect, placement, 320, 240, minnaertK: 0.9, newtonian, 550e-9, Scale,
+            rings: SaturnRings.Structured(0.12, 0.85, 0.1, 0.6));
+        var seen = PsfKernel.Moffat(6, 3).Convolve(truth, 320, 240);
+        var image = new float[240, 320];
+        for (var y = 0; y < 240; y++)
+        {
+            for (var x = 0; x < 320; x++)
+            {
+                image[y, x] = seen[(y * 320) + x];
+            }
+        }
+
+        var fit = PlanetaryLimbFit.Fit(Image.FromChannel(image), PlanetaryLimbFit.OptionsFor(aspect));
+
+        fit.ShouldNotBeNull();
+        var f = fit.Value;
+        var radiusError = (f.EquatorialRadius - radius) / radius;
+        var axisError = Math.Abs(Math.IEEERemainder(f.AxisAngleDeg - placement.NorthAngleDeg, 180));
+        TestContext.Current.TestOutputHelper?.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"{instant}: B {aspect.SubObserverLatitudeCentric:+0.00;-0.00} deg: centre off {f.CenterX - placement.CenterX:+0.000;-0.000}, {f.CenterY - placement.CenterY:+0.000;-0.000} px, " +
+            $"radius {f.EquatorialRadius:0.000} against {radius:0.000} ({radiusError:+0.00%;-0.00%}), axis off {axisError:0.000} deg, rms {f.RmsResidual:0.0000}, {f.Iterations} iterations"));
+        Math.Abs(f.CenterX - placement.CenterX).ShouldBeLessThan(0.2, "the centre, x");
+        Math.Abs(f.CenterY - placement.CenterY).ShouldBeLessThan(0.2, "the centre, y");
+        Math.Abs(radiusError).ShouldBeLessThan(0.015, "the equatorial radius");
+        axisError.ShouldBeLessThan(0.2, "the axis");
+    }
+
     // A Saturn to measure against: a bright equatorial zone, belts where Saturn's lie (planetographic), and the polar regions darker
     // from 60 degrees, the north's hexagon among them. Not a likeness; what matters is that the globe is not uniform where the fit
     // assumes it is.

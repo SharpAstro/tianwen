@@ -4210,6 +4210,12 @@ What the model needed beyond the rings themselves:
   out right every time.
 - **A start from the rings' reach** (`StartRinged`), never from the bright area, which is the rings' as much as the globe's. It reads only the
   largest connected blob: the 2022-10-09 master's bright top rows had put the start at 70 px for a globe of 19.
+- **Near edge-on, a start from the globe's own reach** (#1410). Below a tilt of a few degrees the rings are a line a seeing blurs under the
+  blob's quarter level, so the blob was the globe alone and the rings' reading 0.44 of it, on every capture of 2024 to 2026. Rendered at
+  B -1.8 and -0.4 degrees, the fit then found a globe of 12.6 px for 32.2 (-61 %) with its axis 5.9 degrees off, and -59 % with it 51
+  degrees off. The start reads the blob's reach across its long axis too (the polar radius, or the rings' minor axis past a B of about
+  23 degrees) and takes it when the rings' reading falls under 0.8 of it; from there the fit holds T1's centre and axis and the radius to
+  +1.1 and -1.3 %. Not T1's 0.5 %: the model drops the rings below a sin B of 0.01 while their line stays in the annulus.
 - **Both shadows.** Without them the radius read +0.50 %, +3.06 % and +4.02 % at 0.487"/px. The globe's shadow on the rings was the main
   miss: with the rings made transparent, so that it alone remained, it read +5.11 %.
 - **A ring's covered and shaded shares of a cell are nested, never multiplied.** A ring seen against the globe and its shadow on the globe
@@ -4346,7 +4352,9 @@ by correlation (S5).
 What it took:
 - **The metrics read Saturn as its globe and its rings** (`MetricDisk.Rings`, `DiskRings`). `ClearRadiiAt` is the nearer of the globe's
   radii and the ring-plane radius over the A ring's outer edge, so a metric's sky lies past both. `RingTouched` is a ring the observer sees
-  within 2 px: off the globe, or across it on the near side, which faces away from the visible pole. The limb's profile, its edge, the
+  within 2 px: off the globe, or across it on the near side, which faces away from the visible pole. Along the axis, where near edge-on the
+  rings are a fraction of a pixel, it is decided exactly rather than read at points 2 px apart, which below a B of 2 to 4 degrees missed a
+  band passing between pixel centres altogether (#1410, `RingMaskTests`). The limb's profile, its edge, the
   zonal flatten and the limb kernel's annulus skip ring-touched pixels. The moon finder takes nothing inside 1.05 of `ClearRadiiAt`; it
   had read the ansae as moons. A twin's truth is scored with its rings about the north it was drawn with
   (`PlanetaryMeasureSubCommand.WithPlanet`), and the rings' own score is `PlanetaryMetrics.RingProfileError`.

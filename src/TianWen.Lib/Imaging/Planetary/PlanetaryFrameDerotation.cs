@@ -136,8 +136,8 @@ internal sealed class FrameDerotator
         var (from, to) = (PhysicalEphemeris.Compute(planet, span.Earliest), PhysicalEphemeris.Compute(planet, span.Latest));
         var turnDeg = Math.Abs(Math.IEEERemainder(to.CentralMeridianIII - from.CentralMeridianIII, 360));
         var options = PlanetaryLimbFit.OptionsFor(from);
-        var start = options.Rings is { } rings
-            ? PlanetaryLimbFit.StartRinged(frame.GetChannelSpan(0), frame.Width, frame.Height, rings)
+        var start = options.Rings is not null
+            ? PlanetaryLimbFit.StartRinged(frame.GetChannelSpan(0), frame.Width, frame.Height, options)
             : PlanetaryLimbFit.Start(frame.GetChannelSpan(0), frame.Width, frame.Height, options.AxisRatio);
         return start is { } disk
             ? disk.Radius * turnDeg * Math.PI / 180 * Math.Cos(from.SubObserverLatitudeCentric * Math.PI / 180)
