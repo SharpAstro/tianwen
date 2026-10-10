@@ -1738,6 +1738,41 @@ is the larger of A's three-seed range at 12 and R2e's own two-seed spread, once 
 4. **Kill**: R2f under A's control by more than 5 points at 5-20 sigma or 4.6 at 100-1000. Then the gain rested on the
    too-strong texture, and the fixed generator does not train as well as the one it replaced.
 
+#### R2e's second seed read: the faint gain holds, and two seeds at 24 lie 12.9 points apart on bright stars (2026-10-11)
+
+`r2ds_synth2_s1` ran to the cap, as seed 0 did (best at 233,000 against 235,500), and was scored at 09:21 by the same
+binary on A's draws (`C:\temp\e2\score-r2e-s1-r2f.ps1`, `read_r2e_s1_r2f.py`, `C:\temp\e2\r2e-s1-r2f-read.txt`):
+
+| measure | A's control | the knots | R2e seed 0 | R2e seed 1 |
+|---|---|---|---|---|
+| clean 5-20 sigma | 73.0 | 71.4 | 79.6 | **77.7** |
+| clean 20-100 sigma | 58.6 | 63.4 | 70.0 | **71.6** |
+| clean 100-1000 sigma | 24.4 | 31.9 | 46.3 | **33.4** |
+| dug 100-1000 sigma | 66.1 | 46.2 | 42.2 | 58.1 |
+| core RMS 100-1000 | 3.0 | 5.9 | 1.8 | 5.4 |
+| clean saturated | 29.2 | 26.9 | 37.9 | 35.2 |
+| bright-core share % | 2.83 | 2.96 | 1.59 | 2.29 |
+| far sky | 0.28 | 0.24 | 0.29 | 0.22 |
+
+1. **The gain is not the seed's: holds.** Seed 1 beats A's control at 5-20 sigma (77.7 against 73.0) and at 100-1000
+   (33.4 against 24.4).
+2. **Patience 12's spread holds at 24: misses.** On faint stars the two seeds lie 1.9 points apart, inside 3.1; on bright
+   stars 12.9 apart, nearly three times the 4.6 registered, and every bright measure moves with it (dug 42 to 58, core RMS
+   1.8 to 5.4).
+3. **The kill does not fire.**
+
+What it changes:
+- **R2e's faint-star gain is reproduced**: +4.7 and +6.6 points over A's control, +6.3 and +8.2 over the knots arm.
+- **Its bright-star gain over A's control holds in both seeds, at a size the seeds do not pin**: +9.0 and +21.9.
+- **Against the knots arm on bright stars it is no longer read**: seed 0's +14.3 was the lucky side, seed 1 is +1.5,
+  inside the spread now measured. "R2e's read" above said each gain was past A's three-seed range; on bright stars that
+  range was patience 12's and too narrow for 24.
+- **Every single-seed bright-star difference since the matched pair is within this spread**, A's control's own included
+  (one seed at 24): the matched pair's +7.5 and the stops' and knots' bright reads are not read as differences until
+  their arms have a second seed.
+- **R2f's band**, as registered, is now 3.1 points at 5-20 sigma (A's range, the larger) and 12.9 at 100-1000 (R2e's two
+  seeds).
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
