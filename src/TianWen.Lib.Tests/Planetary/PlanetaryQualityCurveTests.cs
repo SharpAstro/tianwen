@@ -114,7 +114,7 @@ public sealed class PlanetaryQualityCurveTests : IDisposable
     public void TheReportMarksTheKeepAtItsQualityOnTheSortedPlot()
     {
         var curve = PlanetaryQualityCurve.From(Graded([.. Enumerable.Range(1, 400).Select(i => (float)i)]), 0.25);
-        var renderer = new RgbaImageRenderer(PlanetaryQualityReport.Width, PlanetaryQualityReport.Height);
+        using var renderer = new RgbaImageRenderer(PlanetaryQualityReport.Width, PlanetaryQualityReport.Height);
 
         // No face, so no words: the marks alone, which is what is checked.
         var layout = PlanetaryQualityReport.Render(renderer, curve, "test", fontFamily: "");

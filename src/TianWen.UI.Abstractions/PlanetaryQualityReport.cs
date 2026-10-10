@@ -138,7 +138,7 @@ public static class PlanetaryQualityReport
     /// <summary>Renders <paramref name="curve"/> as a PNG at <paramref name="path"/>, in the app's own text face.</summary>
     public static async Task WritePngAsync(PlanetaryQualityCurve curve, string title, string path, CancellationToken cancellationToken = default)
     {
-        var renderer = new RgbaImageRenderer(Width, Height);
+        using var renderer = new RgbaImageRenderer(Width, Height);
         Render(renderer, curve, title, BundledFonts.Resolve().Text);
         var png = PngWriter.Encode(renderer.Surface.Pixels, (int)Width, (int)Height, new PngWriteOptions { Cicp = CicpChunk.Srgb });
         if (Path.GetDirectoryName(Path.GetFullPath(path)) is { } folder)
