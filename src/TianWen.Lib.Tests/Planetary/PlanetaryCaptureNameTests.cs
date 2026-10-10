@@ -93,9 +93,84 @@ public class PlanetaryCaptureNameTests
         PlanetaryCaptureName.Planet(path).ShouldBe(CatalogIndex.Jupiter);
         PlanetaryCaptureName.WavelengthNm(path).ShouldBe(650);
 
-        // What is not known is left out, and a filter's name keeps its letters and digits.
+        // What is not known is left out, and a filter's name keeps its letters and digits, its words joined by a hyphen: run together,
+        // "Baader R" was "BaaderR", which named no filter the reader knows (A4, #1391).
         PlanetaryCaptureName.RecordingFileName(null, null, Utc, otaIndex: 1).ShouldBe("2022-09-03T12_11_08_OTA2.ser");
-        PlanetaryCaptureName.RecordingFileName(CatalogIndex.Saturn, "IR 685/nm", Utc, otaIndex: 0).ShouldBe("Saturn_IR685nm_2022-09-03T12_11_08_OTA1.ser");
+        PlanetaryCaptureName.RecordingFileName(CatalogIndex.Saturn, "IR 685/nm", Utc, otaIndex: 0).ShouldBe("Saturn_IR-685-nm_2022-09-03T12_11_08_OTA1.ser");
+        var baader = PlanetaryCaptureName.RecordingFileName(CatalogIndex.Jupiter, "Baader R", Utc, otaIndex: 0);
+        baader.ShouldBe("Jupiter_Baader-R_2022-09-03T12_11_08_OTA1.ser");
+        PlanetaryCaptureName.WavelengthNm("C:/Planetary/" + baader).ShouldBe(650);
+    }
+
+    [Theory]
+    [InlineData("Red", 650.0)]
+    [InlineData("Baader R", 650.0)]
+    [InlineData("L", 550.0)]
+    [InlineData("IR685", 750.0)]
+    [InlineData("UV/IR cut", 550.0)]
+    [InlineData("Astronomik UV-IR Cut L-2", 550.0)]
+    public void AFilterSettingNamesItsWavelength(string text, double nm)
+    {
+        // A capture program's filter, a FITS FILTER card, a filter's own name; an IR-cut passes the visible, so it is a luminance.
+        PlanetaryCaptureName.FilterNm(text).ShouldBe(nm);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("CH4")]
+    [InlineData("None")]
+    public void AFilterSettingNamingNoFilterNamesNone(string? text) => PlanetaryCaptureName.FilterNm(text).ShouldBeNull();
+
+    [Theory]
+    [InlineData("C11 SCT 280mm", 280, OpticalDesign.SCT)]
+    [InlineData("30cm SCT", 300, OpticalDesign.SCT)]
+    [InlineData("Jupiter-12-inch SCT-ASI224MC-DS", 305, OpticalDesign.SCT)]
+    [InlineData("Saturn-Meade-16-SCT-Uranus-C", 406, OpticalDesign.SCT)]
+    [InlineData("Jupiter-1100 EdgeHD + ASI678MC-f14-DS", 279, OpticalDesign.SCT)]
+    [InlineData("edgehd11-asi183mc", 279, OpticalDesign.SCT)]
+    [InlineData("C9.25 on a CGEM", 235, OpticalDesign.SCT)]
+    [InlineData("Skymax 102", 102, OpticalDesign.Cassegrain)]
+    [InlineData("102 Mak", 102, OpticalDesign.Cassegrain)]
+    [InlineData("SW 250PDS", 250, OpticalDesign.Newtonian)]
+    [InlineData("8 inch Dob", 203, OpticalDesign.Newtonian)]
+    public void AFolderOrASettingNamesItsTelescope(string text, int apertureMm, OpticalDesign design)
+    {
+        // The corpus's own folders (A4, #1391) and the words capture programs and people write.
+        PlanetaryCaptureName.Telescope(text).ShouldBe(((int?)apertureMm, design));
+    }
+
+    [Theory]
+    [InlineData("Telescope")]
+    [InlineData("fps=50.13gain=247exp=20.00")]
+    [InlineData("f/4.7 Newtonian")]
+    [InlineData("EdgeHD f14")]
+    [InlineData("2022-10-09-1042_2_pipp")]
+    [InlineData("Uranus-C")]
+    public void AFocalRatioAPlaceholderOrADateNamesNoAperture(string text)
+    {
+        // SharpCap's default field, FireCapture's packed one, a focal ratio's number beside a design, a date: none is an aperture.
+        PlanetaryCaptureName.Telescope(text).ApertureMm.ShouldBeNull();
+    }
+
+    [Fact]
+    public void ACapturesFoldersNameItsTelescopeTheNearestFirst()
+    {
+        PlanetaryCaptureName.TelescopeOfPath("D:/Astro-Dataset/planetary/Saturn-Meade-16-SCT-Uranus-C/2023-10-10-1320_8-CK-L-Sat_pipp.ser")
+            .ShouldBe(((int?)406, OpticalDesign.SCT));
+        PlanetaryCaptureName.TelescopeOfPath("D:/C11/Jupiter-12-inch SCT/capture.ser").ShouldBe(((int?)305, OpticalDesign.SCT));
+        PlanetaryCaptureName.TelescopeOfPath("D:/Astro-Pics/2022/Saturn/Light/2021-12-16-1119_3_.ser").ApertureMm.ShouldBeNull();
+    }
+
+    [Fact]
+    public void APointingNearTwoBodiesNamesBothNearestFirst()
+    {
+        // Bodies inside the tolerance, nearest first: PointedAt takes the nearer, and identification takes none where there are two (A4, #1391).
+        VSOP87a.ReduceJ2000(CatalogIndex.Jupiter, Utc, out var ra, out var dec, out _).ShouldBeTrue();
+        var near = PlanetaryCaptureName.BodiesPointedAt(ra, dec, Utc, 0, 0, toleranceDeg: 180);
+        near[0].ShouldBe(CatalogIndex.Jupiter);
+        near.Count.ShouldBeGreaterThan(1);
+        PlanetaryCaptureName.BodiesPointedAt(ra, dec, Utc, 0, 0).ShouldBe([CatalogIndex.Jupiter]);
     }
 
     [Fact]

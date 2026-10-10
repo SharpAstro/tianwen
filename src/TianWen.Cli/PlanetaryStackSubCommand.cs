@@ -25,11 +25,13 @@ namespace TianWen.Cli;
 /// linear integrated master as FITS, an optional wavelet-sharpened master FITS, and a high-key planetary
 /// PNG preview via <see cref="MasterPreviewRenderer.RenderPlanetaryAsync"/> (per-channel black point +
 /// common-scale + gentle gamma -- the deep-sky MTF auto-stretch would blow a bright disk out to white;
-/// no plate-solve / SPCC, a planet has no field stars).
+/// no plate-solve / SPCC, a planet has no field stars). <c>--auto</c> is AUTO (#817, A4 #1391): the capture identified and stacked at
+/// the defaults with nothing asked, by <see cref="PlanetaryAuto"/>, the routine the viewer's Auto view runs.
 /// </summary>
 internal sealed class PlanetaryStackSubCommand(
     IConsoleHost consoleHost,
-    MasterPreviewRenderer previewRenderer)
+    MasterPreviewRenderer previewRenderer,
+    TianWen.Lib.Devices.IExternal external)
 {
     private enum QualityMetric
     {
@@ -270,6 +272,11 @@ internal sealed class PlanetaryStackSubCommand(
             Description = "Advanced: how each point's shift is read: correlation (windowed, the default), weighted (the correlation by its maximum-likelihood weight) or sdf (square difference, #1082).",
         };
 
+        var autoOpt = new Option<bool>("--auto")
+        {
+            Description = "AUTO (#817): nothing asked. The capture is identified (its planet, its filter and its telescope, read from its header, its capture program's settings beside it, its file and folder names and its frames, the telescope else the one last given for its camera) and stacked and sharpened at the measured defaults, as the viewer's Auto view does: master_<capture>_auto.fits, its _sharpened and its PNG. --planet, --wavelength (one, for a mono capture), --aperture-mm with --design, or --telescope give what it would read, and a telescope given is remembered for the capture's camera; every other setting is refused.",
+        };
+        var designOpt = PlanetaryMasterScore.DesignOption();
         var halvesOpt = new Option<bool>("--halves")
         {
             Description = "Also fold the frames into two halves, alternately by rank, and write them beside the master on its grid (master_*_halfA.fits, _halfB.fits): half their difference is the master's noise, which planetary sharpen --shrink reads (#1313). The alignment-point stack only.",
@@ -285,8 +292,19 @@ internal sealed class PlanetaryStackSubCommand(
                 noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, strengthOpt, sharpenLuminanceOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt, estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt,
                 derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, northOpt, eachFileOpt, legacyOpt, truthOpt, halvesOpt, sessionOpt, manifestOpt, epochOpt,
+                autoOpt, designOpt,
             },
         };
+
+        // What --auto refuses: every setting it would otherwise take, since AUTO's are the measured defaults (A2, #1389).
+        Option[] autoRefuses =
+        [
+            keepOpt, pointKeepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt, noPerPointOpt, noSignalGateOpt,
+            noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt, noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, fixOpt, strengthOpt,
+            sharpenLuminanceOpt, pupil.Obstruction, tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt,
+            estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt, derotateOpt, noDerotateOpt, turnNorthOverOpt, northOpt, eachFileOpt,
+            legacyOpt, truthOpt, halvesOpt, epochOpt,
+        ];
 
         command.SetAction(async (parseResult, ct) =>
         {
@@ -326,6 +344,15 @@ internal sealed class PlanetaryStackSubCommand(
                 return 1;
             }
             var serPath = serPaths[0];
+            if (parseResult.GetValue(autoOpt))
+            {
+                return await AutoAsync();
+            }
+            if (parseResult.GetValue(designOpt) is not null)
+            {
+                consoleHost.WriteError("--design gives --auto the telescope's design; without --auto, give --obstruction.");
+                return 1;
+            }
 
             var legacy = parseResult.GetValue(legacyOpt);
             var baseline = legacy ? PlanetaryStackOptions.Legacy : new PlanetaryStackOptions();
@@ -416,6 +443,11 @@ internal sealed class PlanetaryStackSubCommand(
             }
 
             var wavelengthText = parseResult.GetValue(wavelengthOpt);
+            // An unreadable --wavelength stops here, before the stack: it once printed its error and went on at 550 nm.
+            if (wavelengthText is not null && PlanetaryMasterScore.Wavelengths(consoleHost, wavelengthText) is null)
+            {
+                return 1;
+            }
             // The telescope the options give, else the one the capture's header names (a TianWen recording's, #1179).
             var telescope = PlanetaryMasterScore.PupilFrom(parseResult, pupil);
             if (telescope is null && HeaderPupil(serPath) is { } fromCapture)
@@ -557,6 +589,72 @@ internal sealed class PlanetaryStackSubCommand(
                 return 0;
             }
             return await StackRunAsync(serPaths, outputDir, options);
+
+            // AUTO (#817, A4 #1391): the run identified, then stacked and sharpened at the measured defaults by the routine the viewer's
+            // Auto view runs (PlanetaryAuto), so the two write the same masters.
+            async Task<int> AutoAsync()
+            {
+                if (autoRefuses.FirstOrDefault(option => parseResult.GetResult(option) is { Implicit: false }) is { } refused)
+                {
+                    consoleHost.WriteError($"--auto stacks at the measured defaults: {refused.Name} is a setting it does not take.");
+                    return 1;
+                }
+                if (AutoGiven() is not { } given)
+                {
+                    return 1;
+                }
+                var identity = await PlanetaryIdentification.IdentifyAsync(serPaths[0], given, external, ct);
+                if (given.ApertureMm is { } givenMm && identity.Camera is { } camera)
+                {
+                    await PlanetaryTelescopeMemory.RememberAsync(external, camera, givenMm, given.Design, ct);
+                    consoleHost.WriteScrollable($"[planetary] remembered: {camera} is on a {identity.TelescopeName}");
+                }
+                consoleHost.WriteScrollable($"[planetary] AUTO: {identity.Describe()}");
+
+                var autoDir = parseResult.GetValue(outputOpt) ?? Path.GetDirectoryName(Path.GetFullPath(serPaths[0])) ?? Directory.GetCurrentDirectory();
+                Directory.CreateDirectory(autoDir);
+                var label = parseResult.GetValue(labelOpt);
+                var prefix = string.IsNullOrWhiteSpace(label) ? "" : label.Trim() + "_";
+                var baseName = Path.GetFileNameWithoutExtension(serPaths.Order(StringComparer.OrdinalIgnoreCase).First())
+                    + (serPaths.Length > 1 ? $"+{serPaths.Length - 1}" : "");
+                var sw = Stopwatch.StartNew();
+                PlanetaryBestStackResult result;
+                using (IPlanetaryFrameStream stream = serPaths.Length == 1 ? SerFrameStream.Open(serPaths[0]) : PlanetaryFrameSequence.OpenSer(serPaths))
+                {
+                    consoleHost.WriteScrollable($"[planetary] {baseName}: {stream.FrameCount} frames, {stream.Width}x{stream.Height}, layout {stream.Layout}, at the measured defaults...");
+                    result = await PlanetaryAuto.RunAsync(stream, identity, progress: null, ct);
+                }
+                try
+                {
+                    consoleHost.WriteScrollable(
+                        $"[planetary] {baseName}: stacked {result.Stack.FramesUsed}/{result.Stack.FramesGraded} frames in {sw.Elapsed.TotalSeconds:F1}s");
+                    var paths = PlanetaryAuto.OutputPaths(autoDir, prefix + baseName);
+                    PlanetaryAuto.Write(result, paths);
+                    consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(paths.Master)} (linear master) and {Path.GetFileName(paths.Sharpened)} ({result.HowSharpened})");
+                    if (result.Stack.Master.ChannelCount == 3)
+                    {
+                        consoleHost.WriteScrollable($"[planetary] {result.HowBalanced}");
+                    }
+                    if (!parseResult.GetValue(noPngOpt))
+                    {
+                        var pngPath = Path.ChangeExtension(paths.Sharpened, null) is var stem && stem.EndsWith("_sharpened", StringComparison.Ordinal)
+                            ? stem[..^"_sharpened".Length] + ".png"
+                            : stem + ".png";
+                        await previewRenderer.RenderPlanetaryAsync(result.Sharpened, pngPath, gamma: parseResult.GetValue(pngGammaOpt), ct: ct);
+                        consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(pngPath)} (high-key planetary preview)");
+                    }
+                }
+                finally
+                {
+                    result.Stack.Master.Release();
+                    result.Sharpened.Release();
+                    result.Layer?.Master.Release();
+                }
+                consoleHost.WriteScrollable($"[planetary] done in {sw.Elapsed.TotalSeconds:F1}s -> {autoDir}");
+                return 0;
+            }
+
+            PlanetaryIdentityGiven? AutoGiven() => PlanetaryMasterScore.AutoGiven(consoleHost, parseResult, planetOpt, wavelengthOpt, pupil, designOpt);
 
             // One run stacked and written: the captures given, or one capture of a session (--each-file).
             async Task<int> StackRunAsync(string[] runPaths, string runDir, PlanetaryStackOptions runOptions)

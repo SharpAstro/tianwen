@@ -426,12 +426,25 @@ public sealed class ViewerState
     /// </summary>
     public bool ShowBest { get; set; }
 
-    /// <summary>A SER's view as the transport's switch shows it: the frames, the live rolling stack, or the best stack.</summary>
-    public PlanetaryView PlanetaryView => ShowBest ? PlanetaryView.Best : ShowStacked ? PlanetaryView.Live : PlanetaryView.Frames;
+    /// <summary>
+    /// Whether the batch view (<see cref="ShowBest"/>) is AUTO's (A4, #1391) rather than Best's: the capture identified and stacked at the
+    /// measured defaults with nothing asked, the routine <c>planetary stack --auto</c> runs, its result kept beside Best's. The kind last
+    /// chosen, kept while Frames or Live is on show, so a run going on in the background still shows its progress.
+    /// </summary>
+    public bool ShowAuto { get; set; }
 
     /// <summary>
-    /// A SER's view chosen (the transport's switch, K, Shift+K): Frames and Live leave a best stack running and keep its result; Best
-    /// asks for one when there is none (<see cref="BestViewRequested"/>).
+    /// What the Auto view's run identified the capture as (A4, #1391): the planet, the filter and the telescope, each with where it was
+    /// read, which the panel shows. Null until the run ends, and for another capture.
+    /// </summary>
+    public TianWen.Lib.Imaging.Planetary.PlanetaryIdentity? AutoIdentity { get; set; }
+
+    /// <summary>A SER's view as the transport's switch shows it: the frames, the live rolling stack, the Auto stack or the best stack.</summary>
+    public PlanetaryView PlanetaryView => ShowBest ? (ShowAuto ? PlanetaryView.Auto : PlanetaryView.Best) : ShowStacked ? PlanetaryView.Live : PlanetaryView.Frames;
+
+    /// <summary>
+    /// A SER's view chosen (the transport's switch, K, Shift+K): Frames and Live leave a batch stack running and keep its result; Auto and
+    /// Best each ask for theirs when there is none (<see cref="BestViewRequested"/>).
     /// </summary>
     public void ChoosePlanetaryView(PlanetaryView view)
     {
@@ -444,7 +457,11 @@ public sealed class ViewerState
                 (ShowStacked, ShowBest) = (true, false);
                 break;
             case PlanetaryView.Best:
-                ShowBest = true;
+                (ShowBest, ShowAuto) = (true, false);
+                BestViewRequested = true;
+                break;
+            case PlanetaryView.Auto:
+                (ShowBest, ShowAuto) = (true, true);
                 BestViewRequested = true;
                 break;
         }
@@ -589,16 +606,22 @@ public sealed class ViewerState
     /// <summary>The SER the sequence on screen was opened from; null for any other file. What a best stack stacks.</summary>
     public string? SequencePath { get; set; }
 
+    /// <summary>
+    /// The camera <see cref="SequencePath"/> was taken with (<see cref="TianWen.Lib.Imaging.Planetary.PlanetaryIdentification.CameraOf"/>),
+    /// which a telescope set in the panel is remembered for (A4, #1391); null when the capture names none.
+    /// </summary>
+    public string? SequenceCamera { get; set; }
+
     /// <summary>Set by Shift+K; the controller cancels the best stack running, or shows the Best view (asking for one), and clears it.</summary>
     public bool BestStackRequested { get; set; }
 
     /// <summary>
-    /// Set by choosing the Best view; the controller starts the best stack when the capture has none yet and none runs, and clears it. It
-    /// never cancels one (#1314 part 2).
+    /// Set by choosing the Auto or Best view; the controller starts that view's stack when the capture has none yet and none runs, and
+    /// clears it. It never cancels one (#1314 part 2).
     /// </summary>
     public bool BestViewRequested { get; set; }
 
-    /// <summary>The running best stack's progress, 0 to 1, or null when none runs. Written by the controller each tick.</summary>
+    /// <summary>The progress of the batch stack last chosen (<see cref="ShowAuto"/>), 0 to 1, or null when it runs none. Written by the controller each tick.</summary>
     public double? BestStackProgress { get; set; }
 
     /// <summary>
@@ -940,10 +963,14 @@ public sealed class ViewerState
     };
 }
 
-/// <summary>A SER's view (#1314 part 2): its frames as recorded, the live rolling stack about the playhead, or the whole capture's best stack.</summary>
+/// <summary>
+/// A SER's view (#1314 part 2): its frames as recorded, the live rolling stack about the playhead, or the whole capture stacked, as AUTO
+/// identifies and stacks it with nothing asked (A4, #1391) or as the panel's Best stack does.
+/// </summary>
 public enum PlanetaryView
 {
     Frames,
     Live,
     Best,
+    Auto,
 }

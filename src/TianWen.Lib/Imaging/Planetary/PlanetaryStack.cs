@@ -37,6 +37,12 @@ public enum PlanetaryPointEstimator
 }
 
 /// <summary>
+/// What a planetary master says of the optics it was taken through (<see cref="PlanetaryStackOptions.Optics"/>): the telescope's name
+/// (<c>254 mm Newtonian</c>, empty for none), its aperture in mm (none when null) and the filter's name (the frames' own when null).
+/// </summary>
+public sealed record PlanetaryMasterOptics(string Telescope, int? ApertureMm, string? Filter);
+
+/// <summary>
 /// Options for a planetary lucky-imaging stack. The defaults are the measured best of docs/plans/planetary-restoration.md, R4 to R6
 /// (the enhanced pipeline, #1159); <see cref="Legacy"/> is every stack's recipe before it.
 /// </summary>
@@ -255,6 +261,14 @@ public sealed record PlanetaryStackOptions
     /// thirty thousand times). The de-rotation's planet when null. Nothing in the stack itself depends on it.
     /// </summary>
     public CatalogIndex? Planet { get; init; }
+
+    /// <summary>
+    /// What the master says of the telescope and the filter beside its planet (A4 of AUTO, #1391): written to its <c>TELESCOP</c>,
+    /// <c>APTDIA</c> and <c>FILTER</c> cards, which <c>planetary sharpen --auto</c> and a viewer read back
+    /// (<see cref="PlanetaryIdentification.IdentifyMasterAsync"/>). Null keeps what the reference frame carries. Nothing in the stack itself
+    /// depends on it.
+    /// </summary>
+    public PlanetaryMasterOptics? Optics { get; init; }
 
     /// <summary>
     /// Also fold the frames into two halves (<see cref="PlanetaryStackResult.Halves"/>, #1313): each frame the master folds goes, with its

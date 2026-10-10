@@ -443,6 +443,74 @@ internal static class PlanetaryMasterScore
         new Option<double>("--obstruction") { Description = "The central obstruction's diameter over the aperture's (0.25 for a typical Newtonian).", DefaultValueFactory = _ => 0 },
         new Option<string?>("--telescope") { Description = "A known telescope instead of --aperture-mm: newtonian (254 mm, 23 % obstructed, four vanes) or maksutov (102 mm, 30 %)." });
 
+    /// <summary>The option <c>--auto</c> takes a telescope's design by, beside <c>--aperture-mm</c>.</summary>
+    public static Option<string?> DesignOption() => new Option<string?>("--design")
+    {
+        Description = "With --auto and --aperture-mm, the telescope's design, whose usual central obstruction the sharpening takes: newtonian (0.25, four vanes), sct, mak or cassegrain (0.33), rasa (0.4) or refractor (none).",
+    };
+
+    /// <summary>
+    /// What AUTO (#817, A4 #1391) is told rather than reads: <c>--planet</c>, one <c>--wavelength</c> (a mono capture's filter),
+    /// <c>--aperture-mm</c> with <c>--design</c>, or <c>--telescope</c>, a named one taken with its design's usual obstruction as the viewer's
+    /// panel takes it (<see cref="PlanetaryBestStack.PupilFor"/>). Null and said when one is unreadable.
+    /// </summary>
+    public static PlanetaryIdentityGiven? AutoGiven(IConsoleHost consoleHost, ParseResult parseResult, Option<string?> planetOpt, Option<string?> wavelengthOpt,
+        (Option<double?> ApertureMm, Option<double> Obstruction, Option<string?> Telescope) pupil, Option<string?> designOpt)
+    {
+        CatalogIndex? planet = null;
+        if (parseResult.GetValue(planetOpt) is { } planetName)
+        {
+            if (PlanetaryCaptureName.Named(planetName) is not { } named)
+            {
+                consoleHost.WriteError($"--planet {planetName}: jupiter, saturn, mars or another planet by its name.");
+                return null;
+            }
+            planet = named;
+        }
+        double? filterNm = null;
+        if (parseResult.GetValue(wavelengthOpt) is { } wavelengthText)
+        {
+            if (Wavelengths(consoleHost, wavelengthText) is not { } wavelengths)
+            {
+                return null;
+            }
+            if (wavelengths.Length != 1)
+            {
+                consoleHost.WriteError("--auto takes one --wavelength, a mono capture's filter: a colour capture is sharpened at each channel's own.");
+                return null;
+            }
+            filterNm = wavelengths[0];
+        }
+        var designText = parseResult.GetValue(designOpt);
+        var design = designText is null ? TianWen.Lib.Devices.OpticalDesign.Unknown : PlanetaryCaptureName.Telescope(designText).Design;
+        if (designText is not null && design is TianWen.Lib.Devices.OpticalDesign.Unknown)
+        {
+            consoleHost.WriteError($"--design {designText}: newtonian, sct, mak, cassegrain, rasa or refractor.");
+            return null;
+        }
+        if (parseResult.GetValue(pupil.ApertureMm) is { } apertureMm)
+        {
+            return new PlanetaryIdentityGiven(planet, filterNm, (int)Math.Round(apertureMm), design);
+        }
+        if (designText is not null)
+        {
+            consoleHost.WriteError("--design is the design of the telescope --aperture-mm gives: give its aperture too.");
+            return null;
+        }
+        switch (parseResult.GetValue(pupil.Telescope)?.ToLowerInvariant())
+        {
+            case null:
+                return new PlanetaryIdentityGiven(planet, filterNm);
+            case "newtonian":
+                return new PlanetaryIdentityGiven(planet, filterNm, 254, TianWen.Lib.Devices.OpticalDesign.Newtonian);
+            case "maksutov":
+                return new PlanetaryIdentityGiven(planet, filterNm, 102, TianWen.Lib.Devices.OpticalDesign.Cassegrain);
+            case var other:
+                consoleHost.WriteError($"--telescope {other}: newtonian or maksutov, or give --aperture-mm and --design.");
+                return null;
+        }
+    }
+
     /// <summary>The wavelengths of <c>--wavelength</c>, nm, one a channel; null and said when unreadable.</summary>
     public static double[]? Wavelengths(IConsoleHost consoleHost, string? text)
     {

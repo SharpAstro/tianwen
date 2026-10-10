@@ -668,8 +668,8 @@ public static class PlanetaryCorpus
 
     private static readonly string[] CalibrationFolders = ["Bias", "Biases", "Dark", "Darks", "Flat", "Flats", "DarkFlat", "DarkFlats", "FlatDark", "FlatDarks"];
 
-    // SharpCap writes "<name>.CameraSettings.txt" beside "<name>.ser"; FireCapture writes "<name>.txt".
-    private static string? FindSettings(string path)
+    // SharpCap writes "<name>.CameraSettings.txt" beside "<name>.ser"; FireCapture writes "<name>.txt". AUTO reads it too (PlanetaryIdentification).
+    internal static string? FindSettings(string path)
     {
         var stem = System.IO.Path.ChangeExtension(path, null);
         foreach (var candidate in new[] { stem + ".CameraSettings.txt", stem + ".txt" })
