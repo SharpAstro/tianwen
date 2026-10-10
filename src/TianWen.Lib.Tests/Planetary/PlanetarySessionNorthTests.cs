@@ -53,6 +53,27 @@ public class PlanetarySessionNorthTests
 
     [Fact(Timeout = 300_000)]
     [Trait("Category", "Heavy")]
+    public async Task ASessionNorthTurnedOverReachesEachCaptureTurnedOverOnce()
+    {
+        // #1409: --each-file reads the session's north with the run's options, --turn-north-over among them, and gives it to every capture
+        // with the flag still set. The read turned it over and the capture's stack turned the north given over again, so the two cancelled
+        // and every capture was de-rotated with the north the user asked to reverse. The read is the capture's own north; the turn is the
+        // stack's, once.
+        var capture = FrameDerotationCaptures.Capture(frames: 21, minutes: 16, seed: 7);
+        using var stream = new InMemoryFrameStream(capture.Frames, capture.Times);
+        var ct = TestContext.Current.CancellationToken;
+        var turnedOver = Options with { Derotation = Options.Derotation! with { TurnNorthOver = true } };
+
+        var read = (await LuckyImagingStacker.ReadNorthAsync(stream, turnedOver, ct)).ShouldNotBeNull();
+        var each = turnedOver with { Derotation = turnedOver.Derotation! with { North = read.NorthAngleDeg } };
+        var result = await new LuckyImagingStacker().StackGlobalAsync(stream, each, ct);
+
+        Math.IEEERemainder(result.North.ShouldNotBeNull().NorthAngleDeg - (Disk.NorthAngleDeg + 180), 360).ShouldBe(0, 5, "turned over once");
+        Math.IEEERemainder(read.NorthAngleDeg - Disk.NorthAngleDeg, 360).ShouldBe(0, 5, "the session's own north");
+    }
+
+    [Fact(Timeout = 300_000)]
+    [Trait("Category", "Heavy")]
     public async Task AGivenNorthIsTakenEvenWhereTheCapturesQuartersDisagree()
     {
         // Given the wrong way round, the stack takes the fit's axis the way round nearer the north given: the quarters, which tell this

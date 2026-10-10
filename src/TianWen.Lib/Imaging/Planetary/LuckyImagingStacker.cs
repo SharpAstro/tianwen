@@ -813,6 +813,8 @@ public sealed class LuckyImagingStacker
     /// round. A session's north is read so (#1347): the stream is its first and last captures, hours apart, where one capture's own
     /// quarters, minutes apart, can tie on a bland globe, and every capture of the session then takes it
     /// (<see cref="PlanetaryDerotationOptions.North"/>). Null when the stream turns the planet too little to tell, or a quarter holds no frame.
+    /// It is the capture's OWN north, whatever <see cref="PlanetaryDerotationOptions.TurnNorthOver"/> says: the turn is the stack's, made once
+    /// on the north it is given. Read turned over too, a session's north turned twice and cancelled (#1409).
     /// </summary>
     public static async Task<PlanetaryNorthDecision?> ReadNorthAsync(IPlanetaryFrameStream stream, PlanetaryStackOptions options, CancellationToken cancellationToken = default)
     {
@@ -827,7 +829,7 @@ public sealed class LuckyImagingStacker
         var reference = await stream.LoadAsync(referenceIndex, cancellationToken).ConfigureAwait(false);
         try
         {
-            var (_, north) = await DecideNorthAsync(stream, grades, referenceIndex, reference, derotation with { North = null }, options,
+            var (_, north) = await DecideNorthAsync(stream, grades, referenceIndex, reference, derotation with { North = null, TurnNorthOver = false }, options,
                 keepFitUnread: false, cancellationToken).ConfigureAwait(false);
             return north;
         }
