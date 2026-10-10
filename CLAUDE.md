@@ -895,7 +895,8 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
   sharpen` and the live view's Derive** (`PlanetaryBestStack.DeriveGains`, `WaveletDerivation`,
   `PlanetaryLiveLimb`, `PlanetaryLimbWindow`, #1201: the limb belongs to the capture, so Reset keeps it):
   - **No sharpening is drawn outside the limb** (#1171, `PlanetaryLimbFix.ModelFeathered`) but for a moon
-    (`PlanetaryMetrics.CompactSources`, #1181; `PlanetaryLimbWindow.PasteMoonsBeyond`, #1211). **A moon is a
+    (`PlanetaryMetrics.CompactSources`, #1181; `PlanetaryLimbWindow.PasteMoonsBeyond`, #1211), and **a pixel inside the
+    outline the sharpening drives below the sky takes that model** (#1471, `PlanetaryUnderSky`). **A moon is a
     source above the PLANE its surroundings make, never only above its box's median** (#1301,
     `PlanetaryMetrics.PeakAbovePlane`, `PlanetaryDering.KeepMoon`); read every CHANNEL's moons.
   - **A diffraction PSF's grid spans twice the extent it is used over** (`PlanetaryRender.DiffractionGridFor`,
@@ -937,7 +938,7 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
     (#1279, #1281; **the derived gains are already a Wiener**), `--shrink` (#1313, read off `planetary stack
     --halves`), `--noise halves` (#1373, `PlanetarySharpenOptions.NoiseHalves`), `--colour-finest bounded` and
     `--colour-target cut` (#1376: the colour gap is the KERNEL; a true kernel closes 80 % of it, no reshaping
-    half), `--wiener-floor tikhonov` (#1406, `PlanetaryWienerFloor`), `--limb-band model` (#1329, `PlanetaryLimbBand`), `--under-sky model` (#1471, `PlanetaryUnderSky`), `--limb-k opal` (#1221, `PlanetaryLimbDarkening`). **Every twin is sampled coarser
+    half), `--wiener-floor tikhonov` (#1406, `PlanetaryWienerFloor`), `--limb-band model` (#1329, `PlanetaryLimbBand`), `--limb-k opal` (#1221, `PlanetaryLimbDarkening`). **Every twin is sampled coarser
     than its optics resolve** (`PlanetarySharpenResult.Cutoffs`), so anything near the cutoff is unread there;
     **a twin standing in for a long capture is calibrated at that capture's length**.
   - **Check what a reference IS before reading it** (the 12-inch SCT Jupiter's PNG is its raw stack). The

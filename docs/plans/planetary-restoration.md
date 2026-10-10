@@ -670,6 +670,7 @@ point spacing, so between neighbours only) that kept it, and every candidate cou
     keep, 0.7 to 1.5 % under the frame keep, short of the 1 % at two keeps pre-registered.
 - **Rule 2, on the owner's 2026-10-07 Saturn session against set 10** (`planetary judge`), read at #1349's 10 % keep from the best quarter
   (`--keep 0.25 --point-keep 0.4`), on the tents reaching one spacing: on #1350.
+- **The owner closed #1350 on this (2026-10-11):** the point keep stays an option.
 
 #### R4 keeps are scored after restoration
 
@@ -3202,7 +3203,7 @@ conclusion against WinJUPOS (the fit's own error a tenth of the residual) is re-
 
 ##### The annulus from half the radius: measured, not adopted
 
-**Measured** (2026-10-05), five rules written first; it failed two of them and stays out. #1221 stays open.
+**Measured** (2026-10-05), five rules written first; it failed two of them and stays out.
 
 **The valley is the limb darkening's.** On T1's synthetic Jupiter at the issue's nine seeings, the radius follows Minnaert's k at about 15 %
 of the radius per unit of k, and from 0.8 radii the annulus sees too little of the darkening to pin k: the halo's freedom lets it wander,
@@ -3239,7 +3240,8 @@ albedo.
 - `PlanetaryLimbDarkening.Opal`, `--limb-k opal` on `planetary sharpen` and `planetary limb`;
 - underneath, `LimbFitOptions.LimbDarkening` and `PlanetaryLimbFit.OptionsFor(aspect, wavelengths)`.
 
-The fit stays fitted by default. #1221 stays open.
+The fit stays fitted by default: the owner kept the held k an option (2026-10-11), and #1221 closes on it. A k per colour channel, and the
+rules this arm left unrun, are #1478.
 
 **The arm.**
 - **The values:** Jupiter's Minnaert k is held at the value OPAL flattened its maps with for the plane's wavelength (`PlanetaryLimbFit.OpalMinnaertK`). OPAL's 2022 and 2024 readmes give the same table: F395N 0.85, F467M 0.95, F502N 0.95, F631N 0.999, F658N 0.999. It is linear in wavelength between them and held flat past the ends.
@@ -3278,7 +3280,8 @@ The core still takes two widths (4.3 to 4.5 px on two crops, 8.6 px on the rest)
 | uc-g4, red / green / blue | -7.7 / -0.5 / **+6.7 %** | -25.8 / -21.7 / -10.4 % |
 
 - **Why blue fails:** the colour master's one limb fit holds the mean of its channels' k (0.96), against blue's 0.94, and every channel's model is drawn from that one fit.
-- **The next arm:** a k per channel, each channel's sharp model drawn with its own.
+- **The next arm (#1478):** a k per channel, each channel's sharp model drawn with its own. Rule 2 (every other test with the held k
+  the default) was never run, since rules 3 and 5 had decided; it runs with that arm, as do rule 3 and rule 5 again.
 - **Rule 2** (every other test passes with the held k on) was not run: rules 3 and 5 had already decided the outcome.
 
 #### A twin's frames carry a short wing
@@ -3503,7 +3506,7 @@ On the real captures the lattice is real (held 3.3e-4 to 3.5e-3) and every concl
 first reading had reversed.
 
 **Not adopted**: neither arm meets the half-the-gap rule, so held stays the default and bounded and the cut target are options; the
-pair is the owner's call. **The 2-pixel lattice** (`PlanetaryMetrics.Lattice`, along x, along y and diagonal per channel, printed by
+owner closed #1376 on that (2026-10-11). **The 2-pixel lattice** (`PlanetaryMetrics.Lattice`, along x, along y and diagonal per channel, printed by
 `planetary sharpen` for a colour master in significant digits) reads x and y through a second difference and the diagonal on 2 by 2
 blocks: a per-pixel projection was biased by an odd row count. Closing the rest of the gap needs a kernel the capture itself can give past
 0.2 cycles a pixel, which the limb's edge cannot (R8 follow-up 3).
@@ -3654,7 +3657,7 @@ seed, demosaiced and drizzled alike, and shows no lattice by eye on Uranus-C and
 
   #1187's done criterion was "within twice its stack's".
 - **#1091's judgement, run again with held: the demosaic stays.** Seed 1 now favours the demosaic (4.37 against drizzle's 4.49), so
-  drizzle no longer wins on both seeds. #1091 stays the owner's call, on this evidence.
+  drizzle no longer wins on both seeds. The owner kept the demosaic (2026-10-11), and #1091 is closed.
 - **The live view** takes the first channel's gains (`PlanetaryBestStack.DeriveGains`), now with band 1 held, so its dials and the
   batch agree on a colour capture as before.
 
@@ -4470,10 +4473,11 @@ The sharpening reads its gains through the globe's limb where the rings leave it
 planet's model (globe and rings) through the pupil, so the rings keep their sharpening, as a moon does (#1181). It no longer holds them at
 the stack.
 
-Open, found by #1329's rule 1b: at strength 2 the sharpening floors 115 to 227 pixels a channel at the sky inside the Saturn twin's rings'
+Found by #1329's rule 1b: at strength 2 the sharpening floored 115 to 227 pixels a channel at the sky inside the Saturn twin's rings'
 footprint (#1471). They lie on the C ring, in the gap between it and the globe, and on the B and A rings' edges. There the truth is dim but
 above the sky (0.04 to 0.21 of the disk's mean). Strength 1 floors a few too: 8 red and 10 green pixels, all in the gap inside the C ring.
-The model in their place, where the floor holds, is measured in "Where the sharpening falls below the sky (#1471)" below: an option.
+The model in their place, where the floor held, is measured in "Where the sharpening falls below the sky (#1471)" below, and is the
+default since 2026-10-11.
 
 **Rule:** on the S3 twin, the derived sharpening's error in bands 1 to 4 inside 0.9 of the globe's radius falls to at most 0.44 of the
 stack's (the calibrated Jupiter twin's 0.647 of 1.483). Its limb profile error is at most the Jupiter twin's 0.0053. The rings' radial
@@ -4954,8 +4958,11 @@ hard stretch. Strength 1 has none.
     - That is read with the truth moved onto the master's disk, as the truth scores read it. The twin's truth is drawn 13 to 16 px from
       where its master's limb fit puts the planet. A first reading that left it there put the floored pixels' truth near the disk's level,
       and that was wrong.
-- **So the sky stays the floor by default, and the model is an option.** Floored at the model at every strength, the band moves a strength-1
-  sharpening it never needed to. Only the owner can say whether a strength-2 user should get it.
+- **So the sky stays the band's floor by default, and the model is an option.** Floored at the model at every strength, the band moves a
+  strength-1 sharpening it never needed to.
+- **The owner (2026-10-11): the band stays an option, and #1329 closes.** Its dotted ring was the sharpening floored at the sky, and #1471's
+  model under the sky, the default since that day, leaves no pixel inside the outline at the sky on any master (#1471's rule 1). The limb's
+  options as a whole, made one coherent set, are #1479.
 
 ### Where the sharpening falls below the sky (#1471)
 
@@ -4983,8 +4990,15 @@ hard stretch. Strength 1 has none.
   4. **Holds.** At strength 2 nothing is worse on any twin, and the bands 1 to 4 error falls by up to 1 %:
      - the limb profile's error within 6 px inside the limb falls by 0.2 to 2.3 %;
      - the Saturn twin's rings' profile error falls by 14 % in red and green, 2 % in blue.
-- **So the sky stays the floor by default, and the model is an option**, by the rules as set. Rule 2 failed only where strength 1 itself
-  floored a pixel, and moved that pixel toward the truth. Whether it becomes the floor at every strength is the owner's call.
+- **By the rules as set, an option**: rule 2 failed only where strength 1 itself floored a pixel, and moved that pixel toward the truth.
+- **The owner made it the default (2026-10-11):** `PlanetarySharpenOptions.UnderSky` is `Model`, and `--under-sky sky` floors at the sky as
+  before (its output named `_skyfloor`). `planetary stack`, `planetary sharpen`, the viewer's Best stack and the live view's Derive all take
+  it: the first three sharpen through `PlanetarySharpening`, and the live view's kept limb carries what the batch floored at
+  (`PlanetaryLiveLimb`). On the unit tests' Jupiter at strength 2 the sky floor leaves 15 pixels at the sky inside the outline, and the
+  batch and the live view by default none (`AtStrengthTwoNothingInsideTheOutlineIsLeftAtTheSkyInTheBatchOrTheLiveView`). #1471 and #1329
+  close with it.
+- **The limb's options are one question asked several ways** (`--fix` and `--limb-fix`, `--limb-band`, `--under-sky`, and `--limb-k` beside
+  them, which finds the planet rather than paints it). One coherent set across `stack` and `sharpen` is #1479.
 
 ### Shrinking each band against the master's own noise (#1313)
 
@@ -5048,6 +5062,7 @@ colour's):
 times their noise in band 2 and 30 times in band 3. They are a matter of gain, which the strength option already reaches (at 2 the 12-inch
 SCT's band 2 is 1.16 of its post's). The derived gains are already the Wiener this would improve on, and a per-capture learned denoiser
 (the halves are Noise2Noise pairs) has as little noise to take. The halves stay, as the one reading of a master's own noise band by band.
+The owner closed #1313 on this evidence (2026-10-11): `--shrink` stays an option.
 
 ### A drizzle drop under a photosite (#1092)
 
@@ -5070,7 +5085,7 @@ the three colours, and each colour's limb profile.
   colour plane went unreached at any drop (`ADrizzleAtTheDefaultDropReachesEveryPixelOfEveryColourOnTheSensorGrid` pins it on a jittered
   capture).
 - **Rule 2 (#1091) now holds too**: drizzle beats the demosaic on both seeds, at 0.5 and at a whole photosite, where on 2026-10-03 it lost
-  seed 1. The colour default stays the demosaic: #1091 is the owner's call.
+  seed 1. The colour default stays the demosaic, the owner's call (2026-10-11), and #1091 is closed.
 - **The issue's hypothesis is not what moved.** Unsharpened, every drop is within 0.4 % of a whole photosite's, bands 2 and 3 alike (blue
   0.742 and 0.475 at 1, 0.739 and 0.471 at 0.5): the box's sinc is a small factor beside the seeing and the registration's blur.
 - **The sharpened margins are the derived gains'.** The finest-band edge reading at 0.3 cycles a pixel, which the gains are fitted through,
@@ -5117,7 +5132,7 @@ The real captures went through `planetary stack`'s full default chain, each judg
 | Jupiter, 12-inch SCT + 224MC | 0.970 / 0.968 | 0.970 / **0.972** | **0.972** / 0.971 | 0.043 to 0.057 / 0.002 % |
 
 **Not adopted.** Rule 1 fails on both Jupiter twins (it holds on Saturn's), rule 2 on `uc-g4s2` (+8.0 %), rule 3 on the EdgeHD Jupiter at
-both strengths, and rule 4 on the Jupiter twins. The step stays a verb, and what becomes of it is the owner's call (#1330).
+both strengths, and rule 4 on the Jupiter twins. The step stays a verb, as the owner left it (2026-10-11, #1330 closed).
 - **On the Jupiter twins the luminance's own sharpening lifts its CFA residue.**
   - Combined, the luminance carries no more lattice than the stacks (0.020 %). Sharpened as a mono master it carries 0.56 %.
   - The twins are sampled coarser than their optics resolve (cutoff 1.15 cycles a pixel), so the derived gain near Nyquist is about 28, as it
@@ -5194,6 +5209,9 @@ the noise read off the master's halves, #1313):
   files, memory-mapped (602 MB each, 21.7 GB for the session), clean pages the system can drop.
 - **Stacking each file and combining the stacks** is left for later: `planetary compose` takes mono stacks, so a colour session's stacks
   would first be split into their channels.
+- **A night of many sets made one master is #1349**, open until there is more data to decide on (the owner, 2026-10-11). It carries #1352,
+  folded into it that day: the 109-minute deep master's limb edge reads 0.346 where pairs within 17 to 20 minutes read 0.26 to 0.33, a target
+  fade and a blend of positions both failed, and a join weighting each stack by its viewing angle is not built.
 
 ### The colour look (#1273)
 

@@ -201,6 +201,60 @@ public class PlanetarySharpeningTests
     }
 
     [Fact(Timeout = 300_000)]
+    public async Task AtStrengthTwoNothingInsideTheOutlineIsLeftAtTheSkyInTheBatchOrTheLiveView()
+    {
+        // #1471: inside the planet's outline a pixel the sharpening drives to or below the sky takes the planet's model through the pupil by
+        // default, where the sky floor held it at the sky (a dotted ring under a hard stretch, #1329). The live view's drawing floors as the
+        // batch does, since a limb kept by the batch carries what the batch floored at.
+        var ct = TestContext.Current.CancellationToken;
+        var (_, stack) = NoisyStack();
+        Task<PlanetarySharpenResult?> SharpenAsync(PlanetaryUnderSky underSky) => Task.Run(() => PlanetarySharpening.Sharpen(stack,
+            new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650], Strength = 2, UnderSky = underSky }), ct);
+
+        var (gains, how, kept) = await Task.Run(() => PlanetaryBestStack.DeriveGains(stack, CatalogIndex.Jupiter, Night, Telescope, [650], strength: 2), ct);
+        var limb = kept.ShouldNotBeNull(how);
+        var floored = (await SharpenAsync(PlanetaryUnderSky.Sky)).ShouldNotBeNull();
+        var byDefault = (await Task.Run(() => PlanetarySharpening.Sharpen(stack,
+            new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650], Strength = 2 }), ct)).ShouldNotBeNull();
+        var model = (await SharpenAsync(PlanetaryUnderSky.Model)).ShouldNotBeNull();
+        var dials = WaveletSharpen.Sharpen(stack, PlanetaryBestStack.SliderOptions(gains));
+        var live = limb.Draw(stack, dials);
+
+        var disk = limb.Disk;
+        var (atSkyFloored, atSkyByDefault, atSkyLive) = (AtTheSkyInsideTheOutline(floored.Sharpened, disk), AtTheSkyInsideTheOutline(byDefault.Sharpened, disk),
+            AtTheSkyInsideTheOutline(live, disk));
+        TestContext.Current.TestOutputHelper?.WriteLine($"pixels at the sky inside the outline at strength 2: {atSkyFloored} floored at the sky, {atSkyByDefault} by default, {atSkyLive} in the live view");
+
+        atSkyFloored.ShouldBeGreaterThan(0, "the sky floor holds a pixel at strength 2, or this test would show nothing");
+        atSkyByDefault.ShouldBe(0);
+        atSkyLive.ShouldBe(0);
+        byDefault.Sharpened.GetChannelSpan(0).SequenceEqual(model.Sharpened.GetChannelSpan(0)).ShouldBeTrue("the model is the default");
+        foreach (var image in new[] { floored.Sharpened, byDefault.Sharpened, model.Sharpened, dials, live })
+        {
+            image.Release();
+        }
+    }
+
+    // How many pixels inside the disk's outline sit at its sky, as a floor at the sky leaves them, in the disk's level above the sky.
+    private static int AtTheSkyInsideTheOutline(Image master, MetricDisk disk)
+    {
+        var plane = master.GetChannelSpan(0);
+        var (level, scale) = PlanetaryMetrics.NormalisationLevels(plane, master.Width, master.Height, disk);
+        var count = 0;
+        for (var y = 0; y < master.Height; y++)
+        {
+            for (var x = 0; x < master.Width; x++)
+            {
+                if (disk.RadiiAt(x, y) <= 1 && (plane[(y * master.Width) + x] - level) / scale <= 1e-6)
+                {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    [Fact(Timeout = 300_000)]
     [Trait("Category", "Heavy")]
     public async Task AKeptLimbFollowsTheDiskWhereItMovesAndIsFittedAgainWhereItGrows()
     {
