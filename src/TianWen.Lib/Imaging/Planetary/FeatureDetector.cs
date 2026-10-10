@@ -31,6 +31,19 @@ public static class FeatureDetector
         => DetectByPeakFraction(frame, region, spacing, maxPoints, minGradientFraction).Points;
 
     /// <summary>
+    /// <paramref name="points"/> alignment points in words, saying so when <paramref name="candidates"/> cells qualified past the cap that
+    /// kept them: "64 alignment points of 112, capped". ONE wording for every host that reports a grid (#1412), since a cap
+    /// (<see cref="PlanetaryStackOptions.MaxAlignmentPoints"/>) cuts one silently otherwise.
+    /// </summary>
+    public static string PointsInWords(int points, int candidates)
+        => candidates > points ? $"{points} alignment points of {candidates}, capped" : $"{points} alignment points";
+
+    /// <summary>
+    /// <see cref="PointsInWords"/> when the cap cut the grid, else null: for a host that names its points only when the cap moved them.
+    /// </summary>
+    public static string? CapInWords(int points, int candidates) => candidates > points ? PointsInWords(points, candidates) : null;
+
+    /// <summary>
     /// <see cref="DetectAlignmentPoints"/> with how many cells qualified before <paramref name="maxPoints"/> capped them.
     /// </summary>
     public static (ImmutableArray<PixelPoint> Points, int Candidates) DetectByPeakFraction(Image frame, PixelRect region, int spacing = 24,

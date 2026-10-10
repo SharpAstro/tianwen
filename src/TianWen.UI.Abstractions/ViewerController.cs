@@ -1564,6 +1564,14 @@ public sealed class ViewerController(
 
     // A finished run's masters written, and handed on to the render thread with the outcome: the layer's master and, where there is no
     // layer, the sharpened master. Released here if the write throws.
+    // How a finished batch stack was made, in the words its status line shows: the sharpening, the balance when there was one, and the
+    // alignment-point cap when it cut the grid, which is silent otherwise (#1412).
+    internal static string BatchHow(PlanetaryBestStackResult result)
+    {
+        var how = result.Balance is null ? result.HowSharpened : $"{result.HowSharpened}; {result.HowBalanced}";
+        return FeatureDetector.CapInWords(result.Stack.AlignmentPoints, result.Stack.AlignmentPointCandidates) is { } cap ? $"{how}; {cap}" : how;
+    }
+
     private static BestStackOutcome Written(PlanetaryBestStackResult result, (string Master, string Sharpened) paths, string capture, PlanetaryIdentity? identity)
     {
         var handedOn = false;
@@ -1571,8 +1579,7 @@ public sealed class ViewerController(
         {
             PlanetaryAuto.Write(result, paths);
             handedOn = true;
-            return new BestStackOutcome(paths.Sharpened, result.Balance is null ? result.HowSharpened : $"{result.HowSharpened}; {result.HowBalanced}", capture,
-                result.Layer, result.Layer is null ? result.Sharpened : null, identity);
+            return new BestStackOutcome(paths.Sharpened, BatchHow(result), capture, result.Layer, result.Layer is null ? result.Sharpened : null, identity);
         }
         finally
         {

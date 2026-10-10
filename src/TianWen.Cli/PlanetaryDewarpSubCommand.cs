@@ -88,7 +88,7 @@ internal sealed class PlanetaryDewarpSubCommand(IConsoleHost consoleHost)
             var report = await DewarpResidual.MeasureAsync(stream, truth, options, pools, model, ct);
             var inv = CultureInfo.InvariantCulture;
             consoleHost.WriteScrollable(string.Create(inv,
-                $"{Path.GetFileName(input)}: {report.Frames} frames, {report.Points} points ({options.AlignmentPatchSize} px patches {options.AlignmentPointSpacing} px apart, {correlation}), the reference frame {report.ReferenceIndex}"));
+                $"{Path.GetFileName(input)}: {report.Frames} frames, {FeatureDetector.PointsInWords(report.Points, report.PointCandidates)} ({options.AlignmentPatchSize} px patches {options.AlignmentPointSpacing} px apart, {correlation}), the reference frame {report.ReferenceIndex}"));
             consoleHost.WriteScrollable(string.Create(inv,
                 $"    the true warp left undewarped, px RMS a axis: at the points {report.UndewarpedX:0.000}, {report.UndewarpedY:0.000} on the reference geometry, {report.UndewarpedMedianX:0.000}, {report.UndewarpedMedianY:0.000} on the median; over the disk ({report.MeshPlaces} places) {report.MeshUndewarpedX:0.000}, {report.MeshUndewarpedY:0.000} and {report.MeshUndewarpedMedianX:0.000}, {report.MeshUndewarpedMedianY:0.000}"));
             consoleHost.WriteScrollable(string.Create(inv, $"    left after the dewarp: the points' reading, and the mesh the stack applies ({options.MeshNodeSpacing:0.#} px nodes, {options.MeshInfluence:0.#} px influence)"));

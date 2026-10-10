@@ -39,6 +39,12 @@ public sealed record DewarpReport(int Points, int Frames, int ReferenceIndex, do
 {
     /// <summary>How each point reads the warp and what three interpolations of the readings leave, when a warp model was given.</summary>
     public DewarpInterpolation? Interpolation { get; init; }
+
+    /// <summary>
+    /// How many cells qualified for a point before <see cref="PlanetaryStackOptions.MaxAlignmentPoints"/> capped them, as the stack
+    /// counts them (<see cref="PlanetaryStackResult.AlignmentPointCandidates"/>): more than <see cref="Points"/> when the cap cut the grid.
+    /// </summary>
+    public int PointCandidates { get; init; }
 }
 
 /// <summary>
@@ -125,7 +131,7 @@ public static class DewarpResidual
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfLessThan(truth.Length, stream.FrameCount, nameof(truth));
-        var (tracks, referenceIndex, matcher) = await LuckyImagingStacker.TrackAsync(stream, options, cancellationToken).ConfigureAwait(false);
+        var (tracks, referenceIndex, matcher, candidates) = await LuckyImagingStacker.TrackAsync(stream, options, cancellationToken).ConfigureAwait(false);
         var points = tracks.AlignmentPoints.ToArray();
         var (frames, n) = (tracks.Frames, points.Length);
 
@@ -203,6 +209,7 @@ public static class DewarpResidual
             m, meshUndewarpedX, meshUndewarpedY, meshUndewarpedMedianX, meshUndewarpedMedianY, readings.MoveToImmutable())
         {
             Interpolation = interpolation,
+            PointCandidates = candidates,
         };
     }
 

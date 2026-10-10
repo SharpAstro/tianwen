@@ -5801,7 +5801,8 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   toward no shift, so a clean 16 px patch reads 0.54 of a rigid shift and the twin's points a sixth of its warp, with little scatter.
   Shifting the window undoes the shrink and lifts the noise more; a gain on the readings leaves less warp at the points and a worse
   stack (`PlanetaryStackOptions.MeshGain` stays one). **Dense points pay instead** (16 px patches 4 px apart: band 1's error 0.020 to
-  0.042 under a global stack on two twins, adoption #1195), and **`MaxAlignmentPoints` (64) caps any grid silently**, which hid it.
+  0.042 under a global stack on two twins, adoption #1195), and **`MaxAlignmentPoints` (64) caps any grid**, which hid it while the cap was silent; every host now says when it cut one, in ONE
+  wording (`FeatureDetector.PointsInWords`: "64 alignment points of 112, capped", #1412).
   **Judge a point estimator against its Cramer-Rao bound** (#1082, `AlignmentPointMatcher.Bound`, `planetary dewarp`): plain sits 4.6
   to 11 times it on the twins; the maximum-likelihood weight IS plain against a stacked reference (identical readings); Loefdahl's
   square difference (`PlanetaryPointEstimator.SquareDifference`) reads the shift unshrunk and reaches the bound on a clean rigid shift,

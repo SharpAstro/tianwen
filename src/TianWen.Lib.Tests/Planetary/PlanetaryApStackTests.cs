@@ -7,6 +7,7 @@ using SharpAstro.Ser;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
+using TianWen.UI.Abstractions;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -216,6 +217,44 @@ public class PlanetaryApStackTests
             // The stack says how many points it followed, and a global one none (#1195: the default grid's cap bound silently).
             ap.AlignmentPoints.ShouldBeInRange(1, options.MaxAlignmentPoints);
             global.AlignmentPoints.ShouldBe(0);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ACappedGridSaysSoWhereverItsStackIsReported()
+    {
+        // #1412: the cap cut a grid silently everywhere but planetary stack's own line. The stack, the tracks planetary dewarp reads and
+        // the viewer's Best stack line now carry the cells that qualified, in one wording.
+        var path = PlanetarySerFixtures.NewTempPath();
+        try
+        {
+            WriteDistortedCapture(path);
+            var options = new PlanetaryStackOptions { CropToCoverage = false, KeepFraction = 1.0, MaxAlignmentPoints = 2 };
+            PlanetaryStackResult ap;
+            using (var s = SerFrameStream.Open(path))
+            {
+                ap = await new LuckyImagingStacker().StackAsync(s, options, TestContext.Current.CancellationToken);
+            }
+            int tracked, candidates;
+            using (var s = SerFrameStream.Open(path))
+            {
+                var (tracks, _, _, c) = await LuckyImagingStacker.TrackAsync(s, options, TestContext.Current.CancellationToken);
+                (tracked, candidates) = (tracks.AlignmentPoints.Length, c);
+            }
+
+            ap.AlignmentPoints.ShouldBe(2);
+            ap.AlignmentPointCandidates.ShouldBeGreaterThan(2);
+            (tracked, candidates).ShouldBe((ap.AlignmentPoints, ap.AlignmentPointCandidates));
+            var words = $"2 alignment points of {ap.AlignmentPointCandidates}, capped";
+            FeatureDetector.PointsInWords(ap.AlignmentPoints, ap.AlignmentPointCandidates).ShouldBe(words);
+            ViewerController.BatchHow(new PlanetaryBestStackResult(ap, ap.Master, "the preset's gains")).ShouldBe($"the preset's gains; {words}");
+            // A grid the cap did not cut names nothing on the line.
+            ViewerController.BatchHow(new PlanetaryBestStackResult(ap with { AlignmentPointCandidates = 2 }, ap.Master, "the preset's gains"))
+                .ShouldBe("the preset's gains");
         }
         finally
         {
