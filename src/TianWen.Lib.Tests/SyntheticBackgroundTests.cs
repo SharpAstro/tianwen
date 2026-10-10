@@ -43,6 +43,91 @@ public sealed class SyntheticBackgroundTests
         SkyTexture.Measure(field, Size, Size, absent: null, fwhm: Fwhm).SpectralIndex.ShouldBe(SyntheticBackground.TextureIndex, 0.4);
     }
 
+    /// <summary>
+    /// F1 of #1400: a width is the same texture on every grid. The field's spread is set by its coarsest modes, so taken
+    /// against the whole grid a 1,024 px grid's fine scales were weaker than the export's 512 px grid's (0.65 over sixteen
+    /// draws, the n^-0.55 the review derived); with the modes coarser than <see cref="SyntheticBackground.TextureGridPx"/>
+    /// taken out they read 1.07. What is left is the lattice at the cutoff: the 512 px grid samples its coarsest modes four
+    /// times more sparsely than the 1,024 px one samples the same band, and a red spectrum's spread is set there.
+    /// </summary>
+    [Fact]
+    public void AWidthDrawsTheSameFineScalesOnTheExportsGridAndOnALargerOne()
+    {
+        static double FineRms(int n, int? coarsest)
+        {
+            var sum = 0.0;
+            const int draws = 16;
+            for (var seed = 0; seed < draws; seed++)
+            {
+                var field = SyntheticBackground.UnitSpread(SyntheticBackground.PowerLawField(n, SyntheticBackground.TextureIndex, new Random(seed), coarsest));
+                var detail = ATrousWaveletTransform.Decompose(field.Select(static v => (float)v).ToArray(), n, n, 3).Detail(1).ToArray();
+                sum += Math.Sqrt(detail.Average(static v => (double)v * v));
+            }
+            return sum / draws;
+        }
+
+        var atExport = FineRms(SyntheticBackground.TextureGridPx, SyntheticBackground.TextureGridPx);
+        var cut = FineRms(2 * SyntheticBackground.TextureGridPx, SyntheticBackground.TextureGridPx) / atExport;
+        var whole = FineRms(2 * SyntheticBackground.TextureGridPx, coarsest: null) / atExport;
+        TestContext.Current.TestOutputHelper?.WriteLine($"fine RMS on twice the grid over the export's: {cut:F3} with the cutoff, {whole:F3} without");
+        cut.ShouldBe(1.0, 0.1);
+        whole.ShouldBeLessThan(0.8, "the whole grid's spread is what moved it");
+    }
+
+    [Theory]
+    [InlineData(23, 512)]
+    [InlineData(256, 512)]
+    [InlineData(384, 1024)]
+    public void EveryCutIsDrawnOnAtLeastTheExportsGrid(int size, int grid)
+        => SyntheticBackground.TextureGridFor(size).ShouldBe(grid);
+
+    /// <summary>
+    /// F2 of #1400: each drawn band is at unit PLAIN RMS, as the amplitude it is multiplied by is a plain RMS, so its energy
+    /// is the plate's. Its robust spread is lower, by the log-normal's tails, which is the overshoot scaling by it drew.
+    /// </summary>
+    [Fact]
+    public void ADrawnBandHasThePlainRmsItsAmplitudeAssumes()
+    {
+        var background = SyntheticBackground.Build(Plate(2), absent: null, Fwhm);
+
+        var scales = background.TextureScales(0, 0, 256, new Random(3));
+
+        for (var j = 0; j < scales.Length; j++)
+        {
+            Math.Sqrt(scales[j].Average(static v => (double)v * v)).ShouldBe(1.0, 1e-4, $"{1 << j} px");
+            var abs = scales[j].Select(static v => Math.Abs(v)).Order().ToArray();
+            (1.4826 * abs[abs.Length / 2]).ShouldBeLessThan(0.95, $"the log-normal's tails at {1 << j} px");
+        }
+    }
+
+    /// <summary>
+    /// F7 of #1400: where the fine structure runs across the coarse one, their doubled-angle vectors are opposite, and at half
+    /// and half the blend is nothing while the angle jumps through 90 degrees. The steer's strength follows the blend's
+    /// length, so it fades there instead of steering hard along an angle that flips: no seam.
+    /// </summary>
+    [Theory]
+    [InlineData(0.5, 0.0)]   // across, half and half: no steer
+    [InlineData(0.25, 0.45)] // across, mostly coarse: the coarse orientation, weakened by the disagreement
+    [InlineData(1.0, 0.9)]   // the fine alone: its own strength
+    [InlineData(0.0, 0.9)]   // the coarse alone: its own
+    public void TheSteerFadesWhereTheFineAndCoarseOrientationsCancel(double signal, double strength)
+    {
+        // Coarse along x (2 theta = 0), fine along y (2 theta = 180 degrees), both at strength 0.9.
+        var (cos2, sin2, s, wandering) = SyntheticBackground.SteerAt(1, 0, 0.9, -1, 0, 0.9, signal);
+
+        s.ShouldBe(strength, 1e-12);
+        wandering.ShouldBe(1 - signal, 1e-12);
+        if (strength > 0)
+        {
+            Math.Sign(cos2).ShouldBe(signal < 0.5 ? 1 : -1, "the orientation is the stronger share's");
+        }
+        sin2.ShouldBe(0, 1e-12);
+    }
+
+    [Fact]
+    public void ASteerAlongOneOrientationKeepsItsBlendedStrength()
+        => SyntheticBackground.SteerAt(0, 1, 0.4, 0, 1, 0.8, 0.5).Strength.ShouldBe(0.6, 1e-12);
+
     [Fact]
     public void ASmoothSkyHasNoTextureToDraw()
     {

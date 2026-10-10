@@ -77,8 +77,15 @@ public static class SkyTexture
     /// isotropic field reads over the window, the null a plate's coherence is set against.</param>
     /// <param name="NoiseAlignment">White noise's <see cref="ScaleStats.Alignment"/> per scale against the coarse structure
     /// two octaves up (<see cref="CoarseStart"/> at its closest): what band overlap alone reads, the null for alignment.</param>
+    /// <param name="RedCoherence">The same read of an ISOTROPIC power-law field at the plate's own
+    /// <paramref name="SpectralIndex"/> (#1400, F4): the null white noise is not, since a red field puts a band's energy at
+    /// its coarse edge, where fewer independent modes fit in the window, and so reads more coherence with no anisotropy at
+    /// all. NaN per scale where the index could not be read.</param>
+    /// <param name="RedAlignment">That field's alignment with its own coarse structure: a smooth ridge's curvature leaks into
+    /// the finer bands aligned with it by construction, which white noise, having no coarse power, cannot show.</param>
     public sealed record Measurement(double Fwhm, int Sources, double ReadFraction, ImmutableArray<ScaleStats> Scales, double SpectralIndex,
-        ImmutableArray<ClassStats> Classes, ImmutableArray<double> NoiseCoherence, ImmutableArray<double> NoiseAlignment);
+        ImmutableArray<ClassStats> Classes, ImmutableArray<double> NoiseCoherence, ImmutableArray<double> NoiseAlignment,
+        ImmutableArray<double> RedCoherence, ImmutableArray<double> RedAlignment);
 
     /// <summary>
     /// Measures <paramref name="luminance"/> (row-major, <paramref name="width"/> x <paramref name="height"/>), a plate whose
@@ -137,8 +144,10 @@ public static class SkyTexture
                 scales[0].Pixels, scales, SpectralIndexOf(scales)));
         }
         var (noiseCoherence, noiseAlignment) = NoiseNull.Value;
-        return new Measurement(fwhm, sources.Length, (double)readPixels / plane.Length, all, SpectralIndexOf(all), classes.MoveToImmutable(),
-            noiseCoherence, noiseAlignment);
+        var index = SpectralIndexOf(all);
+        var (redCoherence, redAlignment) = RedNull(index);
+        return new Measurement(fwhm, sources.Length, (double)readPixels / plane.Length, all, index, classes.MoveToImmutable(),
+            noiseCoherence, noiseAlignment, redCoherence, redAlignment);
     }
 
     /// <summary>
@@ -269,17 +278,49 @@ public static class SkyTexture
         return (coherence, alignment);
     }
 
-    // White noise read as a plate is, per scale: its coherence (energy-weighted) and its alignment against the coarse structure
-    // two octaves up, a window's reach in from the edge. The nulls.
+    // The nulls' grid.
+    private const int NullSize = 1024;
+
+    // White noise read as a plate is (NullOf).
     private static readonly Lazy<(ImmutableArray<double> Coherence, ImmutableArray<double> Alignment)> NoiseNull = new(static () =>
     {
-        const int size = 1024;
         var random = new Random(1);
-        var noise = new float[size * size];
+        var noise = new float[NullSize * NullSize];
         for (var i = 0; i < noise.Length; i++)
         {
             noise[i] = (float)(Math.Sqrt(-2.0 * Math.Log(1.0 - random.NextDouble())) * Math.Cos(2.0 * Math.PI * random.NextDouble()));
         }
+        return NullOf(noise);
+    });
+
+    // The red nulls already read, by index to RedIndexStep (an index is read to about a tenth; the null moves less).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, Lazy<(ImmutableArray<double>, ImmutableArray<double>)>> RedNulls = new();
+
+    // The steps an index is rounded to for its red null.
+    private const double RedIndexStep = 0.05;
+
+    /// <summary>An isotropic power-law field of <paramref name="index"/> read as a plate is: the null for a red sky (F4 of
+    /// #1400). NaN per scale for an index that is not a number, or outside 0 to 6.</summary>
+    internal static (ImmutableArray<double> Coherence, ImmutableArray<double> Alignment) RedNull(double index)
+    {
+        if (!double.IsFinite(index) || index is < 0 or > 6)
+        {
+            var nan = ImmutableArray.CreateRange(Enumerable.Repeat(double.NaN, ScaleCount));
+            return (nan, nan);
+        }
+        var key = (int)Math.Round(index / RedIndexStep);
+        return RedNulls.GetOrAdd(key, static k => new Lazy<(ImmutableArray<double>, ImmutableArray<double>)>(() =>
+        {
+            var field = SyntheticBackground.PowerLawField(NullSize, k * RedIndexStep, new Random(1));
+            return NullOf([.. field.Select(static v => (float)v)]);
+        })).Value;
+    }
+
+    // A null field read as a plate is, per scale: its coherence (energy-weighted) and its alignment against the coarse
+    // structure two octaves up, a window's reach in from the edge.
+    private static (ImmutableArray<double> Coherence, ImmutableArray<double> Alignment) NullOf(float[] noise)
+    {
+        const int size = NullSize;
         var decomposition = ATrousWaveletTransform.Decompose(noise, size, size, ScaleCount);
         var coherence = ImmutableArray.CreateBuilder<double>(ScaleCount);
         var alignment = ImmutableArray.CreateBuilder<double>(ScaleCount);
@@ -312,7 +353,7 @@ public static class SkyTexture
             alignment.Add(sumW > 0 ? sumWa / sumW : double.NaN);
         }
         return (coherence.MoveToImmutable(), alignment.MoveToImmutable());
-    });
+    }
 
     // The pixels read: off the frame's edge and the canvas ring by EdgePx (a ring's reach taken per row and per column), and
     // off every source by SourceMaskFwhm PSF widths.

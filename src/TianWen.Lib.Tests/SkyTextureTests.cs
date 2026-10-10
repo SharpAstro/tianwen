@@ -160,4 +160,24 @@ public sealed class SkyTextureTests
             Math.Abs(m.NoiseAlignment[j]).ShouldBeLessThan(0.1, $"two octaves apart, band overlap reads no alignment at {s.ScalePx} px");
         }
     }
+
+    /// <summary>
+    /// F4 of #1400: white noise is the wrong null for a red sky. An isotropic power-law field at the plates' index reads
+    /// more coherence than white noise (a band's energy sits at its coarse edge, where fewer modes fit the window), so part
+    /// of S1's "coherence over noise" is the spectrum, and the red null is what a plate's coherence is set against.
+    /// </summary>
+    [Fact]
+    public void AnIsotropicRedFieldReadsMoreCoherenceThanWhiteNoise()
+    {
+        var (white, whiteAlignment) = SkyTexture.RedNull(0.0);
+        var (red, redAlignment) = SkyTexture.RedNull(3.1);
+
+        for (var j = 1; j <= 3; j++)
+        {
+            TestContext.Current.TestOutputHelper?.WriteLine(
+                $"{1 << j} px: coherence white {white[j]:F3} red {red[j]:F3}; alignment white {whiteAlignment[j]:F3} red {redAlignment[j]:F3}");
+            red[j].ShouldBeGreaterThan(white[j], $"at {1 << j} px");
+        }
+        SkyTexture.RedNull(double.NaN).Coherence.ShouldAllBe(static v => double.IsNaN(v));
+    }
 }

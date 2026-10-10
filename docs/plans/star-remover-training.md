@@ -1276,6 +1276,9 @@ points at 5-20 sigma) is not read. Both are scored on A's draws with the fixed e
 4. **Kill**: Combined under A's control at 5-20 sigma by more than 5 points. Then the synthetic background costs faint
    stars at a matched schedule, and the truth is fixed by D4 and a deeper plate builder.
 
+*Superseded (dated 2026-10-10, #1400): the next paragraph was written on 2026-10-09 from R2d's own read, before this
+pair trained, and the read below contradicts it. It is kept as what was believed when the pair was registered.*
+
 So the synthetic background as built does not help, and what it cost is the bright stars. That cost is B's training,
 not the background's realism. R2e's structure is still worth having for the fill and for a later arm, but it would not
 recover what B lost.
@@ -1297,13 +1300,19 @@ Both models trained to their plateau at a patience of 24 under a 240,000-step ca
 | far sky | 0.12 to 0.39 | 0.28 | 0.24 |
 
 1. **Holds.** A's control reaches 73.0 at 5-20 sigma, so the stops' 73.4 was the schedule's, not the background's.
-2. **Holds, and past the line.** Combined reaches A's control at 100-1000 sigma and goes 7.5 points over it, beyond A's
-   three-seed range there (4.6), with the bright cores at 3.0 % of its error. The scorer printed MISSES because it tested
-   "within 3" both ways; the prediction is one-sided ("reaches"). It also digs bright stars less (46 % of their error
-   against 66 %) with a core mean near zero.
+2. **Misses as registered, by over-reaching it.** The registration says "reaches A's control (within 3 points)", and
+   read as written, two-sided, the scorer's MISSES is the verdict: combined is 7.5 points OVER A's control at 100-1000
+   sigma, beyond A's three-seed range there (4.6), with the bright cores at 3.0 % of its error. This read first called
+   it a hold by taking "reaches" as one-sided, a reading chosen after the numbers were in (#1400); the gain stands as a
+   gain, but it is not the registered prediction. It also digs bright stars less (46 % of their error against 66 %) with
+   a core mean near zero.
 3. **Misses, and is not read.** Combined sits 1.6 points UNDER A's control at 5-20 sigma, against a registered 5 over, and
    inside A's three-seed range of 3.1.
 4. **The kill does not fire.**
+
+**One seed each, and the ranges are a patience of 12's** (#1400): A's three-seed spread (3.1 points at 5-20 sigma, 4.6 at
+100-1000) was measured at a patience of 12, and both models here trained at 24. Nothing measures the seed spread at 24,
+so every "within the range" above uses the 12's spread as a stand-in, and a difference near it is not a result.
 
 So at a matched schedule the synthetic background, with its knots capped, costs no faint stars and removes bright ones
 better than the plates do, and the rule under "R2e's background exported for the next arm" sends that export to training
@@ -1619,6 +1628,10 @@ beside it:
   there, costs that and no less, so any overshoot misses. Passing would take a fill that predicts the hidden structure
   (patch-based, or one that continues a filament's own pixels), not one that only has its statistics.
 - **The 24 px read rests on few holes:** most plates hold 0 to 2 structured holes of that size.
+- **Two things this read did not say (#1400).** Energy was read at 2 and 4 px only (the 12 px holes at 2, the 24 px at
+  4), not at the 2 to 8 px registered. And (3)'s bar, the square root of two, is the EXPECTED error of a perfect draw of
+  the right energy, uncorrelated with what was there, so even an exact texture misses it about half the time: the bar
+  was a coin toss. Its re-registration, and the read again with the generator fixed, are under "#1400's review" below.
 
 What the draw buys, the right energy and direction with no bias, is realism rather than accuracy. Whether a user-facing
 AI-free remover wants that is a product question, the owner's.
@@ -1650,6 +1663,139 @@ draws with the fixed eval beside `r2dkl` and `r2dal`. A difference under A's thr
    median (0.13). Low to moderate.
 4. **Kill**: R2e under A's control by more than 5 points at 5-20 sigma, or by more than 4.6 at 100-1000. Then the steered
    texture costs what the knots repaired, and the synthetic background stays the knots export.
+
+#### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
+
+An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
+energy scaled in a unit the plate's is not in. Each finding was checked in the code first; what changed, and what the
+reads it moved say now.
+
+**F1, the width depends on the grid.** `PowerLawField` gives a mode `k^(-beta/2)` in grid-index units, and `TextureScales`
+took the log-normal's width against the WHOLE grid's spread, which a red spectrum's coarsest modes set. The grid is the
+next power of two at twice the cut, so the same 0.8 was a smoother texture in S3's 384 px cells (a 1,024 px grid: a fine
+band 0.65 as strong, over sixteen draws) and a far rougher one in S4's small fills (64 px) than in the export's 256 px
+cells. **Fix:** every texture draws on at least 512 px (`SyntheticBackground.TextureGridPx`), and a larger grid's modes
+coarser than 512 px are taken out before the field is normalised (`PowerLawField`'s cutoff, the same in the steered
+field). The export's cells always drew on 512 px, so they and `TailTable` are what they were; a fine band on twice the
+grid now reads 1.07 of the export's (the lattice at the cutoff samples the 512 px grid's coarsest modes more sparsely),
+pinned by `AWidthDrawsTheSameFineScalesOnTheExportsGridAndOnALargerOne`. On the filament test F1 alone doubles the fill's
+alignment with the filaments (0.32 to 0.68 against the truth's 0.96): a small grid sampled the steered spectrum too
+coarsely to hold a direction.
+
+**F2, the energy's unit.** Each drawn band was scaled by its robust spread (1.4826 MAD) and multiplied by an amplitude
+that is a plain RMS, so a heavy-tailed band drew more energy than the plate's: on S3's plates at the export's cells, 1.2
+to 1.9 times the plate's at 1 to 8 px (`C:\temp\e2\s3-1400\summary.txt`, the R2e export's own build against this one).
+Scaled by its plain RMS instead, the overshoot went and an undershoot it had hidden showed: 0.65 to 0.8 at 2 and 4 px,
+less at 8, because a starlet band re-read spreads into its neighbours and bands each at their amplitude, summed, re-read
+under it (a Python check: a sum of unit bands of a 0.8 log-normal re-reads at 0.59 to 0.73 per scale). **Fix, beyond the
+review's:** `DrawnTexture` matches each replaced scale's RE-READ energy to the plate's amplitude, three passes of a gain
+per scale, read only over the cut's interior that scale's kernel reaches no edge from (a margin of `4 << j` px; a scale
+with less than `MinEnergyReadPx`, 16 px, inside keeps its gain). Read over the whole cut first, the mirrored edge read
+weak and a small cut is mostly edge, so a hole's fill had its gains pumped up (S4's 24 px holes at 1.62 of the
+original's energy, below). The export's setting (the fine steer) now reads, synthetic over plate, at 1, 2, 4 and 8 px:
+
+| cells | before (R2e's export) | plain RMS | matched over the cut | matched inside each scale's reach |
+|---|---|---|---|---|
+| whole cell | 1.75 / 1.70 / 1.34 / 1.45 | 1.15 / 0.79 / 0.67 / 0.68 | 1.28 / 1.17 / 1.11 / 1.01 | 1.28 / 1.13 / 1.03 / 1.00 |
+| textured | 1.65 / 1.53 / 1.08 / 0.77 | 1.14 / 0.83 / 0.65 / 0.51 | 1.17 / 1.07 / 0.96 / 0.80 | 1.20 / 1.08 / 1.01 / 0.88 |
+| strongly textured | 1.58 / 1.01 / 0.83 / 1.18 | 1.03 / 0.60 / 0.60 / 0.70 | 1.24 / 1.07 / 0.96 / 1.23 | 1.23 / 1.03 / 0.99 / 1.69 |
+
+(noise in both; the 1 px row is the noise's, and the 8 px row rests on 3 to 15 cells). The last column is what ships.
+The structure moves within its noise: S3's score at 2 to 4 px, the fine steer, 0.119 / 0.114 / 0.070 before, 0.114 /
+0.121 / 0.068 as shipped (whole, textured, strongly textured; the 8 px row's handful of cells, whose class membership
+moves with the draw, swings the 2 to 8 px score more than any arm does). On the filament test the fill's energy is 0.86
+of the truth's (1.09 before, all of it the overshoot, 0.47 on plain RMS alone).
+
+**R2e, training now, draws the BEFORE column**: its export was made from the generator before these fixes, so its
+texture holds 1.2 to 1.9 times the plate's energy at 1 to 8 px and F7's seam. Its read is read with that beside it.
+
+**S4 again, the same eight plates and holes** (`C:\temp\e2\s4-1400` with F1 and F2, `s4-1400m` matched over the cut,
+`s4-1400c` as shipped). The textured fill, medians over the plates, today's fill and the bar in the first column:
+
+| | before (S4's read) | F1 and F2 | matched over the cut | as shipped |
+|---|---|---|---|---|
+| energy, 12 px holes at 2 px (bar 0.75 to 1.25) | 1.59 | 0.75 | 0.86 | 0.86 |
+| energy, 24 px holes at 4 px | 1.16 | 0.91 | 1.62 | 1.41 |
+| structure error, structured 3 px (today 0.28, bar 0.39) | 0.53 | 0.43 | 0.44 | 0.43 |
+| structure error, structured 12 px (today 0) | 0 | 0.18 | 0.35 | 0.33 |
+| structure error, structured 24 px (today 0.25, bar 0.35) | 0.65 | 0.47 | 0.71 | 0.73 |
+| structure error, smooth 6 px (today 0, bar 0.1) | 0.12 | 0 | 0 | 0 |
+| structure error, smooth 24 px (today 0.15, bar 0.25) | 0.15 | 0.15 | 0.30 | 0.30 |
+| alignment with the ring, 12 / 24 px (the truth +0.54 / +0.89) | +0.58 / +0.87 | +0.58 / +0.88 | +0.49 / +0.88 | +0.48 / +0.89 |
+
+The level holds on every build, within today's plus 0.1 sigma at every radius.
+
+1. **Energy: no build holds at both radii.** F1 and F2 alone hold at 24 px and sit at the bar's edge at 12 (0.75, a
+   miss by the third figure); as shipped it holds at 12 and overshoots at 24. The 24 px read rests on four plates of
+   eight (the others hold no structured hole that size), 85 holes in all: the plate holding 55 of them reads 0.97, and
+   the overshoot is two dual-band colour plates (1.69 on 24 holes, 2.78 on 4), where the fill's grain also rises to 1.5
+   of the plate's against 1.0 to 1.1 elsewhere. Pooled over the holes it reads 1.26. Its cause is open.
+2. **Price: misses on every build**, F1 and F2 alone included, at 3, 12 and 24 px. Matching the energy raises it at 12
+   and 24 px (0.18 to 0.33, 0.47 to 0.73) and doubles the smooth 24 px holes' (0.15 to 0.30). The re-registered bar
+   below was not read: its five-seed spread was not measured.
+3. **Continuity holds on every build.**
+
+**The kill stands**: R0's fill stays the push-pull. The matching is shipped for the synthetic background, which it brings
+to the plate's energy at 2 to 8 px (the table above), and the fill, opt-in and unused, draws through the same routine.
+As in S4's read, the energy was read at 2 and 4 px only.
+
+**S4's bar, re-registered (F3).** The price's square root of two is a perfect draw's expected cost, so it is not a
+ceiling with room for error. Registered for any later fill: the energy first, 75 to 125 percent at the read scales, then
+the price no more than the square root of two times today's error PLUS the spread of that ratio over five seeds of the
+draw on the same holes, read before the fill is judged.
+
+**The tails decision, on paired draws (`s3-tails-1400m`).** It was taken on draws that differed between settings (before
+`CellSeed`) and in 384 px cells, where F1 left the table's widths wrong.
+
+| tails score, lower is closer (structure beside it) | one width | tails from the plate |
+|---|---|---|
+| calibration, whole cell | **0.156** (0.106) | 0.464 (0.111) |
+| calibration, textured | **0.188** (0.130) | 0.301 (0.144) |
+| calibration, strongly textured | **0.257** (0.206) | 0.301 (0.228) |
+| held out, whole cell | **0.134** (0.103) | 0.204 (0.110) |
+| held out, textured | **0.118** (0.073) | 0.139 (0.071) |
+| held out, strongly textured | 0.235 (0.067) | **0.210** (0.035) |
+
+The one width is closer in five views of six, and the plate's tails still draw the texture too smooth (kurtosis 1.0 to
+1.7 at 2 to 8 px on the calibration plates' whole cells, where the plates read 3.3 to 4.8, and the one width 2.5 to 3.2),
+so that bias was not F1's: its cause is still open. **Kept:** the one width.
+
+**F4, S1's null.** White noise is the wrong null for a red sky: an isotropic `PowerLawField` at the plates' index (3.1)
+read through the same windows reads coherence 0.215 to 0.219 at 2 to 8 px against white noise's 0.175 to 0.179, and
+alignment +0.011 to +0.040 against +0.005 to +0.016 (`AnIsotropicRedFieldReadsMoreCoherenceThanWhiteNoise`). So of S1's
+coherence over noise (+0.11 to +0.19) about 0.04 is the spectrum and the rest the sky's own; of its alignment (+0.10 to
++0.26) at most 0.03. S1's reading stands, smaller. Every measure now carries both nulls (`SkyTexture.Measurement`'s
+`RedCoherence` and `RedAlignment`, at the plate's own index).
+
+**F5, the split.** The validation draws hold SMC on the ASI585 on 2024-09-27, five days before a training night of the
+same field and camera (M42 and the Lobster are in both too, on other cameras). Scored again without that night, by the
+registered eval's own build:
+
+| measure, with the night -> without it | A, 3 seeds at 12 | B, 3 seeds at 12 | B minus A | `r2dkl` minus `r2dal` |
+|---|---|---|---|---|
+| clean 5-20 sigma | 65.6 -> 69.9 | 60.0 -> 63.9 | -5.5 -> -6.0 | -1.6 -> -0.5 |
+| clean 20-100 sigma | 54.8 -> 56.2 | 38.7 -> 39.7 | -16.1 -> -16.5 | +4.8 -> +4.7 |
+| clean 100-1000 sigma | 23.4 -> 24.0 | 6.8 -> 7.0 | -16.6 -> -16.9 | +7.5 -> +7.7 |
+| dug 100-1000 sigma | 42.1 -> 42.7 | 47.4 -> 48.3 | +5.4 -> +5.7 | -19.9 -> -20.8 |
+| bright-core share % | 2.65 -> 2.64 | 16.9 -> 17.0 | +14.3 -> +14.4 | +0.13 -> +0.15 |
+
+Every model removes faint stars better without it (the SMC night is a hard one), and no comparison between arms moves by
+more than 1.1 points: the shared field did not tilt R2d's reads (`C:\temp\e2\f5\read.txt`, `f5_read.py`).
+
+Later arms split by FIELD, not by night.
+
+**F6, a dig in the sky's noise.** `Dug` judges a dig in the noise plane's sigma, which at a bright core carries the
+injected star's own shot noise: at 100 to 1,000 sigma a hole of several sky sigma passed under it. `DugInSky` counts the
+same two tests in the draw's sky noise (its median sigma off every injected footprint), beside `Dug`
+(`AHoleUnderABrightStarsShotNoiseIsCountedAsDugInTheSkysNoise`).
+
+**F7, the steer's seam.** Where the fine structure runs across the coarse, their doubled-angle vectors are opposite and
+at half and half the blend is nothing while the angle jumps 90 degrees. The strength now follows the blend's length
+(`SyntheticBackground.SteerAt`), so the steer fades there.
+
+**F8, the mask.** A plate source whose centre an injected star covers is not scored, and its wings off that footprint
+were left out of the near zone too, so the loss asked the net to keep half a star. The near zone is now every plate
+source's (`AKeptStarUnderAnInjectedOneStillHasItsWingsLeftOutOfTheLoss`); only the scored list keeps the footprint rule.
 
 #### S2: generate it, S3: check it, S4: fill with it
 
