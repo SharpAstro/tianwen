@@ -695,7 +695,8 @@ public partial class Image
             BiasSection = biasSection,
             FrameSequence = frameSequence,
             FrameCounterSource = frameCounterSource,
-            IsColourBalanced = hdu.Header.ContainsKey(Planetary.ColourBalance.SaturationCard),
+            ColourBalanceSaturation = hdu.Header.ContainsKey(Planetary.ColourBalance.SaturationCard)
+                ? hdu.Header.GetDoubleValue(Planetary.ColourBalance.SaturationCard, 1) : null,
             // Ours (ImageMeta.FluxScale): absent is 1, a value that is not a positive number is not a scale.
             FluxScale = hdu.Header.GetDoubleValue("FLUXSCAL", double.NaN) is var fluxScale && fluxScale > 0 ? fluxScale : null
         };
@@ -1147,6 +1148,11 @@ public partial class Image
         if (imageMeta.FluxScale is { } fluxScale and > 0)
         {
             AddHeaderValueIfHasValue("FLUXSCAL", fluxScale, "values per count taken (a linear fit's slope)");
+        }
+        // A balanced master says so however it is written (#1411); the balance's own cards, when a caller passes them, carry its gains too
+        if (imageMeta.ColourBalanceSaturation is { } saturation && extraHeaders?.ContainsKey(Planetary.ColourBalance.SaturationCard) is not true)
+        {
+            header.AddValue(Planetary.ColourBalance.SaturationCard, saturation, "colour balance: saturation about the disk's colour (#1212)");
         }
         // The MaxIm DL / N.I.N.A. spelling. TianWen wrote the Atik-legacy BAYOFFX/BAYOFFY until
         // 2026-08-17; the reader keeps that as a fallback, the writer does not.

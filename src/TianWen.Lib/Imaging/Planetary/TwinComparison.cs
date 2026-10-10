@@ -110,25 +110,41 @@ public static class TwinComparison
 
     /// <summary>
     /// How far the twin is from the real capture over the fitted statistics: the sum of each one's squared log ratio, so 10 % high and
-    /// 10 % low cost the same and no statistic's units weigh it. A statistic either capture could not measure (not finite, or not
-    /// positive) is left out, and the count of those used is returned beside the sum so two mismatches are only compared when it agrees.
+    /// 10 % low cost the same and no statistic's units weigh it. The REAL capture alone decides which statistics count (finite and
+    /// positive there), so the count returned beside the sum is the same for every twin of one capture; a statistic the twin could not
+    /// measure where the capture could costs <see cref="UnmeasuredCost"/>, more than any it measured within a factor of ten.
     /// </summary>
+    /// <remarks>
+    /// Left out on the twin's side as well, a statistic was a row a trial could lose: a halo annulus (a level less the sky, near zero at its
+    /// outer edge) pushed below zero dropped out of the mean instead of paying for it, and the trial scored better than one that measured
+    /// it twice too bright (#1413).
+    /// </remarks>
     public static (double Mismatch, int Used) Mismatch(ImmutableArray<TwinStatistic> rows)
     {
         double sum = 0;
         var used = 0;
         foreach (var row in rows)
         {
-            if (!row.Fitted || !(row.Real > 0) || !(row.Twin > 0) || !double.IsFinite(row.Real) || !double.IsFinite(row.Twin))
+            if (!row.Fitted || !(row.Real > 0) || !double.IsFinite(row.Real))
             {
                 continue;
             }
-            var log = Math.Log(row.Ratio);
-            sum += log * log;
+            if (row.Twin > 0 && double.IsFinite(row.Twin))
+            {
+                var log = Math.Log(row.Ratio);
+                sum += log * log;
+            }
+            else
+            {
+                sum += UnmeasuredCost;
+            }
             used++;
         }
         return (sum, used);
     }
+
+    /// <summary>What a statistic the twin could not measure costs in <see cref="Mismatch"/>: a factor of ten's squared log.</summary>
+    public static readonly double UnmeasuredCost = Math.Log(10) * Math.Log(10);
 
     /// <summary>The single frames' limb edge widths and fitted blur sigmas at their 10th, 50th and 90th percentiles, and their median
     /// limb darkening; null with no frames.</summary>

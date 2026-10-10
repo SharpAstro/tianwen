@@ -144,6 +144,31 @@ public sealed class FrameGrader(IFrameQualityEstimator estimator)
     }
 
     /// <summary>
+    /// <paramref name="grades"/> with every frame <paramref name="stream"/> holds no time for scored zero: a de-rotated stack carries each
+    /// frame from its own instant to the epoch, and a frame its capture did not stamp has none (#1409). As they are when every frame has
+    /// its time, or when the capture has none at all, which is never de-rotated.
+    /// </summary>
+    public static ImmutableArray<FrameGrade> WithoutUntimedFrames(ImmutableArray<FrameGrade> grades, IPlanetaryFrameStream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        if (!stream.HasTimestamps)
+        {
+            return grades;
+        }
+        var builder = grades.ToBuilder();
+        var changed = false;
+        for (var i = 0; i < builder.Count; i++)
+        {
+            if (builder[i].Score != 0 && stream.TimestampOf(builder[i].Index) is null)
+            {
+                builder[i] = builder[i] with { Score = 0 };
+                changed = true;
+            }
+        }
+        return changed ? builder.MoveToImmutable() : grades;
+    }
+
+    /// <summary>
     /// <paramref name="grades"/> with every cut frame (<see cref="FrameGrade.Cut"/>) scored zero, so no stack holds it, when at least
     /// <see cref="MinimumWholeFraction"/> of them are whole (<see cref="DropsCutFrames"/>), and every smeared one (its planet more than
     /// <see cref="SmearRatio"/> times as elongated as the run's whole frames are at their median, <see cref="IsSmeared"/>) scored zero

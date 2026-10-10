@@ -51,6 +51,26 @@ public class TwinComparisonTests
     }
 
     [Fact]
+    public void AStatisticTheTwinCouldNotMeasureCostsMoreThanOneItMatchedBadly()
+    {
+        // #1413: a row either side read as not positive was dropped and the mean taken over the rest, so a trial whose twin pushed a halo
+        // annulus (a level less the sky, near zero at its outer edge) below zero lost that row instead of paying for it, and scored better
+        // than one that measured it twice too bright. The real capture alone decides the rows, the same for every trial; a twin that cannot
+        // measure one of them is off by more than any it can.
+        var real = Real();
+        var twiceTooBright = real with { Halo = [real.Halo[0], real.Halo[1], 2 * real.Halo[2], double.NaN] };
+        var belowTheSky = real with { Halo = [real.Halo[0], real.Halo[1], -0.001, double.NaN] };
+
+        var (bright, brightUsed) = TwinComparison.Mismatch(TwinComparison.Compare(real, twiceTooBright));
+        var (lost, lostUsed) = TwinComparison.Mismatch(TwinComparison.Compare(real, belowTheSky));
+
+        lostUsed.ShouldBe(brightUsed, "the real capture decides which rows count");
+        lost.ShouldBeGreaterThan(bright);
+        PlanetaryTwinCalibration.MeanMismatch(TwinComparison.Compare(real, belowTheSky))
+            .ShouldBeGreaterThan(PlanetaryTwinCalibration.MeanMismatch(TwinComparison.Compare(real, twiceTooBright)));
+    }
+
+    [Fact]
     public void AReportedStatisticNeverMovesTheMismatch()
     {
         // The aligner's shift RMS and the Laplacian's lag 1 are reported, not fitted: R2 found the latter to be noise on 8 bits.

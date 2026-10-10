@@ -1,6 +1,7 @@
 using System;
 using TianWen.Lib.Geometry;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using SharpAstro.Ser;
 using Shouldly;
@@ -402,6 +403,66 @@ public class PlanetaryApStackTests
                 }
 
                 (sum / cnt).ShouldBeGreaterThan(0.1); // disk centre is bright (~0.85), well above any holes
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ADrizzleOfAFewFramesFillsTheCellsNoDropReachedFromTheirNeighbours()
+    {
+        // #1412: a colour cell no drop reaches came back NaN and was floored to 0, a black speck inside the planet that nothing reported.
+        // At the default scale (1.5) a frame's red or blue drops reach about a third of their cells, so eight frames jittering as seeing
+        // does leave a few percent reached by none, scattered: holes among measured cells, filled from them (#250's routine), and the
+        // result says how many. (A capture with no jitter at all leaves them as a lattice the canvas edge reaches, which that routine
+        // leaves alone as absence; seeing never holds that still.)
+        var path = PlanetarySerFixtures.NewTempPath();
+        try
+        {
+            const int n = 32;
+            var rng = new Random(13);
+            var frames = new ushort[8][];
+            for (var i = 0; i < frames.Length; i++)
+            {
+                var a = new float[n, n];
+                var cx = 16 + ((rng.NextDouble() * 2) - 1);
+                var cy = 16 + ((rng.NextDouble() * 2) - 1);
+                for (var y = 0; y < n; y++)
+                {
+                    for (var x = 0; x < n; x++)
+                    {
+                        var d2 = ((x - cx) * (x - cx)) + ((y - cy) * (y - cy));
+                        a[y, x] = (float)(0.2 + (0.7 * Math.Exp(-d2 / (2 * 6.0 * 6.0))));
+                    }
+                }
+                frames[i] = ToU16(a);
+            }
+            PlanetarySerFixtures.WriteSer(path, n, n, SerColorId.BayerRGGB, frames);
+
+            using var stream = SerFrameStream.Open(path);
+            var result = await new LuckyImagingStacker().StackDrizzleAsync(stream,
+                new PlanetaryStackOptions { CropToCoverage = false, KeepFraction = 1.0, Drizzle = new PlanetaryDrizzleOptions(Scale: 1.5f) },
+                TestContext.Current.CancellationToken);
+            try
+            {
+                for (var c = 0; c < 3; c++)
+                {
+                    for (var y = 6; y < result.Master.Height - 6; y++)
+                    {
+                        for (var x = 6; x < result.Master.Width - 6; x++)
+                        {
+                            result.Master[c, y, x].ShouldBeGreaterThan(0.1f, $"channel {c} at ({x}, {y}): a cell no drop reached, left dark");
+                        }
+                    }
+                }
+                result.DrizzleHolesFilled.ShouldBeGreaterThan(0);
+            }
+            finally
+            {
+                result.Master.Release();
             }
         }
         finally

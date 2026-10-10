@@ -435,6 +435,26 @@ public class PlanetaryCorpusTests : IDisposable
     }
 
     [Fact]
+    public async Task AFrameTheCaptureDidNotStampIsNoTimeInTheSurvey()
+    {
+        // #1409: a zero tick in the trailer read as 0001-01-01, the capture's earliest time, and Sessions chains captures on that span
+        var ct = TestContext.Current.CancellationToken;
+        var night = NewFolder().CreateSubdirectory("Jupiter");
+        var path = Path.Combine(night.FullName, "unstamped.ser");
+        WriteCapture(path);
+        var bytes = await File.ReadAllBytesAsync(path, ct);
+        BinaryPrimitives.WriteInt64LittleEndian(bytes.AsSpan(bytes.Length - (12 * sizeof(long))), 0); // the first of 12 frames
+        await File.WriteAllBytesAsync(path, bytes, ct);
+
+        var survey = await PlanetaryCorpus.SurveyAsync([night.FullName], new CorpusSurveyOptions(), NullLogger.Instance, ct);
+
+        var capture = survey.Captures.ShouldHaveSingleItem();
+        capture.FirstUtc.ShouldBe(T0.AddMilliseconds(2.25).UtcDateTime.ToString("O"), "the earliest STAMPED frame, the second");
+        capture.LastUtc.ShouldBe(T0.AddMilliseconds(11 * 2.25).UtcDateTime.ToString("O"));
+        capture.Flags.ShouldContain("unstamped-frames");
+    }
+
+    [Fact]
     public void ASessionIsBackToBackCapturesOfOneFolderAndFrameSizeAndAGapEndsIt()
     {
         // #1308: a capture program saves a long run as many files seconds apart. They join in time order while each starts within ten

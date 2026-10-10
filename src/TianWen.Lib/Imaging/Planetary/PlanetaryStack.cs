@@ -337,6 +337,12 @@ public sealed record PlanetaryStackResult(Image Master, int ReferenceIndex, int 
     public PlanetaryChannelAlignmentResult? ChannelAlignment { get; init; }
 
     /// <summary>
+    /// How many colour cells of a drizzled master no drop reached, inside its canvas, filled from the measured cells about them
+    /// (<see cref="Image.FillInteriorHolesInPlace"/>, #1412); zero for any other stack. A steady capture leaves the most.
+    /// </summary>
+    public int DrizzleHolesFilled { get; init; }
+
+    /// <summary>
     /// How many frames were left out because their planet was cut, by the frame's edge (#1237) or a straight line inside it (#1291), or
     /// they held none (<see cref="FrameGrader.IsCutOrEmpty"/>): an untracked Dobsonian lets the planet drift out of its field.
     /// </summary>
