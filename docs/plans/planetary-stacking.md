@@ -277,9 +277,14 @@ linear master. CPU first (SIMD), structured so it can later move to the Vulkan p
 CPU path as the source of truth (CLAUDE.md mirror rule). The sharpened master then flows into the
 existing AI-enhancement / GHS path for any further processing.
 
-**Open: the viewer's gain dials span 0 to 10, and a derived gain does not** (#1435). The 12-inch SCT
-Jupiter derives 12.7 for band 2 and -1.4 for band 3: both dials draw pinned at an end, and touching
-either clamps the gain into the track. The value column reads them in full since A4.
+**The viewer's gain dials hold every derived gain** (#1435, done 2026-10-10). They spanned 0 to 10,
+and the 12-inch SCT Jupiter derives 12.7 for band 2 and -1.4 for band 3: both dials drew pinned at an
+end, and touching either clamped the gain into the track. The dials now span
+`ViewerState.WaveletDialRange`: 0 to 10, widened to whole numbers holding every gain the last
+derivation gave at any strength stop. One range for every band, so the dials compare as positions, and
+it follows the derivation alone, never the gains on the dials, so it cannot move under a drag. A press
+on a derived gain's handle gives it back to the track's resolution. Zero is not marked on the track
+(DIR.Lib's slider has no marks); the value column reads it. Pinned by `ViewerWaveletDialRangeTests`.
 
 ### G. Live - rolling 5-minute window + push preview
 

@@ -551,6 +551,38 @@ public sealed class ViewerState
     /// </summary>
     public TianWen.Lib.Imaging.Planetary.DerivedGains? DerivedWaveletGains { get; set; }
 
+    /// <summary>The wavelet dials' range with no derivation to widen it: what a preset's gains fit in.</summary>
+    public const float WaveletDialMax = 10f;
+
+    /// <summary>
+    /// The range the wavelet dials span (#1435): 0 to <see cref="WaveletDialMax"/>, widened to whole numbers holding every gain the last
+    /// derivation gave at any stop (<see cref="DerivedWaveletGains"/>), so a derived gain past ten or below zero (12.7 and -1.4 on a 12-inch
+    /// Jupiter) sits where it is on its dial rather than pinned at an end, and a press there gives it back rather than a clamp. It follows the
+    /// derivation alone, never the gains on the dials, so it cannot move under a drag.
+    /// </summary>
+    public (float Min, float Max) WaveletDialRange
+    {
+        get
+        {
+            var (min, max) = (0f, WaveletDialMax);
+            if (DerivedWaveletGains is { } derived)
+            {
+                foreach (var gain in derived.Gains)
+                {
+                    (min, max) = (MathF.Min(min, gain), MathF.Max(max, gain));
+                }
+                foreach (var stop in derived.Stops)
+                {
+                    foreach (var gain in stop.Gains)
+                    {
+                        (min, max) = (MathF.Min(min, (float)gain), MathF.Max(max, (float)gain));
+                    }
+                }
+            }
+            return (MathF.Floor(min), MathF.Ceiling(max));
+        }
+    }
+
     /// <summary>
     /// The panel's strength stop (<see cref="PlanetaryStrength"/>): the next Best stack and Derive take it, and where a derivation's gains
     /// are on the dials they switch to that stop's at once (#1314).

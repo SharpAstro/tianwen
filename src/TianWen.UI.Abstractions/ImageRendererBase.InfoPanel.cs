@@ -14,12 +14,9 @@ namespace TianWen.UI.Abstractions
 {
     partial class ImageRendererBase<TSurface>
     {
-        // 6 a-trous detail scales, finest first. Linear gain in [0, WaveletGainMax]; neutral 1.0. Only
-        // drawn for the live stacked view. The range holds what a derivation seeds: 9.7 on the finest band of the warped
-        // twin (docs/plans/planetary-restoration.md, "The live view's derived sharpening"); a gain past either end is kept as
-        // derived and only its dial rests at the end.
+        // 6 a-trous detail scales, finest first. Linear gain over ViewerState.WaveletDialRange: 0 to 10, widened to hold every gain the
+        // last derivation gave (#1435); neutral 1.0. Drawn for the stacked, Best and planetary master views.
         private const int WaveletBandCount = 6;
-        private const float WaveletGainMax = 10f;
 
         // -----------------------------------------------------------------------
         // Info panel
@@ -127,10 +124,10 @@ namespace TianWen.UI.Abstractions
         }
 
         // -----------------------------------------------------------------------
-        // Wavelet-sharpen layer sliders (info panel; live stacked view only)
+        // Wavelet-sharpen layer sliders (info panel; the stacked, Best and planetary master views)
         //
         // The Registax / AstroSurface 6-layer convention: one slider per a-trous detail scale, finest first.
-        // Linear gain in [0, WaveletGainMax], neutral 1.0. Dragging a layer turns sharpening on and re-pushes
+        // Linear gain over ViewerState.WaveletDialRange, neutral 1.0. Dragging a layer turns sharpening on and re-pushes
         // the params; the controller re-sharpens the cached stacked master off-thread (no re-stack), so the
         // image follows within a frame or two. Same press + drag + release model as the WB sliders.
         // -----------------------------------------------------------------------
@@ -151,8 +148,8 @@ namespace TianWen.UI.Abstractions
         // as the white-balance dials one section up are.
         //
         // What each carries is the track FRACTION, not the gain: a SliderState's range is 0..1 and the
-        // gain runs to WaveletGainMax, so the scale lives in the two conversions either side -- which is
-        // where it lived when a drag mapped a cursor X onto a gain by hand.
+        // gain runs over ViewerState.WaveletDialRange, so the scale lives in the two conversions either side,
+        // which is where it lived when a drag mapped a cursor X onto a gain by hand.
         private readonly SliderState[] _waveletSliders =
             [new SliderState(), new SliderState(), new SliderState(),
              new SliderState(), new SliderState(), new SliderState()];
@@ -273,10 +270,13 @@ namespace TianWen.UI.Abstractions
             DrawSectionHeading(ref y, x, "Wavelet Sharpen", panelWidth);
 
             var gains = state.WaveletGains;
+            // One range for every band, so the dials compare as positions, read once for both directions of the mapping.
+            var (min, max) = state.WaveletDialRange;
+            var span = max - min;
             for (var b = 0; b < WaveletBandCount && b < gains.Length; b++)
             {
                 var band = b;
-                _waveletSliders[b].Value = Math.Clamp(gains[b] / WaveletGainMax, 0f, 1f);
+                _waveletSliders[b].Value = Math.Clamp((gains[b] - min) / span, 0f, 1f);
                 _waveletSliders[b].OnChanged = frac =>
                 {
                     if (_state is not { } dragState)
@@ -288,7 +288,7 @@ namespace TianWen.UI.Abstractions
                     // BeginWaveletDragAt that two hosts had to remember to call; it is now on the only
                     // path that can move a gain at all.
                     dragState.WaveletSharpenEnabled = true;
-                    dragState.WaveletGains = dragState.WaveletGains.SetItem(band, frac * WaveletGainMax);
+                    dragState.WaveletGains = dragState.WaveletGains.SetItem(band, min + (frac * span));
                     dragState.WaveletDirty = true;
                     dragState.NeedsRedraw = true;
                 };
