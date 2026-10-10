@@ -602,9 +602,44 @@ is known and has a dark or bias (the ASI585's Helix of 2024-09-03 has neither at
    photosites' response outside the shared window, which a heavily reddened field's wide range of colour brings out.
    The slope does not follow it.
 3. **The Uranus-C Lagoon of 2023-08-09 is dual-band**, as filed: its stars read as the L-eNhance nights do, with the
-   narrow B/G spread and the wide R/G one of a filter whose G and B share one window. Which dual-band is #1147's
-   question.
-4. **The star flux is no discriminator across nights**: the 50 brightest unsaturated stars' G flux moves with the
-   optics and with what saturates at each exposure (the L-eNhance SMC reads above the broadband SMC).
+   narrow B/G spread and the wide R/G one of a filter whose G and B share one window. Which dual-band is answered
+   below ("9b").
+4. **The star flux of unmatched stars is no discriminator across nights**: the 50 brightest unsaturated stars' G flux
+   moves with the optics and with what saturates at each exposure (the L-eNhance SMC reads above the broadband SMC).
+   The SAME stars on two nights of one field are another matter ("9b").
 
 #1146's port takes the slope and the correlation as its measures, with the spread beside them.
+
+### 9b. Which dual-band: the same stars' flux against a broadband night of the same field (2026-10-10)
+
+The star colours say dual-band but cannot tell the L-Ultimate from the L-eXtreme (both leave H-beta out of the G and B
+window: star B/G 0.49 for both, R/G 0.76 against 0.84 on the curves), and on the IMX585 the B/G median alone is weak (the
+ASI585's L-eNhance eta Car night reads 0.53, the L-Ultimate's predicted level). No flat was shot through the Uranus-C
+Lagoon's filter, filed or raw. What separates the candidates by a wide margin is how much continuum each passes: the
+L-Ultimate's 3 nm windows against the L-eXtreme's 7 nm and the L-eNhance's 24 nm OIII and H-beta window.
+
+**The test.** The same field was shot five nights earlier through the Baader Semi-APO (2023-08-03: same body, gain 220,
+offset 8; the FMA135 at bin 2 against the FMA180 at bin 1, both f/4.5). One frame of each night was plate-solved (3.316
+and 8.661 arcsec/px, confirming 180 and 138 mm), 150 stars matched within 10 arcsec and 120 measured unsaturated on both,
+by the same green aperture photometry over the same angle (about 52 arcsec), dark-subtracted, per second. Two scale
+factors, each measured rather than assumed:
+- **The Uranus-C's bin 2 AVERAGES four photosites**: its bin-2 bias sits at the bin-1 level (520 against 528 ADU), its
+  noise halves (9.5 against 18.9) and its values step in fours, so a bin-2 star's total light is four times its summed
+  values.
+- **The collecting area**: (180/138)^2 = 1.70 at a common f/4.5.
+
+**The read.** Through the 2023-08-09 filter the same stars carry **0.027 to 0.029** of the Semi-APO night's G flux
+(median 0.0274, IQR +/-13 percent; the brighter half 0.0294). Predicted from the repo's curves, a full-spectrum Canon or
+a Nikon Z6 green times the IMX585 QE over A0 to M0 Pickles spectra:
+
+| filter | G flux against the Semi-APO |
+|---|---|
+| Optolong L-Ultimate (3 nm) | 0.021 to 0.037 |
+| Optolong L-eXtreme (7 nm) | 0.064 to 0.088 |
+| Optolong L-eNhance | 0.13 to 0.22 |
+
+**The Lagoon of 2023-08-09 is the L-Ultimate 3 nm**, the owner's recollection; the L-eNhance would need every star
+dimmed 5 to 8 times more on that night, the L-eXtreme 2.3 to 3.2 times. Refiled as `Optolong-L-Ultimate-3nm` the same day
+(`D:/Astro-Organized/_provenance/CORRECTIONS.md`, 2026-10-10). The flux test needs a broadband night of the same field
+on the same body; where one exists it names a line filter that the colours only class, so #1147's fit would do well to
+take it as a second measure.
