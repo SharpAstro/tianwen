@@ -23,8 +23,10 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// (0.15 px with Jupiter's poles alone, #1050).</param>
 /// <param name="Rings">Saturn's rings, in the model with the globe (S2 of docs/plans/planetary-restoration.md, #1232): their edges and
 /// optical depths are these, their tilt the observer's latitude, and each one's brightness is fitted. Null for a planet without rings.</param>
+/// <param name="LimbDarkening">Minnaert's k held at this value rather than fitted (#1221), or null to fit it: the annulus from 0.8 radii
+/// sees too little of the darkening to pin k, and the radius follows k at about 15 % of itself per unit of k.</param>
 public sealed record LimbFitOptions(double AxisRatio, double PhaseAngleDeg = 0, double AnnulusInner = 0.8, double AnnulusOuter = 1.2,
-    int? SunSide = null, double SunTiltDeg = 0, double SubObserverLatitudeDeg = 0, SaturnRings? Rings = null);
+    int? SunSide = null, double SunTiltDeg = 0, double SubObserverLatitudeDeg = 0, SaturnRings? Rings = null, double? LimbDarkening = null);
 
 /// <summary>
 /// A disk fitted at its limb: where the planet is, how big, and how it lies in the image. Angles in degrees, image
@@ -106,6 +108,53 @@ public static class PlanetaryLimbFit
         var q = 1 - flattening;
         var d = latitudeCentricDeg * Math.PI / 180;
         return Math.Sqrt((Math.Sin(d) * Math.Sin(d)) + (q * q * Math.Cos(d) * Math.Cos(d)));
+    }
+
+    /// <summary>
+    /// Minnaert's k OPAL flattened Jupiter's maps with, at <paramref name="wavelengthNm"/> (#1221): its readmes' table, which 2022's and
+    /// 2024's give alike (F395N 0.85, F467M 0.95, F502N 0.95, F631N 0.999, F658N 0.999), linear in wavelength between the filters' pivots
+    /// and held flat past the ends. Null for any other planet: Saturn's readmes change from one apparition to the next.
+    /// </summary>
+    public static double? OpalMinnaertK(CatalogIndex planet, double wavelengthNm)
+    {
+        if (planet != CatalogIndex.Jupiter || !double.IsFinite(wavelengthNm))
+        {
+            return null;
+        }
+        ReadOnlySpan<(double Nm, double K)> table = [(395.3, 0.85), (468.3, 0.95), (501.0, 0.95), (630.4, 0.999), (656.4, 0.999)];
+        if (wavelengthNm <= table[0].Nm)
+        {
+            return table[0].K;
+        }
+        for (var i = 1; i < table.Length; i++)
+        {
+            if (wavelengthNm <= table[i].Nm)
+            {
+                var t = (wavelengthNm - table[i - 1].Nm) / (table[i].Nm - table[i - 1].Nm);
+                return table[i - 1].K + (t * (table[i].K - table[i - 1].K));
+            }
+        }
+        return table[^1].K;
+    }
+
+    /// <summary>
+    /// <see cref="OptionsFor(in PlanetAspect)"/> with Minnaert's k held at OPAL's (<see cref="OpalMinnaertK"/>) for a plane seen through
+    /// <paramref name="wavelengthsNm"/>: the mean of their k, for a colour image's luminance, the mean of its channels. Fitted as before
+    /// for a planet OPAL's table does not give, or with no wavelength.
+    /// </summary>
+    public static LimbFitOptions OptionsFor(in PlanetAspect aspect, ReadOnlySpan<double> wavelengthsNm)
+    {
+        var options = OptionsFor(aspect);
+        double sum = 0;
+        var n = 0;
+        foreach (var nm in wavelengthsNm)
+        {
+            if (OpalMinnaertK(aspect.Planet, nm) is { } k)
+            {
+                (sum, n) = (sum + k, n + 1);
+            }
+        }
+        return n == 0 ? options : options with { LimbDarkening = sum / n };
     }
 
     /// <summary>
@@ -483,15 +532,28 @@ public static class PlanetaryLimbFit
             var (side, end) = combinations[c];
             var model = new DiskModel(pixels, width, height, options, side, startX, startY, startRadius);
             var start = seed is { } s ? s.Parameters
-                : [startX, startY, startRadius, (startAxisAngleDeg * Math.PI / 180) + end, 0.9, 1.5, peak - sky, sky, 0, 0, 0, 0.05, 3, .. RingLevels(rings), .. new double[DiskModel.Sloped(rings).Length]];
+                : [startX, startY, startRadius, (startAxisAngleDeg * Math.PI / 180) + end, options.LimbDarkening ?? 0.9, 1.5, peak - sky, sky, 0, 0, 0, 0.05, 3, .. RingLevels(rings), .. new double[DiskModel.Sloped(rings).Length]];
+            // A held k (#1221) is one more residual, stiff enough that the data move it by less than 1e-4: the solver keeps every
+            // parameter it is given, and a parameter with no derivative leaves its normal matrix singular.
+            var held = options.LimbDarkening;
+            if (held is { } k0)
+            {
+                start[4] = k0;
+            }
+            var heldWeight = 1e3 * Math.Max(peak - sky, 1e-6) * Math.Sqrt(observed.Length);
             double[] step = [1e-3, 1e-3, 1e-3, 1e-5, 1e-4, 1e-4, 1e-4 * Math.Max(peak - sky, 1e-6), 1e-4 * Math.Max(peak - sky, 1e-6), 1e-4, 1e-4, 1e-4, 1e-4, 1e-3,
                 .. RingSteps(rings.Length), .. RingSteps(DiskModel.Sloped(rings).Length)];
-            var fit = LevenbergMarquardt.Fit(start, observed.Length, (p, r) =>
+            var fit = LevenbergMarquardt.Fit(start, observed.Length + (held is null ? 0 : 1), (p, r) =>
             {
-                model.Evaluate(p, r);
-                for (var i = 0; i < r.Length; i++)
+                var data = r[..observed.Length];
+                model.Evaluate(p, data);
+                for (var i = 0; i < data.Length; i++)
                 {
-                    r[i] -= observed[i];
+                    data[i] -= observed[i];
+                }
+                if (held is { } k)
+                {
+                    r[observed.Length] = heldWeight * (p[4] - k);
                 }
             }, step, maxIterations: maxIterations);
 

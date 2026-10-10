@@ -3233,6 +3233,54 @@ failed:
 is right. The cost rule passed (the sixteen fits against WinJUPOS took 1.41 times as long); the twins' rule was not reached. Still to try: a k pinned by something other than the disk's own
 albedo.
 
+##### OPAL's k per filter, held: measured, an option
+
+**Measured** (2026-10-11), five rules written first on #1221. Rules 3 and 5 failed, so the held k is an option:
+- `PlanetaryLimbDarkening.Opal`, `--limb-k opal` on `planetary sharpen` and `planetary limb`;
+- underneath, `LimbFitOptions.LimbDarkening` and `PlanetaryLimbFit.OptionsFor(aspect, wavelengths)`.
+
+The fit stays fitted by default. #1221 stays open.
+
+**The arm.**
+- **The values:** Jupiter's Minnaert k is held at the value OPAL flattened its maps with for the plane's wavelength (`PlanetaryLimbFit.OpalMinnaertK`). OPAL's 2022 and 2024 readmes give the same table: F395N 0.85, F467M 0.95, F502N 0.95, F631N 0.999, F658N 0.999. It is linear in wavelength between them and held flat past the ends.
+- **Which wavelength:** a filter word reads blue 0.94, green 0.96, luminance 0.97, red 0.999. A colour image's luminance holds the mean of its channels' k.
+- **Held, not removed:** the solver keeps every parameter it is given, and a zero Jacobian column fails its Cholesky. So k is held by one stiff residual, which leaves it within 1e-4 of the held value.
+- **Where k stays free:** Saturn, whose readmes change from year to year.
+
+**Rule 1, T1's nine rows, holds.** All nine pass with k held at 0.97, where the render's is 0.95:
+- radius +0.05 to +0.32 %;
+- centre within 0.07 px.
+
+With k fitted, three rows fail: 4 px at beta 2 (+0.64 %), 6 px at beta 2 (+1.33 %) and 7 px at beta 2 (+0.56 %). A test now pins those three with the held k, and T1's own (6 px, beta 2) row stays skipped by its rule.
+
+**Rule 3, WinJUPOS's outlines, fails, on the centre:**
+
+| Session | Centre from the outline, fitted to held | \|dR\|, fitted to held |
+|---|---|---|
+| 2022-09-03, nine stacks | 0.729 to 0.756 px | 0.476 to 0.357 % |
+| 2022-09-29, seven stacks | 0.539 to 0.574 px | 0.737 to 0.417 % |
+
+The radius comes nearer the hand-set outlines in both sessions, by a quarter and by nearly half. The centre goes 0.03 px further in both.
+
+**Rule 4, one branch on a real night, holds.** The five 2022-09-29 crops' radii:
+- fitted: 182.91 to 184.09 px, k 0.96 to 1.03;
+- held: 183.00 to 183.27 px.
+
+The core still takes two widths (4.3 to 4.5 px on two crops, 8.6 px on the rest), but the radius no longer follows it.
+
+**Rule 5, the twins at the default sharpening, fails on one channel:**
+
+| Twin | Bands 1 to 4 error | Limb profile error within 6 px inside |
+|---|---|---|
+| calibrated (650 nm) | -5.8 % | -11.8 % |
+| nostill | -10.9 % | -26.3 % |
+| warped | -9.2 % | -17.0 % |
+| uc-g4, red / green / blue | -7.7 / -0.5 / **+6.7 %** | -25.8 / -21.7 / -10.4 % |
+
+- **Why blue fails:** the colour master's one limb fit holds the mean of its channels' k (0.96), against blue's 0.94, and every channel's model is drawn from that one fit.
+- **The next arm:** a k per channel, each channel's sharp model drawn with its own.
+- **Rule 2** (every other test passes with the held k on) was not run: rules 3 and 5 had already decided the outcome.
+
 #### A twin's frames carry a short wing
 
 `planetary degrade` still computes each frame's PSF on 128 fine samples, ±32 px at the twins' 650 nm and 0.497"/px, so a frame carries the
