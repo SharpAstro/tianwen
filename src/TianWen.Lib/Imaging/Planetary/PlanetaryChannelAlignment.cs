@@ -115,7 +115,7 @@ public static class PlanetaryChannelAlignment
         }
 
         // A ringed fit starts from the rings' reach, never the bright area, which is the rings' as much as the globe's (S2).
-        var limbStart = limb?.Rings is { } rings ? PlanetaryLimbFit.StartRinged(stacked.GetChannelSpan(1), stacked.Width, stacked.Height, rings) : disk;
+        var limbStart = limb is { Rings: not null } ringed ? PlanetaryLimbFit.StartRinged(stacked.GetChannelSpan(1), stacked.Width, stacked.Height, ringed) : disk;
         var (red, blue, greenCheck, reading) = (limb is { } options && limbStart is { } start ? ByLimb(stacked, start, step, phases, options) : null)
             ?? ByCorrelation(stacked, disk, step, phases);
 

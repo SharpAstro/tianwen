@@ -301,7 +301,7 @@ public static class PlanetaryCaptureStatistics
             var (width, height) = (reference.Width, reference.Height);
             var plane = reference.GetChannelSpan(0).ToArray();
             // Saturn's rings: the start reads their reach, and the reference's own fit gives the axis the regions step around them by.
-            var start = options.Limb.Rings is { } ringed ? PlanetaryLimbFit.StartRinged(plane, width, height, ringed) : PlanetaryLimbFit.Start(plane, width, height, options.Limb.AxisRatio);
+            var start = options.Limb.Rings is not null ? PlanetaryLimbFit.StartRinged(plane, width, height, options.Limb) : PlanetaryLimbFit.Start(plane, width, height, options.Limb.AxisRatio);
             if (start is not { } disk)
             {
                 return null;
