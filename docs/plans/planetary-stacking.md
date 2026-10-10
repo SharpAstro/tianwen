@@ -574,6 +574,26 @@ over the defaults it recovers. If it recovers at least 0.8 of the runner-up's, A
 designed; if not, the tune is finer than the calibration can resolve, and A2 takes instead the setting whose worst
 headroom over the three twins is largest, which the `_post` gate then judges.
 
+**Measured (#1389): the tune does not carry, and the robust choice is today's defaults.** Each twin tuned over keeps
+0.1 to 0.75, strengths 1 to 2.5 and both targets, band error against its own truth:
+
+| Twin | the defaults | its own best | the best twin's pick (keep 0.75) |
+|---|---|---|---|
+| best (seed 1) | 0.6736 | keep 0.75: 0.6645 | 0.6645 |
+| seed 2 | 0.6814 | the defaults | 0.6955 |
+| runner-up (0.13 away) | 0.7592 | the defaults | 0.8196 |
+| fourth best (0.35 away) | 0.7996 | keep 0.25: 0.7808 | 0.8186 |
+
+- The runner-up's own tune has no headroom, so rule 1 cannot be read as a share; read for what it asks, it fails: the
+  best twin's pick makes the runner-up 8 % worse than the defaults. By rule 2 the defaults are the only setting no twin
+  reads worse than the defaults.
+- The keep the tune prefers flips between twins the calibration cannot tell apart (0.75, 0.5, 0.25), and the largest
+  headroom anywhere, 2.4 %, is under the spread between two seeds of one air (seed 2 reads the best twin's pick 2.1 %
+  worse). Strengths past 1 and the aperture target are far worse on every twin, the derived gains being the truth's.
+- So over the settings the stack has, a per-capture tune on 2022-09-03 Red has no headroom the calibration can resolve,
+  and the `_post` gate compares the defaults with themselves. The EdgeHD capture is not measured (its colour search is
+  deferred for cost). A tune took 8.5 to 15.5 minutes for 32 candidates.
+
 ### A3. The base model
 
 **Tracked by #1390.** A grid of twins over seeing, noise, frame count, planet and aperture, each with its tuned settings, and a regression

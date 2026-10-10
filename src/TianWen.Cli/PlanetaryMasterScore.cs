@@ -374,14 +374,15 @@ internal static class PlanetaryMasterScore
 
     /// <summary>
     /// <paramref name="image"/>'s 2-pixel lattice per channel on <paramref name="disk"/> (<see cref="PlanetaryMetrics.Lattice"/>, #1376), printed
-    /// as <paramref name="what"/>: the CFA's residue a colour master's sharpening can lift (#1187).
+    /// as <paramref name="what"/>: the CFA's residue a colour master's sharpening can lift (#1187). In significant digits, not decimals: read
+    /// without a ramp's bias (#1398) a twin's lattice is under 1e-5, which five decimals print as nothing.
     /// </summary>
     public static void Lattice(IConsoleHost consoleHost, Image image, MetricDisk disk, string what)
     {
         var inv = CultureInfo.InvariantCulture;
         var reads = Enumerable.Range(0, image.ChannelCount).Select(c => PlanetaryMetrics.Lattice(image.GetChannelSpan(c), image.Width, image.Height, disk));
         consoleHost.WriteScrollable(string.Create(inv,
-            $"[planetary] {what}: the 2-pixel lattice per channel (along x, along y, diagonal) {string.Join("; ", reads.Select(l => string.Create(inv, $"{l.AlongX:0.00000}, {l.AlongY:0.00000}, {l.Diagonal:0.00000}")))}"));
+            $"[planetary] {what}: the 2-pixel lattice per channel (along x, along y, diagonal) {string.Join("; ", reads.Select(l => string.Create(inv, $"{l.AlongX:0.00e0}, {l.AlongY:0.00e0}, {l.Diagonal:0.00e0}")))}"));
     }
 
     /// <summary><paramref name="master"/>'s limb undershoot below the sky, each channel on the disk fitted to the whole master, printed as <paramref name="what"/>.</summary>
