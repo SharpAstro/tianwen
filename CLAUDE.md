@@ -119,8 +119,8 @@ dotnet test TianWen.Lib.Tests --filter "FullyQualifiedName~Catalog"
 
 **Tests run on Microsoft.Testing.Platform (MTP), not VSTest.** xunit.v3 4.x dropped the VSTest
 bridge and the .NET 10 SDK refuses it outright ("Testing with VSTest target is no longer
-supported"), so the opt-in lives in `global.json` -- this repo's ONLY one, and it pins no SDK
-version, which is why the org rule against pinning one is untouched. Each test project is an
+supported"), so the opt-in lives in `global.json` -- this repo's ONLY one, which also states the SDK
+the repo builds with: read the version there, never from here. Each test project is an
 `Exe`, and `Microsoft.NET.Test.Sdk` / `xunit.runner.visualstudio` / `coverlet.collector` are gone
 (nothing ever collected coverage; `Microsoft.Testing.Extensions.CodeCoverage` is the MTP
 equivalent if it is ever wanted). What changes at a call site:
