@@ -3334,17 +3334,26 @@ truth, and on four real colour captures against their posts:
   held), since a smaller kernel raises the Wiener target's 1/H. Removed.
 - **Arm C', the Wiener target cut there instead** (`PlanetarySharpenOptions.ColourTargetCutFor`, `--colour-target cut`; a split-CFA master's only, since 0.25 is the Nyquist of the planes the split stack integrates, G1 and G2 apart, and not of a full-grid colour path such as the Bayer drizzle, #1398): 3 to 4 % better on
   every choice of the finest band, but held + cut closes only 10.4 and 10.8 %, and on the EdgeHD Saturn its lattice is a hair above held's
-  on every channel (red along x 0.00229 against 0.00227).
+  on every channel (red along x 2.48e-3 against 2.44e-3, read without the ramp below).
 - **Bounded + cut is the strongest pair**: 23.1 and 24.5 % of the gap, and the highest band-1 detail against the post on three captures
   of four (the EdgeHD Saturn 0.571 against held's 0.532, the Meade 16 Saturn 0.727 against 0.670, the EdgeHD Jupiter 0.547 against
-  0.468; the 12-inch SCT Jupiter 0.494 against 0.488 and bounded alone's 0.496). Its lattice falls below held's on the Meade 16 Saturn,
-  the EdgeHD Jupiter and the EdgeHD Saturn's green and blue (its red a hair above), and rises above it along x on the 12-inch SCT Jupiter
-  (red 0.00021 against 0.00016).
+  0.468; the 12-inch SCT Jupiter 0.494 against 0.488 and bounded alone's 0.496). Its lattice falls below held's on every capture but the
+  EdgeHD Saturn's red, a hair above: on the 12-inch SCT Jupiter red along x reads 3.8e-8 against held's 3.7e-4, where the first reading,
+  before the ramp was taken out, had put it ABOVE held (0.00021 against 0.00016).
+
+**The lattice re-read without the ramp (#1398).** The first readings took each axis's alternating part per 2 by 2 block, which also
+reads half the disk's mean brightness gradient, a term common to every arm that can hide or invert a difference between them; the x and y
+parts are now a second difference, blind to a ramp. Every other number of the sharpening runs came back to the digit (the judge's reading
+of a master's colour as shown did not on two captures, from a last-bit change elsewhere: #1407). On the colour twins the lattice is 1e-9
+to 2e-5 a channel (bounded about 1e-7 against held's 5e-6), where the first reading put 0.9 to 2e-4 on every arm alike: that was the ramp.
+On the real captures the lattice is real (held 3.3e-4 to 3.5e-3) and every conclusion above holds, but the one the 12-inch SCT Jupiter's
+first reading had reversed.
 
 **Not adopted**: neither arm meets the half-the-gap rule, so held stays the default and bounded and the cut target are options; the
-pair is the owner's call. **The 2-pixel lattice is read on 2 by 2 blocks** (`PlanetaryMetrics.Lattice`, along x, along y and diagonal per
-channel, printed by `planetary sharpen` for a colour master): a per-pixel projection was biased by an odd row count. Closing the rest of
-the gap needs a kernel the capture itself can give past 0.2 cycles a pixel, which the limb's edge cannot (R8 follow-up 3).
+pair is the owner's call. **The 2-pixel lattice** (`PlanetaryMetrics.Lattice`, along x, along y and diagonal per channel, printed by
+`planetary sharpen` for a colour master in significant digits) reads x and y through a second difference and the diagonal on 2 by 2
+blocks: a per-pixel projection was biased by an odd row count. Closing the rest of the gap needs a kernel the capture itself can give past
+0.2 cycles a pixel, which the limb's edge cannot (R8 follow-up 3).
 
 ### The batch stack on every core
 
@@ -4950,7 +4959,9 @@ Jupiter too, to see what generalises. Rules were written on the issue before eac
   1.65th power of its value, and the chroma with it: our default is shown at 1.7 to 2 times the chroma its planes read
   (`PlanetaryReferenceJudge.ReadShown`, which renders the master as the preview does and reads it as a post is read). Read the study's way,
   linear against shown, every post looked MORE coloured than ours above its median, and every look built on that leaned orange beside its
-  post. Shown against shown, four of the five posts carry less colour than our default, spread wider:
+  post. **Open: #1407**, the master's colour as shown moves 5 % in chroma and 6.6 degrees in hue on a last-bit change of its luminance
+  (found on #1398), so the readings below carry that much until the reading is made continuous. Shown against shown, four of the five
+  posts carry less colour than our default, spread wider:
 
   | Post over our preview, shown | cast | p10 | p50 | p90 | chroma p90/p10, ours to post |
   |---|---|---|---|---|---|
