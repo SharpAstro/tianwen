@@ -4215,7 +4215,7 @@ What the model needed beyond the rings themselves:
   B -1.8 and -0.4 degrees, the fit then found a globe of 12.6 px for 32.2 (-61 %) with its axis 5.9 degrees off, and -59 % with it 51
   degrees off. The start reads the blob's reach across its long axis too (the polar radius, or the rings' minor axis past a B of about
   23 degrees) and takes it when the rings' reading falls under 0.8 of it; from there the fit holds T1's centre and axis and the radius to
-  +1.1 and -1.3 %. Not T1's 0.5 %: the model drops the rings below a sin B of 0.01 while their line stays in the annulus.
+  +1.1 and -1.3 %. Not T1's 0.5 %: the model drops the rings below a sin B of 0.01 while their line stays in the annulus (#1459).
 - **Both shadows.** Without them the radius read +0.50 %, +3.06 % and +4.02 % at 0.487"/px. The globe's shadow on the rings was the main
   miss: with the rings made transparent, so that it alone remained, it read +5.11 %.
 - **A ring's covered and shaded shares of a cell are nested, never multiplied.** A ring seen against the globe and its shadow on the globe
