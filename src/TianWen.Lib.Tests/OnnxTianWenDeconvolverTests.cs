@@ -349,8 +349,10 @@ public class OnnxTianWenDeconvolverTests(ITestOutputHelper output) : IDisposable
         // up to 1.3e-3 for a one-ulp change of its input, which would be read here as the rule's).
         using var session = new InferenceSession(Path.Combine(folder, FixtureGraph));
         var tile = fixture.GetProperty("tile").GetInt32();
-        var nanRinged = OperatorDeconvolutionRunner.Run(ImageOf(Ringed(float.NaN, withHole: true), height, width), session, GraphNames, AKernel, tile).Output;
-        var zeroRinged = OperatorDeconvolutionRunner.Run(ImageOf(Ringed(0f, withHole: false), height, width), session, GraphNames, AKernel, tile).Output;
+        var nanRinged = OperatorDeconvolutionRunner.Run(ImageOf(Ringed(float.NaN, withHole: true), height, width), session, GraphNames, AKernel, tile,
+            cancellationToken: TestContext.Current.CancellationToken).Output;
+        var zeroRinged = OperatorDeconvolutionRunner.Run(ImageOf(Ringed(0f, withHole: false), height, width), session, GraphNames, AKernel, tile,
+            cancellationToken: TestContext.Current.CancellationToken).Output;
 
         var worst = 0f;
         for (var c = 0; c < 3; c++)
@@ -411,8 +413,8 @@ public class OnnxTianWenDeconvolverTests(ITestOutputHelper output) : IDisposable
 
         using var session = new InferenceSession(Path.Combine(folder, FixtureGraph));
         var tile = fixture.GetProperty("tile").GetInt32();
-        var fromUnder = OperatorDeconvolutionRunner.Run(underOne, session, GraphNames, AKernel, tile).Output;
-        var fromPast = OperatorDeconvolutionRunner.Run(pastOne, session, GraphNames, AKernel, tile).Output;
+        var fromUnder = OperatorDeconvolutionRunner.Run(underOne, session, GraphNames, AKernel, tile, cancellationToken: TestContext.Current.CancellationToken).Output;
+        var fromPast = OperatorDeconvolutionRunner.Run(pastOne, session, GraphNames, AKernel, tile, cancellationToken: TestContext.Current.CancellationToken).Output;
 
         var worst = 0f;
         for (var c = 0; c < 3; c++)
