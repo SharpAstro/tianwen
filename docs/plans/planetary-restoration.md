@@ -4387,7 +4387,8 @@ planet's model (globe and rings) through the pupil, so the rings keep their shar
 the stack.
 
 Open, found by #1329's rule 1b: at strength 2 the sharpening floors 115 to 227 pixels a channel at the sky inside the Saturn twin's rings'
-footprint, where the truth is the bright globe and rings (#1471). Strength 1 has none.
+footprint (#1471). They lie on the C ring, in the gap between it and the globe, and on the B and A rings' edges. There the truth is dim but
+above the sky (0.04 to 0.21 of the disk's mean). Strength 1 has none.
 
 **Rule:** on the S3 twin, the derived sharpening's error in bands 1 to 4 inside 0.9 of the globe's radius falls to at most 0.44 of the
 stack's (the calibrated Jupiter twin's 0.647 of 1.483). Its limb profile error is at most the Jupiter twin's 0.0053. The rings' radial
@@ -4860,8 +4861,12 @@ hard stretch. Strength 1 has none.
      - warped 0.0573 to 0.0538;
      - uc-g4 lower on all three channels.
   - 1b, new: the Saturn twin's floored pixels inside the rings' footprint were to be ring gaps, where the truth is the sky. **It fails:**
-    115 to 227 a channel, none within one sky noise of the sky, their truth near the disk's level. That is a second fault, #1471, left out of
-    this arm.
+    115 to 227 a channel, none within one sky noise of the sky. That is a second fault, #1471, left out of this arm.
+    - Their truth is dim, not the sky: medians 0.21 of the disk's mean on the C ring, 0.06 between it and the globe, 0.04 to 0.08 on the
+      B and A rings' edges.
+    - That is read with the truth moved onto the master's disk, as the truth scores read it. The twin's truth is drawn 13 to 16 px from
+      where its master's limb fit puts the planet. A first reading that left it there put the floored pixels' truth near the disk's level,
+      and that was wrong.
 - **So the sky stays the floor by default, and the model is an option.** Floored at the model at every strength, the band moves a strength-1
   sharpening it never needed to. Only the owner can say whether a strength-2 user should get it.
 
