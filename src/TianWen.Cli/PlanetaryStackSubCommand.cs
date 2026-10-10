@@ -730,6 +730,11 @@ internal sealed class PlanetaryStackSubCommand(
                 consoleHost.WriteScrollable(
                     $"[planetary] {baseName}: stacked {result.FramesUsed}/{result.FramesGraded} frames " +
                     $"(reference #{result.ReferenceIndex}{(result.AlignmentPoints > 0 ? $", {result.AlignmentPoints} alignment points{(result.AlignmentPointCandidates > result.AlignmentPoints ? $" of {result.AlignmentPointCandidates}, capped" : "")}" : "")}) in {sw.Elapsed.TotalSeconds:F1}s");
+                if (result.DrizzleHolesFilled > 0)
+                {
+                    // A steady capture leaves the most: its drops land on the same cells frame after frame (#1412)
+                    consoleHost.WriteScrollable($"[planetary] {baseName}: {result.DrizzleHolesFilled} drizzled colour cells no drop reached, filled from the cells about them");
+                }
                 if (result.PointKeptEach > 0)
                 {
                     consoleHost.WriteScrollable(
