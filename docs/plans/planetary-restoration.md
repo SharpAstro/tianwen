@@ -3308,13 +3308,33 @@ the held finest band fall below 1, never rise above it.
 
 ### The Wiener's transfer floor, measured (#1398)
 
-**Open: #1406.** `PlanetaryWaveletGains.Wiener` sets the target to nothing wherever the transfer it divides by is under `MinTransfer`
-(0.02): the edge's kernel, times the pupil's diffraction for the aperture target. The Wiener itself has no singularity there (its factor
-falls as the transfer squared), so the floor steps only where the Wiener is still large as the transfer crosses it. Read on #1373's mono
-twins with a probe that was not kept: on the calibrated and no-still twins it crosses only past 0.83 cycles a pixel, with the aperture
-target, where the Wiener factor is already nothing; on the warped twin it crosses at 0.36, inside band 1, and cuts the target at its peak
-(0.93 of it through the pupil, the peak itself toward the aperture). The fit smooths the step (the warped twin's band 1 lands at 0.959 of
-the truth's transfer); whether a floor that does not step serves the twins better is #1406's question.
+`PlanetaryWaveletGains.Wiener` sets the target to nothing wherever the transfer it divides by is under `MinTransfer` (0.02): the edge's
+kernel, times the pupil's diffraction for the aperture target. The Wiener itself has no singularity there (its factor falls as the
+transfer squared), so the floor steps only where the Wiener is still large as the transfer crosses it. Read on #1373's mono twins with a
+probe that was not kept: on the calibrated and no-still twins it crosses only past 0.83 cycles a pixel, with the aperture target, where
+the Wiener factor is already nothing; on the warped twin it crosses at 0.36, inside band 1, and cuts the target at its peak (0.93 of it
+through the pupil, the peak itself toward the aperture). The fit smooths the step (the warped twin's band 1 lands at 0.959 of the truth's
+transfer).
+
+**A floor that does not step is an option, not the default (#1406).** `PlanetaryWienerFloor.Tikhonov` (`planetary sharpen
+--wiener-floor tikhonov`) divides by H / (H^2 + e^2), e = 0.02, in place of 1 / H: within 1 % of it from H = 0.2, half of it at H = e,
+nothing cut. Its rules were set on #1406 before it ran, read by one build on #1373's mono twins (the pupil target, white noise) and four
+real colour captures against their posts:
+
+| Bands 1 to 4 error against the truth | step (default) | Tikhonov | the twin's own gains |
+|---|---|---|---|
+| warped | 0.790 | 0.778 | 0.637 |
+| calibrated | 0.654 | 0.648 | 0.477 |
+| no still layer | 0.287 | 0.286 | 0.202 |
+
+- **Rule 1 fails:** on the warped twin it closes 7.8 % of the gap to the twin's own gains, where a tenth was asked.
+- **Rule 2 holds:** the other twins move 0.9 and 0.3 %, both toward their own gains.
+- **Rule 3 fails on one capture:** the globe's band 1 and band 2 correlations with the post move by +0.008 / +0.017 (EdgeHD Saturn),
+  **-0.034** / -0.008 (Meade 16 Saturn), -0.002 / -0.001 (678MC Jupiter) and -0.002 / 0.000 (12-inch SCT Jupiter), and a fall of 0.01
+  was the bar.
+- **Reported, no rule: toward the aperture it helps every twin, the warped one most** (0.955 to 0.917 against its own gains' 0.801, a
+  quarter of the gap; calibrated 0.763 to 0.752, no still layer 0.436 to 0.434), as the step there cut the target's peak itself. The
+  aperture target is an option too (#1366); whether the floor should follow it there was not ruled on.
 
 ### A colour master's finest band, bounded, and its target cut (#1376)
 

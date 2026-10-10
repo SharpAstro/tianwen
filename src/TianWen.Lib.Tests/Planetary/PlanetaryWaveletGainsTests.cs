@@ -79,6 +79,35 @@ public class PlanetaryWaveletGainsTests
     }
 
     [Fact]
+    public void TikhonovsFloorFallsWithoutAStepWhereTheStepCutsTheWiener()
+    {
+        // #1406: the step restores nothing under MinTransfer and 1 / H above it; Tikhonov's form is H / (H^2 + e^2), within 1 % of 1 / H from
+        // H = 0.2, half of it at H = e, and nothing only where the transfer is.
+        const double e = PlanetaryWaveletGains.MinTransfer;
+        PlanetaryWaveletGains.Inverse(e * 0.99, PlanetaryWienerFloor.Step).ShouldBe(0);
+        PlanetaryWaveletGains.Inverse(e, PlanetaryWienerFloor.Step).ShouldBe(1 / e, 1e-9);
+        PlanetaryWaveletGains.Inverse(e, PlanetaryWienerFloor.Tikhonov).ShouldBe(0.5 / e, 1e-9);
+        PlanetaryWaveletGains.Inverse(0, PlanetaryWienerFloor.Tikhonov).ShouldBe(0);
+        foreach (var h in new[] { 0.2, 0.5, 1.0 })
+        {
+            (PlanetaryWaveletGains.Inverse(h, PlanetaryWienerFloor.Tikhonov) * h).ShouldBeInRange(0.99, 1.0);
+        }
+        // Across the floor the step jumps from nothing to 1 / e; Tikhonov's form moves by what its slope gives, a fraction of a percent.
+        var (below, above) = (PlanetaryWaveletGains.Inverse(e - 1e-6, PlanetaryWienerFloor.Tikhonov), PlanetaryWaveletGains.Inverse(e + 1e-6, PlanetaryWienerFloor.Tikhonov));
+        Math.Abs(above - below).ShouldBeLessThan(1e-3 * above);
+
+        // Through the Wiener: one ring whose transfer is just under the floor and whose stack still holds signal over the noise.
+        ImmutableArray<double> power = [4, 4, 4];
+        ImmutableArray<double> noise = [1, 1, 1];
+        double[] transfers = [1, 0.5, e * 0.9];
+        var step = PlanetaryWaveletGains.Wiener(power, noise, f => transfers[(int)Math.Round(f * 3)]);
+        var tikhonov = PlanetaryWaveletGains.Wiener(power, noise, f => transfers[(int)Math.Round(f * 3)], floor: PlanetaryWienerFloor.Tikhonov);
+        step[2].ShouldBe(0);
+        tikhonov[2].ShouldBe(0.75 * (e * 0.9) / ((e * 0.9 * e * 0.9) + (e * e)), 1e-9);
+        tikhonov[0].ShouldBe(0.75 * 1 / (1 + (e * e)), 1e-9);
+    }
+
+    [Fact]
     public void HalfTheHalvesDifferenceIsTheStacksNoise()
     {
         const int size = 128;
