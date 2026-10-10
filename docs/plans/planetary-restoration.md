@@ -295,9 +295,25 @@ The fits include the process's start. The row-ordered column pass was kept on an
 
 ### R2 part 2: the synthetic capture
 
-**Open: #1394.** The statistics register whitened by default (R2's calibration), and on a large disk the whitened global
-aligner jumps between wrong peaks: on the EdgeHD Jupiter it read an aligner's error of 2.38 px where plain read 0.15, and the
-mount drift a twin replays comes from it (#1388). Whether plain becomes `degrade`'s and `seeing`'s default is #1394's.
+**Open: #1394, the owner's call.** The statistics register whitened by default (R2's calibration), and on a large disk the
+whitened global aligner jumps between wrong peaks: on the EdgeHD Jupiter it read an aligner's error of 2.38 px where plain read
+0.15, and the mount drift a twin replays comes from it (#1388). Measured against the rules set on #1394 (2026-10-11, one build,
+each arm measuring the real capture afresh and making its twin):
+
+| | aligner's error against the limb, real | the twin's disk motion by the limb, over the real |
+|---|---|---|
+| 2022-09-03 Red, 3,000 frames, whitened | 0.708 px | 0.898 |
+| the same, plain | 0.114 px | **0.897** |
+| EdgeHD 678MC Jupiter, 300 frames, R / G / B, whitened | 3.63 / 1.49 / 1.71 px | 1.019 / 1.017 / 1.018 |
+| the same, plain | 0.151 / 0.154 / 0.211 px | 0.917 / 0.922 / 0.918 |
+
+- **Rule 1 holds on both:** plain's aligner is 5 to 24 times nearer the limb than whitened's.
+- **Rule 2 fails as written on Red, by 0.3 points** (0.897 against the 10 % bar), and holds on the EdgeHD (8 % low).
+  - Whitened reads 0.898 on Red too, so the Red twin's disk motion is the twin's calibration and not the registration. That
+    calibration has moved since R2.
+  - On the EdgeHD, whitened's 1.02 is the twin replaying the aligner's failures as the mount's drift.
+- So rule 3 does not fire, and `degrade` and `seeing` stay whitened until the owner says otherwise. `--plain-correlation` is a
+  switch on both, and `planetary twin` measures plainly (#1388).
 
 **Done** (2026-09-29), the kill line firing on the sky's finest bands (below). `tianwen planetary degrade <capture> --map --output` measures the real capture, makes the synthetic one, measures it the same way and prints the comparison; `tianwen planetary seeing` measures any capture alone.
 
