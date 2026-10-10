@@ -446,9 +446,9 @@ Each metric lives in Lib and is shared by the CLI verb and the stack itself (`ti
   - Read so, white noise gives Starck's 0.889, 0.200, 0.086 and 0.041 to within 2 % on a 512 px frame (`PlanetaryPictureTests`).
   - On the 2026-10-07 Saturn's deep and pair masters, band 1 reads `skynoise.py`'s figure to within 0.1 % on all six channels.
 - **The grain is over the globe's level above the sky.** The keep study divided by the raw level, pedestal included, so these figures are 11 to 21 % higher on those masters (their sky sits at 0.065). The ratio between two masters is the same either way (1.107 against 1.106), so the keep study's trade-offs stand.
-- **The edge is held at 0.1 and 0.2 cycles a pixel only.**
-  - There it reads a diffracted render within 0.05 of one, and a known seeing within 0.02.
-  - At 0.3 it reads a plain render 5 to 10 % short at any disk size (#1468), so the report prints 0.3 and nothing is concluded from it.
+- **The edge reads a diffracted render within 0.05 of one to 0.3 cycles a pixel, and a known seeing within 0.02 to 0.2.**
+  - Its reference first took no detector's pixel and read the render 5 to 10 % short at 0.3; #1468 mended that (R8 follow-up 3's results).
+  - A small disk's stack is mostly noise at 0.3 (0.121 against a seeing's 0.166 on a 40 px disk), so a stack's 0.3 is printed, not concluded from.
   - On the composed Saturn masters it reproduces #1352's seam-inflated edge (0.38 at 0.3 on the deep master).
 - **`planetary pupil`** prints a telescope's diffraction transfer at fractions of its cutoff and the gain that undoes it under each Wiener floor (`PlanetaryFinishing.PupilTransfer`). For a clear 254 mm, 23 % obstructed pupil it gives #1366's table within 0.003: 0.839, 0.614, 0.426, 0.361, 0.299, 0.199 and 0.110 at 0.1 to 0.8 of the cutoff.
 - **The survey's manifest (version 4) carries each capture's exposure and gain** (`CaptureRecord.ExposureMs`, `Gain`, `PlanetaryCorpus.ExposureAndGain`) beside the frame rate its timestamps already gave.
@@ -2037,7 +2037,18 @@ Band error summed over bands 1 to 4 inside 0.9 radii, the limb's undershoot, and
   | the real 2022-09-03 Red | | 0.431, 0.082, 0.007 | 0.522, 0.266, 0.207 | | 0.486, 0.214, 0.107 |
 
 - **(b), the edge, reads the finest band; by the letter it fails the claim.** At 0.3 cycles a pixel it reads the oracle within 0.011 and 0.002 on the two twins whose self-check holds (the limb's kernel reads 0.054 and 0.640 there, against 0.282 and 0.743). At 0.2 it reads 0.052 and 0.060 low, past the 0.05 claimed. On the warped twin its self-check fails (the truth's own edge reads 0.88 at 0.3 against the limb fit's model), so it is not read there: the limb fit of a warped stack is not that stack's edge.
-  - Found later (#1367, open as #1468): a plain render with no warp, a uniform map at 40 to 120 px radii, also reads 5 to 10 % short at 0.3 cycles a pixel (0.905 to 0.953), so the self-check's failure is not the warp's alone.
+  - **Found later, and mended (#1468, from #1367): the edge's reference lacked a detector's pixel.**
+    - A plain render with no warp (a uniform map at 40 to 120 px radii) read 5 to 10 % short at 0.3 cycles a pixel (0.905 to 0.953), so the self-check's failure was not the warp's alone.
+    - **The edge read itself is right.** Against a render that integrates each pixel as a box, the same render's edge reads one within 0.012 to 0.3 at all three radii.
+    - **The reference was the cause.** The limb fit's sharp model takes a pixel as the mean of 2x2 cells, each holding its limb darkening at the cell's centre. That leaves out a box of half a pixel, sinc(f / 2): 0.996, 0.983 and 0.963 at 0.1, 0.2 and 0.3. A 2x2-point render reproduces that loss exactly. The derived kernel took the missing box for blur, so the gains undid a box the truth itself carries.
+    - **The fix:** wherever the sharp model is a reference or a target, it is taken through `PlanetaryLimbFit.DetectorPixel` (sinc(fx / 2) sinc(fy / 2)) first: the sharpening's window (`PlanetaryLimbWindow.Through`), `PlanetaryFinestBand.MasterEdge` and the `finest-band` verb.
+    - **Rules, set before measuring (on #1468), both held:**
+      1. The plain render reads within 0.05 of one to 0.3 at all three radii: 0.049, 0.030 and 0.015 at 40, 80 and 120 px, against today's 0.935 at 80 px.
+      2. On the three truth twins at strength 1, the bands 1 to 4 error (summed over channels) went 0.647 to 0.630 on the calibrated Red and 8.177 to 8.131 on the colour Jupiter, and 4.038 to 4.046 (+0.2 %) on the 2022-10-09 Saturn. The limb profile error moved by at most +1.0 %.
+    - **Reported, not gated** (`planetary judge`, the globe's gain on what both hold, bands 1 to 3, before and after):
+      - EdgeHD Saturn 0.623 / 1.181 / 0.977 to 0.629 / 1.210 / 0.991;
+      - the other three moved by under 1 %.
+    - The ±3 % that remains on a render follows the limb fit's own parameters (its limb darkening 0.971 against the render's 0.95 at 40 px), which a model read against a truth it did not fit cannot avoid.
 - **(c), the spectrum, is not read: its kill line fires.** 2024d's texture power over 2022b's, both at the capture's geometry, is 1.33 from 0.10 to 0.15 cycles a pixel and 0.66 from 0.15 to 0.20; a year's belts are not another year's below 0.2 cycles a pixel.
   - Post hoc, not claimed: from 0.2 to 0.3 the two years agree within 5 % (1.005, 1.047), and there (c) reads 0.329, 0.773 and 0.127 at 0.3, each within 0.05 of the oracle, on all three twins. The finest band's texture is a year-free statistic where the coarse bands' is not.
 - **The real capture's finest band is there.** Its edge reads 0.207 at 0.3 cycles a pixel where the limb fit's kernel said 0.007: R8 part 3 derived its gains through a finest band the kernel's tail had put at nothing (#1120). Read along R7a's axis and across it, the edge is lower along it at 0.1 and 0.2 (0.547 against 0.575, 0.275 against 0.306), as an elongated blur would be; at 0.3 the two sectors (0.157, 0.016) are a third of the limb each, one of them beside the terminator's arc, and do not agree with the whole (0.207): too noisy to read.

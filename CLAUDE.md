@@ -900,6 +900,8 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
     `PlanetaryMetrics.PeakAbovePlane`, `PlanetaryDering.KeepMoon`); read every CHANNEL's moons.
   - **A diffraction PSF's grid spans twice the extent it is used over** (`PlanetaryRender.DiffractionGridFor`,
     #1213); a twin carries the pupil's far wing only with `--far-wing` (`DegradeOptions.FarWing`, #1222).
+  - **The limb fit's sharp model is a reference or a target only through `PlanetaryLimbFit.DetectorPixel`**
+    (#1468): its pixel is a 2x2 cell mean, half a pixel short of a detector's box, and the kernel took the gap for blur.
   - **The derived gains are the truth's; anything past it is the strength OPTION, never the default** (#1251,
     `PlanetarySharpenOptions.Strength`, `--strength`, `PlanetaryWaveletGains.Boost`); **never multiply derived
     gains**. **"The truth" is the planet through the pupil's own diffraction**: undoing the telescope too is

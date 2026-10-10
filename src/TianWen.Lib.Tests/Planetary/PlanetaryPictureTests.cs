@@ -87,9 +87,9 @@ public class PlanetaryPictureTests
     public async Task AMastersLimbEdgeOverThePupilIsOneOnTheTruthAndTheSeeingOnAStackThroughIt()
     {
         // #1367: a master's edge over the pupil's own transfer (PlanetaryFinestBand.MasterEdge) reads one where only the telescope blurred
-        // it, and the seeing's own transfer where a known seeing blurred it too, within #1139's 0.05. Held at 0.1 and 0.2 cycles a pixel
-        // only: at 0.3 the edge reads a rendered truth 5 to 10 % short at any disk size (0.935 at 40 px, 0.953 at 80, 0.905 at 120), which
-        // is the edge read's own (#1468) and is printed here, not held.
+        // it, and the seeing's own transfer where a known seeing blurred it too, within #1139's 0.05. The truth is held to 0.3 cycles a
+        // pixel since its reference takes a detector's pixel (#1468: against the limb fit's model alone it read 0.935 there); the stack only
+        // to 0.2, since at 0.3 so small a disk's edge is mostly noise (0.121 against the seeing's 0.166).
         var ct = TestContext.Current.CancellationToken;
         var (truth, aspect) = Truth();
         var truthPlane = OnSky(truth, 0.0005, 0, 8);
@@ -103,9 +103,12 @@ public class PlanetaryPictureTests
         {
             TestContext.Current.TestOutputHelper?.WriteLine($"{f:0.0} cycles a pixel: truth {ofTruth.TransferAt(f):0.000}, stack {ofStack.TransferAt(f):0.000} (the seeing {Seeing(f):0.000})");
         }
-        foreach (var f in new[] { 0.1, 0.2 })
+        foreach (var f in PlanetaryChannelPicture.EdgeFrequencies)
         {
             ofTruth.TransferAt(f).ShouldBe(1, 0.05, $"the truth at {f}");
+        }
+        foreach (var f in new[] { 0.1, 0.2 })
+        {
             ofStack.TransferAt(f).ShouldBe(Seeing(f), 0.05, $"the stack at {f}");
         }
     }

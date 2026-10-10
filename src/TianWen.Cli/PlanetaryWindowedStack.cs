@@ -65,8 +65,9 @@ internal sealed class PlanetaryWindowedStack : IDisposable
     /// <summary>(b'): the limb fit's kernel over the pupil's diffraction, kept at most one and zero past the cutoff.</summary>
     public Func<double, double> Measured => f => Diffraction.At(f) is var d && d > 0.02 ? Math.Clamp(Wide.TransferAt(f) / d, 0, 1) : 0;
 
-    /// <summary>The sharp model through the pupil's diffraction alone: the truth's disk.</summary>
-    public float[] DiskTarget => _diskTarget ??= PlanetaryInverse.Apply(SharpDisk, Size, Size, Diffraction.At);
+    /// <summary>The sharp model on a detector's pixel through the pupil's diffraction alone: the truth's disk (#1468).</summary>
+    public float[] DiskTarget => _diskTarget ??= PlanetaryInverse.Apply(SharpDisk, Size, Size,
+        (fx, fy) => Diffraction.At(Math.Sqrt((fx * fx) + (fy * fy))) * PlanetaryLimbFit.DetectorPixel(fx, fy));
 
     private float[]? _diskTarget;
 

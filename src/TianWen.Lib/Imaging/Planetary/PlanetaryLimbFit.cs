@@ -356,10 +356,22 @@ public static class PlanetaryLimbFit
     }
 
     /// <summary>
+    /// The transfer at (<paramref name="fx"/>, <paramref name="fy"/>) cycles a pixel that completes <see cref="SharpModel"/>'s pixel into a
+    /// detector's (#1468): sinc(fx / s) sinc(fy / s) for the model's s supersampled cells a side. The model takes a pixel as the mean of
+    /// those cells, each its limb darkening at the cell's centre, which leaves out a box of 1 / s px that a detector, and every rendered
+    /// truth, integrates. Read against the model alone, the limb's edge of a plain render came out 0.935 at 0.3 cycles a pixel and the
+    /// derived kernel took the missing box for blur; through this it reads within 0.05 of one at radii of 40, 80 and 120 px.
+    /// </summary>
+    public static double DetectorPixel(double fx, double fy) => Sinc(fx / Supersample) * Sinc(fy / Supersample);
+
+    private static double Sinc(double x) => x == 0 ? 1 : Math.Sin(Math.PI * x) / (Math.PI * x);
+
+    /// <summary>
     /// <paramref name="fit"/>'s disk as its own model renders it before any blur (docs/plans/planetary-restoration.md, R7 part 3): the
     /// limb-darkened disk lit at the fit's phase, with its zonal albedo, each pixel the mean of its supersampled cells, of unit brightness
     /// on a sky of zero, over <paramref name="width"/> by <paramref name="height"/>; zero off the disk and on its night side. What a
-    /// kernel other than the fit's own is fitted around, the geometry kept.
+    /// kernel other than the fit's own is fitted around, the geometry kept. As a reference or a target it is taken through
+    /// <see cref="DetectorPixel"/> first.
     /// </summary>
     public static float[] SharpModel(in LimbFit fit, LimbFitOptions options, int width, int height)
     {
