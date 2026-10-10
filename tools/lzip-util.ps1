@@ -32,6 +32,7 @@ function Initialize-Lzip {
     if ($script:LzipLoaded) { return }
 
     $dll = $null
+    $nugetRoot = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $HOME '.nuget\packages' }
     if ($LzipAssembly -and (Test-Path -LiteralPath $LzipAssembly)) {
         $dll = $LzipAssembly
     }
@@ -45,7 +46,6 @@ function Initialize-Lzip {
                 Sort-Object LastWriteTime -Descending
         }
         # 2. NuGet global-packages cache (CI + package consumers): lzip.lib/<ver>/lib/netX/Lzip.Lib.dll.
-        $nugetRoot = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $HOME '.nuget\packages' }
         $lzipPkg = Join-Path $nugetRoot 'lzip.lib'
         if (Test-Path -LiteralPath $lzipPkg) {
             $candidates += Get-ChildItem -LiteralPath $lzipPkg -Recurse -Filter 'Lzip.Lib.dll' -ErrorAction SilentlyContinue |
@@ -58,8 +58,48 @@ function Initialize-Lzip {
         throw "Could not locate Lzip.Lib.dll. Pass -LzipAssembly <path>, build the Lzip.Lib sibling, or restore the Lzip.Lib package."
     }
 
+    Import-LzipDependencies -LzipDll $dll -NugetRoot $nugetRoot
     Add-Type -LiteralPath $dll
     $script:LzipLoaded = $true
+}
+
+# Load the package assemblies Lzip.Lib references BEFORE it is used. pwsh resolves a dependency only
+# beside the dll it loaded, and the NuGet cache keeps every package in a folder of its own, so a
+# dependency Lzip.Lib gained (System.IO.Hashing, in 1.1.111) failed the first Decompress with "Could
+# not load file or assembly" and broke every build. Eager, not an AssemblyResolve handler: the decoder
+# decodes members in parallel, and a script-block handler raised on a worker thread has no runspace.
+function Import-LzipDependencies([string] $LzipDll, [string] $NugetRoot) {
+    # The PEReader owns the stream and closes it on Dispose.
+    $pe = [System.Reflection.PortableExecutable.PEReader]::new([System.IO.File]::OpenRead($LzipDll))
+    try {
+        $md = [System.Reflection.Metadata.PEReaderExtensions]::GetMetadataReader($pe)
+        $names = foreach ($h in $md.AssemblyReferences) { $md.GetString($md.GetAssemblyReference($h).Name) }
+    }
+    finally { $pe.Dispose() }
+
+    $runtimeMajor = [Environment]::Version.Major
+    foreach ($name in $names) {
+        # A framework assembly (System.Runtime, ...) is already resolvable; only a package one is not.
+        try { [void][System.Reflection.Assembly]::Load($name); continue } catch { }
+
+        $found = $null
+        $beside = Join-Path (Split-Path -Parent $LzipDll) "$name.dll"
+        if (Test-Path -LiteralPath $beside) {
+            $found = $beside
+        }
+        else {
+            # <name lower>/<version>/lib/<tfm>/<name>.dll: the highest version, and in it the newest
+            # netX.0 the running runtime can load.
+            $pkg = Join-Path $NugetRoot $name.ToLowerInvariant()
+            if (Test-Path -LiteralPath $pkg) {
+                $found = Get-ChildItem -LiteralPath $pkg -Recurse -Filter "$name.dll" -ErrorAction SilentlyContinue |
+                    Where-Object { $_.FullName -match '[\\/]lib[\\/]net(\d+)\.\d+[\\/]' -and [int]$Matches[1] -le $runtimeMajor } |
+                    Sort-Object @{ Expression = { [version]($_.Directory.Parent.Parent.Name -replace '[-+].*$', '') } }, @{ Expression = { [int]($_.Directory.Name -replace '^net(\d+).*$', '$1') } } -Descending |
+                    Select-Object -First 1 -ExpandProperty FullName
+            }
+        }
+        if ($found) { Add-Type -LiteralPath $found }
+    }
 }
 
 # Decompress an lzip (.lz) file to $OutPath using the managed decoder. Writes the decoded bytes
