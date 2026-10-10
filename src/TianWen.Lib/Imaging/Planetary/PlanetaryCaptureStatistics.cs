@@ -412,8 +412,13 @@ public static class PlanetaryCaptureStatistics
             // one on a moon follows the moon (2022-09-03's Red, all of whose first 19 points read noise, reached 222 px apart
             // over a disk 98 px across).
             var reach = (disk.Radius * options.Limb.AxisRatio) - (options.AlignmentPatchSize / Math.Sqrt(2));
-            var aps = FeatureDetector.DetectAlignmentPoints(reference, region, options.AlignmentPointSpacing, options.MaxAlignmentPoints)
-                .RemoveAll(p => Math.Sqrt(((p.X - disk.X) * (p.X - disk.X)) + ((p.Y - disk.Y) * (p.Y - disk.Y))) > reach);
+            var (detected, candidates) = FeatureDetector.DetectByPeakFraction(reference, region, options.AlignmentPointSpacing, options.MaxAlignmentPoints);
+            var aps = detected.RemoveAll(p => Math.Sqrt(((p.X - disk.X) * (p.X - disk.X)) + ((p.Y - disk.Y) * (p.Y - disk.Y))) > reach);
+            // The cap cuts the grid before the points off the disk go, and silently otherwise (#1412).
+            if (FeatureDetector.CapInWords(detected.Length, candidates) is { } cap)
+            {
+                progress?.Report($"{cap} (MaxAlignmentPoints {options.MaxAlignmentPoints}), {aps.Length} of them on the disk");
+            }
             var residuals = new AlignmentPointShift[pairs * 2][];
             var noise = new BandNoise[pairs][];
             var skyNoise = new double[pairs];

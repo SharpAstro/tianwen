@@ -381,7 +381,7 @@ public sealed record PlanetaryStackResult(Image Master, int ReferenceIndex, int 
 
     /// <summary>
     /// How many alignment points the stack followed, 0 for a global one: <see cref="PlanetaryStackOptions.MaxAlignmentPoints"/> caps any grid
-    /// silently, and a cell whose gradient is under a fifth of the frame's strongest keeps none, so a denser grid can follow few more (#1195).
+    /// (every host says so, <see cref="FeatureDetector.PointsInWords"/>, #1412), and a cell whose gradient is under a fifth of the frame's strongest keeps none, so a denser grid can follow few more (#1195).
     /// </summary>
     public int AlignmentPoints { get; init; }
 

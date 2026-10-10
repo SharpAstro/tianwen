@@ -729,7 +729,7 @@ internal sealed class PlanetaryStackSubCommand(
                 var master = result.Master;
                 consoleHost.WriteScrollable(
                     $"[planetary] {baseName}: stacked {result.FramesUsed}/{result.FramesGraded} frames " +
-                    $"(reference #{result.ReferenceIndex}{(result.AlignmentPoints > 0 ? $", {result.AlignmentPoints} alignment points{(result.AlignmentPointCandidates > result.AlignmentPoints ? $" of {result.AlignmentPointCandidates}, capped" : "")}" : "")}) in {sw.Elapsed.TotalSeconds:F1}s");
+                    $"(reference #{result.ReferenceIndex}{(result.AlignmentPoints > 0 ? $", {FeatureDetector.PointsInWords(result.AlignmentPoints, result.AlignmentPointCandidates)}" : "")}) in {sw.Elapsed.TotalSeconds:F1}s");
                 if (result.DrizzleHolesFilled > 0)
                 {
                     // A steady capture leaves the most: its drops land on the same cells frame after frame (#1412)

@@ -192,6 +192,11 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                             + (referenceFrames > 1 ? $", against a stack of {referenceFrames}" : "")
                             + (derotate == "frames" ? ", de-rotated" : "");
                         var full = await StackAsync(stacker, stream, options, method, ct);
+                        // The grid's cap cuts it silently, so a row whose points it cut says so (#1412).
+                        if (FeatureDetector.CapInWords(full.AlignmentPoints, full.AlignmentPointCandidates) is { } cap)
+                        {
+                            name += $", {cap}";
+                        }
                         // Every stack onto one disk: the truth's, or the first stack's own.
                         if (Register(full.Master, limbOptions, reference) is not { } fullPlane)
                         {
@@ -302,6 +307,10 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                                 + (drizzle is { } dz ? string.Create(CultureInfo.InvariantCulture, $", Bayer drizzle {dz:0.##}x, pixfrac {pixfrac:0.##}") : ", demosaiced")
                                 + (derotate == "frames" ? ", de-rotated" : "");
                             var result = drizzle is null ? await StackAsync(stacker, stream, options, method, ct) : await stacker.StackDrizzleAsync(stream, options, ct);
+                            if (FeatureDetector.CapInWords(result.AlignmentPoints, result.AlignmentPointCandidates) is { } cap)
+                            {
+                                name += $", {cap}";
+                            }
                             try
                             {
                                 Score(result.Master, drizzle ?? 1, keep, preset, name, result.FramesUsed);

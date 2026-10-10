@@ -989,7 +989,7 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
   never by eye on one capture.
 - **An alignment point's patch is cut at the EXACT global shift** (`PlanetaryTile.ExtractLumaAt`). **A point's
   plain correlation SHRINKS the shift it reads** (#1081; `PlanetaryStackOptions.MeshGain` stays one). **Dense
-  points pay** (#1195), and **`MaxAlignmentPoints` (64) caps any grid silently**. **Judge a point estimator
+  points pay** (#1195), and **`MaxAlignmentPoints` (64) caps any grid, which every host says in ONE wording** (`FeatureDetector.PointsInWords`, #1412). **Judge a point estimator
   against its Cramer-Rao bound** (#1082, `AlignmentPointMatcher.Bound`; `PlanetaryPointEstimator.SquareDifference`
   goes with #1195 or not at all). **Each point keeping its own best frames is an option, never the default**
   (`PlanetaryStackOptions.PointKeep`, `--point-keep`, #1350: 73 % of a point's quality is its frame's), and **a

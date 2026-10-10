@@ -568,15 +568,17 @@ public sealed class LuckyImagingStacker
 
     /// <summary>
     /// Every frame's alignment points read as <see cref="StackAsync"/> reads them, with the same reference, points, aligner and
-    /// matcher, the reference's index and the matcher itself: what a dewarp's residual is measured from (<see cref="DewarpResidual"/>).
+    /// matcher, the reference's index, the matcher itself and how many cells qualified before the cap: what a dewarp's residual is
+    /// measured from (<see cref="DewarpResidual"/>).
     /// </summary>
-    internal static async Task<(AlignmentPointTracks Tracks, int ReferenceIndex, AlignmentPointMatcher Matcher)> TrackAsync(IPlanetaryFrameStream stream,
-        PlanetaryStackOptions options, CancellationToken cancellationToken)
+    internal static async Task<(AlignmentPointTracks Tracks, int ReferenceIndex, AlignmentPointMatcher Matcher, int Candidates)> TrackAsync(
+        IPlanetaryFrameStream stream, PlanetaryStackOptions options, CancellationToken cancellationToken)
     {
         var ctx = await PrepareAsync(stream, options, includeAlignmentPoints: true, cancellationToken).ConfigureAwait(false);
         var matcher = ctx.Matcher
             ?? throw new InvalidOperationException("PrepareAsync(includeAlignmentPoints: true) must produce an alignment-point matcher.");
-        return (await AlignmentPointTracks.MeasureAsync(stream, ctx.Aligner, matcher, cancellationToken).ConfigureAwait(false), ctx.ReferenceIndex, matcher);
+        return (await AlignmentPointTracks.MeasureAsync(stream, ctx.Aligner, matcher, cancellationToken).ConfigureAwait(false), ctx.ReferenceIndex, matcher,
+            ctx.AlignmentPointCandidates);
     }
 
     // The frames the grader left out because the frame's edge or a line inside it cut their planet or they held none
