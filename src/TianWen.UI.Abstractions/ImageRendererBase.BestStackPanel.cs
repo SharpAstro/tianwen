@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.Linq;
 using DIR.Lib;
@@ -162,21 +162,10 @@ namespace TianWen.UI.Abstractions
                     .RowH(BaseFontSize + WaveletGap));
             }
 
-            Layout.Node Caption(string text)
-                => Layout.Builder.Text(text, BaseFontSize, ViewerTheme.Palette.DimText).RowH(BaseFontSize + WaveletGap);
+            // Every line here wraps rather than clips (a caption's planet or telescope can run past the panel's width).
+            Layout.Node Caption(string text) => WrappedText(text, ViewerTheme.Palette.DimText);
 
-            // A sentence that wraps rather than clips: a word a node in a flow (as the profile panel's notice wraps), a third of the font
-            // between words.
-            Layout.Node Wrapped(string text)
-            {
-                var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                var nodes = new Layout.Node[words.Length];
-                for (var i = 0; i < words.Length; i++)
-                {
-                    nodes[i] = Layout.Builder.Text(words[i], BaseFontSize, ViewerTheme.Palette.BodyText).RowH(BaseFontSize + WaveletGap);
-                }
-                return Layout.Builder.WrapH(nodes).WithGap(BaseFontSize / 3).Stretch();
-            }
+            Layout.Node Wrapped(string text) => WrappedText(text, ViewerTheme.Palette.BodyText);
 
             // What the planet is, and where it comes from: the panel, the capture's name, or neither.
             string PlanetCaption()

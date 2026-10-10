@@ -138,9 +138,12 @@ namespace TianWen.UI.Abstractions
         /// <summary>Inter-row and inter-column gap for the wavelet block, design units.</summary>
         private const float WaveletGap = 6f;
 
-        /// <summary>The band-number column and the value column, at their widest readings.</summary>
+        /// <summary>
+        /// The band-number column and the value column, at their widest readings: a derived gain runs negative and past ten (12.7 and
+        /// -1.4 on a 12-inch Jupiter), which a "0.0" column cut to an ellipsis.
+        /// </summary>
         private const string WaveletBandWidthSample = "6";
-        private const string WaveletValueWidthSample = "0.0";
+        private const string WaveletValueWidthSample = "-00.0";
 
         // One dial per band, living across frames because the tree does not: a Content.Slider leaf
         // carries a REFERENCE to caller-owned state, and the drag the engine arms on a press holds that
@@ -173,6 +176,22 @@ namespace TianWen.UI.Abstractions
                 .WithGap(WaveletGap)
                 .CrossCenter()
                 .RowH(BaseFontSize + WaveletGap);
+
+        /// <summary>
+        /// A sentence that wraps rather than clips: a word a node in a flow (as the profile panel's notice wraps), a third of the font
+        /// between words. Star in WIDTH only: its height is what the wrap measures, and a Star height shared a column's leftover between
+        /// its sentences, so one wrapped to two lines was laid over the next.
+        /// </summary>
+        private Layout.Node WrappedText(string text, RGBAColor32 color)
+        {
+            var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var nodes = new Layout.Node[words.Length];
+            for (var i = 0; i < words.Length; i++)
+            {
+                nodes[i] = Layout.Builder.Text(words[i], BaseFontSize, color).RowH(BaseFontSize + WaveletGap);
+            }
+            return Layout.Builder.WrapH(nodes).WithGap(BaseFontSize / 3).WStar();
+        }
 
         /// <summary>
         /// The wavelet block as one tree: an action row over one row per band. Nothing here is
@@ -233,7 +252,7 @@ namespace TianWen.UI.Abstractions
             var caption = state.WaveletDeriving ? "Deriving the gains from this master, about half a minute" : state.WaveletDeriveNote;
             if (caption is not null)
             {
-                rows.Add(Layout.Builder.Text(caption, BaseFontSize, ViewerTheme.Palette.DimText).RowH(BaseFontSize + WaveletGap));
+                rows.Add(WrappedText(caption, ViewerTheme.Palette.DimText));
             }
 
             for (var b = 0; b < WaveletBandCount && b < gains.Length; b++)
