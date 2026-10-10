@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Geometry;
 
@@ -359,6 +360,12 @@ public sealed record PlanetaryStackResult(Image Master, int ReferenceIndex, int 
     /// lowers a planet's peak, and the grader read such a frame's noise as detail.
     /// </summary>
     public int FramesDim { get; init; }
+
+    /// <summary>
+    /// Every frame's grade as the keep was chosen on it, one a frame (<see cref="FrameGrader.GradeAllAsync"/>): the run's quality curve
+    /// (<see cref="PlanetaryQualityCurve"/>, #1364) is read off these, with nothing graded again. Empty for a result made otherwise.
+    /// </summary>
+    public ImmutableArray<FrameGrade> Grades { get; init; } = [];
 
     /// <summary>
     /// The rectangle of the master's uncropped grid it was cropped to (<see cref="PlanetaryStackOptions.CropToCoverage"/>, #1300), empty

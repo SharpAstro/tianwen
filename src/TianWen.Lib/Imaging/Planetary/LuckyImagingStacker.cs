@@ -41,7 +41,7 @@ public sealed class LuckyImagingStacker
         var (master, alignment, cropped) = await FinalizeAsync(stacked, stream.Layout, options, ctx.Derotator?.Epoch.Utc, covered, cancellationToken).ConfigureAwait(false);
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
         {
-            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, NorthUnread = ctx.NorthUnread, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades), FramesCutKept = FramesKeptThoughCut(ctx.Grades), FramesSmeared = FramesLeftOutAsSmeared(ctx.Grades), FramesDim = FramesLeftOutAsDim(ctx.Grades), Cropped = cropped,
+            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, NorthUnread = ctx.NorthUnread, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades), FramesCutKept = FramesKeptThoughCut(ctx.Grades), FramesSmeared = FramesLeftOutAsSmeared(ctx.Grades), FramesDim = FramesLeftOutAsDim(ctx.Grades), Grades = ctx.Grades, Cropped = cropped,
             AlignmentPoints = ctx.Matcher?.AlignmentPoints.Length ?? 0,
             AlignmentPointCandidates = ctx.AlignmentPointCandidates,
         };
@@ -101,6 +101,13 @@ public sealed class LuckyImagingStacker
             cancellationToken).ConfigureAwait(false);
         return weighted.Length;
     }
+
+    /// <summary>
+    /// Every frame of <paramref name="stream"/> graded as a stack by <paramref name="options"/> grades it, from their grade cache when they
+    /// name one (#1351), with nothing stacked: what a run's quality curve is read off before the stack runs (#1364, <c>--report-only</c>).
+    /// </summary>
+    public static Task<ImmutableArray<FrameGrade>> GradeAsync(IPlanetaryFrameStream stream, PlanetaryStackOptions options, CancellationToken cancellationToken = default)
+        => GraderFor(options).GradeAllAsync(stream, cancellationToken: cancellationToken);
 
     // The grader a stack grades its frames by: the options' estimator, and their grade cache when they name one (#1351).
     private static FrameGrader GraderFor(PlanetaryStackOptions options)
@@ -356,7 +363,7 @@ public sealed class LuckyImagingStacker
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
         {
             Halves = finishedHalves,
-            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, NorthUnread = ctx.NorthUnread, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades), FramesCutKept = FramesKeptThoughCut(ctx.Grades), FramesSmeared = FramesLeftOutAsSmeared(ctx.Grades), FramesDim = FramesLeftOutAsDim(ctx.Grades), Cropped = cropped,
+            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, NorthUnread = ctx.NorthUnread, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades), FramesCutKept = FramesKeptThoughCut(ctx.Grades), FramesSmeared = FramesLeftOutAsSmeared(ctx.Grades), FramesDim = FramesLeftOutAsDim(ctx.Grades), Grades = ctx.Grades, Cropped = cropped,
             AlignmentPoints = ctx.Matcher?.AlignmentPoints.Length ?? 0,
             AlignmentPointCandidates = ctx.AlignmentPointCandidates,
             PointKeepCandidates = pointKeep?.Candidates ?? 0,
@@ -504,7 +511,7 @@ public sealed class LuckyImagingStacker
 
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
         {
-            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, NorthUnread = ctx.NorthUnread, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades), FramesCutKept = FramesKeptThoughCut(ctx.Grades), FramesSmeared = FramesLeftOutAsSmeared(ctx.Grades), FramesDim = FramesLeftOutAsDim(ctx.Grades), Cropped = cropped,
+            Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, NorthUnread = ctx.NorthUnread, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades), FramesCutKept = FramesKeptThoughCut(ctx.Grades), FramesSmeared = FramesLeftOutAsSmeared(ctx.Grades), FramesDim = FramesLeftOutAsDim(ctx.Grades), Grades = ctx.Grades, Cropped = cropped,
             AlignmentPoints = ctx.Matcher?.AlignmentPoints.Length ?? 0,
             AlignmentPointCandidates = ctx.AlignmentPointCandidates,
         };

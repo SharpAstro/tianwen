@@ -192,6 +192,17 @@ mid-high band, not the very top octave where noise dominates (chiefly for the FF
   sorted best first with the keep's cut marked, and the grades through the run in time order, drawn from the grades the
   stacker already keeps (`--grade-cache`), so a keep can be chosen before anything is stacked. Drawn by hand for the
   2026-10-07 Saturn it fell steeply only over its best 5 to 6 % and gently after, which is why that night kept half.
+  - **Built (2026-10-10).** `--report` draws `<master>_quality.png` beside each run's master, for one file, a session, each
+    file of one and `--auto` alike; `--report-only` grades the run as the stack would (`LuckyImagingStacker.GradeAsync`, from
+    the grade cache when one is named) and draws it with nothing stacked. The curve is `PlanetaryQualityCurve` (Lib), read off
+    the grades the keep was chosen on (`PlanetaryStackResult.Grades`): each graded frame over the best (100) against the share
+    of the run's frames, the keep cut where `FrameGrader.SelectBest` cuts, reference cuts at 10, 20, 35, 50 and 70 %, and the
+    10th to 90th percentile and median per 100 frames, a bin never spanning two files. A frame the stack leaves out (cut,
+    smeared, dim, unreadable) is in neither panel and counted in the caption by cause. The picture is
+    `PlanetaryQualityReport` (UI.Abstractions), drawn with the renderer's primitives as the altitude chart is, its quality
+    axis starting a little below the lowest quality shown. On the 70,000-frame 2026-10-07 green session (sets 4 to 10) it
+    drew from the grade cache in 2 s: 71 at 10 %, the half keep's cut at 61, the head ending near 7.4 % (the hand-drawn sets
+    9 and 10 read 72 and 62).
 
 ### C. Alignment - global bootstrap, then alignment points
 
