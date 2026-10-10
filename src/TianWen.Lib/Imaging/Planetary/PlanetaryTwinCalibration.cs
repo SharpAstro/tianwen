@@ -92,14 +92,16 @@ public sealed record TwinTrial(TwinKnobs Knobs, double Mismatch, ImmutableArray<
 /// <summary>
 /// A synthetic twin's air fitted to its capture (docs/plans/planetary-stacking.md, A1, #817): what R2 and #1281 did by hand in ten and eleven
 /// trials, run by the code. A Nelder-Mead simplex over the knobs' logarithms (a step is a ratio, as the knobs are), each trial a twin made and
-/// measured by the caller and scored by <see cref="TwinComparison"/>: the mean of the fitted statistics' squared log ratios, so a trial whose
-/// twin could not measure one statistic is still compared fairly. The search holds the seed fixed (the caller's), so two trials differ by their
+/// measured by the caller and scored by <see cref="TwinComparison"/>: the mean of the fitted statistics' squared log ratios over the statistics
+/// the real capture measured, the same rows for every trial, a twin that could not measure one of them paying a factor of ten for it (#1413).
+/// The search holds the seed fixed (the caller's), so two trials differ by their
 /// knobs alone. It is only as good as the statistics it fits, which R2 chose; a match on them is not a match on everything (R2 found two mixtures
 /// of seeing and aligner error that read alike), so its rules on #817's A1 issue judge it against the hand calibration.
 /// </summary>
 public static class PlanetaryTwinCalibration
 {
-    /// <summary>The mean squared log ratio over <paramref name="rows"/>' fitted statistics; infinite where none could be measured.</summary>
+    /// <summary>The mean squared log ratio over <paramref name="rows"/>' fitted statistics the real capture measured (<see cref="TwinComparison.Mismatch"/>);
+    /// infinite where it measured none.</summary>
     public static double MeanMismatch(ImmutableArray<TwinStatistic> rows)
     {
         var (sum, used) = TwinComparison.Mismatch(rows);
