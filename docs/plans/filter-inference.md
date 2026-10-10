@@ -568,3 +568,43 @@ repo as code, not in another script:
 
 The resolver already refuses the pairing in question: a flat whose stated filter contradicts the lights'
 is no candidate ("fix(dataset): a flat whose stated filter contradicts the lights' is no candidate").
+
+### 9a. The first measurement: the slope across stars separates, the spread does not (2026-10-10)
+
+`tools/archive-curation/filter_from_stars.py` is the reference method #1146 ports: per session, a few subs spread over
+the night minus a master dark it matches from the Organized calibration tree (gain, offset, binning, exposure, the
+nearest temperature), the white balance read off that dark and divided out, then per-channel aperture flux of bright
+unsaturated stars on the summed superpixel image. Run on the Uranus-C question and on every IMX585 night whose filter
+is known and has a dark or bias (the ASI585's Helix of 2024-09-03 has neither at its gain and offset):
+
+| session | filter | slope of ln B/G on ln R/G | Spearman | B/G spread | R/G spread |
+|---|---|---|---|---|---|
+| Uranus-C Lagoon 2023-08-03 | Baader Semi-APO | -0.98 | -0.62 | 60.1 % | 37.6 % |
+| Uranus-C SMC 2023-07-29 | Baader Semi-APO | -0.49 | -0.43 | 30.4 % | 27.0 % |
+| Uranus-C eta Car 2023-02-24 | Baader Semi-APO | -0.83 | -0.64 | 41.7 % | 33.7 % |
+| ASI585 SMC 2024-10-02 | broadband | -0.53 | -0.42 | 40.4 % | 31.7 % |
+| ASI585 Carina 2025-03-19 | broadband | -0.62 | -0.50 | 48.4 % | 40.4 % |
+| ASI585 Lagoon 2025-05-25 | broadband, blue cut | -0.91 | -0.68 | 32.7 % | 26.6 % |
+| ASI585 SMC 2024-09-27 | L-eNhance | -0.04 | -0.15 | 11.2 % | 39.0 % |
+| ASI585 eta Car 2025-01-14 | L-eNhance | +0.11 | +0.11 | 67.8 % | 83.5 % |
+| **Uranus-C Lagoon 2023-08-09** | filed `Unidentified-HaOIII` | **-0.04** | **-0.13** | 17.8 % | 89.1 % |
+
+(`C:\temp\e2\filter-from-stars-all.txt`; the spread is the inter-quartile range over the median.)
+
+1. **The slope is the discriminator, not the spread.** Broadband, B/G and R/G both follow a star's temperature, so
+   B/G falls as R/G rises: -0.49 to -0.98 on six nights over two bodies and three broadband filters. Through the
+   L-eNhance B/G no longer follows the star: -0.04 and +0.11. The script reads a slope above -0.25 as dual-band and
+   below -0.40 as broadband, the IMX585's thresholds; another sensor's known nights come first.
+2. **The B/G spread, the measure section 9 proposed, fails on a reddened field.** The L-eNhance eta Car night, a 24 mm
+   Milky Way field, spreads 68 %, wider than every broadband night. It is not the sampling (its stars are 4.9
+   photosites across, the SMC L-eNhance's 5.5), the nebula in the annulus (the smooth-annulus stars spread as much),
+   nor the field position (B/G against radius, +0.03). What carries it is not measured; the likeliest cause is the
+   photosites' response outside the shared window, which a heavily reddened field's wide range of colour brings out.
+   The slope does not follow it.
+3. **The Uranus-C Lagoon of 2023-08-09 is dual-band**, as filed: its stars read as the L-eNhance nights do, with the
+   narrow B/G spread and the wide R/G one of a filter whose G and B share one window. Which dual-band is #1147's
+   question.
+4. **The star flux is no discriminator across nights**: the 50 brightest unsaturated stars' G flux moves with the
+   optics and with what saturates at each exposure (the L-eNhance SMC reads above the broadband SMC).
+
+#1146's port takes the slope and the correlation as its measures, with the spread beside them.
