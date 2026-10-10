@@ -226,6 +226,11 @@ public static class PlanetaryMetrics
     /// 200 px PIPP crop of 2022-10-09's 150 px Jupiter), and then it is the median of the farthest tenth of the pixels past the
     /// limb's profile (1.3 radii), which the planet's halo still lifts, so an undershoot read against it errs large, never small
     /// (set down 2026-10-03 after the pipeline's real-capture validation read NaN there). Null with no pixel past 1.3 radii.
+    /// <para>
+    /// Only FINITE pixels are read (#1407): a median over values holding NaN is undefined, and the quickselect under it lands on a NaN
+    /// or a value depending on where they fall, so a sky with any NaN in it (a reference whose shown luminance is zero, where its tone
+    /// cannot be matched) read 0 or its true level on a last-bit change elsewhere in the picture, which moved the judge's colour 5 %.
+    /// </para>
     /// </summary>
     public static double? SkyLevel(ReadOnlySpan<float> plane, int width, int height, MetricDisk disk)
     {
@@ -235,15 +240,20 @@ public static class PlanetaryMetrics
         {
             for (var x = 0; x < width; x++)
             {
+                var value = plane[(y * width) + x];
+                if (!float.IsFinite(value))
+                {
+                    continue;
+                }
                 // Past Saturn's rings as well as its globe (S4).
                 var r = disk.ClearRadiiAt(x, y);
                 if (r >= SkyRadii)
                 {
-                    sky.Add(plane[(y * width) + x]);
+                    sky.Add(value);
                 }
                 else if (r >= ProfileReach)
                 {
-                    outer.Add((r, plane[(y * width) + x]));
+                    outer.Add((r, value));
                 }
             }
         }

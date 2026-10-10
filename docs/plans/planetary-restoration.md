@@ -4985,9 +4985,12 @@ Jupiter too, to see what generalises. Rules were written on the issue before eac
   outline (the limb and any fringe never raised). Out of gamut, a colour is pulled back toward its own. Given a cast, one gain a channel
   first takes the planet's mean to it, a white balance never faded.
 - **`ColourLook.Boosted` is an S-curve the owner chose by eye**: below one through the 45th percentile (0.68 to 0.97: rings and zones
-  whiter), above it from the 50th (1.04 to 1.68: belts stronger). It is the mean of four posts' chroma over our default master's at every
-  quantile. The 12-inch SCT Jupiter's PNG, first taken for a fifth post, is that capture's RAW STACK (the source thread's post #6: 656x424
-  at our master's own scale against the 120 % resized JPEG post) and is no post at all.
+  whiter), above it from the 50th (1.04 to 1.68: belts stronger). It was the mean of four posts' chroma over our default master's at every
+  quantile as the judge read them before #1407 (to 0.1 % at every quantile). Read through #1407's fix, the two Saturn posts read more
+  coloured and the mean sits 3 to 10 % higher (0.78 / 1.10 / 1.51 at the 10th / 50th / 90th, against the curve's 0.73 / 1.04 / 1.46);
+  the curve is kept, being the owner's pick by eye: [the reading made continuous](#the-judges-colour-reading-made-continuous-1407). The
+  12-inch SCT Jupiter's PNG, first taken for a fifth post, is that capture's RAW STACK (the source thread's post #6: 656x424 at our
+  master's own scale against the 120 % resized JPEG post) and is no post at all.
 - **A look is a RENDERING, never a master.** `planetary look` writes the planetary preview with the look; its planes go to a FITS only on
   `--fits`, marked `CLOOK` and no longer scene-linear. The linear masters stay what is processed further, as the deep-sky chroma editing's
   ADR-4 has it (`narrowband-colour.md`: a render stage that never touches a linear master). In the viewer it is a control
@@ -4999,33 +5002,57 @@ Jupiter too, to see what generalises. Rules were written on the issue before eac
   1.65th power of its value, and the chroma with it: our default is shown at 1.7 to 2 times the chroma its planes read
   (`PlanetaryReferenceJudge.ReadShown`, which renders the master as the preview does and reads it as a post is read). Read the study's way,
   linear against shown, every post looked MORE coloured than ours above its median, and every look built on that leaned orange beside its
-  post. **Open: #1407**, the master's colour as shown moves 5 % in chroma and 6.6 degrees in hue on a last-bit change of its luminance
-  (found on #1398), so the readings below carry that much until the reading is made continuous. Shown against shown, four of the five
-  posts carry less colour than our default, spread wider:
+  post. Shown against shown, four of the five posts carry less colour than our default, spread wider. Re-read through #1407's fix
+  (`planetary judge` on the study's own masters), the first reading in brackets where it moved:
 
   | Post over our preview, shown | cast | p10 | p50 | p90 | chroma p90/p10, ours to post |
   |---|---|---|---|---|---|
-  | Saturn, EdgeHD 11 | 0.71 | 0.40 | 0.62 | 1.10 | 2.0 to 5.6 |
-  | Saturn, Meade 16-inch | 0.51 | 0.40 | 0.54 | 0.74 | 1.7 to 3.1 |
-  | Jupiter, EdgeHD 11 + 678MC | 0.31 | 0.37 | 0.62 | 0.83 | 1.9 to 4.2 |
-  | Jupiter, 12-inch SCT, JPEG | 0.22 | 0.28 | 0.49 | 0.70 | 1.8 to 4.4 |
-  | (Jupiter, 12-inch SCT, its raw stack) | 1.69 | 1.91 | 1.70 | 1.53 | 1.8 to 1.4 |
+  | Saturn, EdgeHD 11 | 0.73 (0.71) | 0.44 (0.40) | 0.67 (0.62) | 1.15 (1.10) | 2.0 to 5.3 (5.6) |
+  | Saturn, Meade 16-inch | 0.50 (0.51) | 0.47 (0.40) | 0.61 (0.54) | 0.81 (0.74) | 1.7 to 2.9 (3.1) |
+  | Jupiter, EdgeHD 11 + 678MC | 0.33 (0.31) | 0.39 (0.37) | 0.66 (0.62) | 0.87 (0.83) | 1.9 to 4.2 |
+  | Jupiter, 12-inch SCT, JPEG | 0.24 (0.22) | 0.34 (0.28) | 0.53 (0.49) | 0.74 (0.70) | 2.0 (1.8) to 4.4 |
+  | (Jupiter, 12-inch SCT, its raw stack; not re-read) | 1.69 | 1.91 | 1.70 | 1.53 | 1.8 to 1.4 |
 
   #1212's saturation 1.4 was judged against OPAL in linear light too; the preview shows it near twice as strong.
 - **The curve is a taste the posts share, nearly one that generalises.** The leave-one-out rule (V5: the curve from the other three posts,
   within 25 % of the held-out post at the 10th, 50th and 90th percentiles of the lit chroma) was first read with the SCT Jupiter's raw stack
   averaged in as a post and failed on all four. Read with the data corrected, it lands within 25 % on three of four captures (EdgeHD
   Saturn 0.93 / 0.95 / 0.77, Meade Saturn 0.86 / 1.07 / 1.22, 678MC Jupiter 1.09 / 0.87 / 0.93) and misses the SCT Jupiter's 10th
-  percentile at 1.29 (1.14, 1.20 above it): one value of twelve, so the rule fails as written. The casts do differ (0.22 to 0.71 of our
-  default as shown), so the preset leaves the tint as balanced, and the preset is the owner's eye, as the sharpening's strength was (#1251).
+  percentile at 1.29 (1.14, 1.20 above it): one value of twelve, so the rule fails as written. Re-read through #1407's fix, with each
+  held-out curve rebuilt from the fixed readings, it lands as it did, on three of four (EdgeHD Saturn 0.88 / 0.92 / 0.75, Meade Saturn
+  0.76 / 0.97 / 1.13, 678MC Jupiter 1.19 / 0.93 / 0.98), the SCT Jupiter missing at its 10th and 90th (1.41 / 1.21 / 1.25): ten values
+  of twelve. The casts do differ (0.24 to 0.73 of our default as shown), so the preset leaves the tint as balanced, and the preset is the
+  owner's eye, as the sharpening's strength was (#1251).
   **Check what a reference IS before reading it** (its scale against the master's, its band energy, its source's own words): an
   unsharpened one-shot-colour stack read as a post looks like a processor with an odd taste in green.
 - **Found after the readings, so a hypothesis:** shown against shown, the four posts fit one formula, the chroma about its median raised to
-  a power of 2.4 (2.19 to 2.59) with the median at 0.57 of ours. The corpus holds no other Jupiter or Saturn capture with a post to test it.
+  a power of 2.4 (2.19 to 2.59) with the median at 0.57 of ours, as read before #1407's fix and not refitted since. The corpus holds no
+  other Jupiter or Saturn capture with a post to test it.
 - **Two traps in the first look.** Moving each pixel's a, b away from the planet's MEAN colour pushed whatever was less tinted than the mean
   (zones, rings, the Cassini division, the pole) past grey to blue, though the spread rose as asked; the posts raise chroma about GREY. And
   a quantile map must place its pixels on the distribution it moves: dark gaps the look leaves as they were, counted in it, slid every lit
   pixel's quantile (a fit 44 % past its target on the synthetic planet), so only lit pixels are counted.
+
+#### The judge's colour reading made continuous (#1407)
+
+**Issue:** #1407. Found on #1398: `planetary judge`'s reading of a master as shown moved 5 % in chroma and 6.6 degrees in hue on a change
+in the last bit of the master's luminance (`(r + g + b) / 3` against `r/3 + g/3 + b/3`), on the Meade 16 Saturn and the 678MC Jupiter.
+
+- **The step was the sky level's median over NaN.** `PlanetaryColourReading.WithLuminance` gives NaN where the shown picture is black, so
+  some of the sky past 2.5 radii is NaN (406 of 18,892 pixels on the Meade 16 Saturn's master), and `PlanetaryMetrics.SkyLevel` took a
+  quickselect median over them. A median over values holding NaN is undefined: where the NaNs fell in the partition decided whether the
+  median landed on one (read as a black sky by `SkyOrBlack`) or on a value, so a last-bit change anywhere in the picture moved the red sky
+  between 0 and 0.0375 and the colour the reading subtracts with it. `SkyLevel` now reads finite pixels only, and both sums read the same
+  to five places (cast 0.1006 at 84.7 degrees, spread 0.0289). Pinned by
+  `PlanetaryMetricsTests.TheSkysLevelIsTheMedianOfItsFinitePixelsWhereverItsNaNsFall`.
+- **What lay inside the jump:** the two Saturn posts' readings (a post is read through the same tone match, so its sky had NaNs too), the
+  678MC Jupiter's master as shown, whose cast hue now agrees with its linear reading (96.5 degrees against 95.8; 85.8 before), and the SCT
+  Jupiter's as shown by 2 to 3 %. The table above, `Boosted`'s mean of four posts and V5 are re-read there.
+- **What did not:** the look itself and `Posted`'s values. The look reads the master's linear planes, where no pixel is NaN (Posted's
+  renders are bit-identical before and after on three captures), and `Posted` was fitted on its previews' distances to the posts, outside
+  the judge.
+- **`Boosted` keeps its numbers.** It was the owner's pick by eye of the mean curve; read through the fix, that mean is 3 to 10 % higher at
+  every quantile (most at the low end) and the same S shape. Moving the preset to it is the owner's call.
 
 #### The look in the viewer
 
