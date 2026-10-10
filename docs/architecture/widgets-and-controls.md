@@ -35,16 +35,19 @@ DebugInspector routes through the same methods -- synthesized input can never dr
 
 ## Widget inventory
 
+Re-counted 2026-10-10 against DIR.Lib 11.8, when the "none" this table used to give the four tabs was found
+to be out of date: it counted inline scroll, drag and gesture math, and the hand-placed rows were never in it.
+
 | Widget | Project | Interactive surfaces | Hand-rolled logic left |
 |---|---|---|---|
-| `PlannerTab` | UI.Abstractions | target list, handoff sliders, search box + autocomplete, chart (display) | none (sliders/search are controls) |
-| `EquipmentTab` | UI.Abstractions | device list, segment buttons, confirm strips | none |
-| `SessionTab` | UI.Abstractions | config panel, text inputs | none |
-| `LiveSessionTab` | UI.Abstractions | exposure log, preview pan/zoom, charts (display) | none (log P4, preview `PanZoomController` P5) |
+| `PlannerTab` | UI.Abstractions | target list, handoff sliders, search box + autocomplete, chart (display) | the details panel (lines at `rect.Height / lines.Count`, a hand `LinkHit`) and the list header strips placed by offset; sliders/search are controls |
+| `EquipmentTab` | UI.Abstractions | device list, segment buttons, confirm strips | the device-list rows (badge, name, source and dot as hand columns) and the profile-switch notice, a hand-placed modal whose backdrop does not swallow a press (#1444) |
+| `SessionTab` | UI.Abstractions | config panel, text inputs | the config form's scroll (field y recomputed beside the tree) and the observation list, which stops at the panel edge and does not scroll (#1445) |
+| `LiveSessionTab` | UI.Abstractions | exposure log, preview pan/zoom, charts (display) | the exposure log's rows, the running Flats / Polar rows and the frame split, all placed by hand (`viewer-layout-engine.md` P3); the abort confirm's backdrop does not swallow a press (#1444). Scroll is `ListScrollController` (P4), preview `PanZoomController` (P5) |
 | `NotificationsTab` | UI.Abstractions | list | none |
 | `GuiderTab` | UI.Abstractions | none (`HandleInput => false`) | none |
 | `SkyMapTab` | UI.Abstractions | map pan + click-vs-drag, wheel/pinch FOV zoom, F3 search modal | none (click-vs-drag on `TapOrDragGesture`, P5); FOV zoom stays custom by design (unproject-based, not pixel pan-zoom) |
-| `ImageRendererBase` -> `VkImageRenderer` | UI.Abstractions -> UI.Shared | file list, WB/wavelet/scrub sliders, viewport pan/zoom, resize divider, before/after split divider, toolbar dropdown, histogram | file-list divider drag + the WB / wavelet / scrub drag flags (see the drag-flag note below); the split divider is on `SplitCompareController` |
+| `ImageRendererBase` -> `VkImageRenderer` | UI.Abstractions -> UI.Shared | file list, WB/wavelet/scrub sliders, viewport pan/zoom, resize divider, before/after split divider, toolbar dropdown, histogram | the file-list divider and the scrub drag flags (`IsResizingFileList`, `IsScrubbing`; the WB and wavelet drags are `Content.Slider` leaves now); the toolbar, file list, info panel and transport bar are hand-painted (T3); the split divider is on `SplitCompareController` |
 | `VkPlanetaryTab` (extends `VkImageRenderer`) | UI.Gui | PiP ROI drag + inherited viewer surfaces | PiP drag (drag-to-position; gesture adoption optional) |
 | `PixelMenuWidget` | DIR.Lib | dropdown menu list | clip-only by design |
 | `TuiPlanner/Equipment/Session/LiveSession/Notifications/GuiderTab`, `TuiTabBar` | Cli/Tui | keyboard | n/a (pointer primitives do not apply) |
@@ -92,7 +95,8 @@ chromeless Live Session / polar / guide-cam previews (`ViewerState.HideChrome`).
    control's own drag (`RegisterClickable(..., onClick: _ => Split.BeginDrag(), cursor: ...)`), from the
    same rect the control painted -- so "draw == hit" (rule 3) extends to "draw == drag". Only motion and
    release are routed, in ONE line, in the one place both hosts already forward to. `SplitCompareController`
-   is the reference consumer; the three drag flags above predate it and are the remaining conversions.
+   is the reference consumer. Of the three drag flags above, `WaveletDragBand` went to a `Content.Slider`;
+   `IsResizingFileList` and `IsScrubbing` predate it and are the remaining conversions (2026-10-10).
 
    **A `Layout.Content.Slider` leaf is the finished form of this** (DIR.Lib 9.2): the engine paints the
    track, registers it, and arms a `DragCapture` holding the rect it was just painted into, so "draw ==

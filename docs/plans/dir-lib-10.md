@@ -1117,8 +1117,14 @@ better as arms, and the count stops wherever that leaves it. The 45 arms outside
 should only where they belong to a control. The rest of T1 and T2's leftovers wait on T3: `OverlayOwnsPointer`
 (11 hits) stays until the viewer's toolbar, histogram and file list are layout trees, since a hand-painted chrome
 that resolves its hover before any overlay has drawn needs a prediction and a tree needs none; and of the five
-drag flags only `IsResizingFileList` (7 hits) is left, until the file list is a tree (`IsDraggingSplit`, which
-nothing read, went with the declaration). Ctrl+Tab and Ctrl+Shift+Tab are not outstanding: they name the NEXT
+drag flags two are left, `IsResizingFileList` (7 hits) and `IsScrubbing` (5), and `IsDraggingSplit`, which
+nothing read, went with the declaration. **Corrected 2026-10-10:** this used to say only `IsResizingFileList`
+was left, and that it waits until the file list is a tree. Neither waits on T3: each one's region already
+registers an `onPress` that sets the flag and returns `null` (`ImageRendererBase.FileList.cs`, the grab;
+`ImageRendererBase.Transport.cs`, the scrub track), so returning a `DragCapture` from that same `onPress`
+deletes the flag and its move and release branches. `ImageRendererBase.TryBeginRegionDrag`, the viewer's stopgap
+for holding a capture outside the router, has no callers since `StandaloneViewerHost` routes press, move and
+release through the router, and can go too. Ctrl+Tab and Ctrl+Shift+Tab are not outstanding: they name the NEXT
 tab, so they have no node to sit on and are answered before the router in `GuiEventHandlerBase`, by decision.
 
 ## Acceptance for the whole plan
