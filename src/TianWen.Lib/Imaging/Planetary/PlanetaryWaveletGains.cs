@@ -88,7 +88,14 @@ public static class PlanetaryWaveletGains
     /// The noise of a stack of two halves inside <paramref name="disk"/>, ring by ring: the power of half their difference, which holds
     /// the stack's own noise and none of its signal, coloured as the stacking coloured it.
     /// </summary>
-    public static ImmutableArray<double> HalvesNoise(ReadOnlySpan<float> a, ReadOnlySpan<float> b, int width, int height, MetricDisk disk)
+    public static ImmutableArray<double> HalvesNoise(ReadOnlySpan<float> a, ReadOnlySpan<float> b, int width, int height, MetricDisk disk) =>
+        RingPower(HalvesNoisePlane(a, b, width, height, disk), width, height);
+
+    /// <summary>
+    /// What <see cref="HalvesNoise"/> takes its rings of: half the halves' difference inside <paramref name="disk"/> (<see cref="Interior"/>),
+    /// for a reading of the stack's noise alone in any other way (<see cref="PlanetaryWhiteLevel"/>).
+    /// </summary>
+    public static float[] HalvesNoisePlane(ReadOnlySpan<float> a, ReadOnlySpan<float> b, int width, int height, MetricDisk disk)
     {
         if (a.Length != b.Length)
         {
@@ -99,7 +106,7 @@ public static class PlanetaryWaveletGains
         {
             difference[i] = (a[i] - b[i]) / 2;
         }
-        return RingPower(Interior(difference, width, height, disk), width, height);
+        return Interior(difference, width, height, disk);
     }
 
     /// <summary>

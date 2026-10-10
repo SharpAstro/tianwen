@@ -334,7 +334,7 @@ public class PlanetarySharpeningTests
     }
 
     // The band error against the truth, bands 1 to 4, of the derived sharpening with the white level's noise and with the halves'.
-    private static async Task<(double Stack, double White, double Halves)> SharpenedWithEachNoise(System.Threading.CancellationToken ct)
+    private static async Task<(double Stack, double White, double Halves, PlanetaryWhiteLevel Level)> SharpenedWithEachNoise(System.Threading.CancellationToken ct)
     {
         var (truth, stack, halves) = NoisyHalves();
         var options = new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650] };
@@ -345,10 +345,12 @@ public class PlanetarySharpeningTests
         var reference = PlanetaryMetrics.Normalise(truth, Size, Size, disk);
         double Error(Image image)
             => PlanetaryMetrics.Fidelity(PlanetaryMetrics.Normalise(image.GetChannelSpan(0), Size, Size, disk), reference, Size, Size, disk, 4).Sum(b => b.Error);
-        var errors = (Error(stack), Error(white.Sharpened), Error(fromHalves.Sharpened));
+        white.WhiteLevels.ShouldHaveSingleItem().Halves.ShouldBe(double.NaN, "no halves, no reading of them");
+        var errors = (Error(stack), Error(white.Sharpened), Error(fromHalves.Sharpened), fromHalves.WhiteLevels.ShouldHaveSingleItem());
         TestContext.Current.TestOutputHelper?.WriteLine($"error, bands 1 to 4, the stack {errors.Item1:0.000}, the white level's "
             + $"{errors.Item2:0.000} (gains {string.Join(", ", white.Gains.Select(g => g.ToString("0.00")))}), the halves' {errors.Item3:0.000} "
-            + $"(gains {string.Join(", ", fromHalves.Gains.Select(g => g.ToString("0.00")))})");
+            + $"(gains {string.Join(", ", fromHalves.Gains.Select(g => g.ToString("0.00")))}); the white level, the stack's {errors.Item4.Stack:0.000e0} "
+            + $"against the halves' difference's {errors.Item4.Halves:0.000e0}");
         foreach (var image in new[] { stack, halves.A, halves.B, white.Sharpened, fromHalves.Sharpened })
         {
             image.Release();
@@ -362,9 +364,14 @@ public class PlanetarySharpeningTests
         // #1373: the halves' noise ring by ring is the white level where the noise is white, so the two derivations agree (1.153 and
         // 1.154 when it was written). Where it is not, the halves did not bring the gains nearer the truth: smoothed by 0.8 px, as a
         // demosaic smooths it, 1.069 against the white level's 1.063, and on the colour twins it closed a ninth of the gap to the oracle.
-        var (stack, white, halves) = await SharpenedWithEachNoise(TestContext.Current.CancellationToken);
+        var (stack, white, halves, level) = await SharpenedWithEachNoise(TestContext.Current.CancellationToken);
         white.ShouldBeLessThan(stack);
         halves.ShouldBe(white, 0.05 * white);
+        // The two white levels read the same noise (#1398), and the stack's carries the scene too, so it is never below the halves' but
+        // for the two noises' own sampling (thousands of coefficients, a few percent): 1.086 times when it was written, the scene this
+        // blurred planet keeps past 0.4 cycles a pixel.
+        double.IsFinite(level.Halves).ShouldBeTrue();
+        (level.Stack / level.Halves).ShouldBeInRange(0.95, 1.2);
     }
 
     [Fact(Timeout = 600_000)]

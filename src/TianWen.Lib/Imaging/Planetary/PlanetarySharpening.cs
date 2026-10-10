@@ -288,7 +288,18 @@ public sealed record PlanetarySharpenResult(Image Sharpened, bool Derived, Plane
     /// window's units (the disk 1 above its sky); empty where nothing was.
     /// </summary>
     public ImmutableArray<ImmutableArray<BandShrinkReading>> Shrinks { get; init; } = [];
+
+    /// <summary>Each channel's white level (<see cref="PlanetaryWhiteLevel"/>) where the gains were derived; empty for the preset.</summary>
+    public ImmutableArray<PlanetaryWhiteLevel> WhiteLevels { get; init; } = [];
 }
+
+/// <summary>
+/// A channel's white level past 0.4 cycles a pixel (<see cref="PlanetaryInverse.WhiteNoise"/>), the noise the derived gains' Wiener reads
+/// unless told otherwise, in the window's units: the stack's, and given its halves (<see cref="PlanetarySharpenOptions.NoiseHalves"/>) half
+/// their difference's, which holds the stack's noise and none of its scene (NaN without them). The stack's above the halves' is the scene's
+/// power that the white level reads as noise (#1398, the review's reading of #1373's mono twins).
+/// </summary>
+public readonly record struct PlanetaryWhiteLevel(double Stack, double Halves);
 
 /// <summary>
 /// A strength of the derived sharpening (<see cref="PlanetarySharpenOptions.Strength"/>) and the a trous gains it derives for each channel,
@@ -365,6 +376,7 @@ public static class PlanetarySharpening
         // The contrast-adaptive finish reads the STACK's luminance: the mean of every channel's window, each normalised on the disk.
         var contrastFrom = options.Pupil is not null && options.Finish.HasFlag(PlanetaryFinish.Adaptive) ? LuminanceWindow(master, limbWindow, own) : null;
         var cutoffs = new double[options.Pupil is null ? 0 : master.ChannelCount];
+        var whiteLevels = new PlanetaryWhiteLevel[options.Pupil is null ? 0 : master.ChannelCount];
         var wienerCuts = new (double From, double To)[options.Pupil is not null && options.Finish.HasFlag(PlanetaryFinish.Wiener) ? master.ChannelCount : 0];
         var shrinks = new ImmutableArray<BandShrinkReading>[options.ShrinkHalves is null ? 0 : master.ChannelCount];
         for (var c = 0; c < master.ChannelCount; c++)
@@ -410,10 +422,14 @@ public static class PlanetarySharpening
                 var power = PlanetaryWaveletGains.StackPower(window, size, size, disk);
                 var white = PlanetaryInverse.WhiteNoise(PlanetaryWaveletGains.Interior(window, size, size, disk), size, size);
                 // The halves cut as the master is, so half their difference is the master's own noise, ring by ring (#1373).
-                var noise = options.NoiseHalves is { } noiseHalves
-                    ? PlanetaryWaveletGains.HalvesNoise(limbWindow.Cut(noiseHalves.A.GetChannelSpan(c), width, height, level, scale),
+                var halvesNoise = options.NoiseHalves is { } noiseHalves
+                    ? PlanetaryWaveletGains.HalvesNoisePlane(limbWindow.Cut(noiseHalves.A.GetChannelSpan(c), width, height, level, scale),
                         limbWindow.Cut(noiseHalves.B.GetChannelSpan(c), width, height, level, scale), size, size, disk)
+                    : null;
+                var noise = halvesNoise is not null
+                    ? PlanetaryWaveletGains.RingPower(halvesNoise, size, size)
                     : ImmutableArray.CreateRange(Enumerable.Repeat(white, power.Length));
+                whiteLevels[c] = new PlanetaryWhiteLevel(white, halvesNoise is not null ? PlanetaryInverse.WhiteNoise(halvesNoise, size, size) : double.NaN);
                 var wiener = ReferenceEquals(target, diffraction)
                     ? PlanetaryWaveletGains.Wiener(power, noise, kernel, targetCut)
                     : PlanetaryWaveletGains.Wiener(power, noise, f => kernel(f) * diffraction.At(f), f => target.At(f) * (targetCut?.Invoke(f) ?? 1));
@@ -496,6 +512,7 @@ public static class PlanetarySharpening
             ChannelGains = [.. channelGains],
             Limb = options.Pupil is { } kept ? PlanetaryLiveLimb.Kept(master, fit, limbOptions, aspect, limbWindow, kept, options.WavelengthsNm, [.. models], [.. diffractions]) : null,
             Cutoffs = [.. cutoffs],
+            WhiteLevels = [.. whiteLevels],
             WienerCuts = [.. wienerCuts],
             Stops = stops,
             Shrinks = [.. shrinks],

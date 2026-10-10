@@ -390,6 +390,13 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             consoleHost.WriteScrollable(string.Create(inv,
                                 $"[planetary] the pupil's cutoff, each channel: {string.Join(", ", result.Cutoffs.Select(f => f.ToString("0.000", inv)))} cycles a pixel{sampled}"));
                         }
+                        if (result.WhiteLevels.Any(w => double.IsFinite(w.Halves)))
+                        {
+                            // The white level the Wiener reads by default, against the same estimator on the halves' difference (#1398): the
+                            // stack's above the halves' is scene the white level takes for noise.
+                            consoleHost.WriteScrollable(string.Create(inv,
+                                $"[planetary] {what}: the white level past 0.4 cycles a pixel, each channel, the stack's against its halves' difference: {string.Join("; ", result.WhiteLevels.Select(w => string.Create(inv, $"{w.Stack:0.000e0} against {w.Halves:0.000e0} ({w.Stack / w.Halves:0.00} times)")))}"));
+                        }
                         if (!result.WienerCuts.IsDefaultOrEmpty)
                         {
                             consoleHost.WriteScrollable(string.Create(inv,
