@@ -132,10 +132,13 @@ public enum PlanetaryLimbBand
 /// </summary>
 public enum PlanetaryUnderSky
 {
-    /// <summary>The sky: the sharpening is floored there.</summary>
+    /// <summary>The sky: the sharpening is floored there, as it was before #1471.</summary>
     Sky,
 
-    /// <summary>The planet's model through the pupil, which <see cref="PlanetaryLimbFix.ModelFeathered"/> draws just past the outline.</summary>
+    /// <summary>
+    /// The planet's model through the pupil, which <see cref="PlanetaryLimbFix.ModelFeathered"/> draws just past the outline: the default
+    /// (<see cref="PlanetarySharpenOptions.UnderSky"/>).
+    /// </summary>
     Model,
 }
 
@@ -310,8 +313,15 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     /// <summary>What the planet's last band inside its outline is floored at under <see cref="PlanetaryLimbFix.ModelFeathered"/> (#1329).</summary>
     public PlanetaryLimbBand LimbBand { get; init; }
 
-    /// <summary>What a pixel inside the planet's outline the sharpening drives to the sky or below takes under <see cref="PlanetaryLimbFix.ModelFeathered"/> (#1471).</summary>
-    public PlanetaryUnderSky UnderSky { get; init; }
+    /// <summary>
+    /// What a pixel inside the planet's outline the sharpening drives to the sky or below takes under <see cref="PlanetaryLimbFix.ModelFeathered"/>
+    /// (#1471): the planet's model through the pupil by default (the owner, 2026-10-11). At strength 2 the sky floor held 128 to 241 of the
+    /// Saturn twin's pixels a channel at the sky, on the C ring, the gap inside it and the B and A rings' edges, where the truth is 0.04 to 0.21
+    /// of the disk's mean: the model took their mean error from 0.136 to 0.035 and left no twin worse. At strength 1 it moves only the Saturn
+    /// twin's 18 pixels in the gap inside the C ring, toward the truth; every other master keeps its bits. A pixel the sharpening leaves above
+    /// the sky never moves.
+    /// </summary>
+    public PlanetaryUnderSky UnderSky { get; init; } = PlanetaryUnderSky.Model;
 
     // The master being sharpened is a colour master's luminance (LuminanceOnly): its finest band holds the colour filter's residue as the
     // colour planes do, so it follows ColourFinestBand as they would (#1187).
@@ -582,7 +592,8 @@ public static class PlanetarySharpening
         return new PlanetarySharpenResult(image, derived, derived ? options.Fix : PlanetaryLimbFix.LimbChannel, firstGains, edgeAt01, edgeAt03)
         {
             ChannelGains = [.. channelGains],
-            Limb = options.Pupil is { } kept ? PlanetaryLiveLimb.Kept(master, fit, limbOptions, aspect, limbWindow, kept, options.WavelengthsNm, [.. models], [.. diffractions]) : null,
+            Limb = options.Pupil is { } kept ? PlanetaryLiveLimb.Kept(master, fit, limbOptions, aspect, limbWindow, kept, options.WavelengthsNm, [.. models], [.. diffractions],
+                (options.LimbBand, options.UnderSky)) : null,
             Cutoffs = [.. cutoffs],
             WhiteLevels = [.. whiteLevels],
             WienerCuts = [.. wienerCuts],

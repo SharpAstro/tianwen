@@ -53,7 +53,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var colourTargetOpt = new Option<string>("--colour-target") { Description = "A colour master's Wiener target (#1376): full (the default) or cut (for a master stacked from split-CFA planes, the stack's way: tapered from 0.125 cycles a pixel to nothing at those planes' Nyquist, 0.25, by #1366's taper, so nothing is restored where a demosaiced plane carries nothing; not for a Bayer drizzle, whose Nyquist is its own), or both to compare them.", DefaultValueFactory = _ => "full" };
         var wienerFloorOpt = new Option<string>("--wiener-floor") { Description = "How the derived Wiener filter meets a kernel's transfer near nothing (#1406): step (the default: nothing restored under 0.02), tikhonov (H / (H^2 + 0.02^2) in place of 1 / H, so nothing steps), or both to compare them.", DefaultValueFactory = _ => "step" };
         var limbBandOpt = new Option<string>("--limb-band") { Description = "What the globe's last band inside its outline is floored at (#1329): sky (the default), model (the planet's model through the pupil, as drawn just past the outline), or both to compare them.", DefaultValueFactory = _ => "sky" };
-        var underSkyOpt = new Option<string>("--under-sky") { Description = "What a pixel inside the planet's outline takes when the sharpening drives it to the sky or below (#1471): sky (the default, the sharpening floored there), model (the planet's model through the pupil, as drawn just past the outline; nothing the sharpening leaves above the sky moves), or both to compare them.", DefaultValueFactory = _ => "sky" };
+        var underSkyOpt = new Option<string>("--under-sky") { Description = "What a pixel inside the planet's outline takes when the sharpening drives it to the sky or below (#1471): model (the default: the planet's model through the pupil, as drawn just past the outline; nothing the sharpening leaves above the sky moves), sky (the sharpening floored there, as before #1471), or both to compare them.", DefaultValueFactory = _ => "model" };
         var limbKOpt = new Option<string>("--limb-k") { Description = "Minnaert's k in the limb fit the gains are read through (#1221): fitted (the default), opal (held at OPAL's for the channels' wavelengths, Jupiter only), or both to compare them.", DefaultValueFactory = _ => "fitted" };
         var noiseOpt = new Option<string>("--noise") { Description = "The noise the derived gains' Wiener target is read against (#1373): white (the default: one level, read past 0.4 cycles a pixel), halves (ring by ring off the master's two halves, --halves, whose difference is the stack's own noise, coloured as a demosaic colours it), or both to compare them.", DefaultValueFactory = _ => "white" };
         var halvesOpt = new Option<string[]>("--halves")
@@ -137,7 +137,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     consoleHost.WriteError($"--limb-band {limbBandName}: sky, model or both");
                     return 1;
                 }
-                var underSkyName = (parseResult.GetValue(underSkyOpt) ?? "sky").ToLowerInvariant();
+                var underSkyName = (parseResult.GetValue(underSkyOpt) ?? "model").ToLowerInvariant();
                 PlanetaryUnderSky[] underSkies = underSkyName switch
                 {
                     "sky" => [PlanetaryUnderSky.Sky],
@@ -454,7 +454,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             + (targetCut ? "_targetcut" : "")
                             + (wienerFloor == PlanetaryWienerFloor.Tikhonov ? "_tikhonov" : "")
                             + (limbBand == PlanetaryLimbBand.Model ? "_limbmodel" : "")
-                            + (underSky == PlanetaryUnderSky.Model ? "_undersky" : "")
+                            + (underSky == PlanetaryUnderSky.Sky ? "_skyfloor" : "")
                             + (limbK == PlanetaryLimbDarkening.Opal ? "_opalk" : "")
                             + (shrink ? "_shrunk" : ""));
                         var finestWords = nonNegative && master.ChannelCount == 3 ? ", the colour's finest band derived, as a non-negative fit fits every band"
@@ -469,7 +469,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             + (targetCut && master.ChannelCount == 3 ? ", the colour target cut at the split planes' Nyquist" : "")
                             + (wienerFloor == PlanetaryWienerFloor.Tikhonov ? ", the Wiener floored by Tikhonov's form" : "")
                             + (limbBand == PlanetaryLimbBand.Model ? ", the limb's last band floored at the model" : "")
-                            + (underSky == PlanetaryUnderSky.Model ? ", the model where the sharpening falls below the sky" : "")
+                            + (underSky == PlanetaryUnderSky.Sky ? ", the sharpening floored at the sky inside the outline" : "")
                             + (limbK == PlanetaryLimbDarkening.Opal ? ", the limb's k held at OPAL's" : "")
                             + (shrink ? ", shrunk by its halves" : "");
                         var what = result.Derived ? $"derived{(nonNegative ? " non-negative" : "")}, {PlanetaryBestStack.Describe(fix)}{finestWords}{strengthWords}" : $"PlanetaryDefault{strengthWords}, the limb kept as stacked";
