@@ -286,7 +286,7 @@ public class PlanetaryColourReadingTests
             }
         }
         var meta = new ImageMeta("test", at - (duration / 2), duration, FrameType.Light, "", 0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN,
-            SensorType.Color, 0, 0, RowOrder.TopDown, float.NaN, float.NaN, ObjectName: "Jupiter") { IsColourBalanced = balanced };
+            SensorType.Color, 0, 0, RowOrder.TopDown, float.NaN, float.NaN, ObjectName: "Jupiter") { ColourBalanceSaturation = balanced ? 1 : null };
         return new Image(planes, BitDepth.Float32, max, 0f, 0f, meta);
     }
 
@@ -332,7 +332,7 @@ public class PlanetaryColourReadingTests
                 }
             }
         }
-        var master = new Image([Plane(red), Plane(green), Plane(blue)], BitDepth.Float32, 0.32f, 0, 0, new ImageMeta { IsColourBalanced = true });
+        var master = new Image([Plane(red), Plane(green), Plane(blue)], BitDepth.Float32, 0.32f, 0, 0, new ImageMeta { ColourBalanceSaturation = 1 });
         return (master, red, green, blue);
 
         float[,] Plane(float[] flat)

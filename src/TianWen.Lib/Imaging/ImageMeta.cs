@@ -348,15 +348,24 @@ public record struct ImageMeta(
     public PixelRect? BiasSection { get; init; } = null;
 
     /// <summary>
-    /// Whether a planetary colour balance took each channel's sky off this frame (FITS: the balance's <c>CBALSAT</c> card,
-    /// <see cref="Planetary.PlanetaryColourBalance"/>, #1212), so its sky sits at zero in every channel while its noise is wider where
-    /// the balance's gain is larger. The planetary stretch then takes one black point for all three channels (#1229).
+    /// The saturation a planetary colour balance took this frame to (FITS: the balance's <c>CBALSAT</c> card,
+    /// <see cref="Planetary.PlanetaryColourBalance"/>, #1212), null for a frame no balance touched (<see cref="IsColourBalanced"/>). Null,
+    /// not NaN: <c>new ImageMeta { ... }</c> on this record struct runs no property initialiser, so a NaN default read 0, balanced.
     /// </summary>
     /// <remarks>
-    /// Read here, never written from here: the balance's cards travel through the write-extras path (<c>ColourBalance.HeaderCards</c>),
-    /// and <see cref="Planetary.PlanetaryColourBalance.Apply"/> sets this on the image it makes.
+    /// Set by <see cref="Planetary.PlanetaryColourBalance.Apply"/> on the image it makes, read back by the one header parse, and written
+    /// by the one FITS writer whatever its caller passes: written only through the balance's own cards (<c>ColourBalance.HeaderCards</c>),
+    /// a balanced master that <c>planetary sharpen</c>, compose, derotate or an <c>image</c> verb wrote went out unmarked and came back
+    /// with a black point a channel, the navy sky of #1229 (#1411).
     /// </remarks>
-    public bool IsColourBalanced { get; init; } = false;
+    public double? ColourBalanceSaturation { get; init; }
+
+    /// <summary>
+    /// Whether a planetary colour balance took each channel's sky off this frame (<see cref="ColourBalanceSaturation"/>), so its sky sits at
+    /// zero in every channel while its noise is wider where the balance's gain is larger. The planetary stretch then takes one black point
+    /// for all three channels (#1229).
+    /// </summary>
+    public readonly bool IsColourBalanced => ColourBalanceSaturation is not null;
 
     /// <summary>
     /// Rescales the scale-dependent metadata by the same factor applied to the pixel values, keeping
