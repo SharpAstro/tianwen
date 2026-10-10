@@ -373,12 +373,14 @@ public class SessionImagingTests(ITestOutputHelper output)
         }
     }
 
-    [Fact(Timeout = 120_000)]
-    public async Task GivenHighAltitudeTargetWhenImagingLoopThenHighUtilization()
+    [Theory(Timeout = 120_000)]
+    [InlineData(30)]
+    [InlineData(20)]
+    public async Task GivenHighAltitudeTargetWhenImagingLoopThenHighUtilization(int subSeconds)
     {
         // given: M13 (RA=16.695h, Dec=+36.46) near zenith from Vienna in June
         var ct = TestContext.Current.CancellationToken;
-        var subExposure = TimeSpan.FromSeconds(30);
+        var subExposure = TimeSpan.FromSeconds(subSeconds);
         var scheduledDuration = TimeSpan.FromMinutes(30);
 
         var observations = new[]
@@ -432,8 +434,10 @@ public class SessionImagingTests(ITestOutputHelper output)
         output.WriteLine($"Scheduled duration: {scheduledDuration}");
         output.WriteLine($"Utilization: {utilization:P1}");
 
-        // With 30s subs over 30 min, each frame takes 2 ticks (start + fetch) → 30 frames = 50%.
-        utilization.ShouldBeGreaterThanOrEqualTo(0.45, "imaging utilization should be at least 45%");
+        // A frame was fetched on the tick its countdown reached, which comes before its shutter closes (the ticker's phase is not the
+        // exposure's), so the fetch failed and was tried again a tick later: 87.8 % at 20 s and 86.7 % at 30 s. The loop waits out the
+        // rest of the exposure instead (#1414): 92.2 and 96.7 %.
+        utilization.ShouldBeGreaterThanOrEqualTo(0.89, "imaging utilization should be at least 89%");
     }
 
     [Fact(Timeout = 120_000)]
