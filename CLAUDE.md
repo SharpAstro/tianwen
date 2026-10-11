@@ -919,6 +919,8 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
     `ViewerState.ChooseStrength`, #1314); **every channel keeps its own derived gains**
     (`DerivedGains.ChannelGainsAt`, `WaveletSharpenOptions.ChannelGains`); a new stop goes into that list,
     never a second one.
+  - **The derivation swings with the limb fit's Minnaert k** (#1498): an A/B between near-identical stacks reads the
+    UNSHARPENED masters, or holds k on both sides (`--limb-k`); `--channel-limb` and `--edge-reach` are options, none adopted.
   - **A master opened as a file gets the stacked view's own layer** (`LiveStackPreviewSource` on a
     `FixedMaster`), never a second sharpening path; **a Save writes what is on show** (`ShownDocument`); **a
     SER's view is one switch, Frames / Live / Auto** (`ViewerState.ChoosePlanetaryView`,

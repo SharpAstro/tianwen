@@ -4904,6 +4904,56 @@ below one on the 16" Saturn, were a fault.
 `AGainBelowZeroBesideALargeOneIsNoDipInTheFilter` pins the ASI678 Jupiter's set: its filter stays at one or above to Nyquist and peaks
 between 0.1 and 0.2 cycles a pixel. With the owner's answer on the target (the strength above), both of #1251's questions are answered.
 
+### The derivation moved by the limb fit's k (#1498)
+
+**Found** while measuring #1412 F3: two stacks of the Saturn twin `sat-p5s2` that agree band for band to 0.001 (the mesh's reach at 48 px
+against 24) derived gains 11.41, -1.89, 1.42 against 16.98, -4.82, 2.15 for bands 2 to 4, and their sharpened band 2 error 0.18 to 0.26
+apart. A colour balance moves it as far: the balanced master is exactly the unbalanced one, gained and offset per channel (red x1.124, green
+x1.000, blue x0.943, residual 1e-9), yet its gains came out 4.6 to 9.5 away.
+
+**The cause, measured.** The kernel is the limb edge's spectrum over the sharp model's, and the sharp model's edge follows Minnaert's k: the
+less the planet darkens toward the limb, the sharper the model's edge. k slides along the limb fit's flat valley with the radius and the core
+(#1221): on `sat-p5s2`'s I master the fitted k is 0.67 to 0.72, where the twin was made with 0.85, 0.82, 0.84. Held at the truth, the gains'
+gap under a balance falls 7 to 30 times, and the filter lands near the truth's own (3.6 to 3.9 at 0.15 cycles a pixel against 3.95; free, 6.9
+to 9.3). What is left: each channel's own fit moves by 0.01 px with the channel's gain (the fit's convergence is not quite scale-free), and
+the edge read past 0.2 cycles a pixel is noise (#1140), which turns that hundredth of a pixel into another kernel. Moving the window each
+channel is cut from (PKW below) changed nothing.
+
+**The arms** are oracles, the twins' own k held, to test the cause. Each is an option on `planetary sharpen` and `planetary stack`:
+`--channel-limb per-channel` (each colour channel read against its own limb fit, cold-started from the shared outline), `--limb-k 0.85,0.82,0.84`
+(a k held per channel, a shared fit holding their mean) and `--edge-reach 0.2` (the kernel fitted to the edge only to 0.2 cycles a pixel and
+carried past it by its physics). S is today's derivation; SK the shared fit at the true k; PK each channel's fit at its own true k; PKW PK
+with the window placed by the channels' own fits; SKR and PKR SK and PK with the reach at 0.2.
+
+**Rules, set on #1498 before measuring** (rules 2 and 3 run as readings for SK and PKR after rule 1):
+1. A balance moves nothing: on `sat-p5s2`'s I master, unbalanced against balanced, the largest gap in any channel's bands 2 to 4 gain at most 0.5.
+2. The reach moves nothing: on all four colour twins, the D (48 px) and I (24 px) masters' sharpened error within 0.05 in bands 1 to 3.
+3. It costs nothing: on the D masters, each channel's bands 1 to 4 error at most 1.02 of S's.
+4. Real captures, only for an arm a capture can run (none of these).
+
+| Arm | Rule 1: gap r / g / b (bar 0.5) | Rule 2: largest D against I (bar 0.05) | Rule 3: worst error over S's (bar 1.02) |
+|---|---|---|---|
+| S (today) | 4.62 / 3.65 / 9.49 | 0.262 (`sat-p5s2`) | |
+| SK | 0.66 / 0.66 / 0.32 | **0.036** (`uc-g4`; `sat-p5s2` 0.029) | 1.092 (`sat-p5` blue) |
+| PK | 1.32 / 0.36 / 1.71 | | |
+| PKW | 1.30 / 0.34 / 1.73 | | |
+| SKR | 0.39 / 1.67 / 2.48 | | |
+| PKR | **0.16 / 0.06 / 0.43** | 0.144 (`sat-p5s2`) | 1.157 (`sat-p5` blue) |
+
+- **S reproduces #1412 F3** to 0.0000 on all eight stacks, and with it the issue's own symptom: `sat-p5s2`'s D and I masters' sharpened
+  error 0.262 apart.
+- **SK takes the symptom out.** Rule 2 holds on every twin (0.029 on `sat-p5s2`). Rule 1 fails narrowly (0.66), since a balance still
+  reweights a fit of the channels' mean (its radius 30.06 against 29.98 px). Rule 3 fails on Saturn: blue's error rises 9.2 % on `sat-p5`
+  and 6.0 % on `sat-p5s2`, while red's falls 19.5 % on `sat-p5s2`. The Jupiter twins move within 3 % either way.
+- **PKR is the only arm a balance does not move,** and it fails rule 2 (0.144 on `sat-p5s2`) and rule 3 (up to 15.7 % on `sat-p5`).
+- So no arm holds rules 1 to 3. As set on #1498, no practical k (from what a capture carries) was tried: even the twins' own k, which no
+  capture has, does not make the derivation both stable and as good.
+
+**Where it stands.** The three switches stay options, none a default; logs and scripts are in `D:/temp/tianwen-scratch/i1498/hk/`. For
+practice: **an A/B between near-identical stacks reads the unsharpened masters** (as #1412 F3 did), or holds k on both sides with
+`--limb-k`, since the derivation's own swing can be larger than the change. The lever left, named on #1498 for the owner, is the radius
+held from the plate scale a recording carries (#1179), which takes the radius out of the valley rather than k.
+
 ### The strength stops in the viewer (#1314)
 
 **The owner's ask (2026-10-06)**, looking at the 12-inch SCT Jupiter at the truth, at 2 and beside its post: the extra sharpening belongs in
