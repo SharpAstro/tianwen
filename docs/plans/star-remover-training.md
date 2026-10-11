@@ -1812,6 +1812,41 @@ What it changes:
   239,000, all within the last 7,000 of 240,000 steps, and R2f was still improving at the end. What the recipe reaches is
   therefore not yet measured, only what it reaches in 240,000 steps.
 
+#### R2g: R2f run to convergence, pre-registered (2026-10-12)
+
+Written before it trains (the owner's goal for the day: get training going again). Tracked by #1338 with the rest of
+R2e's line. One run: R2f again, seed 0, from the same runner and trainer (`C:\temp\e2\r2ds-run`, identical to R2f's
+snapshot `scripts-r2f`) on the same `synth3` cache (moved byte for byte from E: to `C:\temp\tianwen-scratch\r2-synth3`
+on 2026-10-11), with the cap raised from 240,000 to 480,000: `run-r2.ps1 -Tag r2g -Arms synth3 -SeedCount 1 -Patience 24
+-Steps 480000`. Under the plateau schedule the cap only bounds the loop, so the run retraces R2f to step 240,000 and goes
+on at R2f's last rate (1.25e-5, its fourth halving at step 213,000) until 24 scores pass without a 0.1 % gain. It is scored
+by the same binary on A's draws and set against R2f's column above. **One seed against itself**, so the 12.9-point spread
+between seeds on bright stars does not enter: every difference read here is the steps past the cap and nothing else.
+
+**The question.** What R2f's recipe reaches, which its read left open.
+
+**Predictions.**
+0. **It is R2f to step 240,000**: every held-out line through 240,000 equals R2f's log to the printed digits, as R2c's
+   convergence run equalled R2b's at 10,000, 30,000 and 60,000. High. If not, it is read as a second seed against R2e's
+   band, and nothing below is read as a gain from length.
+1. **It ends on its own before 480,000 steps.** Moderate to high: the best held-out window fell 3.9 % in the 38,000
+   steps from 201,000 to 239,000 (2.791e-6 to 2.683e-6), a rate that cannot hold a 0.1 % gain per 12,000 steps for long.
+2. **The held-out best falls 0.5 to 5 % below R2f's 2.683e-6.** Moderate.
+3. **Length buys little removal**: clean removal within 2 points of R2f at 5-20 sigma (76.8) and at 20-100 (68.9).
+   Low to moderate. The precedent cuts the other way: R2c's convergence run gained 8.8 points at 5-20 sigma past R2b's
+   cap. But R2b stopped at 60,000 steps on its third rate, and R2f has already spent 27,000 steps on its last.
+4. **The bright stars do not get worse**: clean 100-1000 sigma at least 41.3 (R2f 43.3), the bright cores under 2 % of
+   the error (R2f 1.63 %). Moderate.
+5. **The sky**: far sky at most 0.37, R2e's bar. Moderate.
+
+**Kill:** the held-out objective improves while clean removal falls by more than 3.1 points at 5-20 sigma or 4.6 at
+100-1000. Then the plateau's objective and the removal it is meant to teach part past 240,000 steps, its convergence is
+not the stopping rule for this task, and the next arm keeps R2f's length.
+
+**What it decides.** If (3) holds, 240,000 steps is the recipe's length within what the eval reads and the cap stops being
+a question; R2f stands as the recipe's number. If (3) fails upward, every arm since R2e was read short, as R2c found of
+R2b, and the next arms run to convergence at a raised cap.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
