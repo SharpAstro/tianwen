@@ -25,7 +25,7 @@ namespace TianWen.AI.Imaging;
 /// <para><b>This exists so that nothing outside the product has to know how a master is named.</b>
 /// The dataset gallery's row builder was a Python script that listed <c>session-masters/</c> itself,
 /// and to do that it had to restate three rules the product owns: which <c>.fits</c> beside a master
-/// is its coverage sidecar (<see cref="IntegrationFitsWriter.RejectionMapSuffix"/>), which suffix
+/// is its coverage sidecar (<see cref="IntegrationFitsWriter.CoverageMapSuffix"/>), which suffix
 /// marks one pier side of a flipped night (<see cref="ImagingSession.FlipSideKey"/> through
 /// <see cref="DatasetTileExporter.Sanitize"/>), and how a stats record's session id becomes a file
 /// name (<see cref="RetainedMasterStore.PathFor"/>). It also decided where a master's sky is by a
@@ -50,7 +50,9 @@ public static class DatasetMasterInventory
     /// <param name="FlipSide"><c>"a"</c> / <c>"b"</c> for one pier side of a flipped night, <c>"both"</c>
     /// for the combined master of a night that was split, null for a night that never flipped.</param>
     /// <param name="FlipGroup">The stem shared by the three masters of a flipped night; null otherwise.</param>
-    /// <param name="HasCoverageSidecar">Whether the coverage / rejection sidecar sits beside the master.</param>
+    /// <param name="HasCoverageSidecar">Whether a coverage plane sits beside the master: its coverage-named sidecar, or,
+    /// for a drizzle master written before coverage had its own name, its rejection sidecar. A rejection FRACTION is not
+    /// coverage.</param>
     /// <param name="Solved">Whether the header carries a plate solution the product can read.</param>
     /// <param name="StackedFrames"><c>STACK_N</c>: subs that reached the master.</param>
     /// <param name="Lights">Subs the session's PSF record measured, when there is one.</param>
@@ -132,10 +134,14 @@ public static class DatasetMasterInventory
             }
 
             var header = ReadHeader(path);
-            // Either form: compressed, as they are written now, or plain, as every store written
-            // before that holds them. File.Exists on the logical name alone stopped seeing them.
-            var hasSidecar = IntegrationFitsWriter.ExistingSidecarPath(
-                IntegrationFitsWriter.RejectionPathFor(path)) is not null;
+            // A coverage plane where TryReadCoverageMap looks for one: the coverage-named sidecar every strategy has
+            // written since #327, else a drizzle master's rejection slot, which held its weight plane before coverage
+            // had a name of its own. Anyone else's rejection sidecar is a FRACTION, not coverage: checking that slot
+            // alone reported 81 of 194 masters for a store that carried a coverage plane beside every one (#713).
+            // Either form of each: compressed, as they are written now, or plain, as older stores hold them.
+            var hasSidecar = IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.CoveragePathFor(path)) is not null
+                || (Card(header, "STRATEGY") is { } strategy && strategy.Contains("Drizzle", StringComparison.OrdinalIgnoreCase)
+                    && IntegrationFitsWriter.ExistingSidecarPath(IntegrationFitsWriter.RejectionPathFor(path)) is not null);
 
             int? patchX = null, patchY = null;
             if (skyPatchSize is { } patch && Image.TryReadFitsFile(path, out var image))
