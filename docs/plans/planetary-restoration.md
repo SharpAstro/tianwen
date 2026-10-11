@@ -3344,6 +3344,31 @@ The core still takes two widths (4.3 to 4.5 px on two crops, 8.6 px on the rest)
   the default) was never run, since rules 3 and 5 had decided; it runs with that arm, as do rule 3 and rule 5 again.
 - **Rule 2** (every other test passes with the held k on) was not run: rules 3 and 5 had already decided the outcome.
 
+##### A k per colour channel (#1478): measured, an option
+
+**Measured** (2026-10-11), #1221's rules 2, 3 and 5 set again on #1478 before it ran. The arm is `--fit-channels per-channel --fit-k opal`
+(on `planetary sharpen`, `stack` and `limb`, spelled `--channel-limb` and `--limb-k` until #1479): each colour channel's limb fit holds
+OPAL's k at its own wavelength (red 0.999, green 0.96, blue 0.94), and its sharp model and gains are drawn from its own fit
+(`PlanetaryLimbFit.FitEachChannel`, the one routine the sharpening and `planetary limb` fit a colour image's channels by; a channel whose fit
+finds no light on the disk keeps the shared fit). A mono image is one channel, so on mono stacks the arm is the held k above. All three
+rules fail, so it stays an option:
+
+| rule | free | the arm | |
+|---|---|---|---|
+| 3: WinJUPOS, 2022-09-03 (nine images) | centre 0.729 px, \|dR\| 0.476 % | 0.756 px, 0.357 % | fails on the centre |
+| 3: WinJUPOS, 2022-09-29 (seven) | 0.539 px, 0.737 % | 0.575 px, 0.329 % | fails on the centre |
+| 5: uc-g4, bands 1 to 4 error r / g / b | 1.544 / 1.275 / 1.408 | 1.438 / 1.258 / **1.511** | fails on blue (+7.3 %) |
+| 5: the three mono twins | | -5.8, -10.9, -9.2 % | hold |
+| 2: the unit suite with the arm the default | | 9 of 9,079 tests fail, all in the live view and Derive | fails |
+
+- **The radius comes much nearer the hand-set outlines and the centre moves 0.03 px further, as with one k for the image.** Fitting
+  each channel did not change what holding k does to the centre.
+- **Blue fails because the twin's blue is not OPAL's 460 nm.** uc-g4's blue was made from the F395N map with its k of 0.85, where OPAL's
+  table reads 0.94 at 460 nm, so the arm holds blue at a k 0.09 from its truth. Red and green, whose maps are their own filters', improve
+  (-6.9 % and -1.3 %), and every channel's limb profile improves 0 to 33 %. A twin whose blue is made at 460 nm would read the arm fairly.
+- **The live view has no per-channel limb.** Under the arm `PlanetarySharpenResult.Limb` is null, so the live stack and Derive keep none;
+  that is rule 2's failures, and the work the arm owes before it could be anyone's default.
+
 #### A twin's frames carry a short wing
 
 `planetary degrade` still computes each frame's PSF on 128 fine samples, ±32 px at the twins' 650 nm and 0.497"/px, so a frame carries the
