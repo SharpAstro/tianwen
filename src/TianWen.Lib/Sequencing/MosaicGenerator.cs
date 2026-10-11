@@ -8,8 +8,9 @@ namespace TianWen.Lib.Sequencing;
 
 /// <summary>
 /// Generates mosaic panel grids for extended objects that don't fit in a single FOV.
-/// Panels are ordered by RA ascending (east-to-west) so that panels crossing the
-/// meridian first are imaged first, resulting in at most one GEM flip per mosaic cycle.
+/// Panels are returned by RA ascending, westernmost first, the panel that transits first. The scheduler images them
+/// in that order, measured across RA 0h, and places the block wholly on one side of the meridian where it can
+/// (<c>ObservationScheduler.ScheduleMosaicGroup</c>, #1501), so a mosaic needs no flip of its own.
 /// </summary>
 public static class MosaicGenerator
 {

@@ -289,8 +289,11 @@ internal static class ObservationScheduler
 
         foreach (var (groupId, group) in mosaicGroups)
         {
-            // Order panels by RA ascending within the group
-            group.Sort((a, b) => a.Proposal.Target.RA.CompareTo(b.Proposal.Target.RA));
+            // West first: the westmost panel reaches the meridian first. RA is measured east of one panel, so a strip
+            // across RA 0h keeps its order (a plain RA sort put 0.0h before 23.6h, and imaged the westmost panel last).
+            var referenceRa = group[0].Proposal.Target.RA;
+            group.Sort((a, b) => CoordinateUtils.ConditionHA(a.Proposal.Target.RA - referenceRa)
+                .CompareTo(CoordinateUtils.ConditionHA(b.Proposal.Target.RA - referenceRa)));
 
             // Use the group's best score and highest priority for ordering
             var bestScore = group.Max(g => g.Score.TotalScore);
@@ -320,8 +323,6 @@ internal static class ObservationScheduler
         var sparesMap = ImmutableDictionary.CreateBuilder<int, ImmutableArray<ScheduledObservation>>();
         var allocatedBins = new bool[binCount];
 
-        var siderealTimeAtAstroDark = Transform.CalculateLocalSiderealTime(astroDark.UtcDateTime, transform.SiteLongitude);
-
         // Schedule each proposal (or mosaic group) into its optimal time window
         foreach (var (proposal, score, groupId) in schedulable)
         {
@@ -335,7 +336,7 @@ internal static class ObservationScheduler
                 // Schedule entire mosaic group as a contiguous block
                 ScheduleMosaicGroup(mosaicGroup, proposal, score, astroDark, defaultObservationTime,
                     defaultSubExposure, defaultGain, defaultOffset, allocatedBins, binCount,
-                    siderealTimeAtAstroDark, availableFilters, defaultNarrowbandSubExposure,
+                    transform.SiteLongitude, availableFilters, defaultNarrowbandSubExposure,
                     primaryList, sparesMap, spares, minHeightAboveHorizon);
             }
             else
@@ -418,7 +419,7 @@ internal static class ObservationScheduler
         int? defaultOffset,
         bool[] allocatedBins,
         int binCount,
-        double siderealTimeAtAstroDark,
+        double siteLongitude,
         IReadOnlyList<InstalledFilter>? availableFilters,
         TimeSpan? defaultNarrowbandSubExposure,
         ImmutableArray<ScheduledObservation>.Builder primaryList,
@@ -429,7 +430,22 @@ internal static class ObservationScheduler
         var perPanelTime = representativeProposal.ObservationTime ?? defaultObservationTime;
         var totalBinsNeeded = Math.Max(1, mosaicGroup.Count * Math.Max(1, (int)Math.Ceiling(perPanelTime / TimeBinDuration)));
 
-        var bestStartBin = FindBestStartBin(allocatedBins, totalBinsNeeded, representativeScore.OptimalStart, astroDark, binCount);
+        // Where the block starts, best first (#1501): the whole mosaic on one side of the meridian, so it needs no flip at
+        // all, which is what a mount whose flip waits on its operator (the SkyGuider Pro) must have to image it unattended;
+        // failing that, each panel on one side, so a goto mount changes pier side between two panels, never in one;
+        // failing that, the first free block, as before, with a panel that straddles its transit flagged. The first two
+        // also keep every panel above the minimum height, since they may move the block away from the target's window.
+        var bestStartBin = -1;
+        foreach (var wanted in (ReadOnlySpan<MosaicMeridianFit>)[MosaicMeridianFit.OneSide, MosaicMeridianFit.EachPanel, MosaicMeridianFit.Any])
+        {
+            bestStartBin = FindBestStartBin(allocatedBins, totalBinsNeeded, representativeScore.OptimalStart, astroDark, binCount,
+                bin => FitOf(astroDark + TimeBinDuration * bin) <= wanted);
+            if (bestStartBin >= 0)
+            {
+                break;
+            }
+        }
+
         if (bestStartBin < 0)
         {
             return;
@@ -453,11 +469,7 @@ internal static class ObservationScheduler
             var panelStart = blockStart + perPanelTime * i;
             var panelDuration = perPanelTime;
 
-            // Determine AcrossMeridian per panel using its individual transit time
-            var panelHA = CoordinateUtils.ConditionHA(siderealTimeAtAstroDark - panelProposal.Target.RA);
-            var panelCrossMeridianTime = astroDark - TimeSpan.FromHours(panelHA);
-            var acrossMeridian = panelCrossMeridianTime >= panelStart
-                && panelCrossMeridianTime <= panelStart + panelDuration;
+            var acrossMeridian = SideOfMeridian(panelProposal.Target.RA, panelStart, panelDuration, siteLongitude) is MeridianSide.Straddles;
 
             var panelSubExposure = panelProposal.SubExposure ?? subExposure;
             var filterPlan = ResolveFilterPlan(panelProposal, panelSubExposure, availableFilters,
@@ -473,6 +485,73 @@ internal static class ObservationScheduler
             AttachSpares(slotIndex, panelStart, panelDuration, panelSubExposure, panelGain, panelOffset,
                 availableFilters, defaultNarrowbandSubExposure, spares, minHeightAboveHorizon, sparesMap);
         }
+
+        MosaicMeridianFit FitOf(DateTimeOffset blockStart)
+        {
+            MeridianSide? firstSide = null;
+            var oneSide = true;
+            for (var i = 0; i < mosaicGroup.Count; i++)
+            {
+                var (panel, score) = mosaicGroup[i];
+                var start = blockStart + perPanelTime * i;
+                var side = SideOfMeridian(panel.Target.RA, start, perPanelTime, siteLongitude);
+                if (side is MeridianSide.Straddles
+                    || AltitudeNear(score, start) <= minHeightAboveHorizon
+                    || AltitudeNear(score, start + perPanelTime) <= minHeightAboveHorizon)
+                {
+                    return MosaicMeridianFit.Any;
+                }
+
+                oneSide &= firstSide is null || firstSide == side;
+                firstSide = side;
+            }
+
+            return oneSide ? MosaicMeridianFit.OneSide : MosaicMeridianFit.EachPanel;
+        }
+    }
+
+    /// <summary>How well a mosaic block keeps off the meridian, best first.</summary>
+    private enum MosaicMeridianFit
+    {
+        /// <summary>Every panel on the same side: no flip within the mosaic.</summary>
+        OneSide,
+
+        /// <summary>No panel straddles its transit, but the mosaic changes side between two panels.</summary>
+        EachPanel,
+
+        /// <summary>A panel straddles its transit, or drops below the minimum height.</summary>
+        Any,
+    }
+
+    private enum MeridianSide { East, West, Straddles }
+
+    /// <summary>
+    /// Where a slot lies against its target's meridian (the upper culmination), from the sidereal time at its start: wholly
+    /// east, wholly west, or across it, which an equatorial mount meets with a flip in the middle of the slot.
+    /// </summary>
+    private static MeridianSide SideOfMeridian(double raHours, DateTimeOffset start, TimeSpan duration, double siteLongitude)
+    {
+        var startHa = CoordinateUtils.ConditionHA(Transform.CalculateLocalSiderealTime(start.UtcDateTime, siteLongitude) - raHours);
+        var endHa = startHa + duration.TotalHours * Constants.SIDEREAL_HOURS_PER_SOLAR_HOUR;
+        return endHa <= 0 ? MeridianSide.East : startHa >= 0 ? MeridianSide.West : MeridianSide.Straddles;
+    }
+
+    /// <summary>The target's altitude at the scored sample nearest <paramref name="time"/>.</summary>
+    private static double AltitudeNear(ScoredTarget score, DateTimeOffset time)
+    {
+        var nearest = double.NaN;
+        var bestGap = TimeSpan.MaxValue;
+        foreach (var (key, info) in score.ElevationProfile)
+        {
+            var gap = (info.Time - time).Duration();
+            if (key >= RaDecEventTime.Balance && gap < bestGap)
+            {
+                bestGap = gap;
+                nearest = info.Alt;
+            }
+        }
+
+        return nearest;
     }
 
     private static ImmutableArray<FilterExposure> ResolveFilterPlan(
@@ -546,7 +625,8 @@ internal static class ObservationScheduler
         }
     }
 
-    private static int FindBestStartBin(bool[] allocatedBins, int binsNeeded, DateTimeOffset optimalStart, DateTimeOffset nightStart, int binCount)
+    private static int FindBestStartBin(bool[] allocatedBins, int binsNeeded, DateTimeOffset optimalStart, DateTimeOffset nightStart, int binCount,
+        Func<int, bool>? accept = null)
     {
         // Preferred bin based on optimal start time
         var preferredBin = Math.Max(0, Math.Min(binCount - 1, (int)((optimalStart - nightStart) / TimeBinDuration)));
@@ -556,7 +636,8 @@ internal static class ObservationScheduler
         {
             foreach (var candidate in new[] { preferredBin + offset, preferredBin - offset })
             {
-                if (candidate >= 0 && candidate + binsNeeded <= binCount && AreBinsFree(allocatedBins, candidate, binsNeeded))
+                if (candidate >= 0 && candidate + binsNeeded <= binCount && AreBinsFree(allocatedBins, candidate, binsNeeded)
+                    && (accept is null || accept(candidate)))
                 {
                     return candidate;
                 }

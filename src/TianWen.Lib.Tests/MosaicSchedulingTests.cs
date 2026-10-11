@@ -2,6 +2,7 @@ using System;
 using System.Collections.Immutable;
 using System.Linq;
 using Shouldly;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
@@ -149,38 +150,88 @@ public sealed class MosaicSchedulingTests
         tree[0].Target.ShouldBe(M42);
     }
 
-    [Fact]
-    public void Schedule_MosaicGroup_AcrossMeridianPerPanel()
+    /// <summary>
+    /// Where a slot lies against its own target's meridian, read from the sidereal time at its two ends: a test's own
+    /// arithmetic, so it does not take the scheduler's word for the flag it is checking.
+    /// </summary>
+    private static MeridianSide SideOf(ScheduledObservation observation)
     {
-        var transform = CreateTransform();
-        var mosaicId = Guid.NewGuid();
+        var startHa = CoordinateUtils.ConditionHA(
+            Transform.CalculateLocalSiderealTime(observation.Start.UtcDateTime, SiteLongitude) - observation.Target.RA);
+        var endHa = startHa + observation.Duration.TotalHours * 1.00273790935;
+        return endHa <= 0 ? MeridianSide.East : startHa >= 0 ? MeridianSide.West : MeridianSide.Straddles;
+    }
 
-        // Panels spanning a range of RA: they'll have different meridian crossing times
-        var panels = new[]
-        {
-            new ProposedObservation(new Target(0.50, 41.0, "East", null), MosaicGroupId: mosaicId,
-                ObservationTime: TimeSpan.FromMinutes(30)),
-            new ProposedObservation(new Target(1.00, 41.0, "West", null), MosaicGroupId: mosaicId,
-                ObservationTime: TimeSpan.FromMinutes(30)),
-        };
+    private enum MeridianSide { East, West, Straddles }
 
-        var tree = ObservationScheduler.Schedule(
+    private static ScheduledObservationTree ScheduleMosaic(params ProposedObservation[] panels)
+        => ObservationScheduler.Schedule(
             panels,
-            transform,
+            CreateTransform(),
             AstroDark,
             AstroTwilight,
             MinHeight,
             defaultGain: 0,
             defaultOffset: 0,
             defaultSubExposure: TimeSpan.FromSeconds(120),
-            defaultObservationTime: TimeSpan.FromMinutes(30)
-        );
+            defaultObservationTime: TimeSpan.FromMinutes(30));
 
-        tree.Count.ShouldBe(2);
-        // Each panel should have its own AcrossMeridian flag (may differ)
-        // We just verify they're both scheduled with boolean flags set
-        tree[0].AcrossMeridian.ShouldBeOneOf(true, false);
-        tree[1].AcrossMeridian.ShouldBeOneOf(true, false);
+    [Fact]
+    public void Schedule_MosaicGroup_IsPlacedWhollyOnOneSideOfTheMeridian()
+    {
+        // A strip transiting early in the night, whose 45-minute panels outrun their 12-minute RA spacing: placed from
+        // the start of its window, as it once was, the second panel straddles its transit and flips mid-panel (#1501).
+        var mosaicId = Guid.NewGuid();
+        var tree = ScheduleMosaic(
+            new ProposedObservation(new Target(0.40, 41.0, "P0", null), MosaicGroupId: mosaicId, ObservationTime: TimeSpan.FromMinutes(45)),
+            new ProposedObservation(new Target(0.60, 41.0, "P1", null), MosaicGroupId: mosaicId, ObservationTime: TimeSpan.FromMinutes(45)),
+            new ProposedObservation(new Target(0.80, 41.0, "P2", null), MosaicGroupId: mosaicId, ObservationTime: TimeSpan.FromMinutes(45)),
+            new ProposedObservation(new Target(1.00, 41.0, "P3", null), MosaicGroupId: mosaicId, ObservationTime: TimeSpan.FromMinutes(45)));
+
+        tree.Count.ShouldBe(4);
+        var sides = Enumerable.Range(0, tree.Count).Select(i => SideOf(tree[i])).ToArray();
+        sides.ShouldNotContain(MeridianSide.Straddles, $"no panel may straddle its transit: {string.Join(", ", sides)}");
+        sides.Distinct().Count().ShouldBe(1, $"the whole mosaic is on one side, so no pier change within it: {string.Join(", ", sides)}");
+        for (var i = 0; i < tree.Count; i++)
+        {
+            tree[i].AcrossMeridian.ShouldBeFalse($"panel {i} is flagged as crossing");
+        }
+    }
+
+    [Fact]
+    public void Schedule_MosaicGroup_OrdersWestFirstAcrossRaZero()
+    {
+        // A strip through Cassiopeia crosses RA 0h; a plain RA sort would put 0.0h first and 23.6h last, so the
+        // westmost panel, the first to reach the meridian, would be imaged last.
+        var mosaicId = Guid.NewGuid();
+        var tree = ScheduleMosaic(
+            new ProposedObservation(new Target(0.0, 60.0, "C", null), MosaicGroupId: mosaicId),
+            new ProposedObservation(new Target(23.8, 60.0, "B", null), MosaicGroupId: mosaicId),
+            new ProposedObservation(new Target(0.2, 60.0, "D", null), MosaicGroupId: mosaicId),
+            new ProposedObservation(new Target(23.6, 60.0, "A", null), MosaicGroupId: mosaicId));
+
+        tree.Count.ShouldBe(4);
+        string.Concat(Enumerable.Range(0, tree.Count).Select(i => tree[i].Target.Name)).ShouldBe("ABCD");
+    }
+
+    [Fact]
+    public void Schedule_MosaicGroup_ThatCannotAvoidTheMeridianIsStillScheduledAndFlaggedTruly()
+    {
+        // Twelve hours of M42 panels: longer than it stays above the minimum height, so no placement keeps it off the
+        // meridian. It is still scheduled, and each panel's flag says what its slot does.
+        var mosaicId = Guid.NewGuid();
+        var panels = Enumerable.Range(0, 6)
+            .Select(i => new ProposedObservation(new Target(5.50 + 0.05 * i, -5.4, $"M42_{i}", null),
+                MosaicGroupId: mosaicId, ObservationTime: TimeSpan.FromHours(2)))
+            .ToArray();
+
+        var tree = ScheduleMosaic(panels);
+
+        tree.Count.ShouldBe(6);
+        for (var i = 0; i < tree.Count; i++)
+        {
+            tree[i].AcrossMeridian.ShouldBe(SideOf(tree[i]) is MeridianSide.Straddles, $"panel {i}'s flag disagrees with its slot");
+        }
     }
 
     [Fact]
