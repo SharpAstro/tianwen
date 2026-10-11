@@ -40,6 +40,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var finestOpt = new Option<string>("--colour-finest") { Description = "A colour master's finest band (#1187): held (as stacked on every colour, the default), derived (its derived gain), heldbutgreen (as stacked on red and blue), bounded (fitted with the others, never above as stacked, free to fall, #1376), or all to compare them.", DefaultValueFactory = _ => "held" };
         var ringEdgeOpt = new Option<bool>("--edge-rings") { Description = "Read Saturn's edge off its rings' outer rim as well as its polar limb (#1256; #1479: was --ring-edge)." };
         var edgeReachOpt = new Option<double?>("--edge-reach") { Description = "Take the kernel as the physical one fitted to the limb's edge from 0.02 cycles a pixel to this, carried by its physics to the cutoff, rather than the edge as read at every frequency." };
+        var plateScaleOpt = new Option<double?>("--plate-scale") { Description = "The master's plate scale in seconds of arc a pixel: the limb fit the gains are read through holds the planet's equatorial radius at the ephemeris's semi-diameter over it, rather than fitting it (#1498)." };
         var slidersOpt = new Option<bool>("--sliders") { Description = "Also sharpen as a live view's wavelet sliders do once a derivation seeds them (the same gains over the whole master, no denoise, held at its darkest level), then drawn outside the limb by the limb the derivation keeps (#1201), and score both: whether the live view reaches the derived sharpening. Says how far the live drawing lies from this sharpening outside the limb, and what the drawing costs beside the sliders' wavelet pass." };
         var finishOpt = new Option<string>("--finish") { Description = "A finishing step after the derived sharpening (#1279): none (the default), cutoff (a low-pass at the pupil's diffraction cutoff), adaptive (the change from the stack weighted by the stack's local contrast, at matched noise), kolivas (Kolivas's own damped Richardson-Lucy step, a reference), wiener (Kolivas's FFT denoise: a smooth low-pass fitted to the sharpened window's Wiener target), joined by + (adaptive+cutoff); a comma list sharpens with each, each written and scored.", DefaultValueFactory = _ => "none" };
         var kolivasAmountOpt = new Option<double>("--kolivas-amount") { Description = "The amount --finish kolivas takes, as his tool's slider (15.6, his PlanetRecon's judging recipe).", DefaultValueFactory = _ => 15.6 };
@@ -72,13 +73,13 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var command = new Command("sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
         {
             Arguments = { masterArg },
-            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, gainsOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbFloorOpt, limbKOpt, channelLimbOpt, halvesOpt, autoOpt, designOpt },
+            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, plateScaleOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, gainsOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbFloorOpt, limbKOpt, channelLimbOpt, halvesOpt, autoOpt, designOpt },
         };
 
         // What --auto refuses: every setting the pipeline's sharpening otherwise takes (A2, #1389, found none worth tuning per capture).
         Option[] autoRefuses =
         [
-            fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, finishOpt, kolivasAmountOpt, targetOpt, gainsOpt,
+            fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, plateScaleOpt, ringEdgeOpt, slidersOpt, finishOpt, kolivasAmountOpt, targetOpt, gainsOpt,
             shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbFloorOpt, limbKOpt, channelLimbOpt, halvesOpt, pupil.Obstruction,
         ];
 
@@ -144,6 +145,11 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 if (PlanetaryMasterScore.LimbReading(consoleHost, parseResult.GetValue(channelLimbOpt), limbKName == "both" ? "fitted" : limbKName) is not
                     var (limbPerChannel, oneLimbK, heldK))
                 {
+                    return 1;
+                }
+                if (parseResult.GetValue(plateScaleOpt) is <= 0 and var badScale)
+                {
+                    consoleHost.WriteError(string.Create(inv, $"--plate-scale {badScale}: seconds of arc a pixel, above 0"));
                     return 1;
                 }
                 PlanetaryLimbDarkening[] limbKs = limbKName == "both" ? [PlanetaryLimbDarkening.Fitted, PlanetaryLimbDarkening.Opal] : [oneLimbK];
@@ -422,7 +428,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 foreach (var (fix, nonNegative, finest, strength, (finish, finishWord), luminance, target, halvesNoise, targetCut, wienerFloor, limbBand, underSky, limbK) in variants)
                 {
                     ct.ThrowIfCancellationRequested();
-                    if (PlanetarySharpening.Sharpen(master, options with { Fix = fix, NonNegative = nonNegative, ColourFinestBand = finest, Strength = strength, EdgeReach = parseResult.GetValue(edgeReachOpt), RingEdge = parseResult.GetValue(ringEdgeOpt), Finish = finish, KolivasAmount = kolivasAmount, LuminanceOnly = luminance, ShrinkHalves = shrink ? halves : null, NoiseHalves = halvesNoise ? halves : null, Target = target, ColourTargetCutFor = targetCut ? PlanetaryFrameLayout.SplitCfa : null, WienerFloor = wienerFloor, LimbBand = limbBand, UnderSky = underSky, LimbDarkening = limbK }) is not { } result)
+                    if (PlanetarySharpening.Sharpen(master, options with { Fix = fix, NonNegative = nonNegative, ColourFinestBand = finest, Strength = strength, EdgeReach = parseResult.GetValue(edgeReachOpt), PlateScaleArcsec = parseResult.GetValue(plateScaleOpt), RingEdge = parseResult.GetValue(ringEdgeOpt), Finish = finish, KolivasAmount = kolivasAmount, LuminanceOnly = luminance, ShrinkHalves = shrink ? halves : null, NoiseHalves = halvesNoise ? halves : null, Target = target, ColourTargetCutFor = targetCut ? PlanetaryFrameLayout.SplitCfa : null, WienerFloor = wienerFloor, LimbBand = limbBand, UnderSky = underSky, LimbDarkening = limbK }) is not { } result)
                     {
                         consoleHost.WriteError($"{path}: the planet's limb could not be fitted");
                         return 1;
@@ -443,6 +449,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             + (underSky == PlanetaryUnderSky.Sky ? "_skyfloor" : "")
                             + (limbK == PlanetaryLimbDarkening.Opal ? "_opalk" : "")
                             + (limbK == PlanetaryLimbDarkening.Held ? "_k" + string.Join("-", heldK.Select(k => k.ToString("0.###", inv))) : "")
+                            + (parseResult.GetValue(plateScaleOpt) is { } scaleName ? "_ps" + scaleName.ToString("0.####", inv) : "")
                             + (shrink ? "_shrunk" : ""));
                         var finestWords = nonNegative && master.ChannelCount == 3 ? ", the colour's finest band derived, as a non-negative fit fits every band"
                             : finests.Length > 1 ? $", the colour's finest band {finest.ToString().ToLowerInvariant()}" : "";
@@ -459,6 +466,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             + (underSky == PlanetaryUnderSky.Sky ? ", the sharpening floored at the sky inside the outline" : "")
                             + (limbK == PlanetaryLimbDarkening.Opal ? ", the limb's k held at OPAL's" : "")
                             + (limbK == PlanetaryLimbDarkening.Held ? ", the limb's k held at " + string.Join(", ", heldK.Select(k => k.ToString("0.###", inv))) : "")
+                            + (parseResult.GetValue(plateScaleOpt) is { } scaleWords ? string.Create(inv, $", the limb's radius held at a plate scale of {scaleWords:0.####}\"/px") : "")
                             + (shrink ? ", shrunk by its halves" : "");
                         var what = result.Derived ? $"derived{(nonNegative ? " non-negative" : "")}, {PlanetaryBestStack.Describe(fix)}{finestWords}{strengthWords}" : $"PlanetaryDefault{strengthWords}, the limb kept as stacked";
                         consoleHost.WriteScrollable(string.Create(inv,

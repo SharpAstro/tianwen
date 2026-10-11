@@ -67,6 +67,43 @@ public class PlanetaryLimbFitTests : IDisposable
         refit.PsfSigma.ShouldBe(fit.PsfSigma, 1e-3);
     }
 
+    [Theory]
+    [InlineData(1.00)]
+    [InlineData(1.02)]
+    [InlineData(0.98)]
+    public void AHeldRadiusIsKeptThroughTheCoarseFitAndTheCentreDoesNotMoveWithIt(double scale)
+    {
+        // #1498: a plate scale holds the radius (the ephemeris's semi-diameter over it), which takes it out of the valley it shares with k
+        // and the blur. Started 2.5 px wide of the truth, the fit runs coarse on a binned copy first (60 px is past CoarseRadius), where the
+        // held radius is a bin's fraction; the full fit keeps it to 1e-3 px. Held right, the rest comes back as the free fit's does; held 2 %
+        // wrong, as a real plate scale may be, the centre still comes back, since the radius moves the limb the same way all round.
+        var image = Render(k: 0.9, phaseDeg: 0, psf: Gaussian(1.8), noise: 0.005, seed: 1);
+        var held = TrueRadius * scale;
+
+        var fit = FitFromRoughStart(image, new LimbFitOptions(AxisRatio) with { EquatorialRadius = held });
+
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"held {held:0.00} px: centre off {Math.Sqrt(((fit.CenterX - TrueX) * (fit.CenterX - TrueX)) + ((fit.CenterY - TrueY) * (fit.CenterY - TrueY))):0.0000} px, k {fit.LimbDarkening:0.000}, sigma {fit.PsfSigma:0.000}");
+        fit.EquatorialRadius.ShouldBe(held, 1e-3);
+        fit.CenterX.ShouldBe(TrueX, 0.05);
+        fit.CenterY.ShouldBe(TrueY, 0.05);
+        if (scale == 1)
+        {
+            fit.LimbDarkening.ShouldBe(0.9, 0.1);
+            fit.PsfSigma.ShouldBe(1.8, 0.1);
+        }
+    }
+
+    [Fact]
+    public void ThePlateScalesRadiusIsTheEphemerissSemiDiameterOverIt()
+    {
+        var aspect = Astrometry.PhysicalEphemeris.Compute(Astrometry.Catalogs.CatalogIndex.Jupiter, new DateTimeOffset(2022, 9, 10, 6, 49, 0, TimeSpan.Zero));
+
+        LimbFitOptions.RadiusAt(aspect, 0.25).ShouldBe(aspect.AngularDiameterArcsec / 2 / 0.25, 1e-12);
+        LimbFitOptions.RadiusAt(aspect, 0.25).ShouldBe(99, 1.5, "Jupiter two weeks before opposition is about 49.5 seconds of arc across");
+        Should.Throw<ArgumentOutOfRangeException>(() => LimbFitOptions.RadiusAt(aspect, 0));
+    }
+
     [Fact]
     public void EachChannelIsFittedAgainstItsOwnLimbAndOneWithNoDiskKeepsTheSharedFit()
     {

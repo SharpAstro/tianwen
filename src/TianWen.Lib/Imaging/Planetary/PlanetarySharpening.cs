@@ -232,6 +232,13 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     public double? EdgeReach { get; init; }
 
     /// <summary>
+    /// When given, the master's plate scale in seconds of arc a pixel, and every limb fit the sharpening reads holds the planet's equatorial
+    /// radius at the ephemeris's semi-diameter over it (<see cref="LimbFitOptions.RadiusAt"/>, #1498), rather than fitting it: the radius
+    /// slides with Minnaert's k and the blur along a valley the limb cannot pin, and the kernel read off the edge slides with it.
+    /// </summary>
+    public double? PlateScaleArcsec { get; init; }
+
+    /// <summary>
     /// Read Saturn's edge off its rings' outer rim as well as its polar limb (<see cref="PlanetaryFinestBand.RingEdge"/>, pooled bin by bin,
     /// #1256): the polar arcs alone read the finest bands true only to about 0.15 cycles a pixel. No effect without rings.
     /// </summary>
@@ -481,12 +488,12 @@ public static class PlanetarySharpening
             return SharpenLuminance(master, options);
         }
         var aspect = PhysicalEphemeris.Compute(options.Planet, options.When);
-        var limbOptions = options.LimbDarkening switch
+        var limbOptions = (options.LimbDarkening switch
         {
             PlanetaryLimbDarkening.Opal => PlanetaryLimbFit.OptionsFor(aspect, options.WavelengthsNm.Take(Math.Min(master.ChannelCount, options.WavelengthsNm.Length)).ToArray()),
             PlanetaryLimbDarkening.Held => PlanetaryLimbFit.OptionsFor(aspect) with { LimbDarkening = HeldK(options, 0, master.ChannelCount) },
             _ => PlanetaryLimbFit.OptionsFor(aspect),
-        };
+        }) with { EquatorialRadius = HeldRadius(aspect, options) };
         if (PlanetaryLimbFit.Fit(master, limbOptions) is not { } fit)
         {
             return null;
@@ -675,14 +682,18 @@ public static class PlanetarySharpening
     }
 
     // Each channel's own limb fit (PlanetaryChannelLimb.PerChannel, #1498; PlanetaryLimbFit.FitEachChannel). With OPAL's k each holds its
-    // own wavelength's (#1478); with a held k, its own value.
+    // own wavelength's (#1478); with a held k, its own value. A held radius is the one plate scale's for every channel.
     private static (LimbFit Fit, LimbFitOptions Options)[] ChannelLimbs(Image master, in LimbFit fit, PlanetAspect aspect, PlanetarySharpenOptions options)
-        => PlanetaryLimbFit.FitEachChannel(master, fit, c => options.LimbDarkening switch
+        => PlanetaryLimbFit.FitEachChannel(master, fit, c => (options.LimbDarkening switch
         {
             PlanetaryLimbDarkening.Opal => PlanetaryLimbFit.OptionsFor(aspect, [options.WavelengthsNm[Math.Min(c, options.WavelengthsNm.Length - 1)]]),
             PlanetaryLimbDarkening.Held => PlanetaryLimbFit.OptionsFor(aspect) with { LimbDarkening = HeldK(options, c, 1) },
             _ => PlanetaryLimbFit.OptionsFor(aspect),
-        });
+        }) with { EquatorialRadius = HeldRadius(aspect, options) });
+
+    // The radius every limb fit of the sharpening holds (#1498): the plate scale's, when one is given.
+    private static double? HeldRadius(in PlanetAspect aspect, PlanetarySharpenOptions options)
+        => options.PlateScaleArcsec is { } scale ? LimbFitOptions.RadiusAt(aspect, scale) : null;
 
     // The k PlanetaryLimbDarkening.Held holds for `count` channels from `first` (#1498): their mean, each channel's the last given for any
     // channel beyond the values.
