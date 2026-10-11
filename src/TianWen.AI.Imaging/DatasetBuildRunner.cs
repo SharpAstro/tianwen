@@ -241,11 +241,6 @@ public static class DatasetBuildRunner
             }
         }
 
-        // The calibration digest a store baked before per-session calibration fingerprints used,
-        // computed only when an entry fails to match the current form (see the resume check).
-        string? legacyLibraryDigest = null;
-        var migrated = 0;
-
         // Fresh manifest per run (the exporter appends per session) -- UNLESS resuming, where the
         // existing manifest IS the checkpoint: a session's rows are appended in one block as the
         // LAST step of its export, so "rows present" == "session fully exported". The in-flight
@@ -423,23 +418,7 @@ public static class DatasetBuildRunner
                 }
                 else if (staleBecause is null && entry is not null && !string.Equals(entry.Fingerprint, fingerprint, StringComparison.Ordinal))
                 {
-                    // Baked when the calibration part of the fingerprint was the whole library? Then the
-                    // inputs are unchanged exactly when that legacy form still matches, and the entry is
-                    // re-recorded in the current form instead of the session being redone for its format.
-                    legacyLibraryDigest ??= DatasetSessionLedger.LegacyCalibrationLibraryDigest(
-                        calGroups.Values.SelectMany(static groups => groups).SelectMany(static g => g.Frames));
-                    if (string.Equals(entry.Fingerprint, DatasetSessionLedger.FingerprintOf(session, legacyLibraryDigest, recipeKey), StringComparison.Ordinal))
-                    {
-                        entry = entry with { Fingerprint = fingerprint };
-                        await DatasetSessionLedger.RecordBestEffortAsync(ledgerPath, entry, logger, cancellationToken);
-                        ledger[session.Id] = entry;
-                        migrated++;
-                        logger?.LogInformation("  [{Session}] ledger entry re-recorded in the current form: it matched the library-wide fingerprint it was baked under", session.Id);
-                    }
-                    else
-                    {
-                        staleBecause = "inputs changed";
-                    }
+                    staleBecause = "inputs changed";
                 }
                 // Present AND incomplete. A MISSING master is not a changed input: retention is
                 // best-effort, a store built with it off has none, and the forced re-measure path
@@ -923,7 +902,6 @@ public static class DatasetBuildRunner
         }
         progress?.Report(
             $"[dataset] {(stopped ? "STOPPED by the stop file" : "done")}: {registered}/{sessions.Length} sessions{(resumed > 0 ? $" (+{resumed} resumed)" : "")}" +
-            $"{(migrated > 0 ? $" ({migrated} ledger entries re-recorded from the library-wide fingerprint)" : "")}" +
             $"{(psfRemeasured > 0 ? $" ({psfRemeasured} PSF re-measured, {psfRemeasuredFromMaster} from retained masters)" : "")}" +
             $"{(psfSubsRemeasured > 0 ? $" ({psfSubsRemeasured} sub sets re-measured, measure stage only)" : "")} -> {totalTiles} tiles " +
             $"({failed} failed, {skippedNoDark} skipped-no-dark); " +

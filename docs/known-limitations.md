@@ -842,10 +842,9 @@ builds from the same choice): each role's group and its frames. A new set the re
 changes the choice and so the fingerprint; one it would not choose changes nothing
 (`CalibrationDigestTests`). A store fingerprinted the old way was at first read as stale once, on its
 first resume: for `2026-09-25-full` that was all 140 sessions, a 13-hour bake, when seven had changed
-lights. A resume now recognises the legacy form (the same fingerprint over
-`DatasetSessionLedger.LegacyCalibrationLibraryDigest`) and re-records such an entry in the current form
-when it still matches, and `--rebuild-session` rebuilds named sessions whose inputs did not move
-(`Run_Resume_RecognisesALegacyLibraryFingerprint_AndRebuildsOnlyTheNamedSessions`).
+lights. A resume recognised the legacy form and re-recorded such entries in the current form until every
+store had been resumed once under it; that path was then deleted (#795). `--rebuild-session` rebuilds named
+sessions whose inputs did not move (`Run_Resume_RedoesAMovedSession_AndRebuildsOnlyTheNamedSessions`).
 
 **Also added the same day: session staging** (`SessionStager`, on by default, `--no-stage-lights`):
 the next session's lights are copied onto the scratch volume while the current one bakes, so its
