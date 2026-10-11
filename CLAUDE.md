@@ -991,7 +991,8 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
   `--sharpen-luminance`, an option): read a colour change against a truth (`ColourAgainstTruth`, `--truth`),
   never by eye on one capture.
 - **An alignment point's patch is cut at the EXACT global shift** (`PlanetaryTile.ExtractLumaAt`). **A point's
-  plain correlation SHRINKS the shift it reads** (#1081; `PlanetaryStackOptions.MeshGain` stays one). **Dense
+  plain correlation SHRINKS the shift it reads** (#1081; `PlanetaryStackOptions.MeshGain` stays one), **and the mesh's 48 px reach
+  dilutes it again, its `+0.25` does not** (#1412 F3, `MeshRegularization`): neither moves the stack. **Dense
   points pay** (#1195), and **`MaxAlignmentPoints` (64) caps any grid, which every host says in ONE wording** (`FeatureDetector.PointsInWords`, #1412). **Judge a point estimator
   against its Cramer-Rao bound** (#1082, `AlignmentPointMatcher.Bound`; `PlanetaryPointEstimator.SquareDifference`
   goes with #1195 or not at all). **Each point keeping its own best frames is an option, never the default**
