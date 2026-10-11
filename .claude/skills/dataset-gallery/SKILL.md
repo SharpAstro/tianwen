@@ -159,6 +159,13 @@ ones they have, so the gallery reads as mixed until the batch catches up.
 
 ## What to check before believing a card
 
+- **`sky` and `vignette` (check_views) are the background and calibration verdicts.** `sky` reads the
+  enhanced view's sky colour (the background the card should show neutral); `vignette` reads the raw
+  view's corners against its edge midpoints (the master as calibrated: a flat that fits leaves under
+  0.15, a flat admitted on its capture date alone can leave 0.97, the same as none). Both thresholds
+  are measured over the 194-card store; a flag is either a data limit the archive records (no flat, no
+  dark, see `D:/Astro-Organized/_provenance/session-calibration-map.csv`) or a question for the owner.
+
 - **Channel coverage.** A master with a channel at 0 percent finite is a failed integration, not a dim
   one; `IntegratedMaster.Labelled` refuses it now, but an older store can hold one (the eta Car
   ASI294MC master did, from a hot-pixel mask that flagged 100 percent of blue). **A fix does not
