@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
 using Shouldly;
@@ -168,6 +169,37 @@ public class LiveSessionPreviewViewerTests
         live.HeldLensStep.ShouldBeNull();
         clock.Advance(LiveViewController.LensRepeatInterval * 5);
         sent.TryRead(out _).ShouldBeFalse("letting go ends the repeat");
+    }
+
+    /// <summary>
+    /// A held lens button's next wait is on the clock before its step goes out, so a reader that moves the clock on the moment a
+    /// step arrives never steps past it. The test above timed out on main's x64 leg (2026-10-11) when its read won that race:
+    /// the step went out first, the clock moved on, and the wait begun after it never ended. Read here by spinning, the fastest
+    /// a reader can be: with the step sent first, ten holds of ten hung within a few repeats.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task A_held_lens_buttons_next_wait_is_on_the_clock_before_its_step_goes_out()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new FakeTimeProviderWrapper { ExternalTimePump = true };
+        var live = new LiveViewController(clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<LiveViewController>.Instance);
+        var sent = live.Began(0, new LiveViewStateDto { Camera = "Canon EOS 6D", Running = true, CanDriveLens = true }).Reader;
+
+        live.BeginLensHold(LensFocusStep.NearSmall);
+        for (var step = 0; step < 50; step++)
+        {
+            LensFocusStep read;
+            while (!sent.TryRead(out read))
+            {
+                ct.ThrowIfCancellationRequested();
+                Thread.SpinWait(1);
+            }
+            read.ShouldBe(LensFocusStep.NearSmall);
+            clock.WaiterCount.ShouldBe(1, $"step {step} went out before the wait after it was on the clock");
+            clock.Advance(step == 0 ? LiveViewController.LensHoldDelay : LiveViewController.LensRepeatInterval);
+            await Task.Yield();
+        }
+        live.EndLensHold();
     }
 
     /// <summary>
