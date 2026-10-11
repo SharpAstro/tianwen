@@ -1,10 +1,18 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 
 namespace TianWen.Lib.Imaging.Planetary;
+
+/// <summary>
+/// A camera's own colour matrix, camera RGB to linear sRGB, row-major, derived from its sensor's QE and its CFA's curves
+/// (<see cref="FilterCurveDatabase.TryComputeCameraToSrgbMatrix"/>), with the camera it was derived for (#1279, rule E).
+/// </summary>
+public sealed record CameraColour(string Camera, float[] Matrix);
 
 /// <summary>
 /// A colour master's balance (<see cref="PlanetaryColourBalance"/>): the gains its stack's disk asked for, the disk they were read on,
@@ -15,9 +23,15 @@ public sealed record ColourBalance(LinearRgb Gains, MetricDisk Disk, double Satu
     /// <summary>The planet whose colour the balance takes the master to.</summary>
     public CatalogIndex Planet { get; init; } = CatalogIndex.Jupiter;
 
+    /// <summary>
+    /// The camera matrix the gains are read through and the master is taken through after them (<see cref="PlanetaryColourBalance.GainsThrough"/>,
+    /// #1279); null for a gain a channel alone.
+    /// </summary>
+    public CameraColour? Camera { get; init; }
+
     /// <summary>The balance in words, for a log or a status line.</summary>
     public string Describe() => string.Create(CultureInfo.InvariantCulture,
-        $"balanced to {(Planet == CatalogIndex.Saturn ? "Saturn" : "Jupiter")}'s colour: gains R {Gains.R:0.000}, B {Gains.B:0.000} over green, saturation {Saturation:0.0#}");
+        $"balanced to {(Planet == CatalogIndex.Saturn ? "Saturn" : "Jupiter")}'s colour: gains R {Gains.R:0.000}, B {Gains.B:0.000} over green{(Camera is { } camera ? $" through the {camera.Camera}'s matrix" : "")}, saturation {Saturation:0.0#}");
 
     /// <summary>The FITS card holding the red gain over green.</summary>
     public const string RedGainCard = "CBALGNR";
@@ -28,25 +42,36 @@ public sealed record ColourBalance(LinearRgb Gains, MetricDisk Disk, double Satu
     /// <summary>The FITS card holding the saturation; its presence is what marks a balanced master (<see cref="ImageMeta.IsColourBalanced"/>, #1229).</summary>
     public const string SaturationCard = "CBALSAT";
 
+    /// <summary>The FITS card naming the camera whose matrix the balance went through (#1279); absent for a gain a channel alone.</summary>
+    public const string CameraCard = "CBALCAM";
+
     /// <summary>Every card <see cref="HeaderCards"/> writes, for a writer that carries a balanced master's cards over from its file.</summary>
-    public static IReadOnlyList<string> Cards { get; } = [RedGainCard, BlueGainCard, SaturationCard];
+    public static IReadOnlyList<string> Cards { get; } = [RedGainCard, BlueGainCard, SaturationCard, CameraCard];
 
     /// <summary>FITS cards recording the balance, so a balanced master says so and by how much.</summary>
-    public IReadOnlyDictionary<string, (object Value, string Comment)> HeaderCards() => new Dictionary<string, (object Value, string Comment)>
+    public IReadOnlyDictionary<string, (object Value, string Comment)> HeaderCards()
     {
-        [RedGainCard] = (Gains.R, "colour balance: red gain over green (#1212)"),
-        [BlueGainCard] = (Gains.B, "colour balance: blue gain over green (#1212)"),
-        [SaturationCard] = (Saturation, "colour balance: saturation about the disk's colour (#1212)"),
-    };
+        var cards = new Dictionary<string, (object Value, string Comment)>
+        {
+            [RedGainCard] = (Gains.R, "colour balance: red gain over green (#1212)"),
+            [BlueGainCard] = (Gains.B, "colour balance: blue gain over green (#1212)"),
+            [SaturationCard] = (Saturation, "colour balance: saturation about the disk's colour (#1212)"),
+        };
+        if (Camera is { } camera)
+        {
+            cards[CameraCard] = (camera.Camera, "colour balance: through this camera's matrix (#1279)");
+        }
+        return cards;
+    }
 
-    /// <summary><paramref name="master"/> balanced: its own sky taken off, these gains, this saturation. A new image.</summary>
+    /// <summary><paramref name="master"/> balanced: its own sky taken off, these gains, the camera's matrix when there is one, this saturation. A new image.</summary>
     public Image Apply(Image master)
     {
         var red = master.GetChannelSpan(0);
         var green = master.GetChannelSpan(1);
         var blue = master.GetChannelSpan(2);
         var sky = PlanetaryColour.Sky(red, green, blue, master.Width, master.Height, Disk);
-        return PlanetaryColourBalance.Apply(master, Gains, sky, Saturation, About);
+        return PlanetaryColourBalance.Apply(master, Gains, sky, Saturation, About, Camera?.Matrix);
     }
 }
 
@@ -86,11 +111,37 @@ public static class PlanetaryColourBalance
     /// The saturation a balance applies by default: none, the gains alone (the owner, 2026-10-06, #1212). <see cref="EyeSaturation"/> was
     /// the default until then, and it is one switch away (<c>planetary stack --colour-saturation</c>). Shown on the five colour
     /// captures it moved each pixel 0.002 to 0.003 in OKLab, a tenth of what the eye can tell (0.02), and the disk's mean colour not at
-    /// all; what is SEEN is the look (#1273, #1277). Every capture still reads duller than OPAL's reflectance at its resolution, and the
-    /// camera's own matrix (<see cref="GainsThrough"/>) lifts the chroma 1.45 to 1.52 times from the sensor's curves (#1279, rule E),
-    /// as invisibly; whether it becomes the default is the owner's call.
+    /// all; what is SEEN is the look (#1273, #1277). Every capture still read duller than OPAL's reflectance at its resolution, and the
+    /// camera's own matrix (<see cref="GainsThrough"/>, <see cref="CameraColourAsync"/>) lifts the chroma 1.45 to 1.52 times from the
+    /// sensor's curves (#1279, rule E): the saturation was standing in for the overlap of the camera's channels, so the balance goes through
+    /// the camera's matrix by default and the saturation stays one (the owner, 2026-10-12).
     /// </summary>
     public const double DefaultSaturation = 1;
+
+    /// <summary>
+    /// The colour matrix of the camera <paramref name="instrument"/> names (a master's INSTRUME, a SER header's Instrument, read by
+    /// <see cref="PlanetaryIdentification.CameraName"/>), from its sensor's QE and the CFA's curves
+    /// (<see cref="FilterCurveDatabase.TryComputeCameraToSrgbMatrix"/>), or null where it names none or the curves do not know it. The one
+    /// place a balance finds its camera's matrix (#1279), for the batch, the live view's Derive and a look alike.
+    /// </summary>
+    public static async ValueTask<CameraColour?> CameraColourAsync(string? instrument, CancellationToken cancellationToken = default)
+    {
+        if (PlanetaryIdentification.CameraName(instrument) is not { } camera)
+        {
+            return null;
+        }
+        await FilterCurveDatabase.LoadAsync(cancellationToken).ConfigureAwait(false);
+        return FilterCurveDatabase.TryComputeCameraToSrgbMatrix(camera, out var matrix) ? new CameraColour(camera, matrix) : null;
+    }
+
+    /// <summary>
+    /// Why a balance that asked for the camera's matrix (<see cref="CameraColourAsync"/>) runs on its gains alone, in words: the capture
+    /// names no camera, or the sensor curves do not know the one it names (the ASI224MC and the ASI678MC have no QE curve). One wording
+    /// for every path that balances.
+    /// </summary>
+    public static string WithoutMatrix(string? instrument) => PlanetaryIdentification.CameraName(instrument) is { } camera
+        ? $"no colour matrix is known for the camera {camera}, so the balance is by its gains alone"
+        : "the capture names no camera, so no colour matrix: the balance is by its gains alone";
 
     /// <summary>
     /// The saturation the owner picked by eye on the five colour captures' previews at 1, 1.4 and 2 (2026-10-03, #1212), the default until
@@ -102,9 +153,10 @@ public static class PlanetaryColourBalance
     /// The balance <paramref name="stacked"/>, a master of <paramref name="planet"/>, asks for at <paramref name="saturation"/>, or null
     /// with the reason in words: Jupiter's and Saturn's colours are the ones measured, a mono master has none to balance, and the disk comes
     /// from the limb fit at the master's instant (<paramref name="epoch"/>, else its own DATE-OBS and EXPTIME's middle), Saturn's read where
-    /// its rings leave it clear.
+    /// its rings leave it clear. The gains are read through <paramref name="camera"/>'s matrix when one is given, and the balance applies it.
     /// </summary>
-    public static (ColourBalance? Balance, string How) For(Image stacked, CatalogIndex? planet, DateTimeOffset? epoch, double saturation = DefaultSaturation)
+    public static (ColourBalance? Balance, string How) For(Image stacked, CatalogIndex? planet, DateTimeOffset? epoch, double saturation = DefaultSaturation,
+        CameraColour? camera = null)
     {
         if (stacked.ChannelCount != 3)
         {
@@ -119,7 +171,7 @@ public static class PlanetaryColourBalance
             return (null, "colours left as captured: the master carries no time to fit its limb at");
         }
         return PlanetaryLimbFit.FitAt(stacked, body, instant) is { } limb
-            ? For(stacked, body, limb.Disk, saturation)
+            ? For(stacked, body, limb.Disk, saturation, camera)
             : (null, "colours left as captured: the limb did not fit");
     }
 
@@ -128,7 +180,8 @@ public static class PlanetaryColourBalance
     /// (<see cref="PlanetaryColourLook.Prepare"/>'s), or null with the reason in words: a limb fit costs seconds, so one master is never
     /// fitted twice for it.
     /// </summary>
-    public static (ColourBalance? Balance, string How) For(Image stacked, CatalogIndex planet, in MetricDisk disk, double saturation = DefaultSaturation)
+    public static (ColourBalance? Balance, string How) For(Image stacked, CatalogIndex planet, in MetricDisk disk, double saturation = DefaultSaturation,
+        CameraColour? camera = null)
     {
         if (stacked.ChannelCount != 3)
         {
@@ -138,12 +191,12 @@ public static class PlanetaryColourBalance
         {
             return (null, "colours left as captured: only Jupiter's and Saturn's colours are measured (#1212, #1235)");
         }
-        var (gains, _) = GainsFor(stacked, disk, target);
+        var (gains, _) = GainsFor(stacked, disk, target, camera?.Matrix);
         if (!double.IsFinite(gains.R) || !double.IsFinite(gains.B) || gains.R <= 0 || gains.B <= 0)
         {
             return (null, "colours left as captured: the disk's mean colour could not be read");
         }
-        var balance = new ColourBalance(gains, disk, saturation, target) { Planet = planet };
+        var balance = new ColourBalance(gains, disk, saturation, target) { Planet = planet, Camera = camera };
         return (balance, balance.Describe());
     }
 

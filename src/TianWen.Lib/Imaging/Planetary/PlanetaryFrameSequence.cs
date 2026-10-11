@@ -139,6 +139,10 @@ public sealed class PlanetaryFrameSequence : IPlanetaryFrameStream
     public bool HasTimestamps { get; }
 
     /// <inheritdoc/>
+    /// <remarks>The first part's that names one: a session's files come from one camera.</remarks>
+    public string? Camera => _parts.Select(part => part.Camera).FirstOrDefault(camera => camera is not null);
+
+    /// <inheritdoc/>
     public DateTimeOffset? TimestampOf(int index)
     {
         if ((uint)index >= (uint)FrameCount)

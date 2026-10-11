@@ -40,6 +40,13 @@ public interface IPlanetaryFrameStream : IDisposable
     DateTimeOffset? TimestampOf(int index);
 
     /// <summary>
+    /// The camera the frames were taken with, as the capture names it (a SER header's Instrument, read by
+    /// <see cref="PlanetaryIdentification.CameraName"/>), or null where it names none. A master carries it as its INSTRUME (#1279), which
+    /// is where its colour balance finds the camera's own matrix (<see cref="PlanetaryColourBalance.CameraColourAsync"/>).
+    /// </summary>
+    string? Camera => null;
+
+    /// <summary>
     /// Loads frame <paramref name="index"/> as an <see cref="Image"/> in unit range [0,1], with channels
     /// laid out per <see cref="Layout"/>. The caller owns the returned image and should drop it (or
     /// <see cref="Image.Release"/> it) once done. Must be called off the render / UI thread.
