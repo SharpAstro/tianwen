@@ -5133,7 +5133,28 @@ hard stretch. Strength 1 has none.
   batch and the live view by default none (`AtStrengthTwoNothingInsideTheOutlineIsLeftAtTheSkyInTheBatchOrTheLiveView`). #1471 and #1329
   close with it.
 - **The limb's options are one question asked several ways** (`--fix` and `--limb-fix`, `--limb-band`, `--under-sky`, and `--limb-k` beside
-  them, which finds the planet rather than paints it). One coherent set across `stack` and `sharpen` is #1479.
+  them, which finds the planet rather than paints it). One coherent set across `stack` and `sharpen` is #1479, below.
+
+#### One set of limb options (#1479)
+
+**Done** (2026-10-11, the owner: "at some stage we need to consolidate the --limb options so they are more coherent"). Four families,
+each one name on every verb that takes it (`planetary stack`, `planetary sharpen`, `planetary limb`), the old spellings dropped in one
+wave (everything since v9.0.1940 ships as 10.0, so no shim; the break is listed on #938):
+
+| family | option | was |
+|---|---|---|
+| the limb FIT, which finds the planet | `--fit-k fitted\|opal\|<k per channel>` | `--limb-k` |
+| | `--fit-channels shared\|per-channel` | `--channel-limb` |
+| the edge the gains are read off | `--edge-reach <cycles>` | (unchanged) |
+| | `--edge-rings` | `--ring-edge` |
+| the gains' own fit | `--gains-fit free\|nonnegative\|both` | `--fit` (on `sharpen`) |
+| what a limb pixel takes, which paints it | `--limb-fix <fix>` | `--fix` on `sharpen`, `--limb-fix` on `stack` |
+| | `--limb-floor model\|sky\|band\|all` | `--under-sky` and `--limb-band` |
+
+`--limb-floor` is one choice where there were two: `model` (the default) is #1471's (a pixel the sharpening drives to or below the sky
+takes the planet's model), `sky` is the floor before #1471, and `band` adds #1329's model floor in the globe's last band. The fourth
+combination the two switches allowed, #1329's band floor with the sky floor elsewhere, predated #1471 and is no longer offered. The record
+of each measurement above keeps the option names it ran with.
 
 ### Shrinking each band against the master's own noise (#1313)
 

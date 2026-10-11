@@ -19,7 +19,7 @@ namespace TianWen.Cli;
 /// <summary>
 /// <c>tianwen planetary sharpen &lt;master.fits&gt;</c>: a planetary master sharpened again without stacking it again, as
 /// <c>planetary stack</c> sharpens it (<see cref="PlanetarySharpening"/>: gains derived through the limb's edge given the telescope, the
-/// limb kept from ringing). With <c>--fix all</c> and a synthetic capture's <c>--truth</c> it is also how the enhanced pipeline's
+/// limb kept from ringing). With <c>--limb-fix all</c> and a synthetic capture's <c>--truth</c> it is also how the enhanced pipeline's
 /// sharpening was chosen (docs/plans/planetary-restoration.md). <c>--auto</c> (AUTO, #817, A4 #1391) reads the planet, the filter and
 /// the telescope off the master itself (<see cref="PlanetaryIdentification.IdentifyMasterAsync"/>), as <c>planetary stack --auto</c> wrote them.
 /// </summary>
@@ -31,14 +31,14 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var planetOpt = new Option<string?>("--planet") { Description = "mars, jupiter or saturn; read off the file's name when not given." };
         var utcOpt = new Option<string?>("--utc") { Description = "The instant the master shows the planet at (ISO 8601, UTC); its own DATE-OBS and EXPTIME's middle when not given, else the truth's." };
         var wavelengthOpt = new Option<string?>("--wavelength") { Description = "The filter's effective wavelength, nm, a comma list for a colour master's channels (550 when not given)." };
-        var fixOpt = new Option<string>("--fix") { Description = "How the limb is kept from ringing: modelfeathered (the default: outside the limb the planet's model through the pupil, feathered to the stack far out, #1171), bounded (never brighter than the stack outside the limb but for its moons), floored, limb (the limb as its own channel), feathered, plain, heldoutside, modelfloor, blended, modelglow, modeloutside, glowswapped or modelfeathered (#1171's candidates against bounded's trough), all to compare the first five, or outside to compare bounded with #1171's.", DefaultValueFactory = _ => "modelfeathered" };
+        var fixOpt = new Option<string>("--limb-fix") { Description = "How the limb is kept from ringing (#1479: was --fix): modelfeathered (the default: outside the limb the planet's model through the pupil, feathered to the stack far out, #1171), bounded (never brighter than the stack outside the limb but for its moons), floored, limb (the limb as its own channel), feathered, plain, heldoutside, modelfloor, blended, modelglow, modeloutside, glowswapped or modelfeathered (#1171's candidates against bounded's trough), all to compare the first five, or outside to compare bounded with #1171's.", DefaultValueFactory = _ => "modelfeathered" };
         var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary degrade's .truth.fits): every sharpening scored against it." };
         var outputOpt = new Option<string?>("--output", "-o") { Description = "Where the sharpened masters go (master_*_sharpened[_fix].fits); the master's folder when not given." };
         var noWriteOpt = new Option<bool>("--no-write") { Description = "Score only, write nothing." };
         var stackedPreviewOpt = new Option<bool>("--stacked-preview") { Description = "Also write the master as stacked through the same high-key planetary preview as the sharpened one (<name>_stacked.png), so the two are seen through one renderer: planetary stack's own preview is of the sharpened master." };
-        var fitOpt = new Option<string>("--fit") { Description = "How the gains are fitted: free, nonnegative (their composite through the kernel held at or above zero), or both to compare them.", DefaultValueFactory = _ => "free" };
+        var fitOpt = new Option<string>("--gains-fit") { Description = "How the gains are fitted (#1479: was --fit): free, nonnegative (their composite through the kernel held at or above zero), or both to compare them.", DefaultValueFactory = _ => "free" };
         var finestOpt = new Option<string>("--colour-finest") { Description = "A colour master's finest band (#1187): held (as stacked on every colour, the default), derived (its derived gain), heldbutgreen (as stacked on red and blue), bounded (fitted with the others, never above as stacked, free to fall, #1376), or all to compare them.", DefaultValueFactory = _ => "held" };
-        var ringEdgeOpt = new Option<bool>("--ring-edge") { Description = "Read Saturn's edge off its rings' outer rim as well as its polar limb (#1256)." };
+        var ringEdgeOpt = new Option<bool>("--edge-rings") { Description = "Read Saturn's edge off its rings' outer rim as well as its polar limb (#1256; #1479: was --ring-edge)." };
         var edgeReachOpt = new Option<double?>("--edge-reach") { Description = "Take the kernel as the physical one fitted to the limb's edge from 0.02 cycles a pixel to this, carried by its physics to the cutoff, rather than the edge as read at every frequency." };
         var slidersOpt = new Option<bool>("--sliders") { Description = "Also sharpen as a live view's wavelet sliders do once a derivation seeds them (the same gains over the whole master, no denoise, held at its darkest level), then drawn outside the limb by the limb the derivation keeps (#1201), and score both: whether the live view reaches the derived sharpening. Says how far the live drawing lies from this sharpening outside the limb, and what the drawing costs beside the sliders' wavelet pass." };
         var finishOpt = new Option<string>("--finish") { Description = "A finishing step after the derived sharpening (#1279): none (the default), cutoff (a low-pass at the pupil's diffraction cutoff), adaptive (the change from the stack weighted by the stack's local contrast, at matched noise), kolivas (Kolivas's own damped Richardson-Lucy step, a reference), wiener (Kolivas's FFT denoise: a smooth low-pass fitted to the sharpened window's Wiener target), joined by + (adaptive+cutoff); a comma list sharpens with each, each written and scored.", DefaultValueFactory = _ => "none" };
@@ -52,10 +52,9 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var kernelOpt = new Option<string>("--kernel") { Description = "The stack's kernel the gains are derived through: edge (the default, read off the limb's edge) or truth (with --truth: the stack measured against the twin's truth, a diagnostic of whether a gain set misses by the kernel or by the fit, #1376).", DefaultValueFactory = _ => "edge" };
         var colourTargetOpt = new Option<string>("--colour-target") { Description = "A colour master's Wiener target (#1376): full (the default) or cut (for a master stacked from split-CFA planes, the stack's way: tapered from 0.125 cycles a pixel to nothing at those planes' Nyquist, 0.25, by #1366's taper, so nothing is restored where a demosaiced plane carries nothing; not for a Bayer drizzle, whose Nyquist is its own), or both to compare them.", DefaultValueFactory = _ => "full" };
         var wienerFloorOpt = new Option<string>("--wiener-floor") { Description = "How the derived Wiener filter meets a kernel's transfer near nothing (#1406): step (the default: nothing restored under 0.02), tikhonov (H / (H^2 + 0.02^2) in place of 1 / H, so nothing steps), or both to compare them.", DefaultValueFactory = _ => "step" };
-        var limbBandOpt = new Option<string>("--limb-band") { Description = "What the globe's last band inside its outline is floored at (#1329): sky (the default), model (the planet's model through the pupil, as drawn just past the outline), or both to compare them.", DefaultValueFactory = _ => "sky" };
-        var underSkyOpt = new Option<string>("--under-sky") { Description = "What a pixel inside the planet's outline takes when the sharpening drives it to the sky or below (#1471): model (the default: the planet's model through the pupil, as drawn just past the outline; nothing the sharpening leaves above the sky moves), sky (the sharpening floored there, as before #1471), or both to compare them.", DefaultValueFactory = _ => "model" };
-        var channelLimbOpt = new Option<string>("--channel-limb") { Description = "What a colour master's channels are each read against (#1498): shared (the default: one limb fit of the channels' mean) or per-channel (each channel's own fit, so a colour balance cannot move another channel's reference).", DefaultValueFactory = _ => "shared" };
-        var limbKOpt = new Option<string>("--limb-k") { Description = "Minnaert's k in the limb fit the gains are read through (#1221): fitted (the default), opal (held at OPAL's for the channels' wavelengths, Jupiter only), both to compare them, or the k to hold for each channel (#1498: 0.85,0.82,0.84, the last repeated; a shared fit holds their mean).", DefaultValueFactory = _ => "fitted" };
+        var limbFloorOpt = new Option<string>("--limb-floor") { Description = "What a pixel inside the planet's outline is floored at (#1479: was --under-sky and --limb-band): model (the default: a pixel the sharpening drives to the sky or below takes the planet's model through the pupil, as drawn just past the outline, #1471), sky (the sharpening floored at the sky, as before #1471), band (model, and the globe's last band inside its outline floored at the model too, #1329), or all to compare them.", DefaultValueFactory = _ => "model" };
+        var channelLimbOpt = new Option<string>("--fit-channels") { Description = "What a colour master's channels are each read against (#1498; #1479: was --channel-limb): shared (the default: one limb fit of the channels' mean) or per-channel (each channel's own fit, so a colour balance cannot move another channel's reference).", DefaultValueFactory = _ => "shared" };
+        var limbKOpt = new Option<string>("--fit-k") { Description = "Minnaert's k in the limb fit the gains are read through (#1221; #1479: was --limb-k): fitted (the default), opal (held at OPAL's for the channels' wavelengths, Jupiter only), both to compare them, or the k to hold for each channel (#1498: 0.85,0.82,0.84, the last repeated; a shared fit holds their mean).", DefaultValueFactory = _ => "fitted" };
         var noiseOpt = new Option<string>("--noise") { Description = "The noise the derived gains' Wiener target is read against (#1373): white (the default: one level, read past 0.4 cycles a pixel), halves (ring by ring off the master's two halves, --halves, whose difference is the stack's own noise, coloured as a demosaic colours it), or both to compare them.", DefaultValueFactory = _ => "white" };
         var halvesOpt = new Option<string[]>("--halves")
         {
@@ -73,14 +72,14 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var command = new Command("sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
         {
             Arguments = { masterArg },
-            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, gainsOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbBandOpt, underSkyOpt, limbKOpt, channelLimbOpt, halvesOpt, autoOpt, designOpt },
+            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, gainsOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbFloorOpt, limbKOpt, channelLimbOpt, halvesOpt, autoOpt, designOpt },
         };
 
         // What --auto refuses: every setting the pipeline's sharpening otherwise takes (A2, #1389, found none worth tuning per capture).
         Option[] autoRefuses =
         [
             fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, finishOpt, kolivasAmountOpt, targetOpt, gainsOpt,
-            shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbBandOpt, underSkyOpt, limbKOpt, channelLimbOpt, halvesOpt, pupil.Obstruction,
+            shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbFloorOpt, limbKOpt, channelLimbOpt, halvesOpt, pupil.Obstruction,
         ];
 
         command.SetAction(async (parseResult, ct) =>
@@ -125,30 +124,19 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     consoleHost.WriteError($"--wiener-floor {wienerFloorName}: step, tikhonov or both");
                     return 1;
                 }
-                var limbBandName = (parseResult.GetValue(limbBandOpt) ?? "sky").ToLowerInvariant();
-                PlanetaryLimbBand[] limbBands = limbBandName switch
+                // One floor names both (#1479): below the sky inside the outline (#1471), and the globe's last band (#1329).
+                var limbFloorName = (parseResult.GetValue(limbFloorOpt) ?? "model").ToLowerInvariant();
+                (PlanetaryLimbBand Band, PlanetaryUnderSky UnderSky)[] limbFloors = limbFloorName switch
                 {
-                    "sky" => [PlanetaryLimbBand.Sky],
-                    "model" => [PlanetaryLimbBand.Model],
-                    "both" => [PlanetaryLimbBand.Sky, PlanetaryLimbBand.Model],
+                    "model" => [(PlanetaryLimbBand.Sky, PlanetaryUnderSky.Model)],
+                    "sky" => [(PlanetaryLimbBand.Sky, PlanetaryUnderSky.Sky)],
+                    "band" => [(PlanetaryLimbBand.Model, PlanetaryUnderSky.Model)],
+                    "all" => [(PlanetaryLimbBand.Sky, PlanetaryUnderSky.Model), (PlanetaryLimbBand.Sky, PlanetaryUnderSky.Sky), (PlanetaryLimbBand.Model, PlanetaryUnderSky.Model)],
                     _ => [],
                 };
-                if (limbBands.Length == 0)
+                if (limbFloors.Length == 0)
                 {
-                    consoleHost.WriteError($"--limb-band {limbBandName}: sky, model or both");
-                    return 1;
-                }
-                var underSkyName = (parseResult.GetValue(underSkyOpt) ?? "model").ToLowerInvariant();
-                PlanetaryUnderSky[] underSkies = underSkyName switch
-                {
-                    "sky" => [PlanetaryUnderSky.Sky],
-                    "model" => [PlanetaryUnderSky.Model],
-                    "both" => [PlanetaryUnderSky.Sky, PlanetaryUnderSky.Model],
-                    _ => [],
-                };
-                if (underSkies.Length == 0)
-                {
-                    consoleHost.WriteError($"--under-sky {underSkyName}: sky, model or both");
+                    consoleHost.WriteError($"--limb-floor {limbFloorName}: model, sky, band or all");
                     return 1;
                 }
                 var limbKName = (parseResult.GetValue(limbKOpt) ?? "fitted").ToLowerInvariant();
@@ -256,7 +244,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 };
                 if (fixes.Length == 0)
                 {
-                    consoleHost.WriteError($"--fix {fixName}: floored, bounded, limb, feathered, plain or all");
+                    consoleHost.WriteError($"--limb-fix {fixName}: floored, bounded, limb, feathered, plain or all");
                     return 1;
                 }
                 var options = new PlanetarySharpenOptions(body, instant, identity is not null ? identity.Telescope : PlanetaryMasterScore.PupilFrom(parseResult, pupil))
@@ -360,7 +348,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 };
                 if (fits.Length == 0)
                 {
-                    consoleHost.WriteError($"--fit {fitName}: free, nonnegative or both");
+                    consoleHost.WriteError($"--gains-fit {fitName}: free, nonnegative or both");
                     return 1;
                 }
                 var finestName = (parseResult.GetValue(finestOpt) ?? "held").ToLowerInvariant();
@@ -430,7 +418,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 // A non-negative fit fits every band, so on a colour master its finest band is derived whatever --colour-finest asks (#1398).
                 PlanetaryColourFinestBand[] FinestsFor(bool nonNegative) => nonNegative && master.ChannelCount == 3 ? [PlanetaryColourFinestBand.Derived] : finests;
                 var variants = (options.Pupil is null ? [PlanetaryLimbFix.LimbChannel] : fixes)
-                    .SelectMany(f => fits.SelectMany(n => FinestsFor(n).SelectMany(b => strengths.SelectMany(k => finishes.SelectMany(e => luminances.SelectMany(l => targets.SelectMany(t => halvesNoises.SelectMany(h => colourTargetCuts.SelectMany(kc => wienerFloors.SelectMany(wf => limbBands.SelectMany(lb => underSkies.SelectMany(us => limbKs.Select(lk => (Fix: f, NonNegative: n, Finest: b, Strength: k, Finish: e, Luminance: l, Target: t, HalvesNoise: h, TargetCut: kc, WienerFloor: wf, LimbBand: lb, UnderSky: us, LimbK: lk)))))))))))))).ToArray();
+                    .SelectMany(f => fits.SelectMany(n => FinestsFor(n).SelectMany(b => strengths.SelectMany(k => finishes.SelectMany(e => luminances.SelectMany(l => targets.SelectMany(t => halvesNoises.SelectMany(h => colourTargetCuts.SelectMany(kc => wienerFloors.SelectMany(wf => limbFloors.SelectMany(fl => limbKs.Select(lk => (Fix: f, NonNegative: n, Finest: b, Strength: k, Finish: e, Luminance: l, Target: t, HalvesNoise: h, TargetCut: kc, WienerFloor: wf, LimbBand: fl.Band, UnderSky: fl.UnderSky, LimbK: lk))))))))))))).ToArray();
                 foreach (var (fix, nonNegative, finest, strength, (finish, finishWord), luminance, target, halvesNoise, targetCut, wienerFloor, limbBand, underSky, limbK) in variants)
                 {
                     ct.ThrowIfCancellationRequested();
@@ -442,7 +430,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     try
                     {
                         var stem = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(path) + "_sharpened"
-                            + (variants.Length > strengths.Count * finishes.Count * luminances.Length * targets.Length * halvesNoises.Length * colourTargetCuts.Length * wienerFloors.Length * limbBands.Length * underSkies.Length * limbKs.Length ? "_" + fix.ToString().ToLowerInvariant() + (nonNegative ? "_nonnegative" : "") + (finests.Length > 1 ? "_" + finest.ToString().ToLowerInvariant() : "") : "")
+                            + (variants.Length > strengths.Count * finishes.Count * luminances.Length * targets.Length * halvesNoises.Length * colourTargetCuts.Length * wienerFloors.Length * limbFloors.Length * limbKs.Length ? "_" + fix.ToString().ToLowerInvariant() + (nonNegative ? "_nonnegative" : "") + (finests.Length > 1 ? "_" + finest.ToString().ToLowerInvariant() : "") : "")
                             + (strengths.Count > 1 ? string.Create(inv, $"_s{strength:0.##}") : "")
                             + (finishes.Count > 1 ? "_f" + finishWord.Replace('+', '-') : "")
                             + (luminances.Length > 1 ? (luminance ? "_luminance" : "_perchannel") : "")
