@@ -238,6 +238,18 @@ internal sealed record PlanetaryLimbWindow(int Size, int X0, int Y0, MetricDisk 
         return window with { Sharp = window.Cut(sharpFull, width, height, PlanetaryMetrics.NormalisationLevels(sharpFull, width, height, own)) };
     }
 
+    /// <summary>
+    /// This window, in place and size, with <paramref name="fit"/>'s disk and sharp model: a colour channel read against its own limb
+    /// (<see cref="PlanetaryChannelLimb.PerChannel"/>, #1498) on the grid the shared fit placed. The plate scale stays this window's.
+    /// </summary>
+    public PlanetaryLimbWindow WithModelOf(in LimbFit fit, LimbFitOptions limbOptions, int width, int height)
+    {
+        var own = MetricDisk.From(fit, limbOptions);
+        var sharpFull = PlanetaryLimbFit.SharpModel(fit, limbOptions, width, height);
+        var window = this with { Own = own, Disk = own with { X = own.X - X0, Y = own.Y - Y0 } };
+        return window with { Sharp = window.Cut(sharpFull, width, height, PlanetaryMetrics.NormalisationLevels(sharpFull, width, height, own)) };
+    }
+
     /// <summary>The pupil's diffraction at <paramref name="wavelengthNm"/>, at this window's plate scale.</summary>
     public RadialTransfer Diffraction(Pupil pupil, double wavelengthNm) => PlanetaryInverse.Diffraction(pupil, wavelengthNm * 1e-9, ArcsecPerPixel, reachPx: Size);
 

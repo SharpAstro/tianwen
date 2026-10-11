@@ -54,6 +54,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var wienerFloorOpt = new Option<string>("--wiener-floor") { Description = "How the derived Wiener filter meets a kernel's transfer near nothing (#1406): step (the default: nothing restored under 0.02), tikhonov (H / (H^2 + 0.02^2) in place of 1 / H, so nothing steps), or both to compare them.", DefaultValueFactory = _ => "step" };
         var limbBandOpt = new Option<string>("--limb-band") { Description = "What the globe's last band inside its outline is floored at (#1329): sky (the default), model (the planet's model through the pupil, as drawn just past the outline), or both to compare them.", DefaultValueFactory = _ => "sky" };
         var underSkyOpt = new Option<string>("--under-sky") { Description = "What a pixel inside the planet's outline takes when the sharpening drives it to the sky or below (#1471): model (the default: the planet's model through the pupil, as drawn just past the outline; nothing the sharpening leaves above the sky moves), sky (the sharpening floored there, as before #1471), or both to compare them.", DefaultValueFactory = _ => "model" };
+        var channelLimbOpt = new Option<string>("--channel-limb") { Description = "What a colour master's channels are each read against (#1498): shared (the default: one limb fit of the channels' mean) or per-channel (each channel's own fit, so a colour balance cannot move another channel's reference).", DefaultValueFactory = _ => "shared" };
         var limbKOpt = new Option<string>("--limb-k") { Description = "Minnaert's k in the limb fit the gains are read through (#1221): fitted (the default), opal (held at OPAL's for the channels' wavelengths, Jupiter only), or both to compare them.", DefaultValueFactory = _ => "fitted" };
         var noiseOpt = new Option<string>("--noise") { Description = "The noise the derived gains' Wiener target is read against (#1373): white (the default: one level, read past 0.4 cycles a pixel), halves (ring by ring off the master's two halves, --halves, whose difference is the stack's own noise, coloured as a demosaic colours it), or both to compare them.", DefaultValueFactory = _ => "white" };
         var halvesOpt = new Option<string[]>("--halves")
@@ -72,14 +73,14 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var command = new Command("sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
         {
             Arguments = { masterArg },
-            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, gainsOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbBandOpt, underSkyOpt, limbKOpt, halvesOpt, autoOpt, designOpt },
+            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, gainsOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbBandOpt, underSkyOpt, limbKOpt, channelLimbOpt, halvesOpt, autoOpt, designOpt },
         };
 
         // What --auto refuses: every setting the pipeline's sharpening otherwise takes (A2, #1389, found none worth tuning per capture).
         Option[] autoRefuses =
         [
             fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, ringEdgeOpt, slidersOpt, finishOpt, kolivasAmountOpt, targetOpt, gainsOpt,
-            shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbBandOpt, underSkyOpt, limbKOpt, halvesOpt, pupil.Obstruction,
+            shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbBandOpt, underSkyOpt, limbKOpt, channelLimbOpt, halvesOpt, pupil.Obstruction,
         ];
 
         command.SetAction(async (parseResult, ct) =>
@@ -161,6 +162,18 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 if (limbKs.Length == 0)
                 {
                     consoleHost.WriteError($"--limb-k {limbKName}: fitted, opal or both");
+                    return 1;
+                }
+                var channelLimbName = (parseResult.GetValue(channelLimbOpt) ?? "shared").ToLowerInvariant();
+                PlanetaryChannelLimb? channelLimb = channelLimbName switch
+                {
+                    "shared" => PlanetaryChannelLimb.Shared,
+                    "per-channel" or "perchannel" => PlanetaryChannelLimb.PerChannel,
+                    _ => null,
+                };
+                if (channelLimb is not { } limbPerChannel)
+                {
+                    consoleHost.WriteError($"--channel-limb {channelLimbName}: shared or per-channel");
                     return 1;
                 }
                 if (colourTargetCuts.Length == 0)
@@ -266,6 +279,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 var options = new PlanetarySharpenOptions(body, instant, identity is not null ? identity.Telescope : PlanetaryMasterScore.PupilFrom(parseResult, pupil))
                 {
                     WavelengthsNm = [.. wavelengths],
+                    ChannelLimb = limbPerChannel,
                 };
                 consoleHost.WriteScrollable(string.Create(inv,
                     $"{Path.GetFileName(path)}: {master.ChannelCount}ch {master.Width}x{master.Height}, {body} at {instant:yyyy-MM-dd HH:mm:ss} UTC, {(options.Pupil is { } p ? $"a {p.DiameterM * 1000:0} mm pupil {p.ObstructionRatio:P0} obstructed" : "no telescope (the preset, the limb kept as stacked)")}"));
