@@ -209,7 +209,7 @@ public class ViewerTonePopoverTests
         OpenPanel(viewer, state, document);
 
         state.ToolbarDropdown.IsOpen.ShouldBeFalse("a popover, not a dropdown of presets");
-        state.OverlayOwnsPointer.ShouldBeTrue("an open popover owns the pointer");
+        viewer.Ui.PointerClaim.ShouldNotBeNull("an open popover claims the pointer, which the engine records as it paints");
         viewer.Arranged.ShouldNotBeEmpty();
     }
 

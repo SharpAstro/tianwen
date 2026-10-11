@@ -219,9 +219,9 @@ namespace TianWen.Lib.Tests
             var button = Button(viewer);
             Press(viewer, button.X + (button.Width / 2f), button.Y + (button.Height / 2f));
             state.WhiteBalancePopover.IsOpen.ShouldBeTrue("the button opens it");
-            state.OverlayOwnsPointer.ShouldBeTrue("an open popover owns the pointer, like a dropdown");
 
             viewer.Render(document, state);
+            viewer.Ui.PointerClaim.ShouldNotBeNull("an open popover claims the pointer, like a dropdown, as it paints");
             var (buttons, sliders, _) = HitsBelowTheBar(viewer);
             buttons.ShouldContainKey("AutoWhiteBalance");
             buttons.ShouldContainKey("ResetWhiteBalance");
