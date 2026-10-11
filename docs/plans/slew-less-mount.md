@@ -1,6 +1,6 @@
 # Slew-less mount: a session on a mount that cannot goto
 
-**Status: P1 BUILT (2026-10-11), P2-P4 NOT STARTED.** The session assumed a goto mount at every step, so it could not
+**Status: P1 and P2 BUILT (2026-10-11), P3-P4 NOT STARTED.** The session assumed a goto mount at every step, so it could not
 run on the iOptron SkyGuider Pro at all. This plan is the design for the MoveAxis fallback (#1495) and the Milky Way
 panorama mode (#1500) on top of it. The mosaic placement it needs shipped first (#1501, PR #1502). P1, arrival and
 centring, is `Session.PointWithoutGotoAsync` (`Session.SlewLess.cs`).
@@ -106,16 +106,31 @@ APS-C, 10' at 250 mm. A wide field frames its target as well at a twentieth of i
 | Guider calibration (`CalibrateGuiderAsync`, HA -0.5 h) | slews east of the meridian | calibrates on the first target after its arrival; the mount guides RA only |
 | Obstruction nudge (a Dec offset) | slews and scouts | skipped: it would need the operator |
 | Sky flats near the zenith | slews | not offered; the calibrator path stays |
-| Meridian flip | goto to the other side | RA by motor at once, then the Dec wait (below). Until P2, a flip due ends the target rather than repeating it past the meridian |
+| Meridian flip | goto to the other side | RA a half turn east by motor at once, then the operator swings Dec over the pole (below) |
 | A slew that throws | retried without bound (a bug) | bounded on every mount: after a few failures the observation advances |
 
 ### The meridian flip
 
 When `MeridianFlipDecision` calls for a flip, the RA half cannot wait (the camera meets the tripod legs), so the
-session turns RA by the half turn at once, then enters the Dec wait, now for the flipped Dec. The solve that finds the
-target again decides whether the flip happened, from the field's rotation (`MeridianFlipVerification`), which needs
-the driver's pointing state to be `Computed`, not today's `None` (#1483's tenth item). With #1501 a mosaic is placed
-so it needs no flip; a single target that crosses still does.
+session turns RA a half turn EAST at once (`FlipWithoutGotoAsync`). The camera then looks 12 h away at the same Dec,
+and the way back to the target is the operator swinging Dec over the pole, which this mount cannot do (the owner:
+"yes as you have flip the DEC axis which this mount can't do obiously"). The session waits for that swing as for any
+Dec turn, its prompt saying so, and the wait ends when a solve finds the target's Dec within a quarter turn of its RA.
+`CompleteMeridianFlipAsync` then recentres (the routine's RA correction) and decides whether the flip happened from the
+field's rotation (`MeridianFlipVerification`), which needed the driver's pointing state to become `Computed` (#1483's
+tenth item, done here). A flip that does not finish moves to the next observation rather than repeating this one, which
+would turn RA back toward the tripod. With #1501 a mosaic is placed so it needs no flip; a single target that crosses
+still does.
+
+Two things the first build of it measured, both on the fake with every move running 3 % long:
+
+- **A half turn needs the motor's SPEED measured, not only its direction.** 3 % of 180 degrees is 5.4 degrees, farther
+  than a solve hinted near the target can place a field, so every solve after the swing failed. The routine now learns
+  each rate's true speed off every move's solve (`LearnFromRaMove`, believed between half and double) and times moves
+  by it, and before a half turn it measures the top rate with a probe move if nothing has (`MeasureRaMotorAsync`).
+- **A failed solve during the swing must look where the swing LANDS**: the RA from before the half turn, since a half
+  turn and a swing over the pole cancel in RA, at the target's Dec. Looking at the target itself missed by the probe's
+  3.6 degrees.
 
 ## The fake that knows where it points
 
@@ -156,15 +171,15 @@ From #1483 (the SkyGuider Pro driver's confirmed defects) and #810 (a lost reply
   `DriverEnforcedStop`. Wanted before any real night, with or without this plan.
 - **#1483 item 2, the RA model nothing reads**: between solves the driver's RA is stale after a move. The routine syncs
   after every solve, so the routine does not depend on it; the meridian limit between solves does.
-- **#1483 item 5**, a move on a closed port still sets the moving flag, and **the tenth item**, the pointing state
-  `Computed`, which P2's flip verification needs.
+- **#1483 item 5**, a move on a closed port still sets the moving flag. **The tenth item**, the pointing state
+  `Computed`, is done in P2.
 
 ## Phases
 
 | Phase | What | Issue | State |
 |---|---|---|---|
 | P1 | The pointing routine for arrival and centring; each auxiliary slew answered as in the table; the slew retry bounded on every mount; the fake's true pointing; session tests on `mountPort: "SGP"` (`SlewLessSessionTests`: M42 reached an hour of RA and five degrees of Dec away with one question and two RA moves at a 3 % move error; a target at the rig's Dec with none) | #1495 | built 2026-10-11 |
-| P2 | The flip: RA at once, the Dec wait, verification by the image (needs #1483's tenth item) | #1495 | not started |
+| P2 | The flip: RA a half turn east at once, the operator's swing over the pole, verification by the image; the driver's pointing state `Computed` (#1483's tenth item); the motor's speed measured per rate | #1495 | built 2026-10-11 |
 | P3 | The panorama strip: the generator overload, the planner's entry, the scheduler's strict rule | #1500 | not started |
 | P4 | The atlas draws the `PointingRequest` | #623 | not started |
 

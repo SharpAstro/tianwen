@@ -105,6 +105,50 @@ public class SlewLessSessionTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 300_000)]
+    public async Task AFlipTurnsRaAHalfTurnAtOnceThenWaitsForTheOperatorToSwingDecOverThePole()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // Just west of the meridian at the start (LST is about 4.74 h from Vienna then), so a flip is due.
+        var target = new Target(4.60, 20.0, "FlipTarget", null);
+        var (ctx, mount) = await ArrangeRigAsync(target.RA, target.Dec, moveRateError: 0.03, ct);
+        await using var session = ctx;
+        ctx.Camera.Target = target;
+        var serial = mount.SerialDevice.ShouldNotBeNull();
+
+        // The centring solve the flip is judged against, as every observation's arrival leaves one.
+        (await ctx.Session.CenterOnTargetAsync(target, 0, thresholdArcmin: 1.0, maxAttempts: 2, ct)).ShouldBeTrue();
+        var sideBefore = serial.MechanicalPointingState;
+
+        IMountDriver driver = mount;
+        var transform = (await driver.TryGetTransformAsync(ct)).ShouldNotBeNull();
+        var nativeTargetDec = (await driver.TryTransformJ2000ToMountNativeAsync(transform, target.RA, target.Dec, updateTime: true, ct))
+            .ShouldNotBeNull().DecMount;
+        var prompts = 0;
+        string? title = null;
+        ctx.Session.PromptRequested += (_, e) =>
+        {
+            prompts++;
+            title = e.Title;
+            serial.SwingDecOverThePoleByHand(nativeTargetDec);
+            e.Respond(true);
+        };
+        var movesBefore = serial.MovesStarted;
+
+        var observation = new ScheduledObservation(target, WinterNightStart, TimeSpan.FromHours(2), AcrossMeridian: true,
+            FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(TimeSpan.FromSeconds(30)), Gain: 0, Offset: 0);
+        var result = await ctx.Session.PerformMeridianFlipAsync(observation, alreadyFlipped: false, ct);
+
+        result.Success.ShouldBeTrue("the flip must finish once the operator has swung Dec over the pole");
+        result.Verdict.Evidence.ShouldBe(FlipEvidence.Flipped, "and the image must show the field turned over");
+        prompts.ShouldBe(1, "the operator is asked once, for the swing, never for RA");
+        title.ShouldBe("Swing the Dec axis over the pole");
+        serial.MechanicalPointingState.ShouldNotBe(sideBefore, "the tube is on the other side");
+        (serial.MovesStarted - movesBefore).ShouldBeGreaterThanOrEqualTo(2,
+            "the motor turned RA a half turn, and a half turn 3 % long needs a correction after the swing");
+    }
+
+    [Fact(Timeout = 300_000)]
     public async Task ATargetAtTheSameDecIsReachedWithNoQuestionForTheOperator()
     {
         var ct = TestContext.Current.CancellationToken;

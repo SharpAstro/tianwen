@@ -11,8 +11,16 @@ namespace TianWen.Lib.Devices.Fake;
 /// in front of it, while the driver's own reads keep reporting only what it believes (its last sync), as on the real mount.
 /// </summary>
 internal class FakeSgpMountDriver(FakeDevice device, IServiceProvider serviceProvider)
-    : SgpMountDriverBase<FakeDevice>(device, serviceProvider), IFakeTruePointingSource
+    : SgpMountDriverBase<FakeDevice>(device, serviceProvider), IFakeTruePointingSource, IFakeMechanicalPointingStateSource
 {
+    /// <summary>
+    /// The tube's mechanical side, which only the operator's swing of Dec over the pole changes
+    /// (<see cref="FakeSgpSerialDevice.SwingDecOverThePoleByHand"/>), so the fake camera turns the field over on a flip
+    /// and on nothing else; unknown before the rig is placed.
+    /// </summary>
+    public ValueTask<PointingState> GetMechanicalPointingStateAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(SerialDevice?.MechanicalPointingState ?? PointingState.Unknown);
+
     /// <summary>The fake serial device the true pointing is kept on; null before the driver connects.</summary>
     internal FakeSgpSerialDevice? SerialDevice => _deviceInfo.SerialDevice as FakeSgpSerialDevice;
 

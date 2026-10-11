@@ -199,7 +199,7 @@ the last connect, sync or setter.
 | `GetGuideRateRightAscensionAsync` | the cached percentage (50 until set) of the sidereal rate, in degrees per second; `:MGGR` is never sent |
 | `GetGuideRateDeclinationAsync` | `0.0`, although every RA set writes the mount's Dec field as 50. `SetGuideRateDeclinationAsync` throws `InvalidOperationException` |
 | `GetRightAscensionRateAsync` / `GetDeclinationRateAsync` | `0.0`; both setters throw `InvalidOperationException` |
-| `GetSideOfPierAsync` / `DestinationSideOfPierAsync` | `PointingState.Normal`, a placeholder (`PointingStateSource` is `None`); `SetSideOfPierAsync` throws `InvalidOperationException` |
+| `GetSideOfPierAsync` / `DestinationSideOfPierAsync` | computed from the hour angle as on the LX200 base (west of the meridian `Normal`, east `ThroughThePole`), `Unknown` before a longitude is set; `PointingStateSource` is `Computed`, so whether a flip happened is read off the image. It was `None` with a constant `Normal` until the slew-less flip (`docs/plans/slew-less-mount.md`, P2), which hid every flip; `SetSideOfPierAsync` throws `InvalidOperationException` |
 | `AtHomeAsync` / `AtParkAsync` | `false`; `ParkAsync` and `UnparkAsync` throw `InvalidOperationException` |
 | `StartPulseGuideAsync` / `IsPulseGuidingAsync` | throws `InvalidOperationException` (guide through the ST-4 port instead); `false` |
 | `TryGetUTCDateFromMountAsync` / `SetUTCDateAsync` | the host clock; does nothing. `TimeIsSetByUs` is `true` |
@@ -291,7 +291,7 @@ Where it is simpler than the mount:
   mount), so the driver sees a move only through its acks. **The fake camera does see it**, once a test places
   the rig (`FakeSgpMountDriver.PlaceAtJ2000Async`): the serial fake then keeps a TRUE pointing whose RA the
   offset moves (west lowers it, at the commanded speed times `MoveRateError`, a deliberate error), and whose Dec
-  only `TurnDecByHand` changes, since the mount has no Dec motor. `FakeSgpMountDriver` is an
+  only `TurnDecByHand` changes, since the mount has no Dec motor. `SwingDecOverThePoleByHand` is the operator's half of a flip: the pointing goes 12 h round and the tube's mechanical side turns over, which the driver reports through `IFakeMechanicalPointingStateSource`, so the camera rolls the field 180 degrees on a flip and on nothing else. `FakeSgpMountDriver` is an
   `IFakeTruePointingSource`, so the camera renders that sky while the driver's reads keep its last sync, as on
   the real mount. A rig never placed reports the driver's belief as its truth. This is what the slew-less
   session is tested on (`docs/plans/slew-less-mount.md`).

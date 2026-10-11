@@ -291,17 +291,33 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
 
     #region Pier Side
 
-    /// <summary>A star tracker has no Dec axis and no pier; the constant Normal below is a placeholder.</summary>
-    public PointingStateSource PointingStateSource => PointingStateSource.None;
+    /// <summary>
+    /// Computed from the hour angle, as on the LX200 base. The SkyGuider Pro is German equatorial
+    /// (<see cref="AlignmentMode.GermanPolar"/>), and a flip on it is the session turning RA a half turn and the operator
+    /// swinging Dec over the pole (<c>docs/plans/slew-less-mount.md</c>, the owner's design of 2026-10-11), so its pier
+    /// side does change, and only the image can say when (<c>MeridianFlipVerification</c>). It was <c>None</c>, with a
+    /// constant <c>Normal</c>, which hid every flip from the session and the guider (#1483).
+    /// </summary>
+    public PointingStateSource PointingStateSource => PointingStateSource.Computed;
 
-    public ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult(PointingState.Normal);
+    public async ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken)
+        => double.IsNaN(_siteLongitude) ? PointingState.Unknown : SideOfPierAt(await GetHourAngleAsync(cancellationToken));
 
     public ValueTask SetSideOfPierAsync(PointingState pointingState, CancellationToken cancellationToken)
         => throw new InvalidOperationException("SGP does not support setting side of pier");
 
-    public ValueTask<PointingState> DestinationSideOfPierAsync(double ra, double dec, CancellationToken cancellationToken)
-        => ValueTask.FromResult(PointingState.Normal);
+    public async ValueTask<PointingState> DestinationSideOfPierAsync(double ra, double dec, CancellationToken cancellationToken)
+        => double.IsNaN(_siteLongitude)
+            ? PointingState.Unknown
+            : SideOfPierAt(CoordinateUtils.ConditionHA(await GetSiderealTimeAsync(cancellationToken) - ra));
+
+    /// <summary>West of the meridian is <see cref="PointingState.Normal"/>, east is through the pole, as on the LX200 base.</summary>
+    private static PointingState SideOfPierAt(double hourAngle) => hourAngle switch
+    {
+        >= 0 => PointingState.Normal,
+        < 0 => PointingState.ThroughThePole,
+        _ => PointingState.Unknown,
+    };
 
     #endregion
 
