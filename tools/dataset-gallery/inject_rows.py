@@ -22,6 +22,8 @@ import json
 import os
 import sys
 
+from pack_views import crop_sprite
+
 ANCHOR = "window.MASTERS = "
 DEFAULT_TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gallery.html")
 
@@ -43,6 +45,9 @@ def main():
     ids = [r["id"] for r in rows]
     if ids != list(range(len(rows))):
         raise SystemExit(f"row ids must be 0..{len(rows) - 1} in order; got {ids[:8]}...")
+    # Where each 1:1 patch sits in the sheets pack_views wrote, by pack_views' own rule.
+    for r in rows:
+        r["cropSprite"] = crop_sprite(r["id"])
 
     indent = lines[hits[0]][:len(lines[hits[0]]) - len(lines[hits[0]].lstrip())]
     lines[hits[0]] = indent + ANCHOR + json.dumps(rows, separators=(",", ":")) + ";"

@@ -15,7 +15,11 @@ Star fields are noise-dominated and PNG cannot compress noise, which is why a 12
 WHAT IS LOSSLESS AND WHAT IS NOT, decided by what each view is FOR:
 
 * `<id>_crop.png` is the 1:1 window where pixel-level judgement happens (noise floor, Bayer phase,
-  a star's core). It is copied verbatim, and it is cheap to do so: all 139 come to 28 MB.
+  a star's core). It stays lossless, pixel for pixel, but it ships inside a SPRITE SHEET
+  (`crops-<n>.png`, 7 x 7 patches) rather than as a file of its own: an artifact VERSION holds at most
+  511 files, and 194 masters x three views plus the page is 583, which is where #713's regenerated
+  gallery was refused at its fourth batch. `crop_sprite` places a card's patch; `inject_rows.py` stamps
+  that placement on every row, so the page and this file cannot disagree about where a patch is.
 * `<id>_raw` and `<id>_enhanced` are looked at whole, to judge framing, gradient and colour. They
   become JPEG at 4:4:4 (no chroma subsampling -- this gallery is largely judged on COLOUR, and
   subsampling is the one JPEG setting that attacks it directly).
@@ -38,7 +42,6 @@ find.
 4108 px master is 31 screen pixels here, against the 16 that made 512 px useless.
 """
 import os
-import shutil
 import sys
 
 from PIL import Image
@@ -47,8 +50,24 @@ Image.MAX_IMAGE_PIXELS = None
 
 WIDTH = 1000
 QUALITY = 92
-# Copied verbatim rather than re-encoded: see the module docstring.
+# Kept lossless, in sprite sheets: see the module docstring.
 LOSSLESS_SUFFIX = "_crop.png"
+CROP_CELL = 320
+CROP_SHEET_COLS = 7
+CROPS_PER_SHEET = CROP_SHEET_COLS * CROP_SHEET_COLS
+# A binary file an artifact takes is at most 15 MB; a full sheet of 49 patches measured about 9.
+SHEET_LIMIT_BYTES = 15_000_000
+
+
+def crop_sprite(card_id):
+    """Where card `card_id`'s 1:1 patch sits: its sheet, column and row. The ONE placement rule."""
+    sheet, cell = divmod(card_id, CROPS_PER_SHEET)
+    row, col = divmod(cell, CROP_SHEET_COLS)
+    return {"sheet": sheet, "col": col, "row": row, "cols": CROP_SHEET_COLS}
+
+
+def sheet_name(sheet):
+    return f"crops-{sheet}.png"
 
 
 def main():
@@ -56,14 +75,18 @@ def main():
     width = int(sys.argv[sys.argv.index("--width") + 1]) if "--width" in sys.argv else WIDTH
     quality = int(sys.argv[sys.argv.index("--quality") + 1]) if "--quality" in sys.argv else QUALITY
     os.makedirs(out_dir, exist_ok=True)
+    # The pack is regenerated whole. A file left from an earlier pack (a per-card patch from before the
+    # sheets) is one a publish would ship beside the current ones.
+    for stale in os.listdir(out_dir):
+        os.remove(os.path.join(out_dir, stale))
 
     names = sorted(f for f in os.listdir(img_dir) if f.lower().endswith(".png"))
-    kept = packed = 0
+    packed = 0
+    crops = {}
     for name in names:
         src = os.path.join(img_dir, name)
         if name.endswith(LOSSLESS_SUFFIX):
-            shutil.copyfile(src, os.path.join(out_dir, name))
-            kept += 1
+            crops[int(name[:-len(LOSSLESS_SUFFIX)])] = src
             continue
         im = Image.open(src).convert("RGB")
         if im.width > width:
@@ -72,10 +95,27 @@ def main():
                 format="JPEG", quality=quality, subsampling=0, optimize=True)
         packed += 1
 
+    sheets = {}
+    for card_id, src in sorted(crops.items()):
+        patch = Image.open(src)
+        if patch.size != (CROP_CELL, CROP_CELL) or patch.mode != "RGB":
+            raise SystemExit(f"{src}: a patch must be RGB {CROP_CELL}x{CROP_CELL}, got {patch.mode} {patch.size}")
+        at = crop_sprite(card_id)
+        sheets.setdefault(at["sheet"], []).append((at, patch))
+    for sheet, cells in sorted(sheets.items()):
+        rows = max(at["row"] for at, _ in cells) + 1
+        canvas = Image.new("RGB", (CROP_SHEET_COLS * CROP_CELL, rows * CROP_CELL))
+        for at, patch in cells:
+            canvas.paste(patch, (at["col"] * CROP_CELL, at["row"] * CROP_CELL))
+        path = os.path.join(out_dir, sheet_name(sheet))
+        canvas.save(path, format="PNG", optimize=True)
+        if os.path.getsize(path) > SHEET_LIMIT_BYTES:
+            raise SystemExit(f"{path} is {os.path.getsize(path) / 1e6:.1f} MB, over an artifact's 15 MB per file")
+
     total = sum(os.path.getsize(os.path.join(out_dir, f)) for f in os.listdir(out_dir))
-    print(f"{packed} views -> JPEG q{quality} at {width}px, {kept} crops copied verbatim")
+    print(f"{packed} views -> JPEG q{quality} at {width}px, {len(crops)} patches -> {len(sheets)} lossless sheets")
     print(f"{len(os.listdir(out_dir))} files, {total / 1e6:.0f} MB "
-          f"(artifact cap 256 MiB; publish in batches of at most 255 files and ~60 MB)")
+          f"(an artifact version holds 511 files and 256 MiB; publish in batches of at most 255 files and ~60 MB)")
 
 
 if __name__ == "__main__":

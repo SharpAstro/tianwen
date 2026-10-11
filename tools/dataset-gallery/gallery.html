@@ -126,9 +126,9 @@
     font-family: var(--mono); font-size: 11px; color: var(--dim);
     margin-top: 6px; letter-spacing: 0.03em;
   }
-  .crop img {
+  .crop .patch {
     width: 256px; height: 256px; image-rendering: pixelated; display: block;
-    border-radius: 4px; border: 1px solid var(--rule); background: #05070a;
+    border-radius: 4px; border: 1px solid var(--rule); background-color: #05070a; background-repeat: no-repeat;
   }
   table { border-collapse: collapse; width: 100%; font-family: var(--mono); font-size: 12.5px; }
   th, td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--rule); }
@@ -306,28 +306,49 @@ window.MASTERS = [];  /* ROWS GO HERE -- inject_rows.py replaces this whole line
   // says nothing about WHY. Count the failures and show the first resolved URL, so the report is
   // "N of M failed, at <where the host looked>" and not a shrug.
   const loadStats = { failed: 0, first: '' };
+  function reportFailure(src) {
+    loadStats.failed += 1;
+    if (!loadStats.first) loadStats.first = src;
+    let bar = document.getElementById('loadbar');
+    if (!bar) {
+      bar = document.createElement('p');
+      bar.id = 'loadbar';
+      bar.className = 'note';
+      bar.style.cssText = 'color:var(--bad);margin:10px 0 0';
+      document.querySelector('.bar').after(bar);
+    }
+    bar.textContent = `${loadStats.failed} picture(s) failed to load; the first was requested as ${loadStats.first}`;
+  }
   function watchImages(scope) {
     for (const img of scope.querySelectorAll('img')) {
-      img.addEventListener('error', () => {
-        loadStats.failed += 1;
-        if (!loadStats.first) loadStats.first = img.src;
-        let bar = document.getElementById('loadbar');
-        if (!bar) {
-          bar = document.createElement('p');
-          bar.id = 'loadbar';
-          bar.className = 'note';
-          bar.style.cssText = 'color:var(--bad);margin:10px 0 0';
-          document.querySelector('.bar').after(bar);
-        }
-        bar.textContent = `${loadStats.failed} picture(s) failed to load; the first was requested as ${loadStats.first}`;
-      }, { once: true });
+      img.addEventListener('error', () => reportFailure(img.src), { once: true });
     }
+  }
+
+  // The 1:1 patches ship as lossless sprite sheets, not a file each, because an artifact version holds at most
+  // 511 files (pack_views.crop_sprite places a patch; inject_rows stamps the place on its row). A CSS background
+  // fires no error event, so each sheet is also loaded once as an Image, to be counted like any other picture.
+  const PATCH_PX = 256;
+  const sheetsWatched = new Set();
+  function sheetUrl(r) { return `img/crops-${r.cropSprite.sheet}.png`; }
+  function watchSheet(url) {
+    if (sheetsWatched.has(url)) return;
+    sheetsWatched.add(url);
+    const probe = new Image();
+    probe.addEventListener('error', () => reportFailure(probe.src), { once: true });
+    probe.src = url;
+  }
+  function patchStyle(r) {
+    const s = r.cropSprite;
+    return `background-image:url(${sheetUrl(r)});background-size:${s.cols * PATCH_PX}px auto;`
+      + `background-position:-${s.col * PATCH_PX}px -${s.row * PATCH_PX}px`;
   }
 
   function render() {
     const list = visible();
     grid.replaceChildren(...list.map(card));
     watchImages(grid);
+    for (const r of list) watchSheet(sheetUrl(r));
     document.getElementById('count').textContent = `${list.length} of ${rows.length} masters`;
   }
 
@@ -368,7 +389,7 @@ window.MASTERS = [];  /* ROWS GO HERE -- inject_rows.py replaces this whole line
           </figure>
           <div class="crops" style="margin-top:16px">
             <figure class="crop" style="margin:0">
-              <img src="img/${r.id}_crop.png" alt="1:1 sky crop">
+              <div class="patch" role="img" aria-label="1:1 sky crop" style="${patchStyle(r)}"></div>
               <figcaption>1:1, uncropped master at (${r.cropX}, ${r.cropY})</figcaption>
             </figure>
           </div>
