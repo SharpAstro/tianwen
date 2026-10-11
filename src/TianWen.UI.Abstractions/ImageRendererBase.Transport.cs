@@ -166,27 +166,34 @@ namespace TianWen.UI.Abstractions
             // the scrub arms from its own region, registered after (later registration wins) and needing
             // the press POSITION, which is what a scrub is: seek to where you pressed.
             RegisterClickable(_scrubTrackRect.X, _scrubTrackRect.Y, _scrubTrackRect.Width, _scrubTrackRect.Height,
-                new TransportScrubHit(), onPress: press =>
-                {
-                    BeginScrubAt(press.X);
-                    return null;
-                });
+                new TransportScrubHit(), onPress: press => BeginScrubAt(press.X));
         }
 
         /// <summary>
-        /// Begins a transport scrub (press on the scrub track): pauses playback and seeks to the press X.
-        /// Shared by the FitsViewer mouse-down path and the GUI viewer-tab path so both behave identically.
+        /// Begins a transport scrub (a press on the scrub track): pauses playback, seeks to the press X, and returns
+        /// the drag that goes on seeking as the pointer moves, until the button comes up.
         /// </summary>
-        public void BeginScrubAt(float px)
+        /// <remarks>
+        /// The gesture is the capture's (#1489): whoever routed the press (the router, or the viewer's own press path)
+        /// delivers its moves and its release. It used to be a flag on the state, set here and steered by a branch in
+        /// the viewer's move handler and cleared by another in its release handler.
+        /// </remarks>
+        public DragCapture? BeginScrubAt(float px)
         {
             if (_state is not { } state)
             {
-                return;
+                return null;
             }
 
-            state.IsScrubbing = true;
             state.IsPlaying = false; // pause while scrubbing; resume is an explicit play
             ScrubAt(px);
+            return new DragCapture(
+                move =>
+                {
+                    ScrubAt(move.X);
+                    state.NeedsRedraw = true;
+                },
+                _ => state.NeedsRedraw = true);
         }
 
         // Maps a cursor X onto a frame index against the captured scrub track and requests that frame.

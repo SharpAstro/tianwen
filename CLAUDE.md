@@ -1437,8 +1437,8 @@ widget, and "Rules in full (moved from CLAUDE.md, 2026-10-09)").
 - **The docked info strip REPORTS; it holds no controls** (`InfoPanelData.GetStatisticsTable`); controls live in
   toolbar popovers.
 - **A popover is a `Layout.Builder.Popover` node plus a `PopoverState`, nothing else to declare**
-  (`WindowUiSettings.PaintedPopovers`); a toolbar button still owes its own `onPress`, or it is silently dead under
-  the router. `docs/plans/dir-lib-10.md`. The **tone popover** (`ToolbarAction.Tone`): `docs/plans/hdr-display.md`.
+  (`WindowUiSettings.PaintedPopovers`). A viewer toolbar button is a node that declares its own press
+  (`ToolbarButtonNode`), so a new one cannot be silently dead under the router. `docs/plans/dir-lib-10.md`. The **tone popover** (`ToolbarAction.Tone`): `docs/plans/hdr-display.md`.
 
 ### The star field is culled on TWO axes, and both are load-bearing
 

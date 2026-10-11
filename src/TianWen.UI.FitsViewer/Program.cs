@@ -750,14 +750,12 @@ bool PumpInstanceGate()
 // open dropdown's full-viewport backdrop is registered above everything, so it answers the hit and the
 // handle underneath correctly stops claiming the pointer.
 //
-// The drag is the one genuine state term: once the grab starts the cursor stays the resize cursor
-// wherever the pointer travels, which no region under it can express.
+// A drag keeps the cursor it began with wherever the pointer travels, which no region under it can express: the
+// router answers that (DIR.Lib 11.16), so the resize grab no longer needs a state flag here.
 void UpdateCursor()
 {
     var (mx, my) = state.MouseScreenPosition;
-    var cursor = state.IsResizingFileList
-        ? CursorKind.ResizeEW
-        : imageRenderer.HitTestCursor(mx, my)
-            ?? (imageRenderer.HitTest(mx, my) is ResizeHandleHit ? CursorKind.ResizeEW : CursorKind.Default);
+    var cursor = host.Router.CursorAt(mx, my)
+        ?? (imageRenderer.HitTest(mx, my) is ResizeHandleHit ? CursorKind.ResizeEW : CursorKind.Default);
     sdlWindow.SetSystemCursor(cursor.ToSystemCursor);
 }

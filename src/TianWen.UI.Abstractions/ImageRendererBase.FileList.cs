@@ -195,9 +195,23 @@ namespace TianWen.UI.Abstractions
                 new ResizeHandleHit(FileListId), cursor: CursorKind.ResizeEW,
                 onPress: _ =>
                 {
+                    // The drag is the capture's (#1489): its moves set the width, in DPI-independent units
+                    // (FileListWidthBase's setter clamps), and its release ends it. The flag is only what the
+                    // divider's active colour reads; the cursor needs none, since a drag keeps the cursor of
+                    // the region that armed it (DIR.Lib 11.16).
                     state.IsResizingFileList = true;
                     state.NeedsRedraw = true;
-                    return null;
+                    return new DragCapture(
+                        move =>
+                        {
+                            state.FileListWidthBase = move.X / DpiScale;
+                            state.NeedsRedraw = true;
+                        },
+                        _ =>
+                        {
+                            state.IsResizingFileList = false;
+                            state.NeedsRedraw = true;
+                        });
                 });
 
             if (string.IsNullOrEmpty(FontPath))

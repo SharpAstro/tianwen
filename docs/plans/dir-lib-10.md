@@ -1152,7 +1152,10 @@ go, such as a field the capture sets and clears for the colour, and the router s
 shows. `ImageRendererBase.TryBeginRegionDrag`, the viewer's stopgap for holding a capture outside the router, has
 no callers since `StandaloneViewerHost` routes press, move and release through the router. It can go too, and
 with it `_regionDrag`, `_regionDragButton`, `_regionDragModifiers` and their move and release branches in
-`ImageRendererBase.Input.cs`. Ctrl+Tab and Ctrl+Shift+Tab are not outstanding: they name the NEXT
+`ImageRendererBase.Input.cs`. **Done 2026-10-11 (#1489):** both presses return a `DragCapture`, `IsScrubbing` is
+gone, `IsResizingFileList` is set and cleared by its capture and read for the divider's colour alone, the cursor
+held through the drag is the router's (DIR.Lib 11.16: a drag keeps the cursor of the region that armed it), and the
+stopgap and its branches are deleted. Ctrl+Tab and Ctrl+Shift+Tab are not outstanding: they name the NEXT
 tab, so they have no node to sit on and are answered before the router in `GuiEventHandlerBase`, by decision.
 
 ## Acceptance for the whole plan
@@ -1165,15 +1168,17 @@ viewer-layout-engine's P3 and P5.
   **Met (#1491):** the three fields once focused by a hand-posted signal declare `focusOnOpen`, and nothing posts it.
 - **Adding a popover** is `Builder.Popover(...)` and a `.Clickable` that toggles its state. Zero dispatcher
   lines; the `CLAUDE.md` warning about the dead button is deleted because the failure is unrepresentable.
-  **Unmet:** the warning stands, since a viewer toolbar button still owes its own `onPress` (#1489).
+  **Met (#1489):** a viewer toolbar button is a node declaring its own press, so the warning is gone.
 - **Adding a slider** is `Content.Slider(state)`. No flag, no branch. **Met** for the sliders: the tone,
-  white balance and wavelet dials are `Content.Slider` leaves. The transport's scrub is still a flag, `IsScrubbing` (#1489).
+  white balance and wavelet dials are `Content.Slider` leaves, and the transport's scrub is the capture its track's
+  press returns (#1489; `IsScrubbing` is gone).
 - `ISelfDispatchingInputWidget`, `OverlayOwnsPointer`, `IKeyboardClaimant`, the `Ctrl+letter` map, the
   `F3` special case and `clicks >= 2` no longer exist in tianwen. **`OverlayOwnsPointer` met (2026-10-11):** DIR.Lib 11.14
   carries an open popover's pointer claim to what is painted before it, the toolbar is declared nodes and the histogram's
   LOG button a plain `.BgHover`, and the file list and the picture's hover wash ask the engine's rule (`PointerHovers`,
   `HoverAllowedAt`). What it still predicted, the sky palette, is `ViewerState.SkyPaletteOwnsPointer`, read once (the
-  wash), because the palette is not a popover and is another widget's. **Unmet:** the drag flags (#1489).
+  wash), because the palette is not a popover and is another widget's. **The drag flags met too (#1489):** the scrub
+  and the file list's divider are captures their presses return, so no move or release handler steers either.
 - One key router per SURFACE KIND (pixel, cell, DOM), all three instances of `InputRouter`. **Unmet for the
   cell surface:** the TUI's main input is not on a router; only its night calendar is (#1489).
 - `grep ListCursor` over tianwen is no longer zero; `grep -c RegisterClickable` over `TianWen.UI*` is under

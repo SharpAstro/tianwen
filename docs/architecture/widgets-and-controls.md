@@ -518,9 +518,9 @@ toolbar label-width rule: `docs/architecture/widgets-and-controls.md` § The FIT
   instead (white balance, tone).
 - **A popover is a `Layout.Builder.Popover` node plus a `PopoverState`, nothing else to declare.**
   DIR.Lib 10.0 retired the five-obligations-per-panel `IKeyboardClaimant` pattern for a topmost-first
-  stack of painted popovers (`WindowUiSettings.PaintedPopovers`); a toolbar button still owes its own
-  `onPress` (a handler-less region is silently dead under the router). Design + the incident:
-  `docs/plans/dir-lib-10.md`.
+  stack of painted popovers (`WindowUiSettings.PaintedPopovers`). A viewer toolbar button is a node declaring its
+  own press (`ToolbarButtonNode`), so the handler-less region that is silently dead under the router cannot be
+  written for one any more. Design + the incident: `docs/plans/dir-lib-10.md`.
 - The **tone popover** (`ToolbarAction.Tone`) covers curves boost/mode and the highlight soft clip; the
   math (`HdrAmount`/`HdrKnee`/`Image.ApplyHdr`) is untouched, only the panel changed. Full design:
   `docs/plans/hdr-display.md`.

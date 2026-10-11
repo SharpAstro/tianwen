@@ -852,74 +852,6 @@ namespace TianWen.UI.Abstractions
         // Mouse handling
         // -----------------------------------------------------------------------
 
-        /// <summary>
-        /// The one gesture a declared control armed for itself, held until the button comes up.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// A <see cref="Layout.Content.Slider"/> leaf registers an <see cref="Layout.Node.OnPress"/> that
-        /// returns a <see cref="DragCapture"/>, and the capture is the whole drag: the arming, the
-        /// tracking and the ending are one object instead of a flag, a cached track rect and three
-        /// branches in each of this viewer's two press dispatchers.
-        /// </para>
-        /// <para>
-        /// <b>Why the viewer holds it rather than the router.</b> <see cref="InputRouter"/> is the only
-        /// dispatcher in DIR.Lib that honours <c>OnPress</c>, and the standalone viewer does not route
-        /// through it: its toolbar buttons register regions carrying no <c>OnClick</c>, so a router --
-        /// which consumes any press over a region -- would swallow the whole bar. The host goes on the
-        /// router when the toolbar goes on the tree (T3), and this field goes with it.
-        /// </para>
-        /// </remarks>
-        private DragCapture? _regionDrag;
-
-        /// <summary>The button and modifiers the gesture was ARMED under, which is not what a later move
-        /// or the release reports (letting go of Shift mid-drag does not change what the drag is).</summary>
-        private MouseButton _regionDragButton;
-        private InputModifier _regionDragModifiers;
-
-        /// <summary>
-        /// Arms the topmost painted region under the press that declared one, and answers whether it took
-        /// the gesture. Called by BOTH press dispatchers for a hit the engine owns.
-        /// </summary>
-        /// <remarks>
-        /// Topmost first, which is the LAST registered: paint order is z-order, the same rule the region
-        /// tracker's own hit test follows. A handler returning null declines, exactly as it does in the
-        /// router, and the press falls through to whatever would have had it.
-        /// </remarks>
-        public bool TryBeginRegionDrag(float x, float y, MouseButton button, InputModifier modifiers, int clicks = 1)
-        {
-            var regions = RegisteredRegions;
-            for (var i = regions.Length - 1; i >= 0; i--)
-            {
-                var region = regions[i];
-                if (x < region.X || x >= region.X + region.Width
-                    || y < region.Y || y >= region.Y + region.Height)
-                {
-                    continue;
-                }
-
-                if (region.OnPress is not { } onPress)
-                {
-                    return false;
-                }
-
-                if (onPress(new PointerPress(x, y, button, modifiers, clicks)) is not { } capture)
-                {
-                    return false;
-                }
-
-                _regionDrag = capture;
-                _regionDragButton = button;
-                _regionDragModifiers = modifiers;
-                if (_state is { } armed)
-                {
-                    armed.NeedsRedraw = true;
-                }
-                return true;
-            }
-
-            return false;
-        }
 
         /// <summary>
         /// Handles mouse down: hit-tests toolbar/file list, then starts panning.
@@ -1127,34 +1059,7 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
-            // Transport scrub drag: continuously seek to the dragged frame (decoded off the render thread).
-            if (state.IsScrubbing)
-            {
-                ScrubAt(px);
-                return true;
-            }
-
-            // A declared control's own gesture: the tone dials and the white-balance channels, which
-            // used to be three flags and three UpdateXDrag methods reading three cached track rects.
-            // The capture carries the button and modifiers the press was ARMED with, which is not what
-            // this move reports.
-            if (_regionDrag is { } dragging)
-            {
-                dragging.Move(new PointerMove(px, py, _regionDragButton, _regionDragModifiers));
-                state.NeedsRedraw = true;
-                return true;
-            }
-
             // Wavelet-layer slider drag: continuously re-derive the per-layer gain from cursor-X.
-
-            // File-list resize drag: width tracks the cursor's X position in
-            // DPI-independent units. Clamped by FileListWidthBase's setter.
-            if (state.IsResizingFileList)
-            {
-                state.FileListWidthBase = px / DpiScale;
-                state.NeedsRedraw = true;
-                return true;
-            }
 
             // While the sky is drawn behind the frame a drag is a drag on the SKY: the position grabbed
             // at the press follows the pointer, and the frame's pan is solved from that. The pixel pan
@@ -1255,28 +1160,6 @@ namespace TianWen.UI.Abstractions
                     }
                     state.NeedsRedraw = true;
                     return true;
-                }
-
-                // A capture is spent after its release, and taking it BEFORE delivering is what stops a
-                // handler that raises another event finding the gesture still armed.
-                if (_regionDrag is { } dragging)
-                {
-                    _regionDrag = null;
-                    var (rx, ry) = evt is InputEvent.MouseUp released
-                        ? (released.X, released.Y)
-                        : state.MouseScreenPosition;
-                    dragging.Release(new PointerMove(rx, ry, _regionDragButton, _regionDragModifiers));
-                    state.NeedsRedraw = true;
-                }
-                if (state.IsScrubbing)
-                {
-                    state.IsScrubbing = false;
-                    state.NeedsRedraw = true;
-                }
-                if (state.IsResizingFileList)
-                {
-                    state.IsResizingFileList = false;
-                    state.NeedsRedraw = true;
                 }
 
                 // A LEFT tap on the picture that never became a drag asks what is there. Gated on
