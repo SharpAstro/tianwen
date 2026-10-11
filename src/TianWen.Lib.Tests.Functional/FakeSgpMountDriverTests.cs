@@ -1,8 +1,10 @@
 using Shouldly;
 using System;
 using System.Collections.Specialized;
+using System.Linq;
 using System.Threading.Tasks;
 using TianWen.DAL;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using Xunit;
@@ -405,6 +407,80 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
 
         (await mount.GetSiteLatitudeAsync(ct)).ShouldBe(48.2, 0.01);
         (await mount.GetSiteLongitudeAsync(ct)).ShouldBe(16.3, 0.01);
+    }
+
+    #endregion
+
+    #region True pointing (docs/plans/slew-less-mount.md, "The fake that knows where it points")
+
+    private async Task<(FakeSgpMountDriver Mount, FakeTimeProviderWrapper Time)> ConnectedRigAsync(System.Threading.CancellationToken ct)
+    {
+        var time = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, time);
+        var device = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection
+        {
+            { "port", "SGP" },
+            { "latitude", "48.2" },
+            { "longitude", "16.3" }
+        });
+        var mount = new FakeSgpMountDriver(device, external.BuildServiceProvider());
+        await mount.ConnectAsync(ct);
+        await mount.SetSiteLatitudeAsync(48.2, ct);
+        await mount.SetSiteLongitudeAsync(16.3, ct);
+        return (mount, time);
+    }
+
+    [Theory(Timeout = 60_000)]
+    [InlineData(0.0)]
+    [InlineData(0.03)]
+    public async Task AMoveWestLowersTheTrueRaBySpeedTimesTimeWhileTheDriverKeepsItsBelief(double moveRateError)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, time) = await ConnectedRigAsync(ct);
+        await mount.PlaceAtJ2000Async(5.5, 10.0, ct);
+        mount.SerialDevice.ShouldNotBeNull().MoveRateError = moveRateError;
+        var before = await mount.GetTruePointingNativeAsync(ct);
+        var believed = await mount.GetRightAscensionAsync(ct);
+
+        // the top speed, 144 times sidereal, west for 100 s
+        var topRate = mount.AxisRates(TelescopeAxis.Primary).Max(r => r.Maximum);
+        await mount.MoveAxisAsync(TelescopeAxis.Primary, topRate, ct);
+        await time.SleepAsync(TimeSpan.FromSeconds(100), ct);
+        await mount.MoveAxisAsync(TelescopeAxis.Primary, 0.0, ct);
+
+        var after = await mount.GetTruePointingNativeAsync(ct);
+        var movedHours = topRate * 100 * (1 + moveRateError) / 15.0;
+        CoordinateUtils.ConditionHA(before.Ra - after.Ra).ShouldBe(movedHours, 0.002, "a move west lowers the RA the camera sees");
+        after.Dec.ShouldBe(before.Dec, 1e-9, "the mount has no Dec motor");
+        (await mount.GetRightAscensionAsync(ct)).ShouldBe(believed, "the driver believes its last sync until the next one");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task OnlyTheOperatorsHandMovesTheTrueDec()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await ConnectedRigAsync(ct);
+        await mount.PlaceAtJ2000Async(5.5, 10.0, ct);
+        var before = await mount.GetTruePointingNativeAsync(ct);
+
+        mount.SerialDevice.ShouldNotBeNull().TurnDecByHand(-3.5);
+
+        var after = await mount.GetTruePointingNativeAsync(ct);
+        after.Dec.ShouldBe(before.Dec - 3.5, 1e-9);
+        after.Ra.ShouldBe(before.Ra, 1e-9);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ARigNeverPlacedReportsTheDriversBeliefAsItsTruth()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await ConnectedRigAsync(ct);
+        await mount.SyncRaDecAsync(6.25, 20.0, ct);
+
+        var truth = await mount.GetTruePointingNativeAsync(ct);
+
+        truth.Ra.ShouldBe(6.25);
+        truth.Dec.ShouldBe(20.0);
     }
 
     #endregion
