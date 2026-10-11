@@ -580,6 +580,8 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
                 throw new InvalidOperationException("Camera is not connected");
             }
 
+            EndExposureIfDue();
+
             lock (_lock)
             {
                 return _lastImageData;
@@ -778,6 +780,8 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
             throw new InvalidOperationException("Camera is not connected");
         }
 
+        EndExposureIfDue();
+
         lock (_lock)
         {
             return ValueTask.FromResult(_lastImageData is not null);
@@ -785,7 +789,11 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     }
 
     public ValueTask<CameraState> GetCameraStateAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult((CameraState)Interlocked.CompareExchange(ref _cameraState, (int)CameraState.Error, (int)CameraState.Error));
+    {
+        EndExposureIfDue();
+
+        return ValueTask.FromResult((CameraState)Interlocked.CompareExchange(ref _cameraState, (int)CameraState.Error, (int)CameraState.Error));
+    }
 
     public ValueTask<double> GetCCDTemperatureAsync(CancellationToken cancellationToken = default)
     {
@@ -1035,13 +1043,16 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
             throw new ArgumentException("Fame type cannot be None", nameof(frameType));
         }
 
-        var previousState = (CameraState)Interlocked.CompareExchange(ref _cameraState, (int)CameraState.Exposing, (int)CameraState.Idle);
-        if (previousState is CameraState.Idle)
+        // The state and the exposure it belongs to change together, under the lock EndExposureIfDue reads them under: a
+        // reader between the two would end this exposure on the last one's start.
+        CameraState previousState;
+        var startTime = default(DateTimeOffset);
+        lock (_lock)
         {
-            var startTime = TimeProvider.GetUtcNow();
-
-            lock (_lock)
+            previousState = (CameraState)Interlocked.CompareExchange(ref _cameraState, (int)CameraState.Exposing, (int)CameraState.Idle);
+            if (previousState is CameraState.Idle)
             {
+                startTime = TimeProvider.GetUtcNow();
                 _lastImageData = null; // Clear previous image so GetImageReadyAsync returns false
                 _exposureSettings = _cameraSettings;
                 _exposureData = new ExposureData(startTime, intentedDuration, null, frameType, _gain, _offset);
@@ -1049,7 +1060,10 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
                 var timer = _exposureTimer ??= TimeProvider.CreateTimer(_ => StopExposureCore(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
                 timer.Change(intentedDuration, Timeout.InfiniteTimeSpan);
             }
+        }
 
+        if (previousState is CameraState.Idle)
+        {
             return startTime;
         }
         else
@@ -1058,11 +1072,45 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         }
     }
 
-    private void StopExposureCore()
+    /// <summary>
+    /// Ends the exposure under way once the clock has reached the start it reported plus its duration, as a camera's
+    /// hardware does, whatever the timer that also ends it read. The timer takes its due time from a second reading of
+    /// the clock, and a pumped test's clock moves on another thread, so a step that lands between the two readings put
+    /// the end that step late: the session, which waits for the reported end and then polls a fifth of a tick, gave the
+    /// fetch up (#1414). Asked by every reader of the frame and the state, so none sees an exposure past its end.
+    /// </summary>
+    private void EndExposureIfDue()
     {
-        var stopTime = TimeProvider.GetUtcNow();
+        if (Volatile.Read(ref _cameraState) is not (int)CameraState.Exposing)
+        {
+            return;
+        }
 
-        var previousState = (CameraState)Interlocked.CompareExchange(ref _cameraState, (int)CameraState.Download, (int)CameraState.Exposing);
+        DateTimeOffset end;
+        lock (_lock)
+        {
+            // Under the lock StartExposureAsync changes the state and its exposure under, so the exposure read here is the
+            // one the state belongs to, and the claim (Exposing to Download) is made on it.
+            if (_exposureData is not { } current
+                || TimeProvider.GetUtcNow() < (end = current.StartTime + current.IntendedDuration)
+                || Interlocked.CompareExchange(ref _cameraState, (int)CameraState.Download, (int)CameraState.Exposing) is not (int)CameraState.Exposing)
+            {
+                return;
+            }
+        }
+
+        StopExposureCore(end, claimed: true);
+    }
+
+    /// <param name="endedAt">When the exposure ended: the clock's reading when not given.</param>
+    /// <param name="claimed">The caller has already moved the state from Exposing to Download (<see cref="EndExposureIfDue"/>).</param>
+    private void StopExposureCore(DateTimeOffset? endedAt = null, bool claimed = false)
+    {
+        var stopTime = endedAt ?? TimeProvider.GetUtcNow();
+
+        var previousState = claimed
+            ? CameraState.Exposing
+            : (CameraState)Interlocked.CompareExchange(ref _cameraState, (int)CameraState.Download, (int)CameraState.Exposing);
 
         if (previousState is CameraState.Exposing)
         {

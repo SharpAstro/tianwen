@@ -72,6 +72,15 @@ Pinned by `FakeTimePumpTests`, whose no-probe case is the old pump kept green as
 failure. The pump **throws** with the counters on give-up, so do not read a downstream
 `IsCompleted.ShouldBeTrue` as the diagnosis.
 
+**The pump advances on its own thread, so a fake device that reads the clock twice for one event can see it move
+in between.** The fake camera reported its start from one reading and armed the timer that ends the exposure from a
+second; a step landing between the two put the end that step late, past the session's wait for the reported end and
+its fifth of a tick of polling, and one fetch was given up on CI
+(`GivenHighAltitudeTargetWhenImagingLoopThenHighUtilization`, `FetchesGivenUp` 1 against 0; #1414 made that check).
+The camera now ends a due exposure itself whenever its frame or state is read, at the reported start plus the
+duration, and changes its state and the exposure it belongs to under one lock. A new fake device states each event's
+instant once and derives the rest from it; `FakeCameraExposureTests` moves the clock as the timer is armed.
+
 ## Test collections and parallelism in full (moved from CLAUDE.md, 2026-10-09)
 
 CLAUDE.md keeps one line per rule; this is the section's full text as it stood, moved verbatim ("this file" in it is CLAUDE.md).
