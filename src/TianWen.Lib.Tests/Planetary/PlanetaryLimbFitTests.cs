@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using Shouldly;
 using TianWen.Lib.Imaging.Planetary;
 using Xunit;
@@ -42,6 +43,28 @@ public class PlanetaryLimbFitTests : IDisposable
         fit.AxisAngleDeg.ShouldBe(TrueAxisDeg, 0.5);
         fit.LimbDarkening.ShouldBe(0.9, 0.1);
         fit.PsfSigma.ShouldBe(1.8, 0.1);
+    }
+
+    [Theory]
+    [InlineData(1.3, -0.02)]
+    [InlineData(0.8, 0.05)]
+    public void AFitIsTheSameFitOfAPlaneShiftedAndScaled(double gain, double offset)
+    {
+        // #1498: a colour balance takes a channel's sky off and multiplies it, and the channel's limb must not move with it, or the
+        // sharpening derived through it does. The fit models a sky and a brightness, so a plane shifted and scaled is the same disk.
+        var image = Render(k: 0.9, phaseDeg: 0, psf: Gaussian(1.8), noise: 0.005, seed: 1);
+        float[] moved = [.. image.Select(v => (float)((v + offset) * gain))];
+
+        var fit = FitFromRoughStart(image, new LimbFitOptions(AxisRatio));
+        var refit = FitFromRoughStart(moved, new LimbFitOptions(AxisRatio));
+
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"centre {refit.CenterX - fit.CenterX:+0.0000;-0.0000}, {refit.CenterY - fit.CenterY:+0.0000;-0.0000}, radius {refit.EquatorialRadius - fit.EquatorialRadius:+0.0000;-0.0000}, k {refit.LimbDarkening - fit.LimbDarkening:+0.0000;-0.0000}, sigma {refit.PsfSigma - fit.PsfSigma:+0.0000;-0.0000}");
+        refit.CenterX.ShouldBe(fit.CenterX, 1e-3);
+        refit.CenterY.ShouldBe(fit.CenterY, 1e-3);
+        refit.EquatorialRadius.ShouldBe(fit.EquatorialRadius, 1e-3);
+        refit.LimbDarkening.ShouldBe(fit.LimbDarkening, 1e-3);
+        refit.PsfSigma.ShouldBe(fit.PsfSigma, 1e-3);
     }
 
     [Fact]
