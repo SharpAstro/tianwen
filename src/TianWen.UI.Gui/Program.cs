@@ -156,6 +156,9 @@ NativeLoaderDiagnostics.Install(logger);
 
 using var sdlWindow = NativeLoaderDiagnostics.InitNative(logger, "SDL3 + Vulkan window",
     () => SdlVulkanWindow.Create("\U0001F52D TianWen", 1280, 900));
+// The viewer's Open and Save dialogs are this window's (SdlVulkan.Renderer, over SDL's platform dialogs), bound now that
+// it exists; the services were built before it (HostFileDialogs).
+sp.GetRequiredService<HostFileDialogs>().Bind(new SdlFileDialogs(sdlWindow));
 
 sdlWindow.GetSizeInPixels(out var pixW, out var pixH);
 

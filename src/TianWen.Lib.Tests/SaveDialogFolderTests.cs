@@ -75,20 +75,19 @@ public class SaveDialogFolderTests : IDisposable
     {
         var state = new ViewerState();
         var cache = Substitute.For<IDocumentCache>();
-        var dialog = Substitute.For<IFileDialogHelper>();
+        var dialog = Substitute.For<IFileDialogs>();
         var controller = new ViewerController(state, cache, dialog,
             Substitute.For<IPlateSolverFactory>(), new FakeTimeProviderWrapper(),
             new BackgroundTaskTracker(), NullLogger<ViewerController>.Instance);
 
         string? asked = null;
         var called = 0;
-        dialog.SaveAsync(Arg.Any<IReadOnlyDictionary<string, IReadOnlyList<string>>>(),
-                Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        dialog.SaveAsync(Arg.Any<FileDialogRequest>(), Arg.Any<CancellationToken>())
             .Returns(call =>
             {
                 called++;
-                asked = call.ArgAt<string?>(3);
-                return Task.FromResult<string?>(null);
+                asked = call.ArgAt<FileDialogRequest>(0).InitialDirectory;
+                return Task.FromResult(new FileDialogResult());
             });
 
         cache.GetOrLoadAsync(Arg.Any<string>(), Arg.Any<DebayerAlgorithm>(), Arg.Any<CancellationToken>())

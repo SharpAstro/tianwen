@@ -31,13 +31,18 @@ public sealed class AstroImageDocument : IPreviewSource
     /// <c>.fz</c> is an fpack tile-compressed FITS and loads through the same FITS path as the rest.</summary>
     public static readonly ImmutableArray<string> SupportedExtensions = [".fits", ".fit", ".fts", ".fz", ".tif", ".tiff", ".cr2", ".cr3", ".ser"];
 
-    /// <summary>File dialog filter definitions.</summary>
-    public static readonly (string Name, string[] Extensions)[] FileDialogFilters =
+    /// <summary>
+    /// What the open dialog offers: every supported type at once first (the default), then each family. Extensions are
+    /// DIR.Lib's form, without dots and matched on a name's LAST extension, so a <c>.fits.fz</c> file is offered by
+    /// <c>fz</c>.
+    /// </summary>
+    public static readonly ImmutableArray<DIR.Lib.FileDialogFilter> FileDialogFilters =
     [
-        ("FITS files", [".fits", ".fit", ".fts", ".fz"]),
-        ("TIFF files", [".tif", ".tiff"]),
-        ("Canon RAW", [".cr2", ".cr3"]),
-        ("SER video", [".ser"]),
+        new("All supported images", string.Join(';', SupportedExtensions.Select(e => e.TrimStart('.')))),
+        new("FITS files", "fits;fit;fts;fz"),
+        new("TIFF files", "tif;tiff"),
+        new("Canon RAW", "cr2;cr3"),
+        new("SER video", "ser"),
     ];
 
     private readonly string _filePath;

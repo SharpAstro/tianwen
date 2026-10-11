@@ -25,7 +25,7 @@ namespace TianWen.UI.Abstractions;
 public sealed class ViewerController(
     ViewerState state,
     IDocumentCache documentCache,
-    IFileDialogHelper fileDialog,
+    IFileDialogs fileDialogs,
     IPlateSolverFactory plateSolverFactory,
     ITimeProvider timeProvider,
     BackgroundTaskTracker tracker,
@@ -596,18 +596,14 @@ public sealed class ViewerController(
             // names come from DisplayRasterFormat.DisplayName so the dialog and the status line can
             // never drift into calling the same file two things.
             var pngFormat = pngDepth.Png();
-            var filters = withOverlays
-                ? new Dictionary<string, IReadOnlyList<string>>
-                {
-                    ["PNG"] = [".png"],
-                    ["JPEG"] = [".jpg", ".jpeg"],
-                }
-                : new Dictionary<string, IReadOnlyList<string>>
-                {
-                    [pngFormat.DisplayName()] = [".png"],
-                    [DisplayRasterFormat.Jpeg.DisplayName()] = [".jpg", ".jpeg"],
-                    [DisplayRasterFormat.TiffFloat.DisplayName()] = [".tif", ".tiff"],
-                };
+            FileDialogFilter[] filters = withOverlays
+                ? [new("PNG", "png"), new("JPEG", "jpg;jpeg")]
+                :
+                [
+                    new(pngFormat.DisplayName(), "png"),
+                    new(DisplayRasterFormat.Jpeg.DisplayName(), "jpg;jpeg"),
+                    new(DisplayRasterFormat.TiffFloat.DisplayName(), "tif;tiff"),
+                ];
 
             var stem = Path.GetFileNameWithoutExtension(saveDoc.FilePath);
             if (stem.Length == 0)
@@ -621,11 +617,19 @@ public sealed class ViewerController(
             var suggested = (withOverlays ? stem + "-annotated" : stem) + ".png";
             var title = withOverlays ? "Save image with overlays" : "Save image as displayed";
 
-            var target = await fileDialog.SaveAsync(filters, suggested, title,
-                SaveDialogDirectory(saveDoc.FilePath), token).ConfigureAwait(false);
-            if (target is null)
+            // The dialog appends the first filter's extension to a name typed without one (IFileDialogs' contract),
+            // and the format is decided from the path's extension below, never the filter the user highlighted:
+            // most platforms do not report it.
+            var answer = await fileDialogs.SaveAsync(new FileDialogRequest
             {
-                state.StatusMessage = null;
+                Title = title,
+                Filters = filters,
+                SuggestedFileName = suggested,
+                InitialDirectory = SaveDialogDirectory(saveDoc.FilePath),
+            }, token).ConfigureAwait(false);
+            if (answer.Path is not { } target)
+            {
+                state.StatusMessage = answer.Error is { } error ? $"The save dialog failed: {error}" : null;
                 return;
             }
 
@@ -858,11 +862,13 @@ public sealed class ViewerController(
                 state.StatusMessage = "Opening file dialog...";
                 tracker.RunGuarded(async _ =>
                 {
-                    var filters = AstroImageDocument.FileDialogFilters
-                        .ToDictionary(f => f.Name, f => (IReadOnlyList<string>)f.Extensions);
-                    var picked = await fileDialog.PickAsync(filters, combinedFilterName: "All supported images", title: "Open image").ConfigureAwait(false);
-                    state.StatusMessage = null;
-                    if (picked is null)
+                    var answer = await fileDialogs.OpenAsync(new FileDialogRequest
+                    {
+                        Title = "Open image",
+                        Filters = AstroImageDocument.FileDialogFilters,
+                    }).ConfigureAwait(false);
+                    state.StatusMessage = answer.Error is { } error ? $"The open dialog failed: {error}" : null;
+                    if (answer.Path is not { } picked)
                     {
                         return;
                     }

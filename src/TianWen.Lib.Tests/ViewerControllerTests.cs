@@ -25,12 +25,12 @@ namespace TianWen.Lib.Tests;
 public class ViewerControllerTests
 {
     private static (ViewerController Controller, ViewerState State,
-        IDocumentCache Cache, IFileDialogHelper Dialog, IPlateSolverFactory Factory)
+        IDocumentCache Cache, IFileDialogs Dialog, IPlateSolverFactory Factory)
         CreateSut()
     {
         var state = new ViewerState();
         var cache = Substitute.For<IDocumentCache>();
-        var dialog = Substitute.For<IFileDialogHelper>();
+        var dialog = Substitute.For<IFileDialogs>();
         var factory = Substitute.For<IPlateSolverFactory>();
         var timeProvider = new FakeTimeProviderWrapper();
         var logger = NullLogger<ViewerController>.Instance;
@@ -135,9 +135,8 @@ public class ViewerControllerTests
     public async Task HandleToolbarAction_Open_CallsFileDialog()
     {
         var (controller, state, _, dialog, _) = CreateSut();
-        dialog.PickAsync(Arg.Any<IReadOnlyDictionary<string, IReadOnlyList<string>>>(),
-                Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<string?>(null)); // cancelled
+        dialog.OpenAsync(Arg.Any<FileDialogRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new FileDialogResult())); // the user's Cancel
 
         controller.HandleToolbarAction(ToolbarAction.Open, reverse: false, CancellationToken.None);
 
@@ -150,9 +149,9 @@ public class ViewerControllerTests
         }
         controller.ReleaseCompletedTasks();
 
-        await dialog.Received(1).PickAsync(
-            Arg.Any<IReadOnlyDictionary<string, IReadOnlyList<string>>>(),
-            Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await dialog.Received(1).OpenAsync(
+            Arg.Is<FileDialogRequest>(r => r.Filters.Count > 0 && r.Filters[0].Name == "All supported images"),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

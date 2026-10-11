@@ -252,7 +252,7 @@ public class ViewerPlanetaryMasterTests
     private static async Task<string> SaveAsync(ViewerE2E e2e, string name, CancellationToken ct)
     {
         var path = Path.Combine(e2e.Folder, name);
-        e2e.FileDialog.SaveAsync(default!).ReturnsForAnyArgs(path);
+        e2e.FileDialog.SaveAsync(default!).ReturnsForAnyArgs(new FileDialogResult { Paths = [path] });
         e2e.Controller.SaveImage(withOverlays: false, PngDepth.SixteenBit, ct);
         await e2e.PumpUntilAsync(() => e2e.State.StatusMessage is { } status && (status == $"Saved {name}" || status.StartsWith("Save failed", StringComparison.Ordinal)),
             $"{name} to be saved", ct, untilTimeout: true);
