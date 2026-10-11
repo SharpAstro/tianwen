@@ -676,7 +676,7 @@ public static class PlanetaryCaptureStatistics
     // over the steepest fall between 0.75 and 1.25 radii, in pixels; the median over the rays, so a moon on one does not
     // count. For a Gaussian blur of an edge that is sqrt(2 pi) sigma. The same rule for a real and a synthetic capture, whose
     // limbs are the same planet's in the same filter.
-    private static double LimbWidth((float[] Plane, int Width, int Height) mean, double cx, double cy, double radius, double sky)
+    internal static double LimbWidth((float[] Plane, int Width, int Height) mean, double cx, double cy, double radius, double sky)
     {
         var (plane, width, height) = mean;
         double At(double x, double y)
