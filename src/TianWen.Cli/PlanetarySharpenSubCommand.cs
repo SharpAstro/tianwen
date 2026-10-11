@@ -493,6 +493,12 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                         {
                             consoleHost.WriteScrollable($"[planetary] {what}: {PlanetaryMasterScore.FilterWords(result.Gains.AsSpan())}");
                         }
+                        // A colour master's channels each derive their own gains (#1314); the line above is the first's.
+                        if (result.Derived && result.ChannelGains.Length > 1)
+                        {
+                            var names = "rgb";
+                            consoleHost.WriteScrollable(string.Create(inv, $"[planetary] {what}: each channel's gains {string.Join("; ", result.ChannelGains.Select((g, c) => $"{(c < names.Length ? names[c] : '?')} {string.Join(", ", g.Select(x => x.ToString("0.00", inv)))}"))}"));
+                        }
                         if (latticeDisk is { } sharpenedDisk)
                         {
                             PlanetaryMasterScore.Lattice(consoleHost, result.Sharpened, sharpenedDisk, what);
