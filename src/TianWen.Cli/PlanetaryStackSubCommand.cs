@@ -272,6 +272,10 @@ internal sealed class PlanetaryStackSubCommand(
         {
             Description = "Advanced: how far a point's displacement reaches into the mesh (px; 48 by default). A dense grid wants it near its spacing (#1081, #1195).",
         };
+        var meshRegularizationOpt = new Option<float?>("--mesh-regularization")
+        {
+            Description = "Advanced: the weight the global shift holds in each mesh node's blend of the points (0.25 by default, above zero): a node one point dominates reads 1 / (1 + this) of it (#1412).",
+        };
         var placementOpt = new Option<PlanetaryPointPlacement?>("--ap-placement")
         {
             Description = "Advanced: where alignment points go: peakfraction (a fifth of the strongest gradient in the bright disk's box, the default) or overplanet (the whole planet, by the frame's own noise, #1253; Saturn gets points on its globe).",
@@ -299,8 +303,8 @@ internal sealed class PlanetaryStackSubCommand(
                 outputOpt, labelOpt, keepOpt, pointKeepOpt, gradeCacheOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt,
                 noPerPointOpt, noSignalGateOpt, noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt,
                 noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, strengthOpt, sharpenLuminanceOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt, reportOpt, reportOnlyOpt,
-                tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt, estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt,
-                derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, northOpt, eachFileOpt, legacyOpt, truthOpt, halvesOpt, sessionOpt, manifestOpt, epochOpt,
+                tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt, meshRegularizationOpt, estimatorOpt, correlationOpt, interpolationOpt,
+                referenceFramesOpt, derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, northOpt, eachFileOpt, legacyOpt, truthOpt, halvesOpt, sessionOpt, manifestOpt, epochOpt,
                 autoOpt, designOpt,
             },
         };
@@ -311,7 +315,7 @@ internal sealed class PlanetaryStackSubCommand(
             keepOpt, pointKeepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt, noPerPointOpt, noSignalGateOpt,
             noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt, noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, fixOpt, strengthOpt,
             sharpenLuminanceOpt, pupil.Obstruction, tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt,
-            estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt, derotateOpt, noDerotateOpt, turnNorthOverOpt, northOpt, eachFileOpt,
+            meshRegularizationOpt, estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt, derotateOpt, noDerotateOpt, turnNorthOverOpt, northOpt, eachFileOpt,
             legacyOpt, truthOpt, halvesOpt, epochOpt, reportOnlyOpt,
         ];
 
@@ -494,6 +498,11 @@ internal sealed class PlanetaryStackSubCommand(
                 }
             }
 
+            if (parseResult.GetValue(meshRegularizationOpt) is { } regularization && regularization <= 0)
+            {
+                consoleHost.WriteError($"--mesh-regularization {regularization}: above zero (it is what a node no point reaches takes the global shift by)");
+                return 1;
+            }
             // Every choice the options leave open is the baseline's: the pipeline's defaults, or the legacy recipe.
             var options = baseline with
             {
@@ -513,6 +522,7 @@ internal sealed class PlanetaryStackSubCommand(
                 AlignmentPatchSize = RoundUpToPowerOfTwo(parseResult.GetValue(patchSizeOpt)),
                 MeshNodeSpacing = parseResult.GetValue(meshSpacingOpt),
                 MeshInfluence = parseResult.GetValue(meshInfluenceOpt) ?? baseline.MeshInfluence,
+                MeshRegularization = parseResult.GetValue(meshRegularizationOpt) ?? baseline.MeshRegularization,
                 PointEstimator = parseResult.GetValue(estimatorOpt) is { } estimator ? PlanetaryDewarpSubCommand.ParseEstimator(estimator) : baseline.PointEstimator,
                 WhitenedCorrelation = parseResult.GetValue(correlationOpt) is { } correlation ? correlation == Correlation.Whitened : baseline.WhitenedCorrelation,
                 Interpolation = parseResult.GetValue(interpolationOpt) ?? baseline.Interpolation,

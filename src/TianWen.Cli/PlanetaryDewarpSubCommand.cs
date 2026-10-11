@@ -36,6 +36,7 @@ internal sealed class PlanetaryDewarpSubCommand(IConsoleHost consoleHost)
         var correlationOpt = new Option<string>("--correlation") { Description = "whitened (phase correlation) or plain (cross-correlation).", DefaultValueFactory = _ => "plain" };
         var meshOpt = new Option<float>("--mesh-spacing") { Description = "The displacement mesh's node spacing, px.", DefaultValueFactory = _ => 24f };
         var influenceOpt = new Option<float>("--mesh-influence") { Description = "How far a point's displacement reaches into the mesh, px.", DefaultValueFactory = _ => 48f };
+        var regularizationOpt = new Option<float>("--mesh-regularization") { Description = "The weight the global shift holds in each mesh node's blend of the points, above zero (#1412).", DefaultValueFactory = _ => DisplacementMesh.DefaultRegularization };
         var krigeRmsOpt = new Option<double?>("--krige-rms") { Description = "The twin's warp RMS a axis, px (planetary degrade --warp-rms): with --krige-length, how each point reads the warp and what the blend, a kriging and the best linear weights leave (#1081)." };
         var krigeLengthOpt = new Option<double?>("--krige-length") { Description = "The twin's warp correlation length, px (planetary degrade --warp-length)." };
         var estimatorOpt = new Option<string>("--estimator") { Description = "How each point's shift is read: correlation (windowed, the default), weighted (the correlation by its maximum-likelihood weight) or sdf (square difference, #1082).", DefaultValueFactory = _ => "correlation" };
@@ -47,7 +48,7 @@ internal sealed class PlanetaryDewarpSubCommand(IConsoleHost consoleHost)
             "How much of a synthetic capture's true warp the alignment points recover, on the reference and the median geometry, each frame's own and pooled (R5).")
         {
             Arguments = { captureArg },
-            Options = { warpOpt, framesOpt, spacingOpt, patchOpt, maxApOpt, correlationOpt, meshOpt, influenceOpt, poolOpt, krigeRmsOpt, krigeLengthOpt, gainOpt, remeasureOpt, estimatorOpt },
+            Options = { warpOpt, framesOpt, spacingOpt, patchOpt, maxApOpt, correlationOpt, meshOpt, influenceOpt, regularizationOpt, poolOpt, krigeRmsOpt, krigeLengthOpt, gainOpt, remeasureOpt, estimatorOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -69,6 +70,11 @@ internal sealed class PlanetaryDewarpSubCommand(IConsoleHost consoleHost)
                 consoleHost.WriteError($"--correlation {correlation}: plain or whitened");
                 return 1;
             }
+            if (parseResult.GetValue(regularizationOpt) is var regularization && regularization <= 0)
+            {
+                consoleHost.WriteError($"--mesh-regularization {regularization}: above zero (it is what a node no point reaches takes the global shift by)");
+                return 1;
+            }
             var options = new PlanetaryStackOptions
             {
                 AlignmentPointSpacing = parseResult.GetValue(spacingOpt),
@@ -77,6 +83,7 @@ internal sealed class PlanetaryDewarpSubCommand(IConsoleHost consoleHost)
                 WhitenedCorrelation = correlation == "whitened",
                 MeshNodeSpacing = parseResult.GetValue(meshOpt),
                 MeshInfluence = parseResult.GetValue(influenceOpt),
+                MeshRegularization = parseResult.GetValue(regularizationOpt),
                 MeshGain = parseResult.GetValue(gainOpt),
                 RemeasureAgainstStack = parseResult.GetValue(remeasureOpt),
                 PointEstimator = ParseEstimator(parseResult.GetValue(estimatorOpt)),
@@ -91,7 +98,7 @@ internal sealed class PlanetaryDewarpSubCommand(IConsoleHost consoleHost)
                 $"{Path.GetFileName(input)}: {report.Frames} frames, {FeatureDetector.PointsInWords(report.Points, report.PointCandidates)} ({options.AlignmentPatchSize} px patches {options.AlignmentPointSpacing} px apart, {correlation}), the reference frame {report.ReferenceIndex}"));
             consoleHost.WriteScrollable(string.Create(inv,
                 $"    the true warp left undewarped, px RMS a axis: at the points {report.UndewarpedX:0.000}, {report.UndewarpedY:0.000} on the reference geometry, {report.UndewarpedMedianX:0.000}, {report.UndewarpedMedianY:0.000} on the median; over the disk ({report.MeshPlaces} places) {report.MeshUndewarpedX:0.000}, {report.MeshUndewarpedY:0.000} and {report.MeshUndewarpedMedianX:0.000}, {report.MeshUndewarpedMedianY:0.000}"));
-            consoleHost.WriteScrollable(string.Create(inv, $"    left after the dewarp: the points' reading, and the mesh the stack applies ({options.MeshNodeSpacing:0.#} px nodes, {options.MeshInfluence:0.#} px influence)"));
+            consoleHost.WriteScrollable(string.Create(inv, $"    left after the dewarp: the points' reading, and the mesh the stack applies ({options.MeshNodeSpacing:0.#} px nodes, {options.MeshInfluence:0.#} px influence, regularisation {options.MeshRegularization:0.###})"));
             static double Removed(double x, double y, double baseX, double baseY) => 1 - Math.Sqrt(((x * x) + (y * y)) / ((baseX * baseX) + (baseY * baseY)));
             foreach (var r in report.Readings)
             {
