@@ -47,7 +47,7 @@ to be out of date: it counted inline scroll, drag and gesture math, and the hand
 | `NotificationsTab` | UI.Abstractions | list | none |
 | `GuiderTab` | UI.Abstractions | none (`HandleInput => false`) | none |
 | `SkyMapTab` | UI.Abstractions | map pan + click-vs-drag, wheel/pinch FOV zoom, F3 search modal | none (click-vs-drag on `TapOrDragGesture`, P5); FOV zoom stays custom by design (unproject-based, not pixel pan-zoom) |
-| `ImageRendererBase` -> `VkImageRenderer` | UI.Abstractions -> UI.Shared | file list, WB/wavelet/scrub sliders, viewport pan/zoom, resize divider, before/after split divider, toolbar dropdown, histogram | the file-list divider and the scrub drag flags (`IsResizingFileList`, `IsScrubbing`; the WB and wavelet drags are `Content.Slider` leaves now); the toolbar, file list, info panel and transport bar are hand-painted (T3); the split divider is on `SplitCompareController` |
+| `ImageRendererBase` -> `VkImageRenderer` | UI.Abstractions -> UI.Shared | file list, WB/wavelet/scrub sliders, viewport pan/zoom, resize divider, before/after split divider, toolbar dropdown, histogram | no drag flags (#1489): the WB, wavelet and scrub drags are `Content.Slider` leaves and both dividers self-dragging `Layout.Builder.Split`s (DIR.Lib 11.18); the toolbar buttons, the file list's header and rows and the info panel's headings are nodes, while the info panel's body and the transport's readout are still hand-painted (T3); the split's state is `SplitCompareController`'s |
 | `VkPlanetaryTab` (extends `VkImageRenderer`) | UI.Gui | PiP ROI drag + inherited viewer surfaces | PiP drag (drag-to-position; gesture adoption optional) |
 | `PixelMenuWidget` | DIR.Lib | dropdown menu list | clip-only by design |
 | `TuiPlanner/Equipment/Session/LiveSession/Notifications/GuiderTab`, `TuiTabBar` | Cli/Tui | keyboard | n/a (pointer primitives do not apply) |
@@ -91,13 +91,15 @@ chromeless Live Session / polar / guide-cam previews (`ViewerState.HideChrome`).
    divider was added to one of them and silently did nothing in the other: it drew, it stated a resize
    cursor, and it could not be dragged.
 
-   **A control avoids the press branch entirely.** Register the region with an `onClick` that arms the
-   control's own drag (`RegisterClickable(..., onClick: _ => Split.BeginDrag(), cursor: ...)`), from the
-   same rect the control painted -- so "draw == hit" (rule 3) extends to "draw == drag". Only motion and
-   release are routed, in ONE line, in the one place both hosts already forward to. `SplitCompareController`
-   is the reference consumer. Of the three drag flags above, `WaveletDragBand` went to a `Content.Slider`;
-   `IsResizingFileList` and `IsScrubbing` predate `SplitCompareController` and are the remaining conversions
-   (2026-10-10).
+   **A control avoids every branch.** Declare it, and let the press it declares own the drag: a node's
+   `OnPress` returns a `DragCapture`, and the router delivers that capture's moves and release in every host, so
+   "draw == hit" (rule 3) extends to "draw == drag" and no dispatcher has a line for it. All three drag flags
+   above are gone (#1489): `WaveletDragBand` and `IsScrubbing` went to `Content.Slider` leaves (the transport's
+   scrub is DIR.Lib's slider over the frame indices), and both dividers, the file list's and the before/after
+   split's, are `Layout.Builder.Split`s whose divider drags itself (DIR.Lib 11.18, `onResize`): the engine reports
+   the first pane's extent in design units, relative to the press, with a grab band wider than the drawn line.
+   `SplitCompareController` keeps the split's state and takes each step as `DragTo`; `IsResizingFileList` survives
+   only as the divider's active colour.
 
    **A `Layout.Content.Slider` leaf is the finished form of this** (DIR.Lib 9.2): the engine paints the
    track, registers it, and arms a `DragCapture` holding the rect it was just painted into, so "draw ==

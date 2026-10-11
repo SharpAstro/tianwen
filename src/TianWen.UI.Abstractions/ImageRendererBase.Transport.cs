@@ -14,10 +14,30 @@ namespace TianWen.UI.Abstractions
 {
     partial class ImageRendererBase<TSurface>
     {
-        // SER transport bar geometry, computed in ComputeLayout (default/empty for a still image): the
-        // whole strip and, within it, the scrub track rect that maps cursor-X <-> frame index.
+        // SER transport bar geometry, computed in ComputeLayout (default/empty for a still image).
         private RectF32 _transportRect;
-        private RectF32 _scrubTrackRect;
+
+        // The scrub track is DIR.Lib's slider over the frame indices (#1489): its press seeks to where it landed and
+        // its drag goes on seeking until the button comes up, and both pause playback. Caller-owned, as every
+        // slider's state is, so a tree rebuilt each frame keeps reading the position the last drag left.
+        private SliderState? _scrub;
+
+        /// <summary>The scrub track's slider state. Test seam: the one painted region carrying it is the track.</summary>
+        internal SliderState Scrub => _scrub ??= new SliderState
+        {
+            Step = 1f,
+            OnChanged = frame =>
+            {
+                if (_state is not { FrameCount: > 1 } state)
+                {
+                    return;
+                }
+
+                state.IsPlaying = false; // pause while scrubbing; resume is an explicit play
+                state.RequestedFrame = (int)frame;
+                state.NeedsRedraw = true;
+            },
+        };
 
         // -----------------------------------------------------------------------
         // SER transport bar (play/pause, scrub, frame + timestamp + fps readout)
@@ -39,7 +59,6 @@ namespace TianWen.UI.Abstractions
             var r = _transportRect;
             if (r.Width <= 0 || r.Height <= 0 || string.IsNullOrEmpty(FontPath))
             {
-                _scrubTrackRect = default;
                 return;
             }
 
@@ -51,7 +70,6 @@ namespace TianWen.UI.Abstractions
             if (contentH <= 0f)
             {
                 // Window minimized to a sliver -- nothing usable to draw; bail before any size math.
-                _scrubTrackRect = default;
                 return;
             }
             var textY = r.Y + (r.Height - fs) / 2f;
@@ -148,67 +166,18 @@ namespace TianWen.UI.Abstractions
             var trackW = MathF.Max(0f, trackRight - trackX);
             if (trackW <= 0f)
             {
-                _scrubTrackRect = default;
                 return;
             }
 
-            var frac = total > 1 ? (float)idx / (total - 1) : 0f;
-
-            // The press/drag hit region is the full-height track band; _scrubTrackRect's X/Width drive the
-            // px -> frame mapping in ScrubAt (Y/Height are only the clickable extent). The bar centres in the
-            // strip; the handle spans the button-height content band.
-            _scrubTrackRect = new RectF32(trackX, btnY, trackW, contentH);
-            DrawTrackSlider(trackX, trackW, r.Y + r.Height / 2f, btnY, contentH, frac,
-                TransportTrackFill, _scrubTrackRect, new TransportScrubHit(), TrackChrome, Scale);
-
-            // DrawTrackSlider registers the band with a HIT and no handler, and a region with a hit and
-            // no handler is silently dead under a router -- it consumes the press and runs nothing. So
-            // the scrub arms from its own region, registered after (later registration wins) and needing
-            // the press POSITION, which is what a scrub is: seek to where you pressed.
-            RegisterClickable(_scrubTrackRect.X, _scrubTrackRect.Y, _scrubTrackRect.Width, _scrubTrackRect.Height,
-                new TransportScrubHit(), onPress: press => BeginScrubAt(press.X));
+            // The full-height band between the controls and the readout is the slider's: the bar centres in the
+            // strip and the handle spans the button-height content band, at the widget's own scale as the track
+            // always drew. The frame on show is its value, so a seek's handle lands when the frame does.
+            var scrub = Scrub;
+            scrub.Min = 0f;
+            scrub.Max = MathF.Max(0f, total - 1);
+            scrub.Value = Math.Clamp(idx, 0, Math.Max(0, total - 1));
+            RenderLayout(Layout.Builder.Slider(scrub, TransportTrackFill, TrackChrome),
+                new RectF32(trackX, btnY, trackW, contentH));
         }
-
-        /// <summary>
-        /// Begins a transport scrub (a press on the scrub track): pauses playback, seeks to the press X, and returns
-        /// the drag that goes on seeking as the pointer moves, until the button comes up.
-        /// </summary>
-        /// <remarks>
-        /// The gesture is the capture's (#1489): whoever routed the press (the router, or the viewer's own press path)
-        /// delivers its moves and its release. It used to be a flag on the state, set here and steered by a branch in
-        /// the viewer's move handler and cleared by another in its release handler.
-        /// </remarks>
-        public DragCapture? BeginScrubAt(float px)
-        {
-            if (_state is not { } state)
-            {
-                return null;
-            }
-
-            state.IsPlaying = false; // pause while scrubbing; resume is an explicit play
-            ScrubAt(px);
-            return new DragCapture(
-                move =>
-                {
-                    ScrubAt(move.X);
-                    state.NeedsRedraw = true;
-                },
-                _ => state.NeedsRedraw = true);
-        }
-
-        // Maps a cursor X onto a frame index against the captured scrub track and requests that frame.
-        // The SequencePlayer decodes it off the render thread, so dragging never blocks the UI.
-        private void ScrubAt(float px)
-        {
-            if (_state is not { } state || _scrubTrackRect.Width <= 0f || state.FrameCount <= 1)
-            {
-                return;
-            }
-
-            var frac = TrackFrac(_scrubTrackRect, px);
-            state.RequestedFrame = (int)MathF.Round(frac * (state.FrameCount - 1));
-            state.NeedsRedraw = true;
-        }
-
     }
 }

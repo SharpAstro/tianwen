@@ -821,8 +821,9 @@ public sealed class ViewerState
     public const float FileListWidthBaseMax = 900f;
 
     /// <summary>
-    /// True while the user is dragging the file list resize handle: set by the drag's capture as it arms and cleared
-    /// by its release (#1489), and read for the divider's active colour alone. Nothing steers the drag through it.
+    /// True while the user is dragging the file list resize handle: set and cleared by the divider's own resize (the
+    /// Split drags itself, DIR.Lib 11.18, #1489), and read for the divider's active colour alone. Nothing steers the
+    /// drag through it.
     /// </summary>
     public bool IsResizingFileList { get; set; }
 

@@ -1098,9 +1098,9 @@ viewer-layout-engine P1, P2 and P4 are done on the seam D1 shipped. Left (2026-1
 
 - **The chrome's own arithmetic**: viewer-layout-engine P3 (#367; the Live Session and Guider panels #1455) and
   P5, a text measured by its line box (#1490).
-- **The [Acceptance](#acceptance-for-the-whole-plan) lines the chrome does not meet**: hover from the tree,
-  the drag flags gone, `RegisterClickable` under ten, `LayoutDamage` and the TUI's main
-  input on the router. #1489. (One tooltip painter is met: DIR.Lib 11.12's `Layout.Builder.Tooltip`, #1446.)
+- **The [Acceptance](#acceptance-for-the-whole-plan) lines the chrome does not meet**: `LayoutDamage` and the TUI's
+  main input on the router. #1489. (Met: one tooltip painter, DIR.Lib 11.12's `Layout.Builder.Tooltip`, #1446; hover
+  from the tree, the drag flags and `RegisterClickable` under ten, #1489.)
 - ~~**Declarative focus**~~: adopted, [D](#d-focus-is-a-boundary-and-it-selects), #1491 (2026-10-11).
 
 ## Shortcut adoption, measured
@@ -1170,15 +1170,16 @@ viewer-layout-engine's P3 and P5.
   lines; the `CLAUDE.md` warning about the dead button is deleted because the failure is unrepresentable.
   **Met (#1489):** a viewer toolbar button is a node declaring its own press, so the warning is gone.
 - **Adding a slider** is `Content.Slider(state)`. No flag, no branch. **Met** for the sliders: the tone,
-  white balance and wavelet dials are `Content.Slider` leaves, and the transport's scrub is the capture its track's
-  press returns (#1489; `IsScrubbing` is gone).
+  white balance and wavelet dials are `Content.Slider` leaves, and so is the transport's scrub, over the frame
+  indices (#1489; `IsScrubbing` and `TransportScrubHit` are gone).
 - `ISelfDispatchingInputWidget`, `OverlayOwnsPointer`, `IKeyboardClaimant`, the `Ctrl+letter` map, the
   `F3` special case and `clicks >= 2` no longer exist in tianwen. **`OverlayOwnsPointer` met (2026-10-11):** DIR.Lib 11.14
   carries an open popover's pointer claim to what is painted before it, the toolbar is declared nodes and the histogram's
   LOG button a plain `.BgHover`, and the file list and the picture's hover wash ask the engine's rule (`PointerHovers`,
   `HoverAllowedAt`). What it still predicted, the sky palette, is `ViewerState.SkyPaletteOwnsPointer`, read once (the
   wash), because the palette is not a popover and is another widget's. **The drag flags met too (#1489):** the scrub
-  and the file list's divider are captures their presses return, so no move or release handler steers either.
+  is a `Content.Slider`, and both dividers (the file list's and the before/after split's) are `Layout.Builder.Split`s
+  whose divider drags itself (DIR.Lib 11.18, `onResize`), so no move or release handler steers any of them.
 - One key router per SURFACE KIND (pixel, cell, DOM), all three instances of `InputRouter`. **Unmet for the
   cell surface:** the TUI's main input is not on a router; only its night calendar is (#1489).
 - `grep ListCursor` over tianwen is no longer zero; `grep -c RegisterClickable` over `TianWen.UI*` is under
@@ -1188,8 +1189,12 @@ viewer-layout-engine's P3 and P5.
   asking for a frame when the hover delay runs out (`InputRouter.TooltipNeedsFrame`); the rail's `DrawTooltip` is
   gone (a tab declares its tooltip on its region), the viewer toolbar's tooltip rides on each button's region, and
   the altitude chart's weather readout is framed and placed by the same builder. The file list's name REVEAL is not a
-  tooltip (it appears at once, over its own row) and is a node the engine places. **Unmet:** 16 `RegisterClickable`
-  calls in 8 files (#1489).
+  tooltip (it appears at once, over its own row) and is a node the engine places. **`RegisterClickable` met
+  (#1489):** 9 calls in 4 files, every one a region of the planner's altitude chart or a label over the sky map. The
+  viewer's chrome declares its own: both dividers are self-dragging `Split`s, the scrub a `Content.Slider`, the file
+  list's header and rows and the info panel's section headings nodes, all pixel-identical to the hand-drawn version
+  at 1x and 1.5x. A row's name is still drawn into its fill at `RowTextY` until a text leaf measures to its line box
+  (#1490).
 
 ## What this does NOT do
 
@@ -1203,7 +1208,7 @@ viewer-layout-engine's P3 and P5.
 - **It does not change `DesignScale.One` trees to scaled ones**; the six device-pixel trees are a separate
   decision about what those panels should do on a high-DPI display.
 - **It does not add a `Collapsible` node.** A heading with `.Clickable` and a child included or not is already
-  a tree; `DrawCollapsibleHeading` goes in T3 without any engine change.
+  a tree; `DrawCollapsibleHeading` went that way without any engine change (#1489).
 
 ## Where the pieces are
 

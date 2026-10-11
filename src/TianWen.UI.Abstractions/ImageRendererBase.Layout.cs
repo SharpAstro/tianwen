@@ -122,17 +122,23 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.Right(Layout.Builder.Fill(key: "infoPanel"), BaseInfoPanelWidth))
                 : Layout.Builder.Fill(key: "image");
 
+            // The divider drags itself (DIR.Lib 11.18, #1489): the engine reports the list's width in design units at
+            // every step of the drag, relative to the press, and states the resize cursor, which a drag keeps wherever
+            // the pointer travels. FileListWidthBase's setter clamps; the flag is only what the divider's colour reads.
             Layout.Node middle = state.ShowFileList
                 ? Layout.Builder.Split(
                     Layout.Builder.Fill(key: "fileList"),
                     content,
-                    Layout.Axis.Horizontal,
+                    resize =>
+                    {
+                        state.FileListWidthBase = resize.FirstExtent;
+                        state.IsResizingFileList = !resize.Ended;
+                        state.NeedsRedraw = true;
+                    },
                     firstExtent: state.FileListWidthBase,
                     dividerThickness: BaseFileListDividerWidth,
-                    // NO dividerHit: a Split's divider carries a hit and no handler, and such a region
-                    // swallows the press under a router while running nothing. The grab is registered
-                    // over the divider in RenderFileList instead, with its handler and its cursor --
-                    // and it has to be the region that ANSWERS, so the tree must not register a rival.
+                    grabThickness: BaseSplitGrabWidth,
+                    dividerHit: new ResizeHandleHit(FileListId),
                     dividerColor: state.IsResizingFileList ? ResizeHandleActiveColor : ResizeHandleIdleColor)
                 : content;
 
