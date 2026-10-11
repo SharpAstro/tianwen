@@ -31,6 +31,23 @@ public sealed class CaptureStatisticsFileTests : IDisposable
         new WarpStatistics(163, 1.06, 3, WarpLengthBound.AtMost, double.NaN, []), [], [0.97, 0.99, 1, 1.02, 1.06], 0.84,
         [new BandNoise(1, 0.57, 4.87)], new CameraEstimate(255, 1.25, 0.65, 113, 1.09, 0.54, 1.09));
 
+    [Fact]
+    public void AFilesKeyNamesTheFrameGradeSoOneEstimatorsStatisticsAreNeverReadForAnother()
+    {
+        // The verbs key a saved file on the options as printed (#1409 F6b): a grade by the gradient picks another reference and best
+        // tenth than the Laplacian's, so its statistics must not be read back as the Laplacian's, nor a raw grade as a normalised one.
+        var limb = new LimbFitOptions(1);
+        string[] keys =
+        [
+            new CaptureStatisticsOptions(limb).ToString(),
+            new CaptureStatisticsOptions(limb) { QualityEstimator = new GradientEnergyEstimator() }.ToString(),
+            new CaptureStatisticsOptions(limb) { QualityEstimator = new GradientEnergyEstimator(normalizeBrightness: false) }.ToString(),
+        ];
+        keys.Distinct().Count().ShouldBe(3);
+        keys[0].ShouldContain("QualityEstimator = laplacian");
+        keys[1].ShouldContain("QualityEstimator = gradient");
+    }
+
     [Fact(Timeout = 120_000)]
     public async Task StatisticsSavedAreReadBackWhereverAReadsBufferEnds()
     {

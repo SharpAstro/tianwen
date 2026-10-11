@@ -54,6 +54,14 @@ public sealed record CaptureStatisticsOptions(LimbFitOptions Limb)
     /// </summary>
     public bool WhitenedCorrelation { get; init; }
 
+    /// <summary>
+    /// How a frame is graded: which frame is the sharpest (the reference), which tenth is the best (the mean the best tenth's limb is
+    /// read on) and the quality's percentiles and lag-1. The Laplacian, as R2's statistics were read; the stack grades with
+    /// <see cref="PlanetaryStackOptions.QualityEstimator"/>, the gradient, since R4 measured the Laplacian ranking 8-bit frames near chance
+    /// (+0.19 against their true transfer, the gradient +0.87). #1409 (F6b) measures whether the statistics follow the stack.
+    /// </summary>
+    public IFrameQualityEstimator QualityEstimator { get; init; } = new LaplacianEnergyEstimator();
+
 
     /// <summary>The alignment points' patch, a power of two.</summary>
     public int AlignmentPatchSize { get; init; } = DefaultAlignmentPatchSize;
@@ -79,7 +87,7 @@ public sealed record CaptureStatisticsOptions(LimbFitOptions Limb)
 
 /// <summary>One frame's limb, fitted alone (<see cref="CaptureStatisticsOptions.LimbStride"/>).</summary>
 /// <param name="Frame">The frame's index.</param>
-/// <param name="Quality">Its Laplacian score.</param>
+/// <param name="Quality">Its quality score (<see cref="CaptureStatisticsOptions.QualityEstimator"/>).</param>
 /// <param name="EdgeWidth">Its limb's edge width, in pixels (<see cref="CaptureStatistics.LimbWidthAll"/>'s rule).</param>
 /// <param name="Fit">The limb fit on it; null where it found no disk.</param>
 public readonly record struct FrameLimb(int Frame, double Quality, double EdgeWidth, LimbFit? Fit);
@@ -180,7 +188,7 @@ public readonly record struct CameraEstimate(double FullScaleAdu, double SkyLeve
 /// <param name="LimbOutliers">Fits more than five robust sigmas from the aligner on either axis, left out of the three above: a
 /// fit that settled in a wrong minimum.</param>
 /// <param name="Warp">The local warp.</param>
-/// <param name="Quality">Every frame's Laplacian score (the grader's), in frame order.</param>
+/// <param name="Quality">Every frame's quality score (the grader's, by <see cref="CaptureStatisticsOptions.QualityEstimator"/>), in frame order.</param>
 /// <param name="QualityPercentiles">Its 5th, 25th, 50th, 75th and 95th percentiles.</param>
 /// <param name="QualityLag1">The correlation of consecutive frames' scores.</param>
 /// <param name="Noise">Each band's noise in one frame.</param>
@@ -270,7 +278,7 @@ public static class PlanetaryCaptureStatistics
         var cut = new bool[n];
         var elongation = new float[n];
         var brightness = new float[n];
-        var estimator = new LaplacianEnergyEstimator();
+        var estimator = options.QualityEstimator;
         await ForEachFrameAsync(stream, all, () => 0, (_, index, frame) =>
         {
             (var score, cut[index], elongation[index], brightness[index]) = FrameGrader.GradeAndShape(estimator, frame);
