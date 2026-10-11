@@ -250,6 +250,18 @@ cost is that it moves the measured height of every text node in every layout, th
 host's, so it is a DIR.Lib release with a sweep of what moved (the viewer and GUI tabs compared before and after),
 never a quiet change; a terminal's cell-authored tree measures in cells and should not move at all.
 
+**Where the change sits, and what waits on it (read 2026-10-12, #1489).** The height a text leaf gets is
+`PixelMeasureContext.MeasureText`'s, which returns the renderer's ink (and one em, not a line box, when there is no
+font); the line box is `TextBaseline.LineHeight`, the 1.3 em every renderer's `DrawText` already lays a line out in.
+So the change is that context returning the line box for the height while the renderers' `MeasureText` keeps the ink.
+The file list's rows wait on it: a row is a node since #1489, but its name is still drawn into its fill at `RowTextY`,
+because no leaf reproduces that pixel today. Centred by `vAlign: Center` in the row's rect, `DrawText` centres the
+line box inside a `RectInt` whose top was truncated, so the run starts at `(int)rowY + (rowH - 1.3 em) / 2`, where the
+hand-drawn row truncates the centred top itself, `(int)(rowY + (rowH - 1.3 em) / 2)`: a pixel apart on a row whose top
+is fractional. Once a leaf measures its line box, its own rect is 1.3 em tall, the row's `CrossAlign.Center` places it
+at the centred top, and it draws top-aligned from there, which is the hand row to the pixel. The file list's header and
+the info panel's section headings are text leaves already (top-aligned with `vAlign: Near`, which needs no line box).
+
 ## The unit rule this uncovered, which is the cost of adopting the engine
 
 **A declared tree is authored in DESIGN units.** The measure context turns them into device pixels,
