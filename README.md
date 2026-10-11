@@ -217,8 +217,10 @@ tianwen planetary stack <ser-file>... [-o <dir>]
     # advanced: --ap-spacing / --max-ap / --ap-patch / --mesh-spacing / --align-tile
 ```
 
-`tianwen planetary sharpen <master.fits>` sharpens a master again the same way without restacking it (`--fix all` and a synthetic
-capture's `--truth` compare the limb fixes).
+`tianwen planetary sharpen <master.fits>` sharpens a master again the same way without restacking it (`--limb-fix all` and a synthetic
+capture's `--truth` compare the limb fixes). The limb options are four families with one name on every verb: the limb fit
+(`--fit-k`, `--fit-channels`), the edge the gains are read off (`--edge-reach`, `--edge-rings`), the gains' own fit (`--gains-fit`)
+and what a limb pixel takes (`--limb-fix`, `--limb-floor`).
 
 For interactive planetary work (live rolling-window stack + wavelet sliders), open the SER in the FITS viewer (`tianwen-fits <file.ser>`) and press `K`.
 `Shift+K` (or the info panel's Best stack button) stacks the whole capture as `planetary stack` does, in the background, writes both

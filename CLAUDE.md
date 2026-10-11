@@ -920,7 +920,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
     (`DerivedGains.ChannelGainsAt`, `WaveletSharpenOptions.ChannelGains`); a new stop goes into that list,
     never a second one.
   - **The derivation swings with the limb fit's Minnaert k** (#1498): an A/B between near-identical stacks reads the
-    UNSHARPENED masters, or holds k on both sides (`--limb-k`); `--channel-limb` and `--edge-reach` are options, none adopted.
+    UNSHARPENED masters, or holds k on both sides (`--fit-k`); `--fit-channels` and `--edge-reach` are options, none adopted.
+  - **The limb options are four families, one name across `stack`, `sharpen` and `limb`** (#1479): the limb FIT `--fit-k`
+    / `--fit-channels`, the edge the gains are read off `--edge-reach` / `--edge-rings`, the gains' own fit `--gains-fit`,
+    what a limb pixel takes `--limb-fix` / `--limb-floor`. A new limb option joins its family's prefix.
   - **A master opened as a file gets the stacked view's own layer** (`LiveStackPreviewSource` on a
     `FixedMaster`), never a second sharpening path; **a Save writes what is on show** (`ShownDocument`); **a
     SER's view is one switch, Frames / Live / Auto** (`ViewerState.ChoosePlanetaryView`,
@@ -946,7 +949,7 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
     (#1279, #1281; **the derived gains are already a Wiener**), `--shrink` (#1313, read off `planetary stack
     --halves`), `--noise halves` (#1373, `PlanetarySharpenOptions.NoiseHalves`), `--colour-finest bounded` and
     `--colour-target cut` (#1376: the colour gap is the KERNEL; a true kernel closes 80 % of it, no reshaping
-    half), `--wiener-floor tikhonov` (#1406, `PlanetaryWienerFloor`), `--limb-band model` (#1329, `PlanetaryLimbBand`), `--limb-k opal` (#1221, `PlanetaryLimbDarkening`). **Every twin is sampled coarser
+    half), `--wiener-floor tikhonov` (#1406, `PlanetaryWienerFloor`), `--limb-floor band` (#1329, `PlanetaryLimbBand`), `--fit-k opal` (#1221, `PlanetaryLimbDarkening`). **Every twin is sampled coarser
     than its optics resolve** (`PlanetarySharpenResult.Cutoffs`), so anything near the cutoff is unread there;
     **a twin standing in for a long capture is calibrated at that capture's length**.
   - **Check what a reference IS before reading it** (the 12-inch SCT Jupiter's PNG is its raw stack). The

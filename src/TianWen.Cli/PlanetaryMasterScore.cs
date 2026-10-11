@@ -528,7 +528,7 @@ internal static class PlanetaryMasterScore
     }
 
     /// <summary>
-    /// <c>--channel-limb</c> and <c>--limb-k</c> read once for <c>planetary stack</c>, <c>planetary sharpen</c> and <c>planetary limb</c> (#1498, #1478): what a colour master's
+    /// <c>--fit-channels</c> and <c>--fit-k</c> read once for <c>planetary stack</c>, <c>planetary sharpen</c> and <c>planetary limb</c> (#1498, #1478): what a colour master's
     /// channels are read against (shared, per-channel), and how the limb fit takes Minnaert's k: fitted, opal, or the k to hold for each
     /// channel (a comma list, the last repeated, each above 0 and below 2). Null and said when either is unreadable.
     /// </summary>
@@ -543,7 +543,7 @@ internal static class PlanetaryMasterScore
         };
         if (channelLimb is not { } readAgainst)
         {
-            consoleHost.WriteError($"--channel-limb {channelLimbText}: shared or per-channel");
+            consoleHost.WriteError($"--fit-channels {channelLimbText}: shared or per-channel");
             return null;
         }
         var limbK = (limbKText ?? "fitted").ToLowerInvariant();
@@ -566,7 +566,7 @@ internal static class PlanetaryMasterScore
         }
         if (held.Length == 0)
         {
-            consoleHost.WriteError($"--limb-k {limbKText}: fitted, opal, or the k to hold for each channel, each above 0 and below 2");
+            consoleHost.WriteError($"--fit-k {limbKText}: fitted, opal, or the k to hold for each channel, each above 0 and below 2");
             return null;
         }
         return (readAgainst, PlanetaryLimbDarkening.Held, [.. held]);

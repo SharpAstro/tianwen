@@ -208,12 +208,12 @@ internal sealed class PlanetaryStackSubCommand(
         {
             Description = "Sharpen a colour master's luminance once and keep the stack's own colour, rather than each channel through its own diffraction (#1295): an option, since the colour twins kept the per-channel default nearer their truth, while on a real Saturn it takes away the teal fringe between the globe and the inner ring.",
         };
-        var channelLimbOpt = new Option<string>("--channel-limb")
+        var channelLimbOpt = new Option<string>("--fit-channels")
         {
             Description = "What a colour master's channels are each read against for the derived sharpening (#1498): shared (the default: one limb fit of the channels' mean) or per-channel (each channel's own fit).",
             DefaultValueFactory = _ => "shared",
         };
-        var limbKOpt = new Option<string>("--limb-k")
+        var limbKOpt = new Option<string>("--fit-k")
         {
             Description = "Minnaert's k in the limb fit the derived sharpening is read through (#1221, #1498): fitted (the default), opal (held at OPAL's, Jupiter only), or the k to hold for each channel (0.85,0.82,0.84, the last repeated; a shared fit holds their mean).",
             DefaultValueFactory = _ => "fitted",
