@@ -46,11 +46,13 @@ public sealed record CaptureStatisticsOptions(LimbFitOptions Limb)
 
     /// <summary>
     /// Whether the statistics' global aligner and alignment points register by phase correlation (whitened, every frequency weighted
-    /// alike, the default) or by a plain cross-correlation. On a single 8-bit frame the finest frequencies are noise, and
-    /// whitening hands the peak to it: a 16 px patch at 2022-09-03's level is placed to 1.1 px RMS whitened, 0.35 px plain
-    /// (<c>AlignmentPointMatchingTests</c>; docs/plans/planetary-restoration.md, R5).
+    /// alike, as R2's hand calibration did) or by a plain cross-correlation, the default (the owner, 2026-10-11, #1394). On a single
+    /// 8-bit frame the finest frequencies are noise, and whitening hands the peak to it: a 16 px patch at 2022-09-03's level is placed to
+    /// 1.1 px RMS whitened, 0.35 px plain (<c>AlignmentPointMatchingTests</c>; docs/plans/planetary-restoration.md, R5). On the EdgeHD
+    /// Jupiter's large disk the whitened global aligner read 1.5 to 3.6 px from the limb where plain read 0.15 to 0.21, and a twin
+    /// replayed those jumps as the mount's drift.
     /// </summary>
-    public bool WhitenedCorrelation { get; init; } = true;
+    public bool WhitenedCorrelation { get; init; }
 
 
     /// <summary>The alignment points' patch, a power of two.</summary>
