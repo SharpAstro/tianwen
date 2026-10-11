@@ -386,81 +386,100 @@ namespace TianWen.UI.Abstractions
 
         private void PaintToolbarButtons(ViewerState state)
         {
-            var mouse = state.MouseScreenPosition;
-
             foreach (var box in _toolbarBoxes)
             {
-                var r = box.Rect;
-                // Centred in the button OWN rect, not in the band: with a wrapped toolbar the band holds
-                // two rows and its centre is the gap between them.
-                var textY = r.Y + (r.Height - ToolbarFontSize) / 2f;
-                var hovered = box.Enabled && !state.OverlayOwnsPointer && r.Contains(mouse.X, mouse.Y);
-
-                if (!box.Enabled)
-                {
-                    FillRect(r.X, r.Y, r.Width, r.Height, ToolbarButtonDisabledBg);
-                }
-                else if (box.Active && hovered)
-                {
-                    // Active + hover = the brightest selection blue (matches ViewerTheme's selected role).
-                    FillRect(r.X, r.Y, r.Width, r.Height, ViewerTheme.Palette.Selection);
-                }
-                else if (box.Active)
-                {
-                    FillRect(r.X, r.Y, r.Width, r.Height, ToolbarButtonActiveBg);
-                }
-                else if (hovered)
-                {
-                    FillRect(r.X, r.Y, r.Width, r.Height, ToolbarButtonHoverBg);
-                }
-                else
-                {
-                    FillRect(r.X, r.Y, r.Width, r.Height, ToolbarButtonBg);
-                }
-
-                var textBrightness = box.Enabled ? 0.9f : 0.45f;
-                var inkColor = RGBAColor32.FromFloat(textBrightness, textBrightness, textBrightness, 1f);
-
-                if (box.MarkWidth > 0f)
-                {
-                    DrawToolbarMark(box.Action, r.X + ButtonPaddingH, r.Y, r.Height, state, inkColor, box.Enabled);
-                }
-
-                DrawText(box.Label, r.X + ButtonPaddingH + box.MarkWidth + MarkGap(box.MarkWidth, box.Label),
-                    textY, ToolbarFontSize, inkColor);
-
-                if (box.Enabled)
-                {
-                    // Only enabled buttons register, so a dropdown anchor (see OpenToolbarDropdown) or a
-                    // hover query only ever finds a button that can actually be clicked.
-                    //
-                    // The button carries WHAT IT DOES, through PressToolbarButton -- which is the host's
-                    // own policy where one is set (ToolbarPressPolicy) and the embedded default where it
-                    // is not. Registering a hit with no handler is what the region model calls silently
-                    // dead: InputRouter consumes a press for ANY region under the pointer whether or not
-                    // anything ran, so under a router every button looked live and did nothing. The GUI
-                    // routes, and the planetary tab shows this bar, so that was shipped.
-                    //
-                    // OnPress, not OnClick, because the POLICY needs the button (a right press
-                    // reverse-cycles in tianwen-fits). Returning null declines the drag, which is the
-                    // documented way to say "acted, but this is not a gesture".
-                    //
-                    // The tooltip rides on the same region, so the router decides when it is due (after
-                    // its hover delay, never under an open popover) and the host's one painter draws it
-                    // (Layout.Builder.Tooltip, #1446): the toolbar no longer places a box of its own.
-                    var action = box.Action;
-                    var tip = GetToolbarButtonTooltip(action, state, _document, Findings);
-                    RegisterClickable(new ClickableRegion(r.X, r.Y, r.Width, r.Height, new HitResult.ButtonHit(action.ToString()))
-                    {
-                        OnPress = press =>
-                        {
-                            PressToolbarButton(state, action, press.Button);
-                            return null;
-                        },
-                        Tooltip = tip is { Length: > 0 } ? tip : null,
-                    });
-                }
+                // Each button is a node painted into the rect the toolbar's placement gave it (the placement is
+                // still this file's: viewer-layout-engine P3, #367). What it does and how it lights are the node's
+                // declarations: the engine lights it (and never under an open popover, whose pointer claim the
+                // painter honours), the router presses it and shows its tooltip. Device pixels in and out
+                // (DesignScale.One): the rect, the padding and the font are already scaled, as they are for the
+                // measure pass that sized the button.
+                _toolbarMarkBox = box;
+                RenderLayout(ToolbarButtonNode(box, state), box.Rect, scale: DesignScale.One,
+                    drawFill: _paintToolbarMark ??= PaintToolbarMark);
             }
+        }
+
+        // The button whose mark the fill below paints: set per button before its node is painted, on the render
+        // thread, which is the only reader. A field, with the painter bound once, so a frame allocates no closure
+        // per button.
+        private ToolbarButtonBox _toolbarMarkBox;
+        private Action<Layout.Content.Fill, RectF32>? _paintToolbarMark;
+
+        private void PaintToolbarMark(Layout.Content.Fill fill, RectF32 rect)
+        {
+            var box = _toolbarMarkBox;
+            if (CurrentViewerState is { } state)
+            {
+                DrawToolbarMark(box.Action, rect.X, rect.Y, rect.Height, state, box.Enabled ? ToolbarInk : ToolbarInkDisabled, box.Enabled);
+            }
+        }
+
+        /// <summary>A button's ink, by whether it can be pressed.</summary>
+        private static readonly RGBAColor32 ToolbarInk = RGBAColor32.FromFloat(0.9f, 0.9f, 0.9f, 1f);
+
+        /// <inheritdoc cref="ToolbarInk"/>
+        private static readonly RGBAColor32 ToolbarInkDisabled = RGBAColor32.FromFloat(0.45f, 0.45f, 0.45f, 1f);
+
+        private const string ToolbarMarkKey = "toolbarMark";
+
+        /// <summary>
+        /// One toolbar button as a node: its mark (a fill <see cref="PaintToolbarMark"/> draws), the gap between
+        /// a mark and a label, and its label, on its fill; lit, pressable and explained when it is enabled.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// A disabled button declares no hit, as it registered no region before: a dropdown anchor or a hover
+        /// query only ever finds a button that can actually be pressed.
+        /// </para>
+        /// <para>
+        /// The press goes through <see cref="PressToolbarButton"/>, which is the host's own policy where one is
+        /// set (<c>ToolbarPressPolicy</c>) and the embedded default where it is not; through OnPress, not OnClick,
+        /// because the policy needs the BUTTON (a right press reverse-cycles in tianwen-fits). Returning null
+        /// declines the drag, the documented way to say "acted, but this is not a gesture".
+        /// </para>
+        /// <para>
+        /// The label's line box is top-aligned one em centred in the button, which is where the hand painter put
+        /// it (<c>(height - fontSize) / 2</c>, drawn top-aligned); centring the TEXT instead moves the baseline by a
+        /// fraction of the em.
+        /// </para>
+        /// </remarks>
+        private Layout.Node ToolbarButtonNode(ToolbarButtonBox box, ViewerState state)
+        {
+            var label = Layout.Builder.VStack(
+                    Layout.Builder.Spacer().Stretch(),
+                    Layout.Builder.Text(box.Label, ToolbarFontSize, box.Enabled ? ToolbarInk : ToolbarInkDisabled,
+                        TextAlign.Near, TextAlign.Near).HFixed(ToolbarFontSize),
+                    Layout.Builder.Spacer().Stretch())
+                .Stretch();
+            var row = box.MarkWidth > 0f
+                ? Layout.Builder.HStack(
+                    Layout.Builder.Fill(key: ToolbarMarkKey).WFixed(box.MarkWidth).HStar(),
+                    Layout.Builder.Spacer().WFixed(MarkGap(box.MarkWidth, box.Label)).HStar(),
+                    label)
+                : Layout.Builder.HStack(label);
+            row = row.PadX(ButtonPaddingH).Stretch();
+
+            if (!box.Enabled)
+            {
+                return row.Bg(ToolbarButtonDisabledBg);
+            }
+
+            var action = box.Action;
+            // Active + lit is the brightest selection blue (ViewerTheme's selected role).
+            row = row.Bg(box.Active ? ToolbarButtonActiveBg : ToolbarButtonBg)
+                .BgHover(box.Active ? ViewerTheme.Palette.Selection : ToolbarButtonHoverBg)
+                .Pressable(new HitResult.ButtonHit(action.ToString()), press =>
+                {
+                    PressToolbarButton(state, action, press.Button);
+                    return null;
+                });
+
+            // The tooltip is the node's too, so the router decides when it is due (after its hover delay, never
+            // under an open popover) and the host's one painter draws it (Layout.Builder.Tooltip, #1446).
+            return GetToolbarButtonTooltip(action, state, _document, Findings) is { Length: > 0 } tip
+                ? row.WithTooltip(tip)
+                : row;
         }
 
         // -----------------------------------------------------------------------
