@@ -274,6 +274,9 @@ public sealed class SharpenPipeline(
         Image? final = null;
         // The white balance a WhiteBalanceStep multiplied into the source, as its plates record it.
         ColourCalibration? appliedWhiteBalance = null;
+        // Whether a stars plate has been stretched for display (StretchStarsStep, AsinhStretchStarsStep): SCNR after
+        // a per-plate stretch is the caller's own choice (--dual-stretch, PixInsight's convention), see ScnrStarsStep.
+        var starsStretched = false;
 
         var timings = new List<(string Name, long Ms, ImmutableArray<float> NoiseAfter)>(request.Steps.Length);
         // Tracks the noise σ of the most-processed *linear* starless plate.
@@ -602,6 +605,21 @@ public sealed class SharpenPipeline(
                         // Mutates the most-processed stars plate in-place
                         // (sharpened if present, else raw starsOnly).
                         var inputPlate = sharpenedStars ?? Require(starsOnly);
+                        // ONLY ON BALANCED COLOUR. SCNR takes green down to where a NEUTRAL star would have it, and
+                        // a neutral star has R = G = B only once the colour is balanced. On a raw OSC plate green is
+                        // the strongest channel of almost every star (two green photosites, the QE peak), so SCNR
+                        // stripped green from all of them and the balance the render applied afterwards turned them
+                        // magenta: a whole globular cluster on the dataset gallery's Omega Centauri, and the enhanced
+                        // half of most cards lifted in R/G by up to 0.37. A host that has a balance puts it in first
+                        // (WhiteBalanceStep, or an input already WBAPPLD); without one this step is skipped and says
+                        // so. A plate already stretched for display is the caller's (--dual-stretch).
+                        var colourBalanced = source.ImageMeta.ColourCalibration is { Applied: true };
+                        if (inputPlate.ChannelCount >= 3 && !colourBalanced && !starsStretched)
+                        {
+                            logger?.LogInformation("SharpenPipeline: SCNR skipped: the colour is not balanced, so green is not where a neutral star has it; put the white balance in first (WhiteBalanceStep) to run it.");
+                            timings.Add(("scnr-stars (skipped: colour not balanced)", phaseSw.ElapsedMilliseconds, default));
+                            break;
+                        }
                         var afterScnr = inputPlate.SubtractiveChromaticNoise(scnrStep.Mode, scnrStep.Amount);
                         if (sharpenedStars is not null)
                         {
@@ -641,6 +659,7 @@ public sealed class SharpenPipeline(
                         }
                         var stretchTracked = sharpenedStars ?? Require(starsOnly);
                         timings.Add(("stretch-stars", phaseSw.ElapsedMilliseconds, stretchTracked.EstimateNoiseProfile()));
+                        starsStretched = true;
                         break;
                     }
 
@@ -666,6 +685,7 @@ public sealed class SharpenPipeline(
                         }
                         var stretchTracked = sharpenedStars ?? Require(starsOnly);
                         timings.Add(($"asinh-stretch-stars(β={asinhStarsStep.Beta:F1},bp={asinhStarsStep.BlackPoint:F3})", phaseSw.ElapsedMilliseconds, stretchTracked.EstimateNoiseProfile()));
+                        starsStretched = true;
                         break;
                     }
 

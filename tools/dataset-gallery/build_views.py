@@ -24,7 +24,11 @@ are structural, not bugs anyone could have spotted by reading either half.
   carry: a double correction, which is what put a blue cast on cards whose raw half was fine.
   Here the raw view is rendered FIRST, its balance is read off `image render`'s own output,
   and the enhanced view is rendered with `--white-balance` set to it. One solve, both halves,
-  which is what the skill always claimed happened.
+  which is what the skill always claimed happened. An SPCC balance also goes to `image sharpen`
+  (`--white-balance`), which puts it into the linear crop before the enhance when the filter is
+  broadband, the order `stack --enhance` runs; the enhanced file then says so (WBAPPLD) and its
+  render takes no balance of its own. Enhanced unbalanced, SCNR stripped green from every star of
+  a raw OSC plate and the render's balance turned them magenta.
 * THE FRAMING. The raw view had to be rendered inside the batch, before the crop was deleted,
   so a fix to `image render` could not be picked up without re-running the enhance beside it
   -- an hour of GPU to re-make a picture that takes seconds. There was a --rawhalf-only mode
@@ -188,7 +192,14 @@ def run(row, store, outdir, scratch, patch_only=False):
                     'shownW': shown_w, 'shownH': shown_h, 'viewW': view_w, 'viewH': view_h,
                     'wb': wb, 'wbSource': wb_source}
 
-        code, out, err = tw('image', 'sharpen', croppath, '-o', sharppath, '--ai-backend', 'rc')
+        # The SPCC balance goes INTO the linear crop before the enhance, the order `stack --enhance` runs
+        # (sharpen applies it only through a broadband filter; a line-selective fit stays a display
+        # multiplier). Enhanced unbalanced, SCNR stripped green from every star of a raw OSC plate and the
+        # balance applied at render time turned them magenta (Omega Centauri, a whole globular cluster).
+        sharpen_args = ['image', 'sharpen', croppath, '-o', sharppath, '--ai-backend', 'rc']
+        if wb and wb_source == 'SPCC':
+            sharpen_args += ['--white-balance', wb]
+        code, out, err = tw(*sharpen_args)
         if code != 0 or not os.path.exists(sharppath):
             return {**row, 'ok': False, 'stage': 'sharpen', 'error': (err or out)[-300:],
                     'shownW': shown_w, 'shownH': shown_h, 'viewW': view_w, 'viewH': view_h}

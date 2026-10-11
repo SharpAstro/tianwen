@@ -961,11 +961,19 @@ internal sealed partial class ImageSubCommand(
             Description = "Denoiser iterations. RC-Astro maps it to NoiseXTerminator's nxt --it; < 1 (default) = the enhancer's own default (2). Other backends ignore it.",
             DefaultValueFactory = _ => 0,
         };
+        // A balance the input does not state, given on the command line: the SPCC fit `image render` printed for the
+        // same file. It goes through the rule a stated one does (StatedToApplyAsync), so only a broadband fit enters the
+        // pixels before the enhance, as `stack --enhance` puts its own in; a frame balanced first is the only colour
+        // SCNR acts on.
+        var sharpenWhiteBalanceOpt = new Option<string?>("--white-balance")
+        {
+            Description = "An SPCC white balance for this input, as 'R,G,B' (the triple `image render` prints with '(SPCC)'). Put into the linear data before the enhance when the filter is broadband, as `stack --enhance` does; ignored for a line-selective filter or when the input states its own.",
+        };
 
         var cmd = new Command("sharpen", "The canonical AI enhance: with a star remover (RC-Astro StarXTerminator), deblur, gradient, remove stars, denoise (and deconvolve) the starless plate, optional SCNR on stars, recombine; without one, whole-frame deblur, gradient correction and denoise. Every step runs only where a backend serves it; TianWen's own deblur (E3.4d) only with --ai-backend tianwen and --deconv-kernel.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, modeOpt, stellarSharpenOpt, noGradientOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, starStretchModeOpt, starlessStretchModeOpt, stretchModeOpt, ghsConvergeOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsStagesOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, asinhBetaOpt, asinhBlackPointOpt, asinhLumaOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt, aiBackendOpt, deblurSharpenOpt, denoiseStrengthOpt, denoiseIterationsOpt },
+            Options = { outputOpt, modeOpt, stellarSharpenOpt, noGradientOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, starStretchModeOpt, starlessStretchModeOpt, stretchModeOpt, ghsConvergeOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsStagesOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, asinhBetaOpt, asinhBlackPointOpt, asinhLumaOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt, aiBackendOpt, deblurSharpenOpt, denoiseStrengthOpt, denoiseIterationsOpt, sharpenWhiteBalanceOpt },
         };
         var deconvKernelOpts = new DeconvolutionKernelOptions();
         deconvKernelOpts.AddTo(cmd);
@@ -1215,8 +1223,19 @@ internal sealed partial class ImageSubCommand(
             //    --dual-stretch wants it either way (green stars are a stretched-space artefact).
             //  - Recombine is cleared by --no-recombine, which writes each plate separately.
             //  - WhiteBalance multiplies a broadband SPCC balance the input states (a stacked master's WB
-            //    cards) into the linear data first, as `stack --enhance` and the viewer apply theirs.
-            var whiteBalance = await MasterPreviewRenderer.StatedToApplyAsync(normalised.ImageMeta.ColourCalibration, normalised.ImageMeta, ct);
+            //    cards), or the one --white-balance gives for an input that states none, into the linear data
+            //    first, as `stack --enhance` and the viewer apply theirs.
+            var stated = normalised.ImageMeta.ColourCalibration;
+            if (stated is null && parseResult.GetValue(sharpenWhiteBalanceOpt) is { Length: > 0 } wbText)
+            {
+                if (!TryParseWhiteBalance(wbText, out var given))
+                {
+                    consoleHost.WriteError($"--white-balance must be three positive finite numbers 'R,G,B'; got '{wbText}'.");
+                    return 1;
+                }
+                stated = new ColourCalibration(given.R, given.G, given.B, ColourCalibrationSource.Spcc);
+            }
+            var whiteBalance = await MasterPreviewRenderer.StatedToApplyAsync(stated, normalised.ImageMeta, ct);
             if (whiteBalance is { } applying)
             {
                 consoleHost.WriteScrollable(
