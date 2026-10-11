@@ -25,8 +25,23 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// optical depths are these, their tilt the observer's latitude, and each one's brightness is fitted. Null for a planet without rings.</param>
 /// <param name="LimbDarkening">Minnaert's k held at this value rather than fitted (#1221), or null to fit it: the annulus from 0.8 radii
 /// sees too little of the darkening to pin k, and the radius follows k at about 15 % of itself per unit of k.</param>
+/// <param name="EquatorialRadius">The equatorial radius held at this many pixels rather than fitted (#1498), or null to fit it: the
+/// ephemeris's angular semi-diameter over a known plate scale (<see cref="RadiusAt"/>), which takes the radius out of the valley it
+/// shares with k and the blur.</param>
 public sealed record LimbFitOptions(double AxisRatio, double PhaseAngleDeg = 0, double AnnulusInner = 0.8, double AnnulusOuter = 1.2,
-    int? SunSide = null, double SunTiltDeg = 0, double SubObserverLatitudeDeg = 0, SaturnRings? Rings = null, double? LimbDarkening = null);
+    int? SunSide = null, double SunTiltDeg = 0, double SubObserverLatitudeDeg = 0, SaturnRings? Rings = null, double? LimbDarkening = null,
+    double? EquatorialRadius = null)
+{
+    /// <summary>
+    /// The equatorial radius, in pixels, of a planet whose equatorial diameter the Earth sees as <paramref name="aspect"/> gives it, on a
+    /// grid of <paramref name="plateScaleArcsec"/> seconds of arc a pixel: what <see cref="EquatorialRadius"/> holds a fit at (#1498).
+    /// </summary>
+    public static double RadiusAt(in PlanetAspect aspect, double plateScaleArcsec)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(plateScaleArcsec);
+        return aspect.AngularDiameterArcsec / 2 / plateScaleArcsec;
+    }
+}
 
 /// <summary>
 /// A disk fitted at its limb: where the planet is, how big, and how it lies in the image. Angles in degrees, image
@@ -191,7 +206,7 @@ public static class PlanetaryLimbFit
     {
         var plane = Luminance(image);
         var start = options.Rings is not null ? StartRinged(plane, image.Width, image.Height, options) : Start(plane, image.Width, image.Height, options.AxisRatio);
-        return start is { } at ? Fit(plane, image.Width, image.Height, at.X, at.Y, at.Radius, options) : null;
+        return start is { } at ? Fit(plane, image.Width, image.Height, at.X, at.Y, options.EquatorialRadius ?? at.Radius, options) : null;
     }
 
     /// <summary>
@@ -415,12 +430,14 @@ public static class PlanetaryLimbFit
         // Coarse to fine: a disk wider than about 40 px in radius is first fitted on a binned copy, where every model
         // evaluation costs a bin's square less (binning is linear, and its box blur folds into the fitted sigma), then refined
         // at full resolution from there, where it only has a little way to go.
+        startRadius = options.EquatorialRadius ?? startRadius;
         var bin = Math.Max(1, (int)Math.Round(startRadius / CoarseRadius));
         if (bin > 1)
         {
             var (binned, bw, bh) = Bin(plane, width, height, bin);
-            // A pixel's centre at (x, y) lies at ((x + 0.5) / bin - 0.5) in the binned frame.
-            if (FitAt(binned, bw, bh, ((startX + 0.5) / bin) - 0.5, ((startY + 0.5) / bin) - 0.5, startRadius / bin, options, null, 200) is { } coarse)
+            // A pixel's centre at (x, y) lies at ((x + 0.5) / bin - 0.5) in the binned frame, and a held radius is a bin's fraction there.
+            if (FitAt(binned, bw, bh, ((startX + 0.5) / bin) - 0.5, ((startY + 0.5) / bin) - 0.5, startRadius / bin,
+                options with { EquatorialRadius = options.EquatorialRadius / bin }, null, 200) is { } coarse)
             {
                 var seed = SeedFrom(coarse, options, ((coarse.CenterX + 0.5) * bin) - 0.5, ((coarse.CenterY + 0.5) * bin) - 0.5, coarse.EquatorialRadius * bin,
                     Math.Sqrt(Math.Max((coarse.PsfSigma * coarse.PsfSigma * bin * bin) - ((bin * bin) - 1) / 12.0, 0.25)));
@@ -438,8 +455,9 @@ public static class PlanetaryLimbFit
     /// </summary>
     public static LimbFit? Fit(ReadOnlySpan<float> plane, int width, int height, double startX, double startY, in LimbFit like, LimbFitOptions options)
     {
-        var seed = SeedFrom(like, options, startX, startY, like.EquatorialRadius, like.PsfSigma);
-        return FitAt(plane, width, height, startX, startY, like.EquatorialRadius, options, (seed, like.SunSide), 30);
+        var radius = options.EquatorialRadius ?? like.EquatorialRadius;
+        var seed = SeedFrom(like, options, startX, startY, radius, like.PsfSigma);
+        return FitAt(plane, width, height, startX, startY, radius, options, (seed, like.SunSide), 30);
     }
 
     /// <summary>
@@ -571,17 +589,17 @@ public static class PlanetaryLimbFit
             var model = new DiskModel(pixels, width, height, options, side, startX, startY, startRadius);
             var start = seed is { } s ? s.Parameters
                 : [startX, startY, startRadius, (startAxisAngleDeg * Math.PI / 180) + end, options.LimbDarkening ?? 0.9, 1.5, peak - sky, sky, 0, 0, 0, 0.05, 3, .. RingLevels(rings), .. new double[DiskModel.Sloped(rings).Length]];
-            // A held k (#1221) is one more residual, stiff enough that the data move it by less than 1e-4: the solver keeps every
-            // parameter it is given, and a parameter with no derivative leaves its normal matrix singular.
-            var held = options.LimbDarkening;
-            if (held is { } k0)
+            // A held k (#1221) or radius (#1498) is one more residual each, stiff enough that the data move it by less than 1e-4: the
+            // solver keeps every parameter it is given, and a parameter with no derivative leaves its normal matrix singular.
+            (int Index, double Value)[] held = [.. Held(options)];
+            foreach (var (index, value) in held)
             {
-                start[4] = k0;
+                start[index] = value;
             }
             var heldWeight = 1e3 * Math.Max(peak - sky, 1e-6) * Math.Sqrt(observed.Length);
             double[] step = [1e-3, 1e-3, 1e-3, 1e-5, 1e-4, 1e-4, 1e-4 * Math.Max(peak - sky, 1e-6), 1e-4 * Math.Max(peak - sky, 1e-6), 1e-4, 1e-4, 1e-4, 1e-4, 1e-3,
                 .. RingSteps(rings.Length), .. RingSteps(DiskModel.Sloped(rings).Length)];
-            var fit = LevenbergMarquardt.Fit(start, observed.Length + (held is null ? 0 : 1), (p, r) =>
+            var fit = LevenbergMarquardt.Fit(start, observed.Length + held.Length, (p, r) =>
             {
                 var data = r[..observed.Length];
                 model.Evaluate(p, data);
@@ -589,9 +607,9 @@ public static class PlanetaryLimbFit
                 {
                     data[i] -= observed[i];
                 }
-                if (held is { } k)
+                for (var h = 0; h < held.Length; h++)
                 {
-                    r[observed.Length] = heldWeight * (p[4] - k);
+                    r[observed.Length + h] = heldWeight * (p[held[h].Index] - held[h].Value);
                 }
             }, step, maxIterations: maxIterations);
 
@@ -626,6 +644,19 @@ public static class PlanetaryLimbFit
             levels[i] = rings[i].Level;
         }
         return levels;
+    }
+
+    // The parameters a fit holds rather than fits, by their place in the search's vector: k (#1221) and the radius (#1498).
+    private static IEnumerable<(int Index, double Value)> Held(LimbFitOptions options)
+    {
+        if (options.EquatorialRadius is { } radius)
+        {
+            yield return (2, radius);
+        }
+        if (options.LimbDarkening is { } k)
+        {
+            yield return (4, k);
+        }
     }
 
     private static double[] RingSteps(int count)

@@ -227,6 +227,10 @@ internal sealed class PlanetaryStackSubCommand(
         {
             Description = "Take the derived sharpening's kernel as the physical one fitted to the limb's edge from 0.02 cycles a pixel to this, carried by its physics to the cutoff, rather than the edge as read at every frequency (#1498).",
         };
+        var plateScaleOpt = new Option<double?>("--plate-scale")
+        {
+            Description = "The master's plate scale in seconds of arc a pixel: the derived sharpening's limb fit holds the planet's equatorial radius at the ephemeris's semi-diameter over it, rather than fitting it (#1498).",
+        };
         var pupil = PlanetaryMasterScore.PupilOptions();
         var sharpenGainsOpt = new Option<string?>("--sharpen-gains")
         {
@@ -321,7 +325,7 @@ internal sealed class PlanetaryStackSubCommand(
             {
                 outputOpt, labelOpt, keepOpt, pointKeepOpt, gradeCacheOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt,
                 noPerPointOpt, noSignalGateOpt, noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt, colourMatrixOpt,
-                noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, strengthOpt, sharpenLuminanceOpt, channelLimbOpt, limbKOpt, edgeReachOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt, reportOpt, reportOnlyOpt,
+                noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, strengthOpt, sharpenLuminanceOpt, channelLimbOpt, limbKOpt, edgeReachOpt, plateScaleOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt, reportOpt, reportOnlyOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt, meshRegularizationOpt, estimatorOpt, correlationOpt, interpolationOpt,
                 referenceFramesOpt, derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, northOpt, eachFileOpt, legacyOpt, truthOpt, halvesOpt, sessionOpt, manifestOpt, epochOpt,
                 autoOpt, designOpt,
@@ -333,7 +337,7 @@ internal sealed class PlanetaryStackSubCommand(
         [
             keepOpt, pointKeepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt, noPerPointOpt, noSignalGateOpt,
             noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt, colourMatrixOpt, noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, fixOpt, strengthOpt,
-            sharpenLuminanceOpt, channelLimbOpt, limbKOpt, edgeReachOpt, pupil.Obstruction, tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt,
+            sharpenLuminanceOpt, channelLimbOpt, limbKOpt, edgeReachOpt, plateScaleOpt, pupil.Obstruction, tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt,
             meshRegularizationOpt, estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt, derotateOpt, noDerotateOpt, turnNorthOverOpt, northOpt, eachFileOpt,
             legacyOpt, truthOpt, halvesOpt, epochOpt, reportOnlyOpt,
         ];
@@ -343,6 +347,11 @@ internal sealed class PlanetaryStackSubCommand(
             var serPaths = parseResult.GetValue(serArg) ?? [];
             if (PlanetaryMasterScore.LimbReading(consoleHost, parseResult.GetValue(channelLimbOpt), parseResult.GetValue(limbKOpt)) is not { } limbReading)
             {
+                return 1;
+            }
+            if (parseResult.GetValue(plateScaleOpt) is <= 0 and var badScale)
+            {
+                consoleHost.WriteError(string.Create(CultureInfo.InvariantCulture, $"--plate-scale {badScale}: seconds of arc a pixel, above 0"));
                 return 1;
             }
             if (parseResult.GetValue(sessionOpt) is { } sessionName)
@@ -872,7 +881,8 @@ internal sealed class PlanetaryStackSubCommand(
                 if (sharpen)
                 {
                     var (sharpened, how) = Sharpened(master, sharpenOptions, planet, result.Epoch, wavelengthText, PlanetaryCaptureName.WavelengthNm(runPaths[0]), telescope,
-                        parseResult.GetValue(fixOpt), parseResult.GetValue(strengthOpt), parseResult.GetValue(sharpenLuminanceOpt), limbReading, parseResult.GetValue(edgeReachOpt));
+                        parseResult.GetValue(fixOpt), parseResult.GetValue(strengthOpt), parseResult.GetValue(sharpenLuminanceOpt), limbReading, parseResult.GetValue(edgeReachOpt),
+                        parseResult.GetValue(plateScaleOpt));
                     display = balance?.Apply(sharpened) ?? sharpened;
                     display.WriteToFitsFile(sharpenedFits, null, balance?.HeaderCards());
                     consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(sharpenedFits)} ({how})");
@@ -933,7 +943,7 @@ internal sealed class PlanetaryStackSubCommand(
     private (Image Sharpened, string How) Sharpened(Image master, WaveletSharpenOptions? fixedProfile, CatalogIndex? planet, DateTimeOffset? epoch,
         string? wavelengthText, double? nameWavelengthNm, Pupil? telescope, PlanetaryLimbFix? fix, double strength, bool luminanceOnly,
         (PlanetaryChannelLimb ChannelLimb, PlanetaryLimbDarkening LimbDarkening, System.Collections.Immutable.ImmutableArray<double> HeldK) limbReading,
-        double? edgeReach)
+        double? edgeReach, double? plateScaleArcsec)
     {
         if (fixedProfile is { } profile)
         {
@@ -949,7 +959,8 @@ internal sealed class PlanetaryStackSubCommand(
             wavelengths = [nm];
         }
         return PlanetaryBestStack.Sharpen(master, planet, epoch, telescope, wavelengths, fix, strength, luminanceOnly,
-            channelLimb: limbReading.ChannelLimb, limbDarkening: limbReading.LimbDarkening, heldMinnaertK: limbReading.HeldK, edgeReach: edgeReach);
+            channelLimb: limbReading.ChannelLimb, limbDarkening: limbReading.LimbDarkening, heldMinnaertK: limbReading.HeldK, edgeReach: edgeReach,
+            plateScaleArcsec: plateScaleArcsec);
     }
 
     // The pupil a SER capture's header names, or null (a file that is not one, or names none).

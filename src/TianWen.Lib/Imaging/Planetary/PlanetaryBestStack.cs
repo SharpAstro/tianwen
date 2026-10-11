@@ -204,16 +204,18 @@ public static class PlanetaryBestStack
     /// <paramref name="target"/> is what the derived gains restore toward (#1366). <paramref name="channelLimb"/>, <paramref name="limbDarkening"/>
     /// and <paramref name="heldMinnaertK"/> are what a colour master's channels are read against and how the limb fit takes Minnaert's k
     /// (#1498, <see cref="PlanetarySharpenOptions.ChannelLimb"/>, <see cref="PlanetarySharpenOptions.HeldMinnaertK"/>), and <paramref name="edgeReach"/>
-    /// how far the kernel is read off the limb's edge before its physics carries it (<see cref="PlanetarySharpenOptions.EdgeReach"/>). The caller
-    /// owns the image.
+    /// how far the kernel is read off the limb's edge before its physics carries it (<see cref="PlanetarySharpenOptions.EdgeReach"/>);
+    /// <paramref name="plateScaleArcsec"/>, the master's plate scale, holds the limb fit's radius at it (<see cref="PlanetarySharpenOptions.PlateScaleArcsec"/>,
+    /// #1498). The caller owns the image.
     /// </summary>
     public static (Image Sharpened, string How) Sharpen(Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope,
         ImmutableArray<double> wavelengthsNm = default, PlanetaryLimbFix? fix = null, double strength = 1, bool luminanceOnly = false,
         PlanetarySharpenTarget target = PlanetarySharpenTarget.Telescope, PlanetaryChannelLimb channelLimb = PlanetaryChannelLimb.Shared,
-        PlanetaryLimbDarkening limbDarkening = PlanetaryLimbDarkening.Fitted, ImmutableArray<double> heldMinnaertK = default, double? edgeReach = null)
+        PlanetaryLimbDarkening limbDarkening = PlanetaryLimbDarkening.Fitted, ImmutableArray<double> heldMinnaertK = default, double? edgeReach = null,
+        double? plateScaleArcsec = null)
     {
         var (sharpened, how, _) = SharpenCore(master, planet, epoch, telescope, wavelengthsNm, fix, strength, luminanceOnly, [], target, channelLimb,
-            limbDarkening, heldMinnaertK, edgeReach);
+            limbDarkening, heldMinnaertK, edgeReach, plateScaleArcsec);
         return (sharpened, how);
     }
 
@@ -222,7 +224,7 @@ public static class PlanetaryBestStack
         Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope, ImmutableArray<double> wavelengthsNm, PlanetaryLimbFix? fix,
         double strength, bool luminanceOnly, ImmutableArray<double> fitStops, PlanetarySharpenTarget target,
         PlanetaryChannelLimb channelLimb = PlanetaryChannelLimb.Shared, PlanetaryLimbDarkening limbDarkening = PlanetaryLimbDarkening.Fitted,
-        ImmutableArray<double> heldMinnaertK = default, double? edgeReach = null)
+        ImmutableArray<double> heldMinnaertK = default, double? edgeReach = null, double? plateScaleArcsec = null)
     {
         if (SharpenOptionsFor(master, planet, epoch, telescope, wavelengthsNm) is not { } options)
         {
@@ -239,6 +241,7 @@ public static class PlanetaryBestStack
             LimbDarkening = limbDarkening,
             HeldMinnaertK = heldMinnaertK.IsDefault ? [] : heldMinnaertK,
             EdgeReach = edgeReach,
+            PlateScaleArcsec = plateScaleArcsec,
         };
         if (fix is { } chosen)
         {
