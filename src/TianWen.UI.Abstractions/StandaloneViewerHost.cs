@@ -243,16 +243,33 @@ public sealed class StandaloneViewerHost<TSurface>
         var playback = _controller.TickPlayback();
         var blinked = _controller.TickBlink();
         var skyMoved = _viewer.TakeSkyRedrawRequest();
-        return playback || blinked || skyMoved || _controller.AutoStackWantsFrame
+        // A tooltip's hover delay runs out while the pointer RESTS, which nothing else notices; its frame is
+        // whole-surface, like every frame the router asks for, since the box can land anywhere.
+        var tooltipDue = Router.TooltipNeedsFrame;
+        if (tooltipDue)
+        {
+            _viewer.RequestFullFrameDamage();
+        }
+        return playback || blinked || skyMoved || tooltipDue || _controller.AutoStackWantsFrame
             || _state.NeedsRedraw || _state.NeedsTextureUpdate || _state.RequestedFilePath is not null
             || _controller.IsLoadPending;
     }
+
+    /// <summary>
+    /// Paints the router's due tooltip over the viewer, through the one painter (#1446). The host calls it
+    /// after the viewer's own paint, so it is the last thing drawn.
+    /// </summary>
+    public void PaintTooltip() => _viewer.RenderTooltip(Router.Tooltip);
 
     /// <summary>The work after a frame is drawn.</summary>
     public void AfterFrame()
     {
         _bus.ProcessPending();
         _state.NeedsRedraw = false;
+        // The router's after-paint step, which this host never ran: a field that left the screen keeps the
+        // keyboard without it, a focusOnOpen is never answered and a tooltip never expires. After the flag is
+        // cleared, so a frame the step asks for (a tooltip that went with its region) is not lost.
+        Router.AfterPaint();
         _controller.ReleaseCompletedTasks();
         if (_state.PlanetaryTelescopeChanged)
         {

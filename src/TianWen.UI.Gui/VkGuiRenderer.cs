@@ -716,40 +716,36 @@ namespace TianWen.UI.Gui
             // scale, either of which can change while the window is alive (F12, a monitor move).
             _sidebar.Colors = SidebarColors;
             _sidebar.IconSize = FontSize * 1.3f;
+            // Each rail cell declares its tooltip on its own region now (DIR.Lib's tab strip, opening to the
+            // right of the rail), so it reaches the router like any other and RenderTooltip draws it.
             _sidebar.Render(new RectF32(0f, StatusBarHeight, sw, _height - StatusBarHeight),
                 _sidebarItems, appState.ActiveTab);
-
-            if (_sidebar.HoveredIndex is >= 0 and var hovered
-                && hovered < _sidebarItems.Count
-                && _sidebarItems[hovered].Tooltip is { } text
-                && !string.IsNullOrEmpty(FontPath))
-            {
-                DrawTooltip(text, sw + 6f, StatusBarHeight + (hovered + 0.5f) * sw);
-            }
         }
 
-        // Tooltip rendered to the right of the sidebar at the hovered tab's vertical
-        // centre. Dark rounded rect + one-line label; z-order is guaranteed by being
-        // called at the end of RenderSidebar (paint-last = top).
-        private void DrawTooltip(string text, float anchorX, float anchorY)
+        /// <summary>
+        /// Paints the tooltip the router has due over the whole window, through DIR.Lib's one painter
+        /// (<c>Layout.Builder.Tooltip</c>, #1446): any region's, the rail's, a tab's or an embedded viewer's.
+        /// Called by the host after <see cref="Render"/>, so it is the last thing drawn.
+        /// </summary>
+        /// <remarks>
+        /// Before it, the rail painted its own tooltip from <c>TabBar.HoveredIndex</c>, measured and placed by
+        /// hand (assuming square cells), and nothing painted the router's, so every <c>.WithTooltip</c> in the
+        /// app was dead. The fill keeps its near-opaque alpha so a tooltip still reads as floating over the
+        /// content rather than cut into it; only the hue comes from the palette.
+        /// </remarks>
+        public void RenderTooltip(TooltipRequest? request)
         {
-            if (string.IsNullOrEmpty(FontPath)) return;
-            var pad = 6f * DpiScale;
-            var fontSize = FontSize;
-            var (tw, th) = _renderer.MeasureText(text.AsSpan(), FontPath, fontSize);
-            var w = tw + pad * 2f;
-            var h = th + pad;
-            var x = anchorX;
-            var y = anchorY - h * 0.5f;
+            if (request is not { } due || string.IsNullOrEmpty(FontPath))
+            {
+                return;
+            }
 
-            // Border + fill. The fill keeps its near-opaque alpha so the tooltip still reads as floating
-            // over the content rather than cut into it; only the hue comes from the palette.
-            FillRect(x - 1, y - 1, w + 2, h + 2, Palette.SeparatorStrong);
-            FillRect(x, y, w, h, Palette.HeaderBg.WithAlpha(0xF0));
-            _renderer.DrawText(text.AsSpan(), FontPath, fontSize,
-                Palette.BodyText,
-                new RectInt(new PointInt((int)(x + w), (int)(y + h)), new PointInt((int)(x + pad), (int)y)),
-                TextAlign.Near, TextAlign.Center);
+            var style = new Layout.TooltipStyle(
+                Background: Palette.HeaderBg.WithAlpha(0xF0),
+                Text: Palette.BodyText,
+                Border: Palette.SeparatorStrong,
+                FontSize: BaseFontSize);
+            RenderLayout(Layout.Builder.Tooltip(due, style), new RectF32(0f, 0f, _width, _height));
         }
 
         // -----------------------------------------------------------------------

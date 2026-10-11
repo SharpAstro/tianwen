@@ -95,11 +95,20 @@ internal sealed class ViewerE2E : IAsyncDisposable
     /// question is ASKED, because asking it has effects the loop relies on (SER playback and the stacked
     /// view's stack are ticked there): without it a stacked view never built a master here.
     /// </summary>
+    /// <remarks>
+    /// Each frame starts from a cleared surface, as a whole frame on the GPU does (the render pass clears). Painted
+    /// over the previous frame instead, a translucent piece of chrome converges a level a frame (the file list's
+    /// divider did), and anything the previous frame drew and this one does not, a tooltip that has gone, stays
+    /// on screen: neither is what the window shows. <see cref="ViewerRepaintResidueTests"/> is where a PARTIAL
+    /// frame's preserved pixels are modelled.
+    /// </remarks>
     internal void Frame()
     {
         _ = Host.WantsFrame();
         Host.BeforeFrame();
+        _renderer.Surface.Clear(new RGBAColor32(0, 0, 0, 255));
         Viewer.Render(Controller.Source, State);
+        Host.PaintTooltip();
         Host.AfterFrame();
     }
 
@@ -217,6 +226,12 @@ internal sealed class ViewerE2E : IAsyncDisposable
         Host.HandlePointer(new InputEvent.MouseUp(toX, toY));
         Frame();
     }
+
+    /// <summary>The window's pixels as last painted, copied.</summary>
+    internal byte[] Pixels() => [.. _renderer.Surface.Pixels];
+
+    /// <summary>The window's width in pixels.</summary>
+    internal int Width => _renderer.Surface.Width;
 
     /// <summary>Where a toolbar button was painted this frame.</summary>
     internal RectF32 ToolbarButton(ToolbarAction action)

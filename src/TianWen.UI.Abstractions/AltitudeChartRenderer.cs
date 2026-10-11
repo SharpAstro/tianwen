@@ -1088,30 +1088,32 @@ public static class AltitudeChartRenderer
             return f;
         }
 
-        // The box is a tree the engine measures: the lines, padded, on the band's fill inside a 1 px outline.
+        // The lines, the first (the hour) brighter, in DIR.Lib's one tooltip box (Layout.Builder.Tooltip, #1489):
+        // framed on the band's fill inside a 1 px outline, centred under the hovered hour's column, kept inside the
+        // chart, and opened above the band where it would run off the bottom. The placement is the engine's; this
+        // used to measure the box and work out each of those by hand.
         var fontSize = Math.Max(7f, 11f * areaH / 800f);
         var rows = new Layout.Node[lines.Count];
         for (var i = 0; i < lines.Count; i++)
         {
             rows[i] = Layout.Builder.Text(lines[i], fontSize, i == 0 ? GuiTheme.SkyInk() : GuiTheme.SkyInk(205));
         }
-        var box = Layout.Builder.VStack(
-                Layout.Builder.VStack(rows).WithGap(fontSize * 0.35f).Pad(8f).Bg(GuiTheme.SkyBand(0.06f).WithAlpha(235)))
-            .Pad(1f).Bg(GuiTheme.Palette.Info.WithAlpha(200));
+        var style = new Layout.TooltipStyle(
+            Background: GuiTheme.SkyBand(0.06f).WithAlpha(235),
+            Text: GuiTheme.SkyInk(),
+            Border: GuiTheme.Palette.Info.WithAlpha(200),
+            FontSize: fontSize)
+        {
+            PadX = 8f,
+            PadY = 8f,
+            Margin = 6f,
+        };
+        var column = new RectF32((float)(bestX - (slotW / 2)), bandY, (float)slotW, bandH);
 
         var painter = ChartLayout<TSurface>.For(renderer);
         painter.FontPath = fontFamily;
-        var size = painter.Measure(box, new Layout.Size<float>(areaW, areaH));
-
-        // Under the band by default, centred on the pointer and kept inside the chart; above the band
-        // where it would run off the bottom.
-        var boxX = Math.Clamp(mx - (size.Width / 2f), areaX + 2f, Math.Max(areaX + 2f, areaX + areaW - size.Width - 2f));
-        var boxY = bandY + bandH + 6f;
-        if (boxY + size.Height > areaY + areaH)
-        {
-            boxY = bandY - size.Height - 6f;
-        }
-        painter.Paint(box, new RectF32(boxX, boxY, size.Width, size.Height));
+        painter.Paint(Layout.Builder.Tooltip(column, Layout.Builder.VStack(rows).WithGap(fontSize * 0.35f), style),
+            new RectF32(areaX, areaY, areaW, areaH));
 
         return f;
     }
@@ -1372,8 +1374,8 @@ public static class AltitudeChartRenderer
     private const string LegendTargetsKey = "legend-targets";
 
     /// <summary>
-    /// Measures, lays out and paints the chart's layout-built parts (the legend row, the weather hover's box) through
-    /// the engine, since this renderer is static and has no widget of its own. One per renderer, so a frame allocates
+    /// Lays out and paints the chart's layout-built parts (the legend row, the weather hover's box) through the
+    /// engine, since this renderer is static and has no widget of its own. One per renderer, so a frame allocates
     /// none. Sizes are device px, hence <see cref="DesignScale.One"/>.
     /// </summary>
     private sealed class ChartLayout<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
@@ -1382,9 +1384,6 @@ public static class AltitudeChartRenderer
 
         public static ChartLayout<TSurface> For(Renderer<TSurface> renderer)
             => Painters.GetValue(renderer, static r => new ChartLayout<TSurface>(r));
-
-        public Layout.Size<float> Measure(Layout.Node tree, Layout.Size<float> available)
-            => MeasureLayout(tree, available, scale: DesignScale.One);
 
         public System.Collections.Immutable.ImmutableArray<Layout.ArrangedNode<float>> Paint(Layout.Node tree, RectF32 rect)
         {

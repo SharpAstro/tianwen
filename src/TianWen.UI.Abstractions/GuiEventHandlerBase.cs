@@ -150,6 +150,12 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public void AfterPaint() => _router.AfterPaint();
 
+        /// <summary>The tooltip the router has due, for the host to paint after the frame (#1446).</summary>
+        public TooltipRequest? Tooltip => _router.Tooltip;
+
+        /// <summary>A tooltip has become due since the last paint: the host's redraw check asks for a frame.</summary>
+        public bool TooltipNeedsFrame => _router.TooltipNeedsFrame;
+
         /// <summary>
         /// What the router did not claim. Keys go back to the host, which routes them to the active tab
         /// and then to its own global bindings; forwarding them here as well would run a tab's handler
