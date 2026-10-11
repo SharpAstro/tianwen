@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using DIR.Lib;
+using SharpAstro.Ser;
 using Shouldly;
 using TianWen.UI.Abstractions;
 using Xunit;
@@ -354,6 +356,52 @@ public class ViewerE2ETests
 
         e2e.Click(row);
         await e2e.PumpUntilAsync(() => e2e.IsShowing(second), "the clicked row's file to open", ct);
+    }
+
+    /// <summary>
+    /// A press on the transport's scrub track seeks to where it landed and pauses, and the drag that follows goes on
+    /// seeking until the button comes up: the gesture is the capture the press returns (#1489), not a flag on the state
+    /// that the move and release handlers each had to remember. After the release a move seeks nothing.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Scales))]
+    public async Task DraggingTheScrubTrackSeeksUntilTheButtonComesUp(float dpiScale)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // One design size at both scales: at 1.5x in the usual 1600 x 1000 the transport's controls leave the track no
+        // width and it is not drawn at all (#1509).
+        await using var e2e = ViewerE2E.Start(dpiScale, width: (uint)(1600 * dpiScale), height: (uint)(1000 * dpiScale));
+        var path = Path.Combine(e2e.Folder, "run.ser");
+        using (var writer = new SerWriter(path, ViewerE2E.ImageW, ViewerE2E.ImageH, SerColorId.Mono, 8))
+        {
+            var frame = new byte[ViewerE2E.ImageW * ViewerE2E.ImageH];
+            for (var i = 0; i < 10; i++)
+            {
+                Array.Fill(frame, (byte)(20 + (i * 20)));
+                writer.AppendFrame(frame, DateTimeOffset.UnixEpoch.AddSeconds(i));
+            }
+        }
+        // A capture opens as a frame source, not a document, so it is waited for by its frames.
+        e2e.Host.HandleDropFile(path);
+        await e2e.PumpUntilAsync(() => e2e.State.FrameCount == 10 && e2e.State.IsSequence, "the capture's ten frames to be known", ct);
+        await e2e.PumpUntilAsync(() => e2e.Viewer.PaintedRegions().Any(r => r.Result is TransportScrubHit), "the transport to be painted", ct);
+        e2e.State.IsPlaying = true;
+
+        // The track registers twice, its slider and then its press region over it; the press region, the later one, answers.
+        var region = e2e.Viewer.PaintedRegions().Last(r => r.Result is TransportScrubHit);
+        var track = new RectF32(region.X, region.Y, region.Width, region.Height);
+        var y = track.Y + (track.Height / 2f);
+        e2e.Host.HandlePointer(new InputEvent.MouseDown(track.X + 1f, y));
+        e2e.State.IsPlaying.ShouldBeFalse("a scrub pauses playback");
+        e2e.State.RequestedFrame.ShouldBe(0, "the press seeks to where it landed");
+
+        e2e.Host.HandlePointer(new InputEvent.MouseMove(track.X + track.Width + 50f, y, MouseButton.Left));
+        e2e.State.RequestedFrame.ShouldBe(9, "the drag seeks as the pointer moves, past the end to the last frame");
+
+        e2e.Host.HandlePointer(new InputEvent.MouseUp(track.X + track.Width + 50f, y));
+        e2e.State.RequestedFrame = null;
+        e2e.Host.HandlePointer(new InputEvent.MouseMove(track.X + 1f, y));
+        e2e.State.RequestedFrame.ShouldBeNull("the release ended the drag, so a move seeks nothing");
     }
 
     [Theory]

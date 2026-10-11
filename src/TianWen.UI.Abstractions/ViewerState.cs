@@ -401,9 +401,6 @@ public sealed class ViewerState
     /// </summary>
     public int? RequestedFrame { get; set; }
 
-    /// <summary>True while the user is dragging the transport scrub handle.</summary>
-    public bool IsScrubbing { get; set; }
-
     /// <summary>
     /// When true, a multi-frame source is shown as a <b>live rolling-window stack</b> (lucky imaging)
     /// instead of the raw frame. Only meaningful for a SER sequence with a live-stack source available;
@@ -823,7 +820,10 @@ public sealed class ViewerState
     public const float FileListWidthBaseMin = 180f;
     public const float FileListWidthBaseMax = 900f;
 
-    /// <summary>True while the user is dragging the file list resize handle.</summary>
+    /// <summary>
+    /// True while the user is dragging the file list resize handle: set by the drag's capture as it arms and cleared
+    /// by its release (#1489), and read for the divider's active colour alone. Nothing steers the drag through it.
+    /// </summary>
     public bool IsResizingFileList { get; set; }
 
     /// <summary>Set by UI to request loading a different file. Consumed by the app loop.</summary>
