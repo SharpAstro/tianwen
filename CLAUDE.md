@@ -920,7 +920,8 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
     (`DerivedGains.ChannelGainsAt`, `WaveletSharpenOptions.ChannelGains`); a new stop goes into that list,
     never a second one.
   - **The derivation swings with the limb fit's Minnaert k** (#1498): an A/B between near-identical stacks reads the
-    UNSHARPENED masters, or holds k on both sides (`--fit-k`); `--fit-channels` and `--edge-reach` are options, none adopted.
+    UNSHARPENED masters, or holds k on both sides (`--fit-k`); `--fit-channels`, `--edge-reach` and `--plate-scale` (the radius held,
+    #1498: 2 % off costs up to 41 %) are options, none adopted.
   - **The limb options are four families, one name across `stack`, `sharpen` and `limb`** (#1479): the limb FIT `--fit-k`
     / `--fit-channels`, the edge the gains are read off `--edge-reach` / `--edge-rings`, the gains' own fit `--gains-fit`,
     what a limb pixel takes `--limb-fix` / `--limb-floor`. A new limb option joins its family's prefix.

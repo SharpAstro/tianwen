@@ -4976,8 +4976,44 @@ with the window placed by the channels' own fits; SKR and PKR SK and PK with the
 
 **Where it stands.** The three switches stay options, none a default; logs and scripts are in `D:/temp/tianwen-scratch/i1498/hk/`. For
 practice: **an A/B between near-identical stacks reads the unsharpened masters** (as #1412 F3 did), or holds k on both sides with
-`--limb-k`, since the derivation's own swing can be larger than the change. The lever left, named on #1498 for the owner, is the radius
-held from the plate scale a recording carries (#1179), which takes the radius out of the valley rather than k.
+`--limb-k`, since the derivation's own swing can be larger than the change. The lever left, named on #1498 for the owner, was the radius
+held from the plate scale a recording carries (#1179), which takes the radius out of the valley rather than k: tried below, and not adopted.
+
+#### The radius held from the plate scale (#1498)
+
+**The owner's call (2026-10-12): try it.** `--plate-scale <arcsec/px>` on `planetary sharpen` and `planetary stack`
+(`PlanetarySharpenOptions.PlateScaleArcsec`) holds every limb fit the sharpening reads at the ephemeris's equatorial semi-diameter over the
+plate scale (`LimbFitOptions.EquatorialRadius`, `LimbFitOptions.RadiusAt`), as `--fit-k` holds k: one stiff residual, through the coarse fit
+on a binned copy too, where the held radius is a bin's fraction. In a rendered disk held right, the rest of the fit comes back as the free
+fit's; held 2 % wrong, k (0.73 to 1.09 against 0.90) and the blur (1.2 to 2.5 px against 1.8) take the difference, the centre unmoved
+(`AHeldRadiusIsKeptThroughTheCoarseFitAndTheCentreDoesNotMoveWithIt`).
+
+**Rules, set on #1498 before any code or run**, #1498's own for SP (the twins' own plate scale, the one each was rendered at: 0.4981"/px for
+`uc-g4` and `uc-g4s2`, 0.3036"/px for `sat-p5` and `sat-p5s2`), with a fourth for a real plate scale's error (SP+2 and SP-2, the scale 2 % high
+and low, since a focal length is known only to a few percent): 1 to 3 as above; 4, SP+2 and SP-2 each meet rule 2, and on the D masters
+their bands 1 to 4 error is at most 1.05 of S's. The plate scale was to be adopted wherever one is known if 1 to 4 held.
+
+| Arm | Rule 1: gap r / g / b (bar 0.5) | Rule 2: largest D against I (bar 0.05) | Rules 3 and 4: worst error over S's |
+|---|---|---|---|
+| S (today, the control) | 4.62 / 3.65 / 9.49 | 0.262 (`sat-p5s2`) | |
+| SP (the true radius) | 1.16 / 0.98 / 0.90 | 0.075 (`sat-p5s2`; `uc-g4s2` 0.069) | 1.075 (`uc-g4s2` blue; bar 1.02) |
+| SP+2 (2 % small) | 3.80 / 5.00 / 1.75 | 0.196 (`sat-p5s2`) | 1.415 (`sat-p5s2` green; bar 1.05) |
+| SP-2 (2 % large) | **0.11 / 0.07 / 0.03** | **0.024** (`uc-g4`) | 1.388 (`uc-g4s2` blue; bar 1.05) |
+
+- **S reproduces #1412 F3 and the readings above** to 0.0000 on all eight stacks and in rule 1.
+- **SP fails rules 1 to 3.** The true radius cuts a balance's gap 4 to 10 times and the D-against-I swing on `sat-p5s2` from 0.262 to 0.075,
+  but k still moves with the balance (0.710 against 0.677) and the swing stays above the bar on two twins; its error is up to 5.8 % lower
+  on eight channels of twelve and 3.6 to 7.5 % higher on the other four.
+- **Held 2 % wrong, the sharpening is up to 41 % worse** (rule 4), so a plate scale read off a focal length and a pixel size would cost more
+  than the swing it is meant to remove.
+- **The one stable arm is not the true one.** At 30.09 px, 2 % above the 29.49 the Saturn twins were rendered at and where the fit settles
+  with the twins' true k (29.98 to 30.06, SK above), a balance moves nothing and neither does the mesh's reach, yet the sharpening is up to
+  39 % worse. Stability is not accuracy: the model's radius that makes the fit self-consistent is not the planet's, and the derived kernel
+  reads the difference as blur.
+
+**Where it stands.** As set before measuring, `--plate-scale` stays an option beside `--fit-k`, `--fit-channels` and `--edge-reach`, none a
+default. No capture states a plate scale today anyway (a SER header has neither a focal length nor a pixel size). Logs and scripts:
+`D:/temp/tianwen-scratch/i1498/ps/` (`run.sh`, `report.py`).
 
 ### The strength stops in the viewer (#1314)
 
