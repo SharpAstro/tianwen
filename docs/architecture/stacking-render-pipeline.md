@@ -740,6 +740,15 @@ the whole enhance landed at (1.416, 1, 2.003), 26 % bluer. Where the gradient co
 1 % of difference (1.453, 1, 1.587 on the flattened master). `image sharpen` with the balance applied
 reproduces the hand-run order to the third figure in the background (R/G 0.360, B/G 0.931).
 
+**SCNR acts on balanced colour only** (`SharpenPipeline`, the `ScnrStarsStep`): it takes green down to
+where a neutral star has it, and a neutral star has R = G = B only once the colour is balanced. On an
+unbalanced OSC plate green is the strongest channel of nearly every star, so SCNR stripped it from all of
+them and the balance applied at render time turned them magenta: the dataset gallery's Omega Centauri,
+a whole globular cluster, and the enhanced half of most cards lifted by up to 0.37 in R/G. The step runs
+after a `WhiteBalanceStep` or on an input already `WBAPPLD`, and is skipped otherwise (a plate stretched
+for display first is the caller's choice, `--dual-stretch`). `image sharpen --white-balance` takes the
+SPCC triple `image render` printed for a file that states none, so the gallery enhances in this order too.
+
 The sky-background estimate is a guess about the sky and a line-selective fit is a fit of nothing, so
 both stay display multipliers and never enter linear data. **A colour frame naming no filter is taken as
 unfiltered**, which is the throughput its SPCC fit integrated; a dual-band master whose header lost its

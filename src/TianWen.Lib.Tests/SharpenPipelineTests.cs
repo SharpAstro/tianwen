@@ -693,12 +693,8 @@ public class SharpenPipelineTests(ITestOutputHelper output)
         // SCNR Average + amount=1 on stars: m = (0.2+0.2)/2 = 0.2,
         //   excess = 0.5-0.2 = 0.3, Gnew = 0.5 - 0.3 = 0.2 -- neutralised.
         // Starless untouched -> (0.3, 0.3, 0.3). Recombined -> (0.5, 0.5, 0.5).
-        const int w = 4, h = 4;
-        var r = new float[h, w];
-        var g = new float[h, w];
-        var b = new float[h, w];
-        for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) { r[y, x] = 0.5f; g[y, x] = 0.8f; b[y, x] = 0.5f; }
-        var src = new Image([r, g, b], BitDepth.Float32, 1.0f, 0f, 0f, new ImageMeta { SensorType = SensorType.Color });
+        // The source is BALANCED (its white balance is in its pixels), which is the only colour SCNR may act on.
+        var src = GreenStars(balanced: true);
 
         var pipeline = new SharpenPipeline(starRemover: new UniformStarRemover(0.3f, 0.3f, 0.3f));
         var result = await pipeline.ProcessAsync(new SharpenRequest(src,
@@ -718,6 +714,61 @@ public class SharpenPipelineTests(ITestOutputHelper output)
         result.Final[0, 0, 0].ShouldBe(0.5f, 1e-5f);
         result.Final[1, 0, 0].ShouldBe(0.5f, 1e-5f);
         result.Final[2, 0, 0].ShouldBe(0.5f, 1e-5f);
+    }
+
+    /// <summary>
+    /// SCNR on UNBALANCED colour is skipped. A raw OSC star has more green than red or blue because the sensor does,
+    /// not because it is green, so taking green down to where a neutral star has it stripped every star and the
+    /// balance the render applied afterwards turned them magenta (the dataset gallery's Omega Centauri, a whole
+    /// globular cluster).
+    /// </summary>
+    [Fact]
+    public async Task ProcessAsync_ScnrStars_IsSkippedOnUnbalancedColour()
+    {
+        var pipeline = new SharpenPipeline(starRemover: new UniformStarRemover(0.3f, 0.3f, 0.3f));
+        var result = await pipeline.ProcessAsync(new SharpenRequest(GreenStars(balanced: false),
+        [
+            new RemoveStarsStep(),
+            new ScnrStarsStep(ScnrMode.Average),
+            new RecombineStep(),
+        ]),
+            TestContext.Current.CancellationToken);
+
+        result.StarsOnly![1, 0, 0].ShouldBe(0.5f, 1e-5f, "the stars keep their green");
+        result.Final![1, 0, 0].ShouldBe(0.8f, 1e-5f);
+    }
+
+    /// <summary>A host that puts its balance in first (<see cref="WhiteBalanceStep"/>) gets SCNR, on the balanced plate.</summary>
+    [Fact]
+    public async Task ProcessAsync_ScnrStars_RunsAfterTheProgramsWhiteBalance()
+    {
+        var pipeline = new SharpenPipeline(starRemover: new UniformStarRemover(0.3f, 0.3f, 0.3f));
+        var result = await pipeline.ProcessAsync(new SharpenRequest(GreenStars(balanced: false),
+        [
+            new WhiteBalanceStep(new ColourCalibration(1f, 1f, 1f, ColourCalibrationSource.Spcc)),
+            new RemoveStarsStep(),
+            new ScnrStarsStep(ScnrMode.Average),
+            new RecombineStep(),
+        ]),
+            TestContext.Current.CancellationToken);
+
+        result.StarsOnly![1, 0, 0].ShouldBe(0.2f, 1e-5f, "SCNR ran on the balanced stars");
+    }
+
+    // (0.5, 0.8, 0.5) everywhere; a UniformStarRemover(0.3, 0.3, 0.3) leaves stars of (0.2, 0.5, 0.2).
+    private static Image GreenStars(bool balanced)
+    {
+        const int w = 4, h = 4;
+        var r = new float[h, w];
+        var g = new float[h, w];
+        var b = new float[h, w];
+        for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) { r[y, x] = 0.5f; g[y, x] = 0.8f; b[y, x] = 0.5f; }
+        var meta = new ImageMeta
+        {
+            SensorType = SensorType.Color,
+            ColourCalibration = balanced ? new ColourCalibration(1f, 1f, 1f, ColourCalibrationSource.Spcc, Applied: true) : null,
+        };
+        return new Image([r, g, b], BitDepth.Float32, 1.0f, 0f, 0f, meta);
     }
 
     // --- DI wiring ---------------------------------------------------
