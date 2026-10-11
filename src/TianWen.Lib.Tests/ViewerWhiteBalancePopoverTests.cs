@@ -325,19 +325,19 @@ namespace TianWen.Lib.Tests
             Press(viewer, button.X + (button.Width / 2f), button.Y + (button.Height / 2f));
             viewer.Render(document, state);
 
-            // The popover's text only: its leaves are design units, and the panel's own registered rect says where it is. The
-            // viewer paints other text below the button (the info panel's headings, in device pixels at DesignScale.One).
-            var panel = viewer.GetRegisteredRegions()
-                .Single(r => r.Result is HitResult.ButtonHit { Action: "WhiteBalancePanelBackground" });
+            // The popover's text only, which is its panel's subtree in the painted pre-order: its leaves are design units.
+            // The viewer paints other text below the button, some of it under the popover (the info panel's headings, in
+            // device pixels at DesignScale.One), so neither a position nor a rect tells the two apart.
             var nodes = new List<Layout.ArrangedNode<float>>();
             viewer.CollectPaintedNodes(nodes);
+            var panelAt = nodes.FindIndex(n => n.Node.Hit is HitResult.ButtonHit { Action: "WhiteBalancePanelBackground" });
+            panelAt.ShouldBeGreaterThanOrEqualTo(0, "the popover's panel is painted");
+            var popover = nodes.Skip(panelAt + 1).TakeWhile(n => n.Depth > nodes[panelAt].Depth);
             var texts = new List<(string Value, float Measured, float Available)>();
-            foreach (var arranged in nodes)
+            foreach (var arranged in popover)
             {
                 if (arranged.Node is not Layout.Node.Leaf { Content: Layout.Content.Text text } leaf
-                    || arranged.Bounds.Y < button.Bottom || text.Value.Length == 0
-                    || arranged.Bounds.X < panel.X || arranged.Bounds.Y < panel.Y
-                    || arranged.Bounds.X > panel.X + panel.Width || arranged.Bounds.Y > panel.Y + panel.Height)
+                    || text.Value.Length == 0)
                 {
                     continue;
                 }

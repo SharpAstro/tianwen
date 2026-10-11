@@ -33,7 +33,7 @@ public class ChromeMeasuresThroughTheEngineTests
     {
         ["EquipmentTab.DeviceList.cs"] = 3,
         ["EquipmentTab.ProfilePanel.cs"] = 2,
-        ["ImageRendererBase.FileList.cs"] = 3,
+        ["ImageRendererBase.FileList.cs"] = 2,
         ["ImageRendererBase.Overlays.cs"] = 5,
         ["ImageRendererBase.Toolbar.cs"] = 5,
         ["ImageRendererBase.Transport.cs"] = 2,
