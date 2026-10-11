@@ -53,11 +53,28 @@ public static class PlanetaryFinestBand
     public static EdgeProfile MasterEdge(ReadOnlySpan<float> plane, int width, int height, in LimbFit fit, LimbFitOptions limbOptions, in PlanetAspect aspect,
         Pupil pupil, double wavelengthNm)
     {
-        var disk = MetricDisk.From(fit, limbOptions);
         var diffraction = PlanetaryInverse.Diffraction(pupil, wavelengthNm * 1e-9, aspect.AngularDiameterArcsec / 2 / fit.EquatorialRadius);
-        var sharp = PlanetaryMetrics.Normalise(PlanetaryLimbFit.SharpModel(fit, limbOptions, width, height), width, height, disk);
-        var reference = PlanetaryInverse.Apply(sharp, width, height,
+        return EdgeAgainstModel(plane, width, height, fit, limbOptions, aspect,
             (fx, fy) => diffraction.At(Math.Sqrt((fx * fx) + (fy * fy))) * PlanetaryLimbFit.DetectorPixel(fx, fy));
+    }
+
+    /// <summary>
+    /// The edge across the limb of a stack as it was stacked (#1349): <paramref name="plane"/> against <paramref name="fit"/>'s sharp model on
+    /// a detector's pixel alone, both normalised on the fit's disk, read as <see cref="MasterEdge"/> reads a master. Its
+    /// <see cref="EdgeProfile.TransferAt"/> is the stack's whole blur, the pupil's included, so it ranks stacks of one filter through one
+    /// telescope by how sharp each is, where neither a gain nor a sky moves it; a planetary compose reads it on each stack's own limb before
+    /// any turn (<see cref="ImageMeta.LimbEdge"/>).
+    /// </summary>
+    public static EdgeProfile StackEdge(ReadOnlySpan<float> plane, int width, int height, in LimbFit fit, LimbFitOptions limbOptions, in PlanetAspect aspect)
+        => EdgeAgainstModel(plane, width, height, fit, limbOptions, aspect, PlanetaryLimbFit.DetectorPixel);
+
+    // The edge of `plane` against the fit's sharp model taken through `transfer`, both normalised on the fit's disk.
+    private static EdgeProfile EdgeAgainstModel(ReadOnlySpan<float> plane, int width, int height, in LimbFit fit, LimbFitOptions limbOptions,
+        in PlanetAspect aspect, Func<double, double, double> transfer)
+    {
+        var disk = MetricDisk.From(fit, limbOptions);
+        var sharp = PlanetaryMetrics.Normalise(PlanetaryLimbFit.SharpModel(fit, limbOptions, width, height), width, height, disk);
+        var reference = PlanetaryInverse.Apply(sharp, width, height, transfer);
         return LimbEdge(PlanetaryMetrics.Normalise(plane, width, height, disk), reference, width, height, disk, fit, aspect);
     }
 

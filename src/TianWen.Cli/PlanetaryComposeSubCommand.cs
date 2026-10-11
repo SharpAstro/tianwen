@@ -50,12 +50,13 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
             {
                 return 1;
             }
-            if (BandWeightsOf(parseResult.GetValue(bandWeightsOpt)) is not { } bandWeights)
+            if (BandWeightsOf(parseResult.GetValue(bandWeightsOpt)) is not { } bandWeights
+                || ViewingWeightsOf(parseResult.GetValue(viewingWeightsOpt)) is not { } viewingWeights)
             {
                 return 1;
             }
             var (composed, derotation, refusal) = await Task.Run(() => PlanetaryComposition.Run(stacks, Say, parseResult.GetValue(lrgbOpt),
-                parseResult.GetValue(viewingWeightsOpt), bandWeights), ct);
+                viewingWeights, bandWeights), ct);
             if (composed is null || derotation is null)
             {
                 consoleHost.WriteError(refusal ?? "nothing composed");
@@ -126,11 +127,12 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         };
         command.SetAction(async (parseResult, ct) =>
         {
-            if (ReadStacks(parseResult.GetValue(stacksArg) ?? []) is not { } stacks)
+            if (ReadStacks(parseResult.GetValue(stacksArg) ?? []) is not { } stacks
+                || ViewingWeightsOf(parseResult.GetValue(viewingWeightsOpt)) is not { } viewingWeights)
             {
                 return 1;
             }
-            var (derotation, refusal) = await Task.Run(() => PlanetaryComposition.Derotate(stacks, Say, parseResult.GetValue(viewingWeightsOpt)), ct);
+            var (derotation, refusal) = await Task.Run(() => PlanetaryComposition.Derotate(stacks, Say, viewingWeights), ct);
             if (derotation is null)
             {
                 consoleHost.WriteError(refusal ?? "nothing de-rotated");
@@ -352,10 +354,27 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         return stacks;
     }
 
-    private static Option<bool> ViewingWeightsOption() => new Option<bool>("--viewing-weights")
+    private static Option<string?> ViewingWeightsOption() => new Option<string?>("--viewing-weights")
     {
-        Description = "Weigh each de-rotated stack's pixels by how squarely it saw their source (the cosine of the view, nothing past the de-rotation's 0.9-radius source limit), so no stack's unturned rim enters where another stack saw the planet (#1349 fix C); written beside each stack as <name>.weight.fits.",
+        Description = "Weigh each de-rotated stack's pixels by how it saw them (#1349), written beside each stack as <name>.weight.fits: source (by how squarely it saw each pixel's source, nothing past the de-rotation's 0.9-radius source limit, so no stack's unturned rim enters where another stack saw the planet; fix C) or limb (source inside the disk, and the limb left to the stacks that saw it there: from 0.8 to 0.9 of the target's radius each stack's own unturned pixel takes over from the turned samples, which carry the disk's inside to the limb with none of its blur).",
     };
+
+    // --viewing-weights read: absent is every pixel alike; null and said when unreadable.
+    private PlanetaryViewingWeights? ViewingWeightsOf(string? text)
+    {
+        switch (text?.ToLowerInvariant())
+        {
+            case null:
+                return PlanetaryViewingWeights.None;
+            case "source":
+                return PlanetaryViewingWeights.Source;
+            case "limb":
+                return PlanetaryViewingWeights.Limb;
+            default:
+                consoleHost.WriteError($"--viewing-weights {text}: source or limb");
+                return null;
+        }
+    }
 
     private static Option<string?> BandWeightsOption() => new Option<string?>("--band-weights")
     {

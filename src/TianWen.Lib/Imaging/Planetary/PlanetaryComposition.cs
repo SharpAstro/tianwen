@@ -58,6 +58,25 @@ public sealed record PlanetaryComposed(Image Master, Image? Luminance);
 /// The colour master then takes the planetary chain a colour master takes: sharpened (<see cref="PlanetarySharpening"/>), balanced to the
 /// planet's colour (<see cref="PlanetaryColourBalance"/>), and a look as a rendering.
 /// </summary>
+/// <summary>How a join weighs each de-rotated stack's pixels by how it saw them (#1349), or not.</summary>
+public enum PlanetaryViewingWeights
+{
+    /// <summary>Every pixel alike, as every join before #1349 fix C.</summary>
+    None,
+
+    /// <summary>
+    /// Fix C: by how squarely the stack saw each pixel's source, nothing past the de-rotation's source limit (<see cref="PlanetaryDerotation.JoinWeights"/>).
+    /// The limb then goes to the stacks the turn carried there from further in, with none of the real limb's blur.
+    /// </summary>
+    Source,
+
+    /// <summary>
+    /// <see cref="Source"/> inside the disk, and the limb left to the stacks that saw it there: by the pixel's radius on the target's disk, each
+    /// stack's own unturned pixel takes over from the turned samples (<see cref="PlanetaryDerotation.JoinWeights"/>' <c>leaveLimb</c>).
+    /// </summary>
+    Limb,
+}
+
 /// <summary>How a filter's stacks are joined band by band (#1349 arm B), or not.</summary>
 public enum PlanetaryBandWeights
 {
@@ -150,7 +169,7 @@ public static class PlanetaryComposition
                     plane[y, x] = joinWeight[(y * width) + x];
                 }
             }
-            new Image([plane], BitDepth.Float32, 1, 0, 0, stack.Image.ImageMeta with { ObjectName = "", Filter = Filter.None }).WriteToFitsFile(JoinWeightPath(path));
+            new Image([plane], BitDepth.Float32, 1, 0, 0, stack.Image.ImageMeta with { ObjectName = "", Filter = Filter.None, LimbEdge = null }).WriteToFitsFile(JoinWeightPath(path));
         }
         else
         {
@@ -253,17 +272,15 @@ public static class PlanetaryComposition
         {
             return (null, $"{otherPlanet.Name} is {otherPlanet.Planet}, where {stacks[0].Name} is {planet}");
         }
-        var fits = new LimbFit[stacks.Count];
-        for (var i = 0; i < stacks.Count; i++)
+        var (fits, fitOptions, unfitted) = FitEach(stacks);
+        if (fits is null || fitOptions is null)
         {
-            if (FitOf(stacks[i]) is not { } fit)
-            {
-                return (null, $"{stacks[i].Name}: its limb did not fit");
-            }
-            fits[i] = fit;
+            return (null, $"{stacks[unfitted].Name}: its limb did not fit");
         }
         var reference = ReferenceIndex(stacks);
         var referenceFit = fits[reference];
+        // How sharp each stack is, read here, where nothing has turned it yet (#1349).
+        var edges = LimbEdges(stacks, fits, fitOptions[reference], reference);
         // Every stack onto the reference's grid: each is cropped to where its own frames reached (#1300), so stacks of one night differ
         // in size, and its disk's place is its own limb fit's. Where a moved stack does not reach it reads NaN, which its FITS carries to
         // the join, so the join averages only the stacks that reach a pixel (#1361); averaged in as zero, a strip of unreached rows read
@@ -283,11 +300,14 @@ public static class PlanetaryComposition
             // The move as the disk makes it; 0 - d keeps a zero move from printing as minus zero.
             var (moveX, moveY) = (0 - dx, 0 - dy);
             say?.Invoke(string.Create(inv,
-                $"{stacks[i].Name} ({stacks[i].Filter.ShortName}, {stacks[i].Instant:HH:mm:ss} UTC): disk R {fits[i].EquatorialRadius:0.00} px, moved ({moveX:+0.00;-0.00;0.00}, {moveY:+0.00;-0.00;0.00}) px{(i == reference ? ", the reference" : "")}"));
+                $"{stacks[i].Name} ({stacks[i].Filter.ShortName}, {stacks[i].Instant:HH:mm:ss} UTC): disk R {fits[i].EquatorialRadius:0.00} px, the limb's edge at 0.1 cycles a pixel {edges[i]:0.000}, moved ({moveX:+0.00;-0.00;0.00}, {moveY:+0.00;-0.00;0.00}) px{(i == reference ? ", the reference" : "")}"));
             var image = stacks[i].Image;
             var plane = i == reference ? image.GetChannelArray(0) : PlanetaryChannelAlignment.Moved(image.GetChannelArray(0), dx, dy, width, height, float.NaN);
             var (max, min) = Extent([plane]);
-            moved.Add(stacks[i] with { Image = new Image([plane], BitDepth.Float32, max, min, 0, image.ImageMeta) });
+            moved.Add(stacks[i] with
+            {
+                Image = new Image([plane], BitDepth.Float32, max, min, 0, image.ImageMeta with { LimbEdge = double.IsFinite(edges[i]) ? edges[i] : null }),
+            });
         }
         return (new PlanetaryRegistration(moved.MoveToImmutable(), reference, referenceFit), null);
     }
@@ -299,10 +319,10 @@ public static class PlanetaryComposition
     /// later both ways round (<see cref="PlanetaryDerotation.AgreementBothWays"/>), so stacks of one filter, which show the same detail,
     /// decide it. Under <see cref="PlanetaryDerotation.LeastTurnToTellNorthDeg"/> the fit's north is kept. With
     /// <paramref name="viewingWeights"/> each stack also carries its join weight (<see cref="PlanetaryMonoStack.JoinWeight"/>,
-    /// <see cref="PlanetaryDerotation.JoinWeights"/>, #1349 fix C), a stack already at the reference's instant included.
+    /// <see cref="PlanetaryDerotation.JoinWeights"/>, #1349), a stack already at the reference's instant included.
     /// </summary>
     public static (PlanetaryCompositionDerotation? Derotation, string? Refusal) Derotate(IReadOnlyList<PlanetaryMonoStack> registered, Action<string>? say = null,
-        bool viewingWeights = false)
+        PlanetaryViewingWeights viewingWeights = PlanetaryViewingWeights.None)
     {
         ArgumentNullException.ThrowIfNull(registered);
         if (registered.Count == 0)
@@ -363,7 +383,8 @@ public static class PlanetaryComposition
         {
             var stack = registered[i];
             var from = PhysicalEphemeris.Compute(planet, stack.Instant);
-            var weight = viewingWeights ? PlanetaryDerotation.JoinWeights(stack.Image.Width, stack.Image.Height, from, target, placement, k) : null;
+            var weight = viewingWeights is PlanetaryViewingWeights.None ? null
+                : PlanetaryDerotation.JoinWeights(stack.Image.Width, stack.Image.Height, from, target, placement, k, leaveLimb: viewingWeights is PlanetaryViewingWeights.Limb);
             if (stack.Instant == instant)
             {
                 carried.Add(stack with { JoinWeight = weight });
@@ -426,7 +447,7 @@ public static class PlanetaryComposition
             planes[c] = mean;
         }
         var first = derotated[0].Image;
-        var meta = first.ImageMeta with { Filter = Filter.None, SensorType = SensorType.Color };
+        var meta = first.ImageMeta with { Filter = Filter.None, SensorType = SensorType.Color, LimbEdge = null };
         var (max, min) = Extent(planes);
         var master = new Image(planes, BitDepth.Float32, max, min, 0, meta);
         Image? luminance = null;
@@ -438,7 +459,7 @@ public static class PlanetaryComposition
         if (l is not null)
         {
             var (lMax, lMin) = Extent([l]);
-            luminance = new Image([l], BitDepth.Float32, lMax, lMin, 0, first.ImageMeta with { Filter = Filter.Luminance });
+            luminance = new Image([l], BitDepth.Float32, lMax, lMin, 0, first.ImageMeta with { Filter = Filter.Luminance, LimbEdge = null });
         }
         return (new PlanetaryComposed(master, luminance), null);
     }
@@ -678,11 +699,12 @@ public static class PlanetaryComposition
     /// The recipe: <see cref="Register"/>, <see cref="Derotate"/> and <see cref="Join"/> on ingested stacks, in order, and with
     /// <paramref name="withLuminance"/> the luminance carried in (<see cref="WithLuminance"/>), with nothing between them a file would not
     /// carry, so the steps' verbs run one by one give the same master to the bit. <paramref name="viewingWeights"/> weighs each stack's
-    /// pixels by how squarely it saw them (#1349 fix C, <see cref="Derotate"/>), <paramref name="bandWeights"/> each filter's stacks band
+    /// pixels by how it saw them (#1349, <see cref="PlanetaryViewingWeights"/>, <see cref="Derotate"/>), <paramref name="bandWeights"/> each filter's stacks band
     /// by band (#1349 arm B, <see cref="Join"/>): options, measured before either is the default.
     /// </summary>
     public static (PlanetaryComposed? Composed, PlanetaryCompositionDerotation? Derotation, string? Refusal) Run(IReadOnlyList<PlanetaryMonoStack> ingested,
-        Action<string>? say = null, bool withLuminance = false, bool viewingWeights = false, PlanetaryBandWeights bandWeights = PlanetaryBandWeights.None)
+        Action<string>? say = null, bool withLuminance = false, PlanetaryViewingWeights viewingWeights = PlanetaryViewingWeights.None,
+        PlanetaryBandWeights bandWeights = PlanetaryBandWeights.None)
     {
         var (registration, refusal) = Register(ingested, say);
         if (registration is null)
@@ -739,6 +761,58 @@ public static class PlanetaryComposition
 
     // A stack's limb, fitted at its own instant (Saturn's rings in the model).
     private static LimbFit? FitOf(PlanetaryMonoStack stack) => PlanetaryLimbFit.FitAt(stack.Image, stack.Planet, stack.Instant)?.Fit;
+
+    // Every stack's limb fitted at its own instant, with the options it was fitted with; both null, and the stack's index, when one does not fit.
+    private static (LimbFit[]? Fits, LimbFitOptions[]? Options, int Unfitted) FitEach(IReadOnlyList<PlanetaryMonoStack> stacks)
+    {
+        var (fits, options) = (new LimbFit[stacks.Count], new LimbFitOptions[stacks.Count]);
+        for (var i = 0; i < stacks.Count; i++)
+        {
+            if (PlanetaryLimbFit.FitAt(stacks[i].Image, stacks[i].Planet, stacks[i].Instant) is not (var fit, _, var fitOptions))
+            {
+                return (null, null, i);
+            }
+            (fits[i], options[i]) = (fit, fitOptions);
+        }
+        return (fits, options, -1);
+    }
+
+    // How sharp each stack is (#1349, ImageMeta.LimbEdge), read before any turn: a turn carries the disk's inside to the limb with none of
+    // the limb's blur, so read after it the stack carried furthest would read sharpest. Every stack is read against the reference's model at
+    // its own centre, one camera at one scale as the registration takes them: each against its own fit, a copy at another gain on another
+    // sky read 1.05 against 1.16, its fit slid along the valley radius, k and blur share (#1498).
+    private static double[] LimbEdges(IReadOnlyList<PlanetaryMonoStack> stacks, LimbFit[] fits, LimbFitOptions referenceOptions, int reference)
+    {
+        var aspect = PhysicalEphemeris.Compute(stacks[reference].Planet, stacks[reference].Instant);
+        var edges = new double[stacks.Count];
+        for (var i = 0; i < stacks.Count; i++)
+        {
+            var image = stacks[i].Image;
+            edges[i] = PlanetaryFinestBand.StackEdge(image.GetChannelSpan(0), image.Width, image.Height,
+                fits[reference] with { CenterX = fits[i].CenterX, CenterY = fits[i].CenterY }, referenceOptions, aspect).TransferAt(0.1);
+        }
+        return edges;
+    }
+
+    /// <summary>
+    /// <paramref name="stacks"/>, each with how sharp it is (<see cref="ImageMeta.LimbEdge"/>) read as <see cref="Register"/> reads it, against
+    /// the reference's model (<see cref="ReferenceIndex"/>), with nothing moved: for a join of stacks already on one disk that no registration
+    /// read (#1349). Null where a limb does not fit.
+    /// </summary>
+    internal static ImmutableArray<PlanetaryMonoStack>? WithLimbEdges(IReadOnlyList<PlanetaryMonoStack> stacks)
+    {
+        if (FitEach(stacks) is not ({ } fits, { } options, _))
+        {
+            return null;
+        }
+        var reference = ReferenceIndex(stacks);
+        var edges = LimbEdges(stacks, fits, options[reference], reference);
+        return [.. stacks.Select((stack, i) => stack with
+        {
+            Image = WithMeta(stack.Image, stack.Image.ImageMeta with { LimbEdge = double.IsFinite(edges[i]) ? edges[i] : null }),
+        })];
+    }
+
 
     /// <summary>
     /// A filter's stacks joined into one plane (#1337): each put on the scale of the filter's median-level stack by the disk, its level above
@@ -823,6 +897,10 @@ public static class PlanetaryComposition
         }
         if (bandWeights is not PlanetaryBandWeights.None && of.Length > 1 && disk is { } bandDisk)
         {
+            if (of.FirstOrDefault(s => s.Image.ImageMeta.LimbEdge is null) is { } unread)
+            {
+                return (null, $"{unread.Name}: no limb edge read at its registration (LIMBEDGE), which a join band by band picks {filter.DisplayName}'s sharpest stack by");
+            }
             return (JoinByBands(of, bandDisk, scales, skies, weights, referenceSky, width, height, filter, bandWeights is PlanetaryBandWeights.Wiener, say), null);
         }
         var weighted = new double[height, width];
@@ -920,8 +998,9 @@ public static class PlanetaryComposition
                 noise[s, j] = RobustSpread(bands[s].Detail(j), sky, masks[s]);
             }
         }
-        // Band 2 above its own noise on the disk picks the sharpest stack.
-        var sharpest = Enumerable.Range(0, n).OrderByDescending(s => BandEnergy(bands[s].Detail(1), inside, masks[s]) - (noise[s, 1] * noise[s, 1])).First();
+        // The limb's edge each stack showed before any turn picks the sharpest (#1349, ImageMeta.LimbEdge): band 2's energy above its noise
+        // on the disk picked the first burst of 2026-10-07 in every filter, a gain scaled 1.40 times onto the others, its noise read as detail.
+        var sharpest = Enumerable.Range(0, n).OrderByDescending(s => of[s].Image.ImageMeta.LimbEdge ?? double.NegativeInfinity).ThenBy(s => s).First();
         var weight = new double[n, BandWeightScales];
         var rescale = new double[BandWeightScales];
         var inv = CultureInfo.InvariantCulture;
@@ -968,7 +1047,7 @@ public static class PlanetaryComposition
             var carried = Enumerable.Range(0, n).Sum(s => weight[s, j] * transfers[s]);
             rescale[j] = wiener && carried > 0 ? total / carried : 1;
             say?.Invoke(string.Create(inv,
-                $"{filter.DisplayName} band {j + 1}: {string.Join(", ", Enumerable.Range(0, n).Select(s => $"{of[s].Name} {weight[s, j] / total:P1}"))}{(j == 0 ? $" (the sharpest {of[sharpest].Name})" : "")}{(wiener ? $", rescaled x{rescale[j]:0.000}" : "")}"));
+                $"{filter.DisplayName} band {j + 1}: {string.Join(", ", Enumerable.Range(0, n).Select(s => $"{of[s].Name} {weight[s, j] / total:P1}"))}{(j == 0 ? $" (the sharpest {of[sharpest].Name}, its limb's edge {of[sharpest].Image.ImageMeta.LimbEdge:0.000})" : "")}{(wiener ? $", rescaled x{rescale[j]:0.000}" : "")}"));
         }
         var joined = new float[height, width];
         ParallelFor.Run(height, y =>
@@ -1022,20 +1101,6 @@ public static class PlanetaryComposition
             deviations[k] = Math.Abs(values[k] - median);
         }
         return 1.4826 * StatisticsHelper.MedianFast(deviations);
-    }
-
-    // A band's mean square over the listed pixels a stack reaches.
-    private static double BandEnergy(ReadOnlySpan<float> band, List<int> pixels, float[] mask)
-    {
-        var (sum, count) = (0.0, 0);
-        foreach (var i in pixels)
-        {
-            if (mask[i] > 0)
-            {
-                (sum, count) = (sum + ((double)band[i] * band[i]), count + 1);
-            }
-        }
-        return count > 0 ? sum / count : 0;
     }
 
     // An image with another header.

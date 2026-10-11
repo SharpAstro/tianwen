@@ -368,6 +368,15 @@ public record struct ImageMeta(
     public readonly bool IsColourBalanced => ColourBalanceSaturation is not null;
 
     /// <summary>
+    /// How sharp a planetary stack is, read on its own limb before any turn (FITS <c>LIMBEDGE</c>, #1349): its edge's transfer at 0.1 cycles a
+    /// pixel against its limb fit's sharp model (<see cref="Planetary.PlanetaryFinestBand.StackEdge"/>), both normalised on the disk, so neither
+    /// a gain nor a sky moves it. Set by a compose's registration, read back by the one header parse and written by the one FITS writer, so
+    /// the steps' verbs carry it; null where none was read. A join band by band picks a filter's sharpest stack by it: the band 2 energy it
+    /// picked by before read a burst at another gain, scaled 1.40 times, as the sharpest.
+    /// </summary>
+    public double? LimbEdge { get; init; }
+
+    /// <summary>
     /// Rescales the scale-dependent metadata by the same factor applied to the pixel values, keeping
     /// the invariant that <see cref="SensorFullScaleAdu"/> is always in the SAME units as the pixel
     /// data (mirroring how <see cref="Image.Pedestal"/> travels through every rescale). After a
