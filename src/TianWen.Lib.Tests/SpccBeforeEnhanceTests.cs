@@ -209,6 +209,27 @@ public sealed class SpccBeforeEnhanceTests : IDisposable
     }
 
     /// <summary>
+    /// A supplied triple does not stack on a balance already in the pixels. The dataset gallery renders an enhanced master
+    /// with the triple it rendered the linear one with (<c>image render --white-balance</c>), and the override used to be
+    /// taken before this frame's own flag was read, so the balance landed twice: a magenta Omega Centauri over a grey sky.
+    /// </summary>
+    [Fact]
+    public async Task ASuppliedBalanceDoesNotStackOnOneAlreadyInThePixels()
+    {
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+        var frame = Rgb(0.30f, 0.20f, 0.10f, meta: Osc(Broadband), size: 64).WithWhiteBalanceApplied(Spcc);
+        var renderer = new MasterPreviewRenderer(catalogDb: null, NullLogger.Instance);
+
+        var asItIs = await renderer.RenderAsync(frame, frame.ImageMeta, wcs: null, statsSource: null, outputPath: "",
+            ct: TestContext.Current.CancellationToken);
+        var supplied = await renderer.RenderAsync(frame, frame.ImageMeta, wcs: null, statsSource: null, outputPath: "",
+            whiteBalanceOverride: (Spcc.R, Spcc.G, Spcc.B), ct: TestContext.Current.CancellationToken);
+
+        supplied.WhiteBalance.ShouldBe((1f, 1f, 1f), "the frame already carries its balance");
+        supplied.Uniforms.ShouldBe(asItIs.Uniforms);
+    }
+
+    /// <summary>
     /// A balance a file STATES goes into the pixels only when it is an SPCC fit, not yet applied, through a throughput
     /// the metadata shows to be broadband, which is the throughput SPCC integrates: a colour sensor always has one (its
     /// CFA curves), so a colour frame naming no filter reads as unfiltered, as its SPCC fit did; a frame no curve

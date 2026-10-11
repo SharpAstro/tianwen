@@ -489,20 +489,27 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         // already-applied paths skip the solve but still need to know whether the light was line-selective.
         var (throughputs, colourIsNotPhotometric) = await ChannelThroughputsAsync(stats.ChannelCount, sensorMeta, ct);
 
-        (float R, float G, float B)? wbGains = wbOverride;
-        if (wbGains is { } shared)
-        {
-            logger.LogInformation("  [WB] shared SPCC white balance ({R:F3}, {G:F3}, {B:F3}) -- plate self-stretches its own bg + MTF",
-                shared.R, shared.G, shared.B);
-        }
-        else if (stats.ImageMeta.ColourCalibration is { Applied: true } inPixels)
+        (float R, float G, float B)? wbGains = null;
+        if (stats.ImageMeta.ColourCalibration is { Applied: true } inPixels)
         {
             // The balance is already IN the pixels (an enhanced master whose SPCC was applied to its linear data before
             // the enhance), so the frame is shown as it is. Identity rather than none: a calibration IS active, which is
             // what makes the stretch Linked, and solving one again here would fit SPCC on enhanced stars.
+            //
+            // CHECKED BEFORE A SUPPLIED TRIPLE, which must not stack on it. A caller handing the enhanced frame the
+            // balance it rendered the linear one with (`image render --white-balance`, as the dataset gallery does)
+            // applied it twice: R x 1.65^2 and B x 2.0^2 on an Omega Centauri master, a magenta cluster over a sky the
+            // neutralisation kept grey. MasterPostProcessor already passed none here; now no caller can.
             wbGains = (1f, 1f, 1f);
-            logger.LogInformation("  [WB] {Source} white balance ({R:F3}, {G:F3}, {B:F3}) already in the pixels; rendered as it is",
-                ColourCalibration.CardOf(inPixels.Source), inPixels.R, inPixels.G, inPixels.B);
+            logger.LogInformation("  [WB] {Source} white balance ({R:F3}, {G:F3}, {B:F3}) already in the pixels; rendered as it is{Ignored}",
+                ColourCalibration.CardOf(inPixels.Source), inPixels.R, inPixels.G, inPixels.B,
+                wbOverride is null ? "" : ", the supplied triple ignored");
+        }
+        else if (wbOverride is { } shared)
+        {
+            wbGains = shared;
+            logger.LogInformation("  [WB] shared SPCC white balance ({R:F3}, {G:F3}, {B:F3}) -- plate self-stretches its own bg + MTF",
+                shared.R, shared.G, shared.B);
         }
         else if (stats.ChannelCount >= 3)
         {

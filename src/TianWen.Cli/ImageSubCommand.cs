@@ -2286,7 +2286,9 @@ internal sealed partial class ImageSubCommand(
             // MasterPostProcessor already shares one solve across the split-plate TIFFs.
             if (render.WhiteBalance is { } wb)
             {
-                var source = whiteBalanceOverride is not null ? "inherited"
+                // A frame whose balance is already in its pixels is rendered as it is, a supplied triple included.
+                var source = img.ImageMeta.ColourCalibration is { Applied: true } ? "already in the pixels"
+                    : whiteBalanceOverride is not null ? "inherited"
                     : render.Spcc is not null ? "SPCC"
                     : "sky background";
                 consoleHost.WriteScrollable(
