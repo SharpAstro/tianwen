@@ -55,7 +55,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var limbBandOpt = new Option<string>("--limb-band") { Description = "What the globe's last band inside its outline is floored at (#1329): sky (the default), model (the planet's model through the pupil, as drawn just past the outline), or both to compare them.", DefaultValueFactory = _ => "sky" };
         var underSkyOpt = new Option<string>("--under-sky") { Description = "What a pixel inside the planet's outline takes when the sharpening drives it to the sky or below (#1471): model (the default: the planet's model through the pupil, as drawn just past the outline; nothing the sharpening leaves above the sky moves), sky (the sharpening floored there, as before #1471), or both to compare them.", DefaultValueFactory = _ => "model" };
         var channelLimbOpt = new Option<string>("--channel-limb") { Description = "What a colour master's channels are each read against (#1498): shared (the default: one limb fit of the channels' mean) or per-channel (each channel's own fit, so a colour balance cannot move another channel's reference).", DefaultValueFactory = _ => "shared" };
-        var limbKOpt = new Option<string>("--limb-k") { Description = "Minnaert's k in the limb fit the gains are read through (#1221): fitted (the default), opal (held at OPAL's for the channels' wavelengths, Jupiter only), or both to compare them.", DefaultValueFactory = _ => "fitted" };
+        var limbKOpt = new Option<string>("--limb-k") { Description = "Minnaert's k in the limb fit the gains are read through (#1221): fitted (the default), opal (held at OPAL's for the channels' wavelengths, Jupiter only), both to compare them, or the k to hold for each channel (#1498: 0.85,0.82,0.84, the last repeated; a shared fit holds their mean).", DefaultValueFactory = _ => "fitted" };
         var noiseOpt = new Option<string>("--noise") { Description = "The noise the derived gains' Wiener target is read against (#1373): white (the default: one level, read past 0.4 cycles a pixel), halves (ring by ring off the master's two halves, --halves, whose difference is the stack's own noise, coloured as a demosaic colours it), or both to compare them.", DefaultValueFactory = _ => "white" };
         var halvesOpt = new Option<string[]>("--halves")
         {
@@ -152,16 +152,20 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     return 1;
                 }
                 var limbKName = (parseResult.GetValue(limbKOpt) ?? "fitted").ToLowerInvariant();
+                // A number, or several, is the k held for each channel (#1498).
+                var heldK = limbKName.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(word => double.TryParse(word, NumberStyles.Float, inv, out var k) && k is > 0 and < 2 ? k : double.NaN).ToArray();
                 PlanetaryLimbDarkening[] limbKs = limbKName switch
                 {
                     "fitted" => [PlanetaryLimbDarkening.Fitted],
                     "opal" => [PlanetaryLimbDarkening.Opal],
                     "both" => [PlanetaryLimbDarkening.Fitted, PlanetaryLimbDarkening.Opal],
+                    _ when heldK.Length > 0 && heldK.All(double.IsFinite) => [PlanetaryLimbDarkening.Held],
                     _ => [],
                 };
                 if (limbKs.Length == 0)
                 {
-                    consoleHost.WriteError($"--limb-k {limbKName}: fitted, opal or both");
+                    consoleHost.WriteError($"--limb-k {limbKName}: fitted, opal, both, or the k to hold for each channel, each above 0 and below 2");
                     return 1;
                 }
                 var channelLimbName = (parseResult.GetValue(channelLimbOpt) ?? "shared").ToLowerInvariant();
@@ -280,6 +284,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 {
                     WavelengthsNm = [.. wavelengths],
                     ChannelLimb = limbPerChannel,
+                    HeldMinnaertK = limbKs.Contains(PlanetaryLimbDarkening.Held) ? [.. heldK] : [],
                 };
                 consoleHost.WriteScrollable(string.Create(inv,
                     $"{Path.GetFileName(path)}: {master.ChannelCount}ch {master.Width}x{master.Height}, {body} at {instant:yyyy-MM-dd HH:mm:ss} UTC, {(options.Pupil is { } p ? $"a {p.DiameterM * 1000:0} mm pupil {p.ObstructionRatio:P0} obstructed" : "no telescope (the preset, the limb kept as stacked)")}"));
@@ -470,6 +475,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             + (limbBand == PlanetaryLimbBand.Model ? "_limbmodel" : "")
                             + (underSky == PlanetaryUnderSky.Sky ? "_skyfloor" : "")
                             + (limbK == PlanetaryLimbDarkening.Opal ? "_opalk" : "")
+                            + (limbK == PlanetaryLimbDarkening.Held ? "_k" + string.Join("-", heldK.Select(k => k.ToString("0.###", inv))) : "")
                             + (shrink ? "_shrunk" : ""));
                         var finestWords = nonNegative && master.ChannelCount == 3 ? ", the colour's finest band derived, as a non-negative fit fits every band"
                             : finests.Length > 1 ? $", the colour's finest band {finest.ToString().ToLowerInvariant()}" : "";
@@ -485,6 +491,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             + (limbBand == PlanetaryLimbBand.Model ? ", the limb's last band floored at the model" : "")
                             + (underSky == PlanetaryUnderSky.Sky ? ", the sharpening floored at the sky inside the outline" : "")
                             + (limbK == PlanetaryLimbDarkening.Opal ? ", the limb's k held at OPAL's" : "")
+                            + (limbK == PlanetaryLimbDarkening.Held ? ", the limb's k held at " + string.Join(", ", heldK.Select(k => k.ToString("0.###", inv))) : "")
                             + (shrink ? ", shrunk by its halves" : "");
                         var what = result.Derived ? $"derived{(nonNegative ? " non-negative" : "")}, {PlanetaryBestStack.Describe(fix)}{finestWords}{strengthWords}" : $"PlanetaryDefault{strengthWords}, the limb kept as stacked";
                         consoleHost.WriteScrollable(string.Create(inv,
@@ -498,6 +505,8 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                         {
                             var names = "rgb";
                             consoleHost.WriteScrollable(string.Create(inv, $"[planetary] {what}: each channel's gains {string.Join("; ", result.ChannelGains.Select((g, c) => $"{(c < names.Length ? names[c] : '?')} {string.Join(", ", g.Select(x => x.ToString("0.00", inv)))}"))}"));
+                            // And the limb each channel's edge was read against (#1498): what moves when the gains do.
+                            consoleHost.WriteScrollable(string.Create(inv, $"[planetary] {what}: each channel's limb {string.Join("; ", result.ChannelEdges.Select((e, c) => $"{(c < names.Length ? names[c] : '?')} k {e.Fit.LimbDarkening:0.000}, radius {e.Fit.EquatorialRadius:0.00} px, core {e.Fit.PsfSigma:0.00} px, halo {e.Fit.HaloFraction:0.00} of {e.Fit.HaloWidth:0.0} px, edge {e.EdgeAtTenth:0.000} / {e.EdgeAtThreeTenths:0.000}"))}"));
                         }
                         if (latticeDisk is { } sharpenedDisk)
                         {

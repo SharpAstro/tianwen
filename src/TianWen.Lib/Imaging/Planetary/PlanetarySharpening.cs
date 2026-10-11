@@ -171,6 +171,12 @@ public enum PlanetaryLimbDarkening
 
     /// <summary>Held at OPAL's for the channels' wavelengths (<see cref="PlanetaryLimbFit.OpalMinnaertK"/>), where OPAL's table has the planet.</summary>
     Opal,
+
+    /// <summary>
+    /// Held at the values given for each channel (<see cref="PlanetarySharpenOptions.HeldMinnaertK"/>), any planet (#1498): a twin's true k,
+    /// to read whether a held k pins the reference the limb's edge is read against.
+    /// </summary>
+    Held,
 }
 
 /// <summary>
@@ -330,6 +336,12 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     public PlanetaryLimbDarkening LimbDarkening { get; init; }
 
     /// <summary>
+    /// Minnaert's k for each channel under <see cref="PlanetaryLimbDarkening.Held"/> (#1498), the last repeated for any channel beyond them; a
+    /// fit of several channels (a colour master's luminance) holds the mean of theirs, as OPAL's does.
+    /// </summary>
+    public ImmutableArray<double> HeldMinnaertK { get; init; } = [];
+
+    /// <summary>
     /// What a colour master's channels are each read against (#1498): <see cref="PlanetaryChannelLimb.Shared"/> by default. Under
     /// <see cref="PlanetaryChannelLimb.PerChannel"/> with <see cref="LimbDarkening"/> at OPAL, each channel holds its own wavelength's k
     /// (#1478). The batch's alone while it is measured: under it no live limb is kept (<see cref="PlanetarySharpenResult.Limb"/> is null).
@@ -396,6 +408,12 @@ public sealed record PlanetarySharpenResult(Image Sharpened, bool Derived, Plane
 
     /// <summary>Each channel's white level (<see cref="PlanetaryWhiteLevel"/>) where the gains were derived; empty for the preset.</summary>
     public ImmutableArray<PlanetaryWhiteLevel> WhiteLevels { get; init; } = [];
+
+    /// <summary>
+    /// The limb each channel's edge was read against, the shared fit unless <see cref="PlanetaryChannelLimb.PerChannel"/> gave the channel
+    /// its own, and that edge's transfer at 0.1 and 0.3 cycles a pixel (#1498: what moves when the derived gains do). Empty for the preset.
+    /// </summary>
+    public ImmutableArray<(LimbFit Fit, double EdgeAtTenth, double EdgeAtThreeTenths)> ChannelEdges { get; init; } = [];
 }
 
 /// <summary>
@@ -462,9 +480,12 @@ public static class PlanetarySharpening
             return SharpenLuminance(master, options);
         }
         var aspect = PhysicalEphemeris.Compute(options.Planet, options.When);
-        var limbOptions = options.LimbDarkening is PlanetaryLimbDarkening.Opal
-            ? PlanetaryLimbFit.OptionsFor(aspect, options.WavelengthsNm.Take(Math.Min(master.ChannelCount, options.WavelengthsNm.Length)).ToArray())
-            : PlanetaryLimbFit.OptionsFor(aspect);
+        var limbOptions = options.LimbDarkening switch
+        {
+            PlanetaryLimbDarkening.Opal => PlanetaryLimbFit.OptionsFor(aspect, options.WavelengthsNm.Take(Math.Min(master.ChannelCount, options.WavelengthsNm.Length)).ToArray()),
+            PlanetaryLimbDarkening.Held => PlanetaryLimbFit.OptionsFor(aspect) with { LimbDarkening = HeldK(options, 0, master.ChannelCount) },
+            _ => PlanetaryLimbFit.OptionsFor(aspect),
+        };
         if (PlanetaryLimbFit.Fit(master, limbOptions) is not { } fit)
         {
             return null;
@@ -488,6 +509,7 @@ public static class PlanetarySharpening
         var contrastFrom = options.Pupil is not null && options.Finish.HasFlag(PlanetaryFinish.Adaptive) ? LuminanceWindow(master, limbWindow, own) : null;
         var cutoffs = new double[options.Pupil is null ? 0 : master.ChannelCount];
         var whiteLevels = new PlanetaryWhiteLevel[options.Pupil is null ? 0 : master.ChannelCount];
+        var channelEdges = new (LimbFit Fit, double EdgeAtTenth, double EdgeAtThreeTenths)[options.Pupil is null ? 0 : master.ChannelCount];
         var wienerCuts = new (double From, double To)[options.Pupil is not null && options.Finish.HasFlag(PlanetaryFinish.Wiener) ? master.ChannelCount : 0];
         var shrinks = new ImmutableArray<BandShrinkReading>[options.ShrinkHalves is null ? 0 : master.ChannelCount];
         for (var c = 0; c < master.ChannelCount; c++)
@@ -525,6 +547,7 @@ public static class PlanetarySharpening
                 {
                     edge = EdgeProfile.Pooled(edge, PlanetaryFinestBand.RingEdge(window, throughPupil, size, size, channelDisk));
                 }
+                channelEdges[c] = (channelFit, edge.TransferAt(0.1), edge.TransferAt(0.3));
                 var physical = options.EdgeReach is { } reach
                     ? PlanetaryFinestBand.FitPhysical(edge, pupil.DiameterM / (wavelengthNm * 1e-9) / ShortExposurePsf.ArcsecPerRadian * limbWindow.ArcsecPerPixel, 0.02, reach)
                     : null as PhysicalKernel?;
@@ -631,6 +654,7 @@ public static class PlanetarySharpening
                 (options.LimbBand, options.UnderSky)) : null,
             Cutoffs = [.. cutoffs],
             WhiteLevels = [.. whiteLevels],
+            ChannelEdges = [.. channelEdges],
             WienerCuts = [.. wienerCuts],
             Stops = stops,
             Shrinks = [.. shrinks],
@@ -640,7 +664,7 @@ public static class PlanetarySharpening
     // Each channel's own limb fit (PlanetaryChannelLimb.PerChannel, #1498), started at the shared fit's outline alone, its brightness and sky
     // seeded from its own plane as the shared fit's are: seeded with the shared fit's, which are the blend's, a balanced channel started its
     // search elsewhere and its edge at 0.3 cycles read 0.620 against 0.285. The shared window with the channel's disk and sharp model; the
-    // shared limb kept for a channel whose own fit fails. With OPAL's k, each holds its own wavelength's (#1478).
+    // shared limb kept for a channel whose own fit fails. With OPAL's k, each holds its own wavelength's (#1478); with a held k, its own value.
     private static (LimbFit Fit, PlanetaryLimbWindow Window)[] ChannelLimbs(Image master, in LimbFit fit, PlanetaryLimbWindow shared, in PlanetAspect aspect,
         PlanetarySharpenOptions options)
     {
@@ -648,14 +672,33 @@ public static class PlanetarySharpening
         var limbs = new (LimbFit Fit, PlanetaryLimbWindow Window)[master.ChannelCount];
         for (var c = 0; c < limbs.Length; c++)
         {
-            var channelOptions = options.LimbDarkening is PlanetaryLimbDarkening.Opal
-                ? PlanetaryLimbFit.OptionsFor(aspect, [options.WavelengthsNm[Math.Min(c, options.WavelengthsNm.Length - 1)]])
-                : PlanetaryLimbFit.OptionsFor(aspect);
+            var channelOptions = options.LimbDarkening switch
+            {
+                PlanetaryLimbDarkening.Opal => PlanetaryLimbFit.OptionsFor(aspect, [options.WavelengthsNm[Math.Min(c, options.WavelengthsNm.Length - 1)]]),
+                PlanetaryLimbDarkening.Held => PlanetaryLimbFit.OptionsFor(aspect) with { LimbDarkening = HeldK(options, c, 1) },
+                _ => PlanetaryLimbFit.OptionsFor(aspect),
+            };
             limbs[c] = PlanetaryLimbFit.Fit(master.GetChannelSpan(c), width, height, fit.CenterX, fit.CenterY, fit.EquatorialRadius, channelOptions) is { } own
                 ? (own, shared.WithModelOf(own, channelOptions, width, height))
                 : (fit, shared);
         }
         return limbs;
+    }
+
+    // The k PlanetaryLimbDarkening.Held holds for `count` channels from `first` (#1498): their mean, each channel's the last given for any
+    // channel beyond the values.
+    private static double HeldK(PlanetarySharpenOptions options, int first, int count)
+    {
+        if (options.HeldMinnaertK.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException($"{PlanetaryLimbDarkening.Held} holds the k given for each channel: give {nameof(PlanetarySharpenOptions.HeldMinnaertK)}.", nameof(options));
+        }
+        double sum = 0;
+        for (var c = first; c < first + count; c++)
+        {
+            sum += options.HeldMinnaertK[Math.Min(c, options.HeldMinnaertK.Length - 1)];
+        }
+        return sum / count;
     }
 
     private static bool OnGridOf(Image half, Image master) =>
