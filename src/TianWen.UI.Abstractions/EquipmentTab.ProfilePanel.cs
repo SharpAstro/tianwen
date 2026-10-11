@@ -311,9 +311,9 @@ namespace TianWen.UI.Abstractions
                 // Note the font size is in DESIGN units here, not the DPI-scaled `fontSize` the old direct
                 // RenderTextInput call needed -- the painter crosses the measure context's scale, so passing
                 // a pre-scaled value would apply DPI twice.
-                Layout.Node InputRow(string label, TextInputState input)
+                Layout.Node InputRow(string label, TextInputState input, bool focusOnOpen = false)
                     => FormRowLayout.LabeledInputRow(label, labelW, fieldH, 0f, BaseFontSize * 0.85f, DimText,
-                        input, inputFontSize: BaseFontSize * 0.9f);
+                        input, inputFontSize: BaseFontSize * 0.9f, focusOnOpen: focusOnOpen);
 
                 // Tie-breaker: which side wins on mount connect when both have a site? A declared button
                 // group, so which side won is the STYLE's to show: the two halves were once hand-picked
@@ -339,7 +339,9 @@ namespace TianWen.UI.Abstractions
                     .RowH(BaseButtonHeight);
 
                 return Layout.Builder.VStack(
-                        InputRow("  Lat:", State.LatitudeInput),
+                        // Latitude takes the keyboard as the editor opens: a declaration on the field, where
+                        // EditSiteSignal's handler used to post an activate signal by hand (#1491).
+                        InputRow("  Lat:", State.LatitudeInput, focusOnOpen: true),
                         InputRow("  Lon:", State.LongitudeInput),
                         InputRow("  Elev:", State.ElevationInput),
                         tieRow,

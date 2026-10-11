@@ -192,9 +192,11 @@ public class GuiAppState
     /// else needs to know the platform calls exist.
     /// </para>
     /// <para>
-    /// Read <see cref="TextInputFocus.Current"/> for "which field is focused". Change it through
-    /// <see cref="ActivateTextInputSignal"/> / <see cref="DeactivateTextInputSignal"/>, which stay the app's
-    /// entry points so the deferred bus keeps ordering the change with everything else in the frame.
+    /// Read <see cref="TextInputFocus.Current"/> for "which field is focused". A field that should take the
+    /// keyboard as its editor opens DECLARES it (<c>Layout.Builder.TextInput(..., focusOnOpen: true)</c>),
+    /// which the router honours once the frame is painted and never over a field being typed in (#1491); a
+    /// release goes through <see cref="DeactivateTextInputSignal"/>, so the deferred bus keeps ordering it with
+    /// everything else in the frame.
     /// </para>
     /// <para>
     /// The ONE exception is a mouse press on a field, which the input router focuses SYNCHRONOUSLY,

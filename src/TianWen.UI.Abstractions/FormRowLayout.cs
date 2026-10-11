@@ -150,12 +150,15 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         /// <param name="inputFontSize">Field text size, when it differs from the label's (most panels draw
         /// the value a little smaller than its label). Defaults to <paramref name="fontSize"/>.</param>
+        /// <param name="focusOnOpen">The field takes the keyboard when it appears, as the first field of an editor
+        /// that has just opened does (<see cref="Layout.Content.TextInput.FocusOnOpen"/>).</param>
         public static Layout.Node LabeledInputRow(
             string label, float labelW, float rowH, float padding, float fontSize,
-            RGBAColor32 textColor, TextInputState input, RGBAColor32? bg = null, float? inputFontSize = null)
+            RGBAColor32 textColor, TextInputState input, RGBAColor32? bg = null, float? inputFontSize = null,
+            bool focusOnOpen = false)
         {
             var labelLeaf = Layout.Builder.Text(label, fontSize, textColor).WFixed(labelW).HStar();
-            var fieldLeaf = Layout.Builder.TextInput(input, inputFontSize ?? fontSize).Stretch();
+            var fieldLeaf = Layout.Builder.TextInput(input, inputFontSize ?? fontSize, focusOnOpen: focusOnOpen).Stretch();
             var row = Layout.Builder.HStack(labelLeaf, fieldLeaf).WStar().HFixed(rowH);
             return bg is { } b ? row.Bg(b) : row;
         }

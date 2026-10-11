@@ -570,8 +570,9 @@ Full reasoning: `docs/architecture/widgets-and-controls.md` (cursor) and `docs/p
 (field, focus, key routing). **Where this went is `docs/plans/dir-lib-10.md` (planned 2026-09-15)**: the pointer
 rule (click places the caret, a second click selects the word, a drag extends), a shortcut declared on its node, and
 popovers and sliders as nodes all landed by DIR.Lib 10 (2026-09-17), and no host hand-rolls `clicks >= 2 ->
-SelectAll()` any more. What is left is the viewer chrome on the engine (#1489) and declarative focus, shipped and
-adopted nowhere (#1491). A new field, popover or drag follows the rules below; do not add a fourth key router.
+SelectAll()` any more, and a field that takes the keyboard as its editor opens declares `focusOnOpen` (#1491). What
+is left is the viewer chrome on the engine (#1489). A new field, popover or drag follows the rules below; do not add
+a fourth key router.
 
 - **The pointer's appearance is a property of a REGION, never a host predicate**: declare it beside the click
   (`RegisterClickable(..., cursor:)` / `.Clickable(hit, onClick, cursor)` / `.WithCursor(kind)`); the host asks
