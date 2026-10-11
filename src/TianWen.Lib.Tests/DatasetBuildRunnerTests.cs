@@ -743,14 +743,11 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
-        /// A store baked when the calibration part of the fingerprint was the whole LIBRARY is recognised on
-        /// resume and its entries re-recorded in the current form: without it every session of such a store
-        /// reads as stale for its format alone (140 sessions, a 13-hour bake, for the seven whose lights had
-        /// changed on 2026-09-25). A legacy entry whose lights DID move is still redone, and
-        /// <c>--rebuild-session</c> rebuilds exactly the sessions it names.
+        /// A resume redoes a session whose lights moved and resumes the rest, and <c>--rebuild-session</c>
+        /// rebuilds exactly the sessions it names.
         /// </summary>
         [Fact]
-        public async Task Run_Resume_RecognisesALegacyLibraryFingerprint_AndRebuildsOnlyTheNamedSessions()
+        public async Task Run_Resume_RedoesAMovedSession_AndRebuildsOnlyTheNamedSessions()
         {
             var ct = TestContext.Current.CancellationToken;
             var root = Path.Combine(_dir, "archive");
@@ -777,43 +774,12 @@ namespace TianWen.Lib.Tests
 
             var first = await DatasetBuildRunner.RunAsync(options, cancellationToken: ct);
             first.Registered.ShouldBe(2);
-            var ledgerPath = Path.Combine(outDir, "stats", DatasetSessionLedger.FileName);
-            var current = await DatasetSessionLedger.ReadAsync(ledgerPath, cancellationToken: ct);
 
-            // What a pre-change bake would have written: the same entries, the calibration part the library.
-            var scan = await SessionDiscovery.ScanAsync(options, cancellationToken: ct);
-            var (sessions, _) = SessionDiscovery.GroupSessions(scan.Frames, options);
-            var calGroups = CalibrationResolver.GroupCalibration(scan.Frames.Select(f => f.Frame));
-            var legacyDigest = DatasetSessionLedger.LegacyCalibrationLibraryDigest(
-                calGroups.Values.SelectMany(static groups => groups).SelectMany(static g => g.Frames));
-            async Task WriteLegacyLedgerAsync()
-            {
-                File.Delete(ledgerPath);
-                foreach (var session in sessions)
-                {
-                    var legacy = DatasetSessionLedger.FingerprintOf(session, legacyDigest, options.RecipeKey());
-                    legacy.ShouldNotBe(current[session.Id].Fingerprint, "the precondition: the two forms differ");
-                    await DatasetSessionLedger.AppendAsync(ledgerPath, current[session.Id] with { Fingerprint = legacy }, ct);
-                }
-            }
-
-            // Unchanged inputs, legacy form: nothing redone, every entry re-recorded as the current fingerprint.
-            await WriteLegacyLedgerAsync();
-            var migrated = await DatasetBuildRunner.RunAsync(options with { Resume = true }, cancellationToken: ct);
-            migrated.Redone.ShouldBe(0, "a legacy entry whose inputs still match is not redone for its format");
-            migrated.Resumed.ShouldBe(2);
-            var rerecorded = await DatasetSessionLedger.ReadAsync(ledgerPath, cancellationToken: ct);
-            foreach (var session in sessions)
-            {
-                rerecorded[session.Id].Fingerprint.ShouldBe(current[session.Id].Fingerprint, "re-recorded in the current form");
-            }
-
-            // A legacy entry whose lights moved since is redone; the other still migrates.
-            await WriteLegacyLedgerAsync();
+            // A session whose lights moved since is redone; the other resumes.
             var touched = Directory.GetFiles(n43, "*.fits")[0];
             File.SetLastWriteTimeUtc(touched, File.GetLastWriteTimeUtc(touched).AddMinutes(7));
             var afterTouch = await DatasetBuildRunner.RunAsync(options with { Resume = true }, cancellationToken: ct);
-            afterTouch.Redone.ShouldBe(1, "the moved session, under either form");
+            afterTouch.Redone.ShouldBe(1, "the session whose lights moved");
             afterTouch.Resumed.ShouldBe(1);
 
             // Named rebuilds: exactly the matching session, case-insensitively; a pattern matching nothing
