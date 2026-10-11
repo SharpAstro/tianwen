@@ -644,6 +644,10 @@ wait for twilight → `CoolCamerasToSetpointAsync` → `InitialRoughFocusAsync` 
 - **A failed run carries a plain-language `ISession.FailureReason`** (`SessionStateDto.FailureReason`; throw
   `SessionFailedException(userMessage, inner)`); init connects (`ConnectOrFailAsync`) are **deliberately
   fail-fast**, the END-of-session flat block best-effort. Pinned by `SessionFailureReasonTests`.
+- **A mount that cannot goto (`MountPointsWithoutGoto`: the SkyGuider Pro) is pointed by ONE routine,
+  `PointWithoutGotoAsync`** (`Session.SlewLess.cs`): RA by its own motor, timed and never trusted, Dec by the operator in a
+  wait the session ends itself once a solve finds the target. Every slew the session makes asks first, so a new one owes the
+  same question. `docs/plans/slew-less-mount.md`.
 - **Guider calibration slews to HA −0.5h, EAST of the meridian, NOT west** (`CalibrateGuiderAsync`,
   `Session.Lifecycle.cs`): west is past the flip on the opposite pier side, so an inverted Dec sense and a Dec
   runaway. Hemisphere-independent; pinned by a both-hemisphere `[Theory]` in `SessionLifecycleTests`.

@@ -1,15 +1,16 @@
 # Slew-less mount: a session on a mount that cannot goto
 
-**Status: NOT STARTED (planned 2026-10-11).** The session assumes a goto mount at every step, so it cannot run on the
-iOptron SkyGuider Pro at all. This plan is the design for the MoveAxis fallback (#1495) and the Milky Way panorama
-mode (#1500) on top of it. The mosaic placement it needs shipped first (#1501).
+**Status: P1 BUILT (2026-10-11), P2-P4 NOT STARTED.** The session assumed a goto mount at every step, so it could not
+run on the iOptron SkyGuider Pro at all. This plan is the design for the MoveAxis fallback (#1495) and the Milky Way
+panorama mode (#1500) on top of it. The mosaic placement it needs shipped first (#1501, PR #1502). P1, arrival and
+centring, is `Session.PointWithoutGotoAsync` (`Session.SlewLess.cs`).
 
 ## Why: the session cannot run on the SkyGuider Pro today
 
 `SgpMountDriverBase` says what the mount can do: `CanSlew` false, `CanSync` true, `CanMoveAxis(Primary)` only, seven
 `AxisRates` from 1 to 144 times sidereal, and a `BeginSlewRaDecAsync` that throws "SGP does not support goto slewing".
-Nothing under `src/TianWen.Lib/Sequencing` asks any of those questions (the one `CanMoveAxis` check is polar
-alignment's). Read at main on 2026-10-11, a run fails in two places:
+Nothing under `src/TianWen.Lib/Sequencing` asked any of those questions (the one `CanMoveAxis` check was polar
+alignment's). Read at main on 2026-10-11, a run failed in two places, both closed by P1:
 
 - **Rough focus fails the run.** `InitialRoughFocusAsync` begins with `BeginSlewToZenithAsync`, which throws "Device
   does not support slewing" when `CanSlewAsync` is false. Nothing catches it short of `RunAsync`, and the run ends
@@ -66,15 +67,34 @@ since arriving and centring are both "solve, compare, correct" with a different 
 The owner's "state of waiting for DEC recentering". The session asks once and then measures:
 
 - **One prompt** when the wait begins, with fixed text, since a prompt cannot change while open (the mirror keys it on
-  title and message): "Move Dec to +41 16'. The session carries on by itself once a plate solve finds the target",
-  with Continue = "Solve now" and Cancel = "Skip this target".
-- **The live distance is telemetry, not prompt text**: a `PointingRequest` on `ISessionTelemetry` (and its DTO) with
-  the target, the last solved centre, the remaining Dec and RA, and when the wait began. The GUI's live session view
-  and the atlas (#623) draw from it; it is null when nothing is asked.
+  title and message): "Turn the Dec axis to -05 23' for M42. The session carries on by itself once a plate solve
+  finds the target", with Continue = "Solve now" and Cancel = "Skip this target". Answering asserts nothing, since
+  the solve decides, so it defaults to "Solve now" when nobody can answer (`defaultIfUnanswerable: true`), never to a
+  skip. It is raised through `Session.RaisePrompt`, the one place a prompt is born, which the gates share.
+- **The live distance is the activity line in P1** ("Waiting for Dec to be moved 5.4 deg south to M42"), which already
+  reaches the GUI and a node's clients as `CurrentActivity`, so P1 changes no wire type. A structured
+  `PointingRequest` on `ISessionTelemetry` (the target, the last solved centre, the remaining Dec and RA) comes with
+  the atlas (P4, #623), which is what needs more than a sentence.
 - **A solve every few seconds** while waiting, the same short exposure as centring. Once Dec is within tolerance the
   wait ends by itself, whether or not anyone answered the prompt.
 - **Unattended, it waits out the observation's slot**, then advances to the next observation (see the open
   questions). It never assumes the operator moved.
+
+### Where a solve looks, and the setup solve it needs
+
+A session solve searches 10 degrees around what the mount BELIEVES (`PlateSolveAndSyncCoreAsync`), and on this mount
+nothing moves that belief but a sync: a timed move and a hand-turned Dec both leave it behind. So the routine keeps it
+near the truth: after a move it syncs the mount to where the move should have gone (`BelieveAsync`), and during the
+Dec wait a failed solve looks at the target's Dec next, where the operator is heading. Each solve then syncs the truth.
+**The run needs one solve and sync at setup** (the GUI's solve and sync, `MountActions.SolveAndSyncAsync`): the
+SkyGuider Pro believes it points at the pole until told otherwise, and nothing in the routine can stand in for that
+first solve short of a blind one.
+
+### How close is arrived
+
+Centring asks for 1 arcminute, which nobody turns a Dec knob to by hand. The routine arrives within the larger of the
+requested threshold and a twentieth of the field's short side (`SlewLessThresholdArcmin`): 51' for a 50 mm lens on
+APS-C, 10' at 250 mm. A wide field frames its target as well at a twentieth of itself.
 
 ### What the session does with each slew it makes
 
@@ -82,11 +102,11 @@ The owner's "state of waiting for DEC recentering". The session asks once and th
 |---|---|---|
 | Arrival at a target (`ObservationLoopAsync`) | goto, then centring | the routine |
 | Centring (`CenterOnTargetAsync`'s re-slew) | goto again | the routine's correction: RA move, Dec wait |
-| Rough focus (`InitialRoughFocusAsync`, zenith) | slews near the zenith | focuses where the rig points: the operator aims it during setup |
+| Rough focus (`InitialRoughFocusAsync`, zenith) | slews near the zenith | focuses where the rig points: the operator aims it during setup; no zenith sky gauge, which assumes the zenith |
 | Guider calibration (`CalibrateGuiderAsync`, HA -0.5 h) | slews east of the meridian | calibrates on the first target after its arrival; the mount guides RA only |
 | Obstruction nudge (a Dec offset) | slews and scouts | skipped: it would need the operator |
 | Sky flats near the zenith | slews | not offered; the calibrator path stays |
-| Meridian flip | goto to the other side | RA by motor at once, then the Dec wait (below) |
+| Meridian flip | goto to the other side | RA by motor at once, then the Dec wait (below). Until P2, a flip due ends the target rather than repeating it past the meridian |
 | A slew that throws | retried without bound (a bug) | bounded on every mount: after a few failures the observation advances |
 
 ### The meridian flip
@@ -143,7 +163,7 @@ From #1483 (the SkyGuider Pro driver's confirmed defects) and #810 (a lost reply
 
 | Phase | What | Issue | State |
 |---|---|---|---|
-| P1 | The pointing routine for arrival and centring; each auxiliary slew answered as in the table; the slew retry bounded on every mount; the fake's true pointing; a session test on `mountPort: "SGP"` | #1495 | not started |
+| P1 | The pointing routine for arrival and centring; each auxiliary slew answered as in the table; the slew retry bounded on every mount; the fake's true pointing; session tests on `mountPort: "SGP"` (`SlewLessSessionTests`: M42 reached an hour of RA and five degrees of Dec away with one question and two RA moves at a 3 % move error; a target at the rig's Dec with none) | #1495 | built 2026-10-11 |
 | P2 | The flip: RA at once, the Dec wait, verification by the image (needs #1483's tenth item) | #1495 | not started |
 | P3 | The panorama strip: the generator overload, the planner's entry, the scheduler's strict rule | #1500 | not started |
 | P4 | The atlas draws the `PointingRequest` | #623 | not started |
