@@ -7,7 +7,7 @@ is a DIR.Lib change (#1490).
 Planned 2026-09-15 (user, high priority); the header said NOT STARTED until 2026-09-24.
 **P0 (the measure seam) now ships as part of [dir-lib-10.md](dir-lib-10.md) D1**, the same DIR.Lib release
 that adds the input router. That plan's T3 is this plan's P3 and P5, plus the chrome lines of its Acceptance this plan
-does not cover (hover from the tree, the drag flags, one tooltip painter: #1489).
+does not cover (hover from the tree, the drag flags: #1489; the one tooltip painter landed with DIR.Lib 11.12, #1446).
 The tone popover (`ImageRendererBase.TonePanel.cs`, shipped 8.1) is the worked example of the target
 shape and the only viewer overlay already in it.
 
