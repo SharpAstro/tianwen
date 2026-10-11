@@ -135,9 +135,8 @@ by how much is NOT measured. In E13's 78-session pool the floor moves on 43 sess
 the stretch maps to 0.25 shrinks to 0.79 of its old value (as low as 0.19). E12 and E13 stay internally
 consistent (old stretch throughout, same eval caches), so they read as comparisons within it; the
 Carina-Wide 2025-03-19 eval field's tiles were exported unstretched, so its absolute numbers move on a
-re-export. Owed before a model ships: train it on a post-fix export (`training/denoise/run-pool-reexport.ps1`,
-running since 2026-09-26), and compare the shipped model with and without the fix on a few ringed
-masters. Recorded on #489.
+re-export. Settled since: the shipped model, `convmapb_s2` (2026-10-01), was trained on a store baked after the fix,
+so it matches inference, and the comparison owed for its predecessor lapsed with it (#489, closed 2026-09-27).
 
 **What remains: an INTERIOR exact zero (a clipped pixel) is a measurement and still sets the floor**, so
 a bright-sky frame with one still reads as stretched. The percentile alternative named below would

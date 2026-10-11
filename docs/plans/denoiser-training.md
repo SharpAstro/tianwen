@@ -1,5 +1,9 @@
 # Denoiser training: the campaign after v24
 
+**Status (corrected 2026-10-11): run from E0 to E16, and the shipped model is `convmapb_s2`, since 2026-10-01 (D6,
+PR #1118); [summary.md](summary.md) has the current state.** The paragraph below is the status as written on 2026-09-02,
+kept as the record.
+
 **Status: PLANNED (written 2026-09-02). Nothing below has run.** The shipped model is
 `n2n_v19d_s2` (the GATE-SELECTED step-1500 checkpoint; task N4 shipped its step-4000 sibling until
 2026-09-04, see section 9), an 0.81 M-parameter noise-conditioned U-Net trained by
@@ -2027,7 +2031,8 @@ Liberty (34.4 against 49.6), all well outside the seed spreads. The leading expl
 with the injected shape varied, the model leans on its level plane to decide how much to remove, and
 reads the Lanczos-bake fields as quiet. **Next, before any model trains on the post-fix pool
 (`n2n-pool-rf`, prepared 2026-09-26):** score `pool` on Lagoon with the level plane raised, and see
-whether its removal returns. Carina-Wide's numbers are suspect for every arm (exported unstretched,
+whether its removal returns. (Never run, and no longer needed: E14 trained on the post-fix pool without it and found the
+redistribution is not the ring, and E15 kept E12's recipe to ship. Noted 2026-10-11.) Carina-Wide's numbers are suspect for every arm (exported unstretched,
 above). For shipping, E12's recipe remains the best by R.
 
 **E14, the ring fix alone** (`run-poolrf.ps1`, pre-registered 2026-09-27 before any checkpoint): E13's
@@ -2078,7 +2083,8 @@ the frontier no worse than `conv`'s on all but at most two of the fields both ca
 `poolrf` on R, so the recipe to ship stays E12's; (4) its seed sd under 6.8, 1.5 times `conv`'s; (5) what
 moves, moves most on the four bb-eval-4 fields, because the moved training sessions are the broadband ones.
 Whether `convrf` replaces the shipped model is decided after the read, on the frontier against
-`e2_wide_s2` and a look at 1:1.
+`e2_wide_s2` and a look at 1:1. (Settled since: `convrf` did not ship; `convmapb_s2` replaced `e2_wide_s2` on
+2026-10-01.)
 
 **E15's result** (2026-09-28; 21 models in one pass, and `conv`, `poolrf`, `pool` and `ctl4k` reproduce
 E14's ring-fixed values to the digit, so the CLI rebuilt at this HEAD moved nothing). The export matched
@@ -2706,7 +2712,8 @@ populations, none of which a model under test could have moved:
   2,000-pixel floor (`DETAIL_MIN_PIXELS`) is printed and marked, never read.
 - The measures move as they should: a Gaussian sigma 1 of A keeps grain 0.31 / 0.67 and stars 0.47 on CROWDED; E16a keeps
   0.96 / 0.98 and 0.965; the shipped model 0.89 / 0.88 and **0.79**. The shipped model already spends a fifth of the
-  unresolved stars' amplitude on a crowded field, which bears on whether to ship `convrf` (the backlog decision).
+  unresolved stars' amplitude on a crowded field, which bears on whether to ship `convrf` (the backlog decision, settled on
+2026-10-01 for `convmapb_s2`, which keeps 0.999 of them).
 
 ### 2026-09-30: E16b's result: bright cells teach the model to clean a bright level, and nothing is blown out
 

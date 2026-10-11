@@ -10,7 +10,9 @@ and in [osc-narrowband-denoiser.md](osc-narrowband-denoiser.md) 1c and 1e. It sh
 synthetic-degradation exporter with [denoiser-training.md](denoiser-training.md) E1 and the
 discipline in [model-training-roadmap.md](model-training-roadmap.md).
 
-**2026-09-26, read before the next arm:** the header above predates the E3 arms (`docs/plans/summary.md`
+## The plateau schedule, read before the next arm (2026-09-26)
+
+Tracked by #1484. The header above predates the E3 arms (`docs/plans/summary.md`
 has the current status), and every E3 run, E3.4d's prior included, trained a 4000-step cosine annealed to
 zero. The denoiser found that budget stopped runs still learning (denoiser-training.md, run log "what
 went wrong in Probe BB and E10" and E11 / E12), and `n2n_smoke.py --schedule plateau` trains to
