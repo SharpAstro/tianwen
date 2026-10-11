@@ -353,7 +353,9 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.Spacer().RowH(BasePadding),
                     Layout.Builder.Text("Profile name:", BaseFontSize, BodyText).RowH(BaseItemHeight),
                     Layout.Builder.HStack(
-                            Layout.Builder.TextInput(State.ProfileNameInput, BaseFontSize).WStar(1f, 0f, 360f).HStar(),
+                            // Takes the keyboard as the form opens (#1491), declared here rather than posted by
+                            // CreateProfileSignal's handler.
+                            Layout.Builder.TextInput(State.ProfileNameInput, BaseFontSize, focusOnOpen: true).WStar(1f, 0f, 360f).HStar(),
                             Layout.Builder.Spacer().WStar())
                         .RowH(BaseItemHeight * 1.4f),
                     Layout.Builder.Spacer().RowH(BasePadding),

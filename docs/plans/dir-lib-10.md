@@ -2,8 +2,8 @@
 
 Status: DONE except T3 (2026-09-24). T0, D1 (DIR.Lib 9.2), T1, T2, D2 (DIR.Lib 10.0, 2026-09-17) and C1
 all landed; T3, the viewer chrome onto the engine, is left: viewer-layout-engine's P3 (#367, #1455) and P5
-(#1490), and the [Acceptance](#acceptance-for-the-whole-plan) lines the chrome does not yet meet (#1489); and
-the declarative focus D1 shipped is adopted nowhere (#1491). See [T3](#t3-the-chrome-on-the-engine).
+(#1490), and the [Acceptance](#acceptance-for-the-whole-plan) lines the chrome does not yet meet (#1489). The
+declarative focus D1 shipped is adopted (#1491, 2026-10-11). See [T3](#t3-the-chrome-on-the-engine).
 Planned 2026-09-15 (user, high priority), reviewed the same day against
 DIR.Lib 9.1 and every tianwen host (GUI, `tianwen-fits`, web, TUI). This plan ABSORBS
 [viewer-layout-engine.md](viewer-layout-engine.md) P0 (the measure seam) and
@@ -546,9 +546,13 @@ its doc already promises, so the two `SelectAll()` call sites and the TUI's priv
 left to do. `Builder.TextInput(state, ..., focusOnOpen: true)` is P3b, implemented in the router's
 after-paint hook.
 
-**Shipped in DIR.Lib, adopted nowhere (2026-10-11):** `focusOnOpen` has no use in tianwen, and three fields are
-still focused by posting `ActivateTextInputSignal` by hand as their editor opens (the site latitude and profile
-name fields in `AppSignalHandler.Equipment.cs`, the filter name in `EquipmentTab.FilterTable.cs`). #1491.
+**Adopted (#1491, 2026-10-11).** The three fields that were still focused by posting `ActivateTextInputSignal` by
+hand as their editor opened (the site latitude and profile name fields, from `AppSignalHandler.Equipment.cs`, and
+the custom filter name, from `EquipmentTab.FilterTable.cs`) each declare `focusOnOpen` now
+(`FormRowLayout.LabeledInputRow` passes it through), and nothing in tianwen posts the signal: the GUI's subscriber
+went with the last poster. `EquipmentTabFocusOnOpenTests` drives each editor through one `AfterPaint` and fails with
+the declarations off. The signal TYPE is still DIR.Lib's (`Signals.cs`), used now only by its own bus tests; it can
+go in DIR.Lib's next major.
 
 ### E. Two content kinds the chrome keeps painting by hand
 
@@ -1096,7 +1100,7 @@ viewer-layout-engine P1, P2 and P4 are done on the seam D1 shipped. Left (2026-1
 - **The [Acceptance](#acceptance-for-the-whole-plan) lines the chrome does not meet**: hover from the tree,
   `OverlayOwnsPointer` and the drag flags gone, `RegisterClickable` under ten, one tooltip painter, `LayoutDamage`
   and the TUI's main input on the router. #1489.
-- **Declarative focus**, shipped and adopted nowhere: [D](#d-focus-is-a-boundary-and-it-selects), #1491.
+- ~~**Declarative focus**~~: adopted, [D](#d-focus-is-a-boundary-and-it-selects), #1491 (2026-10-11).
 
 ## Shortcut adoption, measured
 
@@ -1152,12 +1156,12 @@ tab, so they have no node to sit on and are answered before the router in `GuiEv
 
 ## Acceptance for the whole plan
 
-Where each line stands, counted on `main` 2026-10-11 (plan review #1417); what is unmet is #1489, #1491 and
+Where each line stands, counted on `main` 2026-10-11 (plan review #1417); what is unmet is #1489 and
 viewer-layout-engine's P3 and P5.
 
 - **Adding a text field** is the state, its business callbacks, and `Builder.TextInput(state)` with
   whatever `.Shortcut` / `focusOnOpen` it wants. Zero lines in any host or dispatcher.
-  **Unmet:** `focusOnOpen` has no use, and three fields are still focused by a hand-posted signal (#1491).
+  **Met (#1491):** the three fields once focused by a hand-posted signal declare `focusOnOpen`, and nothing posts it.
 - **Adding a popover** is `Builder.Popover(...)` and a `.Clickable` that toggles its state. Zero dispatcher
   lines; the `CLAUDE.md` warning about the dead button is deleted because the failure is unrepresentable.
   **Unmet:** the warning stands, since a viewer toolbar button still owes its own `onPress` (#1489).

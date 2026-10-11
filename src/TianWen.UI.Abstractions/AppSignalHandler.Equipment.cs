@@ -364,16 +364,14 @@ namespace TianWen.UI.Abstractions
                         eqState.ElevationInput.CursorPos = eqState.ElevationInput.Text.Length;
                     }
                 }
-                bus.Post(new ActivateTextInputSignal(eqState.LatitudeInput));
+                // No focus here: the latitude field declares focusOnOpen, so it takes the keyboard as the
+                // editor this opens is painted.
             });
 
             bus.Subscribe<CreateProfileSignal>(_ =>
             {
-                if (!eqState.IsCreatingProfile)
-                {
-                    eqState.IsCreatingProfile = true;
-                    bus.Post(new ActivateTextInputSignal(eqState.ProfileNameInput));
-                }
+                // The name field declares focusOnOpen, so the form takes the keyboard as it appears.
+                eqState.IsCreatingProfile = true;
             });
 
             bus.Subscribe<SwitchProfileSignal>(async sig =>

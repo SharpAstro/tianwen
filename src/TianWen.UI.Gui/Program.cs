@@ -221,9 +221,9 @@ appState.TextInputFocus.FocusChanged += (_, next) =>
     appState.NeedsRedraw = true;
 };
 
-// The app's entry points to that transition stay signals, so focus changes keep their place in the deferred
-// bus ordering alongside everything else a frame does.
-bus.Subscribe<ActivateTextInputSignal>(sig => appState.TextInputFocus.Focus(sig.Input));
+// A release stays a signal, so it keeps its place in the deferred bus ordering alongside everything else a
+// frame does. Taking the keyboard is not one any more: a field declares focusOnOpen, and the router applies it
+// after the paint (#1491).
 bus.Subscribe<DeactivateTextInputSignal>(_ => appState.TextInputFocus.Blur());
 // Open an external URL in the OS default browser (planner details -> Wikipedia link). Host-level +
 // desktop-only on purpose: UseShellExecute routes a URL through the shell (ShellExecute on Windows,

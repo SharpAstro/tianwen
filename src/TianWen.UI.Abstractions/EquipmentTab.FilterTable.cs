@@ -84,7 +84,9 @@ namespace TianWen.UI.Abstractions
                 Layout.Node nameCell;
                 if (State.CustomFilterSlotIndex == f)
                 {
-                    nameCell = Layout.Builder.TextInput(State.CustomFilterNameInput, BaseFontSize * 0.8f);
+                    // The cell turns into this field when "Custom..." is chosen, and the field takes the keyboard
+                    // as it appears (#1491).
+                    nameCell = Layout.Builder.TextInput(State.CustomFilterNameInput, BaseFontSize * 0.8f, focusOnOpen: true);
                 }
                 else
                 {
@@ -117,7 +119,6 @@ namespace TianWen.UI.Abstractions
                                         var preservedName = capturedF < filters.Count && filters[capturedF].CustomName is { } cn ? cn : "";
                                         State.CustomFilterNameInput.Text = preservedName;
                                         State.CustomFilterNameInput.CursorPos = preservedName.Length;
-                                        PostSignal(new ActivateTextInputSignal(State.CustomFilterNameInput));
                                     }));
 
                             State.FilterNameDropdown.Open(
@@ -201,7 +202,7 @@ namespace TianWen.UI.Abstractions
                     State.FiltersDirty = true;
                 }
                 State.CustomFilterSlotIndex = -1;
-                // The field was focused through the owner (ActivateTextInputSignal above), so releasing
+                // The field was focused through the owner (its focusOnOpen declaration above), so releasing
                 // it any other way leaves the owner naming a field nothing is typing into.
                 Ui.Focus.BlurIfFocused(State.CustomFilterNameInput);
                 return Task.CompletedTask;
