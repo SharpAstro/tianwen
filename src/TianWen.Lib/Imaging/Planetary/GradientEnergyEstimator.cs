@@ -20,6 +20,9 @@ public sealed class GradientEnergyEstimator(bool normalizeBrightness = true) : I
     /// <inheritdoc/>
     public string CacheKey => normalizeBrightness ? "gradient" : "gradient raw";
 
+    /// <summary>The <see cref="CacheKey"/>, so options that print their estimator (a statistics file's key) tell two apart.</summary>
+    public override string ToString() => CacheKey;
+
     /// <inheritdoc/>
     public float Score(Image frame, PixelRect region)
     {

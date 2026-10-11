@@ -45,12 +45,13 @@ internal sealed partial class PlanetaryGeometrySubCommands
         var seedOpt = new Option<int>("--seed") { Description = "The draws' seed, the same for every trial so two differ by their knobs alone.", DefaultValueFactory = _ => 1 };
         var farWingOpt = new Option<bool>("--far-wing") { Description = "Give every twin frame the pupil's diffraction wing past the PSF grid's 32 px, as planetary degrade --far-wing does, so the scatter is fitted beside it (#1222)." };
         var whitenedOpt = new Option<bool>("--whitened-correlation") { Description = "Register the statistics' frames by phase correlation, as R2's hand calibration did, not by a plain cross-correlation (on the EdgeHD Jupiter the whitened aligner jumped by whole pixels, up to 15, and read an aligner's error of 2.38 px where plain read 0.15)." };
+        var qualityOpt = QualityOption();
 
         var command = new Command("twin",
             "A synthetic twin of a capture with its air fitted to the capture's statistics (A1 of #817): the free air's r0 and wind, the still layer's r0, the telescope's scatter and a colour capture's defocus a colour, searched on short twins and confirmed at length.")
         {
             Arguments = { inputArg },
-            Options = { opalOpt, outputOpt, planetOpt, pupilOpts.ApertureMm, pupilOpts.Obstruction, pupilOpts.Telescope, wavelengthOpt, bayerWavelengthsOpt, exposureOpt, outerScaleOpt, localOuterScaleOpt, localWindOpt, trialFramesOpt, confirmFramesOpt, trialsOpt, startOpt, startDefocusOpt, seedOpt, farWingOpt, whitenedOpt },
+            Options = { opalOpt, outputOpt, planetOpt, pupilOpts.ApertureMm, pupilOpts.Obstruction, pupilOpts.Telescope, wavelengthOpt, bayerWavelengthsOpt, exposureOpt, outerScaleOpt, localOuterScaleOpt, localWindOpt, trialFramesOpt, confirmFramesOpt, trialsOpt, startOpt, startDefocusOpt, seedOpt, farWingOpt, whitenedOpt, qualityOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -144,6 +145,7 @@ internal sealed partial class PlanetaryGeometrySubCommands
             {
                 FullScaleAdu = reader.MaxSampleValue,
                 WhitenedCorrelation = parseResult.GetValue(whitenedOpt),
+                QualityEstimator = ParseQuality(parseResult.GetValue(qualityOpt)),
             };
             var pupil = PlanetaryMasterScore.PupilFrom(parseResult, pupilOpts) ?? NewtonianPupil;
             var main = SaturnRings.Main.Rings;
