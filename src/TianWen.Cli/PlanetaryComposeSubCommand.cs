@@ -50,8 +50,12 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
             {
                 return 1;
             }
+            if (BandWeightsOf(parseResult.GetValue(bandWeightsOpt)) is not { } bandWeights)
+            {
+                return 1;
+            }
             var (composed, derotation, refusal) = await Task.Run(() => PlanetaryComposition.Run(stacks, Say, parseResult.GetValue(lrgbOpt),
-                parseResult.GetValue(viewingWeightsOpt), parseResult.GetValue(bandWeightsOpt)), ct);
+                parseResult.GetValue(viewingWeightsOpt), bandWeights), ct);
             if (composed is null || derotation is null)
             {
                 consoleHost.WriteError(refusal ?? "nothing composed");
@@ -153,7 +157,11 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
             {
                 return 1;
             }
-            var (composed, refusal) = PlanetaryComposition.Join(stacks, Say, parseResult.GetValue(bandWeightsOpt));
+            if (BandWeightsOf(parseResult.GetValue(bandWeightsOpt)) is not { } bandWeights)
+            {
+                return 1;
+            }
+            var (composed, refusal) = PlanetaryComposition.Join(stacks, Say, bandWeights);
             if (composed is null)
             {
                 consoleHost.WriteError(refusal ?? "nothing joined");
@@ -349,10 +357,27 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         Description = "Weigh each de-rotated stack's pixels by how squarely it saw their source (the cosine of the view, nothing past the de-rotation's 0.9-radius source limit), so no stack's unturned rim enters where another stack saw the planet (#1349 fix C); written beside each stack as <name>.weight.fits.",
     };
 
-    private static Option<bool> BandWeightsOption() => new Option<bool>("--band-weights")
+    private static Option<string?> BandWeightsOption() => new Option<string?>("--band-weights")
     {
-        Description = "Join each filter's stacks band by band: each a trous band weighed by its transfer against the sharpest stack over its noise, so the finest bands come mostly from the sharp stacks and the coarse ones from all (#1349 arm B).",
+        Description = "Join each filter's stacks band by band (#1349 arm B): matched (each a trous band weighed by its transfer against the sharpest stack over its noise, so the finest bands come mostly from the sharp stacks and the coarse ones from all) or wiener (the same, each band rescaled to the sharpest stack's own transfer, a multi-frame Wiener).",
     };
+
+    // --band-weights read: absent is the plain join; null and said when unreadable.
+    private PlanetaryBandWeights? BandWeightsOf(string? text)
+    {
+        switch (text?.ToLowerInvariant())
+        {
+            case null:
+                return PlanetaryBandWeights.None;
+            case "matched":
+                return PlanetaryBandWeights.Matched;
+            case "wiener":
+                return PlanetaryBandWeights.Wiener;
+            default:
+                consoleHost.WriteError($"--band-weights {text}: matched or wiener");
+                return null;
+        }
+    }
 
     // Stacks a step wrote, read back with their labels, or null with each failure said.
     private List<PlanetaryMonoStack>? ReadStacks(IReadOnlyList<string> paths)

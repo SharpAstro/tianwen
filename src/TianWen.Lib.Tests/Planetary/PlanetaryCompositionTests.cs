@@ -343,9 +343,11 @@ public sealed class PlanetaryCompositionTests : IDisposable
         }
         var disk = new MetricDisk(placement.CenterX, placement.CenterY, placement.EquatorialRadius);
         var said = new List<string>();
-        var (byBand, bandRefusal) = PlanetaryComposition.JoinFilter(stacks, Filter.Green, disk, said.Add, bandWeights: true);
+        var (byBand, bandRefusal) = PlanetaryComposition.JoinFilter(stacks, Filter.Green, disk, said.Add, PlanetaryBandWeights.Matched);
+        var (byWiener, wienerRefusal) = PlanetaryComposition.JoinFilter(stacks, Filter.Green, disk, bandWeights: PlanetaryBandWeights.Wiener);
         var (byNoise, noiseRefusal) = PlanetaryComposition.JoinFilter(stacks, Filter.Green, disk);
         byBand.ShouldNotBeNull(bandRefusal);
+        byWiener.ShouldNotBeNull(wienerRefusal);
         byNoise.ShouldNotBeNull(noiseRefusal);
         foreach (var line in said)
         {
@@ -385,6 +387,14 @@ public sealed class PlanetaryCompositionTests : IDisposable
         finestByNoise.ShouldBeLessThan(0.5, "averaged by noise alone, the two blurred stacks take most of it away");
         secondByBand.ShouldBeGreaterThan(secondByNoise + 0.2, "and of band 2");
         coarseByBand.ShouldBe(coarseByNoise, 0.03, "the coarse band averaged over all three either way");
+
+        // The Wiener form rescales each band to the sharpest stack's own transfer: more of the finest detail than the matched mean, which a
+        // blurred stack's share pulls below the sharpest's, and the coarse band, which all three hold alike, as it was.
+        var (finestWiener, secondWiener, coarseWiener) = (Held(byWiener, 0), Held(byWiener, 1), Held(byWiener, 4));
+        TestContext.Current.TestOutputHelper?.WriteLine($"held by the Wiener form: band 1 {finestWiener:0.000}, band 2 {secondWiener:0.000}, band 5 {coarseWiener:0.000}");
+        finestWiener.ShouldBeGreaterThan(finestByBand, "the matched mean's shortfall in band 1 given back");
+        secondWiener.ShouldBeGreaterThan(secondByBand, "and in band 2");
+        coarseWiener.ShouldBe(coarseByNoise, 0.03, "the coarse band as the plain join has it");
     }
 
     [Fact]
