@@ -194,6 +194,29 @@ public static class PlanetaryLimbFit
         return start is { } at ? Fit(plane, image.Width, image.Height, at.X, at.Y, at.Radius, options) : null;
     }
 
+    /// <summary>
+    /// Each of <paramref name="image"/>'s channels fitted against its own limb (#1498, #1478), with the options
+    /// <paramref name="optionsFor"/> gives that channel (OPAL's k at its own wavelength, a held k, or fitted). Each starts at
+    /// <paramref name="shared"/>'s outline alone, its brightness and sky seeded from its own plane: seeded with the shared fit's, which
+    /// are the blend's, a balanced channel started its search elsewhere and read another kernel. The shared fit is kept for a channel
+    /// whose own fit fails or finds no light on the disk (a blank channel's fit converges at once with a brightness of zero rather than
+    /// failing). The one routine the sharpening's per-channel reading and <c>planetary limb</c> fit a colour image's channels by.
+    /// </summary>
+    public static (LimbFit Fit, LimbFitOptions Options)[] FitEachChannel(Image image, in LimbFit shared, Func<int, LimbFitOptions> optionsFor)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(optionsFor);
+        var limbs = new (LimbFit Fit, LimbFitOptions Options)[image.ChannelCount];
+        for (var c = 0; c < limbs.Length; c++)
+        {
+            var options = optionsFor(c);
+            limbs[c] = (Fit(image.GetChannelSpan(c), image.Width, image.Height, shared.CenterX, shared.CenterY, shared.EquatorialRadius, options) is { Brightness: > 0 } own
+                ? own
+                : shared, options);
+        }
+        return limbs;
+    }
+
     /// <summary>What a disk is fitted on: the mean of <paramref name="image"/>'s channels, row-major.</summary>
     public static float[] Luminance(Image image)
     {

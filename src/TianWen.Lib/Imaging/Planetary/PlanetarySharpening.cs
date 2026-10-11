@@ -674,27 +674,15 @@ public static class PlanetarySharpening
         };
     }
 
-    // Each channel's own limb fit (PlanetaryChannelLimb.PerChannel, #1498), started at the shared fit's outline alone, its brightness and sky
-    // seeded from its own plane as the shared fit's are: seeded with the shared fit's, which are the blend's, a balanced channel started its
-    // search elsewhere and its edge at 0.3 cycles read 0.620 against 0.285. The shared fit kept for a channel whose own fit fails. With OPAL's
-    // k, each holds its own wavelength's (#1478); with a held k, its own value.
-    private static (LimbFit Fit, LimbFitOptions Options)[] ChannelLimbs(Image master, in LimbFit fit, in PlanetAspect aspect, PlanetarySharpenOptions options)
-    {
-        var (width, height) = (master.Width, master.Height);
-        var limbs = new (LimbFit Fit, LimbFitOptions Options)[master.ChannelCount];
-        for (var c = 0; c < limbs.Length; c++)
+    // Each channel's own limb fit (PlanetaryChannelLimb.PerChannel, #1498; PlanetaryLimbFit.FitEachChannel). With OPAL's k each holds its
+    // own wavelength's (#1478); with a held k, its own value.
+    private static (LimbFit Fit, LimbFitOptions Options)[] ChannelLimbs(Image master, in LimbFit fit, PlanetAspect aspect, PlanetarySharpenOptions options)
+        => PlanetaryLimbFit.FitEachChannel(master, fit, c => options.LimbDarkening switch
         {
-            var channelOptions = options.LimbDarkening switch
-            {
-                PlanetaryLimbDarkening.Opal => PlanetaryLimbFit.OptionsFor(aspect, [options.WavelengthsNm[Math.Min(c, options.WavelengthsNm.Length - 1)]]),
-                PlanetaryLimbDarkening.Held => PlanetaryLimbFit.OptionsFor(aspect) with { LimbDarkening = HeldK(options, c, 1) },
-                _ => PlanetaryLimbFit.OptionsFor(aspect),
-            };
-            limbs[c] = (PlanetaryLimbFit.Fit(master.GetChannelSpan(c), width, height, fit.CenterX, fit.CenterY, fit.EquatorialRadius, channelOptions) ?? fit,
-                channelOptions);
-        }
-        return limbs;
-    }
+            PlanetaryLimbDarkening.Opal => PlanetaryLimbFit.OptionsFor(aspect, [options.WavelengthsNm[Math.Min(c, options.WavelengthsNm.Length - 1)]]),
+            PlanetaryLimbDarkening.Held => PlanetaryLimbFit.OptionsFor(aspect) with { LimbDarkening = HeldK(options, c, 1) },
+            _ => PlanetaryLimbFit.OptionsFor(aspect),
+        });
 
     // The k PlanetaryLimbDarkening.Held holds for `count` channels from `first` (#1498): their mean, each channel's the last given for any
     // channel beyond the values.
