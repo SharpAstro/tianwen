@@ -36,8 +36,47 @@ namespace TianWen.Lib.Tests;
 public sealed class GpuVngDebayerParityTests(OffscreenGpuFixture gpu, ITestOutputHelper output)
     : IClassFixture<OffscreenGpuFixture>
 {
-    private const int Width = 256;
-    private const int Height = 256;
+    /// <summary>
+    /// Each Bayer phase once, at odd and even sizes on each axis, so each edge is met by each colour: on an odd width the far
+    /// column holds the first one's colour, on an even width the other one (as <c>DebayerMhcTests</c> covers the CPU). The
+    /// shader and the CPU read the phase from the same offsets, the shader from <c>bayerPat</c>, so a phase only one of them
+    /// honours, or a mirror that loses the parity on an odd edge, shows here and not on RGGB at 256 x 256 (#1414).
+    /// </summary>
+    private static readonly (int OffsetX, int OffsetY, int W, int H)[] PhaseRows =
+        [(0, 0, 256, 256), (1, 1, 255, 253), (1, 0, 253, 256), (0, 1, 256, 255)];
+
+    public static TheoryData<int, int, int, int> Phases
+    {
+        get
+        {
+            var cases = new TheoryData<int, int, int, int>();
+            foreach (var (offsetX, offsetY, w, h) in PhaseRows)
+            {
+                cases.Add(offsetX, offsetY, w, h);
+            }
+            return cases;
+        }
+    }
+
+    /// <summary>
+    /// <see cref="PhaseRows"/> through each of the shader's colour demosaics: 1 is MHC, 0 bilinear (the shader's fallback, which
+    /// no <see cref="DebayerAlgorithm"/> selects) and 4 VNG, whose two-pixel rim is a transcription of its own (<c>vngEdge</c>).
+    /// </summary>
+    public static TheoryData<int, int, int, int, int> FlatColourCases
+    {
+        get
+        {
+            var cases = new TheoryData<int, int, int, int, int>();
+            foreach (var mode in (int[])[1, 0, 4])
+            {
+                foreach (var (offsetX, offsetY, w, h) in PhaseRows)
+                {
+                    cases.Add(mode, offsetX, offsetY, w, h);
+                }
+            }
+            return cases;
+        }
+    }
 
     /// <summary>Neutral everything: in <see cref="StretchMode.None"/> both the GLSL and
     /// <see cref="Image.RenderStretchedRgba"/> reduce to <c>clamp(value * whiteBalance)</c>, so with a
@@ -51,8 +90,9 @@ public sealed class GpuVngDebayerParityTests(OffscreenGpuFixture gpu, ITestOutpu
         Highlights: (1f, 1f, 1f),
         Rescale: (1f, 1f, 1f));
 
-    [Fact]
-    public async Task TheShaderVngIsTheCpuVng()
+    [Theory]
+    [MemberData(nameof(Phases))]
+    public async Task TheShaderVngIsTheCpuVng(int offsetX, int offsetY, int w, int h)
     {
         if (!gpu.VulkanAvailable)
         {
@@ -61,16 +101,16 @@ public sealed class GpuVngDebayerParityTests(OffscreenGpuFixture gpu, ITestOutpu
         }
 
         var ct = TestContext.Current.CancellationToken;
-        var mosaic = BuildMosaic();
-        var image = BuildRggbImage(mosaic);
+        var mosaic = BuildMosaic(w, h, offsetX, offsetY);
+        var image = BuildRggbImage(mosaic, offsetX, offsetY);
 
-        var cpuRgba = new byte[Width * Height * 4];
+        var cpuRgba = new byte[w * h * 4];
         var debayered = await image.DebayerAsync(DebayerAlgorithm.VNG, normalizeToUnit: false, ct);
         debayered.ChannelCount.ShouldBe(3);
         debayered.RenderStretchedRgba(Passthrough, cpuRgba);
 
         var vngMode = ImageRendererBase<object>.GpuDebayerMode(DebayerAlgorithm.VNG);
-        var gpuRgba = await gpu.InvokeAsync(() => RenderMosaic(mosaic, vngMode), ct);
+        var gpuRgba = await gpu.InvokeAsync(() => RenderMosaic(mosaic, vngMode, offsetX, offsetY), ct);
 
         var vng = Compare(cpuRgba, gpuRgba, "VNG shader vs VNG CPU");
 
@@ -81,7 +121,7 @@ public sealed class GpuVngDebayerParityTests(OffscreenGpuFixture gpu, ITestOutpu
         // require that it disagrees loudly: that is what proves this fixture can tell demosaics apart
         // at all, and therefore that the parity number below means something.
         var control = Compare(cpuRgba, await gpu.InvokeAsync(
-            () => RenderMosaic(mosaic, ImageRendererBase<object>.GpuDebayerMode(DebayerAlgorithm.MHC)), ct),
+            () => RenderMosaic(mosaic, ImageRendererBase<object>.GpuDebayerMode(DebayerAlgorithm.MHC), offsetX, offsetY), ct),
             "MHC shader vs VNG CPU (control)");
 
         // Three states measured on this machine, which is where the bounds below come from rather
@@ -119,8 +159,9 @@ public sealed class GpuVngDebayerParityTests(OffscreenGpuFixture gpu, ITestOutpu
     /// before, both repeated it, so they agreed with each other while both mixed colours along the border, and nothing compared
     /// them anyway. MHC is five fixed linear kernels, so the two can differ only by float order, the byte floor above that.
     /// </summary>
-    [Fact]
-    public async Task TheShaderMhcIsTheCpuMhcToTheFramesEdge()
+    [Theory]
+    [MemberData(nameof(Phases))]
+    public async Task TheShaderMhcIsTheCpuMhcToTheFramesEdge(int offsetX, int offsetY, int w, int h)
     {
         if (!gpu.VulkanAvailable)
         {
@@ -129,17 +170,17 @@ public sealed class GpuVngDebayerParityTests(OffscreenGpuFixture gpu, ITestOutpu
         }
 
         var ct = TestContext.Current.CancellationToken;
-        var mosaic = BuildMosaic();
+        var mosaic = BuildMosaic(w, h, offsetX, offsetY);
 
-        var cpuRgba = new byte[Width * Height * 4];
-        var debayered = await BuildRggbImage(mosaic).DebayerAsync(DebayerAlgorithm.MHC, normalizeToUnit: false, ct);
+        var cpuRgba = new byte[w * h * 4];
+        var debayered = await BuildRggbImage(mosaic, offsetX, offsetY).DebayerAsync(DebayerAlgorithm.MHC, normalizeToUnit: false, ct);
         debayered.RenderStretchedRgba(Passthrough, cpuRgba);
 
         var mhc = Compare(cpuRgba, await gpu.InvokeAsync(
-            () => RenderMosaic(mosaic, ImageRendererBase<object>.GpuDebayerMode(DebayerAlgorithm.MHC)), ct), "MHC shader vs MHC CPU");
+            () => RenderMosaic(mosaic, ImageRendererBase<object>.GpuDebayerMode(DebayerAlgorithm.MHC), offsetX, offsetY), ct), "MHC shader vs MHC CPU");
         // The control, as in the VNG test: a different algorithm on the same fixture must disagree loudly.
         var control = Compare(cpuRgba, await gpu.InvokeAsync(
-            () => RenderMosaic(mosaic, ImageRendererBase<object>.GpuDebayerMode(DebayerAlgorithm.VNG)), ct), "VNG shader vs MHC CPU (control)");
+            () => RenderMosaic(mosaic, ImageRendererBase<object>.GpuDebayerMode(DebayerAlgorithm.VNG), offsetX, offsetY), ct), "VNG shader vs MHC CPU (control)");
 
         control.Max.ShouldBeGreaterThan(24, "the fixture must be able to tell two demosaics apart");
         mhc.Max.ShouldBeLessThanOrEqualTo(2, "the same linear kernels, differing only by float order");
@@ -150,11 +191,12 @@ public sealed class GpuVngDebayerParityTests(OffscreenGpuFixture gpu, ITestOutpu
     /// A mosaic whose colours are each flat at their own level renders those levels at every pixel through the shader's colour
     /// demosaics, the outer rows and columns included: a tap past the edge must read its own colour (#1258). MHC repeated the edge
     /// texel, the neighbouring colour; bilinear (the shader's fallback, mode 0) fetched past the texture, which is undefined.
+    /// Every phase at odd and even sizes (<see cref="PhaseRows"/>), and VNG's rim too: until #1414 this ran on RGGB at 256 x 256
+    /// only, through MHC and bilinear only.
     /// </summary>
     [Theory]
-    [InlineData(1)]
-    [InlineData(0)]
-    public async Task AMosaicOfFlatColoursRendersItsOwnLevelsToTheFramesEdge(int debayerMode)
+    [MemberData(nameof(FlatColourCases))]
+    public async Task AMosaicOfFlatColoursRendersItsOwnLevelsToTheFramesEdge(int debayerMode, int offsetX, int offsetY, int w, int h)
     {
         if (!gpu.VulkanAvailable)
         {
@@ -163,32 +205,32 @@ public sealed class GpuVngDebayerParityTests(OffscreenGpuFixture gpu, ITestOutpu
         }
 
         (float R, float G, float B) level = (0.35f, 0.25f, 0.47f);
-        var mosaic = new float[Height, Width];
-        for (var y = 0; y < Height; y++)
+        var mosaic = new float[h, w];
+        for (var y = 0; y < h; y++)
         {
-            for (var x = 0; x < Width; x++)
+            for (var x = 0; x < w; x++)
             {
-                mosaic[y, x] = (y & 1) == 0 ? ((x & 1) == 0 ? level.R : level.G) : ((x & 1) == 0 ? level.G : level.B);
+                mosaic[y, x] = CfaSample(x, y, offsetX, offsetY, level);
             }
         }
 
-        var rgba = await gpu.InvokeAsync(() => RenderMosaic(mosaic, debayerMode), TestContext.Current.CancellationToken);
+        var rgba = await gpu.InvokeAsync(() => RenderMosaic(mosaic, debayerMode, offsetX, offsetY), TestContext.Current.CancellationToken);
 
         ReadOnlySpan<float> expected = [level.R, level.G, level.B];
         var worst = 0;
-        for (var y = 0; y < Height; y++)
+        for (var y = 0; y < h; y++)
         {
-            for (var x = 0; x < Width; x++)
+            for (var x = 0; x < w; x++)
             {
                 for (var c = 0; c < 3; c++)
                 {
-                    var d = Math.Abs(rgba[(((y * Width) + x) * 4) + c] - (int)MathF.Round(expected[c] * 255f));
+                    var d = Math.Abs(rgba[(((y * w) + x) * 4) + c] - (int)MathF.Round(expected[c] * 255f));
                     worst = Math.Max(worst, d);
-                    d.ShouldBeLessThanOrEqualTo(1, $"mode {debayerMode}, channel {c} at ({x}, {y})");
+                    d.ShouldBeLessThanOrEqualTo(1, $"mode {debayerMode}, phase ({offsetX}, {offsetY}), {w} x {h}, channel {c} at ({x}, {y})");
                 }
             }
         }
-        output.WriteLine($"mode {debayerMode}: largest byte difference from the flat levels {worst}");
+        output.WriteLine($"mode {debayerMode}, phase ({offsetX}, {offsetY}), {w} x {h}: largest byte difference from the flat levels {worst}");
     }
 
     private (double Mean, int Max, double OutlierFraction) Compare(byte[] cpuRgba, byte[] gpuRgba, string label)
@@ -232,15 +274,17 @@ public sealed class GpuVngDebayerParityTests(OffscreenGpuFixture gpu, ITestOutpu
 
     /// <summary>
     /// Uploads the raw mosaic as a single channel and renders it through the RawBayer shader path at
-    /// <paramref name="debayerMode"/>, which is the same route the live viewer takes for a CFA frame.
+    /// <paramref name="debayerMode"/> and the Bayer phase <paramref name="bayerOffsetX"/>, <paramref name="bayerOffsetY"/>,
+    /// which is the same route the live viewer takes for a CFA frame.
     /// </summary>
-    private byte[] RenderMosaic(float[,] mosaic, int debayerMode)
+    private byte[] RenderMosaic(float[,] mosaic, int debayerMode, int bayerOffsetX, int bayerOffsetY)
     {
         var ctx = gpu.Ctx!;
         var renderer = gpu.Renderer!;
         var pipeline = gpu.Pipeline!;
+        var (width, height) = (mosaic.GetLength(1), mosaic.GetLength(0));
 
-        var flat = new float[Width * Height];
+        var flat = new float[width * height];
         Buffer.BlockCopy(mosaic, 0, flat, 0, flat.Length * sizeof(float));
 
         // All three slots get the mosaic although only channel 0 is sampled on this path: the
@@ -249,7 +293,7 @@ public sealed class GpuVngDebayerParityTests(OffscreenGpuFixture gpu, ITestOutpu
         // validation error that has nothing to do with the test that hit it.
         for (var ch = 0; ch < 3; ch++)
         {
-            pipeline.UploadChannelTexture(flat, ch, Width, Height);
+            pipeline.UploadChannelTexture(flat, ch, width, height);
         }
 
         renderer.BeginOffscreenFrame(new RGBAColor32(0, 0, 0, 255)).ShouldBeTrue();
@@ -272,7 +316,7 @@ public sealed class GpuVngDebayerParityTests(OffscreenGpuFixture gpu, ITestOutpu
             rescale: u.Rescale,
             gridMode: 0,
             gridSpacingRA: 0f, gridSpacingDec: 0f, gridLineWidth: 0f,
-            imageW: Width, imageH: Height,
+            imageW: width, imageH: height,
             crPix1: 0, crPix2: 0, crValRA: 0, crValDec: 0,
             cdMatrix: ReadOnlySpan<float>.Empty,
             whiteBalance: u.WhiteBalance,
@@ -280,21 +324,21 @@ public sealed class GpuVngDebayerParityTests(OffscreenGpuFixture gpu, ITestOutpu
             curvesMode: 0,
             curveData: ReadOnlySpan<float>.Empty,
             imageSource: VkFitsImagePipeline.ImageSource.RawBayer,
-            bayerOffsetX: 0, bayerOffsetY: 0,
+            bayerOffsetX: bayerOffsetX, bayerOffsetY: bayerOffsetY,
             lumaWeights: u.LumaWeights,
             lumaStretch: u.LumaStretch,
             lumaBlend: u.LumaBlend,
             normalizeScale: u.NormalizeScale,
             debayerMode: debayerMode);
 
-        pipeline.RecordImageDraw(cmd, ctx, 0, 0, Width, Height, OffscreenGpuFixture.Width, OffscreenGpuFixture.Height);
+        pipeline.RecordImageDraw(cmd, ctx, 0, 0, width, height, OffscreenGpuFixture.Width, OffscreenGpuFixture.Height);
         renderer.EndOffscreenFrame();
 
         return OffscreenGpuFixtureBase.ExtractSubRect(
-            ctx.ReadbackOffscreenRgba(), OffscreenGpuFixture.Width, Width, Height);
+            ctx.ReadbackOffscreenRgba(), OffscreenGpuFixture.Width, width, height);
     }
 
-    private static Image BuildRggbImage(float[,] mosaic)
+    private static Image BuildRggbImage(float[,] mosaic, int bayerOffsetX, int bayerOffsetY)
     {
         var meta = new ImageMeta(
             Instrument: "synthetic",
@@ -310,7 +354,7 @@ public sealed class GpuVngDebayerParityTests(OffscreenGpuFixture gpu, ITestOutpu
             BinX: 1, BinY: 1,
             CCDTemperature: -10,
             SensorType: SensorType.RGGB,
-            BayerOffsetX: 0, BayerOffsetY: 0,
+            BayerOffsetX: bayerOffsetX, BayerOffsetY: bayerOffsetY,
             RowOrder: RowOrder.TopDown,
             Latitude: 0f, Longitude: 0f,
             Gain: 100,
@@ -324,7 +368,8 @@ public sealed class GpuVngDebayerParityTests(OffscreenGpuFixture gpu, ITestOutpu
     }
 
     /// <summary>
-    /// A scene built to make direction choices observable, sampled through an RGGB CFA.
+    /// A scene built to make direction choices observable, sampled through an RGGB CFA at the phase
+    /// <paramref name="offsetX"/>, <paramref name="offsetY"/>.
     /// </summary>
     /// <remarks>
     /// A smooth field is useless here: every demosaic averages symmetrically over one and they all
@@ -334,20 +379,16 @@ public sealed class GpuVngDebayerParityTests(OffscreenGpuFixture gpu, ITestOutpu
     /// near-Nyquist stripe pattern for where a demosaic either resolves detail or invents colour, and
     /// a little noise so the gradient comparisons are never exactly tied on flat sky.
     /// </remarks>
-    private static float[,] BuildMosaic()
+    private static float[,] BuildMosaic(int width, int height, int offsetX, int offsetY)
     {
-        var data = new float[Height, Width];
+        var data = new float[height, width];
         var rng = new Random(20260907);
 
-        for (var y = 0; y < Height; y++)
+        for (var y = 0; y < height; y++)
         {
-            for (var x = 0; x < Width; x++)
+            for (var x = 0; x < width; x++)
             {
-                var (r, g, b) = Scene(x, y);
-                // RGGB at offset (0, 0): red on even/even, blue on odd/odd, green on the diagonal.
-                var v = (y & 1) == 0
-                    ? ((x & 1) == 0 ? r : g)
-                    : ((x & 1) == 0 ? g : b);
+                var v = CfaSample(x, y, offsetX, offsetY, Scene(x, y, width, height));
                 data[y, x] = Math.Clamp(v + ((float)rng.NextDouble() - 0.5f) * 0.004f, 0f, 1f);
             }
         }
@@ -355,25 +396,37 @@ public sealed class GpuVngDebayerParityTests(OffscreenGpuFixture gpu, ITestOutpu
         return data;
     }
 
-    private static (float R, float G, float B) Scene(int x, int y)
+    /// <summary>
+    /// The colour an RGGB CFA at the phase <paramref name="offsetX"/>, <paramref name="offsetY"/> samples at (x, y): red where x's
+    /// parity is the X offset and y's the Y offset, blue where neither is, green on the diagonal. At (0, 0) that is red on
+    /// even/even and blue on odd/odd; the shader's <c>(px + off) % 2 == 0</c> and the CPU's <c>BayerOffsetX</c> /
+    /// <c>BayerOffsetY</c> read it the same way.
+    /// </summary>
+    private static float CfaSample(int x, int y, int offsetX, int offsetY, (float R, float G, float B) rgb)
     {
-        var sky = 0.06f + 0.02f * (x / (float)Width) + 0.01f * (y / (float)Height);
+        var (xRed, yRed) = ((x & 1) == offsetX, (y & 1) == offsetY);
+        return xRed && yRed ? rgb.R : !xRed && !yRed ? rgb.B : rgb.G;
+    }
+
+    private static (float R, float G, float B) Scene(int x, int y, int width, int height)
+    {
+        var sky = 0.06f + 0.02f * (x / (float)width) + 0.01f * (y / (float)height);
         var r = sky * 1.10f;
         var g = sky;
         var b = sky * 0.85f;
 
-        AddStar(ref r, ref g, ref b, x, y, Width * 0.30f, Height * 0.35f, 1.4f, 0.80f, 0.72f, 0.58f);
-        AddStar(ref r, ref g, ref b, x, y, Width * 0.62f, Height * 0.58f, 1.9f, 0.42f, 0.51f, 0.72f);
-        AddStar(ref r, ref g, ref b, x, y, Width * 0.45f, Height * 0.78f, 1.1f, 0.25f, 0.25f, 0.25f);
+        AddStar(ref r, ref g, ref b, x, y, width * 0.30f, height * 0.35f, 1.4f, 0.80f, 0.72f, 0.58f);
+        AddStar(ref r, ref g, ref b, x, y, width * 0.62f, height * 0.58f, 1.9f, 0.42f, 0.51f, 0.72f);
+        AddStar(ref r, ref g, ref b, x, y, width * 0.45f, height * 0.78f, 1.1f, 0.25f, 0.25f, 0.25f);
 
-        if (x + y > (Width + Height) * 0.72f)
+        if (x + y > (width + height) * 0.72f)
         {
             r += 0.10f;
             g += 0.06f;
             b += 0.03f;
         }
 
-        if (((x / 2) & 1) == 0 && y > Height * 0.05f && y < Height * 0.20f)
+        if (((x / 2) & 1) == 0 && y > height * 0.05f && y < height * 0.20f)
         {
             r += 0.05f;
             g += 0.05f;

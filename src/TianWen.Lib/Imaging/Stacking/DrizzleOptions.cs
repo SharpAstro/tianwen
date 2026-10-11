@@ -27,13 +27,15 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// strategy is allowed to run. Drizzle's per-cell coverage relies on many
 /// sub-pixel-dithered drops to fill the output grid; at low N the master
 /// ends up with sparse zero-weight cells (NaN holes) in R and B (each only
-/// 25% of input pixels under RGGB). Production default of 60 is the
-/// conservative floor; tests override to 4 to exercise the code path on
-/// small synthetic fixtures.</param>
+/// 25% of input pixels under RGGB). The production default is
+/// <see cref="DrizzleStrategy.AutoSelectMinFrameCount"/> (60), the
+/// conservative floor, so a null <see cref="StackingOptions.DrizzleOptions"/>
+/// and a default-constructed one gate alike; tests override to 4 to exercise
+/// the code path on small synthetic fixtures.</param>
 public sealed record DrizzleOptions(
     float Pixfrac = 1.0f,
     int OutputScale = 10,
-    int MinFrameCount = 60)
+    int MinFrameCount = DrizzleStrategy.AutoSelectMinFrameCount)
 {
     /// <summary>The only <see cref="OutputScale"/> value supported in Phase 1.
     /// Exists so the strategy + tests have a name to grep on when Phase 2

@@ -51,7 +51,7 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
     /// <summary>Default minimum matched-frame count for drizzle auto-select.
     /// Below this the per-channel coverage (~25% per Bayer position) is too
     /// sparse to fill R/B reliably under sub-pixel dither, producing NaN-
-    /// riddled R/B planes. Matches <see cref="DrizzleOptions.MinFrameCount"/>'s
+    /// riddled R/B planes. It IS <see cref="DrizzleOptions.MinFrameCount"/>'s
     /// default; the pipeline can override this per-run by constructing
     /// the strategy with a custom <c>minFrameCount</c> so
     /// <c>--drizzle-min-frames N</c> drives both the auto-pick gate here

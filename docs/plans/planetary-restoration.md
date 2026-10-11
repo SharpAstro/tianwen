@@ -3161,7 +3161,10 @@ which is undefined). VNG and AHD already filled their border from same-colour sa
 colours are each flat at their own level, exact at every pixel, border included: `DebayerMhcTests` (four pattern phases, odd and even
 sizes), SER.Lib's `SerImagingTests`, and `GpuVngDebayerParityTests` through the shader's MHC and bilinear, all of which fail with the
 repeated edge; a one-level flat field passes either way. The same harness now holds the shader's MHC to the CPU's, which nothing had
-compared: at most 1 byte apart, border included, against 63 for the VNG control.
+compared: at most 1 byte apart, border included, against 63 for the VNG control. Since #1414 the shader side covers what the CPU side
+does: every pattern phase at odd and even sizes, through VNG's own rim as well, the flat mosaic and both comparisons with the CPU (at most
+1 byte apart on every phase, against 61 to 77 for the controls). A rim that ignores the Y phase fails four of those cases and passes
+every RGGB one, which is all the shader had been tested on.
 
 Re-stacked, the five colour captures against a rule set before re-stacking: each master's outermost rows and columns within 5 times the
 interior sky's median absolute deviation, every channel (2025-01-02 had been 48 to 175 times, 2024-12-15 28 to 261, now at most 2.4 and
