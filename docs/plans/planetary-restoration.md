@@ -321,6 +321,24 @@ each arm measuring the real capture afresh and making its twin):
   true disk reads 5.09. The start's radius moves with the blur, so the statistic mixes the two; reading it at the fitted limb moves every
   twin-against-capture number, so it waits on rules and a re-measure.
 
+**#1409 F6b, measured: the statistics' frame grade stays the Laplacian, the gradient an option** (the owner, 2026-10-11: "only if it doesn't
+degrade other things"). The statistics grade frames with the Laplacian (the reference, the best tenth, the quality's spread), the stack
+with the gradient, and R4 read the Laplacian near chance on 8-bit frames. `CaptureStatisticsOptions.QualityEstimator`, `--quality
+gradient|laplacian` on `degrade`, `seeing` and `twin`; a saved statistics file is keyed on it. Rules set on #1409 first; one build,
+each arm measuring the real capture afresh and making its twin, on R2's Red, #1281's EdgeHD Jupiter and S3's Saturn:
+
+| | best tenth's edge width, real, L to G | fitted mismatch, capture mean, L to G | matched rows, L to G |
+|---|---|---|---|
+| 2022-09-03 Red | -4.6 % | 0.601 to 0.562 | 8 to 10 |
+| EdgeHD Jupiter, R / G / B | -4.8 / -6.3 / -5.8 % | 0.556 to 0.546 (R alone +47 %) | 32 to 30 |
+| Saturn 2022-10-09, R / G / B | -5.1 / -15.4 / **+8.1 %** | 0.388 to 0.283 | 22 to 23 |
+
+- **Rule 1 fails on Saturn's blue**, 8.1 % wider where 2 % was allowed; the six other channels' best tenths are 4.6 to 15.4 % sharper.
+- **Rule 2 fails**: seven rows matched under the Laplacian no longer do (mostly halo annuli), though the means fall on all three captures.
+- **The gradient picks one sharpest frame across a capture's colours** (Saturn: 2288, 2176, 2175), where the Laplacian picks frames
+  hundreds apart (2111, 845, 338). The twins were calibrated under the Laplacian, so making the gradient the default means refitting them
+  first and reading these rules again.
+
 **Done** (2026-09-29), the kill line firing on the sky's finest bands (below). `tianwen planetary degrade <capture> --map --output` measures the real capture, makes the synthetic one, measures it the same way and prints the comparison; `tianwen planetary seeing` measures any capture alone.
 
 - **How a synthetic frame is made** (`PlanetaryDegrade`):
