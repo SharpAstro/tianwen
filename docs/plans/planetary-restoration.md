@@ -5408,7 +5408,7 @@ the noise read off the master's halves, #1313):
 #### A night of many sets: a join weighed by view, or band by band (#1349)
 
 **Built** (2026-10-11), two options on `planetary compose`, neither a default:
-- `--viewing-weights` (fix C, from #1352): each de-rotated stack's pixel weighed by the cosine of its view at the source, tapered from 0.8 to
+- `--viewing-weights source` (fix C, from #1352; a bare `--viewing-weights` before 2026-10-12): each de-rotated stack's pixel weighed by the cosine of its view at the source, tapered from 0.8 to
   0 at 0.9 source radii (`PlanetaryDerotation.JoinWeights`), so no stack's unturned rim enters where another stack saw the planet. The weight
   travels beside its stack as `<name>.weight.fits` (`PlanetaryComposition.WriteStack` / `ReadStack`), and the steps through files give the
   recipe's master to the bit.
@@ -5442,8 +5442,44 @@ shared detail), the limb's edge at 0.1 cycles a pixel read by `planetary sharpen
 - **No master meets the issue's rules 1 and 2 together** (at least set 10's detail, less noise). The deep masters are 3 times quieter than
   set 10 and hold 90 % of its finest detail; the pairs remain the recipe for a sharp master from a long night.
 
-What is left: a sharpest-stack test that a gain cannot fool (the limb's edge rather than band 2's energy), and a by-view join that leaves the
+What was left: a sharpest-stack test that a gain cannot fool (the limb's edge rather than band 2's energy), and a by-view join that leaves the
 limb to the stacks that saw it there. Logs: `D:/temp/tianwen-scratch/i1349b/` (`night/`, `twins/join/`, `night.sh`, `twinjoin.sh`, `wiener.sh`).
+
+##### The two tools (2026-10-12)
+
+**The owner's call: build them.** Both are options, and the rules were set on #1349 before the night ran.
+
+- **The sharpest stack picked by its unturned limb.** A registration reads each stack's limb edge at 0.1 cycles a pixel
+  (`PlanetaryFinestBand.StackEdge`, `ImageMeta.LimbEdge`, FITS `LIMBEDGE`, carried through the steps' files). It reads it before any turn,
+  since a de-rotation carries the disk's inside to the limb with none of its blur. Every stack is read against the reference's model,
+  placed at its own centre. Read against its own fit, a copy of one stack at 0.7 the gain on another sky read 1.05 against 1.16, the fit
+  sliding along #1498's valley. Against one model it reads 1.1613 against 1.1616. The band join picks a filter's sharpest by it, and
+  refuses a stack that no registration read.
+- **`--viewing-weights limb`.** Inside the disk it weighs exactly as `source` (fix C) does. From 0.8 to 0.9 of the target's radius, each
+  stack's own unturned pixel takes over from the turned samples (`PlanetaryDerotation.JoinWeights`' `leaveLimb`). In the unit test, the
+  joined limb ring is the greens' own pixels to within 0.0008.
+
+**Measured** on the same night, every master on one build, the baseline reproducing the table above to the third decimal:
+
+| master | edge | band 1 / 2 / 3 against set 10 | sky noise R, G, B (x 1e-6) |
+|---|---|---|---|
+| deep, by limb view | **0.263** | **0.999 / 1.035 / 1.030** | 6.91, 7.16, 7.14 |
+| deep, by band (matched), the pick by limb | 0.368 | 0.894 / 0.987 / 1.009 | 9.21, 7.03, 7.64 |
+| deep, by band (Wiener), the pick by limb | 0.482 | 0.787 / 0.957 / 0.985 | 16.2, 11.9, 14.4 |
+| deep, by limb view and band (matched) | 0.268 | 0.988 / 1.032 / 1.029 | 9.21, 7.03, 7.64 |
+| deep, by limb view and band (Wiener) | 0.316 | 0.888 / 1.007 / 1.023 | 16.2, 11.9, 14.4 |
+
+- **The limb view holds both its rules** (C1 and C2 as written for fix C).
+  - Its limb's edge, 0.263, is under the sharpest pair's 0.306.
+  - Its gains against set 10 are above the plain deep master's in every band, and its noise is the plain master's to 0.01 %.
+  - It nearly meets the issue's first rule as well: band 1 holds 0.999 of set 10's finest shared detail at a third of its noise.
+  - The judge reads the globe inside 0.9 radii, which takes in the 0.8 to 0.9 ring where the stacks' own unturned samples take over. Inside
+    0.8 radii the weights are fix C's exactly.
+- **The pick by the unturned limb holds** (P1). Red picks set 9 (0.183), green set 10 (0.232), blue set 9 (0.180), never set 2's burst.
+- **The band join still fails B3, both forms**, now with the right stacks: band 1 at 0.894 matched and 0.787 Wiener. So the pick was not
+  what sank it, and the limb view does more for the globe on its own.
+
+**Where it stands.** Both tools stay options until the owner decides (#1349). Logs: `D:/temp/tianwen-scratch/i1349c/night/`.
 
 ### The colour look (#1273)
 

@@ -1019,7 +1019,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
   (`PlanetaryDerotation`, `PlanetaryProjection`, Minnaert's law). **North comes from agreement, never the limb fit
   alone** (`PlanetaryDerotation.AgreementBothWays`, `planetary derotate`). **A mono camera's stacks are composed by
   `PlanetaryComposition`** (`planetary compose`, #1278): each moved onto the reference's disk FIRST, then
-  de-rotated; IR luminance (`--lrgb`) is an option. **Each frame is carried inside the stacker**
+  de-rotated; IR luminance (`--lrgb`) is an option. **A stack's sharpness is read off its limb BEFORE any turn**
+  (`ImageMeta.LimbEdge`, `LIMBEDGE`, #1349), against the reference's model, never its own fit's; `--viewing-weights limb` leaves
+  the limb to the stacks that kept it unturned, an option. **Each frame is carried inside the stacker**
   (`PlanetaryStackOptions.Derotation`); **two stacks of one camera are moved with ONE north**; **a night's zonal
   drift is below what two stacks agree on** (`planetary drift`, `planetary belts`).
 - **The blur and its inverse (R7, R8), when re-measured**: the spectral ratio (`planetary spectral-ratio`) cancels a
