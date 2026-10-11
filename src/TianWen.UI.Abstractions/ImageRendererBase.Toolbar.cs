@@ -53,11 +53,9 @@ namespace TianWen.UI.Abstractions
             var tb = _layout.Toolbar;
             FillRect(tb.X, tb.Y, tb.Width, tb.Height, ViewerTheme.ToolbarBg);
 
-            // Refilled from the SAME rect the button paints (RegisterClickable's own list, read back via
-            // TryGetPaintedToolbarRect), so the tooltip can never point somewhere the button is not. No
-            // ViewerState field: the toolbar already derives `hovered` per button per frame (it drives
-            // the highlight), so the tooltip is a by-product of that, not new state to keep in sync.
-            _hoveredTooltip = null;
+            // The file list refills it as it paints a hovered row whose name is cut. Reset here, at the
+            // top of the chrome's paint, so a row the pointer left reveals nothing on the next frame.
+            _revealedRowName = null;
 
             if (string.IsNullOrEmpty(FontPath))
             {
@@ -431,11 +429,6 @@ namespace TianWen.UI.Abstractions
                 DrawText(box.Label, r.X + ButtonPaddingH + box.MarkWidth + MarkGap(box.MarkWidth, box.Label),
                     textY, ToolbarFontSize, inkColor);
 
-                if (hovered && GetToolbarButtonTooltip(box.Action, state, _document, Findings) is { Length: > 0 } tip)
-                {
-                    _hoveredTooltip = (tip, r.X, r.Bottom, null);
-                }
-
                 if (box.Enabled)
                 {
                     // Only enabled buttons register, so a dropdown anchor (see OpenToolbarDropdown) or a
@@ -451,13 +444,21 @@ namespace TianWen.UI.Abstractions
                     // OnPress, not OnClick, because the POLICY needs the button (a right press
                     // reverse-cycles in tianwen-fits). Returning null declines the drag, which is the
                     // documented way to say "acted, but this is not a gesture".
+                    //
+                    // The tooltip rides on the same region, so the router decides when it is due (after
+                    // its hover delay, never under an open popover) and the host's one painter draws it
+                    // (Layout.Builder.Tooltip, #1446): the toolbar no longer places a box of its own.
                     var action = box.Action;
-                    RegisterClickable(r.X, r.Y, r.Width, r.Height, new HitResult.ButtonHit(action.ToString()),
-                        onPress: press =>
+                    var tip = GetToolbarButtonTooltip(action, state, _document, Findings);
+                    RegisterClickable(new ClickableRegion(r.X, r.Y, r.Width, r.Height, new HitResult.ButtonHit(action.ToString()))
+                    {
+                        OnPress = press =>
                         {
                             PressToolbarButton(state, action, press.Button);
                             return null;
-                        });
+                        },
+                        Tooltip = tip is { Length: > 0 } ? tip : null,
+                    });
                 }
             }
         }
@@ -1099,87 +1100,71 @@ namespace TianWen.UI.Abstractions
             };
         }
 
-        // The hovered button's tooltip and the anchor to hang it from, captured during the toolbar
-        // paint. Render-thread only, rebuilt every frame.
         /// <summary>
-        /// The hover tooltip for this frame: its text, its anchor, and -- for a tooltip belonging to a
-        /// LIST ROW -- that row's height.
-        ///
-        /// The row case is placed differently on purpose. A tooltip dropped below its anchor lands
-        /// exactly on top of the NEXT row, so a full file name appears against a different file's
-        /// position and reads as that file's name. Given the row's height it is instead drawn over the
-        /// row itself, left edge and text inset matching, which reads as the row widening to fit its
-        /// own name -- the thing the reader actually asked for.
+        /// The file-list row (or the folder header) whose full name is revealed this frame: its text, and the
+        /// row's rect at its top-left and height. Render-thread only, rebuilt every frame.
         /// </summary>
-        private (string Text, float X, float Y, float? RowHeight)? _hoveredTooltip;
+        /// <remarks>
+        /// <para>
+        /// <b>This is not a tooltip</b>, and so is not drawn by the one tooltip painter
+        /// (<see cref="RenderTooltip"/>, <c>Layout.Builder.Tooltip</c>). A tooltip waits out a hover delay and
+        /// opens BESIDE what it explains; this appears at once, OVER the row, in the list's own font and
+        /// inset, so it reads as the row widening to fit its own name. Dropped below the row like a tooltip,
+        /// a full file name lands on the NEXT row and reads as that file's name.
+        /// </para>
+        /// <para>
+        /// The file list sets it only for a row under the pointer while no overlay owns it, so drawing it
+        /// needs no second test of <c>ViewerState.OverlayOwnsPointer</c>.
+        /// </para>
+        /// </remarks>
+        private (string Text, float X, float Y, float RowHeight)? _revealedRowName;
 
         /// <summary>
-        /// Draws the hovered toolbar button's tooltip. Called LAST in the frame so it paints over every
-        /// other piece of chrome -- a tooltip that the file list or the info panel draws over is worse
-        /// than none, because it looks like a rendering fault rather than a missing feature.
+        /// Draws <see cref="_revealedRowName"/> over its row. Called LAST in the frame so it paints over every
+        /// other piece of chrome -- a reveal that the info panel draws over is worse than none, because it
+        /// looks like a rendering fault rather than a missing feature.
         /// </summary>
-        /// <summary>Design-unit padding between a tooltip box's edge and its text.</summary>
-        private const float TooltipPadding = 6f;
-
-        /// <summary>
-        /// A hover tooltip's anchor: the point the hit test recorded, as a zero-extent rect. A zero
-        /// height is what makes "just below the anchor" resolve to the point itself, which is where
-        /// both tooltips have always been placed -- over the row for a file name, and at the button's
-        /// own bottom edge for a toolbar mark, because that is the y the hit test recorded.
-        /// </summary>
-        private static RectF32 TooltipAnchor((string Text, float X, float Y, float? RowHeight) tip)
-            => new RectF32(tip.X, tip.Y, 0f, 0f);
-
-        private void RenderHoverTooltip(ViewerState state)
+        private void RenderRevealedRowName()
         {
-            // An open dropdown owns the pointer, so the button underneath must not also explain itself.
-            // Stated ONCE on the state (see ViewerState.OverlayOwnsPointer) rather than as a term here,
-            // which is how the cursor predicate this codebase retired went wrong.
-            if (_hoveredTooltip is not { } tip || state.OverlayOwnsPointer || string.IsNullOrEmpty(FontPath))
+            if (_revealedRowName is not { } row || string.IsNullOrEmpty(FontPath))
             {
                 return;
             }
 
-            // A row tooltip stands in for the row's own text, so it must use the LIST's font size and
-            // the list's baseline -- at the toolbar's size it sat a couple of pixels off and the
-            // underscores in a file name doubled up against the row beneath.
-            var fontSize = tip.RowHeight is null ? ToolbarFontSize : FontSize;
-            var textWidth = MeasureText(tip.Text, fontSize);
-
-            RectF32 box;
-            float textX;
-            if (tip.RowHeight is { } rowHeight)
-            {
-                // Over the row, not below it. PanelPadding rather than the tooltip's own padding so
-                // the revealed text starts at the same x as the truncated text it replaces -- a
-                // different inset would make the name appear to jump sideways on hover.
-                var width = textWidth + PanelPadding * 2f;
-                box = PlaceBesideAnchor(TooltipAnchor(tip), width, rowHeight);
-                textX = box.X + PanelPadding;
-            }
-            else
-            {
-                // The tooltip's own padding, which is narrower than a panel's: six design units either
-                // side of the text and half that under it.
-                var pad = TooltipPadding * MathF.Max(DpiScale, 0.01f);
-                box = PlaceBesideAnchor(TooltipAnchor(tip), textWidth + (pad * 2f), fontSize + pad);
-                textX = box.X + pad;
-            }
+            // It stands in for the row's own text, so it uses the LIST's font size and baseline -- at the
+            // toolbar's size it sat a couple of pixels off and the underscores in a file name doubled up
+            // against the row beneath. PanelPadding either side, the inset the truncated name is drawn at,
+            // so the revealed text starts at the same x rather than appearing to jump sideways.
+            var width = MeasureText(row.Text, FontSize) + PanelPadding * 2f;
+            var box = PlaceBesideAnchor(new RectF32(row.X, row.Y, 0f, 0f), width, row.RowHeight);
 
             FillRect(box.X - 1f, box.Y - 1f, box.Width + 2f, box.Height + 2f, ViewerTheme.Palette.SeparatorStrong);
             FillRect(box.X, box.Y, box.Width, box.Height, ViewerTheme.Palette.PanelBg);
-            if (tip.RowHeight is { } rowTextHeight)
+            // Top-aligned at the same inset RenderFileList uses, NOT vertically centred in the box: centring
+            // is what put it off the row's baseline. Same helper, same offset, so the revealed name lands
+            // exactly where the truncated one was.
+            DrawText(row.Text, box.X + PanelPadding, RowTextY(box.Y, row.RowHeight), FontSize, ViewerTheme.Palette.BodyText);
+        }
+
+        /// <summary>
+        /// Paints the tooltip the host's router has due (<see cref="InputRouter.Tooltip"/>) over the whole
+        /// surface, through the one painter (<c>Layout.Builder.Tooltip</c>, #1446). For a host where this viewer
+        /// IS the window (<c>StandaloneViewerHost</c>); a host that embeds it paints its own window's tooltip,
+        /// toolbar ones included, since they reach that host's router through the same regions.
+        /// </summary>
+        public void RenderTooltip(TooltipRequest? request)
+        {
+            if (request is not { } due || string.IsNullOrEmpty(FontPath))
             {
-                // Top-aligned at the same +2 inset RenderFileList uses, NOT vertically centred in the
-                // box: centring is what put it off the row's baseline. Same helper, same offset, so
-                // the revealed name lands exactly where the truncated one was.
-                DrawText(tip.Text, textX, RowTextY(box.Y, rowTextHeight), fontSize, ViewerTheme.Palette.BodyText);
+                return;
             }
-            else
-            {
-                DrawText(tip.Text.AsSpan(), FontPath, textX, box.Y, box.Width, box.Height,
-                    fontSize, ViewerTheme.Palette.BodyText, TextAlign.Near, TextAlign.Center);
-            }
+
+            var style = new Layout.TooltipStyle(
+                Background: ViewerTheme.Palette.PanelBg,
+                Text: ViewerTheme.Palette.BodyText,
+                Border: ViewerTheme.Palette.SeparatorStrong,
+                FontSize: BaseToolbarFontSize);
+            RenderLayout(Layout.Builder.Tooltip(due, style), new RectF32(0f, 0f, Renderer.Width, Renderer.Height));
         }
 
         /// <summary>Design-unit edge of a toolbar mark, sized to the toolbar text beside it.</summary>

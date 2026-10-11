@@ -1206,7 +1206,7 @@ namespace TianWen.UI.Abstractions
             // Last of all, so it paints over every other piece of chrome.
             if (!state.HideChrome)
             {
-                RenderHoverTooltip(state);
+                RenderRevealedRowName();
             }
 
             // Consumed: the next frame prepares again, here or in its host's pre-pass.

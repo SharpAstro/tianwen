@@ -522,6 +522,8 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     if (renderer.LastFrameWasPartial) { partialFrames++; } else { fullFrames++; }
 
     imageRenderer.Render(controller.Source, state);
+    // Last, over everything: the tooltip the router has due (#1446).
+    host.PaintTooltip();
 
         // The trace is written here rather than at the end of the set-up above because the window
         // being on screen is what the user is waiting for, and a file opened from the shell then

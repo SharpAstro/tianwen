@@ -151,7 +151,7 @@ namespace TianWen.UI.Abstractions
             var headerRect = new RectF32(lx, y, FileListWidth, height);
             if (!state.OverlayOwnsPointer && headerRect.Contains(mouse.X, mouse.Y))
             {
-                _hoveredTooltip = (folder, lx, y, height);
+                _revealedRowName = (folder, lx, y, height);
             }
 
             // Registered as the same list with index -1 rather than as bespoke chrome, so the hover
@@ -324,7 +324,7 @@ namespace TianWen.UI.Abstractions
                 // noise. Anchored on the row so it appears where the pointer is.
                 if (isHovered && !string.Equals(displayName, label, StringComparison.Ordinal))
                 {
-                    _hoveredTooltip = (fileName, rowRect.X, rowRect.Y, rowRect.Height);
+                    _revealedRowName = (fileName, rowRect.X, rowRect.Y, rowRect.Height);
                 }
             }
 

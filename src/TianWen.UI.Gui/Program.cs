@@ -469,7 +469,9 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             // asked for one on every iteration and the whole GUI rendered continuously while it had the
             // keyboard.
             || (appState.ActiveTextInput is { IsActive: true }
-                && CaretBlink.PhaseAt(timeProvider.GetTimestamp(), timeProvider.TimestampFrequency) != guiRenderer.PaintedCaretPhase);
+                && CaretBlink.PhaseAt(timeProvider.GetTimestamp(), timeProvider.TimestampFrequency) != guiRenderer.PaintedCaretPhase)
+            // A tooltip's hover delay runs out while the pointer RESTS, which nothing else notices.
+            || handlers.TooltipNeedsFrame;
     },
 
     OnRender = () =>
@@ -485,6 +487,8 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
         var renderStart = System.Diagnostics.Stopwatch.GetTimestamp();
         guiRenderer.Render(appState, plannerState, viewerState, timeProvider);
+        // Last, over everything: the one tooltip the router has due, whichever region declared it (#1446).
+        guiRenderer.RenderTooltip(handlers.Tooltip);
         var renderElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(renderStart);
 
         // Everything that can only be decided once the frame exists: a field that stopped being drawn
