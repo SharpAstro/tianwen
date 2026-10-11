@@ -133,17 +133,22 @@ public sealed class LiveViewController : IAsyncDisposable
         }
     }
 
-    // The held step: once now, then again on the repeat until the hold is cancelled. Owns its token source.
+    // The held step: once now, then again on the repeat until the hold is cancelled. Owns its token source. Each wait starts
+    // BEFORE its step goes out, so whoever sees a step finds the next wait already on the clock: sent first, a clock moved on
+    // the moment the step arrived (a test's, which reads the step and advances) could pass before the wait began, and the
+    // wait then never ended (main's x64 leg, 2026-10-11).
     private async Task RepeatLensStepAsync(LensFocusStep step, CancellationTokenSource hold)
     {
         try
         {
+            var wait = _timeProvider.SleepAsync(LensHoldDelay, hold.Token);
             DriveLens(step);
-            await _timeProvider.SleepAsync(LensHoldDelay, hold.Token).ConfigureAwait(false);
+            await wait.ConfigureAwait(false);
             while (!hold.IsCancellationRequested && IsLive)
             {
+                wait = _timeProvider.SleepAsync(LensRepeatInterval, hold.Token);
                 DriveLens(step);
-                await _timeProvider.SleepAsync(LensRepeatInterval, hold.Token).ConfigureAwait(false);
+                await wait.ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
