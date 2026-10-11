@@ -646,9 +646,17 @@ internal partial record Session
                     var polled = TimeSpan.Zero;
 
                     // That tick can still come before the shutter closes: wait out the rest, under a tick, rather than
-                    // fail a fetch, log it as an error and try again a tick later (#1414)
+                    // fail a fetch, log it as an error and try again a tick later (#1414). And it can come more than a tick
+                    // before: the ticker drops the ticks a late continuation missed and delivers one at once, so after a wait
+                    // ahead of an exposure (a settle) the countdown counts ticks that came before the shutter opened, and ran
+                    // out 5 to 10 s early on 30 s subs. Then there is nothing to fetch yet: look again next tick, as while
+                    // the countdown runs.
                     var untilClosed = expStartTimes[i] + frameExpTime - _timeProvider.GetUtcNow();
-                    if (untilClosed > TimeSpan.Zero && untilClosed <= tickDuration)
+                    if (untilClosed > tickDuration)
+                    {
+                        continue;
+                    }
+                    if (untilClosed > TimeSpan.Zero)
                     {
                         await _timeProvider.SleepAsync(untilClosed, cancellationToken);
                     }
@@ -727,6 +735,7 @@ internal partial record Session
 
                     if (!imageFetchSuccess[1 << i])
                     {
+                        Interlocked.Increment(ref _fetchesGivenUp);
                         _logger.LogError("Failed fetching camera #{CameraNumber)} {CameraName} {ExposureStartTime} exposure of frame #{FrameNo}, camera state: {CameraState}",
                             i + 1, camDriver.Name, frameExpTime, frameNo, await camDriver.GetCameraStateAsync(cancellationToken));
                     }

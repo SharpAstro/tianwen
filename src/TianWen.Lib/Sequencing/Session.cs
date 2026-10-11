@@ -40,6 +40,7 @@ internal partial record Session(
     private int _spareIndex;
     private int _totalFramesWritten;
     private long _imagingLoopTicks;
+    private long _fetchesGivenUp;
     private long _totalExposureTimeTicks;
 
     // Per-driver fault accumulator. Incremented by ResilientCall via its
@@ -202,6 +203,13 @@ internal partial record Session(
     /// time measures the runner rather than the loop.
     /// </summary>
     internal long ImagingLoopTicks => Interlocked.Read(ref _imagingLoopTicks);
+    /// <summary>
+    /// Fetches the imaging loop gave up on: a frame not delivered within a fifth of a tick of being asked for, logged as an
+    /// error and asked for again a tick later. Test seam for #1414: the loop asked on the tick its countdown reached, which
+    /// can come before the shutter closes, and does no longer; unlike utilization it does not move with how many ticks the
+    /// runner drops (<see cref="ImagingLoopTicks"/>).
+    /// </summary>
+    internal long FetchesGivenUp => Interlocked.Read(ref _fetchesGivenUp);
     /// <summary>Number of meridian flips actually performed or detected this session. Test seam used to
     /// assert that a non-German mount (fork / Alt-Az) images across the meridian without ever flipping.</summary>
     internal int MeridianFlipCount { get; private set; }
