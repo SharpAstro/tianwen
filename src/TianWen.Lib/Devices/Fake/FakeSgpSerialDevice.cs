@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Connections;
 
 namespace TianWen.Lib.Devices.Fake;
@@ -46,6 +47,57 @@ internal class FakeSgpSerialDevice : ISerialConnection
     private double _haOffset; // accumulated RA offset in hours from tracking/movement
     private volatile bool _isTracking;
     private ITimer? _trackingTimer;
+
+    // The TRUE pointing (docs/plans/slew-less-mount.md, "The fake that knows where it points"): where the camera really
+    // looks, in the mount's native (topocentric) frame. RA holds while the mount tracks and changes only by a move, at
+    // the commanded speed times (1 + MoveRateError); Dec changes only by the operator's hand, since the mount has no Dec
+    // motor. NaN until the test places the rig, so a test that never does sees the driver's own belief.
+    private double _placedRa = double.NaN;
+    private double _haOffsetAtPlacement;
+    private double _trueDec = double.NaN;
+
+    /// <summary>
+    /// A deliberate error on every move's speed, as a fraction (0.03 moves 3 % further than commanded), so a routine that
+    /// trusts a timed move instead of solving afterwards is caught.
+    /// </summary>
+    internal double MoveRateError { get; set; }
+
+    /// <summary>Where the operator set the rig up: the true pointing before any move, native RA (hours) and Dec (degrees).</summary>
+    internal void PlaceAt(double raHours, double decDeg)
+    {
+        lock (_lockObj)
+        {
+            _placedRa = raHours;
+            _haOffsetAtPlacement = _haOffset;
+            _trueDec = decDeg;
+        }
+    }
+
+    /// <summary>The operator turns the Dec axis by hand, by <paramref name="deltaDeg"/>.</summary>
+    internal void TurnDecByHand(double deltaDeg)
+    {
+        lock (_lockObj)
+        {
+            _trueDec = Math.Clamp(_trueDec + deltaDeg, -90.0, 90.0);
+        }
+    }
+
+    /// <summary>
+    /// The true pointing, native RA (hours) and Dec (degrees), or null before <see cref="PlaceAt"/>. A move west raises the
+    /// hour angle, so it LOWERS the RA the camera sees.
+    /// </summary>
+    internal (double Ra, double Dec)? TruePointing
+    {
+        get
+        {
+            lock (_lockObj)
+            {
+                return double.IsNaN(_placedRa)
+                    ? null
+                    : (CoordinateUtils.ConditionRA(_placedRa - (_haOffset - _haOffsetAtPlacement)), _trueDec);
+            }
+        }
+    }
 
     public FakeSgpSerialDevice(ILogger logger, Encoding encoding, ITimeProvider timeProvider, bool isNorthernHemisphere, bool isOpen)
     {
@@ -90,7 +142,7 @@ internal class FakeSgpSerialDevice : ISerialConnection
 
                     var direction = _moveDirection == 1 ? 1.0 : -1.0;
                     // Convert deg/sec to hours/sec for HA offset
-                    _haOffset += direction * speedMultiplier * sgpGuideRateDegPerSec / 15.0 * elapsedSeconds;
+                    _haOffset += direction * speedMultiplier * (1 + MoveRateError) * sgpGuideRateDegPerSec / 15.0 * elapsedSeconds;
                 }
             }
         }

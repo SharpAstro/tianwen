@@ -287,8 +287,14 @@ Where it is simpler than the mount:
 - **It always tracks** and always sends a valid `:MGAS#`, so `IsTrackingAsync` is never `false` on the fake.
 - **The speed digit in its `:MGAS#` is always `0`**: the field it prints is never assigned, not even by
   `:MSMS`.
-- **Nothing reads the hour-angle offset** it accumulates (no command reports position, as on the real
-  mount), so a move is observable only through its acks.
+- **No COMMAND reports the hour-angle offset** it accumulates (no command reports position, as on the real
+  mount), so the driver sees a move only through its acks. **The fake camera does see it**, once a test places
+  the rig (`FakeSgpMountDriver.PlaceAtJ2000Async`): the serial fake then keeps a TRUE pointing whose RA the
+  offset moves (west lowers it, at the commanded speed times `MoveRateError`, a deliberate error), and whose Dec
+  only `TurnDecByHand` changes, since the mount has no Dec motor. `FakeSgpMountDriver` is an
+  `IFakeTruePointingSource`, so the camera renders that sky while the driver's reads keep its last sync, as on
+  the real mount. A rig never placed reports the driver's belief as its truth. This is what the slew-less
+  session is tested on (`docs/plans/slew-less-mount.md`).
 - **It ignores the baud** (the real `IOptronDevice` refuses anything but 28800), and each connect builds a
   new instance, so its state starts from the defaults again.
 
