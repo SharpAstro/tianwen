@@ -85,6 +85,41 @@ internal class FakeSgpSerialDevice : ISerialConnection
         }
     }
 
+    // Whether the tube has gone over the pole an odd number of times since placement: the mechanical half of a flip.
+    private bool _tubeOverThePole;
+
+    /// <summary>
+    /// The operator swings the Dec axis over the pole by hand, to <paramref name="toDecDeg"/> on the far side: the second
+    /// half of a flip on this mount (the session's motor turns RA a half turn first). Passing over the pole puts the
+    /// pointing 12 h round in RA and turns the field over, so the tube's mechanical side changes.
+    /// </summary>
+    internal void SwingDecOverThePoleByHand(double toDecDeg)
+    {
+        lock (_lockObj)
+        {
+            _placedRa = CoordinateUtils.ConditionRA(_placedRa + 12.0);
+            _trueDec = Math.Clamp(toDecDeg, -90.0, 90.0);
+            _tubeOverThePole = !_tubeOverThePole;
+        }
+    }
+
+    /// <summary>
+    /// The tube's mechanical side, for the fake camera, which only compares it with the side it first saw and rolls the
+    /// field when they differ; <see cref="PointingState.Unknown"/> before <see cref="PlaceAt"/>.
+    /// </summary>
+    internal PointingState MechanicalPointingState
+    {
+        get
+        {
+            lock (_lockObj)
+            {
+                return double.IsNaN(_placedRa)
+                    ? PointingState.Unknown
+                    : _tubeOverThePole ? PointingState.ThroughThePole : PointingState.Normal;
+            }
+        }
+    }
+
     /// <summary>
     /// The true pointing, native RA (hours) and Dec (degrees), or null before <see cref="PlaceAt"/>. A move west raises the
     /// hour angle, so it LOWERS the RA the camera sees.

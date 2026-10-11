@@ -893,17 +893,6 @@ internal partial record Session
                     }
                 }
 
-                if (observation.AcrossMeridian && MountPointsWithoutGoto)
-                {
-                    // The flip on a mount that cannot goto (RA by motor at once, then the operator's Dec) is P2 of
-                    // docs/plans/slew-less-mount.md and not built: end the target here rather than repeat it, which would
-                    // point the rig past the meridian toward the tripod legs.
-                    _logger.LogWarning("Meridian flip due on {Target}, which a mount that cannot goto does not flip yet; moving on.",
-                        observation.Target);
-                    next = ImageLoopNextAction.AdvanceToNextObservation;
-                    break;
-                }
-
                 if (observation.AcrossMeridian)
                 {
                     var flipResult = await PerformMeridianFlipAsync(
@@ -932,7 +921,11 @@ internal partial record Session
                         continue; // resume imaging loop on the new pier side
                     }
 
-                    next = ImageLoopNextAction.RepeatCurrentObservation;
+                    // A slew-less flip that did not finish leaves RA turned a half turn: repeating the target would
+                    // turn it back, toward the tripod legs, so move on instead.
+                    next = MountPointsWithoutGoto
+                        ? ImageLoopNextAction.AdvanceToNextObservation
+                        : ImageLoopNextAction.RepeatCurrentObservation;
                     break;
                 }
                 else
@@ -1333,6 +1326,12 @@ internal partial record Session
                 + "the mount computes its pointing state, so commanding the flip instead.",
                 observation.Target, detected.Verdict.RotationDeltaDeg);
             await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
+        }
+
+        // A mount that cannot goto flips with its RA motor and the operator's Dec over the pole (Session.SlewLess.cs).
+        if (MountPointsWithoutGoto)
+        {
+            return await FlipWithoutGotoAsync(observation, preFlipSolution, cancellationToken);
         }
 
         // Wait for any ongoing slew to complete before attempting the flip
