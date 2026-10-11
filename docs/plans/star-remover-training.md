@@ -1797,7 +1797,7 @@ with 0 differences, so the numbers below compare with every number above.
 
 1. **The bright stars stay repaired: holds.** 43.3 at 100-1000 sigma against A's control's 24.4, the bright cores 1.6 %
    of the error.
-2. **The fix costs R2e nothing: holds.** 2.8 points under R2e's seed 0 at 5-20 sigma (band 3.1) and 3.0 under it at
+2. **The fix costs R2e nothing: holds.** 2.9 points under R2e's seed 0 at 5-20 sigma (band 3.1) and 3.0 under it at
    100-1000 (band 12.9).
 3. **The sky: holds.** Far sky 0.25, under R2e's 0.37.
 4. **The kill does not fire.**
