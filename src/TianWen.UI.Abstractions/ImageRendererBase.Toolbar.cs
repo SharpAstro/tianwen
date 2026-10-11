@@ -1131,19 +1131,27 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            // It stands in for the row's own text, so it uses the LIST's font size and baseline -- at the
-            // toolbar's size it sat a couple of pixels off and the underscores in a file name doubled up
-            // against the row beneath. PanelPadding either side, the inset the truncated name is drawn at,
-            // so the revealed text starts at the same x rather than appearing to jump sideways.
-            var width = MeasureText(row.Text, FontSize) + PanelPadding * 2f;
-            var box = PlaceBesideAnchor(new RectF32(row.X, row.Y, 0f, 0f), width, row.RowHeight);
+            // A tree the engine measures and places, in DEVICE pixels (arranged at DesignScale.One), because every
+            // input is one: the row's rect and height, and the list's own font and inset. It stands in for the
+            // row's text, so it uses the LIST's font -- at the toolbar's size it sat a couple of pixels off and the
+            // underscores in a file name doubled up against the row beneath -- and PanelPadding either side, the
+            // inset the truncated name is drawn at, so the revealed text starts at the same x.
+            //
+            // The name is the list's line box (DrawText's 1.3 em) top-aligned, centred in the row between two
+            // spacers, which is where RowTextY puts the truncated one; centring the TEXT in the row instead is
+            // what put it off the row's baseline once. The outline is one pixel outside the row, so the plate
+            // covers the row exactly; and it is the PLATE that is kept on screen, so the outlined box is clamped
+            // into the window grown by that pixel (a row at the window's left edge leaves its outline off it).
+            var name = Layout.Builder.Text(row.Text, FontSize, ViewerTheme.Palette.BodyText, TextAlign.Near, TextAlign.Near)
+                .HFixed(FontSize * 1.3f);
+            var plate = Layout.Builder.VStack(Layout.Builder.Spacer().Stretch(), name, Layout.Builder.Spacer().Stretch())
+                .PadX(PanelPadding)
+                .HFixed(row.RowHeight)
+                .Bg(ViewerTheme.Palette.PanelBg);
+            var outlined = Layout.Builder.VStack(plate).Pad(1f).Bg(ViewerTheme.Palette.SeparatorStrong);
 
-            FillRect(box.X - 1f, box.Y - 1f, box.Width + 2f, box.Height + 2f, ViewerTheme.Palette.SeparatorStrong);
-            FillRect(box.X, box.Y, box.Width, box.Height, ViewerTheme.Palette.PanelBg);
-            // Top-aligned at the same inset RenderFileList uses, NOT vertically centred in the box: centring
-            // is what put it off the row's baseline. Same helper, same offset, so the revealed name lands
-            // exactly where the truncated one was.
-            DrawText(row.Text, box.X + PanelPadding, RowTextY(box.Y, row.RowHeight), FontSize, ViewerTheme.Palette.BodyText);
+            RenderLayout(Layout.Builder.AnchoredTo(new RectF32(row.X - 1f, row.Y - 1f, 0f, 0f), outlined),
+                new RectF32(-1f, -1f, Width + 2f, Height + 2f), scale: DesignScale.One);
         }
 
         /// <summary>
