@@ -26,10 +26,13 @@ namespace TianWen.Lib.Imaging.Dataset;
 /// <param name="ExcludePathSegments">Extra wildcard path segments to exclude, appended to the
 /// built-in processed-data exclusions. Null leaves the defaults alone.</param>
 /// <param name="TestFraction">Held-out fraction, when the file should pin it. Null keeps the default.</param>
+/// <param name="ExcludedSessions">Sessions left out of the dataset altogether, neither trained on nor
+/// scored, each with its reason (<see cref="DatasetBuildOptions.ExcludedSessions"/>).</param>
 public sealed record DatasetParameters(
     ImmutableArray<HeldOutSession> HeldOutSessions = default,
     ImmutableArray<string> ExcludePathSegments = default,
-    double? TestFraction = null)
+    double? TestFraction = null,
+    ImmutableArray<ExcludedSession> ExcludedSessions = default)
 {
     /// <summary>Conventional file name.</summary>
     public const string FileName = "dataset-parameters.json";
@@ -57,6 +60,10 @@ public sealed record DatasetParameters(
     /// <summary>The held-out session ids alone.</summary>
     public ImmutableArray<string> HeldOutSessionIds
         => HeldOutSessions.IsDefaultOrEmpty ? [] : [.. System.Linq.Enumerable.Select(HeldOutSessions, h => h.Session)];
+
+    /// <summary>The excluded session ids alone.</summary>
+    public ImmutableArray<string> ExcludedSessionIds
+        => ExcludedSessions.IsDefaultOrEmpty ? [] : [.. System.Linq.Enumerable.Select(ExcludedSessions, e => e.Session)];
 }
 
 /// <summary>One session kept out of training, and why.</summary>
@@ -65,8 +72,15 @@ public sealed record DatasetParameters(
 /// decision nobody can review later.</param>
 public sealed record HeldOutSession(string Session, string Reason = "");
 
+/// <summary>One session left out of the dataset altogether, and why.</summary>
+/// <param name="Session">The session id, as for <see cref="HeldOutSession.Session"/> (a night's id names
+/// its flip sides too).</param>
+/// <param name="Reason">Why it must neither train nor be scored.</param>
+public sealed record ExcludedSession(string Session, string Reason = "");
+
 [JsonSerializable(typeof(DatasetParameters))]
 [JsonSerializable(typeof(HeldOutSession))]
+[JsonSerializable(typeof(ExcludedSession))]
 [JsonSourceGenerationOptions(
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

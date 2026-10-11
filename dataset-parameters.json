@@ -7,6 +7,56 @@
     {
       "session": "ZWO-ASI462MC/Unidentified-Broadband/Helix-Nebula/2024-08-18|ZWO ASI462MC|Helix Nebula FMA180 ASI462mc RGB 60s|Unidentified-Broadband",
       "reason": "No calibration exists for this night: no flat was ever shot through this train (FMA180), and no dark for this body at its gain and exposure (it is on darks-to-shoot.csv). The master is the only one in the store with neither, and it shows: the one card of the 2026-10-12 gallery whose sky reads off-neutral after the enhance (sky chroma 0.81, red 0.52 under green), and dust left in the field. A training target must be calibrated, so it is held out of training. The owner's call, 2026-10-12."
+    },
+    {
+      "session": "QHY178M/Luminance/Great-Orion-Nebula/2022-12-03|QHY178M|M42 LUM|Luminance",
+      "reason": "No dark and no flat anywhere on disk: no QHY178M dark at gain 3 (the one other set is gain 0) and no flat for the night, in Astro-Organized, Astro-Unsorted, Astro-Pics or any Astro Pixel Processor master (all 364 checked, any date). Uncalibrated, so held out of training. The owner's call, 2026-10-12."
+    },
+    {
+      "session": "QHY178M/Luminance/Vela-SNR/2022-12-03|QHY178M|Vela SNR LUM|Luminance",
+      "reason": "The same night and camera as the M42 above: no QHY178M dark at gain 3 and no flat anywhere on disk, APP masters included. Uncalibrated, so held out of training. The owner's call, 2026-10-12."
+    },
+    {
+      "session": "QHY178M/Luminance/Running-Chicken-Nebula/2023-03-17|QHY178M|Running Chicken LUM|Luminance",
+      "reason": "No QHY178M dark at gain 8 and no flat for this 135 mm train anywhere on disk, APP masters included. Uncalibrated, so held out of training. The owner's call, 2026-10-12."
+    },
+    {
+      "session": "QHY178M/Luminance/Helix-Nebula/2024-08-12|QHY178M|Helix LUM WOSZ61x0.8|Luminance",
+      "reason": "Has its flat, but no QHY178M dark at gain 3 near 60 s anywhere on disk, APP masters included, and the lights read +3 C, warm enough for the missing dark to matter. Held out of training. The owner's call, 2026-10-12."
+    },
+    {
+      "session": "QHY183M/SII/eta-Car-Nebula/2024-03-07|QHY183M|eta Car SII 288mm 240s 19deg 5g 14o|SulphurII",
+      "reason": "No QHY183M dark at 240 s gain 5 and no flat for this 288 mm train anywhere on disk (the 2024-03-03 flats are the 360 mm train), APP masters included. Uncalibrated, so held out of training. The owner's call, 2026-10-12."
+    },
+    {
+      "session": "Uranus-C-IMX585/Baader-Semi-APO/Lagoon-and-Trifid/2023-08-03|Uranus-C (IMX585)|M 8 + M 20|Baader Semi-APO",
+      "reason": "No flat for this 138 mm Askar FMA135 train at 1928x1090 anywhere on disk; the nearest, the SMC set of 2023-07-29 (raw and APP master), is the 180 mm train at 3856x2180. Held out of training. The owner's call, 2026-10-12."
+    },
+    {
+      "session": "Uranus-C-IMX585/Optolong-L-Ultimate-3nm/Lagoon-and-Trifid/2023-08-09|Uranus-C (IMX585)|M8 M20 OIII HA|Optolong L-Ultimate 3nm",
+      "reason": "No flat through the L-Ultimate for this night anywhere on disk; the 2023-07-29 set, 11 days earlier on the same 180 mm train, is Baader Semi-APO, which the matcher refuses by the never-another-filter's-flat rule (its APP master is the same set). Held out of training. Its id before the 2026-10-10 refile is in excludedSessions. The owner's call, 2026-10-12."
+    },
+    {
+      "session": "ZWO-ASI533MC-Pro/IDAS-LPS-D3/12P-Pons-Brooks/2024-06-23|ZWO ASI533MC Pro|Pons|IDAS LPS D3",
+      "reason": "Has its flat, but no ASI533MC Pro dark near 15 s at gain 121 anywhere on disk; the nearest APP master dark is 30 s at gain 120 and offset 11 against the lights' 13. Held out of training. The owner's call, 2026-10-12."
+    },
+    {
+      "session": "ZWO-ASI533MC-Pro/Unidentified-HaOIII/Seagull-Nebula/2022-02-05|ZWO ASI533MC Pro|Seagull Nebula 35mm 240s HaOIII|Unidentified-HaOIII",
+      "reason": "No dark and no flat: the only 120 s gain-100 darks (APP masters of June 2021) are 2256x2256 ROI captures against these 3008x3008 lights, and the only flat in reach (the Orion 35 mm set of 2022-01-31) is UV/IR cut against these HaOIII lights. Uncalibrated, so held out of training. The owner's call, 2026-10-12."
+    },
+    {
+      "session": "ZWO-ASI585MC-Pro/Optolong-L-eNhance/eta-Car-Nebula/2025-01-14|ZWO ASI585MC Pro|Eta Car 24mm LeHance 60s -10d|Optolong L-eNhance",
+      "reason": "Has its dark, but no flat for this 24 mm lens within the two-week window anywhere on disk, APP masters included (the nearest ASI585 flat is 18 days later). Held out of training. The owner's call, 2026-10-12."
+    },
+    {
+      "session": "ZWO-ASI585MC-Pro/Unidentified-Broadband/Helix-Nebula/2024-09-03|ZWO ASI585MC Pro|Helix Neb 60s 3deg 253g 3o ASI585|Unidentified-Broadband",
+      "reason": "No dark and no flat: the ASI585 darks on disk are gain 252 against these gain-253 lights (refused by the strict gain gate), and no flat for this 180.6 mm train lies within two weeks (the nearest, 25 days). Uncalibrated, so held out of training. The owner's call, 2026-10-12."
+    }
+  ],
+  "excludedSessions": [
+    {
+      "session": "Uranus-C-IMX585/Unidentified-HaOIII/Lagoon-and-Trifid/2023-08-09|Uranus-C (IMX585)|M8 M20 OIII HA|Unidentified-HaOIII",
+      "reason": "A stale id: the 2023-08-09 Uranus-C night before the 2026-10-10 refile under Optolong-L-Ultimate-3nm (CORRECTIONS.md). The archive no longer produces this id, but the 2026-09-29 store still lists its tiles under it, and the split names only the new id, so training would read the night as TRAINING data while the new id is held out. Excluding the old id drops those rows from the manifest on the next resume. 2026-10-12."
     }
   ]
 }

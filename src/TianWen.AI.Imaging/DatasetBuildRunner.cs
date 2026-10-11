@@ -259,6 +259,29 @@ public static class DatasetBuildRunner
             File.Move(manifestPath, rotated);
             logger?.LogWarning("Fresh (non-resume) run: existing manifest moved aside to {Rotated}.", Path.GetFileName(rotated));
         }
+        // A session excluded after an earlier bake exported it still has rows in the manifest, and the manifest
+        // is what training reads: the rows go, the tiles stay on disk unlisted, so taking the id back out of the
+        // list and resuming rebuilds the session rather than finding its tiles "already exported".
+        var excludedRows = await RemoveExcludedRowsAsync(manifestPath, priorTiles, options.ExcludedSessions, progress, cancellationToken);
+        // Excluded sessions never reached `sessions` (GroupSessions left them out), so they are in neither the
+        // split nor the build. An id that matched neither an archive session nor a manifest row is reported as
+        // a held-out one is: a session everyone believes is gone, still in the dataset. A match on the manifest
+        // alone is a stale id, a session the archive has since renamed (refiled, relabelled) whose old rows a
+        // resume would otherwise keep as TRAINING tiles beside the renamed session's own.
+        if (!options.ExcludedSessions.IsDefaultOrEmpty)
+        {
+            progress?.Report($"[dataset] {stats.ExcludedSessionIds.Length} session(s) excluded by the dataset parameters"
+                + (excludedRows.Length > 0 ? $"; {excludedRows.Length} excluded session(s) dropped from the manifest" : ""));
+            foreach (var id in options.ExcludedSessions)
+            {
+                var names = new HashSet<string>(StringComparer.Ordinal) { id };
+                if (!stats.ExcludedSessionIds.Any(s => DatasetSplitWriter.NamesSession(names, s))
+                    && !excludedRows.Any(s => DatasetSplitWriter.NamesSession(names, s)))
+                {
+                    logger?.LogWarning("Excluded session id matches no session in this archive and no row of the manifest: {SessionId}", id);
+                }
+            }
+        }
 
         // The PSF/noise report's inputs are checkpointed per session, so the report accumulates
         // across runs instead of being rebuilt from whatever the current run happened to register.
@@ -1055,6 +1078,30 @@ public static class DatasetBuildRunner
             return false;
         }
         return true;
+    }
+
+    /// <summary>Drops every excluded session's rows from the manifest and from the resume checkpoints
+    /// (<see cref="DatasetBuildOptions.ExcludedSessions"/>), a night's id taking its flip sides with it. The
+    /// tiles are not touched.</summary>
+    /// <returns>The session ids whose rows were dropped.</returns>
+    internal static async Task<ImmutableArray<string>> RemoveExcludedRowsAsync(
+        string manifestPath, Dictionary<string, DatasetTileExporter.ManifestCheckpoint> checkpoints,
+        ImmutableArray<string> excludedSessions, IProgress<string>? progress, CancellationToken cancellationToken)
+    {
+        if (excludedSessions.IsDefaultOrEmpty)
+        {
+            return [];
+        }
+        var excluded = excludedSessions.ToHashSet(StringComparer.Ordinal);
+        var dropped = ImmutableArray.CreateBuilder<string>();
+        foreach (var id in checkpoints.Keys.Where(id => DatasetSplitWriter.NamesSession(excluded, id)).Order(StringComparer.Ordinal).ToList())
+        {
+            var rows = await DatasetTileExporter.RemoveSessionRowsAsync(manifestPath, id, cancellationToken);
+            checkpoints.Remove(id);
+            dropped.Add(id);
+            progress?.Report($"[dataset] excluded {id}: {rows} manifest row(s) removed; its tiles stay on disk, unlisted");
+        }
+        return dropped.ToImmutable();
     }
 
     private static int CalCount(IReadOnlyDictionary<FrameType, List<CalibrationResolver.CalGroup>> groups, FrameType type) =>

@@ -88,16 +88,22 @@ public static class DatasetSplitWriter
         => IsForced(sessionId, alwaysHeldOut)
            || (prior?.WasTest(sessionId) ?? IsTestSession(sessionId, testFraction));
 
-    /// <summary>Whether <paramref name="alwaysHeldOut"/> names the session: by its id, its night's id, or
-    /// either before the session gained a <c>FILTER</c>.</summary>
+    /// <summary>Whether <paramref name="alwaysHeldOut"/> names the session (<see cref="NamesSession"/>).</summary>
     public static bool IsForced(string sessionId, IReadOnlySet<string>? alwaysHeldOut)
+        => NamesSession(alwaysHeldOut, sessionId);
+
+    /// <summary>Whether <paramref name="ids"/> names the session: by its id, its night's id (so a night
+    /// names its flip sides), or either before the session gained a <c>FILTER</c>. The one rule for every
+    /// session list in <see cref="DatasetParameters"/>, held out and excluded alike, so an id that holds a
+    /// session out would exclude the same session.</summary>
+    public static bool NamesSession(IReadOnlySet<string>? ids, string sessionId)
     {
-        if (alwaysHeldOut is null)
+        if (ids is null)
         {
             return false;
         }
         var group = GroupIdOf(sessionId);
-        return alwaysHeldOut.Contains(sessionId) || alwaysHeldOut.Contains(group) || alwaysHeldOut.Contains(WithoutFilter(group));
+        return ids.Contains(sessionId) || ids.Contains(group) || ids.Contains(WithoutFilter(group));
     }
 
     /// <summary>

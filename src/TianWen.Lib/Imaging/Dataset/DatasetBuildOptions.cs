@@ -71,6 +71,21 @@ public sealed record DatasetBuildOptions
     public ImmutableArray<string> AlwaysHeldOutSessions { get; init; } = [];
 
     /// <summary>
+    /// Session ids left out of the dataset altogether: never grouped into a session, so never built,
+    /// never in the split, and on a resume their rows leave the tile manifest (their tiles stay on disk,
+    /// unlisted, so taking an id back out of the list and resuming rebuilds the session).
+    /// </summary>
+    /// <remarks>
+    /// <para>Held out is "score it, never train on it"; excluded is "neither". Matched as a held-out id is
+    /// (<see cref="DatasetSplitWriter.NamesSession"/>): the id, the night's id for its flip sides, or either
+    /// before the session gained a <c>FILTER</c>.</para>
+    /// <para>It lives in <see cref="DatasetParameters"/> and nowhere on the command line: leaving a session
+    /// out is a judgement about the data, true for every future bake, and a flag holds it only as long as
+    /// someone retypes it.</para>
+    /// </remarks>
+    public ImmutableArray<string> ExcludedSessions { get; init; } = [];
+
+    /// <summary>
     /// The store whose split this bake keeps: a session that store knew stays in its set (matched by its id,
     /// or by its id before it gained a <c>FILTER</c> card), a new one takes its hash. Null means the output
     /// store itself; a fresh store names the one it replaces, or its split is drawn anew.
