@@ -78,52 +78,24 @@ public sealed class StackOptionDefaultsTests : IDisposable
     }
 
     /// <summary>
-    /// The class of bug, not the one instance: a bare line resolves every knob the record states a default for to
-    /// that default, so a second copy of a number in the command line cannot drift from the library's.
+    /// The class of bug, not the one instance: a bare line resolves to the record a library caller gets, compared WHOLE, so a
+    /// member added to <see cref="StackingOptions"/> later is compared without anyone listing it. The list of members this
+    /// replaced had already missed <see cref="StackingOptions.EnhanceOptions"/> (#1414). The two members the command always
+    /// builds where the record leaves null are compared with what the pipeline reads that null AS: a default
+    /// <see cref="DrizzleOptions"/> (<c>StackingPipeline</c> and both drizzle strategies) and
+    /// <see cref="EnhanceOptions.Default"/> (the enhance pass), not copied across from the answer under test.
     /// </summary>
     [Fact]
-    public async Task ABareLineResolvesEveryKnobToTheRecordsOwnDefault()
+    public async Task ABareLineResolvesToTheRecordsOwnDefaults()
     {
         var resolved = await ResolveAsync();
         var defaults = new StackingOptions(resolved.DataRoot, resolved.OutputDir);
 
-        resolved.GroupFilter.ShouldBe(defaults.GroupFilter);
-        resolved.GroupExclude.ShouldBe(defaults.GroupExclude);
-        resolved.ForcedStrategy.ShouldBe(defaults.ForcedStrategy);
-        resolved.CentroidDebayerAlg.ShouldBe(defaults.CentroidDebayerAlg);
-        resolved.StackDebayerAlg.ShouldBe(defaults.StackDebayerAlg);
-        resolved.WarpInterpolation.ShouldBe(defaults.WarpInterpolation);
-        resolved.SnrMin.ShouldBe(defaults.SnrMin);
-        resolved.MinStars.ShouldBe(defaults.MinStars);
-        resolved.QuadStars.ShouldBe(defaults.QuadStars);
-        resolved.DrizzleOptions.ShouldBe(defaults.DrizzleOptions ?? new DrizzleOptions());
-        resolved.SplitByPierSide.ShouldBe(defaults.SplitByPierSide);
-        resolved.RequireGainMatch.ShouldBe(defaults.RequireGainMatch);
-        resolved.HotPixelSigma.ShouldBe(defaults.HotPixelSigma);
-        resolved.QualityRejectSigma.ShouldBe(defaults.QualityRejectSigma);
-        resolved.RejectLowSigma.ShouldBe(defaults.RejectLowSigma);
-        resolved.RejectHighSigma.ShouldBe(defaults.RejectHighSigma);
-        resolved.StarRemovalMode.ShouldBe(defaults.StarRemovalMode);
-        resolved.SaveCalibrated.ShouldBe(defaults.SaveCalibrated);
-        resolved.SaveNormalized.ShouldBe(defaults.SaveNormalized);
-        resolved.ReferenceFrameHint.ShouldBe(defaults.ReferenceFrameHint);
-        resolved.ManifestPath.ShouldBe(defaults.ManifestPath);
-        resolved.RemoveStarsPerFrame.ShouldBe(defaults.RemoveStarsPerFrame);
-        resolved.DisableBayerDrizzle.ShouldBe(defaults.DisableBayerDrizzle);
-        resolved.IncludeIntegrations.ShouldBe(defaults.IncludeIntegrations);
-        resolved.Enhance.ShouldBe(defaults.Enhance);
-        resolved.EnhanceBlend.ShouldBe(defaults.EnhanceBlend);
-        resolved.SplitPlates.ShouldBe(defaults.SplitPlates);
-        resolved.RenderOutputs.ShouldBe(defaults.RenderOutputs);
-        resolved.PreviewBoost.ShouldBe(defaults.PreviewBoost);
-        resolved.UltraHdrPeakNits.ShouldBe(defaults.UltraHdrPeakNits);
-        resolved.CometRatePxPerHour.ShouldBe(defaults.CometRatePxPerHour);
-        resolved.CometDesignation.ShouldBe(defaults.CometDesignation);
-        resolved.CometStarLayer.ShouldBe(defaults.CometStarLayer);
-        resolved.CometMaskArcsec.ShouldBe(defaults.CometMaskArcsec);
-        resolved.CometComposite.ShouldBe(defaults.CometComposite);
-        resolved.InheritedWhiteBalance.ShouldBe(defaults.InheritedWhiteBalance);
-        resolved.LightGroupTemperatureToleranceC.ShouldBe(defaults.LightGroupTemperatureToleranceC);
+        resolved.ShouldBe(defaults with
+        {
+            DrizzleOptions = defaults.DrizzleOptions ?? new DrizzleOptions(),
+            EnhanceOptions = defaults.EnhanceOptions ?? EnhanceOptions.Default,
+        });
     }
 
     /// <summary>

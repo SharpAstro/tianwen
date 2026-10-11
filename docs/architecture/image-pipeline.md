@@ -534,7 +534,8 @@ vocabulary (own/borrow/consume), the four conventions and the DEBUG leak leg:
   `AtMirrored`, SER.Lib's `SerImaging.At`, the shader's `rawAt`): a repeated edge sample is the neighbouring colour,
   and wherever the colours' levels differ (a planetary sky with a pedestal) the outer two rows and columns read
   wrong, blue's edge row 13 % low on a Uranus-C master. Pinned by a mosaic whose colours are each FLAT at their
-  own level (`DebayerMhcTests`, `GpuVngDebayerParityTests`), which a one-level flat field passes either way.
+  own level (`DebayerMhcTests`, `GpuVngDebayerParityTests`, both over every pattern phase at odd and even sizes), which a
+  one-level flat field passes either way.
 - `Array2DPool` is scratch only; camera buffers use `ChannelBuffer`. A buffer nobody released is
   findable in DEBUG (`ChannelBufferLeakTracker`); the recycle loop is complete for DAL/Fake/Alpaca/
   ASCOM/Canon, a streaming driver's multi-plane frames going through `PlaneRecycler`; FC.SDK.Raw's own

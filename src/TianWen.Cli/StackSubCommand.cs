@@ -1,5 +1,6 @@
 ﻿using System;
 using System.CommandLine;
+using System.Globalization;
 using System.IO;
 using System.Numerics;
 using System.Threading;
@@ -36,6 +37,12 @@ internal sealed class StackSubCommand(
     /// rather than restated (<c>FrameQualityFilter</c>, where the number lives, is internal to TianWen.Lib).
     /// </summary>
     private static readonly float? DefaultQualityRejectSigma = new StackingOptions(string.Empty, string.Empty).QualityRejectSigma;
+
+    /// <summary>
+    /// The drizzle knobs when <c>--drizzle-pixfrac</c> and <c>--drizzle-min-frames</c> are not typed: the record's own, read from it
+    /// rather than restated, so the defaults, the help and the "ignored" warning below cannot drift from what the pipeline uses.
+    /// </summary>
+    private static readonly DrizzleOptions DefaultDrizzle = new();
 
     /// <summary>
     /// Test seam: when set, the command hands this the <see cref="StackingOptions"/> it resolved from the argument line and
@@ -132,13 +139,13 @@ internal sealed class StackSubCommand(
         };
         var drizzlePixfracOpt = new Option<float>("--drizzle-pixfrac")
         {
-            Description = "BayerDrizzle: linear drop size in [0, 1]. 1.0 = full unit-square drop (default). Ignored unless --strategy BayerDrizzle.",
-            DefaultValueFactory = _ => 1.0f,
+            Description = $"BayerDrizzle: linear drop size in [0, 1]. {DefaultDrizzle.Pixfrac.ToString("0.0", CultureInfo.InvariantCulture)} = full unit-square drop (default). Ignored unless --strategy BayerDrizzle.",
+            DefaultValueFactory = _ => DefaultDrizzle.Pixfrac,
         };
         var drizzleMinFramesOpt = new Option<int>("--drizzle-min-frames")
         {
-            Description = "BayerDrizzle: minimum matched frames required before the strategy runs. Defaults to 60; lowering it risks NaN holes in R and B channels. Ignored unless --strategy BayerDrizzle.",
-            DefaultValueFactory = _ => 60,
+            Description = $"BayerDrizzle: minimum matched frames required before the strategy runs. Defaults to {DefaultDrizzle.MinFrameCount}; lowering it risks NaN holes in R and B channels. Ignored unless --strategy BayerDrizzle.",
+            DefaultValueFactory = _ => DefaultDrizzle.MinFrameCount,
         };
         var splitByPierSideOpt = new Option<bool>("--split-by-pierside")
         {
@@ -374,7 +381,7 @@ internal sealed class StackSubCommand(
             {
                 drizzleOptions = new DrizzleOptions(Pixfrac: pixfrac, MinFrameCount: drizzleMinFrames);
             }
-            else if (pixfrac != 1.0f || drizzleMinFrames != 60)
+            else if (pixfrac != DefaultDrizzle.Pixfrac || drizzleMinFrames != DefaultDrizzle.MinFrameCount)
             {
                 consoleHost.WriteScrollable(
                     $"[stack] warning: --drizzle-* options ignored when --strategy={forcedStrategy} (non-drizzle)");
