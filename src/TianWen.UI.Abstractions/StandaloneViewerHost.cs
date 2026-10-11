@@ -51,7 +51,7 @@ public sealed class StandaloneViewerHost<TSurface>
 
         if (external is not null)
         {
-            tracker.Run(() => PlanetaryTelescopePersistence.LoadAsync(state, external, appToken), "Restore the Best stack telescope");
+            tracker.Run(() => PlanetaryTelescopePersistence.LoadAsync(state, external, appToken), "Restore the panel's telescope");
         }
 
         // Keys go through the engine's router, which answers the three things every surface answers the
@@ -210,7 +210,7 @@ public sealed class StandaloneViewerHost<TSurface>
         _controller.TryApplyPendingCrop();
 
         // Start, cancel, report or finish the best stack of the SER on screen; a finished run asks for its sharpened master.
-        _controller.TickBestStack(_appToken);
+        _controller.TickAutoStack(_appToken);
 
         // Put the colour look on the planet's master on show, or give the master back as balanced (#1277).
         _controller.TickPlanetaryLook(_appToken);
@@ -243,7 +243,7 @@ public sealed class StandaloneViewerHost<TSurface>
         var playback = _controller.TickPlayback();
         var blinked = _controller.TickBlink();
         var skyMoved = _viewer.TakeSkyRedrawRequest();
-        return playback || blinked || skyMoved || _controller.BestStackWantsFrame
+        return playback || blinked || skyMoved || _controller.AutoStackWantsFrame
             || _state.NeedsRedraw || _state.NeedsTextureUpdate || _state.RequestedFilePath is not null
             || _controller.IsLoadPending;
     }
@@ -259,7 +259,7 @@ public sealed class StandaloneViewerHost<TSurface>
             _state.PlanetaryTelescopeChanged = false;
             if (_external is { } external)
             {
-                _tracker.Run(() => PlanetaryTelescopePersistence.SaveAsync(_state, external, _appToken), "Save the Best stack telescope");
+                _tracker.Run(() => PlanetaryTelescopePersistence.SaveAsync(_state, external, _appToken), "Save the panel's telescope");
                 // Set with a capture on show, the telescope is that capture's camera's, which AUTO takes next time (A4, #1391).
                 if (_state.SequenceCamera is { } camera && _state.PlanetaryApertureMm is { } apertureMm)
                 {

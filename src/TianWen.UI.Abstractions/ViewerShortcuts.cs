@@ -157,7 +157,7 @@ public static class ViewerShortcuts
 
         // ── Sequence and blink ─────────────────────────────────────────────────────────────────
         new("K", "Frames / live stack (sequence)", InputKey.K),
-        new("Shift+K", "Best view: the whole capture stacked once, written beside it (SER); again while it runs to cancel", InputKey.K, InputModifier.Shift),
+        new("Shift+K", "Auto view: the whole capture identified and stacked once, written beside it (SER); again while it runs to cancel", InputKey.K, InputModifier.Shift),
         new("Space / Tab", "Play / pause (sequence), else blink the file list"),
         new("Shift+Space", "Blink backward"),
         new("Ctrl+Space", "Back to the frame the display is held to"),

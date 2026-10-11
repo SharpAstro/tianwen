@@ -488,7 +488,7 @@ each where one existed):
 ## An AUTO parameter mode
 
 **Tracked by #817.** A SharpCap-style AUTO mode, the owner's standing wish: the stack chooses its own settings from the
-capture, in the CLI (`planetary stack --auto`) and in the viewer (an Auto view beside Frames, Live and Best), where
+capture, in the CLI (`planetary stack --auto`) and in the viewer (an Auto view beside Frames and Live, which the Best view folded into), where
 today it asks for them or takes one default for every night. The owner's goal of 2026-10-09: a fully working auto
 mode in both, on top of the `_post` fidelity the pipeline already reaches.
 
@@ -661,8 +661,8 @@ the base model's master at once and the tuned one when its run finishes. One rou
 
 **Built (2026-10-10).** A2 found no tune that carries, so AUTO's settings are the measured defaults and what it adds is
 reading what the capture **is**, nothing asked. One routine, `PlanetaryAuto` (identify, then `PlanetaryBestStack` at the
-defaults, then one writer), runs behind `planetary stack --auto` and the viewer's **Auto** view (Frames, Live, Auto, Best:
-Auto's result is kept beside Best's, so switching stacks nothing again). The master says what it was read as (`OBJECT`,
+defaults, then one writer), runs behind `planetary stack --auto` and the viewer's **Auto** view (Frames, Live, Auto; the Best
+view folded into it, below). The master says what it was read as (`OBJECT`,
 `TELESCOP`, `APTDIA`, `FILTER`, through `PlanetaryStackOptions.Optics`), which `planetary sharpen --auto` reads back.
 `PlanetaryIdentification` takes each fact from the first source that gives it, and says where in words:
 
@@ -697,6 +697,19 @@ Meade 16-inch Saturns, the EdgeHD 11 Mars), each read with nothing given:
   to 0.9 % more (within it). Auto modelled the EdgeHD as a generic SCT (obstruction 0.33) where the judged runs used 0.375,
   which sharpens harder. Mars has no `_post` judge yet (#1436).
 - Rule 3 has nothing to show (no tune carries, A2). Rule 4's screenshots are on the PR.
+
+**Best folded into Auto (the owner, 2026-10-11).** The two views ran one routine at one set of defaults and differed only in where
+the planet, filter and telescope came from, so the viewer keeps one, **Auto** (Frames, Live, Auto; Shift+K opens it):
+- **The panel's choices are given to the identification** (`PlanetaryIdentityGiven`), as `--planet`, `--wavelength` and
+  `--aperture-mm` are on the CLI: the planet and filter when chosen (Auto until then), the telescope only once it is set on the
+  capture on show (`ViewerState.PlanetaryTelescopeSetHere`, cleared when another opens).
+- **The telescope's order** is: set here, then the capture's own word (header, settings, names, the camera's remembered one), then
+  the viewer's last telescope (`PlanetaryTelescopePersistence`, as the Best view took it), else none and the preset. After a run the
+  panel shows the telescope it read, unsaved.
+- **The panel's strength reaches the run**, as it reached Best's; at the truth the masters are `planetary stack --auto`'s to the bit
+  (`AutoReadsTheCaptureAndWritesTheMastersPlanetaryStackAutoWrites`), under its names (`master_<capture>_auto*.fits`).
+- **The captions say what each choice is**: chosen, or what the run read and where. Pinned by
+  `ATelescopeSetOnTheCaptureIsGivenAndTheViewersLastTakenOnlyWhereTheCaptureNamesNone` and the Best tests moved onto Auto.
 
 ### The 2026-06 parameter study
 

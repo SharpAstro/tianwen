@@ -12,9 +12,9 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// The viewer's Best stack (#1159) end to end through the host <c>tianwen-fits</c> runs (<see cref="ViewerE2E"/>): a SER opened, Shift+K,
-/// and the capture is stacked by the routine <c>planetary stack</c> runs, both masters written beside it under that verb's names, the
-/// sharpened one opened in its place.
+/// The viewer's Auto stack (#1159, A4 #1391; the Best stack folded into it, #817) end to end through the host <c>tianwen-fits</c> runs
+/// (<see cref="ViewerE2E"/>): a SER opened, Shift+K, and the capture is identified and stacked by the routine <c>planetary stack --auto</c>
+/// runs, both masters written beside it under that verb's names, its view shown over the capture.
 /// </summary>
 [Collection("Viewer")]
 public class ViewerBestStackTests
@@ -22,7 +22,7 @@ public class ViewerBestStackTests
     [Theory(Timeout = 180_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
-    public async Task ShiftKShowsTheWholeCaptureAsTheBestViewAndWritesBothMasters(float dpi)
+    public async Task ShiftKShowsTheWholeCaptureAsTheAutoViewAndWritesBothMasters(float dpi)
     {
         await using var e2e = ViewerE2E.Start(dpi);
         var ct = TestContext.Current.CancellationToken;
@@ -31,19 +31,19 @@ public class ViewerBestStackTests
         await e2e.PumpUntilAsync(() => e2e.State.SequencePath == capture, "the capture to open", ct);
 
         e2e.Key(InputKey.K, InputModifier.Shift);
-        await BestOnShowAsync(e2e, ct);
+        await AutoOnShowAsync(e2e, ct);
 
-        // What the run did is said once its Best view is on screen (its upload clears the status line first).
-        await e2e.PumpUntilAsync(() => e2e.State.StatusMessage?.StartsWith("Best stack:", StringComparison.Ordinal) == true,
-            "the best stack's note", ct);
+        // What the run did is said once its Auto view is on screen (its upload clears the status line first).
+        await e2e.PumpUntilAsync(() => e2e.State.StatusMessage?.StartsWith("Auto stack:", StringComparison.Ordinal) == true,
+            "the Auto stack's note", ct);
 
-        File.Exists(Path.Combine(e2e.Folder, "master_2024-12-15-1256_7-Jupiter.fits")).ShouldBeTrue();
-        File.Exists(Path.Combine(e2e.Folder, "master_2024-12-15-1256_7-Jupiter_sharpened.fits")).ShouldBeTrue();
-        e2e.State.BestStackProgress.ShouldBeNull();
-        // The capture stays open: Best is a view of it (#1314 part 2), never a file opened in its place.
+        File.Exists(Path.Combine(e2e.Folder, "master_2024-12-15-1256_7-Jupiter_auto.fits")).ShouldBeTrue();
+        File.Exists(Path.Combine(e2e.Folder, "master_2024-12-15-1256_7-Jupiter_auto_sharpened.fits")).ShouldBeTrue();
+        e2e.State.AutoStackProgress.ShouldBeNull();
+        // The capture stays open: Auto is a view of it (#1314 part 2), never a file opened in its place.
         e2e.State.SequencePath.ShouldBe(capture);
-        e2e.State.PlanetaryView.ShouldBe(PlanetaryView.Best);
-        // No telescope given, so the sharpening is the preset's, and the note says so.
+        e2e.State.PlanetaryView.ShouldBe(PlanetaryView.Auto);
+        // No telescope given, read or last used, so the sharpening is the preset's, and the note says so.
         e2e.State.StatusMessage.ShouldNotBeNull().ShouldContain("PlanetaryDefault");
         // The master names its planet, and shows in the stretch planetary stack's preview is rendered with, never the deep-sky
         // auto-stretch: the same uniforms, so the viewer shows what the PNG shows.
@@ -58,7 +58,7 @@ public class ViewerBestStackTests
     [Theory(Timeout = 180_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
-    public async Task AStrengthChosenInThePanelTakesTheBestStackPastTheTruth(float dpi)
+    public async Task AStrengthChosenInThePanelTakesTheAutoStackPastTheTruth(float dpi)
     {
         // #1251: the truth by default, a post's look as an option. The panel's strength reaches the run, and its note says so.
         await using var e2e = ViewerE2E.Start(dpi);
@@ -72,12 +72,12 @@ public class ViewerBestStackTests
         e2e.Frame();
         e2e.State.PlanetaryStrength.ShouldBe(2);
         e2e.Key(InputKey.K, InputModifier.Shift);
-        // The Best view's upload clears the status line, so the note is waited for after it, and held as it is seen: the pump's last
+        // The Auto view's upload clears the status line, so the note is waited for after it, and held as it is seen: the pump's last
         // frame may clear it again before the assertion reads it.
-        await BestOnShowAsync(e2e, ct);
+        await AutoOnShowAsync(e2e, ct);
         string? note = null;
-        await e2e.PumpUntilAsync(() => (note = e2e.State.StatusMessage)?.StartsWith("Best stack:", StringComparison.Ordinal) == true,
-            "the best stack's note", ct);
+        await e2e.PumpUntilAsync(() => (note = e2e.State.StatusMessage)?.StartsWith("Auto stack:", StringComparison.Ordinal) == true,
+            "the Auto stack's note", ct);
 
         note.ShouldNotBeNull().ShouldContain("strength 2 past the truth");
     }
@@ -96,9 +96,10 @@ public class ViewerBestStackTests
 
         e2e.State.PlanetaryBody = CatalogIndex.Jupiter;
         e2e.Key(InputKey.K, InputModifier.Shift);
-        await BestOnShowAsync(e2e, ct);
+        await AutoOnShowAsync(e2e, ct);
 
-        File.Exists(Path.Combine(e2e.Folder, "master_calibrated_sharpened.fits")).ShouldBeTrue();
+        File.Exists(Path.Combine(e2e.Folder, "master_calibrated_auto_sharpened.fits")).ShouldBeTrue();
+        e2e.State.AutoIdentity.ShouldNotBeNull().PlanetFrom.ShouldBe("given");
         e2e.Controller.ShownDocument.ShouldNotBeNull().UnstretchedImage.ImageMeta.ObjectName.ShouldBe("Jupiter");
         e2e.State.StretchMode.ShouldBe(StretchMode.Planetary);
     }
@@ -138,9 +139,9 @@ public class ViewerBestStackTests
     [Theory(Timeout = 60_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
-    public async Task ACaptureWhoseHeaderNamesItsTelescopeGivesTheBestStackThatTelescope(float dpi)
+    public async Task ACaptureWhoseHeaderNamesItsTelescopeShowsThatTelescope(float dpi)
     {
-        // A TianWen recording says in its header which telescope took it (#1179), and its best stack needs no telescope set by hand.
+        // A TianWen recording says in its header which telescope took it (#1179), and its Auto stack needs no telescope set by hand.
         await using var e2e = ViewerE2E.Start(dpi);
         var ct = TestContext.Current.CancellationToken;
         e2e.State.PlanetaryApertureMm = null;
@@ -158,12 +159,12 @@ public class ViewerBestStackTests
         e2e.State.PlanetaryApertureMm.ShouldBe(254);
     }
 
-    // The Best view on show: its master built behind its layer, the source the viewer draws, and nothing left in flight.
-    internal static async Task<LiveStackPreviewSource> BestOnShowAsync(ViewerE2E e2e, System.Threading.CancellationToken ct)
+    // The Auto view on show: its master built behind its layer, the source the viewer draws, and nothing left in flight.
+    internal static async Task<LiveStackPreviewSource> AutoOnShowAsync(ViewerE2E e2e, System.Threading.CancellationToken ct)
     {
-        await e2e.PumpUntilAsync(() => e2e.Controller.ViewLayers.Best is { HasMaster: true, IsBusy: false } best
-            && ReferenceEquals(e2e.Controller.Source, best) && !e2e.Controller.IsBestStackPending, "the Best view to show", ct, untilTimeout: true);
-        return e2e.Controller.ViewLayers.Best.ShouldNotBeNull();
+        await e2e.PumpUntilAsync(() => e2e.Controller.ViewLayers.Auto is { HasMaster: true, IsBusy: false } best
+            && ReferenceEquals(e2e.Controller.Source, best) && !e2e.Controller.IsAutoStackPending, "the Auto view to show", ct, untilTimeout: true);
+        return e2e.Controller.ViewLayers.Auto.ShouldNotBeNull();
     }
 
     // A short Jupiter capture: a textured disk wandering a pixel or two, 8 bits, a frame every 10 ms.

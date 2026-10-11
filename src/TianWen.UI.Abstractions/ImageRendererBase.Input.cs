@@ -472,15 +472,16 @@ namespace TianWen.UI.Abstractions
                     state.ShowInfoPanel = !state.ShowInfoPanel;
                     return true;
                 case InputKey.K when shift:
-                    // The Best view: the whole capture stacked as planetary stack stacks it (once), or the run going on cancelled (a SER only).
+                    // The Auto view: the whole capture identified and stacked as planetary stack --auto does it (once), or the run going on
+                    // cancelled (a SER only).
                     if (state.SequencePath is not null)
                     {
-                        state.BestStackRequested = true;
+                        state.AutoStackRequested = true;
                         state.NeedsRedraw = true;
                     }
                     return true;
                 case InputKey.K:
-                    // The frames or the live rolling stack (sequence-only), from either of them or the Best view (#1314 part 2). The
+                    // The frames or the live rolling stack (sequence-only), from either of them or the Auto view (#1314 part 2). The
                     // controller keeps showing the frames until the live stack's first master is built.
                     if (state.IsSequence)
                     {

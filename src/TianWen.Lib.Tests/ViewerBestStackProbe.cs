@@ -14,8 +14,8 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// On demand (#1159): the viewer's Best stack of a REAL capture, run as <c>tianwen-fits</c> runs it (<see cref="ViewerE2E"/>: the SER
-/// dropped, the panel's planet and telescope set, Shift+K), and the master it opens rendered as the viewer shows it, through the
+/// On demand (#1159): the viewer's Auto stack of a REAL capture, run as <c>tianwen-fits</c> runs it (<see cref="ViewerE2E"/>: the SER
+/// dropped, the panel's planet and telescope set, Shift+K; the Best stack folded into Auto, #817), and its master rendered as the viewer shows it, through the
 /// CPU mirror of the shader with the uniforms the viewer computes for it. The picture to put beside <c>planetary stack</c>'s preview of
 /// the same capture. Set <c>TIANWEN_BEST_STACK_PROBE</c> to the capture's path, and optionally <c>TIANWEN_BEST_STACK_PROBE_PLANET</c>
 /// (a planet's name, when the path names none) and <c>TIANWEN_BEST_STACK_PROBE_APERTURE</c> (mm, a Newtonian, 254 when unset). The
@@ -43,10 +43,11 @@ public class ViewerBestStackProbe(ITestOutputHelper output)
         }
         e2e.State.PlanetaryApertureMm = int.TryParse(Environment.GetEnvironmentVariable(EnvVar + "_APERTURE"), out var mm) ? mm : 254;
         e2e.State.PlanetaryDesign = OpticalDesign.Newtonian;
+        e2e.State.PlanetaryTelescopeSetHere = true;
 
         var started = Stopwatch.StartNew();
         e2e.Key(InputKey.K, InputModifier.Shift);
-        var sharpened = Path.Combine(Path.GetDirectoryName(capture) ?? ".", $"master_{Path.GetFileNameWithoutExtension(capture)}_sharpened.fits");
+        var sharpened = Path.Combine(Path.GetDirectoryName(capture) ?? ".", $"master_{Path.GetFileNameWithoutExtension(capture)}_auto_sharpened.fits");
         // A real capture takes minutes, past what PumpUntilAsync waits, so the loop is run here at a tenth of a second a frame.
         while (!e2e.IsShowing(sharpened) || e2e.Controller.IsLoadPending)
         {

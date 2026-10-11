@@ -91,7 +91,7 @@ namespace TianWen.UI.Abstractions
 
             // Wavelet-sharpen layer sliders: the live stacked view's, and a planetary master's (#1314). They re-sharpen a master; they have
             // no effect on a raw frame.
-            if (state.ShowStacked || state.ShowBest || state.IsPlanetaryMaster)
+            if (state.ShowStacked || state.ShowAuto || state.IsPlanetaryMaster)
             {
                 y += FontSize;
                 RenderWaveletControls(state, ref y, x, maxTextWidth);
