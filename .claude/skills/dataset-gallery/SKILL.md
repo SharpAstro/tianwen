@@ -161,10 +161,12 @@ ones they have, so the gallery reads as mixed until the batch catches up.
 
 - **`sky` and `vignette` (check_views) are the background and calibration verdicts.** `sky` reads the
   enhanced view's sky colour (the background the card should show neutral); `vignette` reads the raw
-  view's corners against its edge midpoints (the master as calibrated: a flat that fits leaves under
-  0.15, a flat admitted on its capture date alone can leave 0.97, the same as none). Both thresholds
-  are measured over the 194-card store; a flag is either a data limit the archive records (no flat, no
-  dark, see `D:/Astro-Organized/_provenance/session-calibration-map.csv`) or a question for the owner.
+  view's corners against its edge midpoints (the master as calibrated). Both thresholds are measured
+  over the 194-card store. **A `vignette` flag is a candidate, read off a STRETCHED view**: confirm it on
+  the linear master before saying anything about the flat. The display number is not the flat's error
+  (an Orion reading +0.965 left +0.048 linear, a Rosette reading +0.28 left +0.006, card-proven flats
+  +0.010 to +0.016). A confirmed flag is either a data limit the archive records (no flat, no dark, see
+  `D:/Astro-Organized/_provenance/session-calibration-map.csv`) or a question for the owner.
 
 - **Channel coverage.** A master with a channel at 0 percent finite is a failed integration, not a dim
   one; `IntegratedMaster.Labelled` refuses it now, but an older store can hold one (the eta Car
