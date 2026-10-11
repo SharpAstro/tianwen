@@ -154,9 +154,10 @@ public enum PlanetaryChannelLimb
     Shared,
 
     /// <summary>
-    /// Each channel fitted on its own plane, from the shared fit: its sharp model, outline and k its own, so a channel's sky and gain cannot
-    /// move another's reference. The window's place and size and the plate scale stay the shared fit's: the colours are already aligned by
-    /// their limbs (#1202).
+    /// Each channel fitted on its own plane, from the shared fit's outline: its sharp model, outline and k its own, so a channel's sky and
+    /// gain cannot move another's reference. The one window every channel is cut from is placed, and its plate scale read, by the channels'
+    /// own fits (the mean of their centres and radii), since the shared fit is the channels' mean, which a colour balance moves; the colours
+    /// are already aligned by their limbs (#1202).
     /// </summary>
     PerChannel,
 }
@@ -492,11 +493,23 @@ public static class PlanetarySharpening
         }
         var (width, height) = (master.Width, master.Height);
         var limbWindow = PlanetaryLimbWindow.Of(fit, limbOptions, aspect, width, height);
+        // Each colour read against its own limb (#1498), so that reweighting the channels moves no channel's reference: the window is
+        // placed, and its plate scale read, by the channels' own fits too, since the shared fit is the channels' mean, which a colour
+        // balance moves (a one-pixel shift of the window reread the edge past 0.2 cycles, which is noise).
+        (LimbFit Fit, PlanetaryLimbWindow Window)[]? channelLimbs = null;
+        if (options.ChannelLimb is PlanetaryChannelLimb.PerChannel && master.ChannelCount == 3 && options.Pupil is not null)
+        {
+            var channelFits = ChannelLimbs(master, fit, aspect, options);
+            limbWindow = PlanetaryLimbWindow.Of(fit with
+            {
+                CenterX = channelFits.Average(f => f.Fit.CenterX),
+                CenterY = channelFits.Average(f => f.Fit.CenterY),
+                EquatorialRadius = channelFits.Average(f => f.Fit.EquatorialRadius),
+            }, limbOptions, aspect, width, height);
+            var window = limbWindow;
+            channelLimbs = [.. channelFits.Select(f => (f.Fit, window.WithModelOf(f.Fit, f.Options, width, height)))];
+        }
         var (own, disk, size, sharp) = (limbWindow.Own, limbWindow.Disk, limbWindow.Size, limbWindow.Sharp);
-        // Each colour read against its own limb (#1498), so that reweighting the channels moves no channel's reference.
-        var channelLimbs = options.ChannelLimb is PlanetaryChannelLimb.PerChannel && master.ChannelCount == 3 && options.Pupil is not null
-            ? ChannelLimbs(master, fit, limbWindow, aspect, options)
-            : null;
         var models = new float[master.ChannelCount][];
         var diffractions = new RadialTransfer[master.ChannelCount];
 
@@ -515,7 +528,7 @@ public static class PlanetarySharpening
         for (var c = 0; c < master.ChannelCount; c++)
         {
             var plane = master.GetChannelSpan(c);
-            // The channel's own limb under PerChannel (#1498), else the shared one; the window's place and size are the shared fit's either way.
+            // The channel's own limb under PerChannel (#1498), else the shared one; the window is one for every channel either way.
             var (channelFit, channelWindow) = channelLimbs?[c] ?? (fit, limbWindow);
             var (channelOwn, channelDisk, channelSharp) = (channelWindow.Own, channelWindow.Disk, channelWindow.Sharp);
             var (level, scale) = PlanetaryMetrics.NormalisationLevels(plane, width, height, channelOwn);
@@ -663,13 +676,12 @@ public static class PlanetarySharpening
 
     // Each channel's own limb fit (PlanetaryChannelLimb.PerChannel, #1498), started at the shared fit's outline alone, its brightness and sky
     // seeded from its own plane as the shared fit's are: seeded with the shared fit's, which are the blend's, a balanced channel started its
-    // search elsewhere and its edge at 0.3 cycles read 0.620 against 0.285. The shared window with the channel's disk and sharp model; the
-    // shared limb kept for a channel whose own fit fails. With OPAL's k, each holds its own wavelength's (#1478); with a held k, its own value.
-    private static (LimbFit Fit, PlanetaryLimbWindow Window)[] ChannelLimbs(Image master, in LimbFit fit, PlanetaryLimbWindow shared, in PlanetAspect aspect,
-        PlanetarySharpenOptions options)
+    // search elsewhere and its edge at 0.3 cycles read 0.620 against 0.285. The shared fit kept for a channel whose own fit fails. With OPAL's
+    // k, each holds its own wavelength's (#1478); with a held k, its own value.
+    private static (LimbFit Fit, LimbFitOptions Options)[] ChannelLimbs(Image master, in LimbFit fit, in PlanetAspect aspect, PlanetarySharpenOptions options)
     {
         var (width, height) = (master.Width, master.Height);
-        var limbs = new (LimbFit Fit, PlanetaryLimbWindow Window)[master.ChannelCount];
+        var limbs = new (LimbFit Fit, LimbFitOptions Options)[master.ChannelCount];
         for (var c = 0; c < limbs.Length; c++)
         {
             var channelOptions = options.LimbDarkening switch
@@ -678,9 +690,8 @@ public static class PlanetarySharpening
                 PlanetaryLimbDarkening.Held => PlanetaryLimbFit.OptionsFor(aspect) with { LimbDarkening = HeldK(options, c, 1) },
                 _ => PlanetaryLimbFit.OptionsFor(aspect),
             };
-            limbs[c] = PlanetaryLimbFit.Fit(master.GetChannelSpan(c), width, height, fit.CenterX, fit.CenterY, fit.EquatorialRadius, channelOptions) is { } own
-                ? (own, shared.WithModelOf(own, channelOptions, width, height))
-                : (fit, shared);
+            limbs[c] = (PlanetaryLimbFit.Fit(master.GetChannelSpan(c), width, height, fit.CenterX, fit.CenterY, fit.EquatorialRadius, channelOptions) ?? fit,
+                channelOptions);
         }
         return limbs;
     }

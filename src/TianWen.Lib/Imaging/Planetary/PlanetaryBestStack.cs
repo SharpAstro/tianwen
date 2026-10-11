@@ -187,27 +187,42 @@ public static class PlanetaryBestStack
     /// alone when the planet or the time is unknown or the limb does not fit. The words say which, and why. A <paramref name="strength"/> past
     /// one takes bands 2 and 3 past the truth (<see cref="PlanetarySharpenOptions.Strength"/>, #1251), and <paramref name="luminanceOnly"/>
     /// sharpens a colour master's luminance once, keeping the stack's colour (<see cref="PlanetarySharpenOptions.LuminanceOnly"/>, #1295);
-    /// <paramref name="target"/> is what the derived gains restore toward (#1366). The caller owns the image.
+    /// <paramref name="target"/> is what the derived gains restore toward (#1366). <paramref name="channelLimb"/>, <paramref name="limbDarkening"/>
+    /// and <paramref name="heldMinnaertK"/> are what a colour master's channels are read against and how the limb fit takes Minnaert's k
+    /// (#1498, <see cref="PlanetarySharpenOptions.ChannelLimb"/>, <see cref="PlanetarySharpenOptions.HeldMinnaertK"/>). The caller owns the image.
     /// </summary>
     public static (Image Sharpened, string How) Sharpen(Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope,
         ImmutableArray<double> wavelengthsNm = default, PlanetaryLimbFix? fix = null, double strength = 1, bool luminanceOnly = false,
-        PlanetarySharpenTarget target = PlanetarySharpenTarget.Telescope)
+        PlanetarySharpenTarget target = PlanetarySharpenTarget.Telescope, PlanetaryChannelLimb channelLimb = PlanetaryChannelLimb.Shared,
+        PlanetaryLimbDarkening limbDarkening = PlanetaryLimbDarkening.Fitted, ImmutableArray<double> heldMinnaertK = default)
     {
-        var (sharpened, how, _) = SharpenCore(master, planet, epoch, telescope, wavelengthsNm, fix, strength, luminanceOnly, [], target);
+        var (sharpened, how, _) = SharpenCore(master, planet, epoch, telescope, wavelengthsNm, fix, strength, luminanceOnly, [], target, channelLimb,
+            limbDarkening, heldMinnaertK);
         return (sharpened, how);
     }
 
     // Sharpen, and where the gains were derived the result and the options it was made with, for a viewer's layer (#1314).
     private static (Image Sharpened, string How, (PlanetarySharpenResult Result, PlanetarySharpenOptions Options, Pupil Pupil)? Derived) SharpenCore(
         Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope, ImmutableArray<double> wavelengthsNm, PlanetaryLimbFix? fix,
-        double strength, bool luminanceOnly, ImmutableArray<double> fitStops, PlanetarySharpenTarget target)
+        double strength, bool luminanceOnly, ImmutableArray<double> fitStops, PlanetarySharpenTarget target,
+        PlanetaryChannelLimb channelLimb = PlanetaryChannelLimb.Shared, PlanetaryLimbDarkening limbDarkening = PlanetaryLimbDarkening.Fitted,
+        ImmutableArray<double> heldMinnaertK = default)
     {
         if (SharpenOptionsFor(master, planet, epoch, telescope, wavelengthsNm) is not { } options)
         {
             return (WaveletSharpen.Sharpen(master, PresetAt(strength)),
                 $"PlanetaryDefault{StrengthWords(strength)}: the sharpening is derived only for a named Mars, Jupiter or Saturn with frame times", null);
         }
-        options = options with { Strength = strength, LuminanceOnly = luminanceOnly, FitStops = fitStops.IsDefault ? [] : fitStops, Target = target };
+        options = options with
+        {
+            Strength = strength,
+            LuminanceOnly = luminanceOnly,
+            FitStops = fitStops.IsDefault ? [] : fitStops,
+            Target = target,
+            ChannelLimb = channelLimb,
+            LimbDarkening = limbDarkening,
+            HeldMinnaertK = heldMinnaertK.IsDefault ? [] : heldMinnaertK,
+        };
         if (fix is { } chosen)
         {
             options = options with { Fix = chosen };
