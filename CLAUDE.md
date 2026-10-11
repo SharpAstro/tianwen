@@ -1543,7 +1543,8 @@ the TUI row contract, and **this section and the next two in full**: `docs/archi
 ### UI Primitives: the cursor, a text field, and who holds focus
 
 Full reasoning: `docs/architecture/widgets-and-controls.md` and `docs/plans/automatic-text-input.md`; **where this
-is GOING is `docs/plans/dir-lib-10.md` (HIGH PRIORITY)**. Do not add a fourth key router.
+is GOING is `docs/plans/dir-lib-10.md`**, done but for the viewer chrome (#1489) and declarative focus (#1491). Do not
+add a fourth key router.
 
 - **The pointer's appearance is a property of a REGION, never a host predicate** (`RegisterClickable(...,
   cursor:)` / `.Clickable(hit, onClick, cursor)` / `.WithCursor(kind)`; the host asks `guiRenderer.CursorAt(x, y)

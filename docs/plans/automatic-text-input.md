@@ -1,6 +1,7 @@
 # Automatic text input: declare a field, and it works
 
-**Status: P1 + P2 + U6 + P3a SHIPPED (2026-08-14); P3b (declarative auto-focus) deferred.**
+**Status: P1 + P2 + U6 + P3a SHIPPED (2026-08-14); P3b (declarative auto-focus) shipped in DIR.Lib as
+[dir-lib-10.md](dir-lib-10.md) D1's `focusOnOpen`, and tianwen has not adopted it (#1491).**
 
 `Layout.Builder.TextInput(state, fontSize)` is the whole declaration on both surfaces, `TextInputFocus`
 owns the transition, and `TextInputInteraction` lives in DIR.Lib and serves all three hosts. What
@@ -23,6 +24,8 @@ changed against the plan below, and why:
 - **`TextInputRenderer` no-ops without a font**, matching the layout text helpers. Not cosmetic: a
   headless render is how the layout tests check what was drawn, and a tree with a LABEL rendered while
   the same tree with a FIELD threw.
+- **P3b shipped in DIR.Lib as `focusOnOpen` (2026-09-17) and is adopted nowhere in tianwen yet (#1491).** What
+  follows is why it was deferred when this plan was written.
 - **P3b (`autoFocus: true`) is deferred, deliberately -- and is now unblocked by
   [dir-lib-10.md](dir-lib-10.md) D1**, whose `InputRouter` sees the painted set every frame, which is the
   signal this paragraph says the library lacks. It needs a signal the library does not have --
