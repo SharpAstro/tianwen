@@ -5321,7 +5321,47 @@ the noise read off the master's halves, #1313):
   would first be split into their channels.
 - **A night of many sets made one master is #1349**, open until there is more data to decide on (the owner, 2026-10-11). It carries #1352,
   folded into it that day: the 109-minute deep master's limb edge reads 0.346 where pairs within 17 to 20 minutes read 0.26 to 0.33, a target
-  fade and a blend of positions both failed, and a join weighting each stack by its viewing angle is not built.
+  fade and a blend of positions both failed. The join by view and the join by band were then built and measured (below).
+
+#### A night of many sets: a join weighed by view, or band by band (#1349)
+
+**Built** (2026-10-11), two options on `planetary compose`, neither a default:
+- `--viewing-weights` (fix C, from #1352): each de-rotated stack's pixel weighed by the cosine of its view at the source, tapered from 0.8 to
+  0 at 0.9 source radii (`PlanetaryDerotation.JoinWeights`), so no stack's unturned rim enters where another stack saw the planet. The weight
+  travels beside its stack as `<name>.weight.fits` (`PlanetaryComposition.WriteStack` / `ReadStack`), and the steps through files give the
+  recipe's master to the bit.
+- `--band-weights matched|wiener` (arm B): a filter's stacks joined a trous band by band, each band weighed by its transfer against the
+  filter's sharpest stack over its noise on the sky; `wiener` rescales each band by sum(w) / sum(w T), so it keeps the sharpest stack's own
+  transfer where the matched mean, sum(w T) / sum(w), sits below it (`PlanetaryBandWeights`).
+
+**Measured**, rules set on #1349 before each ran; every master on one build, the baseline re-read on it, since #1337 and #1361 had changed the
+join. The owner's 2026-10-07 Saturn, sets 2 to 10 (27 stacks), judged against set 10 as stacked (the globe inside 0.9 radii, the gain on the
+shared detail), the limb's edge at 0.1 cycles a pixel read by `planetary sharpen`, band 1's sky noise beyond 2.5 radii:
+
+| master | edge | band 1 / 2 / 3 against set 10 | sky noise R, G, B (x 1e-6) |
+|---|---|---|---|
+| set 10 alone | 0.312 | 1.000 / 1.000 / 1.018 | 20.4, 22.1, 18.1 |
+| pairs 2+3, 5+6, 7+8, 9+10 | 0.287, 0.278, 0.276, 0.306 | 0.914 to 0.968 / 0.998 to 1.005 / 1.019 to 1.026 | 13.4 to 17.5 |
+| deep, plain | 0.351 | 0.903 / 0.994 / 1.016 | 6.9, 7.2, 7.1 |
+| deep, by view | 0.521 | 0.936 / 1.001 / 0.980 | 6.9, 7.2, 7.1 |
+| deep, by band (matched) | 0.348 | 0.874 / 0.985 / 1.006 | 11.2, 7.2, 8.3 |
+| deep, by band (Wiener) | 0.438 | 0.746 / 0.954 / 0.970 | 18.3, 12.3, 14.9 |
+| deep, by view and band (matched) | 0.499 | 0.903 / 1.000 / 0.988 | 11.2, 7.2, 8.3 |
+| deep, by view and band (Wiener) | 0.675 | 0.770 / 0.946 / 0.893 | 18.3, 12.3, 14.9 |
+
+- **The join by view fails both its rules.** Its limb reads SHARPER (0.521 against the plain deep master's 0.351 and the sharpest pair's
+  0.306), and band 3 falls to 0.980. Near the limb the weights hand each pixel to the stacks the turn carried there from further in, and what
+  a de-rotation puts there is the albedo reprojected under the target's limb darkening, with none of the real limb's blur. The seams it was
+  built against are gone, and a sharper-than-real edge has taken their place.
+- **The join by band holds on the twins and fails on the night.** On three twins of one truth (r0 8.5, 6.5 and 5.0 cm), the matched join
+  kept 0.439 of the truth's finest detail against plain 0.425, and the Wiener form 0.498, 95 % of the sharp stack's own 0.527, at 69 % of its
+  noise. On the night every filter called set 2 the sharpest by its band 2 energy above noise: the first burst, at another gain, which joins
+  scaled 1.40 times (#1337), so the test read level, not sharpness. The Wiener form then raised band 1 by 1.65 to 1.85 and lost detail.
+- **No master meets the issue's rules 1 and 2 together** (at least set 10's detail, less noise). The deep masters are 3 times quieter than
+  set 10 and hold 90 % of its finest detail; the pairs remain the recipe for a sharp master from a long night.
+
+What is left: a sharpest-stack test that a gain cannot fool (the limb's edge rather than band 2's energy), and a by-view join that leaves the
+limb to the stacks that saw it there. Logs: `D:/temp/tianwen-scratch/i1349b/` (`night/`, `twins/join/`, `night.sh`, `twinjoin.sh`, `wiener.sh`).
 
 ### The colour look (#1273)
 
