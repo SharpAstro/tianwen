@@ -79,6 +79,14 @@ internal partial record Session
             return;
         }
 
+        // A mount that cannot goto cannot reach the patch of sky a twilight flat needs; the calibrator path is unaffected
+        // (docs/plans/slew-less-mount.md).
+        if (MountPointsWithoutGoto)
+        {
+            _logger.LogWarning("The mount cannot goto, so it cannot point near the zenith for {Period} sky flats; skipping them.", period);
+            return;
+        }
+
         // Point near the zenith, tilted toward the anti-solar sky (west at dawn, east at dusk) to minimise
         // the twilight gradient across the frame.
         var haTilt = period == TwilightPeriod.Dawn ? tilt : tilt.Negate();

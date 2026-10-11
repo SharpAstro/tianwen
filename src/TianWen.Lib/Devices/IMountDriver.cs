@@ -667,18 +667,10 @@ public interface IMountDriver : IDeviceDriver
     /// <exception cref="InvalidOperationException">Thrown if the device is not connected or if the target cannot be transformed to mount native coordinates.</exception>
     public async Task<SlewResult> BeginSlewToTargetAsync(Target target, int minAboveHorizonDegrees = 10, CancellationToken cancellationToken = default)
     {
-        if (await TryGetTransformAsync(cancellationToken) is not { } transform
-            || await TryTransformJ2000ToMountNativeAsync(transform, target.RA, target.Dec, updateTime: false, cancellationToken) is not { } nativeCoords)
+        var (refusal, nativeCoords) = await ResolveTargetAsync(target, minAboveHorizonDegrees, cancellationToken);
+        if (refusal is { } refused)
         {
-            Logger.LogError("Failed to slew {MountName} to target {TargetName}, coordinate transform unavailable.", Name, target.Name);
-            return new SlewResult(SlewPostCondition.SlewNotPossible, double.NaN);
-        }
-
-        if (nativeCoords.Alt < minAboveHorizonDegrees)
-        {
-            Logger.LogWarning("Target {TargetName} is below minimum altitude of {MinAlt} degrees (alt={Alt:0.00}°).",
-                target.Name, minAboveHorizonDegrees, nativeCoords.Alt);
-            return new SlewResult(SlewPostCondition.TargetBelowHorizonLimit, double.NaN);
+            return new SlewResult(refused, double.NaN);
         }
 
         var dsop = await DestinationSideOfPierAsync(nativeCoords.RaMount, nativeCoords.DecMount, cancellationToken);
@@ -693,6 +685,36 @@ public interface IMountDriver : IDeviceDriver
         await BeginSlewRaDecAsync(nativeCoords.RaMount, nativeCoords.DecMount, cancellationToken);
 
         return new SlewResult(SlewPostCondition.Slewing, hourAngle);
+    }
+
+    /// <summary>
+    /// Why <paramref name="target"/> cannot be pointed at now, or <c>null</c> when it can: the coordinate transform is
+    /// unavailable (<see cref="SlewPostCondition.SlewNotPossible"/>), or the target is below
+    /// <paramref name="minAboveHorizonDegrees"/> (<see cref="SlewPostCondition.TargetBelowHorizonLimit"/>). The one check
+    /// every pointing makes, a goto (<see cref="BeginSlewToTargetAsync"/>) and a mount that cannot goto alike
+    /// (<c>Session.SlewLess.cs</c>).
+    /// </summary>
+    public async ValueTask<SlewPostCondition?> RefuseTargetAsync(Target target, int minAboveHorizonDegrees = 10, CancellationToken cancellationToken = default)
+        => (await ResolveTargetAsync(target, minAboveHorizonDegrees, cancellationToken)).Refusal;
+
+    private async ValueTask<(SlewPostCondition? Refusal, (double RaMount, double DecMount, double Az, double Alt) Native)> ResolveTargetAsync(
+        Target target, int minAboveHorizonDegrees, CancellationToken cancellationToken)
+    {
+        if (await TryGetTransformAsync(cancellationToken) is not { } transform
+            || await TryTransformJ2000ToMountNativeAsync(transform, target.RA, target.Dec, updateTime: false, cancellationToken) is not { } nativeCoords)
+        {
+            Logger.LogError("Failed to slew {MountName} to target {TargetName}, coordinate transform unavailable.", Name, target.Name);
+            return (SlewPostCondition.SlewNotPossible, default);
+        }
+
+        if (nativeCoords.Alt < minAboveHorizonDegrees)
+        {
+            Logger.LogWarning("Target {TargetName} is below minimum altitude of {MinAlt} degrees (alt={Alt:0.00}°).",
+                target.Name, minAboveHorizonDegrees, nativeCoords.Alt);
+            return (SlewPostCondition.TargetBelowHorizonLimit, nativeCoords);
+        }
+
+        return (null, nativeCoords);
     }
 
     public ValueTask<bool> WaitForSlewCompleteAsync(CancellationToken cancellationToken)

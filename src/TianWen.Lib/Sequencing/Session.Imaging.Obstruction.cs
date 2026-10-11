@@ -275,6 +275,14 @@ internal partial record Session
         var mount = Setup.Mount;
         var scopes = Setup.Telescopes.Length;
 
+        if (MountPointsWithoutGoto)
+        {
+            // A nudge is a Dec offset, which on a mount with no Dec motor is the operator's hand: not worth asking for a
+            // scout (docs/plans/slew-less-mount.md). Inconclusive, as with no FOV below.
+            _logger.LogInformation("Scout: the mount cannot goto, so no nudge test; treating as transparency.");
+            return (preMetrics, ScoutClassification.Transparency);
+        }
+
         var halfFovDeg = ComputeWidestHalfFovDeg();
         var nudgeDeg = Configuration.ObstructionNudgeRadii * halfFovDeg;
 

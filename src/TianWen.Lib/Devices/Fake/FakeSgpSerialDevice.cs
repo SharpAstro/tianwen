@@ -62,6 +62,9 @@ internal class FakeSgpSerialDevice : ISerialConnection
     /// </summary>
     internal double MoveRateError { get; set; }
 
+    /// <summary>Moves started (<c>:MSMR0#</c> east or <c>:MSMR1#</c> west), so a test can count what a routine did.</summary>
+    internal int MovesStarted { get; private set; }
+
     /// <summary>Where the operator set the rig up: the true pointing before any move, native RA (hours) and Dec (degrees).</summary>
     internal void PlaceAt(double raHours, double decDeg)
     {
@@ -225,11 +228,13 @@ internal class FakeSgpSerialDevice : ISerialConnection
 
                 case ":MSMR0#":
                     _moveDirection = 0; // east
+                    MovesStarted++;
                     _responseBuffer.Append(":HRMR0#");
                     break;
 
                 case ":MSMR1#":
                     _moveDirection = 1; // west
+                    MovesStarted++;
                     _responseBuffer.Append(":HRMR1#");
                     break;
 

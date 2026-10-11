@@ -26,11 +26,20 @@ internal partial record Session
         // Dec calibration sense and sits right on the ambiguous flip edge -> Dec runaway. HA is
         // LST - RA, so HA < 0 means east, i.e. before crossing (see BeginSlewHourAngleDecAsync).
         var dec = 0;
-        await mount.Driver.BeginSlewHourAngleDecAsync(-TimeSpan.FromMinutes(30).TotalHours, dec, cancellationToken).ConfigureAwait(false);
-
-        if (!await mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, cancellationToken).ConfigureAwait(false))
+        if (MountPointsWithoutGoto)
         {
-            throw new InvalidOperationException($"Failed to slew mount {mount} to guider calibration position (near meridian, {DegreesToDMS(dec)} declination)");
+            // No goto, so the guider calibrates where the operator aimed the rig at setup; the mount guides RA only, and
+            // a slew-less run never images past a flip unasked (docs/plans/slew-less-mount.md).
+            _logger.LogInformation("Guider calibration: the mount cannot goto, calibrating where the rig points.");
+        }
+        else
+        {
+            await mount.Driver.BeginSlewHourAngleDecAsync(-TimeSpan.FromMinutes(30).TotalHours, dec, cancellationToken).ConfigureAwait(false);
+
+            if (!await mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, cancellationToken).ConfigureAwait(false))
+            {
+                throw new InvalidOperationException($"Failed to slew mount {mount} to guider calibration position (near meridian, {DegreesToDMS(dec)} declination)");
+            }
         }
 
         // Plate solve and sync for accurate calibration position

@@ -73,10 +73,7 @@ internal partial record Session
             var pierSideAtSlewTime = PointingState.Unknown;
             try
             {
-                (var postCondition, hourAngleAtSlewTime) = await ResilientInvokeAsync(
-                    mount.Driver,
-                    ct => mount.Driver.BeginSlewToTargetAsync(observation.Target, Configuration.MinHeightAboveHorizon, ct),
-                    ResilientCallOptions.NonIdempotentAction, cancellationToken).ConfigureAwait(false);
+                (var postCondition, hourAngleAtSlewTime) = await BeginSlewOrPointAsync(observation, observation.Target, cancellationToken).ConfigureAwait(false);
                 if (postCondition is SlewPostCondition.SlewNotPossible or SlewPostCondition.TargetBelowHorizonLimit)
                 {
                     var maxWait = Configuration.MaxWaitForRisingTarget ?? TimeSpan.FromMinutes(15);
@@ -92,10 +89,7 @@ internal partial record Session
                         await _timeProvider.SleepAsync(waitTime, cancellationToken);
 
                         // Retry slew after waiting
-                        (postCondition, hourAngleAtSlewTime) = await ResilientInvokeAsync(
-                            mount.Driver,
-                            ct => mount.Driver.BeginSlewToTargetAsync(observation.Target, Configuration.MinHeightAboveHorizon, ct),
-                            ResilientCallOptions.NonIdempotentAction, cancellationToken).ConfigureAwait(false);
+                        (postCondition, hourAngleAtSlewTime) = await BeginSlewOrPointAsync(observation, observation.Target, cancellationToken).ConfigureAwait(false);
                     }
 
                     // Still not available: try spare targets, then advance
@@ -107,10 +101,7 @@ internal partial record Session
                                 observation.Target, postCondition, spare.Target);
                             observation = spare;
 
-                            (postCondition, hourAngleAtSlewTime) = await ResilientInvokeAsync(
-                                mount.Driver,
-                                ct => mount.Driver.BeginSlewToTargetAsync(spare.Target, Configuration.MinHeightAboveHorizon, ct),
-                                ResilientCallOptions.NonIdempotentAction, cancellationToken).ConfigureAwait(false);
+                            (postCondition, hourAngleAtSlewTime) = await BeginSlewOrPointAsync(spare, spare.Target, cancellationToken).ConfigureAwait(false);
                             if (postCondition is SlewPostCondition.SlewNotPossible or SlewPostCondition.TargetBelowHorizonLimit)
                             {
                                 _ = AdvanceObservation();
@@ -900,6 +891,17 @@ internal partial record Session
                             await WriteQueuedImagesToFitsFilesAsync();
                         }
                     }
+                }
+
+                if (observation.AcrossMeridian && MountPointsWithoutGoto)
+                {
+                    // The flip on a mount that cannot goto (RA by motor at once, then the operator's Dec) is P2 of
+                    // docs/plans/slew-less-mount.md and not built: end the target here rather than repeat it, which would
+                    // point the rig past the meridian toward the tripod legs.
+                    _logger.LogWarning("Meridian flip due on {Target}, which a mount that cannot goto does not flip yet; moving on.",
+                        observation.Target);
+                    next = ImageLoopNextAction.AdvanceToNextObservation;
+                    break;
                 }
 
                 if (observation.AcrossMeridian)
