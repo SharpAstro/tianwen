@@ -374,9 +374,9 @@ public class SessionImagingTests(ITestOutputHelper output)
     }
 
     [Theory(Timeout = 120_000)]
-    [InlineData(30)]
-    [InlineData(20)]
-    public async Task GivenHighAltitudeTargetWhenImagingLoopThenHighUtilization(int subSeconds)
+    [InlineData(30, 0.90)]
+    [InlineData(20, 0.85)]
+    public async Task GivenHighAltitudeTargetWhenImagingLoopThenHighUtilization(int subSeconds, double leastUtilization)
     {
         // given: M13 (RA=16.695h, Dec=+36.46) near zenith from Vienna in June
         var ct = TestContext.Current.CancellationToken;
@@ -435,9 +435,15 @@ public class SessionImagingTests(ITestOutputHelper output)
         output.WriteLine($"Utilization: {utilization:P1}");
 
         // A frame was fetched on the tick its countdown reached, which comes before its shutter closes (the ticker's phase is not the
-        // exposure's), so the fetch failed and was tried again a tick later: 87.8 % at 20 s and 86.7 % at 30 s. The loop waits out the
-        // rest of the exposure instead (#1414): 92.2 and 96.7 %.
-        utilization.ShouldBeGreaterThanOrEqualTo(0.89, "imaging utilization should be at least 89%");
+        // exposure's), so the fetch was given up and tried again a tick later: 87.8 % at 20 s and 86.7 % at 30 s. The loop waits out
+        // the rest of the exposure instead (#1414), or looks again next tick when the shutter is more than a tick from closing (the
+        // countdown can count ticks the ticker dropped before the shutter opened: 14 and 7 give-ups without it), and no fetch is
+        // given up. That is the check; utilization is not, since it moves
+        // with the runner: the loop's PeriodicTimer drops a tick whose continuation was late (ImagingLoopTicks), and at 20 s a loaded
+        // CI runner wrote 80 frames (88.9 %) where an idle box writes 82 or 83, one frame from the 79 before the fix. Under every core
+        // busy here it wrote 81 to 83 at 20 s and 56 or 57 at 30 s (52 before the fix), so 30 s keeps a bound between the two.
+        ctx.Session.FetchesGivenUp.ShouldBe(0, "a frame is fetched once its shutter has closed, never given up and asked for a tick later");
+        utilization.ShouldBeGreaterThanOrEqualTo(leastUtilization, $"imaging utilization should be at least {leastUtilization:P0}");
     }
 
     [Fact(Timeout = 120_000)]
