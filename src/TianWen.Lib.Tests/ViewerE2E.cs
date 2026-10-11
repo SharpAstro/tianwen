@@ -49,7 +49,7 @@ internal sealed class ViewerE2E : IAsyncDisposable
         Bus.Subscribe<RequestExitSignal>(_ => _exitRequests++);
         State = new ViewerState();
         Tracker = new BackgroundTaskTracker();
-        FileDialog = Substitute.For<IFileDialogHelper>();
+        FileDialog = Substitute.For<IFileDialogs>();
         Controller = new ViewerController(State, new DocumentCache(), FileDialog,
             Substitute.For<IPlateSolverFactory>(), new FakeTimeProviderWrapper(), Tracker,
             NullLogger<ViewerController>.Instance);
@@ -74,7 +74,7 @@ internal sealed class ViewerE2E : IAsyncDisposable
     internal ViewerController Controller { get; }
 
     /// <summary>The substitute file dialog, which a test answers (a Save's path) through NSubstitute.</summary>
-    internal IFileDialogHelper FileDialog { get; }
+    internal IFileDialogs FileDialog { get; }
 
     internal BackgroundTaskTracker Tracker { get; }
 

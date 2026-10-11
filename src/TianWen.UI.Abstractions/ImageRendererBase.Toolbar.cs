@@ -750,8 +750,8 @@ namespace TianWen.UI.Abstractions
 
                 case ToolbarAction.Save:
                     // Two rows rather than two buttons, and rather than two rows in the file dialog:
-                    // the dialog reports only a PATH back (see IFileDialogHelper.SaveAsync -- two of
-                    // the three platforms cannot report which filter was highlighted), and both
+                    // the dialog reports only a PATH back (see DIR.Lib's FileDialogResult.FilterIndex --
+                    // most platforms cannot report which filter was highlighted), and both
                     // variants write a .png, so the choice cannot be carried by the extension. It has
                     // to be made before the dialog opens, which is here.
                     //

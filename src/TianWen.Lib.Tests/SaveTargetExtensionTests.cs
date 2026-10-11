@@ -103,14 +103,13 @@ public class SaveTargetExtensionTests
         {
             var state = new ViewerState();
             var cache = Substitute.For<IDocumentCache>();
-            var dialog = Substitute.For<IFileDialogHelper>();
+            var dialog = Substitute.For<IFileDialogs>();
             var controller = new ViewerController(state, cache, dialog,
                 Substitute.For<IPlateSolverFactory>(), new FakeTimeProviderWrapper(),
                 new BackgroundTaskTracker(), NullLogger<ViewerController>.Instance);
 
-            dialog.SaveAsync(Arg.Any<System.Collections.Generic.IReadOnlyDictionary<string, System.Collections.Generic.IReadOnlyList<string>>>(),
-                    Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
-                .Returns(Path.Combine(directory, typed));
+            dialog.SaveAsync(Arg.Any<FileDialogRequest>(), Arg.Any<CancellationToken>())
+                .Returns(new FileDialogResult { Paths = [Path.Combine(directory, typed)] });
 
             var fits = await SharedTestData.ExtractGZippedFitsFileAsync("PlateSolveTestFile",
                 TestContext.Current.CancellationToken);
