@@ -315,20 +315,19 @@ internal partial record Session(
     /// <param name="requiresPhysicalPresence">Whether answering needs somebody at the rig. Travels to the
     /// UI on <see cref="SessionPromptEventArgs.RequiresPhysicalPresence"/> so a remote observer is warned
     /// that confirming from elsewhere asserts something they cannot see.</param>
-    private async ValueTask<bool> RequestUserConfirmationAsync(
-        string title, string message, CancellationToken cancellationToken,
-        string continueLabel = "Continue", string cancelLabel = "Cancel",
-        bool requiresPhysicalPresence = false)
+    /// <summary>
+    /// Raises a prompt on <see cref="PromptRequested"/> and returns the completion its answer lands in, or <c>null</c>
+    /// when nobody is subscribed. The one place a prompt is born: <see cref="RequestUserConfirmationAsync"/> waits on
+    /// it as a gate, and the slew-less Dec wait (<c>Session.SlewLess.cs</c>) keeps solving while it is open and
+    /// withdraws it (<see cref="TaskCompletionSource{TResult}.TrySetCanceled()"/>) once a solve finds the target.
+    /// </summary>
+    private TaskCompletionSource<bool>? RaisePrompt(
+        string title, string message, string continueLabel, string cancelLabel,
+        bool requiresPhysicalPresence, bool defaultIfUnanswerable)
     {
-        var handler = PromptRequested;
-        if (handler is null)
+        if (PromptRequested is not { } handler)
         {
-            var unattended = Configuration.UnattendedPromptResponse;
-            var proceed = unattended is UnattendedPromptResponse.Proceed;
-            _logger.LogInformation(
-                "User step, nobody to ask ({Response}): {Title}; {Message}",
-                proceed ? "proceeding" : "skipping", title, message);
-            return proceed;
+            return null;
         }
 
         // RunContinuationsAsynchronously: the UI thread calls Respond(); without this the session's
@@ -337,13 +336,32 @@ internal partial record Session(
         _logger.LogInformation("Waiting for user: {Title}, {Message}", title, message);
         handler.Invoke(this, new SessionPromptEventArgs(
             title, message, continueLabel, cancelLabel, completion, requiresPhysicalPresence,
-            // Carry the unattended policy to the handler: a hosted broadcaster may have subscribed for
-            // remote clients and find none attached, and it must then answer exactly as the session
-            // would have with no handler at all.
-            defaultIfUnanswerable: Configuration.UnattendedPromptResponse is UnattendedPromptResponse.Proceed,
+            defaultIfUnanswerable: defaultIfUnanswerable,
             // Stamped here, at the one place a prompt is born, so every observer -- this node's UI and a
             // remote board alike -- ages it from the same instant.
             raisedUtc: _timeProvider.GetUtcNow()));
+        return completion;
+    }
+
+    private async ValueTask<bool> RequestUserConfirmationAsync(
+        string title, string message, CancellationToken cancellationToken,
+        string continueLabel = "Continue", string cancelLabel = "Cancel",
+        bool requiresPhysicalPresence = false)
+    {
+        var completion = RaisePrompt(title, message, continueLabel, cancelLabel, requiresPhysicalPresence,
+            // Carry the unattended policy to the handler: a hosted broadcaster may have subscribed for
+            // remote clients and find none attached, and it must then answer exactly as the session
+            // would have with no handler at all.
+            defaultIfUnanswerable: Configuration.UnattendedPromptResponse is UnattendedPromptResponse.Proceed);
+        if (completion is null)
+        {
+            var unattended = Configuration.UnattendedPromptResponse;
+            var proceed = unattended is UnattendedPromptResponse.Proceed;
+            _logger.LogInformation(
+                "User step, nobody to ask ({Response}): {Title}; {Message}",
+                proceed ? "proceeding" : "skipping", title, message);
+            return proceed;
+        }
 
         try
         {

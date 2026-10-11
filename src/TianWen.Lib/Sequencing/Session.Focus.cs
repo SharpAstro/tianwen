@@ -193,22 +193,33 @@ internal partial record Session
             return false;
         }
 
-        _logger.LogInformation("Slew mount {Mount} near zenith to verify that we have rough focus.", mount);
-
-        // coordinates not quite accurate at this point (we have not plate-solved yet) but good enough for this purpose.
-        await mount.Driver.BeginSlewToZenithAsync(distMeridian, cancellationToken).ConfigureAwait(false);
+        // A mount that cannot goto focuses wherever the operator aimed it at setup: its zenith slew threw and failed the
+        // whole run (docs/plans/slew-less-mount.md).
+        var pointsWithoutGoto = MountPointsWithoutGoto;
         var slewTime = await GetMountUtcNowAsync(cancellationToken);
-
-        _currentActivity = "Waiting for slew to complete\u2026";
-        _logger.LogInformation("RoughFocus: waiting for slew to complete...");
-        if (!await ResilientInvokeAsync(
-                mount.Driver,
-                ct => mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, ct),
-                ResilientCallOptions.IdempotentRead, cancellationToken).ConfigureAwait(false))
+        if (pointsWithoutGoto)
         {
-            _logger.LogError("Failed to complete slewing of mount {Mount}", mount);
+            _logger.LogInformation("RoughFocus: the mount {Mount} cannot goto, focusing where the rig points.", mount);
+        }
+        else
+        {
+            _logger.LogInformation("Slew mount {Mount} near zenith to verify that we have rough focus.", mount);
 
-            return false;
+            // coordinates not quite accurate at this point (we have not plate-solved yet) but good enough for this purpose.
+            await mount.Driver.BeginSlewToZenithAsync(distMeridian, cancellationToken).ConfigureAwait(false);
+            slewTime = await GetMountUtcNowAsync(cancellationToken);
+
+            _currentActivity = "Waiting for slew to complete\u2026";
+            _logger.LogInformation("RoughFocus: waiting for slew to complete...");
+            if (!await ResilientInvokeAsync(
+                    mount.Driver,
+                    ct => mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, ct),
+                    ResilientCallOptions.IdempotentRead, cancellationToken).ConfigureAwait(false))
+            {
+                _logger.LogError("Failed to complete slewing of mount {Mount}", mount);
+
+                return false;
+            }
         }
 
         // Update camera targets with current mount position for FITS headers and synthetic star
@@ -220,7 +231,7 @@ internal partial record Session
             _logger.LogError("RoughFocus: could not read mount pointing in J2000 (transform unavailable).");
             return false;
         }
-        var zenithTarget = new Target(zenithJ2000.RaJ2000, zenithJ2000.DecJ2000, "Zenith", null);
+        var zenithTarget = new Target(zenithJ2000.RaJ2000, zenithJ2000.DecJ2000, pointsWithoutGoto ? "Where the rig points" : "Zenith", null);
         for (var i = 0; i < Setup.Telescopes.Length; i++)
         {
             var cam = Setup.Telescopes[i].Camera.Driver;
@@ -332,7 +343,9 @@ internal partial record Session
                         // Capture the zenith night-sky gauge from this rough-focus frame (detected vs
                         // catalog-predicted at the unobstructed zenith) to anchor the first-scout
                         // obstruction oracle + cloud gate. Best-effort; never fails rough focus.
-                        if (!hasRoughFocus[i])
+                        // Not on a mount that cannot goto: its frame is wherever the operator aimed, not the unobstructed
+                        // zenith the gauge is anchored to.
+                        if (!hasRoughFocus[i] && !pointsWithoutGoto)
                         {
                             await CaptureZenithGaugeAsync(i, stars.Count, expTimesSec[i], zenithJ2000.RaJ2000, zenithJ2000.DecJ2000, cancellationToken);
                         }
@@ -344,14 +357,17 @@ internal partial record Session
 
             if (cancellationToken.IsCancellationRequested) break;
 
-            // slew back to start position
+            // slew back to start position (a mount that cannot goto stays where it points, so its window just restarts)
             if (await GetMountUtcNowAsync(cancellationToken) - slewTime > distMeridian)
             {
-                await mount.Driver.BeginSlewToZenithAsync(distMeridian, cancellationToken).ConfigureAwait(false);
+                if (!pointsWithoutGoto)
+                {
+                    await mount.Driver.BeginSlewToZenithAsync(distMeridian, cancellationToken).ConfigureAwait(false);
+                }
 
                 slewTime = await GetMountUtcNowAsync(cancellationToken);
 
-                if (!await ResilientInvokeAsync(
+                if (!pointsWithoutGoto && !await ResilientInvokeAsync(
                         mount.Driver,
                         ct => mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, ct),
                         ResilientCallOptions.IdempotentRead, cancellationToken).ConfigureAwait(false))
@@ -1003,6 +1019,13 @@ internal partial record Session
     internal async ValueTask<bool> CenterOnTargetAsync(Target target, int telescopeIndex, double thresholdArcmin = 1.0, int maxAttempts = 5, CancellationToken cancellationToken = default)
     {
         var mount = Setup.Mount;
+
+        // On a mount that cannot goto, centring is the slew-less routine: its correction is an RA move and a Dec wait.
+        if (MountPointsWithoutGoto)
+        {
+            var giveUpAt = await GetMountUtcNowAsync(cancellationToken) + SlewLessCenteringDecWait;
+            return await PointWithoutGotoAsync(target, telescopeIndex, thresholdArcmin, giveUpAt, cancellationToken) is SlewLessArrival.Arrived;
+        }
 
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
