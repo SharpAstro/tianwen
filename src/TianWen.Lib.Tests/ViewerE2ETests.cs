@@ -360,8 +360,9 @@ public class ViewerE2ETests
 
     /// <summary>
     /// A press on the transport's scrub track seeks to where it landed and pauses, and the drag that follows goes on
-    /// seeking until the button comes up: the gesture is the capture the press returns (#1489), not a flag on the state
-    /// that the move and release handlers each had to remember. After the release a move seeks nothing.
+    /// seeking until the button comes up: the track is DIR.Lib's slider, whose press arms its own drag (#1489), not a
+    /// flag on the state that the move and release handlers each had to remember. After the release a move seeks
+    /// nothing.
     /// </summary>
     [Theory]
     [MemberData(nameof(Scales))]
@@ -384,12 +385,12 @@ public class ViewerE2ETests
         // A capture opens as a frame source, not a document, so it is waited for by its frames.
         e2e.Host.HandleDropFile(path);
         await e2e.PumpUntilAsync(() => e2e.State.FrameCount == 10 && e2e.State.IsSequence, "the capture's ten frames to be known", ct);
-        await e2e.PumpUntilAsync(() => e2e.Viewer.PaintedRegions().Any(r => r.Result is TransportScrubHit), "the transport to be painted", ct);
+        bool IsTheTrack(HitResult hit) => hit is HitResult.SliderStateHit { State: var slider } && ReferenceEquals(slider, e2e.Viewer.Scrub);
+        await e2e.PumpUntilAsync(() => e2e.Viewer.PaintedRegions().Any(r => IsTheTrack(r.Result)), "the transport to be painted", ct);
         e2e.State.IsPlaying = true;
 
-        // The track registers twice, its slider and then its press region over it; the press region, the later one, answers.
-        var region = e2e.Viewer.PaintedRegions().Last(r => r.Result is TransportScrubHit);
-        var track = new RectF32(region.X, region.Y, region.Width, region.Height);
+        // The track is DIR.Lib's slider over the frame indices: one region, the slider's own, which arms its own drag.
+        var track = e2e.Region(IsTheTrack, "the scrub track");
         var y = track.Y + (track.Height / 2f);
         e2e.Host.HandlePointer(new InputEvent.MouseDown(track.X + 1f, y));
         e2e.State.IsPlaying.ShouldBeFalse("a scrub pauses playback");

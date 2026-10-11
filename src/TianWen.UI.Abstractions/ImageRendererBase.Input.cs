@@ -249,25 +249,6 @@ namespace TianWen.UI.Abstractions
         // frame without saying what changed. See ImageRendererBase.Damage.cs.
         private bool HandleViewerInput(InputEvent evt)
         {
-            // The split divider's drag. Its PRESS armed it from the region it painted, so only motion
-            // and release are routed -- and only here, which both hosts already forward to. A control
-            // that owns its state costs one line, not a branch in each of three handlers.
-            if (Split.HandleInput(evt))
-            {
-                if (_state is { } dragState)
-                {
-                    dragState.NeedsRedraw = true;
-                }
-
-                // Only the strip the divider crossed differs: both halves draw the same quad into
-                // complementary clips, so a pixel left of both positions or right of both is unchanged.
-                if (Split.LastDragSweep is { } sweep)
-                {
-                    RequestDamage(sweep);
-                }
-
-                return true;
-            }
 
             return evt switch
             {

@@ -47,6 +47,12 @@ namespace TianWen.UI.Abstractions
         /// <summary>Extra vertical room per file row, on top of the font size.</summary>
         private const float FileListRowLeading = 9f;
 
+        /// <summary>The fill a file row draws its name into.</summary>
+        private const string FileRowNameKey = "FileRowName";
+
+        /// <summary>The header's gap between its title and the folder, in ems.</summary>
+        private const float FileListHeaderGapEm = 0.4f;
+
         private readonly ListScrollController _fileListScroll =
             new ListScrollController { SnapToAtom = true, Mode = ScrollBarMode.Interactive };
 
@@ -96,15 +102,43 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void RenderFileListHeader(ViewerState state, float lx, float y, float height)
         {
-            const string title = "Files";
-            var titleX = lx + PanelPadding;
-            DrawText(title, titleX, y, FontSize, ViewerTheme.Palette.HeaderText);
+            var folder = state.CurrentFolder is { Length: > 0 } current ? current : null;
+            var suffix = folder is null ? null : FileListHeaderFolder(folder, lx);
 
-            if (state.CurrentFolder is not { Length: > 0 } folder)
+            // A node (#1489): the title and the folder are text runs top-aligned where DrawText put them, the folder
+            // half an em past the title in the DIM chrome colour (it is context, and must not compete with the file
+            // names it sits above), and the row they make is the row that answers the pointer. It answers only while
+            // a folder shows, as the list's own pseudo-row (index -1, no press, as a row), so the hover tracking in
+            // HandleViewerMouseMove recognises it by the one pattern it matches for rows.
+            var headerRect = new RectF32(lx, y, FileListWidth, height);
+            RenderLayout(
+                Layout.Builder.HStack(
+                        Layout.Builder.Text("Files", FontSize, ViewerTheme.Palette.HeaderText,
+                            vAlign: TextAlign.Near, trim: TextTrim.None),
+                        Layout.Builder.Text(suffix ?? string.Empty, FontSize, ViewerTheme.Palette.DimText,
+                            vAlign: TextAlign.Near, trim: TextTrim.End).WStar())
+                    .WithGap(FontSize * FileListHeaderGapEm)
+                    .Clickable(suffix is null ? null : new HitResult.ListItemHit(FileListId, HeaderRowIndex),
+                        cursor: suffix is null ? null : CursorKind.Default)
+                    .PadX(PanelPadding),
+                headerRect, scale: DesignScale.One);
+
+            // The tooltip is the FULL path, and it is offered whenever the pointer is over the header -- not only
+            // when the leaf was trimmed. The leaf being legible does not tell you where it is, which is the question
+            // the header raises. Hovered by the rule a declared node lights by, open popovers included.
+            if (suffix is not null && folder is not null && PointerHovers(headerRect))
             {
-                return;
+                _revealedRowName = (folder, lx, y, height);
             }
+        }
 
+        /// <summary>
+        /// The folder the header names after its title, in brackets, or null when the pane has no room for even one
+        /// glyph of it: <c>parent/leaf</c> when that fits, else the leaf alone, which the header's run ellipsises to the
+        /// width left as a last resort. Measured here only to CHOOSE between the two, which no node can do.
+        /// </summary>
+        private string? FileListHeaderFolder(string folder, float lx)
+        {
             var trimmed = Path.TrimEndingDirectorySeparator(folder);
             var leaf = Path.GetFileName(trimmed);
             if (string.IsNullOrEmpty(leaf))
@@ -120,47 +154,19 @@ namespace TianWen.UI.Abstractions
             var parent = Path.GetFileName(Path.GetDirectoryName(trimmed) ?? string.Empty);
             var withParent = string.IsNullOrEmpty(parent) ? leaf : parent + "/" + leaf;
 
-            // Whatever is left of the pane after the title, in the DIM chrome colour: the folder is
-            // context, and it must not compete with the file names it sits above.
-            var suffixX = titleX + MeasureText(title, FontSize) + FontSize * 0.4f;
+            // Whatever is left of the pane after the title: the width the folder's run is laid out in.
+            var suffixX = lx + PanelPadding + MeasureText("Files", FontSize) + FontSize * FileListHeaderGapEm;
             var available = lx + FileListWidth - PanelPadding - suffixX;
             if (available <= FontSize)
             {
                 // Narrower than a single glyph: drawing '(...)' here would be chrome with no content.
-                return;
+                return null;
             }
 
             // Widest candidate that fits, then ellipsise the shortest rather than the longest -- an
             // ellipsised 'Astro/My' would read worse than a complete 'My'.
             var suffix = $"({withParent})";
-            if (MeasureText(suffix, FontSize) > available)
-            {
-                suffix = $"({leaf})";
-                if (MeasureText(suffix, FontSize) > available)
-                {
-                    suffix = TextFit.TrimToWidth(Renderer, suffix, FontPath, FontFallback, FontSize,
-                        available, TextTrim.End);
-                }
-            }
-            DrawText(suffix, suffixX, y, FontSize, ViewerTheme.Palette.DimText);
-
-            // The tooltip is the FULL path, and it is offered whenever the pointer is over the header --
-            // not only when the leaf was trimmed. The leaf being legible does not tell you where it is,
-            // which is the question the header raises.
-            var mouse = state.MouseScreenPosition;
-            var headerRect = new RectF32(lx, y, FileListWidth, height);
-            // Hovered by the rule a declared node lights by, open popovers included (PointerHovers).
-            if (PointerHovers(headerRect))
-            {
-                _revealedRowName = (folder, lx, y, height);
-            }
-
-            // Registered as the same list with index -1 rather than as bespoke chrome, so the hover
-            // tracking in HandleViewerMouseMove can recognise the header with the one pattern it
-            // already matches for rows. No OnClick, same as a row: the header does nothing on click.
-            RegisterClickable(headerRect.X, headerRect.Y, headerRect.Width, headerRect.Height,
-                new HitResult.ListItemHit(FileListId, HeaderRowIndex), onClick: null,
-                cursor: CursorKind.Default);
+            return MeasureText(suffix, FontSize) > available ? $"({leaf})" : suffix;
         }
 
         /// <summary>
@@ -185,34 +191,8 @@ namespace TianWen.UI.Abstractions
 
             FillRect(lx, listTop, FileListWidth, listHeight, ViewerTheme.FileListBg);
 
-            // The divider's GRAB, registered here rather than declared on the Split, because a node's
-            // dividerHit carries a hit and no handler -- and a region with a hit and no handler is
-            // silently dead under a router, which consumes the press whether or not anything ran. The
-            // same shape RenderSplitDivider already uses for the before/after divider. The Split's own
-            // dividerHit stays for the cursor and the inspector; this sits over it and acts.
-            var grabW = MathF.Max(BaseFileListDividerWidth * DpiScale, BaseSplitGrabWidth * DpiScale);
-            RegisterClickable(fl.Right - grabW / 2f, listTop, grabW, listHeight,
-                new ResizeHandleHit(FileListId), cursor: CursorKind.ResizeEW,
-                onPress: _ =>
-                {
-                    // The drag is the capture's (#1489): its moves set the width, in DPI-independent units
-                    // (FileListWidthBase's setter clamps), and its release ends it. The flag is only what the
-                    // divider's active colour reads; the cursor needs none, since a drag keeps the cursor of
-                    // the region that armed it (DIR.Lib 11.16).
-                    state.IsResizingFileList = true;
-                    state.NeedsRedraw = true;
-                    return new DragCapture(
-                        move =>
-                        {
-                            state.FileListWidthBase = move.X / DpiScale;
-                            state.NeedsRedraw = true;
-                        },
-                        _ =>
-                        {
-                            state.IsResizingFileList = false;
-                            state.NeedsRedraw = true;
-                        });
-                });
+            // The divider's grab is the Split's own (ComputeLayout): it drags itself, and its band is emitted after
+            // both panes, so it answers a press over the list's edge before a row does.
 
             if (string.IsNullOrEmpty(FontPath))
             {
@@ -277,17 +257,11 @@ namespace TianWen.UI.Abstractions
                 var isSelected = fileIndex == state.SelectedFileIndex;
                 // Selection (the loaded file) is deliberately NOT gated on an overlay -- it should stay
                 // highlighted regardless; only hover is, by the rule a declared node lights by (PointerHovers:
-                // inside the row and not claimed away by an open popover).
+                // inside the row and not claimed away by an open popover). Asked rather than declared with .BgHover:
+                // the revealed name below needs the same answer, and a .BgHover on the inset highlight would answer
+                // over a rect two pixels narrower each side than the row that takes the press, so the light and the
+                // reveal would disagree at the row's edges.
                 var isHovered = PointerHovers(rowRect);
-
-                if (isSelected)
-                {
-                    FillRect(rowRect.X + 2, rowRect.Y, rowRect.Width - 4, rowRect.Height, ViewerTheme.Palette.Selection);
-                }
-                else if (isHovered)
-                {
-                    FillRect(rowRect.X + 2, rowRect.Y, rowRect.Width - 4, rowRect.Height, FileListHoverBg);
-                }
 
                 // MEASURED, not estimated. This was an assumed 0.6-em advance, which over-trims a
                 // narrow-glyph name and lets a wide one overflow the pane -- and DrawText does not
@@ -298,43 +272,47 @@ namespace TianWen.UI.Abstractions
                 var displayName = TextFit.TrimToWidth(
                     Renderer, label, FontPath, FontFallback, FontSize, textWidth, TextTrim.End);
 
-                DrawText(displayName, rowRect.X + PanelPadding, RowTextY(rowRect.Y, rowRect.Height), FontSize,
-                    isSelected ? FileListItemTextSelected : FileListItemText);
+                // A DECLARED row (#1489), placed where the scroll controller put it (the controller owns which rows
+                // show and where, which is what keeps a wheel accumulator and the row snap alive across frames).
+                // The highlight is the inner box, two pixels in from each side; the name is drawn into it, its line
+                // box centred in the row by the one expression the revealed name shares (RowTextY), until a text
+                // leaf measures to its line box (#1490) and can be centred by the engine to the same pixel.
+                //
+                // Deliberately with no OnClick: an OnClick fires on PRESS, so a drag would open whichever row the
+                // pointer started on, where selection is taken on the tap RELEASE by the scroll controller, which is
+                // also what makes drag-to-scroll work. The row hands the press to that controller ITSELF: under a
+                // router there is no declining, since a region under the pointer consumes the press whether or not
+                // anything ran, so a row with only a hit would kill drag-to-scroll and every selection with it.
+                // Returning null is "acted, but this is not a drag I own" -- the controller keeps whatever gesture
+                // it armed.
+                //
+                // What the region is FOR is everything a geometry-only row could not do: it puts the row in the
+                // region tree (so the inspector can see and drive it -- click_label on a file name works), and it
+                // states the cursor instead of leaving the query to fall through to the pane beneath. ListItemHit
+                // and NOT a bespoke hit type: the inspector derives a region's label from the hit and only labels
+                // ButtonHit, ListItemHit and SliderHit, and a ButtonHit is out, since the press handler runs every
+                // one whose action parses as a ToolbarAction and a file can be named anything.
+                var nameColor = isSelected ? FileListItemTextSelected : FileListItemText;
+                var highlight = Layout.Builder.Fill(key: FileRowNameKey).Stretch();
+                if (isSelected)
+                {
+                    highlight = highlight.Bg(ViewerTheme.Palette.Selection);
+                }
+                else if (isHovered)
+                {
+                    highlight = highlight.Bg(FileListHoverBg);
+                }
 
-                // A DECLARED region per row. Deliberately with no OnClick: the press/release still
-                // goes to the scroll controller, which is what makes drag-to-scroll work and fires
-                // selection on the tap RELEASE. Registering an OnClick here would select on PRESS and
-                // a touch drag would open whatever row the finger started on.
-                //
-                // So what the region is FOR is everything a geometry-only row could not do: it puts
-                // the row in the region tree (so the inspector can see and drive it -- click_label on
-                // a file name works, which is the acceptance test this pane used to fail), and it
-                // states the cursor instead of leaving the query to fall through to the pane beneath.
-                // ListItemHit and NOT a bespoke hit type, for a reason worth recording: the inspector
-                // derives a region's label from the hit, and it only labels ButtonHit, ListItemHit and
-                // SliderHit -- an app-specific subtype reports its type name and a NULL label. A custom
-                // type therefore bought tidiness at the cost of the visibility this registration exists
-                // to provide. ButtonHit is not an option either: the press handler runs every ButtonHit
-                // whose action parses as a ToolbarAction, and a file can be named anything.
-                //
-                // NO OnClick, deliberately, and that has not changed: an OnClick fires on PRESS, so a
-                // drag would open whichever row the pointer started on, where selection is taken on the
-                // tap RELEASE.
-                //
-                // What IS new is that the row hands the press to the scroll controller ITSELF, rather
-                // than declining and letting a host's press walk do it. Under a router there is no
-                // declining: a region under the pointer consumes the press whether or not anything ran,
-                // so a row that only registered a hit would kill drag-to-scroll and every selection with
-                // it. Returning null is "acted, but this is not a drag I own" -- the controller keeps
-                // whatever gesture it armed.
-                RegisterClickable(rowRect.X, rowRect.Y, rowRect.Width, rowRect.Height,
-                    new HitResult.ListItemHit(FileListId, fileIndex), onClick: null, cursor: CursorKind.Default,
-                    onPress: press =>
+                var row = Layout.Builder.HStack(highlight).PadX(2f)
+                    .Pressable(new HitResult.ListItemHit(FileListId, fileIndex), press =>
                     {
                         HandleFileListScroll(state, new InputEvent.MouseDown(press.X, press.Y, press.Button,
                             press.Modifiers, press.Clicks));
                         return null;
-                    });
+                    }, CursorKind.Default);
+                RenderLayout(row, rowRect, scale: DesignScale.One, drawFill: (_, _) =>
+                    DrawText(displayName, rowRect.X + PanelPadding, RowTextY(rowRect.Y, rowRect.Height), FontSize,
+                        nameColor));
 
                 // Only when the name is actually cut -- a tooltip repeating a fully visible label is
                 // noise. Anchored on the row so it appears where the pointer is.

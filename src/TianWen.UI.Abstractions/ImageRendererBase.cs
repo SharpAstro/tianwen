@@ -1649,19 +1649,39 @@ namespace TianWen.UI.Abstractions
         /// thing is actually catchable with a mouse.</summary>
         private const float BaseSplitGrabWidth = 12f;
 
-        // The divider line plus its grab band, registered from the SAME rect it painted -- so the grab
-        // is the line by construction, and the press ARMS THE DRAG from here through the region's own
-        // onClick. That is what keeps the press out of every host's dispatcher: the viewer has two of
-        // them, and a branch added to one of them alone is invisible in the other.
+        // The divider is a declared split over the image pane (DIR.Lib 11.18): the engine draws the line centred on
+        // splitX, binds the wider grab band from the same arrangement, and owns the drag, reporting where the line's
+        // left edge is. The press, its moves and its release reach it through whichever router the host runs, so no
+        // dispatcher of the viewer has a branch for it (#1489); the viewer has two, and a branch added to one alone
+        // was invisible in the other. Only the strip the line crossed is declared damaged.
+        //
+        // Arranged in device pixels (DesignScale.One), because the controller's track is the pane in pixels: the
+        // extent goes in and comes back in the unit the controller holds, with no conversion either way, and the line
+        // keeps its one-pixel floor. The half line is the one correction, the controller placing the line's centre.
         private void RenderSplitDivider(RectF32 area, float splitX)
         {
             var lineW = MathF.Max(1f, BaseSplitDividerWidth * DpiScale);
             var grabW = MathF.Max(lineW, BaseSplitGrabWidth * DpiScale);
-            var color = Split.IsDragging ? ResizeHandleActiveColor : ResizeHandleIdleColor;
+            var divider = Layout.Builder.Split(Layout.Builder.Spacer(), Layout.Builder.Spacer(),
+                resize =>
+                {
+                    Split.DragTo(resize.FirstExtent + lineW / 2f, resize.Ended);
+                    if (Split.LastDragSweep is { } sweep)
+                    {
+                        RequestDamage(sweep);
+                    }
 
-            FillRect(splitX - lineW / 2f, area.Y, lineW, area.Height, color);
-            RegisterClickable(splitX - grabW / 2f, area.Y, grabW, area.Height,
-                new ResizeHandleHit("Split"), onClick: _ => Split.BeginDrag(), cursor: CursorKind.ResizeEW);
+                    if (_state is { } state)
+                    {
+                        state.NeedsRedraw = true;
+                    }
+                },
+                firstExtent: splitX - area.X - lineW / 2f,
+                dividerThickness: lineW,
+                grabThickness: grabW,
+                dividerHit: new ResizeHandleHit("Split"),
+                dividerColor: Split.IsDragging ? ResizeHandleActiveColor : ResizeHandleIdleColor);
+            RenderLayout(divider, area, scale: DesignScale.One);
         }
 
         /// <summary>
@@ -1801,25 +1821,46 @@ namespace TianWen.UI.Abstractions
         /// lack, and a missing glyph here would draw nothing at all.
         /// </remarks>
         private void DrawSectionHeading(ref float y, float x, string title, float availableWidth)
+            => PaintSectionHeading(ref y, x, title, availableWidth, hit: null, onClick: null);
+
+        /// <summary>The fill a section heading draws its rule into.</summary>
+        private const string SectionRuleKey = "SectionRule";
+
+        /// <summary>
+        /// Paints a section heading one line tall at <paramref name="y"/> and advances past it. A node (#1489): the title,
+        /// top-aligned where DrawText put it, then the rule's fill from half an em past it to the end of the row, the whole
+        /// row answering <paramref name="onClick"/> when it is given one. Arranged in device pixels
+        /// (<see cref="DesignScale.One"/>), since the strip it sits in is laid out in them.
+        /// </summary>
+        private void PaintSectionHeading(ref float y, float x, string title, float availableWidth,
+            HitResult? hit, Action? onClick)
         {
             var color = ViewerTheme.Palette.HeaderText;
-            var titleWidth = MeasureText(title, FontSize);
-            DrawText(title.AsSpan(), FontPath, x, y, Width - x, FontSize * 1.3f, FontSize, color,
-                TextAlign.Near, TextAlign.Near);
-
-            // Sits on the text's optical middle rather than its baseline, so the rule reads as continuing
-            // through the words instead of underlining them.
-            var ruleY = MathF.Round(y + FontSize * 0.5f);
-            var ruleStart = x + titleWidth + FontSize * 0.5f;
-            var ruleEnd = x + availableWidth;
-            if (ruleEnd - ruleStart >= FontSize)
-            {
-                // Dimmed: a rule at full heading strength competes with the heading it is separating.
-                var rule = new RGBAColor32(color.Red, color.Green, color.Blue, (byte)(color.Alpha / 2));
-                DrawLine(ruleStart, ruleY, ruleEnd, ruleY, rule);
-            }
+            // Dimmed: a rule at full heading strength competes with the heading it is separating.
+            var rule = new RGBAColor32(color.Red, color.Green, color.Blue, (byte)(color.Alpha / 2));
+            var bounds = new RectF32(x, y, availableWidth, TextLineAdvance);
+            RenderLayout(
+                Layout.Builder.HStack(
+                        Layout.Builder.Text(title, FontSize, color, vAlign: TextAlign.Near, trim: TextTrim.None),
+                        Layout.Builder.Fill(key: SectionRuleKey).WStar())
+                    .WithGap(FontSize * 0.5f)
+                    .Clickable(hit, onClick is null ? null : _ => onClick()),
+                bounds, scale: DesignScale.One,
+                drawFill: (fill, rect) => DrawSectionRule(fill, rect, rule));
 
             y += TextLineAdvance;
+        }
+
+        // The rule sits on the text's optical middle rather than its baseline, half an em down the row the fill is laid
+        // out in, so it reads as continuing through the words instead of underlining them; and only when it is at least
+        // an em long. A line at a fraction of the em is not a node the engine places, since a fill is as tall as its row.
+        private void DrawSectionRule(Layout.Content.Fill fill, RectF32 rect, RGBAColor32 rule)
+        {
+            if (fill.Key == SectionRuleKey && rect.Width >= FontSize)
+            {
+                var ruleY = MathF.Round(rect.Y + FontSize * 0.5f);
+                DrawLine(rect.X, ruleY, rect.Right, ruleY, rule);
+            }
         }
 
         /// <summary>
@@ -1836,12 +1877,8 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         private void DrawCollapsibleHeading(ref float y, float x, string title, float availableWidth,
             bool collapsed, string action, Action toggle)
-        {
-            var rowY = y;
-            DrawSectionHeading(ref y, x, collapsed ? $"{title} [+]" : $"{title} [-]", availableWidth);
-            RegisterClickable(x, rowY, availableWidth, y - rowY, new HitResult.ButtonHit(action),
-                _ => toggle());
-        }
+            => PaintSectionHeading(ref y, x, collapsed ? $"{title} [+]" : $"{title} [-]", availableWidth,
+                new HitResult.ButtonHit(action), toggle);
 
         /// <summary>
         /// A small table at column stops: the first column left-aligned, every other column RIGHT

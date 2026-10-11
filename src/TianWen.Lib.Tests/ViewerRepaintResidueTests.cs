@@ -92,11 +92,11 @@ namespace TianWen.Lib.Tests
             viewer.TryTakeFrameDamage([]);
 
             var track = viewer.ImageArea;
-            viewer.Split.BeginDrag();
+            var router = PressTheSplitDivider(viewer);
             var before = Snapshot(viewer);
 
             // A slow, deliberate drag to the RIGHT -- the gesture the narrowing exists for.
-            viewer.HandleInput(new InputEvent.MouseMove(track.X + track.Width * 0.56f, track.Y + 40f));
+            router.Handle(new InputEvent.MouseMove(track.X + track.Width * 0.56f, track.Y + 40f));
 
             LoadOpResidue(viewer, document, state, before, out _).ShouldBe(0);
         }
@@ -130,10 +130,10 @@ namespace TianWen.Lib.Tests
             viewer.TryTakeFrameDamage([]);
 
             var track = viewer.ImageArea;
-            viewer.Split.BeginDrag();
+            var router = PressTheSplitDivider(viewer);
             var before = Snapshot(viewer);
 
-            viewer.HandleInput(new InputEvent.MouseMove(track.X + track.Width * 0.56f, track.Y + 40f));
+            router.Handle(new InputEvent.MouseMove(track.X + track.Width * 0.56f, track.Y + 40f));
 
             LoadOpResidue(viewer, document, state, before, out var where).ShouldBe(0, where);
         }
@@ -358,6 +358,22 @@ namespace TianWen.Lib.Tests
         }
 
         private static byte[] Snapshot(ResidueViewer viewer) => [.. viewer.Pixels];
+
+        /// <summary>
+        /// Presses the before/after divider on its line, through a router as a host does, and hands back that
+        /// router: the drag the press armed lives on it, so the moves that follow must go through the same one.
+        /// </summary>
+        private static InputRouter PressTheSplitDivider(ResidueViewer viewer)
+        {
+            var regions = viewer.GetRegisteredRegions();
+            var index = Array.FindIndex(regions, r => r.Result is ResizeHandleHit { Id: "Split" });
+            index.ShouldBeGreaterThanOrEqualTo(0, "the divider was not painted");
+            var band = regions[index];
+            var router = UiRouting.RouterFor(viewer);
+            router.Handle(new InputEvent.MouseDown(band.X + band.Width / 2f, band.Y + band.Height / 2f,
+                MouseButton.Left));
+            return router;
+        }
 
         private static int Differences(byte[] shown, byte[] expected)
         {

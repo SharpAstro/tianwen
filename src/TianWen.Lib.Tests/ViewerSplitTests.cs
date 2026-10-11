@@ -649,14 +649,21 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
-        public void TogglingOffClearsTheDrag()
+        public void TogglingOffClearsTheDragAndALateStepDoesNotTurnTheSplitBackOn()
         {
             var split = new SplitCompareController();
+            split.SetTrack(new RectF32(0f, 0f, 400f, 300f));
             split.Toggle(hasBeforePixels: false);
-            split.BeginDrag();
+            split.DragTo(200f, ended: false);
+            split.IsDragging.ShouldBeTrue();
 
             split.Toggle(hasBeforePixels: false);
 
+            split.Fraction.ShouldBeNull();
+            split.IsDragging.ShouldBeFalse();
+
+            // The capture armed before the toggle still delivers its release.
+            split.DragTo(300f, ended: true);
             split.Fraction.ShouldBeNull();
             split.IsDragging.ShouldBeFalse();
         }
@@ -671,24 +678,28 @@ namespace TianWen.Lib.Tests
             viewer.Render(null, state);
 
             // Find the divider the way a press does, and dispatch to it the way a host does. Nothing
-            // anywhere branches on what a "Split" hit MEANS -- the region carries its own onClick, so
-            // arming the drag is a property of having painted the divider.
+            // anywhere branches on what a "Split" hit MEANS: the divider is a declared split whose drag
+            // the engine owns (DIR.Lib 11.18), so arming it is a property of having painted it.
             var regions = viewer.GetRegisteredRegions();
             var bandIndex = System.Array.FindIndex(regions, r => r.Result is ResizeHandleHit { Id: "Split" });
             bandIndex.ShouldBeGreaterThanOrEqualTo(0);
             var band = regions[bandIndex];
-            UiRouting.RoutePress(viewer, band.X + band.Width / 2f, band.Y + band.Height / 2f);
+            band.Cursor.ShouldBe(CursorKind.ResizeEW);
+            var router = UiRouting.RouterFor(viewer);
+            var pressX = band.X + band.Width / 2f;
+            router.Handle(new InputEvent.MouseDown(pressX, band.Y + band.Height / 2f, MouseButton.Left));
             viewer.Split.IsDragging.ShouldBeTrue();
 
-            // Motion and release go through HandleInput, which BOTH hosts already forward. This is the
-            // regression that shipped: the press branch existed in the shared dispatcher only, so the
-            // divider drew, stated a resize cursor, and could not be dragged in tianwen-fits at all.
+            // Motion and release reach the drag through the same router, as in both hosts. This is the
+            // regression that shipped once: the press branch existed in the shared dispatcher only, so the
+            // divider drew, stated a resize cursor, and could not be dragged in tianwen-fits at all. The drag
+            // is relative to the press, which was on the line, so the line lands where the pointer does.
             var area = viewer.ImageArea;
             var target = area.X + area.Width * 0.75f;
-            viewer.HandleInput(new InputEvent.MouseMove(target, area.Y + 10f)).ShouldBeTrue();
+            router.Handle(new InputEvent.MouseMove(target, area.Y + 10f));
             viewer.Split.Fraction.ShouldNotBeNull().ShouldBe(0.75f, 0.01);
 
-            viewer.HandleInput(new InputEvent.MouseUp(target, area.Y + 10f, MouseButton.Left)).ShouldBeTrue();
+            router.Handle(new InputEvent.MouseUp(target, area.Y + 10f, MouseButton.Left));
             viewer.Split.IsDragging.ShouldBeFalse();
         }
 

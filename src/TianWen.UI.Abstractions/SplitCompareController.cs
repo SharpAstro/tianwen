@@ -17,10 +17,12 @@ namespace TianWen.UI.Abstractions
     /// principle: the split divider was added to the shared dispatcher only, so it drew, stated a resize
     /// cursor, and could not be dragged in the standalone viewer -- silently, because nothing connects
     /// the two copies.</para>
-    /// <para><b>The press needs no host branch at all.</b> The divider arms its own drag through the
-    /// <c>onClick</c> of the region it registers, from the same rect it painted, so "draw == hit"
-    /// extends to "draw == drag". Only move and release are routed, in one line, in the one place both
-    /// hosts already forward to (<c>HandleInput</c>).</para>
+    /// <para><b>No host has a branch for it at all.</b> The divider is a declared split over the image pane
+    /// (DIR.Lib 11.18's <c>Layout.Builder.Split</c> with an <c>onResize</c>), so the engine draws the line,
+    /// binds its grab band from the same arrangement and owns the drag: the press, its moves and its release
+    /// reach it through whichever router the host runs, and each step arrives here as <see cref="DragTo"/>.
+    /// It used to arm a flag from the region's <c>onClick</c> and take its moves and release through a branch
+    /// in the viewer's input handler (#1489).</para>
     /// <para>Lives in UI.Abstractions rather than DIR.Lib for now, following the <c>TrackSlider</c>
     /// precedent: prove it with a consumer, then promote. The drag half has no TianWen dependency and is
     /// a promotion candidate; see docs/plans/controls-upstreaming.md.</para>
@@ -69,10 +71,30 @@ namespace TianWen.UI.Abstractions
         public void SetTrack(in RectF32 track) => _track = track;
 
         /// <summary>
-        /// Arms the drag. Wired as the divider region's <c>onClick</c>, which is what keeps the press off
-        /// every host's dispatcher.
+        /// One step of the divider's drag: the divider's centre <paramref name="offset"/> surface pixels from the
+        /// track's left edge, and whether this step is the release that ends the drag. Called by the declared
+        /// divider's resize, never by a host.
         /// </summary>
-        public void BeginDrag() => IsDragging = true;
+        /// <remarks>
+        /// A step that arrives with the split off is dropped rather than applied: the drag outlives nothing, but a
+        /// capture armed before a toggle still delivers its release, and applying it would turn the split back on.
+        /// </remarks>
+        public void DragTo(float offset, bool ended)
+        {
+            if (Fraction is null)
+            {
+                IsDragging = false;
+                return;
+            }
+
+            IsDragging = !ended;
+            if (_track.Width > 0f)
+            {
+                var before = Fraction;
+                Fraction = Math.Clamp(offset / _track.Width, 0f, 1f);
+                LastDragSweep = SweepBetween(before, Fraction);
+            }
+        }
 
         /// <summary>
         /// The strip the divider just swept across, or null when it has not moved. Only these pixels
@@ -132,37 +154,6 @@ namespace TianWen.UI.Abstractions
             x1 = MathF.Min(x1, _track.X + _track.Width);
             return x1 <= x0 ? null : new RectF32(x0, _track.Y, x1 - x0, _track.Height);
         }
-        /// <summary>
-        /// Routes pointer motion and release. Returns true when the event was consumed. The press is NOT
-        /// handled here -- it arrives through <see cref="BeginDrag"/> off the registered region.
-        /// </summary>
-        public bool HandleInput(InputEvent evt)
-        {
-            if (!IsDragging)
-            {
-                return false;
-            }
-
-            switch (evt)
-            {
-                case InputEvent.MouseMove(var px, _):
-                    if (_track.Width > 0f)
-                    {
-                        var before = Fraction;
-                        Fraction = Math.Clamp((px - _track.X) / _track.Width, 0f, 1f);
-                        LastDragSweep = SweepBetween(before, Fraction);
-                    }
-                    return true;
-
-                case InputEvent.MouseUp:
-                    IsDragging = false;
-                    return true;
-
-                default:
-                    return false;
-            }
-        }
-
         /// <summary>
         /// Toggles the split on or off.
         /// </summary>

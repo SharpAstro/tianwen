@@ -745,8 +745,8 @@ bool PumpInstanceGate()
 // X-band test around the file-list edge, plus a "not while a dropdown is open" term because the dropdown
 // draws over that band. That is one term per overlay, and every overlay added later silently invalidated
 // it (see DIR.Lib's CursorKind remarks) -- the region list already knows what is on top, so both terms
-// are gone. A region that states its own kind wins (a text field carries the I-beam itself); the Split's
-// divider states none, since Layout.Builder.Split has no cursor parameter yet, so its hit maps here. An
+// are gone. A region that states its own kind wins (a text field carries the I-beam itself), and both dividers
+// state the resize cursor, being Splits that drag themselves (DIR.Lib 11.18), so no hit is mapped to one here. An
 // open dropdown's full-viewport backdrop is registered above everything, so it answers the hit and the
 // handle underneath correctly stops claiming the pointer.
 //
@@ -755,7 +755,6 @@ bool PumpInstanceGate()
 void UpdateCursor()
 {
     var (mx, my) = state.MouseScreenPosition;
-    var cursor = host.Router.CursorAt(mx, my)
-        ?? (imageRenderer.HitTest(mx, my) is ResizeHandleHit ? CursorKind.ResizeEW : CursorKind.Default);
+    var cursor = host.Router.CursorAt(mx, my) ?? CursorKind.Default;
     sdlWindow.SetSystemCursor(cursor.ToSystemCursor);
 }
