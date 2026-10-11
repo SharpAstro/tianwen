@@ -10,6 +10,8 @@
     --text: #dddddd;
     --dim: #9a9aab;
     --accent: #66ddcc;
+    /* The logo's sharp: tianwen's night-mode text colour (NightPalette.BodyText), as on the site. */
+    --mark: #e04a00;
 }
 
 /* The SAME font file the canvas glyph atlas rasterizes (fetched by LoadFontAsync), exposed as a
@@ -70,8 +72,8 @@ html, body {
 .titlebar .spacer { flex: 1; }
 
 /* Back to the project site. The mark's copper is its own on any ground, so it stays literal; the
-   sharp takes the app's accent, which is the same teal the site header uses. flex:none keeps it
-   whole while the status text beside it is the part allowed to ellipsise. */
+   sharp takes --mark, the same night-mode orange the site header uses. flex:none keeps it whole
+   while the status text beside it is the part allowed to ellipsise. */
 .titlebar .home {
     display: flex;
     align-items: center;
@@ -86,7 +88,7 @@ html, body {
 .titlebar .home:hover,
 .titlebar .home:focus-visible { text-decoration: underline; }
 
-.titlebar .home .mark-sharp { fill: var(--accent); }
+.titlebar .home .mark-sharp { fill: var(--mark); }
 
 /* Narrow windows keep the mark and drop the word: the moon is the recognisable half. */
 @media (max-width: 620px) {
