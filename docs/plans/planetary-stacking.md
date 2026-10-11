@@ -587,6 +587,11 @@ the halo's shape is the residual, and a second term (the pupil's far wing, #1222
 master's band error prefers, and the strength and target the sharpening's gains are derived at: settings the stack
 already has, never free per-band gains) and apply them to the real capture.
 
+**The tune is a measuring tool, `tools/planetary-tune`** (the owner, 2026-10-11): no tune it finds carries (below) and no regime
+moves the defaults (A3), so it does not ship as a verb. The library keeps what it needed: a twin's truth read and scored once
+(`PlanetaryTruth`, which `planetary measure` and the other truth-scoring verbs now share) and the sharpening's target on the best stack
+(`PlanetaryBestStackOptions.Target`).
+
 **The gate is the real capture against its `_post`** (`planetary judge`): the tuned master no further from it than the
 default master, band by band, within the defaults' own seed spread. The twin's other seed (A0's transfer) is reported
 beside it, never the gate, since it is the one case A2 never faces (#1398).
@@ -627,10 +632,10 @@ tune has not run.
 
 **Measured (2026-10-10): no regime has an optimum away from the defaults, so the base model IS the defaults.** A2 left one
 question (#817): does any regime have its best setting away from the defaults by more than the seed spread? Rules set on
-#1390 before the run (amended once, before it, to tune A2's whole search of 32 settings, since `planetary tune`'s settings are
+#1390 before the run (amended once, before it, to tune A2's whole search of 32 settings, since the tune's settings are
 fixed). Six regimes around A1's calibrated twin of 2022-09-03 Red, each made as A2 made its twins (`planetary twin --trials 0
---start`), its two r0s times 0.7, 1 and 1.4 at 1,000 and 3,000 frames, tuned by `planetary tune` on A2's binary (unmerged,
-`feat/auto-tune`):
+--start`), its two r0s times 0.7, 1 and 1.4 at 1,000 and 3,000 frames, tuned by A2's tune (then the verb `planetary tune` on an
+unmerged branch, now `tools/planetary-tune`):
 
 | Regime (r0s, frames) | Defaults | Its best (seed 1) | Seed 2 |
 |---|---|---|---|

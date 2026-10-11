@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Measuring tool: the AUTO mode's per-capture tune on a calibrated twin (A2 of #817). It measured that no tune carries one
+    calibration step (A2, #1389) and found no regime whose best setting sits away from the defaults (A3, #1390), so nothing it
+    finds is adopted and it does not ship. Kept to run the measurement again; see tools/planetary-tune/README.md and
+    docs/plans/planetary-stacking.md, A2 and A3.
+
+    Not part of the solution; not packed; not shipped.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>PlanetaryTune</AssemblyName>
+    <RootNamespace>PlanetaryTune</RootNamespace>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TianWen.Lib\TianWen.Lib.csproj" />
+  </ItemGroup>
+
+</Project>
