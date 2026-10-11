@@ -1065,6 +1065,39 @@ So the points' placement is not what limits a real capture's stack. That is R5 p
 that varies over less than a patch cannot be followed by any patch, wherever it is put. `OverPlanet` stays an option and today's rule the
 default, by #1195's own rule (no gain is no reason to change every stack).
 
+##### #1412 F3: the mesh's own shrink
+
+The registration review (#1412, finding F3) asked whether the mesh shrinks each point's reading a second time. A node blends the points as
+`global + Σwᵢrᵢ / (Σwᵢ + 0.25)`, with Gaussian weights reaching 48 px over points 24 px apart. Both the `+0.25` and the 48 px reach were
+suspects. `PlanetaryStackOptions.MeshRegularization` (`--mesh-regularization` on `planetary stack`, `measure` and `dewarp`; 0.25, unchanged)
+made the first measurable. Rules were posted on #1412 before the runs; measured 2026-10-11 on six twins at today's grid:
+- the two mono R5 twins, `c065l10` and `w10`;
+- the colour Jupiter twin `uc-g4`, two seeds;
+- the Saturn twin `sat-p5`, two seeds.
+
+**What the mesh applies** (`planetary dewarp --pool 0`: the share of the TRUE warp removed over the disk, median geometry):
+
+| Twin | Points | At the points | Mesh, today | Regularisation 0.01 | Reach 24 px |
+|---|---|---|---|---|---|
+| `c065l10` (0.65 px over 10 px) | 18 | 18 % | 0.5 % | 0.5 % | 1.4 % |
+| `w10` (1 px over 20 px) | 18 | 19 % | 1.4 % | 1.4 % | 4.2 % |
+| `uc-g4`, `uc-g4s2` | 4 | -3 %, -4 % | 0 % | 0 % | -0.1 %, -0.2 % |
+| `sat-p5`, `sat-p5s2` | 6 | -2 %, -1 % | 0 % | 0 % | 0 % |
+
+- **The `+0.25` is not a second shrink.** Between points Σw is about 25, so it costs a percent, and dropping it moves nothing on any twin.
+- **The reach is the dilution.** The points recover 18 to 19 % of the mono twins' warp where they sit; a 48 px blend of 18 points applies 0.5
+  to 1.4 % of it over the disk. A reach equal to the spacing applies 1.4 to 4.2 %.
+- **On the colour twins the few points read the warp worse than nothing**, so no blend can help there.
+
+**What it does to the stack** (`planetary stack --truth`, the reach at 24 px against 48): every twin's unsharpened master is the same, band for
+band and colour for colour, to within 0.001 to 0.005. The adoption rule asked for 0.005 on three twins, and one reached it. The 48 px reach
+stays the default: a warp correlated over 10 to 20 px is not followed by points 24 px apart, however their readings are blended. That is
+#1253's finding again, from the mesh's side, and why dense points paid on these twins with the reach at their own 4 px spacing (#1081, #1195).
+
+**The sharpened masters moved where the stacks did not.** On `sat-p5s2` the derived gains went from 11.41, -1.89, 1.42 to 16.98, -4.82, 2.15
+for bands 2 to 4 between stacks agreeing to 0.001, and band 2's sharpened error rose by 0.18 to 0.26 in every colour. That is the derivation's
+own sensitivity, not the mesh's (#1498), and the reason an A/B between near-identical stacks reads the unsharpened masters first.
+
 #### #1082: an estimator for the points, against its bound
 
 **Pre-registered** (2026-10-03), on the same twins as #1081 (the calibrated 0.65 px warp over 10 px, the 1 px warp over 20 px), plain
