@@ -1098,8 +1098,8 @@ viewer-layout-engine P1, P2 and P4 are done on the seam D1 shipped. Left (2026-1
 - **The chrome's own arithmetic**: viewer-layout-engine P3 (#367; the Live Session and Guider panels #1455) and
   P5, a text measured by its line box (#1490).
 - **The [Acceptance](#acceptance-for-the-whole-plan) lines the chrome does not meet**: hover from the tree,
-  `OverlayOwnsPointer` and the drag flags gone, `RegisterClickable` under ten, one tooltip painter, `LayoutDamage`
-  and the TUI's main input on the router. #1489.
+  `OverlayOwnsPointer` and the drag flags gone, `RegisterClickable` under ten, `LayoutDamage` and the TUI's main
+  input on the router. #1489. (One tooltip painter is met: DIR.Lib 11.12's `Layout.Builder.Tooltip`, #1446.)
 - ~~**Declarative focus**~~: adopted, [D](#d-focus-is-a-boundary-and-it-selects), #1491 (2026-10-11).
 
 ## Shortcut adoption, measured
@@ -1174,9 +1174,13 @@ viewer-layout-engine's P3 and P5.
   cell surface:** the TUI's main input is not on a router; only its night calendar is (#1489).
 - `grep ListCursor` over tianwen is no longer zero; `grep -c RegisterClickable` over `TianWen.UI*` is under
   ten, all inside `drawFill` bodies or overlay labels placed on the image; one tooltip painter, in DIR.Lib.
-  **`ListCursor` met** (14 uses). **Unmet:** 16 `RegisterClickable` calls in 8 files, and three tooltip
-  painters (the viewer toolbar's `RenderHoverTooltip`, `VkGuiRenderer.DrawTooltip`,
-  `AltitudeChartRenderer.DrawWeatherTooltip`), while nothing paints `InputRouter.Tooltip` (#1446) (#1489).
+  **`ListCursor` met** (14 uses). **One tooltip painter met (#1446):** DIR.Lib 11.12's `Layout.Builder.Tooltip`
+  draws the router's due tooltip in the GUI and in `tianwen-fits`, each host painting it last in its frame and
+  asking for a frame when the hover delay runs out (`InputRouter.TooltipNeedsFrame`); the rail's `DrawTooltip` is
+  gone (a tab declares its tooltip on its region), the viewer toolbar's tooltip rides on each button's region, and
+  the altitude chart's weather readout is framed and placed by the same builder. The file list's name REVEAL is not a
+  tooltip (it appears at once, over its own row) and is a node the engine places. **Unmet:** 16 `RegisterClickable`
+  calls in 8 files (#1489).
 
 ## What this does NOT do
 

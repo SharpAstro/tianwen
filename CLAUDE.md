@@ -1573,6 +1573,10 @@ add a fourth key router.
 - **The pointer's appearance is a property of a REGION, never a host predicate** (`RegisterClickable(...,
   cursor:)` / `.Clickable(hit, onClick, cursor)` / `.WithCursor(kind)`; the host asks `guiRenderer.CursorAt(x, y)
   ?? CursorKind.Default`; a region stating nothing is transparent, `null`).
+- **A tooltip is a declaration** (`.WithTooltip(text)`, or `(text, side)`, on the node or its region), and a host paints
+  the router's due one LAST in its frame through DIR.Lib's `Layout.Builder.Tooltip`, with `InputRouter.TooltipNeedsFrame`
+  in its redraw check (#1446); never a box measured and placed by hand, which is how three painters with no hover delay
+  came to exist while every `.WithTooltip` was dead.
 - **HOVER needs a z-order answer, `ViewerState.OverlayOwnsPointer`**: add an overlay to that ONE property, never a
   call site. **It is NOT `WindowUiSettings.PointerOwner`** (a RECORD a `Popover` sets as it paints; this is a
   PREDICTION for hand-painted chrome).
