@@ -19,7 +19,7 @@ namespace TianWen.Lib.Tests;
 /// pier side, which master is the combined one of a flipped night. Each restatement had produced a
 /// wrong number once (278 masters in a 139-master store; 92 rows joined to no stats).
 /// </summary>
-public class DatasetMasterInventoryTests
+public class DatasetMasterInventoryTests : IDisposable
 {
     [Fact]
     public async Task AFlippedNightIsThreeMastersAndTwoSidesAndTheSidecarIsNotAFourth()
@@ -152,6 +152,48 @@ public class DatasetMasterInventoryTests
             File.Delete(path);
         }
     }
+
+    [Fact]
+    public async Task ACoveragePlaneIsTheCoverageSidecarAndARejectionFractionIsNot()
+    {
+        // #713: the flag checked the rejection slot alone, so a store carrying a coverage plane beside every one of its 194
+        // masters reported 81: the staged masters, whose rejection FRACTION it took for coverage, while every drizzle
+        // master's coverage-named plane went unseen.
+        var root = _folders.Create("inventory-coverage").FullName;
+        Directory.CreateDirectory(Path.Combine(root, RetainedMasterStore.DirectoryName));
+        var drizzled = RetainedMasterStore.PathFor(root, "2026/lobster|QHY294PROC|Lobster Nebula");
+        var staged = RetainedMasterStore.PathFor(root, "2024/eta-car|QHY183M|Eta Car");
+        var stagedFractionOnly = RetainedMasterStore.PathFor(root, "2025/helix|SV605CC|Helix Nebula");
+        var legacyDrizzle = RetainedMasterStore.PathFor(root, "2025/m42|ZWO ASI533MC Pro|M42");
+        foreach (var (path, strategy) in new[]
+            { (drizzled, "BayerDrizzle"), (staged, "Float16Staged"), (stagedFractionOnly, "Float16Staged"), (legacyDrizzle, "BayerDrizzle") })
+        {
+            Flat(0.25f).WriteToFitsFile(path, wcs: null, new Dictionary<string, (object Value, string Comment)>
+            {
+                ["STRATEGY"] = (strategy, ""),
+            });
+        }
+        Flat(1f).WriteToFitsFile(IntegrationFitsWriter.CoveragePathFor(drizzled));
+        Flat(1f).WriteToFitsFile(IntegrationFitsWriter.CoveragePathFor(staged));
+        Flat(0.1f).WriteToFitsFile(IntegrationFitsWriter.RejectionPathFor(staged));
+        Flat(0.1f).WriteToFitsFile(IntegrationFitsWriter.RejectionPathFor(stagedFractionOnly));
+        Flat(1f).WriteToFitsFile(IntegrationFitsWriter.RejectionPathFor(legacyDrizzle));
+
+        var entries = (await DatasetMasterInventory.ListAsync(root, skyPatchSize: null, cancellationToken: TestContext.Current.CancellationToken))
+            .ToDictionary(static e => e.Name);
+
+        entries.Count.ShouldBe(4, "no sidecar is a master");
+        entries[Path.GetFileNameWithoutExtension(drizzled)].HasCoverageSidecar.ShouldBeTrue("a drizzle master's coverage-named plane");
+        entries[Path.GetFileNameWithoutExtension(staged)].HasCoverageSidecar.ShouldBeTrue("a staged master's coverage-named plane");
+        entries[Path.GetFileNameWithoutExtension(stagedFractionOnly)].HasCoverageSidecar
+            .ShouldBeFalse("a rejection fraction is not coverage");
+        entries[Path.GetFileNameWithoutExtension(legacyDrizzle)].HasCoverageSidecar
+            .ShouldBeTrue("a drizzle master written before #327 kept its weight plane in the rejection slot");
+    }
+
+    private readonly TempFolders _folders = new();
+
+    public void Dispose() => _folders.Dispose();
 
     private static Image Flat(float level)
     {
