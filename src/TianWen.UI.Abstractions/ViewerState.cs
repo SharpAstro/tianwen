@@ -426,19 +426,14 @@ public sealed class ViewerState
     /// Whether what is on show is the sharpening layer's: the stacked view's masters, or a planetary master's once its sharpening is on
     /// (#1314). A master with its sharpening off is shown as the file holds it.
     /// </summary>
-    public bool SharpenLayerOnShow => ShowStacked || ShowBest || (IsPlanetaryMaster && WaveletSharpenEnabled);
+    public bool SharpenLayerOnShow => ShowStacked || ShowAuto || (IsPlanetaryMaster && WaveletSharpenEnabled);
 
     /// <summary>
-    /// The Best view of a SER (#1314 part 2): the whole capture through the batch stack (<c>PlanetaryBestStack</c>), its master behind the
-    /// same sharpening layer. Asked for, it runs once in the background, the view under it (Frames or Live) staying on show until it
-    /// ends; its result is kept for the capture, so switching back to it is instant.
-    /// </summary>
-    public bool ShowBest { get; set; }
-
-    /// <summary>
-    /// Whether the batch view (<see cref="ShowBest"/>) is AUTO's (A4, #1391) rather than Best's: the capture identified and stacked at the
-    /// measured defaults with nothing asked, the routine <c>planetary stack --auto</c> runs, its result kept beside Best's. The kind last
-    /// chosen, kept while Frames or Live is on show, so a run going on in the background still shows its progress.
+    /// The Auto view of a SER (#1314 part 2; the Best view folded into it, #817): the whole capture identified
+    /// (<c>PlanetaryIdentification</c>, the panel's planet and filter taken first where they are chosen and its telescope where it was set
+    /// on this capture) and stacked by the routine <c>planetary stack --auto</c> runs, its master behind the same sharpening layer. Asked
+    /// for, it runs once in the background, the view under it (Frames or Live) staying on show until it ends; its result is kept for the
+    /// capture, so switching back to it is instant.
     /// </summary>
     public bool ShowAuto { get; set; }
 
@@ -448,30 +443,26 @@ public sealed class ViewerState
     /// </summary>
     public TianWen.Lib.Imaging.Planetary.PlanetaryIdentity? AutoIdentity { get; set; }
 
-    /// <summary>A SER's view as the transport's switch shows it: the frames, the live rolling stack, the Auto stack or the best stack.</summary>
-    public PlanetaryView PlanetaryView => ShowBest ? (ShowAuto ? PlanetaryView.Auto : PlanetaryView.Best) : ShowStacked ? PlanetaryView.Live : PlanetaryView.Frames;
+    /// <summary>A SER's view as the transport's switch shows it: the frames, the live rolling stack, or the Auto stack.</summary>
+    public PlanetaryView PlanetaryView => ShowAuto ? PlanetaryView.Auto : ShowStacked ? PlanetaryView.Live : PlanetaryView.Frames;
 
     /// <summary>
-    /// A SER's view chosen (the transport's switch, K, Shift+K): Frames and Live leave a batch stack running and keep its result; Auto and
-    /// Best each ask for theirs when there is none (<see cref="BestViewRequested"/>).
+    /// A SER's view chosen (the transport's switch, K, Shift+K): Frames and Live leave the Auto stack running and keep its result; Auto
+    /// asks for one when there is none (<see cref="AutoViewRequested"/>).
     /// </summary>
     public void ChoosePlanetaryView(PlanetaryView view)
     {
         switch (view)
         {
             case PlanetaryView.Frames:
-                (ShowStacked, ShowBest) = (false, false);
+                (ShowStacked, ShowAuto) = (false, false);
                 break;
             case PlanetaryView.Live:
-                (ShowStacked, ShowBest) = (true, false);
-                break;
-            case PlanetaryView.Best:
-                (ShowBest, ShowAuto) = (true, false);
-                BestViewRequested = true;
+                (ShowStacked, ShowAuto) = (true, false);
                 break;
             case PlanetaryView.Auto:
-                (ShowBest, ShowAuto) = (true, true);
-                BestViewRequested = true;
+                ShowAuto = true;
+                AutoViewRequested = true;
                 break;
         }
         WaveletDirty = true;
@@ -642,9 +633,9 @@ public sealed class ViewerState
     /// <summary>What the last derivation did, in words: what the gains were derived for, or why none were. Null before any, and after Reset.</summary>
     public string? WaveletDeriveNote { get; set; }
 
-    // --- Best stack (a recorded capture stacked whole, as planetary stack stacks it, #1159) ---
+    // --- Auto stack (a recorded capture identified and stacked whole, as planetary stack --auto stacks it, #1159, #817) ---
 
-    /// <summary>The SER the sequence on screen was opened from; null for any other file. What a best stack stacks.</summary>
+    /// <summary>The SER the sequence on screen was opened from; null for any other file. What the Auto stack stacks.</summary>
     public string? SequencePath { get; set; }
 
     /// <summary>
@@ -653,26 +644,33 @@ public sealed class ViewerState
     /// </summary>
     public string? SequenceCamera { get; set; }
 
-    /// <summary>Set by Shift+K; the controller cancels the best stack running, or shows the Best view (asking for one), and clears it.</summary>
-    public bool BestStackRequested { get; set; }
+    /// <summary>Set by Shift+K; the controller cancels the Auto stack running, or shows the Auto view (asking for one), and clears it.</summary>
+    public bool AutoStackRequested { get; set; }
 
     /// <summary>
-    /// Set by choosing the Auto or Best view; the controller starts that view's stack when the capture has none yet and none runs, and
-    /// clears it. It never cancels one (#1314 part 2).
+    /// Set by choosing the Auto view; the controller starts its stack when the capture has none yet and none runs, and clears it. It never
+    /// cancels one (#1314 part 2).
     /// </summary>
-    public bool BestViewRequested { get; set; }
+    public bool AutoViewRequested { get; set; }
 
-    /// <summary>The progress of the batch stack last chosen (<see cref="ShowAuto"/>), 0 to 1, or null when it runs none. Written by the controller each tick.</summary>
-    public double? BestStackProgress { get; set; }
+    /// <summary>The Auto stack's progress, 0 to 1, or null when none runs. Written by the controller each tick.</summary>
+    public double? AutoStackProgress { get; set; }
 
     /// <summary>
-    /// The telescope's aperture, mm, stepped through <see cref="PlanetaryApertures"/> in the Best stack panel: the derived sharpening's
+    /// The telescope's aperture, mm, stepped through <see cref="PlanetaryApertures"/> in the planet and telescope panel: the derived sharpening's
     /// diffraction needs it. Null for no telescope, which sharpens by the preset with the limb kept.
     /// </summary>
     public int? PlanetaryApertureMm { get; set; }
 
     /// <summary>Set when the panel's telescope changes, so the host saves it (<see cref="PlanetaryTelescopePersistence"/>); cleared once saved.</summary>
     public bool PlanetaryTelescopeChanged { get; set; }
+
+    /// <summary>
+    /// Whether the panel's telescope was set on the capture on show (#817): then the Auto stack takes it as given. Otherwise the capture's
+    /// own word comes first (its header, its capture program's settings, its file and folder names, the telescope remembered for its
+    /// camera) and the panel's, the viewer's last, only where nothing names one. Cleared when another capture opens.
+    /// </summary>
+    public bool PlanetaryTelescopeSetHere { get; set; }
 
     /// <summary>The apertures the panel steps through, mm: the common amateur ones from a 60 mm refractor to a 20 inch reflector.</summary>
     public static readonly int[] PlanetaryApertures = [60, 70, 80, 90, 102, 115, 127, 150, 180, 203, 235, 254, 279, 305, 356, 400, 457, 508];
@@ -707,15 +705,15 @@ public sealed class ViewerState
     public OpticalDesign PlanetaryDesign { get; set; } = OpticalDesign.Newtonian;
 
     /// <summary>
-    /// The planet the Best stack is for, or null to take the one the capture's name gives (<see cref="TianWen.Lib.Imaging.Planetary.PlanetaryCaptureName.Planet"/>).
+    /// The planet the Auto stack is given, or null to read it from the capture (<see cref="TianWen.Lib.Imaging.Planetary.PlanetaryIdentification"/>).
     /// The derived sharpening needs it: a capture whose name gives none fell back to the preset, which barely sharpened and ringed
     /// below the sky at the limb (reported 2026-10-02 on a twin named "calibrated"). Kept while the viewer runs, not saved.
     /// </summary>
     public TianWen.Lib.Astrometry.Catalogs.CatalogIndex? PlanetaryBody { get; set; }
 
     /// <summary>
-    /// The filter a MONO capture was taken through, as its effective wavelength in nm, or null to take the one the capture's name
-    /// gives (<see cref="TianWen.Lib.Imaging.Planetary.PlanetaryCaptureName.WavelengthNm"/>), else broadband: the sharpening's
+    /// The filter a MONO capture was taken through, as its effective wavelength in nm, or null to read it from the capture
+    /// (<see cref="TianWen.Lib.Imaging.Planetary.PlanetaryIdentification"/>), else broadband: the sharpening's
     /// diffraction scales with it (on the red twin 650 nm left 0.670 of error, 550 nm 0.771). A colour capture is sharpened per
     /// channel and takes no filter.
     /// </summary>
@@ -724,7 +722,7 @@ public sealed class ViewerState
     /// <summary>
     /// How far past the truth the derived sharpening takes the mid scales, bands 2 and 3
     /// (<see cref="TianWen.Lib.Imaging.Planetary.PlanetarySharpenOptions.Strength"/>, #1251): 1, the truth, unless the panel's choice
-    /// says otherwise; a capture's own post sits at about 1.5 to 2.5. The Best stack and Derive read it as they start. Kept while the
+    /// says otherwise; a capture's own post sits at about 1.5 to 2.5. The Auto stack and Derive read it as they start. Kept while the
     /// viewer runs, not saved, so every launch starts at the truth (the owner's call: the truth by default, more as an option).
     /// </summary>
     public double PlanetaryStrength { get; set; } = 1;
@@ -1005,13 +1003,12 @@ public sealed class ViewerState
 }
 
 /// <summary>
-/// A SER's view (#1314 part 2): its frames as recorded, the live rolling stack about the playhead, or the whole capture stacked, as AUTO
-/// identifies and stacks it with nothing asked (A4, #1391) or as the panel's Best stack does.
+/// A SER's view (#1314 part 2): its frames as recorded, the live rolling stack about the playhead, or the whole capture identified and
+/// stacked as AUTO does it (A4, #1391), the panel's choices taken first where they are made (the Best view folded in, #817).
 /// </summary>
 public enum PlanetaryView
 {
     Frames,
     Live,
-    Best,
     Auto,
 }

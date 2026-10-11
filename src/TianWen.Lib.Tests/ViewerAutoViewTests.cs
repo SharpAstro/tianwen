@@ -13,9 +13,10 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// The viewer's Auto view (A4 of AUTO, #1391), driven through the host <c>tianwen-fits</c> runs (<see cref="ViewerE2E"/>): the capture
-/// identified and stacked with nothing asked by the routine <c>planetary stack --auto</c> runs (<see cref="PlanetaryAuto"/>), so the two
-/// write the same masters (rule 1), kept beside Best's so switching between them stacks nothing again.
+/// The viewer's Auto view (A4 of AUTO, #1391; the Best view folded into it, #817), driven through the host <c>tianwen-fits</c> runs
+/// (<see cref="ViewerE2E"/>): the capture identified and stacked by the routine <c>planetary stack --auto</c> runs (<see cref="PlanetaryAuto"/>),
+/// so with nothing chosen the two write the same masters (rule 1); a choice made in the panel is given to the identification first, and
+/// a telescope only once it is set on the capture, the viewer's last one taken only where the capture names none.
 /// </summary>
 [Collection("Viewer")]
 public class ViewerAutoViewTests
@@ -31,17 +32,18 @@ public class ViewerAutoViewTests
         var capture = ViewerBestStackTests.WriteCapture(Path.Combine(e2e.Folder, "Jupiter_Red_2024-12-15T12_56_44_OTA1.ser"),
             telescope: "254 mm f/4.7 Newtonian, Test OTA");
         await OpenAsync(e2e, capture, ct);
-        // The panel says otherwise, which Auto does not read.
-        (e2e.State.PlanetaryBody, e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (CatalogIndex.Saturn, 102, OpticalDesign.Refractor);
+        // The viewer's last telescope says otherwise, which the capture's header beats: it was not set on this capture.
+        (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (102, OpticalDesign.Refractor);
 
         e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewAuto" }, "the Auto view"));
-        await AutoOnShowAsync(e2e, ct);
+        await ViewerBestStackTests.AutoOnShowAsync(e2e, ct);
 
         e2e.State.PlanetaryView.ShouldBe(PlanetaryView.Auto);
         var identity = e2e.State.AutoIdentity.ShouldNotBeNull();
         (identity.Planet, identity.FilterNm, identity.ApertureMm, identity.Design)
             .ShouldBe((CatalogIndex.Jupiter, (double?)650, (int?)254, OpticalDesign.Newtonian));
         e2e.State.WaveletDerived.ShouldBeTrue("its run derived the gains through the telescope it read");
+        (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign).ShouldBe(((int?)254, OpticalDesign.Newtonian), "the panel shows the telescope the run read");
 
         // Rule 1: the masters the view wrote are, to the bit, those the routine planetary stack --auto runs writes.
         var viewer = PlanetaryAuto.OutputPaths(e2e.Folder, Path.GetFileNameWithoutExtension(capture));
@@ -72,29 +74,34 @@ public class ViewerAutoViewTests
     [Theory(Timeout = 300_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
-    public async Task SwitchingBetweenAutoAndBestStacksEachOnce(float dpi)
+    public async Task ATelescopeSetOnTheCaptureIsGivenAndTheViewersLastTakenOnlyWhereTheCaptureNamesNone(float dpi)
     {
+        // #817: the Best view took the panel's telescope, Auto read the capture's; folded together, a telescope set on this capture is
+        // given, the capture's own word comes next, and the viewer's last telescope only where the capture names none.
         await using var e2e = ViewerE2E.Start(dpi);
         var ct = TestContext.Current.CancellationToken;
-        var capture = ViewerBestStackTests.WriteCapture(Path.Combine(e2e.Folder, "2024-12-15-1256_7-Jupiter.ser"));
-        await OpenAsync(e2e, capture, ct);
-        (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (254, OpticalDesign.Newtonian);
+        var named = ViewerBestStackTests.WriteCapture(Path.Combine(e2e.Folder, "Jupiter_Red_2024-12-15T12_56_44_OTA1.ser"),
+            telescope: "254 mm f/4.7 Newtonian, Test OTA");
+        await OpenAsync(e2e, named, ct);
+        e2e.State.PlanetaryApertureMm.ShouldBe(254, "the header's telescope shows in the panel");
+        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ApertureDown" }, "the aperture's step down"));
+        e2e.State.PlanetaryTelescopeSetHere.ShouldBeTrue();
 
         e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewAuto" }, "the Auto view"));
-        var auto = await AutoOnShowAsync(e2e, ct);
-        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewBest" }, "the Best view"));
-        var best = await ViewerBestStackTests.BestOnShowAsync(e2e, ct);
-        e2e.Controller.BestStacksStarted.ShouldBe(2);
+        await ViewerBestStackTests.AutoOnShowAsync(e2e, ct);
+        var set = e2e.State.AutoIdentity.ShouldNotBeNull();
+        (set.ApertureMm, set.Design, set.TelescopeFrom).ShouldBe(((int?)235, OpticalDesign.Newtonian, "given"));
 
-        for (var round = 0; round < 2; round++)
-        {
-            e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewAuto" }, "the Auto view"));
-            await e2e.PumpUntilAsync(() => ReferenceEquals(e2e.Controller.Source, auto) && !auto.IsBusy, "the Auto view back", ct);
-            e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewBest" }, "the Best view"));
-            await e2e.PumpUntilAsync(() => ReferenceEquals(e2e.Controller.Source, best) && !best.IsBusy, "the Best view back", ct);
-        }
-        e2e.Controller.BestStacksStarted.ShouldBe(2, "each view shows the run it has");
-        e2e.State.PlanetaryView.ShouldBe(PlanetaryView.Best);
+        // A capture that names no telescope, opened after: nothing is set on it, so the viewer's last telescope is the run's.
+        var unnamed = ViewerBestStackTests.WriteCapture(Path.Combine(e2e.Folder, "2024-12-15-1256_7-Jupiter.ser"));
+        await OpenAsync(e2e, unnamed, ct);
+        e2e.State.PlanetaryTelescopeSetHere.ShouldBeFalse("a telescope set on the last capture is not set on this one");
+        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewAuto" }, "the Auto view"));
+        await e2e.PumpUntilAsync(() => e2e.State.AutoIdentity is not null && !e2e.Controller.IsAutoStackPending, "the second Auto stack", ct,
+            untilTimeout: true);
+        var last = e2e.State.AutoIdentity.ShouldNotBeNull();
+        (last.ApertureMm, last.Design, last.TelescopeFrom).ShouldBe(((int?)235, OpticalDesign.Newtonian, "the viewer's last telescope"));
+        e2e.Controller.AutoStacksStarted.ShouldBe(2);
     }
 
     [Theory(Timeout = 60_000)]
@@ -112,6 +119,7 @@ public class ViewerAutoViewTests
 
         (e2e.State.PlanetaryBody, e2e.State.PlanetaryFilterNm).ShouldBe((null, null));
         e2e.State.AutoIdentity.ShouldBeNull();
+        e2e.State.PlanetaryTelescopeSetHere.ShouldBeFalse();
     }
 
     private static async Task OpenAsync(ViewerE2E e2e, string capture, System.Threading.CancellationToken ct)
@@ -121,14 +129,6 @@ public class ViewerAutoViewTests
         // Held at one frame: a capture opens playing.
         e2e.State.IsPlaying = false;
         e2e.Frame();
-    }
-
-    // The Auto view on show: its master built behind its layer, the source the viewer draws, and nothing left in flight.
-    private static async Task<LiveStackPreviewSource> AutoOnShowAsync(ViewerE2E e2e, System.Threading.CancellationToken ct)
-    {
-        await e2e.PumpUntilAsync(() => e2e.Controller.ViewLayers.Auto is { HasMaster: true, IsBusy: false } auto
-            && ReferenceEquals(e2e.Controller.Source, auto) && !e2e.Controller.IsBestStackPending, "the Auto view to show", ct, untilTimeout: true);
-        return e2e.Controller.ViewLayers.Auto.ShouldNotBeNull();
     }
 
     // Two FITS masters equal sample for sample, and in what their headers say of the capture.

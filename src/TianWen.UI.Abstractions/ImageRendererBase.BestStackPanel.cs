@@ -13,9 +13,9 @@ namespace TianWen.UI.Abstractions
         // -----------------------------------------------------------------------
         // Planet and telescope (info panel)
         //
-        // What the derived sharpening is made for: the planet and the telescope's pupil, for a SER's Best view (the whole capture stacked
-        // as `tianwen planetary stack` stacks it, PlanetaryBestStack, #1159, chosen on the transport's view switch since #1314 part 2), the
-        // live view's Derive and a planetary master's. Without them the sharpening is the preset's.
+        // What the derived sharpening is made for: the planet and the telescope's pupil, for a SER's Auto view (the whole capture identified
+        // and stacked as `tianwen planetary stack --auto` does it, PlanetaryAuto, #1159, #1391; the Best view folded in, #817), the live
+        // view's Derive and a planetary master's. Without them the sharpening is the preset's.
         // -----------------------------------------------------------------------
 
         /// <summary>The designs the panel offers, each with the central obstruction the sharpening assumes for it.</summary>
@@ -40,10 +40,12 @@ namespace TianWen.UI.Abstractions
         ];
 
         /// <summary>
-        /// The planet and telescope section as one tree, which the Best stack and the live view's Derive both sharpen for: the planet, the
-        /// filter (a mono source's only), the aperture stepper, the design. The planet and the filter default to what the capture's name
-        /// gives, and a caption says what that is, so a name that gives no planet (which leaves the sharpening the preset's) is seen before
-        /// a run, not after it. A live capture has no name, so there it is the panel's choice alone.
+        /// The planet and telescope section as one tree, which the Auto stack and the live view's Derive both sharpen for: the planet, the
+        /// filter (a mono source's only), the aperture stepper, the design. The planet and the filter are Auto until chosen, read from the
+        /// capture, and a caption says what that is, so a capture that gives no planet (which leaves the sharpening the preset's) is seen
+        /// before a run, not after it; once the Auto stack has run, the captions say what it read and where (#817). A choice here is given
+        /// to the run, the telescope once it is set on this capture (<see cref="ViewerState.PlanetaryTelescopeSetHere"/>). A live capture
+        /// has no name, so there it is the panel's choice alone.
         /// </summary>
         private Layout.Node BuildTelescopeTree(ViewerState state, bool mono)
         {
@@ -53,31 +55,8 @@ namespace TianWen.UI.Abstractions
             // A capture's name, or a planetary master's file's (#1314), whose OBJECT names the planet first.
             var capture = state.SequencePath ?? state.MasterPath;
 
-            // The Auto view (A4, #1391) takes nothing from the panel: it shows what the capture was read as, and where, and the strength
-            // its stops switch between. The planet, filter and telescope rows below are Best's.
-            if (state.PlanetaryView is PlanetaryView.Auto)
-            {
-                var auto = new System.Collections.Generic.List<Layout.Node> { Caption("Auto: the capture read, nothing asked") };
-                if (state.AutoIdentity is { } identity)
-                {
-                    auto.Add(Wrapped(identity.Planet is { } named ? $"Planet: {named}, from {identity.PlanetFrom}" : $"Planet: none, {identity.PlanetFrom}"));
-                    if (identity.Layout is PlanetaryFrameLayout.Mono)
-                    {
-                        auto.Add(Wrapped(identity.FilterNm is { } nm
-                            ? string.Create(inv, $"Filter: {identity.Filter ?? "one"} at {nm:0} nm, from {identity.FilterFrom}")
-                            : $"Filter: broadband, 550 nm ({identity.FilterFrom})"));
-                    }
-                    auto.Add(Wrapped(identity.TelescopeName is { } telescope
-                        ? $"Telescope: {telescope}, from {identity.TelescopeFrom}"
-                        : $"Telescope: none ({identity.TelescopeFrom}), so the preset's sharpening; set it once in the Best view's panel and Auto remembers it for this camera"));
-                }
-                else
-                {
-                    auto.Add(Caption(state.BestStackProgress is null ? "Planet, filter and telescope: read as the stack starts" : "Planet, filter and telescope: being read"));
-                }
-                AddStrength(auto);
-                return Layout.Builder.VStack([.. auto]).WithGap(WaveletGap);
-            }
+            // What the Auto stack read the capture as (A4, #1391), once it has run on the capture on show: each choice still Auto says it.
+            var read = state.PlanetaryView is PlanetaryView.Auto ? state.AutoIdentity : null;
 
             ReadOnlySpan<Layout.ButtonGroupOption<CatalogIndex?>> planets =
             [
@@ -121,6 +100,10 @@ namespace TianWen.UI.Abstractions
             }
 
             var aperture = state.PlanetaryApertureMm is { } mm ? string.Create(inv, $"{mm} mm") : "no telescope";
+            if (state.PlanetaryView is PlanetaryView.Auto)
+            {
+                rows.Add(Caption(TelescopeCaption()));
+            }
             rows.Add(Layout.Builder.HStack(
                     Layout.Builder.Text("Aperture", BaseFontSize, ViewerTheme.Palette.DimText),
                     StepButton("◀", "ApertureDown", () => state.PlanetaryApertureMm = state.SteppedAperture(up: false)),
@@ -141,7 +124,7 @@ namespace TianWen.UI.Abstractions
                     chosen =>
                     {
                         state.PlanetaryDesign = chosen;
-                        state.PlanetaryTelescopeChanged = true;
+                        (state.PlanetaryTelescopeChanged, state.PlanetaryTelescopeSetHere) = (true, true);
                         state.NeedsRedraw = true;
                     },
                     style, BaseFontSize)
@@ -151,7 +134,7 @@ namespace TianWen.UI.Abstractions
             return Layout.Builder.VStack([.. rows]).WithGap(WaveletGap);
 
             // How far past the truth the sharpening goes (#1251): the truth by default, a post's look as an option. Once derived, a stop
-            // switches the dials to its own gains at once (#1314); before, it is what the next Derive and Best stack take.
+            // switches the dials to its own gains at once (#1314); before, it is what the next Derive and Auto stack take.
             void AddStrength(System.Collections.Generic.List<Layout.Node> into)
             {
                 into.Add(Caption(state.PlanetaryStrength == 1
@@ -165,14 +148,16 @@ namespace TianWen.UI.Abstractions
             // Every line here wraps rather than clips (a caption's planet or telescope can run past the panel's width).
             Layout.Node Caption(string text) => WrappedText(text, ViewerTheme.Palette.DimText);
 
-            Layout.Node Wrapped(string text) => WrappedText(text, ViewerTheme.Palette.BodyText);
-
-            // What the planet is, and where it comes from: the panel, the capture's name, or neither.
+            // What the planet is, and where it comes from: the panel, what the Auto stack read, the capture's name, or neither.
             string PlanetCaption()
             {
                 if (state.PlanetaryBody is { } chosenBody)
                 {
                     return $"Planet: {chosenBody}";
+                }
+                if (read is not null)
+                {
+                    return read.Planet is { } readBody ? $"Planet: Auto, read as {readBody} from {read.PlanetFrom}" : $"Planet: Auto, none read ({read.PlanetFrom}), so the preset's sharpening";
                 }
                 if (state.MasterPlanet is { } fromHeader)
                 {
@@ -196,11 +181,35 @@ namespace TianWen.UI.Abstractions
                 {
                     return string.Create(inv, $"Filter: {chosenNm:0} nm");
                 }
+                if (read is not null)
+                {
+                    return read.FilterNm is { } readNm
+                        ? string.Create(inv, $"Filter: Auto, read as {read.Filter ?? "one"} at {readNm:0} nm from {read.FilterFrom}")
+                        : $"Filter: Auto, broadband, 550 nm ({read.FilterFrom})";
+                }
                 if (capture is not null && PlanetaryCaptureName.WavelengthNm(capture) is { } fromNameNm)
                 {
                     return string.Create(inv, $"Filter: {fromNameNm:0} nm, from the name");
                 }
                 return "Filter: none named, so broadband (550 nm)";
+            }
+
+            // The telescope in the Auto view: set here, else what the run read and where, else read as the stack starts.
+            string TelescopeCaption()
+            {
+                if (state.PlanetaryTelescopeSetHere)
+                {
+                    return "Telescope: set here, as below";
+                }
+                if (read is not null)
+                {
+                    return read.TelescopeName is { } readName
+                        ? $"Telescope: Auto, read as {readName} from {read.TelescopeFrom}"
+                        : $"Telescope: none read ({read.TelescopeFrom}), so the preset's sharpening; set it below";
+                }
+                return state.AutoStackProgress is null
+                    ? "Telescope: Auto, read as the stack starts; set it below to choose it"
+                    : "Telescope: being read";
             }
 
             Layout.Node StepButton(string glyph, string hit, Action step)
@@ -212,7 +221,7 @@ namespace TianWen.UI.Abstractions
                     .Clickable(new HitResult.ButtonHit(hit), _ =>
                     {
                         step();
-                        state.PlanetaryTelescopeChanged = true;
+                        (state.PlanetaryTelescopeChanged, state.PlanetaryTelescopeSetHere) = (true, true);
                         state.NeedsRedraw = true;
                     });
         }

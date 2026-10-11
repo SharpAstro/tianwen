@@ -28,7 +28,7 @@ namespace TianWen.UI.Abstractions
         // disk I/O. The scrub track rect is captured for the press/drag -> frame mapping in ScrubAt.
         // -----------------------------------------------------------------------
 
-        /// <summary>The widest label a segment of the view switch takes: a batch stack's at its end, Auto's being the wider word.</summary>
+        /// <summary>The widest label a segment of the view switch takes: the Auto stack's at its end.</summary>
         private const string ViewSwitchWidestLabel = "Auto 100%";
 
         /// <summary>The play / pause button's fill, which the bar draws its mark into.</summary>
@@ -60,27 +60,21 @@ namespace TianWen.UI.Abstractions
             var btnSize = contentH;
             var ink = RGBAColor32.FromFloat(0.92f, 0.92f, 0.95f, 1f);
 
-            // The view switch (#1314 part 2): the frames, the live rolling stack about the playhead, or the whole capture's best stack,
-            // one ButtonGroup where the RAW / STACK toggle was. "Live..." while the live stack's first master is still computing, and the
-            // best stack's progress on its own segment while it runs (the view under it stays on show until it ends). Arranged in device
-            // pixels at DesignScale.One, as the toolbar's run is, since the bar around it is.
-            // Auto (A4, #1391) is the capture identified and stacked with nothing asked, Best the panel's choices; the running one of the
-            // two last chosen shows its progress.
-            var liveLabel = state.ShowStacked && !state.ShowBest && _source is not LiveStackPreviewSource ? "Live..." : "Live";
-            var autoLabel = state.ShowAuto && state.BestStackProgress is { } autoDone
+            // The view switch (#1314 part 2): the frames, the live rolling stack about the playhead, or the whole capture's Auto stack
+            // (A4, #1391; the Best view folded into it, #817), one ButtonGroup where the RAW / STACK toggle was. "Live..." while the live
+            // stack's first master is still computing, and the Auto stack's progress on its own segment while it runs (the view under it
+            // stays on show until it ends). Arranged in device pixels at DesignScale.One, as the toolbar's run is, since the bar around it is.
+            var liveLabel = state.ShowStacked && !state.ShowAuto && _source is not LiveStackPreviewSource ? "Live..." : "Live";
+            var autoLabel = state.AutoStackProgress is { } autoDone
                 ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Auto {autoDone * 100:0}%")
                 : "Auto";
-            var bestLabel = !state.ShowAuto && state.BestStackProgress is { } done
-                ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Best {done * 100:0}%")
-                : "Best";
             ReadOnlySpan<Layout.ButtonGroupOption<PlanetaryView>> views =
             [
                 new(PlanetaryView.Frames, "Frames") { Hit = new HitResult.ButtonHit("ViewFrames") },
                 new(PlanetaryView.Live, liveLabel) { Hit = new HitResult.ButtonHit("ViewLive") },
                 new(PlanetaryView.Auto, autoLabel) { Hit = new HitResult.ButtonHit("ViewAuto") },
-                new(PlanetaryView.Best, bestLabel) { Hit = new HitResult.ButtonHit("ViewBest") },
             ];
-            // Every segment as wide as the widest label any of them takes, so a running best stack never moves the scrub track.
+            // Every segment as wide as the widest label any of them takes, so a running Auto stack never moves the scrub track.
             var viewStyle = new Layout.ButtonGroupStyle(TransportTrackFill, ToolbarButtonBg, ink, ink, GuiTheme.Hover(ToolbarButtonBg))
             {
                 Gap = pad,

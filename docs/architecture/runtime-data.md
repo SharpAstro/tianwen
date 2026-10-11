@@ -12,7 +12,7 @@ TianWen/
 ├── Weather/            # OpenMeteo / OpenWeatherMap forecast cache
 ├── ObjectImages/       # Wikimedia object pictures, one file per (image, standard width) (ObjectPictureStore)
 ├── SmallBodies/        # JPL SBDB comet cache: comets.json + apparitions.json
-├── Viewer/             # tianwen-fits' own: planetary-telescope.json, the Best stack panel's telescope (PlanetaryTelescopePersistence)
+├── Viewer/             # tianwen-fits' own: planetary-telescope.json, the planet and telescope panel's last telescope (PlanetaryTelescopePersistence)
 ├── Planetary/          # telescopes.json: the telescope each camera was last said to be on, which AUTO reads (PlanetaryTelescopeMemory, #1391)
 ├── models/             # AI ONNX models (ModelResolver; also finds GraXpert's model in GraXpert's own cache)
 ├── Secrets/            # 0600 file per device secret, non-Windows or a TIANWEN_DATA_ROOT tree (else Credential Manager)

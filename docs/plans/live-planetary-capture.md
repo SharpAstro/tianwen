@@ -760,5 +760,5 @@ doc" for the Canon path is `planetary-stacking.md`, "Live-capture drivers and th
   the loop converts and queues, a writer task of its own does the disk, and a frame the disk cannot take is dropped
   and counted. It finishes its duration unwatched. **It says what it was taken of and through** (#1179): its name is the planet
   the mount points at and the filter in the beam (`PlanetaryCaptureName.RecordingFileName`, `PointedAt`), its SER header the camera
-  and the OTA's telescope (`TelescopeField`), which the viewer's Best stack and `planetary stack` read back.
+  and the OTA's telescope (`TelescopeField`), which the viewer's Auto stack and `planetary stack` read back.
   It claims only the camera, so **a recenter nudge asks `DeviceOwnershipGate` over the mount first**.

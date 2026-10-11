@@ -1974,10 +1974,10 @@ popover for boost and the soft clip:
 - **The button is lit** while either half's enhancement is in force; `E` keeps its toggle.
 - **Its choices take their fills from the palette, not only their text.** Today the planet, telescope and colour-look groups
   (`PlanetaryChoiceStyle`) draw palette text on the toolbar's fixed dark greys (`ToolbarButtonBg`), which in Light is near black on dark
-  grey, unreadable; the transport's Frames / Live / Best switch keeps a literal light text for that reason, which Night cannot tint. Found
+  grey, unreadable; the transport's Frames / Live / Auto switch keeps a literal light text for that reason, which Night cannot tint. Found
   by the audit on #1343 (its rows 24 and 22).
 
-The strip goes back to what it reports. The Frames / Live / Best switch stays in the transport: it
+The strip goes back to what it reports. The Frames / Live / Auto switch stays in the transport: it
 chooses what is shown, not how it is enhanced.
 
 **Why in 10.0.** It is the first release to ship the planetary controls, so they should arrive where
