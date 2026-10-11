@@ -76,6 +76,13 @@ of ninety masters take three calls rather than a sprite. The sprite this replace
 into one box at one width, which made the crop invisible: every card read as "before and after are the
 same size" while the crop had taken 15 percent of the canvas.
 
+**But a VERSION holds at most 511 files, so the 1:1 patches ship as sprite sheets.** 194 masters x three
+views plus the page is 583, and the fourth batch of #713's regeneration was refused ("manifest exceeds
+512 entries"). `pack_views.py` packs the patches losslessly into `crops-<n>.png` (7 x 7 cells of 320 px,
+about 9 MB a sheet against the 15 MB per file), `crop_sprite` is the one placement rule, and
+`inject_rows.py` stamps it on every row as `cropSprite`; the two big views stay a file each. The pack is
+regenerated whole, so no per-card patch from an earlier pack is published beside the sheets.
+
 **A row whose three PNGs all exist AND whose geometry is stamped is skipped; `--force` redoes it.**
 The enhance is the expensive stage, so re-running the script over a finished gallery costs nothing
 and a half-finished one costs only what is missing; `rows.json` is stamped after every card, so a
@@ -141,7 +148,7 @@ inspected.
 Publish with the Artifact tool from a folder the tool can read (`.artifact-gallery/` at the repo root,
 git-ignored). Re-publishing the same file path keeps the URL. **Split the `files` map across calls of
 at most 255 entries** -- the cap is per publish, and every file left out of a call is kept, so the
-artifact ends up holding all of them.
+artifact ends up holding all of them, up to the 511 a version may hold (see the sprite sheets above).
 
 ## Rolling it out while the batch is still running
 
