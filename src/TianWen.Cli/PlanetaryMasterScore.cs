@@ -528,7 +528,7 @@ internal static class PlanetaryMasterScore
     }
 
     /// <summary>
-    /// <c>--channel-limb</c> and <c>--limb-k</c> read once for <c>planetary stack</c> and <c>planetary sharpen</c> (#1498): what a colour master's
+    /// <c>--channel-limb</c> and <c>--limb-k</c> read once for <c>planetary stack</c>, <c>planetary sharpen</c> and <c>planetary limb</c> (#1498, #1478): what a colour master's
     /// channels are read against (shared, per-channel), and how the limb fit takes Minnaert's k: fitted, opal, or the k to hold for each
     /// channel (a comma list, the last repeated, each above 0 and below 2). Null and said when either is unreadable.
     /// </summary>

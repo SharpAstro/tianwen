@@ -54,18 +54,23 @@ internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleH
         var utcOpt = new Option<string?>("--utc") { Description = "The image's time (ISO 8601, UTC), for an image with no .ims.xml." };
         var phaseOpt = new Option<double?>("--phase") { Description = "Override the ephemeris' phase angle, in degrees (0 fits a fully lit disk): a diagnostic." };
         var sunSideOpt = new Option<int?>("--sun-side") { Description = "Force which end of the equator is lit (+1 or -1) instead of fitting both: a diagnostic." };
-        var limbKOpt = new Option<string>("--limb-k") { Description = "Minnaert's k (#1221): fitted (the default) or opal, held at OPAL's for the image's filter (its file name's filter word, a colour image's three channels, else broadband 550 nm).", DefaultValueFactory = _ => "fitted" };
+        var limbKOpt = new Option<string>("--limb-k") { Description = "Minnaert's k (#1221): fitted (the default), opal, held at OPAL's for the image's filter (its file name's filter word, a colour image's three channels, else broadband 550 nm), or the k to hold for each channel (0.999,0.95,0.94, the last repeated; one fit of the channels holds their mean).", DefaultValueFactory = _ => "fitted" };
+        var channelLimbOpt = new Option<string>("--channel-limb") { Description = "A colour image's limb (#1478): shared (the default: one fit of its channels' mean) or per-channel (each channel fitted against its own limb, with --limb-k opal each at its own wavelength's k; each channel's row printed, and their mean as the image's).", DefaultValueFactory = _ => "shared" };
 
         var command = new Command("limb", "Fit a planet's disk at its limb (centre, equatorial radius, axis) with the ephemeris' shape and phase; compare with WinJUPOS's own outline.")
         {
             Arguments = { inputsArg },
-            Options = { planetOpt, utcOpt, phaseOpt, sunSideOpt, limbKOpt },
+            Options = { planetOpt, utcOpt, phaseOpt, sunSideOpt, limbKOpt, channelLimbOpt },
         };
 
         command.SetAction((parseResult, ct) =>
         {
             var failed = 0;
-            var opalK = (parseResult.GetValue(limbKOpt) ?? "fitted").Equals("opal", StringComparison.OrdinalIgnoreCase);
+            if (PlanetaryMasterScore.LimbReading(consoleHost, parseResult.GetValue(channelLimbOpt), parseResult.GetValue(limbKOpt)) is not { } reading)
+            {
+                return Task.FromResult(1);
+            }
+            var (channelLimb, limbDarkening, heldK) = reading;
             consoleHost.WriteScrollable("image                                   x0        y0        R       axis   k     sigma  side  rms       rms/disk | WinJUPOS dx     dy     dR (%)   rotation");
             foreach (var input in parseResult.GetValue(inputsArg) ?? [])
             {
@@ -87,30 +92,67 @@ internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleH
                 }
                 var aspect = PhysicalEphemeris.Compute(planet, utc);
                 // The file name's filter word first: a mono stack saved as a three-channel TIFF is still its filter's.
-                double[] wavelengthsNm = PlanetaryCaptureName.WavelengthNm(imagePath) is { } named ? [named] : image.ChannelCount == 3 ? [650, 530, 460] : [550];
-                var options = (opalK ? PlanetaryLimbFit.OptionsFor(aspect, wavelengthsNm) : PlanetaryLimbFit.OptionsFor(aspect)) with { SunSide = parseResult.GetValue(sunSideOpt) };
-                if (parseResult.GetValue(phaseOpt) is { } phase)
+                var named = PlanetaryCaptureName.WavelengthNm(imagePath);
+                double[] wavelengthsNm = named is { } nm ? [nm] : image.ChannelCount == 3 ? [650, 530, 460] : [550];
+                var sunSide = parseResult.GetValue(sunSideOpt);
+                var phase = parseResult.GetValue(phaseOpt);
+                // The options for `count` channels from `first`: OPAL's k at their wavelengths, a held k (their mean, the last given
+                // repeated), or fitted.
+                LimbFitOptions OptionsOf(int first, int count)
                 {
-                    options = options with { PhaseAngleDeg = phase };
+                    var o = limbDarkening switch
+                    {
+                        PlanetaryLimbDarkening.Opal => PlanetaryLimbFit.OptionsFor(aspect, wavelengthsNm.AsSpan(first, Math.Min(count, wavelengthsNm.Length - first))),
+                        PlanetaryLimbDarkening.Held => PlanetaryLimbFit.OptionsFor(aspect) with
+                        {
+                            LimbDarkening = Enumerable.Range(first, count).Average(c => heldK[Math.Min(c, heldK.Length - 1)]),
+                        },
+                        _ => PlanetaryLimbFit.OptionsFor(aspect),
+                    } with { SunSide = sunSide };
+                    return phase is { } angle ? o with { PhaseAngleDeg = angle } : o;
                 }
-                if (PlanetaryLimbFit.Fit(image, options) is not { } fit)
+                if (PlanetaryLimbFit.Fit(image, OptionsOf(0, wavelengthsNm.Length)) is not { } fit)
                 {
                     consoleHost.WriteError($"{input}: no disk found");
                     failed++;
                     continue;
                 }
-                var line = string.Create(CultureInfo.InvariantCulture,
-                    $"{Path.GetFileName(imagePath),-38} {fit.CenterX,8:0.000}  {fit.CenterY,8:0.000}  {fit.EquatorialRadius,7:0.000}  {fit.AxisAngleDeg,6:0.00}  {fit.LimbDarkening,4:0.00}  {fit.PsfSigma,5:0.00}  {fit.SunSide,4:+0;-0;0}  {fit.RmsResidual,8:0.00000}  {fit.RmsResidual / fit.Brightness,7:0.00000}");
-                if (measurement is { } w)
+                var name = Path.GetFileName(imagePath);
+                // Each channel of a colour image against its own limb (#1478), their mean the image's row. A mono stack saved as three
+                // channels (its name's filter word) is one image, read as one.
+                if (channelLimb is PlanetaryChannelLimb.PerChannel && image.ChannelCount == 3 && named is null)
                 {
-                    line += string.Create(CultureInfo.InvariantCulture,
-                        $" | {fit.CenterX - w.CenterX,+6:+0.00;-0.00} {fit.CenterY - w.CenterY,+6:+0.00;-0.00} {100 * (fit.EquatorialRadius - w.EquatorialRadius) / w.EquatorialRadius,+7:+0.00;-0.00}  {w.RotationAngleDeg,7:0.0}");
+                    var channels = PlanetaryLimbFit.FitEachChannel(image, fit, c => OptionsOf(c, 1));
+                    for (var c = 0; c < channels.Length; c++)
+                    {
+                        consoleHost.WriteScrollable(LimbRow($"{name} [{"rgb"[c]}]", channels[c].Fit, measurement));
+                    }
+                    fit = fit with
+                    {
+                        CenterX = channels.Average(f => f.Fit.CenterX),
+                        CenterY = channels.Average(f => f.Fit.CenterY),
+                        EquatorialRadius = channels.Average(f => f.Fit.EquatorialRadius),
+                        LimbDarkening = channels.Average(f => f.Fit.LimbDarkening),
+                    };
                 }
-                consoleHost.WriteScrollable(line);
+                consoleHost.WriteScrollable(LimbRow(name, fit, measurement));
             }
             return Task.FromResult(failed == 0 ? 0 : 1);
         });
         return command;
+    }
+
+    // One row of planetary limb's table: the fit, and against WinJUPOS's outline when the image came with one.
+    private static string LimbRow(string name, in LimbFit fit, WinJuposMeasurement? measurement)
+    {
+        var line = string.Create(CultureInfo.InvariantCulture,
+            $"{name,-38} {fit.CenterX,8:0.000}  {fit.CenterY,8:0.000}  {fit.EquatorialRadius,7:0.000}  {fit.AxisAngleDeg,6:0.00}  {fit.LimbDarkening,4:0.00}  {fit.PsfSigma,5:0.00}  {fit.SunSide,4:+0;-0;0}  {fit.RmsResidual,8:0.00000}  {fit.RmsResidual / fit.Brightness,7:0.00000}");
+        if (measurement is { } w)
+        {
+            line += string.Create(CultureInfo.InvariantCulture,
+                $" | {fit.CenterX - w.CenterX,+6:+0.00;-0.00} {fit.CenterY - w.CenterY,+6:+0.00;-0.00} {100 * (fit.EquatorialRadius - w.EquatorialRadius) / w.EquatorialRadius,+7:+0.00;-0.00}  {w.RotationAngleDeg,7:0.0}");
+        }
+        return line;
     }
 
     // The corpus' two telescopes (docs/plans/planetary-restoration.md, "The corpus"): a Saxon 10 inch f/4.7 Newtonian with a

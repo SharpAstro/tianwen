@@ -68,6 +68,47 @@ public class PlanetaryLimbFitTests : IDisposable
     }
 
     [Fact]
+    public void EachChannelIsFittedAgainstItsOwnLimbAndOneWithNoDiskKeepsTheSharedFit()
+    {
+        // #1478: a colour image whose channels darken toward the limb by their own k (red 0.99, green 0.9, blue 0.75, as a planet does
+        // through three filters), the shared fit of their mean taking a k between. Each channel fitted against its own limb comes back
+        // at its own k and the true outline; held at its own k it keeps it; a channel with no disk keeps the shared fit.
+        double[] ks = [0.99, 0.9, 0.75];
+        var planes = ks.Select((k, c) => Render(k, phaseDeg: 0, psf: Gaussian(1.8), noise: 0.005, seed: 10 + c)).ToArray();
+        var image = new Imaging.Image([.. planes.Select(ToPlane)], Imaging.BitDepth.Float32, 1f, 0f, 0, new Imaging.ImageMeta());
+        var shared = FitFromRoughStart(PlanetaryLimbFit.Luminance(image), new LimbFitOptions(AxisRatio));
+
+        var fitted = PlanetaryLimbFit.FitEachChannel(image, shared, _ => new LimbFitOptions(AxisRatio));
+        var held = PlanetaryLimbFit.FitEachChannel(image, shared, c => new LimbFitOptions(AxisRatio) with { LimbDarkening = ks[c] });
+        for (var c = 0; c < ks.Length; c++)
+        {
+            var (free, kept) = (fitted[c].Fit, held[c].Fit);
+            TestContext.Current.TestOutputHelper?.WriteLine(
+                $"channel {c}: fitted k {free.LimbDarkening:0.000} (true {ks[c]}), centre off {Offset(free):0.000} px, radius {free.EquatorialRadius:0.000}; held k {kept.LimbDarkening:0.000}, centre off {Offset(kept):0.000} px");
+            free.LimbDarkening.ShouldBe(ks[c], 0.1, $"channel {c} reads its own k, not the shared fit's {shared.LimbDarkening:0.000}");
+            Offset(free).ShouldBeLessThan(0.05);
+            free.EquatorialRadius.ShouldBe(TrueRadius, 0.1);
+            kept.LimbDarkening.ShouldBe(ks[c], 1e-3);
+            Offset(kept).ShouldBeLessThan(0.05);
+            held[c].Options.LimbDarkening.ShouldBe(ks[c]);
+        }
+
+        // A channel with no disk on it keeps the shared fit rather than failing the read.
+        var dark = new Imaging.Image([new float[Size, Size]], Imaging.BitDepth.Float32, 1f, 0f, 0, new Imaging.ImageMeta());
+        PlanetaryLimbFit.FitEachChannel(dark, shared, _ => new LimbFitOptions(AxisRatio))[0].Fit.ShouldBe(shared);
+
+        static float[,] ToPlane(float[] flat)
+        {
+            var plane = new float[Size, Size];
+            for (var i = 0; i < flat.Length; i++)
+            {
+                plane[i / Size, i % Size] = flat[i];
+            }
+            return plane;
+        }
+    }
+
+    [Fact]
     public void AMoffatBlurTheModelDoesNotHaveKeepsTheCentreAndMovesTheRadiusLittle()
     {
         // Seeing's wings are Moffat's, not a Gaussian's: beta 2.5 at the same 4.24 px FWHM as a sigma of 1.8.
