@@ -1,8 +1,10 @@
 # DIR.Lib 10: a control is declared once, and the engine behaves
 
 Status: DONE except T3 (2026-09-24). T0, D1 (DIR.Lib 9.2), T1, T2, D2 (DIR.Lib 10.0, 2026-09-17) and C1
-all landed; T3, the viewer chrome onto the engine, is [viewer-layout-engine.md](viewer-layout-engine.md),
-where only P3 is left (#367). Planned 2026-09-15 (user, high priority), reviewed the same day against
+all landed; T3, the viewer chrome onto the engine, is left: viewer-layout-engine's P3 (#367, #1455) and P5
+(#1490), and the [Acceptance](#acceptance-for-the-whole-plan) lines the chrome does not yet meet (#1489); and
+the declarative focus D1 shipped is adopted nowhere (#1491). See [T3](#t3-the-chrome-on-the-engine).
+Planned 2026-09-15 (user, high priority), reviewed the same day against
 DIR.Lib 9.1 and every tianwen host (GUI, `tianwen-fits`, web, TUI). This plan ABSORBS
 [viewer-layout-engine.md](viewer-layout-engine.md) P0 (the measure seam) and
 [automatic-text-input.md](automatic-text-input.md) P3b (declarative focus), both of which turn out to be
@@ -323,7 +325,8 @@ widely than the example, and most of the fix is adoption, not engine work.
 
 ## Resume here (state as of 2026-09-15, late evening)
 
-**SUPERSEDED 2026-09-15: everything below LANDED, plus waves 2 and 3, the release chain, T1 and T2.**
+**SUPERSEDED 2026-09-15: everything below LANDED, plus waves 2 and 3, the release chain, T1 and T2.** The pins
+below are history too: tianwen is on DIR.Lib `11.8.*` (2026-10-11).
 Kept as the record of what was outstanding, not as a to-do list. Where it stands now:
 
 - **Published:** DIR.Lib **9.2.3051**, Console.Lib **4.35.1841**, SdlVulkan.Renderer **7.38.3151**.
@@ -445,7 +448,7 @@ They will rebase cleanly onto each other except possibly `Directory.Packages.pro
 
 ### DIR.Lib, one integration branch
 
-`feat/dir-lib-9.2` off `main` (b07c547), draft PR SharpAstro/DIR.Lib#82, carries wave 1a (`feat/dir-lib-9.2-wave1a`) and wave 1b
+`feat/dir-lib-9.2` off `main`, draft PR SharpAstro/DIR.Lib#82, carries wave 1a (`feat/dir-lib-9.2-wave1a`) and wave 1b
 (`feat/dir-lib-9.2-wave1b`) BOTH MERGED and green: 1235 tests, up from 1102 on main. Its draft PR body lists what each wave shipped with exact signatures.
 `VersionMajorMinor` is still 9.1 on purpose: the release is cut from this branch when wave 3 is green.
 `CHANGELOG.md` already has the `## 9.2` section, one block per wave.
@@ -542,6 +545,10 @@ cut the 8.x design described and did not enforce). `Focus(input, initialText)` s
 its doc already promises, so the two `SelectAll()` call sites and the TUI's private pointer have nothing
 left to do. `Builder.TextInput(state, ..., focusOnOpen: true)` is P3b, implemented in the router's
 after-paint hook.
+
+**Shipped in DIR.Lib, adopted nowhere (2026-10-11):** `focusOnOpen` has no use in tianwen, and three fields are
+still focused by posting `ActivateTextInputSignal` by hand as their editor opens (the site latitude and profile
+name fields in `AppSignalHandler.Equipment.cs`, the filter name in `EquipmentTab.FilterTable.cs`). #1491.
 
 ### E. Two content kinds the chrome keeps painting by hand
 
@@ -993,6 +1000,9 @@ name alone gets both wrong in both directions.
 | `TextInputHit.Painted` required | n/a | consumers already read it; making it required IS the break. |
 | `Ui.KeyboardClaimant` -> popover stack | rides the claimant row | one change, not two. |
 
+**Before the 2026-09-17 adoption** (`tianwen-fits` routes through `StandaloneViewerHost`'s `InputRouter` since, keys and
+presses alike), as it was verified that day:
+
 **The two cuts left are ONE piece: the viewer adopts `InputRouter`.** Verified 2026-09-17 rather than
 assumed:
 
@@ -1079,7 +1089,14 @@ the most-used widget in the library navigates and scrolls on a different model u
 
 ### T3. the chrome on the engine
 
-viewer-layout-engine P1 to P4, unchanged, now on the seam D1 shipped.
+viewer-layout-engine P1, P2 and P4 are done on the seam D1 shipped. Left (2026-10-11):
+
+- **The chrome's own arithmetic**: viewer-layout-engine P3 (#367; the Live Session and Guider panels #1455) and
+  P5, a text measured by its line box (#1490).
+- **The [Acceptance](#acceptance-for-the-whole-plan) lines the chrome does not meet**: hover from the tree,
+  `OverlayOwnsPointer` and the drag flags gone, `RegisterClickable` under ten, one tooltip painter, `LayoutDamage`
+  and the TUI's main input on the router. #1489.
+- **Declarative focus**, shipped and adopted nowhere: [D](#d-focus-is-a-boundary-and-it-selects), #1491.
 
 ## Shortcut adoption, measured
 
@@ -1089,7 +1106,7 @@ It sat on an unmerged branch until 2026-10-01, when it landed with its code.
 
 **Re-counted 2026-10-01.** `.WithShortcut` is used twice, both in the sky map (`SkyMapTab`,
 `SkyMapTab.Search`), against 81 `case InputKey.` arms: 36 in `ImageRendererBase.Input.cs` (44 at the audit;
-the declaration's routes took eight), 19 in `SkyMapTab.cs`, 11 in `PlannerTab.cs`, 5 each in `SessionTab.cs`
+the declaration's routes took eight; 37 on 2026-10-11), 19 in `SkyMapTab.cs`, 11 in `PlannerTab.cs`, 5 each in `SessionTab.cs`
 and `PlannerActions.cs`, 3 in the GUI's `Program.cs` and 2 in `NightCalendarActions.cs`. A shortcut fires only
 when its node is PAINTED; the sky map is a layout tree and the viewer's chrome is hand-painted, which is why
 the two uses are where they are.
@@ -1135,16 +1152,27 @@ tab, so they have no node to sit on and are answered before the router in `GuiEv
 
 ## Acceptance for the whole plan
 
+Where each line stands, counted on `main` 2026-10-11 (plan review #1417); what is unmet is #1489, #1491 and
+viewer-layout-engine's P3 and P5.
+
 - **Adding a text field** is the state, its business callbacks, and `Builder.TextInput(state)` with
   whatever `.Shortcut` / `focusOnOpen` it wants. Zero lines in any host or dispatcher.
+  **Unmet:** `focusOnOpen` has no use, and three fields are still focused by a hand-posted signal (#1491).
 - **Adding a popover** is `Builder.Popover(...)` and a `.Clickable` that toggles its state. Zero dispatcher
   lines; the `CLAUDE.md` warning about the dead button is deleted because the failure is unrepresentable.
-- **Adding a slider** is `Content.Slider(state)`. No flag, no branch.
+  **Unmet:** the warning stands, since a viewer toolbar button still owes its own `onPress` (#1489).
+- **Adding a slider** is `Content.Slider(state)`. No flag, no branch. **Met** for the sliders: the tone,
+  white balance and wavelet dials are `Content.Slider` leaves. The transport's scrub is still a flag, `IsScrubbing` (#1489).
 - `ISelfDispatchingInputWidget`, `OverlayOwnsPointer`, `IKeyboardClaimant`, the `Ctrl+letter` map, the
-  `F3` special case and `clicks >= 2` no longer exist in tianwen.
-- One key router per SURFACE KIND (pixel, cell, DOM), all three instances of `InputRouter`.
+  `F3` special case and `clicks >= 2` no longer exist in tianwen. **Met but for `OverlayOwnsPointer`**, read 6
+  times (the context menu, the file list twice, the histogram, the toolbar twice), and the drag flags with it (#1489).
+- One key router per SURFACE KIND (pixel, cell, DOM), all three instances of `InputRouter`. **Unmet for the
+  cell surface:** the TUI's main input is not on a router; only its night calendar is (#1489).
 - `grep ListCursor` over tianwen is no longer zero; `grep -c RegisterClickable` over `TianWen.UI*` is under
   ten, all inside `drawFill` bodies or overlay labels placed on the image; one tooltip painter, in DIR.Lib.
+  **`ListCursor` met** (14 uses). **Unmet:** 16 `RegisterClickable` calls in 8 files, and three tooltip
+  painters (the viewer toolbar's `RenderHoverTooltip`, `VkGuiRenderer.DrawTooltip`,
+  `AltitudeChartRenderer.DrawWeatherTooltip`), while nothing paints `InputRouter.Tooltip` (#1446) (#1489).
 
 ## What this does NOT do
 
@@ -1161,6 +1189,8 @@ tab, so they have no node to sit on and are answered before the router in `GuiEv
   a tree; `DrawCollapsibleHeading` goes in T3 without any engine change.
 
 ## Where the pieces are
+
+As found 2026-09-15, when the plan was written; most of these sites are gone since (see the Status line).
 
 | piece | where |
 |---|---|

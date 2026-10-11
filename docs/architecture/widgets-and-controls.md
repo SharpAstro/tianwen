@@ -566,12 +566,11 @@ rule: `docs/architecture/widgets-and-controls.md`, read it before any layout wor
 ### UI primitives: the cursor, a text field, and who holds focus
 
 Full reasoning: `docs/architecture/widgets-and-controls.md` (cursor) and `docs/plans/automatic-text-input.md`
-(field, focus, key routing). **Where this is GOING is `docs/plans/dir-lib-10.md` (HIGH PRIORITY,
-2026-09-15)**: the engine already ships the pointer rule (click places the caret, a second click selects the
-word, a drag extends; DIR.Lib 9.1 `TextInputInteraction.HandlePointer`) and every tianwen host still
-hand-rolls `clicks >= 2 -> SelectAll()`, a node cannot declare a shortcut, and a popover or a slider costs a
-dispatcher line per host. Until that lands, a new field, popover or drag follows the rules below; do not add a
-fourth key router.
+(field, focus, key routing). **Where this went is `docs/plans/dir-lib-10.md` (planned 2026-09-15)**: the pointer
+rule (click places the caret, a second click selects the word, a drag extends), a shortcut declared on its node, and
+popovers and sliders as nodes all landed by DIR.Lib 10 (2026-09-17), and no host hand-rolls `clicks >= 2 ->
+SelectAll()` any more. What is left is the viewer chrome on the engine (#1489) and declarative focus, shipped and
+adopted nowhere (#1491). A new field, popover or drag follows the rules below; do not add a fourth key router.
 
 - **The pointer's appearance is a property of a REGION, never a host predicate**: declare it beside the click
   (`RegisterClickable(..., cursor:)` / `.Clickable(hit, onClick, cursor)` / `.WithCursor(kind)`); the host asks

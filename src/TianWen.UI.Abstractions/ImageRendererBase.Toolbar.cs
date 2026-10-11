@@ -345,7 +345,7 @@ namespace TianWen.UI.Abstractions
         /// each button's widest state and keep the slots, anchor each group instead of the whole run, or
         /// move the bar onto the layout DSL with fixed slots. Kept because it does hold clicks steady
         /// and the alternative is a rewrite of the one widget every viewer test drives; see
-        /// docs/todo/ui.md so it is not mistaken for the design.
+        /// docs/plans/viewer-layout-engine.md, P2 (#604), so it is not mistaken for the design.
         /// </remarks>
         private float ReservedLabelWidth(ToolbarAction action, ViewerState state)
         {

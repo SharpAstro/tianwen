@@ -1,11 +1,13 @@
 # The chrome should not be doing its own arithmetic
 
-Status: P0, P1, P2 and P4 DONE (2026-09-16; P2 keeps `ReservedLabelWidth` on measurement, see P2). Left: P3,
-the viewer's own core file and the sky-map tab, lower value and ratcheted by P4; and P5 (added 2026-10-02), a text
-measured by its line box rather than its ink, which is a DIR.Lib change. Both are issue #367.
+Status: P0, P1, P2 and P4 DONE (2026-09-16; P2 keeps `ReservedLabelWidth` on measurement, a labelled workaround,
+#604). Left: P3, the viewer's own core file, the sky-map tab and the live-session panels, lower value and ratcheted by
+P4 (#367; the panels #1455); and P5 (added 2026-10-02), a text measured by its line box rather than its ink, which
+is a DIR.Lib change (#1490).
 Planned 2026-09-15 (user, high priority); the header said NOT STARTED until 2026-09-24.
 **P0 (the measure seam) now ships as part of [dir-lib-10.md](dir-lib-10.md) D1**, the same DIR.Lib release
-that adds the input router; P1 to P4 are unchanged and are that plan's T3.
+that adds the input router. That plan's T3 is this plan's P3 and P5, plus the chrome lines of its Acceptance this plan
+does not cover (hover from the tree, the drag flags, one tooltip painter: #1489).
 The tone popover (`ImageRendererBase.TonePanel.cs`, shipped 8.1) is the worked example of the target
 shape and the only viewer overlay already in it.
 
@@ -166,6 +168,10 @@ run runs out of room instead of losing the whole control -- and `Text.Trim` has 
 tianwen today. Which puts the removal back where the paragraph below already puts it: it needs the
 buttons to BE nodes.
 
+**Superseded by the measurement above** (2026-09-16): `ReservedLabelWidth` stays, labelled in the code as a
+workaround kept on purpose (#604). The design below is the one that would let it go, once a declared button can trim
+its label rather than drop off the run; it is kept for that, not as a step to take.
+
 Lay the bar out as a `WrapH` of buttons (it already wraps by hand on a narrow window) with each button
 a node carrying its own `widthSample` -- its widest state, stated once, on the node, rather than
 computed in a switch. Two consequences worth stating in advance:
@@ -205,6 +211,10 @@ hand-placed:
 | `GuiderTab.cs` | the calibration table (`RenderCalibrationText`, `y` anchored from the bottom, `y += lineH`) |
 | `LiveSessionTab.cs` | the frame (top rect, timeline, bottom strip, the OTA / viewer / log columns, the picker) carved by arithmetic, where `GuiderTab` already uses one `Dock` |
 
+**Tracked by #367; the live-session and guider panels by #1455.** Re-counted 2026-10-11: `MeasureText` 39 calls
+across 11 files (`VkSkyMapTab.cs` down to 4, `ImageRendererBase.Overlays.cs` to 3), and `ref float y` in 8
+signatures: `ImageRendererBase.cs` 5, the best-stack panel 2 and the info panel 1.
+
 So P3's scope is the viewer's own core file, the sky-map tab, and these panels. They are still reports rather
 than controls, so the drift costs less, and they can still come piecemeal. P4's ratchet does not cover them,
 since it counts the same two smells.
@@ -224,7 +234,7 @@ convenient call at a time, which is how it got to 47.
 
 ### P5: a text leaf measures its line box, so a button needs no RowH (DIR.Lib)
 
-**Added 2026-10-02, tracked by #367.** The engine measures a text by its INK: both renderers' `MeasureText`
+**Added 2026-10-02, tracked by #1490** (split from #367 on 2026-10-11). The engine measures a text by its INK: both renderers' `MeasureText`
 (`RgbaImageRenderer`, SdlVulkan.Renderer's `VkRenderer`) return the widest ascent plus descent of the glyphs drawn, so
 "LOG" measures its cap height (11 px at 18 px type), a label with a descender measures more, and two buttons side by
 side measure differently by what they say. So every declared text control states its height by hand, as a line box:
@@ -297,6 +307,6 @@ incident, so this shows the checklist reads the shape, not that it finds a new o
 | the engine | `DIR.Lib.Layout` (`Builder`, `Node`, `Engine.Measure` / `Engine.Arrange`) |
 | the widget seam | `DIR.Lib.PixelWidgetBase` (`ArrangeLayout`, `PaintLayout`, `RenderLayout`) |
 | the worked example | `TianWen.UI.Abstractions/ImageRendererBase.TonePanel.cs` + `ViewerTonePopoverTests` |
-| the workaround to delete | `ImageRendererBase.Toolbar.cs`, `ReservedLabelWidth` |
+| the workaround kept on purpose (P2, #604) | `ImageRendererBase.Toolbar.cs`, `ReservedLabelWidth` |
 | the panels to convert | `ImageRendererBase.WhiteBalancePanel.cs`, `.InfoPanel.cs`, `LiveSessionTab.*` |
 | the rules | `CLAUDE.md`, "Layout DSL"; the five traps are listed there and all still apply |
