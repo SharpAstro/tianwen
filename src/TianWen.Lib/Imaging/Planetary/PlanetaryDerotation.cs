@@ -60,6 +60,47 @@ public static class PlanetaryDerotation
         => Derotate(image, from, placement, to, placement, minnaertK);
 
     /// <summary>
+    /// Where a join's weights for a de-rotated stack start to fall (#1349, fix C), in equatorial radii of the source's disk: whole
+    /// inside it, nothing at <see cref="SourceRadiusLimit"/>.
+    /// </summary>
+    public const double JoinWeightTaperStart = 0.8;
+
+    /// <summary>
+    /// What each pixel of the planet carried from <paramref name="from"/> to <paramref name="to"/> on one disk is worth in a join of
+    /// several such stacks (#1349, fix C), row-major on a <paramref name="width"/> x <paramref name="height"/> grid: the cosine of the
+    /// angle its source is seen at (mu, toward the observer), times a smooth step from one at <see cref="JoinWeightTaperStart"/> of the
+    /// source's radius to nothing at <see cref="SourceRadiusLimit"/>; nothing where the pixel was not de-rotated (its source past the
+    /// limit, under a ring, or off the disk). A stack at the target's own instant is weighed the same way, its source its own pixel.
+    /// Averaged at full weight, every stack's switch from its turned sample to its own unturned pixel at its source limit lands
+    /// somewhere else in each of a night's stacks, and the steps blur the master near its limb (#1352: the 27 stacks of 2026-10-07
+    /// read the limb's edge at 0.346 against 0.26 to 0.33 for pairs).
+    /// </summary>
+    public static float[] JoinWeights(int width, int height, in PlanetAspect from, in PlanetAspect to, in DiskPlacement placement, double minnaertK)
+    {
+        var field = new DerotationTarget(to, placement, width, height, minnaertK).FieldFrom(from, placement);
+        var source = new PlanetaryProjection(from, placement);
+        var (centerX, centerY, radius) = (placement.CenterX, placement.CenterY, placement.EquatorialRadius);
+        var weights = new float[width * height];
+        var (sourceX, sourceY, covered) = (field.SourceX, field.SourceY, field.Covered);
+        ParallelFor.Run(height, y =>
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var i = (y * width) + x;
+                if (!covered[i] || !source.TrySurface(sourceX[i], sourceY[i], out _, out _, out var mu, out _) || !(mu > 0))
+                {
+                    continue;
+                }
+                var (dx, dy) = (sourceX[i] - centerX, sourceY[i] - centerY);
+                var rho = Math.Sqrt((dx * dx) + (dy * dy)) / radius;
+                var t = Math.Clamp((SourceRadiusLimit - rho) / (SourceRadiusLimit - JoinWeightTaperStart), 0, 1);
+                weights[i] = (float)(mu * t * t * (3 - (2 * t)));
+            }
+        });
+        return weights;
+    }
+
+    /// <summary>
     /// <paramref name="image"/> resampled through <paramref name="field"/> by Lanczos-3: each output pixel its source's sample,
     /// relit; where the kernel cannot reach, the pixel at the same place.
     /// </summary>

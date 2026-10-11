@@ -231,6 +231,162 @@ public sealed class PlanetaryCompositionTests : IDisposable
         joined.Master.GetChannelSpan(0).ToArray().ShouldAllBe(v => float.IsFinite(v), "the master holds no unreached marker");
     }
 
+    [Fact(Timeout = 300_000)]
+    [Trait("Category", "Heavy")]
+    public void AJoinWeighedByViewKeepsAStacksUnturnedRimOutAndTheStepsGiveItToTheBit()
+    {
+        // #1349 fix C: two greens 30 minutes apart (the planet turns 18 degrees between them), a red and a blue between. Carried to the
+        // reference's instant, a green keeps its own unturned pixel wherever its source lies past the de-rotation's 0.9-radius limit; joined
+        // at full weight, that rim enters where the other green saw the planet squarely. Weighed by view, it stays out.
+        var ct = TestContext.Current.CancellationToken;
+        (string Filter, double Minutes, double Level, double Dx, double Dy)[] set =
+            [("G", 0, 0.8, 0.0, 0.0), ("R", 10, 0.9, 1.2, -0.8), ("B", 20, 0.6, -0.9, 1.1), ("G", 30, 0.8, 0.7, 0.5)];
+        var ingested = new List<PlanetaryMonoStack>();
+        foreach (var s in set)
+        {
+            var at = Start.AddMinutes(s.Minutes);
+            var name = $"{at:yyyy-MM-dd-HHmm}_{at.Second / 6}-Test-{s.Filter}-Jup.fits";
+            var (stack, refusal) = PlanetaryComposition.Ingest(name, Image.FromChannel(ToPlane(Render(PhysicalEphemeris.Compute(CatalogIndex.Jupiter, at), DiskOf(s), s.Level))), instant: at);
+            ingested.Add(stack.ShouldNotBeNull(refusal));
+        }
+        var (registration, registerRefusal) = PlanetaryComposition.Register(ingested);
+        registration.ShouldNotBeNull(registerRefusal);
+        var (viewed, viewedRefusal) = PlanetaryComposition.Derotate(registration.Stacks, viewingWeights: true);
+        viewed.ShouldNotBeNull(viewedRefusal);
+        viewed.Stacks.ShouldAllBe(stack => stack.JoinWeight != null, "every stack weighed, the reference at its own instant included");
+        var (plain, plainRefusal) = PlanetaryComposition.Derotate(registration.Stacks);
+        plain.ShouldNotBeNull(plainRefusal);
+        var (joined, joinRefusal) = PlanetaryComposition.Join(viewed.Stacks);
+        var (joinedPlain, plainJoinRefusal) = PlanetaryComposition.Join(plain.Stacks);
+        joined.ShouldNotBeNull(joinRefusal);
+        joinedPlain.ShouldNotBeNull(plainJoinRefusal);
+        ct.ThrowIfCancellationRequested();
+
+        // Where one green saw the pixel squarely and the other not at all, the joined green against the green that saw it: weighed by
+        // view it is that green's, to the floor's share; plain, it is half the other's rim.
+        var greens = viewed.Stacks.Where(stack => stack.Filter == Filter.Green).ToArray();
+        greens.Length.ShouldBe(2);
+        var viewedGreen = joined.Master.GetChannelSpan(1);
+        var plainGreen = joinedPlain.Master.GetChannelSpan(1);
+        var (strip, offViewed, offPlain) = (0, 0.0, 0.0);
+        for (var g = 0; g < 2; g++)
+        {
+            var seen = greens[g].Image.GetChannelSpan(0);
+            var (weight, other) = (greens[g].JoinWeight.ShouldNotBeNull(), greens[1 - g].JoinWeight.ShouldNotBeNull());
+            for (var i = 0; i < seen.Length; i++)
+            {
+                if (weight[i] > 0.1f && other[i] == 0)
+                {
+                    strip++;
+                    offViewed += Math.Abs(viewedGreen[i] - seen[i]);
+                    offPlain += Math.Abs(plainGreen[i] - seen[i]);
+                }
+            }
+        }
+        TestContext.Current.TestOutputHelper?.WriteLine($"{strip} px one green alone saw squarely: off the green that saw them by {offViewed / strip:G4} weighed by view, {offPlain / strip:G4} plain");
+        strip.ShouldBeGreaterThan(50, "18 degrees of turn leaves a strip each green alone saw squarely");
+        offViewed.ShouldBeLessThan(0.1 * offPlain, "the other green's unturned rim stays out");
+
+        // The same steps through their files: each weight beside its stack, and the master the same to the bit, as the recipe gives it.
+        var folder = _folders.Create("compose-viewed").FullName;
+        var (fromFiles, filesRefusal) = PlanetaryComposition.Derotate(RoundTrip(registration.Stacks, folder, "registered"), viewingWeights: true);
+        fromFiles.ShouldNotBeNull(filesRefusal);
+        var read = RoundTrip(fromFiles.Stacks, folder, "derotated");
+        File.Exists(PlanetaryComposition.JoinWeightPath(Path.Combine(folder, $"{greens[0].Name}.derotated.fits"))).ShouldBeTrue("the weight written beside its stack");
+        read.ShouldAllBe(stack => stack.JoinWeight != null, "and read back with it");
+        var (joinedFromFiles, filesJoinRefusal) = PlanetaryComposition.Join(read);
+        joinedFromFiles.ShouldNotBeNull(filesJoinRefusal);
+        Differing(joined.Master, joinedFromFiles.Master).ShouldBe(0, "the steps through files give the weighed master to the bit");
+        var (recipe, _, recipeRefusal) = PlanetaryComposition.Run(ingested, viewingWeights: true);
+        recipe.ShouldNotBeNull(recipeRefusal);
+        Differing(recipe.Master, joined.Master).ShouldBe(0, "and so does the recipe");
+
+        // A stack written again without its weight leaves no stale one beside it.
+        PlanetaryComposition.WriteStack(read[0] with { JoinWeight = null }, Path.Combine(folder, $"{read[0].Name}.derotated.fits"));
+        PlanetaryComposition.ReadStack(read[0].Name, Path.Combine(folder, $"{read[0].Name}.derotated.fits")).Stack.ShouldNotBeNull().JoinWeight.ShouldBeNull();
+    }
+
+    [Fact]
+    public void AJoinWeighedByBandTakesTheFineDetailFromTheSharpStackAndTheCoarseFromAll()
+    {
+        // #1349 arm B: three greens of one instant on one disk, one sharp and two blurred by a Gaussian of 2 px, each with noise of 0.002
+        // over a sky of 0.05; the planet carries a fine texture, since the spotted map has nearly nothing in the finest bands. Averaged by
+        // noise alone, the master's band 1 holds about a third of the sharp stack's; weighed band by band by each stack's transfer against
+        // the sharpest over its noise, nearly all of it, while band 5, which the three hold alike, is averaged over all three either way.
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Start);
+        var placement = DiskOf(("G", 0, 0, 0, 0));
+        var random = new Random(1349);
+        var white = new float[Size * Size];
+        for (var i = 0; i < white.Length; i++)
+        {
+            var (u1, u2) = (1.0 - random.NextDouble(), random.NextDouble());
+            white[i] = (float)(Math.Sqrt(-2 * Math.Log(u1)) * Math.Cos(2 * Math.PI * u2));
+        }
+        var texture = PlanetaryInverse.Apply(white, Size, Size, f => Math.Exp(-2 * Math.PI * Math.PI * 0.49 * f * f));
+        var sharp = Render(aspect, placement, 0.8);
+        for (var i = 0; i < sharp.Length; i++)
+        {
+            sharp[i] *= 1 + (0.3f * texture[i]);
+        }
+        var blurred = PlanetaryInverse.Apply(sharp, Size, Size, f => Math.Exp(-2 * Math.PI * Math.PI * 4 * f * f));
+        var stacks = new List<PlanetaryMonoStack>();
+        foreach (var source in new[] { blurred, sharp, blurred })
+        {
+            var plane = new float[source.Length];
+            for (var i = 0; i < plane.Length; i++)
+            {
+                var (u1, u2) = (1.0 - random.NextDouble(), random.NextDouble());
+                plane[i] = (float)(0.05 + source[i] + (0.002 * Math.Sqrt(-2 * Math.Log(u1)) * Math.Cos(2 * Math.PI * u2)));
+            }
+            var meta = new ImageMeta { ObjectName = "Jupiter", ExposureStartTime = Start, Filter = Filter.Green };
+            stacks.Add(new PlanetaryMonoStack($"green{stacks.Count}", new Image([ToPlane(plane)], BitDepth.Float32, 1f, 0f, 0, meta), CatalogIndex.Jupiter, Start, Filter.Green));
+        }
+        var disk = new MetricDisk(placement.CenterX, placement.CenterY, placement.EquatorialRadius);
+        var said = new List<string>();
+        var (byBand, bandRefusal) = PlanetaryComposition.JoinFilter(stacks, Filter.Green, disk, said.Add, bandWeights: true);
+        var (byNoise, noiseRefusal) = PlanetaryComposition.JoinFilter(stacks, Filter.Green, disk);
+        byBand.ShouldNotBeNull(bandRefusal);
+        byNoise.ShouldNotBeNull(noiseRefusal);
+        foreach (var line in said)
+        {
+            TestContext.Current.TestOutputHelper?.WriteLine(line);
+        }
+        said.ShouldContain(line => line.Contains("the sharpest green1", StringComparison.Ordinal), "the sharp stack found as the sharpest");
+
+        // Each master's band against the sharp truth's own inside 0.9 radii: the share of the truth's detail it holds.
+        var truth = ATrousWaveletTransform.Decompose(sharp, Size, Size, PlanetaryComposition.BandWeightScales);
+        double Held(float[,] joined, int band)
+        {
+            var flat = new float[Size * Size];
+            for (var i = 0; i < flat.Length; i++)
+            {
+                flat[i] = joined[i / Size, i % Size];
+            }
+            var detail = ATrousWaveletTransform.Decompose(flat, Size, Size, PlanetaryComposition.BandWeightScales).Detail(band);
+            var reference = truth.Detail(band);
+            double shared = 0, own = 0;
+            for (var i = 0; i < flat.Length; i++)
+            {
+                if (disk.RadiiAt(i % Size, i / Size) < 0.9)
+                {
+                    (shared, own) = (shared + ((double)detail[i] * reference[i]), own + ((double)reference[i] * reference[i]));
+                }
+            }
+            return shared / own;
+        }
+        var (finestByBand, finestByNoise) = (Held(byBand, 0), Held(byNoise, 0));
+        var (secondByBand, secondByNoise) = (Held(byBand, 1), Held(byNoise, 1));
+        var (coarseByBand, coarseByNoise) = (Held(byBand, 4), Held(byNoise, 4));
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"held by band / by noise: band 1 {finestByBand:0.000} / {finestByNoise:0.000}, band 2 {secondByBand:0.000} / {secondByNoise:0.000}, band 5 {coarseByBand:0.000} / {coarseByNoise:0.000}");
+        // Band 1 takes 93 % of the sharp stack, yet holds 0.86 of it read back: a joined band leaks into its neighbours when the master is
+        // decomposed again, the a trous bands not being orthogonal.
+        finestByBand.ShouldBeGreaterThan(0.8, "the sharp stack's finest detail kept");
+        finestByNoise.ShouldBeLessThan(0.5, "averaged by noise alone, the two blurred stacks take most of it away");
+        secondByBand.ShouldBeGreaterThan(secondByNoise + 0.2, "and of band 2");
+        coarseByBand.ShouldBe(coarseByNoise, 0.03, "the coarse band averaged over all three either way");
+    }
+
     [Fact]
     public void AFiltersStacksAtOtherSettingsJoinOnItsMedianStacksScaleWeightedByTheirNoise()
     {
@@ -440,9 +596,9 @@ public sealed class PlanetaryCompositionTests : IDisposable
         foreach (var stack in stacks)
         {
             var path = Path.Combine(folder, $"{stack.Name}.{step}.fits");
-            stack.Image.WriteToFitsFile(path);
-            Image.TryReadFitsFile(path, out var image).ShouldBeTrue();
-            read.Add(PlanetaryComposition.FromIngested(stack.Name, image).ShouldNotBeNull($"{path} reads back as a stack"));
+            PlanetaryComposition.WriteStack(stack, path);
+            var (back, refusal) = PlanetaryComposition.ReadStack(stack.Name, path);
+            read.Add(back.ShouldNotBeNull(refusal ?? $"{path} reads back as a stack"));
         }
         return read;
     }
