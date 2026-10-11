@@ -959,8 +959,8 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
   (`--local-renew-ms`, about 200 ms).
 - **On an 8-bit frame phase correlation places a patch 3 times worse than plain cross-correlation**
   (`AlignmentPointMatchingTests`; `PlanetaryStackOptions.WhitenedCorrelation` /
-  `CaptureStatisticsOptions.WhitenedCorrelation`); **a warp statistic read whitened is the matching's noise**
-  (`--plain-correlation`, `CaptureStatisticsOptions.DefaultAlignmentPatchSize`).
+  `CaptureStatisticsOptions.WhitenedCorrelation`, plain by default in both, #1394); **a warp statistic read whitened is the
+  matching's noise** (`--whitened-correlation` reads it as R2 did; `CaptureStatisticsOptions.DefaultAlignmentPatchSize`).
 - **A dewarp is judged against the TRUE warp, at the mesh the stack applies, never at the points alone**
   (`<capture>.warp`, `planetary dewarp`; `WarpPoolFrames` and `MedianGeometry` change nothing).
 - **A stack's resampling kernel is its own blur** (`PlanetaryStackOptions.Interpolation`,

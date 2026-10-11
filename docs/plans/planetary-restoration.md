@@ -295,7 +295,7 @@ The fits include the process's start. The row-ordered column pass was kept on an
 
 ### R2 part 2: the synthetic capture
 
-**Open: #1394, the owner's call.** The statistics register whitened by default (R2's calibration), and on a large disk the
+**#1394, decided: the statistics register plainly** (the owner, 2026-10-11). They registered whitened (R2's calibration), and on a large disk the
 whitened global aligner jumps between wrong peaks: on the EdgeHD Jupiter it read an aligner's error of 2.38 px where plain read
 0.15, and the mount drift a twin replays comes from it (#1388). Measured against the rules set on #1394 (2026-10-11, one build,
 each arm measuring the real capture afresh and making its twin):
@@ -312,8 +312,9 @@ each arm measuring the real capture afresh and making its twin):
   - Whitened reads 0.898 on Red too, so the Red twin's disk motion is the twin's calibration and not the registration. That
     calibration has moved since R2.
   - On the EdgeHD, whitened's 1.02 is the twin replaying the aligner's failures as the mount's drift.
-- So rule 3 does not fire, and `degrade` and `seeing` stay whitened until the owner says otherwise. `--plain-correlation` is a
-  switch on both, and `planetary twin` measures plainly (#1388).
+- So rule 3 did not fire, and the owner made plain the default: `CaptureStatisticsOptions.WhitenedCorrelation` is false, so
+  `degrade`, `seeing` and `twin` all register their statistics plainly, and `--whitened-correlation` on each reads them as R2's
+  calibration did. #1394 closes with it.
 
 **Done** (2026-09-29), the kill line firing on the sky's finest bands (below). `tianwen planetary degrade <capture> --map --output` measures the real capture, makes the synthetic one, measures it the same way and prints the comparison; `tianwen planetary seeing` measures any capture alone.
 
@@ -5751,8 +5752,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
 - **On a single 8-bit frame phase correlation places a patch 3 times worse than a plain cross-correlation** (R5: 1.11 against
   0.35 px, `AlignmentPointMatchingTests`), and every stack is worse for it. `PlanetaryStackOptions.WhitenedCorrelation` and
   `CaptureStatisticsOptions.WhitenedCorrelation` switch the global aligner and the alignment points (the stack plain by default
-  since #1159; the statistics, R2's calibration, still whitened). **A warp statistic read whitened is the matching's noise** (1 px injected moved it 0.04): read it with
-  `--plain-correlation`, and with the one alignment-point default both verbs take (`CaptureStatisticsOptions.DefaultAlignmentPatchSize`).
+  since #1159, the statistics since #1394; R2's calibration read them whitened). **A warp statistic read whitened is the matching's noise**
+  (1 px injected moved it 0.04): read it plain, the default (`--whitened-correlation` reads it as R2 did), and with the one alignment-point
+  default both verbs take (`CaptureStatisticsOptions.DefaultAlignmentPatchSize`).
 - **A dewarp is judged against the TRUE warp, at the mesh the stack applies, never at the points alone** (R5 part 2): `planetary degrade`
   writes `<capture>.warp`, `tianwen planetary dewarp` scores against it. On 2022-09-03 the points read 11 to 19 % of the warp and
   the mesh (48 px reach) applies 0 to 3 %, so the stacks never moved; pooling (`WarpPoolFrames`) and the median geometry

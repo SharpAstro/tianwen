@@ -194,7 +194,7 @@ internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleH
         var patchOpt = new Option<int>("--ap-patch") { Description = "The alignment points' patch, a power of two.", DefaultValueFactory = _ => CaptureStatisticsOptions.DefaultAlignmentPatchSize };
         var spacingOpt = new Option<int>("--ap-spacing") { Description = "The alignment points' spacing.", DefaultValueFactory = _ => CaptureStatisticsOptions.DefaultAlignmentPointSpacing };
         var firstOpt = new Option<int>("--first") { Description = "The first frame measured.", DefaultValueFactory = _ => 0 };
-        var plainOpt = new Option<bool>("--plain-correlation") { Description = "Register frames and points by a plain cross-correlation, not phase correlation (R5)." };
+        var whitenedOpt = new Option<bool>("--whitened-correlation") { Description = "Register frames and points by phase correlation, as R2's hand calibration did, not by a plain cross-correlation (the default since #1394: whitening hands an 8-bit frame's peak to its noise, R5)." };
         var framesOpt = new Option<int?>("--frames") { Description = "Only this many frames, from --first." };
         var planeOpt = new Option<string?>("--plane") { Description = "A colour capture's photosite colour to measure: r, g (the greens on the red rows), g2 or b (R5a)." };
 
@@ -202,7 +202,7 @@ internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleH
             "A capture's statistics, measured as a synthetic capture's are (R2): the shift's seeing and mount parts, the warp, the quality distribution, each band's noise, the camera's levels and gain.")
         {
             Arguments = { inputsArg },
-            Options = { planetOpt, utcOpt, fpsOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, firstOpt, framesOpt, plainOpt, planeOpt },
+            Options = { planetOpt, utcOpt, fpsOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, firstOpt, framesOpt, whitenedOpt, planeOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -245,7 +245,7 @@ internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleH
                     WarpFrames = parseResult.GetValue(warpFramesOpt),
                     AlignmentPatchSize = parseResult.GetValue(patchOpt),
                     AlignmentPointSpacing = parseResult.GetValue(spacingOpt),
-                    WhitenedCorrelation = !parseResult.GetValue(plainOpt),
+                    WhitenedCorrelation = parseResult.GetValue(whitenedOpt),
                 };
                 var progress = new Progress<string>(line => consoleHost.WriteScrollable("    " + line));
                 if (await PlanetaryCaptureStatistics.MeasureAsync(stream, options, progress, ct) is not { } statistics)
@@ -295,7 +295,7 @@ internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleH
         var warpFramesOpt = new Option<int>("--warp-frames") { Description = "Frames averaged before the warp is read.", DefaultValueFactory = _ => 1 };
         var patchOpt = new Option<int>("--ap-patch") { Description = "The statistics' alignment-point patch.", DefaultValueFactory = _ => CaptureStatisticsOptions.DefaultAlignmentPatchSize };
         var spacingOpt = new Option<int>("--ap-spacing") { Description = "The statistics' alignment-point spacing.", DefaultValueFactory = _ => CaptureStatisticsOptions.DefaultAlignmentPointSpacing };
-        var plainOpt = new Option<bool>("--plain-correlation") { Description = "The statistics register frames and points by a plain cross-correlation, not phase correlation (R5)." };
+        var whitenedOpt = new Option<bool>("--whitened-correlation") { Description = "The statistics register frames and points by phase correlation, as R2's hand calibration did, not by a plain cross-correlation (the default since #1394: whitening hands an 8-bit frame's peak to its noise, R5)." };
         var framesOpt = new Option<int?>("--frames") { Description = "Only the capture's first frames, measured and made (a quicker trial)." };
         var bayerMapsOpt = new Option<string?>("--bayer-maps") { Description = "A colour capture's three maps, red, green and blue, a comma list (R5a; OPAL's F631N, F502N and F395N)." };
         var bayerWavelengthsOpt = new Option<string>("--bayer-wavelengths") { Description = "The camera's red, green and blue effective wavelengths, nm.", DefaultValueFactory = _ => "610,535,460" };
@@ -324,7 +324,7 @@ internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleH
             "A synthetic capture from a global map with a real capture's own seeing, motion and camera (R2): measure the real one, make the synthetic one, measure it the same way, and compare.")
         {
             Arguments = { inputArg },
-            Options = { mapOpt, outputOpt, planetOpt, kOpt, pupilOpts.ApertureMm, pupilOpts.Obstruction, pupilOpts.Telescope, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, localRenewOpt, scatterOpt, scatterCoreOpt, farWingOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, plainOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, bayerDefocusOpt, truthUpsampleOpt, spanOpt, truthAtOpt, psfTruthOpt, moonsOpt, moonLevelOpt, highR0Opt, highAltitudeOpt, highWindOpt, highWindAngleOpt, highOuterScaleOpt, fieldGridOpt, ringLevelsOpt, noTwinRingsOpt },
+            Options = { mapOpt, outputOpt, planetOpt, kOpt, pupilOpts.ApertureMm, pupilOpts.Obstruction, pupilOpts.Telescope, wavelengthOpt, r0Opt, windOpt, outerScaleOpt, exposureOpt, defocusOpt, localR0Opt, localOuterScaleOpt, localWindOpt, localRenewOpt, scatterOpt, scatterCoreOpt, farWingOpt, realStatisticsOpt, gainOpt, warpRmsOpt, warpLengthOpt, warpLagOpt, seedOpt, replayOpt, pairsOpt, warpFramesOpt, patchOpt, spacingOpt, whitenedOpt, framesOpt, bayerMapsOpt, bayerWavelengthsOpt, bayerKOpt, bayerDefocusOpt, truthUpsampleOpt, spanOpt, truthAtOpt, psfTruthOpt, moonsOpt, moonLevelOpt, highR0Opt, highAltitudeOpt, highWindOpt, highWindAngleOpt, highOuterScaleOpt, fieldGridOpt, ringLevelsOpt, noTwinRingsOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -404,7 +404,7 @@ internal sealed partial class PlanetaryGeometrySubCommands(IConsoleHost consoleH
                 WarpFrames = parseResult.GetValue(warpFramesOpt),
                 AlignmentPatchSize = parseResult.GetValue(patchOpt),
                 AlignmentPointSpacing = parseResult.GetValue(spacingOpt),
-                WhitenedCorrelation = !parseResult.GetValue(plainOpt),
+                WhitenedCorrelation = parseResult.GetValue(whitenedOpt),
             };
             // A real capture measured once serves every synthetic one compared with it; a colour capture's photosite colours are
             // each measured, and cached, on their own.
