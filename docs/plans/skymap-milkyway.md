@@ -3,6 +3,13 @@
 Render a diffuse Milky Way background on the sky map, matching the visual
 quality of Stellarium's approach but with freely-licensed imagery and data.
 
+**The shipped texture is NASA's starless all-sky map since 2026-10-12 (#893)**: the Goddard Scientific
+Visualization Studio's "Deep Star Maps 2020" Milky Way background, rendered from about 1.7 billion
+Hipparcos-2, Tycho-2 and Gaia DR2 stars with the Hipparcos and Tycho stars left out, which the sky map draws
+itself. It does what Phases 3 and 4 set out to bake from Tycho-2 and Planck, from data three orders of
+magnitude deeper: the dust lanes, the bulge and both Magellanic Clouds come out of Gaia's star counts. See
+[Phase 3](#-phase-3-real-data-nasas-starless-map-done-2026-10-12-893).
+
 ## Stellarium's Approach (Reference)
 
 - Single 2048x1024 equirectangular PNG (Mellinger All-Sky Panorama, ~980 KB)
@@ -23,6 +30,10 @@ avoiding any per-project licensing:
 | Stellar luminance | **Tycho-2** (~2.5M stars, V mag + B-V) | ✅ Embedded in TianWen.Lib | `CopyTycho2Stars`; binning gives real galactic plane + bulge + LMC/SMC |
 | Dust extinction | **Planck 353 GHz** dust opacity HEALPix | ❌ Download on demand | ESA Planck Legacy Archive, public domain, Nside=512 (~12 MB) |
 | Colour | Flux-weighted mean **B-V** per bin | ✅ Derived from Tycho-2 | Natural warm/cool tint (bulge redder, arms bluer) |
+| **The shipped texture** | **NASA SVS Deep Star Maps 2020**, Milky Way background (https://svs.gsfc.nasa.gov/4851) | ✅ Converted into `milkyway.bgra.lz` | Free with credit: NASA/Goddard Space Flight Center Scientific Visualization Studio; Gaia DR2: ESA/Gaia/DPAC (`NOTICE`) |
+
+The composite below is the Tycho-2 bake (`tools/generate_milkyway.cs`), kept as the tool it is; the texture
+that ships is NASA's.
 
 Composite at bake time:
 ```
@@ -46,17 +57,32 @@ rgb           = bv_to_rgb(weighted_mean_bv) * normalise(sqrt(visible))
 ### ✅ Phase 2: Texture Pipeline (DONE, "Milky Way sky background, overlay improvements, RGBAColor32.FromFloat")
 
 - 8-byte header (int32 LE width + height) + raw BGRA, lzip-compressed
-- Shipped as `TianWen.UI.Gui/Resources/milkyway.bgra.lz` (2048x1024; 1,511,914 bytes compressed and
-  8,388,616 decoded, measured 2026-09-17; this line said ~131 KB, the size of the analytical placeholder)
-- Current content: analytical model from `tools/generate_milkyway.py`; bright
-  band at b=0, bulge at l=0, smooth warm/cool tint. **Placeholder only**; no
-  real galactic structure.
+- Shipped as `TianWen.UI.Gui/Resources/milkyway.bgra.lz` (2048x1024; 2,953,864 bytes compressed and
+  8,388,616 decoded, measured 2026-10-12; the Tycho-2 bake before it was 1,511,914 compressed)
+- Current content: NASA's starless map, converted by `tools/import_svs_milkyway.cs` (Phase 3).
 
-### 🟡 Phase 3: Bake from Real Data (CURRENT)
+### ✅ Phase 3: Real data: NASA's starless map (DONE 2026-10-12, #893)
 
-Tracked by #893.
+**What ships is NASA's map, converted, not a bake of our own.** `tools/import_svs_milkyway.cs` reads the 4K
+`milkyway_2020_4k.exr` (half-float linear BGR, 4096x2048, 35 MB) through the codecs facade's EXR reader and
+writes the same `milkyway.bgra.lz`; the conversion is `MilkyWaySvsImport` in TianWen.Lib, pinned by
+`MilkyWaySvsImportTests`. Four facts decide it, each measured on the map:
 
-Replace the analytical placeholder with a two-step physically-motivated bake:
+- **Orientation.** NASA's map has 0h at its centre and right ascension rising to the LEFT (the Large
+  Magellanic Cloud sits at column 1127 of 4096); the shader's texture has it rising to the right. Each row is
+  mirrored about the centre, and the LMC, the SMC and the galactic centre then fall on the pixels the Tycho-2
+  bake drew them at.
+- **Values are linear light.** NASA's own 1024-pixel preview is the sRGB encoding of the EXR, to a mean error
+  of 0.009 against 0.18 had the values been display values. So each 2x2 box is averaged in linear light,
+  a black point of 0.0025 (about the map's 10th percentile) is taken off, and the result is sRGB-encoded.
+- **The dimming is the alpha.** The shader shows colour times alpha, so the colour channels carry NASA's full
+  sRGB value in all 256 levels and the alpha is a constant 0.33, which puts the brightest 0.1 % of the sky
+  where the Tycho-2 bake had it (displayed 0.2175 against 0.2177) and the median close (0.035 against 0.028).
+  The browser's premultiplied PNG (Phase 6) is derived from it unchanged.
+- **Size.** At 2048x1024, the old texture's size, it compresses to 2.95 MB against the Tycho-2 bake's 1.51 MB;
+  at 4096x2048 it would be about 11.5 MB, so 2K ships. `--width 4096` makes the larger one.
+
+The Tycho-2 bake below is what this phase was before, and stays as the tool it is:
 
 - [x] **Tool rewrite**: `tools/generate_milkyway.cs` (.NET 10 file-based app,
       `#:project ../src/TianWen.Lib/TianWen.Lib.csproj`) replaces the Python
@@ -69,15 +95,14 @@ Replace the analytical placeholder with a two-step physically-motivated bake:
       aware Gaussian blur in the horizontal pass, pole-clamped vertically.
 - [x] **Brightness curve**: percentile clip (p50 = zero, p99.5 = max) + sqrt
       gamma so the bulge doesn't saturate while the outer disk remains visible.
-- [ ] **Planck dust extinction**: add `--dust-opacity <path>` optional arg
-      (scaffolded in tool, multiplies `exp(-k * tau)` when provided). Needs a
-      separate HEALPix → equirectangular reprojection step to produce the
-      float map; see Phase 4 below.
-- [ ] Bake + commit the real-data `milkyway.bgra.lz` once Phase 4 ships.
+- **Planck dust extinction** (superseded by NASA's map, which draws the dust from Gaia's star counts):
+      `--dust-opacity <path>` is scaffolded in the tool and multiplies `exp(-k * tau)` when provided; it
+      needs the HEALPix → equirectangular step of Phase 4, which nothing now waits on.
 
-### 🔴 Phase 4: Planck Dust Extinction HEALPix Reader
+### ⛔ Phase 4: Planck Dust Extinction HEALPix Reader (SUPERSEDED by Phase 3, #893)
 
-Tracked by #893.
+Nothing waits on this since NASA's map ships: its dust lanes come from Gaia's star counts. Kept for the
+reprojection itself, which the overlays below could still use.
 
 Needed to produce the `--dust-opacity` input for `generate_milkyway.cs`. Two
 options:
@@ -179,7 +204,11 @@ arithmetic above (premultiplied colour under `One, One` equals unpremultiplied c
 ## Tool Usage
 
 ```bash
-# Tycho-2 density only (no dust): replaces current analytical model
+# The shipped texture: NASA's starless map (download the 4K EXR first, about 35 MB)
+curl -LO https://svs.gsfc.nasa.gov/vis/a000000/a004800/a004851/milkyway_2020_4k.exr
+dotnet run tools/import_svs_milkyway.cs -- milkyway_2020_4k.exr
+
+# Tycho-2 density only (no dust), the bake that shipped before it
 dotnet run tools/generate_milkyway.cs
 
 # High resolution

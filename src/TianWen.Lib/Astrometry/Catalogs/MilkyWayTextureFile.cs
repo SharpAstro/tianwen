@@ -14,8 +14,10 @@ namespace TianWen.Lib.Astrometry.Catalogs;
 /// <para>The ONE reader of that format, for both of its consumers: the desktop sky map uploads
 /// <see cref="Bgra"/> as a texture, and <c>tools/bake-milkyway</c> turns the same bytes into the PNG the
 /// browser sky map loads. Two parsers of one header is how a desktop and a web sky drift apart.</para>
-/// <para>The alpha channel is not coverage: the baker writes the pixel's BRIGHTNESS there, and the
-/// desktop shader multiplies colour by it under a <c>SrcAlpha, One</c> additive blend.</para>
+/// <para>The alpha channel is not coverage: the desktop shader multiplies colour by it under a
+/// <c>SrcAlpha, One</c> additive blend, so what shows is colour times alpha. The shipped texture is NASA's map
+/// (<see cref="MilkyWaySvsImport"/>), which writes the full sRGB colour and a constant dimming as alpha; the
+/// Tycho-2 bake (<see cref="MilkyWayTextureBaker"/>) splits the pixel's BRIGHTNESS into it instead.</para>
 /// </remarks>
 /// <param name="Raw">The decompressed file, header included.</param>
 /// <param name="Width">Texture width in pixels (right ascension).</param>
