@@ -58,6 +58,25 @@ public sealed record PlanetaryComposed(Image Master, Image? Luminance);
 /// The colour master then takes the planetary chain a colour master takes: sharpened (<see cref="PlanetarySharpening"/>), balanced to the
 /// planet's colour (<see cref="PlanetaryColourBalance"/>), and a look as a rendering.
 /// </summary>
+/// <summary>How a filter's stacks are joined band by band (#1349 arm B), or not.</summary>
+public enum PlanetaryBandWeights
+{
+    /// <summary>Not by band: each stack weighed by its noise alone in every band (the join before #1349).</summary>
+    None,
+
+    /// <summary>
+    /// Each a trous band weighed by its transfer against the filter's sharpest stack over its noise on the sky, a matched filter. The joined
+    /// band's transfer is the weights' mean of the stacks' transfers, below the sharpest's.
+    /// </summary>
+    Matched,
+
+    /// <summary>
+    /// The matched join with each band rescaled by sum(w) / sum(w T), a multi-frame Wiener at the stack level: the sharpest stack's own
+    /// transfer, with the noise averaged down.
+    /// </summary>
+    Wiener,
+}
+
 public static class PlanetaryComposition
 {
     /// <summary>A stack's limb radius may differ from the reference's by this fraction before registration refuses the set: one camera at one focus.</summary>
@@ -368,7 +387,7 @@ public static class PlanetaryComposition
     /// each filter's stacks are weighed band by band (<see cref="JoinFilter"/>, #1349 arm B).
     /// </summary>
     public static (PlanetaryComposed? Composed, string? Refusal) Join(IReadOnlyList<PlanetaryMonoStack> derotated, Action<string>? say = null,
-        bool bandWeights = false)
+        PlanetaryBandWeights bandWeights = PlanetaryBandWeights.None)
     {
         ArgumentNullException.ThrowIfNull(derotated);
         if (derotated.Count == 0)
@@ -663,7 +682,7 @@ public static class PlanetaryComposition
     /// by band (#1349 arm B, <see cref="Join"/>): options, measured before either is the default.
     /// </summary>
     public static (PlanetaryComposed? Composed, PlanetaryCompositionDerotation? Derotation, string? Refusal) Run(IReadOnlyList<PlanetaryMonoStack> ingested,
-        Action<string>? say = null, bool withLuminance = false, bool viewingWeights = false, bool bandWeights = false)
+        Action<string>? say = null, bool withLuminance = false, bool viewingWeights = false, PlanetaryBandWeights bandWeights = PlanetaryBandWeights.None)
     {
         var (registration, refusal) = Register(ingested, say);
         if (registration is null)
@@ -731,7 +750,7 @@ public static class PlanetaryComposition
     /// were, its stacks entered each filter at about three quarters of the others' level and on another sky.
     /// </summary>
     internal static (float[,]? Plane, string? Refusal) JoinFilter(IReadOnlyList<PlanetaryMonoStack> stacks, Filter filter, MetricDisk? disk,
-        Action<string>? say = null, bool bandWeights = false)
+        Action<string>? say = null, PlanetaryBandWeights bandWeights = PlanetaryBandWeights.None)
     {
         var of = stacks.Where(s => s.Filter == filter).ToArray();
         if (of.Length == 0)
@@ -802,9 +821,9 @@ public static class PlanetaryComposition
         {
             return (null, $"{filter.DisplayName}: {viewed} of its {of.Length} stacks carry a join weight; a join weighs every stack by how it saw the planet, or none");
         }
-        if (bandWeights && of.Length > 1 && disk is { } bandDisk)
+        if (bandWeights is not PlanetaryBandWeights.None && of.Length > 1 && disk is { } bandDisk)
         {
-            return (JoinByBands(of, bandDisk, scales, skies, weights, referenceSky, width, height, filter, say), null);
+            return (JoinByBands(of, bandDisk, scales, skies, weights, referenceSky, width, height, filter, bandWeights is PlanetaryBandWeights.Wiener, say), null);
         }
         var weighted = new double[height, width];
         var reached = new double[height, width];
@@ -854,9 +873,12 @@ public static class PlanetaryComposition
     // against the filter's sharpest stack (the most band 2 above its own noise on the disk), read as <band, sharpest's band> over the
     // sharpest's own energy less its noise, over the band's noise on the sky squared: a matched filter, so a band the stack holds as well
     // as the sharpest weighs by its noise alone, as the plain join does, and one it holds at half weighs half. The residual keeps the
-    // plain join's noise weights; every pixel is read over the stacks that reach it, each by its join weight where it has one (fix C).
+    // plain join's noise weights; every pixel is read over the stacks that reach it, each by its join weight where it has one (fix C). With
+    // `wiener`, each band's weighted mean is rescaled by sum(w) / sum(w T) over the filter's stacks: the matched mean's transfer is
+    // sum(w T) / sum(w), below the sharpest's, and the rescale gives a multi-frame Wiener its sharpest stack's own transfer. One factor
+    // for the frame, so a pixel only the blurred stacks reach is never divided by their small transfer.
     private static float[,] JoinByBands(PlanetaryMonoStack[] of, MetricDisk disk, double[] scales, double[] skies, double[] noiseWeights, double referenceSky,
-        int width, int height, Filter filter, Action<string>? say)
+        int width, int height, Filter filter, bool wiener, Action<string>? say)
     {
         var (n, size) = (of.Length, width * height);
         var masks = new float[n][];
@@ -901,7 +923,9 @@ public static class PlanetaryComposition
         // Band 2 above its own noise on the disk picks the sharpest stack.
         var sharpest = Enumerable.Range(0, n).OrderByDescending(s => BandEnergy(bands[s].Detail(1), inside, masks[s]) - (noise[s, 1] * noise[s, 1])).First();
         var weight = new double[n, BandWeightScales];
+        var rescale = new double[BandWeightScales];
         var inv = CultureInfo.InvariantCulture;
+        var transfers = new double[n];
         for (var j = 0; j < BandWeightScales; j++)
         {
             var reference = bands[sharpest].Detail(j);
@@ -935,11 +959,16 @@ public static class PlanetaryComposition
                     transfer = signal > 0 ? shared / signal : 1;
                 }
                 var sigma = noise[s, j];
-                weight[s, j] = double.IsFinite(sigma) && sigma > 0 ? Math.Max(transfer, 0) / (sigma * sigma) : noiseWeights[s];
+                // A stack whose band has no noise to read is weighed by its noise alone, as holding the band as the sharpest does.
+                var held = double.IsFinite(sigma) && sigma > 0;
+                weight[s, j] = held ? Math.Max(transfer, 0) / (sigma * sigma) : noiseWeights[s];
+                transfers[s] = held ? Math.Max(transfer, 0) : 1;
             }
             var total = Enumerable.Range(0, n).Sum(s => weight[s, j]);
+            var carried = Enumerable.Range(0, n).Sum(s => weight[s, j] * transfers[s]);
+            rescale[j] = wiener && carried > 0 ? total / carried : 1;
             say?.Invoke(string.Create(inv,
-                $"{filter.DisplayName} band {j + 1}: {string.Join(", ", Enumerable.Range(0, n).Select(s => $"{of[s].Name} {weight[s, j] / total:P1}"))}{(j == 0 ? $" (the sharpest {of[sharpest].Name})" : "")}"));
+                $"{filter.DisplayName} band {j + 1}: {string.Join(", ", Enumerable.Range(0, n).Select(s => $"{of[s].Name} {weight[s, j] / total:P1}"))}{(j == 0 ? $" (the sharpest {of[sharpest].Name})" : "")}{(wiener ? $", rescaled x{rescale[j]:0.000}" : "")}"));
         }
         var joined = new float[height, width];
         ParallelFor.Run(height, y =>
@@ -962,7 +991,7 @@ public static class PlanetaryComposition
                     }
                     if (total > 0)
                     {
-                        (value, reached) = (value + (sum / total), true);
+                        (value, reached) = (value + ((j < BandWeightScales ? rescale[j] : 1) * sum / total), true);
                     }
                 }
                 joined[y, x] = reached ? (float)value : 0f;
