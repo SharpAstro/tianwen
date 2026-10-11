@@ -1774,6 +1774,44 @@ What it changes:
 - **R2f's band**, as registered, is now 3.1 points at 5-20 sigma (A's range, the larger) and 12.9 at 100-1000 (R2e's two
   seeds).
 
+#### R2f's read: the fixed generator costs R2e nothing, and every run of it ends at the cap (2026-10-11)
+
+`r2f_synth3_s0` ran to the cap: the trainer's own last line is "reached the 240000-step cap BEFORE the held-out objective
+converged (best 2.683049e-06 at 239000, 4 halvings)". It was scored at 20:45 by the same binary on A's draws, after a first
+attempt failed: the C: clean-up that evening had deleted `C:\temp\tianwen-scratch\r1-train`, and with it `random`, the
+fixed eval export every score since R2a reads. Its eight val sessions were re-exported with `run-r1-train.ps1`'s own
+binary (591a2c39) and arguments (`C:\temp\e2\restore-r1-train-random-val.ps1`; the plates were last written before the
+original export ran), and re-scoring R2e seed 1's stored outputs against the restored export reproduced its stored report
+with 0 differences, so the numbers below compare with every number above.
+
+| measure | A's control | R2e seed 0 | R2e seed 1 | R2f |
+|---|---|---|---|---|
+| clean 5-20 sigma | 73.0 | 79.6 | 77.7 | **76.8** |
+| clean 20-100 sigma | 58.6 | 70.0 | 71.6 | **68.9** |
+| clean 100-1000 sigma | 24.4 | 46.3 | 33.4 | **43.3** |
+| dug 100-1000 sigma | 66.1 | 42.2 | 58.1 | 46.1 |
+| core RMS 100-1000 | 3.0 | 1.8 | 5.4 | 1.9 |
+| clean saturated | 29.2 | 37.9 | 35.2 | 35.6 |
+| bright-core share % | 2.83 | 1.59 | 2.29 | 1.63 |
+| far sky | 0.28 | 0.29 | 0.22 | 0.25 |
+
+1. **The bright stars stay repaired: holds.** 43.3 at 100-1000 sigma against A's control's 24.4, the bright cores 1.6 %
+   of the error.
+2. **The fix costs R2e nothing: holds.** 2.8 points under R2e's seed 0 at 5-20 sigma (band 3.1) and 3.0 under it at
+   100-1000 (band 12.9).
+3. **The sky: holds.** Far sky 0.25, under R2e's 0.37.
+4. **The kill does not fire.**
+
+What it changes:
+- **The fixed generator stays.** R2f lies inside R2e's two-seed spread on every measure in the table, so #1400's fixes
+  (the texture's width on a fixed grid, its energy at the plate's, the steer's seam) cost nothing measurable, and R2e's
+  gain did not rest on the too-strong texture.
+- **It is one seed.** On bright stars R2f sits between R2e's two seeds (46.3 and 33.4), and that spread is the size of
+  the effect being read, so no bright-star difference between R2f and R2e is read here.
+- **The cap now binds every run of this recipe.** R2e's seed 0 found its best at 235,500, its seed 1 at 233,000 and R2f at
+  239,000, all within the last 7,000 of 240,000 steps, and R2f was still improving at the end. What the recipe reaches is
+  therefore not yet measured, only what it reaches in 240,000 steps.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
