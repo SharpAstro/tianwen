@@ -31,7 +31,7 @@
 - [x] Time-aware observation switching: `ImagingLoopAsync` computes `maxTicks` from `observation.Duration` and advances when `tickCount >= maxTicks`
 - [x] Weather/cloud interruption handling: condition deterioration detection via star count ratio vs baseline; pauses guiding, polls with test exposures, resumes or advances after configurable timeout (`ConditionDeteriorationThreshold`, `ConditionRecoveryTimeout`); synthetic cloud simulation in `SyntheticStarFieldRenderer` for testing
 - [x] Filter support in ProposedObservation: `ImmutableArray<FilterExposure>? FilterPlan` with `FilterPlanBuilder.BuildAutoFilterPlan` altitude-ladder ordering
-- [x] Mosaic panel support: `MosaicGenerator` computes panel grids, `ProposedObservation.MosaicGroupId` links panels for contiguous scheduling with RA-ascending (meridian-aware) ordering
+- [x] Mosaic panel support: `MosaicGenerator` computes panel grids, `ProposedObservation.MosaicGroupId` links panels for contiguous scheduling with RA-ascending (meridian-aware) ordering. The ORDER was meridian-aware, the placement was not: a panel could straddle its transit and was only flagged. Since #1501 the block is placed wholly on one side of the meridian where it fits (else each panel on one side, else flagged as before), and the order is measured across RA 0h
 
 ## Session Test Plan Progress
 
