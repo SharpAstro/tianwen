@@ -351,14 +351,35 @@ Single source of the bg-neut + stretch math, used by both the PNG render
 flowchart TD
     In([ComputeStretchUniformsAsync<br/>renderImage, statsImage, wbOverride]) --> Zero[WithZeroPedestal statsImage<br/>MinValue -> 0, share arrays]
     Zero --> Bg[ScanBackgroundRegion<br/>per-channel background median]
-    Bg --> Wb{wbOverride supplied?}
+    Bg --> Applied{balance already in<br/>the pixels? WBAPPLD}
+    Applied -->|yes| Identity[identity WB<br/>a supplied triple ignored]
+    Applied -->|no| Wb{wbOverride supplied?}
     Wb -->|yes shared WB| UseShared[use shared SPCC triple<br/>skip solve]
     Wb -->|no| SolveWb[FindStars -> SPCC<br/>-> sky-bg fallback -> identity]
-    UseShared --> Bn[MinPivot bg-neut, post-WB:<br/>bn_X = K/wb_X - 1 / bg_X - 1]
+    Identity --> Bn[MinPivot bg-neut, post-WB:<br/>bn_X = K/wb_X - 1 / bg_X - 1]
+    UseShared --> Bn
     SolveWb --> Bn
     Bn --> Uni[Per-channel stretch uniforms<br/>StretchSolver.ComputeStretchUniforms<br/>+ BackgroundNeutralization]
     Uni --> Out([Uniforms, Spcc, Wb])
 ```
+
+### Which square is sky, and why a balance in the pixels is checked first
+
+**The background square is the darkest COVERED one, however dim** (`Image.FindBackgroundRegion`, the
+viewer's document and the gallery's 1:1 patch included). It used to need a mean luma above an absolute
+0.001, standing in for "not the canvas ring", which rejected real sky wherever the sky sits below a
+thousandth of the frame's scale. A 3 nm L-Ultimate master of eta Car (ASI533MC, 2026-02-20) kept an
+outlier of 463k ADU at its canvas edge, so its sky sat at 1.5e-4; the scan landed in the Ha, MinPivot
+subtracted the nebula as if it were sky, red went below zero and rendered as one flat value over the
+frame (159 at every percentile, against 51 / 50 / 52 once the scan found the sky). A square holding a
+NaN or an exact zero is the ring and never sky; only when no square is covered does the darkest
+positive one answer, as before. `CoveredSquareIsSkyTests`.
+
+**A frame whose balance is in its pixels ignores a supplied triple.** The override used to be taken
+before the frame's own `WBAPPLD` was read, so `image render --white-balance` on an enhanced master
+applied the balance twice (R x 1.65^2, B x 2.0^2 on Omega Centauri: a magenta cluster over a sky the
+neutralisation kept grey). `MasterPostProcessor` already passed none there; now no caller can.
+`SpccBeforeEnhanceTests.ASuppliedBalanceDoesNotStackOnOneAlreadyInThePixels`.
 
 ### Why `WithZeroPedestal` (the parity-restoring fix)
 

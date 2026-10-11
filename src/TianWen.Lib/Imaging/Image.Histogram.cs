@@ -1197,8 +1197,8 @@ public partial class Image
     /// </summary>
     /// <param name="squareSize">Side of the sampling square, in pixels.</param>
     /// <param name="starMask">Pixels to leave out of the luma, when a detection has run.</param>
-    /// <returns>The square, in image pixels; the top-left corner of the inner margin when nothing
-    /// passed the luma floor.</returns>
+    /// <returns>The square, in image pixels: the darkest COVERED square (no NaN, no exact zero), else the
+    /// darkest positive one, else the top-left corner of the inner margin.</returns>
     public PixelRect FindBackgroundRegion(int squareSize = 32, BitMatrix? starMask = null)
     {
         var step = squareSize * 4;
@@ -1226,38 +1226,68 @@ public partial class Image
         // neutralisation, so the gains moved run to run. The serial pass gives the lowest strip
         // index the tie instead. Parallel.For's return is a full barrier, so the reads below are
         // ordered after every write.
+        //
+        // WHICH SQUARES MAY BE SKY: a covered one, never a dim one. The test used to be an absolute floor,
+        // luma > 0.001, standing in for "not the canvas ring". It rejected real sky wherever the sky sits
+        // below a thousandth of the frame's scale, and the darkest square left was then inside the nebula:
+        // a 3 nm L-Ultimate master of eta Car scaled by an outlier peak of 463k ADU put its sky at 1.5e-4,
+        // the scan landed in the Ha, neutralisation subtracted the nebula as if it were sky, and red was
+        // driven below zero and rendered as one flat value (`CoveredSquareIsSkyTests`). Absence is what
+        // the ring IS, a NaN or an exact zero, so a square holding one is not sky; a positive covered
+        // square is, however dim. Only when no square is covered does the old "any positive square" rule
+        // answer, so a frame the floor served is served the same way.
         var stripCount = (yEnd - yStart + step - 1) / step;
-        var strips = new (float Luma, int X, int Y)[Math.Max(0, stripCount)];
+        var strips = new (float Covered, int CoveredX, float Positive, int PositiveX, int Y)[Math.Max(0, stripCount)];
 
         Parallel.For(0, stripCount, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount * 4 }, (yIdx) =>
         {
             var y = yStart + yIdx * step;
-            var localMinLuma = float.MaxValue;
-            int localBgX = xStart, localBgY = y;
+            float coveredMin = float.MaxValue, positiveMin = float.MaxValue;
+            int coveredX = xStart, positiveX = xStart;
 
             for (var x = xStart; x < xEnd; x += step)
             {
-                var luma = AverageRegionLuma(x, y, squareSize, starMask);
-                if (luma > 0.001f && luma < localMinLuma)
+                var (luma, covered) = AverageRegionLuma(x, y, squareSize, starMask);
+                if (!(luma > 0f))
                 {
-                    localMinLuma = luma;
-                    localBgX = x;
-                    localBgY = y;
+                    continue;
+                }
+                if (covered && luma < coveredMin)
+                {
+                    coveredMin = luma;
+                    coveredX = x;
+                }
+                if (luma < positiveMin)
+                {
+                    positiveMin = luma;
+                    positiveX = x;
                 }
             }
 
-            // A strip where nothing passed the luma floor keeps float.MaxValue and loses the
-            // argmin below, matching the old code's "skip the reduction entirely" branch.
-            strips[yIdx] = (localMinLuma, localBgX, localBgY);
+            // A strip where nothing qualified keeps float.MaxValue and loses the argmin below.
+            strips[yIdx] = (coveredMin, coveredX, positiveMin, positiveX, y);
         });
 
+        var minCovered = float.MaxValue;
         for (var i = 0; i < strips.Length; i++)
         {
-            if (strips[i].Luma < minLuma)
+            if (strips[i].Covered < minCovered)
             {
-                minLuma = strips[i].Luma;
-                bgX = strips[i].X;
+                minCovered = strips[i].Covered;
+                bgX = strips[i].CoveredX;
                 bgY = strips[i].Y;
+            }
+        }
+        if (minCovered == float.MaxValue)
+        {
+            for (var i = 0; i < strips.Length; i++)
+            {
+                if (strips[i].Positive < minLuma)
+                {
+                    minLuma = strips[i].Positive;
+                    bgX = strips[i].PositiveX;
+                    bgY = strips[i].Y;
+                }
             }
         }
 
@@ -1414,22 +1444,25 @@ public partial class Image
         return span[count / 2];
     }
 
-    private float AverageRegionLuma(int x0, int y0, int size, BitMatrix? starMask = null)
+    // The square's mean luma, and whether every sample it holds is covered (neither NaN nor an exact zero,
+    // which is what a canvas ring is made of).
+    private (float Luma, bool Covered) AverageRegionLuma(int x0, int y0, int size, BitMatrix? starMask = null)
     {
         if (ChannelCount < 3)
         {
             return AverageRegionChannel(0, x0, y0, size, starMask);
         }
-        var r = AverageRegionChannel(0, x0, y0, size, starMask);
-        var g = AverageRegionChannel(1, x0, y0, size, starMask);
-        var b = AverageRegionChannel(2, x0, y0, size, starMask);
-        return LumaWeighting.Rec709.ToLuma(r, g, b);
+        var (r, rCovered) = AverageRegionChannel(0, x0, y0, size, starMask);
+        var (g, gCovered) = AverageRegionChannel(1, x0, y0, size, starMask);
+        var (b, bCovered) = AverageRegionChannel(2, x0, y0, size, starMask);
+        return (LumaWeighting.Rec709.ToLuma(r, g, b), rCovered && gCovered && bCovered);
     }
 
-    private float AverageRegionChannel(int channel, int x0, int y0, int size, BitMatrix? starMask = null)
+    private (float Mean, bool Covered) AverageRegionChannel(int channel, int x0, int y0, int size, BitMatrix? starMask = null)
     {
         double sum = 0;
         var count = 0;
+        var covered = true;
         for (var y = y0; y < y0 + size && y < Height; y++)
         {
             for (var x = x0; x < x0 + size && x < Width; x++)
@@ -1438,10 +1471,13 @@ public partial class Image
                 {
                     continue;
                 }
-                sum += this[channel, y, x];
+                var value = this[channel, y, x];
+                // A NaN makes the sum NaN, which fails every comparison the scan makes, as it always did.
+                covered &= value != 0f && !float.IsNaN(value);
+                sum += value;
                 count++;
             }
         }
-        return count > 0 ? (float)(sum / count) : 0f;
+        return (count > 0 ? (float)(sum / count) : 0f, covered && count > 0);
     }
 }
