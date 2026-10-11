@@ -30,10 +30,12 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         var outputOpt = new Option<string?>("--output", "-o") { Description = "The colour master to write (FITS); <planet>_<yyyy-MM-dd-HHmm>_composed.fits in the current folder when not given." };
         var labels = LabelOptions();
         var lrgbOpt = new Option<bool>("--lrgb") { Description = "Carry the IR or L stacks' detail into the colour planes by the deep-sky LRGB step (the lrgb step); an option, since IR's belt contrast is its own." };
+        var viewingWeightsOpt = ViewingWeightsOption();
+        var bandWeightsOpt = BandWeightsOption();
         var command = new Command("compose", "A colour master from mono planetary stacks (#1278): each moved onto one disk by its limb, de-rotated to one instant, each filter averaged, red, green and blue joined; IR or L beside it as the luminance.")
         {
             Arguments = { stacksArg },
-            Options = { outputOpt, labels.Planet, labels.Utc, labels.Filter, lrgbOpt },
+            Options = { outputOpt, labels.Planet, labels.Utc, labels.Filter, lrgbOpt, viewingWeightsOpt, bandWeightsOpt },
         };
         command.Subcommands.Add(BuildIngest());
         command.Subcommands.Add(BuildRegister());
@@ -48,7 +50,8 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
             {
                 return 1;
             }
-            var (composed, derotation, refusal) = await Task.Run(() => PlanetaryComposition.Run(stacks, Say, parseResult.GetValue(lrgbOpt)), ct);
+            var (composed, derotation, refusal) = await Task.Run(() => PlanetaryComposition.Run(stacks, Say, parseResult.GetValue(lrgbOpt),
+                parseResult.GetValue(viewingWeightsOpt), parseResult.GetValue(bandWeightsOpt)), ct);
             if (composed is null || derotation is null)
             {
                 consoleHost.WriteError(refusal ?? "nothing composed");
@@ -111,10 +114,11 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
     {
         var stacksArg = new Argument<string[]>("stacks") { Description = "The registered stacks (FITS, as register writes them).", Arity = ArgumentArity.OneOrMore };
         var outputOpt = new Option<string>("--output", "-o") { Description = "The folder to write each stack into, as <name>.derotated.fits.", Required = true };
+        var viewingWeightsOpt = ViewingWeightsOption();
         var command = new Command("derotate", "Step 3: every registered stack carried to the reference's instant on its disk, north decided by agreement between two stacks of one filter.")
         {
             Arguments = { stacksArg },
-            Options = { outputOpt },
+            Options = { outputOpt, viewingWeightsOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
@@ -122,7 +126,7 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
             {
                 return 1;
             }
-            var (derotation, refusal) = await Task.Run(() => PlanetaryComposition.Derotate(stacks, Say), ct);
+            var (derotation, refusal) = await Task.Run(() => PlanetaryComposition.Derotate(stacks, Say, parseResult.GetValue(viewingWeightsOpt)), ct);
             if (derotation is null)
             {
                 consoleHost.WriteError(refusal ?? "nothing de-rotated");
@@ -137,10 +141,11 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
     {
         var stacksArg = new Argument<string[]>("stacks") { Description = "The de-rotated stacks (FITS, as derotate writes them).", Arity = ArgumentArity.OneOrMore };
         var outputOpt = new Option<string?>("--output", "-o") { Description = "The colour master to write (FITS); <planet>_<yyyy-MM-dd-HHmm>_composed.fits in the current folder when not given." };
-        var command = new Command("join", "Step 4: each filter's de-rotated stacks averaged, red, green and blue joined into one colour master; IR or L beside it as the luminance.")
+        var bandWeightsOpt = BandWeightsOption();
+        var command = new Command("join", "Step 4: each filter's de-rotated stacks averaged, red, green and blue joined into one colour master; IR or L beside it as the luminance. A stack's join weight (derotate --viewing-weights) is read from <stack>.weight.fits beside it.")
         {
             Arguments = { stacksArg },
-            Options = { outputOpt },
+            Options = { outputOpt, bandWeightsOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
@@ -148,7 +153,7 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
             {
                 return 1;
             }
-            var (composed, refusal) = PlanetaryComposition.Join(stacks, Say);
+            var (composed, refusal) = PlanetaryComposition.Join(stacks, Say, parseResult.GetValue(bandWeightsOpt));
             if (composed is null)
             {
                 consoleHost.WriteError(refusal ?? "nothing joined");
@@ -339,16 +344,33 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         return stacks;
     }
 
+    private static Option<bool> ViewingWeightsOption() => new Option<bool>("--viewing-weights")
+    {
+        Description = "Weigh each de-rotated stack's pixels by how squarely it saw their source (the cosine of the view, nothing past the de-rotation's 0.9-radius source limit), so no stack's unturned rim enters where another stack saw the planet (#1349 fix C); written beside each stack as <name>.weight.fits.",
+    };
+
+    private static Option<bool> BandWeightsOption() => new Option<bool>("--band-weights")
+    {
+        Description = "Join each filter's stacks band by band: each a trous band weighed by its transfer against the sharpest stack over its noise, so the finest bands come mostly from the sharp stacks and the coarse ones from all (#1349 arm B).",
+    };
+
     // Stacks a step wrote, read back with their labels, or null with each failure said.
     private List<PlanetaryMonoStack>? ReadStacks(IReadOnlyList<string> paths)
     {
         var stacks = new List<PlanetaryMonoStack>(paths.Count);
         foreach (var path in paths)
         {
-            var name = StackName(path);
-            if (!Image.TryReadFitsFile(path, out var image) || PlanetaryComposition.FromIngested(name, image) is not { } stack)
+            if (PlanetaryComposition.IsJoinWeightPath(path))
             {
-                consoleHost.WriteError($"{path}: not a stack a compose step wrote (one plane, with OBJECT, DATE-OBS and FILTER)");
+                // A join weight a glob over the step's folder took in: read beside its stack, never as one.
+                continue;
+            }
+            var name = StackName(path);
+            // With its join weight (#1349 fix C), where derotate --viewing-weights wrote one beside it.
+            var (stack, refusal) = PlanetaryComposition.ReadStack(name, path);
+            if (stack is null)
+            {
+                consoleHost.WriteError(refusal ?? $"{path}: not read");
                 return null;
             }
             stacks.Add(stack);
@@ -363,8 +385,8 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         foreach (var stack in stacks)
         {
             var path = Path.Combine(folder, $"{stack.Name}.{step}.fits");
-            stack.Image.WriteToFitsFile(path);
-            consoleHost.WriteScrollable($"wrote {path}");
+            PlanetaryComposition.WriteStack(stack, path);
+            consoleHost.WriteScrollable($"wrote {path}{(stack.JoinWeight is null ? "" : " and its join weight beside it")}");
         }
         return true;
     }
