@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -307,6 +308,12 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>Resolves a button's label and the width it needs. The one place a button width is
         /// computed.</summary>
+        /// <remarks>
+        /// <b>The sum is the debt</b> (viewer-layout-engine P3, #367): <see cref="ToolbarButtonNode"/> declares the same
+        /// pieces (the padding, the mark, the gap, the label) and the two agree only because both read
+        /// <see cref="ButtonPaddingH"/>, <see cref="MarkGap"/> and the mark width. When the button is an auto-width node,
+        /// with <see cref="ReservedLabelWidth"/> as its label's width sample, the engine measures it and this sum goes.
+        /// </remarks>
         private (string Label, float MarkWidth, float Width) MeasureToolbarButton(
             (string Label, ToolbarAction Action, int Group) entry, AstroImageDocument? document, ViewerState state)
         {
@@ -394,34 +401,40 @@ namespace TianWen.UI.Abstractions
                 // painter honours), the router presses it and shows its tooltip. Device pixels in and out
                 // (DesignScale.One): the rect, the padding and the font are already scaled, as they are for the
                 // measure pass that sized the button.
-                _toolbarMarkBox = box;
                 RenderLayout(ToolbarButtonNode(box, state), box.Rect, scale: DesignScale.One,
                     drawFill: _paintToolbarMark ??= PaintToolbarMark);
             }
         }
 
-        // The button whose mark the fill below paints: set per button before its node is painted, on the render
-        // thread, which is the only reader. A field, with the painter bound once, so a frame allocates no closure
-        // per button.
-        private ToolbarButtonBox _toolbarMarkBox;
+        // The painter, bound once so a frame allocates no closure per button.
         private Action<Layout.Content.Fill, RectF32>? _paintToolbarMark;
 
+        /// <summary>Draws the mark a fill names: which button, and whether it is enabled, come from the fill's own key
+        /// (<see cref="ToolbarMarkKeys"/>), so nothing carries the button across the paint call.</summary>
         private void PaintToolbarMark(Layout.Content.Fill fill, RectF32 rect)
         {
-            var box = _toolbarMarkBox;
-            if (CurrentViewerState is { } state)
+            if (CurrentViewerState is { } state && fill.Key is { } key && ToolbarMarks.TryGetValue(key, out var mark))
             {
-                DrawToolbarMark(box.Action, rect.X, rect.Y, rect.Height, state, box.Enabled ? ToolbarInk : ToolbarInkDisabled, box.Enabled);
+                DrawToolbarMark(mark.Action, rect.X, rect.Y, rect.Height, state,
+                    mark.Enabled ? ToolbarInk : ToolbarInkDisabled, mark.Enabled);
             }
         }
+
+        /// <summary>A mark's fill key per action and enabled state, built once so a frame formats no strings.</summary>
+        private static readonly FrozenDictionary<(ToolbarAction Action, bool Enabled), string> ToolbarMarkKeys =
+            Enum.GetValues<ToolbarAction>()
+                .SelectMany(a => new[] { (a, true), (a, false) })
+                .ToFrozenDictionary(k => k, k => k.Item2 ? $"toolbarMark:{k.Item1}" : $"toolbarMark:{k.Item1}:off");
+
+        /// <summary>The reverse of <see cref="ToolbarMarkKeys"/>, which the mark's painter reads.</summary>
+        private static readonly FrozenDictionary<string, (ToolbarAction Action, bool Enabled)> ToolbarMarks =
+            ToolbarMarkKeys.ToFrozenDictionary(kv => kv.Value, kv => kv.Key);
 
         /// <summary>A button's ink, by whether it can be pressed.</summary>
         private static readonly RGBAColor32 ToolbarInk = RGBAColor32.FromFloat(0.9f, 0.9f, 0.9f, 1f);
 
         /// <inheritdoc cref="ToolbarInk"/>
         private static readonly RGBAColor32 ToolbarInkDisabled = RGBAColor32.FromFloat(0.45f, 0.45f, 0.45f, 1f);
-
-        private const string ToolbarMarkKey = "toolbarMark";
 
         /// <summary>
         /// One toolbar button as a node: its mark (a fill <see cref="PaintToolbarMark"/> draws), the gap between
@@ -454,7 +467,7 @@ namespace TianWen.UI.Abstractions
                 .Stretch();
             var row = box.MarkWidth > 0f
                 ? Layout.Builder.HStack(
-                    Layout.Builder.Fill(key: ToolbarMarkKey).WFixed(box.MarkWidth).HStar(),
+                    Layout.Builder.Fill(key: ToolbarMarkKeys[(box.Action, box.Enabled)]).WFixed(box.MarkWidth).HStar(),
                     Layout.Builder.Spacer().WFixed(MarkGap(box.MarkWidth, box.Label)).HStar(),
                     label)
                 : Layout.Builder.HStack(label);
