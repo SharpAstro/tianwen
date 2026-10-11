@@ -156,6 +156,36 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 120_000)]
+    public async Task GivenAMountThatRefusesEveryGotoThenEachObservationIsTriedAFewTimesAndTheLoopMovesOn()
+    {
+        // given: a mount whose goto always throws, as one that cannot slew does (the SkyGuider Pro's throws "SGP does not
+        // support goto slewing"). The loop used to `continue` on the same observation with no count, spinning until the
+        // session's end (docs/plans/slew-less-mount.md).
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+
+        var observations = new[]
+        {
+            new ScheduledObservation(new Target(3.79, 24.1, "M45", null), WinterNightStart, TimeSpan.FromMinutes(15),
+                AcrossMeridian: false, FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure), Gain: 0, Offset: 0),
+            new ScheduledObservation(new Target(5.588, -5.391, "M42", null), WinterNightStart, TimeSpan.FromMinutes(15),
+                AcrossMeridian: false, FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure), Gain: 0, Offset: 0),
+        };
+
+        await using var ctx = await CreateWinterSessionAsync(observations, cancellationToken: ct);
+        var mount = ctx.Mount.ShouldBeOfType<FakeMountDriver>();
+        mount.SlewFault = new InvalidOperationException("this mount does not support goto slewing");
+        await ((IMountDriver)mount).EnsureTrackingAsync(cancellationToken: ct);
+
+        // when
+        await RunObservationLoopWithTimePumpAsync(ctx, subExposure, ct);
+
+        // then: each observation is tried a few times, then given up, and nothing is imaged at a pointing never reached
+        mount.RefusedSlewCount.ShouldBe(observations.Length * Session.MaxSlewAttemptsPerObservation);
+        ctx.Session.TotalFramesWritten.ShouldBe(0);
+    }
+
+    [Fact(Timeout = 120_000)]
     public async Task GivenThreeWinterTargetsWhenAllVisibleThenAllObservationsAdvanced()
     {
         // given, all three targets visible at 22:00 UTC Dec 15 from Vienna (min alt 10°)

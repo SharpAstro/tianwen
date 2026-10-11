@@ -314,6 +314,16 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     /// </summary>
     internal double LastCommandedHourAngle { get; private set; } = double.NaN;
 
+    /// <summary>
+    /// When set, <see cref="BeginSlewRaDecAsync"/> throws this instead of slewing: a mount that refuses every goto, as
+    /// one that cannot slew does (the SkyGuider Pro's throws "SGP does not support goto slewing"). Counted in
+    /// <see cref="RefusedSlewCount"/>.
+    /// </summary>
+    internal Exception? SlewFault { get; set; }
+
+    /// <summary>How many slews <see cref="SlewFault"/> refused.</summary>
+    internal int RefusedSlewCount { get; private set; }
+
     public ValueTask<AlignmentMode> GetAlignmentAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult(Alignment);
 
@@ -585,6 +595,12 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
         if (!Connected)
         {
             throw new InvalidOperationException("Mount is not connected");
+        }
+
+        if (SlewFault is { } fault)
+        {
+            RefusedSlewCount++;
+            throw fault;
         }
 
         using (await _sem.AcquireLockAsync(cancellationToken))

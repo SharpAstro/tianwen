@@ -17,12 +17,21 @@ namespace TianWen.Lib.Sequencing;
 
 internal partial record Session
 {
+    /// <summary>How many times the observation loop tries a slew that throws before it moves on to the next observation.</summary>
+    internal const int MaxSlewAttemptsPerObservation = 3;
+
     internal async ValueTask ObservationLoopAsync(CancellationToken cancellationToken)
     {
         var guider = Setup.Guider;
         var mount = Setup.Mount;
         var sessionStartTime = await GetMountUtcNowAsync(cancellationToken);
         var sessionEndTime = await SessionEndTimeAsync(sessionStartTime, cancellationToken);
+
+        // A slew that throws is retried, but not for ever: it used to `continue` on the same observation with no count,
+        // so a mount whose goto always throws (one that cannot slew, the SkyGuider Pro) spun here until the session ended
+        // (docs/plans/slew-less-mount.md).
+        var failedSlews = 0;
+        var failedSlewsIndex = -1;
 
         ScheduledObservation? observation;
         while ((observation = ActiveObservation) is not null
@@ -150,7 +159,24 @@ internal partial record Session
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error while slewing to {Observation}, retrying", observation);
+                if (failedSlewsIndex != ActiveObservationIndex)
+                {
+                    failedSlewsIndex = ActiveObservationIndex;
+                    failedSlews = 0;
+                }
+
+                if (++failedSlews < MaxSlewAttemptsPerObservation)
+                {
+                    _logger.LogError(ex, "Error while slewing to {Observation} (attempt {Attempt} of {Max}), retrying",
+                        observation, failedSlews, MaxSlewAttemptsPerObservation);
+                }
+                else
+                {
+                    _logger.LogError(ex, "Slewing to {Observation} failed {Max} times, moving on to the next observation",
+                        observation, MaxSlewAttemptsPerObservation);
+                    _ = AdvanceObservation();
+                }
+
                 continue;
             }
 
