@@ -42,10 +42,11 @@ THE CHECKS, each with the incident behind it:
                  stars over a grey sky (SCNR on unbalanced colour), and a teal sky round dust shadows on
                  an uncalibrated master (no flats, no bias: a DATA limit, which this names and cannot fix).
                  On the enhanced view only, the one whose background was corrected.
-* **vignette**   Dark corners left in the RAW view, which is the master as calibrated: the flat did not
-                 fit the optical train, or there was none. Read against the edge midpoints, never the
-                 centre where the target is. A flat proven by its header cards always passes; one admitted
-                 on its capture date alone can correct nothing (an ASI294MC Orion, flat 14 days later).
+* **vignette**   Dark corners left in the RAW view, which is the master as calibrated: a CANDIDATE that the
+                 flat did not fit the optical train, or that there was none. Read against the edge
+                 midpoints, never the centre where the target is. It reads the STRETCHED view, where a
+                 small linear residual near the black point looks large, so a flag is confirmed on the
+                 linear master before anything is said about the flat (see the threshold's note).
 * **speck**      Pixels with one channel pinned high beside one near black, counted at FULL
                  resolution. An interior NaN in the master renders as a blue-and-yellow blob; 1,853
                  of them sat on the Trapezium of the Great Orion master and the USER found it, not
@@ -126,9 +127,16 @@ SKY_CHROMA = 0.40
 # against the sky at the four edge midpoints, as a deficit of the latter. Corners against edges and never
 # against the centre, where the target sits (a Lagoon with its own same-night flat read +0.6 against the
 # centre). A flat that fits the optical train leaves almost nothing; one that does not leaves the vignette.
-# MEASURED over the same store: flats whose train the header cards prove, 147 masters, p50 +0.010, p90
-# +0.077, max +0.145; flats proven by the capture date alone, 29, max +0.965 (an ASI294MC Orion whose flat
-# is 14 days later: it corrects nothing); no flat, 18, p50 +0.157. 0.20 sits above every card-proven flat.
+# MEASURED over the same store, in DISPLAY units: flats whose train the header cards prove, 147 masters,
+# p50 +0.010, p90 +0.077, max +0.145; flats proven by the capture date alone, 29, max +0.965; no flat, 18,
+# p50 +0.157. 0.20 sits above every card-proven flat.
+#
+# A FLAG IS A CANDIDATE, NOT A VERDICT. The stretch amplifies a residual near the black point, so the
+# display number is not the flat's error. On the LINEAR masters (corners against edge midpoints, the
+# empty ring out): the ASI294MC Orion M42 RGB that reads +0.965 here leaves +0.048, about three times a
+# card-proven flat's +0.010 to +0.016 and half of the same night's flatless ASI294MM (+0.103); the
+# ASI294MC Rosette that reads +0.28 here leaves +0.006, as good as any. Reading +0.965 as "the flat
+# corrects nothing" was this check's first published mistake (#484).
 VIGNETTE_DEFICIT = 0.20
 
 
