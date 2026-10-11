@@ -218,6 +218,10 @@ internal sealed class PlanetaryStackSubCommand(
             Description = "Minnaert's k in the limb fit the derived sharpening is read through (#1221, #1498): fitted (the default), opal (held at OPAL's, Jupiter only), or the k to hold for each channel (0.85,0.82,0.84, the last repeated; a shared fit holds their mean).",
             DefaultValueFactory = _ => "fitted",
         };
+        var edgeReachOpt = new Option<double?>("--edge-reach")
+        {
+            Description = "Take the derived sharpening's kernel as the physical one fitted to the limb's edge from 0.02 cycles a pixel to this, carried by its physics to the cutoff, rather than the edge as read at every frequency (#1498).",
+        };
         var pupil = PlanetaryMasterScore.PupilOptions();
         var sharpenGainsOpt = new Option<string?>("--sharpen-gains")
         {
@@ -312,7 +316,7 @@ internal sealed class PlanetaryStackSubCommand(
             {
                 outputOpt, labelOpt, keepOpt, pointKeepOpt, gradeCacheOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt,
                 noPerPointOpt, noSignalGateOpt, noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt,
-                noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, strengthOpt, sharpenLuminanceOpt, channelLimbOpt, limbKOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt, reportOpt, reportOnlyOpt,
+                noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, strengthOpt, sharpenLuminanceOpt, channelLimbOpt, limbKOpt, edgeReachOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt, reportOpt, reportOnlyOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt, meshRegularizationOpt, estimatorOpt, correlationOpt, interpolationOpt,
                 referenceFramesOpt, derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, northOpt, eachFileOpt, legacyOpt, truthOpt, halvesOpt, sessionOpt, manifestOpt, epochOpt,
                 autoOpt, designOpt,
@@ -324,7 +328,7 @@ internal sealed class PlanetaryStackSubCommand(
         [
             keepOpt, pointKeepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt, noPerPointOpt, noSignalGateOpt,
             noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt, noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, fixOpt, strengthOpt,
-            sharpenLuminanceOpt, channelLimbOpt, limbKOpt, pupil.Obstruction, tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt,
+            sharpenLuminanceOpt, channelLimbOpt, limbKOpt, edgeReachOpt, pupil.Obstruction, tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt,
             meshRegularizationOpt, estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt, derotateOpt, noDerotateOpt, turnNorthOverOpt, northOpt, eachFileOpt,
             legacyOpt, truthOpt, halvesOpt, epochOpt, reportOnlyOpt,
         ];
@@ -848,7 +852,7 @@ internal sealed class PlanetaryStackSubCommand(
                 if (sharpen)
                 {
                     var (sharpened, how) = Sharpened(master, sharpenOptions, planet, result.Epoch, wavelengthText, PlanetaryCaptureName.WavelengthNm(runPaths[0]), telescope,
-                        parseResult.GetValue(fixOpt), parseResult.GetValue(strengthOpt), parseResult.GetValue(sharpenLuminanceOpt), limbReading);
+                        parseResult.GetValue(fixOpt), parseResult.GetValue(strengthOpt), parseResult.GetValue(sharpenLuminanceOpt), limbReading, parseResult.GetValue(edgeReachOpt));
                     display = balance?.Apply(sharpened) ?? sharpened;
                     display.WriteToFitsFile(sharpenedFits, null, balance?.HeaderCards());
                     consoleHost.WriteScrollable($"[planetary] wrote {Path.GetFileName(sharpenedFits)} ({how})");
@@ -908,7 +912,8 @@ internal sealed class PlanetaryStackSubCommand(
     // The filter word in a mono capture's name stands in for --wavelength, as the viewer's best stack takes it (#1179).
     private (Image Sharpened, string How) Sharpened(Image master, WaveletSharpenOptions? fixedProfile, CatalogIndex? planet, DateTimeOffset? epoch,
         string? wavelengthText, double? nameWavelengthNm, Pupil? telescope, PlanetaryLimbFix? fix, double strength, bool luminanceOnly,
-        (PlanetaryChannelLimb ChannelLimb, PlanetaryLimbDarkening LimbDarkening, System.Collections.Immutable.ImmutableArray<double> HeldK) limbReading)
+        (PlanetaryChannelLimb ChannelLimb, PlanetaryLimbDarkening LimbDarkening, System.Collections.Immutable.ImmutableArray<double> HeldK) limbReading,
+        double? edgeReach)
     {
         if (fixedProfile is { } profile)
         {
@@ -924,7 +929,7 @@ internal sealed class PlanetaryStackSubCommand(
             wavelengths = [nm];
         }
         return PlanetaryBestStack.Sharpen(master, planet, epoch, telescope, wavelengths, fix, strength, luminanceOnly,
-            channelLimb: limbReading.ChannelLimb, limbDarkening: limbReading.LimbDarkening, heldMinnaertK: limbReading.HeldK);
+            channelLimb: limbReading.ChannelLimb, limbDarkening: limbReading.LimbDarkening, heldMinnaertK: limbReading.HeldK, edgeReach: edgeReach);
     }
 
     // The pupil a SER capture's header names, or null (a file that is not one, or names none).

@@ -189,15 +189,17 @@ public static class PlanetaryBestStack
     /// sharpens a colour master's luminance once, keeping the stack's colour (<see cref="PlanetarySharpenOptions.LuminanceOnly"/>, #1295);
     /// <paramref name="target"/> is what the derived gains restore toward (#1366). <paramref name="channelLimb"/>, <paramref name="limbDarkening"/>
     /// and <paramref name="heldMinnaertK"/> are what a colour master's channels are read against and how the limb fit takes Minnaert's k
-    /// (#1498, <see cref="PlanetarySharpenOptions.ChannelLimb"/>, <see cref="PlanetarySharpenOptions.HeldMinnaertK"/>). The caller owns the image.
+    /// (#1498, <see cref="PlanetarySharpenOptions.ChannelLimb"/>, <see cref="PlanetarySharpenOptions.HeldMinnaertK"/>), and <paramref name="edgeReach"/>
+    /// how far the kernel is read off the limb's edge before its physics carries it (<see cref="PlanetarySharpenOptions.EdgeReach"/>). The caller
+    /// owns the image.
     /// </summary>
     public static (Image Sharpened, string How) Sharpen(Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope,
         ImmutableArray<double> wavelengthsNm = default, PlanetaryLimbFix? fix = null, double strength = 1, bool luminanceOnly = false,
         PlanetarySharpenTarget target = PlanetarySharpenTarget.Telescope, PlanetaryChannelLimb channelLimb = PlanetaryChannelLimb.Shared,
-        PlanetaryLimbDarkening limbDarkening = PlanetaryLimbDarkening.Fitted, ImmutableArray<double> heldMinnaertK = default)
+        PlanetaryLimbDarkening limbDarkening = PlanetaryLimbDarkening.Fitted, ImmutableArray<double> heldMinnaertK = default, double? edgeReach = null)
     {
         var (sharpened, how, _) = SharpenCore(master, planet, epoch, telescope, wavelengthsNm, fix, strength, luminanceOnly, [], target, channelLimb,
-            limbDarkening, heldMinnaertK);
+            limbDarkening, heldMinnaertK, edgeReach);
         return (sharpened, how);
     }
 
@@ -206,7 +208,7 @@ public static class PlanetaryBestStack
         Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope, ImmutableArray<double> wavelengthsNm, PlanetaryLimbFix? fix,
         double strength, bool luminanceOnly, ImmutableArray<double> fitStops, PlanetarySharpenTarget target,
         PlanetaryChannelLimb channelLimb = PlanetaryChannelLimb.Shared, PlanetaryLimbDarkening limbDarkening = PlanetaryLimbDarkening.Fitted,
-        ImmutableArray<double> heldMinnaertK = default)
+        ImmutableArray<double> heldMinnaertK = default, double? edgeReach = null)
     {
         if (SharpenOptionsFor(master, planet, epoch, telescope, wavelengthsNm) is not { } options)
         {
@@ -222,6 +224,7 @@ public static class PlanetaryBestStack
             ChannelLimb = channelLimb,
             LimbDarkening = limbDarkening,
             HeldMinnaertK = heldMinnaertK.IsDefault ? [] : heldMinnaertK,
+            EdgeReach = edgeReach,
         };
         if (fix is { } chosen)
         {
