@@ -86,6 +86,13 @@ public sealed class DisplacementMesh
         => (v00 * (1 - fx) * (1 - fy)) + (v10 * fx * (1 - fy)) + (v01 * (1 - fx) * fy) + (v11 * fx * fy);
 
     /// <summary>
+    /// The weight the global shift holds in every node's blend (<see cref="PlanetaryStackOptions.MeshRegularization"/>): a node
+    /// one point dominates reads <c>1 / (1 + 0.25)</c> of that point's residual, and a node among many reads them all but a
+    /// percent or so (#1412 F3, a second shrink on the points' own).
+    /// </summary>
+    public const float DefaultRegularization = 0.25f;
+
+    /// <summary>
     /// Builds a mesh over a <paramref name="width"/> x <paramref name="height"/> frame from a global shift
     /// plus the alignment-point residuals. Each node's offset is
     /// <c>(globalDx, globalDy) + Sum(w_i * residual_i) / (Sum(w_i) + regularization)</c> with Gaussian
@@ -93,10 +100,12 @@ public sealed class DisplacementMesh
     /// there are no nearby APs and toward an AP's <c>(global + residual)</c> where one dominates. Each residual's departure from
     /// the points' mean is first scaled by <paramref name="residualGain"/> (<see cref="PlanetaryStackOptions.MeshGain"/>, one by
     /// default: as read). The mean is the points' correction to the global shift, a rigid move read with a shrink of its own, and is
-    /// kept as read: scaled with the rest, it moved every frame off its registration (#1081).
+    /// kept as read: scaled with the rest, it moved every frame off its registration (#1081). The
+    /// <paramref name="regularization"/> must be above zero: it is what a node no point reaches takes the global shift by.
     /// </summary>
     public static DisplacementMesh Build(int width, int height, float globalDx, float globalDy,
-        ReadOnlySpan<AlignmentPointShift> alignmentPoints, float nodeSpacing = 32f, float influence = 48f, float regularization = 0.25f, float residualGain = 1f)
+        ReadOnlySpan<AlignmentPointShift> alignmentPoints, float nodeSpacing = 32f, float influence = 48f, float regularization = DefaultRegularization,
+        float residualGain = 1f)
         => Build(width, height, globalDx, globalDy, alignmentPoints, derotation: null, nodeSpacing, influence, regularization, residualGain);
 
     /// <summary>
@@ -105,11 +114,12 @@ public sealed class DisplacementMesh
     /// <see cref="AlignmentPointMatcher.Match(Image, float, float, DerotationField?, Span{AlignmentPointShift})"/> measures).
     /// </summary>
     public static DisplacementMesh Build(int width, int height, float globalDx, float globalDy,
-        ReadOnlySpan<AlignmentPointShift> alignmentPoints, DerotationField? derotation, float nodeSpacing = 32f, float influence = 48f, float regularization = 0.25f,
-        float residualGain = 1f)
+        ReadOnlySpan<AlignmentPointShift> alignmentPoints, DerotationField? derotation, float nodeSpacing = 32f, float influence = 48f,
+        float regularization = DefaultRegularization, float residualGain = 1f)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(nodeSpacing);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(influence);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(regularization);
 
         var cols = Math.Max(2, (int)MathF.Ceiling(width / nodeSpacing) + 1);
         var rows = Math.Max(2, (int)MathF.Ceiling(height / nodeSpacing) + 1);

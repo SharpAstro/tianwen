@@ -486,7 +486,7 @@ public static class DewarpResidual
         var shifts = new AlignmentPointShift[n];
         var (gx, gy) = tracks.GlobalShift(f);
         tracks.Points(f, pool, median, shifts);
-        var mesh = DisplacementMesh.Build(width, height, (float)gx, (float)gy, shifts, options.MeshNodeSpacing, options.MeshInfluence, residualGain: options.MeshGain);
+        var mesh = DisplacementMesh.Build(width, height, (float)gx, (float)gy, shifts, options.MeshNodeSpacing, options.MeshInfluence, options.MeshRegularization, options.MeshGain);
         var m = places.Count;
         for (var q = 0; q < m; q++)
         {

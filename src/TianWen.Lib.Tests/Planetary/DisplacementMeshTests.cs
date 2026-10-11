@@ -32,6 +32,25 @@ public class DisplacementMeshTests
         oy.ShouldBe(-0.5f, 0.2);
     }
 
+    [Theory]
+    [InlineData(0.25f)]
+    [InlineData(0.01f)]
+    public void ANodeOnAnIsolatedPointReadsItsResidualOverOnePlusTheRegularization(float regularization)
+    {
+        // #1412 F3: the global shift holds the regularization's weight in every node's blend, so a node one point alone reaches
+        // reads 1 / (1 + regularization) of that point's residual: 0.8 of it at the default, a shrink on top of the point's own.
+        AlignmentPointShift[] aps = [new AlignmentPointShift(40, 40, 1.5f, -0.75f)];
+        var mesh = DisplacementMesh.Build(100, 100, 0.5f, 0.25f, aps, nodeSpacing: 10, influence: 8, regularization: regularization);
+
+        var (ox, oy) = mesh.Sample(40, 40);
+        ox.ShouldBe(0.5f + (1.5f / (1 + regularization)), 1e-5);
+        oy.ShouldBe(0.25f - (0.75f / (1 + regularization)), 1e-5);
+    }
+
+    [Fact]
+    public void ARegularizationOfZeroIsRefusedSinceANodeNoPointReachesWouldHaveNoShift()
+        => Should.Throw<ArgumentOutOfRangeException>(() => DisplacementMesh.Build(100, 100, 0f, 0f, [], nodeSpacing: 10, influence: 8, regularization: 0f));
+
     [Fact]
     public void AResidualGainScalesTheLocalFieldAndOneLeavesItAsRead()
     {

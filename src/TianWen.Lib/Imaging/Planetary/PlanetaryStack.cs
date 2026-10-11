@@ -185,6 +185,15 @@ public sealed record PlanetaryStackOptions
     public float MeshInfluence { get; init; } = 48f;
 
     /// <summary>
+    /// The weight the global shift holds in each mesh node's blend of the points' residuals (<see cref="DisplacementMesh.Build"/>):
+    /// <c>global + Sum(w_i r_i) / (Sum(w_i) + this)</c>. Where one point dominates a node it reads <c>1 / (1 + this)</c> of that
+    /// point's residual, a shrink on top of the point's own (#1081); among many points the sum of their weights swamps it. Above
+    /// zero, since it is what a node no point reaches takes the global shift by. #1412 F3 measures whether it, or the reach
+    /// (<see cref="MeshInfluence"/>), costs the stack anything.
+    /// </summary>
+    public float MeshRegularization { get; init; } = DisplacementMesh.DefaultRegularization;
+
+    /// <summary>
     /// A gain on every alignment point's departure from the points' mean residual before the mesh blends them (#1081,
     /// docs/plans/planetary-restoration.md, "#1081: dense points, the stack's geometry and kriging, together"). A point's plain
     /// correlation reads a sixth of a warp that varies over its patch, its windows pulling the peak toward zero, so the blend of its

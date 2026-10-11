@@ -47,6 +47,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
         var remeasureOpt = new Option<bool>("--remeasure") { Description = "Match every frame against the reference dewarped by its own points (ap methods only; PlanetaryStackOptions.RemeasureAgainstStack)." };
         var gainOpt = new Option<float>("--mesh-gain") { Description = "A gain on every point's residual before the mesh blends them (ap methods only; PlanetaryStackOptions.MeshGain).", DefaultValueFactory = _ => 1f };
         var influenceOpt = new Option<float>("--mesh-influence") { Description = "How far a point's displacement reaches into the mesh, px (ap methods only).", DefaultValueFactory = _ => 48f };
+        var regularizationOpt = new Option<float>("--mesh-regularization") { Description = "The weight the global shift holds in each mesh node's blend of the points, above zero (ap methods only; #1412).", DefaultValueFactory = _ => DisplacementMesh.DefaultRegularization };
         var poolOpt = new Option<string>("--pool") { Description = "Pool each point's warp over this many frames either side (a Gaussian's sigma, 0 for none), a comma list (ap methods only).", DefaultValueFactory = _ => "0" };
         var geometryOpt = new Option<string>("--geometry") { Description = "The geometry the points put the stack on, a comma list of reference (the reference frame's) and median (each point's median over the frames); ap methods only.", DefaultValueFactory = _ => "reference" };
         var interpolationOpt = new Option<string>("--interpolation") { Description = "The kernel each frame is resampled by as it is stacked, a comma list of bilinear, lanczos3 and lanczos3-clamped.", DefaultValueFactory = _ => "bilinear" };
@@ -61,7 +62,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
             "Stacks a capture as each candidate asks, and its two halves, and measures every stack (R3): fidelity per wavelet band and the limb against a truth, the halves' agreement per band, the limb's undershoot; with a truth, how the truth-free metrics rank the candidates against the truth-based ones.")
         {
             Arguments = { captureArg },
-            Options = { truthOpt, planetOpt, utcOpt, framesOpt, keepOpt, sharpenOpt, methodOpt, spacingOpt, patchOpt, maxApOpt, correlationOpt, poolOpt, geometryOpt, meshOpt, influenceOpt, gainOpt, remeasureOpt, estimatorOpt, interpolationOpt, referenceOpt, drizzleOpt, pixfracOpt, noHalvesOpt, cutoffOpt, derotateOpt },
+            Options = { truthOpt, planetOpt, utcOpt, framesOpt, keepOpt, sharpenOpt, methodOpt, spacingOpt, patchOpt, maxApOpt, correlationOpt, poolOpt, geometryOpt, meshOpt, influenceOpt, regularizationOpt, gainOpt, remeasureOpt, estimatorOpt, interpolationOpt, referenceOpt, drizzleOpt, pixfracOpt, noHalvesOpt, cutoffOpt, derotateOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -158,6 +159,11 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                 ? [(Method: m, Spacing: 0, Correlation: c, Pool: 0.0, Median: false, Interpolation: i ?? WarpInterpolation.Bilinear, Reference: r)]
                 : spacings.SelectMany(s => pools.SelectMany(pool => geometries.Select(g => (Method: m, Spacing: s, Correlation: c, Pool: pool, Median: g == "median", Interpolation: i ?? WarpInterpolation.Bilinear, Reference: r))))))))
                 .SelectMany(candidate => derotations.Select(d => (Candidate: candidate, Derotate: d))).ToArray();
+            if (parseResult.GetValue(regularizationOpt) is var regularization && regularization <= 0)
+            {
+                consoleHost.WriteError($"--mesh-regularization {regularization}: above zero (it is what a node no point reaches takes the global shift by)");
+                return 1;
+            }
             consoleHost.WriteScrollable($"{Path.GetFileName(input)}: {frames} frames, {candidates.Length * keeps.Length * presets.Length} candidates{(halves ? ", each with its two halves" : "")}");
             foreach (var ((method, spacing, correlation, pool, median, interpolation, referenceFrames), derotate) in candidates)
             {
@@ -178,6 +184,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                             WarpPoolFrames = pool,
                             MeshNodeSpacing = parseResult.GetValue(meshOpt),
                             MeshInfluence = parseResult.GetValue(influenceOpt),
+                            MeshRegularization = parseResult.GetValue(regularizationOpt),
                             MeshGain = parseResult.GetValue(gainOpt),
                             RemeasureAgainstStack = parseResult.GetValue(remeasureOpt),
                             PointEstimator = PlanetaryDewarpSubCommand.ParseEstimator(parseResult.GetValue(estimatorOpt)),
@@ -293,6 +300,7 @@ internal sealed class PlanetaryMeasureSubCommand(IConsoleHost consoleHost)
                                 WhitenedCorrelation = correlation == "whitened",
                                 MeshNodeSpacing = parseResult.GetValue(meshOpt),
                                 MeshInfluence = parseResult.GetValue(influenceOpt),
+                                MeshRegularization = parseResult.GetValue(regularizationOpt),
                             MeshGain = parseResult.GetValue(gainOpt),
                             RemeasureAgainstStack = parseResult.GetValue(remeasureOpt),
                             PointEstimator = PlanetaryDewarpSubCommand.ParseEstimator(parseResult.GetValue(estimatorOpt)),

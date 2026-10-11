@@ -284,7 +284,7 @@ public sealed class LuckyImagingStacker
             DisplacementMesh DerotatedMesh(Image frame, int index)
             {
                 var shift = derotator.Shift(frame, index);
-                return matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, derotator.FieldFor(index), options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain);
+                return matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, derotator.FieldFor(index), options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain, options.MeshRegularization);
             }
             var order = InCaptureOrder(ctx.Selected);
             if (pointKeep is not null)
@@ -318,7 +318,7 @@ public sealed class LuckyImagingStacker
             {
                 var (gx, gy) = tracks.GlobalShift(index);
                 tracks.Points(index, options.WarpPoolFrames, options.MedianGeometry, points);
-                return matcher.BuildMesh((float)gx, (float)gy, points, options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain);
+                return matcher.BuildMesh((float)gx, (float)gy, points, options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain, options.MeshRegularization);
             }).ConfigureAwait(false);
         }
         else
@@ -336,7 +336,7 @@ public sealed class LuckyImagingStacker
                     (frame, _, slot) =>
                     {
                         var shift = (aligners[slot] ??= ctx.Aligner.Twin()).Estimate(frame, PlanetaryDisk.BoundingBox(frame));
-                        var mesh = (matchers[slot] ??= matcher.Twin()).BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain);
+                        var mesh = (matchers[slot] ??= matcher.Twin()).BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain, options.MeshRegularization);
                         return pointKeep.Score(frame, mesh);
                     },
                     (_, index, scores) => pointKeep.Record(index, scores),
@@ -348,7 +348,7 @@ public sealed class LuckyImagingStacker
                 (frame, _, slot) =>
                 {
                     var shift = (aligners[slot] ??= ctx.Aligner.Twin()).Estimate(frame, PlanetaryDisk.BoundingBox(frame));
-                    var mesh = (matchers[slot] ??= matcher.Twin()).BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain);
+                    var mesh = (matchers[slot] ??= matcher.Twin()).BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain, options.MeshRegularization);
                     return (Mesh: mesh, Quality: options.PerPointQualityWeighting ? FrameSharpnessMap.Build(frame) : null);
                 },
                 (frame, index, prepared) => Fold(frame, index, prepared.Mesh, prepared.Quality, ctx.ScoreByIndex[index]),
@@ -441,7 +441,7 @@ public sealed class LuckyImagingStacker
                     // A de-rotated frame (R6 part 2) goes the same way with or without points, its field beneath
                     // the mesh, and each raw sample relit before it is scattered.
                     var mesh = ctx.Matcher is { } matcher
-                        ? matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, derotation, options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain)
+                        ? matcher.BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, derotation, options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain, options.MeshRegularization)
                         : DisplacementMesh.Build(ctx.Width, ctx.Height, (float)shift.Dx, (float)shift.Dy, [], derotation, options.MeshNodeSpacing, options.MeshInfluence);
                     var map = new MeshSourceToCanvas(mesh, scale);
                     if (derotation is not null)
@@ -780,7 +780,7 @@ public sealed class LuckyImagingStacker
             (frame, _, slot) =>
             {
                 var shift = (aligners[slot] ??= aligner.Twin()).Estimate(frame, PlanetaryDisk.BoundingBox(frame));
-                return (matchers[slot] ??= matcher.Twin()).BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain);
+                return (matchers[slot] ??= matcher.Twin()).BuildMesh(frame, (float)shift.Dx, (float)shift.Dy, options.MeshNodeSpacing, options.MeshInfluence, options.MeshGain, options.MeshRegularization);
             },
             (frame, _, mesh) => frame.AccumulateByMeshInto(channelAccum, weightAccum, mesh, 1f, options.Interpolation),
             cancellationToken).ConfigureAwait(false);
