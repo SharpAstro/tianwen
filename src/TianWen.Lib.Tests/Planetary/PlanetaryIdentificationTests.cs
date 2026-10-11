@@ -188,6 +188,39 @@ public sealed class PlanetaryIdentificationTests(ITestOutputHelper output) : IDi
         }
     }
 
+    [Fact(Timeout = 120_000)]
+    public async Task AMasterNamesTheCameraItsCaptureNamesAsItsInstrument()
+    {
+        // A SER frame carries no camera of its own, so a master named none and its colour balance could not find the camera's matrix (#1279):
+        // the stream names the header's camera, read as FireCapture packs it, every stack writes it as the master's INSTRUME, and a camera
+        // AUTO identified (PlanetaryMasterOptics.Camera) is the one written.
+        var ct = TestContext.Current.CancellationToken;
+        var capture = Capture(Path.Combine(_temp.Create("camera").FullName, "Jupiter_2022-10-09T11_20_00.ser"), RingsOpen, Disk.Round,
+            instrument: "Camera=ZWO ASI462MM temp=20.1");
+        using var stream = SerFrameStream.Open(capture);
+        stream.Camera.ShouldBe("ZWO ASI462MM");
+
+        var plain = await new LuckyImagingStacker().StackAsync(stream, new PlanetaryStackOptions(), ct);
+        try
+        {
+            plain.Master.ImageMeta.Instrument.ShouldBe("ZWO ASI462MM");
+        }
+        finally
+        {
+            plain.Master.Release();
+        }
+        var identified = await new LuckyImagingStacker().StackAsync(stream,
+            new PlanetaryStackOptions { Optics = new PlanetaryMasterOptics("", null, null, "QHY5III462C") }, ct);
+        try
+        {
+            identified.Master.ImageMeta.Instrument.ShouldBe("QHY5III462C");
+        }
+        finally
+        {
+            identified.Master.Release();
+        }
+    }
+
     private enum Disk { Round, Ringed }
 
     // A short mono capture of a textured disk (Round) or a globe in an ellipse twice and a half as wide as it is tall (Ringed), a frame

@@ -39,6 +39,9 @@ public sealed class PlanetaryFrameWindow : IPlanetaryFrameStream
     public bool HasTimestamps => _inner.HasTimestamps;
 
     /// <inheritdoc/>
+    public string? Camera => _inner.Camera;
+
+    /// <inheritdoc/>
     public DateTimeOffset? TimestampOf(int index) => (uint)index < (uint)FrameCount ? _inner.TimestampOf(_first + index) : null;
 
     /// <inheritdoc/>

@@ -938,7 +938,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
   - **A colour master of Jupiter or Saturn is balanced to the planet's own colour AFTER the sharpening**
     (`PlanetaryColourBalance`, #1212, `PlanetaryLiveLimb.Balance`; Saturn's globe where its rings leave it clear,
     #1235), never a saturation about grey; **saturation 1 by default, 1.4 an option** (`EyeSaturation`,
-    `--colour-saturation`). **A camera matrix from spectral curves is a least-squares FIT onto the CIE functions**
+    `--colour-saturation`). **The balance goes through the camera's own matrix by default, found ONCE by the camera the
+    master's `INSTRUME` names** (`PlanetaryColourBalance.CameraColourAsync`, `CBALCAM`, #1279; `--colour-matrix none` is the
+    balance before): a stack carries its SER's camera into `INSTRUME` (`IPlanetaryFrameStream.Camera`), and a camera with no
+    QE curve is balanced by its gains alone, in ONE wording (`WithoutMatrix`). **A camera matrix from spectral curves is a least-squares FIT onto the CIE functions**
     (`CameraColorMatrix.ComputeCamXyz`, `CameraColorMatrixTests`), never their projections. **OPAL's I/F factors come
     from its readme** (`PlanetaryColour.ReadmeFilters`), never a constant. **A balanced master's stretch takes ONE
     black point** (`ImageMeta.IsColourBalanced`, CBALSAT, #1229). **Colour is compared with a post AS SHOWN**

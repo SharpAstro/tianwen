@@ -35,6 +35,13 @@ public sealed record PlanetaryBestStackOptions(CatalogIndex? Planet, Pupil? Tele
     public double? ColourSaturation { get; init; } = PlanetaryColourBalance.DefaultSaturation;
 
     /// <summary>
+    /// Whether that balance goes through the camera's own colour matrix, found by the master's INSTRUME
+    /// (<see cref="PlanetaryColourBalance.CameraColourAsync"/>, #1279 rule E; the owner, 2026-10-12): the default. Off is the balance before,
+    /// a gain a channel alone; a camera the curves do not know is balanced without one either way.
+    /// </summary>
+    public bool CameraMatrix { get; init; } = true;
+
+    /// <summary>
     /// How far past the truth bands 2 and 3 are sharpened (<see cref="PlanetarySharpenOptions.Strength"/>, #1251): one, the default, is the
     /// derived sharpening at the truth; a capture's own post sits at about 1.5 to 2.
     /// </summary>
@@ -152,9 +159,16 @@ public static class PlanetaryBestStack
                 options.Fix, options.Strength, options.LuminanceOnly, options.FitStops, options.Target);
             // The balance comes after the sharpening, which reads each channel's edge through that channel's own diffraction: the
             // saturation mixes the channels.
+            var camera = options.CameraMatrix && options.ColourSaturation is not null && result.Master.ChannelCount == 3
+                ? await PlanetaryColourBalance.CameraColourAsync(result.Master.ImageMeta.Instrument, cancellationToken).ConfigureAwait(false)
+                : null;
             var (balance, howBalanced) = options.ColourSaturation is { } saturation
-                ? PlanetaryColourBalance.For(result.Master, options.Planet, result.Epoch, saturation)
+                ? PlanetaryColourBalance.For(result.Master, options.Planet, result.Epoch, saturation, camera)
                 : (null, "colours left as captured");
+            if (balance is not null && camera is null && options.CameraMatrix)
+            {
+                howBalanced = $"{howBalanced} ({PlanetaryColourBalance.WithoutMatrix(result.Master.ImageMeta.Instrument)})";
+            }
             // The layer re-sharpens the master as it was sharpened here, and draws the balance last, as this run gives it (#1314).
             var layer = derived is var (sharpening, sharpenedWith, pupil) && !options.FitStops.IsDefaultOrEmpty && sharpening.Limb is not null
                 ? new BestStackLayer(result.Master.Clone(), LayerOf(sharpening, sharpenedWith, pupil, balance, channels: null, options.Strength))
@@ -283,11 +297,12 @@ public static class PlanetaryBestStack
     /// (<see cref="PlanetaryLiveLimb.Balance"/>, #1212; null leaves the colours as captured). A <paramref name="strength"/> past one seeds bands
     /// 2 and 3 past the truth (<see cref="PlanetarySharpenOptions.Strength"/>, #1251), as the batch sharpens at it. The gains at every one of
     /// <paramref name="stops"/> are fitted in the same derivation (<see cref="DerivedGains.Stops"/>, #1314), so a viewer switches between them
-    /// without deriving again.
+    /// without deriving again. The balance goes through <paramref name="camera"/>'s matrix when one is given, as the batch's does
+    /// (<see cref="PlanetaryBestStackOptions.CameraMatrix"/>, #1279).
     /// </summary>
     public static DerivedGains DeriveGains(Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope,
         ImmutableArray<double> wavelengthsNm = default, double? colourSaturation = PlanetaryColourBalance.DefaultSaturation, double strength = 1,
-        ImmutableArray<double> stops = default)
+        ImmutableArray<double> stops = default, CameraColour? camera = null)
     {
         ArgumentNullException.ThrowIfNull(master);
         if (telescope is not { } pupil)
@@ -320,7 +335,7 @@ public static class PlanetaryBestStack
                 }
                 // The colour balance the batch gives a master of this planet (#1212), read once here and given to every master drawn.
                 var balance = aligned.ChannelCount == 3 && colourSaturation is { } saturation
-                    ? PlanetaryColourBalance.For(aligned, options.Planet, options.When, saturation).Balance
+                    ? PlanetaryColourBalance.For(aligned, options.Planet, options.When, saturation, camera).Balance
                     : null;
                 return LayerOf(result, options, pupil, balance, channels, strength);
             }
@@ -414,6 +429,7 @@ public static class PlanetaryBestStack
         public PlanetaryFrameLayout Layout => inner.Layout;
         public bool HasTimestamps => inner.HasTimestamps;
         public DateTimeOffset? TimestampOf(int index) => inner.TimestampOf(index);
+        public string? Camera => inner.Camera;
 
         public ValueTask<Image> LoadAsync(int index, CancellationToken cancellationToken = default)
         {

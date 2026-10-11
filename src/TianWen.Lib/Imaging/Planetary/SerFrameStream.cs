@@ -64,6 +64,9 @@ public sealed class SerFrameStream : IPlanetaryFrameStream
     public bool HasTimestamps => _reader.HasTimestamps;
 
     /// <inheritdoc/>
+    public string? Camera => PlanetaryIdentification.CameraName(_reader.Header.Instrument);
+
+    /// <inheritdoc/>
     /// <remarks>A frame the capture stamped zero (SER.Lib reads it as <see cref="DateTimeOffset.MinValue"/>) has no time (#1409).</remarks>
     public DateTimeOffset? TimestampOf(int index)
     {

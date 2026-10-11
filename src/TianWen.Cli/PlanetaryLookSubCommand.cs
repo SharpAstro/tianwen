@@ -68,9 +68,10 @@ internal sealed class PlanetaryLookSubCommand(IConsoleHost consoleHost, MasterPr
                     consoleHost.WriteError($"{masterPath}: no time in its header; give --utc");
                     return 1;
                 }
-                // The planet's disk, and a master left in the camera's colours balanced first: the one routine the viewer's colour
-                // control makes a master ready with (#1277).
-                var (prepared, refusal) = await Task.Run(() => PlanetaryColourLook.Prepare(master, body, instant), ct);
+                // The planet's disk, and a master left in the camera's colours balanced first, through its camera's own matrix as the stack
+                // balances one: the one routine the viewer's colour control makes a master ready with (#1277, #1279).
+                var camera = await PlanetaryColourBalance.CameraColourAsync(master.ImageMeta.Instrument, ct);
+                var (prepared, refusal) = await Task.Run(() => PlanetaryColourLook.Prepare(master, body, instant, camera), ct);
                 if (prepared is not { } ready)
                 {
                     consoleHost.WriteError($"{masterPath}: {refusal}");

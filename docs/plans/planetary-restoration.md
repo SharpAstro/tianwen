@@ -5687,20 +5687,38 @@ binary may be run as a reference, as torchmfbd was.
     cut acted.
   - On the captures with a post the fitted cut starts at 0.08 to 0.14 cycles a pixel, well inside the pupil's cutoff, and three captures
     of four lost more than 0.02 of a band's correlation with the post (the EdgeHD Saturn's band 1 0.549 to 0.512).
-- **E, the camera's own colour matrix before the balance (Kolivas's per-sensor crosstalk matrices), holds, and its default waits on the
-  owner's eye** (`planetary colour --camera`, `PlanetaryColourBalance.GainsThrough`, `Through`, `Apply`'s matrix). The balance becomes
-  gains, then the matrix, then the saturation, the gains solved so the disk mean lands on the target through the matrix. On the five
-  colour captures (2022-10-09, likely the IR-pass session, read but not counted) the matrix lifts the chroma spread 1.45 to 1.52 times,
-  almost exactly the owner's 1.4 by eye: that saturation was standing in for the crosstalk, as #1212 guessed. The spread against OPAL
-  through the core and halo is 1.30, 1.06, 0.93 and 1.12 on the four counted captures (three within 0.8 to 1.25; gains alone 0.90, 0.73,
-  0.64, 0.77). A master needs its camera to resolve its matrix by default, and `planetary stack` does not yet carry the SER's camera into
-  `INSTRUME`.
+
+#### The camera's own colour matrix (#1279, rule E)
+
+**Issues:** #1279; a camera whose sensor has no QE curve, #1525 (the IMX224 of the ASI224MC) and #1526 (the IMX678 of the ASI678MC).
+
+- **E, the camera's own colour matrix before the balance (Kolivas's per-sensor crosstalk matrices), holds, and is the default since the
+  owner's call of 2026-10-12** (`planetary colour --camera` measures it; `PlanetaryColourBalance.GainsThrough`, `Through`, `Apply`'s
+  matrix). The balance becomes gains, then the matrix, then the saturation, the gains solved so the disk mean lands on the target through
+  the matrix. On the five colour captures (2022-10-09, likely the IR-pass session, read but not counted) the matrix lifts the chroma
+  spread 1.45 to 1.52 times, almost exactly the owner's 1.4 by eye: that saturation was standing in for the crosstalk, as #1212 guessed.
+  The spread against OPAL through the core and halo is 1.30, 1.06, 0.93 and 1.12 on the four counted captures (three within 0.8 to 1.25;
+  gains alone 0.90, 0.73, 0.64, 0.77).
+- **A master names its camera, and the balance finds the matrix by that name, once** (`PlanetaryColourBalance.CameraColourAsync`). A
+  stack writes the camera its SER header names into the master's `INSTRUME` (`IPlanetaryFrameStream.Camera`, read by
+  `PlanetaryIdentification.CameraName`, which unpacks FireCapture's packed field; `PlanetaryMasterOptics.Camera` where AUTO identified
+  it), and a live frame names its camera in its own `Instrument`. The batch, the viewer's Auto and Best views, the live view's Derive and
+  a look all resolve it there. The FITS card `CBALCAM` names the camera whose matrix the balance went through; `--colour-matrix none`
+  (`PlanetaryBestStackOptions.CameraMatrix`) is the balance before.
+- **A camera with no QE curve is balanced by its gains alone, and the log says so in one wording** (`PlanetaryColourBalance.WithoutMatrix`).
+  Two of the four captures with a `_post` are such, so their masters now name their cameras and are otherwise the same to the last digit
+  against the post: the 12-inch SCT Jupiter (ASI224MC, #1525) and the EdgeHD Jupiter (ASI678MC, #1526).
+- **On the two that resolve, the masters come closer to the post's colour** (the full chain at today's defaults, 2026-10-12, against
+  2026-10-11's). The post's chroma spread over the master's, linear and as shown: the EdgeHD Saturn (ASI183MC) 3.90 to 3.04 and 2.49 to
+  1.87; the 16-inch Saturn (Uranus-C) 5.50 to 4.25 and 3.27 to 2.21. The disk's mean is where it was (0.0753 to 0.0752 and 0.0423 to
+  0.0416 from the post's), since the gains put it on the target either way. The detail moves little: each band's ratio to the post falls
+  0.3 to 1.6 % (the EdgeHD Saturn's band 1 0.380 to 0.374), the matrix mixing the channels the sharpening read one at a time.
 - **Found on the way: the spectral camera matrix was not a fit.** `CameraColorMatrix.ComputeCamXyz` took each channel's projection
   onto the CIE matching functions; the response is the least-squares fit, the projections through the inverse of the functions' Gram
   matrix. Without it red read nearly as green and every derived matrix came out ill-conditioned (the ASI462MC's red row 10.78 and -10.78,
   so E's first reading lifted the chroma ten times). Checked against dcraw's measured EOS 5D Mark II matrix, every element now within
-  0.28 (red row 1.94, -1.04, 0.10 against 2.07, -1.32, 0.25). Nothing shipped applied the matrix: the Canon import records it in
-  `ImageMeta.CameraToSrgbMatrix` and nothing reads that.
+  0.28 (red row 1.94, -1.04, 0.10 against 2.07, -1.32, 0.25). Until rule E's default nothing shipped applied the matrix: the Canon
+  import records it in `ImageMeta.CameraToSrgbMatrix`, and nothing reads that still (the planetary balance resolves its own, by name).
 
 
 ## R9 A learned stage, only if the measurements say so
@@ -5887,7 +5905,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   it last, `PlanetaryLiveLimb.Balance`). **Its saturation is 1 by default and 1.4 an option** (the owner, 2026-10-06; `EyeSaturation`,
   `--colour-saturation`): shown, 1.4 moved each pixel 0.002 to 0.003 in OKLab, a tenth of what the eye tells, and the camera's own matrix
   (`planetary colour --camera`, `PlanetaryColourBalance.GainsThrough`, #1279 rule E) lifts the chroma 1.45 to 1.52 times as invisibly; Jupiter's
-  true colour is that pale, and what is SEEN is the look (#1273, #1277). **A camera matrix from spectral curves is a least-squares FIT onto the CIE functions**
+  true colour is that pale, and what is SEEN is the look (#1273, #1277). **The balance goes through that matrix by default** (the owner,
+  2026-10-12), found by the camera the master's `INSTRUME` names, which a stack carries over from its SER header; a camera with no QE curve
+  is balanced by its gains alone (#1525, #1526): "The camera's own colour matrix (#1279, rule E)" above. **A camera matrix from spectral curves is a least-squares FIT onto the CIE functions**
   (`CameraColorMatrix.ComputeCamXyz`, through their Gram inverse), never the curves' projections, which read red as green (a 5D Mark II's red
   row came out 11.99 and -12.07 against dcraw's measured 2.07 and -1.32; pinned against dcraw in `CameraColorMatrixTests`). **Saturn's globe is read where its rings leave it clear** (S6, #1235; `MetricDisk.RingTouched`, the rings
   take the globe's gains), and **an OPAL apparition's I/F factors come from its own readme** (`PlanetaryColour.ReadmeFilters`), never a

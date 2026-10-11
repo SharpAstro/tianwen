@@ -183,6 +183,11 @@ internal sealed class PlanetaryStackSubCommand(
         {
             Description = "Leave a colour master's colours as the camera recorded them. Off under --legacy.",
         };
+        var colourMatrixOpt = new Option<string>("--colour-matrix")
+        {
+            Description = "What the colour balance goes through after its gains (#1279): camera (the default: the camera's own matrix, from its sensor's QE and the CFA's curves, found by the master's INSTRUME, which the stack writes from the SER header; the FITS card CBALCAM names it, and a camera the curves do not know is balanced by its gains alone) or none (the gains alone, the balance before 2026-10-12).",
+            DefaultValueFactory = _ => "camera",
+        };
         var noSharpenOpt = new Option<bool>("--no-sharpen")
         {
             Description = "Skip sharpening. By default the master is sharpened into a separate master_*_sharpened.fits and the PNG: by gains derived from the stack through the limb's edge when the telescope is given (--aperture-mm or --telescope, R8), else by PlanetaryDefault with the limb kept as stacked; the raw linear master is never sharpened.",
@@ -315,7 +320,7 @@ internal sealed class PlanetaryStackSubCommand(
             Options =
             {
                 outputOpt, labelOpt, keepOpt, pointKeepOpt, gradeCacheOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt,
-                noPerPointOpt, noSignalGateOpt, noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt,
+                noPerPointOpt, noSignalGateOpt, noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt, colourMatrixOpt,
                 noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, strengthOpt, sharpenLuminanceOpt, channelLimbOpt, limbKOpt, edgeReachOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt, reportOpt, reportOnlyOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt, meshRegularizationOpt, estimatorOpt, correlationOpt, interpolationOpt,
                 referenceFramesOpt, derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, northOpt, eachFileOpt, legacyOpt, truthOpt, halvesOpt, sessionOpt, manifestOpt, epochOpt,
@@ -327,7 +332,7 @@ internal sealed class PlanetaryStackSubCommand(
         Option[] autoRefuses =
         [
             keepOpt, pointKeepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt, noPerPointOpt, noSignalGateOpt,
-            noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt, noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, fixOpt, strengthOpt,
+            noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt, colourMatrixOpt, noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, fixOpt, strengthOpt,
             sharpenLuminanceOpt, channelLimbOpt, limbKOpt, edgeReachOpt, pupil.Obstruction, tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt,
             meshRegularizationOpt, estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt, derotateOpt, noDerotateOpt, turnNorthOverOpt, northOpt, eachFileOpt,
             legacyOpt, truthOpt, halvesOpt, epochOpt, reportOnlyOpt,
@@ -385,6 +390,12 @@ internal sealed class PlanetaryStackSubCommand(
                 return 1;
             }
 
+            var colourMatrix = (parseResult.GetValue(colourMatrixOpt) ?? "camera").ToLowerInvariant();
+            if (colourMatrix is not ("camera" or "none"))
+            {
+                consoleHost.WriteError($"--colour-matrix {colourMatrix}: camera or none");
+                return 1;
+            }
             var legacy = parseResult.GetValue(legacyOpt);
             var baseline = legacy ? PlanetaryStackOptions.Legacy : new PlanetaryStackOptions();
             var keep = parseResult.GetValue(keepOpt)
@@ -813,9 +824,18 @@ internal sealed class PlanetaryStackSubCommand(
 
                 // A colour master of Jupiter or Saturn is balanced to that planet's own colour (#1212, S6 #1235): the stack as written, and the sharpening once it has
                 // read each channel's edge through that channel's own diffraction (the saturation mixes the channels).
-                var (balance, howBalanced) = legacy || parseResult.GetValue(noColourBalanceOpt)
+                // Through the camera's own matrix, found by the INSTRUME the stack wrote from the SER header (#1279).
+                var unbalanced = legacy || parseResult.GetValue(noColourBalanceOpt);
+                var camera = unbalanced || colourMatrix == "none" || master.ChannelCount != 3
+                    ? null
+                    : await PlanetaryColourBalance.CameraColourAsync(master.ImageMeta.Instrument, ct);
+                if (!unbalanced && colourMatrix == "camera" && master.ChannelCount == 3 && camera is null)
+                {
+                    consoleHost.WriteScrollable($"[planetary] {PlanetaryColourBalance.WithoutMatrix(master.ImageMeta.Instrument)}");
+                }
+                var (balance, howBalanced) = unbalanced
                     ? (null, "colours left as captured")
-                    : PlanetaryColourBalance.For(master, planet, result.Epoch, parseResult.GetValue(colourSaturationOpt));
+                    : PlanetaryColourBalance.For(master, planet, result.Epoch, parseResult.GetValue(colourSaturationOpt), camera);
                 var written = balance?.Apply(master) ?? master;
                 var (masterFits, sharpenedFits) = PlanetaryBestStack.OutputPaths(runDir, baseName, prefix);
                 written.WriteToFitsFile(masterFits, null, balance?.HeaderCards());

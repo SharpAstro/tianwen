@@ -29,7 +29,7 @@ public static class PlanetaryAuto
             Stack = new PlanetaryStackOptions
             {
                 Optics = new PlanetaryMasterOptics(identity.TelescopeName ?? "", identity.ApertureMm,
-                    identity.Layout == PlanetaryFrameLayout.Mono ? identity.Filter : null),
+                    identity.Layout == PlanetaryFrameLayout.Mono ? identity.Filter : null, identity.Camera),
             },
         };
     }

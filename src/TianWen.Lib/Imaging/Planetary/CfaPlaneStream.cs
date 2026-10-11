@@ -64,6 +64,9 @@ public sealed class CfaPlaneStream : IPlanetaryFrameStream
     public bool HasTimestamps => _source.HasTimestamps;
 
     /// <inheritdoc/>
+    public string? Camera => _source.Camera;
+
+    /// <inheritdoc/>
     public DateTimeOffset? TimestampOf(int index) => _source.TimestampOf(index);
 
     /// <inheritdoc/>

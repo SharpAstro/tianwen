@@ -39,9 +39,10 @@ public enum PlanetaryPointEstimator
 
 /// <summary>
 /// What a planetary master says of the optics it was taken through (<see cref="PlanetaryStackOptions.Optics"/>): the telescope's name
-/// (<c>254 mm Newtonian</c>, empty for none), its aperture in mm (none when null) and the filter's name (the frames' own when null).
+/// (<c>254 mm Newtonian</c>, empty for none), its aperture in mm (none when null), the filter's name (the frames' own when null) and the
+/// camera's (the stream's own when null, <see cref="IPlanetaryFrameStream.Camera"/>; #1279).
 /// </summary>
-public sealed record PlanetaryMasterOptics(string Telescope, int? ApertureMm, string? Filter);
+public sealed record PlanetaryMasterOptics(string Telescope, int? ApertureMm, string? Filter, string? Camera = null);
 
 /// <summary>
 /// Options for a planetary lucky-imaging stack. The defaults are the measured best of docs/plans/planetary-restoration.md, R4 to R6

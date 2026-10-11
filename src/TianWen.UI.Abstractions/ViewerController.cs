@@ -1368,7 +1368,9 @@ public sealed class ViewerController(
         state.PlanetaryLookNote = null;
         _lookTask = Task.Run(async () =>
         {
-            var (looked, refusal) = PlanetaryColourLook.OnMaster(image, planet, instant, look);
+            // A master left in the camera's colours is balanced through its camera's own matrix, as the stack balances one (#1279).
+            var camera = await PlanetaryColourBalance.CameraColourAsync(image.ImageMeta.Instrument, token).ConfigureAwait(false);
+            var (looked, refusal) = PlanetaryColourLook.OnMaster(image, planet, instant, look, camera);
             if (looked is null)
             {
                 return (null as AstroImageDocument, refusal);

@@ -91,14 +91,16 @@ internal sealed class WaveletDerivation : IDisposable
         state.NeedsRedraw = true;
         Started++;
         var token = _cts.Token;
-        _task = Task.Run(() =>
+        _task = Task.Run(async () =>
         {
             using (lease)
             {
                 token.ThrowIfCancellationRequested();
+                // The balance through the camera's own matrix, as the batch's (#1279): a live frame names its camera in its Instrument.
+                var camera = await PlanetaryColourBalance.CameraColourAsync(lease.Image.ImageMeta.Instrument, token).ConfigureAwait(false);
                 // Every stop's gains in the one derivation, so a stop chosen after it switches the dials at once (#1314).
                 return PlanetaryBestStack.DeriveGains(lease.Image, planet, epoch, pupil, wavelengths, strength: strength,
-                    stops: PlanetarySharpening.StrengthStops);
+                    stops: PlanetarySharpening.StrengthStops, camera: camera);
             }
         }, token);
     }

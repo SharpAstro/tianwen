@@ -207,9 +207,11 @@ public static class PlanetaryColourLook
     /// planet's limb fitted at <paramref name="instant"/> for the disk the look reads its colour over, and a master left in the camera's colours
     /// balanced to the planet's colour first, as <c>planetary stack</c> balances it, since on the camera's tint the curve would raise the tint,
     /// most of every pixel's chroma. Where it balanced, <see cref="PreparedMaster.Balance"/> is the balance and its image is a new one the caller
-    /// owns; otherwise its image is <paramref name="master"/>. A refusal says why the master could not be made ready.
+    /// owns; otherwise its image is <paramref name="master"/>. A refusal says why the master could not be made ready. A balance made here goes
+    /// through <paramref name="camera"/>'s matrix when one is given, as the stack's does (<see cref="PlanetaryColourBalance.CameraColourAsync"/>,
+    /// #1279).
     /// </summary>
-    public static (PreparedMaster? Prepared, string? Refusal) Prepare(Image master, CatalogIndex planet, DateTimeOffset instant)
+    public static (PreparedMaster? Prepared, string? Refusal) Prepare(Image master, CatalogIndex planet, DateTimeOffset instant, CameraColour? camera = null)
     {
         ArgumentNullException.ThrowIfNull(master);
         if (master.ChannelCount != 3)
@@ -231,7 +233,7 @@ public static class PlanetaryColourLook
             return (new PreparedMaster(master, limb.Disk, limb.Options, Balance: null), null);
         }
         // Over the disk just fitted: a second fit of the same limb was seconds for nothing.
-        var (balance, how) = PlanetaryColourBalance.For(master, planet, limb.Disk);
+        var (balance, how) = PlanetaryColourBalance.For(master, planet, limb.Disk, camera: camera);
         return balance is null
             ? (null, $"not colour balanced, and it could not be balanced ({how})")
             : (new PreparedMaster(balance.Apply(master), limb.Disk, limb.Options, balance), null);
@@ -241,10 +243,11 @@ public static class PlanetaryColourLook
     /// <paramref name="master"/> with <paramref name="look"/> on it, made ready by <see cref="Prepare"/>: the viewer's colour control on a
     /// master it shows (#1277). A new image the caller owns, <paramref name="master"/> untouched; or a refusal.
     /// </summary>
-    public static (Image? Looked, string? Refusal) OnMaster(Image master, CatalogIndex planet, DateTimeOffset instant, ColourLook look)
+    public static (Image? Looked, string? Refusal) OnMaster(Image master, CatalogIndex planet, DateTimeOffset instant, ColourLook look,
+        CameraColour? camera = null)
     {
         ArgumentNullException.ThrowIfNull(look);
-        var (prepared, refusal) = Prepare(master, planet, instant);
+        var (prepared, refusal) = Prepare(master, planet, instant, camera);
         if (prepared is not { } ready)
         {
             return (null, refusal);

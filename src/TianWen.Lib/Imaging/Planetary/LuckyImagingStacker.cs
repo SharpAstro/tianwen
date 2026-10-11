@@ -749,6 +749,12 @@ public sealed class LuckyImagingStacker
                     Filter = optics.Filter is { } filter ? Filter.FromName(filter) : masterMeta.Filter,
                 };
             }
+            // And the camera that took it, as its INSTRUME: a SER frame carries no camera of its own, and the balance finds the camera's
+            // colour matrix by it (#1279).
+            if ((options.Optics?.Camera ?? stream.Camera) is { Length: > 0 } camera)
+            {
+                masterMeta = masterMeta with { Instrument = camera };
+            }
             // Each point's patch of the stacked reference, which a point keep scores every frame's against (#1350).
             var pointReferences = options.PointKeep is not null && matcher is { } pointMatcher
                 ? PlanetaryPointKeep.ReferencePatches(reference, pointMatcher.AlignmentPoints)

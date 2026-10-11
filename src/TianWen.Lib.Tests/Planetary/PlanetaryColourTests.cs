@@ -279,10 +279,9 @@ public class PlanetaryColourTests
         }
     }
 
-    [Fact(Timeout = 300_000)]
-    public async Task AColourJupiterIsBalancedAtTheOwnersSaturationAndAnythingElseSaysWhyNot()
+    // A Jupiter of one colour through a camera's colour cast and sky, and the disk it was drawn in.
+    private static (Image Master, MetricDisk Disk) CameraTintedJupiter()
     {
-        var ct = TestContext.Current.CancellationToken;
         var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
         var placement = new DiskPlacement(119.5, 121.2, 70, NorthAngleDeg: -80);
         var render = PlanetaryRender.Render(new PlanetMap(Uniform(1f), 360, 180), aspect, placement, 240, 240, minnaertK: 0.9);
@@ -297,19 +296,61 @@ public class PlanetaryColourTests
             }
         }
         var master = new Image(planes, BitDepth.Float32, 1, 0, 0, new ImageMeta { SensorType = SensorType.Color });
+        var disk = new MetricDisk(placement.CenterX, placement.CenterY, placement.EquatorialRadius, PlanetaryLimbFit.OptionsFor(aspect).AxisRatio, placement.NorthAngleDeg);
+        return (master, disk);
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task AColourJupiterIsBalancedAtTheOwnersSaturationAndAnythingElseSaysWhyNot()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (master, disk) = CameraTintedJupiter();
 
         var (balance, how) = await Task.Run(() => PlanetaryColourBalance.For(master, CatalogIndex.Jupiter, Night), ct);
         TestContext.Current.TestOutputHelper?.WriteLine(how);
         var applied = balance.ShouldNotBeNull().Apply(master);
         balance.Saturation.ShouldBe(PlanetaryColourBalance.DefaultSaturation);
         balance.HeaderCards()["CBALSAT"].Value.ShouldBe(PlanetaryColourBalance.DefaultSaturation);
-        var disk = new MetricDisk(placement.CenterX, placement.CenterY, placement.EquatorialRadius, PlanetaryLimbFit.OptionsFor(aspect).AxisRatio, placement.NorthAngleDeg);
+        balance.HeaderCards().ContainsKey(ColourBalance.CameraCard).ShouldBeFalse("no camera given, no matrix");
         var mean = PlanetaryColour.DiskMean(applied.GetChannelSpan(0), applied.GetChannelSpan(1), applied.GetChannelSpan(2), 240, 240, disk, default);
         mean.ChromaDistance(PlanetaryColourBalance.JupiterDiskColour).ShouldBeLessThan(1e-4, "saturated about the disk's own colour, a disk of one colour keeps it");
 
         PlanetaryColourBalance.For(master, CatalogIndex.Mars, Night).Balance.ShouldBeNull();
-        var mono = new Image([planes[1]], BitDepth.Float32, 1, 0, 0, new ImageMeta());
+        var mono = new Image([master.GetChannelArray(1)], BitDepth.Float32, 1, 0, 0, new ImageMeta());
         PlanetaryColourBalance.For(mono, CatalogIndex.Jupiter, Night).Balance.ShouldBeNull();
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task AColourJupiterIsBalancedThroughTheCamerasOwnMatrixWhichItsHeaderNames()
+    {
+        // The camera's own matrix in the balance (#1279, the owner's call of 2026-10-12): found by the name a header gives the camera, even
+        // FireCapture's packed field; the gains read through it put the disk on Jupiter's colour after the matrix; the balance and its cards
+        // name the camera; and a camera the curves do not know, or none at all, has no matrix.
+        var ct = TestContext.Current.CancellationToken;
+        var camera = (await PlanetaryColourBalance.CameraColourAsync("ZWO ASI462MC", ct)).ShouldNotBeNull();
+        camera.Camera.ShouldBe("ZWO ASI462MC");
+        camera.Matrix.Length.ShouldBe(9);
+        (await PlanetaryColourBalance.CameraColourAsync("Camera=ZWO ASI462MC temp=21.5", ct)).ShouldNotBeNull().Matrix.ShouldBe(camera.Matrix);
+        (await PlanetaryColourBalance.CameraColourAsync("a camera nobody knows", ct)).ShouldBeNull();
+        (await PlanetaryColourBalance.CameraColourAsync(null, ct)).ShouldBeNull();
+        // Two cameras behind captures with a _post have no QE curve, so their balance is by the gains alone, and says so (#1525, #1526:
+        // a curve for either turns its assertion here).
+        (await PlanetaryColourBalance.CameraColourAsync("ZWO ASI224MC", ct)).ShouldBeNull();
+        (await PlanetaryColourBalance.CameraColourAsync("ZWO ASI678MC", ct)).ShouldBeNull();
+        PlanetaryColourBalance.WithoutMatrix("ZWO ASI224MC").ShouldContain("no colour matrix is known for the camera ZWO ASI224MC");
+        PlanetaryColourBalance.WithoutMatrix(null).ShouldContain("names no camera");
+
+        var (master, disk) = CameraTintedJupiter();
+        var (balance, how) = await Task.Run(() => PlanetaryColourBalance.For(master, CatalogIndex.Jupiter, Night, camera: camera), ct);
+        TestContext.Current.TestOutputHelper?.WriteLine(how);
+        how.ShouldContain("through the ZWO ASI462MC's matrix");
+        balance.ShouldNotBeNull().Camera.ShouldBe(camera);
+        balance.HeaderCards()[ColourBalance.CameraCard].Value.ShouldBe("ZWO ASI462MC");
+        var applied = balance.Apply(master);
+        var mean = PlanetaryColour.DiskMean(applied.GetChannelSpan(0), applied.GetChannelSpan(1), applied.GetChannelSpan(2), 240, 240, disk, default);
+        mean.ChromaDistance(PlanetaryColourBalance.JupiterDiskColour).ShouldBeLessThan(1e-4, "through the matrix, the disk lands on Jupiter's colour");
+        var gainsAlone = PlanetaryColourBalance.For(master, CatalogIndex.Jupiter, Night).Balance.ShouldNotBeNull();
+        balance.Gains.ShouldNotBe(gainsAlone.Gains, "the gains are read through the matrix, so they differ from a gain a channel alone");
     }
 
     [Fact(Timeout = 300_000)]
