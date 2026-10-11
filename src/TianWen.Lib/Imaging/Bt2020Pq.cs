@@ -171,6 +171,17 @@ public static class Bt2020Pq
             : MathF.Pow((v + 0.055f) / 1.055f, 2.4f);
 
     /// <summary>
+    /// sRGB OETF, the inverse of <see cref="SrgbEotf"/>: maps a linear sRGB intensity in [0, 1] to its perceptual code
+    /// value, clamping outside that range. Kept beside the EOTF so the two directions have one home.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static float SrgbOetf(float linear)
+    {
+        var l = Math.Clamp(linear, 0f, 1f);
+        return l <= 0.0031308f ? l * 12.92f : 1.055f * MathF.Pow(l, 1f / 2.4f) - 0.055f;
+    }
+
+    /// <summary>
     /// SMPTE ST 2084 (PQ) OETF -- maps a linear luminance value in [0, 1]
     /// (where 1.0 = 10000 nits) to a PQ-encoded code value in [0, 1].
     /// Constants from SMPTE ST 2084-2014 Annex.

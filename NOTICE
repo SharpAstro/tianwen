@@ -74,6 +74,12 @@ Embedded data
   fake camera's synthetic planetary capture: NASA / ESA Hubble OPAL 2024, public
   domain. https://science.nasa.gov/asset/hubble/jupiter-opal-2024/
 
+  Milky Way background of the sky map (`TianWen.UI.Gui/Resources/milkyway.bgra.lz`,
+  and the browser's `milkyway.png` derived from it): NASA/Goddard Space Flight Center
+  Scientific Visualization Studio, "Deep Star Maps 2020", the Milky Way background
+  without the Hipparcos and Tycho stars; its Gaia DR2 data: ESA/Gaia/DPAC.
+  https://svs.gsfc.nasa.gov/4851 -- converted by `tools/import_svs_milkyway.cs`.
+
   Star, deep-sky and spectral catalogues under `Astrometry/Catalogs/` retain the
   terms of their upstream sources (Tycho-2, OpenNGC, SIMBAD, Pickles); see the
   fetch scripts beside them for the origin of each.
