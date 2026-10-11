@@ -35,6 +35,17 @@ THE CHECKS, each with the incident behind it:
 * **edge**      A border band darker or brighter than the interior. The partial-coverage ramp that
                  the crop is supposed to remove: the edge walk REFUSES an edge whose band never
                  settles, and a refusal keeps the ramp, which a background model then fits.
+* **sky**        The SKY's colour, apart from the frame's: the spread of its channel medians, the sky
+                 being the darkest blocks by block median. `cast` reads the whole frame and so a nebula's
+                 colour too; this reads only what should be neutral. The faults it was written for: a
+                 3 nm eta Car rendered as a red sheet (the background scan measured the nebula), magenta
+                 stars over a grey sky (SCNR on unbalanced colour), and a teal sky round dust shadows on
+                 an uncalibrated master (no flats, no bias: a DATA limit, which this names and cannot fix).
+                 On the enhanced view only, the one whose background was corrected.
+* **vignette**   Dark corners left in the RAW view, which is the master as calibrated: the flat did not
+                 fit the optical train, or there was none. Read against the edge midpoints, never the
+                 centre where the target is. A flat proven by its header cards always passes; one admitted
+                 on its capture date alone can correct nothing (an ASI294MC Orion, flat 14 days later).
 * **speck**      Pixels with one channel pinned high beside one near black, counted at FULL
                  resolution. An interior NaN in the master renders as a blue-and-yellow blob; 1,853
                  of them sat on the Trapezium of the Great Orion master and the USER found it, not
@@ -95,6 +106,61 @@ SPECK_MIN_PIXELS = 50
 # second a channel to no purpose. The speck check is the exception and reads full resolution.
 WORK_EDGE = 900
 
+# The SKY's colour, which `cast` cannot see: cast is a whole-frame mean, and a nebula-filled frame is
+# coloured there by its nebula, correctly. The sky is the blocks whose median luma lies between the 5th
+# and 25th percentile, chosen by BLOCK median and never by pixel: a pixel picked for being dark is dark
+# partly by its own noise, and luma weights green most, so a per-pixel choice reads green low on any
+# noisy frame (it put three narrowband cards at twice their real spread). The spread is max - min of the
+# sky's channel medians over their mean.
+#
+# JUDGED ON THE ENHANCED VIEW ONLY, which is gradient-corrected: a raw view's sky carries the master's
+# light-pollution gradient by design (the M42 ASI294MC raw half reads 1.23 and its enhanced half 0.05).
+# MEASURED over the 194-card 2026-09-29-full store after the render fixes of #1517 and #1520: enhanced
+# p50 0.080, p90 0.205, p99 0.322, and the highest of the population 0.33, a 24 mm Milky Way field whose
+# darkest blocks are still starlight. The faults this exists for read far above: the red eta Car 1.37
+# to 1.44, the uncalibrated Helix 0.81 to 1.04. 0.40 sits between with room either way.
+SKY_BLOCK = 16
+SKY_CHROMA = 0.40
+
+# Residual VIGNETTING on the raw view, which is the master as calibrated: the sky in the four corners
+# against the sky at the four edge midpoints, as a deficit of the latter. Corners against edges and never
+# against the centre, where the target sits (a Lagoon with its own same-night flat read +0.6 against the
+# centre). A flat that fits the optical train leaves almost nothing; one that does not leaves the vignette.
+# MEASURED over the same store: flats whose train the header cards prove, 147 masters, p50 +0.010, p90
+# +0.077, max +0.145; flats proven by the capture date alone, 29, max +0.965 (an ASI294MC Orion whose flat
+# is 14 days later: it corrects nothing); no flat, 18, p50 +0.157. 0.20 sits above every card-proven flat.
+VIGNETTE_DEFICIT = 0.20
+
+
+def corner_deficit(a):
+    """The corners' sky against the edge midpoints' sky, as the latter's fractional deficit, on (h, w, 3)."""
+    luma = 0.2126 * a[..., 0] + 0.7152 * a[..., 1] + 0.0722 * a[..., 2]
+    h, w = luma.shape[0] // SKY_BLOCK * SKY_BLOCK, luma.shape[1] // SKY_BLOCK * SKY_BLOCK
+    if h == 0 or w == 0:
+        return 0.0
+    med = np.median(luma[:h, :w].reshape(h // SKY_BLOCK, SKY_BLOCK, w // SKY_BLOCK, SKY_BLOCK), axis=(1, 3))
+    rows, cols = med.shape
+    q = max(2, min(rows, cols) // 8)
+    sky = lambda region: float(np.percentile(region, 20))
+    corners = np.mean([sky(med[:q, :q]), sky(med[:q, -q:]), sky(med[-q:, :q]), sky(med[-q:, -q:])])
+    edges = np.mean([sky(med[:q, cols // 2 - q:cols // 2 + q]), sky(med[-q:, cols // 2 - q:cols // 2 + q]),
+                     sky(med[rows // 2 - q:rows // 2 + q, :q]), sky(med[rows // 2 - q:rows // 2 + q, -q:])])
+    return (edges - corners) / max(1e-6, edges)
+
+
+def sky_colour(a):
+    """The sky's channel medians and their spread, on an (h, w, 3) display array."""
+    h, w = a.shape[0] // SKY_BLOCK * SKY_BLOCK, a.shape[1] // SKY_BLOCK * SKY_BLOCK
+    if h == 0 or w == 0:
+        return None, 0.0
+    blocks = a[:h, :w].reshape(h // SKY_BLOCK, SKY_BLOCK, w // SKY_BLOCK, SKY_BLOCK, 3)
+    med = np.median(blocks, axis=(1, 3))
+    luma = 0.2126 * med[..., 0] + 0.7152 * med[..., 1] + 0.0722 * med[..., 2]
+    lo, hi = np.percentile(luma, [5, 25])
+    sky = (luma >= lo) & (luma <= hi)
+    rgb = [float(np.median(med[..., c][sky])) for c in range(3)]
+    return rgb, (max(rgb) - min(rgb)) / max(1e-6, sum(rgb) / 3)
+
 
 def measure(path):
     im = Image.open(path).convert("RGB")
@@ -121,6 +187,16 @@ def measure(path):
         delta = (means[n] - sum(others) / 2) / overall
         if abs(delta) > CAST_RATIO:
             flags.append(f"cast:{n}{delta:+.2f}")
+
+    name = os.path.basename(path)
+    if name.endswith("_enhanced.png"):
+        sky_rgb, sky_spread = sky_colour(a)
+        if sky_rgb is not None and sky_spread > SKY_CHROMA:
+            flags.append(f"sky:{sky_spread:.2f}(R {sky_rgb[0]:.0f} G {sky_rgb[1]:.0f} B {sky_rgb[2]:.0f})")
+    elif name.endswith("_raw.png"):
+        deficit = corner_deficit(a)
+        if deficit > VIGNETTE_DEFICIT:
+            flags.append(f"vignette:{deficit:+.2f}")
 
     # The band is compared against the INTERIOR's own spread, not against a fixed level: these
     # frames differ by orders of magnitude in sky brightness and a fixed threshold would flag the
