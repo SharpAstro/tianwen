@@ -57,6 +57,10 @@ public static class SessionDiscovery
         /// constructor parameter: this record is public surface in a packed library, and a defaulted
         /// positional parameter is a binary break.</summary>
         public int RejectedAtCapture { get; init; }
+
+        /// <summary>The sessions <see cref="DatasetBuildOptions.ExcludedSessions"/> left out, by id, so a
+        /// listed id that names none of them can be reported (a typo there is a session silently kept).</summary>
+        public ImmutableArray<string> ExcludedSessionIds { get; init; } = [];
     }
 
     /// <summary>
@@ -178,6 +182,10 @@ public static class SessionDiscovery
         }
 
         int tooSmall = 0, lightCount = 0;
+        var excludedIds = options.ExcludedSessions.IsDefaultOrEmpty
+            ? null
+            : new HashSet<string>(options.ExcludedSessions, StringComparer.Ordinal);
+        var excluded = ImmutableArray.CreateBuilder<string>();
         var sessions = ImmutableArray.CreateBuilder<ImagingSession>();
         foreach (var ((sessionDir, camera, target, filterName), (root, lights)) in bySession)
         {
@@ -188,15 +196,27 @@ public static class SessionDiscovery
             }
             lights.Sort(static (a, b) => a.Meta.ExposureStartTime.CompareTo(b.Meta.ExposureStartTime));
             var relative = Path.GetRelativePath(root, sessionDir).Replace(Path.DirectorySeparatorChar, '/');
-            sessions.Add(new ImagingSession(sessionDir, relative, camera, target, filterName, [.. lights]));
+            var session = new ImagingSession(sessionDir, relative, camera, target, filterName, [.. lights]);
+            // Left out HERE, before anything downstream sees the session: the split, the build and the
+            // listing all take their sessions from this list, so one gate keeps it out of all three.
+            if (DatasetSplitWriter.NamesSession(excludedIds, session.Id))
+            {
+                excluded.Add(session.Id);
+                continue;
+            }
+            sessions.Add(session);
             lightCount += lights.Count;
         }
         // Deterministic order regardless of dictionary iteration: by portable id.
         sessions.Sort(static (a, b) => string.CompareOrdinal(a.Id, b.Id));
+        excluded.Sort(StringComparer.Ordinal);
 
         var stats = new DiscoveryStats(
             frames.Count, notLight, exposureOut, instrumentExcluded, softwareExcluded, objectExcluded, pathExcluded,
-            noSessionDir, productExcluded, duplicates, tooSmall, sessions.Count, lightCount);
+            noSessionDir, productExcluded, duplicates, tooSmall, sessions.Count, lightCount)
+        {
+            ExcludedSessionIds = excluded.ToImmutable(),
+        };
         return (sessions.ToImmutable(), stats);
     }
 

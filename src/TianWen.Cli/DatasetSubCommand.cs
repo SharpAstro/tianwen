@@ -65,7 +65,9 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         var parametersOpt = new Option<string>("--parameters")
         {
             Description = "Path to dataset-parameters.json, the dataset's STANDING decisions (held-out " +
-                          "sessions with their reasons, extra path exclusions). Defaults to that name " +
+                          "sessions and excluded sessions, each with its reason; extra path exclusions). " +
+                          "An excluded session is in neither the training nor the test set, and only " +
+                          "this file can exclude one. Defaults to that name " +
                           "in the working directory; a missing file is not an error. Command-line " +
                           "options WIN over the file, so a one-off run needs no edit to it.",
             DefaultValueFactory = _ => DatasetParameters.FileName,
@@ -364,6 +366,14 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     $"[dataset] {parameters.HeldOutSessions.Length} held-out session(s) from {parametersPath}");
             }
 
+            if (!parameters.ExcludedSessions.IsDefaultOrEmpty)
+            {
+                // File only, by design: a session left out of the dataset is a standing decision, not a run's.
+                options = options with { ExcludedSessions = parameters.ExcludedSessionIds };
+                consoleHost.WriteScrollable(
+                    $"[dataset] {parameters.ExcludedSessions.Length} excluded session(s) from {parametersPath}");
+            }
+
             if (!parameters.ExcludePathSegments.IsDefaultOrEmpty)
             {
                 options = options with { ExcludePathSegments = options.ExcludePathSegments.AddRange(parameters.ExcludePathSegments) };
@@ -407,6 +417,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 $"{stats.ObjectExcluded} excluded-object, " +
                 $"{stats.PathExcluded} excluded-path, " +
                 (stats.RejectedAtCapture > 0 ? $"{stats.RejectedAtCapture} rejected-at-capture (BAD_ prefix), " : "") +
+                (stats.ExcludedSessionIds.Length > 0 ? $"{stats.ExcludedSessionIds.Length} excluded session(s) (dataset parameters), " : "") +
                 (stats.NoSessionDir > 0
                     ? $"{stats.NoSessionDir} no-session-dir (frames sitting under a frame-type folder " +
                       "directly at the root: point --archive-root one level deeper, at the tree that " +

@@ -218,6 +218,49 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public void GivenAnExcludedSessionId_WhenGrouping_ThenItIsLeftOutAndNamed()
+        {
+            var options = Options() with { ExcludedSessions = ["2026-01-23|ZWO ASI533MC Pro|Vela SNR"] };
+            var (sessions, stats) = Group(options,
+            [
+                (Frame("2026-01-23/LIGHT/a1.fits", objectName: "HD 71272", start: T(0)), Root),
+                (Frame("2026-01-23/LIGHT/v1.fits", objectName: "Vela SNR", start: T(1)), Root),
+                (Frame("2026-01-23/LIGHT/v2.fits", objectName: "Vela SNR", start: T(2)), Root),
+            ]);
+
+            sessions.ShouldHaveSingleItem().Target.ShouldBe("HD 71272");
+            stats.ExcludedSessionIds.ShouldBe(["2026-01-23|ZWO ASI533MC Pro|Vela SNR"]);
+            stats.Sessions.ShouldBe(1);
+            stats.Lights.ShouldBe(1);
+        }
+
+        [Fact]
+        public void GivenAnExcludedIdFromBeforeTheSessionGainedAFilter_WhenGrouping_ThenItStillExcludes()
+        {
+            // The id an exclusion was written against keeps naming the session after a curation pass writes its
+            // FILTER card, as a held-out id does: otherwise the header merge would quietly put it back.
+            var options = Options() with { ExcludedSessions = ["2026-01-23|ZWO ASI533MC Pro|Vela SNR"] };
+            var (sessions, stats) = Group(options,
+            [
+                (Frame("2026-01-23/LIGHT/v1.fits", objectName: "Vela SNR", filterName: "Luminance", start: T(0)), Root),
+                (Frame("2026-01-23/LIGHT/v2.fits", objectName: "Vela SNR", filterName: "Luminance", start: T(1)), Root),
+            ]);
+
+            sessions.ShouldBeEmpty();
+            stats.ExcludedSessionIds.ShouldHaveSingleItem().ShouldStartWith("2026-01-23|ZWO ASI533MC Pro|Vela SNR|");
+        }
+
+        [Fact]
+        public void GivenNoExcludedSessions_WhenGrouping_ThenNothingIsLeftOut()
+        {
+            var (sessions, stats) = Group(Options(),
+                [(Frame("2026-01-23/LIGHT/v1.fits", objectName: "Vela SNR"), Root)]);
+
+            sessions.ShouldHaveSingleItem();
+            stats.ExcludedSessionIds.ShouldBeEmpty();
+        }
+
+        [Fact]
         public void GivenLooseLightsInATargetDir_WhenGrouping_ThenSessionIsTheContainingDir()
         {
             var (sessions, _) = Group(Options(),
