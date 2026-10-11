@@ -143,6 +143,25 @@ public enum PlanetaryUnderSky
 }
 
 /// <summary>
+/// What each channel of a colour master is read against (#1498): one limb fit of the channels' mean, or each channel's own.
+/// </summary>
+public enum PlanetaryChannelLimb
+{
+    /// <summary>
+    /// One limb fit of the channels' mean (<see cref="PlanetaryLimbFit.Luminance"/>): every channel's sharp model, outline and k are its, so
+    /// anything that reweights the channels (a colour balance) moves every channel's reference.
+    /// </summary>
+    Shared,
+
+    /// <summary>
+    /// Each channel fitted on its own plane, from the shared fit: its sharp model, outline and k its own, so a channel's sky and gain cannot
+    /// move another's reference. The window's place and size and the plate scale stay the shared fit's: the colours are already aligned by
+    /// their limbs (#1202).
+    /// </summary>
+    PerChannel,
+}
+
+/// <summary>
 /// How the limb fit the derived sharpening reads takes Minnaert's k (#1221).
 /// </summary>
 public enum PlanetaryLimbDarkening
@@ -310,6 +329,13 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     /// <summary>How the limb fit takes Minnaert's k (#1221): fitted by default.</summary>
     public PlanetaryLimbDarkening LimbDarkening { get; init; }
 
+    /// <summary>
+    /// What a colour master's channels are each read against (#1498): <see cref="PlanetaryChannelLimb.Shared"/> by default. Under
+    /// <see cref="PlanetaryChannelLimb.PerChannel"/> with <see cref="LimbDarkening"/> at OPAL, each channel holds its own wavelength's k
+    /// (#1478). The batch's alone while it is measured: under it no live limb is kept (<see cref="PlanetarySharpenResult.Limb"/> is null).
+    /// </summary>
+    public PlanetaryChannelLimb ChannelLimb { get; init; }
+
     /// <summary>What the planet's last band inside its outline is floored at under <see cref="PlanetaryLimbFix.ModelFeathered"/> (#1329).</summary>
     public PlanetaryLimbBand LimbBand { get; init; }
 
@@ -446,6 +472,10 @@ public static class PlanetarySharpening
         var (width, height) = (master.Width, master.Height);
         var limbWindow = PlanetaryLimbWindow.Of(fit, limbOptions, aspect, width, height);
         var (own, disk, size, sharp) = (limbWindow.Own, limbWindow.Disk, limbWindow.Size, limbWindow.Sharp);
+        // Each colour read against its own limb (#1498), so that reweighting the channels moves no channel's reference.
+        var channelLimbs = options.ChannelLimb is PlanetaryChannelLimb.PerChannel && master.ChannelCount == 3 && options.Pupil is not null
+            ? ChannelLimbs(master, fit, limbWindow, aspect, options)
+            : null;
         var models = new float[master.ChannelCount][];
         var diffractions = new RadialTransfer[master.ChannelCount];
 
@@ -463,13 +493,16 @@ public static class PlanetarySharpening
         for (var c = 0; c < master.ChannelCount; c++)
         {
             var plane = master.GetChannelSpan(c);
-            var (level, scale) = PlanetaryMetrics.NormalisationLevels(plane, width, height, own);
+            // The channel's own limb under PerChannel (#1498), else the shared one; the window's place and size are the shared fit's either way.
+            var (channelFit, channelWindow) = channelLimbs?[c] ?? (fit, limbWindow);
+            var (channelOwn, channelDisk, channelSharp) = (channelWindow.Own, channelWindow.Disk, channelWindow.Sharp);
+            var (level, scale) = PlanetaryMetrics.NormalisationLevels(plane, width, height, channelOwn);
             var window = limbWindow.Cut(plane, width, height, level, scale);
             if (options.ShrinkHalves is { } halves)
             {
                 // The halves cut as the master is, so their difference is the master's noise in the window's own units (#1313).
                 var shrink = PlanetaryBandShrink.Shrink(window, limbWindow.Cut(halves.A.GetChannelSpan(c), width, height, level, scale),
-                    limbWindow.Cut(halves.B.GetChannelSpan(c), width, height, level, scale), size, size, disk);
+                    limbWindow.Cut(halves.B.GetChannelSpan(c), width, height, level, scale), size, size, channelDisk);
                 (window, shrinks[c]) = (shrink.Shrunk, shrink.Bands);
             }
             float[] sharpened;
@@ -481,16 +514,16 @@ public static class PlanetarySharpening
                 var diffraction = limbWindow.Diffraction(pupil, wavelengthNm);
                 // The model through the pupil is what the edge is read against (the stack's blur is the air's over the telescope's); the
                 // target is what the gains restore toward, the same model unless the telescope is to be undone too (#1366).
-                var throughPupil = limbWindow.Through(diffraction);
+                var throughPupil = channelWindow.Through(diffraction);
                 var target = options.Target is PlanetarySharpenTarget.Aperture
                     ? PlanetaryFinishing.ApertureTarget(pupil, wavelengthNm, limbWindow.ArcsecPerPixel)
                     : diffraction;
-                var diskTarget = ReferenceEquals(target, diffraction) ? throughPupil : limbWindow.Through(target);
+                var diskTarget = ReferenceEquals(target, diffraction) ? throughPupil : channelWindow.Through(target);
                 (models[c], diffractions[c]) = (diskTarget, target);
-                var edge = PlanetaryFinestBand.LimbEdge(window, throughPupil, size, size, disk, fit, aspect);
-                if (options.RingEdge && disk.Rings is not null)
+                var edge = PlanetaryFinestBand.LimbEdge(window, throughPupil, size, size, channelDisk, channelFit, aspect);
+                if (options.RingEdge && channelDisk.Rings is not null)
                 {
-                    edge = EdgeProfile.Pooled(edge, PlanetaryFinestBand.RingEdge(window, throughPupil, size, size, disk));
+                    edge = EdgeProfile.Pooled(edge, PlanetaryFinestBand.RingEdge(window, throughPupil, size, size, channelDisk));
                 }
                 var physical = options.EdgeReach is { } reach
                     ? PlanetaryFinestBand.FitPhysical(edge, pupil.DiameterM / (wavelengthNm * 1e-9) / ShortExposurePsf.ArcsecPerRadian * limbWindow.ArcsecPerPixel, 0.02, reach)
@@ -500,12 +533,12 @@ public static class PlanetarySharpening
                 Func<double, double>? targetCut = colourPlaneNyquist is { } nyquist && (options.OfColour ? 3 : master.ChannelCount) == 3
                     ? f => PlanetaryFinishing.ApertureTaper(f, nyquist)
                     : null;
-                var power = PlanetaryWaveletGains.StackPower(window, size, size, disk);
-                var white = PlanetaryInverse.WhiteNoise(PlanetaryWaveletGains.Interior(window, size, size, disk), size, size);
+                var power = PlanetaryWaveletGains.StackPower(window, size, size, channelDisk);
+                var white = PlanetaryInverse.WhiteNoise(PlanetaryWaveletGains.Interior(window, size, size, channelDisk), size, size);
                 // The halves cut as the master is, so half their difference is the master's own noise, ring by ring (#1373).
                 var halvesNoise = options.NoiseHalves is { } noiseHalves
                     ? PlanetaryWaveletGains.HalvesNoisePlane(limbWindow.Cut(noiseHalves.A.GetChannelSpan(c), width, height, level, scale),
-                        limbWindow.Cut(noiseHalves.B.GetChannelSpan(c), width, height, level, scale), size, size, disk)
+                        limbWindow.Cut(noiseHalves.B.GetChannelSpan(c), width, height, level, scale), size, size, channelDisk)
                     : null;
                 var noise = halvesNoise is not null
                     ? PlanetaryWaveletGains.RingPower(halvesNoise, size, size)
@@ -518,10 +551,10 @@ public static class PlanetarySharpening
                 var finestHeld = FinestHeld(options.OfColour ? 3 : master.ChannelCount, options.OfColour ? 1 : c, options.ColourFinestBand);
                 var finestBounded = (options.OfColour ? 3 : master.ChannelCount) == 3 && options.ColourFinestBand == PlanetaryColourFinestBand.Bounded;
                 var truth = options.NonNegative
-                    ? PlanetaryWaveletGains.FitNonNegative(power, wiener, diskTarget, blurredDisk, size, size, disk, kernel, strength: options.Strength)
+                    ? PlanetaryWaveletGains.FitNonNegative(power, wiener, diskTarget, blurredDisk, size, size, channelDisk, kernel, strength: options.Strength)
                     : finestBounded
-                        ? PlanetaryWaveletGains.FitFinestWithin(power, wiener, diskTarget, blurredDisk, size, size, disk, 0, 1)
-                        : PlanetaryWaveletGains.Fit(power, wiener, diskTarget, blurredDisk, size, size, disk, held: finestHeld ? 1 : 0);
+                        ? PlanetaryWaveletGains.FitFinestWithin(power, wiener, diskTarget, blurredDisk, size, size, channelDisk, 0, 1)
+                        : PlanetaryWaveletGains.Fit(power, wiener, diskTarget, blurredDisk, size, size, channelDisk, held: finestHeld ? 1 : 0);
                 // A strength lifts the mid scales only (#1251): the finest band, mostly noise at 8 bits, keeps the gain the truth gave it (as
                 // stacked on a colour master), and the rest are fitted around it to the boosted target. Fitted freely, it rose with them, 1.04
                 // to 1.36 of the truth on the mono twins at 1.5.
@@ -529,7 +562,7 @@ public static class PlanetarySharpening
                 {
                     return strength == 1 || options.NonNegative
                         ? truth
-                        : PlanetaryWaveletGains.Fit(power, wiener, diskTarget, blurredDisk, size, size, disk, held: 1, strength: strength,
+                        : PlanetaryWaveletGains.Fit(power, wiener, diskTarget, blurredDisk, size, size, channelDisk, held: 1, strength: strength,
                             heldAt: finestHeld ? 1 : truth[0]);
                 }
                 var gains = options.FixedGains.IsDefaultOrEmpty ? AtStrength(options.Strength) : Fixed(options.FixedGains[Math.Min(c, options.FixedGains.Length - 1)], truth.Length);
@@ -542,11 +575,11 @@ public static class PlanetarySharpening
                         stopGains[k, c] = options.FitStops[k] == options.Strength ? gains : AtStrength(options.FitStops[k]);
                     }
                 }
-                sharpened = Apply(window, size, disk, sharp, f => kernel(f) * diffraction.At(f), target.At, gains.AsSpan(), [], options.Fix, diskTarget, blurredDisk,
+                sharpened = Apply(window, size, channelDisk, channelSharp, f => kernel(f) * diffraction.At(f), target.At, gains.AsSpan(), [], options.Fix, diskTarget, blurredDisk,
                     options.LimbBand, options.UnderSky);
                 cutoffs[c] = PlanetaryFinishing.CutoffCyclesPerPixel(pupil, wavelengthNm, limbWindow.ArcsecPerPixel);
                 var sharpening = gains;
-                (sharpened, var wienerCut) = Finished(window, sharpened, contrastFrom ?? window, size, disk, options, cutoffs[c], white,
+                (sharpened, var wienerCut) = Finished(window, sharpened, contrastFrom ?? window, size, channelDisk, options, cutoffs[c], white,
                     f => PlanetaryWaveletGains.Transfer(sharpening.AsSpan(), f));
                 if (wienerCuts.Length > 0)
                 {
@@ -562,7 +595,7 @@ public static class PlanetarySharpening
             {
                 // No pupil, no diffraction to read the edge over: the preset, with the limb's model through the stack's own blur (its edge
                 // against the sharp model itself) taken out and put back as it was, so the limb is kept as stacked and cannot ring.
-                var edge = PlanetaryFinestBand.LimbEdge(window, sharp, size, size, disk, fit, aspect);
+                var edge = PlanetaryFinestBand.LimbEdge(window, channelSharp, size, size, channelDisk, channelFit, aspect);
                 var blur = Tabulated(f => Math.Clamp(edge.TransferAt(f), 0, 1));
                 var preset = WaveletSharpenOptions.PlanetaryDefault;
                 var gains = Strengthened([.. preset.Gains.Select(g => (double)g)], options.Strength).ToArray();
@@ -573,7 +606,7 @@ public static class PlanetarySharpening
                     thresholds[j] = j < preset.DenoiseThresholds.Length ? preset.DenoiseThresholds[j] / scale : 0;
                 }
                 channelGains[c] = [.. gains];
-                sharpened = PlanetaryDering.LimbChannel(window, size, size, sharp, blur, blur, p => PlanetaryDering.Sharpen(p, size, size, gains, thresholds));
+                sharpened = PlanetaryDering.LimbChannel(window, size, size, channelSharp, blur, blur, p => PlanetaryDering.Sharpen(p, size, size, gains, thresholds));
                 sharpenMoon = w => PlanetaryDering.Sharpen(w, PlanetaryLimbWindow.MoonWindowSize, PlanetaryLimbWindow.MoonWindowSize, gains, thresholds);
                 if (c == 0)
                 {
@@ -592,7 +625,9 @@ public static class PlanetarySharpening
         return new PlanetarySharpenResult(image, derived, derived ? options.Fix : PlanetaryLimbFix.LimbChannel, firstGains, edgeAt01, edgeAt03)
         {
             ChannelGains = [.. channelGains],
-            Limb = options.Pupil is { } kept ? PlanetaryLiveLimb.Kept(master, fit, limbOptions, aspect, limbWindow, kept, options.WavelengthsNm, [.. models], [.. diffractions],
+            // A live view keeps the shared limb (PlanetaryLiveLimb draws every channel on one window): none is kept for a per-channel read
+            // while it is measured (#1498), so a live view cannot draw another limb than the batch read.
+            Limb = options.Pupil is { } kept && channelLimbs is null ? PlanetaryLiveLimb.Kept(master, fit, limbOptions, aspect, limbWindow, kept, options.WavelengthsNm, [.. models], [.. diffractions],
                 (options.LimbBand, options.UnderSky)) : null,
             Cutoffs = [.. cutoffs],
             WhiteLevels = [.. whiteLevels],
@@ -600,6 +635,25 @@ public static class PlanetarySharpening
             Stops = stops,
             Shrinks = [.. shrinks],
         };
+    }
+
+    // Each channel's own limb fit (PlanetaryChannelLimb.PerChannel, #1498), started from the shared fit, and the shared window with its disk
+    // and sharp model; the shared limb kept for a channel whose own fit fails. With OPAL's k, each holds its own wavelength's (#1478).
+    private static (LimbFit Fit, PlanetaryLimbWindow Window)[] ChannelLimbs(Image master, in LimbFit fit, PlanetaryLimbWindow shared, in PlanetAspect aspect,
+        PlanetarySharpenOptions options)
+    {
+        var (width, height) = (master.Width, master.Height);
+        var limbs = new (LimbFit Fit, PlanetaryLimbWindow Window)[master.ChannelCount];
+        for (var c = 0; c < limbs.Length; c++)
+        {
+            var channelOptions = options.LimbDarkening is PlanetaryLimbDarkening.Opal
+                ? PlanetaryLimbFit.OptionsFor(aspect, [options.WavelengthsNm[Math.Min(c, options.WavelengthsNm.Length - 1)]])
+                : PlanetaryLimbFit.OptionsFor(aspect);
+            limbs[c] = PlanetaryLimbFit.Fit(master.GetChannelSpan(c), width, height, fit.CenterX, fit.CenterY, fit, channelOptions) is { } own
+                ? (own, shared.WithModelOf(own, channelOptions, width, height))
+                : (fit, shared);
+        }
+        return limbs;
     }
 
     private static bool OnGridOf(Image half, Image master) =>
