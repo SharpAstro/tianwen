@@ -152,34 +152,13 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     return 1;
                 }
                 var limbKName = (parseResult.GetValue(limbKOpt) ?? "fitted").ToLowerInvariant();
-                // A number, or several, is the k held for each channel (#1498).
-                var heldK = limbKName.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                    .Select(word => double.TryParse(word, NumberStyles.Float, inv, out var k) && k is > 0 and < 2 ? k : double.NaN).ToArray();
-                PlanetaryLimbDarkening[] limbKs = limbKName switch
+                // Both compares the fitted k with OPAL's; anything else is one reading, read as planetary stack reads it (#1498).
+                if (PlanetaryMasterScore.LimbReading(consoleHost, parseResult.GetValue(channelLimbOpt), limbKName == "both" ? "fitted" : limbKName) is not
+                    var (limbPerChannel, oneLimbK, heldK))
                 {
-                    "fitted" => [PlanetaryLimbDarkening.Fitted],
-                    "opal" => [PlanetaryLimbDarkening.Opal],
-                    "both" => [PlanetaryLimbDarkening.Fitted, PlanetaryLimbDarkening.Opal],
-                    _ when heldK.Length > 0 && heldK.All(double.IsFinite) => [PlanetaryLimbDarkening.Held],
-                    _ => [],
-                };
-                if (limbKs.Length == 0)
-                {
-                    consoleHost.WriteError($"--limb-k {limbKName}: fitted, opal, both, or the k to hold for each channel, each above 0 and below 2");
                     return 1;
                 }
-                var channelLimbName = (parseResult.GetValue(channelLimbOpt) ?? "shared").ToLowerInvariant();
-                PlanetaryChannelLimb? channelLimb = channelLimbName switch
-                {
-                    "shared" => PlanetaryChannelLimb.Shared,
-                    "per-channel" or "perchannel" => PlanetaryChannelLimb.PerChannel,
-                    _ => null,
-                };
-                if (channelLimb is not { } limbPerChannel)
-                {
-                    consoleHost.WriteError($"--channel-limb {channelLimbName}: shared or per-channel");
-                    return 1;
-                }
+                PlanetaryLimbDarkening[] limbKs = limbKName == "both" ? [PlanetaryLimbDarkening.Fitted, PlanetaryLimbDarkening.Opal] : [oneLimbK];
                 if (colourTargetCuts.Length == 0)
                 {
                     consoleHost.WriteError($"--colour-target {colourTargetName}: full, cut or both");
@@ -284,7 +263,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 {
                     WavelengthsNm = [.. wavelengths],
                     ChannelLimb = limbPerChannel,
-                    HeldMinnaertK = limbKs.Contains(PlanetaryLimbDarkening.Held) ? [.. heldK] : [],
+                    HeldMinnaertK = heldK,
                 };
                 consoleHost.WriteScrollable(string.Create(inv,
                     $"{Path.GetFileName(path)}: {master.ChannelCount}ch {master.Width}x{master.Height}, {body} at {instant:yyyy-MM-dd HH:mm:ss} UTC, {(options.Pupil is { } p ? $"a {p.DiameterM * 1000:0} mm pupil {p.ObstructionRatio:P0} obstructed" : "no telescope (the preset, the limb kept as stacked)")}"));

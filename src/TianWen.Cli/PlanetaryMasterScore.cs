@@ -526,4 +526,49 @@ internal static class PlanetaryMasterScore
         }
         return values;
     }
+
+    /// <summary>
+    /// <c>--channel-limb</c> and <c>--limb-k</c> read once for <c>planetary stack</c> and <c>planetary sharpen</c> (#1498): what a colour master's
+    /// channels are read against (shared, per-channel), and how the limb fit takes Minnaert's k: fitted, opal, or the k to hold for each
+    /// channel (a comma list, the last repeated, each above 0 and below 2). Null and said when either is unreadable.
+    /// </summary>
+    public static (PlanetaryChannelLimb ChannelLimb, PlanetaryLimbDarkening LimbDarkening, ImmutableArray<double> HeldK)? LimbReading(
+        IConsoleHost consoleHost, string? channelLimbText, string? limbKText)
+    {
+        PlanetaryChannelLimb? channelLimb = (channelLimbText ?? "shared").ToLowerInvariant() switch
+        {
+            "shared" => PlanetaryChannelLimb.Shared,
+            "per-channel" or "perchannel" => PlanetaryChannelLimb.PerChannel,
+            _ => null,
+        };
+        if (channelLimb is not { } readAgainst)
+        {
+            consoleHost.WriteError($"--channel-limb {channelLimbText}: shared or per-channel");
+            return null;
+        }
+        var limbK = (limbKText ?? "fitted").ToLowerInvariant();
+        switch (limbK)
+        {
+            case "fitted":
+                return (readAgainst, PlanetaryLimbDarkening.Fitted, []);
+            case "opal":
+                return (readAgainst, PlanetaryLimbDarkening.Opal, []);
+        }
+        var parts = limbK.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var held = new double[parts.Length];
+        for (var i = 0; i < parts.Length; i++)
+        {
+            if (!double.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out held[i]) || held[i] is <= 0 or >= 2)
+            {
+                held = [];
+                break;
+            }
+        }
+        if (held.Length == 0)
+        {
+            consoleHost.WriteError($"--limb-k {limbKText}: fitted, opal, or the k to hold for each channel, each above 0 and below 2");
+            return null;
+        }
+        return (readAgainst, PlanetaryLimbDarkening.Held, [.. held]);
+    }
 }
