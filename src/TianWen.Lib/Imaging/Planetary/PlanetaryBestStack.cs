@@ -48,6 +48,12 @@ public sealed record PlanetaryBestStackOptions(CatalogIndex? Planet, Pupil? Tele
     public bool LuminanceOnly { get; init; }
 
     /// <summary>
+    /// What the derived gains restore toward (<see cref="PlanetarySharpenOptions.Target"/>, #1366): the planet through the pupil's
+    /// diffraction, the default, or with the telescope undone too, an option the AUTO mode's tune may choose (A2).
+    /// </summary>
+    public PlanetarySharpenTarget Target { get; init; }
+
+    /// <summary>
     /// The strengths whose gains the run also fits, kept with the master as it was sharpened, before its colour balance
     /// (<see cref="PlanetaryBestStackResult.Layer"/>, #1314): a viewer shows the run's master at each of them without deriving again.
     /// Empty, the default, keeps none.
@@ -143,7 +149,7 @@ public static class PlanetaryBestStack
         try
         {
             var (sharpened, how, derived) = SharpenCore(result.Master, options.Planet, result.Epoch, options.Telescope, options.WavelengthsNm,
-                options.Fix, options.Strength, options.LuminanceOnly, options.FitStops);
+                options.Fix, options.Strength, options.LuminanceOnly, options.FitStops, options.Target);
             // The balance comes after the sharpening, which reads each channel's edge through that channel's own diffraction: the
             // saturation mixes the channels.
             var (balance, howBalanced) = options.ColourSaturation is { } saturation
@@ -180,27 +186,28 @@ public static class PlanetaryBestStack
     /// <see cref="WaveletSharpenOptions.PlanetaryDefault"/> with the limb kept as stacked when only the telescope is missing; by the preset
     /// alone when the planet or the time is unknown or the limb does not fit. The words say which, and why. A <paramref name="strength"/> past
     /// one takes bands 2 and 3 past the truth (<see cref="PlanetarySharpenOptions.Strength"/>, #1251), and <paramref name="luminanceOnly"/>
-    /// sharpens a colour master's luminance once, keeping the stack's colour (<see cref="PlanetarySharpenOptions.LuminanceOnly"/>, #1295).
-    /// The caller owns the image.
+    /// sharpens a colour master's luminance once, keeping the stack's colour (<see cref="PlanetarySharpenOptions.LuminanceOnly"/>, #1295);
+    /// <paramref name="target"/> is what the derived gains restore toward (#1366). The caller owns the image.
     /// </summary>
     public static (Image Sharpened, string How) Sharpen(Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope,
-        ImmutableArray<double> wavelengthsNm = default, PlanetaryLimbFix? fix = null, double strength = 1, bool luminanceOnly = false)
+        ImmutableArray<double> wavelengthsNm = default, PlanetaryLimbFix? fix = null, double strength = 1, bool luminanceOnly = false,
+        PlanetarySharpenTarget target = PlanetarySharpenTarget.Telescope)
     {
-        var (sharpened, how, _) = SharpenCore(master, planet, epoch, telescope, wavelengthsNm, fix, strength, luminanceOnly, []);
+        var (sharpened, how, _) = SharpenCore(master, planet, epoch, telescope, wavelengthsNm, fix, strength, luminanceOnly, [], target);
         return (sharpened, how);
     }
 
     // Sharpen, and where the gains were derived the result and the options it was made with, for a viewer's layer (#1314).
     private static (Image Sharpened, string How, (PlanetarySharpenResult Result, PlanetarySharpenOptions Options, Pupil Pupil)? Derived) SharpenCore(
         Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope, ImmutableArray<double> wavelengthsNm, PlanetaryLimbFix? fix,
-        double strength, bool luminanceOnly, ImmutableArray<double> fitStops)
+        double strength, bool luminanceOnly, ImmutableArray<double> fitStops, PlanetarySharpenTarget target)
     {
         if (SharpenOptionsFor(master, planet, epoch, telescope, wavelengthsNm) is not { } options)
         {
             return (WaveletSharpen.Sharpen(master, PresetAt(strength)),
                 $"PlanetaryDefault{StrengthWords(strength)}: the sharpening is derived only for a named Mars, Jupiter or Saturn with frame times", null);
         }
-        options = options with { Strength = strength, LuminanceOnly = luminanceOnly, FitStops = fitStops.IsDefault ? [] : fitStops };
+        options = options with { Strength = strength, LuminanceOnly = luminanceOnly, FitStops = fitStops.IsDefault ? [] : fitStops, Target = target };
         if (fix is { } chosen)
         {
             options = options with { Fix = chosen };
