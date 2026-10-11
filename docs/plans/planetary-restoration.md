@@ -315,6 +315,11 @@ each arm measuring the real capture afresh and making its twin):
 - So rule 3 did not fire, and the owner made plain the default: `CaptureStatisticsOptions.WhitenedCorrelation` is false, so
   `degrade`, `seeing` and `twin` all register their statistics plainly, and `--whitened-correlation` on each reads them as R2's
   calibration did. #1394 closes with it.
+- **Open: #1486, the limb's edge width is read at the limb fit's start.** On frames that never move, whitened registration read 0.1 px of
+  shift and widened the edge 0.03 px; plain reads 0.0004 px and leaves it as it is (`TheLimbsEdgeWidthIsTheBlursForAUniformDisk`). The
+  same test showed the statistics read the edge at `PlanetaryLimbFit.Start`'s radius, 31.3 px on a 30 px disk, so 4.90 px where the
+  true disk reads 5.09. The start's radius moves with the blur, so the statistic mixes the two; reading it at the fitted limb moves every
+  twin-against-capture number, so it waits on rules and a re-measure.
 
 **Done** (2026-09-29), the kill line firing on the sky's finest bands (below). `tianwen planetary degrade <capture> --map --output` measures the real capture, makes the synthetic one, measures it the same way and prints the comparison; `tianwen planetary seeing` measures any capture alone.
 

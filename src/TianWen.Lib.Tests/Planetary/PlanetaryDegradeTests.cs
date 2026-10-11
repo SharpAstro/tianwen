@@ -868,8 +868,11 @@ public class PlanetaryDegradeTests
     [Fact]
     public async Task TheLimbsEdgeWidthIsTheBlursForAUniformDisk()
     {
-        // A uniform disk blurred by a Gaussian of sigma 2 px: a straight edge's level over its steepest fall is sqrt(2 pi) sigma,
-        // and a disk 30 px in radius is straight enough for that to the percent.
+        // A uniform disk blurred by a Gaussian of sigma 2 px: a straight edge's level over its steepest fall is sqrt(2 pi) sigma. Frames
+        // that never move must leave the edge as it is, so the statistics are held to the rule read on the blurred disk itself, at the
+        // geometry they read it at: the limb fit's start, whose radius here is 31.3 px against the disk's 30, which reads 4.902 where the
+        // true disk reads 5.094 (#1486). Registered whitened, these identical frames read 0.1 px of shift and the resampling widened the
+        // edge to 4.932; plain reads 0.0004 px (#1394).
         const int size = 128;
         const double sigma = 2;
         var frames = new float[12][,];
@@ -913,8 +916,28 @@ public class PlanetaryDegradeTests
             cancellationToken: TestContext.Current.CancellationToken);
 
         statistics.ShouldNotBeNull();
-        TestContext.Current.TestOutputHelper?.WriteLine($"limb edge width {statistics.LimbWidthAll:0.000} px (every frame), {statistics.LimbWidthBest:0.000} (best tenth); sqrt(2 pi) sigma {Math.Sqrt(2 * Math.PI) * sigma:0.000}");
-        statistics.LimbWidthAll.ShouldBe(Math.Sqrt(2 * Math.PI) * sigma, 0.1);
+        var plane = new float[size * size];
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                plane[(y * size) + x] = (float)blurred[y, x];
+            }
+        }
+        var framePlane = new float[size * size];
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                framePlane[(y * size) + x] = frames[0][y, x];
+            }
+        }
+        var start = PlanetaryLimbFit.Start(framePlane, size, size, 1).ShouldNotBeNull();
+        var unmoved = PlanetaryCaptureStatistics.LimbWidth((plane, size, size), start.X, start.Y, start.Radius, sky: 0);
+        var atTruth = PlanetaryCaptureStatistics.LimbWidth((plane, size, size), 63.7, 64.2, 30, sky: 0);
+        TestContext.Current.TestOutputHelper?.WriteLine($"limb edge width {statistics.LimbWidthAll:0.000} px (every frame), {statistics.LimbWidthBest:0.000} (best tenth); the rule on the unmoved disk {unmoved:0.000} at the start ({start.X:0.000}, {start.Y:0.000}, r {start.Radius:0.000}), {atTruth:0.000} at the truth's; sqrt(2 pi) sigma {Math.Sqrt(2 * Math.PI) * sigma:0.000}");
+        statistics.LimbWidthAll.ShouldBe(unmoved, 0.01, "registering frames that never moved must not blur their edge");
+        unmoved.ShouldBe(Math.Sqrt(2 * Math.PI) * sigma, 0.03 * Math.Sqrt(2 * Math.PI) * sigma, "the rule, at the start's geometry, reads a Gaussian edge's width to within 3 %");
     }
 
     private static double[,] GaussianBlur(double[,] image, double sigma)
