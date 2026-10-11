@@ -391,6 +391,12 @@ Default, so a plain button cannot stamp the arrow over a host that wanted a cros
   this app's convention is hand-on-links-only; adopting it per-button would be a UX change, not an
   adoption.
 
+**Superseded (DIR.Lib 11.14): an open popover's claim now reaches what is painted before it**
+(`WindowUiSettings.PointerClaim`, carried across the frame while the popover stays open, with one extra frame the
+frame it opens), so a declared `.BgHover` is confined with no prediction, and hand-painted chrome asks the same rule
+(`PointerHovers`, `HoverAllowedAt`). `OverlayOwnsPointer` is gone; `ViewerState.SkyPaletteOwnsPointer` keeps the sky
+palette's term for the picture's hover wash. What follows is the reasoning that held until then.
+
 **The same lesson, one level down: HOVER needs a z-order answer too, and it is
 `ViewerState.OverlayOwnsPointer`.** DIR.Lib 9.2 has its own half of this, `WindowUiSettings.PointerOwner`,
 which an open `Popover` sets as it paints -- but the two answer different questions and the flag is not
@@ -578,10 +584,10 @@ a fourth key router.
   (`RegisterClickable(..., cursor:)` / `.Clickable(hit, onClick, cursor)` / `.WithCursor(kind)`); the host asks
   `guiRenderer.CursorAt(x, y) ?? CursorKind.Default`; a region stating nothing is transparent (`null`, not
   Default), so a row inherits its card's cursor.
-- **HOVER needs a z-order answer, `ViewerState.OverlayOwnsPointer`** (hover is decided at PAINT time): add an
-  overlay to that ONE property, never a call site. **It is NOT `WindowUiSettings.PointerOwner`**, which an
-  open `Popover` sets as it paints (a RECORD, free for a `PaintLayout` tree); this one is a PREDICTION for
-  hand-painted chrome (toolbar, histogram, file list) that resolves hover BEFORE any overlay has drawn.
+- **HOVER's z-order answer is the engine's** (DIR.Lib 11.14): an open popover's claim reaches what is painted BEFORE
+  it (`WindowUiSettings.PointerClaim`), so `.BgHover` needs nothing, and hand-painted chrome asks `PointerHovers(rect)` /
+  `HoverAllowedAt(x, y)`, the same rule. Never a list of open overlays (that was `OverlayOwnsPointer`, gone);
+  `ViewerState.SkyPaletteOwnsPointer` remains for the sky palette, which is not a popover and is another widget's.
 - **Every host routes through `DIR.Lib.InputRouter`, and the ORDER is the engine's**: an open popover, then
   any PAINTED node whose declared `Shortcut` matches, then the focused field, then the widget. The desktop
   (`GuiEventHandlerBase`) and the browser (`Planner.razor`) keep only what is theirs (platform binding,

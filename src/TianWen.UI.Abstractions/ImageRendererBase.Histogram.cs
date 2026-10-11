@@ -36,11 +36,9 @@ namespace TianWen.UI.Abstractions
         // by hand in device pixels around a label the engine scales from DESIGN units, the label was given the already scaled size, and
         // it was drawn DpiScale times too large for its box and read "L..." on a 2x display. Every size here is in design units.
         //
-        // The hover CONDITION is still the viewer's own prediction, and has to be: hover is resolved at PAINT time, this surface paints
-        // before the popovers, and an open popover claims the pointer only when IT paints. The host cannot declare the claim itself --
-        // the claim is per WINDOW, and in the GUI this viewer is one widget among several (see the note at the top of Render). So the
-        // prediction is consulted ONCE here, on the node, instead of being folded into a hand-computed hover boolean; .Bg always sets a
-        // value, which is why the hover colour is applied conditionally rather than passed as default.
+        // Its hover is the node's: an open popover keeps it unlit although this paints before the popovers, because the popover's
+        // claim on the pointer carries across the frame (DIR.Lib 11.14, WindowUiSettings.PointerClaim). The condition this used to
+        // test, the viewer's own prediction of which overlays were open, is gone with it.
         private Layout.Node HistogramLogButton(ViewerState state)
         {
             var button = Layout.Builder.Text("LOG", BaseToolbarFontSize, ViewerTheme.Palette.BodyText, hAlign: TextAlign.Center)
@@ -51,12 +49,8 @@ namespace TianWen.UI.Abstractions
                 .Bg(state.HistogramLogScale ? HistogramLogOnBg : HistogramLogOffBg)
                 .Clickable(new HitResult.ButtonHit("HistogramLog"),
                     _ => { state.HistogramLogScale = !state.HistogramLogScale; },
-                    CursorKind.Pointer);
-
-            if (!state.OverlayOwnsPointer)
-            {
-                button = button.BgHover(state.HistogramLogScale ? HistogramLogOnHoverBg : HistogramLogOffHoverBg);
-            }
+                    CursorKind.Pointer)
+                .BgHover(state.HistogramLogScale ? HistogramLogOnHoverBg : HistogramLogOffHoverBg);
 
             return Layout.Builder.Anchored(button, Layout.DockSide.Right, margin: 2f);
         }

@@ -41,8 +41,8 @@ namespace TianWen.UI.Abstractions
         /// is already wrong. The menu also has somewhere to grow -- a share link needs a home.</para>
         /// <para><b>It reuses the toolbar's dropdown</b> rather than adding a second overlay type:
         /// <see cref="ViewerState.ToolbarDropdown"/> already owns keyboard claim, hover highlight,
-        /// scrolling, dismissal and -- through <see cref="ViewerState.OverlayOwnsPointer"/> -- the
-        /// z-order answer for hover. A parallel menu would need all of that again.</para>
+        /// scrolling, dismissal and, through the popover's pointer claim, the z-order answer for hover.
+        /// A parallel menu would need all of that again.</para>
         /// <para><b>Both press dispatchers must call this.</b> The viewer has two (the standalone
         /// host's own, and <c>HandleViewerMouseDown</c> for the embedded case); wiring only one of
         /// them is the split that left single-click selection broken in the standalone host.</para>
@@ -602,7 +602,8 @@ namespace TianWen.UI.Abstractions
         private bool UpdateHoverAt(ViewerState state, float px, float py)
         {
             var overThePicture = _layout.ImageArea.Contains(px, py)
-                && !state.OverlayOwnsPointer
+                && HoverAllowedAt(px, py)
+                && !state.SkyPaletteOwnsPointer
                 && !_isPinching
                 && HitTest(px, py) is null;
             if (!overThePicture)

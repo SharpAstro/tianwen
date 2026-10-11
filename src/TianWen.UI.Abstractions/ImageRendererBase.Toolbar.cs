@@ -1132,8 +1132,8 @@ namespace TianWen.UI.Abstractions
         /// a full file name lands on the NEXT row and reads as that file's name.
         /// </para>
         /// <para>
-        /// The file list sets it only for a row under the pointer while no overlay owns it, so drawing it
-        /// needs no second test of <c>ViewerState.OverlayOwnsPointer</c>.
+        /// The file list sets it only for a row the pointer hovers by the engine's rule (<c>PointerHovers</c>: not
+        /// under an open popover), so drawing it needs no second test.
         /// </para>
         /// </remarks>
         private (string Text, float X, float Y, float RowHeight)? _revealedRowName;

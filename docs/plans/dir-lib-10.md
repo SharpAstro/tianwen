@@ -918,7 +918,8 @@ the interesting part.
 - **The sky palette is not a popover by nature.** `FloatingPaletteState` is draggable, snappable,
   fade-timed and persistent, with no backdrop and no Escape dismissal. `Popover` would delete its
   behaviour rather than express it. Leave it.
-- **`OverlayOwnsPointer` survives T2**, and the reason is worth keeping: `WindowUiSettings.PointerOwner`
+- **`OverlayOwnsPointer` survived T2** (it is gone since DIR.Lib 11.14 carries a popover's claim to what is painted before
+  it, `WindowUiSettings.PointerClaim`; see Acceptance), and the reason was worth keeping: `WindowUiSettings.PointerOwner`
   looks like its replacement and answers a different question. The engine's is a RECORD of what was
   painted, claimed by being painted, confining hover for anything painted after it, which a `PaintLayout`
   tree gets for free. The host flag is a PREDICTION, and all four of its consumers are hand-painted chrome
@@ -1098,7 +1099,7 @@ viewer-layout-engine P1, P2 and P4 are done on the seam D1 shipped. Left (2026-1
 - **The chrome's own arithmetic**: viewer-layout-engine P3 (#367; the Live Session and Guider panels #1455) and
   P5, a text measured by its line box (#1490).
 - **The [Acceptance](#acceptance-for-the-whole-plan) lines the chrome does not meet**: hover from the tree,
-  `OverlayOwnsPointer` and the drag flags gone, `RegisterClickable` under ten, `LayoutDamage` and the TUI's main
+  the drag flags gone, `RegisterClickable` under ten, `LayoutDamage` and the TUI's main
   input on the router. #1489. (One tooltip painter is met: DIR.Lib 11.12's `Layout.Builder.Tooltip`, #1446.)
 - ~~**Declarative focus**~~: adopted, [D](#d-focus-is-a-boundary-and-it-selects), #1491 (2026-10-11).
 
@@ -1168,8 +1169,11 @@ viewer-layout-engine's P3 and P5.
 - **Adding a slider** is `Content.Slider(state)`. No flag, no branch. **Met** for the sliders: the tone,
   white balance and wavelet dials are `Content.Slider` leaves. The transport's scrub is still a flag, `IsScrubbing` (#1489).
 - `ISelfDispatchingInputWidget`, `OverlayOwnsPointer`, `IKeyboardClaimant`, the `Ctrl+letter` map, the
-  `F3` special case and `clicks >= 2` no longer exist in tianwen. **Met but for `OverlayOwnsPointer`**, read 6
-  times (the context menu, the file list twice, the histogram, the toolbar twice), and the drag flags with it (#1489).
+  `F3` special case and `clicks >= 2` no longer exist in tianwen. **`OverlayOwnsPointer` met (2026-10-11):** DIR.Lib 11.14
+  carries an open popover's pointer claim to what is painted before it, the toolbar is declared nodes and the histogram's
+  LOG button a plain `.BgHover`, and the file list and the picture's hover wash ask the engine's rule (`PointerHovers`,
+  `HoverAllowedAt`). What it still predicted, the sky palette, is `ViewerState.SkyPaletteOwnsPointer`, read once (the
+  wash), because the palette is not a popover and is another widget's. **Unmet:** the drag flags (#1489).
 - One key router per SURFACE KIND (pixel, cell, DOM), all three instances of `InputRouter`. **Unmet for the
   cell surface:** the TUI's main input is not on a router; only its night calendar is (#1489).
 - `grep ListCursor` over tianwen is no longer zero; `grep -c RegisterClickable` over `TianWen.UI*` is under

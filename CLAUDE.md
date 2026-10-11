@@ -1577,9 +1577,11 @@ add a fourth key router.
   the router's due one LAST in its frame through DIR.Lib's `Layout.Builder.Tooltip`, with `InputRouter.TooltipNeedsFrame`
   in its redraw check (#1446); never a box measured and placed by hand, which is how three painters with no hover delay
   came to exist while every `.WithTooltip` was dead.
-- **HOVER needs a z-order answer, `ViewerState.OverlayOwnsPointer`**: add an overlay to that ONE property, never a
-  call site. **It is NOT `WindowUiSettings.PointerOwner`** (a RECORD a `Popover` sets as it paints; this is a
-  PREDICTION for hand-painted chrome).
+- **HOVER's z-order answer is the engine's: an open popover's pointer claim reaches what is painted BEFORE it**
+  (DIR.Lib 11.14, `WindowUiSettings.PointerClaim`), so a declared `.BgHover` needs nothing, and chrome that still decides its
+  own highlight asks the same rule (`PointerHovers(rect)`, `HoverAllowedAt(x, y)`), never a list of open overlays. The
+  viewer's `OverlayOwnsPointer`, which was that list, is gone; `ViewerState.SkyPaletteOwnsPointer` is left for the sky
+  palette alone, which is not a popover and is another widget's.
 - **Every host routes through `DIR.Lib.InputRouter`, and the ORDER is the engine's**: an open popover, a PAINTED
   node's matching `Shortcut`, the focused field, the widget; hosts call `AfterPaint()` once the frame is drawn.
   **A key binding that belongs to a CONTROL is declared with it** (`.WithShortcut(key, mods)`, or the viewer's

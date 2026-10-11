@@ -149,7 +149,8 @@ namespace TianWen.UI.Abstractions
             // which is the question the header raises.
             var mouse = state.MouseScreenPosition;
             var headerRect = new RectF32(lx, y, FileListWidth, height);
-            if (!state.OverlayOwnsPointer && headerRect.Contains(mouse.X, mouse.Y))
+            // Hovered by the rule a declared node lights by, open popovers included (PointerHovers).
+            if (PointerHovers(headerRect))
             {
                 _revealedRowName = (folder, lx, y, height);
             }
@@ -260,9 +261,10 @@ namespace TianWen.UI.Abstractions
                     : fileName;
 
                 var isSelected = fileIndex == state.SelectedFileIndex;
-                // Selection (the loaded file) is deliberately NOT gated on the overlay -- it should stay
-                // highlighted regardless; only hover is, and why is stated on OverlayOwnsPointer.
-                var isHovered = !state.OverlayOwnsPointer && rowRect.Contains(mouseX, mouseY);
+                // Selection (the loaded file) is deliberately NOT gated on an overlay -- it should stay
+                // highlighted regardless; only hover is, by the rule a declared node lights by (PointerHovers:
+                // inside the row and not claimed away by an open popover).
+                var isHovered = PointerHovers(rowRect);
 
                 if (isSelected)
                 {
