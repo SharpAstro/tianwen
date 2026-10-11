@@ -678,7 +678,8 @@ against 3, and its two flip halves 7 and 6 against 4 and 3) and on Carina 24 mm 
 are the masters the at-site probe already flagged: the ASI1600MM's real top is a few percent below flat over 3 px where a
 hard clip is flat (theme B reads it as the per-sub clip spread a 12-bit unity-gain camera has), and the 24 mm field has the
 widest plateaus. A 2 against 1 is a top still a little flatter than real (the probe's first ring 0.03 to 0.09 short on the
-SMC and the Lagoon), which theme B's clip spread would also round. The noise arm is unchanged, as it must be. Leo has been
+SMC and the Lagoon), which theme B's clip spread would also round (measuring that spread before the render changes is
+#1482). The noise arm is unchanged, as it must be. Leo has been
 refused by every R1 run, the first included: its plate fails the exporter's linearity test (median over minimum above
 0.125 of full scale, the bright sky at about a third of it), so no R1 measure has covered it.
 
@@ -828,7 +829,7 @@ wider of the two arms' seed ranges.
   stopped at 21,000 and reads 38.3 at 5-20 (s1 at 36,000: 55.9; s0 at 44,000: 56.7). The field arm's s1 stopped at 27,500
   and reads 40.8. A recipe whose length the held-out loss decides this early cannot be judged at 3 seeds.
 
-What it leaves for R2b, the owner's choice (#32): a fixed length, or a plateau patience long enough that no seed stops
+What it leaves for R2b, the owner's choice: a fixed length, or a plateau patience long enough that no seed stops
 early (the owner chose the longer patience, 2026-10-05); the sky term, which the field arm moves twice as far as the
 Gaussian one (an L2 that leaves the sky to learn early, per (2)'s reasoning, did not); and whether at-site placement goes
 on at all, now that it reads worse on every axis.
@@ -844,7 +845,7 @@ R2a's: the same exports, split, seeds 0 to 2, 60,000 steps, `--max-decays 4`, lo
 -Patience 12`, `score-r2.ps1 -Tag r2b`).
 
 **Arms: the field (random) and the Gaussian, three seeds each.** The at-site arm is left out: it read worse than the field
-arm on every axis in R2a, and its export carries R0's dotted sites (#86). Six runs, about 15 hours, started once the E16c
+arm on every axis in R2a, and its export carries R0's dotted sites ("What R0 leaves", #902). Six runs, about 15 hours, started once the E16c
 S4 bake ends (the owner's choice).
 
 **Predictions**, read as R2a's were (the random arm's draws, arm means, a difference counted only past the wider seed
@@ -1335,7 +1336,7 @@ leave no black dots. Both answers are in where the squared error sits.
   land under the sky: 47.2 percent of 100-1000 sigma stars are dug in the convergence run. Those stars are 3.5 percent of
   the eval's, and a quarter of the draws carry a saturated one. R0's own dots are not the cause: an injected star is placed
   at least 3 FWHM from every site R0 subtracted, so no target shows a star turning into a dot. What would teach it, in
-  order: the speckle teacher (section 4; not built, and no issue yet); a truth term on the injected footprints that only a
+  order: the speckle teacher (section 4; not built, #1362); a truth term on the injected footprints that only a
   synthetic draw allows (undershoot under the truth weighted above overshoot, or H5's flux term star by star); more bright
   stars a draw.
 - **StarXTerminator, measured where it can be** (`tianwen image remove-stars` over the iTelescope stacks, crops and
