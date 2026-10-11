@@ -233,7 +233,7 @@ public sealed class PlanetaryCompositionTests : IDisposable
 
     [Fact(Timeout = 300_000)]
     [Trait("Category", "Heavy")]
-    public void AJoinWeighedByViewKeepsAStacksUnturnedRimOutAndTheStepsGiveItToTheBit()
+    public void AJoinWeighedByViewKeepsAStacksUnturnedRimOutLeavesTheLimbToTheStacksThatKeptItAndTheStepsGiveItToTheBit()
     {
         // #1349 fix C: two greens 30 minutes apart (the planet turns 18 degrees between them), a red and a blue between. Carried to the
         // reference's instant, a green keeps its own unturned pixel wherever its source lies past the de-rotation's 0.9-radius limit; joined
@@ -251,7 +251,7 @@ public sealed class PlanetaryCompositionTests : IDisposable
         }
         var (registration, registerRefusal) = PlanetaryComposition.Register(ingested);
         registration.ShouldNotBeNull(registerRefusal);
-        var (viewed, viewedRefusal) = PlanetaryComposition.Derotate(registration.Stacks, viewingWeights: true);
+        var (viewed, viewedRefusal) = PlanetaryComposition.Derotate(registration.Stacks, viewingWeights: PlanetaryViewingWeights.Source);
         viewed.ShouldNotBeNull(viewedRefusal);
         viewed.Stacks.ShouldAllBe(stack => stack.JoinWeight != null, "every stack weighed, the reference at its own instant included");
         var (plain, plainRefusal) = PlanetaryComposition.Derotate(registration.Stacks);
@@ -287,9 +287,48 @@ public sealed class PlanetaryCompositionTests : IDisposable
         strip.ShouldBeGreaterThan(50, "18 degrees of turn leaves a strip each green alone saw squarely");
         offViewed.ShouldBeLessThan(0.1 * offPlain, "the other green's unturned rim stays out");
 
+        // The limb left to the stacks that saw it there (#1349): inside 0.8 of the target's radius the weights are fix C's to the bit; from
+        // 0.9 out every green's weight is its own unturned pixel's (one) or nothing (a turned sample the turn carried there from further in),
+        // and the joined green there is the mean of the greens that kept their own.
+        var (limbed, limbRefusal) = PlanetaryComposition.Derotate(registration.Stacks, viewingWeights: PlanetaryViewingWeights.Limb);
+        limbed.ShouldNotBeNull(limbRefusal);
+        var (joinedLimb, limbJoinRefusal) = PlanetaryComposition.Join(limbed.Stacks);
+        joinedLimb.ShouldNotBeNull(limbJoinRefusal);
+        var place = limbed.Placement;
+        var limbGreens = limbed.Stacks.Where(stack => stack.Filter == Filter.Green).ToArray();
+        var limbGreen = joinedLimb.Master.GetChannelSpan(1);
+        var (inner, ring, partly, offOwn) = (0, 0, 0, 0.0);
+        for (var i = 0; i < Size * Size; i++)
+        {
+            var (dx, dy) = ((i % Size) - place.CenterX, (i / Size) - place.CenterY);
+            var rho = Math.Sqrt((dx * dx) + (dy * dy)) / place.EquatorialRadius;
+            if (rho < 0.78)
+            {
+                for (var g = 0; g < 2; g++)
+                {
+                    limbGreens[g].JoinWeight.ShouldNotBeNull()[i].ShouldBe(greens[g].JoinWeight.ShouldNotBeNull()[i], "inside the disk the weights are fix C's");
+                }
+                inner++;
+            }
+            else if (rho is >= 0.92 and <= 0.99)
+            {
+                float[] weights = [.. limbGreens.Select(green => green.JoinWeight.ShouldNotBeNull()[i])];
+                weights.ShouldAllBe(w => w == 0 || w == 1, "at the limb a green's own pixel or nothing");
+                var kept = Enumerable.Range(0, 2).Where(g => weights[g] == 1).ToArray();
+                kept.Length.ShouldBeGreaterThan(0, "the green at the reference's instant keeps its own limb");
+                partly += kept.Length < 2 ? 1 : 0;
+                offOwn += Math.Abs(limbGreen[i] - kept.Average(g => limbGreens[g].Image.GetChannelSpan(0)[i]));
+                ring++;
+            }
+        }
+        TestContext.Current.TestOutputHelper?.WriteLine($"{inner} px inside 0.78 radii as fix C weighs them; {ring} px of the limb's ring, {partly} of them turned in one green, off the greens that kept their own by {offOwn / ring:G4}");
+        inner.ShouldBeGreaterThan(1000);
+        partly.ShouldBeGreaterThan(20, "18 degrees of turn carries the disk's inside to part of the limb");
+        (offOwn / ring).ShouldBeLessThan(0.002, "the joined limb is the greens' own, to the floor's share and their scales");
+
         // The same steps through their files: each weight beside its stack, and the master the same to the bit, as the recipe gives it.
         var folder = _folders.Create("compose-viewed").FullName;
-        var (fromFiles, filesRefusal) = PlanetaryComposition.Derotate(RoundTrip(registration.Stacks, folder, "registered"), viewingWeights: true);
+        var (fromFiles, filesRefusal) = PlanetaryComposition.Derotate(RoundTrip(registration.Stacks, folder, "registered"), viewingWeights: PlanetaryViewingWeights.Source);
         fromFiles.ShouldNotBeNull(filesRefusal);
         var read = RoundTrip(fromFiles.Stacks, folder, "derotated");
         File.Exists(PlanetaryComposition.JoinWeightPath(Path.Combine(folder, $"{greens[0].Name}.derotated.fits"))).ShouldBeTrue("the weight written beside its stack");
@@ -297,7 +336,7 @@ public sealed class PlanetaryCompositionTests : IDisposable
         var (joinedFromFiles, filesJoinRefusal) = PlanetaryComposition.Join(read);
         joinedFromFiles.ShouldNotBeNull(filesJoinRefusal);
         Differing(joined.Master, joinedFromFiles.Master).ShouldBe(0, "the steps through files give the weighed master to the bit");
-        var (recipe, _, recipeRefusal) = PlanetaryComposition.Run(ingested, viewingWeights: true);
+        var (recipe, _, recipeRefusal) = PlanetaryComposition.Run(ingested, viewingWeights: PlanetaryViewingWeights.Source);
         recipe.ShouldNotBeNull(recipeRefusal);
         Differing(recipe.Master, joined.Master).ShouldBe(0, "and so does the recipe");
 
@@ -341,7 +380,17 @@ public sealed class PlanetaryCompositionTests : IDisposable
             var meta = new ImageMeta { ObjectName = "Jupiter", ExposureStartTime = Start, Filter = Filter.Green };
             stacks.Add(new PlanetaryMonoStack($"green{stacks.Count}", new Image([ToPlane(plane)], BitDepth.Float32, 1f, 0f, 0, meta), CatalogIndex.Jupiter, Start, Filter.Green));
         }
+        // How sharp each is, read on its limb as a registration reads it, which picks the sharpest (#1349). Not registered: the 2 px blur
+        // moves the fitted radius 3.3 %, past what a registration takes as one camera at one scale.
+        stacks = [.. PlanetaryComposition.WithLimbEdges(stacks).ShouldNotBeNull("every limb fits")];
         var disk = new MetricDisk(placement.CenterX, placement.CenterY, placement.EquatorialRadius);
+        // A join band by band refuses a stack no registration read, rather than pick its sharpest some other way.
+        var unread = stacks[2] with
+        {
+            Image = new Image([stacks[2].Image.GetChannelArray(0)], BitDepth.Float32, 1f, 0f, 0, stacks[2].Image.ImageMeta with { LimbEdge = null }),
+        };
+        var (_, unreadRefusal) = PlanetaryComposition.JoinFilter([stacks[0], stacks[1], unread], Filter.Green, disk, bandWeights: PlanetaryBandWeights.Matched);
+        unreadRefusal.ShouldNotBeNull().ShouldContain("no limb edge");
         var said = new List<string>();
         var (byBand, bandRefusal) = PlanetaryComposition.JoinFilter(stacks, Filter.Green, disk, said.Add, PlanetaryBandWeights.Matched);
         var (byWiener, wienerRefusal) = PlanetaryComposition.JoinFilter(stacks, Filter.Green, disk, bandWeights: PlanetaryBandWeights.Wiener);
@@ -395,6 +444,36 @@ public sealed class PlanetaryCompositionTests : IDisposable
         finestWiener.ShouldBeGreaterThan(finestByBand, "the matched mean's shortfall in band 1 given back");
         secondWiener.ShouldBeGreaterThan(secondByBand, "and in band 2");
         coarseWiener.ShouldBe(coarseByNoise, 0.03, "the coarse band as the plain join has it");
+    }
+
+    [Fact]
+    public void AStacksLimbEdgeIsReadUnturnedAtItsRegistrationAndNoGainOrSkyMovesIt()
+    {
+        // #1349: a join band by band picks a filter's sharpest stack by the limb's edge each stack showed before any turn, read at its
+        // registration; band 2's energy above its noise picked 2026-10-07's first burst, a gain scaled 1.40 times onto the others. A sharp
+        // and a blurred green read apart; the sharp one at another gain on another sky reads as it did; the registration stamps every stack
+        // with it, and the steps' files carry it.
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Start);
+        var placement = DiskOf(("G", 0, 0, 0, 0));
+        var sharp = PlanetaryInverse.Apply(Render(aspect, placement, 1.0), Size, Size, f => Math.Exp(-2 * Math.PI * Math.PI * 0.36 * f * f));
+        var blurred = PlanetaryInverse.Apply(sharp, Size, Size, f => Math.Exp(-2 * Math.PI * Math.PI * 2.25 * f * f));
+        PlanetaryMonoStack Green(string name, float[] truth, double gain, double sky)
+        {
+            float[] plane = [.. truth.Select(v => (float)(sky + (gain * v)))];
+            var (stack, refusal) = PlanetaryComposition.Ingest($"{name}.fits", Image.FromChannel(ToPlane(plane)), CatalogIndex.Jupiter, Start, Filter.Green);
+            return stack.ShouldNotBeNull(refusal);
+        }
+        var (registration, refusal) = PlanetaryComposition.Register([Green("sharp", sharp, 0.8, 0.05), Green("blurred", blurred, 0.8, 0.05), Green("gained", sharp, 0.56, 0.08)]);
+        registration.ShouldNotBeNull(refusal);
+        var edges = registration.Stacks.Select(stack => stack.Image.ImageMeta.LimbEdge.ShouldNotBeNull("every stack's edge read")).ToArray();
+        TestContext.Current.TestOutputHelper?.WriteLine($"the limb's edge at 0.1 cycles a pixel: sharp {edges[0]:0.0000}, blurred {edges[1]:0.0000}, the sharp one at 0.7 the gain on another sky {edges[2]:0.0000}");
+        edges[0].ShouldBeGreaterThan(edges[1] + 0.05, "the sharper stack reads sharper");
+        edges[2].ShouldBe(edges[0], 1e-3, "a gain and a sky move nothing");
+        var read = RoundTrip(registration.Stacks, _folders.Create("compose-edge").FullName, "registered");
+        for (var i = 0; i < read.Count; i++)
+        {
+            read[i].Image.ImageMeta.LimbEdge.ShouldNotBeNull().ShouldBe(registration.Stacks[i].Image.ImageMeta.LimbEdge.ShouldNotBeNull(), 1e-12, "the step's file carries it");
+        }
     }
 
     [Fact]

@@ -75,7 +75,13 @@ public static class PlanetaryDerotation
     /// somewhere else in each of a night's stacks, and the steps blur the master near its limb (#1352: the 27 stacks of 2026-10-07
     /// read the limb's edge at 0.346 against 0.26 to 0.33 for pairs).
     /// </summary>
-    public static float[] JoinWeights(int width, int height, in PlanetAspect from, in PlanetAspect to, in DiskPlacement placement, double minnaertK)
+    /// <param name="leaveLimb">Leave the limb to the stacks that saw it there (#1349): by the pixel's own radius on the target's disk, a step
+    /// from nothing at <see cref="JoinWeightTaperStart"/> to whole at <see cref="SourceRadiusLimit"/> hands the pixel from the turned samples
+    /// to the stack's own unturned one where it kept it. Weighed by the source alone, the limb went to the stacks the turn carried there from
+    /// further in, the albedo reprojected under the target's limb darkening with none of the real limb's blur, and the 27 stacks of 2026-10-07
+    /// read the limb's edge at 0.521 against 0.351 plain; every stack's own limb is the planet's as that stack saw it, wherever it was turned.</param>
+    public static float[] JoinWeights(int width, int height, in PlanetAspect from, in PlanetAspect to, in DiskPlacement placement, double minnaertK,
+        bool leaveLimb = false)
     {
         var field = new DerotationTarget(to, placement, width, height, minnaertK).FieldFrom(from, placement);
         var source = new PlanetaryProjection(from, placement);
@@ -87,17 +93,32 @@ public static class PlanetaryDerotation
             for (var x = 0; x < width; x++)
             {
                 var i = (y * width) + x;
-                if (!covered[i] || !source.TrySurface(sourceX[i], sourceY[i], out _, out _, out var mu, out _) || !(mu > 0))
+                // The share the stack's own pixel takes at this radius of the target's disk when the limb is left to it, else none.
+                var own = leaveLimb ? SmoothStep((Math.Sqrt(((x - centerX) * (x - centerX)) + ((y - centerY) * (y - centerY))) / radius - JoinWeightTaperStart)
+                    / (SourceRadiusLimit - JoinWeightTaperStart)) : 0;
+                if (!covered[i])
+                {
+                    // Not turned: the stack's own pixel is what it holds here.
+                    weights[i] = (float)own;
+                    continue;
+                }
+                if (!source.TrySurface(sourceX[i], sourceY[i], out _, out _, out var mu, out _) || !(mu > 0))
                 {
                     continue;
                 }
                 var (dx, dy) = (sourceX[i] - centerX, sourceY[i] - centerY);
                 var rho = Math.Sqrt((dx * dx) + (dy * dy)) / radius;
-                var t = Math.Clamp((SourceRadiusLimit - rho) / (SourceRadiusLimit - JoinWeightTaperStart), 0, 1);
-                weights[i] = (float)(mu * t * t * (3 - (2 * t)));
+                weights[i] = (float)((1 - own) * mu * SmoothStep((SourceRadiusLimit - rho) / (SourceRadiusLimit - JoinWeightTaperStart)));
             }
         });
         return weights;
+    }
+
+    // One at and past one, nothing at and below nought, smooth between.
+    private static double SmoothStep(double t)
+    {
+        t = Math.Clamp(t, 0, 1);
+        return t * t * (3 - (2 * t));
     }
 
     /// <summary>

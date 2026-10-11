@@ -698,7 +698,9 @@ public partial class Image
             ColourBalanceSaturation = hdu.Header.ContainsKey(Planetary.ColourBalance.SaturationCard)
                 ? hdu.Header.GetDoubleValue(Planetary.ColourBalance.SaturationCard, 1) : null,
             // Ours (ImageMeta.FluxScale): absent is 1, a value that is not a positive number is not a scale.
-            FluxScale = hdu.Header.GetDoubleValue("FLUXSCAL", double.NaN) is var fluxScale && fluxScale > 0 ? fluxScale : null
+            FluxScale = hdu.Header.GetDoubleValue("FLUXSCAL", double.NaN) is var fluxScale && fluxScale > 0 ? fluxScale : null,
+            // Ours (ImageMeta.LimbEdge, #1349): absent, or not a number, is none read.
+            LimbEdge = hdu.Header.GetDoubleValue("LIMBEDGE", double.NaN) is var limbEdge && double.IsFinite(limbEdge) ? limbEdge : null,
         };
     }
 
@@ -1148,6 +1150,10 @@ public partial class Image
         if (imageMeta.FluxScale is { } fluxScale and > 0)
         {
             AddHeaderValueIfHasValue("FLUXSCAL", fluxScale, "values per count taken (a linear fit's slope)");
+        }
+        if (imageMeta.LimbEdge is { } limbEdge && double.IsFinite(limbEdge))
+        {
+            AddHeaderValueIfHasValue("LIMBEDGE", limbEdge, "the limb's edge at 0.1 cycles a pixel, unturned (#1349)");
         }
         // A balanced master says so however it is written (#1411); the balance's own cards, when a caller passes them, carry its gains too
         if (imageMeta.ColourBalanceSaturation is { } saturation && extraHeaders?.ContainsKey(Planetary.ColourBalance.SaturationCard) is not true)
