@@ -833,6 +833,74 @@ public partial class Image
     /// coverage on all four edges.</para>
     /// </remarks>
     public PixelRect LargestCoveredRectangle(Image coverage, double minFraction = 0.95, int blockSize = 16)
+        => CoverageCrop(coverage, minFraction, blockSize, byMedian: false);
+
+    /// <summary>
+    /// The crop a deep-sky master's own coverage plane states, and the one routine the viewer, the
+    /// dataset's master inventory and the gradient report crop with: on a frame-COUNT plane, the largest
+    /// rectangle EVERY frame reached; on a drizzle WEIGHT plane, <see cref="LargestCoveredRectangle(Image,
+    /// double, int)"/> at its 0.95.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>On a count plane a region a few frames short is a SEAM, not a little more noise.</b> The
+    /// 0.95 of the weight rule is a noise argument, and as noise it holds: a region one frame of 31 short
+    /// is 1.6% noisier. But it is also a region missing that frame's LEVEL, and wherever that frame's sky
+    /// sat differently (a re-pointed frame carries the vignette and the gradient at another place on the
+    /// canvas) the edge of its footprint is a step, which a gradient correction and a hard stretch make
+    /// plain. Measured on M42 RGB 2022-12-03 (ASI533MC Pro, 31 frames): one frame re-pointed 425 px after
+    /// a gap left a strip along two edges covered by 30 of the 31 (0.968, inside 0.95), the crop kept it,
+    /// and the enhanced master showed the seam. Every frame reaching a region is also the rule the
+    /// dataset's tiles are already cut by (the all-frames <c>StatsRect</c>) and the stack's own
+    /// <c>_autocrop</c> lands on.</para>
+    /// <para><b>The test is each block's MEDIAN count, never its mean.</b> A count falls by one at
+    /// scattered single pixels all over a fully covered interior, wherever a frame's hot-pixel mask or a
+    /// rejected sample left that frame out, so a block's mean there reads just under the full count and a
+    /// mean threshold at full would leave no block standing to flood from. The median of a block those
+    /// dips leave alone is the full count, and in a strip one frame short it is one less.</para>
+    /// <para><b>A count plane is told from a weight plane by its values</b>: a count holds whole numbers
+    /// only (<see cref="IsFrameCountPlane"/>), and its storage keeps unit steps exactly. A drizzle weight
+    /// scatters cell to cell by about 10% inside full coverage, which no all-frames test can survive,
+    /// so it keeps the block mean at 0.95. The planetary master crops to 0.95 of its frames' footprints
+    /// by its own rule (<c>PlanetaryMaster</c>) and does not come through here.</para>
+    /// </remarks>
+    public PixelRect CoverageCropRectangle(Image coverage, int blockSize = 16)
+        => IsFrameCountPlane(coverage)
+            ? CoverageCrop(coverage, minFraction: 1.0, blockSize, byMedian: true)
+            : LargestCoveredRectangle(coverage, minFraction: 0.95, blockSize);
+
+    /// <summary>
+    /// Whether a coverage plane counts FRAMES (whole numbers only, as a non-drizzle integration writes)
+    /// rather than accumulating a drizzle weight. Non-finite values are passed over; a plane with no
+    /// finite value is not a count.
+    /// </summary>
+    public static bool IsFrameCountPlane(Image coverage)
+    {
+        ArgumentNullException.ThrowIfNull(coverage);
+        var any = false;
+        for (var c = 0; c < coverage.ChannelCount; c++)
+        {
+            foreach (var v in coverage.GetChannelSpan(c))
+            {
+                if (!float.IsFinite(v))
+                {
+                    continue;
+                }
+                if (v < 0f || v != MathF.Round(v))
+                {
+                    return false;
+                }
+                any = true;
+            }
+        }
+        return any;
+    }
+
+    /// <summary>
+    /// The block test behind both coverage crops: a block is covered when its statistic (the mean, or
+    /// the median for a count plane) reaches <paramref name="minFraction"/> of the central median of
+    /// that statistic, in every channel; under-coverage is absence only where it reaches the border.
+    /// </summary>
+    private PixelRect CoverageCrop(Image coverage, double minFraction, int blockSize, bool byMedian)
     {
         ArgumentNullException.ThrowIfNull(coverage);
         var width = Width;
@@ -861,7 +929,9 @@ public partial class Image
         var thresholds = new float[planes];
         for (var c = 0; c < planes; c++)
         {
-            grids[c] = BlockMeans(coverage, c, block, gridWidth, gridHeight);
+            grids[c] = byMedian
+                ? BlockMedians(coverage, c, block, gridWidth, gridHeight)
+                : BlockMeans(coverage, c, block, gridWidth, gridHeight);
             thresholds[c] = (float)(minFraction * CentralMedian(grids[c], gridWidth, gridHeight));
         }
 
@@ -945,6 +1015,55 @@ public partial class Image
                     }
                 }
                 grid[gy * gridWidth + gx] = bad || count == 0 ? float.NaN : (float)(sum / count);
+            }
+        }
+
+        return grid;
+    }
+
+    /// <summary>
+    /// Block medians of one plane, NaN for a block holding any non-finite value, as
+    /// <see cref="BlockMeans"/>: the statistic a count plane is read by (<see cref="CoverageCropRectangle"/>).
+    /// </summary>
+    private static float[] BlockMedians(Image coverage, int channel, int block, int gridWidth, int gridHeight)
+    {
+        var width = coverage.Width;
+        var height = coverage.Height;
+        var plane = coverage.GetChannelSpan(channel);
+        var grid = new float[gridWidth * gridHeight];
+        using var scratch = ArrayPoolHelper.Rent<float>(block * block);
+        var values = scratch.AsSpan();
+
+        for (var gy = 0; gy < gridHeight; gy++)
+        {
+            var y1 = Math.Min(height, (gy + 1) * block);
+            for (var gx = 0; gx < gridWidth; gx++)
+            {
+                var x1 = Math.Min(width, (gx + 1) * block);
+                var count = 0;
+                var bad = false;
+                for (var y = gy * block; y < y1 && !bad; y++)
+                {
+                    var row = y * width;
+                    for (var x = gx * block; x < x1; x++)
+                    {
+                        var v = plane[row + x];
+                        if (!float.IsFinite(v))
+                        {
+                            bad = true;
+                            break;
+                        }
+                        values[count++] = v;
+                    }
+                }
+                if (bad || count == 0)
+                {
+                    grid[gy * gridWidth + gx] = float.NaN;
+                    continue;
+                }
+                var taken = values[..count];
+                taken.Sort();
+                grid[gy * gridWidth + gx] = taken[count / 2];
             }
         }
 

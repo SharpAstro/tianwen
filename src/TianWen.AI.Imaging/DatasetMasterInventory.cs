@@ -221,7 +221,7 @@ public static class DatasetMasterInventory
         {
             try
             {
-                var exact = image.LargestCoveredRectangle(coverage);
+                var exact = image.CoverageCropRectangle(coverage);
                 if (exact.Width > 0 && exact.Height > 0)
                 {
                     covered = exact;

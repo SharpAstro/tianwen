@@ -419,7 +419,7 @@ namespace TianWen.Lib.Imaging.Dataset
                 {
                     // The viewer's own threshold for the same question, so the region fitted here and
                     // the region a person sees cropped are the same region.
-                    coveredRect = master.LargestCoveredRectangle(coverage);
+                    coveredRect = master.CoverageCropRectangle(coverage);
                 }
                 finally
                 {
