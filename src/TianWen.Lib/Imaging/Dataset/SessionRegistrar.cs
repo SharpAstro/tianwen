@@ -652,11 +652,18 @@ public static class SessionRegistrar
                 continue;
             }
             unmovedDropped += attempt.RefineUnmovedDropped;
+            // Where the frame sits on the reference is stated too, read off the COMPOSED transform (the
+            // refiner's own scale, rotation and shift are only its delta on top of the quad match): a frame
+            // re-pointed after a gap lands hundreds of pixels from the rest, which is what leaves a strip of
+            // the canvas covered by all frames but one, and without it the log could say how well a frame
+            // matched but not where it sat.
             logger?.LogDebug(
-                "  [{Session}] {File} stars={Stars} quads={Quads} hfd={Hfd:F2} ecc={Ecc:F3} -> matched at tolerance {Tol} (rms {Rms:F2} px; refine rms {RefineRms:F2} px from {Pairs} pairs, {Unmoved} unmoved dropped)",
+                "  [{Session}] {File} stars={Stars} quads={Quads} hfd={Hfd:F2} ecc={Ecc:F3} -> matched at tolerance {Tol} (rms {Rms:F2} px; refine rms {RefineRms:F2} px from {Pairs} pairs, {Unmoved} unmoved dropped); onto the reference: translation {Tx:F1},{Ty:F1} px, rotation {Rot:F3} deg, scale {Scale:F5}",
                 session.Id, Path.GetFileName(f.Frame.Path), f.Stars.Count, attempt.LightQuads,
                 f.Metrics.MedianHfd, f.Metrics.MedianEllipticity,
-                attempt.QuadTolerance, attempt.MatchRmsPx, attempt.RefineRmsPx, attempt.RefineMatchedPairs, attempt.RefineUnmovedDropped);
+                attempt.QuadTolerance, attempt.MatchRmsPx, attempt.RefineRmsPx, attempt.RefineMatchedPairs, attempt.RefineUnmovedDropped,
+                transform.M31, transform.M32, MathF.Atan2(transform.M12, transform.M11) * (180f / MathF.PI),
+                MathF.Sqrt(transform.M11 * transform.M11 + transform.M12 * transform.M12));
             matched.Add((f, transform));
         }
         // Items are the SURVIVORS, not the matches: the ones that failed still cost their quad-form
