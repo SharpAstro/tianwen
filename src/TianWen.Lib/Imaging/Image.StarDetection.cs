@@ -470,10 +470,11 @@ public partial class Image
         // never above one histogram background by one level for the whole frame. Measured on M42 in H-alpha
         // (iTelescope 31, 2262 mm): the frame-wide level put about 40 of a frame's 67 detections inside the
         // nebula's core, texture and not stars, and those filled the early-terminating ladder before it
-        // reached the field's faint stars; registration then built its quads from the texture and matched 4
-        // of 23 frames. Every bright extended field lost subs the same way (LMC 45 %, M33 up to 32 %). The
-        // measurement after a trigger (AnalyseStar: its annulus, its SNR gate) was already local. A map with
-        // no noise to read (a synthetic plane without noise) keeps the frame-wide trigger.
+        // reached the field's faint stars, and registration built its quads from the texture. Baked before and
+        // after on eleven sessions, the 300 s night of that field went from 13 to 20 of 21 subs and the nine
+        // sessions that train from 416 to 427 (docs/known-limitations.md). The measurement after a trigger
+        // (AnalyseStar: its annulus, its SNR gate) was already local. A map with no noise to read (a synthetic
+        // plane without noise) keeps the frame-wide trigger.
         var estimatedSky = skyTrigger && noise_level > 0f ? Sources.BackgroundMap.Estimate(this, channel) : null;
         var skyMap = estimatedSky is { GlobalRms: > 0f } && float.IsFinite(estimatedSky.GlobalRms) ? estimatedSky : null;
         // A cell whose clipped spread reads zero (a saturated block, a constant fill) must not make every
