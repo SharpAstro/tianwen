@@ -808,6 +808,9 @@ Planetary stacker below.
 - **Drizzle rejects per deposited sample** (#93, `DrizzleClip.SlopeScale`); a rejecting drizzle streams
   `RawBayerFrames` twice; its parallel strips are BIT-IDENTICAL to serial (`DrizzleParallelBitIdentityTests`).
 - **Never re-ingest our own outputs** (`STACK_N > 0` or `SWCREATE`, unless `--include-integrations`).
+- **A light's `CALSTAT` is a read guard** (#466, `PreCalibration`, `ImageMeta.PreCalibrated`): a correction its own
+  software already applied (B, D, F) is never applied again, in the bake (`CalibrationResolver.Choose`) or `stack`;
+  the provenance records the letters (`CalibrationProvenance.PreCalibrated`), so such a session reads calibrated.
 - **Calibration is grouped by temperature RUN; a session is matched on its lights' MEDIAN temperature**
   (`CalibrationEpochs.SetGroupKey`, `SplitSets`, `CalibrationResolver.SessionKey`); **a flat run is its
   FOLDER whatever its exposures** (`JoinFlatRuns`, sky flats), never a flat key without exposure, which

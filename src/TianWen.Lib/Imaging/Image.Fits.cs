@@ -691,6 +691,8 @@ public partial class Image
         )
         {
             IsMaster = isMaster,
+            // SBFITSEXT's record of corrections already applied (MaxIm, iTelescope): a read guard (#466).
+            PreCalibrated = Calibration.PreCalibration.Parse(hdu.Header.GetStringValue(Calibration.PreCalibration.CalStatCard)),
             DataSection = dataSection,
             BiasSection = biasSection,
             FrameSequence = frameSequence,

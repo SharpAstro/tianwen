@@ -19,12 +19,17 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// <param name="DarkBias">Slug of the bias used to SCALE the dark, null when the dark was applied
 /// unscaled. Distinct from <paramref name="Bias"/>: this one never touches the light, it only
 /// separates the dark's offset from its thermal signal.</param>
+/// <param name="PreCalibrated">The <c>CALSTAT</c> letters the session's lights arrived with (the
+/// corrections their own software had already applied, so none of those was applied again), null when
+/// they carried none. A session calibrated before it reached the archive is calibrated, and this is the
+/// record that says so where the master slugs are empty.</param>
 public sealed record CalibrationProvenance(
     string? Dark = null,
     string? Flat = null,
     string? Bias = null,
-    string? DarkBias = null)
+    string? DarkBias = null,
+    string? PreCalibrated = null)
 {
     /// <summary>True when nothing was recorded, so an empty record need not be stored.</summary>
-    public bool IsEmpty => Dark is null && Flat is null && Bias is null && DarkBias is null;
+    public bool IsEmpty => Dark is null && Flat is null && Bias is null && DarkBias is null && PreCalibrated is null;
 }
