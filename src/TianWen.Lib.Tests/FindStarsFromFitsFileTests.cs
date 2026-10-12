@@ -49,6 +49,13 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
     /// against a frame median of 2.40. Those are not faint stars lost, they are positions where no star
     /// is.</para>
     ///
+    /// <para><b>The RGGB counts rose by 18 % and 6 % on 2026-10-12</b> (3,027 -> 3,573 at SNR 10, 2,737 -> 2,898
+    /// at SNR 30) when the trigger started reading the LOCAL sky, a mesh background and noise map, instead of
+    /// one histogram level for the frame. The new detector keeps 3,062 of the old 3,065 mono detections and
+    /// adds 554 whose median FWHM matches the stars both find (1.95 px against 1.95) at a lower SNR (25
+    /// against 58): fainter stars, not noise (<c>StarDetectionSkyTriggerTests</c>). The synthetic 28-star
+    /// frame lost one detection at SNR 10 (89 -> 88), and the duplicate pins stay 0.</para>
+    ///
     /// <para><b>The RGGB counts dropped by 1.2 % on 2026-09-07</b> (3,065 -> 3,027 at SNR 10, 2,769 ->
     /// 2,737 at SNR 30) when a mosaic detection whose flux sits in ONE photosite stopped being a star
     /// (<c>Image.SinglePhotositeFractionMax</c>). The mono fold the detector measures on turns a warm
@@ -82,11 +89,11 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
     /// 0 and an increase means the class is back.</para>
     /// </summary>
     [Theory]
-    [InlineData("image_file-snr-20_stars-28_1280x960x16", 10f, 89, null, 0)]
+    [InlineData("image_file-snr-20_stars-28_1280x960x16", 10f, 88, null, 0)]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 20f, 28, null, 0)]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 30f, 13, null, 0)]
-    [InlineData("RGGB_frame_bx0_by0_top_down", 30f, 2737, 5000, 0)]
-    [InlineData("RGGB_frame_bx0_by0_top_down", 10f, 3027, 5000, 0)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", 30f, 2898, 5000, 0)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", 10f, 3573, 5000, 0)]
     public async Task GivenImageFileAndMinSNRWhenFindingStarsThenTheyAreFound(string name, float snrMin, int expectedStars, int? maxStars = null, int expectedDuplicatePairs = 0)
     {
         // given

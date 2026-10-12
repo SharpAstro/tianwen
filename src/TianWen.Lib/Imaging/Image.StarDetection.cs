@@ -410,7 +410,7 @@ public partial class Image
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private async Task<StarList> DetectStarsAsync(int channel, float snrMin, int maxStars, int minStars, int maxRetries, float maxFirstPassNoiseSigma, ILogger? logger, SpikeGuard spikeGuard, CancellationToken cancellationToken)
+    internal async Task<StarList> DetectStarsAsync(int channel, float snrMin, int maxStars, int minStars, int maxRetries, float maxFirstPassNoiseSigma, ILogger? logger, SpikeGuard spikeGuard, CancellationToken cancellationToken, bool skyTrigger = true)
     {
         // ChunkSize = row band height each parallel task processes, matching the max star radius
         // (HfdFactor * BoxRadius) so no star can span two non-adjacent chunks. Decoupled from
@@ -465,6 +465,21 @@ public partial class Image
             return new StarList([]);
         }
 
+        // THE TRIGGER FOLLOWS THE SKY. A pixel starts a candidate where it stands above the LOCAL sky by the
+        // ladder's level in units of the LOCAL noise (Sources.BackgroundMap, photutils' Background2D shape),
+        // never above one histogram background by one level for the whole frame. Measured on M42 in H-alpha
+        // (iTelescope 31, 2262 mm): the frame-wide level put about 40 of a frame's 67 detections inside the
+        // nebula's core, texture and not stars, and those filled the early-terminating ladder before it
+        // reached the field's faint stars; registration then built its quads from the texture and matched 4
+        // of 23 frames. Every bright extended field lost subs the same way (LMC 45 %, M33 up to 32 %). The
+        // measurement after a trigger (AnalyseStar: its annulus, its SNR gate) was already local. A map with
+        // no noise to read (a synthetic plane without noise) keeps the frame-wide trigger.
+        var estimatedSky = skyTrigger && noise_level > 0f ? Sources.BackgroundMap.Estimate(this, channel) : null;
+        var skyMap = estimatedSky is { GlobalRms: > 0f } && float.IsFinite(estimatedSky.GlobalRms) ? estimatedSky : null;
+        // A cell whose clipped spread reads zero (a saturated block, a constant fill) must not make every
+        // positive pixel a candidate: its noise is floored at a quarter of the frame's.
+        var rmsFloor = 0.25f * noise_level;
+
         var starList = new ConcurrentBag<ImagedStar>();
         var img_star_area = new BitMatrix(height, width);
         var channelData = Planes[channel].Data;
@@ -495,6 +510,9 @@ public partial class Image
             var passCounters = logger is not null ? new FindStarsPassCounters() : null;
             var passStart = logger is not null ? Stopwatch.GetTimestamp() : 0L;
             var passDetectionLevel = detection_level;
+            // The ladder's level in units of the frame's noise, which the local trigger multiplies by the
+            // local noise: the same rung, read against the sky where the pixel is.
+            var passSigmaLevel = detection_level / noise_level;
 
             // Capture loop variable into a local readable by the sync Parallel.For
             // body. The sync body avoids async state machine overhead on every chunk.
@@ -514,10 +532,13 @@ public partial class Image
                         // not reclaimed until the method returns, so one per candidate would grow the
                         // stack by the whole chunk.
                         Span<ImagedStar> components = stackalloc ImagedStar[MaxDeblendComponents];
+                        using var skyRow = ArrayPoolHelper.Rent<float>(skyMap is not null ? width : 0);
+                        using var rmsRow = ArrayPoolHelper.Rent<float>(skyMap is not null ? width : 0);
                         var chunk = 2 * halfChunk + phase;
                         var chunkEnd = Math.Min(height, (chunk + 1) * ChunkSize);
                         for (var fitsY = chunk * ChunkSize; fitsY < chunkEnd; fitsY++)
                         {
+                            skyMap?.FillRow(fitsY, skyRow, rmsRow);
                             for (var fitsX = 0; fitsX < width; fitsX++)
                             {
                                 // new star. For analyse used sigma is 5, so not too low.
@@ -526,7 +547,9 @@ public partial class Image
                                 {
                                     img_star_area[fitsY, fitsX] = true; /* ignore NaN values */
                                 }
-                                else if (value - background > detection_level)
+                                else if (skyMap is not null
+                                    ? value - skyRow[fitsX] > passSigmaLevel * MathF.Max(rmsRow[fitsX], rmsFloor)
+                                    : value - background > detection_level)
                                 {
                                     localHits++;
                                     if (!img_star_area[fitsY, fitsX])

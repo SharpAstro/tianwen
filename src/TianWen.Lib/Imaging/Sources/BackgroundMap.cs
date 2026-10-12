@@ -400,6 +400,23 @@ public sealed class BackgroundMap
         return top * (1f - ty) + bottom * ty;
     }
 
+    /// <summary>
+    /// The sky level and RMS along one row, as <see cref="BackgroundAt"/> and <see cref="RmsAt"/> give them
+    /// pixel by pixel: what a per-pixel threshold reads, a row at a time, without a full-frame plane of each.
+    /// </summary>
+    public void FillRow(int y, Span<float> background, Span<float> rms)
+    {
+        if (background.Length < Width || rms.Length < Width)
+        {
+            throw new ArgumentException($"row buffers hold {background.Length} and {rms.Length} samples for a {Width} px row");
+        }
+        for (var x = 0; x < Width; x++)
+        {
+            background[x] = Sample(_background, x, y);
+            rms[x] = Sample(_rms, x, y);
+        }
+    }
+
     private void Fill(float[] mesh, Span<float> destination)
     {
         if (destination.Length != Width * Height)
