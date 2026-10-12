@@ -1847,6 +1847,50 @@ not the stopping rule for this task, and the next arm keeps R2f's length.
 a question; R2f stands as the recipe's number. If (3) fails upward, every arm since R2e was read short, as R2c found of
 R2b, and the next arms run to convergence at a raised cap.
 
+#### R2g's read: the length past the cap buys no faint or mid-bright removal, and every prediction holds (2026-10-12)
+
+`r2g_synth3_s0` ended on its own: "stopped at step 273000: the held-out objective's best was 2.612369e-06 at step 261000",
+still at R2f's last rate (1.25e-5), with no halving past R2f's fourth. It was scored at 21:16 by the same binary on A's
+draws (`C:\temp\e2\r2g-read.txt`, `score-r2g.ps1`).
+
+| measure | A's control | R2e seed 0 | R2e seed 1 | R2f | R2g |
+|---|---|---|---|---|---|
+| clean 5-20 sigma | 73.0 | 79.6 | 77.7 | 76.8 | **75.4** |
+| clean 20-100 sigma | 58.6 | 70.0 | 71.6 | 68.9 | **70.1** |
+| clean 100-1000 sigma | 24.4 | 46.3 | 33.4 | 43.3 | **48.8** |
+| dug 100-1000 sigma | 66.1 | 42.2 | 58.1 | 46.1 | 31.5 |
+| core mean 100-1000 | -1.00 | -0.42 | -0.93 | -0.48 | 0.06 |
+| core RMS 100-1000 | 3.0 | 1.8 | 5.4 | 1.9 | 1.8 |
+| clean saturated | 29.2 | 37.9 | 35.2 | 35.6 | 37.0 |
+| bright-core share % | 2.83 | 1.59 | 2.29 | 1.63 | 1.50 |
+| far sky | 0.28 | 0.29 | 0.22 | 0.25 | 0.26 |
+
+0. **It is R2f to step 240,000: holds.** All 480 held-out lines through 240,000 equal R2f's log to the printed digit, so
+   every difference below is the 33,000 steps past the cap and nothing else.
+1. **It ends on its own before 480,000: holds.** At step 273,000, 12,000 steps after its best at 261,000.
+2. **The held-out best falls 0.5 to 5 % below R2f's: holds.** 2.612e-6 against 2.683e-6, 2.63 % below.
+3. **Length buys little removal: holds.** 75.4 against 76.8 at 5-20 sigma (-1.4) and 70.1 against 68.9 at 20-100 (+1.2),
+   both inside the registered 2 points.
+4. **The bright stars do not get worse: holds.** 48.8 at 100-1000 sigma (bar 41.3), the bright cores 1.50 % of the error.
+5. **The sky: holds.** Far sky 0.26, under 0.37.
+
+**The kill does not fire**: the held-out objective improved and neither clean measure fell past its band.
+
+What it decides, by the registered rule: **(3) holds, so 240,000 steps is the recipe's length for faint and mid-bright
+stars, and R2f stands as the recipe's number.** The cap stops being a question for them.
+
+What it shows that was not registered, and so is read as a hypothesis, not a result: **the steps past the cap went to the
+bright stars.** Clean at 100-1000 sigma rose 5.5 points, the dug share there fell from 46.1 to 31.5 (the lowest of any
+column here), and the core's mean error went from -0.48 to 0.06, the nearest to zero of any column here. One seed, and
+R2e's two seeds lie 12.9 points apart on this measure, so a seed's luck can be this size; but here the seed is the SAME,
+so it is not a seed's luck, only a length whose effect on another seed is unmeasured. An arm that wants the bright stars
+registers it: two seeds to convergence against R2f's two at the cap.
+
+**The data under the next arm changes.** The star detector now triggers against the local sky (#1545), which every
+session's measurements, registration and so masters move with (nine training sessions keep 427 subs against 416). A
+store re-baked with it and an export made from that store are new inputs, so the next arm's control is re-run on them
+rather than read against the columns above.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
