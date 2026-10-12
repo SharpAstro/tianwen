@@ -225,7 +225,10 @@ public class PlateSolverTests(ITestOutputHelper output)
         // "forward and inverse agree" without asserting a precision the representation does not
         // have. The threshold used to be 0.001 arcsec, which passed only because SIP was silently
         // rejected on every frame (the CRPIX/uDet reference-pixel mismatch in AttachSipFit).
-        rtSep.ShouldBeLessThan(0.01, "SkyToPixel→PixelToSky round-trip should be < 0.01 arcsec");
+        // 0.02 since 2026-10-12: the inverse fit's residual moves with the star set the forward fit came from,
+        // and the detector's local-sky trigger hands this frame a different set (0.0122 arcsec, 0.002 px), so
+        // the bound is 2,500 times finer than the centroids rather than 5,000.
+        rtSep.ShouldBeLessThan(0.02, "SkyToPixel→PixelToSky round-trip should be < 0.02 arcsec");
     }
 
     [Theory]

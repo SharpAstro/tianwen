@@ -156,7 +156,8 @@ public class StarDetectionWarmPixelTests
     /// <summary>
     /// The real frame behind <c>FindStarsFromFitsFileTests</c>' RGGB counts (an uncalibrated ASI frame):
     /// the mono path is run by hand, as the RGGB branch runs it, and every detection measured on the
-    /// mosaic. The ones the guard removes are the 38 the count dropped by, they all carry over 85 percent
+    /// mosaic. The ones the guard removes are the 43 the count drops by (38 before the trigger read the local sky,
+    /// 2026-10-12), they all carry over 85 percent
     /// of their flux in one photosite, and they are narrower on the mono plane than the stars kept, which
     /// is what says they are spikes and not faint stars lost.
     /// </summary>
@@ -172,9 +173,9 @@ public class StarDetectionWarmPixelTests
         var dropped = unguarded.Where(s => Image.PeakPhotositeFraction(mosaic, s.XCentroid, s.YCentroid) > Image.SinglePhotositeFractionMax).ToList();
         var kept = unguarded.Where(s => !(Image.PeakPhotositeFraction(mosaic, s.XCentroid, s.YCentroid) > Image.SinglePhotositeFractionMax)).ToList();
 
-        unguarded.Count.ShouldBe(3065);
-        dropped.Count.ShouldBe(38);
-        kept.Count.ShouldBe(3027);
+        unguarded.Count.ShouldBe(3616);
+        dropped.Count.ShouldBe(43);
+        kept.Count.ShouldBe(3573);
         static float Median(IEnumerable<float> values)
         {
             var sorted = values.OrderBy(v => v).ToArray();
