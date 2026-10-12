@@ -459,6 +459,81 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// The case that found <see cref="Image.CoverageCropRectangle"/>: M42 RGB 2022-12-03, 31 frames, one
+        /// re-pointed 425 px after a gap, which left a strip along two edges covered by 30 of the 31. That
+        /// is 0.968 of full, inside the weight rule's 0.95, so the old crop kept it and the master showed
+        /// the frame's level as a seam there. On a COUNT plane a region any frame missed is cut.
+        /// </summary>
+        [Fact]
+        public void ACountPlaneStripOneFrameShortIsCropped()
+        {
+            var image = Flat(256, 128);
+            var coverage = Synthetic(256, 128, 1, static (_, x, y) => x >= 224 || y < 16 ? 30f : 31f);
+
+            image.CoverageCropRectangle(coverage, blockSize: 16).ShouldBe(new PixelRect(0, 16, 224, 112));
+            image.LargestCoveredRectangle(coverage, minFraction: 0.95, blockSize: 16)
+                .ShouldBe(new PixelRect(0, 0, 256, 128), "the weight rule keeps a strip one frame of 31 short");
+        }
+
+        /// <summary>
+        /// Why a count plane is read by each block's MEDIAN. A frame's hot-pixel mask and every rejected
+        /// sample take the count down at scattered single pixels all over a fully covered interior, by one
+        /// or, where several frames share a pointing and so share their masked photosites, by many. A block
+        /// MEAN there falls under the full count, and a threshold at full on the mean leaves no covered block
+        /// at all.
+        /// </summary>
+        [Fact]
+        public void ScatteredShortPixelsInsideACountPlaneKeepTheWholeFrame()
+        {
+            var rng = new Random(20261012);
+            var image = Flat(256, 128);
+            var coverage = Synthetic(256, 128, 1, (_, _, _) => rng.NextDouble() switch
+            {
+                < 0.08 => 30f,
+                < 0.10 => 17f,
+                _ => 31f,
+            });
+
+            image.CoverageCropRectangle(coverage, blockSize: 16).ShouldBe(new PixelRect(0, 0, 256, 128));
+        }
+
+        /// <summary>The border rule holds on a count plane too: a deficit in the middle is a subject, not an edge.</summary>
+        [Fact]
+        public void ARejectedCoreInACountPlaneIsNotAnEdge()
+        {
+            var image = Flat(256, 128);
+            var coverage = Synthetic(256, 128, 1,
+                static (_, x, y) => x < 32 ? 12f : (x >= 112 && x < 144 && y >= 48 && y < 80) ? 20f : 31f);
+
+            image.CoverageCropRectangle(coverage, blockSize: 16).ShouldBe(new PixelRect(32, 0, 224, 128));
+        }
+
+        /// <summary>
+        /// A drizzle WEIGHT plane keeps the 0.95 block-mean rule: its cells scatter by about 10% inside full
+        /// coverage, which an all-frames test cannot survive.
+        /// </summary>
+        [Fact]
+        public void AWeightPlaneKeepsTheNinetyFivePercentRule()
+        {
+            var rng = new Random(20260908);
+            var image = Flat(256, 128);
+            var coverage = Synthetic(256, 128, 1,
+                (_, x, _) => (float)((x >= 224 ? 0.968 : 1.0) * 40.0 * (0.85 + (0.3 * rng.NextDouble()))));
+
+            Image.IsFrameCountPlane(coverage).ShouldBeFalse();
+            image.CoverageCropRectangle(coverage, blockSize: 16).ShouldBe(new PixelRect(0, 0, 256, 128));
+        }
+
+        /// <summary>Whole numbers only make a count plane; NaN is passed over; an all-NaN plane is not one.</summary>
+        [Fact]
+        public void ACountPlaneIsWholeNumbersOnly()
+        {
+            Image.IsFrameCountPlane(Synthetic(32, 32, 1, static (_, x, _) => x < 4 ? float.NaN : 31f)).ShouldBeTrue();
+            Image.IsFrameCountPlane(Synthetic(32, 32, 1, static (_, x, _) => x < 4 ? 30.5f : 31f)).ShouldBeFalse();
+            Image.IsFrameCountPlane(Synthetic(32, 32, 1, static (_, _, _) => float.NaN)).ShouldBeFalse();
+        }
+
+        /// <summary>
         /// The non-owning fill: same instance when there is nothing to fill, a filled COPY otherwise,
         /// and the caller's pixels are never touched. `MasterPreviewRenderer` documents that it does not
         /// mutate the master it renders, and that master is often the object the FITS writer is about to

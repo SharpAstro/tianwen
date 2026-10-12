@@ -1058,7 +1058,7 @@ public static class ViewerActions
             {
                 if (IntegrationFitsWriter.TryReadCoverageMap(path, out var coverage))
                 {
-                    var exact = image.LargestCoveredRectangle(coverage);
+                    var exact = image.CoverageCropRectangle(coverage);
                     if (exact.Width > 0 && exact.Height > 0)
                     {
                         logger?.LogDebug("Auto-crop from the coverage plane: {W}x{H} at ({X},{Y})",
