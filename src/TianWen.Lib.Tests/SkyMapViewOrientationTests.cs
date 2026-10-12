@@ -276,12 +276,12 @@ public class SkyMapViewOrientationTests
     }
 
     [Fact]
-    public void InHorizonMode_TheRollFOLLOWSTheZenithAsTheSkyTurns_ButOnlyByHowFarItMoved()
+    public void InHorizonMode_TheHorizonIsKeptLevel_WhateverRolledItAndAsTheSkyTurns()
     {
-        // Horizon mode's reference really does move (the sky turns ~15 deg/hr), and keeping the
-        // horizon level over a session is the one thing the per-frame realign is entitled to do.
-        // It must do it by tracking the reference's MOTION, never by servoing to its absolute value:
-        // servoing is what dragged a panned view back and made the sky slide after mouse-up.
+        // Alt-az holds the horizon parallel to the window at all times, as Stellarium's alt-az mode does (the owner,
+        // 2026-10-12). It used to keep whatever roll a gesture earned and follow only the zenith's motion, which
+        // left a dragged view tilted for good. A pan lands level now (SkyMapPanTests), so what is pinned here is
+        // that anything else that rolls the frame is straightened on the next frame, and the sky's turning too.
         var state = new SkyMapState { Mode = SkyMapMode.Horizon, CenterRA = 8.0, CenterDec = 10.0 };
         var zenith = SkyMapState.RaDecToUnitVec(4.0, 40.0);
         state.RequestLevelToReference();
@@ -291,28 +291,20 @@ public class SkyMapViewOrientationTests
         }
         var levelRoll = state.CenterRoll;
 
-        // A gesture rolls the frame off level. Nothing may take that back on its own.
         state.CenterRoll = levelRoll + double.DegreesToRadians(30.0);
-        state.UpdateRollForReference(zenith.X, zenith.Y, zenith.Z, FrameSeconds);
-        double.RadiansToDegrees(state.CenterRoll - levelRoll)
-            .ShouldBe(30.0, 1e-6, "a static zenith must leave the gesture's roll exactly alone");
+        state.UpdateRollForReference(zenith.X, zenith.Y, zenith.Z, FrameSeconds).ShouldBeTrue();
+        state.CenterRoll.ShouldBe(levelRoll, 1e-9, "a roll off level is straightened on the next frame");
 
-        // Now the sky turns. The roll follows it, carrying the gesture's 30 degrees along.
-        var rolled = state.CenterRoll;
+        // The sky turns; the roll is the level roll for the new zenith, exactly.
         var moved = SkyMapState.RaDecToUnitVec(4.25, 40.0); // a quarter hour of RA later
         state.UpdateRollForReference(moved.X, moved.Y, moved.Z, FrameSeconds);
-        var followed = state.CenterRoll - rolled;
-        Math.Abs(followed).ShouldBeGreaterThan(1e-6, "the horizon must stay level as the sky turns");
-
-        // And it followed by exactly the reference's own motion, so the 30 degree offset survives.
         var reference = new SkyMapState { Mode = SkyMapMode.Horizon, CenterRA = 8.0, CenterDec = 10.0 };
         reference.RequestLevelToReference();
         for (var frame = 0; frame < 200; frame++)
         {
             reference.UpdateRollForReference(moved.X, moved.Y, moved.Z, FrameSeconds);
         }
-        double.RadiansToDegrees(state.CenterRoll - reference.CenterRoll)
-            .ShouldBe(30.0, 1e-3, "the gesture's offset rides along, it is not eaten by the tracking");
+        state.CenterRoll.ShouldBe(reference.CenterRoll, 1e-6, "and stays level as the sky turns");
     }
 
     [Theory]

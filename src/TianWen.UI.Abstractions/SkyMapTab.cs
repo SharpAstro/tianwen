@@ -1224,7 +1224,6 @@ namespace TianWen.UI.Abstractions
             var fovText = State.FieldOfViewDeg < 1
                 ? $"FOV: {State.FieldOfViewDeg * 60:F0}'"
                 : $"FOV: {State.FieldOfViewDeg:F1}\u00B0";
-            var modeLabel = State.Mode == SkyMapMode.Equatorial ? "EQ" : "AZ";
             var skyHint = State.MilkyWayAvailable ? " [S]ky" : "";
 
             // The layer keys were listed here, bracketed, and that list is what the palette replaced:
@@ -1244,9 +1243,10 @@ namespace TianWen.UI.Abstractions
             // Limiting magnitude actually rendered (FOV-aware; grows as you zoom in). Gives the
             // +/- magnitude-floor keys visible feedback, which they previously lacked.
             var magText = $"Lim mag {State.EffectiveMagnitudeLimit:F1}";
-            // [P]roj stays in the strip whatever the palette is doing: the projection is the map's
-            // MODE, not one of its layers, so it is not in the table the panel renders.
-            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    {magText}    [{modeLabel}]  [P]roj{layerHints}{levelHint}";
+            // The view's frame is the switch at the strip's left (BuildModeSwitch), in words; [P] stays in the readout
+            // whatever the palette is doing, since the frame is the map's MODE, not one of its layers, so it is not in
+            // the table the panel renders.
+            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    {magText}    [P] view{layerHints}{levelHint}";
 
             // The time on the right, blue when time-shifted, inside its controls (SkyMapTab.TimeControls): the
             // steps the arrow keys take either side of it, a press on the time for the night's landmarks, and
@@ -1254,6 +1254,8 @@ namespace TianWen.UI.Abstractions
             var timeColor = isTimeShifted ? TimeShiftColor : InfoText;
             var arranged = RenderLayout(
                 Layout.Builder.HStack(
+                    BuildModeSwitch(fontSize * 0.85f, dpiScale),
+                    Layout.Builder.Spacer().WFixed(8f * dpiScale),
                     Layout.Builder.Fill(key: InfoStripTextKey).WStar(),
                     BuildTimeControls(timeText, timeColor, fontSize * 0.85f, dpiScale)),
                 new RectF32(rect.X + 8, stripY, rect.Width - 16, stripH),
@@ -1268,6 +1270,63 @@ namespace TianWen.UI.Abstractions
         }
 
         private const string InfoStripTextKey = "skymap-info-text";
+
+        /// <summary>The mode switch's segments, by name, for a host or an inspector.</summary>
+        internal const string ModeHorizonAction = "SkyMapMode:AltAz";
+
+        /// <inheritdoc cref="ModeHorizonAction"/>
+        internal const string ModeEquatorialAction = "SkyMapMode:Equatorial";
+
+        // The chosen segment carries the map's own warm title ink on a lifted panel, so the frame in force reads at a
+        // glance against the starfield; the other is the strip's plain text, a press away.
+        private static readonly RGBAColor32 ModeSelectedFill = new(0x37, 0x48, 0x5C, 0xFF);
+        private static readonly RGBAColor32 ModeSelectedInk = new(0xE8, 0xDC, 0xB4, 0xFF);
+
+        /// <summary>
+        /// Switches the view's frame, as P does: Horizon (alt-az, the horizon kept parallel to the window) or Equatorial
+        /// (celestial north up). Either way the new frame is established by a level, since nothing else takes a roll
+        /// a pan left in Equatorial back.
+        /// </summary>
+        private void SwitchMode(SkyMapMode mode)
+        {
+            if (State.Mode == mode)
+            {
+                return;
+            }
+
+            State.Mode = mode;
+            State.RequestLevelToReference();
+            State.NeedsRedraw = true;
+        }
+
+        /// <summary>
+        /// The view's frame, shown and switched in words at the status strip's left: "Alt/Az" or "Equatorial". It was
+        /// a bracketed two-letter code mid-strip ("[AZ]  [P]roj", which also misnamed the frame a projection), and
+        /// nothing in it said which mode was in force at a glance (the owner, 2026-10-12). Device-pixel sizes, as the
+        /// strip's; each segment as wide as the wider label, measured by the engine, so neither is cut.
+        /// </summary>
+        private Layout.Node BuildModeSwitch(float fontSize, float dpiScale)
+        {
+            var padX = 6f * dpiScale;
+            var widest = Layout.Engine.Measure(
+                Layout.Builder.Text("Equatorial", fontSize, trim: TextTrim.None).PadX(padX),
+                new Layout.Size<float>(float.MaxValue, float.MaxValue), MeasureContext(scale: DesignScale.One)).Width;
+            ReadOnlySpan<Layout.ButtonGroupOption<SkyMapMode>> modes =
+            [
+                new(SkyMapMode.Horizon, "Alt/Az") { Hit = new HitResult.ButtonHit(ModeHorizonAction), Tooltip = "Horizon kept level (P)" },
+                new(SkyMapMode.Equatorial, "Equatorial") { Hit = new HitResult.ButtonHit(ModeEquatorialAction), Tooltip = "Celestial north up (P)" },
+            ];
+            var style = new Layout.ButtonGroupStyle(ModeSelectedFill, InfoPanelBg, ModeSelectedInk, InfoText, GuiTheme.Hover(InfoPanelBg))
+            {
+                Gap = 2f * dpiScale,
+                CornerRadius = 3f * dpiScale,
+                InsetFraction = 0.8f,
+                SegmentWidth = widest,
+            };
+            // The strip's full height: a group's cells fill the height they are given, and a group left to size itself
+            // in a row of automatic height is given none, so it painted nothing and took no press.
+            return Layout.Builder.ButtonGroup(modes, State.Mode, SwitchMode, style, fontSize).HStar();
+        }
 
         // ── Milky Way texture loading ──
 
@@ -1676,61 +1735,23 @@ namespace TianWen.UI.Abstractions
             // Latch the click-vs-drag gesture (a pan that wanders back over its start stays a drag).
             _mapGesture.Update(x, y);
 
-            // Great-circle drag: compute the rotation that maps the current mouse sky position
-            // back to the drag-start sky position, and apply it to the view center.
-            // This gives a natural "grab and drag" feel in any projection mode.
+            // Both points are taken in the frame the PRESS found, so every step is measured from the press and a
+            // drag cannot accumulate error; what the step does with them is the mode's (SkyMapState.Pan): a rigid
+            // rotation in Equatorial, an alt-az pan that keeps the horizon level in Horizon.
             var ppr = SkyMapProjection.PixelsPerRadian(_contentHeight, State.FieldOfViewDeg);
             var screenCx = _contentX + _contentWidth * 0.5f;
             var screenCy = _contentY + _contentHeight * 0.5f;
 
             var (startX, startY) = State.DragStart;
-            var (startRA, startDec) = State.DragStartCenter;
             var startMatrix = State.DragStartViewMatrix;
-
             var (ra1, dec1) = SkyMapProjection.UnprojectWithMatrix(startX, startY, startMatrix, ppr, screenCx, screenCy);
             var (ra2, dec2) = SkyMapProjection.UnprojectWithMatrix(x, y, startMatrix, ppr, screenCx, screenCy);
+            var grabbed = SkyMapState.RaDecToUnitVec(ra1, dec1);
+            var underPointer = SkyMapState.RaDecToUnitVec(ra2, dec2);
 
-            // Convert to unit vectors
-            var v1 = SkyMapState.RaDecToUnitVec(ra1, dec1);
-            var v2 = SkyMapState.RaDecToUnitVec(ra2, dec2);
-
-            // Build quaternion rotation from v2 to v1: q = (cross(v2,v1), 1 + dot(v2,v1))
-            var from = new System.Numerics.Vector3(v2.X, v2.Y, v2.Z);
-            var to = new System.Numerics.Vector3(v1.X, v1.Y, v1.Z);
-            var cross = System.Numerics.Vector3.Cross(from, to);
-            var dot = System.Numerics.Vector3.Dot(from, to);
-            var q = System.Numerics.Quaternion.Normalize(
-                new System.Numerics.Quaternion(cross, 1f + dot));
-
-            // Rotate the WHOLE start frame, not just the centre. The rotation has three degrees of
-            // freedom; applying it to the centre alone discarded the roll, and the roll then got
-            // re-derived from the mode's reference direction, which is what made a pan near the pole
-            // or the zenith swing the field. Rotating forward AND right keeps the gesture rigid: the
-            // sky turns under the pointer by exactly the rotation the drag describes, wherever the
-            // view happens to point. The start frame is the matrix that was on screen when the drag
-            // began, whose rows are (right, up, -forward).
-            var startForward = new System.Numerics.Vector3(-startMatrix.M31, -startMatrix.M32, -startMatrix.M33);
-            var startRight = new System.Numerics.Vector3(startMatrix.M11, startMatrix.M12, startMatrix.M13);
-            if (startForward.LengthSquared() < 1e-6f || startRight.LengthSquared() < 1e-6f)
-            {
-                // No frame has been stamped yet (a drag that lands before the first rendered frame
-                // sees a default matrix), so start from the centre the drag began at instead of
-                // normalising a zero vector into a NaN the state would then keep.
-                var (fallbackForward, fallbackRight, _) = SkyMapState.ReferenceFrame(startRA, startDec);
-                startForward = fallbackForward;
-                startRight = fallbackRight;
-            }
-
-            var forward = System.Numerics.Vector3.Transform(startForward, q);
-            var right = System.Numerics.Vector3.Transform(startRight, q);
-
-            var (newRA, newDec, newRoll) = SkyMapState.FrameToCenter(forward, right);
-
-            State.CenterRA = newRA;
-            State.CenterDec = newDec;
-            State.CenterRoll = newRoll;
-            State.NormalizeCenter();
-            State.NeedsRedraw = true;
+            State.Pan(
+                new System.Numerics.Vector3(grabbed.X, grabbed.Y, grabbed.Z),
+                new System.Numerics.Vector3(underPointer.X, underPointer.Y, underPointer.Z));
             return true;
         }
 
@@ -1772,14 +1793,7 @@ namespace TianWen.UI.Abstractions
                     State.RequestLevelToReference();
                     return true;
                 case InputKey.P:
-                    State.Mode = State.Mode == SkyMapMode.Equatorial
-                        ? SkyMapMode.Horizon
-                        : SkyMapMode.Equatorial;
-                    // Establish the new mode's frame. Nothing else does it any more: the roll now
-                    // belongs to the user's gestures, so entering Horizon mode with a pan's roll
-                    // still on the view would leave the horizon tilted and never straighten it.
-                    State.RequestLevelToReference();
-                    State.NeedsRedraw = true;
+                    SwitchMode(State.Mode == SkyMapMode.Equatorial ? SkyMapMode.Horizon : SkyMapMode.Equatorial);
                     return true;
                 // Ctrl +/- : keyboard zoom (centre-anchored, spin-free). Plain +/- adjusts the
                 // magnitude-limit floor (surfaced in the status strip below as "Lim mag").

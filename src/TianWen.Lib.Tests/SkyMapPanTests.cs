@@ -40,9 +40,9 @@ public class SkyMapPanTests
     }
 
     /// <summary>
-    /// SkyMapTab.HandleDrag's geometry, replayed against a state. Duplicated rather than driven
-    /// through the tab because the tab needs a render surface; the arithmetic below is copied from it
-    /// verbatim, so a change there that this misses shows up as this test agreeing with nothing.
+    /// A press at (fromX, fromY) and a move to (toX, toY), as SkyMapTab.HandleDrag hands them to
+    /// <see cref="SkyMapState.Pan"/>: both points unprojected through the frame the press found. The step itself is
+    /// the state's own code, so nothing here can agree with a copy the tab no longer runs.
     /// </summary>
     private static void Drag(SkyMapState s, float fromX, float fromY, float toX, float toY)
     {
@@ -57,21 +57,19 @@ public class SkyMapPanTests
 
         var (ra1, dec1) = SkyMapProjection.UnprojectWithMatrix(fromX, fromY, startMatrix, ppr, cx, cy);
         var (ra2, dec2) = SkyMapProjection.UnprojectWithMatrix(toX, toY, startMatrix, ppr, cx, cy);
-        var v1 = SkyMapState.RaDecToUnitVec(ra1, dec1);
-        var v2 = SkyMapState.RaDecToUnitVec(ra2, dec2);
-        var from = new Vector3(v2.X, v2.Y, v2.Z);
-        var to = new Vector3(v1.X, v1.Y, v1.Z);
-        var q = Quaternion.Normalize(new Quaternion(Vector3.Cross(from, to), 1f + Vector3.Dot(from, to)));
+        var grabbed = SkyMapState.RaDecToUnitVec(ra1, dec1);
+        var underPointer = SkyMapState.RaDecToUnitVec(ra2, dec2);
+        s.Pan(new Vector3(grabbed.X, grabbed.Y, grabbed.Z), new Vector3(underPointer.X, underPointer.Y, underPointer.Z));
+    }
 
-        var startForward = new Vector3(-startMatrix.M31, -startMatrix.M32, -startMatrix.M33);
-        var startRight = new Vector3(startMatrix.M11, startMatrix.M12, startMatrix.M13);
-        var (newRA, newDec, newRoll) = SkyMapState.FrameToCenter(
-            Vector3.Transform(startForward, q), Vector3.Transform(startRight, q));
-
-        s.CenterRA = newRA;
-        s.CenterDec = newDec;
-        s.CenterRoll = newRoll;
-        s.NormalizeCenter();
+    /// <summary>Screen-up lies in the plane of the view axis and the zenith, on the zenith's side: a level horizon.</summary>
+    private static double HorizonTiltDeg(SkyMapState s, Vector3 zenith)
+    {
+        var m = ViewMatrix(s);
+        var forward = new Vector3(-m.M31, -m.M32, -m.M33);
+        var up = new Vector3(m.M21, m.M22, m.M23);
+        var expectedUp = Vector3.Normalize(zenith - forward * Vector3.Dot(zenith, forward));
+        return double.RadiansToDegrees(Math.Acos(Math.Clamp(Vector3.Dot(up, expectedUp), -1f, 1f)));
     }
 
     private static void SettleAfterRelease(SkyMapState s)
@@ -116,41 +114,75 @@ public class SkyMapPanTests
     }
 
     [Theory]
-    // Alt/Az has the same requirement and the same singularity, with the ZENITH standing in for the
-    // pole: a pan must move the sky in the direction of the drag, so the point you grabbed ends up
-    // where you dropped it. Near the zenith the reference is ill-conditioned, which is exactly where
-    // servoing to it used to throw the field.
-    [InlineData(40.0, "at the zenith")]        // the site's zenith Dec, i.e. straight overhead
-    [InlineData(38.0, "just off the zenith")]  // and just outside the old lock cone, the worst case
-    [InlineData(10.0, "well down the sky")]
-    public void InAltAz_ThePanFollowsTheDragDirection(double startDec, string where)
+    // Alt/Az keeps the horizon parallel to the window, as Stellarium's alt-az mode does (the owner, 2026-10-12): a
+    // pan solves for the LEVEL frame that puts the grabbed point exactly under the pointer, so the frame is level
+    // throughout and the sky still goes exactly where the drag takes it. It used to be a rigid rotation that tilted
+    // the horizon by whatever the gesture earned and kept it.
+    //
+    // From the zenith a drag leaves it by pulling the sky in TOWARD the centre: overhead, a point's altitude is its
+    // distance from the centre, so a drag outward would ask for an altitude past 90 and is held at the zenith
+    // (InAltAz_ASidewaysDragAtTheZenithTurnsTheViewAboutIt covers what it does there).
+    [InlineData(40.0, 300f, 300f, 450f, 370f, "from the zenith")]      // the site's zenith Dec: straight overhead
+    [InlineData(38.0, 300f, 300f, 450f, 370f, "just off the zenith")]  // inside the lock cone, where the zenith names no up
+    [InlineData(10.0, 430f, 330f, 610f, 455f, "well down the sky")]    // diagonally, so a sign error on either axis shows
+    public void InAltAz_APanKeepsTheHorizonLevelAndMovesTheSkyTheWayTheDragWent(
+        double startDec, float fromX, float fromY, float toX, float toY, string where)
     {
-        // A fixed zenith: over one gesture the sky turns by microdegrees, and the claim here is about
-        // the gesture, not the sky's rotation (which InHorizonMode_TheRollFOLLOWS... covers).
-        var zenith = SkyMapState.RaDecToUnitVec(8.0, 40.0);
+        // A fixed zenith: over one gesture the sky turns by microdegrees, and the claim here is about the gesture,
+        // not the sky's rotation.
+        var (zx, zy, zz) = SkyMapState.RaDecToUnitVec(8.0, 40.0);
+        var zenith = new Vector3(zx, zy, zz);
         var s = new SkyMapState { Mode = SkyMapMode.Horizon, FieldOfViewDeg = Fov, CenterRA = 8.0, CenterDec = startDec };
+        s.UpdateRollForReference(zx, zy, zz, FrameSeconds); // the frame before the press, as the app draws one
         var ppr = SkyMapProjection.PixelsPerRadian(ContentH, Fov);
         float cx = ContentW * 0.5f, cy = ContentH * 0.5f;
 
-        // Grab off-centre and drag diagonally, so a sign error on either axis shows up.
-        const float fromX = 430f, fromY = 330f, toX = 610f, toY = 455f;
         var (grabRA, grabDec) = SkyMapProjection.UnprojectWithMatrix(fromX, fromY, ViewMatrix(s), ppr, cx, cy);
 
         Drag(s, fromX, fromY, toX, toY);
         s.IsDragging = false;
 
-        SkyMapProjection.ProjectWithMatrix(grabRA, grabDec, ViewMatrix(s), ppr, cx, cy, out var x, out var y).ShouldBeTrue();
-        x.ShouldBe(toX, 0.5f, $"the grabbed point must land where the drag ended ({where})");
-        y.ShouldBe(toY, 0.5f, $"and on both axes ({where})");
+        HorizonTiltDeg(s, zenith).ShouldBeLessThan(0.05, $"the horizon is level after the drag ({where})");
 
-        // Still there after the frames that follow the release.
+        SkyMapProjection.ProjectWithMatrix(grabRA, grabDec, ViewMatrix(s), ppr, cx, cy, out var x, out var y).ShouldBeTrue();
+        var dragged = new Vector2(toX - fromX, toY - fromY);
+        var moved = new Vector2(x - fromX, y - fromY);
+        Vector2.Dot(moved, dragged).ShouldBeGreaterThan(0.8f * dragged.LengthSquared(),
+            $"the grabbed point went the way the drag went ({where}): to ({x:F0}, {y:F0}) for a drag to ({toX}, {toY})");
+        Vector2.Distance(new Vector2(x, y), new Vector2(toX, toY)).ShouldBeLessThan(1f,
+            $"and landed under the pointer ({where}): ({x:F1}, {y:F1}) against ({toX}, {toY})");
+
+        // And nothing moves once the gesture is over.
         for (var frame = 0; frame < 600; frame++)
         {
-            s.UpdateRollForReference(zenith.X, zenith.Y, zenith.Z, FrameSeconds);
+            s.UpdateRollForReference(zx, zy, zz, FrameSeconds);
         }
         SkyMapProjection.ProjectWithMatrix(grabRA, grabDec, ViewMatrix(s), ppr, cx, cy, out var settledX, out var settledY).ShouldBeTrue();
         Math.Sqrt(Math.Pow(settledX - x, 2) + Math.Pow(settledY - y, 2))
             .ShouldBeLessThan(0.5, $"and it must not drift once the gesture is over ({where})");
+    }
+
+    [Fact]
+    public void InAltAz_ADragAcrossTheZenithLandsLevelAndUprightOnTheFarSide()
+    {
+        // Carried right across the zenith, the view must come out the other side with the horizon level and the
+        // zenith UP, not upside down: an alt-az mount passing under the zenith turns through half a turn in
+        // azimuth, and so does the frame. The rigid pan alone would land inverted here.
+        var (zx, zy, zz) = SkyMapState.RaDecToUnitVec(8.0, 40.0);
+        var zenith = new Vector3(zx, zy, zz);
+        var s = new SkyMapState { Mode = SkyMapMode.Horizon, FieldOfViewDeg = Fov, CenterRA = 8.0, CenterDec = 30.0 };
+        s.UpdateRollForReference(zx, zy, zz, FrameSeconds);
+
+        // Ten degrees below the zenith, pulling the sky down by about twenty: the centre goes up and over.
+        Drag(s, 500f, 140f, 500f, 400f);
+        s.IsDragging = false;
+
+        var m = ViewMatrix(s);
+        var forward = new Vector3(-m.M31, -m.M32, -m.M33);
+        var up = new Vector3(m.M21, m.M22, m.M23);
+        Vector3.Dot(forward, zenith).ShouldBeLessThan(MathF.Cos(float.DegreesToRadians(5f)), "the centre left the zenith's cone");
+        HorizonTiltDeg(s, zenith).ShouldBeLessThan(0.05, "the horizon is level on the far side");
+        Vector3.Dot(up, zenith).ShouldBeGreaterThan(0f, "and screen-up still leans toward the zenith");
     }
 
     [Fact]

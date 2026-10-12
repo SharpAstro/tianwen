@@ -1335,6 +1335,11 @@ namespace TianWen.UI.Abstractions
             // reference) does not accumulate into one big step the moment the hold ends.
             var elapsed = deltaSeconds ?? MeasureRollFrameSeconds();
 
+            // Remembered before any exit, so a drag in Horizon mode pans about the zenith this frame was drawn
+            // with (Pan). An invalid site hands a zero vector, which is no zenith at all.
+            var zenith = new Vector3(zenithX, zenithY, zenithZ);
+            Zenith = zenith.LengthSquared() > 1e-12f ? Vector3.Normalize(zenith) : null;
+
             // A driven view's roll is the host's answer, not this map's. Checked HERE rather than at
             // the call site because there is one call site per GPU backend and both would have to
             // remember: the UBO writer is where the zenith is known, so it is where the refresh
@@ -1370,28 +1375,13 @@ namespace TianWen.UI.Abstractions
             double target;
             if (Mode == SkyMapMode.Horizon)
             {
-                var reference = new Vector3(zenithX, zenithY, zenithZ);
-                var refLen = reference.Length();
-                if (refLen < 1e-6f)
-                {
-                    _hasReferenceRoll = false;
-                    return false;
-                }
-                reference /= refLen;
-
-                var (forward, right0, up0) = ReferenceFrame(CenterRA, CenterDec);
-
-                // Component of the reference perpendicular to the view axis. Its LENGTH is the sine
-                // of the angle between them, i.e. exactly the conditioning of the old cross product.
-                var perpendicular = reference - forward * Vector3.Dot(reference, forward);
-                if (perpendicular.Length() < ReferenceRollLockSin)
+                if (Zenith is not { } reference || LevelRoll(CenterRA, CenterDec, reference) is not { } level)
                 {
                     _hasReferenceRoll = false;
                     return false;
                 }
 
-                // up(roll) = cos(roll) * up0 - sin(roll) * right0, so solve for up == perpendicular.
-                target = Math.Atan2(-Vector3.Dot(perpendicular, right0), Vector3.Dot(perpendicular, up0));
+                target = level;
             }
             else
             {
@@ -1419,6 +1409,25 @@ namespace TianWen.UI.Abstractions
                 }
                 _lastReferenceRoll = target;
                 _hasReferenceRoll = true;
+                return true;
+            }
+
+            // Alt-az holds the horizon parallel to the window at all times, as Stellarium's alt-az mode does (the
+            // owner, 2026-10-12): the roll IS the level roll, recomputed every frame, so the sky's rotation keeps it
+            // level and no gesture can leave it tilted. A drag moves the view in azimuth and altitude (Pan) and
+            // lands level too, so this changes nothing after one; it straightens a roll that arrived from
+            // elsewhere (a keyboard pan, a zoom about the pointer) on the next frame.
+            if (Mode == SkyMapMode.Horizon)
+            {
+                _lastReferenceRoll = target;
+                _hasReferenceRoll = true;
+                if (NormalizeSignedAngle(target - CenterRoll) == 0.0)
+                {
+                    return false;
+                }
+
+                CenterRoll = target;
+                NeedsRedraw = true;
                 return true;
             }
 
@@ -1467,6 +1476,191 @@ namespace TianWen.UI.Abstractions
                 wrapped += Math.Tau;
             }
             return wrapped - Math.PI;
+        }
+
+        /// <summary>
+        /// The local zenith (J2000, unit) the last frame was drawn with, or null with no usable site. Set by
+        /// <see cref="UpdateRollForReference"/>; read by <see cref="Pan"/> in Horizon mode.
+        /// </summary>
+        internal Vector3? Zenith { get; set; }
+
+        /// <summary>
+        /// The roll that puts <paramref name="zenith"/> straight up on screen at a centre, or null inside the lock
+        /// cone, where the zenith is (almost) the view axis and names no up direction.
+        /// </summary>
+        internal static double? LevelRoll(double raHours, double decDeg, Vector3 zenith, double lockSin = ReferenceRollLockSin)
+        {
+            var (forward, right0, up0) = ReferenceFrame(raHours, decDeg);
+
+            // Component of the zenith perpendicular to the view axis. Its LENGTH is the sine of the angle between
+            // them, i.e. exactly the conditioning of the old cross product.
+            var perpendicular = zenith - forward * Vector3.Dot(zenith, forward);
+            if (perpendicular.Length() < lockSin)
+            {
+                return null;
+            }
+
+            // up(roll) = cos(roll) * up0 - sin(roll) * right0, so solve for up == perpendicular.
+            return Math.Atan2(-Vector3.Dot(perpendicular, right0), Vector3.Dot(perpendicular, up0));
+        }
+
+        /// <summary>
+        /// Applies one step of a pan: <paramref name="grabbed"/> is the sky point under the pointer at the press,
+        /// <paramref name="underPointer"/> the one under it now, both unit vectors taken in the frame the press
+        /// found (<see cref="DragStartViewMatrix"/>), so every step is measured from the press, never from the
+        /// previous step.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Equatorial</b> rotates the WHOLE start frame rigidly, so the grabbed point lands exactly under
+        /// the pointer and the frame keeps whatever roll that earns; near the pole a change of RA is itself a
+        /// rotation, and the roll is what holds the sky still under the pointer.</para>
+        /// <para><b>Horizon</b> keeps the horizon parallel to the window, as Stellarium's alt-az mode does (the
+        /// owner, 2026-10-12): the centre moves as the rigid pan moves it, so the grabbed point's position along
+        /// the drag is exact, and the roll is the level one for the new centre, so the frame turns about its centre
+        /// as an alt-az mount turns in azimuth. Passing close under the zenith it turns fast, as the mount does;
+        /// only exactly at the zenith, which has no azimuth, does the rigid roll stand. With no usable zenith (no
+        /// site) Horizon pans rigidly, as Equatorial does.</para>
+        /// </remarks>
+        public void Pan(Vector3 grabbed, Vector3 underPointer)
+        {
+            var startMatrix = DragStartViewMatrix;
+            var startForward = new Vector3(-startMatrix.M31, -startMatrix.M32, -startMatrix.M33);
+            var startRight = new Vector3(startMatrix.M11, startMatrix.M12, startMatrix.M13);
+            if (startForward.LengthSquared() < 1e-6f || startRight.LengthSquared() < 1e-6f)
+            {
+                // No frame has been stamped yet (a drag that lands before the first rendered frame sees a default
+                // matrix), so start from the centre the drag began at instead of normalising a zero vector into a
+                // NaN the state would then keep.
+                (startForward, startRight, _) = ReferenceFrame(DragStartCenter.RA, DragStartCenter.Dec);
+            }
+
+            var (ra, dec, roll) = Mode == SkyMapMode.Horizon && Zenith is { } zenith
+                ? PanAltAz(grabbed, underPointer, startForward, startRight, zenith)
+                : RigidPan(grabbed, underPointer, startForward, startRight);
+
+            CenterRA = ra;
+            CenterDec = dec;
+            CenterRoll = roll;
+            NormalizeCenter();
+            NeedsRedraw = true;
+        }
+
+        private static (double RaHours, double DecDeg, double Roll) PanAltAz(
+            Vector3 grabbed, Vector3 underPointer, Vector3 startForward, Vector3 startRight, Vector3 zenith)
+        {
+            // The LEVEL frame that puts the grabbed point exactly where the pointer is: two unknowns, the centre's
+            // azimuth and altitude, against two constraints, the pointer's direction in the camera. Solved by Newton
+            // from the rigid pan's centre, which is already close. Two simpler constructions were tried and measured
+            // first (SkyMapPanTests): moving the view by the pointer's change of azimuth and altitude, as Stellarium
+            // does, goes the wrong way at the zenith, where the view's azimuth is an arbitrary parameter; and the
+            // rigid centre with the roll levelled afterwards swings the grabbed point round the centre, 68 px off the
+            // pointer on a 218 px drag well down the sky.
+            var (ra0, dec0, rigidRoll) = RigidPan(grabbed, underPointer, startForward, startRight);
+            var startUp = Vector3.Cross(startRight, startForward);
+            var target = new Vector3(
+                Vector3.Dot(underPointer, startRight), Vector3.Dot(underPointer, startUp), Vector3.Dot(underPointer, startForward));
+
+            var (north, east) = HorizonAxes(zenith);
+            var (x0, y0, z0) = RaDecToUnitVec(ra0, dec0);
+            var rigidForward = new Vector3(x0, y0, z0);
+            var az = Math.Atan2(Vector3.Dot(rigidForward, east), Vector3.Dot(rigidForward, north));
+            var alt = Math.Asin(Math.Clamp(Vector3.Dot(rigidForward, zenith), -1f, 1f));
+
+            const double step = 1e-5;
+            var converged = false;
+            for (var iteration = 0; iteration < 12; iteration++)
+            {
+                var (rx, ry) = Residual(az, alt);
+                if (rx * rx + ry * ry < 1e-14)
+                {
+                    converged = true;
+                    break;
+                }
+
+                // A numerical Jacobian: the residual is smooth in both angles away from the zenith, and a pan needs a
+                // handful of steps per pointer move, not a closed form.
+                var (ax, ay) = Residual(az + step, alt);
+                var (bx, by) = Residual(az, alt + step);
+                var (j11, j21) = ((ax - rx) / step, (ay - ry) / step);
+                var (j12, j22) = ((bx - rx) / step, (by - ry) / step);
+                var det = j11 * j22 - j12 * j21;
+                if (Math.Abs(det) < 1e-12)
+                {
+                    break;
+                }
+
+                az -= (j22 * rx - j12 * ry) / det;
+                alt -= (-j21 * rx + j11 * ry) / det;
+
+                // Over the top of the zenith the same direction is reached from the other side, upright: an alt-az
+                // mount passing under the zenith turns half a turn in azimuth rather than hanging upside down.
+                if (alt > Math.PI / 2)
+                {
+                    (alt, az) = (Math.PI - alt, az + Math.PI);
+                }
+                else if (alt < -Math.PI / 2)
+                {
+                    (alt, az) = (-Math.PI - alt, az + Math.PI);
+                }
+            }
+
+            if (!converged)
+            {
+                // Exactly at the zenith, or a drag that no level frame can follow: the rigid centre, levelled where the
+                // centre has an azimuth, its own roll where it has none.
+                return (ra0, dec0, LevelRoll(ra0, dec0, zenith, PanLevelLockSin) ?? rigidRoll);
+            }
+
+            var (forward, up) = LevelFrame(az, alt);
+            var (ra, dec, roll) = FrameToCenter(forward, Vector3.Cross(forward, up));
+
+            // Outside the per-frame lock cone the roll is the level roll UpdateRollForReference holds, from the one
+            // function both use, so a release changes nothing.
+            return (ra, dec, LevelRoll(ra, dec, zenith) ?? roll);
+
+            (Vector3 Forward, Vector3 Up) LevelFrame(double azimuth, double altitude)
+            {
+                var (sinAz, cosAz) = Math.SinCos(azimuth);
+                var (sinAlt, cosAlt) = Math.SinCos(altitude);
+                var level = (float)cosAz * north + (float)sinAz * east;
+                return ((float)cosAlt * level + (float)sinAlt * zenith, -(float)sinAlt * level + (float)cosAlt * zenith);
+            }
+
+            // Where the grabbed point sits in the camera of the level frame at (azimuth, altitude), against where the
+            // pointer is: the x and y of two unit vectors, which agree exactly when the directions do (both in front).
+            (double X, double Y) Residual(double azimuth, double altitude)
+            {
+                var (f, u) = LevelFrame(azimuth, altitude);
+                var r = Vector3.Cross(f, u);
+                return (Vector3.Dot(grabbed, r) - target.X, Vector3.Dot(grabbed, u) - target.Y);
+            }
+        }
+
+        /// <summary>The horizon's north and east (J2000, unit) under <paramref name="zenith"/>.</summary>
+        private static (Vector3 North, Vector3 East) HorizonAxes(Vector3 zenith)
+        {
+            // North on the horizon is the celestial pole projected onto it; at a geographic pole any direction is.
+            var toPole = Vector3.UnitZ - zenith * zenith.Z;
+            var north = toPole.LengthSquared() > 1e-10f
+                ? Vector3.Normalize(toPole)
+                : Vector3.Normalize(Vector3.UnitX - zenith * zenith.X);
+            return (north, Vector3.Cross(north, zenith));
+        }
+
+        /// <summary>
+        /// How close to the zenith a pan still levels the frame: 0.01 degree. Far inside the per-frame lock cone,
+        /// because near the zenith the level roll swings fast but continuously (an alt-az mount turning in azimuth
+        /// as it passes under the zenith), and only the point itself has no azimuth.
+        /// </summary>
+        private const double PanLevelLockSin = 1.75e-4;
+
+        private static (double RaHours, double DecDeg, double Roll) RigidPan(
+            Vector3 grabbed, Vector3 underPointer, Vector3 startForward, Vector3 startRight)
+        {
+            // The rotation that maps the point now under the pointer back onto the grabbed one, applied to the forward
+            // AND right of the start frame, so the gesture is rigid.
+            var q = Quaternion.Normalize(new Quaternion(Vector3.Cross(underPointer, grabbed), 1f + Vector3.Dot(underPointer, grabbed)));
+            return FrameToCenter(Vector3.Transform(startForward, q), Vector3.Transform(startRight, q));
         }
 
         /// <summary>
