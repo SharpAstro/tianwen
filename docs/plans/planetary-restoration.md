@@ -4671,16 +4671,47 @@ long enough to read it. `PlanetaryLimbFit.Unmodelled` is gone.
   rendered 20 minutes apart (11.4 degrees, 5.6 px at a 28 px globe's middle) goes from 0.117 to 0.003 RMS against the later render, its
   2,779 ring pixels as they lay. `FrameDerotator.TurnAtCentrePx` sizes the turn from the globe (`StartRinged`), which the bright area
   put 2.3 times too large.
-  - **Open: a seam along the band's edge in a compose (#1537).** A stack is blurred, so the band's light spills a pixel or two onto
-    the globe, and those pixels are turned and relit while their neighbours under the band are not. On set 7 of the 2026-10-07 Saturn,
-    a straight streak runs along the band's inner edge at 0.30 to 0.41 % RMS. The relight by the stack's own blurred limb (#1349,
-    below) shrinks the band-edge colour steps about three times but leaves the luminance step. The fix to try is a feathered band edge.
+  - **A seam along the band's edge in a compose (#1537): measured, a feather an option.** See "The ring band's seam in a compose"
+    below.
 - **North, on the EdgeHD 11 capture of 2022-10-25** (300 s, 2.8 degrees, 2.3 px at the globe's middle, so it is de-rotated unasked):
   the run's quarters stand 0.0088 apart carried with the limb fit's north and 0.0144 turned over, so the capture agrees with the rings.
   The 2022-10-09 capture (21 s) turns too little to tell, or to de-rotate.
 
 `planetary compare` now reads another program's result as it was saved, a PNG or JPEG as well as a FITS, so a capture's `_post`
 can be set beside our master. Its numbers on a display image are its own disk's, sRGB-encoded and at its own scale.
+
+#### The ring band's seam in a compose (#1537)
+
+**Seen** by the owner on set 7 of the 2026-10-07 Saturn (2026-10-09): a straight line along the ring band where it crosses the globe.
+A compose turns the globe and leaves every pixel the rings touch where it lies, and the seam is the edge between the two.
+
+**Measured** (2026-10-12), rules set before each arm ran (`D:/temp/tianwen-scratch/i1537/RULES.md`, with every amendment):
+- **On the night**, against the same stacks composed with no turn, the step 0 to 3 px past the rings against 8 to 14 px, per 0.1 radii
+  along the band: on set 7 a colour streak five to six times the control (R/G 0.24 %, B/G 0.30 %); on the deep master of sets 2 to 10 a
+  luminance step of 0.94 % beside colour steps two to three times the control. #1538's relight neither made nor cured it.
+- **On twins with a truth** (a ringed Saturn rendered, blurred by 2 px, 40 minutes of turn, the later carried to the earlier), RMS off
+  the truth 0 to 3 px past the rings against the floor 16 to 24 px out:
+
+| map beside the band | the turn | feathered 2 to 4 sigmas | rings read off the ansae | floor |
+|---|---|---|---|---|
+| featureless | 1.39 % | 0.02 % | 1.90 % | 0.88 % |
+| belts, 1 % spots | 2.08 % | 0.96 % | 2.36 % | 1.47 % |
+| belts, 5 % spots | 1.94 % | 4.76 % | 1.81 % | 0.89 % |
+
+- **What causes it.** A stack is blurred, so a pixel beside the band mixes the rings' light and the globe they hide, neither of which
+  turns; carried, it brings that mixture from elsewhere along the band. Its source lies within 0.26 px of its own distance from the
+  rings, so a source kept at the target's distance does nothing; and 53 of the 381 pixels nearest the band have a source under it and
+  are not carried at all.
+- **What does not fix it.** A ring model taken out before the turn and put back after, whether the limb fit's four levels or 24 levels
+  read off the ansae, moves the edge by under half a point either way, so the rings' light along the band is not the main term. A
+  median over the night's stacks keeps a broad spot as if it stood still (7.7 % at 6 to 10 px on a five-stack twin).
+- **What a feather does.** Kept unturned beside the band, a pixel is right only where the planet there looks the same after the turn.
+  It takes the seam out of a featureless Saturn and makes a spotted one 2.5 times worse, and in the near edge-on geometry of 2026 it
+  keeps 38 % of the globe inside 0.9 radii unturned and blends another 21 %.
+
+**The owner's call (2026-10-12): the feather is an option, not the default** (`--ring-feather 2,4`, `RingFeather`, pinned both ways by
+`PlanetaryRingFeatherTests`): for a nearly zonal night, where a seam would show and nothing beside the band needs turning. The
+investigation's arms were prototypes and are not merged; their code is kept as patches in `D:/temp/tianwen-scratch/i1537/arms-patches/`.
 
 ### S6 Saturn's colour
 
@@ -5556,6 +5587,15 @@ join relit by the globe's model is a new arm, read after the investigation under
 
 The limb view stays an option (the owner, 2026-10-12), now with no reading in its favour. Logs: `D:/temp/tianwen-scratch/i1349d/`
 (`arms/table.txt`, `turncheck/`, `probe/`), and the shipped build's in `i1349e/` (`table.txt`).
+
+##### The relight's limb darkening on a ringed Saturn (2026-10-12)
+
+**Open, #1542.** Found on the twins of #1537 (S5, "The ring band's seam in a compose"). The relight above takes each stack's limb
+darkening from its own limb fit, and on Saturn the rings bias it high. A twin rendered at k 0.85 fits 0.89 with no belts and 0.90 to
+0.96 with Saturn-like belts. Turned 22.6 degrees against itself, a uniform ringed Saturn comes back 0.88 % RMS off far from the rings,
+where #1538's uniform Jupiter (`PlanetaryCompositionTests`, no rings) comes back within 0.089 %; a belted one 0.89 to 1.47 %. The
+night's rules above held, so this is a floor under them. To try: a relight whose k is not the ringed fit's (OPAL's at the filter, or a
+fit with the rings masked out), measured on the twins and the night.
 
 ### The colour look (#1273)
 

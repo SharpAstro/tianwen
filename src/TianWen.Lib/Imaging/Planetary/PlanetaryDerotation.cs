@@ -115,7 +115,7 @@ public static class PlanetaryDerotation
     }
 
     // One at and past one, nothing at and below nought, smooth between.
-    private static double SmoothStep(double t)
+    internal static double SmoothStep(double t)
     {
         t = Math.Clamp(t, 0, 1);
         return t * t * (3 - (2 * t));
@@ -170,7 +170,9 @@ public static class PlanetaryDerotation
                     {
                         relight = model[i] / atSource;
                     }
-                    output[y, x] = sky + ((value - sky) * relight);
+                    var turned = sky + ((value - sky) * relight);
+                    // Beside the rings the field may fade the turn in (#1537): the pixel's own value nearest them, the turn's further off.
+                    output[y, x] = field.Feather is { } feather && feather[i] < 1 ? plane[i] + (feather[i] * (turned - plane[i])) : turned;
                 }
             });
         }
@@ -269,9 +271,21 @@ public sealed class DerotationTarget
     private readonly double[] _latitude;
     private readonly double[] _west;
     private readonly double[] _lightTo;
+    private readonly RingFeather? _feather;
+    private readonly float[]? _featherTo;
 
     /// <summary>The planet at <paramref name="to"/> on a <paramref name="width"/> x <paramref name="height"/> grid, its disk where <paramref name="toPlacement"/> puts it.</summary>
     public DerotationTarget(in PlanetAspect to, in DiskPlacement toPlacement, int width, int height, double minnaertK)
+        : this(to, toPlacement, width, height, minnaertK, null)
+    {
+    }
+
+    /// <summary>
+    /// As <see cref="DerotationTarget(in PlanetAspect, in DiskPlacement, int, int, double)"/>, with the turn faded in beside the rings by
+    /// <paramref name="feather"/> (#1537): every field it fills carries <see cref="DerotationField.Feather"/>, the smaller of the pixel's own
+    /// weight and its source's. None for a planet without rings, or with no feather.
+    /// </summary>
+    public DerotationTarget(in PlanetAspect to, in DiskPlacement toPlacement, int width, int height, double minnaertK, RingFeather? feather)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
@@ -280,6 +294,8 @@ public sealed class DerotationTarget
         var rings = RingsOf(to, toPlacement);
         (_latitude, _west, _lightTo) = (new double[width * height], new double[width * height], new double[width * height]);
         var (latitudes, wests, lights) = (_latitude, _west, _lightTo);
+        (_feather, _featherTo) = feather is { } f && rings is not null ? ((RingFeather?)f, new float[width * height]) : (null, null);
+        var weights = _featherTo;
         ParallelFor.Run(height, y =>
         {
             for (var x = 0; x < width; x++)
@@ -287,9 +303,13 @@ public sealed class DerotationTarget
                 var i = (y * width) + x;
                 // A pixel off the disk, dark, or under a ring is never de-rotated; NaN says so to every source instant.
                 if (target.TryUnproject(x, y, out var latitude, out var west) && target.Minnaert(x, y, minnaertK) is var lightTo and > 0
-                    && rings?.RingTouched(x, y) is not true)
+                    && rings?.RingTouched(x, y, RingMarginPx) is not true)
                 {
                     (latitudes[i], wests[i], lights[i]) = (latitude, west, lightTo);
+                    if (weights is not null && rings is { } seen && feather is { } fade)
+                    {
+                        weights[i] = fade.WeightAt(seen, x, y, RingMarginPx);
+                    }
                 }
                 else
                 {
@@ -298,6 +318,9 @@ public sealed class DerotationTarget
             }
         });
     }
+
+    // How near a ring a pixel may lie, in pixels, and still be turned: within it, the ring's own light is most of the pixel.
+    private const double RingMarginPx = 2;
 
     // Saturn's rings about a globe where `placement` puts it at `aspect`, as the metrics read them (its north is the disk's axis); null for
     // a planet without rings.
@@ -343,6 +366,7 @@ public sealed class DerotationTarget
         var (fromX, fromY, limit) = (fromPlacement.CenterX, fromPlacement.CenterY, PlanetaryDerotation.SourceRadiusLimit * fromPlacement.EquatorialRadius);
         var (width, k, latitudes, wests, lights) = (_width, _minnaertK, _latitude, _west, _lightTo);
         var (sourceX, sourceY, relight, covered) = (field.SourceX, field.SourceY, field.Relight, field.Covered);
+        var (fade, featherTo, featherOut) = (_feather, _featherTo, _featherTo is null ? field.ClearFeather() : field.EnsureFeather());
         ParallelFor.Run(_height, y =>
         {
             for (var x = 0; x < width; x++)
@@ -351,13 +375,21 @@ public sealed class DerotationTarget
                 if (lights[i] > 0 && source.TryProject(latitudes[i], wests[i], out var sx, out var sy)
                     && ((sx - fromX) * (sx - fromX)) + ((sy - fromY) * (sy - fromY)) < limit * limit
                     && source.Minnaert(sx, sy, k) is var lightFrom and > 0
-                    && rings?.RingTouched(sx, sy) is not true)
+                    && rings?.RingTouched(sx, sy, RingMarginPx) is not true)
                 {
                     (sourceX[i], sourceY[i], relight[i], covered[i]) = ((float)sx, (float)sy, (float)(lights[i] / lightFrom), true);
+                    if (featherOut is not null && featherTo is not null && fade is { } f && rings is { } seen)
+                    {
+                        featherOut[i] = Math.Min(featherTo[i], f.WeightAt(seen, sx, sy, RingMarginPx));
+                    }
                 }
                 else
                 {
                     (sourceX[i], sourceY[i], relight[i], covered[i]) = (x, y, 1f, false);
+                    if (featherOut is not null)
+                    {
+                        featherOut[i] = 1;
+                    }
                 }
             }
         });
@@ -404,6 +436,16 @@ public sealed class DerotationField
     internal bool[] Covered { get; }
 
     /// <summary>
+    /// How much of the turn each pixel takes beside the rings (#1537, <see cref="RingFeather"/>), row-major: one is all of it, nought its own
+    /// value; null where its target fades nothing, and every pixel takes the turn whole.
+    /// </summary>
+    internal float[]? Feather { get; private set; }
+
+    internal float[] EnsureFeather() => Feather ??= new float[Width * Height];
+
+    internal float[]? ClearFeather() => Feather = null;
+
+    /// <summary>
     /// How far the source of output position (<paramref name="x"/>, <paramref name="y"/>) lies from it, interpolated bilinearly
     /// between pixels (and exactly at one), clamped at the edges.
     /// </summary>
@@ -445,4 +487,24 @@ public sealed class DerotationField
 
     private static float Bilinear(float v00, float v10, float v01, float v11, float fx, float fy)
         => (v00 * (1 - fx) * (1 - fy)) + (v10 * fx * (1 - fy)) + (v01 * (1 - fx) * fy) + (v11 * fx * fy);
+}
+
+/// <summary>
+/// How a compose's turn fades in beside Saturn's rings (#1537, the ring band's seam): a stack is blurred, so a pixel beside the band the
+/// turn leaves alone mixes the rings' light and the globe they hide, neither of which turns, and carried it brings that mixture from
+/// elsewhere along the band. Past the ring margin a pixel keeps its own value out to <paramref name="InnerPx"/>, takes the turn whole from
+/// <paramref name="OuterPx"/>, and a smoothstep of the two between. A pixel kept is right only where the planet beside the band looks the
+/// same after the turn: on a nearly zonal night. A spot there stays where it was.
+/// </summary>
+public readonly record struct RingFeather(double InnerPx, double OuterPx)
+{
+    /// <summary>The feather in multiples of a stack's core blur <paramref name="sigmaPx"/>: <paramref name="inner"/> to <paramref name="outer"/> sigmas.</summary>
+    public static RingFeather OfBlur(double sigmaPx, double inner, double outer) => new(inner * sigmaPx, outer * sigmaPx);
+
+    // The turn's share at (x, y): nought within InnerPx past the margin of a ring `rings` sees, one from OuterPx on.
+    internal float WeightAt(in MetricDisk rings, double x, double y, double marginPx)
+    {
+        var past = rings.RingDistance(x, y, marginPx + OuterPx) - marginPx;
+        return double.IsPositiveInfinity(past) ? 1f : (float)PlanetaryDerotation.SmoothStep((past - InnerPx) / Math.Max(OuterPx - InnerPx, 1e-6));
+    }
 }

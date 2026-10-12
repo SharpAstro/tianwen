@@ -337,10 +337,13 @@ public static class PlanetaryComposition
     /// decide it. Under <see cref="PlanetaryDerotation.LeastTurnToTellNorthDeg"/> the fit's north is kept. With
     /// <paramref name="viewingWeights"/> each stack also carries its join weight (<see cref="PlanetaryMonoStack.JoinWeight"/>,
     /// <see cref="PlanetaryDerotation.JoinWeights"/>, #1349), a stack already at the reference's instant included. <paramref name="relight"/> is
-    /// how the samples carried are relit (<see cref="PlanetaryTurnRelight"/>).
+    /// how the samples carried are relit (<see cref="PlanetaryTurnRelight"/>). <paramref name="ringFeatherSigmas"/> fades the turn in beside
+    /// Saturn's rings over each stack's core blur (<see cref="RingFeather"/>, #1537), an option for a nearly zonal night: it keeps a spot
+    /// beside the band where it was.
     /// </summary>
     public static (PlanetaryCompositionDerotation? Derotation, string? Refusal) Derotate(IReadOnlyList<PlanetaryMonoStack> registered, Action<string>? say = null,
-        PlanetaryViewingWeights viewingWeights = PlanetaryViewingWeights.None, PlanetaryTurnRelight relight = PlanetaryTurnRelight.Blurred)
+        PlanetaryViewingWeights viewingWeights = PlanetaryViewingWeights.None, PlanetaryTurnRelight relight = PlanetaryTurnRelight.Blurred,
+        (double Inner, double Outer)? ringFeatherSigmas = null)
     {
         ArgumentNullException.ThrowIfNull(registered);
         if (registered.Count == 0)
@@ -410,7 +413,7 @@ public static class PlanetaryComposition
             }
             var derotated = relight is PlanetaryTurnRelight.Minnaert
                 ? PlanetaryDerotation.Derotate(stack.Image, from, target, placement, k).Image
-                : TurnRelit(stack, from, target, placement, k, say);
+                : TurnRelit(stack, from, target, placement, k, ringFeatherSigmas, say);
             say?.Invoke(string.Create(inv,
                 $"{stack.Name}: carried {(instant - stack.Instant).TotalMinutes:+0.0;-0.0} minutes, the central meridian {Math.IEEERemainder(target.CentralMeridianIII - from.CentralMeridianIII, 360):+0.00;-0.00} degrees"));
             // Carried, it shows the planet at the reference's instant, and its header says so for the join's verb to read back.
@@ -424,12 +427,14 @@ public static class PlanetaryComposition
     // makes between target and source. The rings are left out of the model: the pixels they touch are never turned, and a ring model misplaced
     // against the stack relit the globe beside the band (a 1.09 % step at the band's inner edge, against 0.70 % without them).
     private static Image TurnRelit(PlanetaryMonoStack stack, in PlanetAspect from, in PlanetAspect target, in DiskPlacement placement, double k,
-        Action<string>? say)
+        (double Inner, double Outer)? ringFeatherSigmas, Action<string>? say)
     {
         var image = stack.Image;
         var (width, height) = (image.Width, image.Height);
-        var field = new DerotationTarget(target, placement, width, height, k).FieldFrom(from, placement);
         var own = PlanetaryLimbFit.FitAt(image, stack.Planet, stack.Instant);
+        // #1537: the turn faded in beside the rings over the stack's own core blur, when asked.
+        RingFeather? feather = own is (var blurred, _, _) && ringFeatherSigmas is { } sigmas ? RingFeather.OfBlur(blurred.PsfSigma, sigmas.Inner, sigmas.Outer) : null;
+        var field = new DerotationTarget(target, placement, width, height, k, feather).FieldFrom(from, placement);
         var disk = own is { } fitted ? fitted.Disk : new MetricDisk(placement.CenterX, placement.CenterY, placement.EquatorialRadius);
         var sky = (float)(PlanetaryMetrics.SkyLevel(image.GetChannelSpan(0), width, height, disk) ?? 0);
         var model = own is (var fit, _, var options)
@@ -744,18 +749,20 @@ public static class PlanetaryComposition
     /// carry, so the steps' verbs run one by one give the same master to the bit. <paramref name="viewingWeights"/> weighs each stack's
     /// pixels by how it saw them (#1349, <see cref="PlanetaryViewingWeights"/>, <see cref="Derotate"/>), <paramref name="bandWeights"/> each filter's stacks band
     /// by band (#1349 arm B, <see cref="Join"/>): options, measured before either is the default. <paramref name="relight"/> is how the turn
-    /// relights what it carries (<see cref="PlanetaryTurnRelight"/>).
+    /// relights what it carries (<see cref="PlanetaryTurnRelight"/>), and <paramref name="ringFeatherSigmas"/> how it fades in beside Saturn's
+    /// rings (<see cref="Derotate"/>).
     /// </summary>
     public static (PlanetaryComposed? Composed, PlanetaryCompositionDerotation? Derotation, string? Refusal) Run(IReadOnlyList<PlanetaryMonoStack> ingested,
         Action<string>? say = null, bool withLuminance = false, PlanetaryViewingWeights viewingWeights = PlanetaryViewingWeights.None,
-        PlanetaryBandWeights bandWeights = PlanetaryBandWeights.None, PlanetaryTurnRelight relight = PlanetaryTurnRelight.Blurred)
+        PlanetaryBandWeights bandWeights = PlanetaryBandWeights.None, PlanetaryTurnRelight relight = PlanetaryTurnRelight.Blurred,
+        (double Inner, double Outer)? ringFeatherSigmas = null)
     {
         var (registration, refusal) = Register(ingested, say);
         if (registration is null)
         {
             return (null, null, refusal);
         }
-        var (derotation, derotateRefusal) = Derotate(registration.Stacks, say, viewingWeights, relight);
+        var (derotation, derotateRefusal) = Derotate(registration.Stacks, say, viewingWeights, relight, ringFeatherSigmas);
         if (derotation is null)
         {
             return (null, null, derotateRefusal);
