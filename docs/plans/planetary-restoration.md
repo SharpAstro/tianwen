@@ -5590,12 +5590,29 @@ The limb view stays an option (the owner, 2026-10-12), now with no reading in it
 
 ##### The relight's limb darkening on a ringed Saturn (2026-10-12)
 
-**Open, #1542.** Found on the twins of #1537 (S5, "The ring band's seam in a compose"). The relight above takes each stack's limb
-darkening from its own limb fit, and on Saturn the rings bias it high. A twin rendered at k 0.85 fits 0.89 with no belts and 0.90 to
-0.96 with Saturn-like belts. Turned 22.6 degrees against itself, a uniform ringed Saturn comes back 0.88 % RMS off far from the rings,
-where #1538's uniform Jupiter (`PlanetaryCompositionTests`, no rings) comes back within 0.089 %; a belted one 0.89 to 1.47 %. The
-night's rules above held, so this is a floor under them. To try: a relight whose k is not the ringed fit's (OPAL's at the filter, or a
-fit with the rings masked out), measured on the twins and the night.
+**Measured, #1542: on the 2026-10-07 night the fit's k is the relight's.** Found on the twins of #1537 (S5, "The ring band's seam in a
+compose"): a twin rendered at k 0.85 with rings in zones fits 0.89 to 0.96, since the limb fit's four flat rings make up the zones' light
+with a negative Cassini division (-0.16), a disk 0.6 % large and a higher k. A uniform ringed twin turned 22.6 degrees against itself
+comes back 0.88 % off far from the rings, against #1538's uniform Jupiter's 0.089 %. Rules were set before each arm ran
+(`D:/temp/tianwen-scratch/i1542/RULES.md`):
+- **The relight's error against k is steep.** On the two-stack twins, about 0.17 points of error for every 0.01 of k, least at 0.86 (the
+  fit's disk a little large too), not the true 0.85.
+- **Two reads that do not go through the rings.** Lines of one latitude on the hemisphere the rings leave clear (the belts constant
+  along each) read the twins within 0.02 (0.831 uniform, 0.853 belted). The night's own agreement (the k at which a filter's stacks,
+  carried onto one of them, match it best) read 0.880 on a nine-stack twin, failing its 0.03 bound.
+- **On the real night they part.** For red, green and blue: the limb fit 0.831 / 0.790 / 0.732, the night's agreement 0.837 / 0.779 /
+  0.718, the latitudes 0.791 / 0.730 / 0.668 (steady to 0.006 across sets 1 to 10). Relit with the night's k, the deep master reads as
+  #1538's default to within 0.03 on every rule. Relit with the latitudes' k, the handover circle comes back (1.16 % as stacked, against
+  0.5 %) and band 1 falls (0.910 against set 10, from 0.947).
+- **So the night confirms the fit's k for the relight,** and the twins' bias came from their own rings' zones, chosen and never measured.
+  The latitude read, right on the twins, reads about 0.05 low on real stacks; its model has the blur's core only, and a real stack's wide
+  wing lightens the limb, which reads as a smaller k (not measured).
+- **The larger apertures read the same pattern** along latitudes, k rising from blue to red: the EdgeHD 11 Saturn of 2022-10-25 0.745 /
+  0.691 / 0.615 and the 16-inch Meade of 2023-10-10 0.764 / 0.719 / 0.626, within 0.03 to 0.05 of this night's (other cameras, years
+  and ring tilts).
+
+**The owner's call (2026-10-12): record it and ship no code.** The relight keeps each stack's fitted k; the reads are kept as patches in
+`D:/temp/tianwen-scratch/i1542/arms-patches/`.
 
 ### The colour look (#1273)
 
