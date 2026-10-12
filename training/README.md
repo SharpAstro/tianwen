@@ -21,6 +21,7 @@ and the tiles these scripts train on come from the C# exporter (`DatasetTileExpo
 | `denoise/run-e7-5.py`, `read-e7-5.py` | E7.5's 98-run crop grid through `n2n_operator_real.py`, and its read |
 | `denoise/condprobe.py`, `condpool.py` | where a cache and every master of a bake sit on the conditioning plane (`docs/plans/denoiser-training.md`) |
 | `denoise/run-x2r-export.ps1` | arm X2R's `dataset pair` export with the nights swapped |
+| `planetary/r9_refiner.py`, `r9_score.py`, `r9_twin_pairs.py` | R9's learned refiner on the shipped planetary sharpening (`docs/plans/planetary-restoration.md`, "R9 revisited", #1056): train, apply, and refine one master; score a set against its truths through `tianwen planetary fidelity`; gather stacker-made twins into the pair layout. The synthetic pairs come from `tianwen planetary training-pairs` |
 
 The roadmap's `common/`, `deconv/`, `gradient/` and `starless/` do not exist yet. The gate and the
 metrics import the trainer module for cache access, so splitting them out is a refactor with its own
