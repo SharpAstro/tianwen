@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
@@ -44,8 +45,8 @@ public class MilkyWaySvsImportTests
         var options = new MilkyWaySvsImportOptions(Width: 8, Height: 4, BlackPoint: 0f);
         var bgra = MilkyWaySvsImport.ToBgra(rgb, SourceW, SourceH, options);
 
-        var lit = Array.FindIndex(bgra, 0, b => b > 0);
-        var pixel = lit / 4;
+        // The colour channels only: the alpha is the constant dimming, lit everywhere.
+        var pixel = Enumerable.Range(0, 8 * 4).Where(p => bgra[p * 4 + 2] > 0).ShouldHaveSingleItem();
         (pixel % 8).ShouldBe(TextureColumn(raDeg, 8), "right ascension rises to the right in the texture");
         (pixel / 8).ShouldBe((int)((0.5 - decDeg / 180.0) * 4), "north stays at the top");
     }
