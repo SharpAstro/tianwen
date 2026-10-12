@@ -1132,6 +1132,26 @@ above) takes the same plane to 96.8%: the master is NOT clipped there (peak 0.98
 `LargestCoveredRectangleTests.ASaturatedCoreIsNotAnUncoveredEdge`, with a border-connected notch as the
 control so the rule cannot widen into "nothing is ever absence".
 
+**On a frame-COUNT plane, 0.95 kept a seam, so a count plane now keeps only where every frame reached
+(2026-10-12, `Image.CoverageCropRectangle`).** The 0.95 above is a noise argument, and a region one frame
+of 31 short is only 1.6% noisier. But it is also missing that frame's LEVEL. On M42 RGB 2022-12-03
+(ASI533MC Pro, 31 frames), one frame was re-pointed 425 px after a 50-minute gap, leaving a strip along
+two edges covered by 30 of the 31 (0.968). The crop kept it, and the enhanced master showed the frame's
+footprint edge as a seam. A count plane (whole numbers only, as every non-drizzle integration writes) is
+now read by each block's MEDIAN against the full count. It is the median because hot-pixel masks and
+rejected samples take a count down at scattered single pixels all over a fully covered interior: a block
+mean there sits under full, so a mean threshold at full would leave nothing to crop to. A drizzle weight
+keeps the 0.95 block mean, since its cells scatter about 10%. The planetary master's own
+0.95-of-footprints rule does not come through here. Measured over the 195 masters of
+`2026-09-29-full`, old rule against new, by `image autocrop --dry-run`:
+- 154 crops unchanged, 41 changed, none collapsed.
+- The largest loss is the ASI462MC Helix, 66.1% to 63.3% of the canvas.
+- Undithered masters gain: the Rosettes and the 35 mm ASI533 sets now keep the whole frame, where the old
+  block mean trimmed 16 px off each edge.
+
+Pinned by `LargestCoveredRectangleTests.ACountPlaneStripOneFrameShortIsCropped` (with the old rule as its
+control) and `ScatteredShortPixelsInsideACountPlaneKeepTheWholeFrame`.
+
 **The status bar says which tier answered** (", by coverage") and when an edge was left alone
 (", edge held"), for the same reason it declares the crop at all: the only other evidence is a border
 that is missing.
