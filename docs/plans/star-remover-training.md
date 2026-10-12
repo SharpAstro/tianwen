@@ -1891,6 +1891,41 @@ session's measurements, registration and so masters move with (nine training ses
 store re-baked with it and an export made from that store are new inputs, so the next arm's control is re-run on them
 rather than read against the columns above.
 
+#### R2h: does the length past the cap buy the bright stars on a second seed? Pre-registered (2026-10-12)
+
+Written before it trains, on the owner's word to train something that does not wait for the store's re-bake: this run
+reads only the `synth3` cache, which no re-bake touches, and runs on the GPU while the re-bake runs on the CPU. Tracked by
+#1338. One run: R2f's recipe on **seed 1**, the cap at 480,000, from the same trainer and cache as R2f and R2g:
+`run-r2.ps1 -Tag r2h -Arms synth3 -FirstSeed 1 -SeedCount 1 -Patience 24 -Steps 480000 -SnapshotAt 240000`. The one
+change to the trainer only writes a file: `--snapshot-at 240000` saves the weights as they stand at step 240,000 beside
+the run's own output. With no gate the output is the last step's weights, so the snapshot is what a run capped at
+240,000 saves, i.e. **R2f's recipe on seed 1**; checked before launch on 10 against 20 steps of seed 1, the snapshot at
+10 equal to a run capped at 10 in every tensor (the weights at 20 differ). Both models are scored by the same binary on
+A's draws; the run's own pair (its snapshot and its end) is the comparison, so every difference read is the length past
+the cap on a seed that is not R2g's.
+
+**The question.** R2g's unregistered finding: past the cap the bright stars gained (clean at 100-1000 sigma +5.5, dug
+46.1 to 31.5) while faint and mid-bright removal stayed put. One seed; is it the recipe or seed 0's trajectory?
+
+**Predictions** (each set against the run's own snapshot at 240,000):
+1. **It ends on its own before 480,000.** Moderate to high: R2g ended at 273,000.
+2. **The held-out best falls 0.5 to 5 % below the best window at or before 240,000.** Moderate: R2g 2.63 %.
+3. **The bright stars gain**: clean at 100-1000 sigma at least 2 points above the snapshot, AND the dug share there at
+   least 5 points below it (R2g +5.5 and -14.6). Low to moderate: it is the hypothesis, read on one seed.
+4. **Faint and mid-bright removal stays put**: clean at 5-20 and 20-100 sigma within 2 points of the snapshot (R2g -1.4
+   and +1.2). Moderate.
+5. **The sky**: far sky at most 0.37 for both models, R2e's bar. Moderate.
+
+**Kill** (as R2g's): the held-out objective improves while clean removal falls by more than 3.1 points at 5-20 sigma or
+4.6 at 100-1000. Then convergence is not the stopping rule for this task, and the next arm keeps R2f's length.
+
+**Read, not predicted:** the snapshot against R2f, two seeds of the fixed generator at the cap. R2e's two seeds lay 12.9
+points apart on bright stars, so any difference there is read as the seed spread on this recipe, nothing more.
+
+**What it decides.** If (3) holds here as on seed 0, the recipe's length is its convergence, not the cap: the next arms
+run to convergence at a raised cap, and R2g is the recipe's number for bright stars. If (3) fails, R2f's length stands
+at every brightness and R2g's bright-star gain is read as seed 0's.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
