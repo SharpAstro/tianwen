@@ -12,6 +12,8 @@ from astropy.io import fits
 
 LINE = re.compile(r"\] (\S+) against the truth: transfer ([^;]+); error ([^(]+) \(bands 1 to 4 ([0-9.]+)\)")
 LIMB = re.compile(r"\] (\S+) against the truth: .*limb profile error ([0-9.]+)")
+FIELDS = ["index", "stack", "sharp", "refined", *[f"sharp_b{b}" for b in range(1, 5)], *[f"refined_b{b}" for b in range(1, 5)],
+          "past_cutoff_sharp", "past_cutoff_refined", "past_cutoff_truth", "limb_sharp", "limb_refined", "trough_sharp", "trough_refined"]
 TROUGH = re.compile(r"\] (\S+): the limb's trough below the truth ([0-9.]+)")
 
 
@@ -44,6 +46,7 @@ def main():
     ap.add_argument("--psf", required=True); ap.add_argument("--aperture", type=float, default=0.254); ap.add_argument("--out", required=True)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--g3-from", default=None, help="a scoring's CSV: keep its band errors, read G3 again")
+    ap.add_argument("--resume", action="store_true", help="keep the rows --out already holds and score only the pairs it lacks")
     a = ap.parse_args()
     arcsec, wavelength = psf_scale(a.psf)
     cutoff = a.aperture / wavelength * arcsec * np.pi / 648000  # cycles a pixel
@@ -60,7 +63,19 @@ def main():
         with open(a.g3_from) as f:
             kept = {r["index"]: r for r in csv.DictReader(f)}
         ids = [i for i in ids if i in kept]
+    # Each row is written as it is scored, so a scoring stopped part way keeps what it read (--resume carries on from it).
+    resuming = a.resume and not a.g3_from and os.path.exists(a.out)
+    if resuming:
+        with open(a.out) as f:
+            rows = [{k: (v if k == "index" else float(v)) for k, v in r.items()} for r in csv.DictReader(f)]
+    done = {r["index"] for r in rows}
+    sink = None if a.g3_from else open(a.out, "a" if resuming else "w", newline="")
+    writer = None if sink is None else csv.DictWriter(sink, fieldnames=FIELDS)
+    if writer is not None and not resuming:
+        writer.writeheader()
     for i in ids:
+        if i in done:
+            continue
         stem = os.path.join(a.pairs, f"{int(i):05d}")
         if i in kept:
             r = {k: (v if k == "index" else float(v)) for k, v in kept[i].items()}
@@ -96,9 +111,14 @@ def main():
                      "past_cutoff_sharp": power["sharp"], "past_cutoff_refined": power["refined"], "past_cutoff_truth": power["truth"],
                      "limb_sharp": limb.get("sharp", np.nan), "limb_refined": limb.get("refined", np.nan),
                      "trough_sharp": trough.get("sharp", np.nan), "trough_refined": trough.get("refined", np.nan)})
-    with open(a.out, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-        w.writeheader(); w.writerows(rows)
+        writer.writerow(rows[-1])
+        sink.flush()
+    if sink is not None:
+        sink.close()
+    else:
+        with open(a.out, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=FIELDS)
+            w.writeheader(); w.writerows(rows)
     s = np.array([r["sharp"] for r in rows]); rf = np.array([r["refined"] for r in rows]); st = np.array([r["stack"] for r in rows])
     print(f"{len(rows)} pairs, cutoff {cutoff:.3f} cycles a pixel, G3 read past {band:.3f}")
     print(f"bands 1 to 4, mean: stack {st.mean():.3f}, shipped sharpening {s.mean():.3f}, refined {rf.mean():.3f} ({100 * (rf.mean() / s.mean() - 1):+.1f} %)")

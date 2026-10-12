@@ -9,7 +9,7 @@ fact reaches the input. The loss is L2 against the truth (through the pupil, the
   python r9_refiner.py one --model DIR/model.pt --stack M.fits --sharp M_sharpened.fits --disk X,Y,R --out OUT.fits
       (one master: its disk from a truth's DISKX/Y/R or the limb fit; a colour master is refined a channel at a time)
 
-Rules and gates: D:/temp/tianwen-scratch/i1056/RULES.md (python is glue; the pairs and every score are the CLI's).
+Rules, gates and results: docs/plans/planetary-restoration.md, "R9 revisited" (python is glue; the pairs and every score are the CLI's).
 """
 import argparse, csv, json, math, os, random, time
 import numpy as np
@@ -35,7 +35,12 @@ def normalise(s, d, disk, t=None):
     sky = float(np.median(s[rho > 1.4])) if (rho > 1.4).sum() > 50 else float(np.percentile(s, 5))
     level = float(s[rho < 0.5].mean() - sky)
     planes = np.stack([(d - sky) / level, (s - sky) / level, np.minimum(rho, 2.0).astype(np.float32)])
-    target = None if t is None else (t / level)[None].astype(np.float32)  # the truth carries no sky
+    target = None
+    if t is not None:
+        # The truth over ITS OWN sky and level, as the scorer normalises it (PlanetaryMetrics.Normalise): a synthetic pair's truth is in
+        # the stack's units, a degrade twin's in the photons it was rendered in, about 200 times a master's [0, 1] scale.
+        t_sky = float(np.median(t[rho > 1.4])) if (rho > 1.4).sum() > 50 else 0.0
+        target = ((t - t_sky) / float(t[rho < 0.5].mean() - t_sky))[None].astype(np.float32)
     return planes.astype(np.float32), target, rho, sky, level
 
 
