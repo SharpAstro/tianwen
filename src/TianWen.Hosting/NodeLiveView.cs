@@ -144,8 +144,9 @@ internal sealed class NodeLiveViewRun : INodeRun
     private readonly FrameSampler _live;
     private int _otaIndex;
     private string _camera = "";
-    private int _width;
-    private int _height;
+    // The newest shown frame's size, its width in the high half and its height in the low: one write, so a reader never
+    // pairs one frame's width with another's height. Zero until the first frame is shown.
+    private long _size;
     private int _ended;
 
     private readonly Action<string?>? _onFault;
@@ -172,20 +173,31 @@ internal sealed class NodeLiveViewRun : INodeRun
     /// <summary>Until its body has ended, whether or not it has begun: the node releases it at once.</summary>
     public bool IsRunning => Volatile.Read(ref _ended) == 0;
 
-    public LiveViewStateDto State => new LiveViewStateDto
+    public LiveViewStateDto State
     {
-        OtaIndex = _otaIndex,
-        Camera = _camera,
-        Width = Volatile.Read(ref _width),
-        Height = Volatile.Read(ref _height),
-        Running = IsRunning,
-        FramesReceived = Capture.FramesReceived,
-        DroppedFrames = Capture.DroppedFrames,
-        FramesPerSecond = JsonNumber.OrNull(Capture.MeasuredFps),
-        BitDepth = Capture.FrameBitDepth,
-        FailureReason = Capture.FailureReason,
-        CanDriveLens = Capture.CanDriveLens,
-    };
+        get
+        {
+            // The size is read BEFORE the count. The capture counts a frame before it hands the frame to Show, with the
+            // recenter awaited between the two, so a count read first could name a frame whose size had not arrived: a
+            // client saw "1 frame, 0x0" (NodeLiveViewTests, on CI). Read in this order, a frame counted is one whose size
+            // is known, and a size still zero means no frame has been shown, which the count then says too.
+            var size = Volatile.Read(ref _size);
+            return new LiveViewStateDto
+            {
+                OtaIndex = _otaIndex,
+                Camera = _camera,
+                Width = (int)(size >> 32),
+                Height = (int)(uint)size,
+                Running = IsRunning,
+                FramesReceived = size == 0 ? 0 : Capture.FramesReceived,
+                DroppedFrames = Capture.DroppedFrames,
+                FramesPerSecond = JsonNumber.OrNull(Capture.MeasuredFps),
+                BitDepth = Capture.FrameBitDepth,
+                FailureReason = Capture.FailureReason,
+                CanDriveLens = Capture.CanDriveLens,
+            };
+        }
+    }
 
     /// <summary>Makes the live view ready on the profile's devices, holding the camera from here (<see cref="PlanetaryCapture.TryPrepare"/>).</summary>
     public bool TryPrepare(in PlanetaryCaptureRequest request, ProfileData profile, IDeviceHub hub, [NotNullWhen(false)] out string? refusal)
@@ -241,8 +253,7 @@ internal sealed class NodeLiveViewRun : INodeRun
     // On the capture loop, with each frame BORROWED: shown as a copy at display rate.
     private void Show(Image frame)
     {
-        Volatile.Write(ref _width, frame.Width);
-        Volatile.Write(ref _height, frame.Height);
+        Volatile.Write(ref _size, ((long)frame.Width << 32) | (uint)frame.Height);
         if (_live.TrySample(frame, _timeProvider.GetUtcNow(), out var sample))
         {
             _frames.Publish(FrameSources.LiveView, sample);
