@@ -103,6 +103,30 @@ public readonly record struct MetricDisk(double X, double Y, double Radius, doub
         return Math.Abs(tip - across) <= margin && RingMeets(rings, tip, along - margin, along + margin);
     }
 
+    /// <summary>
+    /// The least margin at which <see cref="RingTouched"/> holds for pixel (<paramref name="x"/>, <paramref name="y"/>), in pixels, to within
+    /// a twentieth of one: how far a ring the observer sees lies from it, measured as that margin measures it. Past
+    /// <paramref name="reachPx"/>, or without rings, positive infinity.
+    /// </summary>
+    public double RingDistance(double x, double y, double reachPx)
+    {
+        if (Rings is null || !RingTouched(x, y, reachPx))
+        {
+            return double.PositiveInfinity;
+        }
+        if (RingTouched(x, y, 0))
+        {
+            return 0;
+        }
+        var (near, far) = (0.0, reachPx);
+        while (far - near > 0.05)
+        {
+            var mid = (near + far) / 2;
+            (near, far) = RingTouched(x, y, mid) ? (near, mid) : (mid, far);
+        }
+        return far;
+    }
+
     // Whether a ring the observer sees lies at `across` (equatorial radii from the axis) between `from` and `to` along the axis: the rings'
     // ellipses there bound two intervals, one each side of the centre; the near half's is seen whole, the far half's off the globe only.
     private bool RingMeets(in DiskRings rings, double across, double from, double to)

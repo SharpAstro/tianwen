@@ -33,10 +33,11 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         var viewingWeightsOpt = ViewingWeightsOption();
         var bandWeightsOpt = BandWeightsOption();
         var relightOpt = RelightOption();
+        var ringFeatherOpt = RingFeatherOption();
         var command = new Command("compose", "A colour master from mono planetary stacks (#1278): each moved onto one disk by its limb, de-rotated to one instant, each filter averaged, red, green and blue joined; IR or L beside it as the luminance.")
         {
             Arguments = { stacksArg },
-            Options = { outputOpt, labels.Planet, labels.Utc, labels.Filter, lrgbOpt, viewingWeightsOpt, bandWeightsOpt, relightOpt },
+            Options = { outputOpt, labels.Planet, labels.Utc, labels.Filter, lrgbOpt, viewingWeightsOpt, bandWeightsOpt, relightOpt, ringFeatherOpt },
         };
         command.Subcommands.Add(BuildIngest());
         command.Subcommands.Add(BuildRegister());
@@ -53,12 +54,13 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
             }
             if (BandWeightsOf(parseResult.GetValue(bandWeightsOpt)) is not { } bandWeights
                 || ViewingWeightsOf(parseResult.GetValue(viewingWeightsOpt)) is not { } viewingWeights
-                || RelightOf(parseResult.GetValue(relightOpt)) is not { } relight)
+                || RelightOf(parseResult.GetValue(relightOpt)) is not { } relight
+                || !TryRingFeather(parseResult.GetValue(ringFeatherOpt), out var ringFeather))
             {
                 return 1;
             }
             var (composed, derotation, refusal) = await Task.Run(() => PlanetaryComposition.Run(stacks, Say, parseResult.GetValue(lrgbOpt),
-                viewingWeights, bandWeights, relight), ct);
+                viewingWeights, bandWeights, relight, ringFeather), ct);
             if (composed is null || derotation is null)
             {
                 consoleHost.WriteError(refusal ?? "nothing composed");
@@ -123,20 +125,22 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         var outputOpt = new Option<string>("--output", "-o") { Description = "The folder to write each stack into, as <name>.derotated.fits.", Required = true };
         var viewingWeightsOpt = ViewingWeightsOption();
         var relightOpt = RelightOption();
+        var ringFeatherOpt = RingFeatherOption();
         var command = new Command("derotate", "Step 3: every registered stack carried to the reference's instant on its disk, north decided by agreement between two stacks of one filter.")
         {
             Arguments = { stacksArg },
-            Options = { outputOpt, viewingWeightsOpt, relightOpt },
+            Options = { outputOpt, viewingWeightsOpt, relightOpt, ringFeatherOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
             if (ReadStacks(parseResult.GetValue(stacksArg) ?? []) is not { } stacks
                 || ViewingWeightsOf(parseResult.GetValue(viewingWeightsOpt)) is not { } viewingWeights
-                || RelightOf(parseResult.GetValue(relightOpt)) is not { } relight)
+                || RelightOf(parseResult.GetValue(relightOpt)) is not { } relight
+                || !TryRingFeather(parseResult.GetValue(ringFeatherOpt), out var ringFeather))
             {
                 return 1;
             }
-            var (derotation, refusal) = await Task.Run(() => PlanetaryComposition.Derotate(stacks, Say, viewingWeights, relight), ct);
+            var (derotation, refusal) = await Task.Run(() => PlanetaryComposition.Derotate(stacks, Say, viewingWeights, relight, ringFeather), ct);
             if (derotation is null)
             {
                 consoleHost.WriteError(refusal ?? "nothing de-rotated");
@@ -367,6 +371,32 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
     {
         Description = "How the de-rotation relights what it carries (#1349, the handover circle): blurred (the default: only what lies above each stack's own sky is relit, by the ratio of its own limb model through its core blur, so a sample carried toward the limb darkens as the stack's own blurred limb does) or minnaert (every compose before 2026-10-12: the whole sample, its sky included, relit by Minnaert's law, with none of the limb's blur).",
     };
+
+    private static Option<string?> RingFeatherOption() => new Option<string?>("--ring-feather")
+    {
+        Description = "Fade the turn in beside Saturn's rings (#1537, the ring band's seam), as INNER,OUTER in multiples of each stack's core blur: past the rings' 2 px margin a pixel keeps its own value out to INNER sigmas and takes the turn whole from OUTER, read at the pixel and at its source. 2,4 is the measured setting. For a nearly zonal night only: it takes the seam out of a featureless Saturn, but a spot or storm beside the band stays where it was, wrong by the planet's turn (on a twin with 5 % spots, 2.5 times the seam). Off when not given.",
+    };
+
+    // --ring-feather read: absent is no feather; false and said when unreadable.
+    private bool TryRingFeather(string? text, out (double Inner, double Outer)? feather)
+    {
+        feather = null;
+        if (text is null)
+        {
+            return true;
+        }
+        var parts = text.Split(',');
+        if (parts.Length == 2
+            && double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var inner)
+            && double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var outer)
+            && inner >= 0 && outer > inner)
+        {
+            feather = (inner, outer);
+            return true;
+        }
+        consoleHost.WriteError($"--ring-feather {text}: INNER,OUTER sigmas, 0 <= INNER < OUTER");
+        return false;
+    }
 
     // --relight read: absent is the blurred relight; null and said when unreadable.
     private PlanetaryTurnRelight? RelightOf(string? text)

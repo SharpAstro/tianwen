@@ -1026,7 +1026,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
   (`ImageMeta.LimbEdge`, `LIMBEDGE`, #1349), against the reference's model, never its own fit's; `--viewing-weights limb` leaves
   the limb to the stacks that kept it unturned, an option. **A compose relights a turned stack above its OWN sky, by its own
   core-blurred globe model** (`PlanetaryTurnRelight.Blurred`, #1349): Minnaert's law relit the sky and a limb with no blur, a
-  circle at 0.8 to 0.9 radii (`--relight minnaert` keeps it). **Each frame is carried inside the stacker**
+  circle at 0.8 to 0.9 radii (`--relight minnaert` keeps it); on a ringed Saturn its fitted k reads high (#1542). **A feather beside
+  Saturn's rings is an option for a nearly zonal night, never the default** (`--ring-feather 2,4`, #1537): it keeps a spot there where
+  it was. **Each frame is carried inside the stacker**
   (`PlanetaryStackOptions.Derotation`); **two stacks of one camera are moved with ONE north**; **a night's zonal
   drift is below what two stacks agree on** (`planetary drift`, `planetary belts`).
 - **The blur and its inverse (R7, R8), when re-measured**: the spectral ratio (`planetary spectral-ratio`) cancels a
