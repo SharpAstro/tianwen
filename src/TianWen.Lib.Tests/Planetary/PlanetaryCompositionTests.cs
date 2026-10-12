@@ -40,6 +40,7 @@ public sealed class PlanetaryCompositionTests : IDisposable
     ];
 
     [Fact]
+    [Trait("Category", "Heavy")]
     public void ATurnRelitByTheStacksOwnBlurredLimbLeavesAUniformPlanetAsItWasWhereMinnaertsLawRelitTheSkyAndTheBlur()
     {
         // #1349, the handover circle: a uniform Jupiter on a sky pedestal, blurred as a stack is, taken twice 100 minutes apart (60 degrees
