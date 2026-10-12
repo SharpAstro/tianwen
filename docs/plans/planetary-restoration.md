@@ -4671,6 +4671,10 @@ long enough to read it. `PlanetaryLimbFit.Unmodelled` is gone.
   rendered 20 minutes apart (11.4 degrees, 5.6 px at a 28 px globe's middle) goes from 0.117 to 0.003 RMS against the later render, its
   2,779 ring pixels as they lay. `FrameDerotator.TurnAtCentrePx` sizes the turn from the globe (`StartRinged`), which the bright area
   put 2.3 times too large.
+  - **Open: a seam along the band's edge in a compose (#1537).** A stack is blurred, so the band's light spills a pixel or two onto
+    the globe, and those pixels are turned and relit while their neighbours under the band are not. On set 7 of the 2026-10-07 Saturn,
+    a straight streak runs along the band's inner edge at 0.30 to 0.41 % RMS. The relight by the stack's own blurred limb (#1349,
+    below) shrinks the band-edge colour steps about three times but leaves the luminance step. The fix to try is a feathered band edge.
 - **North, on the EdgeHD 11 capture of 2022-10-25** (300 s, 2.8 degrees, 2.3 px at the globe's middle, so it is de-rotated unasked):
   the run's quarters stand 0.0088 apart carried with the limb fit's north and 0.0144 turned over, so the capture agrees with the rings.
   The 2022-10-09 capture (21 s) turns too little to tell, or to de-rotate.
@@ -5480,6 +5484,78 @@ limb to the stacks that saw it there. Logs: `D:/temp/tianwen-scratch/i1349b/` (`
   what sank it, and the limb view does more for the globe on its own.
 
 **Where it stands.** Both tools stay options until the owner decides (#1349). Logs: `D:/temp/tianwen-scratch/i1349c/night/`.
+
+##### The handover circle: the turn's relighting (2026-10-12)
+
+**Seen** by the owner on the limb view's master: a darker circle inside the disk at about 0.85 radii, faint as stacked and plain once
+sharpened. It is where the limb view hands over from the turned samples to each stack's own unturned limb.
+
+**The cause is the compose's relighting of a turned sample.** A turn check, its rules set before it ran, carried each stack to the
+reference's instant and set it against itself unturned: Saturn's albedo is zonal, so a perfect turn changes nothing. The error came in two
+parts, each following its prediction in sign and size:
+- **The sky was relit with the planet.** `PlanetaryDerotation` multiplied the whole sample by Minnaert's ratio, the sky's pedestal
+  included. Over 0.5 to 0.75 radii the error tracked sky x (relight - 1), 0.5 to 0.9 % of the signal.
+- **The relight had no blur.** The law relights by a sharp limb, while a stack's limb is blurred. With the sky off, the error left at
+  0.85 to 0.89 radii grew to 3 to 7 % of the signal, as the blurred model's turn predicts. Relit by the stack's own model's core blur,
+  it fell to 0.1 % or less.
+
+**The fix, now the default** (`PlanetaryTurnRelight.Blurred`, `--relight`). Each stack's limb is fitted at its own instant. Its sky
+(`PlanetaryMetrics.SkyLevel`) comes off before the relight and goes back on after, and the relight is the ratio its own core-blurred
+globe model (`PlanetaryLimbFit.CoreBlurredModel`) makes between target and source.
+- **The core blur alone**, since the fitted wing sat at its bound (half the light at 210 to 250 px), which makes the whole model a
+  pedestal over the disk.
+- **The globe alone, no rings in the model.** A ring model placed slightly off relit the globe beside the band: the band's
+  inner-edge luminance step read 1.4 % with the rings in, 0.58 % with the old relight. The seam along the band is #1537.
+- **`--relight minnaert`** keeps the relight every compose made before. The stacker's per-frame turn is unchanged: its relight is
+  Minnaert's, to the bit (`PlanetaryDerotation.Resample` with no sky and no model).
+
+**Measured**, twelve arms on the same 27 stacks, under five rules set before any arm ran (`D:/temp/tianwen-scratch/i1349d/RULES.md`):
+- **C1**, the circle as stacked: the largest step of the profile against U's over 0.81 to 0.91 radii, at most 0.5 %.
+- **C2**, the same sharpened, at most 1.5 %.
+- **E**, the limb's edge no higher than the sharpest pair's 0.306.
+- **J10, J01**, the judge's bands 1 to 3 against set 10 and set 1, each at least the plain master's.
+- **N**, the sky noise within 5 % of the plain master's (every arm held it: 6.90 to 6.92, 7.13 to 7.16, 7.14 to 7.15, x 1e-6).
+
+U, no stack turned at all, is the profile's truth.
+
+| arm | join, relight | C1 % | C2 % | edge | J10 band 1 / 2 / 3 | J01 band 1 / 2 / 3 | rules failed |
+|---|---|---|---|---|---|---|---|
+| U | no turn | 0 | 0 | 0.261 | 0.951 / 1.003 / 1.024 | 0.920 / 0.983 / 1.012 | (the truth) |
+| A0 | plain, Minnaert | 1.80 | 4.09 | 0.351 | 0.903 / 0.994 / 1.016 | 0.874 / 0.973 / 1.005 | C1 C2 E |
+| A1 | limb view, Minnaert | 1.46 | 3.56 | 0.263 | 0.999 / 1.035 / 1.030 | 0.962 / 1.014 / 1.022 | C1 C2 |
+| P | plain, sky off | 3.89 | 7.89 | 0.368 | 0.838 / 0.971 / 1.007 | 0.814 / 0.953 / 0.999 | C1 C2 E J10 J01 |
+| B | plain, blurred model | 1.04 | 3.12 | 0.249 | 0.870 / 0.999 / 1.024 | 0.854 / 0.981 / 1.015 | C1 C2 J10 J01 |
+| BL | limb view, blurred model | 0.85 | 1.76 | 0.213 | 0.935 / 1.032 / 1.039 | 0.913 / 1.013 / 1.030 | C1 C2 |
+| W | limb view, Minnaert, handover 0.6 to 0.9 | 0.63 | 1.51 | 0.237 | 0.959 / 1.020 / 1.030 | 0.929 / 0.998 / 1.018 | C1 C2 |
+| C | plain, core | 0.51 | 1.39 | 0.221 | 0.884 / 1.006 / 1.028 | 0.872 / 0.986 / 1.016 | C1 J10 J01 |
+| CL | limb view, core | 0.44 | 1.31 | 0.218 | 0.928 / 1.026 / 1.038 | 0.904 / 1.004 / 1.025 | none |
+| CS | source view, core | 0.45 | 0.86 | 0.223 | 0.950 / 1.027 / 1.035 | 0.921 / 1.008 / 1.026 | none |
+| CSG | source view, core globe | 0.72 | 4.14 | 0.188 | 1.007 / 1.047 / 1.028 | 0.951 / 1.024 / 1.017 | C1 C2 |
+| CLG | limb view, core globe | 0.40 | 1.39 | 0.222 | 0.943 / 1.023 / 1.036 | 0.916 / 1.001 / 1.024 | none |
+
+The fix as it ships, re-read on its own build under the same rules. The limb view is CLG and reproduces it to every digit. The plain
+join relit by the globe's model is a new arm, read after the investigation under its rules unchanged:
+
+| master | C1 % | C2 % | edge | J10 band 1 / 2 / 3 | J01 band 1 / 2 / 3 | rules failed |
+|---|---|---|---|---|---|---|
+| plain, core globe (the new default) | 0.47 | 0.27 | 0.207 | 0.947 / 1.022 / 1.033 | 0.914 / 1.001 / 1.021 | none |
+| limb view, core globe | 0.40 | 1.39 | 0.222 | 0.943 / 1.023 / 1.036 | 0.916 / 1.001 / 1.024 | none |
+
+- **The relight takes the circle out of every join.** C1 falls from 1.80 % (plain) and 1.46 % (limb view) to 0.40 to 0.51 %, and C2
+  from about 4 % to under 1.4 %, 0.27 % in the plain join. Nothing else did: neither the sky alone (P), nor the whole blurred model (B,
+  BL), nor a wider handover (W).
+- **Relit by the globe's model, the plain join holds every rule, and the limb view adds nothing to it.** The plain join's bands are
+  above the old plain join's in every band against both sets, and within 0.004 of the limb view's either way. Its sharpened circle
+  is the smallest of any arm and its limb's edge (0.207) is under the sharpest pair's. By the rule set before any arm ran ("an arm
+  that fixes the plain join and holds all five makes the limb view unnecessary"), the limb view is not needed.
+- **The limb view's old lead was the circle.** U with each arm's radial profile laid on it reads band 1 against set 10 at 0.951 with
+  its own, 0.958 with A0's, 0.973 with A1's and 0.948 with CLG's. The judge reads a profile step inside its 0.9 radii as detail.
+- **The rings in the relight's model cost the plain join that gain.** C, the same relight with the rings in the model, read band 1 at
+  0.884 against set 10 and failed J10 and J01; the plain join relit by the globe alone reads 0.947. Judged against set 10 composed with
+  no turn (supplementary, not a rule), the two read 0.888 and 0.953.
+
+The limb view stays an option (the owner, 2026-10-12), now with no reading in its favour. Logs: `D:/temp/tianwen-scratch/i1349d/`
+(`arms/table.txt`, `turncheck/`, `probe/`), and the shipped build's in `i1349e/` (`table.txt`).
 
 ### The colour look (#1273)
 

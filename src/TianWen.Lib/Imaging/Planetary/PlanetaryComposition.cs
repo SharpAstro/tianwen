@@ -42,22 +42,23 @@ public sealed record PlanetaryCompositionDerotation(ImmutableArray<PlanetaryMono
 /// <summary>A composed colour master (R, G, B), and the luminance stacks joined the same way, or null for none.</summary>
 public sealed record PlanetaryComposed(Image Master, Image? Luminance);
 
-/// <summary>
-/// Planetary compose (#1278, docs/plans/planetary-restoration.md, "Planetary compose: a colour master from mono stacks"): a colour master
-/// from a mono camera's stacks, one a filter and several runs of each, the planet turned between them. The planetary twin of the deep-sky
-/// composition (<see cref="ColourComposition"/>): every step is one routine, run by a verb of its own through FITS files, and
-/// <see cref="Run"/> calls the same routines in order with nothing between them a file would not carry.
-/// <list type="number">
-/// <item><see cref="Ingest"/>: a stack labelled with its planet, instant and filter, from its header or its WinJUPOS-style name.</item>
-/// <item><see cref="Register"/>: each stack's limb fitted at its own instant, the stack moved so its disk's centre lands on the
-/// reference's: a rigid move that carries the limb, the rings and the sky with the disk.</item>
-/// <item><see cref="Derotate"/>: each stack carried to the reference's instant through the spheroid on the reference's disk
-/// (<see cref="PlanetaryDerotation"/>), its north decided by agreement between two stacks of one filter, never by one limb fit.</item>
-/// <item><see cref="Join"/>: each filter's stacks averaged, red, green and blue joined into one colour master, the luminance beside it.</item>
-/// </list>
-/// The colour master then takes the planetary chain a colour master takes: sharpened (<see cref="PlanetarySharpening"/>), balanced to the
-/// planet's colour (<see cref="PlanetaryColourBalance"/>), and a look as a rendering.
-/// </summary>
+/// <summary>How a compose's de-rotation relights the samples it carries to the reference's instant (#1349, the handover circle).</summary>
+public enum PlanetaryTurnRelight
+{
+    /// <summary>
+    /// Only what lies above the stack's own sky is relit, by the ratio of the stack's own limb model through its core blur, the globe's alone
+    /// (<see cref="PlanetaryLimbFit.CoreBlurredModel"/>), between target and source: the sky does not take the planet's lighting, and a sample
+    /// carried toward the limb darkens as the stack's own blurred limb does. Where a stack's limb does not fit, Minnaert's ratio above its sky.
+    /// </summary>
+    Blurred,
+
+    /// <summary>
+    /// Every sample, its sky included, times Minnaert's ratio between target and source: every compose before 2026-10-12. It relit the sky
+    /// with the planet and carried none of the limb's blur, and the limb view's switch between turned and unturned samples drew a circle.
+    /// </summary>
+    Minnaert,
+}
+
 /// <summary>How a join weighs each de-rotated stack's pixels by how it saw them (#1349), or not.</summary>
 public enum PlanetaryViewingWeights
 {
@@ -96,6 +97,22 @@ public enum PlanetaryBandWeights
     Wiener,
 }
 
+/// <summary>
+/// Planetary compose (#1278, docs/plans/planetary-restoration.md, "Planetary compose: a colour master from mono stacks"): a colour master
+/// from a mono camera's stacks, one a filter and several runs of each, the planet turned between them. The planetary twin of the deep-sky
+/// composition (<see cref="ColourComposition"/>): every step is one routine, run by a verb of its own through FITS files, and
+/// <see cref="Run"/> calls the same routines in order with nothing between them a file would not carry.
+/// <list type="number">
+/// <item><see cref="Ingest"/>: a stack labelled with its planet, instant and filter, from its header or its WinJUPOS-style name.</item>
+/// <item><see cref="Register"/>: each stack's limb fitted at its own instant, the stack moved so its disk's centre lands on the
+/// reference's: a rigid move that carries the limb, the rings and the sky with the disk.</item>
+/// <item><see cref="Derotate"/>: each stack carried to the reference's instant through the spheroid on the reference's disk
+/// (<see cref="PlanetaryDerotation"/>), its north decided by agreement between two stacks of one filter, never by one limb fit.</item>
+/// <item><see cref="Join"/>: each filter's stacks averaged, red, green and blue joined into one colour master, the luminance beside it.</item>
+/// </list>
+/// The colour master then takes the planetary chain a colour master takes: sharpened (<see cref="PlanetarySharpening"/>), balanced to the
+/// planet's colour (<see cref="PlanetaryColourBalance"/>), and a look as a rendering.
+/// </summary>
 public static class PlanetaryComposition
 {
     /// <summary>A stack's limb radius may differ from the reference's by this fraction before registration refuses the set: one camera at one focus.</summary>
@@ -319,10 +336,11 @@ public static class PlanetaryComposition
     /// later both ways round (<see cref="PlanetaryDerotation.AgreementBothWays"/>), so stacks of one filter, which show the same detail,
     /// decide it. Under <see cref="PlanetaryDerotation.LeastTurnToTellNorthDeg"/> the fit's north is kept. With
     /// <paramref name="viewingWeights"/> each stack also carries its join weight (<see cref="PlanetaryMonoStack.JoinWeight"/>,
-    /// <see cref="PlanetaryDerotation.JoinWeights"/>, #1349), a stack already at the reference's instant included.
+    /// <see cref="PlanetaryDerotation.JoinWeights"/>, #1349), a stack already at the reference's instant included. <paramref name="relight"/> is
+    /// how the samples carried are relit (<see cref="PlanetaryTurnRelight"/>).
     /// </summary>
     public static (PlanetaryCompositionDerotation? Derotation, string? Refusal) Derotate(IReadOnlyList<PlanetaryMonoStack> registered, Action<string>? say = null,
-        PlanetaryViewingWeights viewingWeights = PlanetaryViewingWeights.None)
+        PlanetaryViewingWeights viewingWeights = PlanetaryViewingWeights.None, PlanetaryTurnRelight relight = PlanetaryTurnRelight.Blurred)
     {
         ArgumentNullException.ThrowIfNull(registered);
         if (registered.Count == 0)
@@ -390,13 +408,38 @@ public static class PlanetaryComposition
                 carried.Add(stack with { JoinWeight = weight });
                 continue;
             }
-            var derotated = PlanetaryDerotation.Derotate(stack.Image, from, target, placement, k).Image;
+            var derotated = relight is PlanetaryTurnRelight.Minnaert
+                ? PlanetaryDerotation.Derotate(stack.Image, from, target, placement, k).Image
+                : TurnRelit(stack, from, target, placement, k, say);
             say?.Invoke(string.Create(inv,
                 $"{stack.Name}: carried {(instant - stack.Instant).TotalMinutes:+0.0;-0.0} minutes, the central meridian {Math.IEEERemainder(target.CentralMeridianIII - from.CentralMeridianIII, 360):+0.00;-0.00} degrees"));
             // Carried, it shows the planet at the reference's instant, and its header says so for the join's verb to read back.
             carried.Add(stack with { Image = WithMeta(derotated, stack.Image.ImageMeta with { ExposureStartTime = instant }), Instant = instant, JoinWeight = weight });
         }
         return (new PlanetaryCompositionDerotation(carried.MoveToImmutable(), instant, placement, north, decidedOn), null);
+    }
+
+    // A stack carried as PlanetaryDerotation.Derotate carries it, relit by PlanetaryTurnRelight.Blurred (#1349, the handover circle): its own
+    // limb fitted at its own instant, its sky taken off before the relight and put back after, and the ratio its own core-blurred globe model
+    // makes between target and source. The rings are left out of the model: the pixels they touch are never turned, and a ring model misplaced
+    // against the stack relit the globe beside the band (a 1.09 % step at the band's inner edge, against 0.70 % without them).
+    private static Image TurnRelit(PlanetaryMonoStack stack, in PlanetAspect from, in PlanetAspect target, in DiskPlacement placement, double k,
+        Action<string>? say)
+    {
+        var image = stack.Image;
+        var (width, height) = (image.Width, image.Height);
+        var field = new DerotationTarget(target, placement, width, height, k).FieldFrom(from, placement);
+        var own = PlanetaryLimbFit.FitAt(image, stack.Planet, stack.Instant);
+        var disk = own is { } fitted ? fitted.Disk : new MetricDisk(placement.CenterX, placement.CenterY, placement.EquatorialRadius);
+        var sky = (float)(PlanetaryMetrics.SkyLevel(image.GetChannelSpan(0), width, height, disk) ?? 0);
+        var model = own is (var fit, _, var options)
+            ? PlanetaryLimbFit.CoreBlurredModel(fit with { RingLevels = null, RingSlopes = null }, options with { Rings = null }, width, height)
+            : null;
+        var inv = CultureInfo.InvariantCulture;
+        say?.Invoke(own is (var f, _, _)
+            ? string.Create(inv, $"{stack.Name}: relit above its sky {sky:0.00000} by its own limb, R {f.EquatorialRadius:0.00} px, k {f.LimbDarkening:0.000}, core {f.PsfSigma:0.00} px")
+            : string.Create(inv, $"{stack.Name}: relit above its sky {sky:0.00000} by Minnaert's law, its limb unfitted"));
+        return PlanetaryDerotation.Resample(image, field, sky, model);
     }
 
     /// <summary>
@@ -700,18 +743,19 @@ public static class PlanetaryComposition
     /// <paramref name="withLuminance"/> the luminance carried in (<see cref="WithLuminance"/>), with nothing between them a file would not
     /// carry, so the steps' verbs run one by one give the same master to the bit. <paramref name="viewingWeights"/> weighs each stack's
     /// pixels by how it saw them (#1349, <see cref="PlanetaryViewingWeights"/>, <see cref="Derotate"/>), <paramref name="bandWeights"/> each filter's stacks band
-    /// by band (#1349 arm B, <see cref="Join"/>): options, measured before either is the default.
+    /// by band (#1349 arm B, <see cref="Join"/>): options, measured before either is the default. <paramref name="relight"/> is how the turn
+    /// relights what it carries (<see cref="PlanetaryTurnRelight"/>).
     /// </summary>
     public static (PlanetaryComposed? Composed, PlanetaryCompositionDerotation? Derotation, string? Refusal) Run(IReadOnlyList<PlanetaryMonoStack> ingested,
         Action<string>? say = null, bool withLuminance = false, PlanetaryViewingWeights viewingWeights = PlanetaryViewingWeights.None,
-        PlanetaryBandWeights bandWeights = PlanetaryBandWeights.None)
+        PlanetaryBandWeights bandWeights = PlanetaryBandWeights.None, PlanetaryTurnRelight relight = PlanetaryTurnRelight.Blurred)
     {
         var (registration, refusal) = Register(ingested, say);
         if (registration is null)
         {
             return (null, null, refusal);
         }
-        var (derotation, derotateRefusal) = Derotate(registration.Stacks, say, viewingWeights);
+        var (derotation, derotateRefusal) = Derotate(registration.Stacks, say, viewingWeights, relight);
         if (derotation is null)
         {
             return (null, null, derotateRefusal);

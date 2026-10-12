@@ -39,6 +39,57 @@ public sealed class PlanetaryCompositionTests : IDisposable
         ("IR", 9, 0.7, 1.9, 0.6),
     ];
 
+    [Fact]
+    public void ATurnRelitByTheStacksOwnBlurredLimbLeavesAUniformPlanetAsItWasWhereMinnaertsLawRelitTheSkyAndTheBlur()
+    {
+        // #1349, the handover circle: a uniform Jupiter on a sky pedestal, blurred as a stack is, taken twice 100 minutes apart (60 degrees
+        // of turn), so the later one carried to the earlier's instant must come back as the earlier one. Minnaert's law relit the whole
+        // sample, its sky included, by a sharp limb the blurred stack does not have; the default relights only what lies above the stack's
+        // sky, by the stack's own core-blurred limb model. Rule set before measuring: the default within 0.5 % of the disk's centre level
+        // between 0.5 and 0.9 radii, Minnaert's at least three times further off.
+        const double Sky = 0.05;
+        const double Level = 0.6;
+        var disk = new DiskPlacement(63.6, 64.3, Radius, TrueNorth);
+        var ingested = new List<PlanetaryMonoStack>();
+        foreach (var at in new[] { Start, Start.AddMinutes(100) })
+        {
+            var sharp = PlanetaryRender.Render(new PlanetMap([.. Enumerable.Repeat(1f, 360 * 180)], 360, 180),
+                PhysicalEphemeris.Compute(CatalogIndex.Jupiter, at), disk, Size, Size, 0.95, supersample: 2);
+            float[] stacked = [.. PlanetaryMetricsTests.Blur(sharp, 1.5).Select(v => (float)((v * Level) + Sky))];
+            var (stack, refusal) = PlanetaryComposition.Ingest($"{at:yyyy-MM-dd-HHmm}_{at.Second / 6}-Test-G-Jup.fits", Image.FromChannel(ToPlane(stacked)), instant: at);
+            ingested.Add(stack.ShouldNotBeNull(refusal));
+        }
+        var (registration, registerRefusal) = PlanetaryComposition.Register(ingested);
+        registration.ShouldNotBeNull(registerRefusal);
+        registration.ReferenceIndex.ShouldBe(0, "the earlier green, both as near the middle");
+        var truth = registration.Stacks[0].Image.GetChannelSpan(0).ToArray();
+
+        double Off(PlanetaryTurnRelight relight)
+        {
+            var (derotation, refusal) = PlanetaryComposition.Derotate(registration.Stacks, relight: relight);
+            derotation.ShouldNotBeNull(refusal);
+            var carried = derotation.Stacks[1].Image.GetChannelSpan(0);
+            var place = derotation.Placement;
+            var (sum, count) = (0.0, 0);
+            for (var i = 0; i < Size * Size; i++)
+            {
+                var (dx, dy) = ((i % Size) - place.CenterX, (i / Size) - place.CenterY);
+                if (Math.Sqrt((dx * dx) + (dy * dy)) / place.EquatorialRadius is >= 0.5 and <= 0.9)
+                {
+                    var d = carried[i] - truth[i];
+                    sum += d * d;
+                    count++;
+                }
+            }
+            return Math.Sqrt(sum / count) / Level;
+        }
+
+        var (blurred, minnaert) = (Off(PlanetaryTurnRelight.Blurred), Off(PlanetaryTurnRelight.Minnaert));
+        TestContext.Current.TestOutputHelper?.WriteLine($"RMS off the planet as it was, 0.5 to 0.9 radii: relit by its own blurred limb {blurred:P3}, by Minnaert's law {minnaert:P3}");
+        blurred.ShouldBeLessThan(0.005, "relit above its sky by its own blurred limb, the turned planet is the planet");
+        minnaert.ShouldBeGreaterThan(3 * blurred, "Minnaert's law relights the sky and leaves the blur out");
+    }
+
     [Fact(Timeout = 300_000)]
     [Trait("Category", "Heavy")]
     public void TheStepsRunOneByOneThroughFilesGiveTheRecipesMaster()
