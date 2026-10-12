@@ -65,6 +65,10 @@
     {
       "session": "FLI-PL09000/Ha/Great-Orion-Nebula/2020-12-04|FLI|m42|HydrogenAlpha",
       "reason": "A stale id: the M42 Ha 300 s session before its OBJECT was made one spelling (16 frames said m42, five M42, so discovery split it; CORRECTIONS.md group V). The archive now produces the M42 id, rebuilt, but the store still lists 2,700 tiles under this one. Excluding it drops those rows on the next resume. 2026-10-12."
+    },
+    {
+      "session": "FLI-PL09000/Ha/Great-Orion-Nebula/2020-12-07|FLI|M42|HydrogenAlpha",
+      "reason": "It does not register. At 60 s through a 5 nm filter at 2262 mm (iTelescope 31) a frame holds 6 to 15 stars over SNR 20 and about 40 at the bake's floor, soft (HFD 5 to 7 px), and frames 013 to 021 are streaked (ellipticity 0.59 to 0.67). The bake matched 4 of 23; tianwen stack matched 4 of 23 with the frame-wide star trigger and 3 with the local one, and even the 12 round frames alone matched 3 with either, so no detector change rescues it. Excluded, out of training and evaluation. The owner's call, 2026-10-12."
     }
   ]
 }
