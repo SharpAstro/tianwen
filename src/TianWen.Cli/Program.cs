@@ -176,6 +176,8 @@ var rootCommand = new RootCommand
                 new PlanetaryCorpusSubCommands(consoleHost, services.GetRequiredService<ILogger<PlanetaryCorpusSubCommands>>()).BuildCrop(),
                 new PlanetaryCorpusSubCommands(consoleHost, services.GetRequiredService<ILogger<PlanetaryCorpusSubCommands>>()).BuildConvert(),
                 new PlanetaryGeometrySubCommands(consoleHost).BuildLimb(),
+                new PlanetaryTrainingPairsSubCommand(consoleHost).Build(),
+                new PlanetaryTrainingPairsSubCommand(consoleHost).BuildFidelity(),
                 new PlanetaryGeometrySubCommands(consoleHost).BuildAperture(),
                 new PlanetaryGeometrySubCommands(consoleHost).BuildRenderTruth(),
                 new PlanetaryGeometrySubCommands(consoleHost).BuildSeeing(),

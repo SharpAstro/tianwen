@@ -275,7 +275,7 @@ public static class PlanetaryRender
 
     // Convolves `image` with a kernel of `size` squared samples centred on (size / 2, size / 2), by FFT over a grid padded
     // past both, so nothing wraps: the scene outside the frame is black sky.
-    private static float[] ConvolveCentred(float[] image, int width, int height, double[] kernel, int size)
+    internal static float[] ConvolveCentred(float[] image, int width, int height, double[] kernel, int size)
     {
         var paddedWidth = NextPowerOfTwo(width + size);
         var paddedHeight = NextPowerOfTwo(height + size);
