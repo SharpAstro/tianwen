@@ -18,7 +18,7 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// Unit tests for <see cref="ViewerController"/>.
-/// Uses NSubstitute to mock <see cref="IDocumentCache"/>, <see cref="IFileDialogHelper"/>,
+/// Uses NSubstitute to mock <see cref="IDocumentCache"/>, <see cref="IFileDialogs"/>,
 /// and <see cref="IPlateSolverFactory"/>.
 /// </summary>
 [Collection("Viewer")]
