@@ -1416,8 +1416,9 @@ widget, and "Rules in full (moved from CLAUDE.md, 2026-10-09)").
   `PrepareFrame`; never destroy a bound Vulkan object or write a shared descriptor set from an upload path
   (`VulkanContext.DeferDestroy`); the cached layer samples in TEXTURE space (divide UVs by CAPACITY). Run under
   `SDLVK_VALIDATION=1 SDLVK_SYNC_VALIDATION=1` and read `validation_report` whenever this area is touched.
-- **Auto-crop prefers a master's own coverage plane** (`Image.LargestCoveredRectangle()`, `MAPKIND=COVERAGE`, then
-  `CoverageEdgeWalk`); **a crop is a CLIP every draw path owes, the enhance INPUT included** (`WCS.CroppedTo`,
+- **Auto-crop prefers a master's own coverage plane** (`Image.CoverageCropRectangle`, `MAPKIND=COVERAGE`, then
+  `CoverageEdgeWalk`): **on a frame-COUNT plane only where every frame reached**, read by each block's median (a region
+  a frame short is that frame's LEVEL missing, a seam), 0.95 on a drizzle weight; **a crop is a CLIP every draw path owes, the enhance INPUT included** (`WCS.CroppedTo`,
   `AstroImageDocument.SourceCrop`). `docs/plans/viewer-prerelease-fixes.md` P25.
 - **Absence is BORDER-REACHABLE, for NaN as much as zero**; a deficit in the MIDDLE is not an edge.
   `Image.FillInteriorHolesInPlace` fills every interior hole (never the ring): no fourth implementation (#250).

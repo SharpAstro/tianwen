@@ -483,8 +483,9 @@ toolbar label-width rule: `docs/architecture/widgets-and-controls.md` § The FIT
   descriptor set from an upload path (`VulkanContext.DeferDestroy`); a resize is its own GPU-lifetime
   path; the cached image layer samples in TEXTURE space (divide UVs by CAPACITY). Run under
   `SDLVK_VALIDATION=1 SDLVK_SYNC_VALIDATION=1` and read `validation_report` whenever this area is touched.
-- **Auto-crop, two tiers**: `Image.LargestCoveredRectangle()` prefers a master's own coverage plane
-  (`MAPKIND=COVERAGE` sidecar) and falls back to `CoverageEdgeWalk`; a master with no coverage plane can
+- **Auto-crop, two tiers**: `Image.CoverageCropRectangle` reads a master's own coverage plane
+  (`MAPKIND=COVERAGE` sidecar: every frame on a count plane, by block median; 0.95 by block mean on a drizzle
+  weight) and falls back to `CoverageEdgeWalk`; a master with no coverage plane can
   defeat the walk (V1045 Ori). A crop is a CLIP every draw path owes (destination AND source UVs),
   reaching the enhance INPUT too (`WCS.CroppedTo`, `AstroImageDocument.SourceCrop`, remembered across
   the toggle). Full rules and measurements: `docs/plans/viewer-prerelease-fixes.md` P25.
