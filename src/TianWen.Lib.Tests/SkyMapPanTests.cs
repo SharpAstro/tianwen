@@ -187,6 +187,68 @@ public class SkyMapPanTests
         s.CenterRoll.ShouldBe(0.0, 1e-9, "north-up is roll 0 in Equatorial mode, at every declination");
     }
 
+    // Melbourne, at a local sidereal time of 23.4 h: the zenith as the UBO writer passes it in Horizon mode.
+    private static readonly Vector3 Zenith = new(
+        (float)(Math.Cos(double.DegreesToRadians(-37.9)) * Math.Cos(23.4 * Math.PI / 12.0)),
+        (float)(Math.Cos(double.DegreesToRadians(-37.9)) * Math.Sin(23.4 * Math.PI / 12.0)),
+        (float)Math.Sin(double.DegreesToRadians(-37.9)));
+
+    private static void HorizonFrames(SkyMapState s, int frames)
+    {
+        for (var frame = 0; frame < frames; frame++)
+        {
+            s.UpdateRollForReference(Zenith.X, Zenith.Y, Zenith.Z, FrameSeconds);
+        }
+    }
+
+    /// <summary>
+    /// <b>A level asked for by P does not throw the view round after a drag.</b> Reported as "after switching with P
+    /// the view rotates abruptly after dragging": P asks for a level and it eases in over a few frames, but a drag
+    /// begun before it arrives held it, and the release resumed it from wherever the drag had left the frame, an
+    /// absolute servo the gesture never asked for. Inside the zenith's lock cone the level cannot start at all, so
+    /// P pressed there and a drag out of it did the same, by more.
+    /// </summary>
+    [Theory]
+    [InlineData(17.04, -30.0, "a drag begun two frames after P")]   // measured: 74 degrees after the release
+    [InlineData(23.4, -36.0, "P inside the zenith's lock cone")]    // measured: 128 degrees after the release
+    public void ADragAbandonsALevelAskedForBeforeIt(double ra, double dec, string where)
+    {
+        var s = new SkyMapState { Mode = SkyMapMode.Equatorial, FieldOfViewDeg = Fov, CenterRA = ra, CenterDec = dec };
+        s.Mode = SkyMapMode.Horizon; // what P does
+        s.RequestLevelToReference();
+        HorizonFrames(s, 2);
+        s.IsLevelling.ShouldBeTrue($"the level has not arrived yet ({where})");
+
+        Drag(s, 500f, 400f, 740f, 560f); // leaves IsDragging true, as a mid-gesture move does
+        HorizonFrames(s, 1);             // the frame the move asks for
+        s.IsLevelling.ShouldBeFalse($"the drag moved the view, so it owns the roll now ({where})");
+
+        var atRelease = s.CenterRoll;
+        s.IsDragging = false;
+        HorizonFrames(s, 120);
+        double.RadiansToDegrees(s.CenterRoll).ShouldBe(double.RadiansToDegrees(atRelease), 1e-6,
+            $"nothing may turn the view once the drag is over ({where})");
+    }
+
+    [Fact]
+    public void AClickThatDoesNotMoveTheViewLetsTheLevelFinish()
+    {
+        var s = new SkyMapState { Mode = SkyMapMode.Horizon, FieldOfViewDeg = Fov, CenterRA = 17.04, CenterDec = -30.0 };
+        s.RequestLevelToReference();
+        HorizonFrames(s, 2);
+
+        // A press and a release with no move between them: the centre never leaves where the press found it.
+        s.IsDragging = true;
+        s.DragStart = (500f, 400f);
+        s.DragStartCenter = (s.CenterRA, s.CenterDec);
+        HorizonFrames(s, 1);
+        s.IsLevelling.ShouldBeTrue("a click is not a gesture on the view");
+        s.IsDragging = false;
+
+        HorizonFrames(s, 120);
+        s.IsLevelling.ShouldBeFalse("and the level P asked for arrives");
+    }
+
     [Fact]
     public void RollIsNeverTakenBackMidGesture()
     {
