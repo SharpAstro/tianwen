@@ -51,12 +51,20 @@
     {
       "session": "ZWO-ASI585MC-Pro/Unidentified-Broadband/Helix-Nebula/2024-09-03|ZWO ASI585MC Pro|Helix Neb 60s 3deg 253g 3o ASI585|Unidentified-Broadband",
       "reason": "No dark and no flat: the ASI585 darks on disk are gain 252 against these gain-253 lights (refused by the strict gain gate), and no flat for this 180.6 mm train lies within two weeks (the nearest, 25 days). Uncalibrated, so held out of training. The owner's call, 2026-10-12."
+    },
+    {
+      "session": "ZWO-ASI294MM/Luminance/Large-Magellanic-Cloud/2021-12-11|ZWO ASI294MM|LMC 4min LUM|Luminance",
+      "reason": "No flat on disk fits it. Its only flat is the Orion 2021-11-28 APP master, borrowed from 13 days earlier, and it over-corrects this night's corners by about 2 % (corner against edge +1.7 to +2.5 %). The train's vignette changed between 2021-11-28 and 2021-12-29: the 12-29 and 2022-01-01 flats agree to 0.1 % with each other and are 6 to 7 % shallower than 11-28's at the corners and the left and right edges. Its dark is borrowed too (the 12-29 set, 18 days later, a pairing never measured). The RGB scope of the same dual-scope night has its own flat and stays in. Held out of training. The owner's call, 2026-10-12."
     }
   ],
   "excludedSessions": [
     {
       "session": "Uranus-C-IMX585/Unidentified-HaOIII/Lagoon-and-Trifid/2023-08-09|Uranus-C (IMX585)|M8 M20 OIII HA|Unidentified-HaOIII",
       "reason": "A stale id: the 2023-08-09 Uranus-C night before the 2026-10-10 refile under Optolong-L-Ultimate-3nm (CORRECTIONS.md). The archive no longer produces this id, but the 2026-09-29 store still lists its tiles under it, and the split names only the new id, so training would read the night as TRAINING data while the new id is held out. Excluding the old id drops those rows from the manifest on the next resume. 2026-10-12."
+    },
+    {
+      "session": "FLI-PL09000/Ha/Great-Orion-Nebula/2020-12-04|FLI|m42|HydrogenAlpha",
+      "reason": "A stale id: the M42 Ha 300 s session before its OBJECT was made one spelling (16 frames said m42, five M42, so discovery split it; CORRECTIONS.md group V). The archive now produces the M42 id, rebuilt, but the store still lists 2,700 tiles under this one. Excluding it drops those rows on the next resume. 2026-10-12."
     }
   ]
 }
