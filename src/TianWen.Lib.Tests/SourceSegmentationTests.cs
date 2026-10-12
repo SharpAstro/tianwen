@@ -59,6 +59,46 @@ public class SourceSegmentationTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void EveryCellOfTheBandedWalkIsTheCellItsOwnPixelsMakeAlone()
+    {
+        // The mesh is estimated in bands of cell rows on every core; each cell must still read exactly its own
+        // pixels. Measured against a walk of each cell's block on its own, to the bit.
+        const int Block = 32;
+        var rng = new Random(23);
+        var plane = new float[H * W];
+        for (var y = 0; y < H; y++)
+        {
+            for (var x = 0; x < W; x++)
+            {
+                plane[y * W + x] = Truth(x, y) + Noise * Gaussian(rng);
+            }
+        }
+
+        for (var i = 0; i < 60; i++)
+        {
+            AddStar(plane, rng.Next(8, W - 8), rng.Next(8, H - 8), 0.05f + 0.4f * rng.NextSingle(), 1.5f);
+        }
+
+        var options = new BackgroundMapOptions(BlockSize: Block, FilterSize: 1);
+        var map = BackgroundMap.Estimate(plane, W, H, options);
+        var cell = new float[Block * Block];
+        for (var cy = 0; cy < map.CellsY; cy++)
+        {
+            for (var cx = 0; cx < map.CellsX; cx++)
+            {
+                for (var y = 0; y < Block; y++)
+                {
+                    plane.AsSpan((cy * Block + y) * W + cx * Block, Block).CopyTo(cell.AsSpan(y * Block, Block));
+                }
+
+                var alone = BackgroundMap.Estimate(cell, Block, Block, options);
+                map.CellBackground[cy * map.CellsX + cx].ShouldBe(alone.CellBackground[0], $"cell {cx},{cy} level");
+                map.CellRms[cy * map.CellsX + cx].ShouldBe(alone.CellRms[0], $"cell {cx},{cy} rms");
+            }
+        }
+    }
+
+    [Fact]
     public void ACanvasRingOfExactZeroDoesNotPullTheSkyDown()
     {
         var rng = new Random(5);
