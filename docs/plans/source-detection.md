@@ -124,6 +124,13 @@ Synthetic frame, one star per 64 by 64 cell and a 40 px nebula, 64 px cells:
 | star + structure + sky masks (margin 3) | 21 ms | 87 ms | 12 MB | 715 ms, 90 MB |
 | `EdgeSpreadProfile.Measure` (36 sectors) | 18 ms | 31 ms | 2.3 MB | same |
 
+**The map's mesh runs in bands of cell rows on every core since 2026-10-12**, the same mesh to the bit
+(`SourceSegmentationTests.EveryCellOfTheBandedWalkIsTheCellItsOwnPixelsMakeAlone`), because the star
+detector's trigger now estimates one per frame and the bake measures its frames one after another: 59 to 91
+ms on real 9.3 and 11.7 Mpx frames where one walk took 555 to 1,018 ms (the 16-core desktop). The table's
+map row is the single walk and has not been re-run. The trigger: `docs/known-limitations.md`, "FIXED: the
+star detector's trigger was one level for the whole frame".
+
 The map is cheap and allocates nothing to speak of. The detection's planes (the sky-subtracted plane,
 its smoothed copy, the smoothing scratch, the threshold flags, a rank scratch: 24 bytes a pixel) are
 allocated once for both passes since the second commit, and the deblend's per-segment dictionary is

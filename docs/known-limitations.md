@@ -1081,6 +1081,69 @@ shipped rule, since it fixes the detections every consumer reads, with the flux 
 the opt-in it is; then the store's green count on the warm night after the change (0 of 84 today).
 The synthetic pin is `StarDetectionWarmPixelTests.TheNoiseAwareGuardReachesTheFaintWarmClassTheShareDoesNot`.
 
+### FIXED: the star detector's trigger was one level for the whole frame, so a bright nebula's texture filled its list (2026-10-12)
+
+`Image.DetectStarsAsync` started a candidate wherever a pixel stood one level above ONE histogram
+background for the frame. Inside a bright nebula every pixel does, so the core's texture became
+"stars", filled the retry ladder (which stops at 2,000) before it reached the field's faint stars, and
+registration built its quads from texture. Seen in the viewer on M42 in H-alpha (the FLI PL09000 nights),
+where about 40 of a frame's 67 detections sat inside the nebula's core and the faint field stars around it
+were missed. On one 300 s frame the old trigger's second pass made 57,139 `AnalyseStar` calls for 49
+stars, and a frame the gate dropped read 7.4 px FWHM, the width of a nebula knot (3.3 px with the fix).
+The measurement after a trigger (the annulus, the SNR gate) was always local; only the trigger was not.
+
+**The trigger now reads the local sky**: a pixel is a candidate where it stands above
+`Sources.BackgroundMap` (photutils' `Background2D` shape, 64 px cells) by the ladder's level in units of
+the LOCAL noise, floored at a quarter of the frame's noise so that a cell whose spread reads zero cannot
+make every positive pixel a candidate. On the same frame its second pass makes 161 calls for 71 stars. On the RGGB fixture it
+keeps 3,062 of the old trigger's 3,065 detections and adds 554 at the same median FWHM (1.95 px) and a lower
+SNR (25 against 58), which is what fainter stars look like (`StarDetectionSkyTriggerTests`).
+
+**Measured where it matters, the bake's own registration**: the same eleven sessions baked by the binary
+before and after, into scratch stores, read-only on the archive (subs kept, with what dropped them):
+
+| session | before | after |
+|---|---|---|
+| M42 Ha 300 s, FLI PL09000, 2020-12-04 | 13 of 21 (gate 2, registration 6) | 20 of 21 (gate 1) |
+| M33 Red, STL-6303, 2021-12-29 | 15 of 22 (registration 7) | 16 of 22 (registration 6) |
+| SMC, ASI585MC, 2024-10-02 | 54 of 67 (registration 13) | 57 of 67 (registration 10) |
+| M42 RGB, ASI533MC, 2022-12-03 | 30 of 33 (gate 3) | 31 of 33 (gate 2) |
+| Vela SNR, ASI533MC, 2022-12-03 | 50 of 51 (gate 1) | 51 of 51 |
+| Centaurus A, ASI294MM, 2022-03-12 | 106 of 107 (gate 1) | 104 of 107 (gate 3) |
+| Pleiades, SV605CC; Lagoon and Leo Triplet, ASI294MM | 51 of 58, 77 of 78, 20 of 22 | the same |
+| M42 Ha 60 s, 2020-12-07 (excluded, #1541) | 4 of 23 | 4 of 23 |
+| LMC luminance, 2021-12-11 (held out, #1540) | 30 of 55 (registration 25) | 25 of 55 (gate 1, registration 29) |
+
+The nine sessions that train keep 427 subs against 416. Two rows went the other way, and neither is the
+trigger failing. Centaurus A's gate drops a frame past the session's median ellipticity plus a multiple of
+its MAD, and with the new measurements three frames at 0.440 to 0.448 sit past that line where one at 0.443
+did, on a session whose registered frames read 0.39 to 0.44 (median 0.42) in both bakes. The
+LMC night is two runs, 12:47 to 14:43 and 14:59 to 16:55, that do not register onto each other with either
+trigger: the reference landed in the second run before (2,799 stars) and in the first after (5,965), and each
+bake keeps the run its reference is in.
+
+**What it costs**: `BackgroundMap.Estimate` once per frame. Single-threaded it was the whole of the extra
+cost, 555 to 1,018 ms a frame, and made the bake's measure step 3 to 6 times slower; it now runs in bands of
+cell rows on every core, the same mesh to the bit (59 to 91 ms; 16 cores). With that, detection on the Ha
+frame costs what it did (221 to 352 ms against 215 to 271), and on an 11.7 Mpx ASI294MM frame 188 to 240 ms
+against 66 to 73, most of it measuring twice the stars.
+
+### The bake's registration finds no quad fit between frames that hold thousands of stars, within one session
+
+Every registration drop left after the trigger fix above is `no-quad-fit` on a frame with 600 to 6,500
+stars, so it is not the detector's. Quads are built from each frame's 100 brightest stars. What the failures
+share, from the same scratch bakes:
+
+- **LMC luminance 2021-12-11**: two runs of one night, neither registering onto the other (above).
+- **SMC 2024-10-02**: the first run sits 566 to 631 px off the reference, where the second run's dithers stay
+  within 57 px; 10 of its 29 frames fail, interleaved with frames of the same run that match.
+- **M33 Red 2021-12-29**: one session holding three nights and both pier sides (E and W in the file names). The
+  six W frames of 2021-12-30 fail, and they build 45 to 50 quads where every matched frame builds 58 to 72;
+  the E frame of the same night matches at 179.8 degrees.
+- **Pleiades 2025-10-28**: the first six frames (00:10 to 00:19) fail; every later frame matches within 18 px.
+
+Why the quads do not meet is not yet measured: #1543.
+
 ### A `--manifest` stack's output manifest re-listed the whole group, not the frames it stacked (FIXED 2026-09-13)
 
 `tianwen stack --manifest <third>` integrates only the manifest's frames (`STACK_N` 79 and 80 on
