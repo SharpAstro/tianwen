@@ -1351,6 +1351,18 @@ namespace TianWen.UI.Abstractions
             // view flipping rather than as a pan.
             if (IsDragging)
             {
+                // And a level asked for before the drag (P, L) is ABANDONED once the drag moves the view:
+                // the gesture has taken the roll over. Left pending, it resumed after the release and
+                // servoed to the reference's absolute value from wherever the drag had left the frame,
+                // which threw the view round AFTER the drag -- 74 degrees for a drag begun two frames
+                // after P, and 128 for P pressed inside the zenith's lock cone, where the level cannot
+                // even start, followed by a drag out of it. A press that has not moved (a click) leaves
+                // the level to finish. L is the deliberate way back afterwards.
+                if (_levelRequested && (CenterRA, CenterDec) != DragStartCenter)
+                {
+                    _levelRequested = false;
+                }
+
                 _hasReferenceRoll = false;
                 return false;
             }
