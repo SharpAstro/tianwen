@@ -32,10 +32,11 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         var lrgbOpt = new Option<bool>("--lrgb") { Description = "Carry the IR or L stacks' detail into the colour planes by the deep-sky LRGB step (the lrgb step); an option, since IR's belt contrast is its own." };
         var viewingWeightsOpt = ViewingWeightsOption();
         var bandWeightsOpt = BandWeightsOption();
+        var relightOpt = RelightOption();
         var command = new Command("compose", "A colour master from mono planetary stacks (#1278): each moved onto one disk by its limb, de-rotated to one instant, each filter averaged, red, green and blue joined; IR or L beside it as the luminance.")
         {
             Arguments = { stacksArg },
-            Options = { outputOpt, labels.Planet, labels.Utc, labels.Filter, lrgbOpt, viewingWeightsOpt, bandWeightsOpt },
+            Options = { outputOpt, labels.Planet, labels.Utc, labels.Filter, lrgbOpt, viewingWeightsOpt, bandWeightsOpt, relightOpt },
         };
         command.Subcommands.Add(BuildIngest());
         command.Subcommands.Add(BuildRegister());
@@ -51,12 +52,13 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
                 return 1;
             }
             if (BandWeightsOf(parseResult.GetValue(bandWeightsOpt)) is not { } bandWeights
-                || ViewingWeightsOf(parseResult.GetValue(viewingWeightsOpt)) is not { } viewingWeights)
+                || ViewingWeightsOf(parseResult.GetValue(viewingWeightsOpt)) is not { } viewingWeights
+                || RelightOf(parseResult.GetValue(relightOpt)) is not { } relight)
             {
                 return 1;
             }
             var (composed, derotation, refusal) = await Task.Run(() => PlanetaryComposition.Run(stacks, Say, parseResult.GetValue(lrgbOpt),
-                viewingWeights, bandWeights), ct);
+                viewingWeights, bandWeights, relight), ct);
             if (composed is null || derotation is null)
             {
                 consoleHost.WriteError(refusal ?? "nothing composed");
@@ -120,19 +122,21 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         var stacksArg = new Argument<string[]>("stacks") { Description = "The registered stacks (FITS, as register writes them).", Arity = ArgumentArity.OneOrMore };
         var outputOpt = new Option<string>("--output", "-o") { Description = "The folder to write each stack into, as <name>.derotated.fits.", Required = true };
         var viewingWeightsOpt = ViewingWeightsOption();
+        var relightOpt = RelightOption();
         var command = new Command("derotate", "Step 3: every registered stack carried to the reference's instant on its disk, north decided by agreement between two stacks of one filter.")
         {
             Arguments = { stacksArg },
-            Options = { outputOpt, viewingWeightsOpt },
+            Options = { outputOpt, viewingWeightsOpt, relightOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
             if (ReadStacks(parseResult.GetValue(stacksArg) ?? []) is not { } stacks
-                || ViewingWeightsOf(parseResult.GetValue(viewingWeightsOpt)) is not { } viewingWeights)
+                || ViewingWeightsOf(parseResult.GetValue(viewingWeightsOpt)) is not { } viewingWeights
+                || RelightOf(parseResult.GetValue(relightOpt)) is not { } relight)
             {
                 return 1;
             }
-            var (derotation, refusal) = await Task.Run(() => PlanetaryComposition.Derotate(stacks, Say, viewingWeights), ct);
+            var (derotation, refusal) = await Task.Run(() => PlanetaryComposition.Derotate(stacks, Say, viewingWeights, relight), ct);
             if (derotation is null)
             {
                 consoleHost.WriteError(refusal ?? "nothing de-rotated");
@@ -356,8 +360,28 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
 
     private static Option<string?> ViewingWeightsOption() => new Option<string?>("--viewing-weights")
     {
-        Description = "Weigh each de-rotated stack's pixels by how it saw them (#1349), written beside each stack as <name>.weight.fits: source (by how squarely it saw each pixel's source, nothing past the de-rotation's 0.9-radius source limit, so no stack's unturned rim enters where another stack saw the planet; fix C) or limb (source inside the disk, and the limb left to the stacks that saw it there: from 0.8 to 0.9 of the target's radius each stack's own unturned pixel takes over from the turned samples, which carry the disk's inside to the limb with none of its blur).",
+        Description = "Weigh each de-rotated stack's pixels by how it saw them (#1349), written beside each stack as <name>.weight.fits: source (by how squarely it saw each pixel's source, nothing past the de-rotation's 0.9-radius source limit, so no stack's unturned rim enters where another stack saw the planet; fix C) or limb (source inside the disk, and the limb left to the stacks that saw it there: from 0.8 to 0.9 of the target's radius each stack's own unturned pixel takes over from the turned samples).",
     };
+
+    private static Option<string?> RelightOption() => new Option<string?>("--relight")
+    {
+        Description = "How the de-rotation relights what it carries (#1349, the handover circle): blurred (the default: only what lies above each stack's own sky is relit, by the ratio of its own limb model through its core blur, so a sample carried toward the limb darkens as the stack's own blurred limb does) or minnaert (every compose before 2026-10-12: the whole sample, its sky included, relit by Minnaert's law, with none of the limb's blur).",
+    };
+
+    // --relight read: absent is the blurred relight; null and said when unreadable.
+    private PlanetaryTurnRelight? RelightOf(string? text)
+    {
+        switch (text?.ToLowerInvariant())
+        {
+            case null or "blurred":
+                return PlanetaryTurnRelight.Blurred;
+            case "minnaert":
+                return PlanetaryTurnRelight.Minnaert;
+            default:
+                consoleHost.WriteError($"--relight {text}: blurred or minnaert");
+                return null;
+        }
+    }
 
     // --viewing-weights read: absent is every pixel alike; null and said when unreadable.
     private PlanetaryViewingWeights? ViewingWeightsOf(string? text)

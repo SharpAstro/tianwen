@@ -478,7 +478,20 @@ public static class PlanetaryLimbFit
     /// kernel other than the fit's own is fitted around, the geometry kept. As a reference or a target it is taken through
     /// <see cref="DetectorPixel"/> first.
     /// </summary>
-    public static float[] SharpModel(in LimbFit fit, LimbFitOptions options, int width, int height)
+    public static float[] SharpModel(in LimbFit fit, LimbFitOptions options, int width, int height) => Model(fit, options, width, height, 0);
+
+    /// <summary>
+    /// <paramref name="fit"/>'s disk as <see cref="SharpModel"/> renders it, taken through the fit's CORE blur (<see cref="LimbFit.PsfSigma"/>), of
+    /// unit brightness on a sky of zero (#1349, the handover circle): how a stack of the fit's albedo shows toward its limb. Its ratio between two
+    /// places is how a de-rotation relights a sample it carries from one to the other
+    /// (<see cref="PlanetaryDerotation.Resample(Image, DerotationField, float, float[])"/>), so the sample darkens toward the limb as the stack's
+    /// own blurred limb does. The wing (<see cref="LimbFit.HaloFraction"/>) is left out: on the 2026-10-07 Saturn every stack's wing sat at its
+    /// bound, half the light 210 to 250 px out, wider than the model's grid, a pedestal the stack's sky taken off has already removed.
+    /// </summary>
+    public static float[] CoreBlurredModel(in LimbFit fit, LimbFitOptions options, int width, int height) => Model(fit, options, width, height, fit.PsfSigma);
+
+    // The fit's model of unit brightness on a sky of zero, with no wing, through a core of `coreSigma` pixels (none under 0.05 cells).
+    private static float[] Model(in LimbFit fit, LimbFitOptions options, int width, int height, double coreSigma)
     {
         ArgumentNullException.ThrowIfNull(options);
         // Every pixel the disk (and its rings) reach, inside the model's own grid (which reaches 12 px past its annulus).
@@ -495,8 +508,8 @@ public static class PlanetaryLimbFit
             }
         }
         var model = new DiskModel(pixels, width, height, cover, fit.SunSide, fit.CenterX, fit.CenterY, fit.EquatorialRadius);
-        // The fit's own parameters with no blur (a core under 0.05 cells is none), no halo, unit brightness and no sky.
-        var p = SeedFrom(fit, options, fit.CenterX, fit.CenterY, fit.EquatorialRadius, 0);
+        // The fit's own parameters with the core given (a core under 0.05 cells is none), no halo, unit brightness and no sky.
+        var p = SeedFrom(fit, options, fit.CenterX, fit.CenterY, fit.EquatorialRadius, coreSigma);
         (p[6], p[7], p[11]) = (1, 0, 0);
         var values = new double[pixels.Count];
         model.Evaluate(p, values);

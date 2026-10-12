@@ -125,7 +125,18 @@ public static class PlanetaryDerotation
     /// <paramref name="image"/> resampled through <paramref name="field"/> by Lanczos-3: each output pixel its source's sample,
     /// relit; where the kernel cannot reach, the pixel at the same place.
     /// </summary>
-    public static Image Resample(Image image, DerotationField field)
+    public static Image Resample(Image image, DerotationField field) => Resample(image, field, 0f, null);
+
+    /// <summary>
+    /// <paramref name="image"/> resampled through <paramref name="field"/> as <see cref="Resample(Image, DerotationField)"/> does, with only what
+    /// lies above <paramref name="sky"/> relit, and, given <paramref name="model"/> (the stack's own blurred limb model,
+    /// <see cref="PlanetaryLimbFit.CoreBlurredModel"/>, row-major on the image's grid), relit by the model's ratio between target and source
+    /// rather than Minnaert's (#1349, the handover circle). Relit whole, the sky (12 to 24 % of the disk's level on the 2026-10-07 Saturn)
+    /// took the planet's lighting, and a sample carried toward the limb kept none of the limb's blur, too bright by 1.4 % at 0.83 radii and
+    /// 8.8 % at 0.91. A covered pixel whose source the model does not light keeps the field's relight. With no sky and no model the result
+    /// is <see cref="Resample(Image, DerotationField)"/>'s to the bit.
+    /// </summary>
+    public static Image Resample(Image image, DerotationField field, float sky, float[]? model)
     {
         ArgumentNullException.ThrowIfNull(image);
         ArgumentNullException.ThrowIfNull(field);
@@ -133,6 +144,10 @@ public static class PlanetaryDerotation
         if (field.Width != width || field.Height != height)
         {
             throw new ArgumentException($"A {field.Width} x {field.Height} field cannot resample a {width} x {height} image.", nameof(field));
+        }
+        if (model is not null && model.Length != width * height)
+        {
+            throw new ArgumentException($"A model of {model.Length} pixels cannot relight a {width} x {height} image.", nameof(model));
         }
         var planes = Image.CreateChannelData(image.ChannelCount, height, width);
         for (var c = 0; c < image.ChannelCount; c++)
@@ -145,12 +160,25 @@ public static class PlanetaryDerotation
                 {
                     var i = (y * width) + x;
                     var value = Image.Lanczos3Value(plane, width, height, field.SourceX[i], field.SourceY[i]);
-                    output[y, x] = float.IsNaN(value) ? plane[i] : value * field.Relight[i];
+                    if (float.IsNaN(value))
+                    {
+                        output[y, x] = plane[i];
+                        continue;
+                    }
+                    var relight = field.Relight[i];
+                    if (model is not null && field.Covered[i] && field.Sample(model, field.SourceX[i], field.SourceY[i]) is var atSource and > ModelLitFloor)
+                    {
+                        relight = model[i] / atSource;
+                    }
+                    output[y, x] = sky + ((value - sky) * relight);
                 }
             });
         }
         return new Image(planes, BitDepth.Float32, image.MaxValue, image.MinValue, image.Pedestal, image.ImageMeta);
     }
+
+    // Below this a blurred model of unit brightness lights its pixel too little for its ratio to relight by.
+    private const float ModelLitFloor = 1e-4f;
 
     /// <summary>
     /// A turn of the central meridian under this many degrees between two stacks leaves their north as the limb fit has it: either way
@@ -392,6 +420,16 @@ public sealed class DerotationField
     {
         var (i00, i10, i01, i11, fx, fy, _, _, _, _) = Corners(x, y);
         return Bilinear(Relight[i00], Relight[i10], Relight[i01], Relight[i11], fx, fy);
+    }
+
+    /// <summary>
+    /// <paramref name="plane"/> (row-major, on this field's grid) at position (<paramref name="x"/>, <paramref name="y"/>), interpolated as
+    /// <see cref="OffsetAt"/> is: what a de-rotation's relight reads a blurred model at a sample's source by.
+    /// </summary>
+    internal float Sample(float[] plane, float x, float y)
+    {
+        var (i00, i10, i01, i11, fx, fy, _, _, _, _) = Corners(x, y);
+        return Bilinear(plane[i00], plane[i10], plane[i01], plane[i11], fx, fy);
     }
 
     private (int I00, int I10, int I01, int I11, float Fx, float Fy, int X0, int Y0, int X1, int Y1) Corners(float x, float y)

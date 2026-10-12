@@ -1021,7 +1021,9 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
   `PlanetaryComposition`** (`planetary compose`, #1278): each moved onto the reference's disk FIRST, then
   de-rotated; IR luminance (`--lrgb`) is an option. **A stack's sharpness is read off its limb BEFORE any turn**
   (`ImageMeta.LimbEdge`, `LIMBEDGE`, #1349), against the reference's model, never its own fit's; `--viewing-weights limb` leaves
-  the limb to the stacks that kept it unturned, an option. **Each frame is carried inside the stacker**
+  the limb to the stacks that kept it unturned, an option. **A compose relights a turned stack above its OWN sky, by its own
+  core-blurred globe model** (`PlanetaryTurnRelight.Blurred`, #1349): Minnaert's law relit the sky and a limb with no blur, a
+  circle at 0.8 to 0.9 radii (`--relight minnaert` keeps it). **Each frame is carried inside the stacker**
   (`PlanetaryStackOptions.Derotation`); **two stacks of one camera are moved with ONE north**; **a night's zonal
   drift is below what two stacks agree on** (`planetary drift`, `planetary belts`).
 - **The blur and its inverse (R7, R8), when re-measured**: the spectral ratio (`planetary spectral-ratio`) cancels a
