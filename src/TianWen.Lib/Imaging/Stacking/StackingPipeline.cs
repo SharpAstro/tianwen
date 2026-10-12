@@ -643,14 +643,32 @@ public sealed class StackingPipeline(
         // is 948 ADU. Six percent, shaped exactly like inverse vignetting, so it reads as light
         // pollution and a later gradient correction would happily 'fix' it.
         var groupDate = lightList[0].Meta.ExposureStartTime;
-        var (dark, darkKey) = MatchMaster(darkMasters, calKey, MasterMatchKind.Dark, groupDate, options.RequireGainMatch);
-        var (flat, flatKey) = MatchMaster(flatMasters, calKey, MasterMatchKind.Flat, groupDate);
-        var (bias, biasKey) = dark is null
+        // The CALSTAT read guard (#466), the dataset bake's rule (CalibrationResolver.Choose): a correction
+        // the lights' own software already applied is never applied again. A light that arrives with its
+        // bias or dark already out has no pedestal left for a bias to stand in for.
+        var preCalibrated = PreCalibration.Across(lightList, out var mixedCalStat);
+        if (preCalibrated != CalibrationApplied.None)
+        {
+            logger.LogInformation("  lights arrive calibrated by their own software (CALSTAT={Letters}): none of that is applied again",
+                PreCalibration.Letters(preCalibrated));
+            if (mixedCalStat)
+            {
+                logger.LogWarning("  the lights' CALSTAT disagree; every correction any of them carries is skipped for all");
+            }
+        }
+        var (dark, darkKey) = preCalibrated.HasFlag(CalibrationApplied.Dark)
+            ? (null, null)
+            : MatchMaster(darkMasters, calKey, MasterMatchKind.Dark, groupDate, options.RequireGainMatch);
+        var (flat, flatKey) = preCalibrated.HasFlag(CalibrationApplied.Flat)
+            ? (null, null)
+            : MatchMaster(flatMasters, calKey, MasterMatchKind.Flat, groupDate);
+        var pedestalAlreadyOut = (preCalibrated & (CalibrationApplied.Bias | CalibrationApplied.Dark)) != CalibrationApplied.None;
+        var (bias, biasKey) = dark is null && !pedestalAlreadyOut
             ? MatchMaster(biasMasters, calKey, MasterMatchKind.Bias, groupDate, options.RequireGainMatch)
             : (null, null);
         logger.LogInformation("  dark master: {Dark}", darkKey is null ? "NONE" : darkKey.Slug());
         logger.LogInformation("  flat master: {Flat}", flatKey is null ? "NONE" : flatKey.Slug());
-        if (dark is null)
+        if (dark is null && !pedestalAlreadyOut)
         {
             logger.LogInformation("  bias master: {Bias} (no dark matched, so the bias carries the pedestal)",
                 biasKey is null ? "NONE" : biasKey.Slug());

@@ -268,6 +268,13 @@ public record struct ImageMeta(
     public bool IsMaster { get; init; } = false;
 
     /// <summary>
+    /// The corrections this frame's own header says were already applied to it (<c>CALSTAT</c>, read by
+    /// <see cref="Calibration.PreCalibration.Parse"/>): a light that carries them is never calibrated
+    /// again for them, by the dataset bake or by <c>tianwen stack</c> (#466). Default none.
+    /// </summary>
+    public Calibration.CalibrationApplied PreCalibrated { get; init; } = Calibration.CalibrationApplied.None;
+
+    /// <summary>
     /// Which frame this is since the camera was opened, 0 for the first. <c>-1</c> when the driver
     /// does not track it, which is not the same as 0.
     /// </summary>

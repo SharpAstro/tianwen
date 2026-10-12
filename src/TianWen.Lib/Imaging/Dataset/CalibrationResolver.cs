@@ -326,8 +326,15 @@ public static class CalibrationResolver
     {
         var light = session.Lights[0];
         var lightKey = SessionKey(session.Lights);
-        var darkGroup = BestDark(calGroups.GetValueOrDefault(FrameType.Dark), light, requireGainMatch, maxDarkTemperatureDelta, lightKey);
-        var flatGroup = BestFlat(calGroups.GetValueOrDefault(FrameType.Flat), light, lightKey);
+        // The CALSTAT read guard (#466): a correction the lights' own software already applied is never
+        // chosen again, so a dark-subtracted light gets no dark and a flat-fielded one no flat.
+        var applied = PreCalibration.Across(session.Lights, out _);
+        var darkGroup = applied.HasFlag(CalibrationApplied.Dark)
+            ? null
+            : BestDark(calGroups.GetValueOrDefault(FrameType.Dark), light, requireGainMatch, maxDarkTemperatureDelta, lightKey);
+        var flatGroup = applied.HasFlag(CalibrationApplied.Flat)
+            ? null
+            : BestFlat(calGroups.GetValueOrDefault(FrameType.Flat), light, lightKey);
         // A flat's own pedestal (bias / dark-flat) is removed before normalising; a foreign master
         // flat was integrated by its own tool and is not re-pedestalled.
         var flatPedestalGroup = flatGroup is { IsMaster: false }
@@ -347,6 +354,19 @@ public static class CalibrationResolver
             }
         }
         return new CalibrationChoice(darkGroup, flatGroup, flatPedestalGroup, darkBiasGroup);
+    }
+
+    /// <summary>
+    /// The provenance of a session no master of ours calibrated (<see cref="ResolveAsync"/> answered
+    /// null): its lights' <c>CALSTAT</c> letters when they carry any, since such a session was calibrated
+    /// before it reached the archive, else the empty record of a genuinely uncalibrated one.
+    /// </summary>
+    public static CalibrationProvenance ProvenanceWithoutMasters(ImagingSession session)
+    {
+        var applied = PreCalibration.Across(session.Lights, out _);
+        return applied == CalibrationApplied.None
+            ? new CalibrationProvenance()
+            : new CalibrationProvenance(PreCalibrated: PreCalibration.Letters(applied));
     }
 
     /// <summary>
@@ -411,8 +431,29 @@ public static class CalibrationResolver
             session.Id, darkGroup is null ? "NONE" : darkGroup.Key.Slug(), flatGroup is null ? "NONE" : flatGroup.Key.Slug(),
             flatPedestalGroup is null ? "NONE" : flatPedestalGroup.Key.Slug());
 
+        var preCalibrated = PreCalibration.Across(session.Lights, out var mixed);
+        if (preCalibrated != CalibrationApplied.None)
+        {
+            logger?.LogInformation(
+                "  [{Session}] lights arrive calibrated by their own software (CALSTAT={Letters}): none of that is applied again",
+                session.Id, PreCalibration.Letters(preCalibrated));
+            if (mixed)
+            {
+                logger?.LogWarning(
+                    "  [{Session}] the lights' CALSTAT disagree; every correction any of them carries is skipped for all, so the " +
+                    "lights that lack it go without it. Split the session if that matters.",
+                    session.Id);
+            }
+        }
+
         if (dark is null && flat is null)
         {
+            if (preCalibrated != CalibrationApplied.None)
+            {
+                // Nothing of ours to apply, and nothing missing: the session was calibrated before it
+                // reached the archive. The run records that (PreCalibratedProvenance), not "uncalibrated".
+                return null;
+            }
             logger?.LogWarning(
                 "  [{Session}] no compatible dark/flat found (sensor={Sensor} {W}x{H}x{Ch}, {Exp:F0}s, {Temp}) -- registering UNCALIBRATED (weakens N2N validity)",
                 session.Id, lightKey.SensorType, lightKey.Width, lightKey.Height, lightKey.ChannelCount,
@@ -483,7 +524,8 @@ public static class CalibrationResolver
             Dark: darkGroup?.Key.Slug(),
             Flat: flatGroup?.Key.Slug(),
             Bias: null,
-            DarkBias: darkBiasSlug);
+            DarkBias: darkBiasSlug,
+            PreCalibrated: preCalibrated == CalibrationApplied.None ? null : PreCalibration.Letters(preCalibrated));
 
         return new Calibrator(Bias: null, Dark: dark, Flat: flat, DarkScale: darkScale, DarkBias: darkBias)
         {

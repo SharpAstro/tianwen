@@ -533,7 +533,7 @@ public static class DatasetBuildRunner
                             cancellationToken: cancellationToken);
                         // Always stamped: an empty provenance records that no master was applied, which a
                         // null (a record older than the field) cannot say.
-                        remeasured = remeasured with { Calibration = subsCalibrator?.Provenance ?? new CalibrationProvenance() };
+                        remeasured = remeasured with { Calibration = subsCalibrator?.Provenance ?? CalibrationResolver.ProvenanceWithoutMasters(session) };
                         subsTimings.Record(StageNames.Measure, subsStart, items: session.Lights.Length);
 
                         await DatasetPsfStore.AppendAsync(psfStorePath, remeasured, cancellationToken);
@@ -634,7 +634,8 @@ public static class DatasetBuildRunner
                 // sensor's fixed-pattern dark signal (correlated between the two subs), so skip a
                 // session with no resolved dark rather than poison the set. Opt-in so the prior
                 // register-everything behaviour + existing tests are unchanged.
-                if (options.RequireDarkCalibration && calibrator?.Dark is null)
+                if (options.RequireDarkCalibration && calibrator?.Dark is null
+                    && !PreCalibration.Across(session.Lights, out _).HasFlag(CalibrationApplied.Dark))
                 {
                     skippedNoDark++;
                     logger?.LogWarning("  [{Session}] SKIPPED -- no master dark resolved (RequireDarkCalibration)", session.Id);
@@ -777,7 +778,7 @@ public static class DatasetBuildRunner
                 // and the record is the only place it survives the run. Always stamped: an empty provenance
                 // records that NO master was applied, which a null (a record older than the field) cannot say.
                 var psf = await DatasetPsfNoiseReport.MeasureSessionAsync(reg, logger: logger, fallbackSite: options.FallbackSite, cancellationToken: cancellationToken)
-                    with { Calibration = calibrator?.Provenance ?? new CalibrationProvenance() };
+                    with { Calibration = calibrator?.Provenance ?? CalibrationResolver.ProvenanceWithoutMasters(session) };
                 // Persisting the measurement must not be able to fail the SESSION. By the time we get
                 // here the tiles are written and their manifest rows are appended, so the session IS
                 // part of the dataset; letting an I/O fault fall to the per-session catch marked a
@@ -851,7 +852,7 @@ public static class DatasetBuildRunner
                         }
                         var sidePsf = await DatasetPsfNoiseReport.MeasureSessionAsync(
                             side, logger: logger, fallbackSite: options.FallbackSite, cancellationToken: cancellationToken);
-                        sidePsf = sidePsf with { Calibration = calibrator?.Provenance ?? new CalibrationProvenance() };
+                        sidePsf = sidePsf with { Calibration = calibrator?.Provenance ?? CalibrationResolver.ProvenanceWithoutMasters(session) };
                         await DatasetPsfStore.AppendAsync(psfStorePath, sidePsf, cancellationToken);
                         psfBySession[side.Session.Id] = sidePsf;
                         sessionIds.Add(side.Session.Id);
