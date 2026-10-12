@@ -1303,8 +1303,14 @@ namespace TianWen.UI.Abstractions
         /// The view's frame, shown and switched in words at the status strip's left: "Alt/Az" or "Equatorial". It was
         /// a bracketed two-letter code mid-strip ("[AZ]  [P]roj", which also misnamed the frame a projection), and
         /// nothing in it said which mode was in force at a glance (the owner, 2026-10-12). Device-pixel sizes, as the
-        /// strip's; each segment as wide as the wider label, measured by the engine, so neither is cut.
+        /// strip's; each segment as wide as the wider label plus a margin either side, measured by the engine, so
+        /// neither is cut and the two read as one control.
         /// </summary>
+        /// <remarks>
+        /// The measure is a stop-gap: a ButtonGroup has no "every segment as wide as the widest label" of its own
+        /// (SegmentWidth is fixed or shared), so it is worked out here, as the viewer's transport bar works out its view
+        /// switch. That option belongs in DIR.Lib's ButtonGroupStyle, where both would drop their measure.
+        /// </remarks>
         private Layout.Node BuildModeSwitch(float fontSize, float dpiScale)
         {
             var padX = 6f * dpiScale;
