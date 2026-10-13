@@ -238,7 +238,7 @@ public class NightCalendarTests(ITestOutputHelper output)
     }
 
     /// <summary>A popover on a CPU surface over a planner whose September is summarised without a forecast.</summary>
-    private static async Task<(NightCalendarPopover<RgbaImage> Popover, RgbaImageRenderer Renderer, PlannerState State,
+    internal static async Task<(NightCalendarPopover<RgbaImage> Popover, RgbaImageRenderer Renderer, PlannerState State,
         FakeTimeProviderWrapper Clock)> OpenCalendarAsync(ITestOutputHelper output, PlannerState? state = null)
     {
         var external = new FakeExternal(output, now: Now);
