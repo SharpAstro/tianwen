@@ -1,9 +1,9 @@
 # The chrome should not be doing its own arithmetic
 
 Status: P0, P1, P2 and P4 DONE (2026-09-16; P2 keeps `ReservedLabelWidth` on measurement, a labelled workaround,
-#604). Left: P3, the viewer's own core file, the sky-map tab and the live-session panels, lower value and ratcheted by
-P4 (#367; the panels #1455); and P5 (added 2026-10-02), a text measured by its line box rather than its ink, which
-is a DIR.Lib change (#1490).
+#604); P5 DONE 2026-10-13 (DIR.Lib 11.20, a text measured by its line box rather than its ink, #1490). Left: P3, the
+viewer's own core file, the sky-map tab and the live-session panels, lower value and ratcheted by P4 (#367; the panels
+#1455).
 Planned 2026-09-15 (user, high priority); the header said NOT STARTED until 2026-09-24.
 **P0 (the measure seam) now ships as part of [dir-lib-10.md](dir-lib-10.md) D1**, the same DIR.Lib release
 that adds the input router. That plan's T3 is this plan's P3 and P5, plus the chrome lines of its Acceptance this plan
@@ -261,6 +261,41 @@ hand-drawn row truncates the centred top itself, `(int)(rowY + (rowH - 1.3 em) /
 is fractional. Once a leaf measures its line box, its own rect is 1.3 em tall, the row's `CrossAlign.Center` places it
 at the centred top, and it draws top-aligned from there, which is the hand row to the pixel. The file list's header and
 the info panel's section headings are text leaves already (top-aligned with `vAlign: Near`, which needs no line box).
+
+**Shipped 2026-10-13 (#1490, PR #1555).** DIR.Lib 11.20 measures a pixel layout's text leaf by its face's line box
+(`TextBaseline.LineHeight`, 1.3 em) for its height; the renderers' `MeasureText` still answers ink. TianWen pins
+`11.20.*`, and no other sibling needed a bump. Every hand line box around a text leaf is gone:
+
+| form | where | now |
+|---|---|---|
+| `.RowH(BaseFontSize + gap)` | best-stack panel (5), info panel's wavelet rows and wrapped words (3), white balance (2), tone (1) | `.WStar()`: the row is its line box (RowH also made the width Star) |
+| the tone panel's local `rowH`, `.RowH(small + gap)` | tone popover (6) | `.WStar()` |
+| `.RowH(fontSize + n)` | histogram's LOG (1), night calendar (4) | LOG is its padding; the calendar's lines `.WStar()` |
+| `.RowH(fontSize * k)`, `lineH = fontSize * k` | guider's "Star Profile", the profile switch notice's words | a plain line box |
+| a `*LineH` constant on text | the guider's stats table | the 1.6 em pitch is a CONTAINER's height with its text centred in it (`StatsPitch`), never a padding worked out from the line box |
+| `HFixed(fontSize * k)` | the file list's hover plate (`* 1.3f`), the planner's Show in atlas (`* 1.6f`) | deleted (exactly the line box); `.Pad(8f, 3f)`, the same 22.4 |
+| a hand-measured advance | white balance provenance lines, `RowH(TextLineAdvance)` | `.WStar()` |
+
+A text button is its padding (`PanelButton` lost its `.HStar()`, whose reason was the ink). Every rect the change moved
+is in [viewer-layout-engine-p5/](viewer-layout-engine-p5/): `LayoutRectSweep` (Lib.Tests) arranges the viewer (info
+panel, histogram, planetary panels, tone and white balance popovers), the night calendar and the Guider and Live
+Session tabs at DPI 1 and 1.5 and dumps every arranged node (`TIANWEN_LAYOUT_SWEEP` names the file). `before.txt` is at
+11.18, `after-bump.txt` at 11.20 with no edit (90 text leaves grow, clamped by their hand rows; no container moves),
+`after.txt` after the edits. What moved, all of it the line box: a viewer row 24 to 23.4 at 1x (an 18 px face's 1.3 em
+against the hand 18 + 6), adding up down a panel (the sixth wavelet band 8.1 px higher); the tone popover's 0.85 em rows
+to their own line box; LOG 22 to 23.4; the calendar's detail block 4.5 shorter, its grid unmoved; the guider's stats
+rows unmoved, "Star Profile" 19.6 to 15.47 (`GuiderTabLayoutTests` reads it as the line box now).
+
+Left, and why:
+- **The toolbar label's `HFixed(ToolbarFontSize)`** (`ImageRendererBase.Toolbar.cs`, `ToolbarButtonNode`): a one-em box
+  centred in the button on purpose, where the hand painter put it. Without it every label's ink moves about 0.15 em, a
+  visible change for the owner to decide; a follow-up of #1555.
+- **`ObjectInfoPanel`'s `RowH(DesignRowHeight)` rows** (1.35 em): the panel's height is summed by hand from that
+  constant (`DesignTitleRowHeight + DesignRowHeight * (RowCount - 1)`), so a padding would only restate it. P3's.
+- **Literal row heights** not derived from a font (the calendar's 26 header and 18 weekday strip, `BaseRowHeight`,
+  `BaseItemHeight`, `SharingRowHeight`) and spacers: not line boxes.
+- **The file list's rows (`RowTextY`, #1489)** are UNBLOCKED, by the reasoning above: a name leaf is now 1.3 em tall, so
+  the row's `CrossAlign.Center` puts it where `RowTextY` draws. Not converted here.
 
 ## The unit rule this uncovered, which is the cost of adopting the engine
 
