@@ -47,7 +47,8 @@ public static class SessionFrameAnalyzer
     public sealed record GateResult(
         ImmutableArray<AnalyzedFrame> Kept,
         ImmutableArray<(AnalyzedFrame Frame, FrameRejectReason Reason)> Rejected,
-        bool KeepFloorTriggered);
+        bool KeepFloorTriggered,
+        FrameGateLimits Limits);
 
     /// <summary>
     /// Loads one light, applies calibration when masters are available, and measures star
@@ -142,6 +143,6 @@ public static class SessionFrameAnalyzer
                 rejected.Add((frames[i], result.Reasons[i]));
             }
         }
-        return new GateResult(kept.ToImmutable(), rejected.ToImmutable(), result.FloorTriggered);
+        return new GateResult(kept.ToImmutable(), rejected.ToImmutable(), result.FloorTriggered, result.Limits);
     }
 }
