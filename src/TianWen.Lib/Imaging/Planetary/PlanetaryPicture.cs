@@ -82,6 +82,20 @@ public sealed record PlanetaryPicture(
     public const double GrainRadii = 0.5;
 
     /// <summary>
+    /// The light just outside the limb (1 to <see cref="GlowNearRadii"/>) found over what the planet's model through <paramref name="pupil"/>
+    /// expects there (#1552): the blur's own reading, which seeing's wings and any loss in the stack raise, where the limb's edge also reads
+    /// a limb that falls faster than the fit's Minnaert law (#1561). Measured as <c>planetary compare</c> measures a master, about
+    /// <paramref name="fit"/>'s disk with its moons left out.
+    /// </summary>
+    public static double NearGlow(ReadOnlySpan<float> plane, int width, int height, in LimbFit fit, LimbFitOptions limbOptions, in PlanetAspect aspect,
+        Pupil pupil, double wavelengthNm)
+    {
+        var disk = MetricDisk.From(fit, limbOptions);
+        var picture = Measure(plane, width, height, disk, Diffracted(fit, limbOptions, aspect, pupil, wavelengthNm, width, height), moons: MoonsOf(plane, width, height, disk));
+        return picture.GlowNearFound / picture.GlowNearExpected;
+    }
+
+    /// <summary>
     /// <paramref name="plane"/> (<paramref name="width"/> by <paramref name="height"/>, row-major) measured about its planet's
     /// <paramref name="disk"/>. <paramref name="expected"/> is the glow the limb should have, full frame in disk units (<see cref="Diffracted"/>),
     /// or empty for none; <paramref name="glowNoise"/> the noise the glow's pixels are counted against, in disk units, so several pictures

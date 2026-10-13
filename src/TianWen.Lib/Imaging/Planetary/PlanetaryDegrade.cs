@@ -103,6 +103,14 @@ public sealed record DegradeOptions(Pupil Pupil, double WavelengthM)
     public double ScatterCoreArcsec { get; init; } = 5;
 
     /// <summary>
+    /// A Gaussian every frame's light passes before it is read out, its sigma in the detector's pixels, zero for none (#1552): what a real
+    /// stack of the EdgeHD 11 Jupiter loses at its limb that no modelled air gives a twin's stack (seeing, scatter, defocus, a warp slow
+    /// or fast, short or disk-wide, the frame's exposure; docs/plans/planetary-restoration.md, "L-GAINS-S"). Taken before the camera's
+    /// noise, so the noise stays the camera's.
+    /// </summary>
+    public double StaticBlurPx { get; init; }
+
+    /// <summary>
     /// Whether each frame carries the pupil's diffraction wing past the PSF grid's square (<see cref="PlanetaryDegrade.FarWingSpectrum(DegradeOptions, double, int)"/>,
     /// #1222), 1.37 % of a twin frame's light past 32 px. Off by default: the twins' <see cref="ScatterFraction"/> was calibrated to stand
     /// in for that light, and with the wing in no one fraction at a 5" core fits the real capture's halo in all four rings
@@ -780,6 +788,8 @@ public static partial class PlanetaryDegrade
         // The telescope's wide scatter takes its share of the light from the frame's PSF, both unit-sum, and the pupil's far wing its
         // share from the frame's PSF (#1222), moved with the PSF's own tilt as the whole PSF moves.
         var kept = scatter is null ? 1 : 1 - options.ScatterFraction;
+        // The static blur's Gaussian, its sigma in detector pixels, so in fine samples times the oversampling.
+        var blurSigma = options.StaticBlurPx * os;
         var (wingX, wingY) = (new Complex[fine], new Complex[fine]);
         if (farWing.Spectrum is not null)
         {
@@ -799,6 +809,10 @@ public static partial class PlanetaryDegrade
                 var i = (ky * fine) + kx;
                 var withWing = farWing.Spectrum is { } wing ? ((1 - farWing.Share) * field[i]) + (wing[i] * wingY[ky] * wingX[kx]) : field[i];
                 var transfer = scatter is null ? withWing : (kept * withWing) + (options.ScatterFraction * scatter[i]);
+                if (blurSigma > 0)
+                {
+                    transfer *= Math.Exp(-2 * Math.PI * Math.PI * blurSigma * blurSigma * ((fx * fx) + (fy * fy)));
+                }
                 field[i] = transfer * objectSpectrum[i] * Complex.FromPolarCoordinates(1, -2 * Math.PI * ((fx * dx) + (fy * dy)));
             }
         }
