@@ -192,7 +192,7 @@ namespace TianWen.UI.Abstractions
                 .Stretch();
             var profile = Layout.Builder.VStack(
                     Layout.Builder.Text("Star Profile", BaseFontSize * 0.85f, HeaderText,
-                        TextAlign.Near, TextAlign.Near).RowH(BaseFontSize * 1.4f),
+                        TextAlign.Near, TextAlign.Near).WStar(),
                     profilePlot)
                 .Stretch().Pad(BasePadding).Bg(ProfileBg);
 
@@ -247,13 +247,13 @@ namespace TianWen.UI.Abstractions
         {
             var rows = new List<Layout.Node>
             {
-                Layout.Builder.Text("Guide Stats", BaseFontSize, HeaderText).RowH(BaseStatsLineH),
+                StatsPitch(Layout.Builder.Text("Guide Stats", BaseFontSize, HeaderText)),
                 Layout.Builder.Spacer().RowH(BaseStatsLineH * 0.2f),
             };
 
             if (State.LastGuideStats is not { } stats)
             {
-                rows.Add(Layout.Builder.Text("No data", BaseFontSize * 0.9f, DimText).RowH(BaseStatsLineH));
+                rows.Add(StatsPitch(Layout.Builder.Text("No data", BaseFontSize * 0.9f, DimText)));
             }
             else
             {
@@ -286,10 +286,14 @@ namespace TianWen.UI.Abstractions
             return Layout.Builder.VStack(CollectionsMarshal.AsSpan(rows)).Pad(BasePadding).Bg(PanelBg);
 
             static Layout.Node StatsRow(string label, string value, RGBAColor32? valueColor = null)
-                => Layout.Builder.HStack(
-                        Layout.Builder.Text(label, BaseFontSize * 0.9f, DimText).ColW(BaseStatsLabelWidth),
-                        Layout.Builder.Text(value, BaseFontSize * 0.9f, valueColor ?? BodyText).Stretch())
-                    .RowH(BaseStatsLineH);
+                => StatsPitch(
+                    Layout.Builder.Text(label, BaseFontSize * 0.9f, DimText).ColW(BaseStatsLabelWidth),
+                    Layout.Builder.Text(value, BaseFontSize * 0.9f, valueColor ?? BodyText).Stretch());
+
+            // The stats are a table with a row PITCH, so each row is a container of that height with its text centred in it:
+            // the text measures its own line box, and nothing here restates it.
+            static Layout.Node StatsPitch(params Layout.Node[] cells)
+                => Layout.Builder.HStack(cells).RowH(BaseStatsLineH).CrossCenter();
         }
 
         // Marks drawn ON the guide frame, not on chrome. The image is never recoloured (a sub of a faint

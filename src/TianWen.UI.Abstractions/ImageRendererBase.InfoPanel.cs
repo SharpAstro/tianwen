@@ -172,7 +172,7 @@ namespace TianWen.UI.Abstractions
                         hAlign: TextAlign.Far, widthSample: WaveletValueWidthSample))
                 .WithGap(WaveletGap)
                 .CrossCenter()
-                .RowH(BaseFontSize + WaveletGap);
+                .WStar();
 
         /// <summary>
         /// A sentence that wraps rather than clips: a word a node in a flow (as the profile panel's notice wraps), a third of the font
@@ -185,7 +185,7 @@ namespace TianWen.UI.Abstractions
             var nodes = new Layout.Node[words.Length];
             for (var i = 0; i < words.Length; i++)
             {
-                nodes[i] = Layout.Builder.Text(words[i], BaseFontSize, color).RowH(BaseFontSize + WaveletGap);
+                nodes[i] = Layout.Builder.Text(words[i], BaseFontSize, color);
             }
             return Layout.Builder.WrapH(nodes).WithGap(BaseFontSize / 3).WStar();
         }
@@ -244,7 +244,7 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.Spacer().HStar())
                 .WithGap(WaveletGap)
                 .CrossCenter()
-                .RowH(BaseFontSize + WaveletGap));
+                .WStar());
 
             var caption = state.WaveletDeriving ? "Deriving the gains from this master, about half a minute" : state.WaveletDeriveNote;
             if (caption is not null)

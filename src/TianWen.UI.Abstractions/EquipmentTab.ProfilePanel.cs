@@ -182,13 +182,10 @@ namespace TianWen.UI.Abstractions
             // in a WrapH flow container does that with the layout engine's own measurement -- no
             // hand-rolled break-at-width loop, and no fixed line breaks baked into the message.
             var words = notice.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            var lineH = fontSize * 1.35f;
             var wordNodes = new Layout.Node[words.Length];
             for (var i = 0; i < words.Length; i++)
             {
-                wordNodes[i] = Layout.Builder
-                    .Text(words[i], fontSize, BodyText, TextAlign.Near, TextAlign.Center)
-                    .RowH(lineH);
+                wordNodes[i] = Layout.Builder.Text(words[i], fontSize, BodyText, TextAlign.Near, TextAlign.Center);
             }
             var spaceW = Renderer.MeasureText(" ".AsSpan(), fontPath, fontSize).Width;
 
