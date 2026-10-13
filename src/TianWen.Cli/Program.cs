@@ -2,7 +2,6 @@ using Console.Lib;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Pastel;
 using System.CommandLine;
 using System.Text;
 using TianWen.AI.Imaging;
@@ -18,8 +17,6 @@ using TianWen.UI.Abstractions.Extensions;
 
 System.Console.InputEncoding = Encoding.UTF8;
 System.Console.OutputEncoding = Encoding.UTF8;
-
-ConsoleExtensions.Enable();
 
 // FIRST line of every run, on stdout, before any logging exists. A long run is normally launched
 // detached with stdout redirected to a file, and this is the line that says which code produced

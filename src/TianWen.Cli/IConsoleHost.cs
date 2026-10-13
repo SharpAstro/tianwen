@@ -43,8 +43,6 @@ public interface IConsoleHost
     string? ReadLine();
 
     void WriteError(string error);
-
-    void WriteError(Exception exception);
 }
 
 [Flags]

@@ -1,7 +1,6 @@
 using Console.Lib;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Pastel;
 using System.Collections.Concurrent;
 using TianWen.Lib.Devices;
 using TianWen.RemoteClient;
@@ -60,12 +59,9 @@ internal sealed class ConsoleHost(
 
     public void WriteError(string message)
     {
-        (error ?? System.Console.Error).WriteLine(message);
-    }
-
-    public void WriteError(Exception exception)
-    {
-        (error ?? System.Console.Error).WriteLine(exception.Message.Pastel(ConsoleColor.Red));
+        // Red only on a terminal that takes it: a captured writer, a redirected stderr or NO_COLOR gets the message as it is.
+        var mode = error is null ? StreamColor.For(StandardStream.Error) : ColorMode.None;
+        (error ?? System.Console.Error).WriteLine(StreamColor.Paint(message, SgrColor.BrightRed, mode));
     }
 
     public async Task<TianWenNodeClient?> NodeAsync(CancellationToken cancellationToken)
