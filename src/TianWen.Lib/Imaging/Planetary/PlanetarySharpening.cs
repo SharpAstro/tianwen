@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Linq;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -427,15 +428,31 @@ public sealed record PlanetarySharpenResult(Image Sharpened, bool Derived, Plane
 
     /// <summary>
     /// The limb each channel's edge was read against, the shared fit unless <see cref="PlanetaryChannelLimb.PerChannel"/> gave the channel
-    /// its own, and that edge's transfer at 0.1 and 0.3 cycles a pixel (#1498: what moves when the derived gains do). Empty for the preset.
+    /// its own, and that edge's transfer at 0.1 and 0.3 cycles a pixel (#1498: what moves when the derived gains do); and under a learned
+    /// model the light just outside the limb over the model's (<see cref="PlanetaryPicture.NearGlow"/>, #1552), NaN otherwise. Empty for the preset.
     /// </summary>
-    public ImmutableArray<(LimbFit Fit, double EdgeAtTenth, double EdgeAtThreeTenths)> ChannelEdges { get; init; } = [];
+    public ImmutableArray<(LimbFit Fit, double EdgeAtTenth, double EdgeAtThreeTenths, double NearGlow)> ChannelEdges { get; init; } = [];
 
     /// <summary>
     /// Under <see cref="PlanetarySharpenOptions.GainsModel"/>, each channel's answer: null where the learned gains were applied, else why
     /// the derived ones stand (a reading outside the model's twins, or a strength past one). Empty where no model was asked for.
     /// </summary>
     public ImmutableArray<string?> ChannelLearned { get; init; } = [];
+
+    /// <summary>
+    /// <see cref="ChannelLearned"/> in words, the one wording every host prints: which channels took the learned gains, and for each that did
+    /// not, why. Null where no model was asked for.
+    /// </summary>
+    public string? LearnedInWords()
+    {
+        if (ChannelLearned.IsDefaultOrEmpty)
+        {
+            return null;
+        }
+        const string names = "rgb";
+        return "the learned gains (#1552), " + string.Join("; ", ChannelLearned.Select((why, c) =>
+            $"{(ChannelLearned.Length == 1 ? "the master" : c < names.Length ? names[c].ToString() : c.ToString(CultureInfo.InvariantCulture))} {(why is null ? "learned" : $"derived: {why}")}"));
+    }
 }
 
 /// <summary>
@@ -543,7 +560,7 @@ public static class PlanetarySharpening
         var contrastFrom = options.Pupil is not null && options.Finish.HasFlag(PlanetaryFinish.Adaptive) ? LuminanceWindow(master, limbWindow, own) : null;
         var cutoffs = new double[options.Pupil is null ? 0 : master.ChannelCount];
         var whiteLevels = new PlanetaryWhiteLevel[options.Pupil is null ? 0 : master.ChannelCount];
-        var channelEdges = new (LimbFit Fit, double EdgeAtTenth, double EdgeAtThreeTenths)[options.Pupil is null ? 0 : master.ChannelCount];
+        var channelEdges = new (LimbFit Fit, double EdgeAtTenth, double EdgeAtThreeTenths, double NearGlow)[options.Pupil is null ? 0 : master.ChannelCount];
         var channelLearned = new string?[options.Pupil is not null && options.GainsModel is not null ? master.ChannelCount : 0];
         var wienerCuts = new (double From, double To)[options.Pupil is not null && options.Finish.HasFlag(PlanetaryFinish.Wiener) ? master.ChannelCount : 0];
         var shrinks = new ImmutableArray<BandShrinkReading>[options.ShrinkHalves is null ? 0 : master.ChannelCount];
@@ -582,7 +599,12 @@ public static class PlanetarySharpening
                 {
                     edge = EdgeProfile.Pooled(edge, PlanetaryFinestBand.RingEdge(window, throughPupil, size, size, channelDisk));
                 }
-                channelEdges[c] = (channelFit, edge.TransferAt(0.1), edge.TransferAt(0.3));
+                // The light just outside the limb over the model's (#1552), read as planetary compare reads it, about the shared fit; only
+                // for a learned model that takes it, since it costs a full-frame diffraction.
+                var nearGlow = options.GainsModel is { TakesGlow: true }
+                    ? PlanetaryPicture.NearGlow(plane, width, height, fit, limbOptions, aspect, pupil, wavelengthNm)
+                    : double.NaN;
+                channelEdges[c] = (channelFit, edge.TransferAt(0.1), edge.TransferAt(0.3), nearGlow);
                 var physical = options.EdgeReach is { } reach
                     ? PlanetaryFinestBand.FitPhysical(edge, pupil.DiameterM / (wavelengthNm * 1e-9) / ShortExposurePsf.ArcsecPerRadian * limbWindow.ArcsecPerPixel, 0.02, reach)
                     : null as PhysicalKernel?;
@@ -628,7 +650,7 @@ public static class PlanetarySharpening
                 if (options.GainsModel is { } model && options.FixedGains.IsDefaultOrEmpty)
                 {
                     learned = options.Strength == 1
-                        ? model.Predict(c, PlanetaryGainsModel.ReadingsOf(channelEdges[c].EdgeAtTenth),
+                        ? model.Predict(c, channelEdges[c].EdgeAtTenth, channelEdges[c].NearGlow,
                             PlanetaryFinishing.CutoffCyclesPerPixel(pupil, wavelengthNm, limbWindow.ArcsecPerPixel), out channelLearned[c])
                         : null;
                     if (options.Strength != 1)

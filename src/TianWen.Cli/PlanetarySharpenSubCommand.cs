@@ -49,6 +49,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var targetOpt = new Option<string>("--target") { Description = "What the derived gains restore toward (#1366): telescope (the default: the planet through the pupil's diffraction), aperture (the telescope's diffraction undone too, up to its cutoff), or both to compare them.", DefaultValueFactory = _ => "telescope" };
         var scoreAgainstOpt = new Option<string>("--score-against") { Description = "With --truth, what every sharpening is scored against (#1366): telescope (the default: the truth as rendered, through the pupil) or aperture (the truth carried to the aperture target, the pupil's diffraction divided out and the taper put in).", DefaultValueFactory = _ => "telescope" };
         var gainsOpt = new Option<string?>("--gains") { Description = "Apply these a trous gains instead of deriving them, finest first, comma separated, one set per channel separated by ';' (the last repeated): a twin's own best gains, say, applied through the same limb window (#817). Layers past a set are held at 1." };
+        var learnedOpt = new Option<bool>("--learned-gains") { Description = "Take each channel's a trous gains from the learned model (#1552, PlanetaryGainsModels) where the master lies inside what it was fitted on (its sampling, and its limb's edge inside its twins'); elsewhere the derived gains stand. Each channel says which, and why." };
         var shrinkOpt = new Option<bool>("--shrink") { Description = "Shrink each a trous band against the master's own noise, read off its two halves (--halves), before the gains are derived (BayesShrink, #1313)." };
         var kernelOpt = new Option<string>("--kernel") { Description = "The stack's kernel the gains are derived through: edge (the default, read off the limb's edge) or truth (with --truth: the stack measured against the twin's truth, a diagnostic of whether a gain set misses by the kernel or by the fit, #1376).", DefaultValueFactory = _ => "edge" };
         var colourTargetOpt = new Option<string>("--colour-target") { Description = "A colour master's Wiener target (#1376): full (the default) or cut (for a master stacked from split-CFA planes, the stack's way: tapered from 0.125 cycles a pixel to nothing at those planes' Nyquist, 0.25, by #1366's taper, so nothing is restored where a demosaiced plane carries nothing; not for a Bayer drizzle, whose Nyquist is its own), or both to compare them.", DefaultValueFactory = _ => "full" };
@@ -73,14 +74,14 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var command = new Command("sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
         {
             Arguments = { masterArg },
-            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, plateScaleOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, gainsOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbFloorOpt, limbKOpt, channelLimbOpt, halvesOpt, autoOpt, designOpt },
+            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, plateScaleOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, gainsOpt, learnedOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbFloorOpt, limbKOpt, channelLimbOpt, halvesOpt, autoOpt, designOpt },
         };
 
         // What --auto refuses: every setting the pipeline's sharpening otherwise takes (A2, #1389, found none worth tuning per capture).
         Option[] autoRefuses =
         [
             fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, plateScaleOpt, ringEdgeOpt, slidersOpt, finishOpt, kolivasAmountOpt, targetOpt, gainsOpt,
-            shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbFloorOpt, limbKOpt, channelLimbOpt, halvesOpt, pupil.Obstruction,
+            learnedOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbFloorOpt, limbKOpt, channelLimbOpt, halvesOpt, pupil.Obstruction,
         ];
 
         command.SetAction(async (parseResult, ct) =>
@@ -311,6 +312,15 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     }
                     options = options with { FixedGains = sets.ToImmutable() };
                 }
+                if (parseResult.GetValue(learnedOpt))
+                {
+                    if (options.Pupil is null || !options.FixedGains.IsDefaultOrEmpty)
+                    {
+                        consoleHost.WriteError("--learned-gains needs the telescope (--telescope or --aperture-mm), and takes the place of --gains");
+                        return 1;
+                    }
+                    options = options with { GainsModel = PlanetaryGainsModels.EdgeHd11Jupiter };
+                }
                 if (truthPath is not null)
                 {
                     PlanetaryMasterScore.AgainstTruth(consoleHost, master, truthPath, body, "the master as stacked", aperture: scoredAperture);
@@ -442,6 +452,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             + (luminances.Length > 1 ? (luminance ? "_luminance" : "_perchannel") : "")
                             + (target == PlanetarySharpenTarget.Aperture ? "_aperture" : "")
                             + (options.GivenKernels.IsDefaultOrEmpty ? "" : "_truekernel")
+                            + (options.GainsModel is null ? "" : "_learned")
                             + (halvesNoise ? "_halvesnoise" : "")
                             + (targetCut ? "_targetcut" : "")
                             + (wienerFloor == PlanetaryWienerFloor.Tikhonov ? "_tikhonov" : "")
@@ -458,6 +469,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             + (luminance && master.ChannelCount == 3 ? ", the luminance sharpened, the stack's colour kept" : "")
                             + (target == PlanetarySharpenTarget.Aperture ? ", toward the aperture (the telescope undone)" : "")
                             + (options.FixedGains.IsDefaultOrEmpty ? "" : ", the gains given, not derived")
+                            + (options.GainsModel is null ? "" : ", the gains learned where the model holds")
                             + (options.GivenKernels.IsDefaultOrEmpty ? "" : ", through the true kernel")
                             + (halvesNoise ? ", the noise read off its halves" : "")
                             + (targetCut && master.ChannelCount == 3 ? ", the colour target cut at the split planes' Nyquist" : "")
@@ -481,7 +493,12 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             var names = "rgb";
                             consoleHost.WriteScrollable(string.Create(inv, $"[planetary] {what}: each channel's gains {string.Join("; ", result.ChannelGains.Select((g, c) => $"{(c < names.Length ? names[c] : '?')} {string.Join(", ", g.Select(x => x.ToString("0.00", inv)))}"))}"));
                             // And the limb each channel's edge was read against (#1498): what moves when the gains do.
-                            consoleHost.WriteScrollable(string.Create(inv, $"[planetary] {what}: each channel's limb {string.Join("; ", result.ChannelEdges.Select((e, c) => $"{(c < names.Length ? names[c] : '?')} k {e.Fit.LimbDarkening:0.000}, radius {e.Fit.EquatorialRadius:0.00} px, core {e.Fit.PsfSigma:0.00} px, halo {e.Fit.HaloFraction:0.00} of {e.Fit.HaloWidth:0.0} px, edge {e.EdgeAtTenth:0.000} / {e.EdgeAtThreeTenths:0.000}"))}"));
+                            consoleHost.WriteScrollable(string.Create(inv, $"[planetary] {what}: each channel's limb {string.Join("; ", result.ChannelEdges.Select((e, c) => $"{(c < names.Length ? names[c] : '?')} k {e.Fit.LimbDarkening:0.000}, radius {e.Fit.EquatorialRadius:0.00} px, core {e.Fit.PsfSigma:0.00} px, halo {e.Fit.HaloFraction:0.00} of {e.Fit.HaloWidth:0.0} px, edge {e.EdgeAtTenth:0.000} / {e.EdgeAtThreeTenths:0.000}{(double.IsFinite(e.NearGlow) ? $", glow {e.NearGlow:0.000}" : "")}"))}"));
+                        }
+                        if (result.LearnedInWords() is { } learnedWords)
+                        {
+                            // Under --learned-gains, whether each channel took the model's gains, and why not where it did not (#1552).
+                            consoleHost.WriteScrollable($"[planetary] {what}: {learnedWords}");
                         }
                         if (latticeDisk is { } sharpenedDisk)
                         {

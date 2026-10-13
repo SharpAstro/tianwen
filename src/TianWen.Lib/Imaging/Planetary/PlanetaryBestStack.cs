@@ -206,16 +206,17 @@ public static class PlanetaryBestStack
     /// (#1498, <see cref="PlanetarySharpenOptions.ChannelLimb"/>, <see cref="PlanetarySharpenOptions.HeldMinnaertK"/>), and <paramref name="edgeReach"/>
     /// how far the kernel is read off the limb's edge before its physics carries it (<see cref="PlanetarySharpenOptions.EdgeReach"/>);
     /// <paramref name="plateScaleArcsec"/>, the master's plate scale, holds the limb fit's radius at it (<see cref="PlanetarySharpenOptions.PlateScaleArcsec"/>,
-    /// #1498). The caller owns the image.
+    /// #1498); <paramref name="gainsModel"/> takes each channel's gains from a learned model where the master lies inside what it was fitted on
+    /// (<see cref="PlanetarySharpenOptions.GainsModel"/>, #1552). The caller owns the image.
     /// </summary>
     public static (Image Sharpened, string How) Sharpen(Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope,
         ImmutableArray<double> wavelengthsNm = default, PlanetaryLimbFix? fix = null, double strength = 1, bool luminanceOnly = false,
         PlanetarySharpenTarget target = PlanetarySharpenTarget.Telescope, PlanetaryChannelLimb channelLimb = PlanetaryChannelLimb.Shared,
         PlanetaryLimbDarkening limbDarkening = PlanetaryLimbDarkening.Fitted, ImmutableArray<double> heldMinnaertK = default, double? edgeReach = null,
-        double? plateScaleArcsec = null)
+        double? plateScaleArcsec = null, PlanetaryGainsModel? gainsModel = null)
     {
         var (sharpened, how, _) = SharpenCore(master, planet, epoch, telescope, wavelengthsNm, fix, strength, luminanceOnly, [], target, channelLimb,
-            limbDarkening, heldMinnaertK, edgeReach, plateScaleArcsec);
+            limbDarkening, heldMinnaertK, edgeReach, plateScaleArcsec, gainsModel);
         return (sharpened, how);
     }
 
@@ -224,7 +225,7 @@ public static class PlanetaryBestStack
         Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope, ImmutableArray<double> wavelengthsNm, PlanetaryLimbFix? fix,
         double strength, bool luminanceOnly, ImmutableArray<double> fitStops, PlanetarySharpenTarget target,
         PlanetaryChannelLimb channelLimb = PlanetaryChannelLimb.Shared, PlanetaryLimbDarkening limbDarkening = PlanetaryLimbDarkening.Fitted,
-        ImmutableArray<double> heldMinnaertK = default, double? edgeReach = null, double? plateScaleArcsec = null)
+        ImmutableArray<double> heldMinnaertK = default, double? edgeReach = null, double? plateScaleArcsec = null, PlanetaryGainsModel? gainsModel = null)
     {
         if (SharpenOptionsFor(master, planet, epoch, telescope, wavelengthsNm) is not { } options)
         {
@@ -242,6 +243,7 @@ public static class PlanetaryBestStack
             HeldMinnaertK = heldMinnaertK.IsDefault ? [] : heldMinnaertK,
             EdgeReach = edgeReach,
             PlateScaleArcsec = plateScaleArcsec,
+            GainsModel = gainsModel,
         };
         if (fix is { } chosen)
         {
@@ -254,7 +256,7 @@ public static class PlanetaryBestStack
         }
         var inv = CultureInfo.InvariantCulture;
         return (result.Sharpened, result.Derived
-            ? string.Create(inv, $"gains {string.Join(", ", result.Gains.Select(g => g.ToString("0.00", inv)))} derived through the limb's edge{StrengthWords(strength)}{(luminanceOnly && master.ChannelCount == 3 ? " on the luminance, the stack's colour kept" : "")}, {Describe(result.Fix)}")
+            ? string.Create(inv, $"gains {string.Join(", ", result.Gains.Select(g => g.ToString("0.00", inv)))} derived through the limb's edge{StrengthWords(strength)}{(luminanceOnly && master.ChannelCount == 3 ? " on the luminance, the stack's colour kept" : "")}, {Describe(result.Fix)}{(result.LearnedInWords() is { } learned ? $"; {learned}" : "")}")
             : $"PlanetaryDefault{StrengthWords(strength)} with the limb kept as stacked; the telescope's aperture gives the derived sharpening",
             result.Derived && options.Pupil is { } pupil ? (result, options, pupil) : null);
     }
