@@ -20,6 +20,25 @@ namespace TianWen.Lib.Astrometry;
 /// <param name="PhaseAngle">The angle Sun-planet-Earth.</param>
 /// <param name="AngularDiameterArcsec">The equatorial diameter the Earth sees.</param>
 /// <param name="LightTimeSeconds">How long ago the light left the planet: every angle above is the planet as it was then.</param>
+/// <param name="HeliocentricDistanceAu">The body's distance from the Sun when the light left it; 0 for the Sun itself.</param>
+/// <param name="BrightLimbPositionAngle">The position angle of the bright limb's midpoint, the direction toward the Sun on the
+/// sky at the body, east of the true celestial north of date as <see cref="PolePositionAngle"/> is (Meeus's chi, ch. 48;
+/// Horizons' PsAng plus 180). NaN for the Sun.</param>
+/// <param name="SubSolarLatitudeCentric">The sub-solar latitude, planetocentric (Meeus's <c>DS</c>; Saturn's B'). NaN for the
+/// Sun.</param>
+/// <param name="HeliocentricEclipticLongitude">The body's heliocentric longitude on the ecliptic and equinox of J2000 when the
+/// light left it, degrees: where it stands on its orbit (Mars's season, an orrery's placing). 0 for the Sun.</param>
+/// <remarks>
+/// <para><b>Longitudes are WEST for every body, retrograde rotators included.</b> The west longitude of a point is the prime
+/// meridian's angle W (Archinal et al. 2018) less the point's angle east of the equator's node, whatever the sign of W's rate.
+/// For a prograde rotator (Mercury, Mars, Jupiter, Saturn, Neptune, the Moon, the Sun) the central meridian GROWS with time;
+/// for the two that turn retrograde about their IAU north pole, Venus and Uranus (<see cref="PhysicalEphemeris.RotatesRetrograde"/>),
+/// it SHRINKS. The IAU's planetographic longitude of a retrograde rotator, and Horizons' for Venus, Uranus, the Moon (MOON_ME)
+/// and the Sun, is EAST, 360 less the value here; one convention keeps <see cref="PhysicalEphemeris.SunOnTheDisk"/> and every
+/// map lookup the same for all bodies.</para>
+/// <para>The IAU north pole is the one on the north side of the invariable plane, which for Uranus is the pole its rotation
+/// calls south.</para>
+/// </remarks>
 public readonly record struct PlanetAspect(
     CatalogIndex Planet,
     DateTimeOffset Utc,
@@ -35,8 +54,31 @@ public readonly record struct PlanetAspect(
     double AngularDiameterArcsec,
     double DistanceAu,
     double LightTimeSeconds,
-    double Flattening)
+    double Flattening,
+    double HeliocentricDistanceAu,
+    double BrightLimbPositionAngle,
+    double SubSolarLatitudeCentric,
+    double HeliocentricEclipticLongitude)
 {
+    /// <summary>The fraction of the disk's area lit as the Earth sees it, (1 + cos i) / 2 for the phase angle i (Meeus 41.1).</summary>
+    public double IlluminatedFraction => (1 + Math.Cos(PhaseAngle * Constants.DEGREES2RADIANS)) / 2;
+
+    /// <summary>
+    /// Saturn's ring opening B, the Earth's saturnicentric latitude above the ring plane (which is Saturn's equator): the ring
+    /// is an ellipse of axis ratio sin |B|, and its south face is the one seen when B is negative (Meeus ch. 45). NaN for
+    /// another body.
+    /// </summary>
+    public double RingOpening => Planet == CatalogIndex.Saturn ? SubObserverLatitudeCentric : double.NaN;
+
+    /// <summary>Saturn's B', the Sun's saturnicentric latitude above the ring plane: the face the Sun lights. NaN for another body.</summary>
+    public double RingOpeningFromSun => Planet == CatalogIndex.Saturn ? SubSolarLatitudeCentric : double.NaN;
+
+    /// <summary>
+    /// Saturn's P, the position angle of the ring ellipse's northern minor axis, east of north of date: the pole's
+    /// (<see cref="PolePositionAngle"/>), since the ring lies in the equator. NaN for another body.
+    /// </summary>
+    public double RingPositionAngle => Planet == CatalogIndex.Saturn ? PolePositionAngle : double.NaN;
+
     /// <summary>
     /// The planet turned so <paramref name="centralMeridianIII"/> faces the observer, lit as before: the sub-solar longitude turns with
     /// it, since the Sun's place on the disk is their difference (<see cref="PhysicalEphemeris.SunOnTheDisk"/>), and a central meridian
@@ -56,22 +98,37 @@ public readonly record struct PlanetAspect(
 }
 
 /// <summary>
-/// The physical ephemeris of Jupiter and Saturn from first principles: the IAU WGCCRE 2015 rotation models (Archinal et al.
-/// 2018: the pole and prime meridian in the ICRF, System III) and VSOP87 positions, light-time corrected. Jupiter's Systems
-/// I and II are their defined rates, 877.900 and 870.270 degrees a day, from their IAU epochs.
+/// The physical ephemeris of the Sun, the Moon and the planets from first principles: the IAU WGCCRE 2015 rotation models
+/// (Archinal et al. 2018: the pole and prime meridian in the ICRF, System III for the giants, the IAU lunar orientation for
+/// the Moon) and VSOP87 positions (Meeus's series for the Moon), light-time corrected. Jupiter's Systems I and II are their
+/// defined rates, 877.900 and 870.270 degrees a day, from their IAU epochs.
 /// </summary>
 /// <remarks>
 /// The orientation is never measured from an image, which supplies only the disk's centre and scale (#815, #1049). Checked
 /// against JPL Horizons at the corpus's own session times and against Meeus's worked example (Astronomical Algorithms,
-/// example 43.a) in <c>PhysicalEphemerisTests</c>.
+/// example 43.a) in <c>PhysicalEphemerisTests</c>; every other body, the bright limb and the lit fraction against Horizons,
+/// and Venus's phase and Saturn's rings against Meeus's examples 41.a and 45.a, in <c>PhysicalEphemerisBodiesTests</c>. The
+/// apparent magnitude of an aspect is <see cref="PlanetaryMagnitude.Apparent"/>.
 /// </remarks>
 public static class PhysicalEphemeris
 {
     private const double DaysPerCentury = 36525.0;
     private const double SecondsPerDay = 86400.0;
 
-    /// <summary>Whether <see cref="Compute"/> has a rotation model for <paramref name="planet"/>.</summary>
-    public static bool Supports(CatalogIndex planet) => planet is CatalogIndex.Mars or CatalogIndex.Jupiter or CatalogIndex.Saturn;
+    /// <summary>
+    /// Whether <see cref="Compute"/> has a rotation model for <paramref name="planet"/>: every body the atlas draws, the Sun,
+    /// the Moon and the planets but the Earth.
+    /// </summary>
+    public static bool Supports(CatalogIndex planet) => planet is CatalogIndex.Sol or CatalogIndex.Moon or CatalogIndex.Mercury
+        or CatalogIndex.Venus or CatalogIndex.Mars or CatalogIndex.Jupiter or CatalogIndex.Saturn or CatalogIndex.Uranus or CatalogIndex.Neptune;
+
+    /// <summary>
+    /// Whether the planetary stacker's models of a turning, limb-darkened disk (de-rotation, channel alignment by limb fit,
+    /// the derived sharpening, composition) are built and verified for <paramref name="planet"/>: Mars, Jupiter and Saturn.
+    /// Every stacking gate asks this, never <see cref="Supports"/>, which widened to every body the atlas draws (#1037) and
+    /// must not switch those models on for a Moon, Venus or Sun capture.
+    /// </summary>
+    public static bool SupportsPlanetaryStacking(CatalogIndex planet) => planet is CatalogIndex.Mars or CatalogIndex.Jupiter or CatalogIndex.Saturn;
 
     /// <summary>The planet as the geocentre sees it at <paramref name="utc"/>.</summary>
     /// <exception cref="ArgumentOutOfRangeException">A planet with no rotation model here (<see cref="Supports"/>).</exception>
@@ -79,7 +136,7 @@ public static class PhysicalEphemeris
     {
         if (!Supports(planet))
         {
-            throw new ArgumentOutOfRangeException(nameof(planet), planet, "Only Mars, Jupiter and Saturn have a rotation model here");
+            throw new ArgumentOutOfRangeException(nameof(planet), planet, "No rotation model here for this body");
         }
         var (equatorialKm, polarKm) = Radii(planet);
 
@@ -114,14 +171,17 @@ public static class PhysicalEphemeris
         Span<double> nodeNormal = stackalloc double[3];
         Cross(pole, node, nodeNormal);
 
-        // Planet to observer, and planet to Sun (the Sun is the frame's origin).
+        // Planet to observer, and planet to Sun (the Sun is the frame's origin, so the Sun itself has no direction to it).
         Span<double> toObserver = [-geocentric[0] / distanceAu, -geocentric[1] / distanceAu, -geocentric[2] / distanceAu];
         var heliocentric = Norm(body);
-        Span<double> toSun = [-body[0] / heliocentric, -body[1] / heliocentric, -body[2] / heliocentric];
+        var isSun = planet == CatalogIndex.Sol;
+        Span<double> toSun = isSun
+            ? [double.NaN, double.NaN, double.NaN]
+            : [-body[0] / heliocentric, -body[1] / heliocentric, -body[2] / heliocentric];
 
         var flattening = 1 - (polarKm / equatorialKm);
         var (observerLongitude, observerCentric) = SubPoint(toObserver, pole, node, nodeNormal, w);
-        var (sunLongitude, sunCentric) = SubPoint(toSun, pole, node, nodeNormal, w);
+        var (sunLongitude, sunCentric) = isSun ? (double.NaN, double.NaN) : SubPoint(toSun, pole, node, nodeNormal, w);
 
         double centralI = double.NaN, centralII = double.NaN;
         if (planet == CatalogIndex.Jupiter)
@@ -141,13 +201,25 @@ public static class PhysicalEphemeris
             SubObserverLatitudeCentric: observerCentric,
             SubSolarLongitudeIII: sunLongitude,
             SubSolarLatitude: Graphic(sunCentric, flattening),
-            PolePositionAngle: PoleOnTheSkyOfDate(geocentric, pole, tt1, tt2),
-            PhaseAngle: Math.Acos(Math.Clamp(Dot(toObserver, toSun), -1, 1)) * Constants.RADIANS2DEGREES,
+            PolePositionAngle: PositionAngleOfDate(geocentric, pole, tt1, tt2),
+            // The Sun is seen from the Earth, which it lights: its phase is nought.
+            PhaseAngle: isSun ? 0 : Math.Acos(Math.Clamp(Dot(toObserver, toSun), -1, 1)) * Constants.RADIANS2DEGREES,
             AngularDiameterArcsec: 2 * Math.Atan(equatorialKm / (distanceAu * Constants.KMAU)) * Constants.RADIANS2DEGREES * 3600,
             DistanceAu: distanceAu,
             LightTimeSeconds: lightTimeDays * SecondsPerDay,
-            Flattening: flattening);
+            Flattening: flattening,
+            HeliocentricDistanceAu: heliocentric,
+            // The great circle from the body toward the Sun leaves it along the Sun's direction from the body, projected on
+            // the sky: the same position angle as of a direction at infinity, which is how the pole's is read.
+            BrightLimbPositionAngle: isSun ? double.NaN : PositionAngleOfDate(geocentric, toSun, tt1, tt2),
+            SubSolarLatitudeCentric: sunCentric,
+            // Back from the J2000 equator to the J2000 ecliptic: VSOP87's own rotation (Rotvsop2J2000) undone, its frame-bias
+            // terms of a few tenths of a milliarcsecond left out.
+            HeliocentricEclipticLongitude: isSun ? 0 : Wrap(Math.Atan2((body[1] * 0.917482137087) + (body[2] * 0.397776982902), body[0]) * Constants.RADIANS2DEGREES));
     }
+
+    /// <summary>Whether the body turns retrograde about its IAU north pole (W decreasing): Venus and Uranus.</summary>
+    public static bool RotatesRetrograde(CatalogIndex body) => body is CatalogIndex.Venus or CatalogIndex.Uranus;
 
     /// <summary>
     /// The direction to the Sun in the disk frame of <paramref name="aspect"/>, a unit vector: its component toward the sky's
@@ -170,12 +242,19 @@ public static class PhysicalEphemeris
         return (s1, (-sinD * s2) + (cosD * s3), (cosD * s2) + (sinD * s3));
     }
 
-    // IAU equatorial and polar radii, km (Archinal et al. 2018, table 5).
+    // IAU equatorial and polar radii, km (Archinal et al. 2018, table 5; the Sun's the IAU 2015 nominal radius, Resolution B3).
+    // Mercury's two equatorial axes differ by nothing at this precision, so its mean equatorial radius stands for both.
     internal static (double Equatorial, double Polar) Radii(CatalogIndex planet) => planet switch
     {
+        CatalogIndex.Sol => (695700, 695700),
+        CatalogIndex.Moon => (1737.4, 1737.4),
+        CatalogIndex.Mercury => (2440.53, 2438.26),
+        CatalogIndex.Venus => (6051.8, 6051.8),
         CatalogIndex.Mars => (3396.19, 3376.20),
         CatalogIndex.Jupiter => (71492, 66854),
         CatalogIndex.Saturn => (60268, 54364),
+        CatalogIndex.Uranus => (25559, 24973),
+        CatalogIndex.Neptune => (24764, 24341),
         _ => throw new ArgumentOutOfRangeException(nameof(planet), planet, null),
     };
 
@@ -226,9 +305,64 @@ public static class PhysicalEphemeris
             case CatalogIndex.Saturn:
                 return ((40.589 - (0.036 * t)) * Constants.DEGREES2RADIANS, (83.537 - (0.004 * t)) * Constants.DEGREES2RADIANS,
                     Wrap(38.90 + (810.7939024 * d)));
+            case CatalogIndex.Sol:
+                // Carrington's rotation (Archinal et al. 2018, table 1).
+                return (286.13 * Constants.DEGREES2RADIANS, 63.87 * Constants.DEGREES2RADIANS, Wrap(84.176 + (14.1844000 * d)));
+            case CatalogIndex.Mercury:
+            {
+                // The 3:2 spin-orbit resonance's libration, five harmonics of the mean anomaly (Margot 2009, adopted 2015).
+                var m1 = (174.7910857 + (4.092335 * d)) * Constants.DEGREES2RADIANS;
+                var mercuryW = 329.5988 + (6.1385108 * d)
+                    + (0.01067257 * Math.Sin(m1)) - (0.00112309 * Math.Sin(2 * m1)) - (0.00011040 * Math.Sin(3 * m1))
+                    - (0.00002539 * Math.Sin(4 * m1)) - (0.00000571 * Math.Sin(5 * m1));
+                return ((281.0103 - (0.0328 * t)) * Constants.DEGREES2RADIANS, (61.4155 - (0.0049 * t)) * Constants.DEGREES2RADIANS, Wrap(mercuryW));
+            }
+            case CatalogIndex.Venus:
+                // Retrograde: W falls (RotatesRetrograde).
+                return (272.76 * Constants.DEGREES2RADIANS, 67.16 * Constants.DEGREES2RADIANS, Wrap(160.20 - (1.4813688 * d)));
+            case CatalogIndex.Uranus:
+                // Retrograde about the IAU north pole, the one north of the invariable plane.
+                return (257.311 * Constants.DEGREES2RADIANS, -15.175 * Constants.DEGREES2RADIANS, Wrap(203.81 - (501.1600928 * d)));
+            case CatalogIndex.Neptune:
+            {
+                var n = SatelliteArgument(357.85, 52.316, t);
+                return ((299.36 + (0.70 * Math.Sin(n))) * Constants.DEGREES2RADIANS, (43.46 - (0.51 * Math.Cos(n))) * Constants.DEGREES2RADIANS,
+                    Wrap(249.978 + (541.1397757 * d) - (0.48 * Math.Sin(n))));
+            }
+            case CatalogIndex.Moon:
+                return MoonRotation(d, t);
             default:
                 throw new ArgumentOutOfRangeException(nameof(planet), planet, null);
         }
+    }
+
+    // The IAU's lunar orientation (Archinal et al. 2018, table 2): an approximation of the mean-Earth/polar-axis frame, the
+    // one selenographic maps are drawn in, good to about 150 m on the surface; the E terms are the physical librations.
+    private static (double PoleRa, double PoleDec, double W) MoonRotation(double d, double t)
+    {
+        static double E(double atEpoch, double perDay, double days) => (atEpoch + (perDay * days)) * Constants.DEGREES2RADIANS;
+        var e1 = E(125.045, -0.0529921, d);
+        var e2 = E(250.089, -0.1059842, d);
+        var e3 = E(260.008, 13.0120009, d);
+        var e4 = E(176.625, 13.3407154, d);
+        var e5 = E(357.529, 0.9856003, d);
+        var e6 = E(311.589, 26.4057084, d);
+        var e7 = E(134.963, 13.0649930, d);
+        var e8 = E(276.617, 0.3287146, d);
+        var e9 = E(34.226, 1.7484877, d);
+        var e10 = E(15.134, -0.1589763, d);
+        var e11 = E(119.743, 0.0036096, d);
+        var e12 = E(239.961, 0.1643573, d);
+        var e13 = E(25.053, 12.9590088, d);
+        var ra = 269.9949 + (0.0031 * t) - (3.8787 * Math.Sin(e1)) - (0.1204 * Math.Sin(e2)) + (0.0700 * Math.Sin(e3))
+            - (0.0172 * Math.Sin(e4)) + (0.0072 * Math.Sin(e6)) - (0.0052 * Math.Sin(e10)) + (0.0043 * Math.Sin(e13));
+        var dec = 66.5392 + (0.0130 * t) + (1.5419 * Math.Cos(e1)) + (0.0239 * Math.Cos(e2)) - (0.0278 * Math.Cos(e3))
+            + (0.0068 * Math.Cos(e4)) - (0.0029 * Math.Cos(e6)) + (0.0009 * Math.Cos(e7)) + (0.0008 * Math.Cos(e10)) - (0.0009 * Math.Cos(e13));
+        var w = 38.3213 + (13.17635815 * d) - (1.4e-12 * d * d) + (3.5610 * Math.Sin(e1)) + (0.1208 * Math.Sin(e2))
+            - (0.0642 * Math.Sin(e3)) + (0.0158 * Math.Sin(e4)) + (0.0252 * Math.Sin(e5)) - (0.0066 * Math.Sin(e6))
+            - (0.0047 * Math.Sin(e7)) - (0.0046 * Math.Sin(e8)) + (0.0028 * Math.Sin(e9)) + (0.0052 * Math.Sin(e10))
+            + (0.0040 * Math.Sin(e11)) + (0.0019 * Math.Sin(e12)) - (0.0044 * Math.Sin(e13));
+        return (ra * Constants.DEGREES2RADIANS, dec * Constants.DEGREES2RADIANS, Wrap(w));
     }
 
     private static double SatelliteArgument(double atEpoch, double perCentury, double centuries)
@@ -265,10 +399,11 @@ public static class PhysicalEphemeris
         return Math.Atan(Math.Tan(centricDeg * Constants.DEGREES2RADIANS) / (axisRatio * axisRatio)) * Constants.RADIANS2DEGREES;
     }
 
-    // The pole's position angle, east of north, seen at the disk's centre (`toPlanet`), with north the true celestial pole OF
+    // The position angle of a direction (the pole, or the Sun from the body), east of north, seen at the disk's centre
+    // (`toPlanet`), with north the true celestial pole OF
     // DATE, as a physical ephemeris gives it (Horizons' NP.ang, Meeus's P) and as the sky over a telescope lies: referred to
     // the ICRF's pole instead it drifts by precession, 0.14 degree for Jupiter in 2024, whose direction it depends on.
-    private static double PoleOnTheSkyOfDate(ReadOnlySpan<double> toPlanet, ReadOnlySpan<double> pole, double tt1, double tt2)
+    private static double PositionAngleOfDate(ReadOnlySpan<double> toPlanet, ReadOnlySpan<double> pole, double tt1, double tt2)
     {
         Span<double> ofDate = stackalloc double[9];
         SOFA.SofaFunctions.Pnm06a(tt1, tt2, ofDate);

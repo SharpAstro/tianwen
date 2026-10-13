@@ -139,7 +139,7 @@ public static class PlanetaryComposition
         {
             return (null, $"{name}: no planet in its header or its name; give it");
         }
-        if (!PhysicalEphemeris.Supports(body))
+        if (!PhysicalEphemeris.SupportsPlanetaryStacking(body))
         {
             return (null, $"{name}: {body} has no rotation model to de-rotate by (Mars, Jupiter and Saturn have)");
         }

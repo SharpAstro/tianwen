@@ -84,7 +84,7 @@ public static class PlanetaryChannelAlignment
     /// correlation instead: no planet, one without a rotation model, or no instant. Saturn's carry its rings (S5, #1234).
     /// </summary>
     public static LimbFitOptions? LimbOptionsFor(CatalogIndex? planet, DateTimeOffset? instant)
-        => planet is { } body && PhysicalEphemeris.Supports(body) && instant is { } when
+        => planet is { } body && PhysicalEphemeris.SupportsPlanetaryStacking(body) && instant is { } when
             ? PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(body, when))
             : null;
 

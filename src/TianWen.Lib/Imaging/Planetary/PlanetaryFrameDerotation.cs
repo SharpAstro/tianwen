@@ -101,7 +101,7 @@ internal sealed class FrameDerotator
         ArgumentNullException.ThrowIfNull(disk);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.ReferenceStepSeconds);
-        if (!PhysicalEphemeris.Supports(options.Planet))
+        if (!PhysicalEphemeris.SupportsPlanetaryStacking(options.Planet))
         {
             throw new ArgumentException($"{options.Planet} has no rotation model to de-rotate by; Jupiter and Saturn have.", nameof(options));
         }
@@ -129,7 +129,7 @@ internal sealed class FrameDerotator
     /// </summary>
     internal static double TurnAtCentrePx(IPlanetaryFrameStream stream, CatalogIndex planet, Image frame)
     {
-        if (!PhysicalEphemeris.Supports(planet) || stream.FrameCount < 2 || stream.CaptureSpan is not { } span)
+        if (!PhysicalEphemeris.SupportsPlanetaryStacking(planet) || stream.FrameCount < 2 || stream.CaptureSpan is not { } span)
         {
             return double.NaN;
         }
