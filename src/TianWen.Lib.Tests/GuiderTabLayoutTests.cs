@@ -102,9 +102,10 @@ namespace TianWen.Lib.Tests
             tab.TargetViewRect.Y.ShouldBe(32f + mainH / 2f, 0.5f);
             tab.TargetViewRect.Height.ShouldBe(mainH / 2f, 0.5f);
 
-            // Star-profile PLOT rect: the pane minus the panel padding + title row, which are layout.
+            // Star-profile PLOT rect: the pane minus the panel padding + title row, which are layout. The title is its
+            // text's line box (DIR.Lib 11.20), at the 0.85 em it is drawn in.
             var pad = GuiTheme.Metrics.Padding;
-            var titleH = GuiTheme.Metrics.BaseFontSize * 1.4f;
+            var titleH = TextBaseline.LineHeight(GuiTheme.Metrics.BaseFontSize * 0.85f);
             tab.ProfilePlotRect.X.ShouldBe(1280f - 340f + pad, 0.5f);
             tab.ProfilePlotRect.Width.ShouldBe(120f - pad * 2f, 0.5f);
             tab.ProfilePlotRect.Y.ShouldBe(32f + pad + titleH, 0.5f);
