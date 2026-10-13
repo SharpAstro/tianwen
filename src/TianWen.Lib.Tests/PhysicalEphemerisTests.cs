@@ -134,8 +134,8 @@ public class PhysicalEphemerisTests
     [Fact]
     public void APlanetWithNoRotationModelIsRefused()
     {
-        PhysicalEphemeris.Supports(CatalogIndex.Venus).ShouldBeFalse("no rotation model for Venus");
-        Should.Throw<ArgumentOutOfRangeException>(() => PhysicalEphemeris.Compute(CatalogIndex.Venus, DateTimeOffset.UnixEpoch));
+        PhysicalEphemeris.Supports(CatalogIndex.Earth).ShouldBeFalse("the observer's own planet has no aspect");
+        Should.Throw<ArgumentOutOfRangeException>(() => PhysicalEphemeris.Compute(CatalogIndex.Earth, DateTimeOffset.UnixEpoch));
     }
 
     private static double AngleBetween(double a, double b)

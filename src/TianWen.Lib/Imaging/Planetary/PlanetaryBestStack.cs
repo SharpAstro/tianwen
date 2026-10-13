@@ -104,7 +104,7 @@ public static class PlanetaryBestStack
     /// stack not de-rotated read 0.01 to 0.02 closer to the post in every band's correlation than the one de-rotated.
     /// </summary>
     public static PlanetaryDerotationOptions? DerotationFor(CatalogIndex? planet, bool always = false)
-        => planet is { } turning && PhysicalEphemeris.Supports(turning) && (always || turning is not CatalogIndex.Mars)
+        => planet is { } turning && PhysicalEphemeris.SupportsPlanetaryStacking(turning) && (always || turning is not CatalogIndex.Mars)
             ? new PlanetaryDerotationOptions(turning) { MinimumTurnPx = always ? 0 : TurnWorthDerotatingPx }
             : null;
 
@@ -383,7 +383,7 @@ public static class PlanetaryBestStack
     private static PlanetarySharpenOptions? SharpenOptionsFor(Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope,
         ImmutableArray<double> wavelengthsNm)
     {
-        if (planet is not { } body || !PhysicalEphemeris.Supports(body) || InstantOf(master, epoch) is not { } instant)
+        if (planet is not { } body || !PhysicalEphemeris.SupportsPlanetaryStacking(body) || InstantOf(master, epoch) is not { } instant)
         {
             return null;
         }

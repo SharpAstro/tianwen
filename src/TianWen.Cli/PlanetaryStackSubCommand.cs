@@ -427,7 +427,7 @@ internal sealed class PlanetaryStackSubCommand(
                 consoleHost.WriteError($"--planet {planetName}: jupiter or saturn.");
                 return 1;
             }
-            if (derotate && (planet is not { } named || !PhysicalEphemeris.Supports(named)))
+            if (derotate && (planet is not { } named || !PhysicalEphemeris.SupportsPlanetaryStacking(named)))
             {
                 consoleHost.WriteError("--derotate: name the planet to de-rotate (--planet jupiter or saturn); the capture's name does not say which.");
                 return 1;
@@ -893,7 +893,7 @@ internal sealed class PlanetaryStackSubCommand(
                 }
                 // With no truth, the master shown is read truth-free (R3): the limb's undershoot below the sky and its rebound above it,
                 // what the enhanced pipeline is judged by on a real capture (#1159).
-                if (truthPath is null && planet is { } body && PhysicalEphemeris.Supports(body) && PlanetaryBestStack.InstantOf(display, result.Epoch) is { } instant)
+                if (truthPath is null && planet is { } body && PhysicalEphemeris.SupportsPlanetaryStacking(body) && PlanetaryBestStack.InstantOf(display, result.Epoch) is { } instant)
                 {
                     PlanetaryMasterScore.Undershoot(consoleHost, display, body, instant, sharpen ? "the sharpened master" : "the stack");
                 }

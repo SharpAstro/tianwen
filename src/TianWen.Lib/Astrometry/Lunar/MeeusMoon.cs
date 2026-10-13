@@ -125,15 +125,19 @@ internal static class MeeusMoon
         // Additional corrections for latitude
         sumB += -2235 * SinD(Lp) + 382 * SinD(A3) + 175 * SinD(A1 - F) + 175 * SinD(A1 + F) + 127 * SinD(Lp - Mp) - 115 * SinD(Lp + Mp);
 
-        // Geocentric ecliptic coordinates
-        var lambdaDeg = Lp + sumL / 1_000_000.0;  // ecliptic longitude (degrees)
+        // Geocentric ecliptic coordinates. Meeus's longitude is referred to the mean equinox OF DATE, while the Earth it is
+        // added to below is VSOP87's ecliptic and equinox of J2000: take the general precession in longitude back out
+        // (Meeus 21.5's p_A), or the Moon sits 50 arcsec a year east of itself, 0.37 degree in 2026, which the physical
+        // ephemeris's lunar central meridian measured against Horizons before this was here. The ecliptic's own motion,
+        // 47 arcsec a century in latitude, is below this series' truncation and is left.
+        var lambdaDeg = Lp + sumL / 1_000_000.0 - ((5029.0966 * T) + (1.11113 * T * T)) / 3600.0;  // ecliptic longitude, J2000 (degrees)
         var betaDeg = sumB / 1_000_000.0;           // ecliptic latitude (degrees)
         var distKm = 385000.56 + sumR / 1000.0;     // distance in km
 
         // Convert to geocentric equatorial XYZ (AU) in the ecliptic frame
         var lambdaRad = lambdaDeg * Constants.DEGREES2RADIANS;
         var betaRad = betaDeg * Constants.DEGREES2RADIANS;
-        var distAU = distKm / 1.496e+8; // km to AU
+        var distAU = distKm / Constants.KMAU; // km to AU
 
         var cosB = Math.Cos(betaRad);
         var geoX = distAU * cosB * Math.Cos(lambdaRad);
