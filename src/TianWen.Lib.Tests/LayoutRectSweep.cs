@@ -13,6 +13,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.ColorCalibration;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 using Xunit;
@@ -99,7 +100,7 @@ public class LayoutRectSweep(ITestOutputHelper output)
                     ZoomToFit = false,
                     Zoom = 1f,
                 };
-                configure(state);
+                configure(state, document);
                 // Twice, as a window does: the first frame uploads the histogram the second paints.
                 viewer.Render(document, state);
                 viewer.Render(document, state);
@@ -149,12 +150,20 @@ public class LayoutRectSweep(ITestOutputHelper output)
         }
     }
 
-    private static IEnumerable<(string Name, Action<ViewerState> Configure)> ViewerScenarios()
+    private static IEnumerable<(string Name, Action<ViewerState, AstroImageDocument> Configure)> ViewerScenarios()
     {
-        yield return ("info panel and histogram", _ => { });
-        yield return ("planetary master (telescope and wavelet panels)", s => s.MasterPlanet = CatalogIndex.Jupiter);
-        yield return ("tone popover", s => s.TonePopover.Open());
-        yield return ("white balance popover", s => s.WhiteBalancePopover.Open());
+        yield return ("info panel and histogram", (_, _) => { });
+        yield return ("planetary master (telescope and wavelet panels)", (s, _) => s.MasterPlanet = CatalogIndex.Jupiter);
+        yield return ("tone popover", (s, _) => s.TonePopover.Open());
+        yield return ("white balance popover", (s, _) => s.WhiteBalancePopover.Open());
+        // Calibrated, so the popover also lists the fit's provenance lines under its buttons.
+        yield return ("white balance popover, SPCC calibrated", (s, d) =>
+        {
+            d.InheritColorCalibration((0.671f, 1f, 1.605f),
+                new ColorCalibrationSummary("SPCC", 0.671f, 1f, 1.605f, 22, "Average spiral galaxy (SWIRE Sb)"));
+            s.ColorCalibrationEnabled = true;
+            s.WhiteBalancePopover.Open();
+        });
     }
 
     private static void Append(StringBuilder dump, string scenario, float scale, IPixelWidget widget)
