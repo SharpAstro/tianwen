@@ -143,7 +143,7 @@ partial class ImageRendererBase<TSurface>
                     hAlign: TextAlign.Far, widthSample: ToneValueWidthSample))
             .WithGap(ToneGap)
             .CrossCenter()
-            .RowH(BaseFontSize + ToneGap);
+            .WStar();
 
     /// <summary>A reason under a dim control, indented past the label column to the control it
     /// explains. The indent is a spacer sized by the same sample the label column uses, so the two
@@ -153,7 +153,7 @@ partial class ImageRendererBase<TSurface>
                 Layout.Builder.Text(string.Empty, fontSize, widthSample: ToneLabelWidthSample),
                 Layout.Builder.Text(reason, fontSize, ViewerTheme.Palette.DimText))
             .WithGap(ToneGap)
-            .RowH(fontSize + (ToneGap * 0.5f));
+            .WStar();
 
     private static Layout.Node ToneSeparator()
         => Layout.Builder.Box(0f, 1f, ViewerTheme.Palette.SeparatorStrong).RowH(1f);
@@ -165,7 +165,6 @@ partial class ImageRendererBase<TSurface>
     private Layout.Node BuildToneTree(ViewerState state)
     {
         var small = BaseFontSize * 0.85f;
-        var rowH = BaseFontSize + ToneGap;
 
         // The boost keeps the precondition its own toolbar button carried. Stated, rather than left
         // as a control that quietly does nothing.
@@ -232,13 +231,13 @@ partial class ImageRendererBase<TSurface>
                     : Layout.Builder.Text(CurveModeNeedsBoostReason, small, ViewerTheme.Palette.DimText))
             .WithGap(ToneGap)
             .CrossCenter()
-            .RowH(rowH));
+            .WStar());
 
         rows.Add(ToneSeparator());
 
         // The heading carries what the control DOES, because the two dials below it are the part
         // that used to read as "1.0 / 0.80" with the meaning nowhere on screen.
-        rows.Add(Layout.Builder.Text(SoftClipHeading, small, ViewerTheme.Palette.DimText).RowH(rowH));
+        rows.Add(Layout.Builder.Text(SoftClipHeading, small, ViewerTheme.Palette.DimText).WStar());
         rows.Add(ToneDialRow("Amount", _toneAmountSlider, state.HdrAmount.ToString("0.00"), ToneSoftClipFill));
         rows.Add(ToneDialRow("Knee", _toneKneeSlider, state.HdrKnee.ToString("0.00"), ToneSoftClipFill));
         if (state.HdrAmount <= 0f)
@@ -262,7 +261,7 @@ partial class ImageRendererBase<TSurface>
                 new(ColourLook.Boosted, "Boosted") { Hit = new HitResult.ButtonHit("LookBoosted") },
                 new(ColourLook.Posted, "Posted") { Hit = new HitResult.ButtonHit("LookPosted") },
             ];
-            rows.Add(Layout.Builder.Text(PlanetaryLookHeading, small, ViewerTheme.Palette.DimText).RowH(rowH));
+            rows.Add(Layout.Builder.Text(PlanetaryLookHeading, small, ViewerTheme.Palette.DimText).WStar());
             rows.Add(Layout.Builder.ButtonGroup(looks, state.PlanetaryLook,
                     chosen =>
                     {
@@ -272,7 +271,7 @@ partial class ImageRendererBase<TSurface>
                         state.NeedsRedraw = true;
                     },
                     lookStyle, BaseFontSize)
-                .RowH(rowH));
+                .WStar());
             if (lookReason is not null)
             {
                 rows.Add(ToneReasonRow(lookReason, small));
@@ -284,9 +283,8 @@ partial class ImageRendererBase<TSurface>
         // wrapper is clickable and inert: it swallows a press that would otherwise reach the
         // backdrop and close the panel being read.
         rows.Add(Layout.Builder.VStack(
-                Layout.Builder.Text(DisplayHdrLabel, BaseFontSize, ViewerTheme.Palette.DimText).RowH(rowH),
-                Layout.Builder.Text(DisplayHdrReason, small, ViewerTheme.Palette.DimText)
-                    .RowH(small + ToneGap))
+                Layout.Builder.Text(DisplayHdrLabel, BaseFontSize, ViewerTheme.Palette.DimText).WStar(),
+                Layout.Builder.Text(DisplayHdrReason, small, ViewerTheme.Palette.DimText).WStar())
             .Clickable(new HitResult.ButtonHit("ToneDisplayHdr"), _ => { })
             .WStar());
 

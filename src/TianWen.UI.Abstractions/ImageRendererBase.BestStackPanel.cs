@@ -74,7 +74,7 @@ namespace TianWen.UI.Abstractions
                             state.NeedsRedraw = true;
                         },
                         style, BaseFontSize)
-                    .RowH(BaseFontSize + WaveletGap),
+                    .WStar(),
             };
 
             if (mono)
@@ -96,7 +96,7 @@ namespace TianWen.UI.Abstractions
                             state.NeedsRedraw = true;
                         },
                         style, BaseFontSize)
-                    .RowH(BaseFontSize + WaveletGap));
+                    .WStar());
             }
 
             var aperture = state.PlanetaryApertureMm is { } mm ? string.Create(inv, $"{mm} mm") : "no telescope";
@@ -112,7 +112,7 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.Spacer().HStar())
                 .WithGap(WaveletGap)
                 .CrossCenter()
-                .RowH(BaseFontSize + WaveletGap));
+                .WStar());
 
             ReadOnlySpan<Layout.ButtonGroupOption<OpticalDesign>> designs =
             [
@@ -128,7 +128,7 @@ namespace TianWen.UI.Abstractions
                         state.NeedsRedraw = true;
                     },
                     style, BaseFontSize)
-                .RowH(BaseFontSize + WaveletGap));
+                .WStar());
 
             AddStrength(rows);
             return Layout.Builder.VStack([.. rows]).WithGap(WaveletGap);
@@ -142,7 +142,7 @@ namespace TianWen.UI.Abstractions
                     : string.Create(inv, $"Sharpening: {state.PlanetaryStrength:0.#} times the truth in the mid scales")));
                 into.Add(Layout.Builder.ButtonGroup(StrengthOptions, state.PlanetaryStrength, state.ChooseStrength,
                         style, BaseFontSize)
-                    .RowH(BaseFontSize + WaveletGap));
+                    .WStar());
             }
 
             // Every line here wraps rather than clips (a caption's planet or telescope can run past the panel's width).

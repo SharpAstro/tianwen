@@ -161,7 +161,7 @@ namespace TianWen.UI.Abstractions
                         hAlign: TextAlign.Far, widthSample: WbValueWidthSample))
                 .WithGap(WbGap)
                 .CrossCenter()
-                .RowH(BaseFontSize + WbGap);
+                .WStar();
 
         /// <summary>
         /// One button in a panel's action row, held at <paramref name="widthSample"/> so toggling its
@@ -185,10 +185,9 @@ namespace TianWen.UI.Abstractions
             var button = Layout.Builder.Text(label, BaseFontSize,
                     enabled ? ViewerTheme.Palette.BodyText : ViewerTheme.Palette.DimText,
                     hAlign: TextAlign.Center, widthSample: widthSample)
+                // The button is its padding: a text node measures its face's line box (DIR.Lib 11.20), so
+                // "Calibrate" and "Auto" beside it are one height whatever glyphs each holds.
                 .PadX(WbGap)
-                // The row's height, not the label's: a text node measures its own glyphs, so "Calibrate"
-                // (ascenders) stood taller than "Auto" beside it and the centred row read as three sizes.
-                .HStar()
                 .Bg(fill)
                 .Clickable(new HitResult.ButtonHit(hit),
                     _ =>
@@ -228,8 +227,7 @@ namespace TianWen.UI.Abstractions
             {
                 foreach (var line in summary.ProvenanceLines())
                 {
-                    rows.Add(Layout.Builder.Text(line, BaseFontSize, ViewerTheme.Palette.DimText)
-                        .RowH(TextLineAdvance));
+                    rows.Add(Layout.Builder.Text(line, BaseFontSize, ViewerTheme.Palette.DimText).WStar());
                 }
             }
 
@@ -362,7 +360,7 @@ namespace TianWen.UI.Abstractions
             rows.Add(Layout.Builder.HStack(auto, reset, spcc, Layout.Builder.Spacer().WStar())
                 .WithGap(WbGap)
                 .CrossCenter()
-                .RowH(BaseFontSize + WbGap));
+                .WStar());
 
             // Outer: a one-unit border ring around the padded body, so the frame is part of the tree
             // rather than two rectangles drawn before it. The body swallows a press anywhere on it.

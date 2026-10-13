@@ -585,8 +585,7 @@ namespace TianWen.UI.Abstractions
             var atlasButton = Layout.Builder.HStack(
                     Layout.Builder.Spacer().WStar(),
                     Layout.Builder.Text("Show in atlas", BaseFontSize * 0.9f, FilterBtnText, TextAlign.Center, TextAlign.Center)
-                        .PadX(8f)
-                        .HFixed(BaseFontSize * 1.6f)
+                        .Pad(8f, 3f)
                         .Bg(FilterBtnBg).BgHover(GuiTheme.Hover(FilterBtnBg))
                         .Clickable(new HitResult.ButtonHit(ShowInAtlasAction), _ => PostSignal(
                             new ViewInSkyMapSignal(shown.Name, shown.RA, shown.Dec, shown.CatalogIndex, shownType))))

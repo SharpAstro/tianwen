@@ -127,6 +127,13 @@ public class LayoutRectSweep(ITestOutputHelper output)
                 var guider = new GuiderTab<RgbaImage>(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
                 guider.Render(live, new RectF32(0, 0, WindowW, WindowH), clock);
                 Append(dump, "guider tab", scale, guider);
+
+                // The stats are a table with a row pitch of 1.6 em, which the line box must not move.
+                var nodes = new List<Layout.ArrangedNode<float>>();
+                guider.CollectPaintedNodes(nodes);
+                var label = nodes.FindIndex(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text { Value: "Total RMS:" } });
+                label.ShouldBeGreaterThan(0, "the stats table is drawn");
+                nodes[label - 1].Bounds.Height.ShouldBe(GuiTheme.Metrics.BaseFontSize * 1.6f * scale, 0.01f, "a stats row keeps its pitch");
             }
             using (var renderer = new RgbaImageRenderer(WindowW, WindowH))
             {

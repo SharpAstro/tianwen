@@ -42,10 +42,9 @@ namespace TianWen.UI.Abstractions
         private Layout.Node HistogramLogButton(ViewerState state)
         {
             var button = Layout.Builder.Text("LOG", BaseToolbarFontSize, ViewerTheme.Palette.BodyText, hAlign: TextAlign.Center)
+                // The button is its padding: the label measures its face's line box (DIR.Lib 11.20), not its ink, which for "LOG" was
+                // its cap height alone and had to be given a line box by hand.
                 .PadX(BaseButtonPaddingH / 2f)
-                // A line box, as the viewer's other declared buttons have (the tone and white balance panels): the engine measures a
-                // text by its INK, which for "LOG" is its cap height alone.
-                .RowH(BaseToolbarFontSize + 4f)
                 .Bg(state.HistogramLogScale ? HistogramLogOnBg : HistogramLogOffBg)
                 .Clickable(new HitResult.ButtonHit("HistogramLog"),
                     _ => { state.HistogramLogScale = !state.HistogramLogScale; },

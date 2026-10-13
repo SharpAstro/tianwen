@@ -208,8 +208,7 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
             ? new Layout.Node[]
             {
                 header, weekdayRow, Layout.Builder.VStack(rows).WithGap(Gap).WAuto(), detail,
-                Layout.Builder.Text(credit, SmallFontSize, palette.DimText, TextAlign.Far, TextAlign.Center)
-                    .RowH(SmallFontSize + 5f),
+                Layout.Builder.Text(credit, SmallFontSize, palette.DimText, TextAlign.Far, TextAlign.Center).WStar(),
             }
             : new Layout.Node[] { header, weekdayRow, Layout.Builder.VStack(rows).WithGap(Gap).WAuto(), detail };
 
@@ -245,7 +244,7 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
                     ? Layout.Builder.Fill(MoonSize, MoonSize, MoonKeyPrefix + night.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
                         .WFixed(MoonSize).HFixed(MoonSize).CrossCenter()
                     : Layout.Builder.Spacer().WFixed(MoonSize))
-            .RowH(FontSize + 4f);
+            .WStar();
 
         var word = verdict is { } w
             ? Layout.Builder.Text(w.Label, SmallFontSize, w.IsForecast ? palette.BodyText : palette.DimText,
@@ -258,7 +257,7 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
             ? Layout.Builder.Fill(0f, PinStripH, PinsKeyPrefix + night.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
             : Layout.Builder.Spacer();
 
-        var inner = Layout.Builder.VStack(top, word.RowH(SmallFontSize + 4f), strip.RowH(PinStripH))
+        var inner = Layout.Builder.VStack(top, word.WStar(), strip.RowH(PinStripH))
             .Pad(4f, 2f)
             .WStar().HStar()
             .Bg(fill)
@@ -300,7 +299,7 @@ public sealed class NightCalendarPopover<TSurface>(Renderer<TSurface> renderer) 
         for (var i = 0; i < lines.Count; i++)
         {
             nodes[i] = Layout.Builder.Text(lines[i], i == 0 ? FontSize : SmallFontSize,
-                i == 0 ? palette.BodyText : palette.DimText).RowH((i == 0 ? FontSize : SmallFontSize) + 5f);
+                i == 0 ? palette.BodyText : palette.DimText).WStar();
         }
         return Layout.Builder.VStack(nodes).WStar();
     }

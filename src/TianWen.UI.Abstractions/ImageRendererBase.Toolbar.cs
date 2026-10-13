@@ -1174,8 +1174,7 @@ namespace TianWen.UI.Abstractions
             // what put it off the row's baseline once. The outline is one pixel outside the row, so the plate
             // covers the row exactly; and it is the PLATE that is kept on screen, so the outlined box is clamped
             // into the window grown by that pixel (a row at the window's left edge leaves its outline off it).
-            var name = Layout.Builder.Text(row.Text, FontSize, ViewerTheme.Palette.BodyText, TextAlign.Near, TextAlign.Near)
-                .HFixed(FontSize * 1.3f);
+            var name = Layout.Builder.Text(row.Text, FontSize, ViewerTheme.Palette.BodyText, TextAlign.Near, TextAlign.Near);
             var plate = Layout.Builder.VStack(Layout.Builder.Spacer().Stretch(), name, Layout.Builder.Spacer().Stretch())
                 .PadX(PanelPadding)
                 .HFixed(row.RowHeight)
