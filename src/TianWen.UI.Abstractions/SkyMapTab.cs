@@ -937,7 +937,7 @@ namespace TianWen.UI.Abstractions
         {
             var fontPath = FontPath;
 
-            foreach (var (planetIdx, ra, dec) in State.GetPlanetPositionsCached(viewingTime))
+            foreach (var (planetIdx, ra, dec, _, vmag) in State.GetPlanetPositionsCached(viewingTime))
             {
                 if (SkyMapProjection.ProjectWithMatrix(ra, dec, State.CurrentViewMatrix,
                     ppr, cx, cy, out var sx, out var sy)
@@ -958,11 +958,8 @@ namespace TianWen.UI.Abstractions
                     var belowHorizon = dimBelowHorizon && !site.IsAboveHorizon(ra, dec);
                     var planetColor = DimmedIf(SkyMapRenderer.GetPlanetColor(planetIdx), belowHorizon);
 
-                    // Filled dot at the planet position: radius scales with planet type
-                    var dotRadius = planetIdx is CatalogIndex.Sol or CatalogIndex.Moon ? 4f
-                        : planetIdx is CatalogIndex.Jupiter or CatalogIndex.Saturn ? 3f
-                        : 2f;
-                    FillCircle(sx, sy, dotRadius, planetColor);
+                    // Filled dot at the planet position, sized by its live magnitude (the Sun and Moon fixed)
+                    FillCircle(sx, sy, SkyMapState.PlanetDotRadius(planetIdx, vmag), planetColor);
 
                     DrawText(name.AsSpan(), fontPath,
                         sx + 10, sy - fontSize, 100, fontSize * 1.2f,

@@ -473,7 +473,10 @@ public class SkyMapSearchActionsTests
         info.RA.ShouldBe(pRa, 1e-6);   // committed to the LIVE position, not the NaN catalog stub
         info.Dec.ShouldBe(pDec, 1e-6);
         info.ObjType.ShouldBe(ObjectType.Planet, "the predefined planet type carries into the panel");
-        info.VMag.ShouldBe(-2.2f, 0.01f);  // predefined reference magnitude, not NaN ("mag -")
+        // The LIVE magnitude at the viewing instant from the same cache entry, not the stub's static -2.2
+        // (docs/plans/atlas-planet-detail.md, finding 2) and not NaN ("mag -").
+        float.IsFinite(positions[0].VMag).ShouldBeTrue();
+        info.VMag.ShouldBe(positions[0].VMag);
         // Constellation is computed from the LIVE position (planets wander) -- not the catalog stub.
         if (ConstellationBoundary.TryFindConstellation(pRa, pDec, out var expectedConstellation))
         {

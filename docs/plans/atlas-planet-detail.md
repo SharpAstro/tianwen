@@ -1,7 +1,9 @@
 # Atlas: planet detail (light curve, visibility curve, next opposition / GE, how a planet is drawn, the solar system in 3D)
 
-**Status: PLANNED (raised by the user 2026-08-22).** Tracked here rather than in the next release,
-per the user's instruction: *"for Atlas lets just track it in the plan"*.
+**Status: PARTIAL (raised by the user 2026-08-22).** Tracked here rather than in the next release,
+per the user's instruction: *"for Atlas lets just track it in the plan"*. Built 2026-10-14: finding 2's
+live magnitude and A4's geometry layer (see "What is built" under A4). Open: A1's sparkline, A2, A3, A4's
+drawn disks, phases and rings, A5.
 
 The notes, in the order they arrived:
 
@@ -54,6 +56,14 @@ Both were checked in the code before writing this, because each one moves the it
 
    So the light curve is not only a new widget, it is also the fix for a value the panel already
    shows incorrectly.
+
+   **FIXED (2026-10-14).** The panel's `VMag` is now `PlanetaryMagnitude.Apparent` of the body's
+   `PlanetAspect` at the viewing instant, read from the same `SkyMapState.PlanetMarker` cache entry the dot
+   draws from, so a time scrub moves it (`SkyMapPlanetDetailTests.ThePanelsMagnitudeIsTheLiveOneAndFollowsTheTimeScrub`:
+   Mars from its 2025 January opposition to its 2026 January conjunction moves more than two magnitudes).
+   A1's sparkline must sample the same function, which is what keeps its "now" point and the panel's
+   number one computation. The catalogue value is left only as the fallback for a body without an aspect,
+   which no body the atlas draws is.
 
 ## The items
 
@@ -140,6 +150,40 @@ distance, phase or brightness.
 **Tests:** the apparent diameter and the illuminated fraction against published ephemeris values for a date;
 Saturn's B and P and Venus's illuminated fraction against Meeus's worked examples (ch. 45 and ch. 41); and
 pixels for the phase's orientation (the lit limb faces the Sun) and for the ring's front half covering the disc.
+
+#### What is built (the geometry layer, 2026-10-14)
+
+Everything a drawn disk needs, and nothing drawn yet: items 2's, 3's and 4's drawing, the textured sprites and
+A5 build on this.
+
+- **`PhysicalEphemeris.Compute(body, utc)` covers every body the atlas draws** (`PhysicalEphemeris.Supports`): the
+  Sun, the Moon (the IAU lunar orientation), Mercury, Venus, Mars, Jupiter, Saturn, Uranus and Neptune (IAU WGCCRE
+  2015). Its `PlanetAspect` gives the geocentric `DistanceAu`, `HeliocentricDistanceAu`, `HeliocentricEclipticLongitude`
+  (J2000), `PhaseAngle`, `IlluminatedFraction`, `BrightLimbPositionAngle` (toward the Sun, east of north of date),
+  `PolePositionAngle`, the sub-observer `CentralMeridianIII` / `SubObserverLatitude` (and `...Centric`), the sub-solar
+  `SubSolarLongitudeIII` / `SubSolarLatitude` (and `...Centric`), `AngularDiameterArcsec`, `Flattening`, and for Saturn
+  `RingOpening` (B), `RingOpeningFromSun` (B') and `RingPositionAngle` (P). **Longitudes are WEST for every body**;
+  Venus and Uranus turn retrograde (`PhysicalEphemeris.RotatesRetrograde`), so theirs FALL with time, and Horizons'
+  east longitude for them (and for the Moon and the Sun) is 360 less ours. Checked against Horizons at four instants
+  for all nine bodies (`PhysicalEphemerisBodiesTests`, fixture `horizons-bodies-2026-10-14.txt`): planets within
+  0.011 degree on every angle (the largest Uranus's pole angle in 2026), the Moon within 0.03, the bright limb within 0.03 once Horizons' PsAng (ICRF north) is
+  turned to north of date. Meeus 41.a (Venus k = 0.647) and 45.a (B, B' within 0.005, P 0.026 off Meeus's own ring
+  model while within 0.0005 of Horizons) pass.
+- **The planetary stacker is untouched**: its model gates ask `PhysicalEphemeris.SupportsPlanetaryStacking` (Mars,
+  Jupiter, Saturn), so widening `Supports` switched nothing on for a Moon or Venus capture.
+- **`PlanetaryMagnitude.Apparent(aspect)`**: Mallama and Hilton 2018 as their own Ap_Mag V3 evaluates it (Mars's
+  rotation and season corrections, Saturn's rings by the geometric mean of B and B', Uranus's and Neptune's phase
+  curves only past what the Earth sees), the Moon by Allen's phase law, the Sun at its distance. Within 0.003 mag of
+  Horizons' APmag on all 36 rows (`PlanetaryMagnitudeTests`).
+- **One cache entry per body** (`SkyMapState.GetPlanetPositionsCached` now returns `SkyMapState.PlanetMarker`: RA/Dec,
+  `Aspect`, `VMag`; `TryGetPlanetCached`), on the same one-second refresh as before, so the dot, the panel and a disk
+  read one instant. The dot is sized by the live magnitude (`SkyMapState.PlanetDotRadius`: 1.5 px at +3.3 and
+  fainter to 4 px at -5, the Sun and the Moon a fixed 4 px).
+- **The panel's disk row** (`ObjectInfoPanel.DiskLine`, item 5): the diameter (arcmin for the Sun and the Moon), the
+  lit fraction where it rounds below 100 %, Saturn's ring opening signed.
+- **Found on the way**: `MeeusMoon` added a longitude of the equinox OF DATE to VSOP87's J2000 Earth, so the Moon sat
+  0.37 degree east of itself in 2026 (twice that in `VSOP87a.Reduce`'s of-date output, precessed again). The general
+  precession is now taken out; the lunar central meridian against Horizons went from 0.29 to 0.38 degree off on the four rows to under 0.006.
 
 ### A5. The solar system in 3D
 

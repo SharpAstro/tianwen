@@ -182,6 +182,20 @@ namespace TianWen.Lib.Tests
             ObjectInfoPanel.RowCount(in options).ShouldBe(4);
         }
 
+        /// <summary>
+        /// A solar-system body's disk row is counted only when it says something: the text is the row, so a panel
+        /// without an aspect (DiskLine's empty answer) cannot get an empty row and a height that does not match it.
+        /// </summary>
+        [Fact]
+        public void TheDiskRowIsARowOnlyWhenItHasText()
+        {
+            var withSite = new ObjectInfoPanel.PanelDisplayOptions(ShowAltAz: true, ShowRiseSet: true);
+            var positionOnly = SkyMapInfoPanelData.FromPosition("A position", 5.0, 20.0, 45.0, -75.0, DateTimeOffset.UnixEpoch, default);
+
+            ObjectInfoPanel.RowCount(withSite with { Disk = ObjectInfoPanel.DiskLine(in positionOnly) }).ShouldBe(6);
+            ObjectInfoPanel.RowCount(withSite with { Disk = "diam 34.2\"" }).ShouldBe(7);
+        }
+
         // --- an action is a callback, so a button can never be offered with nothing behind it ---
 
         /// <summary>

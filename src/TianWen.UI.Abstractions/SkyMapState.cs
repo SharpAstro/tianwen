@@ -470,9 +470,29 @@ namespace TianWen.UI.Abstractions
         // Planet positions at the current viewingTime, refreshed on the tolerance above (the planner
         // date shifting, or a time scrub, jumps far past it and so recomputes at once).
         private DateTimeOffset _planetCacheTime = DateTimeOffset.MinValue;
-        private readonly (CatalogIndex Index, double RA, double Dec)[] _planetCache
-            = new (CatalogIndex, double, double)[SkyMapRenderer.PlanetIndices.Length];
+        private readonly PlanetMarker[] _planetCache = new PlanetMarker[SkyMapRenderer.PlanetIndices.Length];
         private int _planetCacheCount;
+
+        /// <summary>
+        /// A solar-system body as the atlas shows it at one instant: its J2000 RA/Dec (where the dot and the
+        /// click resolver put it), its physical aspect (distance, phase, the bright limb's and the pole's
+        /// position angles, the central meridian, Saturn's rings: what a disk is drawn from) and its apparent
+        /// magnitude (<see cref="PlanetaryMagnitude.Apparent"/>, what the dot is sized by and the panel says).
+        /// All three come from ONE cache entry, so the dot, the panel and a drawn disk never disagree about
+        /// the instant. Deconstructs to the (index, RA, Dec) the position-only consumers read.
+        /// </summary>
+        /// <param name="Aspect">Null only for a body <see cref="PhysicalEphemeris.Supports"/> does not model,
+        /// which no body the atlas draws is today.</param>
+        /// <param name="VMag">The apparent V magnitude, NaN without an aspect.</param>
+        public readonly record struct PlanetMarker(CatalogIndex Index, double RA, double Dec, PlanetAspect? Aspect, float VMag)
+        {
+            public void Deconstruct(out CatalogIndex index, out double ra, out double dec)
+            {
+                index = Index;
+                ra = RA;
+                dec = Dec;
+            }
+        }
 
         /// <summary>
         /// How many times <see cref="GetPlanetPositionsCached"/> has actually evaluated VSOP87a. A test
@@ -482,8 +502,8 @@ namespace TianWen.UI.Abstractions
         internal int PlanetCacheRebuilds { get; private set; }
 
         /// <summary>
-        /// Planet J2000 RA/Dec positions at <paramref name="viewingTime"/>, cached for
-        /// <see cref="EphemerisCacheRefreshInterval"/>. Entries for bodies whose VSOP87a reduction
+        /// Planet J2000 RA/Dec positions, physical aspects and live magnitudes at <paramref name="viewingTime"/>,
+        /// cached for <see cref="EphemerisCacheRefreshInterval"/>. Entries for bodies whose VSOP87a reduction
         /// fails are omitted from the returned span.
         /// </summary>
         /// <remarks>
@@ -492,7 +512,7 @@ namespace TianWen.UI.Abstractions
         /// topocentric reduction would offset planets ~0.35 deg off the J2000
         /// ecliptic line.
         /// </remarks>
-        public ReadOnlySpan<(CatalogIndex Index, double RA, double Dec)> GetPlanetPositionsCached(DateTimeOffset viewingTime)
+        public ReadOnlySpan<PlanetMarker> GetPlanetPositionsCached(DateTimeOffset viewingTime)
         {
             if ((viewingTime - _planetCacheTime).Duration() < EphemerisCacheRefreshInterval)
             {
@@ -505,13 +525,40 @@ namespace TianWen.UI.Abstractions
             {
                 if (VSOP87a.ReduceJ2000(idx, viewingTime, out var ra, out var dec, out _))
                 {
-                    _planetCache[count++] = (idx, ra, dec);
+                    PlanetAspect? aspect = PhysicalEphemeris.Supports(idx) ? PhysicalEphemeris.Compute(idx, viewingTime) : null;
+                    var vmag = aspect is { } a ? (float)PlanetaryMagnitude.Apparent(a) : float.NaN;
+                    _planetCache[count++] = new PlanetMarker(idx, ra, dec, aspect, vmag);
                 }
             }
             _planetCacheCount = count;
             _planetCacheTime = viewingTime;
             return _planetCache.AsSpan(0, count);
         }
+
+        /// <summary>The cached marker of <paramref name="index"/> at <paramref name="viewingTime"/>, by <see cref="GetPlanetPositionsCached"/>.</summary>
+        public bool TryGetPlanetCached(CatalogIndex index, DateTimeOffset viewingTime, out PlanetMarker marker)
+        {
+            foreach (var candidate in GetPlanetPositionsCached(viewingTime))
+            {
+                if (candidate.Index == index)
+                {
+                    marker = candidate;
+                    return true;
+                }
+            }
+            marker = default;
+            return false;
+        }
+
+        /// <summary>
+        /// The radius, in pixels, of a body's dot below the size its disk resolves: by its LIVE apparent magnitude,
+        /// so Venus at -4.4 outweighs Mars at +1.5 and Uranus is the faint speck it is, instead of by its type. The
+        /// Sun and the Moon, whose magnitudes would size them off the scale, keep a fixed readable dot, as does a
+        /// body with no magnitude. A planet's runs linearly from 1.5 px at magnitude +3.3 and fainter to 4 px at
+        /// -5 and brighter.
+        /// </summary>
+        internal static float PlanetDotRadius(CatalogIndex index, float vmag)
+            => index is CatalogIndex.Sol or CatalogIndex.Moon || float.IsNaN(vmag) ? 4f : Math.Clamp(2.5f - (0.3f * vmag), 1.5f, 4f);
 
         /// <summary>
         /// A ephemeris-computed comet marker for the sky map: its <see cref="Catalog.Comet"/> index, live
