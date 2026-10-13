@@ -131,6 +131,36 @@ public class FrameQualityFilterTests
     }
 
     [Fact]
+    public void Filter_ReportsTheLinesItDrew()
+    {
+        // The limits a caller logs to say WHY a frame went: median + sigma x 1.4826 x MAD on the right-tail
+        // metrics, median - the same on the star count. The ten frames' star counts are 1000..1009 and the
+        // eleventh 100: over all eleven the median is 1004 and the MAD 3, so the star line is 1004 - 3 x 1.4826 x 3.
+        var arr = new FrameMetrics[11];
+        for (var i = 0; i < 10; i++)
+        {
+            arr[i] = new FrameMetrics(MedianHfd: 2.5f, MedianFwhm: 2.5f, MedianEllipticity: 0.45f, StarCount: 1000 + i);
+        }
+        arr[10] = new FrameMetrics(MedianHfd: 2.5f, MedianFwhm: 2.5f, MedianEllipticity: 0.45f, StarCount: 100);
+
+        var result = FrameQualityFilter.Filter(arr, sigma: 3f);
+
+        result.Limits.Drawn.ShouldBeTrue();
+        result.Limits.StarsBelow.ShouldBe(1004f - 3f * 1.4826f * 3f, 0.01f);
+        result.Limits.HfdAbove.ShouldBe(2.5f, 1e-5f, "a metric with no spread draws its line at the median");
+        result.Limits.EllipticityAbove.ShouldBe(0.45f, 1e-5f);
+        arr[10].StarCount.ShouldBeLessThan((int)result.Limits.StarsBelow, "the dropped frame sits under the line it was dropped by");
+    }
+
+    [Fact]
+    public void Filter_DrawsNoLinesBelowFourFrames()
+    {
+        var result = FrameQualityFilter.Filter(Frames(2, baseHfd: 2.5f, baseEcc: 0.4f, (Hfd: 10f, Ecc: 0.9f)), sigma: 3f);
+
+        result.Limits.Drawn.ShouldBeFalse("with too few frames to estimate a spread the gate keeps all and draws nothing");
+    }
+
+    [Fact]
     public void Filter_WouldRejectMoreThanTheCap_CapsBySeverity()
     {
         // 20 frames where 5 are clear HFD outliers. The cap is passed EXPLICITLY, because this

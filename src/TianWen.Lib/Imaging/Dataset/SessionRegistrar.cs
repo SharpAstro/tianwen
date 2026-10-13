@@ -540,10 +540,23 @@ public static class SessionRegistrar
         {
             dropped.Add(new DroppedSub(rejected.Frame, $"{DropStageGate}:{reason}", rejected.Metrics));
         }
+        // The lines the gate drew, and each frame it dropped with what dropped it, in the CONSOLE log: a
+        // session skipped at the sub floor used to leave only "kept 9/11", and naming the two and their
+        // reasons took a re-bake of the session (Rosette LUM 2021-12-31, the 2026-10-12 store).
         logger?.LogInformation(
-            "  [{Session}] gate: kept {Kept}/{Total} ({Rejected} rejected{Floor})",
+            "  [{Session}] gate: kept {Kept}/{Total} ({Rejected} rejected{Floor}){Limits}",
             session.Id, gate.Kept.Length, analyzed.Count, gate.Rejected.Length,
-            gate.KeepFloorTriggered ? ", floor" : "");
+            gate.KeepFloorTriggered ? ", floor" : "",
+            gate.Limits.Drawn
+                ? FormattableString.Invariant($"; drops HFD over {gate.Limits.HfdAbove:F2} px, ellipticity over {gate.Limits.EllipticityAbove:F3}, under {gate.Limits.StarsBelow:F0} stars")
+                : "");
+        foreach (var (rejected, reason) in gate.Rejected)
+        {
+            logger?.LogInformation(
+                "  [{Session}] gate dropped {File}: {Reason} (HFD {Hfd:F2} px, ellipticity {Ecc:F3}, {Stars} stars)",
+                session.Id, Path.GetFileName(rejected.Frame.Path), reason,
+                rejected.Metrics.MedianHfd, rejected.Metrics.MedianEllipticity, rejected.Metrics.StarCount);
+        }
         if (gate.Kept.Length < minSubs)
         {
             // Censused over everything MEASURED, not over the survivors, because at this point the
@@ -630,7 +643,7 @@ public static class SessionRegistrar
                     f.Metrics));
                 if (attempt.Skip is RegisterLoop.SkipCause.TooFewStars)
                 {
-                    logger?.LogDebug("  [{Session}] {File} stars={Stars} (< {Min}) -> skip (too few)",
+                    logger?.LogInformation("  [{Session}] {File} stars={Stars} (< {Min}) -> skip (too few)",
                         session.Id, Path.GetFileName(f.Frame.Path), f.Stars.Count, FrameRegistration.MinStarsForMatch);
                 }
                 else
@@ -643,7 +656,7 @@ public static class SessionRegistrar
                     // WHY the counts look as they do, and they were already measured. Without them a
                     // reconstructed histogram can show that a session was not star-poor but still
                     // cannot show that its focus was drifting, which is the next question every time.
-                    logger?.LogDebug(
+                    logger?.LogInformation(
                         "  [{Session}] {File} stars={Stars} quads={Quads} hfd={Hfd:F2} ecc={Ecc:F3} vs reference quads={RefQuads} -> skip (no quad fit up to tolerance {MaxTol})",
                         session.Id, Path.GetFileName(f.Frame.Path), f.Stars.Count, attempt.LightQuads,
                         f.Metrics.MedianHfd, f.Metrics.MedianEllipticity,

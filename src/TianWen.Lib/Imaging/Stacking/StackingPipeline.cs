@@ -1165,14 +1165,16 @@ public sealed class StackingPipeline(
                 if (filterResult.FloorTriggered)
                 {
                     logger.LogInformation(
-                        "  [quality] sigma={Sigma:F2} -- FLOOR triggered: MAD threshold would over-cut, capped to worst {N}/{Total} by severity",
-                        qSigma, matched.Count - filterResult.KeptCount, matched.Count);
+                        "  [quality] sigma={Sigma:F2} -- FLOOR triggered: MAD threshold would over-cut, capped to worst {N}/{Total} by severity; drops HFD over {Hfd:F2} px, ellipticity over {Ecc:F3}, under {Stars:F0} stars",
+                        qSigma, matched.Count - filterResult.KeptCount, matched.Count,
+                        filterResult.Limits.HfdAbove, filterResult.Limits.EllipticityAbove, filterResult.Limits.StarsBelow);
                 }
                 else
                 {
                     logger.LogInformation(
-                        "  [quality] sigma={Sigma:F2}: rejecting {N}/{Total} frames",
-                        qSigma, matched.Count - filterResult.KeptCount, matched.Count);
+                        "  [quality] sigma={Sigma:F2}: rejecting {N}/{Total} frames; drops HFD over {Hfd:F2} px, ellipticity over {Ecc:F3}, under {Stars:F0} stars",
+                        qSigma, matched.Count - filterResult.KeptCount, matched.Count,
+                        filterResult.Limits.HfdAbove, filterResult.Limits.EllipticityAbove, filterResult.Limits.StarsBelow);
                 }
                 // No calibrated-frame cache rides alongside matched any more, which retires a whole
                 // failure class by construction: the index-keyed cache used to need rebuilding here

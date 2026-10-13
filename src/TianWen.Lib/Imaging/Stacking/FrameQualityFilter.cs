@@ -67,10 +67,25 @@ public enum FrameRejectReason : byte
 /// severity-ranked quantile rejection. Surfaced so callers can log
 /// "threshold mis-calibrated for this session" rather than the simpler
 /// per-frame line.</param>
+/// <param name="Limits">The three lines the gate drew, so a caller can say WHY a frame went: without them a
+/// skipped session's log said only "kept 9/11", and finding which two and for what took a re-bake.</param>
 public readonly record struct FrameQualityFilterResult(
     FrameRejectReason[] Reasons,
     int KeptCount,
-    bool FloorTriggered);
+    bool FloorTriggered,
+    FrameGateLimits Limits);
+
+/// <summary>
+/// The lines one gate pass drew over a session: a frame is dropped when its median HFD or ellipticity is
+/// ABOVE the first two, or its star count BELOW the third. NaN when the gate drew none (fewer than four
+/// measurable frames, or the gate switched off), which <see cref="Drawn"/> says.
+/// </summary>
+public readonly record struct FrameGateLimits(float HfdAbove, float EllipticityAbove, float StarsBelow)
+{
+    public static FrameGateLimits None { get; } = new(float.NaN, float.NaN, float.NaN);
+
+    public bool Drawn => float.IsFinite(HfdAbove);
+}
 
 /// <summary>
 /// Per-frame quality filter: MAD-based outlier rejection on HFD +
@@ -168,7 +183,7 @@ internal static class FrameQualityFilter
         {
             // Below 4 measurable frames the MAD estimate is dominated by noise; sigma <= 0 is the
             // documented "off" path. Either way: keep every frame that has stars.
-            return new FrameQualityFilterResult(reasons, measurable, FloorTriggered: false);
+            return new FrameQualityFilterResult(reasons, measurable, FloorTriggered: false, FrameGateLimits.None);
         }
 
         // Robust median + MAD per metric, over the measurable frames. Three metrics: HFD and
@@ -261,6 +276,6 @@ internal static class FrameQualityFilter
         {
             if (reasons[i] == FrameRejectReason.Kept) keptCount++;
         }
-        return new FrameQualityFilterResult(reasons, keptCount, floorTriggered);
+        return new FrameQualityFilterResult(reasons, keptCount, floorTriggered, new FrameGateLimits(hfdThreshold, eccThreshold, starThreshold));
     }
 }
