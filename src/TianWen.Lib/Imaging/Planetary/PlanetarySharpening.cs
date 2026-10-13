@@ -270,6 +270,14 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     public ImmutableArray<ImmutableArray<double>> FixedGains { get; init; } = [];
 
     /// <summary>
+    /// Learned gains in place of the derived ones (#1552), each channel's from what its limb reads, where the master lies inside what the
+    /// model was fitted on (<see cref="PlanetaryGainsModel.Predict"/>); elsewhere the derived gains stand, and
+    /// <see cref="PlanetarySharpenResult.ChannelLearned"/> says why. Applied at a strength of one only (the gains the truth asks); a
+    /// strength past it derives, as before. Null, the default, derives every channel.
+    /// </summary>
+    public PlanetaryGainsModel? GainsModel { get; init; }
+
+    /// <summary>
     /// Strengths the first channel's derived gains are also fitted at (<see cref="PlanetarySharpenResult.Stops"/>), the sharpening itself
     /// applied at <see cref="Strength"/>'s: a live view derives once and switches between them at the cost of a wavelet pass (#1314). Each
     /// is one more gain fit, after the limb fit, the edge and the stack's power, which every strength shares. Empty, the default, fits none;
@@ -422,6 +430,12 @@ public sealed record PlanetarySharpenResult(Image Sharpened, bool Derived, Plane
     /// its own, and that edge's transfer at 0.1 and 0.3 cycles a pixel (#1498: what moves when the derived gains do). Empty for the preset.
     /// </summary>
     public ImmutableArray<(LimbFit Fit, double EdgeAtTenth, double EdgeAtThreeTenths)> ChannelEdges { get; init; } = [];
+
+    /// <summary>
+    /// Under <see cref="PlanetarySharpenOptions.GainsModel"/>, each channel's answer: null where the learned gains were applied, else why
+    /// the derived ones stand (a reading outside the model's twins, or a strength past one). Empty where no model was asked for.
+    /// </summary>
+    public ImmutableArray<string?> ChannelLearned { get; init; } = [];
 }
 
 /// <summary>
@@ -530,6 +544,7 @@ public static class PlanetarySharpening
         var cutoffs = new double[options.Pupil is null ? 0 : master.ChannelCount];
         var whiteLevels = new PlanetaryWhiteLevel[options.Pupil is null ? 0 : master.ChannelCount];
         var channelEdges = new (LimbFit Fit, double EdgeAtTenth, double EdgeAtThreeTenths)[options.Pupil is null ? 0 : master.ChannelCount];
+        var channelLearned = new string?[options.Pupil is not null && options.GainsModel is not null ? master.ChannelCount : 0];
         var wienerCuts = new (double From, double To)[options.Pupil is not null && options.Finish.HasFlag(PlanetaryFinish.Wiener) ? master.ChannelCount : 0];
         var shrinks = new ImmutableArray<BandShrinkReading>[options.ShrinkHalves is null ? 0 : master.ChannelCount];
         for (var c = 0; c < master.ChannelCount; c++)
@@ -608,7 +623,21 @@ public static class PlanetarySharpening
                         : PlanetaryWaveletGains.Fit(power, wiener, diskTarget, blurredDisk, size, size, channelDisk, held: 1, strength: strength,
                             heldAt: finestHeld ? 1 : truth[0]);
                 }
-                var gains = options.FixedGains.IsDefaultOrEmpty ? AtStrength(options.Strength) : Fixed(options.FixedGains[Math.Min(c, options.FixedGains.Length - 1)], truth.Length);
+                // The learned gains (#1552) where the model was fitted on masters like this one, at the truth's strength; else derived.
+                ImmutableArray<double>? learned = null;
+                if (options.GainsModel is { } model && options.FixedGains.IsDefaultOrEmpty)
+                {
+                    learned = options.Strength == 1
+                        ? model.Predict(c, PlanetaryGainsModel.ReadingsOf(channelFit, channelEdges[c].EdgeAtTenth),
+                            PlanetaryFinishing.CutoffCyclesPerPixel(pupil, wavelengthNm, limbWindow.ArcsecPerPixel), out channelLearned[c])
+                        : null;
+                    if (options.Strength != 1)
+                    {
+                        channelLearned[c] = "a strength past one is derived";
+                    }
+                }
+                var gains = !options.FixedGains.IsDefaultOrEmpty ? Fixed(options.FixedGains[Math.Min(c, options.FixedGains.Length - 1)], truth.Length)
+                    : learned is { } fromModel ? Fixed(fromModel, truth.Length) : AtStrength(options.Strength);
                 channelGains[c] = gains;
                 if (!options.NonNegative)
                 {
@@ -675,6 +704,7 @@ public static class PlanetarySharpening
             Cutoffs = [.. cutoffs],
             WhiteLevels = [.. whiteLevels],
             ChannelEdges = [.. channelEdges],
+            ChannelLearned = [.. channelLearned],
             WienerCuts = [.. wienerCuts],
             Stops = stops,
             Shrinks = [.. shrinks],
