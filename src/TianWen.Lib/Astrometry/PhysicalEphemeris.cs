@@ -183,6 +183,9 @@ public static class PhysicalEphemeris
         var (observerLongitude, observerCentric) = SubPoint(toObserver, pole, node, nodeNormal, w);
         var (sunLongitude, sunCentric) = isSun ? (double.NaN, double.NaN) : SubPoint(toSun, pole, node, nodeNormal, w);
 
+        Span<double> ofDate = stackalloc double[9];
+        SOFA.SofaFunctions.Pnm06a(tt1, tt2, ofDate);
+
         double centralI = double.NaN, centralII = double.NaN;
         if (planet == CatalogIndex.Jupiter)
         {
@@ -201,7 +204,7 @@ public static class PhysicalEphemeris
             SubObserverLatitudeCentric: observerCentric,
             SubSolarLongitudeIII: sunLongitude,
             SubSolarLatitude: Graphic(sunCentric, flattening),
-            PolePositionAngle: PositionAngleOfDate(geocentric, pole, tt1, tt2),
+            PolePositionAngle: PositionAngleOfDate(geocentric, pole, ofDate),
             // The Sun is seen from the Earth, which it lights: its phase is nought.
             PhaseAngle: isSun ? 0 : Math.Acos(Math.Clamp(Dot(toObserver, toSun), -1, 1)) * Constants.RADIANS2DEGREES,
             AngularDiameterArcsec: 2 * Math.Atan(equatorialKm / (distanceAu * Constants.KMAU)) * Constants.RADIANS2DEGREES * 3600,
@@ -211,7 +214,7 @@ public static class PhysicalEphemeris
             HeliocentricDistanceAu: heliocentric,
             // The great circle from the body toward the Sun leaves it along the Sun's direction from the body, projected on
             // the sky: the same position angle as of a direction at infinity, which is how the pole's is read.
-            BrightLimbPositionAngle: isSun ? double.NaN : PositionAngleOfDate(geocentric, toSun, tt1, tt2),
+            BrightLimbPositionAngle: isSun ? double.NaN : PositionAngleOfDate(geocentric, toSun, ofDate),
             SubSolarLatitudeCentric: sunCentric,
             // Back from the J2000 equator to the J2000 ecliptic: VSOP87's own rotation (Rotvsop2J2000) undone, its frame-bias
             // terms of a few tenths of a milliarcsecond left out.
@@ -403,10 +406,10 @@ public static class PhysicalEphemeris
     // (`toPlanet`), with north the true celestial pole OF
     // DATE, as a physical ephemeris gives it (Horizons' NP.ang, Meeus's P) and as the sky over a telescope lies: referred to
     // the ICRF's pole instead it drifts by precession, 0.14 degree for Jupiter in 2024, whose direction it depends on.
-    private static double PositionAngleOfDate(ReadOnlySpan<double> toPlanet, ReadOnlySpan<double> pole, double tt1, double tt2)
+    // `ofDate` is Pnm06a's bias-precession-nutation matrix at the instant, formed ONCE by the caller for both angles: its
+    // nutation series is the costliest step of Compute, which the planetary stacker calls per frame.
+    private static double PositionAngleOfDate(ReadOnlySpan<double> toPlanet, ReadOnlySpan<double> pole, ReadOnlySpan<double> ofDate)
     {
-        Span<double> ofDate = stackalloc double[9];
-        SOFA.SofaFunctions.Pnm06a(tt1, tt2, ofDate);
         Span<double> planet = stackalloc double[3];
         Span<double> axis = stackalloc double[3];
         SOFA.SofaFunctions.Rxp(ofDate, toPlanet, planet);
