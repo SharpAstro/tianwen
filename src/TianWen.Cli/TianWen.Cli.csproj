@@ -30,7 +30,6 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" />
-    <PackageReference Include="Pastel" />
     <PackageReference Include="System.CommandLine" />
   </ItemGroup>
 

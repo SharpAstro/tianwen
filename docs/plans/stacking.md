@@ -445,8 +445,8 @@ Steps the CLI runs:
 5. `Image.WriteToFitsFile(output)`.
 
 No pixel math, no FITS reading, no SIMD in `StackCommand.cs`. Progress reporting
-via the existing `IProgress<T>` plumbing the session loop already uses, rendered
-through Pastel for the TTY.
+via the existing `IProgress<T>` plumbing the session loop already uses, written
+through the console host for the TTY.
 
 ## Detailed notes per phase
 

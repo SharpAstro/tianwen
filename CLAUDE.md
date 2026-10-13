@@ -196,7 +196,7 @@ and `LALR.CC` is deliberately exempt from the shared shape, so leave it alone.
 | Area | Technology |
 |------|-----------|
 | DI / Logging | Microsoft.Extensions.* |
-| CLI | System.CommandLine v2 + Pastel |
+| CLI | System.CommandLine v2 + Console.Lib |
 | Testing | xUnit v3 + Shouldly + NSubstitute |
 | Imaging | SharpAstro codecs facade (`SharpAstro.Tiff`/`.Png`/`.Exr`/...), FITS.Lib (Magick.NET removed) |
 | UI / GPU | SDL3 + Vulkan (SdlVulkan.Renderer) |
