@@ -1926,6 +1926,49 @@ points apart on bright stars, so any difference there is read as the seed spread
 run to convergence at a raised cap, and R2g is the recipe's number for bright stars. If (3) fails, R2f's length stands
 at every brightness and R2g's bright-star gain is read as seed 0's.
 
+#### R2h's read: the bright stars gain past the cap on the second seed too, so the recipe's length is convergence (2026-10-13)
+
+`r2h_synth3_s1` ended on its own: "stopped at step 276000: the held-out objective's best was 2.545240e-06 at step
+264000". Both models were saved (`r2h_synth3_s1_at240000.pt`, the snapshot, and `r2h_synth3_s1.pt`) and scored at 11:48
+by the same binary on A's draws (`C:\temp\e2\r2h-read.txt`, `score-r2h.ps1`). It trained beside the store's re-bake,
+which shares no input with it.
+
+| measure | R2f (seed 0, cap) | R2g (seed 0, end) | R2h seed 1, cap | R2h seed 1, end |
+|---|---|---|---|---|
+| clean 5-20 sigma | 76.8 | 75.4 | 78.6 | 78.1 |
+| clean 20-100 sigma | 68.9 | 70.1 | 70.6 | **73.2** |
+| clean 100-1000 sigma | 43.3 | 48.8 | 41.9 | **51.9** |
+| dug 100-1000 sigma | 46.1 | 31.5 | 50.4 | 37.9 |
+| core mean 100-1000 | -0.48 | 0.06 | -0.78 | -0.45 |
+| core RMS 100-1000 | 1.85 | 1.78 | 1.77 | 1.68 |
+| clean saturated | 35.6 | 37.0 | 34.7 | 41.1 |
+| bright-core share % | 1.63 | 1.50 | 1.60 | 1.47 |
+| far sky | 0.25 | 0.26 | 0.27 | 0.28 |
+
+1. **It ends on its own before 480,000: holds.** At step 276,000, 12,000 steps after its best, as R2g did (273,000).
+2. **The held-out best falls 0.5 to 5 % below the best by 240,000: holds.** 2.545e-6 against 2.612e-6, 2.56 % below
+   (R2g 2.63 %).
+3. **The bright stars gain: holds, by more than on seed 0.** Clean at 100-1000 sigma +10.0 (41.9 to 51.9) and the dug
+   share -12.6 (50.4 to 37.9), against the registered +2 and -5 (R2g +5.5 and -14.6).
+4. **Faint and mid-bright removal stays put: misses, upward.** 5-20 sigma -0.4, inside the band; 20-100 sigma +2.6,
+   0.6 past it.
+5. **The sky: holds.** Far sky 0.27 at the snapshot and 0.28 at the end.
+
+**The kill does not fire.**
+
+**Read, not predicted: the two seeds at the cap.** Seed 1's snapshot against R2f: clean +1.8, +1.7 and -1.4 at 5-20,
+20-100 and 100-1000 sigma, dug +4.3. On this generator the two seeds at the cap lie within 2 points on clean removal at
+every brightness, against R2e's 12.9 on the old one.
+
+What it decides, by the registered rule: **(3) holds on both seeds, so the recipe's length is its convergence, not the
+cap.** The next arms run to convergence at a raised cap. The length goes to the bright stars on both seeds: clean
++5.5 and +10.0, dug -14.6 and -12.6. Faint removal stays put on both (-1.4 and -0.4). Mid-bright removal gains on
+both (+1.2 and +2.6), which seed 1 takes past the 2 points (4) allowed, so (4) is read as a gain, not a cost. Unregistered
+and on one seed each: saturated stars gain 1.4 and 6.4 points past the cap.
+
+**The next arm's control** is this recipe run to convergence on the store re-baked with the local-sky star detector
+(#1545) and an export made from it, since every number above was read on the old store's export.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
