@@ -6,10 +6,11 @@ namespace TianWen.Lib.Imaging.Planetary;
 
 /// <summary>
 /// Learned sharpening gains (#1552, docs/plans/planetary-restoration.md, "L-GAINS-D"): per colour, a ridge regression from what the
-/// derivation reads off a master's limb (the edge's transfer at 0.1 cycles a pixel, the limb fit's core sigma and halo share) to the a
-/// trous gains the truth asks of that master, fitted on twins of one capture at its own sampling. The derived gains are fitted through a
-/// kernel read off the edge at every frequency, which past the pupil's cutoff is noise; on an oversampled capture that is twice the
-/// truth's error, and these gains are read below the cutoff only.
+/// derivation reads off a master's limb (the edge's transfer at 0.1 cycles a pixel) to the a trous gains the truth asks of that master,
+/// fitted on twins of one capture at its own sampling. The derived gains are fitted through a kernel read off the edge at every
+/// frequency, which past the pupil's cutoff is noise; on an oversampled capture that is twice the truth's error, and these gains are read
+/// below the cutoff only. The limb fit's core and halo are not readings here: on one master they flip between two fits (a radius held or
+/// fitted), while the edge barely moves.
 /// </summary>
 /// <remarks>
 /// A model applies only inside what it was fitted on: every reading inside its twins' range, and the channel's pupil cutoff within
@@ -32,13 +33,13 @@ public sealed record PlanetaryGainsModel(string Name, ImmutableArray<PlanetaryGa
         double Cutoff, ImmutableArray<ImmutableArray<double>> Weights, ImmutableArray<double> Intercepts);
 
     /// <summary>The readings a model takes, in order, as a sentence names them.</summary>
-    public static readonly ImmutableArray<string> Readings = ["the edge at 0.1 cycles a pixel", "the limb's core sigma", "the limb's halo share"];
+    public static readonly ImmutableArray<string> Readings = ["the edge at 0.1 cycles a pixel"];
 
     /// <summary>How far a channel's pupil cutoff may lie from the twins' and the model still apply, as a share of theirs.</summary>
     public const double CutoffTolerance = 0.1;
 
     /// <summary>A master channel's readings, in <see cref="Readings"/>' order.</summary>
-    public static ImmutableArray<double> ReadingsOf(in LimbFit fit, double edgeAtTenth) => [edgeAtTenth, fit.PsfSigma, fit.HaloFraction];
+    public static ImmutableArray<double> ReadingsOf(double edgeAtTenth) => [edgeAtTenth];
 
     /// <summary>
     /// The gains, finest band first, for <paramref name="colour"/> with these <paramref name="readings"/> at this <paramref name="cutoff"/>;

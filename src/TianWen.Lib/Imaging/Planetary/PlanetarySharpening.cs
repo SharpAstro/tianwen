@@ -628,7 +628,7 @@ public static class PlanetarySharpening
                 if (options.GainsModel is { } model && options.FixedGains.IsDefaultOrEmpty)
                 {
                     learned = options.Strength == 1
-                        ? model.Predict(c, PlanetaryGainsModel.ReadingsOf(channelFit, channelEdges[c].EdgeAtTenth),
+                        ? model.Predict(c, PlanetaryGainsModel.ReadingsOf(channelEdges[c].EdgeAtTenth),
                             PlanetaryFinishing.CutoffCyclesPerPixel(pupil, wavelengthNm, limbWindow.ArcsecPerPixel), out channelLearned[c])
                         : null;
                     if (options.Strength != 1)
