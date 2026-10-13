@@ -188,6 +188,19 @@ And the structural fact that makes the phase safe: **exactly one parity locks on
 frames -- never both, never neither.** So a claim can be granted on the first seed clear of chance
 without any real risk of stopping the eventual winner.
 
+**A claim stops the sibling at equal EFFORT, never at once (#1556, 2026-10-13).** The fact above holds on
+the Vela frames, not on every frame. With the local-sky star trigger's stars (#1545), the 28-star
+fixture's right parity locks in 145 hypotheses, and the wrong one reaches a chance seed past the 10x
+claim bar after 278,246: a 10x bar admits that over that many tries. Cancelling at once made the answer
+the scheduler's. Under load the right parity could start late and be cancelled before its 145, and the
+solve came back 0.16 degrees off with 7 matched instead of 60. A throwaway probe of 24 concurrent solves
+over 8 rounds measured it: 0 of 192 wrong before #1545, 17 to 25 with it, 0 with this fix. So a claim
+now caps the sibling's seed at the claimer's own hypothesis count (`ParityEffortCap`), checked at the
+same 4,096 cadence. Past the cap the sibling cancels its own token, so the abandoned path, the gate's
+re-run and `Cancelled` read as before. A sibling already past its seed is not stopped: both finish and
+the pick reads their evidence. `PlateSolveParityRaceTests.WhicheverParityRunsFirstTheSolveIsTheSame`
+runs the parities one after the other in each order (`CatalogPlateSolver.ParityOrderForTest`).
+
 Three things the implementation had to get right, none of them in the original sketch:
 
 - **The acceptance gate CONSUMES the loser.** `ApplyAcceptanceGate` falls back to the losing parity

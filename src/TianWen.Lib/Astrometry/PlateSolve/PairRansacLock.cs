@@ -178,8 +178,9 @@ internal static class PairRansacLock
         float scaleTolerance,
         out LockDiagnostics diagnostics,
         float verifyRadiusPx = 4f,
-        CancellationToken cancellationToken = default,
-        int maxHypotheses = MaxHypotheses)
+        int maxHypotheses = MaxHypotheses,
+        Func<int, bool>? giveUpAfter = null,
+        CancellationToken cancellationToken = default)
     {
         var cancelled = false;
         var nCat = Math.Min(MaxCatalogAnchors, catalogBright.Length);
@@ -316,8 +317,10 @@ internal static class PairRansacLock
                     // it saves is ~250k hypotheses. Leaves by the same path as the cap, so the
                     // diagnostics still describe how far the scan actually got -- and says
                     // CANCELLED, because "no lock" and "never finished looking" are different
-                    // facts and only one of them justifies not retrying.
-                    if ((hypotheses & 0xFFF) == 0 && cancellationToken.IsCancellationRequested)
+                    // facts and only one of them justifies not retrying. The other parity's claim
+                    // arrives as giveUpAfter, asked with the hypotheses spent so far (#1556).
+                    if ((hypotheses & 0xFFF) == 0
+                        && (cancellationToken.IsCancellationRequested || giveUpAfter?.Invoke(hypotheses) is true))
                     {
                         cancelled = true;
                         goto scanDone;
