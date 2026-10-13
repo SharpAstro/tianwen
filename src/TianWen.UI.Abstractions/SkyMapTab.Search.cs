@@ -84,6 +84,13 @@ namespace TianWen.UI.Abstractions
         private TapOrDragGesture _mapGesture;
 
         /// <summary>
+        /// The panel the last frame drew, after its per-frame re-resolve at that frame's viewing instant. A test
+        /// seam: the re-resolved panel lives only for the frame, and what it SAYS (a planet's live magnitude
+        /// under a time scrub) cannot be read back out of the pixels.
+        /// </summary>
+        internal SkyMapInfoPanelData? LastDrawnInfoPanel { get; private set; }
+
+        /// <summary>
         /// Draws the search modal and/or the info panel. Called last in <see cref="Render"/>
         /// so its clickable regions take priority over map drag gestures.
         /// </summary>
@@ -143,14 +150,10 @@ namespace TianWen.UI.Abstractions
                     }
                     else
                     {
-                        foreach (var (planetIdx, pRa, pDec) in State.GetPlanetPositionsCached(viewingTime))
+                        if (State.TryGetPlanetCached(selIdx, viewingTime, out var planet))
                         {
-                            if (planetIdx == selIdx)
-                            {
-                                info = SkyMapSearchActions.PlanetInfoPanel(
-                                    db, selIdx, pRa, pDec, siteLat, siteLon, viewingTime, in site);
-                                break;
-                            }
+                            info = SkyMapSearchActions.PlanetInfoPanel(
+                                db, planet, siteLat, siteLon, viewingTime, in site);
                         }
                     }
                 }
@@ -164,6 +167,7 @@ namespace TianWen.UI.Abstractions
                     info = info.WithLiveHorizontal(site);
                 }
 
+                LastDrawnInfoPanel = info;
                 DrawInfoPanel(plannerState, info, contentRect,
                     viewingTime, pixelsPerRadian, cx, cy);
             }
@@ -396,7 +400,8 @@ namespace TianWen.UI.Abstractions
                 ShowRiseSet: true,
                 TimeZone: plannerState.SiteTimeZone,
                 Sparkline: hasCurve,
-                Picture: ObjectInfoPanel.PictureFor(info.Index, plannerState.ObjectDb));
+                Picture: ObjectInfoPanel.PictureFor(info.Index, plannerState.ObjectDb),
+                Disk: ObjectInfoPanel.DiskLine(in info));
 
             // Copied into locals because a click lambda cannot close over an `in` parameter.
             var pinName = info.Name;

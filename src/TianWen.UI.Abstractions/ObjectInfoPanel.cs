@@ -91,7 +91,8 @@ namespace TianWen.UI.Abstractions
             TimeSpan TimeZone = default,
             string? Footnote = null,
             bool Sparkline = false,
-            ObjectArticleImage? Picture = null);
+            ObjectArticleImage? Picture = null,
+            string? Disk = null);
 
         /// <summary>What the article link reads.</summary>
         public const string ArticleLinkLabel = "Wikipedia";
@@ -230,6 +231,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public static int RowCount(in PanelDisplayOptions options)
             => 4
+               + (options.Disk is { Length: > 0 } ? 1 : 0)
                + (options.ShowAltAz ? 1 : 0)
                + (options.ShowRiseSet ? 1 : 0)
                + (options.Footnote is { Length: > 0 } ? 1 : 0);
@@ -336,6 +338,32 @@ namespace TianWen.UI.Abstractions
             return $"{magPart}{sbPart}{bvPart}{sizePart}";
         }
 
+        /// <summary>
+        /// A solar-system body's disk at the viewing instant: its apparent equatorial diameter (arcseconds, or
+        /// arcminutes for the Sun and the Moon), the lit fraction for a body we see phased (any whose lit fraction
+        /// rounds below 100 %), and Saturn's ring opening B, signed, its south face seen when negative. Empty
+        /// without an aspect.
+        /// </summary>
+        public static string DiskLine(in SkyMapInfoPanelData info)
+        {
+            if (info.Aspect is not { } aspect)
+            {
+                return "";
+            }
+            var diameter = aspect.AngularDiameterArcsec;
+            var line = diameter >= 120 ? $"diam {diameter / 60:F1}'" : $"diam {diameter:F1}\"";
+            var lit = aspect.IlluminatedFraction;
+            if (lit < 0.995)
+            {
+                line += $"   lit {lit * 100:F0}%";
+            }
+            if (aspect.Planet == CatalogIndex.Saturn)
+            {
+                line += $"   rings {aspect.RingOpening:+0.0;-0.0}°";
+            }
+            return line;
+        }
+
         /// <summary>Altitude and azimuth, or dashes when the site is known but the object's are not.</summary>
         public static string AltAzLine(in SkyMapInfoPanelData info)
             => double.IsNaN(info.AltDeg)
@@ -373,6 +401,11 @@ namespace TianWen.UI.Abstractions
             rows[next++] = Layout.Builder.Text(subtitle, dFont * 0.9f, palette.DimText).RowH(dRow);
             rows[next++] = Layout.Builder.Text(raDec, dFont, palette.Text).RowH(dRow);
             rows[next++] = Layout.Builder.Text(magLine, dFont, palette.Text).RowH(dRow);
+
+            if (options.Disk is { Length: > 0 } disk)
+            {
+                rows[next++] = Layout.Builder.Text(disk, dFont, palette.Text).RowH(dRow);
+            }
 
             if (options.ShowAltAz)
             {

@@ -1,4 +1,5 @@
 using System;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
 
@@ -36,7 +37,10 @@ public readonly record struct SkyMapInfoPanelData(
     // Which fixed reference point (if any) this selection is. SkyFixedPoint.Zenith flags the
     // panel as horizon-relative so the renderer re-resolves it to the current overhead point each
     // frame instead of freezing it at the click-time RA/Dec (see SkyFixedPoint).
-    SkyFixedPoint FixedPoint = SkyFixedPoint.None)
+    SkyFixedPoint FixedPoint = SkyFixedPoint.None,
+    // A solar-system body's physical aspect at the viewing instant (its apparent diameter, phase, Saturn's
+    // rings): the planet panel's disk row (ObjectInfoPanel.DiskLine). Null for everything else.
+    PlanetAspect? Aspect = null)
 {
     /// <summary>
     /// Build a panel payload for a catalog object at the given site and viewing time.

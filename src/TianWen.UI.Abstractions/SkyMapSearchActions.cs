@@ -493,15 +493,12 @@ public static class SkyMapSearchActions
             // the sky map renders from, keyed on the same viewing time) and commit to that, so e.g.
             // searching "Jupiter" + Enter actually slews there instead of doing nothing. Bodies not in
             // the cache (VSOP87a reduction failed for this instant) still can't commit.
-            foreach (var (planetIdx, pRa, pDec) in skyMap.GetPlanetPositionsCached(viewingUtc))
+            if (skyMap.TryGetPlanetCached(catIdx, viewingUtc, out var planet))
             {
-                if (planetIdx == catIdx)
-                {
-                    SlewTo(skyMap, pRa, pDec);
-                    search.InfoPanel = PlanetInfoPanel(db, catIdx, pRa, pDec, siteLat, siteLon, viewingUtc, site);
-                    CloseSearch(search, focus);
-                    return true;
-                }
+                SlewTo(skyMap, planet.RA, planet.Dec);
+                search.InfoPanel = PlanetInfoPanel(db, planet, siteLat, siteLon, viewingUtc, site);
+                CloseSearch(search, focus);
+                return true;
             }
             return false;
         }
@@ -672,8 +669,11 @@ public static class SkyMapSearchActions
                 return true;
 
             case SkyMapHitKind.Planet:
-                search.InfoPanel = PlanetInfoPanel(
-                    db, resolved.Index, resolved.RA, resolved.Dec, siteLat, siteLon, viewingUtc, site);
+                // The resolver hit-tested the same cache entry, keyed on the same instant.
+                var planet = skyMap.TryGetPlanetCached(resolved.Index, viewingUtc, out var marker)
+                    ? marker
+                    : new SkyMapState.PlanetMarker(resolved.Index, resolved.RA, resolved.Dec, null, float.NaN);
+                search.InfoPanel = PlanetInfoPanel(db, planet, siteLat, siteLon, viewingUtc, site);
                 return true;
 
             default:
@@ -1254,9 +1254,11 @@ public static class SkyMapSearchActions
     }
 
     /// <summary>
-    /// Builds an info panel for a solar-system body: the LIVE ephemeris RA/Dec, the planet's
-    /// PREDEFINED catalog metadata (<see cref="ObjectType.Planet"/>, reference magnitude, name), and
-    /// the constellation it is CURRENTLY in -- computed from the live position via
+    /// Builds an info panel for a solar-system body from its entry in the atlas's planet cache: the LIVE
+    /// ephemeris RA/Dec, the LIVE apparent magnitude and physical aspect at the viewing instant (so a time
+    /// scrub moves the magnitude as it moves the dot; the catalogue's single reference magnitude was off by
+    /// magnitudes for most of Mars's synodic cycle), the planet's catalog metadata (<see cref="ObjectType.Planet"/>,
+    /// B-V, name), and the constellation it is CURRENTLY in -- computed from the live position via
     /// <see cref="ConstellationBoundary.TryFindConstellation(double, double, out Constellation)"/>,
     /// since planets wander and have no fixed constellation in the catalog. Falls back to a bare named
     /// position when the catalog has no entry for the index (e.g. a minimal test DB).
@@ -1264,9 +1266,10 @@ public static class SkyMapSearchActions
     // internal (not private) so the per-frame info-panel redraw can rebuild a selected planet's
     // panel from its LIVE position as the viewing time advances -- see SkyMapTab.DrawSearchAndInfoPanel.
     internal static SkyMapInfoPanelData PlanetInfoPanel(
-        ICelestialObjectDB db, CatalogIndex planetIdx, double raHours, double decDeg,
+        ICelestialObjectDB db, in SkyMapState.PlanetMarker planet,
         double siteLat, double siteLon, DateTimeOffset viewingUtc, in SiteContext site)
     {
+        var (planetIdx, raHours, decDeg) = planet;
         var constellation = ConstellationBoundary.TryFindConstellation(raHours, decDeg, out var c)
             ? c
             : default;
@@ -1278,20 +1281,21 @@ public static class SkyMapSearchActions
                 with
                 {
                     ObjType = obj.ObjectType,
-                    VMag = (float)obj.V_Mag,
+                    VMag = float.IsNaN(planet.VMag) ? (float)obj.V_Mag : planet.VMag,
                     BMinusV = (float)obj.BMinusV,
                     Constellation = constellation,
                     Index = planetIdx,
+                    Aspect = planet.Aspect,
                 };
         }
 
         // No catalog entry (minimal DB / tests): a bare named position, still tagged with the
-        // current constellation.
+        // current constellation and carrying the live magnitude and aspect.
         var name = planetIdx == CatalogIndex.Moon ? "Moon"
             : planetIdx == CatalogIndex.Sol ? "Sun"
             : planetIdx.ToCanonical();
         return SkyMapInfoPanelData.FromPosition(name, raHours, decDeg, siteLat, siteLon, viewingUtc, site)
-            with { Constellation = constellation };
+            with { Constellation = constellation, VMag = planet.VMag, Aspect = planet.Aspect };
     }
 
     /// <summary>
