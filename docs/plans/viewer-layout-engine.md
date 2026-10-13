@@ -281,10 +281,16 @@ is in [viewer-layout-engine-p5/](viewer-layout-engine-p5/): `LayoutRectSweep` (L
 panel, histogram, planetary panels, tone and white balance popovers), the night calendar and the Guider and Live
 Session tabs at DPI 1 and 1.5 and dumps every arranged node (`TIANWEN_LAYOUT_SWEEP` names the file). `before.txt` is at
 11.18, `after-bump.txt` at 11.20 with no edit (90 text leaves grow, clamped by their hand rows; no container moves),
-`after.txt` after the edits. What moved, all of it the line box: a viewer row 24 to 23.4 at 1x (an 18 px face's 1.3 em
-against the hand 18 + 6), adding up down a panel (the sixth wavelet band 8.1 px higher); the tone popover's 0.85 em rows
-to their own line box; LOG 22 to 23.4; the calendar's detail block 4.5 shorter, its grid unmoved; the guider's stats
-rows unmoved, "Star Profile" 19.6 to 15.47 (`GuiderTabLayoutTests` reads it as the line box now).
+`after.txt` after the edits. What moved, all of it to the line box (heights in device pixels, as the dumps give them):
+
+| what | 1x | 1.5x | why |
+|---|---|---|---|
+| a viewer panel row (wavelet, white balance, tone dials, best stack) | 24 to 23.4, adding up down a panel (the sixth wavelet band 8.1 higher) | 36 to 35.1 (12.15 higher) | the hand box was 18 + 6; an 18 px face's line box is 1.3 em |
+| the tone popover's 0.85 em rows | 24, 18.3 or 21.3 to 19.89 | x 1.5 | each takes its own line box, not the body text's |
+| the histogram's LOG | 22 to 23.4 | 33 to 35.1 | the hand box was shorter than the line its text draws in |
+| the white balance provenance lines (calibrated only) | 22 to 23.4 a line; the popover 152 to 152.4 | 46.5 to 35.1 a line; the popover 255 to 228.6, its buttons 25.5 higher | the old row, `TextLineAdvance`, was DEVICE pixels (the face plus 2, 31 at 1.5x) handed to `RowH` as design units, so scaled twice: 1.5 x 31 = 46.5 against the right 1.5 x 23.4 = 35.1 |
+| the night calendar | detail block 4.5 shorter, cells 0.1, grid unmoved | 6.75, 0.15 | its lines take their line box |
+| the guider | stats rows unmoved; "Star Profile" 19.6 to 15.47 | 29.4 to 23.21 | the stats keep their 1.6 em pitch; the heading is its line box (`GuiderTabLayoutTests` reads it so) |
 
 Left, and why:
 - **The toolbar label's `HFixed(ToolbarFontSize)`** (`ImageRendererBase.Toolbar.cs`, `ToolbarButtonNode`): a one-em box
