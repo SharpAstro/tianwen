@@ -1969,6 +1969,43 @@ and on one seed each: saturated stars gain 1.4 and 6.4 points past the cap.
 **The next arm's control** is this recipe run to convergence on the store re-baked with the local-sky star detector
 (#1545) and an export made from it, since every number above was read on the old store's export.
 
+#### R2i: R2f's recipe at convergence on the re-baked store, pre-registered (2026-10-14)
+
+Written before it trains, on the owner's word to start GPU work once the re-bake ends. Tracked by #1338. The store
+`D:/Astro-Dataset/2026-10-12-full` is the 09-29 store's sessions baked again from main with the local-sky star trigger
+(#1545), the count-plane crop rule (#1536), the CALSTAT guard (#1539) and the `BAD_` marks of 2026-10-12 (Leo, M42
+RGB, HD 71272), the 09-29 split kept (`--split-from`). One run, built by a chain that starts when the bake ends:
+
+- **Plates:** `dataset starless-plates` over the new store's session masters, from a binary at main (`b80bff16`).
+- **Export:** R2f's export command exactly (`run-r2f-export.ps1`'s arguments, the same 138 sessions in chunks of 10,
+  `--seed 1`), on the new store and its plates, into `synth4`. A listed session the new store no longer holds is
+  dropped and named in the chain's log.
+- **Training:** `run-r2.ps1 -Tag r2i -Arms synth4 -SeedCount 1 -Patience 24 -Steps 480000`, seed 0, R2f's trainer and
+  train/val split, run to convergence as R2h's read decided.
+- **Scored** on A's draws by the same binary as every column above. The EVAL does not change, so R2i reads against R2g
+  directly.
+
+**The question.** Does the re-baked store change what the recipe learns? Against R2g (seed 0, the old store, at
+convergence) every difference is the store's, nothing else.
+
+**The bar is the seed spread at convergence**, R2g against R2h's end (seed 0 against seed 1): 2.7 points clean at 5-20
+sigma, 3.1 at 20-100, 3.1 at 100-1000, and 6.4 dug at 100-1000. A store change smaller than that cannot be read on one
+seed.
+
+**Predictions** (against R2g):
+1. **It ends on its own before 480,000.** Moderate to high: R2g ended at 273,000 and R2h at 276,000.
+2. **The store changes nothing readable**: clean removal within 2.7 points at 5-20 sigma, 3.1 at 20-100 and 3.1 at
+   100-1000, the dug share within 6.4 points. Moderate. The masters the detector changed most register more subs (nine
+   training sessions 427 against 416 in the A/B), which is a few percent of their depth.
+3. **The sky**: far sky at most 0.37. Moderate.
+
+**Kill:** clean removal falls by more than the spread at any brightness (2.7, 3.1, 3.1). Then the new store's data
+costs the recipe something, and it is not adopted as the line's store until that is found.
+
+**What it decides.** If (2) holds, the re-baked store is a drop-in: the next arms train on it with R2i as their control.
+If clean removal RISES past the spread, the detector fix improved the training data, read on one seed until a second
+confirms it.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
