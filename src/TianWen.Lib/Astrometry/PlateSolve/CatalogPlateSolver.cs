@@ -184,7 +184,9 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     /// 5x chance, so this is deliberately stricter than merely "it locked": cancelling is an
     /// irreversible-looking act on a hot path, and the fallback that undoes it costs a whole
     /// re-run. Measured across the 96 frozen Vela frames, exactly one parity locks on every one of
-    /// them and never both, so a correct winner has never been within reach of this bar.
+    /// them and never both. That does not hold for every frame: on the 28-star fixture the wrong
+    /// parity clears this bar after 278,246 hypotheses, which a 10x bar admits over that many tries.
+    /// So a claim stops the sibling only at equal effort (<see cref="ParityEffortCap"/>, #1556).
     /// </summary>
     private const double ParityClaimChanceFactor = 10.0;
 
@@ -221,11 +223,48 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     private readonly record struct SolveAttempt(WCS? Wcs, int ProjectedStars, int MatchedStars, int Iterations, double RmsResidual, double AffineDeterminant, bool IsStd = false);
 
     /// <summary>
+    /// How far one parity's seed search may go once the OTHER parity has claimed, in hypotheses (#1556).
+    /// </summary>
+    /// <remarks>
+    /// A claim used to cancel the sibling at once, so the race was decided by which thread ran first. On
+    /// the 28-star fixture the right parity locks in 145 hypotheses and the wrong one reaches a chance seed
+    /// past the claim bar after 278,246; on a loaded runner the right one could start late, be cancelled
+    /// before its 145, and the solve came back 0.16 degrees off. Now the sibling is allowed the effort the
+    /// claimer spent and then stops itself, cancelling its own token so everything downstream reads it as
+    /// abandoned exactly as before. A sibling already past its seed is not stopped: both attempts finish
+    /// and the pick reads their evidence.
+    /// </remarks>
+    private sealed class ParityEffortCap(CancellationTokenSource own)
+    {
+        private long _cap = long.MaxValue;
+
+        public void LimitTo(long hypotheses) => Interlocked.Exchange(ref _cap, hypotheses);
+
+        public bool GiveUp(long spent)
+        {
+            if (spent <= Interlocked.Read(ref _cap))
+            {
+                return false;
+            }
+
+            own.Cancel();
+            return true;
+        }
+    }
+
+    /// <summary>
     /// Test seam: what the parity race did on the most recent solve. Phase A's whole effect is work
     /// that DOES NOT happen, which no output can show -- the WCS is identical either way -- so
     /// without this a test can only assert the solve still works, never that the saving occurred.
     /// </summary>
     internal ParityRaceOutcome LastParityRace { get; private set; }
+
+    /// <summary>
+    /// Test seam: run the two parities one AFTER the other, the standard first when true, instead of
+    /// racing them. A loaded machine can start either one late, so the answer must not depend on
+    /// which runs first; this makes each order reproducible (#1556). <c>null</c> races them.
+    /// </summary>
+    internal bool? ParityOrderForTest { get; set; }
 
     /// <summary>
     /// Test seam: what the quad scale recovery answered on the most recent solve, or <c>null</c> if
@@ -757,8 +796,9 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         //
         // Exactly one of the two is real work: measured over the 96 frozen Vela frames, one parity
         // locks on every single frame and never both, while the loser spends 259.5M hypotheses
-        // against the winner's 8.1M -- 97% of the seed's whole cost. So each attempt is given a
-        // token the OTHER one can cancel, and the first seed clear of chance stops its sibling.
+        // against the winner's 8.1M -- 97% of the seed's whole cost. So the first seed clear of
+        // chance stops its sibling, once the sibling has spent as many hypotheses as that seed did
+        // (ParityEffortCap): stopped at once, the answer was whichever thread ran first (#1556).
         //
         // Task.Run keeps the OUTER token, never the per-attempt one: a task started with an
         // already-cancelled token never runs its delegate and faults the await, which would turn
@@ -774,11 +814,13 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // failure on a frame it can solve. The interlock makes that outcome unreachable rather than
         // unlikely, which is the only acceptable standard for a fast path guarding a correct one.
         var parityClaimed = 0;
-        Action ClaimAgainst(CancellationTokenSource sibling) => () =>
+        var stdCap = new ParityEffortCap(stdCts);
+        var mirrorCap = new ParityEffortCap(mirrorCts);
+        Action<long> ClaimAgainst(ParityEffortCap sibling) => spent =>
         {
             if (Interlocked.CompareExchange(ref parityClaimed, 1, 0) == 0)
             {
-                sibling.Cancel();
+                sibling.LimitTo(spent);
             }
         };
 
@@ -800,12 +842,30 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                 DoubtedParityHypothesisBudget);
         }
 
-        var stdTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, raceOrigin, pixelScaleRad, cx, cy, dim, xSign: 1.0, range, scalePrior, ClaimAgainst(mirrorCts), stdBudget, stdCts.Token), cancellationToken);
-        var mirrorTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, raceOrigin, pixelScaleRad, cx, cy, dim, xSign: -1.0, range, scalePrior, ClaimAgainst(stdCts), mirrorBudget, mirrorCts.Token), cancellationToken);
-        await Task.WhenAll(stdTask, mirrorTask);
-
-        var std = stdTask.Result;
-        var mirror = mirrorTask.Result;
+        SolveAttempt RunStd() => TrySolveWithProximityMatching(detectedStars, catalogCoords, raceOrigin, pixelScaleRad, cx, cy, dim, xSign: 1.0, range, scalePrior, ClaimAgainst(mirrorCap), stdCap, stdBudget, stdCts.Token);
+        SolveAttempt RunMirror() => TrySolveWithProximityMatching(detectedStars, catalogCoords, raceOrigin, pixelScaleRad, cx, cy, dim, xSign: -1.0, range, scalePrior, ClaimAgainst(stdCap), mirrorCap, mirrorBudget, mirrorCts.Token);
+        SolveAttempt std, mirror;
+        if (ParityOrderForTest is { } stdFirst)
+        {
+            if (stdFirst)
+            {
+                std = RunStd();
+                mirror = RunMirror();
+            }
+            else
+            {
+                mirror = RunMirror();
+                std = RunStd();
+            }
+        }
+        else
+        {
+            var stdTask = Task.Run(RunStd, cancellationToken);
+            var mirrorTask = Task.Run(RunMirror, cancellationToken);
+            await Task.WhenAll(stdTask, mirrorTask);
+            std = stdTask.Result;
+            mirror = mirrorTask.Result;
+        }
         // "Abandoned" means the scan STOPPED SHORT, so its empty hands are not evidence -- which is
         // equally true of a half the cache told us to cap as of one the sibling cancelled. Both feed
         // the same re-run below, which is what makes a stale cached parity cost one extra pass
@@ -880,7 +940,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             _logger.LogDebug("CatalogPlateSolver: winner failed the acceptance gate and the other parity was abandoned mid-seed; re-running it before reporting failure");
             var loserXSign = winnerIsStd ? -1.0 : 1.0;
             loser = TrySolveWithProximityMatching(detectedStars, catalogCoords, raceOrigin, pixelScaleRad,
-                cx, cy, dim, loserXSign, range, scalePrior, onSeedClearOfChance: null, seedHypothesisBudget: int.MaxValue, cancellationToken);
+                cx, cy, dim, loserXSign, range, scalePrior, onSeedClearOfChance: null, effortCap: null, seedHypothesisBudget: int.MaxValue, cancellationToken);
             LastParityRace = LastParityRace with { ReRanAbandonedParity = true };
         }
 
@@ -1218,7 +1278,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                 // One pool: the DISC is tried first precisely because it assumes least about the
                 // camera angle, and where it differs from the rectangle it is the one that is right.
                 if (TrySeedPairLock(wideCatalog, detPts, candidate, pixelScaleRad, cx, cy, dim, xSign,
-                        tolerance, out _, logger: null, cancellationToken, poolPolicyLimit: 1, maxHypotheses: PositionalSearchHypothesisBudget) is { } locked)
+                        tolerance, out _, logger: null, poolPolicyLimit: 1, maxHypotheses: PositionalSearchHypothesisBudget, cancellationToken: cancellationToken) is { } locked)
                 {
                     _logger.LogDebug("CatalogPlateSolver: positional search seeded {Hits}/{Census} (chance {Chance:F1}) {Sep:F2} deg from the hint, candidate {Tried}, xSign={XSign}, in {Ms}ms",
                         locked.Hits, locked.Census, locked.ExpectedChanceHits, Math.Sqrt(dx * dx + dy * dy), tried, xSign, stageSw.Elapsed.TotalMilliseconds);
@@ -1451,7 +1511,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         double xSign,
         float scaleRange,
         QuadScaleRecovery.Recovery? scalePrior,
-        Action? onSeedClearOfChance,
+        Action<long>? onSeedClearOfChance,
+        ParityEffortCap? effortCap,
         int seedHypothesisBudget,
         CancellationToken cancellationToken
     )
@@ -1507,12 +1568,18 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             // (see RecoveredScaleTolerance), and the window's width multiplies the candidate pairs
             // every hypothesis is drawn from. When it locks, this attempt adopts that scale.
             PairRansacLock.LockResult? seedLock = null;
+            // What this attempt's seed has spent over both tiers: what it claims with, and what a
+            // claim by the other parity is compared against (ParityEffortCap).
+            var seedSpent = 0L;
+            Func<int, bool>? giveUpAfter = effortCap is null ? null : spent => effortCap.GiveUp(seedSpent + spent);
             if (scalePrior is { } recovery)
             {
                 var recoveredPixelScaleRad = hintPixelScaleRad / recovery.Ratio;
                 seedLock = TrySeedPairLock(catalogCoords, detPts, currentOrigin, recoveredPixelScaleRad,
-                    cx, cy, dim, xSign, RecoveredScaleTolerance, out var recoveredCost, _logger, cancellationToken, maxHypotheses: seedHypothesisBudget);
+                    cx, cy, dim, xSign, RecoveredScaleTolerance, out var recoveredCost, _logger,
+                    maxHypotheses: seedHypothesisBudget, giveUpAfter: giveUpAfter, cancellationToken: cancellationToken);
                 CountSeedHypotheses(xSign, recoveredCost.Hypotheses);
+                seedSpent += recoveredCost.Hypotheses;
                 if (seedLock is not null)
                 {
                     pixelScaleRad = recoveredPixelScaleRad;
@@ -1532,11 +1599,14 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             if (seedLock is null)
             {
                 seedLock = TrySeedPairLock(catalogCoords, detPts, currentOrigin, pixelScaleRad, cx, cy,
-                    dim, xSign, Math.Max(scaleRange, MinPairLockScaleTolerance), out var headerCost, _logger, cancellationToken, maxHypotheses: seedHypothesisBudget);
+                    dim, xSign, Math.Max(scaleRange, MinPairLockScaleTolerance), out var headerCost, _logger,
+                    maxHypotheses: seedHypothesisBudget, giveUpAfter: giveUpAfter, cancellationToken: cancellationToken);
                 CountSeedHypotheses(xSign, headerCost.Hypotheses);
+                seedSpent += headerCost.Hypotheses;
             }
 
-            // A seed this far clear of chance settles the parity, so tell the sibling to stop --
+            // A seed this far clear of chance settles the parity, so tell the sibling to stop once it
+            // has spent as much as this seed did (ParityEffortCap) --
             // deliberately BEFORE the invert/project below, because a lock is evidence about the
             // parity whether or not the transform it carries turns out to be usable. Kept out of
             // the condition chain for the same reason: claiming is a side effect, and a claim that
@@ -1545,7 +1615,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             if (seedLock is { } strong
                 && strong.Hits >= ParityClaimChanceFactor * Math.Max(1.0, strong.ExpectedChanceHits))
             {
-                onSeedClearOfChance?.Invoke();
+                onSeedClearOfChance?.Invoke(seedSpent);
             }
 
             if (seedLock is { } locked
@@ -2489,9 +2559,10 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         float scaleTolerance,
         out SeedCost cost,
         ILogger? logger = null,
-        CancellationToken cancellationToken = default,
         int poolPolicyLimit = int.MaxValue,
-        int maxHypotheses = int.MaxValue)
+        int maxHypotheses = int.MaxValue,
+        Func<int, bool>? giveUpAfter = null,
+        CancellationToken cancellationToken = default)
     {
         var hypotheses = 0;
         var poolsTried = 0;
@@ -2514,9 +2585,13 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                 catPts[i] = new Vector2(seedProjected[i].Pixel.XCentroid, seedProjected[i].Pixel.YCentroid);
             }
 
+            // The give-up is asked with what this whole call has spent, the pools before this one
+            // included, so it compares against the other parity's whole seed.
+            var spentBefore = hypotheses;
             var lockResult = PairRansacLock.TryLock(catPts, rankedDetectedPoints, rankedDetectedPoints,
                 dim.Width, dim.Height, scaleTolerance, out var lockDiagnostics,
-                cancellationToken: cancellationToken, maxHypotheses: maxHypotheses);
+                cancellationToken: cancellationToken, maxHypotheses: maxHypotheses,
+                giveUpAfter: giveUpAfter is null ? null : spent => giveUpAfter(spentBefore + spent));
             poolsTried++;
             hypotheses += lockDiagnostics.Hypotheses;
             if (lockDiagnostics.BestHits > bestHits)

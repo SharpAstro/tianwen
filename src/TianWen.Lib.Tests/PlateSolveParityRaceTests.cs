@@ -143,4 +143,37 @@ public class PlateSolveParityRaceTests(ITestOutputHelper output)
         flippedRace.AbandonedAParity.ShouldBeTrue("the winning parity still stops its sibling");
         flippedRace.ReRanAbandonedParity.ShouldBeFalse("its winner passes the gate, so nothing is re-run");
     }
+
+    /// <summary>
+    /// The race's answer must not depend on which parity a loaded machine happens to start first
+    /// (#1556). On the 28-star fixture the right parity (standard) locks its seed in 145 hypotheses,
+    /// while the mirror reaches a chance seed past the claim bar only after about 278,000. Racing
+    /// on a quiet machine the standard always finishes first; on a busy CI runner it can start
+    /// late, and the mirror's claim used to CANCEL it, so the solve came back 0.16 degrees off with
+    /// 7 matched (60 when right). Run one after the other in each order, both must solve the field.
+    /// </summary>
+    [Theory(Timeout = 300_000)]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async System.Threading.Tasks.Task WhicheverParityRunsFirstTheSolveIsTheSame(bool standardFirst)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        const string name = "image_file-snr-20_stars-28_1280x960x16";
+        var db = await SharedCatalogDB.InitAsync(ct);
+        var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: ct);
+        SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords).ShouldBeTrue();
+        var solver = new CatalogPlateSolver(db, NullLogger<CatalogPlateSolver>.Instance) { ParityOrderForTest = standardFirst };
+
+        var result = await solver.SolveImageAsync(image, dimAndCoords.ImageDim, searchOrigin: dimAndCoords.WCS, searchRadius: 3d, cancellationToken: ct);
+
+        var race = solver.LastParityRace;
+        output.WriteLine($"standard first={standardFirst}: {result.MatchedStars} matched, winnerIsStd={race.WinnerIsStd} " +
+            $"abandoned={race.AbandonedAParity} seed hypotheses {solver.LastSeedHypothesesByParity}");
+        result.Solution.ShouldNotBeNull();
+        var s = result.Solution.Value;
+        s.CenterDec.ShouldBeInRange(dimAndCoords.WCS.CenterDec - 0.02, dimAndCoords.WCS.CenterDec + 0.02,
+            "the solve must not depend on which parity ran first");
+        s.CenterRA.ShouldBeInRange(dimAndCoords.WCS.CenterRA - 0.02, dimAndCoords.WCS.CenterRA + 0.02);
+        race.WinnerIsStd.ShouldBeTrue("the standard parity is this fixture's right one");
+    }
 }
