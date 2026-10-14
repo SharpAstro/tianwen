@@ -329,6 +329,60 @@ public sealed class SkyMapPlanetDiscTests
     }
 
     /// <summary>
+    /// The panel as a person sees it, written as PNGs (the review's screenshot-equivalent): Saturn on 2026-10-13 and the Moon five
+    /// days on (a waxing crescent near quarter), each selected, at a DPI scale of 1.5 (the GUI's on this laptop), the panel's
+    /// bottom-left region cropped out of a 1200 x 900 CPU surface. Asserts only that the disc was drawn; the pictures are for eyes.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(CatalogIndex.Saturn, 0)]
+    [InlineData(CatalogIndex.Moon, 5)]
+    public async Task ThePanelWithItsDiscIsWrittenAsAPicture(CatalogIndex body, int daysOn)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var db = await SharedCatalogDB.InitAsync(ct);
+        const int W = 1200, H = 900;
+        using var renderer = new RgbaImageRenderer(W, H);
+        var tab = new DiscTab(renderer) { FontPath = FontResolver.ResolveSystemFont(), DpiScale = 1.5f };
+        var planner = new PlannerState
+        {
+            ObjectDb = db, SiteLatitude = 48.0, SiteLongitude = 11.0, SiteTimeZone = TimeSpan.FromHours(1), PlanningDate = Instant,
+        };
+        var time = new FakeTimeProviderWrapper(Instant);
+        var content = new RectF32(0, 0, W, H);
+        tab.Render(planner, content, time);
+        tab.State.TimeOffset = TimeSpan.FromDays(daysOn);
+        var utc = Instant + tab.State.TimeOffset;
+        tab.State.TryGetPlanetCached(body, utc, out var marker).ShouldBeTrue();
+        tab.State.CenterRA = marker.RA;
+        tab.State.CenterDec = marker.Dec;
+        tab.State.FieldOfViewDeg = 20;
+        tab.State.Search.InfoPanel = SkyMapSearchActions.PlanetInfoPanel(db, marker, 48.0, 11.0, utc, SiteContext.Create(48.0, 11.0, utc));
+        for (var pass = 0; pass < 3; pass++)
+        {
+            tab.Render(planner, content, time);
+            if (tab.PlanetTextures.AtlasLoad is { } atlas)
+            {
+                await atlas.WaitAsync(ct);
+            }
+            await tab.PanelSprites.WhenBuiltAsync();
+        }
+        tab.Render(planner, content, time);
+
+        var slot = tab.LastPanelDiscRect.ShouldNotBeNull();
+        var (x0, y0) = (0, Math.Max(0, (int)slot.Y - 260));
+        var (cw, ch) = (Math.Min(W, 560), H - y0);
+        var crop = new byte[cw * ch * 4];
+        for (var y = 0; y < ch; y++)
+        {
+            Array.Copy(renderer.Surface.Pixels, (((y0 + y) * W) + x0) * 4, crop, y * cw * 4, cw * 4);
+        }
+        var dir = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests", DateTime.Now.ToString("yyyyMMdd"), nameof(ThePanelWithItsDiscIsWrittenAsAPicture));
+        Directory.CreateDirectory(dir);
+        await File.WriteAllBytesAsync(Path.Combine(dir, $"panel-{body}.png".ToLowerInvariant()), PngWriter.Encode(crop, cw, ch), ct);
+        tab.PanelSprites.Builds.ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>
     /// A disc is culled on its REACH, not its centre: a Moon 400 px across whose centre sits 50 px above the view's top edge still
     /// covers the top 150 px of it, so it is drawn there (bright: thirteen days on, near full) and stays clickable as a disc.
     /// </summary>
