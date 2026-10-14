@@ -648,14 +648,16 @@ The processing side of such a night is the restoration plan's: each file stacked
 
 **Issue:** #813 (its "measure first" item: the rate the single-exposure loop reaches with a small ROI on a real body).
 
-The same G3M678M, on this desktop, at the night's region: 640x480 at (1716, 546), bin 1, gain 2252, black level left alone. Two
-layers, so the gap shows: the camera's ceiling in the VENDOR's video mode, and TianWen's own path, which for this body is not
-video at all. ToupTek.SDK leaves `CanVideoCapture` false and takes each frame by the SDK's software trigger, so a live capture is
-`PlanetaryCapture.RapidExposureFramesAsync`: expose, poll, read, repeat.
+The same G3M678M, on this desktop, at the night's region: 640x480 at (1716, 546), bin 1, gain 2252. The black level differs between
+the layers: the scratch console leaves it at the camera's own, while TianWen's driver sets it to a tenth of its range at connect
+(`DALCameraDriver`'s connect defaults) and the probe keeps that. It is an offset added to every sample, not a readout setting, so it
+moves no rate; neither layer varied it. Two layers, so the gap shows: the camera's ceiling in the VENDOR's video mode, and
+TianWen's own path, which for this body is not video at all. ToupTek.SDK leaves `CanVideoCapture` false and takes each frame by the
+SDK's software trigger, so a live capture is `PlanetaryCapture.RapidExposureFramesAsync`: expose, poll, read, repeat.
 
 **The camera's ceiling (vendor video mode).** Frames delivered over 3 s, after a 1 s settle; no frame lost in any run (the frame
 info's sequence numbers run without a gap, though in one run the counter jumped twice), and the SDK's own `get_FrameRate` agrees
-with the count to 0.5 fps:
+with the count to 0.7 fps on every run that did not stall:
 
 | Exposure | 8-bit, speed 0 | 8-bit, speed 1 | 8-bit, speed 2 | 16-bit, speed 0 | 16-bit, speed 1 | 16-bit, speed 2 |
 |---|---|---|---|---|---|---|
@@ -688,12 +690,18 @@ with the count to 0.5 fps:
   of them (the camera back in 0.8 s), one stayed dark after it, and one more run stopped mid-stream. Opened afresh for each run, 1 of
   the 44 runs at this region stalled at its start, the first, straight after the full frame had stopped mid-stream (twice, at both
   depths). A video path for this body needs the reset the DAL driver already makes after two lost exposures.
+- **The vendor's trigger loop stalled too**, so the trigger is not immune. On one handle, stopped and restarted per run, the fifth run
+  (8 bits at 1 ms) had its triggers go unanswered for minutes, and that console, which then had no reset, was stopped by hand. The
+  next console's first run, on a fresh open, had three triggers go unanswered; a `DEVICE_RESET` cleared it, and after it that run and
+  the other 23 lost nothing.
 
 **TianWen's path (software trigger).** `src/TianWen.Lib.Tests/ToupTekFrameRateProbe.cs`, gated on `TIANWEN_TOUPTEK_RATE_PROBE=1` (never
 `TIANWEN_TOUPTEK_PROBE`, which resets the camera), in process through `ToupTekCameraDriver`: the bare driver polled as fast as it
 answers, the bare driver sleeping 5 ms between polls as the capture loop does, and `PlanetaryCapture` whole. Frames over 3 s after
-1 s; no exposure was lost in any run, every frame 640x480 at the depth asked for; the binding never sets a speed, so the camera runs
-at its default, 2:
+1 s, every frame 640x480 at the depth asked for. The two driver layers counted no lost exposure (one that ended without a frame); the
+capture loop reports none, so its losses are read only from its frame counts: within 0.7 fps of the driver's at the same 5 ms sleep,
+where one loss would have stopped the count, since the driver gives a lost exposure up only 15 s past its end. The binding never
+sets a speed, so the camera runs at its default, 2:
 
 | Exposure | Depth | Driver, no sleep | Driver, 5 ms sleep | `PlanetaryCapture` | Trigger to ready (median, no sleep) |
 |---|---|---|---|---|---|

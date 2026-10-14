@@ -30,8 +30,10 @@ namespace TianWen.Lib.Tests;
 /// </summary>
 /// <remarks>
 /// Set <c>TIANWEN_TOUPTEK_RATE_PROBE=1</c> with a ToupTek camera attached and no other program holding it. It sets the
-/// camera's gain, exposure, depth and region and nothing else: unlike <see cref="ToupTekResetRecoveryProbe"/> it never
-/// resets the camera. Real clock, since a frame rate is wall-clock time by nature.
+/// camera's gain, exposure, depth and region; the black level stays where the driver's connect puts it, a tenth of its
+/// range. It never asks for a reset, as <see cref="ToupTekResetRecoveryProbe"/> does, but the DAL driver may make one
+/// itself: a body that can be reset is reset before the next exposure after two lost in a row. Real clock, since a frame
+/// rate is wall-clock time by nature.
 /// </remarks>
 [Collection("Devices")]
 public class ToupTekFrameRateProbe(ITestOutputHelper output)
@@ -111,7 +113,9 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
             output.WriteLine($"{"exposure",10} {"depth",5} {"layer",-34} {"fps",7} {"frames",6} {"lost",4}  detail");
             foreach (var row in rows)
             {
-                output.WriteLine($"{FormatExposure(row.Exposure),10} {row.Depth.BitSize,5} {row.Layer,-34} {row.Fps,7:F1} {row.Frames,6} {row.Lost,4}  {row.Detail}");
+                // The capture loop reports no lost exposure, so its row has no count to show: n/a, never a measured 0.
+                var lost = row.Layer.StartsWith("PlanetaryCapture", StringComparison.Ordinal) ? "n/a" : row.Lost.ToString();
+                output.WriteLine($"{FormatExposure(row.Exposure),10} {row.Depth.BitSize,5} {row.Layer,-34} {row.Fps,7:F1} {row.Frames,6} {lost,4}  {row.Detail}");
             }
 
             // Only what is always true: every layer had frames, of the region asked for, at the depth asked for.
