@@ -113,6 +113,35 @@ public class NodeShareTests(ITestOutputHelper outputHelper) : IDisposable
     }
 
     [Fact(Timeout = 30_000)]
+    public async Task ALocalOnlyNodeSavesSharingAndNeitherRestartsNorStartsAtLogon()
+    {
+        // A local-only node (TIANWEN_LOCAL_ONLY) listens on its socket alone whatever the setting: a restart would come back
+        // local-only and apply nothing, on every toggle, and a logon entry would start a node WITHOUT the mode from this path,
+        // which binds the LAN and raises the firewall prompt the mode exists to avoid.
+        var ct = TestContext.Current.CancellationToken;
+        var role = new NodeRole(spawned: true);
+        var logon = new RecordedLogonStart();
+        var socketPath = NewSocketPath();
+        await using var node = await NodeHarness.StartAsync(outputHelper, ct,
+            services => services.AddSingleton(role).AddSingleton<INodeLogonStart>(logon)
+                .AddSingleton(new NodeListening(socketPath, LanPort: null, LocalOnly: true)),
+            socketPath: socketPath);
+
+        var (status, share) = await ShareAsync(node.Client, shared: true);
+
+        status.ShouldBe(200);
+        share.ShouldNotBeNull().Restarting.ShouldBeFalse();
+        share.Shared.ShouldBeTrue("it is saved");
+        share.Listening.ShouldBeFalse();
+        share.Message.ShouldNotBeNull().ShouldContain("local-only");
+        node.App.Lifetime.ApplicationStopping.IsCancellationRequested.ShouldBeFalse("a restart would come back local-only");
+        role.ExitCode.ShouldBe(NodeExitCodes.Stopped);
+        logon.IsSet.ShouldBeFalse("a logon entry would start the node without the mode");
+        JsonDocument.Parse(await File.ReadAllTextAsync(NodeSettings.PathIn(node.External.AppDataFolder), ct))
+            .RootElement.GetProperty("shareOnLan").GetBoolean().ShouldBeTrue("the setting is the machine's, kept for a node started without the mode");
+    }
+
+    [Fact(Timeout = 30_000)]
     public async Task ANodeHoldingTheRigAppliesSharingAtItsNextStart()
     {
         var ct = TestContext.Current.CancellationToken;

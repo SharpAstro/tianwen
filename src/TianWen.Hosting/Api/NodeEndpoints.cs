@@ -96,6 +96,24 @@ internal static class NodeEndpoints
         }
 
         await settings.UpdateAsync(current => current with { ShareOnLan = request.Shared }, cancellationToken);
+
+        // A local-only node (TIANWEN_LOCAL_ONLY) listens on its socket alone whatever the setting, so the setting is only
+        // kept: a restart would come back local-only and apply nothing, and a logon entry would start a node WITHOUT the
+        // mode from this path, which binds the LAN. Taking an entry away binds nothing, so turning sharing off still does.
+        if (listening.LocalOnly)
+        {
+            if (!request.Shared)
+            {
+                logon.Set(false, Environment.ProcessPath ?? throw new InvalidOperationException("The node cannot tell which executable it is, to start at logon"));
+            }
+            return EnvelopeResults.Json(ResponseEnvelope<NodeShareDto>.Ok(new NodeShareDto
+            {
+                Shared = request.Shared,
+                Listening = listening.IsShared,
+                Message = "Saved. This node is local-only and listens on its socket alone until it is started without the mode",
+            }), HostingJsonContext.Default.ResponseEnvelopeNodeShareDto);
+        }
+
         logon.Set(request.Shared, Environment.ProcessPath ?? throw new InvalidOperationException("The node cannot tell which executable it is, to start at logon"));
 
         var applied = listening.IsShared == request.Shared;
