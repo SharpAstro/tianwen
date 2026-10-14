@@ -311,17 +311,19 @@ the Sun, is why Venus is a crescent, and the angle between them at the planet is
 - **Positions:** `SolarSystemOrbits` (Lib): `VSOP87a.GetBody`'s heliocentric ecliptic coordinates, no light time (the
   orrery shows one instant from outside); the Moon from Meeus's series about VSOP87's Earth. An orbit is one sidereal
   period of the same series (`SolarSystemOrbits.SampleOrbit`, 241 points, closed), so a planet sits on its own. A
-  comet is the SELECTED comet, from the elements the comet repository holds (`ICometRepository.TryGet`, apparition
+  comet is the one the view was OPENED on (`OrreryState.Comet`, kept apart from the highlight, which a click moves), from the elements the comet repository holds (`ICometRepository.TryGet`, apparition
   upgrade included): its place from `CometEphemeris.TryGetHeliocentricEcliptic` and its orbit from
   `CometEphemeris.SampleOrbit` (361 points evenly in true anomaly, the whole ellipse, an open orbit to 40 AU each
   side), both through one perifocal frame (`PerifocalAxes`), so it sits on its drawn orbit.
 - **The cache** (`OrreryScene`): the positions per MINUTE of the atlas's clock, the planets' orbits per CENTURY of it,
-  built on the thread pool (the Task the hand-off, a landing asks for a frame), and a comet's orbit per element set.
+  built on the thread pool (the Task the hand-off, a landing asks for a frame), and a comet's orbit AND position per
+  element set (an apparition upgrade keeps the index and changes the elements, and must move the comet at once).
   Orbits are stored in true AU and the scale is applied as each point is projected, so switching the scale builds
   nothing. A drag changes no key, so it builds nothing (`OrbitBuilds`, `CometOrbitBuilds`, `PositionBuilds`).
 - **The camera** (`OrreryCamera`): a 45 degree perspective on a point orbiting the Sun and looking at it, the
   ecliptic's north up; a drag turns its azimuth and elevation (0.35 degree a pixel, the elevation held inside 89),
-  the wheel and a pinch its distance. A proper view, never mirrored. Points are projected on the CPU and drawn with
+  the wheel and a pinch its distance. A pinch is handled as the sky's: it undoes and cancels the drag the first
+  finger began, and the touchpad's duplicate wheel event during or just after it is ignored. A proper view, never mirrored. Points are projected on the CPU and drawn with
   the primitives every host has (`DrawPolyline` for orbits, a sprite or `FillEllipse` for a body), so Vulkan, WebGL
   and the CPU surface draw it with nothing new.
 - **Scale:** Compressed (the default: each distance's square root, Neptune 8.8 times Mercury's distance rather than
@@ -331,7 +333,9 @@ the Sun, is why Venus is a crescent, and the angle between them at the planet is
   each labelled, the selected one ringed and its orbit drawn in the accent. The Moon is drawn 8 % of the Earth's
   drawn distance out from the Earth along its true direction (at any scale that shows the planets it would sit on
   the Earth). The Earth, which A4 never draws, has the IAU's rotation model and radii in `PhysicalEphemeris` now
-  (not in `Supports`, which the atlas and the stacker gate on) and a flat blue, there being no Earth map in the atlas.
+  (not in `Supports`, which the atlas and the stacker gate on) and the palette's Info as a flat colour, there being no
+  Earth map in the atlas. Every colour of the view comes from `GuiTheme.Palette` (space, the Earth, a comet, the strip,
+  the shared time controls taking the caller's fill and ink), so Night spends no blue.
   A comet is a point with a tail away from the Sun. A body still building its sprite is a flat dot.
 - **Lit as the camera sees it.** `PhysicalEphemeris.ComputeSeenAlong(body, utc, heliocentric, toObserver)` is
   `Compute`'s sub-point arithmetic with the observer a DIRECTION instead of the geocentre: the unit vector from the
@@ -344,9 +348,12 @@ the Sun, is why Venus is a crescent, and the angle between them at the planet is
 - **Time:** ONE clock with the sky (`SkyMapTab.ResolveViewingTime`: the planner's date or the live clock, plus
   `SkyMapState.TimeOffset`). The strip carries the sky's own time controls (`BuildTimeControls`: the steps, the
   landmarks drop-up, Now) and the arrow keys and 0 work as on the sky; Play runs the offset at 10 days a second of
-  the wall clock, asking for the next frame each frame (on the browser a coalesced repaint), so the sky shows the
-  same instant when the view goes back.
-- **Click** a body (a press that did not move) to put the highlight on it; the atlas's selection is left as it is.
+  the wall clock, so the sky shows the same instant when the view goes back. Playing is a STANDING reason to draw
+  (`SkyMapState.NeedsContinuousFrames`), asked by the GUI's redraw check: the one-shot `NeedsRedraw` a played frame
+  sets is cleared by the GUI after the frame, which held Play to about a frame a second. The browser asks for each
+  frame as a coalesced repaint.
+- **Click** a body (a press that did not move) to put the highlight on it; the atlas's selection and the comet the
+  view was opened on are left as they are.
 
 **Measured** (`OrreryTests.TheOrreryDrawsOnTheCpuSurface`, Debug, tiered JIT, this Surface Pro 11, Snapdragon X Elite
 X1E80100): an orrery frame at 900 x 600 on the CPU surface while the camera turns half a degree a frame, median
@@ -364,13 +371,17 @@ for Jupiter, the Sun, the Moon and a comet and not for M 51; Alt+S through the r
 Way layer as it was, and Escape returns with the selection kept; a drag of twenty frames builds no orbit and no
 position (one build each before it), a day's step one position and no orbit; and the view drawn on the CPU surface,
 Compressed and True with Jupiter selected, written as `orrery-compressed.png` and `orrery-true.png` in the test output.
+After review (PR #1571 round 1): a click on Jupiter keeps the comet and builds its orbit no second time; Play stays a
+reason to draw however often the one-shot flag is cleared, and stops with Pause and Escape; new elements for the same
+comet put it on its new orbit with no change of time; a pinch zooms once and cancels the drag; and under Night no
+pixel of the view has any blue (`OrreryNightTests`).
 
 #### A5: what is open
 
-- **Not seen on the GPU hosts yet.** The tests draw it on the CPU surface; the Vulkan GUI and the WebGL page take the
-  same primitives and sprite seam, but nobody has opened it there, nor timed a drag in the browser.
-- **The Earth is a flat disc**: the texture atlas has no Earth map.
-- **Play's speed is fixed** at 10 days a second; nothing changes it.
+- **Not seen on the GPU hosts yet** (#1572, bench). The tests draw it on the CPU surface; the Vulkan GUI and the WebGL
+  page take the same primitives and sprite seam, but nobody has opened it there, nor timed a drag in the browser.
+- **The Earth is a flat disc** and **Play's speed is fixed** (#1573): the texture atlas has no Earth map, and Play runs
+  at 10 days a second with nothing to change it.
 
 ## Sequencing
 
