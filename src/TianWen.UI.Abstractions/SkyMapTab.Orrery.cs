@@ -145,8 +145,9 @@ namespace TianWen.UI.Abstractions
             var camera = new OrreryCamera(orrery.AzimuthDeg, orrery.ElevationDeg, orrery.Distance, contentRect);
             DrawOrreryBackdrop(plannerState, contentRect, camera, viewingTime);
             PushClip(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height);
-            DrawOrreryOrbits(scene, camera, comet, orrery.Scale, dpiScale);
-            DrawOrreryBodies(scene, camera, viewingTime, orrery.Scale, dpiScale);
+            var scaling = new OrreryScaling(orrery.Scale, OrreryScaling.ReachFor(orrery.Distance));
+            DrawOrreryOrbits(scene, camera, comet, scaling, dpiScale);
+            DrawOrreryBodies(scene, camera, viewingTime, scaling, dpiScale);
             PopClip();
 
             DrawOrreryStrip(contentRect, viewingTime, plannerState.SiteTimeZone,
@@ -226,11 +227,11 @@ namespace TianWen.UI.Abstractions
             var reachAu = around is { } index && index != CatalogIndex.Sol && scene.TryFind(index, out var body)
                 ? Math.Max(Math.Sqrt((body.X * body.X) + (body.Y * body.Y) + (body.Z * body.Z)), 0.4)
                 : 1.6;
-            var (rx, _, _) = OrreryScene.Scaled(orrery.Scale, reachAu, 0, 0);
-            orrery.Distance = OrreryCamera.DistanceToFrame(rx * 1.15);
+            // In AU in both scales: a distance at the reach the camera frames is drawn where it truly is, so the framing is the same.
+            orrery.Distance = OrreryCamera.DistanceToFrame(reachAu * 1.15);
         }
 
-        private void DrawOrreryOrbits(OrreryScene scene, in OrreryCamera camera, in CometElements? comet, OrreryScale scale, float dpiScale)
+        private void DrawOrreryOrbits(OrreryScene scene, in OrreryCamera camera, in CometElements? comet, in OrreryScaling scale, float dpiScale)
         {
             var palette = GuiTheme.Palette;
             var dim = palette.DimText with { Alpha = 0x70 };
@@ -250,7 +251,7 @@ namespace TianWen.UI.Abstractions
         }
 
         // One polyline per run of points in front of the camera; a point behind it breaks the line rather than wrapping to the far side.
-        private void DrawOrbitPolyline(double[] points, in OrreryCamera camera, OrreryScale scale, RGBAColor32 colour, int thickness)
+        private void DrawOrbitPolyline(double[] points, in OrreryCamera camera, in OrreryScaling scale, RGBAColor32 colour, int thickness)
         {
             var count = points.Length / 3;
             Span<(float X, float Y)> run = count <= 512 ? stackalloc (float, float)[count] : new (float, float)[count];
@@ -292,7 +293,7 @@ namespace TianWen.UI.Abstractions
             _ => 3f,
         };
 
-        private void DrawOrreryBodies(OrreryScene scene, in OrreryCamera camera, DateTimeOffset viewingTime, OrreryScale scale, float dpiScale)
+        private void DrawOrreryBodies(OrreryScene scene, in OrreryCamera camera, DateTimeOffset viewingTime, in OrreryScaling scale, float dpiScale)
         {
             _orreryHits.Clear();
             _orreryLabels.Clear();
@@ -545,14 +546,14 @@ namespace TianWen.UI.Abstractions
                     .WithTooltip(tooltip);
 
             // The distance scale is ONE toggle naming the mode in force, sized by the longer label so a press does not move the strip.
-            var compressed = orrery.Scale == OrreryScale.Compressed;
-            var scaleToggle = Layout.Builder.Text(compressed ? "Distances: compressed" : "Distances: true", fontSize, ink,
-                    TextAlign.Center, TextAlign.Center, widthSample: "Distances: compressed")
+            var auto = orrery.Scale == OrreryScale.Auto;
+            var scaleToggle = Layout.Builder.Text(auto ? "Distances: auto" : "Distances: true", fontSize, ink,
+                    TextAlign.Center, TextAlign.Center, widthSample: "Distances: auto")
                 .PadX(padX).HStar()
                 .Bg(fill).BgHover(GuiTheme.Hover(fill))
                 .Clickable(new HitResult.ButtonHit(OrreryScaleAction),
-                    _ => SwitchOrreryScale(compressed ? OrreryScale.True : OrreryScale.Compressed))
-                .WithTooltip(compressed ? "Distances as their square root; press for true distances" : "True distances; press to compress them");
+                    _ => SwitchOrreryScale(auto ? OrreryScale.True : OrreryScale.Auto))
+                .WithTooltip(auto ? "Distances compressed as far as the framing needs; press for true distances" : "True distances; press to compress them as the framing needs");
 
             // ONE tree over the whole rect: the strip is the bottom row of it, its fill and its content one arranged box.
             var strip = Layout.Builder.HStack(
@@ -584,8 +585,8 @@ namespace TianWen.UI.Abstractions
             {
                 return;
             }
+            // No re-framing: the camera's distance is AU in both scales, and the reach it frames is drawn where it is in both.
             State.Orrery.Scale = scale;
-            _orreryFramePending = true;
             State.NeedsRedraw = true;
         }
 
