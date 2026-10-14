@@ -38,6 +38,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>The labels the last orrery frame drew, each with the box its text was drawn in: what the tests read.</summary>
         internal IReadOnlyList<(CatalogIndex Index, RectF32 Rect)> OrreryLabels => _orreryLabels;
 
+        /// <summary>The backdrop view the last orrery frame drew its stars through, or null when it drew none: what the tests read.</summary>
+        internal SkyOrreryBackdrop? LastOrreryBackdrop { get; private set; }
+
         /// <summary>How many orrery frames have been drawn, and how long the last one took (CPU, milliseconds).</summary>
         internal int OrreryFrames { get; private set; }
 
@@ -139,8 +142,9 @@ namespace TianWen.UI.Abstractions
             }
 
             FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height, OrreryBackground);
-            PushClip(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height);
             var camera = new OrreryCamera(orrery.AzimuthDeg, orrery.ElevationDeg, orrery.Distance, contentRect);
+            DrawOrreryBackdrop(plannerState, contentRect, camera, viewingTime);
+            PushClip(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height);
             DrawOrreryOrbits(scene, camera, comet, orrery.Scale, dpiScale);
             DrawOrreryBodies(scene, camera, viewingTime, orrery.Scale, dpiScale);
             PopClip();
@@ -151,6 +155,42 @@ namespace TianWen.UI.Abstractions
 
             OrreryFrames++;
             LastOrreryFrameMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        }
+
+        /// <summary>What the backdrop's stars' and Milky Way's alpha is multiplied by, so orbits and labels stay readable over it.</summary>
+        internal const float OrreryBackdropBrightness = 0.2f;
+
+        /// <summary>The Milky Way's opacity behind the orrery, whatever the Sun's altitude at the site (the view is not from the ground).</summary>
+        internal const float OrreryMilkyWayAlpha = 0.35f;
+
+        // The sky map's own stars and Milky Way at infinity, drawn FIRST, through the sky's own rendering with the orrery camera's view
+        // (SkyOrreryBackdrop): the camera's rotation and the ecliptic's tilt, no translation, so they turn as the camera orbits and never
+        // move with the planets; the gnomonic projection at the orrery's focal length; the map's culls at the orrery's field; dimmed, and
+        // Night-tinted. Every host draws it through its own RenderSkyMap (the GPU pipelines; on the CPU surface, SkyMapRenderer's field).
+        private void DrawOrreryBackdrop(PlannerState plannerState, RectF32 rect, in OrreryCamera camera, DateTimeOffset viewingTime)
+        {
+            LastOrreryBackdrop = null;
+            if (!State.Orrery.ShowBackdrop || plannerState.ObjectDb is not { } db)
+            {
+                return;
+            }
+            var view = camera.EquatorialView(out var axis);
+            var focal = camera.FocalPx;
+            var diagonalDeg = 2 * Math.Atan(Math.Sqrt((rect.Width * rect.Width) + (rect.Height * rect.Height)) / 2 / focal) * 180 / Math.PI;
+            var night = GuiTheme.State == UiThemeState.Night ? GuiTheme.Palette.Accent : (RGBAColor32?)null;
+            var backdrop = new SkyOrreryBackdrop(view, focal, axis, diagonalDeg, OrreryCamera.FieldOfViewDeg,
+                OrreryMilkyWayAlpha, OrreryBackdropBrightness, night);
+            var (lat, lon) = (plannerState.SiteLatitude, plannerState.SiteLongitude);
+            State.Backdrop = backdrop;
+            try
+            {
+                RenderSkyMap(db, rect, viewingTime, lat, lon, Lib.Astrometry.SOFA.SiteContext.Create(lat, lon, viewingTime), SkyMapDrawPhase.Backdrop);
+            }
+            finally
+            {
+                State.Backdrop = null;
+            }
+            LastOrreryBackdrop = backdrop;
         }
 
         // A play advances the atlas's own scrub offset by what the wall clock has run since the last frame, so the sky shows the same

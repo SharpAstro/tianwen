@@ -118,6 +118,36 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// Project a celestial coordinate through a view matrix GNOMONICALLY, as the shaders do for a backdrop view
+        /// (<see cref="SkyOrreryBackdrop"/>, <c>gnomonic</c> in the UBO): a direction <c>theta</c> off the axis lands
+        /// <paramref name="focalPx"/> <c>tan theta</c> out, which is the orrery camera's perspective. False within about 87 degrees
+        /// of behind the camera's plane, where the shader culls too.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool ProjectGnomonicWithMatrix(
+            double ra, double dec,
+            in Matrix4x4 viewMatrix,
+            double focalPx,
+            float centerX, float centerY,
+            out float screenX, out float screenY)
+        {
+            var (x, y, z) = SkyMapState.RaDecToUnitVec(ra, dec);
+            var cx = viewMatrix.M11 * x + viewMatrix.M12 * y + viewMatrix.M13 * z;
+            var cy = viewMatrix.M21 * x + viewMatrix.M22 * y + viewMatrix.M23 * z;
+            var cosD = -(viewMatrix.M31 * x + viewMatrix.M32 * y + viewMatrix.M33 * z);
+            if (cosD <= 0.05f)
+            {
+                screenX = float.NaN;
+                screenY = float.NaN;
+                return false;
+            }
+            var k = 1.0 / cosD;
+            screenX = centerX + (float)(cx * k * focalPx);
+            screenY = centerY - (float)(cy * k * focalPx);
+            return true;
+        }
+
+        /// <summary>
         /// Project a J2000 unit vector directly, bypassing the RA/Dec → unit vector conversion.
         /// Essential near the celestial poles where the RA coordinate is degenerate.
         /// </summary>

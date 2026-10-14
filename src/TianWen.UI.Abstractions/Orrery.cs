@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
@@ -54,6 +55,9 @@ public sealed class OrreryState
 
     /// <summary>Whether time runs on its own, at <see cref="DaysPerSecond"/>.</summary>
     public bool Playing { get; set; }
+
+    /// <summary>Whether the sky map's stars and Milky Way are drawn behind the scene, at infinity (on by default).</summary>
+    public bool ShowBackdrop { get; set; } = true;
 
     /// <summary>How fast a play runs, in days of the atlas's clock per second of the wall clock.</summary>
     public double DaysPerSecond { get; set; } = 10;
@@ -121,6 +125,32 @@ public readonly struct OrreryCamera
         sx = (float)(_cx + (k * ((dx * _rx) + (dy * _ry) + (dz * _rz))));
         sy = (float)(_cy - (k * ((dx * _ux) + (dy * _uy) + (dz * _uz))));
         return true;
+    }
+
+    /// <summary>The gnomonic focal length in pixels: a direction <c>theta</c> off the axis lands this times <c>tan theta</c> out.</summary>
+    public double FocalPx => _focal;
+
+    /// <summary>
+    /// The camera's view of the stars at infinity as a sky-map view matrix (J2000 equatorial to camera space, the camera looking along
+    /// -Z, x right, y up): the camera's ROTATION alone, no translation, since a star is at infinity, composed with the fixed tilt
+    /// from the ecliptic of J2000, the orrery's frame, to the equator the catalogue is in (<see cref="SolarSystemOrbits.EclipticToEquatorial"/>,
+    /// VSOP87's own, the obliquity 23.44 degrees). <paramref name="axis"/> is the look direction in J2000, the star cull's axis.
+    /// Projected gnomonically with <see cref="FocalPx"/>, a star lands where <see cref="TryProject"/> puts a point infinitely far along it.
+    /// </summary>
+    public Matrix4x4 EquatorialView(out (float X, float Y, float Z) axis)
+    {
+        Span<double> right = [_rx, _ry, _rz];
+        Span<double> up = [_ux, _uy, _uz];
+        Span<double> forward = [_fx, _fy, _fz];
+        SolarSystemOrbits.EclipticToEquatorial(right);
+        SolarSystemOrbits.EclipticToEquatorial(up);
+        SolarSystemOrbits.EclipticToEquatorial(forward);
+        axis = ((float)forward[0], (float)forward[1], (float)forward[2]);
+        return new Matrix4x4(
+            (float)right[0], (float)right[1], (float)right[2], 0,
+            (float)up[0], (float)up[1], (float)up[2], 0,
+            (float)-forward[0], (float)-forward[1], (float)-forward[2], 0,
+            0, 0, 0, 1);
     }
 
     /// <summary>

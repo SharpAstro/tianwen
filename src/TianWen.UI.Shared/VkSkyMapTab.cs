@@ -172,12 +172,16 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // viewing time (matches the planner's twilight zones). VSOP87a is cached
         // for 10s so this stays out of the per-frame hot path.
         double sunAltDeg = State.GetSunAltitudeDegCached(viewingTime, siteLat, siteLon);
-        var bg = SkyMapState.SkyBackgroundColorForSunAltitude(sunAltDeg);
-        Renderer.FillRectangle(
-            new RectInt(
-                new PointInt((int)(contentRect.X + mapW), (int)(contentRect.Y + mapH)),
-                new PointInt((int)contentRect.X, (int)contentRect.Y)),
-            bg);
+        // A backdrop view (the orrery's, SkyMapState.Backdrop) is drawn over the orrery's own space and has no sky colour.
+        if (State.Backdrop is null)
+        {
+            var bg = SkyMapState.SkyBackgroundColorForSunAltitude(sunAltDeg);
+            Renderer.FillRectangle(
+                new RectInt(
+                    new PointInt((int)(contentRect.X + mapW), (int)(contentRect.Y + mapH)),
+                    new PointInt((int)contentRect.X, (int)contentRect.Y)),
+                bg);
+        }
 
         // Update UBO with current view + site for horizon clipping. Pass the current
         // frame-in-flight index so each swapchain image gets its own UBO copy and the

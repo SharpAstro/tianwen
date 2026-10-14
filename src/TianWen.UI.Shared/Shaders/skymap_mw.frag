@@ -15,6 +15,11 @@ layout(set = 0, binding = 0, std140) uniform SkyMapUBO {
     float sinLST;
     float cosLST;
     int   horizonClip;
+    // A view that is not the sky (the orrery's backdrop): a luminance tint (zero = none, Night's), a brightness factor (1 = the sky's
+    // own), and a gnomonic projection (the orrery camera's perspective) in place of the stereographic one.
+    vec3  tint;
+    float brightness;
+    int   gnomonic;
 } ubo;
 
 layout(set = 1, binding = 0) uniform sampler2D milkyWayTex;
@@ -33,7 +38,9 @@ void main() {
 
     float rho = length(vec2(x, y));
     vec3 camDir;
-    if (rho < 0.00001) {
+    if (ubo.gnomonic != 0) {
+        camDir = normalize(vec3(x, y, -1.0));
+    } else if (rho < 0.00001) {
         camDir = vec3(0.0, 0.0, -1.0);
     } else {
         float c = 2.0 * atan(rho * 0.5);
@@ -58,5 +65,8 @@ void main() {
     float v = 0.5 - dec / PI;                 // [0, 1], north at top
 
     vec4 mw = texture(milkyWayTex, vec2(u, v));
-    FragColor = vec4(mw.rgb, mw.a * pc.alpha);
+    vec3 rgb = any(greaterThan(ubo.tint, vec3(0.0)))
+        ? vec3(dot(mw.rgb, vec3(0.2126, 0.7152, 0.0722))) * ubo.tint
+        : mw.rgb;
+    FragColor = vec4(rgb, mw.a * pc.alpha * ubo.brightness);
 }

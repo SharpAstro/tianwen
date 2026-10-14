@@ -674,6 +674,18 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
+            // A backdrop view (the orrery's) has no ground: on the CPU surface it is the map's own star field through that view
+            // (SkyMapRenderer's, the field the terminal map draws), and on a GPU host the override draws it through its pipeline.
+            if (State.Backdrop is { } backdrop)
+            {
+                if (Renderer.Surface is RgbaImage image)
+                {
+                    SkyMapRenderer.DrawBackdropStars(image, db, backdrop,
+                        contentRect.X + (contentRect.Width / 2), contentRect.Y + (contentRect.Height / 2), State.EffectiveMagnitudeLimit);
+                }
+                return;
+            }
+
             double sunAltDeg = State.GetSunAltitudeDegCached(viewingTime, siteLat, siteLon);
             RenderLayout(Layout.Builder.Spacer().Bg(SkyMapState.SkyBackgroundColorForSunAltitude(sunAltDeg)), contentRect);
         }
