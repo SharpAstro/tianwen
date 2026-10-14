@@ -50,7 +50,7 @@ public class CanonDiscoveryTests
     {
         var wpd = new FakeWpd();
         var bodies = new CanonBodyRegistry();
-        return (new CanonDeviceSource(NullLogger<CanonDeviceSource>.Instance, wpd, bodies), wpd, bodies);
+        return (new CanonDeviceSource(NullLogger<CanonDeviceSource>.Instance, wpd, bodies, LocalOnlyMode.Off), wpd, bodies);
     }
 
     private static CanonBodyIdentity Body(string serial) => new("Canon EOS 6D", serial);

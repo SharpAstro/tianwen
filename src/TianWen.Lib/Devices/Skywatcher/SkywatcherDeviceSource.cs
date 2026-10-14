@@ -12,10 +12,16 @@ namespace TianWen.Lib.Devices.Skywatcher;
 /// Discovers Skywatcher mounts. Serial probing lives in <see cref="SkywatcherSerialProbeBase"/>
 /// and runs inside <see cref="ISerialProbeService"/>; this source just reads matches the
 /// service has already published. WiFi discovery (UDP broadcast of <c>:e1\r</c> to
-/// 255.255.255.255:11880) stays here because it uses a different transport.
+/// 255.255.255.255:11880) stays here because it uses a different transport, and is not run in a
+/// local-only process (<see cref="LocalOnlyMode"/>).
 /// </summary>
-internal class SkywatcherDeviceSource(ISerialProbeService probeService, ILogger<SkywatcherDeviceSource> logger) : IDeviceSource<SkywatcherDevice>
+internal class SkywatcherDeviceSource(ISerialProbeService probeService, ILogger<SkywatcherDeviceSource> logger, LocalOnlyMode localOnly) : IDeviceSource<SkywatcherDevice>
 {
+    /// <summary>
+    /// The WiFi broadcast, sent from a socket the OS binds on every interface. A seam for a test, which must not send it.
+    /// </summary>
+    internal Func<CancellationToken, IAsyncEnumerable<SkywatcherDevice>> BroadcastWifiAsync { get; init; } = DiscoverWiFiAsync;
+
     private Dictionary<DeviceType, IReadOnlyList<SkywatcherDevice>> _cachedDevices = new();
 
     public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Mount];
@@ -39,17 +45,24 @@ internal class SkywatcherDeviceSource(ISerialProbeService probeService, ILogger<
             mounts.Add(new SkywatcherDevice(match.DeviceUri));
         }
 
-        // WiFi discovery via UDP broadcast: unchanged, uses a different transport.
-        try
+        // WiFi discovery via UDP broadcast: a different transport, and none in a local-only process.
+        if (!localOnly.MayBindTheNetwork)
         {
-            await foreach (var device in DiscoverWiFiAsync(cancellationToken))
-            {
-                mounts.Add(device);
-            }
+            logger.LogDebug("Skywatcher WiFi discovery skipped: this process is local-only ({EnvVar})", LocalOnlyMode.EnvironmentVariable);
         }
-        catch (Exception ex)
+        else
         {
-            logger.LogWarning(ex, "Skywatcher WiFi discovery failed");
+            try
+            {
+                await foreach (var device in BroadcastWifiAsync(cancellationToken))
+                {
+                    mounts.Add(device);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Skywatcher WiFi discovery failed");
+            }
         }
 
         Interlocked.Exchange(ref _cachedDevices, new Dictionary<DeviceType, IReadOnlyList<SkywatcherDevice>>
@@ -58,7 +71,7 @@ internal class SkywatcherDeviceSource(ISerialProbeService probeService, ILogger<
         });
     }
 
-    private async IAsyncEnumerable<SkywatcherDevice> DiscoverWiFiAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    private static async IAsyncEnumerable<SkywatcherDevice> DiscoverWiFiAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
         System.Net.Sockets.UdpClient? udpClient = null;
         try
