@@ -158,11 +158,11 @@ namespace TianWen.UI.Abstractions
             LastOrreryFrameMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         }
 
-        /// <summary>What the backdrop's stars' and Milky Way's alpha is multiplied by, so orbits and labels stay readable over it.</summary>
-        internal const float OrreryBackdropBrightness = 0.2f;
+        /// <summary>What the backdrop's STARS' alpha is multiplied by, so orbits and labels stay readable over them; the Milky Way has its own opacity.</summary>
+        internal const float OrreryBackdropBrightness = 0.35f;
 
         /// <summary>The Milky Way's opacity behind the orrery, whatever the Sun's altitude at the site (the view is not from the ground).</summary>
-        internal const float OrreryMilkyWayAlpha = 0.35f;
+        internal const float OrreryMilkyWayAlpha = 0.6f;
 
         // The sky map's own stars and Milky Way at infinity, drawn FIRST, through the sky's own rendering with the orrery camera's view
         // (SkyOrreryBackdrop): the camera's rotation and the ecliptic's tilt, no translation, so they turn as the camera orbits and never

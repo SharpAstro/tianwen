@@ -101,9 +101,51 @@ public sealed class OrreryBackdropGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHe
         output.WriteLine(folder);
     }
 
-    private byte[] Render(VkSkyMapPipeline pipeline, SkyOrreryBackdrop backdrop)
+    /// <summary>
+    /// The Milky Way behind the orrery is drawn at the orrery's own Milky Way opacity, NOT further dimmed by the stars' brightness
+    /// factor: a plain white texture through the real pipeline reads <see cref="SkyMapTab{TSurface}.OrreryMilkyWayAlpha"/> of full
+    /// scale, and at least half. It read 0.35 x 0.2 = 0.07 of it, which the owner saw as a backdrop "super dim".
+    /// </summary>
+    [Fact]
+    public async Task TheMilkyWayIsDrawnAtTheOrrerysOwnOpacity()
     {
-        var state = new SkyMapState { ShowHorizon = false, ShowMilkyWay = false, ShowAltAzGrid = false, ShowGrid = false };
+        if (!gpu.VulkanAvailable)
+        {
+            Assert.Skip($"Vulkan runtime not available on this host ({gpu.UnavailableReason})");
+            return;
+        }
+
+        var ct = TestContext.Current.CancellationToken;
+        var db = await SharedCatalogDB.InitAsync(ct);
+        var pipeline = await gpu.GetStarPipelineAsync(db, When, ct);
+        var white = new byte[64 * 32 * 4];
+        Array.Fill(white, (byte)0xFF);
+        gpu.Invoke(() =>
+        {
+            pipeline.LoadMilkyWayTexture(white, 64, 32);
+            return 0;
+        });
+
+        var camera = new OrreryCamera(-90, 30, 6, new RectF32(0, 0, Width, Height));
+        var view = camera.EquatorialView(out var axis);
+        var frame = Render(pipeline, new SkyOrreryBackdrop(view, camera.FocalPx, axis, 90, OrreryCamera.FieldOfViewDeg,
+            SkyMapTab<RgbaImage>.OrreryMilkyWayAlpha, SkyMapTab<RgbaImage>.OrreryBackdropBrightness, null), milkyWay: true);
+
+        var reds = new byte[Width * Height];
+        for (var i = 0; i < reds.Length; i++)
+        {
+            reds[i] = frame[i * 4];
+        }
+        Array.Sort(reds);
+        var median = reds[reds.Length / 2];
+        output.WriteLine($"the Milky Way's median level {median} of 255, for an opacity of {SkyMapTab<RgbaImage>.OrreryMilkyWayAlpha}");
+        ((double)median).ShouldBe(SkyMapTab<RgbaImage>.OrreryMilkyWayAlpha * 255.0, 8.0);
+        ((int)median).ShouldBeGreaterThanOrEqualTo(128);
+    }
+
+    private byte[] Render(VkSkyMapPipeline pipeline, SkyOrreryBackdrop backdrop, bool milkyWay = false)
+    {
+        var state = new SkyMapState { ShowHorizon = false, ShowMilkyWay = milkyWay, ShowAltAzGrid = false, ShowGrid = false };
         state.Backdrop = backdrop;
         var site = SiteContext.Create(48.0, 11.0, When);
         return gpu.Invoke(() =>
@@ -112,7 +154,7 @@ public sealed class OrreryBackdropGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHe
             var renderer = gpu.Renderer!;
             renderer.BeginOffscreenFrame(new RGBAColor32(0, 0, 0, 255)).ShouldBeTrue();
             pipeline.UpdateUbo(state, Width, Height, 0f, 0f, site, ctx.CurrentFrame);
-            pipeline.Draw(renderer.CurrentCommandBuffer, state, Width, Height, 0f, 0f, 0f,
+            pipeline.Draw(renderer.CurrentCommandBuffer, state, Width, Height, 0f, 0f, milkyWay ? backdrop.MilkyWayAlpha : 0f,
                 default, default, default, phase: SkyMapDrawPhase.Backdrop);
             renderer.EndOffscreenFrame();
             return ctx.ReadbackOffscreenRgba();
