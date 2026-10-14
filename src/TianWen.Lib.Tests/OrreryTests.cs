@@ -548,17 +548,48 @@ public sealed class OrreryTests(ITestOutputHelper output)
 
         rig.Tab.OpenOrrery();
         rig.Render();
-        var strip = PaintedButtons(rig, "OrreryClose", "OrreryScale:Compressed", "OrreryScale:True", "OrreryPlay");
+        var strip = PaintedButtons(rig, "OrreryClose", "OrreryScale", "OrreryPlay");
         SideBySide(strip, 0, Width);
         foreach (var rect in strip)
         {
             rect.Y.ShouldBeGreaterThanOrEqualTo(Height - (24f * dpiScale) - 0.5f);
         }
 
-        var trueButton = strip[2];
-        rig.Router.Handle(new InputEvent.MouseDown(trueButton.X + (trueButton.Width / 2), trueButton.Y + (trueButton.Height / 2)));
-        rig.Router.Handle(new InputEvent.MouseUp(trueButton.X + (trueButton.Width / 2), trueButton.Y + (trueButton.Height / 2)));
+        var scaleButton = strip[1];
+        rig.Router.Handle(new InputEvent.MouseDown(scaleButton.X + (scaleButton.Width / 2), scaleButton.Y + (scaleButton.Height / 2)));
+        rig.Router.Handle(new InputEvent.MouseUp(scaleButton.X + (scaleButton.Width / 2), scaleButton.Y + (scaleButton.Height / 2)));
         rig.Tab.State.Orrery.Scale.ShouldBe(OrreryScale.True);
+    }
+
+    private static string[] PaintedTexts(Rig rig)
+        => [.. rig.Tab.GetCapturedLayout()
+            .Select(a => a.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } ? text.Value : null)
+            .OfType<string>()];
+
+    /// <summary>
+    /// The distance scale is ONE toggle in the strip, labelled with the mode in force; a press where it was painted switches the
+    /// scale and the label, and a second press switches them back.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheDistanceScaleIsOneToggleNamingItsMode()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Select(rig, CatalogIndex.Mars);
+        rig.Tab.OpenOrrery();
+        rig.Render();
+        rig.Tab.GetCapturedLayout().Count(n => n.Node.Hit is HitResult.ButtonHit { Action: var a } && a.StartsWith("OrreryScale", StringComparison.Ordinal))
+            .ShouldBe(1);
+        PaintedTexts(rig).ShouldContain("Distances: compressed");
+
+        foreach (var (expected, label) in new[] { (OrreryScale.True, "Distances: true"), (OrreryScale.Compressed, "Distances: compressed") })
+        {
+            var button = PaintedButtons(rig, "OrreryScale")[0];
+            rig.Router.Handle(new InputEvent.MouseDown(button.X + (button.Width / 2), button.Y + (button.Height / 2)));
+            rig.Router.Handle(new InputEvent.MouseUp(button.X + (button.Width / 2), button.Y + (button.Height / 2)));
+            rig.Tab.State.Orrery.Scale.ShouldBe(expected);
+            rig.Render();
+            PaintedTexts(rig).ShouldContain(label);
+        }
     }
 
     /// <summary>
