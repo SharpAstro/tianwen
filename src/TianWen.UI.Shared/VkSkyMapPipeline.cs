@@ -37,8 +37,11 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     // float sinLST           offset 100 ( 4 bytes)
     // float cosLST           offset 104 ( 4 bytes)
     // int   horizonClip      offset 108 ( 4 bytes)  1 = clip below horizon
-    //                        total: 112 bytes
-    private const int UboSize = 112;
+    // vec3  tint             offset 112 (12 bytes)  a backdrop view's Night colour, zero = none
+    // float brightness       offset 124 ( 4 bytes)  1 = the map's own
+    // int   gnomonic         offset 128 ( 4 bytes)  1 = a backdrop view's perspective
+    //                        total: 144 bytes (std140 rounds to 16); the ONE size is SkyMapUbo's, which writes the block
+    private const int UboSize = SkyMapUbo.Size;
 
     // ────────────────────────────────────────────────── Shader sources
 
@@ -587,7 +590,8 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         }
 
         // ── Horizon fill ──
-        if (drawImagery && state.ShowHorizon && _horizonFillPipeline != VkPipeline.Null)
+        // A backdrop view (the orrery's, SkyMapState.Backdrop) is the stars at infinity and has no ground.
+        if (drawImagery && state.ShowHorizon && state.Backdrop is null && _horizonFillPipeline != VkPipeline.Null)
         {
             _ctx.BeginGpuSection("skymap.horizonfill");
             api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _horizonFillPipeline);
@@ -677,8 +681,9 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             // matrix's forward vector, so the cull is exact in both equatorial and horizon
             // modes). Radius = the full FOV: generous enough to cover the viewport diagonal
             // for any reasonable aspect, so chunks never pop in/out at the screen edges.
-            var (vx, vy, vz) = SkyMapState.RaDecToUnitVec(state.CenterRA, state.CenterDec);
-            var viewRadiusRad = (float)double.DegreesToRadians(Math.Min(180.0, state.FieldOfViewDeg));
+            // (A backdrop view's cone while one is drawn: SkyMapState.ViewAxis and ViewRadiusDeg.)
+            var (vx, vy, vz) = state.ViewAxis;
+            var viewRadiusRad = (float)double.DegreesToRadians(Math.Min(180.0, state.ViewRadiusDeg));
 
             // Bounded in total as well as by the two culls: a limit raised by hand over a wide field
             // would otherwise submit most of the catalogue in one pass.

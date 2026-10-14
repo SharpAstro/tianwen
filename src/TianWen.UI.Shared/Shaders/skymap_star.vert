@@ -19,6 +19,11 @@ layout(set = 0, binding = 0, std140) uniform SkyMapUBO {
     float sinLST;
     float cosLST;
     int   horizonClip;
+    // A view that is not the sky (the orrery's backdrop): a luminance tint (zero = none, Night's), a brightness factor (1 = the sky's
+    // own), and a gnomonic projection (the orrery camera's perspective) in place of the stereographic one.
+    vec3  tint;
+    float brightness;
+    int   gnomonic;
 } ubo;
 
 layout(location = 0) out vec2 vCorner;       // for radial falloff in FS
@@ -30,8 +35,9 @@ layout(location = 2) out float vAlpha;
 // Returns vec3(screenX, screenY, cosD) where cosD <= -0.99 means antipode.
 vec3 stereoProject(vec3 camPos) {
     float cosD = -camPos.z;  // camera looks along -Z
+    if (ubo.gnomonic != 0 && cosD <= 0.05) return vec3(0.0, 0.0, -2.0);
     if (cosD <= -0.99) return vec3(0.0, 0.0, -2.0);
-    float k = 2.0 / (1.0 + cosD);
+    float k = ubo.gnomonic != 0 ? 1.0 / cosD : 2.0 / (1.0 + cosD);
     // View matrix right vector already points toward decreasing RA (leftward),
     // so camPos.x is positive rightward on screen -- no extra negation needed.
     float sx = ubo.viewportCenter.x + camPos.x * k * ubo.pixelsPerRadian;
@@ -144,9 +150,12 @@ void main() {
 
     vCorner = aCorner;
     vColor = bvToRgb(aBvColor);
+    if (any(greaterThan(ubo.tint, vec3(0.0)))) {
+        vColor = vec3(dot(vColor, vec3(0.2126, 0.7152, 0.0722))) * ubo.tint;
+    }
 
     // Final alpha = base magnitude brightness * sub-pixel fade * edge fade.
     // The edge fade is what produces the "gradual reveal" as zoom rises the limit.
     float brightness = clamp(1.0 - aMagnitude / ubo.magnitudeLimit, 0.0, 1.0);
-    vAlpha = (0.75 + 0.25 * brightness) * subPixelFade * magFade;
+    vAlpha = (0.75 + 0.25 * brightness) * subPixelFade * magFade * ubo.brightness;
 }

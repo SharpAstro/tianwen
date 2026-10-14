@@ -103,6 +103,10 @@ namespace TianWen.UI.Abstractions
             {
                 return 0f;
             }
+            if (Backdrop is { } backdrop)
+            {
+                return backdrop.MilkyWayAlpha;
+            }
 
             return MathF.Max(MathF.Min((float)(-sunAltDeg - 6.0) / 12f, 1f), 0f)
                 * MathF.Max(MathF.Min(40f / (float)FieldOfViewDeg, 1f), 0.3f);
@@ -387,7 +391,8 @@ namespace TianWen.UI.Abstractions
         {
             get
             {
-                var fov = Math.Max(0.1, FieldOfViewDeg);
+                // A backdrop view (the orrery's) is limited at ITS field, so the map's own zoom never floods it.
+                var fov = Math.Max(0.1, Backdrop?.FieldOfViewDeg ?? FieldOfViewDeg);
                 var decades = Math.Log10(60.0 / fov);
                 var zoomAdjust = decades >= 0.0
                     ? decades * 2.5
@@ -426,6 +431,18 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>The solar system in 3D, the map's other mode (docs/plans/atlas-planet-detail.md, A5).</summary>
         public OrreryState Orrery { get; } = new();
+
+        /// <summary>
+        /// A view of the map's stars and Milky Way that is not the map's own, set only for the length of one backdrop draw (the
+        /// orrery's, <see cref="SkyOrreryBackdrop"/>); null otherwise, when everything reads the map's own view.
+        /// </summary>
+        public SkyOrreryBackdrop? Backdrop { get; internal set; }
+
+        /// <summary>The star cull's cone axis, J2000: the backdrop's look direction while one is drawn, else the view centre.</summary>
+        public (float X, float Y, float Z) ViewAxis => Backdrop?.Axis ?? RaDecToUnitVec(CenterRA, CenterDec);
+
+        /// <summary>The star cull's cone radius, degrees: the backdrop's while one is drawn, else the field of view, as it always was.</summary>
+        public double ViewRadiusDeg => Backdrop?.RadiusDeg ?? FieldOfViewDeg;
 
         // Cached sun altitude + the time it was computed at. Sun moves ~0.25 deg/min,
         // which is orders of magnitude slower than our per-frame update rate, so a

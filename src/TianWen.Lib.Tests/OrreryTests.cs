@@ -459,6 +459,144 @@ public sealed class OrreryTests(ITestOutputHelper output)
         moonDrawn.ShouldBeGreaterThan(Frames / 2);
     }
 
+    // Sirius (HIP 32349) and Polaris (HIP 11767), J2000.
+    private static readonly (string Name, double RaHours, double DecDeg)[] BrightStars =
+    [
+        ("Sirius", 6.752478, -16.716116),
+        ("Polaris", 2.530303, 89.264109),
+    ];
+
+    // Independent of the code under test: the obliquity of J2000 by its IAU value, a plain rotation about x, then the orrery camera's
+    // own projection of a point a billion AU along the star's ecliptic direction (translation then negligible: 6e-9 radians).
+    private static bool WhereTheCameraPutsAStar(in OrreryCamera camera, double raHours, double decDeg, out float x, out float y)
+    {
+        const double Obliquity = 23.4392911 * Math.PI / 180;
+        var (ra, dec) = (raHours * Math.PI / 12, decDeg * Math.PI / 180);
+        var (ex, ey, ez) = (Math.Cos(dec) * Math.Cos(ra), Math.Cos(dec) * Math.Sin(ra), Math.Sin(dec));
+        var (lx, ly, lz) = (ex, (Math.Cos(Obliquity) * ey) + (Math.Sin(Obliquity) * ez), (-Math.Sin(Obliquity) * ey) + (Math.Cos(Obliquity) * ez));
+        const double Far = 1e9;
+        return camera.TryProject(lx * Far, ly * Far, lz * Far, out x, out y);
+    }
+
+    private static OrreryCamera CameraOf(Rig rig)
+        => new(rig.Tab.State.Orrery.AzimuthDeg, rig.Tab.State.Orrery.ElevationDeg, rig.Tab.State.Orrery.Distance, rig.Content);
+
+    /// <summary>
+    /// The backdrop (the sky map's own stars, at infinity): a bright star lands where the camera's rotation and the obliquity put it,
+    /// within a pixel; it stays put on screen while a scrub of thirty days moves the planets; and it moves when the camera orbits.
+    /// Turned to face each star in turn, so the star is on screen.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task TheBackdropsStarsTurnWithTheCameraAndNotWithTime(int star)
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Select(rig, CatalogIndex.Mars);
+        rig.Tab.OpenOrrery();
+        var (name, raHours, decDeg) = BrightStars[star];
+        // Face the star: the camera sits opposite it about the Sun, so the star's ecliptic direction is the view's axis.
+        Span<double> dir = [Math.Cos(decDeg * Math.PI / 180) * Math.Cos(raHours * Math.PI / 12), Math.Cos(decDeg * Math.PI / 180) * Math.Sin(raHours * Math.PI / 12), Math.Sin(decDeg * Math.PI / 180)];
+        SolarSystemOrbits.EquatorialToEcliptic(dir);
+        rig.Tab.State.Orrery.AzimuthDeg = (Math.Atan2(-dir[1], -dir[0]) * 180 / Math.PI) + 3;
+        rig.Tab.State.Orrery.ElevationDeg = Math.Clamp(-Math.Asin(dir[2]) * 180 / Math.PI, -80, 80);
+        rig.Render();
+        rig.Render();
+
+        var backdrop = rig.Tab.LastOrreryBackdrop.ShouldNotBeNull("the orrery drew no backdrop");
+        var camera = CameraOf(rig);
+        var (cx, cy) = (rig.Content.X + (rig.Content.Width / 2), rig.Content.Y + (rig.Content.Height / 2));
+        SkyMapProjection.ProjectGnomonicWithMatrix(raHours, decDeg, backdrop.View, backdrop.PixelsPerRadian, cx, cy, out var sx, out var sy).ShouldBeTrue();
+        WhereTheCameraPutsAStar(camera, raHours, decDeg, out var ex, out var ey).ShouldBeTrue();
+        output.WriteLine($"{name}: drawn at ({sx:F2}, {sy:F2}), the camera's math ({ex:F2}, {ey:F2})");
+        sx.ShouldBe(ex, 1f);
+        sy.ShouldBe(ey, 1f);
+
+        var mars = DrawnAt(rig, CatalogIndex.Mars);
+        rig.Tab.State.TimeOffset = TimeSpan.FromDays(30);
+        rig.Render();
+        DrawnAt(rig, CatalogIndex.Mars).ShouldNotBe(mars, "a month's scrub moved no planet");
+        var after = rig.Tab.LastOrreryBackdrop.ShouldNotBeNull();
+        SkyMapProjection.ProjectGnomonicWithMatrix(raHours, decDeg, after.View, after.PixelsPerRadian, cx, cy, out var tx, out var ty).ShouldBeTrue();
+        tx.ShouldBe(sx, 1e-3f);
+        ty.ShouldBe(sy, 1e-3f);
+
+        rig.Tab.State.Orrery.AzimuthDeg += 5;
+        rig.Render();
+        var orbited = rig.Tab.LastOrreryBackdrop.ShouldNotBeNull();
+        SkyMapProjection.ProjectGnomonicWithMatrix(raHours, decDeg, orbited.View, orbited.PixelsPerRadian, cx, cy, out var ox, out var oy).ShouldBeTrue();
+        WhereTheCameraPutsAStar(CameraOf(rig), raHours, decDeg, out var mx, out var my).ShouldBeTrue();
+        Math.Abs(ox - sx).ShouldBeGreaterThan(10f, "an orbit of five degrees left the star where it was");
+        ox.ShouldBe(mx, 1f);
+        oy.ShouldBe(my, 1f);
+    }
+
+    /// <summary>
+    /// With the backdrop the orbits and labels stay readable: the backdrop draws stars (it changes some pixels of the frame), and under
+    /// every label the backdrop adds at most <see cref="MaxBackdropUnderLabel"/> to any channel, compared with the same frame drawn
+    /// without it.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheBackdropStaysDimUnderTheLabels()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Select(rig, CatalogIndex.Jupiter);
+        rig.Tab.OpenOrrery();
+        rig.Tab.State.Orrery.ElevationDeg = 8;
+        await SettleAsync(rig);
+        byte[] with = [.. rig.Renderer.Surface.Pixels];
+        var labels = rig.Tab.OrreryLabels.Select(l => l.Rect).ToArray();
+        rig.Tab.State.Orrery.ShowBackdrop = false;
+        rig.Render();
+        var without = rig.Renderer.Surface.Pixels;
+
+        var changed = 0;
+        for (var i = 0; i < with.Length; i++)
+        {
+            if (with[i] != without[i])
+            {
+                changed++;
+            }
+        }
+        changed.ShouldBeGreaterThan(0, "the backdrop drew nothing");
+
+        var worst = 0;
+        foreach (var rect in labels)
+        {
+            for (var y = (int)rect.Y; y < (int)(rect.Y + rect.Height); y++)
+            {
+                for (var x = (int)rect.X; x < (int)(rect.X + rect.Width); x++)
+                {
+                    var i = ((y * Width) + x) * 4;
+                    for (var c = 0; c < 3; c++)
+                    {
+                        worst = Math.Max(worst, with[i + c] - without[i + c]);
+                    }
+                }
+            }
+        }
+        output.WriteLine($"{changed} bytes changed by the backdrop; the most it adds under a label is {worst} of 255");
+        worst.ShouldBeLessThanOrEqualTo(MaxBackdropUnderLabel);
+    }
+
+    /// <summary>The most the backdrop may add to a channel under a label: under two fifths of full scale, against labels drawn near 224.</summary>
+    private const int MaxBackdropUnderLabel = 96;
+
+    internal static async Task SettleAsync(Rig rig)
+    {
+        for (var pass = 0; pass < 3; pass++)
+        {
+            rig.Render();
+            if (rig.Tab.PlanetTextures.AtlasLoad is { } atlas)
+            {
+                await atlas.WaitAsync(TestContext.Current.CancellationToken);
+            }
+            await rig.Tab.OrreryScene.WhenOrbitsBuiltAsync();
+            await rig.Tab.OrrerySprites.WhenBuiltAsync();
+        }
+        rig.Render();
+    }
+
     private static bool PanelOffersTheOrrery(Rig rig)
         => rig.Tab.GetCapturedLayout().Any(n => n.Node.Hit is HitResult.ButtonHit { Action: ObjectInfoPanel.OrreryAction });
 
@@ -712,6 +850,7 @@ public sealed class OrreryNightTests
             await rig.Tab.OrrerySprites.WhenBuiltAsync();
             rig.Render();
 
+            rig.Tab.LastOrreryBackdrop.ShouldNotBeNull("the backdrop's stars were not drawn under Night");
             var pixels = rig.Renderer.Surface.Pixels;
             var blue = 0;
             for (var i = 0; i < pixels.Length; i += 4)

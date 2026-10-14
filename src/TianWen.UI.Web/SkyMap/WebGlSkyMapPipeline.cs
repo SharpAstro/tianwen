@@ -16,7 +16,7 @@ namespace TianWen.UI.Web.SkyMap
     /// build has no Tycho-2); lines (constellation figures/boundaries, grid, ecliptic, horizon,
     /// meridian, Alt/Az) share one LINES pipeline with a per-draw uColor. All geometry comes
     /// from the shared <see cref="SkyMapGpuGeometry"/> builders; the per-frame view state is the
-    /// shared 112-byte <see cref="SkyMapUbo"/> block - pan/zoom re-uploads only that.
+    /// shared 144-byte <see cref="SkyMapUbo"/> block - pan/zoom re-uploads only that.
     ///
     /// <para>Shader delta vs the Vulkan sources (transcribed, ASCII-only per the GLSL rule):
     /// GLSL ES 3.00, the push-constant color becomes <c>uniform vec4 uColor</c>, and the final
@@ -30,8 +30,9 @@ namespace TianWen.UI.Web.SkyMap
             // Returns vec3(screenX, screenY, cosD) where cosD <= -0.99 means antipode.
             vec3 stereoProject(vec3 camPos) {
                 float cosD = -camPos.z;  // camera looks along -Z
+                if (gnomonic != 0 && cosD <= 0.05) return vec3(0.0, 0.0, -2.0);
                 if (cosD <= -0.99) return vec3(0.0, 0.0, -2.0);
-                float k = 2.0 / (1.0 + cosD);
+                float k = gnomonic != 0 ? 1.0 / cosD : 2.0 / (1.0 + cosD);
                 float sx = viewportCenter.x + camPos.x * k * pixelsPerRadian;
                 float sy = viewportCenter.y - camPos.y * k * pixelsPerRadian;
                 return vec3(sx, sy, cosD);
@@ -51,6 +52,11 @@ namespace TianWen.UI.Web.SkyMap
                 float sinLST;
                 float cosLST;
                 int   horizonClip;
+                // A view that is not the sky (the orrery's backdrop): Night's tint (zero = none), a brightness, and the gnomonic
+                // projection. Mirrors skymap_star.vert / skymap_mw.frag and SkyMapUbo.
+                vec3  tint;
+                float brightness;
+                int   gnomonic;
             };
             """;
 
@@ -152,9 +158,12 @@ namespace TianWen.UI.Web.SkyMap
 
                 vCorner = aCorner;
                 vColor = bvToRgb(aBvColor);
+                if (any(greaterThan(tint, vec3(0.0)))) {
+                    vColor = vec3(dot(vColor, vec3(0.2126, 0.7152, 0.0722))) * tint;
+                }
 
-                float brightness = clamp(1.0 - aMagnitude / magnitudeLimit, 0.0, 1.0);
-                vAlpha = (0.75 + 0.25 * brightness) * subPixelFade * magFade;
+                float starBrightness = clamp(1.0 - aMagnitude / magnitudeLimit, 0.0, 1.0);
+                vAlpha = (0.75 + 0.25 * starBrightness) * subPixelFade * magFade * brightness;
             }
             """;
 
@@ -477,7 +486,9 @@ namespace TianWen.UI.Web.SkyMap
 
                 float rho = length(vec2(x, y));
                 vec3 camDir;
-                if (rho < 0.00001) {
+                if (gnomonic != 0) {
+                    camDir = normalize(vec3(x, y, -1.0));
+                } else if (rho < 0.00001) {
                     camDir = vec3(0.0, 0.0, -1.0);
                 } else {
                     float c = 2.0 * atan(rho * 0.5);
@@ -500,7 +511,10 @@ namespace TianWen.UI.Web.SkyMap
                 float v = 0.5 - dec / PI;                      // [0, 1], north at top
 
                 vec3 mw = texture(uTexture, vec2(u, v)).rgb;
-                FragColor = vec4(mw * uColor.a, 0.0);
+                if (any(greaterThan(tint, vec3(0.0)))) {
+                    mw = vec3(dot(mw, vec3(0.2126, 0.7152, 0.0722))) * tint;
+                }
+                FragColor = vec4(mw * uColor.a * brightness, 0.0);
             }
             """;
 
@@ -762,7 +776,7 @@ namespace TianWen.UI.Web.SkyMap
         /// <summary>True once <see cref="SetMilkyWayTexture"/> has handed over a texture.</summary>
         public bool HasMilkyWayTexture => _milkyWayTexture is not null;
 
-        /// <summary>Uploads the shared 112-byte view block to both pipelines (each has its own
+        /// <summary>Uploads the shared 144-byte view block to both pipelines (each has its own
         /// UBO binding point) and refreshes the site/time-dependent line sets when LST/latitude
         /// moved. Call once per frame before <see cref="Draw"/>.</summary>
         public void UpdateFrame(SkyMapState state, float canvasWidth, float canvasHeight, SiteContext site)
@@ -845,14 +859,28 @@ namespace TianWen.UI.Web.SkyMap
                 _renderer.DrawBuffer(_cornerQuad, 0, 6);
             }
 
+            // A backdrop view (the orrery's, SkyMapState.Backdrop) is the Milky Way and the stars at infinity only: no ground, no lines.
+            var backdrop = state.Backdrop is not null;
+
             // Ground shading first, so lines/stars draw on top of it (the desktop order).
-            if (state.ShowHorizon && site.IsValid)
+            if (!backdrop && state.ShowHorizon && site.IsValid)
             {
                 _renderer.UsePipeline(_horizonFillPipeline);
                 // The buffer satisfies the record's slot; the attributeless pipeline reads none of it.
                 _renderer.DrawBuffer(_cornerQuad, 0, 6);
             }
 
+            if (!backdrop)
+            {
+                DrawLines(state, site);
+            }
+
+            DrawStars(state);
+        }
+
+        // The line geometry, back to front: grid, Alt/Az, meridian, ecliptic, boundaries, figures, horizon.
+        private void DrawLines(SkyMapState state, SiteContext site)
+        {
             _renderer.UsePipeline(_linePipeline);
 
             if (state.DrawOwnGrid)
@@ -912,6 +940,11 @@ namespace TianWen.UI.Web.SkyMap
                 _renderer.SetPipelineColor(HorizonColor);
                 _renderer.DrawBuffer(_horizon, 0, _horizonVertexCount);
             }
+        }
+
+        // The instanced star field.
+        private void DrawStars(SkyMapState state)
+        {
 
             // Star field on top: the full Tycho-2 catalog once it has been fetched + swapped in,
             // otherwise the HR bright-star seed (the bundle bootstrap). Never both - additive blend
@@ -938,8 +971,9 @@ namespace TianWen.UI.Web.SkyMap
                 // View cone in J2000: axis = the look-at direction, radius = the FULL field of view,
                 // generous enough to cover the viewport diagonal at any aspect so chunks never pop in
                 // and out at the screen edges.
-                var (vx, vy, vz) = SkyMapState.RaDecToUnitVec(state.CenterRA, state.CenterDec);
-                var viewRadiusRad = (float)double.DegreesToRadians(Math.Min(180.0, state.FieldOfViewDeg));
+                // (A backdrop view's cone while one is drawn: SkyMapState.ViewAxis and ViewRadiusDeg.)
+                var (vx, vy, vz) = state.ViewAxis;
+                var viewRadiusRad = (float)double.DegreesToRadians(Math.Min(180.0, state.ViewRadiusDeg));
                 // Bounded in total too, as on the desktop (StarChunkIndex.MaxStarInstancesPerView).
                 magLimit = StarChunkIndex.BudgetedMagnitudeLimit(chunks, vx, vy, vz, viewRadiusRad, magLimit);
 

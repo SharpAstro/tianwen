@@ -6,7 +6,7 @@ using TianWen.Lib.Astrometry.SOFA;
 namespace TianWen.UI.Abstractions
 {
     /// <summary>
-    /// The GPU sky map's per-frame view uniform block (std140, 112 bytes); one writer shared by
+    /// The GPU sky map's per-frame view uniform block (std140, 144 bytes); one writer shared by
     /// the Vulkan pipeline (copies into its mapped per-frame slot) and the WebGL pipeline
     /// (uploads via SetUniformBlock). Layout (see the shader-side SkyMapUBO declarations):
     /// <code>
@@ -21,11 +21,17 @@ namespace TianWen.UI.Abstractions
     /// float sinLST           offset 100
     /// float cosLST           offset 104
     /// int   horizonClip      offset 108
+    /// vec3  tint             offset 112  (zero = none; a backdrop's Night colour)
+    /// float brightness       offset 124  (1 = the map's own)
+    /// int   gnomonic         offset 128  (0 = stereographic, the map's; 1 = a backdrop's perspective)
     /// </code>
+    /// While <see cref="SkyMapState.Backdrop"/> is set (the orrery's backdrop, <see cref="SkyOrreryBackdrop"/>) the block carries THAT
+    /// view: its matrix, focal length, tint and brightness, the gnomonic projection, no horizon clip, and the map's own
+    /// <see cref="SkyMapState.CurrentViewMatrix"/> is left as it was, since the map's labels and hit tests project with it.
     /// </summary>
     public static class SkyMapUbo
     {
-        public const int Size = 112;
+        public const int Size = 144;
 
         /// <summary>
         /// Composes the block into <paramref name="dst"/> (must be at least <see cref="Size"/>
@@ -54,10 +60,21 @@ namespace TianWen.UI.Abstractions
             // is where the zenith is known; ComputeViewMatrix itself takes no reference direction, so
             // it cannot be singular. Near the reference the call holds the current roll instead of
             // recomputing it from a vanishing cross product.
-            state.UpdateRollForReference(zenithX, zenithY, zenithZ);
-            var viewMatrix = state.ComputeViewMatrix();
-            state.CurrentViewMatrix = viewMatrix;
-            var ppr = (float)SkyMapProjection.PixelsPerRadian(viewportHeight, state.FieldOfViewDeg);
+            var backdrop = state.Backdrop;
+            Matrix4x4 viewMatrix;
+            float ppr;
+            if (backdrop is { } view)
+            {
+                viewMatrix = view.View;
+                ppr = (float)view.PixelsPerRadian;
+            }
+            else
+            {
+                state.UpdateRollForReference(zenithX, zenithY, zenithZ);
+                viewMatrix = state.ComputeViewMatrix();
+                state.CurrentViewMatrix = viewMatrix;
+                ppr = (float)SkyMapProjection.PixelsPerRadian(viewportHeight, state.FieldOfViewDeg);
+            }
 
             // Matrix4x4 is row-major in memory but GLSL mat4 expects column-major - transpose.
             var transposed = Matrix4x4.Transpose(viewMatrix);
@@ -68,15 +85,22 @@ namespace TianWen.UI.Abstractions
             WriteF(dst, 72, ppr);
             // FOV-aware effective limit so zooming in reveals fainter stars (Stellarium computeRCMag idea).
             WriteF(dst, 76, state.EffectiveMagnitudeLimit);
-            WriteF(dst, 80, (float)state.FieldOfViewDeg);
+            WriteF(dst, 80, (float)(backdrop?.FieldOfViewDeg ?? state.FieldOfViewDeg));
             WriteF(dst, 84, (float)site.SinLat);
             WriteF(dst, 88, viewportWidth);
             WriteF(dst, 92, viewportHeight);
             WriteF(dst, 96, (float)site.CosLat);
             WriteF(dst, 100, (float)fSinLST);
             WriteF(dst, 104, (float)fCosLST);
-            var horizonClip = state.ShowHorizon && site.IsValid ? 1 : 0;
+            var horizonClip = backdrop is null && state.ShowHorizon && site.IsValid ? 1 : 0;
             MemoryMarshal.Write(dst[108..], in horizonClip);
+            var tint = backdrop?.Tint;
+            WriteF(dst, 112, tint is { } t ? t.Red / 255f : 0f);
+            WriteF(dst, 116, tint is { } g ? g.Green / 255f : 0f);
+            WriteF(dst, 120, tint is { } b ? b.Blue / 255f : 0f);
+            WriteF(dst, 124, backdrop?.Brightness ?? 1f);
+            var gnomonic = backdrop is null ? 0 : 1;
+            MemoryMarshal.Write(dst[128..], in gnomonic);
         }
 
         private static void WriteF(Span<byte> dst, int offset, float value)
