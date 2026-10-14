@@ -32,14 +32,16 @@ inside three seconds, with its exit code and stderr. Note the viewer's own singl
 second launch on the same folder passes its file to the window already open (`--new-window` opts out), so
 `-AllowSecondInstance` alone may not give you a second window.
 
-**Readiness and liveness.** Wait on the inspector (`mcp__sdl-ui-inspector__list_instances`), never on a
-fixed sleep; `Get-Process -Id <pid>` says whether it still runs. `-Validation` / `-SyncValidation` load the
-Vulkan validation layers exactly as for the GUI (Debug only, slow; for GPU bugs only).
+**Readiness and liveness.** Wait on the inspector (`mcp__sdl-ui-inspector__list_instances`) where the build has
+one, never on a fixed sleep: only a Debug build against the sibling SOURCES does, and a worktree's build under
+`.claude/worktrees/` has none, so read `fitsviewer-stderr.log` there. `Get-Process -Id <pid>` says whether it still
+runs. `-Validation` / `-SyncValidation` load the Vulkan validation layers exactly as for the GUI (Debug only, slow;
+for GPU bugs only).
 
-**The launcher starts the viewer LOCAL-ONLY** (`TIANWEN_LOCAL_ONLY=1` unless you set it), so a build in a new
-folder raises no firewall prompt: the inspector then answers no multicast discovery and `list_instances` does not
-list it; its loopback port is in `fitsviewer-stderr.log` (`[inspector] 'FitsViewer' command server on
-127.0.0.1:N (discovery off)`). `TIANWEN_LOCAL_ONLY=0` brings discovery back at the price of that prompt: ask first.
+**The launcher starts the viewer LOCAL-ONLY** (`TIANWEN_LOCAL_ONLY=1` unless you set it). The viewer itself binds
+nothing beyond its inspector, which the mode leaves alone: until DIR.Lib 11.21 is in the sibling checkout a
+sibling-source build answers multicast on UDP 47892 from its already-allowed path, and from 11.21 its discovery is a
+socket-free file registry.
 
 **After it closes or crashes, read `src/fitsviewer-stderr.log`** (font atlas diagnostics, shader errors, .NET
 exceptions). A detached app hands back no exit code; a native crash that writes nothing there shows in the

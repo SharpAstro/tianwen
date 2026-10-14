@@ -21,10 +21,11 @@ namespace TianWen.Lib;
 /// over serial); Alpaca discovery asks loopback only, so a simulator on this machine is still found;</item>
 /// <item>a WiFi Skywatcher mount, the one device reached over UDP, is not connected; a device reached as a TCP client
 /// (OnStep or Canon over WiFi, Alpaca, PHD2) opens no listener and is kept;</item>
-/// <item>the GUI runs no LAN discovery (its Home tab finds no LAN rig, a rig bound by address is still reached), and the
-/// GUI's and the viewer's DEBUG inspectors do not answer multicast discovery;</item>
+/// <item>the GUI runs no LAN discovery (its Home tab finds no LAN rig, a rig bound by address is still reached);</item>
 /// <item>a node a client starts is started local-only too (<c>LocalNodeLauncher</c>).</item>
 /// </list>
+/// The DEBUG inspectors are left alone: from DIR.Lib 11.21 their default discovery is a socket-free file registry, and
+/// turning it off would take the app out of that registry as well.
 /// </summary>
 public sealed record LocalOnlyMode(bool IsOn)
 {

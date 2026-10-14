@@ -21,8 +21,8 @@ using static SDL3.SDL;
 using SharpAstro.AppShell;
 
 // Whether this process binds nothing but loopback (TIANWEN_LOCAL_ONLY, which an agent's launcher sets so a build in a
-// fresh folder raises no firewall prompt): no LAN discovery, an inspector that answers no multicast, and a node started
-// local-only. Decided once, here.
+// fresh folder raises no firewall prompt): no LAN discovery, and a node started local-only. Decided once, here. The DEBUG
+// inspector keeps its own default discovery (docs/architecture/hosting-api.md, "Local-only").
 var localOnly = LocalOnlyMode.OfThisProcess();
 
 // DI setup
@@ -711,8 +711,6 @@ loop.OnQuit = () =>
 using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
 {
     AppName = "TianWen",
-    // Multicast discovery binds UDP 47892 on every interface; a local-only process keeps the loopback command server only.
-    EnableDiscovery = localOnly.MayBindTheNetwork,
     WindowTitle = () => lastWindowTitle,
     // Chrome + navigation rail + active tab, rebuilt each frame and composed by the RENDERER: which
     // widgets make up a frame is its knowledge, not this host's, and assembling the list here meant a

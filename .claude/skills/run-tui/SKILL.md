@@ -31,9 +31,9 @@ Notes:
 - **Do not use `run_in_background`** and do not start it with a bare `cmd //c start` any more: the
   launcher is what reports the pid and refuses a second TUI.
 - **The launcher starts it LOCAL-ONLY** (`TIANWEN_LOCAL_ONLY=1` unless you set it), so the node it starts binds
-  nothing but loopback. The TUI's OWN console inspector is the exception: Console.Lib's `ConsoleDebugInspector`
-  has no switch for its multicast discovery, so a Debug TUI still binds UDP 47892 on every interface, and a new
-  build path of `tianwen.exe` may still raise a firewall prompt.
+  nothing but loopback. The TUI's console inspector is left alone, as the GUI's is: a Debug TUI built against the
+  sibling SOURCES answers multicast on UDP 47892 until DIR.Lib 11.21 (a socket-free file registry) is in the sibling
+  checkout, and a worktree's build has no inspector at all.
 - **Only a `tianwen.exe` whose command line says `tui` counts as a running TUI.** A detached CLI job (a
   dataset bake) is `tianwen.exe` too; it does not block a launch, but it DOES lock the binaries the build
   writes, and the launcher says so when the build fails.
