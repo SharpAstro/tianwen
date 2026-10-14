@@ -33,6 +33,11 @@ namespace TianWen.UI.Abstractions
         /// <summary>Where each body was drawn in the last orrery frame and how big: what a click picks from, and what the tests read.</summary>
         internal IReadOnlyList<(CatalogIndex Index, float X, float Y, float Radius)> OrreryDrawn => _orreryHits;
 
+        private readonly List<(CatalogIndex Index, RectF32 Rect)> _orreryLabels = [];
+
+        /// <summary>The labels the last orrery frame drew, each with the box its text was drawn in: what the tests read.</summary>
+        internal IReadOnlyList<(CatalogIndex Index, RectF32 Rect)> OrreryLabels => _orreryLabels;
+
         /// <summary>How many orrery frames have been drawn, and how long the last one took (CPU, milliseconds).</summary>
         internal int OrreryFrames { get; private set; }
 
@@ -244,6 +249,7 @@ namespace TianWen.UI.Abstractions
         private void DrawOrreryBodies(OrreryScene scene, in OrreryCamera camera, DateTimeOffset viewingTime, OrreryScale scale, float dpiScale)
         {
             _orreryHits.Clear();
+            _orreryLabels.Clear();
             var bodies = scene.Bodies;
             Span<(int Index, double Depth, double X, double Y, double Z)> order = stackalloc (int, double, double, double, double)[bodies.Length];
             for (var i = 0; i < bodies.Length; i++)
@@ -257,16 +263,38 @@ namespace TianWen.UI.Abstractions
             var palette = GuiTheme.Palette;
             var focus = State.Orrery.Focus;
             var fontSize = BaseFontSize * dpiScale * 0.85f;
+            var lineHeight = fontSize * 1.4f;
             var (eyeX, eyeY, eyeZ) = camera.Eye;
+
+            // The Earth's place on screen, for the Moon's: at any scale that shows the planets the Moon's drawn offset is a few pixels,
+            // so it is held at least the two radii and a label line out from the Earth, along their projected direction.
+            var earthOnScreen = scene.TryFind(CatalogIndex.Earth, out var earthBody)
+                && scene.Drawn(scale, earthBody) is var (ex, ey, ez)
+                && camera.TryProject(ex, ey, ez, out var esx, out var esy)
+                ? (esx, esy)
+                : ((float, float)?)null;
+            var moonReach = ((OrreryRadius(CatalogIndex.Earth) + OrreryRadius(CatalogIndex.Moon) + 4f) * dpiScale) + lineHeight;
+            Span<(int Index, float X, float Y, float Radius, double Depth)> labels = stackalloc (int, float, float, float, double)[bodies.Length];
+            var labelCount = 0;
             Span<double> toObserver = stackalloc double[3];
             Span<double> heliocentric = stackalloc double[3];
             Span<double> pole = stackalloc double[3];
-            foreach (var (index, _, x, y, z) in order)
+            foreach (var (index, depth, x, y, z) in order)
             {
                 var body = bodies[index];
                 if (!camera.TryProject(x, y, z, out var sx, out var sy))
                 {
                     continue;
+                }
+                if (body.Index == CatalogIndex.Moon && earthOnScreen is var (earthX, earthY))
+                {
+                    var (dx, dy) = (sx - earthX, sy - earthY);
+                    var d = MathF.Sqrt((dx * dx) + (dy * dy));
+                    if (d < moonReach)
+                    {
+                        (dx, dy, d) = d < 1e-3f ? (1f, 0f, 1f) : (dx, dy, d);
+                        (sx, sy) = (earthX + (dx / d * moonReach), earthY + (dy / d * moonReach));
+                    }
                 }
                 var radius = OrreryRadius(body.Index) * dpiScale;
                 var isComet = body.Index.ToCatalog() == Catalog.Comet;
@@ -307,11 +335,70 @@ namespace TianWen.UI.Abstractions
                     var ring = radius + (4f * dpiScale);
                     Renderer.DrawEllipse((sx, sy), (ring, 0f), (0f, ring), palette.Accent, MathF.Max(1f, dpiScale * 1.5f));
                 }
-                var labelTop = sy + (radius * (body.Index == CatalogIndex.Saturn ? 2.3f : 1f)) + (3f * dpiScale);
-                DrawText(body.Name.AsSpan(), FontPath, sx - (60f * dpiScale), labelTop, 120f * dpiScale, fontSize * 1.4f,
-                    fontSize, selected ? palette.Accent : palette.BodyText, TextAlign.Center, TextAlign.Near);
                 _orreryHits.Add((body.Index, sx, sy, radius));
+                labels[labelCount++] = (index, sx, sy, radius, depth);
             }
+
+            DrawOrreryLabels(bodies, labels[..labelCount], focus, fontSize, lineHeight, dpiScale);
+        }
+
+        // The labels go down after every disc, so no disc covers one: the focus body's first, then nearest first. A label is placed
+        // under its body, else over it, wherever its box (the engine's measure of the name) is clear of every disc but its own and of
+        // the labels already placed; a label with nowhere clear is left out, never printed over another body. The focus body's is
+        // drawn under its body whatever it meets.
+        private void DrawOrreryLabels(System.Collections.Immutable.ImmutableArray<OrreryBody> bodies,
+            Span<(int Index, float X, float Y, float Radius, double Depth)> labels, CatalogIndex? focus, float fontSize, float lineHeight, float dpiScale)
+        {
+            labels.Sort((a, b) => (bodies[a.Index].Index == focus, bodies[b.Index].Index == focus) switch
+            {
+                (true, false) => -1,
+                (false, true) => 1,
+                _ => a.Depth.CompareTo(b.Depth),
+            });
+            var palette = GuiTheme.Palette;
+            var gap = 3f * dpiScale;
+            var context = MeasureContext(scale: DesignScale.One);
+            foreach (var (index, sx, sy, radius, _) in labels)
+            {
+                var body = bodies[index];
+                var reach = radius * (body.Index == CatalogIndex.Saturn ? 2.3f : 1f);
+                var width = Layout.Engine.Measure(Layout.Builder.Text(body.Name, fontSize, trim: TextTrim.None),
+                    new Layout.Size<float>(float.MaxValue, float.MaxValue), context).Width;
+                var below = new RectF32(sx - (width / 2), sy + reach + gap, width, lineHeight);
+                var above = new RectF32(sx - (width / 2), sy - reach - gap - lineHeight, width, lineHeight);
+                var selected = body.Index == focus;
+                RectF32? place = LabelIsClear(below, body.Index) ? below
+                    : LabelIsClear(above, body.Index) ? above
+                    : selected ? below : null;
+                if (place is not { } rect)
+                {
+                    continue;
+                }
+                DrawText(body.Name.AsSpan(), FontPath, rect.X, rect.Y, rect.Width, rect.Height,
+                    fontSize, selected ? palette.Accent : palette.BodyText, TextAlign.Center, TextAlign.Near);
+                _orreryLabels.Add((body.Index, rect));
+            }
+        }
+
+        private bool LabelIsClear(RectF32 rect, CatalogIndex owner)
+        {
+            static bool Overlap(RectF32 a, RectF32 b)
+                => a.X < b.X + b.Width && b.X < a.X + a.Width && a.Y < b.Y + b.Height && b.Y < a.Y + a.Height;
+            foreach (var (index, x, y, radius) in _orreryHits)
+            {
+                if (index != owner && Overlap(rect, new RectF32(x - radius, y - radius, 2 * radius, 2 * radius)))
+                {
+                    return false;
+                }
+            }
+            foreach (var (_, placed) in _orreryLabels)
+            {
+                if (Overlap(rect, placed))
+                {
+                    return false;
+                }
+            }
+            return true;
         }
 
         // The screen direction of the body's north pole, degrees from +x toward +y (y down), as PlanetDiscSprite.PoleScreenAngle states
