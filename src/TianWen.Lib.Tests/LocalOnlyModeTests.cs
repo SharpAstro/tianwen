@@ -183,6 +183,21 @@ public class LocalOnlyModeTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task ALoopbackAlpacaServerIsNamedByItsAddressNeverByReverseDns()
+    {
+        // What a local-only discovery finds answers from loopback, and its name goes into the device URI's host. A reverse
+        // lookup of 127.0.0.1 answers whatever the hosts file maps it to: on the desk machine kubernetes.docker.internal
+        // (Docker's entry), elsewhere the machine's name or "localhost", none of which names THIS machine's loopback for sure.
+        (await AlpacaDeviceSource.HostOfAsync(IPAddress.Loopback)).ShouldBe("127.0.0.1");
+
+        // The host is not the device's identity: its key is the server's UniqueID in the path, so a profile still matches it.
+        var asDiscovered = new AlpacaDevice(DeviceType.Camera, "sim-camera-0", "127.0.0.1", 11111, 0, "Alpaca Camera Sim");
+        var asSaved = new AlpacaDevice(DeviceType.Camera, "sim-camera-0", "kubernetes.docker.internal", 11111, 0, "Alpaca Camera Sim");
+        DeviceBase.SameDevice(asDiscovered.DeviceUri, asSaved.DeviceUri).ShouldBeTrue();
+        asDiscovered.DeviceId.ShouldBe(asSaved.DeviceId);
+    }
+
+    [Fact]
     public async Task ALocalOnlyProcessDoesNotOpenAWifiSkywatcherMountAndSaysWhy()
     {
         var ct = TestContext.Current.CancellationToken;
