@@ -151,7 +151,7 @@ namespace TianWen.RemoteClient
                     var newestHere = BuildInfo.NewestCodeFileUtc(options.ServerDirectory, Path.Combine(options.ServerDirectory, ServerFileName));
                     var anotherBuild = IsAnotherBuild(running, options.ServerDirectory, newestHere);
                     var modeNote = ModeNote(running, options.StartsLocalOnly);
-                    if (!named && running is { HoldsHardware: false, ClientsAttached: 0 } && (anotherBuild || modeNote is not null))
+                    if (Replaces(running, named, anotherBuild, options.StartsLocalOnly))
                     {
                         if (await StopAsync(transport, running, cancellationToken))
                         {
@@ -219,6 +219,14 @@ namespace TianWen.RemoteClient
 
             static string Normalized(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
         }
+
+        /// <summary>
+        /// Whether a client replaces <paramref name="running"/>, a node of its own wire, with one it starts: one of another
+        /// build (<paramref name="anotherBuild"/>) or of another mode than the client would start (<paramref name="clientLocalOnly"/>,
+        /// <see cref="LocalOnlyMode"/>), and only while it is idle and no client is attached; never on a named socket.
+        /// </summary>
+        internal static bool Replaces(NodeInfoDto running, bool named, bool anotherBuild, bool clientLocalOnly) =>
+            !named && running is { HoldsHardware: false, ClientsAttached: 0 } && (anotherBuild || running.LocalOnly != clientLocalOnly);
 
         /// <summary>
         /// What a client says about <paramref name="node"/> when it is not in the mode the client would start one in

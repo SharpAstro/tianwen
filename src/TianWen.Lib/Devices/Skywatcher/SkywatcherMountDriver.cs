@@ -1,5 +1,4 @@
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,15 +12,15 @@ internal class SkywatcherMountDriver(SkywatcherDevice device, IServiceProvider s
 
     /// <summary>
     /// A WiFi mount is the one device reached over UDP, from a socket the OS binds on every interface, so a local-only
-    /// process (<see cref="LocalOnlyMode"/>) does not open it and says why. A serial mount connects as ever.
+    /// process (<see cref="LocalOnlyMode"/>) does not open it, and the connect fails saying why (a job's error and the GUI
+    /// show the message). A serial mount connects as ever.
     /// </summary>
     protected override Task<(bool Success, int ConnectionId, SkywatcherDeviceInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken)
     {
         if (_device.IsWifi && !_localOnly.MayBindTheNetwork)
         {
-            Logger.LogError("Not connecting {DeviceUri}: a WiFi Skywatcher mount is reached over UDP, which this local-only process ({EnvVar}) does not open",
-                _device.DeviceUri, LocalOnlyMode.EnvironmentVariable);
-            return Task.FromResult((false, CONNECTION_ID_UNKNOWN, default(SkywatcherDeviceInfo)));
+            throw new InvalidOperationException(
+                $"{_device.DisplayName} is a WiFi Skywatcher mount, reached over UDP, which a local-only process ({LocalOnlyMode.EnvironmentVariable}) does not open");
         }
 
         return base.DoConnectDeviceAsync(cancellationToken);
