@@ -155,6 +155,12 @@ namespace TianWen.UI.Abstractions
 
         // A play advances the atlas's own scrub offset by what the wall clock has run since the last frame, so the sky shows the same
         // instant when the view goes back to it; the next frame is asked for here, which on the browser is a coalesced repaint.
+        /// <summary>
+        /// The most wall-clock time one played frame steps by: a frame comes at least ten times a second while the view is on screen,
+        /// so a longer gap is time spent elsewhere (another tab, a minimised window), which must not jump the clock by years.
+        /// </summary>
+        internal static readonly TimeSpan MaxPlayStep = TimeSpan.FromMilliseconds(100);
+
         private void AdvancePlay(ITimeProvider timeProvider)
         {
             var orrery = State.Orrery;
@@ -165,7 +171,7 @@ namespace TianWen.UI.Abstractions
             var now = timeProvider.GetTimestamp();
             if (orrery.PlayTimestamp != 0)
             {
-                var elapsed = timeProvider.GetElapsedTime(orrery.PlayTimestamp, now);
+                var elapsed = TimeSpan.FromTicks(Math.Min(timeProvider.GetElapsedTime(orrery.PlayTimestamp, now).Ticks, MaxPlayStep.Ticks));
                 State.TimeOffset += TimeSpan.FromDays(orrery.DaysPerSecond * elapsed.TotalSeconds);
             }
             orrery.PlayTimestamp = now;
