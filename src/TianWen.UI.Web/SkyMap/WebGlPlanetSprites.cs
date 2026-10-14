@@ -52,7 +52,7 @@ namespace TianWen.UI.Web.SkyMap
             public PlanetSprite? ShownSprite;
         }
 
-        private readonly Dictionary<CatalogIndex, Slot> _slots = [];
+        private readonly Dictionary<(CatalogIndex Body, int Channel), Slot> _slots = [];
         private readonly float[] _quad = new float[24];
         private PipelineHandle? _pipeline;
         private GpuBufferHandle? _buffer;
@@ -60,9 +60,9 @@ namespace TianWen.UI.Web.SkyMap
         /// <summary>Draws <paramref name="sprite"/> centred on (x, y), its globe <paramref name="radiusPx"/> on screen. False until a texture of the body has loaded.</summary>
         public bool Draw(PlanetSprite sprite, float x, float y, float radiusPx)
         {
-            if (!_slots.TryGetValue(sprite.Body, out var slot))
+            if (!_slots.TryGetValue((sprite.Body, sprite.Channel), out var slot))
             {
-                _slots[sprite.Body] = slot = new Slot();
+                _slots[(sprite.Body, sprite.Channel)] = slot = new Slot();
             }
             if (!ReferenceEquals(slot.Requested, sprite))
             {

@@ -24,14 +24,14 @@ internal sealed class VkPlanetSprites(VulkanContext context, Action requestRedra
         public VkTexture? Pending;
     }
 
-    private readonly Dictionary<CatalogIndex, Slot> _slots = [];
+    private readonly Dictionary<(CatalogIndex Body, int Channel), Slot> _slots = [];
 
     /// <summary>Draws <paramref name="sprite"/> centred on (x, y), its globe <paramref name="radiusPx"/> on screen. False until a texture of the body has landed.</summary>
     public bool Draw(VkRenderer renderer, PlanetSprite sprite, float x, float y, float radiusPx)
     {
-        if (!_slots.TryGetValue(sprite.Body, out var slot))
+        if (!_slots.TryGetValue((sprite.Body, sprite.Channel), out var slot))
         {
-            _slots[sprite.Body] = slot = new Slot();
+            _slots[(sprite.Body, sprite.Channel)] = slot = new Slot();
         }
         if (!ReferenceEquals(slot.Sprite, sprite))
         {

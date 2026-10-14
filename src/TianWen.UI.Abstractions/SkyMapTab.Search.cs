@@ -382,6 +382,7 @@ namespace TianWen.UI.Abstractions
             double pixelsPerRadian, float cx, float cy)
         {
             var dpiScale = DpiScale;
+            LastPanelDiscRect = null;
 
             // A comet carries a vmag sparkline under the text rows; fetch the state-cached curve
             // (recomputed only when the comet / viewing day changes) and grow the panel to fit it.
@@ -401,7 +402,9 @@ namespace TianWen.UI.Abstractions
                 TimeZone: plannerState.SiteTimeZone,
                 Sparkline: hasCurve,
                 Picture: ObjectInfoPanel.PictureFor(info.Index, plannerState.ObjectDb),
-                Disk: ObjectInfoPanel.DiskLine(in info));
+                Disk: ObjectInfoPanel.DiskLine(in info),
+                // A solar-system body's disc (A4): the map's narrowest field shows few of them as more than a dot.
+                Disc: info.Aspect is not null);
 
             // Copied into locals because a click lambda cannot close over an `in` parameter.
             var pinName = info.Name;
@@ -502,24 +505,34 @@ namespace TianWen.UI.Abstractions
                     fontSize);
             }
 
-            // The picture sits under the rows and the sparkline and above the buttons, not at the top, where
-            // the close affordance would land on it.
-            if (options.Picture is { } picture)
+            // The disc and the picture sit under the rows and the sparkline and above the buttons, not at the top, where
+            // the close affordance would land on them: one stack the engine lays out, both fills drawn here.
+            if (ObjectInfoPanel.BuildMediaSections(in options, in palette, onOpenPicture: ExpandPicture) is { } media)
             {
                 var sectionY = py + row + 8f * dpiScale
                     + (hasCurve ? (ObjectInfoPanel.DesignSparklineHeight + 4f) * dpiScale : 0f);
-                RenderLayout(ObjectInfoPanel.BuildPictureSection(in picture, in palette, onOpen: ExpandPicture),
-                    new RectF32(px, sectionY, pw, ObjectInfoPanel.DesignPictureSectionHeight(in picture) * dpiScale),
+                var picture = options.Picture;
+                var aspect = info.Aspect;
+                RenderLayout(media,
+                    new RectF32(px, sectionY, pw, ObjectInfoPanel.DesignMediaHeight(in options) * dpiScale),
                     scale: Scale,
                     drawFill: (fill, rect) =>
                     {
-                        if (fill.Key == ObjectInfoPanel.PictureFillKey)
+                        if (fill.Key == ObjectInfoPanel.PictureFillKey && picture is { } shown)
                         {
-                            DrawObjectPicture(in picture, rect);
+                            DrawObjectPicture(in shown, rect);
+                        }
+                        else if (fill.Key == ObjectInfoPanel.DiscFillKey)
+                        {
+                            LastPanelDiscRect = rect;
+                            if (aspect is { } body)
+                            {
+                                DrawPanelDisc(body, rect);
+                            }
                         }
                     });
             }
-            else
+            if (options.Picture is null)
             {
                 // Nothing to expand: an object whose article kept no picture, or one whose panel replaced a
                 // picture that was open.

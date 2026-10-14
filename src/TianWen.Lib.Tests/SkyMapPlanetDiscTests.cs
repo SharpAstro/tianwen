@@ -60,6 +60,7 @@ public sealed class SkyMapPlanetDiscTests
                         await atlas.WaitAsync(TestContext.Current.CancellationToken);
                     }
                     await Tab.PlanetSprites.WhenBuiltAsync();
+                    await Tab.PanelSprites.WhenBuiltAsync();
                 }
             }
             Render();
@@ -218,6 +219,113 @@ public sealed class SkyMapPlanetDiscTests
 
         Select(160).ShouldNotBe(CatalogIndex.Moon, "far outside the dot");
         Select(5).ShouldBe(CatalogIndex.Moon, "on the dot");
+    }
+
+    // Selects `body` as a click would, at the rig's instant, and renders until its panel's disc has landed.
+    private static async Task<SkyMapInfoPanelData> SelectAsync(Rig rig, CatalogIndex body)
+    {
+        var utc = Instant + rig.Tab.State.TimeOffset;
+        rig.Tab.State.TryGetPlanetCached(body, utc, out var marker).ShouldBeTrue();
+        var info = SkyMapSearchActions.PlanetInfoPanel(rig.Planner.ObjectDb.ShouldNotBeNull(), marker, 48.0, 11.0, utc,
+            SiteContext.Create(48.0, 11.0, utc));
+        rig.Tab.State.Search.InfoPanel = info;
+        await rig.RenderSettledAsync();
+        return info;
+    }
+
+    // The pixels of the panel's disc slot that are not its dark frame: (count, centroid x, centroid y, leftmost, rightmost),
+    // relative to the slot's centre.
+    private static (int Count, double X, double Y, int Left, int Right) LitInSlot(Rig rig, RectF32 slot)
+    {
+        var image = rig.Renderer.Surface;
+        var (count, sx, sy, left, right) = (0, 0.0, 0.0, int.MaxValue, int.MinValue);
+        var (cx, cy) = (slot.X + (slot.Width / 2), slot.Y + (slot.Height / 2));
+        for (var y = (int)slot.Y; y < (int)(slot.Y + slot.Height); y++)
+        {
+            for (var x = (int)slot.X; x < (int)(slot.X + slot.Width); x++)
+            {
+                var i = ((y * image.Width) + x) * 4;
+                var sum = image.Pixels[i] + image.Pixels[i + 1] + image.Pixels[i + 2];
+                if (sum > 60)
+                {
+                    count++;
+                    sx += sum * (x - cx);
+                    sy += sum * (y - cy);
+                    left = Math.Min(left, x);
+                    right = Math.Max(right, x);
+                }
+            }
+        }
+        return (count, sx, sy, left, right);
+    }
+
+    /// <summary>
+    /// Selecting Saturn puts its disc in the panel's disc slot: the sprite's pixels fill the slot's middle, and its rings reach well
+    /// past its globe (north up, the rings near level, so across the slot), from the same sprite path as the map.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task SelectingSaturnPutsItsRingedDiscInThePanel()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        rig.Look(CatalogIndex.Saturn, 1);
+        await SelectAsync(rig, CatalogIndex.Saturn);
+
+        var slot = rig.Tab.LastPanelDiscRect.ShouldNotBeNull("the panel declares a disc slot for a planet");
+        var (count, _, _, left, right) = LitInSlot(rig, slot);
+        count.ShouldBeGreaterThan(300, "the sprite's pixels are in the slot");
+        var globe = PlanetDiscSprite.PanelRadiusPx(CatalogIndex.Saturn, slot.Width, slot.Height);
+        ((double)(right - left)).ShouldBeGreaterThan(3.5 * globe, "the rings reach past the globe's diameter");
+    }
+
+    /// <summary>
+    /// Selecting the Moon (a 6 % crescent on 2026-10-13) puts it in the panel north up and east left, as the sky shows it: the light's
+    /// centroid lies toward the bright limb's position angle.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task SelectingTheMoonPutsItsPhasedDiscInThePanel()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        rig.Look(CatalogIndex.Moon, 1);
+        var info = await SelectAsync(rig, CatalogIndex.Moon);
+
+        var slot = rig.Tab.LastPanelDiscRect.ShouldNotBeNull();
+        var (count, sx, sy, _, _) = LitInSlot(rig, slot);
+        count.ShouldBeGreaterThan(30);
+        var chi = info.Aspect.ShouldNotBeNull().BrightLimbPositionAngle * Math.PI / 180;
+        var cos = ((sx * -Math.Sin(chi)) + (sy * -Math.Cos(chi))) / Math.Sqrt((sx * sx) + (sy * sy));
+        Math.Acos(Math.Clamp(cos, -1, 1)).ShouldBeLessThan(15 * Math.PI / 180, "the lit limb faces the Sun");
+    }
+
+    /// <summary>An object that is not a solar-system body gets no disc slot: its panel is as it was.</summary>
+    [Fact(Timeout = 120_000)]
+    public async Task ADeepSkyObjectGetsNoDiscSlot()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        rig.Tab.State.Search.InfoPanel = SkyMapInfoPanelData.FromPosition("Test Object", 5.0, 20.0, 48.0, 11.0, Instant, default);
+        await rig.RenderSettledAsync();
+
+        rig.Tab.LastPanelDiscRect.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// The panel's sprite is keyed at the PANEL's size, so frames that change nothing build nothing: ten renders of a selected
+    /// Jupiter cost its one build.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task ThePanelsDiscDoesNotRebuildEveryFrame()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        rig.Look(CatalogIndex.Jupiter, 1);
+        await SelectAsync(rig, CatalogIndex.Jupiter);
+        var builds = rig.Tab.PanelSprites.Builds;
+        builds.ShouldBeGreaterThan(0);
+
+        for (var frame = 0; frame < 10; frame++)
+        {
+            await rig.RenderSettledAsync();
+        }
+
+        rig.Tab.PanelSprites.Builds.ShouldBe(builds);
     }
 
     /// <summary>

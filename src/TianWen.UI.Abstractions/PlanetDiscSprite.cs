@@ -91,6 +91,13 @@ public static class PlanetDiscSprite
     /// <summary>The sprite's side for a disc of <paramref name="radiusPx"/>: the globe or Saturn's rings, and a pixel of margin each side.</summary>
     public static int SideFor(CatalogIndex body, double radiusPx) => (int)Math.Ceiling(2 * radiusPx * ExtentRadii(body)) + 2;
 
+    /// <summary>
+    /// The globe's radius in a panel slot of <paramref name="width"/> by <paramref name="height"/>: the whole sprite (Saturn's rings
+    /// included) fills nine tenths of the slot's shorter side, so every body is as large as the slot allows.
+    /// </summary>
+    public static double PanelRadiusPx(CatalogIndex body, float width, float height)
+        => Math.Min(width, height) * 0.45 / ExtentRadii(body);
+
     /// <summary>The largest equatorial radius whose sprite fits <see cref="MaxSpritePx"/>.</summary>
     public static double MaxRadiusPx(CatalogIndex body) => (MaxSpritePx - 2) / (2 * ExtentRadii(body));
 

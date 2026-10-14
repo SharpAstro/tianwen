@@ -13,7 +13,9 @@ namespace TianWen.UI.Abstractions;
 /// One built planet sprite (<see cref="PlanetDiscSprite.Build"/>): <see cref="Side"/> squared pixels of straight-alpha RGBA, the
 /// globe's equatorial radius <see cref="RadiusPx"/> in them, and the key it was built for.
 /// </summary>
-public sealed record PlanetSprite(CatalogIndex Body, byte[] Rgba, int Side, double RadiusPx, PlanetSpriteKey Key, string Credit);
+/// <param name="Channel">Which cache built it (<see cref="PlanetSpriteCache.Channel"/>): the map's and the info panel's sprites of
+/// one body are different pictures, and a host keeps a texture per body AND channel, so neither replaces the other each frame.</param>
+public sealed record PlanetSprite(CatalogIndex Body, byte[] Rgba, int Side, double RadiusPx, PlanetSpriteKey Key, string Credit, int Channel = 0);
 
 /// <summary>
 /// What a sprite depends on, every continuous input BUCKETED (CLAUDE.md, "a quantized cache key must not derive its grid from a
@@ -31,8 +33,17 @@ public readonly record struct PlanetSpriteKey(CatalogIndex Body, int Size, int C
 /// changed key starts one build (a Task, the hand-off: no lock, no shared field written from the build) and the stale sprite is drawn
 /// until it lands, whereupon <c>requestRedraw</c> asks for the frame that shows it. Render-thread only, apart from that Task.
 /// </summary>
-public sealed class PlanetSpriteCache(Action? requestRedraw = null)
+public sealed class PlanetSpriteCache(Action? requestRedraw = null, int channel = 0)
 {
+    /// <summary>The map's sprites.</summary>
+    public const int MapChannel = 0;
+
+    /// <summary>The info panel's sprites.</summary>
+    public const int PanelChannel = 1;
+
+    /// <summary>Which cache this is, carried on every sprite it builds (<see cref="PlanetSprite.Channel"/>).</summary>
+    public int Channel => channel;
+
     private const int SizeStepsPerOctave = 8;
 
     /// <summary>A body below the horizon is drawn at this opacity, as its label is (<c>SkyMapTab.DimmedIf</c>).</summary>
@@ -127,7 +138,7 @@ public sealed class PlanetSpriteCache(Action? requestRedraw = null)
         entry.Pending = Task.Run(() =>
         {
             var rgba = PlanetDiscSprite.Build(body, map, flat, snapped, radius, turn, mirrored, nightTint, out var side, dimmed ? DimmedOpacity : 1);
-            return new PlanetSprite(body, rgba, side, radius, key, credit);
+            return new PlanetSprite(body, rgba, side, radius, key, credit, channel);
         });
         if (requestRedraw is { } redraw)
         {
