@@ -431,7 +431,9 @@ namespace TianWen.UI.Abstractions
                     TogglePin: () => PostSignal(
                         new SkyMapPinObjectSignal(pinName, pinRA, pinDec, pinIndex, pinType)),
                     IsPinned: isPinned,
-                    ArticleUrl: ObjectInfoPanel.ArticleUrlFor(info.Index, plannerState.ObjectDb));
+                    ArticleUrl: ObjectInfoPanel.ArticleUrlFor(info.Index, plannerState.ObjectDb),
+                    // The solar system in 3D (A5), for a body of the Sun's: a planet, the Sun, the Moon or a comet.
+                    Orrery: pinIndex is { } bodyIndex && bodyIndex.IsSolarSystemObject ? OpenOrrery : null);
 
             // The BOX comes from the same method the content does. It used to be two literals sitting
             // here (348 wide, 205 or 250 tall) while ObjectInfoPanel computed its own for the viewer,

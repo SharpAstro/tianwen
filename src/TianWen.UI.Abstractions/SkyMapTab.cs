@@ -103,9 +103,18 @@ namespace TianWen.UI.Abstractions
             RectF32 contentRect,
             ITimeProvider timeProvider)
         {
+            // The orrery is a MODE of the map (docs/plans/atlas-planet-detail.md, A5): it takes the rect in the sky's place, and the
+            // sky's chrome (the palette, F3's search, the large picture) waits behind it.
+            if (State.Orrery.IsOpen)
+            {
+                RenderOrrery(plannerState, contentRect, timeProvider);
+                RenderOrreryBinding(contentRect);
+                return;
+            }
             RenderSkyBehind(plannerState, contentRect, timeProvider);
             RenderLayerPalette(contentRect);
             RenderSearchBinding(contentRect);
+            RenderOrreryBinding(contentRect);
             // Last, over the palette too: it covers the map and takes every press until it is closed.
             RenderLargePicture(plannerState, contentRect);
         }
@@ -198,7 +207,18 @@ namespace TianWen.UI.Abstractions
             State.LastContentRect = contentRect;
             var siteLat = plannerState.SiteLatitude;
             var siteLon = plannerState.SiteLongitude;
+            var viewingTime = ResolveViewingTime(plannerState, timeProvider);
+            var site = SiteContext.Create(siteLat, siteLon, viewingTime);
+            State.SiteAvailable = site.IsValid;
+            RenderSkyPass(plannerState, contentRect, deferLines, db, siteLat, siteLon, viewingTime, site);
+        }
 
+        /// <summary>
+        /// The instant the atlas shows, ONE clock for the sky and the orrery: the planner's date when one is set, else the live clock
+        /// (cached, interpolated between one-second syncs), and the scrub offset on top.
+        /// </summary>
+        private DateTimeOffset ResolveViewingTime(PlannerState plannerState, ITimeProvider timeProvider)
+        {
             // Viewing time: use the planning date (which preserves time-of-day across
             // date shifts) when set, otherwise live wall-clock time cached with 1s refresh.
             var nowTicks = timeProvider.GetTimestamp();
@@ -232,10 +252,17 @@ namespace TianWen.UI.Abstractions
             var baseTime = plannerState.PlanningDate?.ToUniversalTime() ?? liveTime;
             var viewingTime = baseTime + State.TimeOffset;
             _lastViewingTime = viewingTime;
+            return viewingTime;
+        }
+
+        // The rest of RenderSkyBehind, once the instant and the site are known.
+        private void RenderSkyPass(PlannerState plannerState, RectF32 contentRect, bool deferLines, ICelestialObjectDB db,
+            double siteLat, double siteLon, DateTimeOffset viewingTime, SiteContext site)
+        {
+            var dpiScale = DpiScale;
+            var fontPath = FontPath;
 
             // Initialize view to zenith on first valid site, or re-center on profile switch
-            var site = SiteContext.Create(siteLat, siteLon, viewingTime);
-            State.SiteAvailable = site.IsValid;
             if (!State.ViewDrivenExternally
                 && site.IsValid && (!State.Initialized || siteLat != _lastSiteLat || siteLon != _lastSiteLon))
             {
@@ -1270,7 +1297,7 @@ namespace TianWen.UI.Abstractions
             // strip is also the one place that can say how to get it back.
             var layerHints = State.ShowLayerPalette
                 ? "  [V] layers"
-                : $"  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [O]bjects [D]ark [M]ount com[e]t{skyHint}  [V] panel";
+                : $"  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [O]bjects [D]ark [M]ount com[e]t{skyHint}  [V] panel  [Alt+S] solar system";
             // Surfaced only while the view is actually off its reference, so the way back appears at
             // exactly the moment it is wanted instead of sitting in the strip as one more letter.
             // A pan near the pole rolls the frame by design and this is the only route back.
@@ -1491,7 +1518,7 @@ namespace TianWen.UI.Abstractions
             return HandleOwnedInput(evt);
         }
 
-        private bool HandleOwnedInput(InputEvent evt) => evt switch
+        private bool HandleOwnedInput(InputEvent evt) => State.Orrery.IsOpen ? HandleOrreryInput(evt) : evt switch
         {
             InputEvent.Scroll(var scrollY, var mx, var my, _) => HandleZoom(scrollY, mx, my),
             InputEvent.Pinch p => HandlePinchZoom(p.Scale, p.X, p.Y, p.Source),

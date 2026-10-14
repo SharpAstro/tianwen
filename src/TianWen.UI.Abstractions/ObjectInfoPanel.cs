@@ -212,12 +212,13 @@ namespace TianWen.UI.Abstractions
             bool SolveInProgress = false,
             string? ArticleUrl = null,
             string? AtlasUrl = null,
-            Action? AtlasOpened = null)
+            Action? AtlasOpened = null,
+            Action? Orrery = null)
         {
             /// <summary>Whether any button at all is offered, i.e. whether the row needs its height.</summary>
             public bool HasButtons
                 => Goto is not null || ViewInPlanner is not null || TogglePin is not null
-                   || SolveSync is not null;
+                   || SolveSync is not null || Orrery is not null;
 
             /// <summary>Whether any link is offered, i.e. whether the link row needs its height.</summary>
             public bool HasLinks => ArticleUrl is { Length: > 0 } || AtlasUrl is { Length: > 0 };
@@ -580,6 +581,9 @@ namespace TianWen.UI.Abstractions
             return (scrim, body);
         }
 
+        /// <summary>The orrery button's action, for a host or an inspector.</summary>
+        public const string OrreryAction = "ObjectInfoOrrery";
+
         /// <summary>
         /// The action row, right-aligned, or null when the host offered no actions.
         /// </summary>
@@ -619,8 +623,12 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.Spacer().WFixed(10f).HStar());
             }
 
-            // Up to three buttons, each present only if it has a handler, separated by fixed gaps. Every one
-            // that can act lights under the pointer; a disabled Goto does not, since nothing would happen.
+            // Up to four buttons, each present only if it has a handler, separated by fixed gaps. Every one
+            // that can act lights under the pointer; a disabled Goto does not, since nothing would happen. A
+            // solar-system body's fourth, the orrery, narrows the row's buttons so all four fit the panel.
+            var narrow = actions.Orrery is not null;
+            var buttonWidth = narrow ? 64f : 90f;
+            var viewWidth = narrow ? 112f : 116f;
             var parts = new System.Collections.Generic.List<Layout.Node>(9)
             {
                 Layout.Builder.Spacer().WStar(),
@@ -639,7 +647,7 @@ namespace TianWen.UI.Abstractions
             {
                 var node = Layout.Builder
                     .Text("Goto", dFont, palette.ButtonText, TextAlign.Center, TextAlign.Center)
-                    .WFixed(90f).HStar()
+                    .WFixed(buttonWidth).HStar()
                     .Bg(actions.GotoEnabled ? palette.GotoBg : palette.DisabledBg);
                 if (actions.GotoEnabled)
                 {
@@ -655,7 +663,7 @@ namespace TianWen.UI.Abstractions
                 Add(Layout.Builder
                     .Text("View in Planner", dFont * 0.9f, palette.ButtonText,
                         TextAlign.Center, TextAlign.Center)
-                    .WFixed(116f).HStar().Bg(palette.ViewBg)
+                    .WFixed(viewWidth).HStar().Bg(palette.ViewBg)
                     .BgHover(ButtonHover(palette.ViewBg, in palette))
                     .Clickable(new HitResult.ButtonHit("ObjectInfoViewInPlanner"), _ => view()));
             }
@@ -666,10 +674,21 @@ namespace TianWen.UI.Abstractions
                 Add(Layout.Builder
                     .Text(actions.IsPinned ? "Unpin" : "Pin", dFont, palette.ButtonText,
                         TextAlign.Center, TextAlign.Center)
-                    .WFixed(90f).HStar()
+                    .WFixed(buttonWidth).HStar()
                     .Bg(pinFill)
                     .BgHover(ButtonHover(pinFill, in palette))
                     .Clickable(new HitResult.ButtonHit("ObjectInfoPinToggle"), _ => pin()));
+            }
+
+            if (actions.Orrery is { } orrery)
+            {
+                Add(Layout.Builder
+                    .Text("Orrery", dFont, palette.ButtonText, TextAlign.Center, TextAlign.Center)
+                    .WFixed(buttonWidth).HStar()
+                    .Bg(palette.ViewBg)
+                    .BgHover(ButtonHover(palette.ViewBg, in palette))
+                    .Clickable(new HitResult.ButtonHit(OrreryAction), _ => orrery())
+                    .WithTooltip("The solar system in 3D, at this instant"));
             }
 
             parts.Add(Layout.Builder.Spacer().WFixed(10f).HStar());
