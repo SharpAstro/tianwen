@@ -504,28 +504,20 @@ namespace TianWen.UI.Abstractions
                     .Clickable(new HitResult.ButtonHit(action), _ => onClick())
                     .WithTooltip(tooltip);
 
-            ReadOnlySpan<Layout.ButtonGroupOption<OrreryScale>> scales =
-            [
-                new(OrreryScale.Compressed, "Compressed") { Hit = new HitResult.ButtonHit(OrreryScaleAction + ":Compressed"), Tooltip = "Distances as their square root" },
-                new(OrreryScale.True, "True") { Hit = new HitResult.ButtonHit(OrreryScaleAction + ":True"), Tooltip = "True distances" },
-            ];
-            // A group's segments take the width they are given, so it is the engine's measurement of the longer label, as the sky's
-            // own mode switch does it (BuildModeSwitch); unstated, the group took none and painted over its neighbour.
-            var widest = Layout.Engine.Measure(
-                Layout.Builder.Text("Compressed", fontSize, trim: TextTrim.None).PadX(padX),
-                new Layout.Size<float>(float.MaxValue, float.MaxValue), MeasureContext(scale: DesignScale.One)).Width;
-            var style = new Layout.ButtonGroupStyle(palette.Selection, fill, ink, ink, GuiTheme.Hover(fill))
-            {
-                Gap = 2f * dpiScale,
-                CornerRadius = 3f * dpiScale,
-                InsetFraction = 0.8f,
-                SegmentWidth = widest,
-            };
+            // The distance scale is ONE toggle naming the mode in force, sized by the longer label so a press does not move the strip.
+            var compressed = orrery.Scale == OrreryScale.Compressed;
+            var scaleToggle = Layout.Builder.Text(compressed ? "Distances: compressed" : "Distances: true", fontSize, ink,
+                    TextAlign.Center, TextAlign.Center, widthSample: "Distances: compressed")
+                .PadX(padX).HStar()
+                .Bg(fill).BgHover(GuiTheme.Hover(fill))
+                .Clickable(new HitResult.ButtonHit(OrreryScaleAction),
+                    _ => SwitchOrreryScale(compressed ? OrreryScale.True : OrreryScale.Compressed))
+                .WithTooltip(compressed ? "Distances as their square root; press for true distances" : "True distances; press to compress them");
 
             // ONE tree over the whole rect: the strip is the bottom row of it, its fill and its content one arranged box.
             var strip = Layout.Builder.HStack(
                     Button("Sky", "OrreryClose", CloseOrrery, "Back to the sky"),
-                    Layout.Builder.ButtonGroup(scales, orrery.Scale, SwitchOrreryScale, style, fontSize).HStar(),
+                    scaleToggle,
                     // The wider label sized once, so Play and Pause do not move what follows.
                     Layout.Builder.Text(orrery.Playing ? "Pause" : "Play", fontSize, ink, TextAlign.Center, TextAlign.Center, widthSample: "Pause")
                         .PadX(padX).HStar()

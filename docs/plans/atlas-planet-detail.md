@@ -327,7 +327,8 @@ the Sun, is why Venus is a crescent, and the angle between them at the planet is
   the primitives every host has (`DrawPolyline` for orbits, a sprite or `FillEllipse` for a body), so Vulkan, WebGL
   and the CPU surface draw it with nothing new.
 - **Scale:** Compressed (the default: each distance's square root, Neptune 8.8 times Mercury's distance rather than
-  77) or True, a switch on the strip. Both keep every direction from the Sun, which is what the lighting needs.
+  77) or True, ONE toggle on the strip labelled with the mode in force (`Distances: compressed` / `Distances: true`, sized by the
+  longer label so a press moves nothing beside it). Both keep every direction from the Sun, which is what the lighting needs.
 - **The bodies** are A4's sprites, from a cache of their own (`PlanetSpriteCache.OrreryChannel`), at an exaggerated
   size in their true order (the Sun 14 px, Jupiter 10, down to Mercury 4 and the Moon 3.5, times the DPI scale),
   each labelled, the selected one ringed and its orbit drawn in the accent. The Moon is drawn 8 % of the Earth's
