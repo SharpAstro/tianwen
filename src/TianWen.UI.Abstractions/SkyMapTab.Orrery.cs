@@ -313,14 +313,23 @@ namespace TianWen.UI.Abstractions
             var lineHeight = fontSize * 1.4f;
             var (eyeX, eyeY, eyeZ) = camera.Eye;
 
-            // The Earth's place on screen, for the Moon's: at any scale that shows the planets the Moon's drawn offset is a few pixels,
-            // so it is held at least the two radii and a label line out from the Earth, along their projected direction.
+            // The Moon is placed on SCREEN: a steady reach from the Earth's drawn place (the two radii, a gap and a label line), along its
+            // true geocentric direction as projected, so only that direction turns through a month. Placed in the world instead, at a
+            // fraction of the Earth's distance, it was foreshortened by the camera's elevation, long across the view and short along it,
+            // and the floor that kept it off the Earth clipped the short half: 28 to 68 px over a month zoomed in, a spiral in Play.
+            // Where that reach would pass half the gap to Venus on screen the Moon is not drawn, rather than drawn among the planets.
             var earthOnScreen = scene.TryFind(CatalogIndex.Earth, out var earthBody)
                 && scene.Drawn(scale, earthBody) is var (ex, ey, ez)
                 && camera.TryProject(ex, ey, ez, out var esx, out var esy)
                 ? (esx, esy)
                 : ((float, float)?)null;
             var moonReach = ((OrreryRadius(CatalogIndex.Earth) + OrreryRadius(CatalogIndex.Moon) + 4f) * dpiScale) + lineHeight;
+            LastMoonReach = moonReach;
+            var moonOnScreen = earthOnScreen is var (mex, mey) && scene.TryFind(CatalogIndex.Moon, out var moonBody)
+                && OrreryMoonScreenDirection(camera, scene.Drawn(scale, earthBody), earthBody, moonBody) is var (ux, uy)
+                && !MoonCrowdsVenus(scene, camera, scale, mex, mey, moonReach)
+                ? (mex + (ux * moonReach), mey + (uy * moonReach))
+                : ((float, float)?)null;
             Span<(int Index, float X, float Y, float Radius, double Depth)> labels = stackalloc (int, float, float, float, double)[bodies.Length];
             var labelCount = 0;
             Span<double> toObserver = stackalloc double[3];
@@ -333,15 +342,13 @@ namespace TianWen.UI.Abstractions
                 {
                     continue;
                 }
-                if (body.Index == CatalogIndex.Moon && earthOnScreen is var (earthX, earthY))
+                if (body.Index == CatalogIndex.Moon)
                 {
-                    var (dx, dy) = (sx - earthX, sy - earthY);
-                    var d = MathF.Sqrt((dx * dx) + (dy * dy));
-                    if (d < moonReach)
+                    if (moonOnScreen is not var (moonX, moonY))
                     {
-                        (dx, dy, d) = d < 1e-3f ? (1f, 0f, 1f) : (dx, dy, d);
-                        (sx, sy) = (earthX + (dx / d * moonReach), earthY + (dy / d * moonReach));
+                        continue;
                     }
+                    (sx, sy) = (moonX, moonY);
                 }
                 var radius = OrreryRadius(body.Index) * dpiScale;
                 var isComet = body.Index.ToCatalog() == Catalog.Comet;
@@ -469,6 +476,51 @@ namespace TianWen.UI.Abstractions
                 }
             }
             return true;
+        }
+
+        private (float X, float Y) _lastMoonDirection = (1f, 0f);
+
+        /// <summary>The Moon's screen reach from the Earth in the last frame, pixels: what the tests hold its drawn distance to.</summary>
+        internal float LastMoonReach { get; private set; }
+
+        // The unit screen direction from the Earth's drawn place along the Moon's true geocentric direction: the Earth and a point a
+        // thousandth of the camera's distance out from it that way, projected. Along the line of sight that direction is undefined,
+        // and the last one is kept, so the Moon does not jump for the frame it passes behind or before the Earth.
+        private (float X, float Y)? OrreryMoonScreenDirection(in OrreryCamera camera, (double X, double Y, double Z) earthDrawn,
+            in OrreryBody earth, in OrreryBody moon)
+        {
+            var (gx, gy, gz) = (moon.X - earth.X, moon.Y - earth.Y, moon.Z - earth.Z);
+            var g = Math.Sqrt((gx * gx) + (gy * gy) + (gz * gz));
+            var (cx, cy, cz) = camera.Eye;
+            var reach = 1e-3 * Math.Sqrt(((earthDrawn.X - cx) * (earthDrawn.X - cx)) + ((earthDrawn.Y - cy) * (earthDrawn.Y - cy)) + ((earthDrawn.Z - cz) * (earthDrawn.Z - cz)));
+            if (g == 0
+                || !camera.TryProject(earthDrawn.X, earthDrawn.Y, earthDrawn.Z, out var x0, out var y0)
+                || !camera.TryProject(earthDrawn.X + (gx / g * reach), earthDrawn.Y + (gy / g * reach), earthDrawn.Z + (gz / g * reach), out var x1, out var y1))
+            {
+                return null;
+            }
+            var (dx, dy) = (x1 - x0, y1 - y0);
+            var d = MathF.Sqrt((dx * dx) + (dy * dy));
+            if (d > 1e-4f)
+            {
+                _lastMoonDirection = (dx / d, dy / d);
+            }
+            return _lastMoonDirection;
+        }
+
+        // Whether the Moon's reach would pass half the screen gap from the Earth to Venus.
+        private static bool MoonCrowdsVenus(OrreryScene scene, in OrreryCamera camera, in OrreryScaling scale, float earthX, float earthY, float moonReach)
+        {
+            if (!scene.TryFind(CatalogIndex.Venus, out var venus))
+            {
+                return false;
+            }
+            var (vx, vy, vz) = scene.Drawn(scale, venus);
+            if (!camera.TryProject(vx, vy, vz, out var sx, out var sy))
+            {
+                return false;
+            }
+            return moonReach > 0.5f * MathF.Sqrt(((sx - earthX) * (sx - earthX)) + ((sy - earthY) * (sy - earthY)));
         }
 
         // The screen direction of the body's north pole, degrees from +x toward +y (y down), as PlanetDiscSprite.PoleScreenAngle states
