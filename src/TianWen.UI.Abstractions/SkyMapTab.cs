@@ -962,11 +962,11 @@ namespace TianWen.UI.Abstractions
                     // The textured disc once it is big enough on screen (A4), else the filled dot sized by its live
                     // magnitude (the Sun and Moon fixed). Below the threshold nothing about a sprite is touched.
                     var dotRadius = SkyMapState.PlanetDotRadius(planetIdx, vmag);
-                    // The label starts past whatever was drawn: 10 px from a dot, clear of a disc's edge.
+                    // The label starts past whatever was drawn: 10 px from a dot, clear of the sprite's reach (Saturn's rings past its globe).
                     var labelOffset = 10f;
                     if (aspect is { } shown && TryDrawPlanetDisc(shown, ra, dec, sx, sy, ppr, cx, cy, dotRadius, belowHorizon, out var discRadius))
                     {
-                        labelOffset = MathF.Max(labelOffset, discRadius + 4f);
+                        labelOffset = MathF.Max(labelOffset, (discRadius * (float)PlanetDiscSprite.ExtentRadii(planetIdx)) + 4f);
                         _planetDiscsThisFrame.Add(planetIdx);
                     }
                     else

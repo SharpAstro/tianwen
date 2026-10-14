@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using DIR.Lib;
 using SharpAstro.Png;
@@ -217,6 +218,26 @@ public sealed class SkyMapPlanetDiscTests
 
         Select(160).ShouldNotBe(CatalogIndex.Moon, "far outside the dot");
         Select(5).ShouldBe(CatalogIndex.Moon, "on the dot");
+    }
+
+    /// <summary>
+    /// The label starts clear of everything the sprite draws: Saturn's sprite reaches its ring ansae, about 2.27 globe radii, so its
+    /// label's clickable begins past them, not 4 px past the globe and over the rings.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task SaturnsLabelClearsItsRings()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        rig.Tab.State.Mode = SkyMapMode.Equatorial;
+        rig.Look(CatalogIndex.Saturn, 100);
+        await rig.RenderSettledAsync();
+        rig.Tab.State.PlanetDiscsDrawn.ShouldContain(CatalogIndex.Saturn);
+
+        var label = rig.Tab.GetRegisteredRegions()
+            .Single(r => r.Result is HitResult.ButtonHit { Action: var action } && action.StartsWith("SkyMapPlanetLabel:", StringComparison.Ordinal)
+                && action.EndsWith("Saturn", StringComparison.Ordinal));
+        var ringEdge = (Size / 2f) + (float)(PlanetDiscSprite.ExtentRadii(CatalogIndex.Saturn) * 50);
+        label.X.ShouldBeGreaterThanOrEqualTo(ringEdge, "the label begins past the rings' ansa");
     }
 
     /// <summary>
