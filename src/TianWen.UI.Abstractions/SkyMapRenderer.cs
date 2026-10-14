@@ -689,28 +689,13 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var x = radius;
-            var y = 0;
-            var decisionOver2 = 1 - x;
-
-            while (y <= x)
+            // ONE span per row. The midpoint walk this replaced drew some rows twice (its four spans a step overlap where x and y
+            // meet, and every step repeats the row its last x left), which an opaque colour hides and a translucent one shows as
+            // bright bands: the orrery's dimmed backdrop drew its bright stars as banded discs that looked like planets.
+            for (var dy = -radius; dy <= radius; dy++)
             {
-                // Draw horizontal spans for filled circle
-                image.DrawHLine(cx - x, cx + x, cy + y, color);
-                image.DrawHLine(cx - x, cx + x, cy - y, color);
-                image.DrawHLine(cx - y, cx + y, cy + x, color);
-                image.DrawHLine(cx - y, cx + y, cy - x, color);
-
-                y++;
-                if (decisionOver2 <= 0)
-                {
-                    decisionOver2 += 2 * y + 1;
-                }
-                else
-                {
-                    x--;
-                    decisionOver2 += 2 * (y - x) + 1;
-                }
+                var half = (int)Math.Round(Math.Sqrt((radius * radius) - (dy * dy)));
+                image.DrawHLine(cx - half, cx + half, cy + dy, color);
             }
         }
 
