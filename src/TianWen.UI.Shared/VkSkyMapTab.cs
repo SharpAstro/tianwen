@@ -10,6 +10,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging.Planetary;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Overlays;
@@ -1286,6 +1287,23 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         _pictures.Draw(renderer, image, rect);
     }
 
+    private VkPlanetSprites? _planetSpriteTextures;
+
+    /// <summary>
+    /// Where the planets' OPAL maps come from (A4). Set by the host from its services; unset, the discs keep the offline atlas.
+    /// </summary>
+    public IPlanetMapStore? PlanetMapStore
+    {
+        get => PlanetTextures.Store;
+        set => PlanetTextures.Store = value;
+    }
+
+    protected override bool DrawPlanetSprite(PlanetSprite sprite, float x, float y, float radiusPx)
+    {
+        _planetSpriteTextures ??= new VkPlanetSprites(renderer.Context, () => State.NeedsRedraw = true);
+        return _planetSpriteTextures.Draw(renderer, sprite, x, y, radiusPx);
+    }
+
     protected override bool OnMilkyWayLoaded(ReadOnlySpan<byte> bgraData, int width, int height)
     {
         try
@@ -1318,6 +1336,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     public void Dispose()
     {
         _pictures?.Dispose();
+        _planetSpriteTextures?.Dispose();
         _pipeline?.Dispose();
     }
 }

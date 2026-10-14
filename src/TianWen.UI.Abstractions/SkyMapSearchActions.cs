@@ -1072,8 +1072,9 @@ public static class SkyMapSearchActions
         var bestPlanetDistSq = double.MaxValue;
         CatalogIndex? bestPlanetIdx = null;
         double bestPlanetRa = 0.0, bestPlanetDec = 0.0;
-        foreach (var (planetIdx, pRa, pDec) in skyMap.GetPlanetPositionsCached(viewingUtc))
+        foreach (var marker in skyMap.GetPlanetPositionsCached(viewingUtc))
         {
+            var (planetIdx, pRa, pDec) = marker;
             if (!SkyMapProjection.ProjectWithMatrix(pRa, pDec, viewMatrix, pixelsPerRadian, centerX, centerY,
                     out var sx, out var sy))
             {
@@ -1082,7 +1083,14 @@ public static class SkyMapSearchActions
 
             var dx = sx - clickScreenX;
             var dy = sy - clickScreenY;
-            var distSq = dx * dx + dy * dy;
+            var distSq = (double)(dx * dx + dy * dy);
+            // A planet drawn as its disc (A4) is hit anywhere on the disc, and a click on it is the planet, whatever star or
+            // galaxy lies behind: the Moon covers them. The globe, not Saturn's rings, is the hit area.
+            var discRadius = marker.Aspect is { } aspect ? PlanetSpriteCache.DiscDiameterPx(aspect, pixelsPerRadian) / 2 : 0;
+            if (discRadius > ClickToleranceScreenPx && distSq <= discRadius * discRadius)
+            {
+                distSq = 0;
+            }
             if (distSq <= ClickToleranceScreenPx * ClickToleranceScreenPx && distSq < bestPlanetDistSq)
             {
                 bestPlanetDistSq = distSq;

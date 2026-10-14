@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using SdlVulkan.Renderer;
 using TianWen.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Imaging.Planetary;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Discovery;
 using TianWen.Lib.Extensions;
@@ -171,6 +172,7 @@ var renderer = gpu.Renderer;
 var guiRenderer = gpu.Top;
 // The atlas info panel's picture of the object, fetched on selection and cached on disk.
 guiRenderer.ObjectPictureStore = sp.GetRequiredService<IObjectPictureStore>();
+guiRenderer.PlanetMapStore = sp.GetRequiredService<IPlanetMapStore>();
 // The Live Session preview's object overlay reads the catalogue the planner loads: the same singleton, whose
 // InitDBAsync is idempotent and serialised, behind a lazy, so this starts nothing until the overlay asks.
 guiRenderer.CelestialObjectDB = new DotNext.Threading.AsyncLazy<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(async ct =>

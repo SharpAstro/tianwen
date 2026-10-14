@@ -1344,6 +1344,28 @@
         }
     }
 
+    // First Sky-Atlas open: fetch the planets' offline texture atlas (planet-textures.png, beside the page; A4 of
+    // docs/plans/atlas-planet-detail.md) and decode it in .NET, since the discs are rendered on the CPU from its maps. The giants
+    // then upgrade to OPAL's maps from MAST, fetched with the same client. Best-effort: without it a planet stays a dot.
+    async Task LoadPlanetAtlasAsync()
+    {
+        if (_skyTab is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var png = await Http.GetByteArrayAsync(TianWen.Lib.Imaging.Planetary.PlanetTextureAtlas.FileName);
+            _skyTab.SubmitPlanetAtlas(png, new TianWen.UI.Web.SkyMap.BrowserPlanetMapStore(Http));
+            RenderFrame();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[tianwen-web] no planet textures: {ex.Message}");
+        }
+    }
+
     // First Sky-Atlas open: fetch the Milky Way background, which pages.yml bakes into milkyway.png from
     // the desktop's own texture (tools/bake-milkyway). The browser decodes the PNG off the main thread and
     // uploads it; only the texture handle crosses into WebAssembly. Best-effort, like Tycho-2: a dev server
@@ -2168,6 +2190,7 @@
                 {
                     _milkyWayRequested = true;
                     _tracker.Run(() => LoadMilkyWayAsync(), "Load the Milky Way texture");
+                    _tracker.Run(() => LoadPlanetAtlasAsync(), "Load the planet texture atlas");
                 }
                 // On the member path, panning and zooming reveal sky we have not fetched. Cheap: it
                 // returns immediately unless the quantized view key actually moved.

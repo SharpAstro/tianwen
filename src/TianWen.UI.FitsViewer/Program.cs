@@ -3,6 +3,7 @@ using DIR.Lib;
 using SdlVulkan.Renderer;
 using TianWen.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Imaging.Planetary;
 using TianWen.AI.Imaging;
 using TianWen.Lib.Logging;
 using TianWen.UI.Abstractions;
@@ -326,7 +327,7 @@ StartupTrace.Mark("gpu");
 // viewer that never reaches the top rung pays for none of it.
 // Declared after the GPU stack, so it is disposed before it: its textures and pipeline go while the
 // device is still there to destroy them.
-using var skyBackdrop = new VkSkyMapTab(renderer) { Bus = bus, Logger = logger };
+using var skyBackdrop = new VkSkyMapTab(renderer) { Bus = bus, Logger = logger, PlanetMapStore = sp.GetRequiredService<IPlanetMapStore>() };
 skyBackdrop.State.ViewDrivenExternally = true;
 // Defaults chosen for a sky drawn BEHIND a picture rather than for an atlas: the grid and the
 // objects are the ladder's own lower rungs and are already drawn over the frame by the viewer, so

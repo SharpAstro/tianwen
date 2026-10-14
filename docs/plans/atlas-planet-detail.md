@@ -2,8 +2,8 @@
 
 **Status: PARTIAL (raised by the user 2026-08-22).** Tracked here rather than in the next release,
 per the user's instruction: *"for Atlas lets just track it in the plan"*. Built 2026-10-14: finding 2's
-live magnitude and A4's geometry layer (see "What is built" under A4). Open: A1's sparkline, A2, A3, A4's
-drawn disks, phases and rings, A5.
+live magnitude, A4's geometry layer (see "What is built" under A4) and A4's textured discs, phases and rings
+("A4: the textured disc"). Open: A1's sparkline, A2, A3, A4's optional side-by-side strip, A5.
 
 The notes, in the order they arrived:
 
@@ -116,45 +116,41 @@ it should go first.
 
 Issue: #1037.
 
-A1 to A3 are about what the info panel SAYS; this is what the map DRAWS. Today every planet is a dot sized by
-its type (`SkyMapTab.DrawPlanetLabels`: the Sun and the Moon 4 px, Jupiter and Saturn 3, the rest 2), in a
-colour per planet (`SkyMapRenderer.GetPlanetColor`). It looks the same at any zoom, whatever the body's
-distance, phase or brightness.
+A1 to A3 are about what the info panel SAYS; this is what the map DRAWS. Until 2026-10-14 every planet was a dot
+sized by its type, in a colour per planet (`SkyMapRenderer.GetPlanetColor`), the same at any zoom whatever the
+body's distance, phase or brightness. Now the dot is sized by the live magnitude, and once the disc is big enough
+on screen the planet is drawn as itself: a textured disc turned to its true central meridian and pole, phased
+toward the Sun, Saturn with its rings at their real tilt.
 
-1. **A disc at its true angular size, where the zoom resolves one.** The apparent diameter is the body's
-   equatorial radius over its geocentric distance, and `VSOP87a.Reduce` already returns that distance. Jupiter
-   runs about 30 to 50 arcseconds, which is some 11 px across at a 1 degree field on a 1,000 px view, so a disc
-   is real from moderate zoom inward. Below a few pixels the dot stays, but sized by the LIVE brightness (A1's
-   magnitude) rather than by type. The disc is also the planet's hit area, as a shaped object's ellipse already
-   is for the resolver.
-2. **A drawn disc per planet, from the palette.** Jupiter's and Saturn's bands, Mars's red, the ice giants'
-   tints, as the reference draws them. Never a texture or an emoji, for the reason the night calendar's Moon mark
-   is drawn: Night mode must be able to tint it (CLAUDE.md, "Night Calendar"). A disc is ellipse fills, which
-   all three renderers draw natively.
-3. **Phase: Venus, Mercury, the Moon, and Mars's gibbous.** The illuminated fraction is (1 + cos i) / 2 for the
-   phase angle i (Sun, body, Earth), from the heliocentric and geocentric distances A1 needs for the magnitude
-   anyway, so the two share one geometry and whichever lands first builds it. The terminator is a half-ellipse
-   whose minor axis is the disc's radius times |cos i|, with the bright limb turned toward the Sun's position
-   angle from the body. `MeeusMoon.GetPhase` already has the Moon's fraction and not its bright-limb angle. The
-   crescent is either composed from ellipse fills or a small primitive added to DIR.Lib's `Renderer`, which is
-   where it belongs if the composition cannot be exact on all three renderers.
-4. **Saturn's rings at their real tilt.** The ring opening B (the Earth's saturnicentric latitude) and the
-   position angle P, per Meeus, Astronomical Algorithms, ch. 45. The ring is an ellipse of axis ratio sin |B|,
-   its back half drawn behind the disc and its front half over it. The rings were edge-on at the ring-plane
-   crossing of March 2025 and are opening again, so a near edge-on ring is today's picture and a good check.
-5. **Info-panel rows:** apparent diameter (40.9"), illuminated fraction for a phased body, ring tilt for Saturn.
+1. **A disc at its true angular size, where the zoom resolves one; a dot below.** The disc is drawn once it is at
+   least `PlanetDiscSprite.MinDiscPx` (6 px) across and at least the dot it replaces; below that the dot runs and
+   nothing about a disc is touched (at a 60 degree field Jupiter is about 0.2 px). The disc is the planet's hit
+   area (`SkyMapSearchActions.TryResolveHit`: a click anywhere on it is the planet, whatever lies behind), and the
+   label moves clear of its edge, its click unchanged (`MarkerLabelEntry`).
+2. **The disc is a realistic texture, not a drawing from the palette.** This item first said "never a texture, so
+   Night mode can tint it"; the user asked instead (2026-10-14) for realistic planet textures "in similar fashion to
+   what planet stacking does ... using OPAL", with correct rotation, performance first. Night mode is answered at
+   BUILD time: the sprite is the texture's luminance in the Night accent, blue at zero, and the palette generation is
+   in the sprite's key. See "A4: the textured disc" below.
+3. **Phase: Venus, Mercury, the Moon, Mars's gibbous**, by rendering, not by composing ellipses: the disc is lit
+   from the Sun's sub-solar point (`PhysicalEphemeris.SunOnTheDisk`), so the terminator, the crescent and the bright
+   limb's position angle are the ephemeris's, on all three renderers alike.
+4. **Saturn's rings at their real tilt**: the sprite reaches the ring system, the rings drawn from the ephemeris
+   (`SaturnRings.Main`), the near half over the globe, the far half behind it, the globe's shadow on the rings and
+   theirs on the globe, as the stacker's twin renders them.
+5. **Info-panel rows:** apparent diameter, illuminated fraction for a phased body, ring tilt for Saturn (built with
+   the geometry layer, below).
 6. **Optional: the planets side by side**, by size in the sky or by brightness, as in the reference: a strip of
-   all of them at the viewing instant, each pressable to select it. Only after 1 to 5, and only if it earns its
-   screen space.
+   all of them at the viewing instant, each pressable to select it. Not built; only if it earns its screen space.
 
-**Tests:** the apparent diameter and the illuminated fraction against published ephemeris values for a date;
-Saturn's B and P and Venus's illuminated fraction against Meeus's worked examples (ch. 45 and ch. 41); and
-pixels for the phase's orientation (the lit limb faces the Sun) and for the ring's front half covering the disc.
+**What a user will notice:** the interactive atlas zooms in to half a degree (`SkyMapViewActions.MinFieldOfViewDeg`),
+where on a 1,000 px view the Moon and the Sun fill the screen, Venus is about 30 px and Jupiter about 20; the FITS
+viewer's sky backdrop goes down to 0.005 degree, where every planet is a large disc. A disc wider than 256 px is the
+256 px sprite scaled up.
 
 #### What is built (the geometry layer, 2026-10-14)
 
-Everything a drawn disk needs, and nothing drawn yet: items 2's, 3's and 4's drawing, the textured sprites and
-A5 build on this.
+Everything a drawn disk needs: the textured disc (below) and A5 build on this.
 
 - **`PhysicalEphemeris.Compute(body, utc)` covers every body the atlas draws** (`PhysicalEphemeris.Supports`): the
   Sun, the Moon (the IAU lunar orientation), Mercury, Venus, Mars, Jupiter, Saturn, Uranus and Neptune (IAU WGCCRE
@@ -184,6 +180,78 @@ A5 build on this.
 - **Found on the way**: `MeeusMoon` added a longitude of the equinox OF DATE to VSOP87's J2000 Earth, so the Moon sat
   0.37 degree east of itself in 2026 (twice that in `VSOP87a.Reduce`'s of-date output, precessed again). The general
   precession is now taken out; the lunar central meridian against Horizons went from 0.29 to 0.38 degree off on the four rows to under 0.006.
+
+#### A4: the textured disc
+
+Built 2026-10-14 (#1037). The pieces, in the order a frame meets them:
+
+- **Textures.** ONE offline atlas, `planet-textures.png` (512 x 512, 301,799 bytes, `PlanetTextureAtlas`), eight
+  256 x 128 equirectangular colour maps in `PlanetMap`'s convention (WEST longitude, column 0 at 0 degrees, falling
+  to the right), poles filled: Mercury, Venus and Mars from Solar System Scope (CC BY 4.0), the Moon from NASA SVS's
+  LROC map (public domain), Jupiter, Saturn, Uranus and Neptune from OPAL's 2025 colour composites. Baked by
+  `tools/bake-planet-textures` (its README has every source URL, licence and OPAL's acknowledgement), kept in
+  `TianWen.UI.Abstractions/Resources`, copied beside every desktop app and served beside the web page. Never fetched
+  for Mercury, Venus, the Moon or Mars.
+- **The OPAL upgrade.** The four giants are upgraded at runtime to OPAL's `globalmap-small` colour composite (450 x
+  225, 8-bit RGB TIFF, served by MAST with `Access-Control-Allow-Origin: *`), from a hard-coded table of apparitions
+  (`OpalColourMaps.TryFor`; no directory listing). The desktop caches them under `AppData/PlanetMaps`
+  (`PlanetMapStore`); the browser fetches the same URL through its own client (`BrowserPlanetMapStore`); both decode
+  with `SharpAstro.Tiff` in .NET (`OpalColourMaps.Decode`). A failed fetch keeps the atlas and is not asked again for
+  an hour (`PlanetTextures.RetryCooldown`). OPAL's filters are not the eye's, so its maps are credited as "OPAL (HST),
+  colour rendering". OPAL leaves black where Hubble never saw the planet (Uranus's whole southern hemisphere in 2025,
+  Saturn's north pole); a display fill (`PlanetColourMap.FromRgb8(fillHoles: true)`) holds the nearest kept rows'
+  mean colour there. The stacker's `PlanetMap.FilledZonally` is untouched: it copies a row's longitude pattern, which
+  streaked a missing hemisphere.
+- **Longitudes.** OPAL's readme: "left edge = 0 System III W. longitude, decreasing to the right", which is
+  `PlanetMap`'s own convention. Pinned by the Great Red Spot: the reddest feature at 22 degrees south of the 2025b map
+  (2025-12-11) lies at System III 321 W, System II 79 at that date, where the spot was in late 2025
+  (`PlanetTextureAtlasTests`).
+- **The render.** `PlanetaryRender.RenderRgba` traces the SAME scene as the stacker's mono `Render` (one `Scene`, one
+  ray trace, `SceneRay`): the oblate spheroid turned to the central meridian, Minnaert limb darkening, lit from the
+  sub-solar point, Saturn's rings with both shadows; it lights the trace from each plane of a `PlanetColourMap` and
+  adds a coverage channel. The mono render hashes as it did on main (`PlanetDiscRenderTests`). 3 x 3 rays a pixel, not
+  the stacker's 8 x 8.
+- **The sprite** (`PlanetDiscSprite.Build`): a square straight-alpha RGBA image, the globe or Saturn's ring system and
+  a pixel of margin, at most 256 px. Straight, not premultiplied, alpha: every host's blend (Vulkan's `SrcAlpha`,
+  WebGL's `AlphaOver`, the CPU `BlendPixelAt`) takes straight alpha, and a premultiplied sprite would darken its limb
+  twice. The night side is covered and black, as the Moon's dark limb hides the stars. A body below the horizon is
+  baked at 35 % opacity, as its label is. The Sun is the same render lit at full phase from a flat colour.
+- **Orientation on screen.** The pole's position angle is east of celestial north, and the VIEW can roll, be
+  horizon-up or be mirrored, so the sprite is turned by the pole angle laid off from the screen direction of celestial
+  north AT THE PLANET, found by projecting the planet and its neighbours a hundredth of a degree north and east through
+  the current view matrix (`PlanetDiscSprite.TryScreenNorth`, `PoleScreenAngle`). The rotation is inside the sprite;
+  no new shader.
+- **The cache** (`PlanetSpriteCache`): one sprite per body, keyed on `PlanetSpriteKey`: the size in eighth-octave
+  buckets, and every angle (central meridian, the Sun's place on the disc, the sub-observer and sub-solar latitudes,
+  the turn on screen) in steps of the limb error, one radian over the BUCKETED radius, never under a quarter degree;
+  the palette generation, Night, the texture version and the dimming. The sprite is built from the aspect snapped to
+  its bucket centres, so it is a function of its key. A changed key starts ONE build on the thread pool (the Task is
+  the hand-off; no lock), the stale sprite is drawn until it lands, and its landing asks for a frame (the web host's
+  `RequestRepaint` too).
+- **The hosts** (`SkyMapTab.DrawPlanetSprite`): the base draws on the CPU surface (`RgbaImage`: the tests and the
+  terminal), `VkSkyMapTab` through `VkPlanetSprites` (a queued upload, the previous texture drawn until the new one
+  lands, a replaced texture's destroy deferred by the context), `WebSkyMapTab` through `WebGlPlanetSprites` (the
+  sprite handed to the browser as a PNG data URL, since the renderer takes textures only from a URL).
+
+**Measured:** one sprite build, Jupiter from the atlas, after a warm-up, on this Surface Pro 11 (Snapdragon X Elite
+X1E80100, 12 cores, the rows spread over them by `ParallelFor`), Release: 0.6 ms at a 64 px sprite and 10.8 ms at
+256 px with the JIT fully optimising (`DOTNET_TieredCompilation=0`, which is what an AOT app runs), 3.9 and 49 ms while
+tier-0 code still runs (`SkyMapPlanetDiscTests.TheCpuSurfaceShowsTheSpritesPixels` writes `build-cost.txt`). A
+wide-field frame does no sprite work at all (`SkyMapPlanetDiscTests.AWideFieldDoesNoSpriteWork`); builds are COUNTED,
+never timed, over a pan (none), a zoom (once per size bucket crossed) and a time scrub (some of ten one-minute steps
+of Jupiter, once for an hour's jump). On the single-threaded browser a build runs on the main thread, one per bucket
+change; it is not measured there.
+
+**Tests:** `PlanetDiscRenderTests` (the mono render unchanged to the bit; the colour render's planes equal the mono
+render's; the lit limb toward the bright limb's position angle for the Moon, Venus and Mars; Saturn's near ring over
+the northern globe with B negative; a central-meridian turn moves a feature west; the pole turned by the view's own
+north, rolled and mirrored; Night has no blue), `PlanetTextureAtlasTests` (every body, no holes; the Great Red Spot),
+`PlanetTexturesTests` (a failed fetch keeps the atlas and cools down; a landed one replaces the map, credits OPAL,
+survives a later atlas), `SkyMapPlanetDiscTests` (no work at a wide field; the build counts; the disc as hit area; the
+CPU surface shows the sprite, written as `planet-discs.png` in the test output).
+
+**Open:** a disc wider than 256 px is a scaled-up sprite; the atlas's Uranus holds its edge row's colour over the
+unseen southern hemisphere; nothing yet shows the texture's credit in the info panel.
 
 ### A5. The solar system in 3D
 

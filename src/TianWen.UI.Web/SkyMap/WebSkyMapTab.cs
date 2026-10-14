@@ -23,6 +23,7 @@ namespace TianWen.UI.Web.SkyMap
     {
         private readonly WebGlSkyMapPipeline _pipeline = new(renderer);
         private WebGlObjectPictures? _pictures;
+        private WebGlPlanetSprites? _planetSprites;
 
         /// <summary>
         /// Asks the page for a frame. The browser paints per event, so a picture that finished loading while
@@ -41,6 +42,30 @@ namespace TianWen.UI.Web.SkyMap
                 RequestRepaint?.Invoke();
             }, Logger);
             _pictures.Draw(in image, rect);
+        }
+
+        protected override bool DrawPlanetSprite(PlanetSprite sprite, float x, float y, float radiusPx)
+        {
+            _planetSprites ??= new WebGlPlanetSprites(renderer, RequestPlanetFrame, Logger);
+            return _planetSprites.Draw(sprite, x, y, radiusPx);
+        }
+
+        /// <summary>A texture or a sprite landed with nothing else happening: the page paints per event, so ask it for one.</summary>
+        protected override void RequestPlanetFrame()
+        {
+            base.RequestPlanetFrame();
+            RequestRepaint?.Invoke();
+        }
+
+        /// <summary>
+        /// Adopts the planet texture atlas the page fetched beside itself (<see cref="TianWen.Lib.Imaging.Planetary.PlanetTextureAtlas"/>),
+        /// and has the giants upgraded to OPAL through <paramref name="opal"/>. The browser cannot read a file beside the executable.
+        /// </summary>
+        public void SubmitPlanetAtlas(System.ReadOnlySpan<byte> png, TianWen.Lib.Imaging.Planetary.IPlanetMapStore opal)
+        {
+            PlanetTextures.AtlasPath = null;
+            PlanetTextures.Store = opal;
+            PlanetTextures.SetAtlas(png);
         }
 
         /// <summary>

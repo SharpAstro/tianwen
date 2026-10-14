@@ -29,6 +29,12 @@
          ProjectReference into TianWen.Lib's own build, so it must ride the publish command line. -->
   </PropertyGroup>
 
+  <!-- The planets' offline texture atlas, served beside the page (Planner.razor's LoadPlanetAtlasAsync); one file, kept in
+       TianWen.UI.Abstractions where the desktop hosts copy it from. -->
+  <ItemGroup>
+    <Content Include="..\TianWen.UI.Abstractions\Resources\planet-textures.png" Link="wwwroot\planet-textures.png" CopyToOutputDirectory="Never" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" PrivateAssets="all" />
