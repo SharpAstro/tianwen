@@ -874,6 +874,80 @@ public sealed class OrreryTests(ITestOutputHelper output)
         dot.Radius.ShouldBeLessThanOrEqualTo(1.5f);
     }
 
+    /// <summary>
+    /// The backdrop is stars (and, on the GPU, the Milky Way) and nothing of the solar system: at the opening framing every pixel it
+    /// changes lies on a catalogue star the backdrop's view projects there, within the star's drawn radius and its halo.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheBackdropDrawsOnlyCatalogueStars()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Select(rig, CatalogIndex.Jupiter);
+        rig.Tab.OpenOrrery();
+        await SettleAsync(rig);
+        byte[] with = [.. rig.Renderer.Surface.Pixels];
+        var view = rig.Tab.LastOrreryBackdrop.ShouldNotBeNull();
+        rig.Tab.State.Orrery.ShowBackdrop = false;
+        rig.Render();
+        var without = rig.Renderer.Surface.Pixels;
+
+        var db = rig.Planner.ObjectDb.ShouldNotBeNull();
+        var stars = new System.Collections.Generic.List<(float X, float Y, float Reach)>();
+        for (var hip = 1; hip <= db.HipStarCount; hip++)
+        {
+            if (db.TryLookupHIP(hip, out var ra, out var dec, out var vMag, out _) && !float.IsNaN(vMag)
+                && SkyMapProjection.ProjectGnomonicWithMatrix(ra, dec, view.View, view.PixelsPerRadian, Width / 2f, Height / 2f, out var sx, out var sy))
+            {
+                stars.Add((sx, sy, SkyMapProjection.StarRadius(vMag, view.FieldOfViewDeg) + 3f));
+            }
+        }
+
+        var stray = new System.Collections.Generic.List<string>();
+        for (var y = 0; y < Height; y++)
+        {
+            for (var x = 0; x < Width; x++)
+            {
+                var i = ((y * Width) + x) * 4;
+                if (with[i] == without[i] && with[i + 1] == without[i + 1] && with[i + 2] == without[i + 2])
+                {
+                    continue;
+                }
+                if (!stars.Any(s => ((x - s.X) * (x - s.X)) + ((y - s.Y) * (y - s.Y)) <= s.Reach * s.Reach))
+                {
+                    stray.Add($"({x}, {y})");
+                }
+            }
+        }
+        output.WriteLine($"{stars.Count} stars projected; {stray.Count} changed pixels on no star");
+        stray.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// A star drawn dimmed is a flat disc, not banded: every row of a bright star's core carries the same colour. The midpoint fill
+    /// drew some rows twice, which a translucent colour shows as bright bands: the dimmed bright stars of the backdrop looked like
+    /// banded planets (the pilot's X1).
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task ADimmedStarIsAFlatDiscNotBanded()
+    {
+        var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
+        using var image = new RgbaImageRenderer(200, 200);
+        // Looking straight at Sirius, the backdrop's brightness.
+        const double SiriusRa = 6.752478, SiriusDec = -16.716116;
+        Span<double> dir = [Math.Cos(SiriusDec * Math.PI / 180) * Math.Cos(SiriusRa * Math.PI / 12), Math.Cos(SiriusDec * Math.PI / 180) * Math.Sin(SiriusRa * Math.PI / 12), Math.Sin(SiriusDec * Math.PI / 180)];
+        SolarSystemOrbits.EquatorialToEcliptic(dir);
+        var camera = new OrreryCamera(Math.Atan2(-dir[1], -dir[0]) * 180 / Math.PI, -Math.Asin(dir[2]) * 180 / Math.PI, 6, new RectF32(0, 0, 200, 200));
+        var matrix = camera.EquatorialView(out var axis);
+        var view = new SkyOrreryBackdrop(matrix, camera.FocalPx, axis, 90, OrreryCamera.FieldOfViewDeg, 0f, SkyMapTab<RgbaImage>.OrreryBackdropBrightness, null);
+        SkyMapRenderer.DrawBackdropStars(image.Surface, db, view, 100, 100, 2f);
+
+        var pixels = image.Surface.Pixels;
+        var core = (int)(SkyMapProjection.StarRadius(-1.46f, OrreryCamera.FieldOfViewDeg) + 0.5f) - 1;
+        var rows = Enumerable.Range(100 - core, (2 * core) + 1).Select(y => pixels[((y * 200) + 100) * 4]).ToArray();
+        output.WriteLine($"core radius {core}: the centre column's red down the core: {string.Join(" ", rows)}");
+        rows.Distinct().Count().ShouldBe(1, "the core's rows differ: banded");
+    }
+
     private static bool PanelOffersTheOrrery(Rig rig)
         => rig.Tab.GetCapturedLayout().Any(n => n.Node.Hit is HitResult.ButtonHit { Action: ObjectInfoPanel.OrreryAction });
 
