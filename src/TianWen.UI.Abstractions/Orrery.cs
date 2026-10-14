@@ -59,6 +59,7 @@ public sealed class OrreryState
     public double DaysPerSecond { get; set; } = 10;
 
     internal bool Dragging;
+    internal bool Pinching;
     internal (float X, float Y) DragStart;
     internal (double Az, double El) DragStartAngles;
     internal long PlayTimestamp;

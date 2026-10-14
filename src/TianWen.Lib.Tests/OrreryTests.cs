@@ -318,6 +318,35 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Tab.State.NeedsContinuousFrames.ShouldBeFalse();
     }
 
+    /// <summary>
+    /// A pinch is a zoom and nothing else, as on the sky: the first finger's press began a drag, which the pinch undoes; the touchpad's
+    /// duplicate wheel event right after it is ignored, so the zoom is applied once; and the first finger's release is not a click.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task APinchZoomsOnceAndCancelsTheDrag()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Select(rig, CatalogIndex.Mars);
+        rig.Tab.OpenOrrery();
+        rig.Render();
+        var orrery = rig.Tab.State.Orrery;
+        var (az, el, distance) = (orrery.AzimuthDeg, orrery.ElevationDeg, orrery.Distance);
+
+        rig.Tab.HandleInput(new InputEvent.MouseDown(400, 300)).ShouldBeTrue();
+        rig.Tab.HandleInput(new InputEvent.MouseMove(420, 310)).ShouldBeTrue();
+        orrery.AzimuthDeg.ShouldNotBe(az);
+
+        rig.Tab.HandleInput(new InputEvent.Pinch(1.25f, 420, 310)).ShouldBeTrue();
+        rig.Tab.HandleInput(new InputEvent.Scroll(1, 420, 310)).ShouldBeTrue();
+        rig.Tab.HandleInput(new InputEvent.PinchEnd()).ShouldBeTrue();
+        rig.Tab.HandleInput(new InputEvent.MouseUp(420, 310));
+
+        orrery.AzimuthDeg.ShouldBe(az);
+        orrery.ElevationDeg.ShouldBe(el);
+        orrery.Distance.ShouldBe(distance / 1.25, distance * 1e-6);
+        orrery.Focus.ShouldBe(CatalogIndex.Mars);
+    }
+
     private static bool PanelOffersTheOrrery(Rig rig)
         => rig.Tab.GetCapturedLayout().Any(n => n.Node.Hit is HitResult.ButtonHit { Action: ObjectInfoPanel.OrreryAction });
 

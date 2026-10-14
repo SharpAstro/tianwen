@@ -62,6 +62,7 @@ namespace TianWen.UI.Abstractions
             State.Orrery.IsOpen = false;
             State.Orrery.Playing = false;
             State.Orrery.Dragging = false;
+            State.Orrery.Pinching = false;
             State.NeedsRedraw = true;
         }
 
@@ -447,14 +448,44 @@ namespace TianWen.UI.Abstractions
 
         private bool HandleOrreryInput(InputEvent evt) => evt switch
         {
-            InputEvent.Scroll(var scrollY, _, _, _) => ZoomOrrery(Math.Pow(0.85, scrollY)),
-            InputEvent.Pinch p => ZoomOrrery(1.0 / p.Scale),
+            InputEvent.Scroll(var scrollY, _, _, _) => ScrollOrrery(scrollY),
+            InputEvent.Pinch p => PinchOrrery(p.Scale),
+            InputEvent.PinchEnd => EndOrreryPinch(),
             InputEvent.MouseDown(var x, var y, _, _, _) => BeginOrreryDrag(x, y),
             InputEvent.MouseMove(var x, var y) => DragOrrery(x, y),
             InputEvent.MouseUp(var x, var y, _) => EndOrreryDrag(x, y),
             InputEvent.KeyDown(var key, var modifiers) => HandleOrreryKey(key, modifiers),
             _ => false,
         };
+
+        // A pinch is handled as the sky's (HandlePinchZoom): its first event undoes the drag the first finger's press began and cancels
+        // it, so the release is no click; and a wheel event during it or just after is the touchpad's duplicate of the same gesture
+        // (the shared _sincePinch grace), so the zoom is applied once.
+        private bool PinchOrrery(float scale)
+        {
+            _sincePinch.Restart();
+            var orrery = State.Orrery;
+            if (!orrery.Pinching)
+            {
+                orrery.Pinching = true;
+                if (orrery.Dragging)
+                {
+                    (orrery.AzimuthDeg, orrery.ElevationDeg) = orrery.DragStartAngles;
+                    orrery.Dragging = false;
+                }
+            }
+            return ZoomOrrery(1.0 / scale);
+        }
+
+        private bool EndOrreryPinch()
+        {
+            State.Orrery.Pinching = false;
+            return true;
+        }
+
+        private bool ScrollOrrery(float scrollY)
+            => State.Orrery.Pinching || (_sincePinch.IsRunning && _sincePinch.ElapsedMilliseconds < PinchWheelGraceMs)
+                || ZoomOrrery(Math.Pow(0.85, scrollY));
 
         private bool ZoomOrrery(double factor)
         {
@@ -466,6 +497,10 @@ namespace TianWen.UI.Abstractions
         private bool BeginOrreryDrag(float x, float y)
         {
             var orrery = State.Orrery;
+            if (orrery.Pinching)
+            {
+                return true;
+            }
             orrery.Dragging = true;
             orrery.DragStart = (x, y);
             orrery.DragStartAngles = (orrery.AzimuthDeg, orrery.ElevationDeg);
