@@ -19,13 +19,14 @@ public sealed class LocalNodeConnection : NodeConnection
 {
     private readonly GuiAppState _app;
 
-    private LocalNodeConnection(ViewContext local, NodeTransport transport, NodeInfoDto node, LocalNodeOutcome outcome,
+    private LocalNodeConnection(ViewContext local, NodeTransport transport, NodeInfoDto node, LocalNodeOutcome outcome, string? modeNote,
         GuiAppState app, NodeGrants? grants, ITimeProvider timeProvider, ILogger logger, CancellationToken cancellationToken)
         : base(local, transport, promptsApp: app, grants, timeProvider, logger, cancellationToken)
     {
         _app = app;
         Node = node;
         Outcome = outcome;
+        ModeNote = modeNote;
     }
 
     /// <summary>The node's answer when it was found or started: its stable id, its version, whether it is shared.</summary>
@@ -36,6 +37,12 @@ public sealed class LocalNodeConnection : NodeConnection
     /// because its job would not let the node break away, which the app says, since the rig then ends with the window.
     /// </summary>
     public LocalNodeOutcome Outcome { get; }
+
+    /// <summary>
+    /// Set when the node is used in the other mode than this client would start one in (<see cref="TianWen.Lib.LocalOnlyMode"/>,
+    /// <see cref="LocalNode.ModeNote"/>): an ordinary window on a local-only node misses its WiFi devices and its LAN, so the app says so.
+    /// </summary>
+    public string? ModeNote { get; }
 
     private protected override string Name => "this computer's node";
 
@@ -68,7 +75,7 @@ public sealed class LocalNodeConnection : NodeConnection
             transport.Grant.Token = token;
         }
         logger.LogInformation("This computer's node {NodeId} ({Outcome}): {Message}", node.NodeId, found.Outcome, found.Message);
-        return (new LocalNodeConnection(contexts.Local, transport, node, found.Outcome, app, grants, timeProvider, logger, cancellationToken),
+        return (new LocalNodeConnection(contexts.Local, transport, node, found.Outcome, found.ModeNote, app, grants, timeProvider, logger, cancellationToken),
             found.Message);
     }
 }

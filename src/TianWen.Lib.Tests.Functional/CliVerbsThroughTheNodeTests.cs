@@ -63,7 +63,7 @@ public class CliVerbsThroughTheNodeTests(ITestOutputHelper output)
             var errors = new StringWriter();
             var host = new ConsoleHost(node.External, Substitute.For<IHostApplicationLifetime>(), Substitute.For<IVirtualTerminal>(),
                 new SystemTimeProvider(), NullLogger<ConsoleHost>.Instance,
-                new LocalNodeOptions { NamedSocket = socket, AnotherAccountProbe = null }, written, errors);
+                new LocalNodeOptions { NamedSocket = socket, AnotherAccountProbe = null, LocalOnly = LocalOnlyMode.Off }, written, errors);
             return new Cli(node, host, written, errors);
         }
 
@@ -101,6 +101,24 @@ public class CliVerbsThroughTheNodeTests(ITestOutputHelper output)
             Host.Dispose();
             await Node.DisposeAsync();
         }
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ACliOnANodeOfTheOtherModeSaysSoOnItsErrors()
+    {
+        // The CLI has no notification feed: what the GUI and the TUI post as a warning, it writes where its errors go.
+        var ct = TestContext.Current.CancellationToken;
+        await using var node = await NodeHarness.StartAsync(output, ct,
+            services => services.AddSingleton(new NodeListening(SocketPath: null, LanPort: null, LocalOnly: true)), onItsSocket: true);
+        var socket = node.SocketPath ?? throw new InvalidOperationException("A node started on its own socket has one.");
+        var errors = new StringWriter();
+        using var host = new ConsoleHost(node.External, Substitute.For<IHostApplicationLifetime>(), Substitute.For<IVirtualTerminal>(),
+            new SystemTimeProvider(), NullLogger<ConsoleHost>.Instance,
+            new LocalNodeOptions { NamedSocket = socket, AnotherAccountProbe = null, LocalOnly = LocalOnlyMode.Off }, new StringWriter(), errors);
+
+        (await host.NodeAsync(ct)).ShouldNotBeNull();
+
+        errors.ToString().ShouldContain("is local-only");
     }
 
     [Fact(Timeout = 60_000)]

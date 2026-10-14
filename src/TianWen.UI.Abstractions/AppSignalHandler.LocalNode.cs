@@ -45,6 +45,12 @@ namespace TianWen.UI.Abstractions
                 // The launcher's words say why; what they mean for a night is worth saying once.
                 Notify(NotificationSeverity.Warning, $"{message}. A session this window starts ends with it.");
             }
+            if (connection.ModeNote is { } note)
+            {
+                // Used in the other mode (local-only or not) because it could not be replaced: what it binds, and so which
+                // devices and rigs it reaches, is not what this window would start, and only the log said so.
+                Notify(NotificationSeverity.Warning, $"This computer's node is used as it is: {note}.");
+            }
 
             await ChooseLocalProfileAsync(connection.Client, requestedProfile, cancellationToken).ConfigureAwait(false);
             await connection.MaybeRefreshProfileAsync(cancellationToken).ConfigureAwait(false);

@@ -55,8 +55,10 @@ namespace TianWen.RemoteClient
     /// <summary>
     /// The node a client ended up with. <see cref="Transport"/> is null only when there is none to reach; with one, the
     /// node's own answer is <see cref="Node"/>. <see cref="Message"/> says what happened in words a user can act on.
+    /// <see cref="ModeNote"/> is set when the node is used in the other mode than the client would start one in
+    /// (<see cref="LocalOnlyMode"/>): what a client SAYS where its user looks, a GUI's or TUI's warning, the CLI's stderr.
     /// </summary>
-    public sealed record LocalNode(LocalNodeOutcome Outcome, NodeTransport? Transport, NodeInfoDto? Node, string Message);
+    public sealed record LocalNode(LocalNodeOutcome Outcome, NodeTransport? Transport, NodeInfoDto? Node, string Message, string? ModeNote = null);
 
     /// <summary>Where and how a client looks for the machine's node, and starts one.</summary>
     public sealed record LocalNodeOptions
@@ -165,7 +167,7 @@ namespace TianWen.RemoteClient
                     if (modeNote is not null)
                     {
                         logger.LogWarning("The node on {Socket} (pid {Pid}) is used in the other mode: {Note}", socketPath, running.ProcessId, modeNote);
-                        return new LocalNode(LocalNodeOutcome.Found, transport, running, $"Connected to the node on {socketPath}; {modeNote}");
+                        return new LocalNode(LocalNodeOutcome.Found, transport, running, $"Connected to the node on {socketPath}; {modeNote}", modeNote);
                     }
                     return new LocalNode(LocalNodeOutcome.Found, transport, running, $"Connected to the node on {socketPath}");
                 }

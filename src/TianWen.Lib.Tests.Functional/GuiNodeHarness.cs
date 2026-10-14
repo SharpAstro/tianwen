@@ -170,7 +170,8 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
             var handler = new AppSignalHandler(services, appState, planner, session, equipment,
                 contexts, skyMap, bus, tracker, cts, cts.Token, external);
 
-            await handler.ConnectLocalNodeAsync(new LocalNodeOptions { NamedSocket = socketPath, AnotherAccountProbe = null },
+            // In the mode of the harness's node (not local-only), whatever the test process's environment says.
+            await handler.ConnectLocalNodeAsync(new LocalNodeOptions { NamedSocket = socketPath, AnotherAccountProbe = null, LocalOnly = LocalOnlyMode.Off },
                 requestedProfile: null, includeFake: true, ct);
             appState.LocalNode.ShouldNotBeNull(appState.LocalNodeProblem);
             // The first discovery the connect asked for, run to its end, so the Equipment tab lists the rig.

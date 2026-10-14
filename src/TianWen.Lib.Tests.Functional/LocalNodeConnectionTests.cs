@@ -10,6 +10,7 @@ using System.Linq;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Hosting;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
@@ -63,9 +64,13 @@ public class LocalNodeConnectionTests(ITestOutputHelper outputHelper) : IDisposa
         public BackgroundTaskTracker Tracker { get; } = new BackgroundTaskTracker();
         public AppSignalHandler Handler { get; }
 
-        /// <summary>Connects to the node on <paramref name="socketPath"/>, and only connects: a named socket starts no node.</summary>
-        public Task ConnectAsync(string socketPath, string? requestedProfile, CancellationToken ct) =>
-            Handler.ConnectLocalNodeAsync(new LocalNodeOptions { NamedSocket = socketPath, AnotherAccountProbe = null }, requestedProfile, includeFake: false, ct);
+        /// <summary>
+        /// Connects to the node on <paramref name="socketPath"/>, and only connects: a named socket starts no node. In the mode
+        /// of the harness's node (not local-only) unless told otherwise, whatever the test process's environment says.
+        /// </summary>
+        public Task ConnectAsync(string socketPath, string? requestedProfile, CancellationToken ct, LocalOnlyMode? localOnly = null) =>
+            Handler.ConnectLocalNodeAsync(new LocalNodeOptions { NamedSocket = socketPath, AnotherAccountProbe = null, LocalOnly = localOnly ?? LocalOnlyMode.Off },
+                requestedProfile, includeFake: false, ct);
 
         public async ValueTask DisposeAsync()
         {
@@ -103,6 +108,39 @@ public class LocalNodeConnectionTests(ITestOutputHelper outputHelper) : IDisposa
         client.AppState.ActiveProfile.ShouldNotBeNull().ProfileId.ShouldBe(only.ProfileId, "the node ran none, so the only profile it has");
         (await local.Client.GetActiveProfileAsync(ct)).Value.ShouldNotBeNull().ProfileId.ShouldBe(only.ProfileId, "and the node runs it now");
         local.ProfileRevision.ShouldNotBeNull("an edit names the revision the profile was read at");
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AWindowOnANodeOfTheOtherModeIsToldSo()
+    {
+        // An ordinary window on a local-only node (an agent's, still running the rig) would otherwise miss its WiFi devices
+        // and its LAN with nothing on screen to say why: the launcher used the node as it is, and said so only in its log.
+        var ct = TestContext.Current.CancellationToken;
+        var socketPath = NewSocketPath();
+        await using var node = await NodeHarness.StartAsync(outputHelper, ct,
+            services => services.AddSingleton(new NodeListening(socketPath, LanPort: null, LocalOnly: true)), socketPath: socketPath);
+        await using var client = new Client(outputHelper);
+
+        await client.ConnectAsync(socketPath, requestedProfile: null, ct, LocalOnlyMode.Off);
+
+        client.AppState.LocalNode.ShouldNotBeNull(client.AppState.LocalNodeProblem);
+        client.AppState.Notifications.ShouldContain(n => n.Severity == NotificationSeverity.Warning && n.Message.Contains("is local-only"),
+            "a node used in the other mode is said where the user looks");
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AWindowOnANodeOfItsOwnModeIsToldNothingOfIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var socketPath = NewSocketPath();
+        await using var node = await NodeHarness.StartAsync(outputHelper, ct,
+            services => services.AddSingleton(new NodeListening(socketPath, LanPort: null, LocalOnly: true)), socketPath: socketPath);
+        await using var client = new Client(outputHelper);
+
+        await client.ConnectAsync(socketPath, requestedProfile: null, ct, LocalOnlyMode.On);
+
+        client.AppState.LocalNode.ShouldNotBeNull(client.AppState.LocalNodeProblem);
+        client.AppState.Notifications.ShouldNotContain(n => n.Message.Contains("local-only"));
     }
 
     [Fact(Timeout = 30_000)]
