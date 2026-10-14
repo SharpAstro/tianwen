@@ -3,7 +3,7 @@
 **Status: PARTIAL (raised by the user 2026-08-22).** Tracked here rather than in the next release,
 per the user's instruction: *"for Atlas lets just track it in the plan"*. Built 2026-10-14: finding 2's
 live magnitude, A4's geometry layer (see "What is built" under A4) and A4's textured discs, phases and rings
-("A4: the textured disc"). Open: A1's sparkline, A2, A3, A4's optional side-by-side strip, A5.
+("A4: the textured disc"). Open: A1's sparkline, A2, A3, A4's optional side-by-side strip (#1566), A4's textured-disc follow-ups (#1567), A5.
 
 The notes, in the order they arrived:
 
@@ -143,8 +143,8 @@ toward the Sun, Saturn with its rings at their real tilt.
    theirs on the globe, as the stacker's twin renders them.
 5. **Info-panel rows:** apparent diameter, illuminated fraction for a phased body, ring tilt for Saturn (built with
    the geometry layer, below).
-6. **Optional: the planets side by side**, by size in the sky or by brightness, as in the reference: a strip of
-   all of them at the viewing instant, each pressable to select it. Not built; only if it earns its screen space.
+6. **Optional: the planets side by side** (#1566), by size in the sky or by brightness, as in the reference: a strip
+   of all of them at the viewing instant, each pressable to select it. Not built; only if it earns its screen space.
 
 **What a user will notice:** the interactive atlas zooms in to half a degree (`SkyMapViewActions.MinFieldOfViewDeg`),
 where on a 1,000 px view the Moon and the Sun fill the screen, Venus is about 30 px and Jupiter about 20; the FITS
@@ -263,8 +263,10 @@ written as `planet-discs.png` in the test output).
   the desktop's tier-0 time (49 ms at 256 px) per size-bucket change; unmeasured there, and the fix (a smaller cap,
   fewer rays, or a build spread over frames) is that issue's.
 
-Also open, untracked as issues: a disc wider than 256 px is a scaled-up sprite; the atlas's Uranus holds its edge row's colour over the
-unseen southern hemisphere; nothing yet shows the texture's credit in the info panel.
+- **Textured-disc follow-ups, #1567**:
+  - a disc wider than 256 px is the 256 px sprite scaled up;
+  - the atlas's Uranus holds its edge row's colour over the unseen southern hemisphere;
+  - nothing yet shows the texture's credit in the info panel.
 
 ### A5. The solar system in 3D
 
