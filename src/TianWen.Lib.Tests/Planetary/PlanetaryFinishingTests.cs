@@ -119,6 +119,39 @@ public class PlanetaryFinishingTests
         return Math.Sqrt(sum / count);
     }
 
+    [Fact]
+    public void TheDeconvolutionByThePupilsDiffractionRestoresWhatThePupilBlurred()
+    {
+        // A belt pattern at half the cutoff of a 28 cm pupil at 550 nm and 0.1 arcsec a pixel (0.247 cycles a pixel), which the pupil
+        // passes at about 0.38: Richardson-Lucy with that same diffraction gives most of it back, and nothing past what was there.
+        const int size = 128;
+        var diffraction = PlanetaryInverse.Diffraction(new Pupil(0.28), 550e-9, 0.1);
+        var sharp = Wave(size, 0.125);
+        for (var i = 0; i < sharp.Length; i++)
+        {
+            sharp[i] = 1 + (0.3f * sharp[i]);
+        }
+        var blurred = PlanetaryInverse.Apply(sharp, size, size, diffraction.At);
+        var restored = PlanetaryFinishing.Deconvolve(blurred, size, diffraction, 40);
+        var (truth, before, after) = (Rms(Detail(sharp)), Rms(Detail(blurred)), Rms(Detail(restored)));
+        TestContext.Current.TestOutputHelper?.WriteLine($"the wave's RMS: truth {truth:0.0000}, blurred {before:0.0000}, restored {after:0.0000}");
+        before.ShouldBeLessThan(truth * 0.5, "the pupil passes well under half of the wave there");
+        after.ShouldBeGreaterThan(before * 1.5, "forty steps give much of it back");
+        after.ShouldBeLessThan(truth * 1.05, "and not more than there was");
+        PlanetaryFinishing.Deconvolve(blurred, size, diffraction, 0).ShouldBe(blurred, "no steps, no change");
+    }
+
+    // The plane less one, the level the deconvolution test's wave rides on.
+    private static float[] Detail(float[] plane)
+    {
+        var detail = new float[plane.Length];
+        for (var i = 0; i < plane.Length; i++)
+        {
+            detail[i] = plane[i] - 1;
+        }
+        return detail;
+    }
+
     private static float[] Wave(int size, double cyclesPerPixel)
     {
         var plane = new float[size * size];

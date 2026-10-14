@@ -292,12 +292,20 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     /// given) is finished. Measured: the low-pass raised band 1's correlation with the post on all four real captures and changed nothing on
     /// the twins, which are all sampled coarser than their cutoff, so it waits on an oversampled twin (#1281); the adaptive weighting doubled
     /// the band error on every twin and is not adopted, nor is the fitted Wiener low-pass, which shrinks again the noise the derived gains
-    /// already shrank (no twin better by 5 %, three captures of four further from their posts).
+    /// already shrank (no twin better by 5 %, three captures of four further from their posts). The deconvolution (L-DECONV, #1552) cut the
+    /// oversampled EdgeHD twins' error against the truth carried to the aperture by a fifth at 20 steps, and brought three of four posts
+    /// closer (the 12-inch SCT's is closest with none); an option, not a default.
     /// </summary>
     public PlanetaryFinish Finish { get; init; } = PlanetaryFinish.None;
 
     /// <summary>The amount <see cref="PlanetaryFinish.Kolivas"/> takes, as his tool's slider (his PlanetRecon judges at 15.6).</summary>
     public double KolivasAmount { get; init; } = 15.6;
+
+    /// <summary>
+    /// The Richardson-Lucy steps <see cref="PlanetaryFinish.Deconvolve"/> takes: 20, the count the EdgeHD twins' truth asks (L-DECONV) and
+    /// the one a fit to all four posts gives; the posts alone ask 0 to 80 by capture.
+    /// </summary>
+    public int DeconvolveIterations { get; init; } = 20;
 
     /// <summary>
     /// Sharpen a colour master's detail once, on its luminance (the mean of its planes, through the mean of the channels' wavelengths), and
@@ -674,7 +682,7 @@ public static class PlanetarySharpening
                 cutoffs[c] = PlanetaryFinishing.CutoffCyclesPerPixel(pupil, wavelengthNm, limbWindow.ArcsecPerPixel);
                 var sharpening = gains;
                 (sharpened, var wienerCut) = Finished(window, sharpened, contrastFrom ?? window, size, channelDisk, options, cutoffs[c], white,
-                    f => PlanetaryWaveletGains.Transfer(sharpening.AsSpan(), f));
+                    f => PlanetaryWaveletGains.Transfer(sharpening.AsSpan(), f), diffraction);
                 if (wienerCuts.Length > 0)
                 {
                     wienerCuts[c] = wienerCut;
@@ -877,10 +885,11 @@ public static class PlanetarySharpening
     }
 
     // The finishing steps the options ask for, on one channel's window: the adaptive weighting first, Kolivas's reference step next, the
-    // fitted Wiener low-pass after them, the low-pass at the cutoff last (it takes out whatever the others raised past the cutoff too).
+    // deconvolution by the pupil's diffraction after it, the fitted Wiener low-pass after them, the low-pass at the cutoff last (it takes out
+    // whatever the others raised past the cutoff too).
     // The Wiener low-pass's fitted start and end come back beside it (NaN where it was not asked).
     private static (float[] Window, (double From, double To) WienerCut) Finished(float[] stack, float[] sharpened, float[] contrastFrom, int size,
-        in MetricDisk disk, PlanetarySharpenOptions options, double cutoff, double white, Func<double, double> sharpening)
+        in MetricDisk disk, PlanetarySharpenOptions options, double cutoff, double white, Func<double, double> sharpening, RadialTransfer diffraction)
     {
         var (finished, wienerCut) = (sharpened, (double.NaN, double.NaN));
         if (options.Finish.HasFlag(PlanetaryFinish.Adaptive))
@@ -890,6 +899,10 @@ public static class PlanetarySharpening
         if (options.Finish.HasFlag(PlanetaryFinish.Kolivas))
         {
             finished = PlanetaryFinishing.KolivasStep(finished, size, options.KolivasAmount);
+        }
+        if (options.Finish.HasFlag(PlanetaryFinish.Deconvolve))
+        {
+            finished = PlanetaryFinishing.Deconvolve(finished, size, diffraction, options.DeconvolveIterations);
         }
         if (options.Finish.HasFlag(PlanetaryFinish.Wiener))
         {

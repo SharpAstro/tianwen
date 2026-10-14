@@ -27,6 +27,12 @@ public enum PlanetaryFinish
 
     /// <summary>Kolivas's FFT denoise: a smooth low-pass fitted to the sharpened window's Wiener target (<see cref="PlanetaryFinishing.WienerLowPass"/>).</summary>
     Wiener = 8,
+
+    /// <summary>
+    /// Richardson-Lucy with the pupil's own diffraction (<see cref="PlanetaryFinishing.Deconvolve"/>): the gains restore the planet as the
+    /// telescope shows it, and this takes the telescope out of it too, over <see cref="PlanetarySharpenOptions.DeconvolveIterations"/> steps.
+    /// </summary>
+    Deconvolve = 16,
 }
 
 /// <summary>One row of <see cref="PlanetaryFinishing.PupilTransfer"/>.</summary>
@@ -327,6 +333,30 @@ public static class PlanetaryFinishing
             result[i] = (float)(window[i] * d * d * d);
         }
         return result;
+    }
+
+    /// <summary>
+    /// Richardson-Lucy over <paramref name="iterations"/> steps with the pupil's own <paramref name="diffraction"/>, on a window as the
+    /// sharpening cuts it (sky 0, disk 1): a deconvolution by the PSF the capture's optics and sampling set, where Kolivas's step
+    /// (<see cref="KolivasStep"/>) takes one fixed Moffat on every capture. The window is lifted by a tenth of the disk while it runs, so the
+    /// sky's noise stays positive (<see cref="PlanetaryInverse.RichardsonLucy(ReadOnlySpan{float}, int, int, Func{double, double}, int, Action{int, float[]}, double)"/>).
+    /// </summary>
+    public static float[] Deconvolve(ReadOnlySpan<float> window, int size, RadialTransfer diffraction, int iterations)
+    {
+        ArgumentNullException.ThrowIfNull(diffraction);
+        if (iterations <= 0)
+        {
+            return window.ToArray();
+        }
+        float[]? last = null;
+        PlanetaryInverse.RichardsonLucy(window, size, size, diffraction.At, iterations, (step, plane) =>
+        {
+            if (step == iterations)
+            {
+                last = plane;
+            }
+        });
+        return last ?? throw new InvalidOperationException("Richardson-Lucy handed back no last step");
     }
 
     /// <summary>Each pixel's standard deviation over the <paramref name="side"/>-square about it, the edges mirrored.</summary>
