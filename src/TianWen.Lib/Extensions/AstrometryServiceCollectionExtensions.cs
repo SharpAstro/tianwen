@@ -3,6 +3,7 @@ using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Imaging.Planetary;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -61,5 +62,7 @@ public static class AstrometryServiceCollectionExtensions
         .AddSingleton<ICometRepository, CometRepository>()
         // Object pictures for the selection panels, fetched on selection and cached on disk. The browser
         // build never resolves it: it hands the same thumbnail URL to the browser, which fetches natively.
-        .AddSingleton<IObjectPictureStore, ObjectPictureStore>();
+        .AddSingleton<IObjectPictureStore, ObjectPictureStore>()
+        // The sky atlas's OPAL colour maps, fetched once per apparition and cached on disk; the browser fetches the same URL itself.
+        .AddSingleton<IPlanetMapStore, PlanetMapStore>();
 }
