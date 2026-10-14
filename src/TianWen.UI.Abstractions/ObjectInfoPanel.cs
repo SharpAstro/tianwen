@@ -121,8 +121,11 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public const float DesignDiscHeight = 132f;
 
+        /// <summary>The disc section's margin above and below its slot: the one number the section's spacers and its height read.</summary>
+        public const float DesignDiscMargin = 4f;
+
         /// <summary>The disc section's whole design height: the slot and its margins.</summary>
-        public const float DesignDiscSectionHeight = 4f + DesignDiscHeight + 4f;
+        public const float DesignDiscSectionHeight = DesignDiscMargin + DesignDiscHeight + DesignDiscMargin;
 
         /// <summary>The key of the large view's slot, drawn by the same host hook at a bigger size.</summary>
         public const string LargePictureFillKey = "ObjectInfoPictureLarge";
@@ -507,13 +510,13 @@ namespace TianWen.UI.Abstractions
         {
             var disc = options.Disc
                 ? Layout.Builder.VStack(
-                    Layout.Builder.Spacer().RowH(4f),
+                    Layout.Builder.Spacer().RowH(DesignDiscMargin),
                     Layout.Builder.HStack(
                         Layout.Builder.Spacer().WFixed(8f).HStar(),
                         Layout.Builder.Fill(key: DiscFillKey).WStar().HStar().Bg(PictureFrame),
                         Layout.Builder.Spacer().WFixed(8f).HStar())
                         .RowH(DesignDiscHeight),
-                    Layout.Builder.Spacer().RowH(4f))
+                    Layout.Builder.Spacer().RowH(DesignDiscMargin))
                 : null;
             var picture = options.Picture is { } image ? BuildPictureSection(in image, in palette, onOpenPicture) : null;
             return (disc, picture) switch
