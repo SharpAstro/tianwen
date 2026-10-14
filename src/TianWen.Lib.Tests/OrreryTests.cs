@@ -347,6 +347,49 @@ public sealed class OrreryTests(ITestOutputHelper output)
         orrery.Focus.ShouldBe(CatalogIndex.Mars);
     }
 
+    private static bool Intersect(RectF32 a, RectF32 b)
+        => a.X < b.X + b.Width && b.X < a.X + a.Width && a.Y < b.Y + b.Height && b.Y < a.Y + a.Height;
+
+    private static RectF32 Disc((CatalogIndex Index, float X, float Y, float Radius) d)
+        => new(d.X - d.Radius, d.Y - d.Radius, 2 * d.Radius, 2 * d.Radius);
+
+    /// <summary>
+    /// The Earth and the Moon never overprint, opened on the Moon (framed on the Earth's distance) and on Jupiter (the inner system
+    /// small): their discs apart, and no label of one on the other's disc or label. The focus body's label is always drawn.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(CatalogIndex.Moon)]
+    [InlineData(CatalogIndex.Jupiter)]
+    public async Task TheEarthAndTheMoonDoNotOverprint(CatalogIndex focus)
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Select(rig, focus);
+        rig.Tab.OpenOrrery();
+        rig.Render();
+        rig.Render();
+
+        var earth = rig.Tab.OrreryDrawn.Single(d => d.Index == CatalogIndex.Earth);
+        var moon = rig.Tab.OrreryDrawn.Single(d => d.Index == CatalogIndex.Moon);
+        output.WriteLine($"{focus}: Earth at ({earth.X:F1}, {earth.Y:F1}) r {earth.Radius}, Moon at ({moon.X:F1}, {moon.Y:F1}) r {moon.Radius}");
+        Intersect(Disc(earth), Disc(moon)).ShouldBeFalse("the Earth's and the Moon's discs overlap");
+
+        var labels = rig.Tab.OrreryLabels;
+        labels.Select(l => l.Index).ShouldContain(focus);
+        foreach (var (index, rect) in labels.Where(l => l.Index is CatalogIndex.Earth or CatalogIndex.Moon))
+        {
+            var other = index == CatalogIndex.Earth ? moon : earth;
+            Intersect(rect, Disc(other)).ShouldBeFalse($"{index}'s label lies on the other's disc");
+            Intersect(rect, Disc(index == CatalogIndex.Earth ? earth : moon)).ShouldBeFalse($"{index}'s label lies on its own disc");
+            foreach (var (otherIndex, otherRect) in labels)
+            {
+                if (otherIndex != index)
+                {
+                    Intersect(rect, otherRect).ShouldBeFalse($"{index}'s label overprints {otherIndex}'s");
+                }
+            }
+        }
+    }
+
     private static bool PanelOffersTheOrrery(Rig rig)
         => rig.Tab.GetCapturedLayout().Any(n => n.Node.Hit is HitResult.ButtonHit { Action: ObjectInfoPanel.OrreryAction });
 
