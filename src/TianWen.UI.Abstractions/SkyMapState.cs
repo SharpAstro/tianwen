@@ -418,6 +418,9 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public SkyMapSearchState Search { get; } = new();
 
+        /// <summary>The solar system in 3D, the map's other mode (docs/plans/atlas-planet-detail.md, A5).</summary>
+        public OrreryState Orrery { get; } = new();
+
         // Cached sun altitude + the time it was computed at. Sun moves ~0.25 deg/min,
         // which is orders of magnitude slower than our per-frame update rate, so a
         // 10-second refresh window is ample and keeps VSOP87a out of the hot path.

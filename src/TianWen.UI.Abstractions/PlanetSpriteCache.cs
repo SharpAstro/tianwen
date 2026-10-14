@@ -41,6 +41,9 @@ public sealed class PlanetSpriteCache(Action? requestRedraw = null, int channel 
     /// <summary>The info panel's sprites.</summary>
     public const int PanelChannel = 1;
 
+    /// <summary>The orrery's sprites (docs/plans/atlas-planet-detail.md, A5): every body seen from the camera, not from the Earth.</summary>
+    public const int OrreryChannel = 2;
+
     /// <summary>Which cache this is, carried on every sprite it builds (<see cref="PlanetSprite.Channel"/>).</summary>
     public int Channel => channel;
 

@@ -3,7 +3,7 @@
 **Status: PARTIAL (raised by the user 2026-08-22).** Tracked here rather than in the next release,
 per the user's instruction: *"for Atlas lets just track it in the plan"*. Built 2026-10-14: finding 2's
 live magnitude, A4's geometry layer (see "What is built" under A4) and A4's textured discs, phases and rings
-("A4: the textured disc"). Open: A1's sparkline, A2, A3, A4's optional side-by-side strip (#1566), A4's textured-disc follow-ups (#1567), A5.
+("A4: the textured disc"). A5's solar system in 3D the same day ("A5. The solar system in 3D"). Open: A1's sparkline, A2, A3, A4's optional side-by-side strip (#1566), A4's textured-disc follow-ups (#1567), A5's follow-ups ("A5: what is open").
 
 The notes, in the order they arrived:
 
@@ -284,42 +284,92 @@ written as `planet-discs.png` in the test output).
 
 ### A5. The solar system in 3D
 
-Issue: #1039.
+Issue: #1039. Built 2026-10-14.
 
 A view that swaps the atlas's sky for the solar system seen from outside it, at the instant the atlas is
 showing: the Sun at the centre, the planets on their orbits, and the selected body highlighted. A "gimmick" in
 the user's word, but one that explains the sky beside it: the line from Earth to Venus, against the line from
 the Sun, is why Venus is a crescent, and the angle between them at the planet is A4's phase angle.
 
-- **The way in is a button in the object panel**, for a planet, the Sun, a comet or the Moon. It opens the view
-  centred on that body. The panel already carries per-kind actions (`ObjectInfoPanel.PanelActions`: Goto, View
-  in Planner, Pin, and Solve and Sync for the mount), so this is one more entry, shown only for a solar-system
-  body (`CatalogIndex.IsSolarSystemObject`, which already covers comets).
-- **Alt+S is a quiet shortcut** to the same view, in the shortcuts help and nowhere else, per the user. It must
-  be a declared node shortcut (`.WithShortcut(InputKey.S, InputModifier.Alt)`): the atlas's layer toggles
-  ignore modifiers (`SkyMapLayers.TryToggleByKey` in `SkyMapTab.HandleKey`), so an arm in the key switch would
-  also toggle the Milky Way, while the router matches a painted node's shortcut before the tab's own keys.
-  Firefox takes Alt+S for its History menu and macOS Option+S types a character; for a convenience with a
-  button beside it, that is acceptable. Escape goes back to the sky with the selection kept.
-- **Positions:** `VSOP87a.GetBody` already returns each planet's heliocentric rectangular coordinates, so no new
-  ephemeris. An orbit is one sampled period (Mercury 88 days to Neptune 165 years), cached per body like the
-  selection path. A comet's orbit comes from the elements the comet repository holds, which is also where its
-  position in this view must come from, or the comet would sit off its own orbit.
-- **The camera:** drag orbits it about the Sun, the wheel zooms, and a scale choice between true distances and a
-  compressed radial scale (Neptune is 75 times Mercury's distance, so at true scale the inner planets are one
-  dot). Bodies are drawn with A4's discs at an exaggerated, labelled size, since at true size none is visible.
-- **Time:** the atlas's time controls drive it (`SkyMapState.TimeOffset`, the strip's steps and landmarks), so
-  a scrub of a month moves the planets, and a play control animates it. One clock for both views, or the
-  orrery and the sky disagree about the instant.
-- **Drawing:** a small CPU perspective projection feeding the 2D primitives all three renderers already have
-  (polylines for orbits, ellipse fills for bodies). No new shaders, so the web and `RgbaImageRenderer` (and
-  therefore tests) get it for free. The view is a mode of the sky map tab rather than a tab of its own, as the
-  FITS viewer's sky backdrop is a mode of the map.
+#### What is built
 
-**Tests:** Earth's heliocentric longitude is the Sun's geocentric longitude plus 180 degrees; the angle the view
-draws at a planet between the Sun and Earth is A4's phase angle for the same instant; the panel shows the
-button for a planet, the Sun, a comet and the Moon and not for a galaxy; Alt+S opens the view and leaves the
-Milky Way layer as it was.
+- **A mode of the sky map tab, not a tab** (`SkyMapState.Orrery`, an `OrreryState`; `SkyMapTab.Orrery.cs`). While it
+  is open `SkyMapTab.Render` draws it in the sky's place and the sky's chrome (the layer palette, F3's search, the
+  large picture) waits; input goes to the orrery's own handler (`HandleOrreryInput`). A host that DRIVES the map
+  (the FITS viewer's backdrop) never calls `Render`, so it never shows it.
+- **The way in is the panel's Orrery button** (`ObjectInfoPanel.PanelActions.Orrery`, `ObjectInfoPanel.OrreryAction`),
+  offered when the selection's index is a solar-system body (`CatalogIndex.IsSolarSystemObject`: a planet, the Sun,
+  the Moon, a comet) and for nothing else. With four buttons the row narrows its widths (64, the planner's 112) so
+  all four fit the panel's 348. **Alt+S** opens it too, and closes it: a DECLARED node shortcut
+  (`RenderOrreryBinding`, `.WithShortcut(InputKey.S, InputModifier.Alt)`), never an arm in `HandleKey`, where
+  `SkyMapLayers.TryToggleByKey` ignores modifiers and would toggle the Milky Way. The atlas has no shortcuts panel of
+  its own; its help is the info strip's key legend, which names `[Alt+S] solar system` only while the layer palette
+  is put away, the one place the strip lists keys. **Escape** (declared beside it while the orrery is open) and the
+  strip's Sky button go back, the selection and the sky's view untouched. The view opens framed on the selected
+  body's distance from the Sun (the Earth's for the Moon, the span of Mars's orbit for the Sun or no selection).
+- **Positions:** `SolarSystemOrbits` (Lib): `VSOP87a.GetBody`'s heliocentric ecliptic coordinates, no light time (the
+  orrery shows one instant from outside); the Moon from Meeus's series about VSOP87's Earth. An orbit is one sidereal
+  period of the same series (`SolarSystemOrbits.SampleOrbit`, 241 points, closed), so a planet sits on its own. A
+  comet is the SELECTED comet, from the elements the comet repository holds (`ICometRepository.TryGet`, apparition
+  upgrade included): its place from `CometEphemeris.TryGetHeliocentricEcliptic` and its orbit from
+  `CometEphemeris.SampleOrbit` (361 points evenly in true anomaly, the whole ellipse, an open orbit to 40 AU each
+  side), both through one perifocal frame (`PerifocalAxes`), so it sits on its drawn orbit.
+- **The cache** (`OrreryScene`): the positions per MINUTE of the atlas's clock, the planets' orbits per CENTURY of it,
+  built on the thread pool (the Task the hand-off, a landing asks for a frame), and a comet's orbit per element set.
+  Orbits are stored in true AU and the scale is applied as each point is projected, so switching the scale builds
+  nothing. A drag changes no key, so it builds nothing (`OrbitBuilds`, `CometOrbitBuilds`, `PositionBuilds`).
+- **The camera** (`OrreryCamera`): a 45 degree perspective on a point orbiting the Sun and looking at it, the
+  ecliptic's north up; a drag turns its azimuth and elevation (0.35 degree a pixel, the elevation held inside 89),
+  the wheel and a pinch its distance. A proper view, never mirrored. Points are projected on the CPU and drawn with
+  the primitives every host has (`DrawPolyline` for orbits, a sprite or `FillEllipse` for a body), so Vulkan, WebGL
+  and the CPU surface draw it with nothing new.
+- **Scale:** Compressed (the default: each distance's square root, Neptune 8.8 times Mercury's distance rather than
+  77) or True, a switch on the strip. Both keep every direction from the Sun, which is what the lighting needs.
+- **The bodies** are A4's sprites, from a cache of their own (`PlanetSpriteCache.OrreryChannel`), at an exaggerated
+  size in their true order (the Sun 14 px, Jupiter 10, down to Mercury 4 and the Moon 3.5, times the DPI scale),
+  each labelled, the selected one ringed and its orbit drawn in the accent. The Moon is drawn 8 % of the Earth's
+  drawn distance out from the Earth along its true direction (at any scale that shows the planets it would sit on
+  the Earth). The Earth, which A4 never draws, has the IAU's rotation model and radii in `PhysicalEphemeris` now
+  (not in `Supports`, which the atlas and the stacker gate on) and a flat blue, there being no Earth map in the atlas.
+  A comet is a point with a tail away from the Sun. A body still building its sprite is a flat dot.
+- **Lit as the camera sees it.** `PhysicalEphemeris.ComputeSeenAlong(body, utc, heliocentric, toObserver)` is
+  `Compute`'s sub-point arithmetic with the observer a DIRECTION instead of the geocentre: the unit vector from the
+  body's DRAWN place to the camera, turned from the ecliptic to the J2000 equator, gives the central meridian and the
+  sub-observer latitude; the Sun's true direction from the body (which the compressed scale keeps) gives the sub-solar
+  point and the phase angle. So a body between the camera and the Sun shows its night side (phase 180). The pole's
+  screen direction is the body's IAU pole (`PhysicalEphemeris.PoleDirection`) projected through the camera a
+  thousandth of its distance out from the body; that angle turns the sprite (`PoleScreenAngle(0, angle, false)`).
+  No sky is involved, so the aspect's position angles, distance and angular size are NaN.
+- **Time:** ONE clock with the sky (`SkyMapTab.ResolveViewingTime`: the planner's date or the live clock, plus
+  `SkyMapState.TimeOffset`). The strip carries the sky's own time controls (`BuildTimeControls`: the steps, the
+  landmarks drop-up, Now) and the arrow keys and 0 work as on the sky; Play runs the offset at 10 days a second of
+  the wall clock, asking for the next frame each frame (on the browser a coalesced repaint), so the sky shows the
+  same instant when the view goes back.
+- **Click** a body (a press that did not move) to put the highlight on it; the atlas's selection is left as it is.
+
+**Measured** (`OrreryTests.TheOrreryDrawsOnTheCpuSurface`, Debug, tiered JIT, this Surface Pro 11, Snapdragon X Elite
+X1E80100): an orrery frame at 900 x 600 on the CPU surface while the camera turns half a degree a frame, median
+1.0 ms Compressed and 1.9 ms True (the raster of the larger orbits is the cost), max 4.8 and 9.7 ms on frames whose
+sprites changed bucket. The projection and ephemeris work is a few thousand points and nine rotation models; a
+drag does no VSOP87 at all.
+
+**Tests** (`OrreryTests`): the Earth's heliocentric longitude is the Sun's geocentric longitude (VSOP87's own sky
+reduction) plus 180 degrees, to 0.01; the angle the view draws at Venus, Mars and Jupiter between the Sun and the
+Earth is `PlanetAspect.PhaseAngle` for the same instant at true scale, and so is the camera-viewpoint aspect's built
+looking from the Earth's direction; a body between the camera and the Sun shows its night side (180) and from the
+other side its day side (0); a day moves the Earth 0.99 degree, a week 6.95; a comet sits on its own drawn orbit to
+a thousandth of its distance (an ellipse of e 0.585, one of 0.92, a hyperbola of 1.004); the panel offers the button
+for Jupiter, the Sun, the Moon and a comet and not for M 51; Alt+S through the router opens the view with the Milky
+Way layer as it was, and Escape returns with the selection kept; a drag of twenty frames builds no orbit and no
+position (one build each before it), a day's step one position and no orbit; and the view drawn on the CPU surface,
+Compressed and True with Jupiter selected, written as `orrery-compressed.png` and `orrery-true.png` in the test output.
+
+#### A5: what is open
+
+- **Not seen on the GPU hosts yet.** The tests draw it on the CPU surface; the Vulkan GUI and the WebGL page take the
+  same primitives and sprite seam, but nobody has opened it there, nor timed a drag in the browser.
+- **The Earth is a flat disc**: the texture atlas has no Earth map.
+- **Play's speed is fixed** at 10 days a second; nothing changes it.
 
 ## Sequencing
 
