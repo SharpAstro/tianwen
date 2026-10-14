@@ -797,7 +797,80 @@ public partial class Image
                 : Traverse(channel, ignoreBlack: false, pixelStride, cfa, scaleFactor, threshold,
                     bins, MinValue * scaleFactor, sumFirst: false, secondHistogram: default, secondPedestal: 0f).Total;
             var (median, mad) = MedianAndMad(bins, total, threshold);
-            return StretchStatsScaledToUnit(median, mad, rescaledMaxValue);
+            var refined = RefineStretchStats(channel, pixelStride, cfa, inBands, scaleFactor, median, mad, total);
+            return StretchStatsScaledToUnit(refined.Median, refined.Mad, rescaledMaxValue, refined.BinWidth);
+        }
+        finally
+        {
+            ArrayPool<uint>.Shared.Return(rented);
+        }
+    }
+
+    /// <summary>A coarse MAD under this many bins is read again on a zoomed histogram (<see cref="RefineStretchStats"/>).</summary>
+    internal const float RefineBelowMadBins = 8f;
+
+    // The zoomed histogram: this many fine bins to a coarse one, over a window this many coarse bins either side of
+    // the coarse median. The window is eight times the widest MAD that is refined, so the MAD's walk out from the
+    // median never reaches its edges, where everything below the window is counted in the first bin.
+    private const int RefineZoom = 256;
+    private const int RefineHalfWindowBins = 64;
+
+    /// <summary>
+    /// The stretch statistics of a FLOAT frame whose noise is narrower than a few bins, read again on a histogram zoomed
+    /// onto its median: the median and MAD in coarse bins, and the width of the bin they were read at.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why a frame needs it.</b> A unit-scaled frame is binned at 1/65535, and an enhanced narrowband master
+    /// put its sky at about 1e-4 of full scale with a noise MAD of 0.2 to 0.5 of a bin (the eta Carinae 2026-02-20
+    /// pier A master, after RC-Astro: medians 5.08 / 11.42 / 6.53 bins, MADs 0.52 / 0.33 / 0.20). The coarse walk
+    /// took each median as a whole bin and every MAD up to the half-bin floor, so the three channels of an Unlinked
+    /// stretch were curved on numbers the rounding chose, and that card rendered green while its raw view and its
+    /// pier B sibling did not.</para>
+    /// <para><b>Float sources only, and only when the zoom resolves something.</b> An integer source's samples sit on
+    /// a lattice no finer than a coarse bin (a 16-bit frame scaled to unit is one bin a step), so a zoom reads that
+    /// lattice back and moves a MAD the coarse walk interpolated, which no frame gains from. A float frame whose
+    /// samples are one value (a constant plane) reads a MAD under one FINE bin, and keeps its coarse statistics.</para>
+    /// <para><b>The same kernel.</b> It is <see cref="Traverse"/> (or its bands) with the scale multiplied and the
+    /// pedestal moved to the window's foot; the count the median is taken against is the coarse one, since the zoom
+    /// drops what lies above the window and piles what lies below it into its first bin.</para>
+    /// </remarks>
+    private (float Median, float? Mad, float BinWidth) RefineStretchStats(
+        int channel, int pixelStride, CfaChannel? cfa, bool inBands, float scaleFactor, float median, float? mad, long total)
+    {
+        if (mad is not { } coarseMad || coarseMad >= RefineBelowMadBins || !BitDepth.IsFloatingPoint || total <= 0)
+        {
+            return (median, mad, 1f);
+        }
+
+        var lo = Math.Max(0, (int)MathF.Floor(median) - RefineHalfWindowBins);
+        const uint fineThreshold = (2 * RefineHalfWindowBins * RefineZoom) + 1;
+        var rented = ArrayPool<uint>.Shared.Rent((int)fineThreshold);
+        try
+        {
+            var bins = rented.AsSpan(0, (int)fineThreshold);
+            bins.Clear();
+            var fineScale = scaleFactor * RefineZoom;
+            var finePedestal = ((MinValue * scaleFactor) + lo) * RefineZoom;
+            if (inBands)
+            {
+                TraverseInBands(channel, ignoreBlack: false, pixelStride, cfa, fineScale, fineThreshold,
+                    bins, finePedestal, sumFirst: false, secondHistogram: default, secondPedestal: 0f);
+            }
+            else
+            {
+                Traverse(channel, ignoreBlack: false, pixelStride, cfa, fineScale, fineThreshold,
+                    bins, finePedestal, sumFirst: false, secondHistogram: default, secondPedestal: 0f);
+            }
+            var (fineMedian, fineMad) = MedianAndMad(bins, total, fineThreshold);
+            var refinedMedian = lo + (fineMedian / RefineZoom);
+
+            // Unresolved even here, or a median the window did not hold (MedianAndMad answers bin 0 for one it never
+            // reaches): the coarse statistics stand.
+            if (fineMad is not { } resolved || resolved < 1f || MathF.Abs(refinedMedian - median) > 1f)
+            {
+                return (median, mad, 1f);
+            }
+            return (refinedMedian, resolved / RefineZoom, 1f / RefineZoom);
         }
         finally
         {
@@ -839,7 +912,8 @@ public partial class Image
                 (float)(total_value / (hist_total + 1)), hist_total, threshold, thresholdPct, rescaledMaxValue, median, mad, IgnoreBlack: false);
 
             var (stretchMedian, stretchMad) = MedianAndMad(stretchBins, stretchTotal, threshold);
-            var (pedestral, unitMedian, unitMad) = StretchStatsScaledToUnit(stretchMedian, stretchMad, rescaledMaxValue);
+            var refined = RefineStretchStats(channel, pixelStride, cfa, inBands: true, scaleFactor, stretchMedian, stretchMad, stretchTotal);
+            var (pedestral, unitMedian, unitMad) = StretchStatsScaledToUnit(refined.Median, refined.Mad, rescaledMaxValue, refined.BinWidth);
             return (display, new ChannelStretchStats(pedestral, unitMedian, unitMad));
         }
         finally
@@ -850,7 +924,9 @@ public partial class Image
 
     // The stretch statistics' median and MAD, found in bins, moved into the unit-scaled space the shader
     // works in, beside the pedestal of that same space.
-    private (float Pedestral, float Median, float MAD) StretchStatsScaledToUnit(float median, float? madOrNull, float? rescaledMaxValue)
+    // binWidth: the width, in coarse bins, of the bin the median and the MAD were read at (1, or a fine bin's after
+    // RefineStretchStats), which is what the MAD floor below is half of.
+    private (float Pedestral, float Median, float MAD) StretchStatsScaledToUnit(float median, float? madOrNull, float? rescaledMaxValue, float binWidth = 1f)
     {
         if (madOrNull is not { } mad)
         {
@@ -874,11 +950,12 @@ public partial class Image
         var pedestral = rescaledMaxValue is not null ? MinValue : MinValue / MaxValue;
 
         // Guard against MAD=0 (happens when the distribution is narrower than one histogram bin).
-        // Use a minimum of half a bin width in the unit-scaled space.
+        // Use a minimum of half the width of the bin it was read at, in the unit-scaled space.
         var scaledMad = mad * maxValueFactor;
-        if (scaledMad < maxValueFactor * 0.5f)
+        var floor = maxValueFactor * 0.5f * binWidth;
+        if (scaledMad < floor)
         {
-            scaledMad = maxValueFactor * 0.5f;
+            scaledMad = floor;
         }
 
         return (pedestral, median * maxValueFactor, scaledMad);
