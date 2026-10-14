@@ -153,7 +153,7 @@ public sealed class OrreryScene(Action? requestRedraw = null)
     public const double MoonOffsetFraction = 0.08;
 
     private long _positionsMinute = long.MinValue;
-    private CatalogIndex? _positionsComet;
+    private CometElements? _positionsComet;
     private ImmutableArray<OrreryBody> _bodies = [];
 
     private long _orbitCentury = long.MinValue;
@@ -185,11 +185,12 @@ public sealed class OrreryScene(Action? requestRedraw = null)
     public void Update(DateTimeOffset utc, in CometElements? comet)
     {
         var minute = utc.UtcTicks / TimeSpan.TicksPerMinute;
-        var cometIndex = comet?.CatalogIndex;
-        if (minute != _positionsMinute || cometIndex != _positionsComet)
+        // Keyed on the comet's ELEMENTS, as its orbit is: an apparition upgrade keeps the index and changes them, and a position
+        // keyed on the index would stay on the old orbit until the minute changed.
+        if (minute != _positionsMinute || comet != _positionsComet)
         {
             _positionsMinute = minute;
-            _positionsComet = cometIndex;
+            _positionsComet = comet;
             _bodies = ComputeBodies(new DateTimeOffset(minute * TimeSpan.TicksPerMinute, TimeSpan.Zero), comet);
             _positionBuilds++;
         }
