@@ -43,11 +43,16 @@ Both native drivers mirror its shape exactly:
 
 # Phase D -- native ZWO + QHY raw video
 
-**Tracked by #813; not started.** Player One and ToupTek have joined the DAL since this was written, so the one
-`DALCameraDriver` loop now covers four vendors. Until it lands, every DAL camera is single-frame. Four plans wait on
-it: live capture on real hardware, [video-guiding.md](video-guiding.md) (step 0),
-[camera-collimation.md](camera-collimation.md) (C3), and the video autofocus in
+**Tracked by #813.** ZWO streams through the one `DALCameraDriver` loop ("feat(devices): a DAL camera streams native
+video (#813)"); QHY, and Player One and ToupTek, which joined the DAL since this was written, do not yet, and until each
+does it is single-frame. Four plans wait on it: live capture on real hardware, [video-guiding.md](video-guiding.md)
+(step 0), [camera-collimation.md](camera-collimation.md) (C3), and the video autofocus in
 [focus-tolerance.md](focus-tolerance.md) (F6).
+
+**What single-frame costs is measured, on a ToupTek (2026-10-14).** At the 2026-10-07 Saturn region (640x480) the
+G3M678M's own video mode reaches about 200 fps in 8 bits and 98 in 16, while TianWen's single-exposure loop takes 10.6
+to 13 fps, the SDK's software trigger costing 62 ms a frame at 5 ms and below in 8 bits and 78 at 15 ms or in 16 bits:
+[live-planetary-capture.md, "Frame rate at the Saturn ROI on the ToupTek"](live-planetary-capture.md#frame-rate-at-the-saturn-roi-on-the-touptek-measured-2026-10-14).
 
 ## D.0 Where the code goes (and why it covers both vendors from one place)
 

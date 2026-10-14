@@ -644,6 +644,100 @@ The processing side of such a night is the restoration plan's: each file stacked
 (#1336), the stacks composed with one north decided across the run, and a filter's stacks put on one level before they are averaged
 (#1337).
 
+### Frame rate at the Saturn ROI on the ToupTek (measured 2026-10-14)
+
+**Issue:** #813 (its "measure first" item: the rate the single-exposure loop reaches with a small ROI on a real body).
+
+The same G3M678M, on this desktop, at the night's region: 640x480 at (1716, 546), bin 1, gain 2252, black level left alone. Two
+layers, so the gap shows: the camera's ceiling in the VENDOR's video mode, and TianWen's own path, which for this body is not
+video at all. ToupTek.SDK leaves `CanVideoCapture` false and takes each frame by the SDK's software trigger, so a live capture is
+`PlanetaryCapture.RapidExposureFramesAsync`: expose, poll, read, repeat.
+
+**The camera's ceiling (vendor video mode).** Frames delivered over 3 s, after a 1 s settle; no frame lost in any run (the frame
+info's sequence numbers run without a gap, though in one run the counter jumped twice), and the SDK's own `get_FrameRate` agrees
+with the count to 0.5 fps:
+
+| Exposure | 8-bit, speed 0 | 8-bit, speed 1 | 8-bit, speed 2 | 16-bit, speed 0 | 16-bit, speed 1 | 16-bit, speed 2 |
+|---|---|---|---|---|---|---|
+| 15.625 ms | 63.4 | 63.4 | 63.5 | 48.9 | 62.9 | 63.5 |
+| 15 ms | 65.8 | 66.2 | 66.3 | 49.3 | 65.8 | 65.8 |
+| **5 ms** | 98.1 | 131.0 | **196.8** | 49.1 | 65.7 | 98.3 |
+| 2 ms | 98.3 | 131.0 | 200.5 | 49.2 | 65.8 | 98.2 |
+| 1 ms | 98.1 | 131.1 | **200.8** | 49.2 | 65.6 | 98.5 |
+| 0.1 ms (the minimum) | 98.5 | 131.2 | 200.5 | 49.3 | 65.6 | 98.2 |
+
+- **About 200 frames a second is the most this region gets, in 8 bits at speed 2** (`put_Speed`; `MaxSpeed` is 2, and 2 is also the
+  camera's default after every open). 16 bits halves it: about 98.
+- **The speed level scales the row readout**: 480 rows take 4.98 ms at speed 2, 7.63 at speed 1 and 10.2 at speed 0 (8 bits), so
+  8 bits at speed 0 runs as fast as 16 bits at speed 2.
+- **Above the readout a frame is its exposure**: 15.625 ms gives 62.9 to 63.5 fps and 15 ms gives 65.8 to 66.3 at every speed and depth
+  whose readout is shorter (all but 16 bits at speed 0, whose 20.3 ms readout holds it at 49). 5 ms in 8 bits at speed 2 sits just past
+  the readout, at 196.8 against 200.6.
+- **SharpCap's "USB Speed=1" is taken to be this level** (SharpCap does not say). At the night's exposures it cost nothing: the night's
+  files read 63.3 to 63.4 fps at 15.625 ms and mostly 65.9 to 66.0 at 15 ms, the exposure-bound rates above. At 5 ms it would hold
+  8 bits at 131 fps against speed 2's 197.
+- **Width does not count**, as the SDK README says: at the minimum exposure 3840x480 gives 200.3 fps against 640x480's 200.1 (8 bits,
+  speed 2), 98.2 against 98.5 (16 bits, speed 2), 130.9 against 131.0 (8 bits, speed 1) and 65.3 against 65.4 (16 bits, speed 1).
+- **The README's numbers hold, and so does its per-row model at 480 rows.** Full frame at speed 2 reproduced its 47 and 23 fps
+  (46.8 and 23.3). Its five heights fit a frame time of 0.27 ms plus 9.72 us a row in 8 bits and 0.58 ms plus 19.9 us in 16 (least
+  squares), which predicts 4.94 ms (202 fps) and 10.1 ms (99 fps) at 480 rows; measured, 4.98 ms (200.5 to 200.8) and 10.2 ms (98.2
+  to 98.5). ToupTek's own figures (47 fps at 3840x2160, over 1500 in 8 bits and 740 in 16 at 3840x40) are the README's; neither
+  source gives 480 rows.
+- **Video mode stalls, and a stop and restart on one handle sets it off.** With the stream stopped, reconfigured and restarted on the
+  same handle for each run, 14 of 46 runs delivered no frame at all, every call succeeding; `TOUPCAM_OPTION_DEVICE_RESET` cleared 13
+  of them (the camera back in 0.8 s), one stayed dark after it, and one more run stopped mid-stream. Opened afresh for each run, 1 of
+  the 44 runs at this region stalled at its start, the first, straight after the full frame had stopped mid-stream (twice, at both
+  depths). A video path for this body needs the reset the DAL driver already makes after two lost exposures.
+
+**TianWen's path (software trigger).** `src/TianWen.Lib.Tests/ToupTekFrameRateProbe.cs`, gated on `TIANWEN_TOUPTEK_RATE_PROBE=1` (never
+`TIANWEN_TOUPTEK_PROBE`, which resets the camera), in process through `ToupTekCameraDriver`: the bare driver polled as fast as it
+answers, the bare driver sleeping 5 ms between polls as the capture loop does, and `PlanetaryCapture` whole. Frames over 3 s after
+1 s; no exposure was lost in any run, every frame 640x480 at the depth asked for; the binding never sets a speed, so the camera runs
+at its default, 2:
+
+| Exposure | Depth | Driver, no sleep | Driver, 5 ms sleep | `PlanetaryCapture` | Trigger to ready (median, no sleep) |
+|---|---|---|---|---|---|
+| 15.625 ms | 8 | 12.8 | 10.6 | 10.6 | 77.6 ms |
+| 15 ms | 8 | 12.8 | 10.7 | 10.6 | 78.0 ms |
+| **5 ms** | 8 | 16.0 | 12.8 | **12.9** | 62.2 ms |
+| 2 ms | 8 | 16.0 | 12.8 | 13.0 | 62.3 ms |
+| 1 ms | 8 | 16.0 | 12.8 | 13.0 | 62.3 ms |
+| 0.1 ms | 8 | 16.0 | 12.8 | 12.9 (floored to 1 ms) | 62.2 ms |
+| 15.625 ms | 16 | 12.7 | 10.6 | 10.6 | 77.6 ms |
+| 15 ms | 16 | 12.0 | 10.3 | 11.0 | 79.5 ms |
+| 5 ms | 16 | 12.7 | 10.6 | 10.6 | 78.5 ms |
+| 2 ms | 16 | 12.6 | 10.5 | 10.6 | 78.2 ms |
+| 1 ms | 16 | 12.8 | 10.7 | 10.6 | 78.0 ms |
+| 0.1 ms | 16 | 12.8 | 10.5 | 10.7 (floored to 1 ms) | 77.8 ms |
+
+- **The trigger loop runs 6 to 16 times below the camera's video mode**: 12.9 fps against 196.8 at 5 ms in 8 bits, 10.6 against 66 at
+  the night's 15 ms. At 5 ms it collects light 6.5 % of the time, against 98 % in video.
+- **The time is the SDK's trigger, not TianWen's code.** Reading a frame costs 0.2 to 0.3 ms. The same trigger loop written on the
+  vendor's binding alone (`Trigger(1)`, wait for `EVENT_IMAGE`, pull in the callback, repeat) takes the same 62.4 and 78 ms. Those are
+  4 and 5 ticks of Windows' default 15.625 ms timer, and they fall to 20 ms (49 fps, 8 bits at 5 ms) and 30 ms (33 fps at 15 ms) in
+  a process that asks for a 1 ms timer (`timeBeginPeriod(1)`, which TianWen never calls); 16 bits then reads 31 to 36 ms. So the SDK's
+  trigger path waits on its process's timer. Even with a fine one, a triggered frame of 5 ms in 8 bits takes 20 ms where its exposure
+  and readout are 10: each frame is exposed, read and handed over before the next trigger, where video overlaps them.
+- **The capture loop's 5 ms sleep costs one more tick** (78 and 93 ms), since a 5 ms sleep also rounds up to the 15.6 ms timer, and
+  `PlanetaryCapture` reads within 0.7 fps of the bare driver sleeping 5 ms. Its 1 ms exposure floor makes the minimum read as 1 ms.
+
+**What 5 ms costs in signal.** On 12:21 Red (15 ms, gain 2252, black level 17; 100 frames of its SER averaged) the sky reads 16.6 ADU,
+the planet's lit pixels a median of 94 and its brightest 186 (one frame's brightest is 207 of 255). At 5 ms and the same gain the
+signal above the sky is a third: the brightest about 73 ADU, the median about 42.5. Three times the gain, 6756 (the SDK's percent, 100
+being unity), puts the level back and is inside `get_ExpoAGainRange`, 100 to 15000; the SDK does not say where in that range the gain
+stops being analogue. The level is not the signal: each frame then holds a third of the photons, so its shot-noise SNR falls by the
+square root of 3, which three times the frames win back in a stack only where the frames come three times as fast, that is in video
+(197 fps at 5 ms against 66 at 15 ms). In TianWen's trigger loop 5 ms buys 12.9 fps against 10.6.
+
+**The recipe for the camera's ceiling** (a scratch console on ToupTek's own `reference/toupcam.cs` and `lib/win-x64` natives from the
+ToupTek.SDK clone, not committed): on an open handle, `put_Option(UPSIDE_DOWN, 0)`, `RAW = 1`, `BITDEPTH = 0` (8) or `1` (16),
+`TRIGGER = 0` (video), `put_AutoExpoEnable(false)`, `put_ExpoTime` in microseconds, `put_ExpoAGain(2252)`, `put_Speed(0 to 2)`,
+`put_Roi(1716, 546, 640, 480)`; `StartPullModeWithCallback`, pulling every frame in the `EVENT_IMAGE` callback with `PullImage` (V4
+frame info); settle 1 s; count the frames delivered over 3 s by a `Stopwatch`; read `get_FrameRate` beside it; `Stop`. Open afresh for
+each run, and reset (`DEVICE_RESET`, then find the camera again) a run that delivers nothing in 2 s. The trigger comparison is the same
+with `TRIGGER = 1`, no speed set, and `Trigger(1)` then a wait for the callback in a loop, once as the process starts and once after
+`timeBeginPeriod(1)`.
+
 ### Phase G: a mono filter-wheel sequence
 
 **Issues:** #1344 (the Record control, first), #1340 (the sequence).
