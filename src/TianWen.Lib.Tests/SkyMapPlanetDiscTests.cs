@@ -221,6 +221,36 @@ public sealed class SkyMapPlanetDiscTests
     }
 
     /// <summary>
+    /// A disc is culled on its REACH, not its centre: a Moon 400 px across whose centre sits 50 px above the view's top edge still
+    /// covers the top 150 px of it, so it is drawn there (bright: thirteen days on, near full) and stays clickable as a disc.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task ADiscWhoseCentreIsOffScreenIsStillDrawnWhereItReaches()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        rig.Tab.State.Mode = SkyMapMode.Equatorial;
+        rig.Tab.State.TimeOffset = TimeSpan.FromDays(13);
+        rig.Look(CatalogIndex.Moon, 400);
+        // North is up: moving the centre south by half the view and 50 px puts the Moon's centre 50 px above the top edge.
+        var ppr = SkyMapProjection.PixelsPerRadian(Size, rig.Tab.State.FieldOfViewDeg);
+        rig.Tab.State.CenterDec -= ((Size / 2.0) + 50) / ppr * 180 / Math.PI;
+        await rig.RenderSettledAsync();
+
+        rig.Tab.State.PlanetDiscsDrawn.ShouldContain(CatalogIndex.Moon);
+        var image = rig.Renderer.Surface;
+        var lit = 0;
+        for (var y = 0; y < 20; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                var i = ((y * Size) + x) * 4;
+                lit += image.Pixels[i] + image.Pixels[i + 1] + image.Pixels[i + 2] > 240 ? 1 : 0;
+            }
+        }
+        lit.ShouldBeGreaterThan(1000, "the Moon's lower limb covers the top rows");
+    }
+
+    /// <summary>
     /// The label starts clear of everything the sprite draws: Saturn's sprite reaches its ring ansae, about 2.27 globe radii, so its
     /// label's clickable begins past them, not 4 px past the globe and over the rings.
     /// </summary>

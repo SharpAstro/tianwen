@@ -57,6 +57,7 @@ namespace TianWen.UI.Abstractions
             var y0 = (int)MathF.Floor((float)(y - half));
             var x1 = (int)MathF.Ceiling((float)(x + half));
             var y1 = (int)MathF.Ceiling((float)(y + half));
+            (x0, y0, x1, y1) = (Math.Max(x0, 0), Math.Max(y0, 0), Math.Min(x1, image.Width), Math.Min(y1, image.Height));
             var rgba = sprite.Rgba;
             for (var py = y0; py < y1; py++)
             {
