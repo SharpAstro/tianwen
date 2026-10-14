@@ -132,7 +132,7 @@ internal class AlpacaDeviceSource(AlpacaClient alpacaClient, ILogger<AlpacaDevic
 
                     if (discovery is { AlpacaPort: > 0 })
                     {
-                        var host = await ResolveHostNameAsync(result.RemoteEndPoint.Address);
+                        var host = await HostOfAsync(result.RemoteEndPoint.Address);
                         servers.Add((host, discovery.AlpacaPort));
                     }
                 }
@@ -151,11 +151,19 @@ internal class AlpacaDeviceSource(AlpacaClient alpacaClient, ILogger<AlpacaDevic
     }
 
     /// <summary>
-    /// Resolves an IP address to its FQDN via reverse DNS lookup.
-    /// Falls back to the IP address string if resolution fails.
+    /// The host an answering server is named by in its device URI: its FQDN by reverse DNS lookup, falling back to the IP
+    /// address string if resolution fails. A LOOPBACK server (the one a local-only process asks) is named by its address,
+    /// never looked up: the lookup answers whatever the hosts file maps loopback to (kubernetes.docker.internal on a
+    /// machine with Docker), which is not a name for this machine's loopback. The host is not the device's identity (its
+    /// key is the server's UniqueID), so a profile matches the device however it is named.
     /// </summary>
-    private static async Task<string> ResolveHostNameAsync(IPAddress address)
+    internal static async Task<string> HostOfAsync(IPAddress address)
     {
+        if (IPAddress.IsLoopback(address))
+        {
+            return address.ToString();
+        }
+
         try
         {
             var hostEntry = await Dns.GetHostEntryAsync(address);

@@ -213,7 +213,7 @@ are features; `tools/start-app.ps1` turns it on for every app it launches unless
 | The node's LAN announcement (LAN.Lib) | the UDP discovery port on every interface | not registered |
 | Canon and OnStep WiFi discovery | mDNS: UDP 5353 on every interface, a multicast join | skipped; USB, WPD and serial discovery kept |
 | Skywatcher WiFi discovery | a broadcast to UDP 11880 | skipped; the serial matches kept |
-| Alpaca discovery | a broadcast to UDP 32227 | asks `127.0.0.1:32227` from a socket bound to loopback, so a simulator on this machine is still found |
+| Alpaca discovery | a broadcast to UDP 32227 | asks `127.0.0.1:32227` from a socket bound to loopback, so a simulator on this machine is still found, named `127.0.0.1` in its URI and never reverse-resolved (`AlpacaDeviceSource.HostOfAsync`; the host is in the query, not the device's key) |
 | A WiFi Skywatcher mount (the one device reached over UDP) | a UDP socket to the mount | the connect fails, saying why |
 | The GUI's LAN discovery | the UDP discovery port on every interface | not registered: no LAN rig is listed; a bound rig is still reached by its last address |
 
