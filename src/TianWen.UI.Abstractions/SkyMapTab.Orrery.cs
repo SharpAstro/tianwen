@@ -39,9 +39,11 @@ namespace TianWen.UI.Abstractions
         /// <inheritdoc cref="OrreryFrames"/>
         internal double LastOrreryFrameMs { get; private set; }
 
-        private static readonly RGBAColor32 OrreryBackground = new(0x06, 0x06, 0x10, 0xFF);
-        private static readonly RGBAColor32 EarthColour = new(0x5A, 0x8C, 0xD8, 0xFF);
-        private static readonly RGBAColor32 CometColour = new(0x9C, 0xE8, 0xD0, 0xFF);
+        // Every colour from the palette (CLAUDE.md, "Colour Theme"), so Night spends no blue: space is the content background halfway
+        // to black, the Earth the palette's Info, a comet that halfway to the body text.
+        private static RGBAColor32 OrreryBackground => GuiTheme.Mix(new RGBAColor32(0, 0, 0, 0xFF), GuiTheme.Palette.ContentBg, 0.5f);
+        private static RGBAColor32 EarthColour => GuiTheme.Palette.Info;
+        private static RGBAColor32 CometColour => GuiTheme.Mix(GuiTheme.Palette.Info, GuiTheme.Palette.BodyText, 0.5f);
 
         /// <summary>Opens the orrery on the selected body when it is one of the Sun's (the panel's button, Alt+S); the selection is kept.</summary>
         internal void OpenOrrery()
@@ -140,7 +142,7 @@ namespace TianWen.UI.Abstractions
 
             DrawOrreryStrip(contentRect, viewingTime, plannerState.SiteTimeZone,
                 plannerState.PlanningDate.HasValue || State.TimeOffset != TimeSpan.Zero);
-            RenderTimeMenu(contentRect, BaseFontSize * dpiScale * 0.85f);
+            RenderTimeMenu(contentRect, BaseFontSize * dpiScale * 0.85f, GuiTheme.Palette.PanelBg, GuiTheme.Palette.BodyText);
 
             OrreryFrames++;
             LastOrreryFrameMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
@@ -341,7 +343,10 @@ namespace TianWen.UI.Abstractions
                 && DrawPlanetSprite(sprite, sx, sy, radius);
         }
 
-        private static RGBAColor32 OrreryFlat(CatalogIndex body) => body == CatalogIndex.Earth ? EarthColour : SkyMapRenderer.GetPlanetColor(body);
+        // A disc still building its sprite: the body's own colour, or under Night the tint its sprite will have.
+        private static RGBAColor32 OrreryFlat(CatalogIndex body)
+            => GuiTheme.State == UiThemeState.Night ? GuiTheme.Palette.Accent
+                : body == CatalogIndex.Earth ? EarthColour : SkyMapRenderer.GetPlanetColor(body);
 
         // A comet is a point with a tail pointing away from the Sun, as long as a fifth of its drawn distance from it.
         private void DrawCometMark(in OrreryCamera camera, double x, double y, double z, float sx, float sy, float radius)
@@ -364,7 +369,9 @@ namespace TianWen.UI.Abstractions
             var stripH = 24f * dpiScale;
             var orrery = State.Orrery;
             var padX = 6f * dpiScale;
-            var fill = InfoPanelBg;
+            var palette = GuiTheme.Palette;
+            var fill = palette.PanelBg;
+            var ink = palette.BodyText;
 
             var localTime = viewingTime.ToOffset(siteTimeZone);
             var timeText = $"{localTime:yyyy-MM-dd HH:mm}";
@@ -374,7 +381,7 @@ namespace TianWen.UI.Abstractions
             }
 
             Layout.Node Button(string label, string action, Action onClick, string tooltip)
-                => Layout.Builder.Text(label, fontSize, InfoText, TextAlign.Center, TextAlign.Center)
+                => Layout.Builder.Text(label, fontSize, ink, TextAlign.Center, TextAlign.Center)
                     .PadX(padX)
                     .HStar()
                     .Bg(fill).BgHover(GuiTheme.Hover(fill))
@@ -391,7 +398,7 @@ namespace TianWen.UI.Abstractions
             var widest = Layout.Engine.Measure(
                 Layout.Builder.Text("Compressed", fontSize, trim: TextTrim.None).PadX(padX),
                 new Layout.Size<float>(float.MaxValue, float.MaxValue), MeasureContext(scale: DesignScale.One)).Width;
-            var style = new Layout.ButtonGroupStyle(ModeSelectedFill, InfoPanelBg, ModeSelectedInk, InfoText, GuiTheme.Hover(InfoPanelBg))
+            var style = new Layout.ButtonGroupStyle(palette.Selection, fill, ink, ink, GuiTheme.Hover(fill))
             {
                 Gap = 2f * dpiScale,
                 CornerRadius = 3f * dpiScale,
@@ -404,13 +411,13 @@ namespace TianWen.UI.Abstractions
                     Button("Sky", "OrreryClose", CloseOrrery, "Back to the sky"),
                     Layout.Builder.ButtonGroup(scales, orrery.Scale, SwitchOrreryScale, style, fontSize).HStar(),
                     // The wider label sized once, so Play and Pause do not move what follows.
-                    Layout.Builder.Text(orrery.Playing ? "Pause" : "Play", fontSize, InfoText, TextAlign.Center, TextAlign.Center, widthSample: "Pause")
+                    Layout.Builder.Text(orrery.Playing ? "Pause" : "Play", fontSize, ink, TextAlign.Center, TextAlign.Center, widthSample: "Pause")
                         .PadX(padX).HStar()
                         .Bg(fill).BgHover(GuiTheme.Hover(fill))
                         .Clickable(new HitResult.ButtonHit("OrreryPlay"), _ => ToggleOrreryPlay())
                         .WithTooltip($"Run time at {orrery.DaysPerSecond:0} days a second"),
-                    Layout.Builder.Text("Drag to orbit, wheel to zoom", fontSize, InfoText, TextAlign.Near, TextAlign.Center).PadX(padX).WStar().HStar(),
-                    BuildTimeControls(timeText, isTimeShifted ? TimeShiftColor : InfoText, fontSize, dpiScale))
+                    Layout.Builder.Text("Drag to orbit, wheel to zoom", fontSize, ink, TextAlign.Near, TextAlign.Center).PadX(padX).WStar().HStar(),
+                    BuildTimeControls(timeText, isTimeShifted ? palette.Accent : ink, fontSize, dpiScale, fill, ink))
                 .WithGap(4f * dpiScale)
                 .PadX(8f * dpiScale)
                 .Bg(fill)

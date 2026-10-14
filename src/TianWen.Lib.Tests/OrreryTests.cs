@@ -22,9 +22,9 @@ namespace TianWen.Lib.Tests;
 [Collection("Astrometry")]
 public sealed class OrreryTests(ITestOutputHelper output)
 {
-    private static readonly DateTimeOffset Instant = new(2026, 10, 13, 22, 0, 0, TimeSpan.Zero);
-    private const int Width = 900;
-    private const int Height = 600;
+    internal static readonly DateTimeOffset Instant = new(2026, 10, 13, 22, 0, 0, TimeSpan.Zero);
+    internal const int Width = 900;
+    internal const int Height = 600;
 
     private static double Angle(double ax, double ay, double az, double bx, double by, double bz)
         => Math.Acos(Math.Clamp(((ax * bx) + (ay * by) + (az * bz))
@@ -211,7 +211,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
 
     // ── Through the tab ──
 
-    private sealed record Rig(SkyMapTab<RgbaImage> Tab, RgbaImageRenderer Renderer, PlannerState Planner, InputRouter Router) : IDisposable
+    internal sealed record Rig(SkyMapTab<RgbaImage> Tab, RgbaImageRenderer Renderer, PlannerState Planner, InputRouter Router) : IDisposable
     {
         public RectF32 Content => new(0, 0, Width, Height);
 
@@ -220,7 +220,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
         public void Dispose() => Renderer.Dispose();
     }
 
-    private static async Task<Rig> RigAsync(System.Threading.CancellationToken cancellationToken, float dpiScale = 1f)
+    internal static async Task<Rig> RigAsync(System.Threading.CancellationToken cancellationToken, float dpiScale = 1f)
     {
         var db = await SharedCatalogDB.InitAsync(cancellationToken);
         var renderer = new RgbaImageRenderer(Width, Height);
@@ -235,7 +235,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
         return rig;
     }
 
-    private static void Select(Rig rig, CatalogIndex body)
+    internal static void Select(Rig rig, CatalogIndex body)
     {
         rig.Tab.State.TryGetPlanetCached(body, Instant, out var marker).ShouldBeTrue();
         var site = TianWen.Lib.Astrometry.SOFA.SiteContext.Create(48.0, 11.0, Instant);
@@ -243,7 +243,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
     }
 
     // A comet near the Earth's orbit, at perihelion a few days after the instant, with its index in the panel.
-    private static CometElements SelectComet(Rig rig, double argumentOfPerihelion = 80)
+    internal static CometElements SelectComet(Rig rig, double argumentOfPerihelion = 80)
     {
         CometDesignation.TryParse("12P", out var designation).ShouldBeTrue();
         var perihelion = 2461330.5;
@@ -533,6 +533,56 @@ public sealed class OrreryTests(ITestOutputHelper output)
             await File.WriteAllBytesAsync(path, PngWriter.Encode(rig.Renderer.Surface.Pixels, Width, Height), TestContext.Current.CancellationToken);
             output.WriteLine(path);
             rig.Tab.OrreryDrawn.Select(d => d.Index).ShouldContain(CatalogIndex.Jupiter);
+        }
+    }
+}
+
+/// <summary>
+/// Night spends no blue (CLAUDE.md, "Colour Theme"): every pixel the orrery paints under Night, the sky behind it, the orbits, the
+/// discs, the comet, the labels and the strip, has a blue channel of zero. In the "UI" collection, since it flips the app-wide theme.
+/// </summary>
+[Collection("UI")]
+public sealed class OrreryNightTests
+{
+    [Fact(Timeout = 120_000)]
+    public async Task NightSpendsNoBlueInTheOrrery()
+    {
+        try
+        {
+            GuiTheme.Apply(UiThemeState.Night, desktopIsDark: true);
+            using var rig = await OrreryTests.RigAsync(TestContext.Current.CancellationToken);
+            OrreryTests.SelectComet(rig);
+            rig.Tab.OpenOrrery();
+            rig.Tab.State.TimeOffset = TimeSpan.FromDays(1);
+            for (var pass = 0; pass < 3; pass++)
+            {
+                rig.Render();
+                if (rig.Tab.PlanetTextures.AtlasLoad is { } atlas)
+                {
+                    await atlas.WaitAsync(TestContext.Current.CancellationToken);
+                }
+                await rig.Tab.OrreryScene.WhenOrbitsBuiltAsync();
+                await rig.Tab.OrrerySprites.WhenBuiltAsync();
+            }
+            rig.Tab.State.Orrery.Distance = OrreryCamera.DistanceToFrame(Math.Sqrt(6));
+            rig.Render();
+            await rig.Tab.OrrerySprites.WhenBuiltAsync();
+            rig.Render();
+
+            var pixels = rig.Renderer.Surface.Pixels;
+            var blue = 0;
+            for (var i = 0; i < pixels.Length; i += 4)
+            {
+                if (pixels[i + 2] != 0)
+                {
+                    blue++;
+                }
+            }
+            blue.ShouldBe(0, "pixels with any blue under Night");
+        }
+        finally
+        {
+            GuiTheme.Apply(UiThemeState.Dark, desktopIsDark: true);
         }
     }
 }

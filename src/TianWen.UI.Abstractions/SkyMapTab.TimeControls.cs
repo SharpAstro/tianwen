@@ -96,13 +96,17 @@ public partial class SkyMapTab<TSurface>
     /// The strip's right-hand controls: the back steps, the time (a press opens the landmarks), the forward
     /// steps, and Now while the view is off live. Device-pixel sizes; the caller arranges them.
     /// </summary>
-    private Layout.Node BuildTimeControls(string timeText, RGBAColor32 timeColor, float fontSize, float dpiScale)
+    /// <remarks>The fill and ink are the sky strip's own unless the caller states its own: the orrery's come from the palette, so
+    /// Night spends no blue there.</remarks>
+    private Layout.Node BuildTimeControls(string timeText, RGBAColor32 timeColor, float fontSize, float dpiScale,
+        RGBAColor32? fillColour = null, RGBAColor32? inkColour = null)
     {
-        var fill = InfoPanelBg;
+        var fill = fillColour ?? InfoPanelBg;
+        var ink = inkColour ?? InfoText;
         var padX = 6f * dpiScale;
 
         Layout.Node Step((string Label, TimeSpan Delta) step)
-            => Layout.Builder.Text(step.Label, fontSize, InfoText, TextAlign.Center, TextAlign.Center)
+            => Layout.Builder.Text(step.Label, fontSize, ink, TextAlign.Center, TextAlign.Center)
                 .PadX(padX)
                 .HStar()
                 .Bg(fill).BgHover(GuiTheme.Hover(fill))
@@ -131,7 +135,7 @@ public partial class SkyMapTab<TSurface>
 
         if (State.TimeOffset != TimeSpan.Zero)
         {
-            children.Add(Layout.Builder.Text("Now", fontSize, InfoText, TextAlign.Center, TextAlign.Center)
+            children.Add(Layout.Builder.Text("Now", fontSize, ink, TextAlign.Center, TextAlign.Center)
                 .PadX(padX)
                 .HStar()
                 .Bg(fill).BgHover(GuiTheme.Hover(fill))
@@ -165,8 +169,9 @@ public partial class SkyMapTab<TSurface>
     /// Paints the landmarks drop-up when it is open, LAST of the sky pass so it lies over the strip and the
     /// map; its backdrop dismisses, and Escape comes from being painted.
     /// </summary>
-    private void RenderTimeMenu(RectF32 viewport, float fontSize)
+    private void RenderTimeMenu(RectF32 viewport, float fontSize, RGBAColor32? fillColour = null, RGBAColor32? inkColour = null)
     {
+        var fill = fillColour ?? InfoPanelBg;
         if (!TimeMenu.IsOpen)
         {
             return;
@@ -176,9 +181,9 @@ public partial class SkyMapTab<TSurface>
         RenderLayout(
             Layout.Builder.Dropdown(anchor, TimeMenu,
                 fontSize: fontSize,
-                textColor: InfoText,
-                background: InfoPanelBg with { Alpha = 0xFF },
-                highlight: GuiTheme.Hover(InfoPanelBg),
+                textColor: inkColour ?? InfoText,
+                background: fill with { Alpha = 0xFF },
+                highlight: GuiTheme.Hover(fill),
                 maxHeight: MathF.Max(fontSize, TimeMenu.AnchorY - viewport.Y),
                 side: Layout.DockSide.Top),
             viewport,
