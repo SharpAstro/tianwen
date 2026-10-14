@@ -169,6 +169,36 @@ public sealed class OrreryTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// An apparition upgrade replaces a comet's elements under the same index while the view is open: the comet's position follows
+    /// the NEW elements at once, without a change of time, so it stays on the orbit drawn from them.
+    /// </summary>
+    [Fact]
+    public void NewElementsForTheSameCometMoveItOntoItsNewOrbit()
+    {
+        CometDesignation.TryParse("12P", out var designation).ShouldBeTrue();
+        var perihelion = 2461330.5;
+        var before = new CometElements(designation, "Pons-Brooks", 0.9, 0.7, 20, 100, 80, perihelion, perihelion, 8, 10);
+        var after = before with { ArgumentOfPerihelionDeg = 140, EpochJdTt = perihelion + 1 };
+        var index = before.CatalogIndex.ShouldNotBeNull();
+
+        var scene = new OrreryScene();
+        scene.Update(Instant, before);
+        scene.Update(Instant, after);
+        scene.TryFind(index, out var comet).ShouldBeTrue();
+
+        var orbit = scene.CometOrbit(after);
+        Span<double> at = [comet.X, comet.Y, comet.Z];
+        var nearest = double.MaxValue;
+        for (var i = 0; i + 1 < orbit.Length / 3; i++)
+        {
+            nearest = Math.Min(nearest, SegmentDistance(at, orbit.AsSpan(3 * i, 3), orbit.AsSpan(3 * (i + 1), 3)));
+        }
+        var r = Math.Sqrt((comet.X * comet.X) + (comet.Y * comet.Y) + (comet.Z * comet.Z));
+        output.WriteLine($"off the new orbit by {nearest:E2} AU at r {r:F3} AU");
+        (nearest / r).ShouldBeLessThan(1e-3);
+    }
+
     private static double SegmentDistance(ReadOnlySpan<double> p, ReadOnlySpan<double> a, ReadOnlySpan<double> b)
     {
         var (abx, aby, abz) = (b[0] - a[0], b[1] - a[1], b[2] - a[2]);
