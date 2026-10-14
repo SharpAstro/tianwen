@@ -48,6 +48,9 @@ public sealed class PlanetTextures(Func<DateTimeOffset> utcNow, ILogger? logger 
     /// <summary>Counts every change to the maps: part of a sprite's key.</summary>
     public int Version => Volatile.Read(ref _version);
 
+    /// <summary>The atlas file's read, once started, for a test that waits on it.</summary>
+    internal Task? AtlasLoad { get; private set; }
+
     /// <summary>The OPAL fetch started last, for a test that waits on its outcome.</summary>
     internal Task? LastUpgrade { get; private set; }
 
@@ -106,7 +109,7 @@ public sealed class PlanetTextures(Func<DateTimeOffset> utcNow, ILogger? logger 
         {
             return;
         }
-        _ = Task.Run(async () =>
+        AtlasLoad = Task.Run(async () =>
         {
             try
             {

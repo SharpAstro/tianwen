@@ -80,7 +80,7 @@ public sealed class PlanetTexturesTests
                 BitsPerSample = 8,
                 Photometric = TiffPhotometric.Rgb,
                 SampleFormat = TiffSampleFormat.Uint,
-            });
+            }, TestContext.Current.CancellationToken);
         }
         var bytes = tiff.ToArray();
         var store = new FakeStore(map => map.Body == CatalogIndex.Saturn ? bytes : null);

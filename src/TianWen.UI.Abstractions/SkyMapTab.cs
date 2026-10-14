@@ -937,7 +937,7 @@ namespace TianWen.UI.Abstractions
         {
             var fontPath = FontPath;
 
-            foreach (var (planetIdx, ra, dec, _, vmag) in State.GetPlanetPositionsCached(viewingTime))
+            foreach (var (planetIdx, ra, dec, aspect, vmag) in State.GetPlanetPositionsCached(viewingTime))
             {
                 if (SkyMapProjection.ProjectWithMatrix(ra, dec, State.CurrentViewMatrix,
                     ppr, cx, cy, out var sx, out var sy)
@@ -958,11 +958,22 @@ namespace TianWen.UI.Abstractions
                     var belowHorizon = dimBelowHorizon && !site.IsAboveHorizon(ra, dec);
                     var planetColor = DimmedIf(SkyMapRenderer.GetPlanetColor(planetIdx), belowHorizon);
 
-                    // Filled dot at the planet position, sized by its live magnitude (the Sun and Moon fixed)
-                    FillCircle(sx, sy, SkyMapState.PlanetDotRadius(planetIdx, vmag), planetColor);
+                    // The textured disc once it is big enough on screen (A4), else the filled dot sized by its live
+                    // magnitude (the Sun and Moon fixed). Below the threshold nothing about a sprite is touched.
+                    var dotRadius = SkyMapState.PlanetDotRadius(planetIdx, vmag);
+                    // The label starts past whatever was drawn: 10 px from a dot, clear of a disc's edge.
+                    var labelOffset = 10f;
+                    if (aspect is { } shown && TryDrawPlanetDisc(shown, ra, dec, sx, sy, ppr, cx, cy, dotRadius, belowHorizon, out var discRadius))
+                    {
+                        labelOffset = MathF.Max(labelOffset, discRadius + 4f);
+                    }
+                    else
+                    {
+                        FillCircle(sx, sy, dotRadius, planetColor);
+                    }
 
                     DrawText(name.AsSpan(), fontPath,
-                        sx + 10, sy - fontSize, 100, fontSize * 1.2f,
+                        sx + labelOffset, sy - fontSize, 100, fontSize * 1.2f,
                         fontSize, planetColor, TextAlign.Near, TextAlign.Center);
 
                     // Make the label clickable. The dot itself is already selectable via the map-wide
@@ -977,7 +988,7 @@ namespace TianWen.UI.Abstractions
                     // frame's position, because the entry is stamped just below.
                     label.ScreenX = sx;
                     label.ScreenY = sy;
-                    RegisterClickable(sx + 10, sy - fontSize, 100, fontSize * 1.2f,
+                    RegisterClickable(sx + labelOffset, sy - fontSize, 100, fontSize * 1.2f,
                         label.Hit, label.OnClick);
                 }
             }

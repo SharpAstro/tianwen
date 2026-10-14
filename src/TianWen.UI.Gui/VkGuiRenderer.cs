@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Imaging.Planetary;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
@@ -264,6 +265,13 @@ namespace TianWen.UI.Gui
         {
             get => _skyMapTab.PictureStore;
             set => _skyMapTab.PictureStore = value;
+        }
+
+        /// <summary>Where the atlas's planet discs get OPAL's maps; see <see cref="VkSkyMapTab.PlanetMapStore"/>.</summary>
+        public IPlanetMapStore? PlanetMapStore
+        {
+            get => _skyMapTab.PlanetMapStore;
+            set => _skyMapTab.PlanetMapStore = value;
         }
 
         /// <summary>
