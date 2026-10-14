@@ -80,9 +80,8 @@ namespace TianWen.UI.Abstractions
                 DrawConstellationFigures(image, db, cRA, cDec, ppr, cx, cy, w, h);
             }
 
-            DrawStars(image, db,
-                (double ra, double dec, out float sx, out float sy) => SkyMapProjection.Project(ra, dec, cRA, cDec, ppr, cx, cy, out sx, out sy),
-                w, h, state.EffectiveMagnitudeLimit, state.FieldOfViewDeg,
+            DrawStars(image, db, cRA, cDec, ppr, cx, cy, w, h,
+                state.EffectiveMagnitudeLimit, state.FieldOfViewDeg,
                 state.ShowHorizon ? site : default);
 
             if (state.ShowPlanets)
@@ -274,32 +273,73 @@ namespace TianWen.UI.Abstractions
         /// Draw stars by iterating the HIP catalog via the fast O(1) Tycho-2 cross-reference.
         /// ~118k HIP stars cover all naked-eye stars and most telescope targets.
         /// </summary>
-        /// <summary>Where a star lands on the image, or false when it does not: the one thing the two views of the field differ in.</summary>
-        private delegate bool StarProjection(double ra, double dec, out float screenX, out float screenY);
-
         /// <summary>
         /// The map's star field as a BACKDROP (the orrery's, <see cref="SkyOrreryBackdrop"/>): the same stars, sizes and colours as the map
         /// draws on this surface, through the backdrop's gnomonic view, every star's alpha times its brightness and, under Night, its
         /// luminance in the tint. The CPU surface's counterpart of the GPU hosts' backdrop pass; the Milky Way is a texture only they draw.
         /// </summary>
+        /// <remarks>
+        /// Culled as the GPU pipelines cull, on both axes: the field is walked brightest first and stops at the magnitude limit, and a
+        /// star outside the view's cone is skipped on three multiplications, from unit vectors made once per catalogue
+        /// (<see cref="BackdropStarsOf"/>). Walking the whole catalogue through its lookups cost 250 ms a frame on this surface.
+        /// </remarks>
         public static void DrawBackdropStars(RgbaImage image, ICelestialObjectDB db, SkyOrreryBackdrop view, float cx, float cy, float magLimit)
         {
-            var matrix = view.View;
+            var m = view.View;
             var focal = view.PixelsPerRadian;
-            DrawStars(image, db,
-                (double ra, double dec, out float sx, out float sy) => SkyMapProjection.ProjectGnomonicWithMatrix(ra, dec, matrix, focal, cx, cy, out sx, out sy),
-                image.Width, image.Height, magLimit, view.FieldOfViewDeg, default, view.Brightness, view.Tint);
+            var cosCone = Math.Cos(Math.Min(180, view.RadiusDeg) * Math.PI / 180);
+            var (w, h) = (image.Width, image.Height);
+            foreach (var star in BackdropStarsOf(db))
+            {
+                if (star.VMag > magLimit)
+                {
+                    break;
+                }
+                // Camera space, as the shader: x right, y up, the camera looking along -Z.
+                var cosD = -((m.M31 * star.X) + (m.M32 * star.Y) + (m.M33 * star.Z));
+                if (cosD < cosCone || cosD <= 0.05f)
+                {
+                    continue;
+                }
+                var k = focal / cosD;
+                var sx = cx + (float)(((m.M11 * star.X) + (m.M12 * star.Y) + (m.M13 * star.Z)) * k);
+                var sy = cy - (float)(((m.M21 * star.X) + (m.M22 * star.Y) + (m.M23 * star.Z)) * k);
+                if (sx < -5 || sx >= w + 5 || sy < -5 || sy >= h + 5)
+                {
+                    continue;
+                }
+                DrawStar(image, sx, sy, star.VMag, star.Bv, view.FieldOfViewDeg, view.Brightness, view.Tint);
+            }
         }
+
+        /// <summary>A catalogue star as the backdrop walks it: its J2000 unit vector, magnitude and colour index.</summary>
+        private readonly record struct BackdropStar(float X, float Y, float Z, float VMag, float Bv);
+
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ICelestialObjectDB, BackdropStar[]> BackdropStarCache = new();
+
+        /// <summary>The catalogue's stars with a magnitude, brightest first, made once per catalogue (and kept as long as it lives).</summary>
+        private static BackdropStar[] BackdropStarsOf(ICelestialObjectDB db) => BackdropStarCache.GetValue(db, static catalogue =>
+        {
+            var stars = new List<BackdropStar>(catalogue.HipStarCount);
+            for (var hip = 1; hip <= catalogue.HipStarCount; hip++)
+            {
+                if (catalogue.TryLookupHIP(hip, out var ra, out var dec, out var vMag, out var bv) && !float.IsNaN(vMag))
+                {
+                    var (x, y, z) = SkyMapState.RaDecToUnitVec(ra, dec);
+                    stars.Add(new BackdropStar(x, y, z, vMag, bv));
+                }
+            }
+            stars.Sort(static (a, b) => a.VMag.CompareTo(b.VMag));
+            return [.. stars];
+        });
 
         private static void DrawStars(
             RgbaImage image,
             ICelestialObjectDB db,
-            StarProjection project,
-            int w, int h,
+            double cRA, double cDec, double ppr,
+            float cx, float cy, int w, int h,
             float magLimit, double fovDeg,
-            SiteContext site,
-            float brightness = 1f,
-            RGBAColor32? tint = null)
+            SiteContext site)
         {
             var hipCount = db.HipStarCount;
 
@@ -321,7 +361,7 @@ namespace TianWen.UI.Abstractions
                     continue;
                 }
 
-                if (!project(ra, dec, out var sx, out var sy))
+                if (!SkyMapProjection.Project(ra, dec, cRA, cDec, ppr, cx, cy, out var sx, out var sy))
                 {
                     continue;
                 }
@@ -331,26 +371,32 @@ namespace TianWen.UI.Abstractions
                     continue;
                 }
 
-                var radius = SkyMapProjection.StarRadius(vMag, fovDeg);
-                var (r, g, b) = SkyMapProjection.StarColor(bv);
-                if (tint is { } ink)
-                {
-                    // Night: the star's luminance in the tint, the GPU shaders' Rec. 709 weights.
-                    var luma = ((0.2126f * r) + (0.7152f * g) + (0.0722f * b)) / 255f;
-                    (r, g, b) = ((byte)(luma * ink.Red), (byte)(luma * ink.Green), (byte)(luma * ink.Blue));
-                }
-                var iRadius = Math.Max(1, (int)(radius + 0.5f));
-
-                // Dim halo for brighter stars (radius > 2): gives soft glow effect
-                if (iRadius > 2)
-                {
-                    var haloAlpha = (byte)(Math.Min(120, 40 + iRadius * 10) * brightness);
-                    FillCircle(image, (int)sx, (int)sy, iRadius + 1, new RGBAColor32(r, g, b, haloAlpha));
-                }
-
-                // Bright core
-                FillCircle(image, (int)sx, (int)sy, iRadius, new RGBAColor32(r, g, b, (byte)(0xFF * brightness)));
+                DrawStar(image, sx, sy, vMag, bv, fovDeg, 1f, null);
             }
+        }
+
+        // One star: its size by magnitude and field, its colour by B-V (as luminance in the tint under Night), a halo for the brighter.
+        private static void DrawStar(RgbaImage image, float sx, float sy, float vMag, float bv, double fovDeg, float brightness, RGBAColor32? tint)
+        {
+            var radius = SkyMapProjection.StarRadius(vMag, fovDeg);
+            var (r, g, b) = SkyMapProjection.StarColor(bv);
+            if (tint is { } ink)
+            {
+                // Night: the star's luminance in the tint, the GPU shaders' Rec. 709 weights.
+                var luma = ((0.2126f * r) + (0.7152f * g) + (0.0722f * b)) / 255f;
+                (r, g, b) = ((byte)(luma * ink.Red), (byte)(luma * ink.Green), (byte)(luma * ink.Blue));
+            }
+            var iRadius = Math.Max(1, (int)(radius + 0.5f));
+
+            // Dim halo for brighter stars (radius > 2): gives soft glow effect
+            if (iRadius > 2)
+            {
+                var haloAlpha = (byte)(Math.Min(120, 40 + iRadius * 10) * brightness);
+                FillCircle(image, (int)sx, (int)sy, iRadius + 1, new RGBAColor32(r, g, b, haloAlpha));
+            }
+
+            // Bright core
+            FillCircle(image, (int)sx, (int)sy, iRadius, new RGBAColor32(r, g, b, (byte)(0xFF * brightness)));
         }
 
         // ── Constellation Lines ──
