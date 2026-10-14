@@ -307,6 +307,10 @@ internal static class PlanetaryMasterScore
         }
     }
 
+    // The truths carried to the aperture target, each computed once a process (a full-frame diffraction a channel): the stack, the truth's
+    // own gains and every variant score against the same one.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Path, Pupil Pupil, double Scale), float[]> ApertureTruths = new();
+
     // A truth as the scores read it (#1366): as rendered, through the pupil, or with an aperture given carried to the aperture target
     // (PlanetaryFinishing.ApertureTruth) at the truth's own wavelength (WAVELEN) and the plate scale its disk gives.
     private static float[] ScoredTruth(float[] truth, int width, int height, MetricDisk disk, in PlanetAspect aspect, string path, Pupil? aperture)
@@ -315,13 +319,19 @@ internal static class PlanetaryMasterScore
         {
             return truth;
         }
+        var scale = aspect.AngularDiameterArcsec / 2 / disk.Radius;
+        return ApertureTruths.GetOrAdd((Path.GetFullPath(path), pupil, scale), _ => CarriedToAperture(truth, width, height, path, pupil, scale));
+    }
+
+    private static float[] CarriedToAperture(float[] truth, int width, int height, string path, Pupil pupil, double scale)
+    {
         using var fits = Image.OpenFitsHeader(path);
         var wavelengthNm = fits.ReadFirstImageHduHeaderOnly()?.Header.GetDoubleValue("WAVELEN", double.NaN) ?? double.NaN;
         if (!double.IsFinite(wavelengthNm))
         {
             throw new InvalidOperationException($"{path}: no WAVELEN in its header, so it cannot be carried to the aperture target");
         }
-        return PlanetaryFinishing.ApertureTruth(truth, width, height, pupil, wavelengthNm, aspect.AngularDiameterArcsec / 2 / disk.Radius);
+        return PlanetaryFinishing.ApertureTruth(truth, width, height, pupil, wavelengthNm, scale);
     }
 
     /// <summary>

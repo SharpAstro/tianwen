@@ -42,8 +42,9 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var edgeReachOpt = new Option<double?>("--edge-reach") { Description = "Take the kernel as the physical one fitted to the limb's edge from 0.02 cycles a pixel to this, carried by its physics to the cutoff, rather than the edge as read at every frequency." };
         var plateScaleOpt = new Option<double?>("--plate-scale") { Description = "The master's plate scale in seconds of arc a pixel: the limb fit the gains are read through holds the planet's equatorial radius at the ephemeris's semi-diameter over it, rather than fitting it (#1498)." };
         var slidersOpt = new Option<bool>("--sliders") { Description = "Also sharpen as a live view's wavelet sliders do once a derivation seeds them (the same gains over the whole master, no denoise, held at its darkest level), then drawn outside the limb by the limb the derivation keeps (#1201), and score both: whether the live view reaches the derived sharpening. Says how far the live drawing lies from this sharpening outside the limb, and what the drawing costs beside the sliders' wavelet pass." };
-        var finishOpt = new Option<string>("--finish") { Description = "A finishing step after the derived sharpening (#1279): none (the default), cutoff (a low-pass at the pupil's diffraction cutoff), adaptive (the change from the stack weighted by the stack's local contrast, at matched noise), kolivas (Kolivas's own damped Richardson-Lucy step, a reference), wiener (Kolivas's FFT denoise: a smooth low-pass fitted to the sharpened window's Wiener target), joined by + (adaptive+cutoff); a comma list sharpens with each, each written and scored.", DefaultValueFactory = _ => "none" };
-        var kolivasAmountOpt = new Option<double>("--kolivas-amount") { Description = "The amount --finish kolivas takes, as his tool's slider (15.6, his PlanetRecon's judging recipe).", DefaultValueFactory = _ => 15.6 };
+        var finishOpt = new Option<string>("--finish") { Description = "A finishing step after the derived sharpening (#1279): none (the default), cutoff (a low-pass at the pupil's diffraction cutoff), adaptive (the change from the stack weighted by the stack's local contrast, at matched noise), kolivas (Kolivas's own damped Richardson-Lucy step, a reference), wiener (Kolivas's FFT denoise: a smooth low-pass fitted to the sharpened window's Wiener target), deconvolve (Richardson-Lucy with the pupil's own diffraction, the telescope undone after the gains, --deconvolve-iterations steps), joined by + (adaptive+cutoff); a comma list sharpens with each, each written and scored.", DefaultValueFactory = _ => "none" };
+        var kolivasAmountOpt = new Option<string>("--kolivas-amount") { Description = "The amount --finish kolivas takes, as his tool's slider (15.6, his PlanetRecon's judging recipe); a comma list finishes with each, each written and scored.", DefaultValueFactory = _ => "15.6" };
+        var deconvolveIterationsOpt = new Option<string>("--deconvolve-iterations") { Description = "The Richardson-Lucy steps --finish deconvolve takes; a comma list finishes with each, each written and scored.", DefaultValueFactory = _ => "20" };
         var colourOpt = new Option<string>("--colour") { Description = "How a colour master's detail is sharpened (#1295): perchannel (the default: each channel through its own diffraction), luminance (the mean of the planes sharpened once, every plane given the stack's own colour), or both to compare them.", DefaultValueFactory = _ => "perchannel" };
         var strengthOpt = new Option<string>("--strength") { Description = "How far past the truth bands 2 and 3 are taken (#1251): 1, the default, is the derived sharpening; a comma list sharpens at each (e.g. '1,1.5,2'), each written and scored.", DefaultValueFactory = _ => "1" };
         var targetOpt = new Option<string>("--target") { Description = "What the derived gains restore toward (#1366): telescope (the default: the planet through the pupil's diffraction), aperture (the telescope's diffraction undone too, up to its cutoff), or both to compare them.", DefaultValueFactory = _ => "telescope" };
@@ -74,13 +75,13 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var command = new Command("sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
         {
             Arguments = { masterArg },
-            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, plateScaleOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, targetOpt, scoreAgainstOpt, gainsOpt, learnedOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbFloorOpt, limbKOpt, channelLimbOpt, halvesOpt, autoOpt, designOpt },
+            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, plateScaleOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, deconvolveIterationsOpt, targetOpt, scoreAgainstOpt, gainsOpt, learnedOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbFloorOpt, limbKOpt, channelLimbOpt, halvesOpt, autoOpt, designOpt },
         };
 
         // What --auto refuses: every setting the pipeline's sharpening otherwise takes (A2, #1389, found none worth tuning per capture).
         Option[] autoRefuses =
         [
-            fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, plateScaleOpt, ringEdgeOpt, slidersOpt, finishOpt, kolivasAmountOpt, targetOpt, gainsOpt,
+            fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, plateScaleOpt, ringEdgeOpt, slidersOpt, finishOpt, kolivasAmountOpt, deconvolveIterationsOpt, targetOpt, gainsOpt,
             learnedOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbFloorOpt, limbKOpt, channelLimbOpt, halvesOpt, pupil.Obstruction,
         ];
 
@@ -405,7 +406,33 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     }
                     strengths.Add(strength);
                 }
-                var finishes = new List<(PlanetaryFinish Finish, string Word)>();
+                var kolivasAmounts = new List<double>();
+                foreach (var word in (parseResult.GetValue(kolivasAmountOpt) ?? "15.6").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    if (!double.TryParse(word, NumberStyles.Float, inv, out var amount) || amount < 0)
+                    {
+                        consoleHost.WriteError($"--kolivas-amount {word}: zero or more, or a comma list of them");
+                        return 1;
+                    }
+                    kolivasAmounts.Add(amount);
+                }
+                var deconvolveSteps = new List<int>();
+                foreach (var word in (parseResult.GetValue(deconvolveIterationsOpt) ?? "20").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    if (!int.TryParse(word, NumberStyles.Integer, inv, out var steps) || steps < 0)
+                    {
+                        consoleHost.WriteError($"--deconvolve-iterations {word}: zero or more, or a comma list of them");
+                        return 1;
+                    }
+                    deconvolveSteps.Add(steps);
+                }
+                if (kolivasAmounts.Count == 0 || deconvolveSteps.Count == 0)
+                {
+                    consoleHost.WriteError("--kolivas-amount and --deconvolve-iterations each need a value");
+                    return 1;
+                }
+                // Each finish once per Kolivas amount it takes and per deconvolution's step count, its word naming which where several were asked.
+                var finishes = new List<(PlanetaryFinish Finish, string Word, double KolivasAmount, int DeconvolveIterations)>();
                 foreach (var word in (parseResult.GetValue(finishOpt) ?? "none").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 {
                     var finish = PlanetaryFinish.None;
@@ -418,27 +445,37 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             "adaptive" => PlanetaryFinish.Adaptive,
                             "kolivas" => PlanetaryFinish.Kolivas,
                             "wiener" => PlanetaryFinish.Wiener,
+                            "deconvolve" => PlanetaryFinish.Deconvolve,
                             _ => null,
                         };
                         if (step is not { } known)
                         {
-                            consoleHost.WriteError($"--finish {word}: none, cutoff, adaptive, kolivas or wiener, joined by + and listed by commas");
+                            consoleHost.WriteError($"--finish {word}: none, cutoff, adaptive, kolivas, wiener or deconvolve, joined by + and listed by commas");
                             return 1;
                         }
                         finish |= known;
                     }
-                    finishes.Add((finish, word.ToLowerInvariant()));
+                    var amounts = finish.HasFlag(PlanetaryFinish.Kolivas) ? kolivasAmounts : [kolivasAmounts[0]];
+                    var stepCounts = finish.HasFlag(PlanetaryFinish.Deconvolve) ? deconvolveSteps : [deconvolveSteps[0]];
+                    foreach (var amount in amounts)
+                    {
+                        foreach (var steps in stepCounts)
+                        {
+                            finishes.Add((finish, word.ToLowerInvariant()
+                                + (amounts.Count > 1 ? string.Create(inv, $"{amount:0.##}") : "")
+                                + (stepCounts.Count > 1 ? string.Create(inv, $"{steps}") : ""), amount, steps));
+                        }
+                    }
                 }
-                var kolivasAmount = parseResult.GetValue(kolivasAmountOpt);
                 var outputDir = parseResult.GetValue(outputOpt) ?? Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".";
                 // A non-negative fit fits every band, so on a colour master its finest band is derived whatever --colour-finest asks (#1398).
                 PlanetaryColourFinestBand[] FinestsFor(bool nonNegative) => nonNegative && master.ChannelCount == 3 ? [PlanetaryColourFinestBand.Derived] : finests;
                 var variants = (options.Pupil is null ? [PlanetaryLimbFix.LimbChannel] : fixes)
                     .SelectMany(f => fits.SelectMany(n => FinestsFor(n).SelectMany(b => strengths.SelectMany(k => finishes.SelectMany(e => luminances.SelectMany(l => targets.SelectMany(t => halvesNoises.SelectMany(h => colourTargetCuts.SelectMany(kc => wienerFloors.SelectMany(wf => limbFloors.SelectMany(fl => limbKs.Select(lk => (Fix: f, NonNegative: n, Finest: b, Strength: k, Finish: e, Luminance: l, Target: t, HalvesNoise: h, TargetCut: kc, WienerFloor: wf, LimbBand: fl.Band, UnderSky: fl.UnderSky, LimbK: lk))))))))))))).ToArray();
-                foreach (var (fix, nonNegative, finest, strength, (finish, finishWord), luminance, target, halvesNoise, targetCut, wienerFloor, limbBand, underSky, limbK) in variants)
+                foreach (var (fix, nonNegative, finest, strength, (finish, finishWord, kolivasAmount, deconvolveIterations), luminance, target, halvesNoise, targetCut, wienerFloor, limbBand, underSky, limbK) in variants)
                 {
                     ct.ThrowIfCancellationRequested();
-                    if (PlanetarySharpening.Sharpen(master, options with { Fix = fix, NonNegative = nonNegative, ColourFinestBand = finest, Strength = strength, EdgeReach = parseResult.GetValue(edgeReachOpt), PlateScaleArcsec = parseResult.GetValue(plateScaleOpt), RingEdge = parseResult.GetValue(ringEdgeOpt), Finish = finish, KolivasAmount = kolivasAmount, LuminanceOnly = luminance, ShrinkHalves = shrink ? halves : null, NoiseHalves = halvesNoise ? halves : null, Target = target, ColourTargetCutFor = targetCut ? PlanetaryFrameLayout.SplitCfa : null, WienerFloor = wienerFloor, LimbBand = limbBand, UnderSky = underSky, LimbDarkening = limbK }) is not { } result)
+                    if (PlanetarySharpening.Sharpen(master, options with { Fix = fix, NonNegative = nonNegative, ColourFinestBand = finest, Strength = strength, EdgeReach = parseResult.GetValue(edgeReachOpt), PlateScaleArcsec = parseResult.GetValue(plateScaleOpt), RingEdge = parseResult.GetValue(ringEdgeOpt), Finish = finish, KolivasAmount = kolivasAmount, DeconvolveIterations = deconvolveIterations, LuminanceOnly = luminance, ShrinkHalves = shrink ? halves : null, NoiseHalves = halvesNoise ? halves : null, Target = target, ColourTargetCutFor = targetCut ? PlanetaryFrameLayout.SplitCfa : null, WienerFloor = wienerFloor, LimbBand = limbBand, UnderSky = underSky, LimbDarkening = limbK }) is not { } result)
                     {
                         consoleHost.WriteError($"{path}: the planet's limb could not be fitted");
                         return 1;
@@ -465,7 +502,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                         var finestWords = nonNegative && master.ChannelCount == 3 ? ", the colour's finest band derived, as a non-negative fit fits every band"
                             : finests.Length > 1 ? $", the colour's finest band {finest.ToString().ToLowerInvariant()}" : "";
                         var strengthWords = (strength == 1 ? "" : string.Create(inv, $", strength {strength:0.##}"))
-                            + (finish == PlanetaryFinish.None ? "" : $", finished {finishWord}")
+                            + (finish == PlanetaryFinish.None ? "" : $", finished {finishWord}" + (finish.HasFlag(PlanetaryFinish.Deconvolve) ? $" ({deconvolveIterations} steps)" : ""))
                             + (luminance && master.ChannelCount == 3 ? ", the luminance sharpened, the stack's colour kept" : "")
                             + (target == PlanetarySharpenTarget.Aperture ? ", toward the aperture (the telescope undone)" : "")
                             + (options.FixedGains.IsDefaultOrEmpty ? "" : ", the gains given, not derived")
@@ -522,6 +559,12 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             // stack's above the halves' is scene the white level takes for noise.
                             consoleHost.WriteScrollable(string.Create(inv,
                                 $"[planetary] {what}: the white level past 0.4 cycles a pixel, each channel, the stack's against its halves' difference: {string.Join("; ", result.WhiteLevels.Select(w => string.Create(inv, $"{w.Stack:0.000e0} against {w.Halves:0.000e0} ({w.Stack / w.Halves:0.00} times)")))}"));
+                        }
+                        else if (!result.WhiteLevels.IsDefaultOrEmpty)
+                        {
+                            // The stack's own noise as the Wiener reads it, which sets how far a deconvolution's steps pay (L-DECONV, #1552).
+                            consoleHost.WriteScrollable(string.Create(inv,
+                                $"[planetary] {what}: the white level past 0.4 cycles a pixel, each channel: {string.Join(", ", result.WhiteLevels.Select(w => w.Stack.ToString("0.000e0", inv)))}"));
                         }
                         if (!result.WienerCuts.IsDefaultOrEmpty)
                         {
