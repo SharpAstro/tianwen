@@ -219,6 +219,15 @@ namespace TianWen.UI.Abstractions
             RequestPlanetFrame();
         }
 
+        /// <summary>The camera's nearest and farthest: framing a reach of a quarter of an AU, and of fifty (Neptune's whole orbit and room).</summary>
+        internal static readonly double MinOrreryDistance = OrreryCamera.DistanceToFrame(0.25), MaxOrreryDistance = OrreryCamera.DistanceToFrame(50);
+
+        /// <summary>The smallest a body is drawn, design pixels: a dot, never a disc, below which its disc cap would put it.</summary>
+        internal const float OrreryDotRadius = 1.5f;
+
+        /// <summary>A disc's on-screen radius is at most this share of its screen distance to the nearest drawn body (to the Sun's edge).</summary>
+        internal const float OrreryDiscCapShare = 0.4f;
+
         // The camera's distance that shows the focus body's orbit (the Earth's for the Moon, the Mars orbit's span for the Sun or no body).
         private void FrameOrrery(OrreryScene scene)
         {
@@ -228,7 +237,7 @@ namespace TianWen.UI.Abstractions
                 ? Math.Max(Math.Sqrt((body.X * body.X) + (body.Y * body.Y) + (body.Z * body.Z)), 0.4)
                 : 1.6;
             // In AU in both scales: a distance at the reach the camera frames is drawn where it truly is, so the framing is the same.
-            orrery.Distance = OrreryCamera.DistanceToFrame(reachAu * 1.15);
+            orrery.Distance = Math.Clamp(OrreryCamera.DistanceToFrame(reachAu * 1.15), MinOrreryDistance, MaxOrreryDistance);
         }
 
         private void DrawOrreryOrbits(OrreryScene scene, in OrreryCamera camera, in CometElements? comet, in OrreryScaling scale, float dpiScale)
@@ -335,22 +344,58 @@ namespace TianWen.UI.Abstractions
             Span<double> toObserver = stackalloc double[3];
             Span<double> heliocentric = stackalloc double[3];
             Span<double> pole = stackalloc double[3];
-            foreach (var (index, depth, x, y, z) in order)
+
+            // First where every body lands, then how big each may be: zoomed out, the orbits shrink into the Sun and a disc at its
+            // fixed size would pile onto it and its neighbours, so a disc is at most OrreryDiscCapShare of its screen distance to the
+            // nearest drawn body (to the Sun's EDGE: the Sun keeps its size), and a dot of OrreryDotRadius below that. A body in front
+            // of the Sun (a transit) is so a dot, never a disc across it.
+            Span<(bool Shown, float X, float Y)> placed = stackalloc (bool, float, float)[order.Length];
+            var sunRadius = OrreryRadius(CatalogIndex.Sol) * dpiScale;
+            var sunAt = -1;
+            for (var slot = 0; slot < order.Length; slot++)
             {
+                var (index, _, x, y, z) = order[slot];
+                var shown = camera.TryProject(x, y, z, out var sx, out var sy);
+                if (bodies[index].Index == CatalogIndex.Moon)
+                {
+                    // On screen beside the Earth, or not at all.
+                    shown = moonOnScreen.HasValue;
+                    (sx, sy) = moonOnScreen ?? (sx, sy);
+                }
+                placed[slot] = (shown, sx, sy);
+                if (shown && bodies[index].Index == CatalogIndex.Sol)
+                {
+                    sunAt = slot;
+                }
+            }
+
+            for (var slot = 0; slot < order.Length; slot++)
+            {
+                var (index, depth, x, y, z) = order[slot];
                 var body = bodies[index];
-                if (!camera.TryProject(x, y, z, out var sx, out var sy))
+                if (placed[slot] is not (true, var sx, var sy))
                 {
                     continue;
                 }
-                if (body.Index == CatalogIndex.Moon)
-                {
-                    if (moonOnScreen is not var (moonX, moonY))
-                    {
-                        continue;
-                    }
-                    (sx, sy) = (moonX, moonY);
-                }
                 var radius = OrreryRadius(body.Index) * dpiScale;
+                if (body.Index != CatalogIndex.Sol)
+                {
+                    for (var j = 0; j < order.Length; j++)
+                    {
+                        if (j == slot || !placed[j].Shown)
+                        {
+                            continue;
+                        }
+                        var apart = MathF.Sqrt(((placed[j].X - sx) * (placed[j].X - sx)) + ((placed[j].Y - sy) * (placed[j].Y - sy)));
+                        radius = MathF.Min(radius, OrreryDiscCapShare * (j == sunAt ? apart - sunRadius : apart));
+                    }
+                    radius = MathF.Max(radius, 0);
+                }
+                var dot = radius <= OrreryDotRadius * dpiScale;
+                if (dot)
+                {
+                    radius = OrreryDotRadius * dpiScale;
+                }
                 var isComet = body.Index.ToCatalog() == Catalog.Comet;
                 if (isComet)
                 {
@@ -375,7 +420,7 @@ namespace TianWen.UI.Abstractions
                     PhysicalEphemeris.PoleDirection(body.Index, viewingTime, pole);
                     SolarSystemOrbits.EquatorialToEcliptic(pole);
                     var poleScreen = OrreryPoleScreenAngle(camera, x, y, z, pole, norm);
-                    if (!TryDrawOrrerySprite(aspect, sx, sy, radius, poleScreen))
+                    if (dot || !TryDrawOrrerySprite(aspect, sx, sy, radius, poleScreen))
                     {
                         Renderer.FillEllipse(new RectInt(
                             new PointInt((int)MathF.Round(sx + radius), (int)MathF.Round(sy + radius)),
@@ -697,7 +742,7 @@ namespace TianWen.UI.Abstractions
 
         private bool ZoomOrrery(double factor)
         {
-            State.Orrery.Distance = Math.Clamp(State.Orrery.Distance * factor, 0.05, 2000);
+            State.Orrery.Distance = Math.Clamp(State.Orrery.Distance * factor, MinOrreryDistance, MaxOrreryDistance);
             State.NeedsRedraw = true;
             return true;
         }
