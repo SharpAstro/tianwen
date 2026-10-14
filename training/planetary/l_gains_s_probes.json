@@ -1,0 +1,267 @@
+[
+ {
+  "name": "p1",
+  "r0": 45,
+  "wind": 22,
+  "local": 2.5,
+  "scatter": 0.038,
+  "defocus": [
+   99,
+   78,
+   83
+  ],
+  "frames": 600,
+  "seed": 4001,
+  "warp": 0.0
+ },
+ {
+  "name": "p2",
+  "r0": 45,
+  "wind": 22,
+  "local": 2.0,
+  "scatter": 0.038,
+  "defocus": [
+   99,
+   78,
+   83
+  ],
+  "frames": 600,
+  "seed": 4002,
+  "warp": 0.0
+ },
+ {
+  "name": "p3",
+  "r0": 25,
+  "wind": 22,
+  "local": 3.0,
+  "scatter": 0.05,
+  "defocus": [
+   119,
+   94,
+   100
+  ],
+  "frames": 600,
+  "seed": 4003,
+  "warp": 0.0
+ },
+ {
+  "name": "p4",
+  "r0": 45,
+  "wind": 22,
+  "local": 3.6,
+  "scatter": 0.038,
+  "defocus": [
+   99,
+   78,
+   83
+  ],
+  "frames": 2621,
+  "seed": 4004,
+  "warp": 0.0
+ },
+ {
+  "name": "p5",
+  "r0": 45,
+  "wind": 22,
+  "local": 3.6,
+  "scatter": 0.1,
+  "defocus": [
+   99,
+   78,
+   83
+  ],
+  "frames": 600,
+  "seed": 4005,
+  "warp": 0.0
+ },
+ {
+  "name": "p6",
+  "r0": 45,
+  "wind": 22,
+  "local": 3.6,
+  "scatter": 0.15,
+  "defocus": [
+   99,
+   78,
+   83
+  ],
+  "frames": 600,
+  "seed": 4006,
+  "warp": 0.0
+ },
+ {
+  "name": "p7",
+  "warp": 1.0,
+  "seed": 4007,
+  "r0": 45,
+  "wind": 22,
+  "local": 3.6,
+  "scatter": 0.038,
+  "defocus": [
+   99,
+   78,
+   83
+  ],
+  "frames": 600
+ },
+ {
+  "name": "p8",
+  "warp": 2.0,
+  "seed": 4008,
+  "r0": 45,
+  "wind": 22,
+  "local": 3.6,
+  "scatter": 0.038,
+  "defocus": [
+   99,
+   78,
+   83
+  ],
+  "frames": 600
+ },
+ {
+  "name": "p9",
+  "warp": 0.0,
+  "seed": 4009,
+  "r0": 45,
+  "wind": 22,
+  "local": 3.6,
+  "scatter": 0.038,
+  "defocus": [
+   198,
+   156,
+   166
+  ],
+  "frames": 600
+ },
+ {
+  "name": "p10",
+  "warp": 2.0,
+  "lag1": 0.1,
+  "seed": 4010,
+  "r0": 45,
+  "wind": 22,
+  "local": 3.6,
+  "scatter": 0.038,
+  "defocus": [
+   99,
+   78,
+   83
+  ],
+  "frames": 600
+ },
+ {
+  "name": "p11",
+  "warp": 3.0,
+  "lag1": 0.1,
+  "seed": 4011,
+  "r0": 45,
+  "wind": 22,
+  "local": 3.6,
+  "scatter": 0.038,
+  "defocus": [
+   99,
+   78,
+   83
+  ],
+  "frames": 600
+ },
+ {
+  "name": "p12",
+  "warp": 0.0,
+  "high": 15,
+  "seed": 4012,
+  "r0": 45,
+  "wind": 22,
+  "local": 3.6,
+  "scatter": 0.038,
+  "defocus": [
+   99,
+   78,
+   83
+  ],
+  "frames": 600
+ },
+ {
+  "name": "p13",
+  "exposure": 30,
+  "seed": 4013,
+  "r0": 45,
+  "wind": 22,
+  "local": 3.6,
+  "scatter": 0.038,
+  "defocus": [
+   99,
+   78,
+   83
+  ],
+  "frames": 600,
+  "warp": 0.0
+ },
+ {
+  "name": "p14",
+  "exposure": 15,
+  "seed": 4014,
+  "r0": 45,
+  "wind": 22,
+  "local": 3.6,
+  "scatter": 0.038,
+  "defocus": [
+   99,
+   78,
+   83
+  ],
+  "frames": 600,
+  "warp": 0.0
+ },
+ {
+  "name": "p15",
+  "warp": 1.0,
+  "lag1": 0.1,
+  "length": 150,
+  "seed": 4015,
+  "r0": 45,
+  "wind": 22,
+  "local": 3.6,
+  "scatter": 0.038,
+  "defocus": [
+   99,
+   78,
+   83
+  ],
+  "frames": 600
+ },
+ {
+  "name": "p16",
+  "warp": 2.0,
+  "lag1": 0.1,
+  "length": 150,
+  "seed": 4016,
+  "r0": 45,
+  "wind": 22,
+  "local": 3.6,
+  "scatter": 0.038,
+  "defocus": [
+   99,
+   78,
+   83
+  ],
+  "frames": 600
+ },
+ {
+  "name": "p17",
+  "blur": 2.0,
+  "seed": 4017,
+  "r0": 45,
+  "wind": 22,
+  "local": 3.6,
+  "scatter": 0.038,
+  "defocus": [
+   99,
+   78,
+   83
+  ],
+  "frames": 600,
+  "warp": 0.0
+ }
+]
