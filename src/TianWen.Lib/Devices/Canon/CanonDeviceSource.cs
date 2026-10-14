@@ -15,9 +15,10 @@ namespace TianWen.Lib.Devices.Canon;
 
 /// <summary>
 /// Device source for Canon DSLR cameras.
-/// Discovers cameras via WPD (Windows), USB (LibUsbDotNet), and WiFi (mDNS + PTP/IP).
+/// Discovers cameras via WPD (Windows), USB (LibUsbDotNet), and WiFi (mDNS + PTP/IP), the last not in a local-only
+/// process (<see cref="LocalOnlyMode"/>).
 /// </summary>
-internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger, ICanonWpd wpd, CanonBodyRegistry bodies) : IDeviceSource<CanonDevice>
+internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger, ICanonWpd wpd, CanonBodyRegistry bodies, LocalOnlyMode localOnly) : IDeviceSource<CanonDevice>
 {
     private static readonly IPAddress MdnsMulticast = IPAddress.Parse("224.0.0.251");
     private const int MdnsPort = 5353;
@@ -100,9 +101,31 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger, ICano
         }
 
         // Phase 3: WiFi cameras via mDNS
+        _cameras.AddRange(await DiscoverWifiAsync(cancellationToken));
+    }
+
+    /// <summary>
+    /// The mDNS scan for PTP/IP cameras, which binds the shared mDNS port on every interface and joins its multicast
+    /// group. A seam for a test, which must not bind it.
+    /// </summary>
+    internal Func<TimeSpan, CancellationToken, Task<IReadOnlyList<(string InstanceName, string IpAddr)>>> ScanMdnsAsync { get; init; } = ScanPtpTcpMdnsAsync;
+
+    /// <summary>
+    /// The Canon cameras on the network, found by mDNS, each keyed by its PTP/IP responder GUID. None in a local-only
+    /// process (<see cref="LocalOnlyMode"/>), which scans nothing: the USB and WPD phases are its cameras.
+    /// </summary>
+    internal async Task<IReadOnlyList<CanonDevice>> DiscoverWifiAsync(CancellationToken cancellationToken)
+    {
+        if (!localOnly.MayBindTheNetwork)
+        {
+            logger.LogDebug("Canon WiFi discovery skipped: this process is local-only ({EnvVar})", LocalOnlyMode.EnvironmentVariable);
+            return [];
+        }
+
+        var found = new List<CanonDevice>();
         try
         {
-            var mdnsResults = await ScanPtpTcpMdnsAsync(MdnsTimeout, cancellationToken);
+            var mdnsResults = await ScanMdnsAsync(MdnsTimeout, cancellationToken);
             foreach (var (instanceName, ipAddr) in mdnsResults)
             {
                 // Quick PTP/IP handshake to get stable responder GUID
@@ -113,7 +136,7 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger, ICano
                 var uri = new Uri($"{DeviceType.Camera}://{nameof(CanonDevice)}/{Uri.EscapeDataString(deviceId)}" +
                     $"?{DeviceQueryKey.Port.Key}=wifi&{DeviceQueryKey.Host.Key}={Uri.EscapeDataString(ipAddr)}" +
                     $"#{Uri.EscapeDataString(displayName)}");
-                _cameras.Add(new CanonDevice(uri) );
+                found.Add(new CanonDevice(uri));
 
                 logger.LogDebug("Discovered Canon WiFi camera: {Name} at {Ip} (id={Id})", displayName, ipAddr, deviceId);
             }
@@ -123,6 +146,8 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger, ICano
         {
             logger.LogDebug(ex, "Canon mDNS WiFi discovery failed");
         }
+
+        return found;
     }
 
     /// <summary>

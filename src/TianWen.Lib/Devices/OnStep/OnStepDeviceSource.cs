@@ -19,7 +19,8 @@ namespace TianWen.Lib.Devices.OnStep;
 ///         <see cref="Discovery.ISerialProbeService"/>. This class reads the published matches.</description></item>
 ///   <item><description>WiFi: mDNS scan for <c>_telescope._tcp.local</c> then TCP probe on port 9999; 
 ///         still implemented here because it uses a different transport and shouldn't compete
-///         with serial-port enumeration for the central probe service's budget.</description></item>
+///         with serial-port enumeration for the central probe service's budget. Not in a local-only
+///         process (<see cref="LocalOnlyMode"/>).</description></item>
 /// </list>
 /// In both cases the probe matches the OnStep product-name signature (regex <c>^On[-]?Step</c>).
 /// Stable device IDs derive from a UUID stashed in an unused site-name slot; the same UUID is
@@ -27,7 +28,8 @@ namespace TianWen.Lib.Devices.OnStep;
 /// </summary>
 internal partial class OnStepDeviceSource(
     ILogger<OnStepDeviceSource> logger,
-    Discovery.ISerialProbeService probeService) : IDeviceSource<OnStepDevice>
+    Discovery.ISerialProbeService probeService,
+    LocalOnlyMode localOnly) : IDeviceSource<OnStepDevice>
 {
     private Dictionary<DeviceType, List<OnStepDevice>>? _cachedDevices;
 
@@ -78,9 +80,32 @@ internal partial class OnStepDeviceSource(
         }
 
         // WiFi discovery via mDNS: different transport, stays here.
+        await DiscoverWifiAsync(devices, cancellationToken);
+
+        Interlocked.Exchange(ref _cachedDevices, devices);
+    }
+
+    /// <summary>
+    /// The mDNS scan for <c>_telescope._tcp.local</c>, which binds the shared mDNS port on every interface and joins its
+    /// multicast group. A seam for a test, which must not bind it.
+    /// </summary>
+    internal Func<TimeSpan, CancellationToken, Task<IReadOnlyList<(string InstanceName, string IpAddr)>>> ScanMdnsAsync { get; init; } = ScanTelescopeMdnsAsync;
+
+    /// <summary>
+    /// Adds the OnStep mounts on the network to <paramref name="devices"/>: found by mDNS, then asked over TCP. None in a
+    /// local-only process (<see cref="LocalOnlyMode"/>), which scans nothing: the serial matches are its mounts.
+    /// </summary>
+    internal async Task DiscoverWifiAsync(Dictionary<DeviceType, List<OnStepDevice>> devices, CancellationToken cancellationToken)
+    {
+        if (!localOnly.MayBindTheNetwork)
+        {
+            logger.LogDebug("OnStep WiFi discovery skipped: this process is local-only ({EnvVar})", LocalOnlyMode.EnvironmentVariable);
+            return;
+        }
+
         try
         {
-            var mdnsHits = await ScanTelescopeMdnsAsync(MdnsTimeout, cancellationToken);
+            var mdnsHits = await ScanMdnsAsync(MdnsTimeout, cancellationToken);
             foreach (var (instanceName, ipAddr) in mdnsHits)
             {
                 try
@@ -98,8 +123,6 @@ internal partial class OnStepDeviceSource(
         {
             logger.LogDebug(ex, "OnStep mDNS WiFi discovery failed");
         }
-
-        Interlocked.Exchange(ref _cachedDevices, devices);
     }
 
     internal static string SafeName(string name) => name.Replace('_', '-').Replace('/', '-').Replace(':', '-');

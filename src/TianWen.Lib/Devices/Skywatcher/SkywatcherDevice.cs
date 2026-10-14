@@ -41,6 +41,9 @@ public record SkywatcherDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     public override ImmutableArray<DeviceSettingDescriptor> Settings =>
         DeviceType == DeviceType.Mount ? MountSettings : [];
 
+    /// <summary>Whether the mount is reached over WiFi (UDP 11880): its port is an IP address, not a serial port.</summary>
+    internal bool IsWifi => IPAddress.TryParse(Query.QueryValue(DeviceQueryKey.Port), out _);
+
     protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
         DeviceType.Mount => new SkywatcherMountDriver(this, sp),
@@ -57,7 +60,7 @@ public record SkywatcherDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
         // WiFi transport: port is an IPv4 address. UDP "connect" is actually a socket
         // bind, no network round-trip, so the ctor is still cheap. No CreateAsync needed.
-        if (IPAddress.TryParse(port, out _))
+        if (IsWifi)
         {
             return new SkywatcherUdpConnection(port, SkywatcherProtocol.WIFI_PORT, encoding ?? Encoding.ASCII, logger);
         }

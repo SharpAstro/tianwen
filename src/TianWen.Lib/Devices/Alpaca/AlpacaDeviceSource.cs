@@ -13,12 +13,24 @@ namespace TianWen.Lib.Devices.Alpaca;
 
 /// <summary>
 /// Discovers Alpaca servers via UDP broadcast on port 32227, then queries
-/// each server's management API for configured devices.
+/// each server's management API for configured devices. A local-only process
+/// (<see cref="LocalOnlyMode"/>) asks loopback alone, so a server on this machine (a simulator) is still found.
 /// </summary>
-internal class AlpacaDeviceSource(AlpacaClient alpacaClient, ILogger<AlpacaDeviceSource> logger) : IDeviceSource<AlpacaDevice>
+internal class AlpacaDeviceSource(AlpacaClient alpacaClient, ILogger<AlpacaDeviceSource> logger, LocalOnlyMode localOnly) : IDeviceSource<AlpacaDevice>
 {
-    private const int AlpacaDiscoveryPort = 32227;
+    internal const int AlpacaDiscoveryPort = 32227;
     private static readonly byte[] DiscoveryMessage = Encoding.ASCII.GetBytes("alpacadiscovery1");
+
+    /// <summary>
+    /// Where discovery asks, and from where: the broadcast address, from a socket the OS binds on every interface
+    /// (<c>Bind</c> null); or, in a local-only process, loopback, from a socket bound to loopback.
+    /// </summary>
+    internal (IPEndPoint? Bind, IPEndPoint Target) DiscoveryEndpoints => localOnly.MayBindTheNetwork
+        ? (null, new IPEndPoint(IPAddress.Broadcast, AlpacaDiscoveryPort))
+        : (new IPEndPoint(IPAddress.Loopback, 0), new IPEndPoint(IPAddress.Loopback, AlpacaDiscoveryPort));
+
+    /// <summary>The discovery exchange over <see cref="DiscoveryEndpoints"/>. A seam for a test, which must not send it.</summary>
+    internal Func<IPEndPoint?, IPEndPoint, CancellationToken, Task<List<(string Host, int Port)>>> AskForServersAsync { get; init; } = DiscoverServersAsync;
 
     private static readonly HashSet<DeviceType> SupportedDeviceTypes =
     [
@@ -45,7 +57,8 @@ internal class AlpacaDeviceSource(AlpacaClient alpacaClient, ILogger<AlpacaDevic
 
     public async ValueTask DiscoverAsync(CancellationToken cancellationToken = default)
     {
-        var servers = await DiscoverServersAsync(cancellationToken);
+        var (bind, target) = DiscoveryEndpoints;
+        var servers = await AskForServersAsync(bind, target, cancellationToken);
         var devices = new Dictionary<DeviceType, List<AlpacaDevice>>();
 
         foreach (var (host, port) in servers)
@@ -90,20 +103,20 @@ internal class AlpacaDeviceSource(AlpacaClient alpacaClient, ILogger<AlpacaDevic
     }
 
     /// <summary>
-    /// Sends a UDP broadcast discovery message and collects server responses.
+    /// Sends the discovery message to <paramref name="target"/> from a socket bound to <paramref name="bind"/> (the OS
+    /// binds one on every interface when null) and collects server responses.
     /// Resolves IP addresses to hostnames via reverse DNS for stable identification.
     /// </summary>
-    private static async Task<List<(string Host, int Port)>> DiscoverServersAsync(CancellationToken cancellationToken)
+    private static async Task<List<(string Host, int Port)>> DiscoverServersAsync(IPEndPoint? bind, IPEndPoint target, CancellationToken cancellationToken)
     {
         var servers = new List<(string Host, int Port)>();
 
         try
         {
-            using var udpClient = new UdpClient();
-            udpClient.EnableBroadcast = true;
+            using var udpClient = bind is { } local ? new UdpClient(local) : new UdpClient();
+            udpClient.EnableBroadcast = target.Address.Equals(IPAddress.Broadcast);
 
-            var broadcastEndpoint = new IPEndPoint(IPAddress.Broadcast, AlpacaDiscoveryPort);
-            await udpClient.SendAsync(DiscoveryMessage, broadcastEndpoint, cancellationToken);
+            await udpClient.SendAsync(DiscoveryMessage, target, cancellationToken);
 
             // Wait for responses with a timeout
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
