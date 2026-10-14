@@ -380,7 +380,9 @@ namespace TianWen.UI.Abstractions
                 {
                     continue;
                 }
-                DrawText(body.Name.AsSpan(), FontPath, rect.X, rect.Y, rect.Width, rect.Height,
+                // The measured box decides the placement; the text is drawn centred in it widened by the gap each side, so a
+                // second measure inside DrawText a pixel wider at a fractional scale cannot clip the last letter.
+                DrawText(body.Name.AsSpan(), FontPath, rect.X - gap, rect.Y, rect.Width + (2 * gap), rect.Height,
                     fontSize, selected ? palette.Accent : palette.BodyText, TextAlign.Center, TextAlign.Near);
                 _orreryLabels.Add((body.Index, rect));
             }
