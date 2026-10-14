@@ -16,11 +16,61 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public enum OrreryScale
 {
-    /// <summary>The square root of the distance: Neptune 8.8 times Mercury's distance out rather than 77, so the inner planets are not one dot.</summary>
-    Compressed,
+    /// <summary>
+    /// Distances compressed as far as the camera's framing needs (<see cref="OrreryScaling"/>): true within an AU, the inner planets
+    /// pulled out of the Sun as the camera frames the outer ones.
+    /// </summary>
+    Auto,
 
     /// <summary>True distances, in AU.</summary>
     True,
+}
+
+/// <summary>
+/// The distance scale of one frame: <c>r' = Z (r / Z)^p</c>, with <c>Z</c> the reach in true AU the camera frames
+/// (<see cref="ReachAu"/>) and <c>p</c> running from 1 at <c>Z</c> of an AU or less to one half at 20 AU or more, by a smoothstep of
+/// <c>ln Z</c> (<see cref="Exponent"/>). So the scale is the identity close in, continuous in <c>Z</c> (a zoom never jumps a body),
+/// monotonic in <c>r</c> (orbits never cross) and keeps every direction from the Sun (the lighting's). <see cref="OrreryScale.True"/>
+/// is the identity at every <c>Z</c>; a distance at the reach itself is the same in both, so the toggle never moves the framing.
+/// </summary>
+public readonly record struct OrreryScaling(OrreryScale Scale, double ReachAu)
+{
+    /// <summary>The reach <c>Z</c> at which the compression starts, and the one at which it is whole, AU.</summary>
+    public const double FullScaleReachAu = 1, MostCompressedReachAu = 20;
+
+    /// <summary>The camera's distance from the Sun (AU) to the reach it frames: the inverse of <see cref="OrreryCamera.DistanceToFrame"/>.</summary>
+    public static double ReachFor(double cameraDistance) => cameraDistance * Math.Sin(0.85 * OrreryCamera.FieldOfViewDeg * Math.PI / 360);
+
+    /// <summary>The power <c>p</c> the distance is raised to.</summary>
+    public double Exponent
+    {
+        get
+        {
+            if (Scale == OrreryScale.True)
+            {
+                return 1;
+            }
+            var t = Math.Clamp(Math.Log(ReachAu / FullScaleReachAu) / Math.Log(MostCompressedReachAu / FullScaleReachAu), 0, 1);
+            return 1 - (0.5 * t * t * (3 - (2 * t)));
+        }
+    }
+
+    /// <summary>A true heliocentric point (AU) where the frame draws it, its direction from the Sun kept.</summary>
+    public (double X, double Y, double Z) Apply(double x, double y, double z)
+    {
+        var p = Exponent;
+        if (p == 1)
+        {
+            return (x, y, z);
+        }
+        var r = Math.Sqrt((x * x) + (y * y) + (z * z));
+        if (r == 0)
+        {
+            return (0, 0, 0);
+        }
+        var k = ReachAu * Math.Pow(r / ReachAu, p) / r;
+        return (x * k, y * k, z * k);
+    }
 }
 
 /// <summary>
@@ -51,7 +101,7 @@ public sealed class OrreryState
     public double Distance { get; set; } = 6;
 
     /// <summary>True or compressed distances.</summary>
-    public OrreryScale Scale { get; set; } = OrreryScale.Compressed;
+    public OrreryScale Scale { get; set; } = OrreryScale.Auto;
 
     /// <summary>Whether time runs on its own, at <see cref="DaysPerSecond"/>.</summary>
     public bool Playing { get; set; }
@@ -280,30 +330,14 @@ public sealed class OrreryScene(Action? requestRedraw = null)
         }
     }
 
-    /// <summary>
-    /// A true heliocentric point in the scale's units: unchanged in <see cref="OrreryScale.True"/>, its distance's square root in
-    /// <see cref="OrreryScale.Compressed"/>, the direction kept.
-    /// </summary>
-    public static (double X, double Y, double Z) Scaled(OrreryScale scale, double x, double y, double z)
-    {
-        if (scale == OrreryScale.True)
-        {
-            return (x, y, z);
-        }
-        var r = Math.Sqrt((x * x) + (y * y) + (z * z));
-        if (r == 0)
-        {
-            return (0, 0, 0);
-        }
-        var k = Math.Sqrt(r) / r;
-        return (x * k, y * k, z * k);
-    }
+    /// <summary>A true heliocentric point where <paramref name="scaling"/> draws it (<see cref="OrreryScaling.Apply"/>).</summary>
+    public static (double X, double Y, double Z) Scaled(in OrreryScaling scaling, double x, double y, double z) => scaling.Apply(x, y, z);
 
     /// <summary>
     /// Where <paramref name="body"/> is DRAWN: its scaled position, but the Moon is put <see cref="MoonOffsetFraction"/> of the Earth's
     /// drawn distance from the Earth along its true direction, since at any scale that shows the planets it would sit on the Earth.
     /// </summary>
-    public (double X, double Y, double Z) Drawn(OrreryScale scale, in OrreryBody body)
+    public (double X, double Y, double Z) Drawn(in OrreryScaling scale, in OrreryBody body)
     {
         if (body.Index != CatalogIndex.Moon || !TryFind(CatalogIndex.Earth, out var earth))
         {

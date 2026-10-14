@@ -74,8 +74,8 @@ public sealed class OrreryTests(ITestOutputHelper output)
         scene.Update(Instant, null);
         scene.TryFind(planet, out var body).ShouldBeTrue();
         scene.TryFind(CatalogIndex.Earth, out var earthBody).ShouldBeTrue();
-        var p = scene.Drawn(OrreryScale.True, body);
-        var e = scene.Drawn(OrreryScale.True, earthBody);
+        var p = scene.Drawn(new OrreryScaling(OrreryScale.True, 1), body);
+        var e = scene.Drawn(new OrreryScaling(OrreryScale.True, 1), earthBody);
         var drawn = Angle(-p.X, -p.Y, -p.Z, e.X - p.X, e.Y - p.Y, e.Z - p.Z);
         var phase = PhysicalEphemeris.Compute(planet, Instant).PhaseAngle;
 
@@ -197,6 +197,90 @@ public sealed class OrreryTests(ITestOutputHelper output)
         var r = Math.Sqrt((comet.X * comet.X) + (comet.Y * comet.Y) + (comet.Z * comet.Z));
         output.WriteLine($"off the new orbit by {nearest:E2} AU at r {r:F3} AU");
         (nearest / r).ShouldBeLessThan(1e-3);
+    }
+
+    private static double Radius((double X, double Y, double Z) p) => Math.Sqrt((p.X * p.X) + (p.Y * p.Y) + (p.Z * p.Z));
+
+    /// <summary>
+    /// The auto scale (D1): at a reach of an AU it is the identity; at 6 and 45 AU the planets keep their order out from the Sun and
+    /// none is drawn within a disc of the Sun on screen; True draws raw AU at every reach.
+    /// </summary>
+    [Theory]
+    [InlineData(1.0)]
+    [InlineData(6.0)]
+    [InlineData(45.0)]
+    public void TheAutoScaleIsTrueCloseInAndKeepsTheOrderFarOut(double reach)
+    {
+        var scene = new OrreryScene();
+        scene.Update(Instant, null);
+        var auto = new OrreryScaling(OrreryScale.Auto, reach);
+        var planets = scene.Bodies.Where(b => SolarSystemOrbits.Planets.Contains(b.Index)).ToArray();
+        foreach (var body in planets)
+        {
+            var truly = Radius((body.X, body.Y, body.Z));
+            Radius(scene.Drawn(new OrreryScaling(OrreryScale.True, reach), body)).ShouldBe(truly, truly * 1e-12);
+            if (reach <= 1)
+            {
+                Radius(scene.Drawn(auto, body)).ShouldBe(truly, truly * 1e-9, $"{body.Name} at a reach of an AU");
+            }
+        }
+        planets.OrderBy(b => Radius((b.X, b.Y, b.Z))).Select(b => b.Index)
+            .ShouldBe(planets.OrderBy(b => Radius(scene.Drawn(auto, b))).Select(b => b.Index));
+
+        if (reach > 1)
+        {
+            var camera = new OrreryCamera(-90, 30, OrreryCamera.DistanceToFrame(reach * 1.15), new RectF32(0, 0, Width, Height));
+            camera.TryProject(0, 0, 0, out var sunX, out var sunY).ShouldBeTrue();
+            foreach (var body in planets)
+            {
+                var (x, y, z) = scene.Drawn(auto, body);
+                if (camera.TryProject(x, y, z, out var bx, out var by))
+                {
+                    var apart = MathF.Sqrt(((bx - sunX) * (bx - sunX)) + ((by - sunY) * (by - sunY)));
+                    output.WriteLine($"reach {reach}: {body.Name} drawn {Radius((x, y, z)):F2} for {Radius((body.X, body.Y, body.Z)):F2} AU, {apart:F0} px from the Sun");
+                    apart.ShouldBeGreaterThan(SkyMapTab<RgbaImage>.OrreryRadius(CatalogIndex.Sol), $"{body.Name} sits on the Sun at a reach of {reach} AU");
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// A zoom from 0.25 to 50 AU in 200 log-spaced steps moves no body by more than the zoom's own step on screen (4 % of its
+    /// distance from the view's centre, or 3 px): the scale's exponent is continuous in the reach, so no body ever jumps.
+    /// </summary>
+    [Fact]
+    public void AZoomMovesNoBodyByMoreThanTheZoomsOwnStep()
+    {
+        var scene = new OrreryScene();
+        scene.Update(Instant, null);
+        var rect = new RectF32(0, 0, Width, Height);
+        var previous = new System.Collections.Generic.Dictionary<CatalogIndex, (float X, float Y)>();
+        var worst = 0f;
+        for (var step = 0; step < 200; step++)
+        {
+            var reach = 0.25 * Math.Pow(50 / 0.25, step / 199.0);
+            var camera = new OrreryCamera(-90, 30, OrreryCamera.DistanceToFrame(reach * 1.15), rect);
+            var scaling = new OrreryScaling(OrreryScale.Auto, reach);
+            foreach (var body in scene.Bodies)
+            {
+                var (x, y, z) = scene.Drawn(scaling, body);
+                if (!camera.TryProject(x, y, z, out var sx, out var sy) || sx < 0 || sx > Width || sy < 0 || sy > Height)
+                {
+                    previous.Remove(body.Index);
+                    continue;
+                }
+                if (previous.TryGetValue(body.Index, out var was))
+                {
+                    var moved = MathF.Sqrt(((sx - was.X) * (sx - was.X)) + ((sy - was.Y) * (sy - was.Y)));
+                    var fromCentre = MathF.Sqrt(((sx - (Width / 2f)) * (sx - (Width / 2f))) + ((sy - (Height / 2f)) * (sy - (Height / 2f))));
+                    var allowed = MathF.Max(3f, 0.04f * fromCentre);
+                    worst = MathF.Max(worst, moved / allowed);
+                    moved.ShouldBeLessThanOrEqualTo(allowed, $"{body.Name} jumped {moved:F1} px at a reach of {reach:F2} AU");
+                }
+                previous[body.Index] = (sx, sy);
+            }
+        }
+        output.WriteLine($"the largest step was {worst:P0} of what the zoom's own step allows");
     }
 
     private static double SegmentDistance(ReadOnlySpan<double> p, ReadOnlySpan<double> a, ReadOnlySpan<double> b)
@@ -611,7 +695,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
         await SettleAsync(rig);
         var orrery = rig.Tab.State.Orrery;
         var offending = new System.Collections.Generic.List<string>();
-        foreach (var scale in new[] { OrreryScale.Compressed, OrreryScale.True })
+        foreach (var scale in new[] { OrreryScale.Auto, OrreryScale.True })
         foreach (var (distance, elevation) in new[] { (0.3, 4.0), (0.6, 4.0), (0.9, 4.0), (1.5, 4.0), (0.6, 25.0), (1.5, 25.0), (0.6, 60.0) })
         for (var az = 0; az < 360; az += 6)
         {
@@ -647,7 +731,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
                     var explained = drawn.Any(d => d.Index != CatalogIndex.Sol
                         && ((x - d.X) * (x - d.X)) + ((y - d.Y) * (y - d.Y)) <= d.Radius * d.Radius
                         && scene.TryFind(d.Index, out var body)
-                        && scene.Drawn(orrery.Scale, body) is var (bx, by, bz)
+                        && scene.Drawn(new OrreryScaling(orrery.Scale, OrreryScaling.ReachFor(orrery.Distance)), body) is var (bx, by, bz)
                         && camera.Depth(bx, by, bz) < sunDepth);
                     if (!explained)
                     {
@@ -782,9 +866,9 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Render();
         rig.Tab.GetCapturedLayout().Count(n => n.Node.Hit is HitResult.ButtonHit { Action: var a } && a.StartsWith("OrreryScale", StringComparison.Ordinal))
             .ShouldBe(1);
-        PaintedTexts(rig).ShouldContain("Distances: compressed");
+        PaintedTexts(rig).ShouldContain("Distances: auto");
 
-        foreach (var (expected, label) in new[] { (OrreryScale.True, "Distances: true"), (OrreryScale.Compressed, "Distances: compressed") })
+        foreach (var (expected, label) in new[] { (OrreryScale.True, "Distances: true"), (OrreryScale.Auto, "Distances: auto") })
         {
             var button = PaintedButtons(rig, "OrreryScale")[0];
             rig.Router.Handle(new InputEvent.MouseDown(button.X + (button.Width / 2), button.Y + (button.Height / 2)));
@@ -843,7 +927,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Tab.OpenOrrery();
         var folder = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests", DateTime.Now.ToString("yyyyMMdd"), nameof(OrreryTests));
         Directory.CreateDirectory(folder);
-        foreach (var scale in new[] { OrreryScale.Compressed, OrreryScale.True })
+        foreach (var scale in new[] { OrreryScale.Auto, OrreryScale.True })
         {
             rig.Tab.State.Orrery.Scale = scale;
             rig.Tab.OpenOrrery();
