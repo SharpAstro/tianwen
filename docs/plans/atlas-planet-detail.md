@@ -322,18 +322,32 @@ the Sun, is why Venus is a crescent, and the angle between them at the planet is
   nothing. A drag changes no key, so it builds nothing (`OrbitBuilds`, `CometOrbitBuilds`, `PositionBuilds`).
 - **The camera** (`OrreryCamera`): a 45 degree perspective on a point orbiting the Sun and looking at it, the
   ecliptic's north up; a drag turns its azimuth and elevation (0.35 degree a pixel, the elevation held inside 89),
-  the wheel and a pinch its distance. A pinch is handled as the sky's: it undoes and cancels the drag the first
+  the wheel and a pinch its distance, which stays inside a reach of a quarter of an AU to fifty
+  (`MinOrreryDistance`, `MaxOrreryDistance`). A pinch is handled as the sky's: it undoes and cancels the drag the first
   finger began, and the touchpad's duplicate wheel event during or just after it is ignored. A proper view, never mirrored. Points are projected on the CPU and drawn with
   the primitives every host has (`DrawPolyline` for orbits, a sprite or `FillEllipse` for a body), so Vulkan, WebGL
   and the CPU surface draw it with nothing new.
-- **Scale:** Compressed (the default: each distance's square root, Neptune 8.8 times Mercury's distance rather than
-  77) or True, ONE toggle on the strip labelled with the mode in force (`Distances: compressed` / `Distances: true`, sized by the
-  longer label so a press moves nothing beside it). Both keep every direction from the Sun, which is what the lighting needs.
+- **Scale:** Auto (the default) or True, ONE toggle on the strip labelled with the mode in force (`Distances: auto` /
+  `Distances: true`, sized by the longer label so a press moves nothing beside it). Auto is DYNAMIC (`OrreryScaling`):
+  `r' = Z (r / Z)^p`, with `Z` the true-AU reach the camera frames (`OrreryScaling.ReachFor`, the inverse of
+  `OrreryCamera.DistanceToFrame`) and `p` a smoothstep of `ln Z` from 1 at an AU or less to one half at 20 AU or more: the
+  identity close in, continuous in `Z` (a zoom moves no body by more than the zoom's own step), monotonic in `r` (orbits
+  never cross) and every direction from the Sun kept, which is what the lighting needs. The camera's distance is AU in
+  both scales and a distance at the reach is drawn where it is in both, so the toggle never re-frames. Orbits stay in true
+  AU and are scaled as they are projected, so neither a zoom nor the toggle rebuilds one.
 - **The bodies** are A4's sprites, from a cache of their own (`PlanetSpriteCache.OrreryChannel`), at an exaggerated
   size in their true order (the Sun 14 px, Jupiter 10, down to Mercury 4 and the Moon 3.5, times the DPI scale),
-  each labelled, the selected one ringed and its orbit drawn in the accent. The Moon is drawn 8 % of the Earth's
-  drawn distance out from the Earth along its true direction (at any scale that shows the planets it would sit on
-  the Earth). The Earth, which A4 never draws, has the IAU's rotation model and radii in `PhysicalEphemeris` now
+  each labelled, the selected one ringed and its orbit drawn in the accent. Every body is placed first, and each disc but
+  the Sun's is then at most 0.4 of its screen distance to the nearest drawn body (to the Sun's EDGE), a 1.5 px dot below
+  that: zoomed out the discs do not pile onto the Sun, and a body in FRONT of the Sun (a transit) is a dot, never a disc
+  across it. A body behind the Sun is drawn before it (the painter's order, far first). The MOON is placed on SCREEN, a
+  steady reach from the Earth's drawn place (the two radii, a gap and a label line) along its true geocentric direction as
+  projected, so through a month only its direction turns; where that reach would pass half the gap to Venus on screen it is
+  not drawn. Placed in the world instead, at 8 % of the Earth's drawn distance, it was foreshortened by the camera's
+  elevation and clipped by the floor that held it off the Earth: 27.8 to 68.1 px over a month zoomed in, a spiral in Play.
+  Labels go down after every disc: the Earth's first (always drawn, so the Earth's and the Moon's never trade places), then
+  the focus body's, then nearest first, each under or over its body where its engine-measured box is clear of other discs
+  and labels, else left out; the Moon's always on its far side from the Earth. The Earth, which A4 never draws, has the IAU's rotation model and radii in `PhysicalEphemeris` now
   (not in `Supports`, which the atlas and the stacker gate on) and the palette's Info as a flat colour, there being no
   Earth map in the atlas. Every colour of the view comes from `GuiTheme.Palette` (space, the Earth, a comet, the strip,
   the shared time controls taking the caller's fill and ink), so Night spends no blue.
@@ -349,17 +363,46 @@ the Sun, is why Venus is a crescent, and the angle between them at the planet is
 - **Time:** ONE clock with the sky (`SkyMapTab.ResolveViewingTime`: the planner's date or the live clock, plus
   `SkyMapState.TimeOffset`). The strip carries the sky's own time controls (`BuildTimeControls`: the steps, the
   landmarks drop-up, Now) and the arrow keys and 0 work as on the sky; Play runs the offset at 10 days a second of
-  the wall clock, so the sky shows the same instant when the view goes back. Playing is a STANDING reason to draw
+  the wall clock, a frame stepping at most 100 ms of it (`MaxPlayStep`: ten minutes on another tab used to jump
+  sixteen years), so the sky shows the same instant when the view goes back. Playing is a STANDING reason to draw
   (`SkyMapState.NeedsContinuousFrames`), asked by the GUI's redraw check: the one-shot `NeedsRedraw` a played frame
   sets is cleared by the GUI after the frame, which held Play to about a frame a second. The browser asks for each
   frame as a coalesced repaint.
 - **Click** a body (a press that did not move) to put the highlight on it; the atlas's selection and the comet the
   view was opened on are left as they are.
 
+#### A5: the backdrop
+
+The sky map's own stars and Milky Way are drawn behind the orrery, at infinity, through the sky's own rendering: one
+renderer, a second view of it, never a copy. `SkyMapState.Backdrop` (a `SkyOrreryBackdrop`) is set for the length of one
+backdrop draw (`SkyMapTab.DrawOrreryBackdrop`, the first thing the frame draws after its background) and carries:
+
+- **The view.** `OrreryCamera.EquatorialView`: the camera's ROTATION alone (no translation, since a star is at infinity),
+  composed with the fixed tilt from the ecliptic of J2000 to the equator the catalogue is in (VSOP87's own,
+  `SolarSystemOrbits.EclipticToEquatorial`, the obliquity 23.44 degrees), as a sky-map view matrix. So the stars turn as
+  the camera orbits and never move with the planets.
+- **The projection.** GNOMONIC at the orrery camera's focal length, the perspective the scene is drawn in, where the sky map
+  is stereographic: a `gnomonic` flag in the shared UBO (`SkyMapUbo`, 144 bytes now, with `tint` and `brightness`) that
+  `skymap_star.vert` and `skymap_mw.frag` (re-baked SPIR-V) and their WebGL copies honour. The C# mirror is
+  `SkyMapProjection.ProjectGnomonicWithMatrix`.
+- **The culls**, in force for the orrery's view: both pipelines cull by `SkyMapState.ViewAxis` / `ViewRadiusDeg` (the
+  backdrop's cone while one is drawn) and `EffectiveMagnitudeLimit` at the backdrop's field, through
+  `StarChunkIndex.BudgetedMagnitudeLimit` as before.
+- **Dimming and Night.** A brightness factor (0.2, `OrreryBackdropBrightness`) multiplies every star's and the Milky
+  Way's alpha, so orbits and labels stay readable (the backdrop adds at most 50 of 255 to a channel under a label);
+  under Night the tint draws each as its luminance in the palette's accent, so no blue. The Milky Way's opacity is
+  fixed (0.35), not the Sun's altitude at the site: the view is not from the ground.
+- **What a host skips**: the twilight ground, the horizon fill and the lines (Vulkan draws the `Backdrop` phase, WebGL
+  checks the backdrop), and `SkyMapState.CurrentViewMatrix` is left as the map's own.
+
+The CPU surface (the tests, the PNGs) draws `SkyMapRenderer`'s star field through the same view, culled the same two
+ways from unit vectors made once per catalogue (7 ms a frame at 900 x 600 where walking the catalogue's lookups cost 249);
+the Milky Way is a texture only the GPU hosts draw. `OrreryState.ShowBackdrop` switches it off.
+
 **Measured** (`OrreryTests.TheOrreryDrawsOnTheCpuSurface`, Debug, tiered JIT, this Surface Pro 11, Snapdragon X Elite
-X1E80100): an orrery frame at 900 x 600 on the CPU surface while the camera turns half a degree a frame, median
-1.0 ms Compressed and 1.9 ms True (the raster of the larger orbits is the cost), max 4.8 and 9.7 ms on frames whose
-sprites changed bucket. The projection and ephemeris work is a few thousand points and nine rotation models; a
+X1E80100): an orrery frame at 900 x 600 on the CPU surface while the camera turns half a degree a frame, before the
+backdrop median 1.0 ms Compressed and 1.9 ms True (the raster of the larger orbits is the cost); with the backdrop's stars
+7.0 ms Auto and 8.0 ms True, max 9.8 and 42 ms on frames whose sprites changed bucket. The projection and ephemeris work is a few thousand points and nine rotation models; a
 drag does no VSOP87 at all.
 
 **Tests** (`OrreryTests`): the Earth's heliocentric longitude is the Sun's geocentric longitude (VSOP87's own sky
@@ -375,7 +418,16 @@ Compressed and True with Jupiter selected, written as `orrery-compressed.png` an
 After review (PR #1571 round 1): a click on Jupiter keeps the comet and builds its orbit no second time; Play stays a
 reason to draw however often the one-shot flag is cleared, and stops with Pause and Escape; new elements for the same
 comet put it on its new orbit with no change of time; a pinch zooms once and cancels the drag; and under Night no
-pixel of the view has any blue (`OrreryNightTests`).
+pixel of the view has any blue (`OrreryNightTests`). Round 2: the Earth and the Moon never overprint, at 1x and 1.5x,
+at the opening framing and zoomed in; a played frame steps at most 100 ms. Then: the Earth's and the Moon's labels never
+swap over a lunar month of six-hour steps, and the drawn Earth-Moon distance holds within 5 % (27.8 px all month at
+every zoom); the distance toggle is one button naming its mode; a body behind the Sun never paints over it (840 framings);
+the auto scale is the identity at a reach of an AU and keeps the planets' order and clear of the Sun at 6 and 45; a zoom
+from 0.25 to 50 AU in 200 steps moves no body by more than the zoom's own step; the zoom stops at the two limits; fully
+zoomed out no disc covers the Sun; a body in front of the Sun is a dot. The backdrop: a bright star (Sirius, Polaris) lands
+where the camera's rotation and the obliquity put it, stays put through a month's scrub and moves when the camera orbits;
+on a real Vulkan device (`OrreryBackdropGpuTests`, through the sky's own star pipeline) Sirius is drawn 0.1 px from that
+prediction (the stereographic shader before the change put it 2.1 px off) and Night's frame has no blue.
 
 #### A5: what is open
 
