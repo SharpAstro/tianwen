@@ -301,11 +301,11 @@ the Sun, is why Venus is a crescent, and the angle between them at the planet is
   offered when the selection's index is a solar-system body (`CatalogIndex.IsSolarSystemObject`: a planet, the Sun,
   the Moon, a comet) and for nothing else. With four buttons each is the engine's measure of its label and
   padding, never a width picked to fit, so all four fit the panel's 348 at any scale (a row of three keeps its widths;
-  `OrreryTests.ThePanelAndTheStripLayOutAtEitherScale` checks both rows side by side at 1x and 1.5x). **Alt+S** opens it too, and closes it: a DECLARED node shortcut
+  `OrreryTests.ThePanelAndTheStripLayOutAtEitherScale` checks both rows side by side at 1x and 1.5x). The button is
+  the VISIBLE way in. **Alt+S is the quiet shortcut** to the same view, and closes it again: a DECLARED node shortcut
   (`RenderOrreryBinding`, `.WithShortcut(InputKey.S, InputModifier.Alt)`), never an arm in `HandleKey`, where
-  `SkyMapLayers.TryToggleByKey` ignores modifiers and would toggle the Milky Way. The atlas has no shortcuts panel of
-  its own; its help is the info strip's key legend, which names `[Alt+S] solar system` only while the layer palette
-  is put away, the one place the strip lists keys. **Escape** (declared beside it while the orrery is open) and the
+  `SkyMapLayers.TryToggleByKey` ignores modifiers and would toggle the Milky Way. It is named here and nowhere on
+  screen: the sky's key legend does not list it (review round 2, PR #1571). **Escape** (declared beside it while the orrery is open) and the
   strip's Sky button go back, the selection and the sky's view untouched. The view opens framed on the selected
   body's distance from the Sun (the Earth's for the Moon, the span of Mars's orbit for the Sun or no selection).
 - **Positions:** `SolarSystemOrbits` (Lib): `VSOP87a.GetBody`'s heliocentric ecliptic coordinates, no light time (the

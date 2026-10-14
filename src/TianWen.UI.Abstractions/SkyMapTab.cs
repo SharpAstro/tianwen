@@ -1297,7 +1297,7 @@ namespace TianWen.UI.Abstractions
             // strip is also the one place that can say how to get it back.
             var layerHints = State.ShowLayerPalette
                 ? "  [V] layers"
-                : $"  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [O]bjects [D]ark [M]ount com[e]t{skyHint}  [V] panel  [Alt+S] solar system";
+                : $"  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [O]bjects [D]ark [M]ount com[e]t{skyHint}  [V] panel";
             // Surfaced only while the view is actually off its reference, so the way back appears at
             // exactly the moment it is wanted instead of sitting in the strip as one more letter.
             // A pan near the pole rolls the frame by design and this is the only route back.
