@@ -103,6 +103,19 @@ internal sealed class PlanetMapStore : IPlanetMapStore
         _logger = logger;
     }
 
+    // Whether the bytes decode as an OPAL colour map, the one test of what is kept.
+    private static bool IsMap(byte[] bytes)
+    {
+        try
+        {
+            return OpalColourMaps.Decode(bytes) is not null;
+        }
+        catch (Exception ex) when (ex is InvalidDataException or ArgumentException or IndexOutOfRangeException or NotSupportedException or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
     private static HttpClient CreateHttpClient()
     {
         var http = new HttpClient(SharedHandler, disposeHandler: false) { Timeout = TimeSpan.FromSeconds(30) };
@@ -117,12 +130,21 @@ internal sealed class PlanetMapStore : IPlanetMapStore
         // Every host on this machine shares the folder, so the file is read and written through SharedFile (CLAUDE.md, Runtime Data).
         if (await SharedFile.TryOpenReadAsync(path, cancellationToken) is { } cached)
         {
+            byte[] kept;
             await using (cached)
             {
                 using var memory = new MemoryStream();
                 await cached.CopyToAsync(memory, cancellationToken);
-                return memory.ToArray();
+                kept = memory.ToArray();
             }
+            if (IsMap(kept))
+            {
+                return kept;
+            }
+            // Not a map (what an older build cached from a 200 page): deleted, so the ask after the caller's cooldown fetches again.
+            _logger.LogInformation("Cached OPAL map {Path} does not decode; deleted", path);
+            File.Delete(path);
+            return null;
         }
 
         using var response = await _http.GetAsync(map.Url, cancellationToken);
@@ -132,6 +154,12 @@ internal sealed class PlanetMapStore : IPlanetMapStore
             return null;
         }
         var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        // Only a map is kept: a 200 that is something else (a maintenance page) written here would be served for good.
+        if (!IsMap(bytes))
+        {
+            _logger.LogInformation("OPAL map {Url} answered 200 with something that is not a map", map.Url);
+            return null;
+        }
         await SharedFile.WriteAsync(path, (stream, ct) => stream.WriteAsync(bytes, ct).AsTask(), cancellationToken);
         return bytes;
     }
