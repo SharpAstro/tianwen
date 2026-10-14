@@ -424,6 +424,41 @@ public sealed class OrreryTests(ITestOutputHelper output)
         step.TotalDays.ShouldBeGreaterThan(0);
     }
 
+    /// <summary>
+    /// Over a lunar month in six-hour steps, as Play runs it, the Earth's label is always drawn, and the Moon's, whenever drawn, lies
+    /// on the far side of the Moon from the Earth: the labels never swap as the Moon circles.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(CatalogIndex.Jupiter)]
+    [InlineData(CatalogIndex.Moon)]
+    public async Task TheEarthAndMoonLabelsNeverSwapOverALunarMonth(CatalogIndex focus)
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Select(rig, focus);
+        rig.Tab.OpenOrrery();
+        var moonDrawn = 0;
+        const int Frames = 120;
+        for (var frame = 0; frame < Frames; frame++)
+        {
+            rig.Tab.State.TimeOffset = TimeSpan.FromHours(6 * frame);
+            rig.Render();
+            var labels = rig.Tab.OrreryLabels;
+            labels.Select(l => l.Index).ShouldContain(CatalogIndex.Earth, $"frame {frame}: the Earth's label is missing");
+            var earth = rig.Tab.OrreryDrawn.Single(d => d.Index == CatalogIndex.Earth);
+            var moon = rig.Tab.OrreryDrawn.Single(d => d.Index == CatalogIndex.Moon);
+            if (labels.Where(l => l.Index == CatalogIndex.Moon).Select(l => l.Rect).FirstOrDefault() is { Width: > 0 } label)
+            {
+                moonDrawn++;
+                var (lx, ly) = (label.X + (label.Width / 2), label.Y + (label.Height / 2));
+                var (ux, uy) = (moon.X - earth.X, moon.Y - earth.Y);
+                // The label's centre is beyond the Moon along the Earth-to-Moon direction.
+                (((lx - moon.X) * ux) + ((ly - moon.Y) * uy)).ShouldBeGreaterThan(0, $"frame {frame}: the Moon's label is on the Earth's side");
+            }
+        }
+        output.WriteLine($"{focus}: the Moon's label drawn in {moonDrawn} of {Frames} frames");
+        moonDrawn.ShouldBeGreaterThan(Frames / 2);
+    }
+
     private static bool PanelOffersTheOrrery(Rig rig)
         => rig.Tab.GetCapturedLayout().Any(n => n.Node.Hit is HitResult.ButtonHit { Action: ObjectInfoPanel.OrreryAction });
 

@@ -348,19 +348,26 @@ namespace TianWen.UI.Abstractions
             DrawOrreryLabels(bodies, labels[..labelCount], focus, fontSize, lineHeight, dpiScale);
         }
 
-        // The labels go down after every disc, so no disc covers one: the focus body's first, then nearest first. A label is placed
-        // under its body, else over it, wherever its box (the engine's measure of the name) is clear of every disc but its own and of
-        // the labels already placed; a label with nowhere clear is left out, never printed over another body. The focus body's is
-        // drawn under its body whatever it meets.
+        // The labels go down after every disc, so no disc covers one: the Earth's first (it always wins over the Moon's, so the two
+        // never trade places as the Moon circles), then the focus body's, then nearest first. A label is placed under its body, else
+        // over it, wherever its box (the engine's measure of the name) is clear of every disc but its own and of the labels already
+        // placed; a label with nowhere clear is left out, never printed over another body. The focus body's and the Earth's are drawn
+        // under their bodies whatever they meet. The Moon's is the exception: always on the far side of the Moon from the Earth, or not at all.
         private void DrawOrreryLabels(System.Collections.Immutable.ImmutableArray<OrreryBody> bodies,
             Span<(int Index, float X, float Y, float Radius, double Depth)> labels, CatalogIndex? focus, float fontSize, float lineHeight, float dpiScale)
         {
-            labels.Sort((a, b) => (bodies[a.Index].Index == focus, bodies[b.Index].Index == focus) switch
+            int Rank(CatalogIndex index) => index == CatalogIndex.Earth ? 0 : index == focus ? 1 : 2;
+            labels.Sort((a, b) => Rank(bodies[a.Index].Index).CompareTo(Rank(bodies[b.Index].Index)) is var byRank and not 0
+                ? byRank
+                : a.Depth.CompareTo(b.Depth));
+            (float X, float Y)? earth = null;
+            foreach (var (index, x, y, _, _) in labels)
             {
-                (true, false) => -1,
-                (false, true) => 1,
-                _ => a.Depth.CompareTo(b.Depth),
-            });
+                if (bodies[index].Index == CatalogIndex.Earth)
+                {
+                    earth = (x, y);
+                }
+            }
             var palette = GuiTheme.Palette;
             var gap = 3f * dpiScale;
             var context = MeasureContext(scale: DesignScale.One);
@@ -373,9 +380,23 @@ namespace TianWen.UI.Abstractions
                 var below = new RectF32(sx - (width / 2), sy + reach + gap, width, lineHeight);
                 var above = new RectF32(sx - (width / 2), sy - reach - gap - lineHeight, width, lineHeight);
                 var selected = body.Index == focus;
-                RectF32? place = LabelIsClear(below, body.Index) ? below
-                    : LabelIsClear(above, body.Index) ? above
-                    : selected ? below : null;
+                RectF32? place;
+                if (body.Index == CatalogIndex.Moon && earth is var (ex, ey) && MathF.Sqrt(((sx - ex) * (sx - ex)) + ((sy - ey) * (sy - ey))) is > 0 and var d)
+                {
+                    // Outward from the Earth: the box is pushed along the Earth-to-Moon direction until it clears the Moon's disc and gap.
+                    var (ux, uy) = ((sx - ex) / d, (sy - ey) / d);
+                    var t = MathF.Min(
+                        MathF.Abs(ux) > 1e-6f ? ((width / 2) + reach + gap) / MathF.Abs(ux) : float.MaxValue,
+                        MathF.Abs(uy) > 1e-6f ? ((lineHeight / 2) + reach + gap) / MathF.Abs(uy) : float.MaxValue);
+                    var outward = new RectF32(sx + (ux * t) - (width / 2), sy + (uy * t) - (lineHeight / 2), width, lineHeight);
+                    place = LabelIsClear(outward, body.Index) ? outward : null;
+                }
+                else
+                {
+                    place = LabelIsClear(below, body.Index) ? below
+                        : LabelIsClear(above, body.Index) ? above
+                        : selected || body.Index == CatalogIndex.Earth ? below : null;
+                }
                 if (place is not { } rect)
                 {
                     continue;
