@@ -212,6 +212,52 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Tab.State.Search.InfoPanel = SkyMapSearchActions.PlanetInfoPanel(rig.Planner.ObjectDb.ShouldNotBeNull(), marker, 48.0, 11.0, Instant, site);
     }
 
+    // A comet near the Earth's orbit, at perihelion a few days after the instant, with its index in the panel.
+    private static CometElements SelectComet(Rig rig, double argumentOfPerihelion = 80)
+    {
+        CometDesignation.TryParse("12P", out var designation).ShouldBeTrue();
+        var perihelion = 2461330.5;
+        var elements = new CometElements(designation, "Pons-Brooks", 0.9, 0.7, 20, 100, argumentOfPerihelion, perihelion, perihelion, 8, 10);
+        rig.Planner.Comets = new StubCometRepository(elements);
+        var index = elements.CatalogIndex.ShouldNotBeNull();
+        rig.Tab.State.Search.InfoPanel = SkyMapInfoPanelData.FromPosition("12P/Pons-Brooks", 3.0, 10.0, 48.0, 11.0, Instant, default) with { Index = index };
+        return elements;
+    }
+
+    private static (float X, float Y) DrawnAt(Rig rig, CatalogIndex body)
+    {
+        var drawn = rig.Tab.OrreryDrawn.Single(d => d.Index == body);
+        return (drawn.X, drawn.Y);
+    }
+
+    /// <summary>
+    /// A click on another body moves the highlight and keeps the comet the view was opened on: Jupiter clicked, the comet and its
+    /// orbit are still drawn, and the orbit was not built again.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task AClickOnAnotherBodyKeepsTheComet()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        var comet = SelectComet(rig);
+        rig.Tab.OpenOrrery();
+        rig.Render();
+        // Out far enough that Jupiter is on screen beside the comet.
+        rig.Tab.State.Orrery.Distance = OrreryCamera.DistanceToFrame(Math.Sqrt(6));
+        rig.Render();
+        var cometIndex = comet.CatalogIndex.ShouldNotBeNull();
+        rig.Tab.OrreryDrawn.Select(d => d.Index).ShouldContain(cometIndex);
+        rig.Tab.OrreryScene.CometOrbitBuilds.ShouldBe(1);
+
+        var (jx, jy) = DrawnAt(rig, CatalogIndex.Jupiter);
+        rig.Tab.HandleInput(new InputEvent.MouseDown(jx, jy)).ShouldBeTrue();
+        rig.Tab.HandleInput(new InputEvent.MouseUp(jx, jy)).ShouldBeTrue();
+        rig.Render();
+
+        rig.Tab.State.Orrery.Focus.ShouldBe(CatalogIndex.Jupiter);
+        rig.Tab.OrreryDrawn.Select(d => d.Index).ShouldContain(cometIndex);
+        rig.Tab.OrreryScene.CometOrbitBuilds.ShouldBe(1);
+    }
+
     private static bool PanelOffersTheOrrery(Rig rig)
         => rig.Tab.GetCapturedLayout().Any(n => n.Node.Hit is HitResult.ButtonHit { Action: ObjectInfoPanel.OrreryAction });
 
