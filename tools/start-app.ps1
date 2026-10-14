@@ -20,6 +20,12 @@
 
     Environment variables the caller sets (TIANWEN_NOW, say) reach the app, which inherits this process's.
 
+    The app is started LOCAL-ONLY (TIANWEN_LOCAL_ONLY=1, unless the caller set the variable itself, to 0 for the
+    LAN): it and any node it starts bind nothing but loopback and the node's socket, so a build in a fresh folder
+    (a worktree) raises no Windows Firewall prompt, which comes once per executable path for a non-loopback bind.
+    No LAN rig is listed, no WiFi device is discovered, and the DEBUG inspector answers no multicast discovery: its
+    command server's loopback port is in the app's stderr banner ("[inspector] ... command server on 127.0.0.1:N").
+
 .PARAMETER App
     gui (tianwen-gui), fits (tianwen-fits) or tui (the CLI's TUI, in a console window of its own).
 
@@ -169,6 +175,12 @@ $savedSyncValidation = $env:SDLVK_SYNC_VALIDATION
 # pinned tint, no tab highlight, so a click looked as if it selected nothing (2026-09-19).
 $savedNoColor = $env:NO_COLOR
 $env:NO_COLOR = if ($NoColor) { '1' } else { $null }
+
+# Local-only unless the caller said otherwise (see the description): an agent's build in a new folder must not ask the
+# person at the desk to let it through the firewall.
+$savedLocalOnly = $env:TIANWEN_LOCAL_ONLY
+if ($null -eq $env:TIANWEN_LOCAL_ONLY) { $env:TIANWEN_LOCAL_ONLY = '1' }
+$localOnly = $env:TIANWEN_LOCAL_ONLY -in '1', 'true'
 if ($SyncValidation) { $Validation = [switch]$true; $env:SDLVK_SYNC_VALIDATION = '1' }
 if ($Validation) {
     $env:SDLVK_VALIDATION = '1'
@@ -193,7 +205,7 @@ try {
             Write-Host "stderr: $stderr"
             exit 1
         }
-        Write-Host "$($spec.Exe) tui started detached ($Configuration), in its own console window"
+        Write-Host "$($spec.Exe) tui started detached ($Configuration$(if ($localOnly) { ', local-only' })), in its own console window"
         Write-Host "pid:     $appPid (console window: cmd pid $($console.Id))"
         Write-Host 'stdout:  the console window'
         Write-Host "stderr:  $stderr"
@@ -214,6 +226,7 @@ finally {
     $env:SDLVK_VALIDATION = $savedValidation
     $env:SDLVK_SYNC_VALIDATION = $savedSyncValidation
     $env:NO_COLOR = $savedNoColor
+    $env:TIANWEN_LOCAL_ONLY = $savedLocalOnly
 }
 
 # Catch a launch that cannot even start (a missing native library, a bad argument): it is the one crash a caller
@@ -224,7 +237,10 @@ if ($process.WaitForExit(3000)) {
     exit 1
 }
 
-Write-Host "$($spec.Exe) started detached ($Configuration)$(if ($Validation) { ', Vulkan validation on' })"
+Write-Host "$($spec.Exe) started detached ($Configuration$(if ($localOnly) { ', local-only' }))$(if ($Validation) { ', Vulkan validation on' })"
 Write-Host "pid:     $($process.Id)"
 Write-Host "stdout:  $stdout"
 Write-Host "stderr:  $stderr"
+if ($localOnly) {
+    Write-Host 'local-only: no LAN, no network discovery, and the inspector answers no multicast discovery (its port is in the stderr banner)'
+}
