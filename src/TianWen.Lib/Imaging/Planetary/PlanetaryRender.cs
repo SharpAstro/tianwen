@@ -92,7 +92,8 @@ public static class PlanetaryRender
         ArgumentOutOfRangeException.ThrowIfLessThan(supersample, 1);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(placement.EquatorialRadius);
 
-        var scene = new Scene(aspect, placement, minnaertK, rings, rings is null ? 0 : map.MeanAlbedo);
+        var scene = new Scene(aspect, placement, minnaertK, rings);
+        var ringScale = rings is null ? 0 : map.MeanAlbedo;
         var image = new float[width * height];
         var step = 1.0 / supersample;
         ParallelFor.Run(height, y =>
@@ -105,7 +106,7 @@ public static class PlanetaryRender
                     var py = y - 0.5 + ((j + 0.5) * step);
                     for (var i = 0; i < supersample; i++)
                     {
-                        sum += scene.Radiance(map, x - 0.5 + ((i + 0.5) * step), py);
+                        sum += scene.Radiance(map, ringScale, x - 0.5 + ((i + 0.5) * step), py);
                     }
                 }
                 image[(y * width) + x] = (float)(sum / (supersample * supersample));
@@ -115,6 +116,67 @@ public static class PlanetaryRender
         {
             AddMoons(image, width, height, scene, placement, moons, supersample);
         }
+        return image;
+    }
+
+    /// <summary>
+    /// The scene in colour, for the sky atlas's planet discs (docs/plans/atlas-planet-detail.md, A4, #1037): the same geometry as
+    /// <see cref="Render"/> (one <c>Scene</c>, one ray trace) lit from each plane of <paramref name="map"/>, and a fourth value per
+    /// pixel, the share of its rays that meet the planet or an opaque part of its rings. Row-major RGBA, four floats a pixel; the
+    /// colour is PREMULTIPLIED by that coverage (a ray that misses adds nothing), so a limb pixel half covered carries half its light.
+    /// The night side is covered and black, as the Moon's dark limb hides the stars behind it. Saturn's rings take each plane's mean
+    /// albedo, as the mono render's take the map's.
+    /// </summary>
+    public static float[] RenderRgba(PlanetColourMap map, in PlanetAspect aspect, in DiskPlacement placement, int width, int height, double minnaertK,
+        int supersample = 3, SaturnRings? rings = null)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        ArgumentOutOfRangeException.ThrowIfLessThan(supersample, 1);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(placement.EquatorialRadius);
+
+        var scene = new Scene(aspect, placement, minnaertK, rings);
+        var (ringR, ringG, ringB) = rings is null ? (0.0, 0.0, 0.0) : (map.Red.MeanAlbedo, map.Green.MeanAlbedo, map.Blue.MeanAlbedo);
+        var image = new float[width * height * 4];
+        var step = 1.0 / supersample;
+        var norm = 1.0 / (supersample * supersample);
+        ParallelFor.Run(height, y =>
+        {
+            for (var x = 0; x < width; x++)
+            {
+                double r = 0, g = 0, b = 0, a = 0;
+                for (var j = 0; j < supersample; j++)
+                {
+                    var py = y - 0.5 + ((j + 0.5) * step);
+                    for (var i = 0; i < supersample; i++)
+                    {
+                        var ray = scene.Trace(x - 0.5 + ((i + 0.5) * step), py);
+                        var coverage = ray.Coverage;
+                        if (coverage <= 0)
+                        {
+                            continue;
+                        }
+                        a += coverage;
+                        if (ray.GlobeLit)
+                        {
+                            r += ray.Radiance(map.Red.Sample(ray.Latitude, ray.WestLongitude), ringR);
+                            g += ray.Radiance(map.Green.Sample(ray.Latitude, ray.WestLongitude), ringG);
+                            b += ray.Radiance(map.Blue.Sample(ray.Latitude, ray.WestLongitude), ringB);
+                        }
+                        else
+                        {
+                            r += ray.Radiance(0, ringR);
+                            g += ray.Radiance(0, ringG);
+                            b += ray.Radiance(0, ringB);
+                        }
+                    }
+                }
+                var o = ((y * width) + x) * 4;
+                image[o] = (float)(r * norm);
+                image[o + 1] = (float)(g * norm);
+                image[o + 2] = (float)(b * norm);
+                image[o + 3] = (float)(a * norm);
+            }
+        });
         return image;
     }
 
@@ -330,44 +392,76 @@ public static class PlanetaryRender
     /// <summary>
     /// The lighting of one render over its geometry, <see cref="PlanetaryProjection"/>: each ray's point on the spheroid, its
     /// latitude and longitude, and the Sun and observer angles there; and with rings, the ray's crossing of the ring plane.
+    /// <see cref="Trace"/> is the geometry alone, shared by the mono render and <see cref="RenderRgba"/>, which differ only in
+    /// what albedo they hand <see cref="SceneRay.Radiance"/>.
     /// </summary>
-    private readonly struct Scene(in PlanetAspect aspect, in DiskPlacement placement, double minnaertK, SaturnRings? rings, double ringScale)
+    private readonly struct Scene(in PlanetAspect aspect, in DiskPlacement placement, double minnaertK, SaturnRings? rings)
     {
         private readonly PlanetaryProjection _projection = new(aspect, placement);
         private readonly double _k = minnaertK;
         private readonly SaturnRings? _rings = rings;
-        private readonly double _ringScale = ringScale;
 
-        public double Radiance(PlanetMap map, double x, double y)
+        public double Radiance(PlanetMap map, double ringScale, double x, double y)
         {
-            var globe = Globe(map, x, y, out var onGlobe, out var globeT);
-            if (_rings is not { } rings || !_projection.TryRingPlane(x, y, out var radius, out var ringT, out var r1, out var r2)
-                || !rings.TryRingAt(radius, out var ring) || (onGlobe && ringT < globeT))
-            {
-                return globe;
-            }
-            // The face the Sun lights is the one the observer sees when both stand on the same side of the plane.
-            var lit = Math.Sign(_projection.SunSinElevation) == Math.Sign(_projection.SinD) && !_projection.InGlobeShadow(r1, r2);
-            return (lit ? ring.Level * _ringScale : 0) + (ring.Transmission(_projection.SinD) * globe);
+            var ray = Trace(x, y);
+            return ray.Radiance(ray.GlobeLit ? map.Sample(ray.Latitude, ray.WestLongitude) : 0, ringScale);
         }
 
         // Whether the ray meets the planet at all, day side or night.
         public bool OnDisk(double x, double y) => _projection.TrySurface(x, y, out _, out _, out _, out _);
 
-        // The globe's radiance along the ray (zero off it and on its night side), lit through any ring the Sun's ray crosses.
-        private double Globe(PlanetMap map, double x, double y, out bool onGlobe, out double t)
+        // What the ray meets: the globe (day side or night), lit through any ring the Sun's ray crosses, and a ring in front of it.
+        public SceneRay Trace(double x, double y)
         {
-            onGlobe = _projection.TrySurface(x, y, out var latitude, out var west, out var mu, out var mu0, out t, out var x1, out var x2, out var x3);
-            if (!onGlobe || mu <= 0 || mu0 <= 0)
+            var onGlobe = _projection.TrySurface(x, y, out var latitude, out var west, out var mu, out var mu0, out var globeT, out var x1, out var x2, out var x3);
+            var globeLit = onGlobe && mu > 0 && mu0 > 0;
+            double sunPow = 0, viewPow = 0, sunTransmission = double.NaN;
+            if (globeLit)
             {
-                return 0;
+                sunPow = Math.Pow(mu0, _k);
+                viewPow = Math.Pow(mu, _k - 1);
+                if (_rings is { } shading && _projection.TrySunwardRingPlane(x1, x2, x3, out var sunward) && shading.TryRingAt(sunward, out var shadow))
+                {
+                    sunTransmission = shadow.Transmission(_projection.SunSinElevation);
+                }
             }
-            var radiance = map.Sample(latitude, west) * Math.Pow(mu0, _k) * Math.Pow(mu, _k - 1);
-            if (_rings is { } rings && _projection.TrySunwardRingPlane(x1, x2, x3, out var radius) && rings.TryRingAt(radius, out var ring))
+            if (_rings is not { } rings || !_projection.TryRingPlane(x, y, out var radius, out var ringT, out var r1, out var r2)
+                || !rings.TryRingAt(radius, out var ring) || (onGlobe && ringT < globeT))
             {
-                radiance *= ring.Transmission(_projection.SunSinElevation);
+                return new SceneRay(onGlobe, globeLit, latitude, west, sunPow, viewPow, sunTransmission, false, 0, 1);
             }
-            return radiance;
+            // The face the Sun lights is the one the observer sees when both stand on the same side of the plane.
+            var lit = Math.Sign(_projection.SunSinElevation) == Math.Sign(_projection.SinD) && !_projection.InGlobeShadow(r1, r2);
+            return new SceneRay(onGlobe, globeLit, latitude, west, sunPow, viewPow, sunTransmission, true, lit ? ring.Level : 0, ring.Transmission(_projection.SinD));
         }
+    }
+
+    /// <summary>
+    /// One ray's geometry: whether it meets the globe and where, the globe's Minnaert factors there, the transmission of a ring
+    /// shading it from the Sun (NaN for none), and a ring in front of it.
+    /// </summary>
+    private readonly record struct SceneRay(bool OnGlobe, bool GlobeLit, double Latitude, double WestLongitude, double SunPow, double ViewPow,
+        double SunTransmission, bool RingInFront, double RingLevel, double RingTransmission)
+    {
+        /// <summary>
+        /// The radiance for a surface of <paramref name="albedo"/> and a ring scale of <paramref name="ringScale"/>, in the very order
+        /// of operations the mono render always used, so its output is unchanged to the bit.
+        /// </summary>
+        public double Radiance(double albedo, double ringScale)
+        {
+            var globe = 0.0;
+            if (GlobeLit)
+            {
+                globe = albedo * SunPow * ViewPow;
+                if (!double.IsNaN(SunTransmission))
+                {
+                    globe *= SunTransmission;
+                }
+            }
+            return RingInFront ? (RingLevel * ringScale) + (RingTransmission * globe) : globe;
+        }
+
+        /// <summary>How much of the sky behind the ray it hides: all of it on the globe, day or night, and a ring's opacity off it.</summary>
+        public double Coverage => OnGlobe ? 1 : RingInFront ? 1 - RingTransmission : 0;
     }
 }
