@@ -45,8 +45,10 @@ public sealed class NodeIdentity(string nodeId, string version)
 /// <summary>
 /// Where the node listens: its socket, and a TCP port when it is reachable from the LAN. Registered by whatever
 /// hosts the node; a host that registers none listens on neither as far as <c>GET /api/v1/node</c> is concerned.
+/// <see cref="LocalOnly"/>: the node was told to bind nothing but loopback and its socket (<see cref="TianWen.Lib.LocalOnlyMode"/>),
+/// so it has no TCP port whatever the share setting, and a client compares it with the mode it would start a node in.
 /// </summary>
-public sealed record NodeListening(string? SocketPath, int? LanPort)
+public sealed record NodeListening(string? SocketPath, int? LanPort, bool LocalOnly = false)
 {
     /// <summary>Whether another machine can reach the node.</summary>
     public bool IsShared => LanPort is not null;

@@ -1,6 +1,7 @@
 using System;
 using TianWen.Lib.Devices;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using TianWen.Lib.Connections;
 
 namespace TianWen.Lib.Extensions;
@@ -11,11 +12,24 @@ public static class ExternalServiceCollectionExtensions
         .AddSingleton<IUtf8TextBasedConnectionFactory, JsonRPCOverTcpConnectionFactory>()
         .AddTimeProvider()
         .AddSingleton<IExternal, External>()
+        // Whether this process binds nothing but loopback (TIANWEN_LOCAL_ONLY), for every device source that would reach the
+        // network. TryAdd: the server registers its own first, which also counts its --local-only.
+        .AddLocalOnlyMode(LocalOnlyMode.OfThisProcess())
         // OS credential vault on Windows; owner-restricted file elsewhere, and under a data root kept apart from the
         // user's (TIANWEN_DATA_ROOT, a test's node), whose secrets must not reach the user's vault. Behind ICredentialStore.
         .AddSingleton<ICredentialStore>(sp => OperatingSystem.IsWindows() && !TianWenDataRoot.IsOverridden
             ? new WindowsCredentialStore()
             : new FileCredentialStore(sp.GetRequiredService<IExternal>()));
+
+    /// <summary>
+    /// Registers <paramref name="mode"/> as this process's <see cref="LocalOnlyMode"/>, unless one is registered already:
+    /// a host that decides it from more than the environment (the server's command line) registers its own first.
+    /// </summary>
+    public static IServiceCollection AddLocalOnlyMode(this IServiceCollection services, LocalOnlyMode mode)
+    {
+        services.TryAddSingleton(mode);
+        return services;
+    }
 
     /// <summary>
     /// Registers only the system clock (<see cref="ITimeProvider"/>). Split out of

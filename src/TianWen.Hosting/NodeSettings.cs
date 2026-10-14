@@ -100,10 +100,11 @@ public sealed class NodeRole(bool spawned)
 public static class NodeListeningDecision
 {
     /// <summary>
-    /// The socket always. TCP (the LAN) unless <c>--local-only</c>: a node run by hand keeps it, as a mini PC's does;
-    /// a node a client started takes it only while the rig is shared (decision 3), so a GUI on a laptop never opens a
-    /// port or announces a rig nobody asked to share.
+    /// The socket always. TCP (the LAN) unless local-only (<see cref="NodeArguments.LocalOnly"/>, which the server sets
+    /// from <see cref="TianWen.Lib.LocalOnlyMode"/>, its command line or <c>TIANWEN_LOCAL_ONLY</c>): a node run by hand
+    /// keeps it, as a mini PC's does; a node a client started takes it only while the rig is shared (decision 3), so a
+    /// GUI on a laptop never opens a port or announces a rig nobody asked to share.
     /// </summary>
     public static NodeListening For(NodeArguments node, NodeSettings settings) =>
-        new NodeListening(node.SocketPath, node.LocalOnly || (node.Spawned && !settings.ShareOnLan) ? null : node.Port);
+        new NodeListening(node.SocketPath, node.LocalOnly || (node.Spawned && !settings.ShareOnLan) ? null : node.Port, node.LocalOnly);
 }

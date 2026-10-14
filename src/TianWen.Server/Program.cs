@@ -23,6 +23,12 @@ if (!NodeArguments.TryParse(args, out var node, out var invalid))
     return NodeExitCodes.InvalidArguments;
 }
 
+// Whether this process binds nothing but loopback and its socket (--local-only, or TIANWEN_LOCAL_ONLY), decided once,
+// here: folded into the arguments, a keeper hands it to its node as --local-only, and the node listens by it and
+// hands it to every device source that would reach the network.
+var localOnly = LocalOnlyMode.OfThisProcess(node.LocalOnly);
+node = node with { LocalOnly = localOnly.IsOn };
+
 // A client starts the keeper, never the node itself: the keeper starts the node and starts it again if it crashes
 // ("Spawn and lifetime", decision 10). It takes no lock and holds no hardware.
 if (node.Keeper)
@@ -87,6 +93,8 @@ using (held)
             }
             logging.AddProvider(new FileLoggerProvider("Server"));
         })
+        // Before AddExternal, whose own registration is from the environment alone and so must not win.
+        .AddLocalOnlyMode(localOnly)
         .AddExternal()
         .AddAstrometry()
         .AddProfiles()
@@ -174,9 +182,10 @@ using (held)
     // LAN announcement then reads the same file rather than minting a second one beside it.
     var identity = app.Services.GetRequiredService<NodeIdentity>();
     var logger = app.Services.GetRequiredService<ILogger<Program>>();
-    logger.LogInformation("TianWen Server {Version} starting on {Socket}{Lan} (node {NodeId}){Spawned}{Fake}{AfterCrash}",
+    logger.LogInformation("TianWen Server {Version} starting on {Socket}{Lan} (node {NodeId}){Spawned}{Fake}{LocalOnly}{AfterCrash}",
         identity.Version, socketPath, listening.LanPort is { } p ? $" and TCP {p}" : "", identity.NodeId,
         node.Spawned ? ", started by a client" : "", node.FakeDevicesOnly ? ", fake devices only" : "",
+        localOnly.IsOn ? ", local-only (loopback and the socket, no network discovery)" : "",
         node.AfterCrashOf is { } crashed ? $", after node {crashed} crashed" : "");
 
     await app.RunAsync();
