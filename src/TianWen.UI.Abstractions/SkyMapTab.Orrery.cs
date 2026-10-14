@@ -360,7 +360,6 @@ namespace TianWen.UI.Abstractions
             var dpiScale = DpiScale;
             var fontSize = BaseFontSize * dpiScale * 0.85f;
             var stripH = 24f * dpiScale;
-            var stripY = rect.Y + rect.Height - stripH;
             var orrery = State.Orrery;
             var padX = 6f * dpiScale;
             var fill = InfoPanelBg;
@@ -398,16 +397,25 @@ namespace TianWen.UI.Abstractions
                 SegmentWidth = widest,
             };
 
-            RenderLayout(Layout.Builder.Spacer().Bg(fill), new RectF32(rect.X, stripY, rect.Width, stripH));
-            var arranged = RenderLayout(
-                Layout.Builder.HStack(
+            // ONE tree over the whole rect: the strip is the bottom row of it, its fill and its content one arranged box.
+            var strip = Layout.Builder.HStack(
                     Button("Sky", "OrreryClose", CloseOrrery, "Back to the sky"),
                     Layout.Builder.ButtonGroup(scales, orrery.Scale, SwitchOrreryScale, style, fontSize).HStar(),
-                    Button(orrery.Playing ? "Pause" : "Play", "OrreryPlay", ToggleOrreryPlay, $"Run time at {orrery.DaysPerSecond:0} days a second"),
+                    // The wider label sized once, so Play and Pause do not move what follows.
+                    Layout.Builder.Text(orrery.Playing ? "Pause" : "Play", fontSize, InfoText, TextAlign.Center, TextAlign.Center, widthSample: "Pause")
+                        .PadX(padX).HStar()
+                        .Bg(fill).BgHover(GuiTheme.Hover(fill))
+                        .Clickable(new HitResult.ButtonHit("OrreryPlay"), _ => ToggleOrreryPlay())
+                        .WithTooltip($"Run time at {orrery.DaysPerSecond:0} days a second"),
                     Layout.Builder.Text("Drag to orbit, wheel to zoom", fontSize, InfoText, TextAlign.Near, TextAlign.Center).PadX(padX).WStar().HStar(),
                     BuildTimeControls(timeText, isTimeShifted ? TimeShiftColor : InfoText, fontSize, dpiScale))
-                    .WithGap(4f * dpiScale),
-                new RectF32(rect.X + 8, stripY, rect.Width - 16, stripH),
+                .WithGap(4f * dpiScale)
+                .PadX(8f * dpiScale)
+                .Bg(fill)
+                .RowH(stripH);
+            var arranged = RenderLayout(
+                Layout.Builder.VStack(Layout.Builder.Spacer().HStar(), strip),
+                rect,
                 // Device pixels, like the sky's strip.
                 scale: DesignScale.One);
             RememberTimeButton(arranged);
