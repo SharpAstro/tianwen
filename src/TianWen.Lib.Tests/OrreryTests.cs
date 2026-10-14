@@ -597,6 +597,71 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Render();
     }
 
+    /// <summary>
+    /// Zoomed in on the Sun, a body BEHIND it never paints over it: the camera swept round the Sun close in, every frame, any dark
+    /// pixel inside the Sun's inner disc lies on a body drawn NEARER the camera than the Sun (a transit), never on one behind it.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task ABodyBehindTheSunNeverPaintsOverIt()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Select(rig, CatalogIndex.Sol);
+        rig.Tab.OpenOrrery();
+        rig.Tab.State.Orrery.ShowBackdrop = false;
+        await SettleAsync(rig);
+        var orrery = rig.Tab.State.Orrery;
+        var offending = new System.Collections.Generic.List<string>();
+        foreach (var scale in new[] { OrreryScale.Compressed, OrreryScale.True })
+        foreach (var (distance, elevation) in new[] { (0.3, 4.0), (0.6, 4.0), (0.9, 4.0), (1.5, 4.0), (0.6, 25.0), (1.5, 25.0), (0.6, 60.0) })
+        for (var az = 0; az < 360; az += 6)
+        {
+            orrery.Scale = scale;
+            orrery.AzimuthDeg = az;
+            orrery.ElevationDeg = elevation;
+            orrery.Distance = distance;
+            rig.Render();
+            await rig.Tab.OrrerySprites.WhenBuiltAsync();
+            rig.Render();
+
+            var camera = CameraOf(rig);
+            var scene = rig.Tab.OrreryScene;
+            scene.TryFind(CatalogIndex.Sol, out var sunBody).ShouldBeTrue();
+            var sunDepth = camera.Depth(0, 0, 0);
+            var drawn = rig.Tab.OrreryDrawn;
+            var sun = drawn.Single(d => d.Index == CatalogIndex.Sol);
+            var pixels = rig.Renderer.Surface.Pixels;
+            for (var y = (int)(sun.Y - (0.7f * sun.Radius)); y <= (int)(sun.Y + (0.7f * sun.Radius)); y++)
+            {
+                for (var x = (int)(sun.X - (0.7f * sun.Radius)); x <= (int)(sun.X + (0.7f * sun.Radius)); x++)
+                {
+                    if (((x - sun.X) * (x - sun.X)) + ((y - sun.Y) * (y - sun.Y)) > 0.49f * sun.Radius * sun.Radius)
+                    {
+                        continue;
+                    }
+                    var i = ((y * Width) + x) * 4;
+                    if (pixels[i] >= 120)
+                    {
+                        continue;
+                    }
+                    // A dark pixel: it must lie on a body drawn nearer than the Sun.
+                    var explained = drawn.Any(d => d.Index != CatalogIndex.Sol
+                        && ((x - d.X) * (x - d.X)) + ((y - d.Y) * (y - d.Y)) <= d.Radius * d.Radius
+                        && scene.TryFind(d.Index, out var body)
+                        && scene.Drawn(orrery.Scale, body) is var (bx, by, bz)
+                        && camera.Depth(bx, by, bz) < sunDepth);
+                    if (!explained)
+                    {
+                        offending.Add($"{scale}, distance {distance}, elevation {elevation}, az {az}: dark pixel ({x}, {y}) on the Sun, no nearer body there");
+                        y = int.MaxValue - 1;
+                        break;
+                    }
+                }
+            }
+        }
+        output.WriteLine(offending.Count == 0 ? "no body behind the Sun painted over it" : string.Join("\n", offending.Take(10)));
+        offending.ShouldBeEmpty();
+    }
+
     private static bool PanelOffersTheOrrery(Rig rig)
         => rig.Tab.GetCapturedLayout().Any(n => n.Node.Hit is HitResult.ButtonHit { Action: ObjectInfoPanel.OrreryAction });
 
