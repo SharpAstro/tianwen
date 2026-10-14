@@ -793,6 +793,87 @@ public sealed class OrreryTests(ITestOutputHelper output)
         return false;
     }
 
+    /// <summary>
+    /// The zoom stays inside a reach of 0.25 to 50 AU: forty wheel steps either way stop at the two framings.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheZoomStaysBetweenAQuarterAndFiftyAU()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Select(rig, CatalogIndex.Mars);
+        rig.Tab.OpenOrrery();
+        rig.Render();
+        for (var step = 0; step < 40; step++)
+        {
+            rig.Tab.HandleInput(new InputEvent.Scroll(-3, 450, 300));
+        }
+        rig.Tab.State.Orrery.Distance.ShouldBe(OrreryCamera.DistanceToFrame(50), 1e-9);
+        for (var step = 0; step < 80; step++)
+        {
+            rig.Tab.HandleInput(new InputEvent.Scroll(3, 450, 300));
+        }
+        rig.Tab.State.Orrery.Distance.ShouldBe(OrreryCamera.DistanceToFrame(0.25), 1e-9);
+    }
+
+    /// <summary>
+    /// Fully zoomed out the orbits shrink into the Sun and the discs must not: no disc overlaps the Sun's (a body that would is a dot of
+    /// 1.5 px at most), and the Moon, when drawn, stays its reach from the Earth.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task FullyZoomedOutNoDiscCoversTheSun()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Select(rig, CatalogIndex.Jupiter);
+        rig.Tab.OpenOrrery();
+        rig.Render();
+        rig.Tab.State.Orrery.Distance = OrreryCamera.DistanceToFrame(50);
+        rig.Render();
+
+        var drawn = rig.Tab.OrreryDrawn;
+        var sun = drawn.Single(d => d.Index == CatalogIndex.Sol);
+        foreach (var body in drawn.Where(d => d.Index != CatalogIndex.Sol))
+        {
+            var apart = MathF.Sqrt(((body.X - sun.X) * (body.X - sun.X)) + ((body.Y - sun.Y) * (body.Y - sun.Y)));
+            output.WriteLine($"{body.Index}: {apart:F1} px from the Sun's centre, radius {body.Radius:F1}");
+            if (body.Radius > 1.5f)
+            {
+                apart.ShouldBeGreaterThanOrEqualTo(sun.Radius + body.Radius, $"{body.Index}'s disc overlaps the Sun's");
+            }
+        }
+        if (drawn.Any(d => d.Index == CatalogIndex.Moon))
+        {
+            var earth = drawn.Single(d => d.Index == CatalogIndex.Earth);
+            var moon = drawn.Single(d => d.Index == CatalogIndex.Moon);
+            MathF.Sqrt(((moon.X - earth.X) * (moon.X - earth.X)) + ((moon.Y - earth.Y) * (moon.Y - earth.Y))).ShouldBe(rig.Tab.LastMoonReach, 0.5f);
+        }
+    }
+
+    /// <summary>
+    /// A body NEARER the camera that lies over the Sun's disc (a transit, at a zoomed-out framing) is drawn as a dot, so no disc covers
+    /// the Sun: the camera put on the line from the Sun through Venus, beyond it.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task ABodyInFrontOfTheSunIsADot()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Select(rig, CatalogIndex.Sol);
+        rig.Tab.OpenOrrery();
+        rig.Render();
+        rig.Tab.OrreryScene.TryFind(CatalogIndex.Venus, out var venus).ShouldBeTrue();
+        var r = Math.Sqrt((venus.X * venus.X) + (venus.Y * venus.Y) + (venus.Z * venus.Z));
+        rig.Tab.State.Orrery.AzimuthDeg = Math.Atan2(venus.Y, venus.X) * 180 / Math.PI;
+        rig.Tab.State.Orrery.ElevationDeg = Math.Asin(venus.Z / r) * 180 / Math.PI;
+        rig.Tab.State.Orrery.Distance = OrreryCamera.DistanceToFrame(20);
+        rig.Render();
+
+        var drawn = rig.Tab.OrreryDrawn;
+        var sun = drawn.Single(d => d.Index == CatalogIndex.Sol);
+        var dot = drawn.Single(d => d.Index == CatalogIndex.Venus);
+        MathF.Sqrt(((dot.X - sun.X) * (dot.X - sun.X)) + ((dot.Y - sun.Y) * (dot.Y - sun.Y))).ShouldBeLessThan(sun.Radius, "Venus does not lie over the Sun");
+        output.WriteLine($"Venus over the Sun drawn with radius {dot.Radius:F2}");
+        dot.Radius.ShouldBeLessThanOrEqualTo(1.5f);
+    }
+
     private static bool PanelOffersTheOrrery(Rig rig)
         => rig.Tab.GetCapturedLayout().Any(n => n.Node.Hit is HitResult.ButtonHit { Action: ObjectInfoPanel.OrreryAction });
 
