@@ -85,6 +85,11 @@ namespace TianWen.UI.Abstractions
         /// shown under the rows with its credit. Sized from the aspect ratio the table records, so the panel is
         /// its final height before a single byte of the picture has arrived and does not jump when it does.
         /// </param>
+        /// <param name="Disc">
+        /// Leave a slot for the selected solar-system body's disc (A4 of docs/plans/atlas-planet-detail.md), which the host
+        /// draws into (<see cref="DiscFillKey"/>): the Sun, the Moon or a planet as it is now, phased, turned and, for Saturn,
+        /// ringed. The map's narrowest field shows few planets as more than a dot, so the panel is where the disc is seen.
+        /// </param>
         public readonly record struct PanelDisplayOptions(
             bool ShowAltAz = false,
             bool ShowRiseSet = false,
@@ -92,7 +97,8 @@ namespace TianWen.UI.Abstractions
             string? Footnote = null,
             bool Sparkline = false,
             ObjectArticleImage? Picture = null,
-            string? Disk = null);
+            string? Disk = null,
+            bool Disc = false);
 
         /// <summary>What the article link reads.</summary>
         public const string ArticleLinkLabel = "Wikipedia";
@@ -105,6 +111,18 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>The key of the picture slot's <see cref="Layout.Content.Fill"/>, which the host draws into.</summary>
         public const string PictureFillKey = "ObjectInfoPicture";
+
+        /// <summary>The key of the disc slot's <see cref="Layout.Content.Fill"/>, which the host draws the body's sprite into.</summary>
+        public const string DiscFillKey = "ObjectInfoDisc";
+
+        /// <summary>
+        /// The disc slot's design height. The host fits the body's whole sprite in it, Saturn's rings included
+        /// (<see cref="PlanetDiscSprite.ExtentRadii"/>), so every body is drawn as large as the slot allows.
+        /// </summary>
+        public const float DesignDiscHeight = 132f;
+
+        /// <summary>The disc section's whole design height: the slot and its margins.</summary>
+        public const float DesignDiscSectionHeight = 4f + DesignDiscHeight + 4f;
 
         /// <summary>The key of the large view's slot, drawn by the same host hook at a bigger size.</summary>
         public const string LargePictureFillKey = "ObjectInfoPictureLarge";
@@ -251,10 +269,7 @@ namespace TianWen.UI.Abstractions
             {
                 height += DesignSparklineHeight + 4f;
             }
-            if (options.Picture is { } picture)
-            {
-                height += DesignPictureSectionHeight(in picture);
-            }
+            height += DesignMediaHeight(in options);
             if (actions.HasLinks)
             {
                 height += DesignLinkRowHeight + (actions.HasButtons ? 4f : 8f);
@@ -476,6 +491,38 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.Spacer().WFixed(8f).HStar())
                     .RowH(DesignRowHeight),
                 Layout.Builder.Spacer().RowH(4f));
+        }
+
+        /// <summary>The design height of the media under the rows: the disc section and the picture section, each when shown.</summary>
+        public static float DesignMediaHeight(in PanelDisplayOptions options)
+            => (options.Disc ? DesignDiscSectionHeight : 0f)
+               + (options.Picture is { } picture ? DesignPictureSectionHeight(in picture) : 0f);
+
+        /// <summary>
+        /// The media under the rows, one stack the engine lays out: the disc section (<see cref="DiscFillKey"/>) over the
+        /// picture section (<see cref="BuildPictureSection"/>), each when shown; null when neither is. The host draws both
+        /// fills through one <c>drawFill</c>.
+        /// </summary>
+        public static Layout.Node? BuildMediaSections(in PanelDisplayOptions options, in PanelPalette palette, Action? onOpenPicture = null)
+        {
+            var disc = options.Disc
+                ? Layout.Builder.VStack(
+                    Layout.Builder.Spacer().RowH(4f),
+                    Layout.Builder.HStack(
+                        Layout.Builder.Spacer().WFixed(8f).HStar(),
+                        Layout.Builder.Fill(key: DiscFillKey).WStar().HStar().Bg(PictureFrame),
+                        Layout.Builder.Spacer().WFixed(8f).HStar())
+                        .RowH(DesignDiscHeight),
+                    Layout.Builder.Spacer().RowH(4f))
+                : null;
+            var picture = options.Picture is { } image ? BuildPictureSection(in image, in palette, onOpenPicture) : null;
+            return (disc, picture) switch
+            {
+                ({ } d, { } p) => Layout.Builder.VStack(d.RowH(DesignDiscSectionHeight), p),
+                ({ } d, null) => d,
+                (null, { } p) => p,
+                _ => null,
+            };
         }
 
         // A picture frame is near-black in every theme, as image data is never re-tinted: a dim grey would

@@ -26,6 +26,17 @@ namespace TianWen.UI.Abstractions
         /// <summary>The sprites, for the tests that count their builds.</summary>
         internal PlanetSpriteCache PlanetSprites => _planetSprites ??= new PlanetSpriteCache(RequestPlanetFrame);
 
+        private PlanetSpriteCache? _panelSprites;
+
+        /// <summary>
+        /// The info panel's disc sprites: a cache of their own, keyed at the PANEL's slot size, so the panel and the map do not
+        /// evict each other's sprite for the same body.
+        /// </summary>
+        internal PlanetSpriteCache PanelSprites => _panelSprites ??= new PlanetSpriteCache(RequestPlanetFrame, PlanetSpriteCache.PanelChannel);
+
+        /// <summary>The info panel's disc slot as the last frame painted it, or null when the panel had none: what the tests read.</summary>
+        internal RectF32? LastPanelDiscRect { get; private set; }
+
         /// <summary>Whether anything about a disc has been touched (its textures or its sprites), for the test of a wide field.</summary>
         internal bool PlanetDiscsTouched => _planetTextures is not null || _planetSprites is not null;
 
@@ -81,6 +92,34 @@ namespace TianWen.UI.Abstractions
                 }
             }
             return true;
+        }
+
+        /// <summary>
+        /// The info panel's disc: the selected body's sprite in its slot, as large as the slot holds the whole sprite
+        /// (<see cref="PlanetDiscSprite.PanelRadiusPx"/>), NORTH UP AND EAST LEFT, as the sky shows it to the eye (the map's own
+        /// view may be turned; the panel is not), phased, ringed and Night-tinted as on the map. Built by the panel's own cache, keyed
+        /// at the slot's size, so a frame that changes nothing builds nothing; the slot stays dark until the sprite lands.
+        /// </summary>
+        private void DrawPanelDisc(in PlanetAspect aspect, RectF32 slot)
+        {
+            PlanetColourMap? map = null;
+            var credit = "";
+            if (aspect.Planet != CatalogIndex.Sol)
+            {
+                if (!PlanetTextures.TryGet(aspect.Planet, out var texture, out credit))
+                {
+                    return;
+                }
+                map = texture;
+            }
+            var radius = PlanetDiscSprite.PanelRadiusPx(aspect.Planet, slot.Width, slot.Height);
+            var night = GuiTheme.State == UiThemeState.Night ? GuiTheme.Palette.Accent : (RGBAColor32?)null;
+            var pole = PlanetDiscSprite.PoleScreenAngle(aspect.PolePositionAngle, screenNorthDeg: -90, mirrored: false);
+            if (PanelSprites.Get(aspect, 2 * radius, pole, false, map, credit, SkyMapRenderer.GetPlanetColor(aspect.Planet), night,
+                    GuiTheme.PaletteGeneration, PlanetTextures.Version) is { } sprite)
+            {
+                DrawPlanetSprite(sprite, slot.X + (slot.Width / 2), slot.Y + (slot.Height / 2), (float)radius);
+            }
         }
 
         // The disc in place of the dot, when it is big enough and a sprite is in hand; false draws the dot.
