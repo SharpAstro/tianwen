@@ -514,7 +514,8 @@ namespace TianWen.UI.Web.SkyMap
                 if (any(greaterThan(tint, vec3(0.0)))) {
                     mw = vec3(dot(mw, vec3(0.2126, 0.7152, 0.0722))) * tint;
                 }
-                FragColor = vec4(mw * uColor.a * brightness, 0.0);
+                // At its own opacity (uColor.a); the brightness factor dims the STARS only (skymap_mw.frag).
+                FragColor = vec4(mw * uColor.a, 0.0);
             }
             """;
 

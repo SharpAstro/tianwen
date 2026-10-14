@@ -388,10 +388,11 @@ backdrop draw (`SkyMapTab.DrawOrreryBackdrop`, the first thing the frame draws a
 - **The culls**, in force for the orrery's view: both pipelines cull by `SkyMapState.ViewAxis` / `ViewRadiusDeg` (the
   backdrop's cone while one is drawn) and `EffectiveMagnitudeLimit` at the backdrop's field, through
   `StarChunkIndex.BudgetedMagnitudeLimit` as before.
-- **Dimming and Night.** A brightness factor (0.2, `OrreryBackdropBrightness`) multiplies every star's and the Milky
-  Way's alpha, so orbits and labels stay readable (the backdrop adds at most 50 of 255 to a channel under a label);
-  under Night the tint draws each as its luminance in the palette's accent, so no blue. The Milky Way's opacity is
-  fixed (0.35), not the Sun's altitude at the site: the view is not from the ground.
+- **Dimming and Night.** A brightness factor (0.35, `OrreryBackdropBrightness`) multiplies every STAR's alpha, so
+  orbits and labels stay readable (the stars add at most 86 of 255 to a channel under a label); the Milky Way (NASA SVS
+  Deep Star Maps 2020, the atlas's own texture) has its own opacity, 0.6, not the Sun's altitude at the site, since the
+  view is not from the ground. It used to take both factors, 0.35 x 0.2 = 0.07, which the owner saw on the built GUI as a
+  backdrop "super dim". Under Night the tint draws each as its luminance in the palette's accent, so no blue.
 - **What a host skips**: the twilight ground, the horizon fill and the lines (Vulkan draws the `Backdrop` phase, WebGL
   checks the backdrop), and `SkyMapState.CurrentViewMatrix` is left as the map's own.
 

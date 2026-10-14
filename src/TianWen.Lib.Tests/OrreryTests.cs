@@ -751,7 +751,9 @@ public sealed class OrreryTests(ITestOutputHelper output)
                         continue;
                     }
                     var i = ((y * Width) + x) * 4;
-                    if (pixels[i] >= 120)
+                    // Dark in EVERY channel: a test in the "UI" collection may flip the app-wide theme to Night meanwhile, which
+                    // tints the Sun red (its green and blue low), and a night-side disc is dark in all three either way.
+                    if (Math.Max(pixels[i], Math.Max(pixels[i + 1], pixels[i + 2])) >= 60)
                     {
                         continue;
                     }

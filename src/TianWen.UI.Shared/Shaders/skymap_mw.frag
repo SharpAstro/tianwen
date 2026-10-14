@@ -68,5 +68,6 @@ void main() {
     vec3 rgb = any(greaterThan(ubo.tint, vec3(0.0)))
         ? vec3(dot(mw.rgb, vec3(0.2126, 0.7152, 0.0722))) * ubo.tint
         : mw.rgb;
-    FragColor = vec4(rgb, mw.a * pc.alpha * ubo.brightness);
+    // The Milky Way is at its own opacity (pc.alpha); the brightness factor dims the STARS only.
+    FragColor = vec4(rgb, mw.a * pc.alpha);
 }
