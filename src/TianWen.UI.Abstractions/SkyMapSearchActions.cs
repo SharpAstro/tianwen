@@ -1086,8 +1086,11 @@ public static class SkyMapSearchActions
             var dy = sy - clickScreenY;
             var distSq = (double)(dx * dx + dy * dy);
             // A planet drawn as its disc (A4) is hit anywhere on the disc, and a click on it is the planet, whatever star or
-            // galaxy lies behind: the Moon covers them. The globe, not Saturn's rings, is the hit area.
-            var discRadius = marker.Aspect is { } aspect ? PlanetSpriteCache.DiscDiameterPx(aspect, pixelsPerRadian) / 2 : 0;
+            // galaxy lies behind: the Moon covers them. The globe, not Saturn's rings, is the hit area. Only a disc the last frame
+            // PAINTED counts (SkyMapState.PlanetDiscsDrawn): a planet whose texture has not landed is still the dot.
+            var discRadius = marker.Aspect is { } aspect && skyMap.PlanetDiscsDrawn.Contains(planetIdx)
+                ? PlanetSpriteCache.DiscDiameterPx(aspect, pixelsPerRadian) / 2
+                : 0;
             if (discRadius > ClickToleranceScreenPx && distSq <= discRadius * discRadius)
             {
                 distSq = 0;
