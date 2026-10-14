@@ -230,9 +230,6 @@ public sealed class OrreryScene(Action? requestRedraw = null)
     /// <summary>How far an open (parabolic or hyperbolic) comet orbit is drawn from the Sun, AU.</summary>
     public const double OpenOrbitReachAu = 40;
 
-    /// <summary>The Moon's drawn distance from the Earth as a fraction of the Earth's drawn distance from the Sun: an exaggeration, as its size is.</summary>
-    public const double MoonOffsetFraction = 0.08;
-
     private long _positionsMinute = long.MinValue;
     private CometElements? _positionsComet;
     private ImmutableArray<OrreryBody> _bodies = [];
@@ -334,20 +331,17 @@ public sealed class OrreryScene(Action? requestRedraw = null)
     public static (double X, double Y, double Z) Scaled(in OrreryScaling scaling, double x, double y, double z) => scaling.Apply(x, y, z);
 
     /// <summary>
-    /// Where <paramref name="body"/> is DRAWN: its scaled position, but the Moon is put <see cref="MoonOffsetFraction"/> of the Earth's
-    /// drawn distance from the Earth along its true direction, since at any scale that shows the planets it would sit on the Earth.
+    /// Where <paramref name="body"/> is DRAWN in the scene: its scaled position, and for the Moon the Earth's, since at any scale that
+    /// shows the planets the Moon would sit on the Earth. The view places the Moon on SCREEN, a steady reach from the Earth along its
+    /// true geocentric direction (<c>SkyMapTab.OrreryMoonScreenDirection</c>); this is what its depth and its lighting read.
     /// </summary>
     public (double X, double Y, double Z) Drawn(in OrreryScaling scale, in OrreryBody body)
     {
-        if (body.Index != CatalogIndex.Moon || !TryFind(CatalogIndex.Earth, out var earth))
+        if (body.Index == CatalogIndex.Moon && TryFind(CatalogIndex.Earth, out var earth))
         {
-            return Scaled(scale, body.X, body.Y, body.Z);
+            return Scaled(scale, earth.X, earth.Y, earth.Z);
         }
-        var (ex, ey, ez) = Scaled(scale, earth.X, earth.Y, earth.Z);
-        var (dx, dy, dz) = (body.X - earth.X, body.Y - earth.Y, body.Z - earth.Z);
-        var d = Math.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
-        var reach = MoonOffsetFraction * Math.Sqrt((ex * ex) + (ey * ey) + (ez * ez)) / d;
-        return (ex + (dx * reach), ey + (dy * reach), ez + (dz * reach));
+        return Scaled(scale, body.X, body.Y, body.Z);
     }
 
     /// <summary>The body at the last instant, if the scene holds it.</summary>

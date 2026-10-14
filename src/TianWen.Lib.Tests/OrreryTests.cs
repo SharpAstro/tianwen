@@ -446,16 +446,24 @@ public sealed class OrreryTests(ITestOutputHelper output)
     [InlineData(CatalogIndex.Moon, 1.5f)]
     [InlineData(CatalogIndex.Jupiter, 1f)]
     [InlineData(CatalogIndex.Jupiter, 1.5f)]
-    public async Task TheEarthAndTheMoonDoNotOverprint(CatalogIndex focus, float dpiScale)
+    [InlineData(CatalogIndex.Moon, 1f, 0.35)]
+    [InlineData(CatalogIndex.Moon, 1.5f, 0.35)]
+    public async Task TheEarthAndTheMoonDoNotOverprint(CatalogIndex focus, float dpiScale, double zoom = 1.0)
     {
         using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale);
         Select(rig, focus);
         rig.Tab.OpenOrrery();
         rig.Render();
+        rig.Tab.State.Orrery.Distance *= zoom;
         rig.Render();
 
         var earth = rig.Tab.OrreryDrawn.Single(d => d.Index == CatalogIndex.Earth);
-        var moon = rig.Tab.OrreryDrawn.Single(d => d.Index == CatalogIndex.Moon);
+        if (!MoonDrawnOrCrowdedOut(rig, out var moon))
+        {
+            output.WriteLine($"{focus}: the Moon is not drawn, Venus being within twice its reach of the Earth");
+            rig.Tab.OrreryLabels.Select(l => l.Index).ShouldContain(CatalogIndex.Earth);
+            return;
+        }
         output.WriteLine($"{focus}: Earth at ({earth.X:F1}, {earth.Y:F1}) r {earth.Radius}, Moon at ({moon.X:F1}, {moon.Y:F1}) r {moon.Radius}");
         Intersect(Disc(earth), Disc(moon)).ShouldBeFalse("the Earth's and the Moon's discs overlap");
 
@@ -513,15 +521,21 @@ public sealed class OrreryTests(ITestOutputHelper output)
     /// on the far side of the Moon from the Earth: the labels never swap as the Moon circles.
     /// </summary>
     [Theory(Timeout = 120_000)]
-    [InlineData(CatalogIndex.Jupiter)]
-    [InlineData(CatalogIndex.Moon)]
-    public async Task TheEarthAndMoonLabelsNeverSwapOverALunarMonth(CatalogIndex focus)
+    [InlineData(CatalogIndex.Jupiter, 1.0)]
+    [InlineData(CatalogIndex.Moon, 1.0)]
+    [InlineData(CatalogIndex.Moon, 0.35)]
+    [InlineData(CatalogIndex.Moon, 0.2)]
+    public async Task TheEarthAndMoonLabelsNeverSwapOverALunarMonth(CatalogIndex focus, double zoom)
     {
         using var rig = await RigAsync(TestContext.Current.CancellationToken);
         Select(rig, focus);
         rig.Tab.OpenOrrery();
+        rig.Render();
+        // Zoomed in by this factor on the framing the view opened with.
+        rig.Tab.State.Orrery.Distance *= zoom;
         var moonDrawn = 0;
         const int Frames = 120;
+        var apart = new System.Collections.Generic.List<float>();
         for (var frame = 0; frame < Frames; frame++)
         {
             rig.Tab.State.TimeOffset = TimeSpan.FromHours(6 * frame);
@@ -529,7 +543,11 @@ public sealed class OrreryTests(ITestOutputHelper output)
             var labels = rig.Tab.OrreryLabels;
             labels.Select(l => l.Index).ShouldContain(CatalogIndex.Earth, $"frame {frame}: the Earth's label is missing");
             var earth = rig.Tab.OrreryDrawn.Single(d => d.Index == CatalogIndex.Earth);
-            var moon = rig.Tab.OrreryDrawn.Single(d => d.Index == CatalogIndex.Moon);
+            if (!MoonDrawnOrCrowdedOut(rig, out var moon))
+            {
+                continue;
+            }
+            apart.Add(MathF.Sqrt(((moon.X - earth.X) * (moon.X - earth.X)) + ((moon.Y - earth.Y) * (moon.Y - earth.Y))));
             if (labels.Where(l => l.Index == CatalogIndex.Moon).Select(l => l.Rect).FirstOrDefault() is { Width: > 0 } label)
             {
                 moonDrawn++;
@@ -539,8 +557,18 @@ public sealed class OrreryTests(ITestOutputHelper output)
                 (((lx - moon.X) * ux) + ((ly - moon.Y) * uy)).ShouldBeGreaterThan(0, $"frame {frame}: the Moon's label is on the Earth's side");
             }
         }
-        output.WriteLine($"{focus}: the Moon's label drawn in {moonDrawn} of {Frames} frames");
-        moonDrawn.ShouldBeGreaterThan(Frames / 2);
+        output.WriteLine($"{focus} x{zoom}: the Moon drawn in {apart.Count} of {Frames} frames, its label in {moonDrawn}");
+        if (apart.Count == 0)
+        {
+            // At the default framing of 2026-10-13 Venus is days from inferior conjunction, beside the Earth: the Moon stays hidden.
+            zoom.ShouldBe(1.0, "zoomed in, the Moon must be drawn");
+            return;
+        }
+        output.WriteLine($"{focus} x{zoom}: the drawn Earth-Moon distance runs {apart.Min():F1} to {apart.Max():F1} px over the month: "
+            + string.Join(" ", apart.Where((_, i) => i % 6 == 0).Select(d => d.ToString("F0"))));
+        // A steady size: the drawn distance within a few percent across the month (only its direction turns).
+        (apart.Max() / apart.Min()).ShouldBeLessThan(1.05f, "the Moon's drawn distance from the Earth swells and shrinks: a spiral");
+        moonDrawn.ShouldBeGreaterThan(apart.Count / 2);
     }
 
     // Sirius (HIP 32349) and Polaris (HIP 11767), J2000.
@@ -744,6 +772,25 @@ public sealed class OrreryTests(ITestOutputHelper output)
         }
         output.WriteLine(offending.Count == 0 ? "no body behind the Sun painted over it" : string.Join("\n", offending.Take(10)));
         offending.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// The Moon as the last frame drew it, true; or false when it was not drawn, which is only allowed with Venus within twice the
+    /// Moon's reach of the Earth on screen (D2: the Moon is hidden rather than drawn among the planets).
+    /// </summary>
+    private static bool MoonDrawnOrCrowdedOut(Rig rig, out (CatalogIndex Index, float X, float Y, float Radius) moon)
+    {
+        var drawn = rig.Tab.OrreryDrawn;
+        moon = drawn.FirstOrDefault(d => d.Index == CatalogIndex.Moon);
+        if (moon.Index == CatalogIndex.Moon)
+        {
+            return true;
+        }
+        var earth = drawn.Single(d => d.Index == CatalogIndex.Earth);
+        var venus = drawn.Single(d => d.Index == CatalogIndex.Venus);
+        MathF.Sqrt(((venus.X - earth.X) * (venus.X - earth.X)) + ((venus.Y - earth.Y) * (venus.Y - earth.Y)))
+            .ShouldBeLessThan(2 * rig.Tab.LastMoonReach, "the Moon is missing with Venus far from the Earth");
+        return false;
     }
 
     private static bool PanelOffersTheOrrery(Rig rig)
