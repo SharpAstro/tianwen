@@ -9,24 +9,24 @@ namespace TianWen.Lib.Imaging.Planetary;
 public static class PlanetaryGainsModels
 {
     /// <summary>
-    /// The EdgeHD 11 Jupiter of 2023-11-11 (a 280 mm pupil 37.5 % obstructed, 0.1032"/px, an ASI678MC at 610, 535 and 460 nm): 24 twins
-    /// of that capture (0 of them warped or blurred past what the air gives, as the real stack is), the gains bands 1 to 4 from
-    /// the limb's edge at 0.1 cycles a pixel. It applies only at that sampling (each colour's pupil cutoff within
+    /// The EdgeHD 11 Jupiter of 2023-11-11 (a 280 mm pupil 37.5 % obstructed, 0.1032"/px, an ASI678MC at 610, 535 and 460 nm): 40 twins
+    /// of that capture (16 of them warped or blurred past what the air gives, as the real stack is), the gains bands 1 to 4 from
+    /// the light just outside the limb. It applies only at that sampling (each colour's pupil cutoff within
     /// <see cref="PlanetaryGainsModel.CutoffTolerance"/>) and inside its twins' readings.
     /// </summary>
-    public static readonly PlanetaryGainsModel EdgeHd11Jupiter = new("the EdgeHD 11 Jupiter of 2023-11-11, 24 twins", [PlanetaryGainsModel.EdgeReading],
+    public static readonly PlanetaryGainsModel EdgeHd11Jupiter = new("the EdgeHD 11 Jupiter of 2023-11-11, 40 twins", [PlanetaryGainsModel.GlowReading],
     [
-        // Red: ridge strength 1, leave-one-out squared error 46.35 over the training twins.
-        new PlanetaryGainsModel.Colour(Mean: [0.4527916666666667], Spread: [0.039451424950620706], Low: [0.4], High: [0.537],
-            Cutoff: 0.23, Weights: [[-0.042187322819497115], [0.5700212357156091], [-2.350462206470624], [0.44303722926934813]],
-            Intercepts: [-0.08375000000000005, 1.4287500000000004, 5.544583333333332, 0.6262500000000003]),
-        // Green: ridge strength 0.3, leave-one-out squared error 13.79 over the training twins.
-        new PlanetaryGainsModel.Colour(Mean: [0.4990833333333333], Spread: [0.05564389504399242], Low: [0.41], High: [0.601],
-            Cutoff: 0.262, Weights: [[0.029054417542098664], [-0.28437867061452216], [-1.0093129818057174], [0.2112184602420926]],
-            Intercepts: [-0.19291666666666665, 3.4158333333333326, 3.2295833333333333, 1.0308333333333335]),
-        // Blue: ridge strength 1, leave-one-out squared error 35.12 over the training twins.
-        new PlanetaryGainsModel.Colour(Mean: [0.36333333333333334], Spread: [0.04995970598714669], Low: [0.285], High: [0.492],
-            Cutoff: 0.3045, Weights: [[-0.015697984029341118], [0.3256918019389107], [-1.8101601056941503], [0.45116625265966426]],
-            Intercepts: [-0.2266666666666667, 2.7841666666666667, 5.638333333333334, 0.6408333333333335]),
+        // Red: ridge strength 1, leave-one-out squared error 291.48 over the training twins.
+        new PlanetaryGainsModel.Colour(Mean: [2.1264036080921587], Spread: [0.23470630687429703], Low: [1.573940492930125], High: [2.6023346011554014],
+            Cutoff: 0.229, Weights: [[0.07252009593240068], [-1.015367658387255], [2.649323389318078], [-0.4228631122878871]],
+            Intercepts: [-0.04499999999999988, 0.7214999999999985, 6.875000000000006, 0.35174999999999923]),
+        // Green: ridge strength 1, leave-one-out squared error 545.93 over the training twins.
+        new PlanetaryGainsModel.Colour(Mean: [2.422701398587191], Spread: [0.35650404759452514], Low: [1.8335957971359447], High: [3.2748506483636377],
+            Cutoff: 0.261, Weights: [[0.07304610811985185], [-1.3910268259582275], [4.155871147012841], [-0.7381669235025878]],
+            Intercepts: [-0.15775000000000006, 2.5334999999999996, 6.306500000000002, 0.3834999999999998]),
+        // Blue: ridge strength 1, leave-one-out squared error 606.34 over the training twins.
+        new PlanetaryGainsModel.Colour(Mean: [3.1449559112101704], Spread: [0.43380936016897714], Low: [2.463700642598963], High: [4.194979724597219],
+            Cutoff: 0.3035, Weights: [[0.14775015815315967], [-1.6543378458734803], [3.0699280906920348], [-0.2348723037054464]],
+            Intercepts: [-0.11800000000000005, 1.40475, 7.7524999999999995, 0.36225]),
     ]);
 }
