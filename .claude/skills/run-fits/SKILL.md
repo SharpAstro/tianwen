@@ -36,6 +36,11 @@ second launch on the same folder passes its file to the window already open (`--
 fixed sleep; `Get-Process -Id <pid>` says whether it still runs. `-Validation` / `-SyncValidation` load the
 Vulkan validation layers exactly as for the GUI (Debug only, slow; for GPU bugs only).
 
+**The launcher starts the viewer LOCAL-ONLY** (`TIANWEN_LOCAL_ONLY=1` unless you set it), so a build in a new
+folder raises no firewall prompt: the inspector then answers no multicast discovery and `list_instances` does not
+list it; its loopback port is in `fitsviewer-stderr.log` (`[inspector] 'FitsViewer' command server on
+127.0.0.1:N (discovery off)`). `TIANWEN_LOCAL_ONLY=0` brings discovery back at the price of that prompt: ask first.
+
 **After it closes or crashes, read `src/fitsviewer-stderr.log`** (font atlas diagnostics, shader errors, .NET
 exceptions). A detached app hands back no exit code; a native crash that writes nothing there shows in the
 Windows Application log (`Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = '.NET Runtime', 'Application Error' } -MaxEvents 5`).
