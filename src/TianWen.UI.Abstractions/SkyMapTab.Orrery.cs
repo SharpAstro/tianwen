@@ -48,6 +48,7 @@ namespace TianWen.UI.Abstractions
         {
             var orrery = State.Orrery;
             orrery.Focus = State.Search.InfoPanel is { Index: { } index } && index.IsSolarSystemObject ? index : null;
+            orrery.Comet = orrery.Focus is { } focus && focus.ToCatalog() == Catalog.Comet ? focus : null;
             orrery.IsOpen = true;
             orrery.Dragging = false;
             _orreryFramePending = true;
@@ -116,8 +117,8 @@ namespace TianWen.UI.Abstractions
             var viewingTime = ResolveViewingTime(plannerState, timeProvider);
 
             CometElements? comet = null;
-            if (orrery.Focus is { } focus && focus.ToCatalog() == Catalog.Comet
-                && plannerState.Comets is { } comets && comets.TryGet(focus, out var elements))
+            if (orrery.Comet is { } cometIndex
+                && plannerState.Comets is { } comets && comets.TryGet(cometIndex, out var elements))
             {
                 comet = elements;
             }

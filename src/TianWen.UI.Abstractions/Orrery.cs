@@ -34,6 +34,12 @@ public sealed class OrreryState
     /// <summary>The body the view was opened on, highlighted and framed; null when it was opened with no solar-system body selected.</summary>
     public CatalogIndex? Focus { get; internal set; }
 
+    /// <summary>
+    /// The comet the view was opened on, drawn with its orbit until the view closes. Apart from <see cref="Focus"/>, which a click
+    /// moves: a click on a planet moves the highlight and must not take the comet away.
+    /// </summary>
+    public CatalogIndex? Comet { get; internal set; }
+
     /// <summary>The camera's longitude about the ecliptic pole, degrees (ecliptic of J2000).</summary>
     public double AzimuthDeg { get; set; } = -90;
 
