@@ -20,6 +20,11 @@ using TianWen.UI.Shared;
 using static SDL3.SDL;
 using SharpAstro.AppShell;
 
+// Whether this process binds nothing but loopback (TIANWEN_LOCAL_ONLY, which an agent's launcher sets so a build in a
+// fresh folder raises no firewall prompt): no LAN discovery, an inspector that answers no multicast, and a node started
+// local-only. Decided once, here.
+var localOnly = LocalOnlyMode.OfThisProcess();
+
 // DI setup
 var services = new ServiceCollection();
 services
@@ -41,15 +46,21 @@ services
     .AddSingleton<PlanetaryCaptureController>()
     // The Preview mode's live view (#1111): the node streams the camera, the preview pane shows it.
     .AddSingleton<LiveViewController>()
-    // LAN peer discovery (docs/plans/remote-profile.md): symmetric beacon so the Equipment tab's
-    // no-profile screen can list tianwen-server rigs on the LAN. ServicePort 0 -- the GUI serves no
-    // inbound channel of its own, it only discovers.
-    .AddLanDiscovery(o =>
+    .AddSingleton(sp => new GuiAppState { PeerTable = sp.GetService<IPeerTable>() });
+
+// LAN peer discovery (docs/plans/remote-profile.md): symmetric beacon so the Equipment tab's
+// no-profile screen can list tianwen-server rigs on the LAN. ServicePort 0 -- the GUI serves no
+// inbound channel of its own, it only discovers. Not in a local-only process: the transport binds
+// the discovery port on every interface whatever it is told to do, so there is no transport at all,
+// the peer table is null, and a rig bound by address is still reached by its last address.
+if (localOnly.MayBindTheNetwork)
+{
+    services.AddLanDiscovery(o =>
     {
         o.ServiceName = "tianwen-gui";
         o.ServicePort = 0;
-    })
-    .AddSingleton(sp => new GuiAppState { PeerTable = sp.GetService<IPeerTable>() });
+    });
+}
 
 var sp = services.BuildServiceProvider();
 var appState = sp.GetRequiredService<GuiAppState>();
@@ -65,20 +76,28 @@ var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("TianWen.UI.Gu
 // before anything touches Vulkan.
 SdlVulkanLog.Logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("SdlVulkan.Renderer");
 
-var lanDiscovery = sp.GetRequiredService<LanDiscovery>();
-
-// A transport that could not bind the discovery port runs ANNOUNCE-ONLY: this node still beacons but
-// will never see a peer, so the Equipment tab's rig list stays empty and looks like a network with
-// nothing on it. Exactly one warning, which is what LanDiscoveryHostedService does for the server --
-// the GUI drives the lifecycle by hand, so it owes the same line. Known at construction (the bind is
-// in UdpLanTransport's ctor), so reading it before StartAsync is deliberate rather than early.
-if (lanDiscovery.Degradation is { } lanDegradation)
+// Null in a local-only process, which registered none.
+var lanDiscovery = sp.GetService<LanDiscovery>();
+if (lanDiscovery is not null)
 {
-    logger.LogWarning("{Degradation}", lanDegradation);
-}
+    // A transport that could not bind the discovery port runs ANNOUNCE-ONLY: this node still beacons but
+    // will never see a peer, so the Equipment tab's rig list stays empty and looks like a network with
+    // nothing on it. Exactly one warning, which is what LanDiscoveryHostedService does for the server --
+    // the GUI drives the lifecycle by hand, so it owes the same line. Known at construction (the bind is
+    // in UdpLanTransport's ctor), so reading it before StartAsync is deliberate rather than early.
+    if (lanDiscovery.Degradation is { } lanDegradation)
+    {
+        logger.LogWarning("{Degradation}", lanDegradation);
+    }
 
-lanDiscovery.Changed += () => appState.NeedsRedraw = true;
-await lanDiscovery.StartAsync();
+    lanDiscovery.Changed += () => appState.NeedsRedraw = true;
+    await lanDiscovery.StartAsync();
+}
+else
+{
+    logger.LogInformation("Local-only ({EnvVar}): no LAN discovery, so no LAN rig is listed; this window and its node bind nothing but loopback",
+        LocalOnlyMode.EnvironmentVariable);
+}
 
 var plannerState = sp.GetRequiredService<PlannerState>();
 var viewerState = sp.GetRequiredService<ViewerState>();
@@ -263,8 +282,8 @@ var appQuit = new AppQuit(appState, guiRenderer.ViewContexts, rigShutdown, track
 bus.Subscribe<AnswerQuitSignal>(sig => appQuit.Answer(sig.Action));
 // This computer's node, found or started (P6): it holds the rig, and the local view reads it as it reads a rig. In the
 // background, since a node can take seconds to come up and the window says so meanwhile; the profile, the planner's start
-// and the session setup follow once it answers.
-tracker.Run(() => signalHandler.ConnectLocalNodeAsync(new LocalNodeOptions(), requestedProfile, includeFake: false, backgroundCts.Token),
+// and the session setup follow once it answers. A node it starts is in this window's mode (local-only or not).
+tracker.Run(() => signalHandler.ConnectLocalNodeAsync(new LocalNodeOptions { LocalOnly = localOnly }, requestedProfile, includeFake: false, backgroundCts.Token),
     "Connect to this computer's node");
 
 
@@ -692,6 +711,8 @@ loop.OnQuit = () =>
 using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
 {
     AppName = "TianWen",
+    // Multicast discovery binds UDP 47892 on every interface; a local-only process keeps the loopback command server only.
+    EnableDiscovery = localOnly.MayBindTheNetwork,
     WindowTitle = () => lastWindowTitle,
     // Chrome + navigation rail + active tab, rebuilt each frame and composed by the RENDERER: which
     // widgets make up a frame is its knowledge, not this host's, and assembling the list here meant a
@@ -847,11 +868,14 @@ async Task DrainShutdownAsync()
     await liveView.DisposeAsync();
 
     // Say bye so peers drop us promptly (expiry is the fallback for an unclean exit).
-    await lanDiscovery.SendByeAsync();
+    if (lanDiscovery is not null)
+    {
+        await lanDiscovery.SendByeAsync();
+    }
 }
 
 ShutdownDrain.PumpUntilComplete(loop, DrainShutdownAsync(), logger);
-lanDiscovery.Dispose();
+lanDiscovery?.Dispose();
 
 // The GPU trio (guiRenderer, renderer and the Vulkan context) is disposed by `using var gpu` at
 // scope end, top-down, still ahead of sdlWindow's own using.
