@@ -47,6 +47,12 @@
     <PackageReference Include="LAN.Lib" />
   </ItemGroup>
 
+  <!-- The sky atlas's offline planet textures (PlanetTextureAtlas, tools/bake-planet-textures): copied beside every app that
+       draws the atlas, where PlanetTextures reads it on first use. The browser fetches the same file from its wwwroot. -->
+  <ItemGroup>
+    <None Include="Resources\planet-textures.png" Link="planet-textures.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- SharpAstro.Png + SharpAstro.Color.Icc: MasterPreviewRenderer emits the
        cICP-tagged PNG via PngWriter; the cICP enums (ColorPrimaries /
        TransferFunction / MatrixCoefficients) come from SharpAstro.Color.Icc. -->

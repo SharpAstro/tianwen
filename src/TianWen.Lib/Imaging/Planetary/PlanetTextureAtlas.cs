@@ -1,0 +1,131 @@
+using System;
+using System.Collections.Immutable;
+using SharpAstro.Png;
+using TianWen.Lib.Astrometry.Catalogs;
+
+namespace TianWen.Lib.Imaging.Planetary;
+
+/// <summary>
+/// The sky atlas's offline planet textures (docs/plans/atlas-planet-detail.md, "A4: the textured disc"): ONE baked PNG,
+/// <c>planet-textures.png</c>, holding every textured body's global colour map at <see cref="CellWidth"/> by
+/// <see cref="CellHeight"/>, two to a row in <see cref="Layout"/> order, each already in <see cref="PlanetMap"/>'s convention
+/// (planetographic latitude, WEST longitude, column 0 at 0 degrees) with its poles filled. <c>tools/bake-planet-textures</c>
+/// writes it; its sources and licences are in that tool's README and in <see cref="Credit"/>. The Sun needs no texture.
+/// </summary>
+public static class PlanetTextureAtlas
+{
+    /// <summary>The file the desktop hosts find beside the executable and the browser fetches beside the page.</summary>
+    public const string FileName = "planet-textures.png";
+
+    /// <summary>A cell's width, samples around the full circle of longitude.</summary>
+    public const int CellWidth = 256;
+
+    /// <summary>A cell's height, samples from pole to pole.</summary>
+    public const int CellHeight = 128;
+
+    /// <summary>Cells across the atlas.</summary>
+    public const int Columns = 2;
+
+    /// <summary>The bodies in the atlas, in cell order: row by row, left to right.</summary>
+    public static ImmutableArray<CatalogIndex> Layout { get; } =
+    [
+        CatalogIndex.Mercury, CatalogIndex.Venus,
+        CatalogIndex.Moon, CatalogIndex.Mars,
+        CatalogIndex.Jupiter, CatalogIndex.Saturn,
+        CatalogIndex.Uranus, CatalogIndex.Neptune,
+    ];
+
+    /// <summary>The atlas's width in pixels.</summary>
+    public static int Width => CellWidth * Columns;
+
+    /// <summary>The atlas's height in pixels.</summary>
+    public static int Height => CellHeight * ((Layout.Length + Columns - 1) / Columns);
+
+    /// <summary>
+    /// Where each map came from, as a credit line shows it. The four giants are OPAL's colour composites, whose filters are not the
+    /// eye's: a "colour rendering", never true colour.
+    /// </summary>
+    public static string Credit(CatalogIndex body) => body switch
+    {
+        CatalogIndex.Moon => "NASA SVS / LRO LROC WAC (public domain)",
+        CatalogIndex.Mercury or CatalogIndex.Venus or CatalogIndex.Mars => "Solar System Scope, from NASA data (CC BY 4.0)",
+        CatalogIndex.Jupiter or CatalogIndex.Saturn or CatalogIndex.Uranus or CatalogIndex.Neptune => "OPAL (HST), colour rendering",
+        _ => "",
+    };
+
+    /// <summary>The top-left pixel of <paramref name="body"/>'s cell, or false for a body the atlas does not hold.</summary>
+    public static bool TryCell(CatalogIndex body, out int x, out int y)
+    {
+        var i = Layout.IndexOf(body);
+        x = i < 0 ? 0 : (i % Columns) * CellWidth;
+        y = i < 0 ? 0 : (i / Columns) * CellHeight;
+        return i >= 0;
+    }
+
+    /// <summary>
+    /// Every body's map from the atlas PNG's bytes; empty for bytes that are not a PNG of the atlas's size, so a missing or stale file
+    /// leaves the atlas drawing dots, never a wrong texture.
+    /// </summary>
+    public static ImmutableDictionary<CatalogIndex, PlanetColourMap> Decode(ReadOnlySpan<byte> png)
+    {
+        if (!PngImageDecoder.TryReadInfo(png, out var info) || info.Width != Width || info.Height != Height)
+        {
+            return ImmutableDictionary<CatalogIndex, PlanetColourMap>.Empty;
+        }
+        var rgba = new byte[Width * Height * 4];
+        if (!PngImageDecoder.TryDecodeIntoRgba8(png, rgba))
+        {
+            return ImmutableDictionary<CatalogIndex, PlanetColourMap>.Empty;
+        }
+        var builder = ImmutableDictionary.CreateBuilder<CatalogIndex, PlanetColourMap>();
+        var cell = new byte[CellWidth * CellHeight * 3];
+        foreach (var body in Layout)
+        {
+            TryCell(body, out var x0, out var y0);
+            for (var y = 0; y < CellHeight; y++)
+            {
+                for (var x = 0; x < CellWidth; x++)
+                {
+                    var si = (((y0 + y) * Width) + x0 + x) * 4;
+                    var di = ((y * CellWidth) + x) * 3;
+                    cell[di] = rgba[si];
+                    cell[di + 1] = rgba[si + 1];
+                    cell[di + 2] = rgba[si + 2];
+                }
+            }
+            builder[body] = PlanetColourMap.FromRgb8(cell, CellWidth, CellHeight);
+        }
+        return builder.ToImmutable();
+    }
+
+    /// <summary>
+    /// The atlas PNG from a map per body (the bake's last step): each map sampled at its cell's sample centres into 8 bits. A body the
+    /// dictionary lacks leaves its cell black.
+    /// </summary>
+    public static byte[] Encode(ImmutableDictionary<CatalogIndex, PlanetColourMap> maps)
+    {
+        var rgb = new byte[Width * Height * 3];
+        foreach (var body in Layout)
+        {
+            if (!maps.TryGetValue(body, out var map) || !TryCell(body, out var x0, out var y0))
+            {
+                continue;
+            }
+            for (var y = 0; y < CellHeight; y++)
+            {
+                var latitude = 90 - ((y + 0.5) * 180.0 / CellHeight);
+                for (var x = 0; x < CellWidth; x++)
+                {
+                    var west = 360 - ((x + 0.5) * 360.0 / CellWidth);
+                    var o = (((y0 + y) * Width) + x0 + x) * 3;
+                    rgb[o] = ToByte(map.Red.Sample(latitude, west));
+                    rgb[o + 1] = ToByte(map.Green.Sample(latitude, west));
+                    rgb[o + 2] = ToByte(map.Blue.Sample(latitude, west));
+                }
+            }
+        }
+        return PngWriter.EncodeRgb8(rgb, Width, Height);
+    }
+
+    private static byte ToByte(double value) => (byte)Math.Clamp(Math.Round(value * 255), 0, 255);
+}
