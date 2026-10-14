@@ -413,6 +413,12 @@ namespace TianWen.UI.Abstractions
         public bool NeedsRedraw { get; set; } = true;
 
         /// <summary>
+        /// A STANDING reason to draw every frame, which no frame consumes: the orrery playing (its clock runs on the wall clock).
+        /// <see cref="NeedsRedraw"/> cannot carry it, since a host clears that flag after the frame that set it.
+        /// </summary>
+        public bool NeedsContinuousFrames => Orrery.IsOpen && Orrery.Playing;
+
+        /// <summary>
         /// F3 search modal + info panel state. Owned by the sky map (not cross-component)
         /// so it lives here rather than on <see cref="PlannerState"/>.
         /// </summary>
