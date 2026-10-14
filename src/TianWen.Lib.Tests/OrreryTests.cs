@@ -1092,6 +1092,19 @@ public sealed class OrreryTests(ITestOutputHelper output)
             output.WriteLine(path);
             rig.Tab.OrreryDrawn.Select(d => d.Index).ShouldContain(CatalogIndex.Jupiter);
         }
+
+        // Auto at two more zooms (the inner system, and the farthest the zoom goes) and the nearest, on the Sun.
+        rig.Tab.State.Orrery.Scale = OrreryScale.Auto;
+        foreach (var (name, reach) in new[] { ("auto-inner", 2.0), ("auto-out", 50.0), ("sun", 0.25) })
+        {
+            rig.Tab.State.Orrery.Distance = OrreryCamera.DistanceToFrame(reach);
+            await SettleAsync(rig);
+            await rig.Tab.OrrerySprites.WhenBuiltAsync();
+            rig.Render();
+            var path = Path.Combine(folder, $"orrery-{name}.png");
+            await File.WriteAllBytesAsync(path, PngWriter.Encode(rig.Renderer.Surface.Pixels, Width, Height), TestContext.Current.CancellationToken);
+            output.WriteLine(path);
+        }
     }
 }
 
