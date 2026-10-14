@@ -133,6 +133,34 @@ the same coordinate space. `ConvergeStretchFactor` takes a `whiteBalance` scalar
 in post-WB space (median, mad, binNorm all multiplied) so the converged stretchFactor matches the
 per-channel rendering.
 
+## The statistics a stretch is built on must resolve the frame's own noise
+
+Every curve here starts from a channel's median and MAD (`Image.GetPedestralMedianAndMADScaledToUnit`,
+`Image.GetStats`), read off a histogram. A unit-scaled frame is binned at 1/65535, which is far finer than a
+normal sky needs, and not fine enough for one sky: an **enhanced narrowband master**. The eta Carinae 2026-02-20
+pier A master, after the RC-Astro enhance, had its sky at about 1e-4 of full scale with a noise MAD of 0.2 to 0.5
+of a bin (medians 5.08 / 11.42 / 6.53 bins, MADs 0.52 / 0.33 / 0.20, measured exactly on its pixels). The coarse
+walk took each median as a whole bin and floored every MAD at half a bin, so the three channels of the Unlinked
+stretch (a line-selective frame's) were curved on numbers the rounding chose. That card rendered green (sky
+52 / 59 / 44) while its raw view and its pier B sibling, whose rounding fell differently, did not.
+
+So a **float** frame whose coarse MAD is under `Image.RefineBelowMadBins` (8) is read again on a zoomed histogram,
+the same `Traverse` kernel with the scale multiplied by 256 and the pedestal moved to a window 64 coarse bins either
+side of the coarse median (`Image.RefineStretchStats`). The median is taken against the COARSE count, since the zoom
+drops what lies above its window and piles what lies below into its first bin; the window is eight times the widest
+MAD refined, so the MAD's walk never reaches either edge. The MAD floor is then half a FINE bin. After it, all four
+eta Carinae renders (both piers, raw and enhanced) read a sky of 51 / 51 / 51.
+
+Two cases keep the coarse walk, both deliberately:
+
+- **An integer source** (`BitDepth` integral, a 16-bit frame scaled to unit included). Its samples sit on a lattice
+  no finer than a coarse bin, so a zoom only reads the lattice back, and it would move a MAD the coarse walk
+  interpolated (0.667 bins on a 40/30/30 three-level sky) to the lattice's 1. No frame gains from that.
+- **A float frame that is one value** (a constant plane): the zoom finds it in a single fine bin, a MAD under one
+  fine bin, and the coarse statistics and their half-bin floor stand.
+
+Pinned by `FaintFrameStretchStatsTests`, whose faint-sky rows fail with the refinement switched off.
+
 ## The SPCC / Calibrate toggle gates the RENDER, not the measurement
 
 `ComputeStretchUniforms` and `ComputeBackgroundNeutralization` take `applyColorCalibration` (from

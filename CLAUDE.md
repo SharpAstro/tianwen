@@ -1532,6 +1532,9 @@ measurements: `docs/architecture/stretch-pipeline.md`** (and `stacking-render-pi
   `StretchMode.None` linear path too, mono excepted.
 - **Luma weights live in `StretchUniforms.LumaWeights`** (Rec.709 default, `SensorMatched` from QE x
   CFA); never hardcode Rec.709.
+- **A stretch's median and MAD must resolve the frame's own noise**: a float frame whose MAD is under 8 of
+  the 1/65535 bins is read again zoomed (`Image.RefineStretchStats`), integer sources never are. A faint
+  enhanced narrowband sky read coarse rendered a green card (`FaintFrameStretchStatsTests`).
 
 ### Layout DSL (`DIR.Lib.Layout`)
 
