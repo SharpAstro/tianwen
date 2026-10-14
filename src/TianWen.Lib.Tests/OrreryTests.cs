@@ -190,11 +190,11 @@ public sealed class OrreryTests(ITestOutputHelper output)
         public void Dispose() => Renderer.Dispose();
     }
 
-    private static async Task<Rig> RigAsync(System.Threading.CancellationToken cancellationToken)
+    private static async Task<Rig> RigAsync(System.Threading.CancellationToken cancellationToken, float dpiScale = 1f)
     {
         var db = await SharedCatalogDB.InitAsync(cancellationToken);
         var renderer = new RgbaImageRenderer(Width, Height);
-        var tab = new SkyMapTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+        var tab = new SkyMapTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont(), DpiScale = dpiScale };
         var planner = new PlannerState
         {
             ObjectDb = db, SiteLatitude = 48.0, SiteLongitude = 11.0, SiteTimeZone = TimeSpan.FromHours(1), PlanningDate = Instant,
@@ -262,6 +262,56 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Tab.State.Orrery.IsOpen.ShouldBeFalse();
         rig.Tab.State.Search.InfoPanel.ShouldBe(selection);
         rig.Tab.State.ShowMilkyWay.ShouldBe(milkyWay);
+    }
+
+    private static RectF32[] PaintedButtons(Rig rig, params string[] actions)
+        => [.. actions.Select(action => rig.Tab.GetCapturedLayout()
+            .Single(n => n.Node.Hit is HitResult.ButtonHit { Action: var a } && a == action).Bounds)
+            .Select(b => new RectF32(b.X, b.Y, b.Width, b.Height))];
+
+    private static void SideBySide(RectF32[] rects, float left, float right)
+    {
+        foreach (var rect in rects)
+        {
+            rect.Width.ShouldBeGreaterThan(0);
+            rect.X.ShouldBeGreaterThanOrEqualTo(left - 0.5f);
+            (rect.X + rect.Width).ShouldBeLessThanOrEqualTo(right + 0.5f);
+        }
+        for (var i = 0; i + 1 < rects.Length; i++)
+        {
+            (rects[i].X + rects[i].Width).ShouldBeLessThanOrEqualTo(rects[i + 1].X + 0.5f, $"button {i} runs into button {i + 1}");
+        }
+    }
+
+    /// <summary>
+    /// At 1x and 1.5x: the panel's four buttons sit side by side inside the panel, the strip's Sky, scale and Play side by side
+    /// inside the window's bottom row, and a press where True was PAINTED switches the scale.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task ThePanelAndTheStripLayOutAtEitherScale(float dpiScale)
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale);
+        Select(rig, CatalogIndex.Jupiter);
+        rig.Render();
+        var panelLeft = 12f * dpiScale;
+        SideBySide(PaintedButtons(rig, "ObjectInfoGoto", "ObjectInfoViewInPlanner", "ObjectInfoPinToggle", ObjectInfoPanel.OrreryAction),
+            panelLeft, panelLeft + (ObjectInfoPanel.DesignWidth * dpiScale));
+
+        rig.Tab.OpenOrrery();
+        rig.Render();
+        var strip = PaintedButtons(rig, "OrreryClose", "OrreryScale:Compressed", "OrreryScale:True", "OrreryPlay");
+        SideBySide(strip, 0, Width);
+        foreach (var rect in strip)
+        {
+            rect.Y.ShouldBeGreaterThanOrEqualTo(Height - (24f * dpiScale) - 0.5f);
+        }
+
+        var trueButton = strip[2];
+        rig.Router.Handle(new InputEvent.MouseDown(trueButton.X + (trueButton.Width / 2), trueButton.Y + (trueButton.Height / 2)));
+        rig.Router.Handle(new InputEvent.MouseUp(trueButton.X + (trueButton.Width / 2), trueButton.Y + (trueButton.Height / 2)));
+        rig.Tab.State.Orrery.Scale.ShouldBe(OrreryScale.True);
     }
 
     /// <summary>

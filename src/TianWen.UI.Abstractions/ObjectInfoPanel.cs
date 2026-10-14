@@ -625,10 +625,10 @@ namespace TianWen.UI.Abstractions
 
             // Up to four buttons, each present only if it has a handler, separated by fixed gaps. Every one
             // that can act lights under the pointer; a disabled Goto does not, since nothing would happen. A
-            // solar-system body's fourth, the orrery, narrows the row's buttons so all four fit the panel.
-            var narrow = actions.Orrery is not null;
-            var buttonWidth = narrow ? 64f : 90f;
-            var viewWidth = narrow ? 112f : 116f;
+            // solar-system body's fourth, the orrery, makes every button the engine's measure of its label and
+            // padding, so all four fit the panel whatever they say; a row of three keeps its widths.
+            var measured = actions.Orrery is not null;
+            Layout.Node Sized(Layout.Node node, float width) => measured ? node.PadX(10f) : node.WFixed(width);
             var parts = new System.Collections.Generic.List<Layout.Node>(9)
             {
                 Layout.Builder.Spacer().WStar(),
@@ -645,9 +645,8 @@ namespace TianWen.UI.Abstractions
 
             if (actions.Goto is { } go)
             {
-                var node = Layout.Builder
-                    .Text("Goto", dFont, palette.ButtonText, TextAlign.Center, TextAlign.Center)
-                    .WFixed(buttonWidth).HStar()
+                var node = Sized(Layout.Builder
+                    .Text("Goto", dFont, palette.ButtonText, TextAlign.Center, TextAlign.Center), 90f).HStar()
                     .Bg(actions.GotoEnabled ? palette.GotoBg : palette.DisabledBg);
                 if (actions.GotoEnabled)
                 {
@@ -660,10 +659,9 @@ namespace TianWen.UI.Abstractions
             if (actions.ViewInPlanner is { } view)
             {
                 // Wider and a smaller font than its neighbours: the longer label clipped at 90.
-                Add(Layout.Builder
+                Add(Sized(Layout.Builder
                     .Text("View in Planner", dFont * 0.9f, palette.ButtonText,
-                        TextAlign.Center, TextAlign.Center)
-                    .WFixed(viewWidth).HStar().Bg(palette.ViewBg)
+                        TextAlign.Center, TextAlign.Center), 116f).HStar().Bg(palette.ViewBg)
                     .BgHover(ButtonHover(palette.ViewBg, in palette))
                     .Clickable(new HitResult.ButtonHit("ObjectInfoViewInPlanner"), _ => view()));
             }
@@ -671,10 +669,9 @@ namespace TianWen.UI.Abstractions
             if (actions.TogglePin is { } pin)
             {
                 var pinFill = actions.IsPinned ? palette.UnpinBg : palette.PinBg;
-                Add(Layout.Builder
+                Add(Sized(Layout.Builder
                     .Text(actions.IsPinned ? "Unpin" : "Pin", dFont, palette.ButtonText,
-                        TextAlign.Center, TextAlign.Center)
-                    .WFixed(buttonWidth).HStar()
+                        TextAlign.Center, TextAlign.Center, widthSample: "Unpin"), 90f).HStar()
                     .Bg(pinFill)
                     .BgHover(ButtonHover(pinFill, in palette))
                     .Clickable(new HitResult.ButtonHit("ObjectInfoPinToggle"), _ => pin()));
@@ -684,7 +681,7 @@ namespace TianWen.UI.Abstractions
             {
                 Add(Layout.Builder
                     .Text("Orrery", dFont, palette.ButtonText, TextAlign.Center, TextAlign.Center)
-                    .WFixed(buttonWidth).HStar()
+                    .PadX(10f).HStar()
                     .Bg(palette.ViewBg)
                     .BgHover(ButtonHover(palette.ViewBg, in palette))
                     .Clickable(new HitResult.ButtonHit(OrreryAction), _ => orrery())

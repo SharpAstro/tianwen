@@ -299,8 +299,9 @@ the Sun, is why Venus is a crescent, and the angle between them at the planet is
   (the FITS viewer's backdrop) never calls `Render`, so it never shows it.
 - **The way in is the panel's Orrery button** (`ObjectInfoPanel.PanelActions.Orrery`, `ObjectInfoPanel.OrreryAction`),
   offered when the selection's index is a solar-system body (`CatalogIndex.IsSolarSystemObject`: a planet, the Sun,
-  the Moon, a comet) and for nothing else. With four buttons the row narrows its widths (64, the planner's 112) so
-  all four fit the panel's 348. **Alt+S** opens it too, and closes it: a DECLARED node shortcut
+  the Moon, a comet) and for nothing else. With four buttons each is the engine's measure of its label and
+  padding, never a width picked to fit, so all four fit the panel's 348 at any scale (a row of three keeps its widths;
+  `OrreryTests.ThePanelAndTheStripLayOutAtEitherScale` checks both rows side by side at 1x and 1.5x). **Alt+S** opens it too, and closes it: a DECLARED node shortcut
   (`RenderOrreryBinding`, `.WithShortcut(InputKey.S, InputModifier.Alt)`), never an arm in `HandleKey`, where
   `SkyMapLayers.TryToggleByKey` ignores modifiers and would toggle the Milky Way. The atlas has no shortcuts panel of
   its own; its help is the info strip's key legend, which names `[Alt+S] solar system` only while the layer palette
