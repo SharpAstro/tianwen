@@ -390,6 +390,38 @@ public sealed class OrreryTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// Ten minutes on another tab is one frame's gap when the view comes back: Play steps at most
+    /// <see cref="SkyMapTab{TSurface}.MaxPlayStep"/> of the wall clock a frame (a day at 10 days a second), never sixteen years.
+    /// A frame a sixtieth of a second on steps the sixtieth.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task PlayCannotJumpAfterTimeAway()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Select(rig, CatalogIndex.Mars);
+        rig.Tab.OpenOrrery();
+        var clock = new FakeTimeProviderWrapper(Instant);
+        rig.Tab.Render(rig.Planner, rig.Content, clock);
+        var play = PaintedButtons(rig, "OrreryPlay")[0];
+        rig.Router.Handle(new InputEvent.MouseDown(play.X + (play.Width / 2), play.Y + (play.Height / 2)));
+        rig.Router.Handle(new InputEvent.MouseUp(play.X + (play.Width / 2), play.Y + (play.Height / 2)));
+        rig.Tab.Render(rig.Planner, rig.Content, clock);
+
+        var before = rig.Tab.State.TimeOffset;
+        clock.Advance(TimeSpan.FromSeconds(1.0 / 60));
+        rig.Tab.Render(rig.Planner, rig.Content, clock);
+        (rig.Tab.State.TimeOffset - before).TotalDays.ShouldBe(10.0 / 60, 1e-3);
+
+        before = rig.Tab.State.TimeOffset;
+        clock.Advance(TimeSpan.FromMinutes(10));
+        rig.Tab.Render(rig.Planner, rig.Content, clock);
+        var step = rig.Tab.State.TimeOffset - before;
+        output.WriteLine($"ten minutes away stepped {step.TotalDays:F3} days");
+        step.TotalDays.ShouldBeLessThanOrEqualTo(10 * 0.1 + 1e-9);
+        step.TotalDays.ShouldBeGreaterThan(0);
+    }
+
     private static bool PanelOffersTheOrrery(Rig rig)
         => rig.Tab.GetCapturedLayout().Any(n => n.Node.Hit is HitResult.ButtonHit { Action: ObjectInfoPanel.OrreryAction });
 
