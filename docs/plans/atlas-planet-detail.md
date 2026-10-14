@@ -124,9 +124,12 @@ toward the Sun, Saturn with its rings at their real tilt.
 
 1. **A disc at its true angular size, where the zoom resolves one; a dot below.** The disc is drawn once it is at
    least `PlanetDiscSprite.MinDiscPx` (6 px) across and at least the dot it replaces; below that the dot runs and
-   nothing about a disc is touched (at a 60 degree field Jupiter is about 0.2 px). The disc is the planet's hit
-   area (`SkyMapSearchActions.TryResolveHit`: a click anywhere on it is the planet, whatever lies behind), and the
-   label moves clear of its edge, its click unchanged (`MarkerLabelEntry`).
+   nothing about a disc is touched (at a 60 degree field Jupiter is about 0.2 px). A PAINTED disc is the planet's hit
+   area and its hover wash (`SkyMapSearchActions.TryResolveHit`, the one resolver the click and the hover share: a
+   click anywhere on it is the planet, whatever lies behind, and the wash is the disc's radius, never under the dot's
+   tolerance); a planet whose texture has not landed is still the dot and is hit as one, read from what the last frame
+   painted (`SkyMapState.PlanetDiscsDrawn`), never from the sprite cache. The label moves clear of the disc's edge,
+   its click unchanged (`MarkerLabelEntry`).
 2. **The disc is a realistic texture, not a drawing from the palette.** This item first said "never a texture, so
    Night mode can tint it"; the user asked instead (2026-10-14) for realistic planet textures "in similar fashion to
    what planet stacking does ... using OPAL", with correct rotation, performance first. Night mode is answered at
@@ -197,7 +200,9 @@ Built 2026-10-14 (#1037). The pieces, in the order a frame meets them:
   (`OpalColourMaps.TryFor`; no directory listing). The desktop caches them under `AppData/PlanetMaps`
   (`PlanetMapStore`); the browser fetches the same URL through its own client (`BrowserPlanetMapStore`); both decode
   with `SharpAstro.Tiff` in .NET (`OpalColourMaps.Decode`). A failed fetch keeps the atlas and is not asked again for
-  an hour (`PlanetTextures.RetryCooldown`). OPAL's filters are not the eye's, so its maps are credited as "OPAL (HST),
+  an hour (`PlanetTextures.RetryCooldown`). The desktop keeps only a body that decodes as a map: a 200 that is something
+  else (a maintenance page) is never cached, and a cached file that does not decode is deleted, so the ask after the
+  cooldown fetches again. OPAL's filters are not the eye's, so its maps are credited as "OPAL (HST),
   colour rendering". OPAL leaves black where Hubble never saw the planet (Uranus's whole southern hemisphere in 2025,
   Saturn's north pole); a display fill (`PlanetColourMap.FromRgb8(fillHoles: true)`) holds the nearest kept rows'
   mean colour there. The stacker's `PlanetMap.FilledZonally` is untouched: it copies a row's longitude pattern, which
@@ -240,17 +245,25 @@ tier-0 code still runs (`SkyMapPlanetDiscTests.TheCpuSurfaceShowsTheSpritesPixel
 wide-field frame does no sprite work at all (`SkyMapPlanetDiscTests.AWideFieldDoesNoSpriteWork`); builds are COUNTED,
 never timed, over a pan (none), a zoom (once per size bucket crossed) and a time scrub (some of ten one-minute steps
 of Jupiter, once for an hour's jump). On the single-threaded browser a build runs on the main thread, one per bucket
-change; it is not measured there.
+change; it is not measured there (#1565).
 
 **Tests:** `PlanetDiscRenderTests` (the mono render unchanged to the bit; the colour render's planes equal the mono
 render's; the lit limb toward the bright limb's position angle for the Moon, Venus and Mars; Saturn's near ring over
 the northern globe with B negative; a central-meridian turn moves a feature west; the pole turned by the view's own
 north, rolled and mirrored; Night has no blue), `PlanetTextureAtlasTests` (every body, no holes; the Great Red Spot),
 `PlanetTexturesTests` (a failed fetch keeps the atlas and cools down; a landed one replaces the map, credits OPAL,
-survives a later atlas), `SkyMapPlanetDiscTests` (no work at a wide field; the build counts; the disc as hit area; the
-CPU surface shows the sprite, written as `planet-discs.png` in the test output).
+survives a later atlas), `PlanetMapStoreTests` (a 200 that is not a map is never cached; a cached file that does not
+decode is deleted), `SkyMapPlanetDiscTests` (no work at a wide field; the build counts; the painted disc as hit area,
+the dot's tolerance while it is not painted; the hover wash at the disc's radius; the CPU surface shows the sprite,
+written as `planet-discs.png` in the test output).
 
-**Open:** a disc wider than 256 px is a scaled-up sprite; the atlas's Uranus holds its edge row's colour over the
+**Open:**
+
+- **The browser's sprite-build cost, #1565.** On single-threaded WebAssembly a build runs on the main thread, about
+  the desktop's tier-0 time (49 ms at 256 px) per size-bucket change; unmeasured there, and the fix (a smaller cap,
+  fewer rays, or a build spread over frames) is that issue's.
+
+Also open, untracked as issues: a disc wider than 256 px is a scaled-up sprite; the atlas's Uranus holds its edge row's colour over the
 unseen southern hemisphere; nothing yet shows the texture's credit in the info panel.
 
 ### A5. The solar system in 3D
