@@ -236,6 +236,43 @@ public class LocalNodeLauncherTests : IDisposable
             .ShouldBe(Path.TrimEndingDirectorySeparator(options.ServerDirectory), "the node started is this client's build");
     }
 
+    [Fact(Timeout = 120_000)]
+    public async Task AnIdleNodeOfTheOtherModeIsStoppedAndReplacedByOneInTheClients()
+    {
+        // This build, but not local-only, found by a client that starts its nodes local-only (an agent's launch, which must
+        // bind nothing but loopback): used as it was, its network discovery would bind the LAN from this build's path.
+        var ct = TestContext.Current.CancellationToken;
+        var (options, _) = Isolated();
+        await using var stop = new StopsNodes(options.SocketPath);
+        await using var open = await ImpostorNode.StartAsync(options.SocketPath, NodeWire.Version, holdsHardware: false, ct,
+            installFolder: options.ServerDirectory, buildWrittenUtc: DateTimeOffset.UtcNow.AddDays(1), localOnly: false);
+
+        var node = await Launcher(options).FindOrStartAsync(ct);
+
+        open.ShutdownRequests.ShouldBe(1);
+        node.Outcome.ShouldBeOneOf(LocalNodeOutcome.Started, LocalNodeOutcome.StartedWithTheClient);
+        var started = node.Node.ShouldNotBeNull();
+        started.NodeId.ShouldNotBe("impostor");
+        started.LocalOnly.ShouldBeTrue("the node started is in the client's mode");
+        started.IsShared.ShouldBeFalse();
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ANodeOfTheOtherModeThatAClientIsUsingIsUsedAndTheClientSaysSo()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (options, _) = Isolated();
+        await using var open = await ImpostorNode.StartAsync(options.SocketPath, NodeWire.Version, holdsHardware: false, ct,
+            installFolder: options.ServerDirectory, buildWrittenUtc: DateTimeOffset.UtcNow.AddDays(1), clientsAttached: 1, localOnly: false);
+        await using var stop = new StopsNodes(options.SocketPath);
+
+        var node = await Launcher(options).FindOrStartAsync(ct);
+
+        node.Outcome.ShouldBe(LocalNodeOutcome.Found);
+        open.ShutdownRequests.ShouldBe(0);
+        node.Message.ShouldContain("not local-only", customMessage: "a node used in the other mode is never used silently");
+    }
+
     [Fact(Timeout = 60_000)]
     public async Task ANodeOfAnotherBuildThatAClientIsUsingIsUsedAsItIs()
     {

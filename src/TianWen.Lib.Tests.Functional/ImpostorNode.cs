@@ -46,8 +46,11 @@ internal sealed class ImpostorNode : IAsyncDisposable
     /// <param name="installFolder">The folder it says it runs from, with <paramref name="buildWrittenUtc"/> when its code was
     /// written; neither, as a node that predates saying.</param>
     /// <param name="clientsAttached">How many clients it says are attached.</param>
+    /// <param name="localOnly">Whether it says it is local-only: so by default, as every test's own node is started
+    /// (<c>--local-only</c>), so that a client compares builds and wires with it and not modes.</param>
     public static async Task<ImpostorNode> StartAsync(string? socketPath, int wireVersion, bool holdsHardware, CancellationToken cancellationToken,
-        TimeSpan firstAnswerDelay = default, string? installFolder = null, DateTimeOffset? buildWrittenUtc = null, int clientsAttached = 0)
+        TimeSpan firstAnswerDelay = default, string? installFolder = null, DateTimeOffset? buildWrittenUtc = null, int clientsAttached = 0,
+        bool localOnly = true)
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
@@ -82,6 +85,7 @@ internal sealed class ImpostorNode : IAsyncDisposable
                     ProcessId = Environment.ProcessId,
                     HoldsHardware = holdsHardware,
                     ClientsAttached = clientsAttached,
+                    LocalOnly = localOnly,
                     InstallFolder = installFolder,
                     BuildWrittenUtc = buildWrittenUtc,
                     NowUtc = DateTimeOffset.UtcNow,
