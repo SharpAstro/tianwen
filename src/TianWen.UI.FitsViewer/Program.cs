@@ -625,9 +625,6 @@ loop.OnKeyUp = host.HandleKeyUp;
 using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
 {
     AppName = "FitsViewer",
-    // Multicast discovery binds UDP 47892 on every interface; a local-only process (TIANWEN_LOCAL_ONLY) keeps the
-    // loopback command server only. The viewer binds nothing else.
-    EnableDiscovery = LocalOnlyMode.OfThisProcess().MayBindTheNetwork,
     WindowTitle = () => "Fits viewer",
     // PaintedRegions, not GetRegisteredRegions: the sky map the viewer hosts registers its layer
     // palette on ITSELF, so the widget's own list is no longer the whole UI and an agent asking for

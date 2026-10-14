@@ -47,10 +47,7 @@ public class LocalOnlyModeSourceTests
     [Fact]
     public void EveryNetworkBindInTheShippingCodeIsAKnownOneGatedOnTheMode()
     {
-        if (FindSourceRoot() is not { } root)
-        {
-            return;
-        }
+        var root = FindSourceRoot();
 
         var found = ShippingSources(root)
             .Where(f => NetworkBind.IsMatch(Code(File.ReadAllText(f))))
@@ -69,12 +66,13 @@ public class LocalOnlyModeSourceTests
     }
 
     [Fact]
-    public void EveryDebugInspectorIsToldWhetherToAnswerDiscovery()
+    public void NoDebugInspectorIsToldToStopAnsweringDiscovery()
     {
-        if (FindSourceRoot() is not { } root)
-        {
-            return;
-        }
+        // The mode leaves the DEBUG inspector alone (R1 D1 of PR #1579): from DIR.Lib 11.21 its default discovery is a
+        // socket-free file registry, and EnableDiscovery = false also takes the instance out of that registry, so an app told
+        // false would be unfindable by the inspector's MCP sidecar. A worktree's build has no inspector at all; a build against
+        // the sibling sources keeps the multicast bind on the path it was already allowed through.
+        var root = FindSourceRoot();
 
         var initializers = ShippingSources(root)
             .SelectMany(f =>
@@ -90,17 +88,14 @@ public class LocalOnlyModeSourceTests
             .ToArray();
 
         initializers.Length.ShouldBeGreaterThanOrEqualTo(2, "the GUI and the viewer each attach one; fewer means this search no longer finds them");
-        initializers.Where(i => !i.Body.Contains("EnableDiscovery =", StringComparison.Ordinal)).Select(i => i.File)
-            .ShouldBeEmpty("a DEBUG inspector binds UDP 47892 on every interface unless EnableDiscovery is set from LocalOnlyMode");
+        initializers.Where(i => i.Body.Contains("EnableDiscovery", StringComparison.Ordinal)).Select(i => i.File)
+            .ShouldBeEmpty("an inspector keeps its default discovery: false would take the app out of the inspector's registry too");
     }
 
     [Fact]
     public void OnlyLocalOnlyModeReadsItsVariable()
     {
-        if (FindSourceRoot() is not { } root)
-        {
-            return;
-        }
+        var root = FindSourceRoot();
 
         var readers = ShippingSources(root)
             .Where(f => !f.EndsWith($"{Path.DirectorySeparatorChar}{nameof(LocalOnlyMode)}.cs", StringComparison.Ordinal))
@@ -131,10 +126,10 @@ public class LocalOnlyModeSourceTests
     }
 
     /// <summary>
-    /// Walks up from the test binary to the repository's <c>src</c>. Null when the sources are not beside the binary (a packaged
-    /// run), and the test then skips: not seeing the source is not a regression.
+    /// Walks up from the test binary to the repository's <c>src</c>, and FAILS when it is not there: these guards are the
+    /// mode's promise that nothing binds but loopback, and one that passed without reading a line would promise nothing.
     /// </summary>
-    private static string? FindSourceRoot()
+    private static string FindSourceRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null)
@@ -148,6 +143,6 @@ public class LocalOnlyModeSourceTests
             dir = dir.Parent;
         }
 
-        return null;
+        throw new ShouldAssertException($"No src/TianWen.slnx above {AppContext.BaseDirectory}: the source guards have nothing to read");
     }
 }

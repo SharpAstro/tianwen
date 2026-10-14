@@ -23,8 +23,9 @@
     The app is started LOCAL-ONLY (TIANWEN_LOCAL_ONLY=1, unless the caller set the variable itself, to 0 for the
     LAN): it and any node it starts bind nothing but loopback and the node's socket, so a build in a fresh folder
     (a worktree) raises no Windows Firewall prompt, which comes once per executable path for a non-loopback bind.
-    No LAN rig is listed, no WiFi device is discovered, and the DEBUG inspector answers no multicast discovery: its
-    command server's loopback port is in the app's stderr banner ("[inspector] ... command server on 127.0.0.1:N").
+    No LAN rig is listed and no WiFi device is discovered. The DEBUG inspector is left alone: a build against the
+    sibling sources answers multicast discovery until DIR.Lib 11.21 makes it a file registry, and a worktree's build
+    (no siblings found) has no inspector at all.
 
 .PARAMETER App
     gui (tianwen-gui), fits (tianwen-fits) or tui (the CLI's TUI, in a console window of its own).
@@ -242,5 +243,5 @@ Write-Host "pid:     $($process.Id)"
 Write-Host "stdout:  $stdout"
 Write-Host "stderr:  $stderr"
 if ($localOnly) {
-    Write-Host 'local-only: no LAN, no network discovery, and the inspector answers no multicast discovery (its port is in the stderr banner)'
+    Write-Host 'local-only: no LAN and no network discovery of devices (the DEBUG inspector is left as it is)'
 }

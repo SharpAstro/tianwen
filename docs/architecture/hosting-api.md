@@ -215,18 +215,25 @@ are features; `tools/start-app.ps1` turns it on for every app it launches unless
 | Alpaca discovery | a broadcast to UDP 32227 | asks `127.0.0.1:32227` from a socket bound to loopback, so a simulator on this machine is still found |
 | A WiFi Skywatcher mount (the one device reached over UDP) | a UDP socket to the mount | the connect fails, saying why |
 | The GUI's LAN discovery | the UDP discovery port on every interface | not registered: no LAN rig is listed; a bound rig is still reached by its last address |
-| The GUI's and the viewer's DEBUG inspector | multicast discovery on UDP 47892 | `EnableDiscovery = false`; the loopback command server stays, its port in the stderr banner |
 
 - A device reached as a TCP CLIENT (OnStep or Canon over WiFi, an Alpaca server, PHD2) opens no listener and is kept.
+- **"Share this rig on the LAN" is kept, never applied**: a local-only node saves the setting and answers that it
+  listens on its socket alone; it neither restarts (it would come back local-only, on every toggle) nor writes the
+  logon entry, which would start a node WITHOUT the mode from this path. Turning sharing off still removes an entry.
 - **A node a client starts is in the client's mode**: the launcher passes `--local-only` to the keeper
   (`LocalNodeOptions.KeeperArguments`), which passes it to the node, and the environment carries it as well.
   `GET /api/v1/node` answers `LocalOnly`. A node found of the other mode is replaced only while idle and unattended,
-  as a node of another build is (step 1 above); in use, it is used, and the client says so. A local-only window
-  never silently works through a node that binds the LAN, and an ordinary one never silently keeps a local-only
-  node's missing features.
-- **What the mode cannot cover from TianWen alone**: the TUI's console inspector (Console.Lib's
-  `ConsoleDebugInspector.Attach`) has no discovery switch, so a DEBUG TUI still binds UDP 47892; and in the mode the
-  SdlVulkan inspector sidecar's `list_instances` does not find the GUI or the viewer, since multicast is all it asks.
+  as a node of another build is (step 1 above). In use, it is used as it is, and the client SAYS so where its user
+  looks (`LocalNode.ModeNote`): a Warning notification in the GUI and the TUI (`ConnectLocalNodeAsync`), stderr in the
+  CLI. A local-only window never silently works through a node that binds the LAN, and an ordinary one never silently
+  keeps a local-only node's missing features.
+- **The DEBUG inspectors are left alone**, deliberately (R1 D1 of #1579): from DIR.Lib 11.21 (SharpAstro/DIR.Lib#111)
+  an inspector's default discovery is a socket-free file registry, and `EnableDiscovery = false` would take the app
+  out of that registry too, leaving every launched GUI unfindable by the MCP sidecars. Until 11.21 is in the sibling
+  checkout, a Debug build against the sibling SOURCES (the GPU inspector, and the TUI's console inspector alike)
+  keeps its multicast bind on UDP 47892, from the path it was already allowed through; a build in a worktree under
+  `.claude/worktrees/` finds no siblings (`UseLocalSiblings` is empty), so it has no inspector at all.
+  `LocalOnlyModeSourceTests.NoDebugInspectorIsToldToStopAnsweringDiscovery` keeps it so.
 - **A new bind must ask the mode**: `LocalOnlyModeSourceTests.EveryNetworkBindInTheShippingCodeIsAKnownOneGatedOnTheMode`
   lists every file in `src/` that binds on every interface, broadcasts, joins a multicast group or listens, with the
   file holding its gate, and fails on one it does not know.

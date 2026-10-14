@@ -35,15 +35,17 @@ never background the app with shell `&` (the sandbox drops it).
 - Reports a launch that dies inside three seconds, with its exit code and stderr.
 
 **Readiness and liveness.** The launcher returns once the process is up, which is before the window is.
-Wait on the inspector (`mcp__sdl-ui-inspector__list_instances` shows the pid) or on a signal the app writes,
-never on a fixed sleep. `Get-Process -Id <pid>` says whether it still runs.
+Wait on a signal the app writes, or on the inspector WHERE THE BUILD HAS ONE, never on a fixed sleep:
+`mcp__sdl-ui-inspector__list_instances` lists a Debug build against the sibling SOURCES only. A build in a worktree
+under `.claude/worktrees/` finds no siblings, so it has no inspector at all and is never listed; wait on its log
+(`gui-stderr.log`, the node's `Server_*.log`) instead. `Get-Process -Id <pid>` says whether it still runs.
 
 **The launcher starts the app LOCAL-ONLY** (`TIANWEN_LOCAL_ONLY=1` unless you set the variable yourself): the GUI
-and the node it starts bind nothing but loopback, so a build in a new folder raises no firewall prompt on the
-user's desktop. In that mode the inspector answers no multicast discovery, so `list_instances` does NOT list it
-until the inspector is discoverable without a socket; its loopback command port is in `gui-stderr.log`
-(`[inspector] 'TianWen' command server on 127.0.0.1:N (discovery off)`). Setting `TIANWEN_LOCAL_ONLY=0` brings
-discovery back at the price of that prompt for every new build path: ask the user first.
+and the node it starts bind nothing but loopback (no LAN discovery, no WiFi device discovery), so a build in a new
+folder raises no firewall prompt on the user's desktop. The mode leaves the inspector alone: until DIR.Lib 11.21 is
+in the sibling checkout, a sibling-source build still answers multicast on UDP 47892, from its already-allowed path,
+and from 11.21 its discovery is a socket-free file registry. `TIANWEN_LOCAL_ONLY=0` brings the LAN back at the
+price of that prompt for every new build path: ask the user first.
 
 **Environment reaches the app**, since it inherits the launcher's: anchor the clock with
 `TIANWEN_NOW=2026-06-21T22:00:00+10:00 pwsh -NoProfile -File tools/start-app.ps1 gui`.
