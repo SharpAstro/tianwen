@@ -191,6 +191,35 @@ public sealed class SkyMapPlanetDiscTests
     }
 
     /// <summary>
+    /// A planet whose disc is NOT drawn (its texture has not landed: here no atlas at all) is still the dot, and is hit as the dot: a
+    /// click 160 px from a Moon that would be 400 px across does not select it, one at its centre does.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task APlanetWhoseDiscIsNotDrawnIsHitOnlyAsItsDot()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        rig.Tab.PlanetTextures.AtlasPath = Path.Combine(AppContext.BaseDirectory, "no-such-atlas.png");
+        rig.Tab.State.Mode = SkyMapMode.Equatorial;
+        rig.Look(CatalogIndex.Moon, 400);
+        await rig.RenderSettledAsync();
+        rig.Tab.PlanetSpritesDrawn.ShouldBe(0, "no texture, no disc");
+        var state = rig.Tab.State;
+        var ppr = SkyMapProjection.PixelsPerRadian(Size, state.FieldOfViewDeg);
+        var db = rig.Planner.ObjectDb.ShouldNotBeNull();
+
+        CatalogIndex? Select(float dx)
+        {
+            var search = new SkyMapSearchState();
+            SkyMapSearchActions.SelectObjectByClick(search, state, db, 48.0, 11.0, Instant, SiteContext.Create(48.0, 11.0, Instant),
+                (Size / 2f) + dx, Size / 2f, state.ComputeViewMatrix(), ppr, Size / 2f, Size / 2f);
+            return search.InfoPanel?.Index;
+        }
+
+        Select(160).ShouldNotBe(CatalogIndex.Moon, "far outside the dot");
+        Select(5).ShouldBe(CatalogIndex.Moon, "on the dot");
+    }
+
+    /// <summary>
     /// The hover wash is the object's own footprint (CLAUDE.md, "The atlas's hover highlight"): over a Moon drawn 400 px across it is
     /// the disc's 200 px radius, from the same resolver the click uses; over Jupiter at 4 px, a dot, it stays the dot's tolerance.
     /// </summary>

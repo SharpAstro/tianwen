@@ -936,6 +936,7 @@ namespace TianWen.UI.Abstractions
             SiteContext site, bool dimBelowHorizon)
         {
             var fontPath = FontPath;
+            _planetDiscsThisFrame.Clear();
 
             foreach (var (planetIdx, ra, dec, aspect, vmag) in State.GetPlanetPositionsCached(viewingTime))
             {
@@ -966,6 +967,7 @@ namespace TianWen.UI.Abstractions
                     if (aspect is { } shown && TryDrawPlanetDisc(shown, ra, dec, sx, sy, ppr, cx, cy, dotRadius, belowHorizon, out var discRadius))
                     {
                         labelOffset = MathF.Max(labelOffset, discRadius + 4f);
+                        _planetDiscsThisFrame.Add(planetIdx);
                     }
                     else
                     {
@@ -992,7 +994,16 @@ namespace TianWen.UI.Abstractions
                         label.Hit, label.OnClick);
                 }
             }
+
+            // Published only when it changed: the planet layer runs on every pointer move, and this allocates nothing otherwise.
+            if (!State.PlanetDiscsDrawn.AsSpan().SequenceEqual(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_planetDiscsThisFrame)))
+            {
+                State.PlanetDiscsDrawn = [.. _planetDiscsThisFrame];
+            }
         }
+
+        // The bodies this frame painted as discs; render thread only, published to SkyMapState.PlanetDiscsDrawn.
+        private readonly List<CatalogIndex> _planetDiscsThisFrame = [];
 
         /// <summary>
         /// Everything about a sky-anchored marker label that CANNOT change, resolved on first sight

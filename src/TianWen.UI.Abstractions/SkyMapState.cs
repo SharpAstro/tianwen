@@ -307,6 +307,13 @@ namespace TianWen.UI.Abstractions
         public Matrix4x4 CurrentViewMatrix { get; set; } = Matrix4x4.Identity;
 
         /// <summary>
+        /// The bodies the last frame PAINTED as discs (A4 of docs/plans/atlas-planet-detail.md), as <see cref="LastContentRect"/> records
+        /// where it painted. A planet is hit on its disc only when the disc is on screen; while its texture has not landed it is still
+        /// the dot, and is hit as one. The click resolver reads this, never the sprite cache; the radius it takes from the current zoom.
+        /// </summary>
+        public ImmutableArray<CatalogIndex> PlanetDiscsDrawn { get; set; } = [];
+
+        /// <summary>
         /// Content rectangle from the most recent <see cref="SkyMapTab{TSurface}.Render"/>
         /// call. Used by out-of-tab signal handlers (e.g. click-select) that need to
         /// unproject screen coordinates without holding a tab reference.
