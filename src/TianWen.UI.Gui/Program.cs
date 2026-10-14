@@ -469,6 +469,8 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             || guiRenderer.SkyMapState.NeedsRedraw
             || guiRenderer.ViewContexts.AnyNeedsRedraw
             || (appState.ActiveTab == GuiTab.Planner && guiRenderer.PlannerChartPendingDraw)
+            // The orrery playing: a standing reason, since the one-shot flag a played frame sets is cleared after it.
+            || (appState.ActiveTab == GuiTab.SkyMap && guiRenderer.SkyMapState.NeedsContinuousFrames)
             // A focused field needs a frame only when its caret FLIPS, twice a second: the blink is on
             // the clock now (DIR.Lib CaretBlink). It used to be counted in frames, so a focused field
             // asked for one on every iteration and the whole GUI rendered continuously while it had the

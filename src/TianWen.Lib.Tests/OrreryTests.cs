@@ -258,6 +258,36 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Tab.OrreryScene.CometOrbitBuilds.ShouldBe(1);
     }
 
+    /// <summary>
+    /// Play is a standing reason to draw (<see cref="SkyMapState.NeedsContinuousFrames"/>), which the GUI's redraw check asks: the
+    /// one-shot <see cref="SkyMapState.NeedsRedraw"/> a played frame sets is cleared by the host after that frame, which left Play at
+    /// about a frame a second. It holds while playing however often the flag is cleared, and stops with Pause and with Escape.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task PlayIsAStandingReasonToDraw()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Select(rig, CatalogIndex.Mars);
+        rig.Tab.OpenOrrery();
+        rig.Render();
+        rig.Tab.State.NeedsContinuousFrames.ShouldBeFalse();
+
+        var play = PaintedButtons(rig, "OrreryPlay")[0];
+        rig.Router.Handle(new InputEvent.MouseDown(play.X + (play.Width / 2), play.Y + (play.Height / 2)));
+        rig.Router.Handle(new InputEvent.MouseUp(play.X + (play.Width / 2), play.Y + (play.Height / 2)));
+        rig.Tab.State.Orrery.Playing.ShouldBeTrue();
+        for (var frame = 0; frame < 3; frame++)
+        {
+            rig.Render();
+            // What the GUI's OnPostFrame does after every frame.
+            rig.Tab.State.NeedsRedraw = false;
+            rig.Tab.State.NeedsContinuousFrames.ShouldBeTrue();
+        }
+
+        rig.Router.Handle(new InputEvent.KeyDown(InputKey.Escape)).ShouldBeTrue();
+        rig.Tab.State.NeedsContinuousFrames.ShouldBeFalse();
+    }
+
     private static bool PanelOffersTheOrrery(Rig rig)
         => rig.Tab.GetCapturedLayout().Any(n => n.Node.Hit is HitResult.ButtonHit { Action: ObjectInfoPanel.OrreryAction });
 
