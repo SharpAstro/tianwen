@@ -940,10 +940,27 @@ namespace TianWen.UI.Abstractions
 
             foreach (var (planetIdx, ra, dec, aspect, vmag) in State.GetPlanetPositionsCached(viewingTime))
             {
-                if (SkyMapProjection.ProjectWithMatrix(ra, dec, State.CurrentViewMatrix,
-                    ppr, cx, cy, out var sx, out var sy)
-                    && sx >= rect.X && sx < rect.X + rect.Width
-                    && sy >= rect.Y && sy < rect.Y + rect.Height)
+                if (!SkyMapProjection.ProjectWithMatrix(ra, dec, State.CurrentViewMatrix, ppr, cx, cy, out var sx, out var sy))
+                {
+                    continue;
+                }
+                if (sx < rect.X || sx >= rect.X + rect.Width || sy < rect.Y || sy >= rect.Y + rect.Height)
+                {
+                    // The centre is off screen, so no dot and no label; but a large disc (the Moon at the atlas's half-degree
+                    // field, a planet in the viewer's sky backdrop) still covers the view out to its REACH, and is drawn and
+                    // hit there.
+                    if (aspect is { } offCentre)
+                    {
+                        var reach = (float)(PlanetSpriteCache.DiscDiameterPx(offCentre, ppr) / 2 * PlanetDiscSprite.ExtentRadii(planetIdx));
+                        if (sx + reach >= rect.X && sx - reach < rect.X + rect.Width && sy + reach >= rect.Y && sy - reach < rect.Y + rect.Height
+                            && TryDrawPlanetDisc(offCentre, ra, dec, sx, sy, ppr, cx, cy, SkyMapState.PlanetDotRadius(planetIdx, vmag),
+                                dimBelowHorizon && !site.IsAboveHorizon(ra, dec), out _))
+                        {
+                            _planetDiscsThisFrame.Add(planetIdx);
+                        }
+                    }
+                    continue;
+                }
                 {
                     // Everything about a planet except where it is on screen is FIXED, so it is
                     // resolved once and kept: the display name (a DB lookup), the hit result, and the
