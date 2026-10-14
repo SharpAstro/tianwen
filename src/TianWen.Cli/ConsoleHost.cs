@@ -80,6 +80,11 @@ internal sealed class ConsoleHost(
                 if (found is { Transport: { } transport })
                 {
                     logger.LogInformation("This computer's node ({Outcome}): {Message}", found.Outcome, found.Message);
+                    if (found.ModeNote is { } note)
+                    {
+                        // The CLI has no notification feed: a node used in the other mode is said where its errors go.
+                        WriteError($"This computer's node is used as it is: {note}");
+                    }
                     _http = transport.CreateHttpClient();
                     Volatile.Write(ref _node, new TianWenNodeClient(_http));
                 }
