@@ -221,6 +221,72 @@ public static class CometEphemeris
 
     /// <summary>
     /// Heliocentric ecliptic-J2000 position (AU) at <paramref name="jdTt"/> by universal-variable
+    /// propagation from the perihelion state. <paramref name="heliocentricDistanceAu"/> is |r|. The orrery places a comet
+    /// with this, and draws its orbit with <see cref="SampleOrbit"/> from the same elements, so the comet sits on its own orbit.
+    /// </summary>
+    public static bool TryGetHeliocentricEcliptic(in CometElements el, double jdTt, Span<double> helio, out double heliocentricDistanceAu)
+        => TryHeliocentricEcliptic(el, jdTt, helio, out heliocentricDistanceAu);
+
+    /// <summary>
+    /// The orbit's conic, heliocentric ecliptic-J2000 (AU), as <paramref name="points"/>.Length / 3 points (x, y, z in turn) sampled
+    /// evenly in true anomaly: the whole ellipse for a closed orbit (the last point repeats the first), and for an open one the branch
+    /// out to <paramref name="maxDistanceAu"/> each side of perihelion. The same perifocal frame as <see cref="TryGetHeliocentricEcliptic"/>,
+    /// so a propagated position lies on the polyline to within its chords. A closed orbit reaching past <paramref name="maxDistanceAu"/>
+    /// is sampled whole all the same: the view clips it, and its aphelion is part of what it shows.
+    /// </summary>
+    public static void SampleOrbit(in CometElements el, Span<double> points, double maxDistanceAu)
+    {
+        var count = points.Length / 3;
+        var q = el.PerihelionDistanceAu;
+        var e = el.Eccentricity;
+        var p = q * (1 + e);
+        // The true anomaly's reach: all of it for an ellipse, else to where r = maxDistanceAu (never past the asymptote).
+        double reach;
+        if (e < 1)
+        {
+            reach = Math.PI;
+        }
+        else
+        {
+            var cosNu = Math.Clamp(((p / Math.Max(maxDistanceAu, q)) - 1) / e, -1, 1);
+            reach = Math.Acos(cosNu);
+        }
+
+        var (px, py, pz, qx, qy, qz) = PerifocalAxes(el);
+        for (var i = 0; i < count; i++)
+        {
+            var nu = -reach + (2 * reach * i / Math.Max(count - 1, 1));
+            var (sin, cos) = Math.SinCos(nu);
+            var r = p / (1 + (e * cos));
+            var (xPf, yPf) = (r * cos, r * sin);
+            points[(3 * i) + 0] = (px * xPf) + (qx * yPf);
+            points[(3 * i) + 1] = (py * xPf) + (qy * yPf);
+            points[(3 * i) + 2] = (pz * xPf) + (qz * yPf);
+        }
+    }
+
+    // The perifocal frame's axes in the ecliptic: P toward perihelion, Q a quarter turn on in the direction of motion (Omega, i, omega).
+    private static (double Px, double Py, double Pz, double Qx, double Qy, double Qz) PerifocalAxes(in CometElements el)
+    {
+        var node = el.AscendingNodeDeg * Constants.DEGREES2RADIANS;
+        var inc = el.InclinationDeg * Constants.DEGREES2RADIANS;
+        var argP = el.ArgumentOfPerihelionDeg * Constants.DEGREES2RADIANS;
+        var cosNode = Math.Cos(node);
+        var sinNode = Math.Sin(node);
+        var cosInc = Math.Cos(inc);
+        var sinInc = Math.Sin(inc);
+        var cosArg = Math.Cos(argP);
+        var sinArg = Math.Sin(argP);
+        return (cosNode * cosArg - sinNode * sinArg * cosInc,
+            sinNode * cosArg + cosNode * sinArg * cosInc,
+            sinArg * sinInc,
+            -cosNode * sinArg - sinNode * cosArg * cosInc,
+            -sinNode * sinArg + cosNode * cosArg * cosInc,
+            cosArg * sinInc);
+    }
+
+    /// <summary>
+    /// Heliocentric ecliptic-J2000 position (AU) at <paramref name="jdTt"/> by universal-variable
     /// propagation from the perihelion state. <paramref name="heliocentricDistanceAu"/> is |r|.
     /// </summary>
     private static bool TryHeliocentricEcliptic(in CometElements el, double jdTt, Span<double> helio, out double heliocentricDistanceAu)
@@ -272,22 +338,7 @@ public static class CometEphemeris
         heliocentricDistanceAu = Math.Sqrt(xPf * xPf + yPf * yPf);
 
         // Perifocal -> heliocentric ecliptic-J2000 via (Omega, i, omega).
-        var node = el.AscendingNodeDeg * Constants.DEGREES2RADIANS;
-        var inc = el.InclinationDeg * Constants.DEGREES2RADIANS;
-        var argP = el.ArgumentOfPerihelionDeg * Constants.DEGREES2RADIANS;
-        var cosNode = Math.Cos(node);
-        var sinNode = Math.Sin(node);
-        var cosInc = Math.Cos(inc);
-        var sinInc = Math.Sin(inc);
-        var cosArg = Math.Cos(argP);
-        var sinArg = Math.Sin(argP);
-
-        var px = cosNode * cosArg - sinNode * sinArg * cosInc;
-        var py = sinNode * cosArg + cosNode * sinArg * cosInc;
-        var pz = sinArg * sinInc;
-        var qx = -cosNode * sinArg - sinNode * cosArg * cosInc;
-        var qy = -sinNode * sinArg + cosNode * cosArg * cosInc;
-        var qz = cosArg * sinInc;
+        var (px, py, pz, qx, qy, qz) = PerifocalAxes(el);
 
         helio[0] = px * xPf + qx * yPf;
         helio[1] = py * xPf + qy * yPf;

@@ -221,6 +221,88 @@ public static class PhysicalEphemeris
             HeliocentricEclipticLongitude: isSun ? 0 : Wrap(Math.Atan2((body[1] * 0.917482137087) + (body[2] * 0.397776982902), body[0]) * Constants.RADIANS2DEGREES));
     }
 
+    /// <summary>
+    /// The body at its heliocentric place at <paramref name="utc"/>, seen from far away along <paramref name="toObserver"/> (a unit
+    /// vector from the body, J2000 equatorial): what the orrery's camera sees of it (docs/plans/atlas-planet-detail.md, A5), so a body
+    /// between the camera and the Sun shows its night side. The Earth is accepted beside every body <see cref="Supports"/> names.
+    /// </summary>
+    /// <remarks>
+    /// The same frame and sub-point arithmetic as <see cref="Compute"/>, with the observer a DIRECTION rather than the geocentre: the
+    /// orrery may draw its distances compressed, which keeps every direction from the Sun and changes every other, so only the caller
+    /// knows where its camera stands relative to the drawn body. No light time (the scene is one instant), and nothing that needs a
+    /// sky: <see cref="PlanetAspect.PolePositionAngle"/>, <see cref="PlanetAspect.BrightLimbPositionAngle"/>, the distance and the
+    /// angular diameter are NaN; the pole's screen direction is the caller's, from <see cref="PoleDirection"/>.
+    /// </remarks>
+    public static PlanetAspect ComputeSeenAlong(CatalogIndex planet, DateTimeOffset utc, ReadOnlySpan<double> toObserver)
+    {
+        utc.ToSOFAUtcJdTT(out _, out _, out var tt1, out var tt2);
+        Span<double> body = stackalloc double[3];
+        Position(planet, tt1 + tt2, body);
+        return ComputeSeenAlong(planet, utc, body, toObserver);
+    }
+
+    /// <summary>
+    /// <see cref="ComputeSeenAlong(CatalogIndex, DateTimeOffset, ReadOnlySpan{double})"/> with the body's heliocentric place (J2000
+    /// equatorial, AU) already in hand, as the orrery has it each frame: no ephemeris, only the rotation model.
+    /// </summary>
+    public static PlanetAspect ComputeSeenAlong(CatalogIndex planet, DateTimeOffset utc, ReadOnlySpan<double> body, ReadOnlySpan<double> toObserver)
+    {
+        if (!Supports(planet) && planet != CatalogIndex.Earth)
+        {
+            throw new ArgumentOutOfRangeException(nameof(planet), planet, "No rotation model here for this body");
+        }
+        var (equatorialKm, polarKm) = Radii(planet);
+        utc.ToSOFAUtcJdTT(out _, out _, out var tt1, out var tt2);
+        var jdTdb = tt1 + tt2;
+
+        var (poleRa, poleDec, w) = Rotation(planet, jdTdb);
+        var pole = Unit(poleRa, poleDec);
+        Span<double> node = [-Math.Sin(poleRa), Math.Cos(poleRa), 0];
+        Span<double> nodeNormal = stackalloc double[3];
+        Cross(pole, node, nodeNormal);
+
+        var heliocentric = Norm(body);
+        var isSun = planet == CatalogIndex.Sol;
+        Span<double> toSun = isSun
+            ? [double.NaN, double.NaN, double.NaN]
+            : [-body[0] / heliocentric, -body[1] / heliocentric, -body[2] / heliocentric];
+        var flattening = 1 - (polarKm / equatorialKm);
+        var (observerLongitude, observerCentric) = SubPoint(toObserver, pole, node, nodeNormal, w);
+        var (sunLongitude, sunCentric) = isSun ? (double.NaN, double.NaN) : SubPoint(toSun, pole, node, nodeNormal, w);
+
+        return new PlanetAspect(
+            planet,
+            utc,
+            CentralMeridianIII: observerLongitude,
+            CentralMeridianI: double.NaN,
+            CentralMeridianII: double.NaN,
+            SubObserverLatitude: Graphic(observerCentric, flattening),
+            SubObserverLatitudeCentric: observerCentric,
+            SubSolarLongitudeIII: sunLongitude,
+            SubSolarLatitude: Graphic(sunCentric, flattening),
+            PolePositionAngle: double.NaN,
+            PhaseAngle: isSun ? 0 : Math.Acos(Math.Clamp(Dot(toObserver, toSun), -1, 1)) * Constants.RADIANS2DEGREES,
+            AngularDiameterArcsec: double.NaN,
+            DistanceAu: double.NaN,
+            LightTimeSeconds: 0,
+            Flattening: flattening,
+            HeliocentricDistanceAu: heliocentric,
+            BrightLimbPositionAngle: double.NaN,
+            SubSolarLatitudeCentric: sunCentric,
+            HeliocentricEclipticLongitude: isSun ? 0 : Wrap(Math.Atan2((body[1] * 0.917482137087) + (body[2] * 0.397776982902), body[0]) * Constants.RADIANS2DEGREES));
+    }
+
+    /// <summary>
+    /// The body's IAU north pole at <paramref name="utc"/> as a unit vector, J2000 equatorial: the direction a view that is not the sky
+    /// (the orrery) projects to turn the body's sprite. The Earth is accepted beside every body <see cref="Supports"/> names.
+    /// </summary>
+    public static void PoleDirection(CatalogIndex planet, DateTimeOffset utc, Span<double> pole)
+    {
+        utc.ToSOFAUtcJdTT(out _, out _, out var tt1, out var tt2);
+        var (poleRa, poleDec, _) = Rotation(planet, tt1 + tt2);
+        Unit(poleRa, poleDec).CopyTo(pole);
+    }
+
     /// <summary>Whether the body turns retrograde about its IAU north pole (W decreasing): Venus and Uranus.</summary>
     public static bool RotatesRetrograde(CatalogIndex body) => body is CatalogIndex.Venus or CatalogIndex.Uranus;
 
@@ -251,6 +333,7 @@ public static class PhysicalEphemeris
     {
         CatalogIndex.Sol => (695700, 695700),
         CatalogIndex.Moon => (1737.4, 1737.4),
+        CatalogIndex.Earth => (6378.1366, 6356.7519),
         CatalogIndex.Mercury => (2440.53, 2438.26),
         CatalogIndex.Venus => (6051.8, 6051.8),
         CatalogIndex.Mars => (3396.19, 3376.20),
@@ -334,6 +417,10 @@ public static class PhysicalEphemeris
             }
             case CatalogIndex.Moon:
                 return MoonRotation(d, t);
+            case CatalogIndex.Earth:
+                // Only the orrery draws the Earth (ComputeSeenAlong): the IAU's own model, precession as a linear pole.
+                return ((0.00 - (0.641 * t)) * Constants.DEGREES2RADIANS, (90.00 - (0.557 * t)) * Constants.DEGREES2RADIANS,
+                    Wrap(190.147 + (360.9856235 * d)));
             default:
                 throw new ArgumentOutOfRangeException(nameof(planet), planet, null);
         }
