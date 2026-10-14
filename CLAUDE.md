@@ -1234,8 +1234,8 @@ the session plane", "Invariants 7-13 in full"); the node's lifetime and version 
 (`TIANWEN_LOCAL_ONLY=1` or `tianwen-server --local-only`; `tools/start-app.ps1` sets it, since Windows Firewall asks
 once per executable PATH for any other bind): no TCP 1888, no LAN discovery, no network discovery of devices (USB and
 serial kept, Alpaca asks loopback), the share setting kept but never applied, and a node a client starts is in the
-client's mode (one of the other mode is replaced only while idle and unattended, else used and SAID: a warning, or the
-CLI's stderr). **The DEBUG inspectors are left alone**: from DIR.Lib 11.21 their discovery is a file registry, which
+client's mode (one of the other mode is replaced only while idle, unattended and not shared on the LAN, else used and
+SAID: a warning, or the CLI's stderr). **The DEBUG inspectors are left alone**: from DIR.Lib 11.21 their discovery is a file registry, which
 `false` would also remove. **A new network bind asks the mode**:
 `LocalOnlyModeSourceTests` lists every one in `src/`. `tools/check-local-only-binds.ps1` proves it end to end.
 `docs/architecture/hosting-api.md`, "Local-only".

@@ -225,10 +225,13 @@ namespace TianWen.RemoteClient
         /// <summary>
         /// Whether a client replaces <paramref name="running"/>, a node of its own wire, with one it starts: one of another
         /// build (<paramref name="anotherBuild"/>) or of another mode than the client would start (<paramref name="clientLocalOnly"/>,
-        /// <see cref="LocalOnlyMode"/>), and only while it is idle and no client is attached; never on a named socket.
+        /// <see cref="LocalOnlyMode"/>), and only while it is idle and no client is attached; never on a named socket. A
+        /// node shared on the LAN is never replaced for its mode alone: it is a rig someone shares, which a local-only
+        /// client must not take away, so it is used as it is and the client says so (<see cref="ModeNote"/>).
         /// </summary>
         internal static bool Replaces(NodeInfoDto running, bool named, bool anotherBuild, bool clientLocalOnly) =>
-            !named && running is { HoldsHardware: false, ClientsAttached: 0 } && (anotherBuild || running.LocalOnly != clientLocalOnly);
+            !named && running is { HoldsHardware: false, ClientsAttached: 0 }
+            && (anotherBuild || (running.LocalOnly != clientLocalOnly && !running.IsShared));
 
         /// <summary>
         /// What a client says about <paramref name="node"/> when it is not in the mode the client would start one in
@@ -242,7 +245,10 @@ namespace TianWen.RemoteClient
                 return null;
             }
 
-            var why = node.HoldsHardware ? "it is holding the rig" : node.ClientsAttached > 0 ? "another client is attached to it" : "it was not replaced";
+            var why = node.HoldsHardware ? "it is holding the rig"
+                : node.ClientsAttached > 0 ? "another client is attached to it"
+                : node.IsShared ? "it shares the rig on the LAN"
+                : "it was not replaced";
             return node.LocalOnly
                 ? $"it is local-only (no LAN, no network discovery of devices) and this client is not; {why}, so it stays so until it restarts"
                 : $"it is not local-only and this client is ({LocalOnlyMode.EnvironmentVariable}), so it may bind the network; {why}";
