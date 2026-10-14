@@ -34,6 +34,13 @@ public sealed class NodeInfoDto
     public bool ShareOnLan { get; init; }
 
     /// <summary>
+    /// Whether the node binds nothing but loopback and its socket (<c>--local-only</c> or <c>TIANWEN_LOCAL_ONLY</c>): no
+    /// LAN, no network discovery of devices. A client replaces an idle, unattended node of the other mode with one of its
+    /// own, as it replaces one of another build, and says so when it cannot. False from a node that predates saying.
+    /// </summary>
+    public bool LocalOnly { get; init; }
+
+    /// <summary>
     /// TianWen clients attached to the event stream now that can command the node: this machine's, and any granted
     /// control (P6b). Only the last one asks before a window closes, and a client that only watches is not asked.
     /// </summary>

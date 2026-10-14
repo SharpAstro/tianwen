@@ -32,6 +32,7 @@ internal static class NodeEndpoints
                     ProcessId = Environment.ProcessId,
                     IsShared = listening.IsShared,
                     ShareOnLan = settings.Current.ShareOnLan,
+                    LocalOnly = listening.LocalOnly,
                     ClientsAttached = events.CommandingClientCount,
                     CallerMayCommand = await access.MayCommandAsync(context, ct),
                     HoldsHardware = hub.ConnectedDevices.Count > 0 || hosted.IsRunning,
