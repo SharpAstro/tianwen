@@ -6141,6 +6141,112 @@ same held twins, since a rule anyone can read beats a model that does as well.
   than a fifth of it. A gain model recovers nearly all of it, but only for masters inside its twins: making it deployable is a twin
   family whose air brackets the real master's own measured blur, at the capture's own length, with the limb's trough held: #1552.
 
+#### L-GAINS-S: the learned gains made shippable (#1552)
+
+**On every held twin the learned gains take a third to two thirds of the derived gains' error away, and the real EdgeHD master now lies
+inside the twins; three of the gates as set fail, so the model ships as an option, `--learned-gains` on `planetary sharpen` and
+`planetary stack`, not the default** (the owner, 2026-10-14: "certainly already an improvement to the derived gains"). The rules and
+every amendment are in `training/planetary/r9-rules.md`, "L-GAINS-S".
+
+- **Why the real master lay outside every twin: the limb's edge reads real Jupiter's limb as blur (#1561, the limb edge misread).**
+  No twin's edge at 0.1 cycles a pixel came below about 0.33 whatever it was given: seeing, scattered light, defocus, a warp slow or
+  fast, short or disk-wide, the frame's exposure, a static blur of up to 4.5 px that takes the stack's band 3 down to a quarter. The real
+  master reads 0.30, 0.29 and 0.23. Across the limb it spills no more light than the sharpest twin, so it is about as sharp, but just
+  inside it is darker than every twin: its limb falls faster than the Minnaert law the twins are rendered with and the limb fit models.
+  The derived gains read their kernel off the same edge, which is why they drive band 2 to 6.8 to 9.1 on this master and band 3 negative.
+- **The reading that does not lean on the planet's law: the light just outside the limb** (1 to 1.1 radii, found over what the
+  planet's model through the pupil expects there, `PlanetaryPicture.NearGlow`, as `planetary compare` reads it). It reads 1.725, 2.014
+  and 2.510 on the real master, near the sharpest twin's.
+- **The twins**: the deploy family's 30 (as the air gives), 6 warped (`--warp-rms` 1 to 4 px) and 18 blurred (`planetary degrade
+  --static-blur`, 1 to 4.5 px, the stand-in for what the real stack loses), 54 in all, 40 to train and 14 held out on 2024d's maps.
+- **The model**: one ridge per colour from the glow alone to the truth's own gains, bands 1 to 4 (leave-one-out over the training twins
+  1443.7 against the edge's 2005.8; the glow and the edge together 8.7 % lower, short of the 10 % the rule asked, and the edge would
+  refuse the real master anyway). `PlanetaryGainsModels.EdgeHd11Jupiter` is written from the training by
+  `training/planetary/l_gains_s_model_cs.py`; `PlanetaryGainsModel.Predict` applies it only inside the twins' readings and at their
+  sampling, and says per channel why the derived gains stand where it does not.
+- **The gates, read on the 14 held twins and the real master through the built CLI:**
+
+  | gate | reading | verdict |
+  |---|---|---|
+  | G6, the real master inside | glow inside the twins' range on every channel; every channel takes the learned gains | holds |
+  | the built CLI against the training | every applied channel's gains equal to 0.005 | holds |
+  | G2, each channel 10 % below the derived | 40 of 42 channels 21 to 67 % below; d029 blue and f014 red refused by the guard (the derived gains stand) | holds where applied |
+  | G2, 10 % below the best classical option | 13 of 14 held twins 29 to 52 % below; d029 +15.7 % (its blue refused) | fails on d029 |
+  | G2, no band more than 2 % above | f017 red band 4 +66 %, d029 green band 3 +24 %, d026 blue band 3 +18 %, f017 green band 3 +13 % | fails |
+  | G3, power past the cutoff | 0.001 to 0.008 of the derived's | holds |
+  | G4, the limb (step C) | profile error 0.0037 against 0.0059; the trough 0.0010 against 0.0007, deeper on 11 of 14 (bounded fix: 0.0007, worse on 3) | fails |
+  | G5, the real master against its post | bands 3 to 5 closer (band 3 gain 0.657 against 0.540, band 4 0.831 against 0.732); band 2 below (0.320 against 0.355, correlation 0.790 against 0.868) | fails |
+
+  The band 3 truths of the most blurred twins ask 15 to 22, which their glow does not tell apart, so a line through them overshoots
+  bands 3 and 4 elsewhere; a curved fit in the glow takes 6 to 15 % off the leave-one-out error, not enough to answer it.
+- **What the posts do that the gains do not: deconvolution.** The post against its author's own 16-bit stack correlates 0.69 in band 2
+  and 0.49 in band 1, so its detail is not a linear lift of the stack's; the stack's band profile put on ours (band 2 times 7, band 3
+  2.7, band 4 1.6) stays visibly softer. Kolivas's damped Richardson-Lucy after the learned gains (`--finish kolivas --kolivas-amount
+  31.2`) reaches 0.936 and 0.931 of the post's band 3 and 4 detail at correlation 0.988 and 0.995, and band 2's 0.670. Against the
+  twins' truths the finish moves away (#1279, the finish options), so it belongs to an aesthetic mode, the post as its teacher:
+  [the posts' look, learned](#the-posts-look-learned).
+
+##### The posts' look, learned
+
+The learned gains are the physical mode: the gains the truth asks, as near as the twins tell. A post is its author's taste, and a
+capture's 16-bit `_stack` and its `_post` are a teacher pair for it: a search over a chain of TianWen's own steps (the deconvolution's
+amount and iterations, the gains' strength, a band 1 threshold, a tone curve) for the least loss against the post, read by `planetary
+judge`. Tracked as #1570 (an aesthetic mode learned from a capture's stack and post).
+
+#### L-DECONV: the learned chain with a real deconvolution (#1552)
+
+The owner's goal of 2026-10-14: a learned chain of deconvolution and wavelet sharpening that beats both the derived gains and every
+effort made before it, against the posts. Pre-registered arm by arm in `training/planetary/r9-rules.md` (L-CHAIN to L-DECONV-P).
+
+**The step.** `--finish deconvolve` (`PlanetaryFinishing.Deconvolve`, `--deconvolve-iterations`, a comma list, 20 when not given):
+Richardson-Lucy with the pupil's own diffraction (each channel's wavelength, the capture's aperture and obstruction, at the master's
+plate scale), on the sharpened window, after the gains. The gains restore the planet as the telescope shows it; this takes the
+telescope out too. Kolivas's step (`--finish kolivas`), which the first two arms used, is ONE damped step with a fixed 1.29 px Moffat on
+every capture, a deconvolution of nothing the capture holds: L-CHAIN (its amount fitted to three posts, applied to the fourth) and
+L-CHAIN-C (the same by correlation alone) both failed, because the posts' tastes in it differ.
+
+**What the twins' truth teaches: 20 steps.** The 40 training twins' mean error against the truth carried to the aperture target (bands
+1 to 4, mean of r, g, b), the learned gains then RL:
+
+| Steps | 0 | 10 | 20 | 40 | 80 |
+|---|---|---|---|---|---|
+| Bands 1 to 4 | 2.346 | 1.892 | **1.881** | 1.899 | 1.927 |
+| Bands 2 to 4 | 1.490 | 1.135 | **1.128** | 1.133 | 1.137 |
+
+Any count beats none on 38 to 40 of the 40 twins. The finest band, past every channel's cutoff on these oversampled twins, does not
+set the count (bands 2 to 4 alone also choose 20), and a low-pass at the cutoff after the steps (`--finish deconvolve+cutoff`) moves
+band 1 alone.
+
+**What the posts ask** (C24 against each post, the mean correlation over bands 2 to 4, `planetary judge`):
+
+| Capture | none | 10 | 20 | 40 | 80 |
+|---|---|---|---|---|---|
+| EdgeHD 11 Jupiter, learned gains | 0.915 | 0.942 | 0.948 | 0.950 | **0.951** |
+| EdgeHD 11 Jupiter, derived gains | 0.933 | **0.952** | 0.948 | 0.946 | 0.945 |
+| 12-inch SCT Jupiter, derived | **0.968** | 0.962 | 0.959 | 0.959 | 0.959 |
+| EdgeHD 11 Saturn, derived | 0.956 | 0.973 | 0.977 | **0.978** | **0.978** |
+| Meade 16-inch Saturn, derived | 0.934 | 0.976 | 0.981 | 0.981 | **0.982** |
+
+On the learned gains the steps bring bands 3 and 4 to the post's own amplitude (gains against the post 0.99 to 1.00, the derived gains'
+0.54 and 0.73); band 2 is where the posts keep more. The posts disagree on the count, and noise does not explain it: the real EdgeHD
+master's white level past 0.4 cycles a pixel (0.182, 0.191, 0.197) lies inside its twins' (0.140 to 0.202) for all its frames.
+
+**The verdicts.**
+- **L-DECONV and L-DECONV-C (the truth's 20 steps): FAIL** on the EdgeHD Jupiter against its post by a hair, C24 0.9477 and L24 0.294
+  against the best earlier effort's 0.9483 and 0.292 (learned gains then Kolivas at 31.2). The blind Meade Saturn gains 0.934 to 0.981.
+- **L-DECONV-P (the owner's choice: the posts teach the steps, leave-one-capture-out): HOLDS.** The other three posts choose 80 steps for
+  the EdgeHD Jupiter; learned gains then RL 80 read C24 0.9510 and L24 0.278 against its post, past the best effort before (0.9483 /
+  0.292) and the derived gains (0.9333 / 0.487). Its transfer verdict FAILS: the 12-inch SCT's post is closest with no deconvolution
+  (0.968 against 0.959 at the 20 the others choose); the other three captures all gain.
+- Read beside them: the count the posts choose for the EdgeHD Jupiter is a near tie (0.9723 to 0.9730 over 20 to 80), and one count
+  fitted to all four posts is 20, the truth's own. So `--finish deconvolve` ships as an OPTION at 20 steps, never a default finish;
+  the posts' count stays a taste (#1570).
+
+**Speed.** A twin scored against the aperture truth took about 28 minutes on the shared desktop, most of it the same full-frame
+diffraction recomputed nine times a run: `PlanetaryMasterScore` now carries a truth to the aperture once a process, and one run covers
+every arm through the comma lists of `--deconvolve-iterations` and `--kolivas-amount`. What remains is FFT work a GPU does far faster
+(#1577, after this lands, with CPU/GPU parity tests).
+
 #### The other stages, read afresh off the twins
 
 - **Denoising:** on all 56 undersampled twins the truth's own gain on the finest band is above 1 (1.37 to 6.40, median 3.51): the
