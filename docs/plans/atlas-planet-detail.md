@@ -149,7 +149,8 @@ toward the Sun, Saturn with its rings at their real tilt.
 **What a user will notice:** the interactive atlas zooms in to half a degree (`SkyMapViewActions.MinFieldOfViewDeg`),
 where on a 1,000 px view the Moon and the Sun fill the screen, Venus is about 30 px and Jupiter about 20; the FITS
 viewer's sky backdrop goes down to 0.005 degree, where every planet is a large disc. A disc wider than 256 px is the
-256 px sprite scaled up.
+256 px sprite scaled up. **So the disc is shown in the selected body's info panel too** (the owner, on the built GUI,
+2026-10-14: the map cannot zoom far enough for a planet's disc to be seen): see "The info panel's disc" below.
 
 #### What is built (the geometry layer, 2026-10-14)
 
@@ -233,6 +234,19 @@ Built 2026-10-14 (#1037). The pieces, in the order a frame meets them:
   its bucket centres, so it is a function of its key. A changed key starts ONE build on the thread pool (the Task is
   the hand-off; no lock), the stale sprite is drawn until it lands, and its landing asks for a frame (the web host's
   `RequestRepaint` too).
+- **The info panel's disc.** Selecting the Sun, the Moon or a planet puts its disc in the panel, under the rows and
+  above the picture: a declared slot (`ObjectInfoPanel.DiscFillKey`, in one media stack with the picture section,
+  `ObjectInfoPanel.BuildMediaSections`; `DesignDiscHeight` 132), drawn through `drawFill` by `SkyMapTab.DrawPanelDisc`.
+  The whole sprite fills nine tenths of the slot's shorter side (`PlanetDiscSprite.PanelRadiusPx`), so Saturn's rings
+  fit and every body is as large as the slot allows. **North up and east left**, as the sky shows it to the eye, whatever
+  the map's own view is turned to; phased, ringed and Night-tinted as on the map. The same sprite path builds it, from a
+  `PlanetSpriteCache` of the panel's own (`SkyMapTab.PanelSprites`, keyed at the slot's size, so a frame that changes
+  nothing builds nothing), and every sprite carries the channel that built it (`PlanetSprite.Channel`), so a host keeps
+  the map's and the panel's textures of one body apart instead of replacing one with the other each frame. A non-solar
+  system object gets no slot. The GUI and web atlases draw it; the FITS viewer's object panel never selects a planet and
+  is unchanged; the TUI has no atlas info panel. Tests: `SkyMapPlanetDiscTests` (Saturn's rings past its globe in the
+  slot, the Moon's lit limb toward the Sun, no slot for a deep-sky object, no rebuild over ten frames, and the panel
+  written as `panel-saturn.png` and `panel-moon.png`).
 - **The hosts** (`SkyMapTab.DrawPlanetSprite`): the base draws on the CPU surface (`RgbaImage`: the tests and the
   terminal), `VkSkyMapTab` through `VkPlanetSprites` (a queued upload, the previous texture drawn until the new one
   lands, a replaced texture's destroy deferred by the context), `WebSkyMapTab` through `WebGlPlanetSprites` (the
