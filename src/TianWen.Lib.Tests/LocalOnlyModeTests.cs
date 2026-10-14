@@ -240,6 +240,20 @@ public class LocalOnlyModeTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void ANodeSharedOnTheLanIsNeverReplacedForItsModeAlone()
+    {
+        // A node reachable from the LAN is a rig someone shares (a mini PC's, or this machine's on purpose): a local-only client
+        // must not take it away for its mode alone. It is used as it is, and the note says why.
+        var shared = Node(localOnly: false, isShared: true);
+
+        LocalNodeLauncher.Replaces(shared, named: false, anotherBuild: false, clientLocalOnly: true)
+            .ShouldBeFalse("a shared node is not replaced for its mode");
+        LocalNodeLauncher.Replaces(shared, named: false, anotherBuild: true, clientLocalOnly: true)
+            .ShouldBeTrue("one of another build is replaced as it always was");
+        LocalNodeLauncher.ModeNote(shared, clientLocalOnly: true).ShouldNotBeNull().ShouldContain("shares the rig on the LAN");
+    }
+
+    [Fact]
     public void ANodeUsedInTheOtherModeIsNeverUsedSilently()
     {
         LocalNodeLauncher.ModeNote(Node(localOnly: true), clientLocalOnly: true).ShouldBeNull();
@@ -254,13 +268,14 @@ public class LocalOnlyModeTests(ITestOutputHelper output)
 
     private static LocalOnlyMode Mode(bool on) => on ? LocalOnlyMode.On : LocalOnlyMode.Off;
 
-    private static NodeInfoDto Node(bool localOnly, bool holdsHardware = false, int clientsAttached = 0) => new NodeInfoDto
+    private static NodeInfoDto Node(bool localOnly, bool holdsHardware = false, int clientsAttached = 0, bool isShared = false) => new NodeInfoDto
     {
         NodeId = "node",
         Version = "10.0.0",
         LocalOnly = localOnly,
         HoldsHardware = holdsHardware,
         ClientsAttached = clientsAttached,
+        IsShared = isShared,
     };
 
     private static async IAsyncEnumerable<SkywatcherDevice> NoMounts([EnumeratorCancellation] CancellationToken cancellationToken)
