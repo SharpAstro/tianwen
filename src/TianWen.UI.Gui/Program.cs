@@ -49,7 +49,7 @@ services
     .AddSingleton(sp => new GuiAppState { PeerTable = sp.GetService<IPeerTable>() });
 
 // LAN peer discovery (docs/plans/remote-profile.md): symmetric beacon so the Equipment tab's
-// no-profile screen can list tianwen-server rigs on the LAN. ServicePort 0 -- the GUI serves no
+// no-profile screen can list tianwen-server rigs on the LAN. ServicePort 0: the GUI serves no
 // inbound channel of its own, it only discovers. Not in a local-only process: the transport binds
 // the discovery port on every interface whatever it is told to do, so there is no transport at all,
 // the peer table is null, and a rig bound by address is still reached by its last address.

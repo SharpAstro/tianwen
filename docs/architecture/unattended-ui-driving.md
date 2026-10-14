@@ -42,7 +42,11 @@ screenshot-poll-and-OCR**. Three pieces compose:
 3. **Drive + observe via the DEBUG inspector, not screenshots.** A **DEBUG** GUI build attaches
    `DebugInspector` (`Program.cs`, compiled out of Release entirely), exposing this process to the
    `sdl-ui-inspector` MCP sidecar (`.mcp.json` → `dnx SdlVulkan.Renderer.Inspector`, UDP-multicast discovery).
-   It gives six surfaces:
+   **A local-only app answers no multicast** (`TIANWEN_LOCAL_ONLY=1`, which `tools/start-app.ps1` sets so a build in
+   a new folder raises no firewall prompt; [hosting-api.md](hosting-api.md), "Local-only"): `list_instances` then
+   does not list it, and its loopback command port is in its stderr banner. It also needs a build against the
+   sibling SOURCES (`UseLocalSiblings`): a worktree under `.claude/worktrees/` finds none, so its Debug GUI has no
+   inspector at all. It gives six surfaces:
    - **Describe/state snapshot** (the `AppState` block): `activeTab`, `profile`, `sessionRunning`, `phase`,
      `mountConnected/Name/RaJ2000/DecJ2000/mountSlewing/mountTracking`, `lastNotification`, sky-map viewport,
      `liveSessionMode` (Preview/PolarAlign/Planetary/Flats) + `flatRunActive`/`flatStatus`.

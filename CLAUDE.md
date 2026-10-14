@@ -1230,6 +1230,14 @@ the session plane", "Invariants 7-13 in full"); the node's lifetime and version 
    `.OpenToAsk()`); `NodeAccessTests` fails on a route outside the groups. A native refusal is a 401, never a
    socket-only route's 403. `docs/architecture/hosting-api.md`, "Who may command the node over TCP".
 
+**Local-only binds nothing but loopback and the node's socket, and is ONE decision per process, `LocalOnlyMode`**
+(`TIANWEN_LOCAL_ONLY=1` or `tianwen-server --local-only`; `tools/start-app.ps1` sets it, since Windows Firewall asks
+once per executable PATH for any other bind): no TCP 1888, no LAN discovery, no network discovery of devices (USB and
+serial kept, Alpaca asks loopback), no inspector multicast, and a node a client starts is in the client's mode (one of
+the other mode is replaced only while idle and unattended, else used and SAID). **A new network bind asks the mode**:
+`LocalOnlyModeSourceTests` lists every one in `src/`. `tools/check-local-only-binds.ps1` proves it end to end.
+`docs/architecture/hosting-api.md`, "Local-only".
+
 ### Remote Rigs (mirror another node's session "as if local")
 
 `docs/plans/remote-profile.md` (complete P1-P5) holds the design, the Home-tab decisions, the sidebar
