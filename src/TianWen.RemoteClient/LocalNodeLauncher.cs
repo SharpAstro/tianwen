@@ -88,6 +88,27 @@ namespace TianWen.RemoteClient
 
         /// <summary>More arguments for the node (a test's <c>--fake-devices</c>).</summary>
         public IReadOnlyList<string> NodeArguments { get; init; } = [];
+
+        /// <summary>
+        /// The client's own mode (<see cref="LocalOnlyMode"/>): this process's by default. A node it starts is started
+        /// <c>--local-only</c> when it is on, and a node it finds of the other mode is replaced while idle and unattended.
+        /// </summary>
+        public LocalOnlyMode LocalOnly { get; init; } = LocalOnlyMode.OfThisProcess();
+
+        /// <summary>Whether a node this client starts is local-only: its mode, or a <c>--local-only</c> among <see cref="NodeArguments"/>.</summary>
+        internal bool StartsLocalOnly => LocalOnly.IsOn || NodeArguments.Contains(LocalOnlyMode.Argument);
+
+        /// <summary>The keeper's command line for <paramref name="socketPath"/>: <c>--local-only</c> said once, whichever way it was asked for.</summary>
+        internal IReadOnlyList<string> KeeperArguments(string socketPath)
+        {
+            List<string> arguments = ["--keeper", "--socket", socketPath];
+            if (LocalOnly.IsOn && !NodeArguments.Contains(LocalOnlyMode.Argument))
+            {
+                arguments.Add(LocalOnlyMode.Argument);
+            }
+            arguments.AddRange(NodeArguments);
+            return arguments;
+        }
     }
 
     /// <summary>
@@ -124,18 +145,27 @@ namespace TianWen.RemoteClient
                 if (running.WireVersion == NodeWire.Version)
                 {
                     // The same wire, but maybe another build: another install, or this one rebuilt since the node started (a
-                    // rebuild of uncommitted changes keeps the version string). An idle node no client is attached to is
-                    // replaced, so this client runs the code it was built with; one in use is used as it is.
+                    // rebuild of uncommitted changes keeps the version string). Or another mode: local-only where this client
+                    // is not, or the reverse. An idle node no client is attached to is replaced, so this client runs the code
+                    // it was built with, in its own mode; one in use is used as it is, and a mode that differs is SAID.
                     var newestHere = BuildInfo.NewestCodeFileUtc(options.ServerDirectory, Path.Combine(options.ServerDirectory, ServerFileName));
-                    if (!named && running is { HoldsHardware: false, ClientsAttached: 0 } && IsAnotherBuild(running, options.ServerDirectory, newestHere))
+                    var anotherBuild = IsAnotherBuild(running, options.ServerDirectory, newestHere);
+                    var modeNote = ModeNote(running, options.StartsLocalOnly);
+                    if (!named && running is { HoldsHardware: false, ClientsAttached: 0 } && (anotherBuild || modeNote is not null))
                     {
                         if (await StopAsync(transport, running, cancellationToken))
                         {
-                            logger.LogInformation("Stopped an idle node of another build (from {Folder}, written {Written}) to start this client's",
-                                running.InstallFolder ?? "an older node", running.BuildWrittenUtc);
+                            logger.LogInformation("Stopped an idle node of another {What} (from {Folder}, written {Written}, {Mode}) to start this client's",
+                                anotherBuild ? "build" : "mode", running.InstallFolder ?? "an older node", running.BuildWrittenUtc,
+                                running.LocalOnly ? "local-only" : "not local-only");
                             return await StartAsync(transport, socketPath, cancellationToken);
                         }
-                        logger.LogWarning("An idle node of another build (pid {Pid}) would not stop; it is used as it is", running.ProcessId);
+                        logger.LogWarning("An idle node of another {What} (pid {Pid}) would not stop; it is used as it is", anotherBuild ? "build" : "mode", running.ProcessId);
+                    }
+                    if (modeNote is not null)
+                    {
+                        logger.LogWarning("The node on {Socket} (pid {Pid}) is used in the other mode: {Note}", socketPath, running.ProcessId, modeNote);
+                        return new LocalNode(LocalNodeOutcome.Found, transport, running, $"Connected to the node on {socketPath}; {modeNote}");
                     }
                     return new LocalNode(LocalNodeOutcome.Found, transport, running, $"Connected to the node on {socketPath}");
                 }
@@ -190,6 +220,24 @@ namespace TianWen.RemoteClient
             static string Normalized(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
         }
 
+        /// <summary>
+        /// What a client says about <paramref name="node"/> when it is not in the mode the client would start one in
+        /// (<paramref name="clientLocalOnly"/>, <see cref="LocalOnlyMode"/>), or null when it is. A node of the other mode is
+        /// replaced while idle and unattended; otherwise it is used, and this is how the client says so, never silently.
+        /// </summary>
+        internal static string? ModeNote(NodeInfoDto node, bool clientLocalOnly)
+        {
+            if (node.LocalOnly == clientLocalOnly)
+            {
+                return null;
+            }
+
+            var why = node.HoldsHardware ? "it is holding the rig" : node.ClientsAttached > 0 ? "another client is attached to it" : "it was not replaced";
+            return node.LocalOnly
+                ? $"it is local-only (no LAN, no network discovery of devices) and this client is not; {why}, so it stays so until it restarts"
+                : $"it is not local-only and this client is ({LocalOnlyMode.EnvironmentVariable}), so it may bind the network; {why}";
+        }
+
         private async Task<LocalNode> StartAsync(NodeTransport transport, string socketPath, CancellationToken cancellationToken)
         {
             var server = Path.Combine(options.ServerDirectory, ServerFileName);
@@ -211,7 +259,7 @@ namespace TianWen.RemoteClient
             // A refusal is read only after it was written by THIS start (#1077).
             NodeStartRefusal.Clear(dataRoot);
 
-            using var keeper = DetachedProcess.Start(server, ["--keeper", "--socket", socketPath, .. options.NodeArguments], dataRoot, environment);
+            using var keeper = DetachedProcess.Start(server, options.KeeperArguments(socketPath), dataRoot, environment);
             logger.LogInformation("Started the node's keeper {Server}, pid {Pid}{Breakaway}", server, keeper.Id,
                 keeper.OutlivesClient ? "" : ", which could not break away from this program's job");
 
