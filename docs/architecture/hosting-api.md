@@ -41,7 +41,8 @@ Run: `dotnet run --project TianWen.Server` or `tianwen-server [--port 1888] [--s
 root (`NodeSocket.DefaultPath`, `node.sock`; `--socket` names another), which Windows 10 1803+, Linux and macOS
 all serve. A node run by hand is therefore the machine's node, and a client finds it there rather than starting
 a second one onto the same hardware (P1 of [../plans/hardware-in-the-server.md](../plans/hardware-in-the-server.md),
-#917). It also listens on TCP `--port` (1888) and announces itself on the LAN, unless `--local-only`.
+#917). It also listens on TCP `--port` (1888) and announces itself on the LAN, unless local-only (`--local-only`, or
+`TIANWEN_LOCAL_ONLY=1` in its environment: "Local-only" below).
 
 - **One node per socket: `node.lock` beside it is the gate** (`NodeLock`), opened with no sharing (an exclusive
   open on Windows, `flock` on Unix) and held for the node's life, so the OS drops it however the node dies. A
@@ -99,7 +100,10 @@ does not take it down and it can never write over a TUI; a spawned node logs to 
 **A client finds or starts the node through `LocalNodeLauncher`**, never with a spawn of its own:
 1. It asks the socket. A node there of this wire is the one (`Found`). One of another wire is stopped over its
    socket and replaced if it is idle, and left running (`BusyWithAnotherWire`) if it holds hardware: an older node
-   still running a night after an update.
+   still running a night after an update. One of this wire but another BUILD (`IsAnotherBuild`) or the other MODE
+   (local-only or not, `NodeInfoDto.LocalOnly`) is replaced while it is idle and no client is attached
+   (`LocalNodeLauncher.Replaces`), and used as it is otherwise; a mode that differs is then SAID (`ModeNote`, in the
+   outcome's message and a warning), never passed over.
 2. A socket the client was pointed at (`--node-socket`, `TIANWEN_NODE_SOCKET`) is only ever connected to
    (`NamedNodeUnreachable`, `AnotherWire`).
 3. With nothing on the socket, a node under another account (a service) answering on `localhost:1888` is used as it
@@ -118,7 +122,7 @@ does not take it down and it can never write over a TUI; a spawned node logs to 
 `NodeSettings`, decision 3), read at every start and changed over the socket or by a client granted control
 (`PUT /api/v1/node/share`, a 401 over TCP without control; see "Who may command the node over TCP"):
 - **Where a node listens** (`NodeListeningDecision`): the socket always. TCP 1888 and the LAN announcement unless
-  `--local-only`, and for a node a client started only while the rig is shared, so a laptop's GUI opens no port and
+  local-only (whatever the setting), and for a node a client started only while the rig is shared, so a laptop's GUI opens no port and
   announces no rig nobody asked to share. A node run by hand keeps TCP, as a mini PC's does.
 - **While shared, the node starts at logon** (`INodeLogonStart`): a `Run` value on Windows, an XDG autostart entry on
   Linux, a LaunchAgent on macOS, each starting the server's keeper. Turning it off removes it. The entry is written
@@ -188,10 +192,55 @@ atomically as any of that changes, and a 5 s poll catches what raises nothing (t
   the second crash; the journal's is what keeps the next client's node from walking into the same one. A boot wipes
   the history with the rig's state.
 
+### Local-only: loopback and the socket, nothing else (`TIANWEN_LOCAL_ONLY`)
+
+Windows Defender Firewall asks once per executable PATH when a process binds an address that is not loopback (never
+for loopback) and keeps a rule per path, so every build in a new folder (a worktree, a scratch publish) asked again.
+**`TIANWEN_LOCAL_ONLY=1` in a process's environment, or `tianwen-server --local-only`, makes it bind nothing but
+loopback and the node's socket.** It is opt-in, since WiFi cameras and mounts, Alpaca discovery and LAN rig sharing
+are features; `tools/start-app.ps1` turns it on for every app it launches unless the caller set the variable.
+
+- **Decided once per process, by `LocalOnlyMode`** (`TianWen.Lib`): the environment read on first use and frozen,
+  the server's switch ORed in (`OfThisProcess`, folded into its `NodeArguments`, so a keeper passes it on).
+  `AddExternal` registers it, TryAdd, and the server registers its own first; whatever would bind is handed it and
+  never reads the environment itself (`LocalOnlyModeSourceTests.OnlyLocalOnlyModeReadsItsVariable`).
+- **What it leaves out, and what it keeps:**
+
+| What binds | Without the mode | In the mode |
+|---|---|---|
+| tianwen-server's Kestrel | TCP 1888 on every interface (a node run by hand, or a shared one) | the socket alone, whatever the share setting |
+| The node's LAN announcement (LAN.Lib) | the UDP discovery port on every interface | not registered |
+| Canon and OnStep WiFi discovery | mDNS: UDP 5353 on every interface, a multicast join | skipped; USB, WPD and serial discovery kept |
+| Skywatcher WiFi discovery | a broadcast to UDP 11880 | skipped; the serial matches kept |
+| Alpaca discovery | a broadcast to UDP 32227 | asks `127.0.0.1:32227` from a socket bound to loopback, so a simulator on this machine is still found |
+| A WiFi Skywatcher mount (the one device reached over UDP) | a UDP socket to the mount | the connect fails, saying why |
+| The GUI's LAN discovery | the UDP discovery port on every interface | not registered: no LAN rig is listed; a bound rig is still reached by its last address |
+| The GUI's and the viewer's DEBUG inspector | multicast discovery on UDP 47892 | `EnableDiscovery = false`; the loopback command server stays, its port in the stderr banner |
+
+- A device reached as a TCP CLIENT (OnStep or Canon over WiFi, an Alpaca server, PHD2) opens no listener and is kept.
+- **A node a client starts is in the client's mode**: the launcher passes `--local-only` to the keeper
+  (`LocalNodeOptions.KeeperArguments`), which passes it to the node, and the environment carries it as well.
+  `GET /api/v1/node` answers `LocalOnly`. A node found of the other mode is replaced only while idle and unattended,
+  as a node of another build is (step 1 above); in use, it is used, and the client says so. A local-only window
+  never silently works through a node that binds the LAN, and an ordinary one never silently keeps a local-only
+  node's missing features.
+- **What the mode cannot cover from TianWen alone**: the TUI's console inspector (Console.Lib's
+  `ConsoleDebugInspector.Attach`) has no discovery switch, so a DEBUG TUI still binds UDP 47892; and in the mode the
+  SdlVulkan inspector sidecar's `list_instances` does not find the GUI or the viewer, since multicast is all it asks.
+- **A new bind must ask the mode**: `LocalOnlyModeSourceTests.EveryNetworkBindInTheShippingCodeIsAKnownOneGatedOnTheMode`
+  lists every file in `src/` that binds on every interface, broadcasts, joins a multicast group or listens, with the
+  file holding its gate, and fails on one it does not know.
+- **The end-to-end check is `tools/check-local-only-binds.ps1`**: tianwen-server and the Debug GUI in the mode on a
+  scratch data root (a copy of the GUI's output without `toupcam.dll`, whose discovery opens every camera), a full
+  discovery over the socket before and after the GUI attaches, and every TCP listener and UDP endpoint of the GUI,
+  the node and any keeper sampled throughout; it exits 1 on one that is not loopback. Its negative control is the
+  unit tests: a build run WITHOUT the mode would raise the very prompt the mode avoids.
+
 Pinned by `NodeSocketTests`, `NodeAddressTests`, `ExeBesideTests`, `NodeKeeperTests`, `NodeKeeperProcessTests`,
 `LocalNodeLauncherTests`, `DetachedProcessTests`, `NodeShareTests`, `NodeShareSettingTests`,
-`NodeActiveProfileTests`, `NodeJournalTests`, `DeviceHubCoolerIntentTests`, `NodeJournalServiceTests` and
-`NodeJournalProcessTests` (a real keeper and node, killed holding a cooled camera, and killed twice for the loop).
+`NodeActiveProfileTests`, `NodeJournalTests`, `DeviceHubCoolerIntentTests`, `NodeJournalServiceTests`,
+`NodeJournalProcessTests` (a real keeper and node, killed holding a cooled camera, and killed twice for the loop),
+`LocalOnlyModeTests` and `LocalOnlyModeSourceTests`.
 
 ## Who may command the node over TCP: seeing is free, a command needs control
 
