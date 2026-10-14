@@ -358,11 +358,13 @@ public sealed class OrreryTests(ITestOutputHelper output)
     /// small): their discs apart, and no label of one on the other's disc or label. The focus body's label is always drawn.
     /// </summary>
     [Theory(Timeout = 120_000)]
-    [InlineData(CatalogIndex.Moon)]
-    [InlineData(CatalogIndex.Jupiter)]
-    public async Task TheEarthAndTheMoonDoNotOverprint(CatalogIndex focus)
+    [InlineData(CatalogIndex.Moon, 1f)]
+    [InlineData(CatalogIndex.Moon, 1.5f)]
+    [InlineData(CatalogIndex.Jupiter, 1f)]
+    [InlineData(CatalogIndex.Jupiter, 1.5f)]
+    public async Task TheEarthAndTheMoonDoNotOverprint(CatalogIndex focus, float dpiScale)
     {
-        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale);
         Select(rig, focus);
         rig.Tab.OpenOrrery();
         rig.Render();
