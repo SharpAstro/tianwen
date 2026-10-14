@@ -191,6 +191,27 @@ public sealed class SkyMapPlanetDiscTests
     }
 
     /// <summary>
+    /// The hover wash is the object's own footprint (CLAUDE.md, "The atlas's hover highlight"): over a Moon drawn 400 px across it is
+    /// the disc's 200 px radius, from the same resolver the click uses; over Jupiter at 4 px, a dot, it stays the dot's tolerance.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(CatalogIndex.Moon, 400.0, 200f)]
+    [InlineData(CatalogIndex.Jupiter, 4.0, 20f)]
+    public async Task TheHoverWashIsTheDiscsRadius(CatalogIndex body, double diameterPx, float expectedRadius)
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        rig.Tab.State.Mode = SkyMapMode.Equatorial;
+        rig.Look(body, diameterPx);
+        await rig.RenderSettledAsync();
+
+        var target = SkyMapSearchActions.ResolveHoverAtScreenPoint(rig.Tab.State, rig.Planner.ObjectDb.ShouldNotBeNull(), Instant,
+            (Size / 2f) + 1, Size / 2f, pinnedCatalogIndices: null).ShouldNotBeNull();
+
+        target.Index.ShouldBe(body);
+        target.HitRadiusPx.ShouldBe(expectedRadius, expectedRadius * 0.02f);
+    }
+
+    /// <summary>
     /// The CPU surface shows the sprite: at about 200 px the disc's pixels are the texture's (many colours, none of them the dot's) and
     /// cover the disc, for Jupiter, Saturn, Venus and the Moon. The four are written to the test output folder as one PNG, the
     /// screenshot-equivalent of the feature. The build cost of a 64 and a 256 px sprite is measured beside it.

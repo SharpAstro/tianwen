@@ -1072,6 +1072,7 @@ public static class SkyMapSearchActions
         var bestPlanetDistSq = double.MaxValue;
         CatalogIndex? bestPlanetIdx = null;
         double bestPlanetRa = 0.0, bestPlanetDec = 0.0;
+        var bestPlanetRadiusPx = ClickToleranceScreenPx;
         foreach (var marker in skyMap.GetPlanetPositionsCached(viewingUtc))
         {
             var (planetIdx, pRa, pDec) = marker;
@@ -1097,6 +1098,8 @@ public static class SkyMapSearchActions
                 bestPlanetIdx = planetIdx;
                 bestPlanetRa = pRa;
                 bestPlanetDec = pDec;
+                // The hover wash is the object's own footprint: the disc where one is hit, never smaller than the dot's tolerance.
+                bestPlanetRadiusPx = (float)Math.Max(ClickToleranceScreenPx, discRadius);
             }
         }
 
@@ -1152,7 +1155,7 @@ public static class SkyMapSearchActions
         if (bestPlanetIdx is { } pIdx && bestPlanetDistSq <= catalogDistSq)
         {
             resolved = new ResolvedHit(
-                SkyMapHitKind.Planet, pIdx, bestPlanetRa, bestPlanetDec, ClickToleranceScreenPx, double.NaN);
+                SkyMapHitKind.Planet, pIdx, bestPlanetRa, bestPlanetDec, bestPlanetRadiusPx, double.NaN);
             return true;
         }
 
