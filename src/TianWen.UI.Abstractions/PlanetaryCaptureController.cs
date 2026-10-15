@@ -207,12 +207,22 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
     // How often the live frame's reader looks again while STACK is on show, when it asks for nothing.
     private static readonly TimeSpan LiveFrameIdlePoll = TimeSpan.FromMilliseconds(100);
 
+    private int _liveFramesRead;
+    private int _liveFramesFromSharedMemory;
+
+    /// <summary>Live frames the reader has taken from the node since this view was made, over every capture it watched.</summary>
+    internal int LiveFramesRead => Volatile.Read(ref _liveFramesRead);
+
+    /// <summary>Of <see cref="LiveFramesRead"/>, those that came through shared memory (P4b), not the socket.</summary>
+    internal int LiveFramesFromSharedMemory => Volatile.Read(ref _liveFramesFromSharedMemory);
+
     // The camera's live frame, the newest each time the last has been read (drop-to-latest), and only while RAW is on show:
     // a frame nobody sees is one the node need not send. Each is handed to the render thread, the one it replaces given back.
     private async Task ReadLiveFramesAsync(NodeConnection node, CancellationToken cancellationToken)
     {
         await using var stream = await node.Transport.OpenFrameStreamAsync(FrameSources.PlanetaryLive, cancellationToken).ConfigureAwait(false);
         var reader = new FrameReader();
+        var throughSlots = stream.FramesFromSharedMemory;
         while (!cancellationToken.IsCancellationRequested)
         {
             if (_state.ShowStacked)
@@ -223,6 +233,12 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
             if (await stream.ReadAsync(reader, cancellationToken).ConfigureAwait(false) is not { } next)
             {
                 return;
+            }
+            Interlocked.Increment(ref _liveFramesRead);
+            if (stream.FramesFromSharedMemory != throughSlots)
+            {
+                throughSlots = stream.FramesFromSharedMemory;
+                Interlocked.Increment(ref _liveFramesFromSharedMemory);
             }
             Interlocked.Exchange(ref _pendingLiveFrame, next.Frame)?.Release();
             _state.NeedsRedraw = true;
