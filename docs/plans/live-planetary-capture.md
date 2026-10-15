@@ -868,6 +868,91 @@ correct it twice. `IVideoCameraDriver.IsUnderVideoRoi(frame)` answers whether a 
 for applied: the DAL loop counts jogs asked and applied, and after a pan asks for frames without waiting until the SDK has none, the
 first frame it has to wait for being the first under the new window. `PlanetaryCapture` measures no other frame.
 
+### Video through the node at the Saturn window (measured 2026-10-16)
+
+**Issue:** #813 (TIA2's node leg).
+
+Since P6 (#936) the GUI's planetary capture is its node's run: `tianwen-server` holds the camera, runs `PlanetaryCapture`, stacks and
+records; the GUI starts it, sends the panel's controls and shows the live frame and the masters it reads back. The section above
+measured the capture loop in one process. This one measures it through the node, with the GUI's own client watching.
+
+**How.** `NodePlanetaryRateProbe` (Release, gated on `TIANWEN_TOUPTEK_RATE_PROBE=1`): a real `tianwen-server` (its keeper,
+`--local-only`, a scratch `TIANWEN_DATA_ROOT` and a socket of its own) holds the ToupTek in a profile. The GUI's own
+`AppSignalHandler`, composed as `GuiNodeHarness` composes it and connected local-only, starts the capture with the panel's
+`StartVideoCaptureSignal` (640x480, 8 bits, 5 ms, gain 2252) and jogs it to (1716, 546) through the panel's controller. Its
+`PlanetaryCaptureController` shows RAW the whole time, reading the camera's live frame through shared memory, its render thread
+driven at 60 Hz. The recording is asked for on the handler's own connection to the node (`POST /api/v1/planetary/record`), the
+request a Record control would send, since the GUI has none yet (#1344). Each recording is read back off its SER as the section
+above reads it (`SerRateReadBack`). In one session and in this order, so each comparison is adjacent in time: the section above's
+in-process recording, a node recording with no view attached, the recordings with the view, the in-process recording again. The
+node's own counts (the hand-off's replaced frames, its stalls) come from its log, read once it has exited.
+
+**The bar (decided with the co-pilot):** each recording with the view at least 190 fps off its SER, nothing replaced by the
+hand-off, nothing dropped by the body or the disk, no step between two frames' timestamps over 100 ms (20 frame times, a third
+of the SDK's 64-frame ring), and within 3 % of the same session's in-process rate; a recording the camera stalled in is reported
+apart and made again. Met, 60 s each, the box 13 to 23 % busy:
+
+| Recording, 60 s | fps off the SER | Steps p50 / p99 / max | Replaced | Body / disk dropped | Hand-off peak | The view, live frames a second shown / read |
+|---|---|---|---|---|---|---|
+| in process, before | 196.8 | 5.08 / 5.21 / 15.2 ms | 0 | 0 / 0 | 5 | |
+| node, no view | 196.8 | 5.08 / 5.20 / 13.8 ms | 0 | 0 / 0 | 14 | |
+| node, view (run 1) | **196.8** | 5.08 / 5.21 / 5.8 ms | 0 | 0 / 0 | 2 | 30.1 / 30.3 |
+| node, view (run 6) | **196.8** | 5.08 / 5.20 / 5.8 ms | 0 | 0 / 0 | 4 | 29.8 / 30.3 |
+| node, view (run 7) | **196.8** | 5.08 / 5.21 / 5.8 ms | 0 | 0 / 0 | 5 | 30.0 / 30.3 |
+| in process, after | 196.8 | 5.08 / 5.18 / 5.4 ms | 0 | 0 / 0 | 1 | |
+
+196.8 is the camera's own rate at this window (200 at most at 5 ms), so the node adds nothing measurable: 100.0 % of in process
+in every run. Every live frame the view read came through shared memory; the node samples one each 33 ms, so a view reads about
+30 a second whatever the camera's rate, drop-to-latest, and a view that lags takes fewer without costing the recording a frame.
+The node stacked 10 or 11 masters a minute meanwhile. Runs 2 to 5 met the camera's stalls (below) and are reported apart:
+197.0 to 197.4 fps outside their gaps, nothing replaced. Through the whole node part, the node, its keeper and the client owned
+no TCP listener and no UDP endpoint at all (the node listens on its socket alone, `--local-only`), sampled each second from
+Windows' owner tables (`OwnedEndpoints`, which the probe first shows finding its own loopback sockets).
+
+**With the box loaded at normal priority, the capture loses frames in process and through the node alike.** The same probe
+with 20 s recordings, 32 spinning processes at normal priority on the 16 cores (100 % busy, 83 to 89 threads waiting), two
+rounds per arm, the node with its Server GC as shipped (A) and with `DOTNET_gcServer=0` (B):
+
+| Arm (32 spinners) | in process, before | node, no view | node, view | in process, after |
+|---|---|---|---|---|
+| A, round 1 | 196.8 fps, 0 replaced | 142.6, 1,169 (peak 64) | 140.7, 1,157 (peak 64) | 191.4, 108 |
+| B, round 1 | 136.8, 1,217 | 196.6, 0 (peak 62) | 156.4, 732 (peak 64), a stall | 162.1, 656 |
+| A, round 2 | 130.4, a stall | 135.1, 1,413 (peak 64) | 140.1, 1,237 (peak 64) | 152.9, 895 |
+| B, round 2 | 196.7, 1 | 186.6, 230 (peak 64) | 125.6, 1,425 (peak 64) | 145.5, 1,016 |
+
+Unloaded, both arms gave 196.8 fps with the view and nothing replaced, four runs of four. So the GC is not where the frames go,
+and neither is the node: under normal-priority saturation the capture loop's reader is late past the hand-off's 64 frames
+(320 ms) and the hand-off drops the oldest, in either process. The reader is a thread pool continuation at normal priority:
+`PlanetaryCapture` runs its loop through `Task.Run` and `await foreach (... .ConfigureAwait(false))`, and the DAL's bounded channel
+completes the reader's `WaitToReadAsync` on the pool, while the driver's own thread, at the highest priority, goes on reading (the
+body dropped nothing). In the node the live stack's `ParallelFor` takes the same pool. The section above held at 100 % because
+that load (other flights' sharpening grids, started by Task Scheduler) ran below normal priority. A first gate attempt under another
+checkout's compiler and test suite (87 % busy) met one 101 ms step, over the bar by 1 ms; the gate above was run when that load
+had gone, as the bar says.
+
+**The camera stalled far more often than the section above measured.** Across the day's 55 streams (all at speed 2, the top
+level every stream takes), 16 stalled, 19 times in about 1,970 s of streaming: one in about 104 s, against one in 750 s in the
+section above's 25-minute soak and about one in 1,250 s in ToupTek.SDK's. A restart brought back 14 (6.5 to 6.9 s from the last
+frame to the next), a close and reopen 3 (7.6 to 7.7 s), a reset 2 (23.2 s); all `GeneralError`. They came in periods (one
+round of four probes had none, the next three had 13) and at any time into a stream (7 to 58 s). In process, where every run's
+stream is the first after an open, 4 in about 670 s; through the node, its first stream after the connect 4 in 340 s and its
+later streams 11 in 958 s: too few to say the first stream after an open, or the node, stalls more. Nothing but the probe's own
+processes had `toupcam.dll` loaded. A finding for ToupTek.SDK; at 6.5 s a stall costs about 1,300 frames.
+
+**A node on a scratch data root keeps its images under it.** `External.ImageOutputFolder` was the user's Pictures folder whatever
+`TIANWEN_DATA_ROOT` said, so this probe's node would have recorded 3.6 GB a minute there, and a functional test's dark library had
+been leaving six darks there on every run. It is now `Images` under an overridden data root
+([runtime-data.md](../architecture/runtime-data.md)).
+
+**The real window.** The gate drives the GUI's client, not its renderer, so it does not cover the draw. `tools/planetary-gui-evidence.ps1`
+opens the real `tianwen-gui` on such a node, local-only, on the left half of the screen, asks a person for the clicks the GUI takes no
+other way (the Live Session tab, the Planetary mode pill, the panel's settings, Start), then jogs to the Saturn window, records a
+minute, takes the window by `PrintWindow` mid-recording and reads the SER back
+(`NodePlanetaryRateProbe.TheRealGuiWindowShowsTheCaptureLiveWhileTheNodeRecords`); `-CheckOnly` proves it with nobody at the desk.
+**`PrintWindow` takes a black client area while the user's session is disconnected** (`quser` says `Disc`, no monitor active):
+the GUI draws (its log has frames) but nothing composes it, so the picture needs a session on a screen, which the person at the
+desk brings.
+
 ### Phase G: a mono filter-wheel sequence
 
 **Issues:** #1344 (the Record control, first), #1340 (the sequence).
