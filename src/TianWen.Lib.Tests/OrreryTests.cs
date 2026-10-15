@@ -1262,10 +1262,15 @@ public sealed class OrreryTests(ITestOutputHelper output)
         // The time is weighted first: at 1.5x it still shows its whole date and time (only the offset may trim).
         var timeLeaf = rig.Tab.GetCapturedLayout()
             .Single(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } && text.Value.StartsWith("2028-", StringComparison.Ordinal));
-        var dateTime = ((Layout.Content.Text)((Layout.Node.Leaf)timeLeaf.Node).Content).Value[..16];
+        var timeText = (Layout.Content.Text)((Layout.Node.Leaf)timeLeaf.Node).Content;
+        var dateTime = timeText.Value[..16];
         var shownTime = rig.Tab.StripShownText(timeLeaf);
-        output.WriteLine($"the time shows \"{shownTime}\"");
+        // The slack is what the time gets past its date and time; at least two ems of it, so another platform's wider glyphs
+        // still leave the date and time whole (at weight 2 Windows kept 29 px at 1.5x and Linux lost the last digit).
+        var slack = timeLeaf.Bounds.Width - rig.Tab.StripContentWidth(Layout.Builder.Text(dateTime, timeText.FontSize, trim: TextTrim.None));
+        output.WriteLine($"the time shows \"{shownTime}\" in {timeLeaf.Bounds.Width:F0} px, {slack:F0} px past its date and time (an em is {timeText.FontSize:F0})");
         shownTime.ShouldStartWith(dateTime, Case.Sensitive, "the time is trimmed into its date and time");
+        slack.ShouldBeGreaterThanOrEqualTo(2 * timeText.FontSize, "the date and time fit with less than two ems to spare");
 
         // At 1.0x each label reads in full; at 1.5x the row is short, so each gives way (narrower than its content) and stays in view.
         string[] labels = ["Distances: auto", "Centre: ", "2028-"];
