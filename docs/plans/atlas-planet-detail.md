@@ -374,6 +374,10 @@ the Sun, is why Venus is a crescent, and the angle between them at the planet is
   frame as a coalesced repaint.
 - **Click** a body (a press that did not move) to put the highlight on it; the atlas's selection and the comet the
   view was opened on are left as they are.
+- **Centre.** With a body other than the Sun in focus the strip has one toggle naming what the camera looks at
+  (`Centre: Sun` / `Centre: Jupiter`, `OrreryState.CentredOnFocus`): centred, the camera looks at the body's drawn place
+  (the Earth's for the Moon) and follows it as time runs; a click moves it with the highlight, a click on the Sun puts it
+  back. `OrreryCamera` only gains a look-at point, so its rotation and the backdrop's stars are unchanged.
 
 #### A5: the backdrop
 
