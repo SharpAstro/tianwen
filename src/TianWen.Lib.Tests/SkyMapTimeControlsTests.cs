@@ -79,6 +79,34 @@ public class SkyMapTimeControlsTests
     }
 
     /// <summary>
+    /// The time's width sample is at least as wide as every date and offset the strip shows within a year of weeks: two units, the
+    /// widest pair hours and minutes. Measured through the engine, as the trim measures: the sample "(+00w 0d)" was narrower than
+    /// "(+2h 50m)", and the owner saw the offset cut to "(+2h 50...".
+    /// </summary>
+    [Theory]
+    [InlineData(12f)]
+    [InlineData(20f)]
+    public void TheTimesWidthSampleHoldsEveryOffsetWithinAYear(float fontSize)
+    {
+        using var renderer = new RgbaImageRenderer(1000, 600);
+        var context = new PixelMeasureContext<RgbaImage>(renderer, FontResolver.ResolveSystemFont());
+        float Width(string text) => Layout.Engine.Measure(Layout.Builder.Text(text, fontSize, trim: TextTrim.None),
+            new Layout.Size<float>(float.MaxValue, float.MaxValue), context).Width;
+
+        var sample = Width(SkyMapTab<RgbaImage>.TimeTextWidthSample);
+        TimeSpan[] offsets =
+        [
+            new(2, 50, 0), new(23, 59, 0), new(6, 23, 0, 0), new(13, 23, 0, 0), new((52 * 7) + 6, 0, 0, 0),
+            -new TimeSpan(23, 59, 0), -new TimeSpan((52 * 7) + 6, 23, 0, 0),
+        ];
+        foreach (var offset in offsets)
+        {
+            var text = $"2028-08-28 23:58  ({SkyMapState.FormatOffset(offset)})";
+            Width(text).ShouldBeLessThanOrEqualTo(sample, $"\"{text}\" is wider than the sample");
+        }
+    }
+
+    /// <summary>
     /// The controls sit in the MIDDLE of the strip, level with the info text beside them (reported
     /// 2026-09-28, a screenshot: the group measured to one line of text and hugged the strip's top). Each
     /// button spans the strip, and the ink of its label is centred in it, read off the pixels, since a
