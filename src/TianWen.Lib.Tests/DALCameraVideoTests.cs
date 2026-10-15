@@ -381,6 +381,39 @@ public class DALCameraVideoTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// A body whose buffers never run dry after a pan (a reader that never catches up) would keep the settle going for
+    /// ever, and the recenter loop, which measures only frames under the window, would never act again. So the settle
+    /// is bounded in time (<c>VideoSettleLimit</c>), and ends as an empty buffer would end it.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task ASettleWhoseBufferNeverEmptiesEndsInTime()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state, time) = await ScriptedDalCamera.ConnectAsync(output, canStream: true);
+        camera.NumX = 64;
+        camera.NumY = 32;
+        state.PanBacklog = int.MaxValue;
+
+        await using var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
+        (await NextAsync(frames)).Release();
+        await camera.JogRoiAsync(8, 0, ct);
+        while (camera.VideoRoi.X != 26)
+        {
+            (await NextAsync(frames)).Release();
+        }
+
+        // The pan has reached the body, so its settle has started: past its limit, it ends.
+        time.Advance(TestDalCameraDriver.VideoSettleLimit + TimeSpan.FromMilliseconds(1));
+        Image frame;
+        while (!camera.IsUnderVideoRoi(frame = await NextAsync(frames)))
+        {
+            frame.Release();
+        }
+        frame.Release();
+        camera.VideoStalls.ShouldBe(0);
+    }
+
+    /// <summary>
     /// A stall (ToupTek.SDK answers GeneralError once the body stops sending) is brought back by restarting the stream on
     /// the same handle, which undid 10 of 11 on a G3M678M; the stream goes on, and the stall is counted and logged.
     /// </summary>
