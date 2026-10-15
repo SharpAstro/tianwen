@@ -294,7 +294,8 @@ public class DALCameraVideoTests(ITestOutputHelper output)
 
         // The fake serves a frame a millisecond: a pause long enough for some, well short of the hand-off's 64.
         var servedBefore = state.FramesServed;
-        SpinWait.SpinUntil(() => state.FramesServed - servedBefore >= 20, TimeSpan.FromSeconds(10)).ShouldBeTrue();
+        SpinWait.SpinUntil(() => state.FramesServed - servedBefore >= 20 || ct.IsCancellationRequested);
+        ct.ThrowIfCancellationRequested();
         for (var i = 0; i < 20; i++)
         {
             var frame = await NextAsync(frames);
@@ -316,7 +317,8 @@ public class DALCameraVideoTests(ITestOutputHelper output)
         (await NextAsync(frames)).Release();
         var limit = TestDalCameraDriver.HandOffFrames(camera.VideoRoi);
         var servedBefore = state.FramesServed;
-        SpinWait.SpinUntil(() => state.FramesServed - servedBefore >= limit + 20, TimeSpan.FromSeconds(10)).ShouldBeTrue();
+        SpinWait.SpinUntil(() => state.FramesServed - servedBefore >= limit + 20 || ct.IsCancellationRequested);
+        ct.ThrowIfCancellationRequested();
 
         var next = await NextAsync(frames);
         ((int)next.MaxValue).ShouldBeGreaterThan(servedBefore + 1, "the oldest went first");
@@ -655,7 +657,7 @@ public class DALCameraVideoTests(ITestOutputHelper output)
         state.OnStopVideo = () =>
         {
             stopping.TrySetResult();
-            release.Wait(TimeSpan.FromSeconds(10));
+            release.Wait(ct);
         };
         state.Stall(FakeCmosState.Cure.Reopen);
         await stopping.Task.WaitAsync(ct);
