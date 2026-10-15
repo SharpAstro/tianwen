@@ -1223,6 +1223,97 @@ public sealed class OrreryTests(ITestOutputHelper output)
         sun.Y.ShouldBe(cy, 1f);
     }
 
+    /// <summary>
+    /// The strip fits the view with everything in it at once: the Centre toggle (Saturn in focus), Pause, Now, and a long offset
+    /// in the time. Every button lies inside the view, Sky first at its left edge (the owner's screenshot started at "ntre: Sun").
+    /// </summary>
+    [Theory(Timeout = 120_000, Skip = "Fails at 1.5x: the strip needs ~1,020 px of a 900 px view; how it gives way awaits the owner's choice")]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task TheStripFitsWithEveryButtonShowing(float dpiScale)
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale);
+        Select(rig, CatalogIndex.Saturn);
+        rig.Tab.OpenOrrery();
+        rig.Render();
+        rig.Tab.State.TimeOffset = TimeSpan.FromDays((93 * 7) + 1);
+        rig.Tab.State.Orrery.Playing = true;
+        rig.Render();
+
+        var buttons = rig.Tab.GetCapturedLayout()
+            .Where(n => n.Node.Hit is HitResult.ButtonHit)
+            .Select(n => (Action: ((HitResult.ButtonHit)n.Node.Hit!).Action, n.Bounds))
+            .ToArray();
+        buttons.Select(b => b.Action).ShouldContain("OrreryCentre");
+        buttons.Select(b => b.Action).ShouldContain("SkyTimeNow");
+        foreach (var (action, bounds) in buttons)
+        {
+            output.WriteLine($"{action}: {bounds.X:F0} to {bounds.X + bounds.Width:F0}");
+            bounds.X.ShouldBeGreaterThanOrEqualTo(-0.5f, $"{action} starts left of the view");
+            (bounds.X + bounds.Width).ShouldBeLessThanOrEqualTo(Width + 0.5f, $"{action} ends right of the view");
+        }
+    }
+
+    /// <summary>
+    /// Every planet's disc is lit on its side toward the Sun as drawn: seen from high above the ecliptic each is half lit, so the
+    /// brightness-weighted centre of its disc lies toward the Sun's place on screen. At the instant, 93 weeks on (the owner's
+    /// screenshots: the Earth, Mars and Saturn lit wrongly), and after a run of Play-sized steps once the sprites have landed.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(0)]
+    [InlineData((93 * 7) + 1)]
+    public async Task EveryDiscIsLitTowardTheSun(int days)
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Select(rig, CatalogIndex.Sol);
+        rig.Tab.OpenOrrery();
+        rig.Render();
+        rig.Tab.State.Orrery.ElevationDeg = 80;
+        for (var step = 0; step <= 20; step++)
+        {
+            // Play steps a day or so a frame; the last frame is the instant judged.
+            rig.Tab.State.TimeOffset = TimeSpan.FromDays(days * step / 20.0);
+            rig.Render();
+        }
+        await SettleAsync(rig);
+
+        var drawn = rig.Tab.OrreryDrawn;
+        var sun = drawn.Single(d => d.Index == CatalogIndex.Sol);
+        var pixels = rig.Renderer.Surface.Pixels;
+        var failures = new System.Collections.Generic.List<string>();
+        foreach (var body in drawn.Where(d => d.Index is CatalogIndex.Mercury or CatalogIndex.Venus or CatalogIndex.Earth
+            or CatalogIndex.Mars or CatalogIndex.Jupiter or CatalogIndex.Saturn && d.Radius >= 4))
+        {
+            double sx = 0, sy = 0, sw = 0;
+            var r = body.Radius * 0.9f;
+            for (var y = (int)(body.Y - r); y <= (int)(body.Y + r); y++)
+            {
+                for (var x = (int)(body.X - r); x <= (int)(body.X + r); x++)
+                {
+                    var (dx, dy) = (x + 0.5f - body.X, y + 0.5f - body.Y);
+                    if (x < 0 || y < 0 || x >= Width || y >= Height || (dx * dx) + (dy * dy) > r * r)
+                    {
+                        continue;
+                    }
+                    var i = ((y * Width) + x) * 4;
+                    var level = (pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3.0;
+                    sx += dx * level;
+                    sy += dy * level;
+                    sw += level;
+                }
+            }
+            var lit = Math.Atan2(sy / sw, sx / sw) * 180 / Math.PI;
+            var toSun = Math.Atan2(sun.Y - body.Y, sun.X - body.X) * 180 / Math.PI;
+            var off = Math.Abs(Math.IEEERemainder(lit - toSun, 360));
+            output.WriteLine($"{body.Index}: r {body.Radius:F1}, lit toward {lit:F0} deg, the Sun at {toSun:F0} deg, {off:F0} off");
+            if (off > 45)
+            {
+                failures.Add($"{body.Index} lit {off:F0} deg away from the Sun");
+            }
+        }
+        failures.ShouldBeEmpty();
+    }
+
     /// <summary>With the Sun in focus, or nothing, there is nothing else to centre on: no toggle.</summary>
     [Theory(Timeout = 120_000)]
     [InlineData(1f)]
