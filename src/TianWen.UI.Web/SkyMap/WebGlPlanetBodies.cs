@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using DIR.Lib;
 using Microsoft.Extensions.Logging;
@@ -14,8 +13,8 @@ namespace TianWen.UI.Web.SkyMap
 {
     /// <summary>
     /// The orrery's bodies ray-traced in the browser (docs/plans/atlas-planet-detail.md, A5, "The bodies on the GPU"): the WebGL 2 twin of
-    /// the desktop's <c>VkPlanetBodies</c>, one attributeless draw a body, its frame and lighting a uniform block
-    /// (<see cref="PlanetBodyMap.WriteBlock"/>, the push constants' very layout), its colour map a texture loaded ONCE per body and texture
+    /// the desktop's <c>VkPlanetBodies</c>, one instanced draw a body, its frame and lighting one instance in a buffer of the body's own
+    /// (<see cref="PlanetBodyInstances{TBuffer}"/>, the push constants' very layout), its colour map a texture loaded ONCE per body and texture
     /// version. Nothing is built per frame, so Play costs a draw a body and no more.
     /// </summary>
     /// <remarks>
@@ -26,25 +25,39 @@ namespace TianWen.UI.Web.SkyMap
     /// </remarks>
     internal sealed class WebGlPlanetBodies(WebGlRenderer renderer, Action requestRedraw, ILogger? logger) : IDisposable
     {
+        // The body's Body block arrives as ONE instance of seven vec4 attributes (PlanetBodyInstances, PlanetBodyMap.WriteBlock's
+        // layout) and is handed to the fragment stage flat. Not a uniform block: WebGl.Renderer sets a block at once and replays the
+        // draws at Present, so every body read the last body's block (review round 1 of PR #1589).
         private const string VertexSource = """
             #version 300 es
             precision highp float;
-            layout(std140) uniform Body {
-                vec4 disc;
-                vec4 frame;
-                vec4 right;
-                vec4 toward;
-                vec4 sun;
-                vec4 ringAlbedo;
-                vec4 tint;
-            } pc;
+            layout(location = 0) in vec2 aCorner;
+            layout(location = 1) in vec4 aDisc;
+            layout(location = 2) in vec4 aFrame;
+            layout(location = 3) in vec4 aRight;
+            layout(location = 4) in vec4 aToward;
+            layout(location = 5) in vec4 aSun;
+            layout(location = 6) in vec4 aRingAlbedo;
+            layout(location = 7) in vec4 aTint;
+            flat out vec4 vDisc;
+            flat out vec4 vFrame;
+            flat out vec4 vRight;
+            flat out vec4 vToward;
+            flat out vec4 vSun;
+            flat out vec4 vRingAlbedo;
+            flat out vec4 vTint;
             void main() {
-                const vec2 corners[6] = vec2[6](vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0));
-                vec2 c = corners[gl_VertexID];
-                float half_ = pc.disc.z * pc.disc.w + 1.5;
-                vec2 px = pc.disc.xy + (c * 2.0 - 1.0) * half_;
+                vDisc = aDisc;
+                vFrame = aFrame;
+                vRight = aRight;
+                vToward = aToward;
+                vSun = aSun;
+                vRingAlbedo = aRingAlbedo;
+                vTint = aTint;
+                float half_ = aDisc.z * aDisc.w + 1.5;
+                vec2 px = aDisc.xy + (aCorner * 2.0 - 1.0) * half_;
                 // Screen px (y down) to clip space (y up).
-                vec2 ndc = px / pc.frame.xy * 2.0 - 1.0;
+                vec2 ndc = px / aFrame.xy * 2.0 - 1.0;
                 gl_Position = vec4(ndc.x, -ndc.y, 0.0, 1.0);
             }
             """;
@@ -54,8 +67,16 @@ namespace TianWen.UI.Web.SkyMap
             precision highp float;
             precision highp int;
 
-            // planet_body.frag's Body block, as a uniform block (PlanetBodyMap.WriteBlock writes both).
-            layout(std140) uniform Body {
+            // planet_body.frag's Body block, from this body's instance attributes (PlanetBodyMap.WriteBlock writes both), so the
+            // trace below reads pc.disc and the rest as on the desktop.
+            flat in vec4 vDisc;
+            flat in vec4 vFrame;
+            flat in vec4 vRight;
+            flat in vec4 vToward;
+            flat in vec4 vSun;
+            flat in vec4 vRingAlbedo;
+            flat in vec4 vTint;
+            struct Body {
                 vec4 disc;
                 vec4 frame;
                 vec4 right;
@@ -63,7 +84,8 @@ namespace TianWen.UI.Web.SkyMap
                 vec4 sun;
                 vec4 ringAlbedo;
                 vec4 tint;
-            } pc;
+            };
+            #define pc Body(vDisc, vFrame, vRight, vToward, vSun, vRingAlbedo, vTint)
 
             uniform highp sampler2D uTexture;
 
@@ -226,7 +248,8 @@ namespace TianWen.UI.Web.SkyMap
         }
 
         private readonly Dictionary<CatalogIndex, Slot> _slots = [];
-        private readonly float[] _block = new float[PlanetBodyMap.BlockFloats];
+        // Each body's block in a buffer of its own: the draws are replayed at Present, after every body's upload.
+        private readonly PlanetBodyInstances<GpuBufferHandle> _instances = new(data => renderer.CreateBuffer(data), (buffer, data) => renderer.UpdateBuffer(buffer, data));
         private PipelineHandle? _pipeline;
         private GpuBufferHandle? _corners;
 
@@ -264,17 +287,25 @@ namespace TianWen.UI.Web.SkyMap
 
             _pipeline ??= renderer.RegisterPipeline(new CustomPipelineDescriptor(
                 VertexSource, FragmentSource,
-                // Attributeless (gl_VertexID): the empty layout means DrawBuffer enables nothing.
-                Attribs: [],
-                Blend: PipelineBlend.AlphaOver,
-                UniformBlockName: "Body"));
-            // The buffer satisfies the record's slot; the attributeless pipeline reads none of it.
-            _corners ??= renderer.CreateBuffer(new float[12]);
-            PlanetBodyMap.WriteBlock(_block, view, x, y, radiusPx, width, height, slot.ShownAlbedo, nightTint, opacity);
+                // The quad's corner per vertex, then the Body block's seven vec4s per instance (interleaved, 28 floats).
+                Attribs:
+                [
+                    new VertexAttrib(0, 2),
+                    new VertexAttrib(1, 4, PerInstance: true),
+                    new VertexAttrib(2, 4, PerInstance: true),
+                    new VertexAttrib(3, 4, PerInstance: true),
+                    new VertexAttrib(4, 4, PerInstance: true),
+                    new VertexAttrib(5, 4, PerInstance: true),
+                    new VertexAttrib(6, 4, PerInstance: true),
+                    new VertexAttrib(7, 4, PerInstance: true),
+                ],
+                Blend: PipelineBlend.AlphaOver));
+            // Corners of the two triangles: (0,0) (1,0) (1,1) / (0,0) (1,1) (0,1).
+            _corners ??= renderer.CreateBuffer([0f, 0f, 1f, 0f, 1f, 1f, 0f, 0f, 1f, 1f, 0f, 1f]);
+            var block = _instances.Write(view, x, y, radiusPx, width, height, slot.ShownAlbedo, nightTint, opacity);
             renderer.UsePipeline(_pipeline.Value);
-            renderer.SetUniformBlock(_pipeline.Value, MemoryMarshal.AsBytes(_block.AsSpan()));
             renderer.BindTexture(texture);
-            renderer.DrawBuffer(_corners.Value, 0, 6);
+            renderer.DrawInstanced(_corners.Value, 6, block, 1);
             return true;
         }
 
@@ -318,6 +349,10 @@ namespace TianWen.UI.Web.SkyMap
             if (_corners is { } buffer)
             {
                 renderer.DestroyBuffer(buffer);
+            }
+            foreach (var block in _instances.Buffers)
+            {
+                renderer.DestroyBuffer(block);
             }
         }
     }

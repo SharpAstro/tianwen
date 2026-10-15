@@ -63,8 +63,8 @@ public static class PlanetBodyMap
     public const int BlockFloats = 7 * 4;
 
     /// <summary>
-    /// Writes <c>planet_body.frag</c>'s <c>Body</c> block (Vulkan's push constants, WebGL's uniform block; one layout, std140 and
-    /// std430 alike, since it is all vec4s) for <paramref name="view"/> drawn centred on (<paramref name="x"/>, <paramref name="y"/>), its
+    /// Writes <c>planet_body.frag</c>'s <c>Body</c> block (Vulkan's push constants, WebGL's one instance of seven vec4 attributes,
+    /// <see cref="PlanetBodyInstances{TBuffer}"/>; one layout, since it is all vec4s) for <paramref name="view"/> drawn centred on (<paramref name="x"/>, <paramref name="y"/>), its
     /// globe <paramref name="radiusPx"/>, in a target <paramref name="viewportWidth"/> by <paramref name="viewportHeight"/> px.
     /// </summary>
     public static void WriteBlock(Span<float> block, in PlanetView view, float x, float y, float radiusPx, float viewportWidth, float viewportHeight,
