@@ -648,3 +648,68 @@ them against the post or any truth was read.
   sharpening drew it (the owner saw notches bitten into the 2026-10-07 Saturn's limb). Re-judged: the EdgeHD Jupiter, learned gains + RL
   80: C24 0.9517, L24 0.273, still past the best earlier effort (0.9483 / 0.292); + RL 20: 0.9480 / 0.292, level with it, no longer past
   it as the unmasked step read (0.9487 / 0.288). EdgeHD Saturn 0.978 at 40, Meade 0.982 at 40, the 12-inch SCT still closest with none.
+
+## L-DECONV-L: the deblur on the combined colour result (the owner, 2026-10-15 16:40 +11: "the other OSC work did a deblur on the combined result so maybe that is what we can do here too?"; set before any arm below was run)
+
+- **The question:** `--finish deconvolve` deblurs each colour channel through the pupil's diffraction at its own wavelength. The
+  deep-sky colour path deblurs the finished colour image. Does deblurring a combined image serve a colour master better?
+- **The arms**, all on the derived gains at strength 1, 20 Richardson-Lucy steps (the shipped count), one build
+  (`i1056/bin-lumdeblur`, branch exp/deconvolve-on-luminance at its refactor commit):
+  - **N** per channel, no deblur (`--finish none`);
+  - **P** per channel, each channel deblurred (`--finish deconvolve`, the option as shipped);
+  - **A0** the luminance sharpened, no deblur (`--colour luminance --finish none`, #1295's option);
+  - **A** the luminance sharpened and deblurred (`--colour luminance --finish deconvolve`);
+  - **B** each channel sharpened by its own gains, then ONE deblur of the channels' mean at the mean wavelength, its change given to
+    every plane at its share of the mean at each pixel (`--finish deconvolve --deconvolve-on luminance`, new).
+- **Inputs:** (1) #1295's colour twins, the Jupiter `uc-g4` and `uc-g4s2` and the Saturn `sat-p5` and `sat-p5s2` (masters as #1330's
+  arm A stacked them: demosaic, best half, no colour balance, no crop; 254 mm Newtonian); (2) L-DECONV's 14 held EdgeHD Jupiter twins
+  (oversampled, 280 mm, per-channel truths); (3) the four captures with a post (L-CHAIN's); (4) the owner's 2026-10-07 Saturn, sets 9
+  and 10 joined by the #1580 build (so balanced in the master).
+- **Scores:** each twin against its truth carried to the aperture (`--score-against aperture`, as L-DECONV): the error over bands 1 to
+  4, summed over r, g and b; and the colour against the truth (`ColourAgainstTruth`, as #1295): the globe's distance from the truth,
+  and on Saturn the rings' distance, the rings' chroma as a share of the globe's, and the gap's chroma. Each capture through
+  `planetary judge` against its post: C24 and L24.
+- **Verdicts, each arm A and B against P (both must beat or match the deblur as shipped, not merely the undeblurred N):**
+  1. Colour: on every colour twin the globe no further from the truth than P; on both Saturn twins the rings no further, and the rings'
+     share within 10 % of the truth's.
+  2. Detail: the error over bands 1 to 4 within 3 % of P's on every colour twin, and on the mean over the 14 EdgeHD twins.
+  3. The gap: on both Saturn twins the gap's chroma within 0.02 of the truth's.
+  4. Posts: the mean C24 over the four captures at or above P's.
+  Holding 1 to 4: a candidate for how a colour master is deblurred, the owner to decide. Holding 1 or 3 with 2 failing: an option, as
+  #1295's luminance sharpening is. Otherwise: not adopted.
+- **Reported, not a verdict:** the owner's Saturn 7/10 rendered at strength 1 and at one image pixel to one screen pixel (no
+  enlargement), N, P, A and B side by side, with the gap's colour by eye; N against P, A0 against A, on every input.
+
+### L-DECONV verdict 1 and the cost of the posts' steps, read 2026-10-15 21:15 (the grid finished at 21:13)
+
+- **Verdict 1 HOLDS.** The 14 held twins' mean loss against the aperture truth: learned gains + RL 20 2.0926, below derived 2.8912,
+  derived `--target aperture` 2.8124, learned alone 2.4790, learned + K15.6 2.2358 and learned + K31.2 2.2223. L-DECONV as set still
+  FAILS, by verdict 2 (read 06:28).
+- **The cost of following the posts (L-DECONV-P's report):** learned + RL 80 reads 2.1790 against RL 20's 2.0926, 4.1 % further from
+  the truth; RL 10 is the least of all, 2.0794. The posts' count costs the truth a little; the truth's own count does not beat the
+  best effort against this post.
+- Operational, disclosed: the last three runs (f014 learned, f017 derived and learned) ran from the session from 19:24, not the
+  scheduled task (whose python was starved at below-normal priority on a full CPU), on the same frozen build.
+
+### L-DECONV-L read 2026-10-15 21:42 (the run finished 21:40, all 23 inputs and the four posts, one frozen build)
+
+- **Arm B (the deblur of the channels' mean, carried to each plane): NOT ADOPTED under the rule as set.** Verdict 1 fails only on its
+  last clause, the rings' share within 10 % of the truth's: B reads 0.51 and 0.48 against the truth's 0.43. Every arm fails that clause,
+  N included (0.52, 0.49), so it measures the colour balance, not the deblur. B's globe is no further from the truth than P's on all four
+  colour twins (0.0492/0.0493, 0.0609/0.0617, 0.0227/0.0228, 0.0303/0.0307) and its rings no further on both Saturns (0.1006/0.1031,
+  0.1414/0.1449). Verdict 2 holds (within 1.1 % of P on every colour twin; EdgeHD mean 10.08 against P's 10.91, better on 14 of 14).
+  Verdict 3 holds (gap 0.0968 and 0.1032 against truths 0.0926 and 0.0933). Verdict 4 holds, just (mean C24 0.9657 against 0.9655).
+  Dropping the share clause would make B a candidate; that is an amendment after reading, so it is the owner's call, not taken here.
+- **Arm A (luminance sharpened, then deblurred): not adopted.** It fails 1, 2 and 3 (colour-twin detail 4 to 19 % worse than P).
+- **Reported, not a verdict, and the finding that matters: on the derived gains the deblur moves AWAY from the truth.** P against N, the
+  error over bands 1 to 4 against the aperture truth:
+  - EdgeHD held twins: P worse than N on 11 of 14, mean 10.91 against 8.67 (+26 %). Split by family: the unwarped deploy family (d024
+    to d029) +2.6 % (P/N 0.96 to 1.12); the extension with a local warp of 1 to 4 px (e002, e005, f002 to f017) +37 % (1.27 to 1.45 on
+    every one). B on the same split: -4.0 % and +26 %.
+  - Colour twins: mixed, P/N 0.99, 1.06, 0.90, 1.07.
+  - Posts: the deblur brings three of four captures nearer their post (C24 jup-edgehd 0.933 to 0.947, sat-edgehd 0.956 to 0.976,
+    sat-meade 0.934 to 0.980) and one further (jup-sct12 0.968 to 0.959).
+  So L-DECONV's "the twins' truth asks 20 steps" holds on the LEARNED gains (verdict 1 above), not on the derived gains, which are already
+  a Wiener up to the cutoff and which RL 20 then overshoots. On derived gains the deblur is a step toward the posts that costs the truth.
+- **A0 (#1295's luminance option, no deblur) is the best EdgeHD mean** (8.52, better than N on 10 of 14: +0.7 % unwarped, -2.9 %
+  warped), and worse than N on every colour twin's detail (+3 to +19 %), as #1295 found.
