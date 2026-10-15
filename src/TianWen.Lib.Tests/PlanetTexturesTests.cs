@@ -3,6 +3,7 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using SharpAstro.Png;
 using SharpAstro.Tiff;
 using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -31,6 +32,35 @@ public sealed class PlanetTexturesTests
     }
 
     private static byte[] AtlasBytes() => File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, PlanetTextureAtlas.FileName));
+
+    /// <summary>
+    /// The atlas holds nine bodies, the Earth among them (#1573): two to a row, five rows, so 512 x 640, and the file beside the tests is
+    /// that size and gives the Earth its map credited to NASA's Blue Marble. An atlas of the old size (eight bodies, 512 x 512) is refused
+    /// whole, so a stale file leaves the bodies flat, never a map read from the wrong cell.
+    /// </summary>
+    [Fact]
+    public void TheAtlasHoldsTheEarthAndAStaleAtlasIsRefused()
+    {
+        PlanetTextureAtlas.Layout.Length.ShouldBe(9);
+        PlanetTextureAtlas.Layout.ShouldContain(CatalogIndex.Earth);
+        (PlanetTextureAtlas.Width, PlanetTextureAtlas.Height).ShouldBe((512, 640));
+        PngImageDecoder.TryReadInfo(AtlasBytes(), out var info).ShouldBeTrue();
+        (info.Width, info.Height).ShouldBe((PlanetTextureAtlas.Width, PlanetTextureAtlas.Height), "the committed atlas is the layout's size");
+
+        var textures = new PlanetTextures(() => DateTimeOffset.UnixEpoch) { AtlasPath = null };
+        textures.SetAtlas(AtlasBytes());
+        textures.TryGet(CatalogIndex.Earth, out var earth, out var credit).ShouldBeTrue();
+        earth.ShouldNotBeNull().Width.ShouldBe(PlanetTextureAtlas.CellWidth);
+        credit.ShouldBe(PlanetTextureAtlas.Credit(CatalogIndex.Earth));
+        credit.ShouldContain("Blue Marble");
+        credit.ShouldContain("public domain");
+
+        var stale = new PlanetTextures(() => DateTimeOffset.UnixEpoch) { AtlasPath = null };
+        stale.SetAtlas(PngWriter.EncodeRgb8(new byte[512 * 512 * 3], 512, 512));
+        stale.Version.ShouldBe(0, "an atlas of the old size changes nothing");
+        stale.TryGet(CatalogIndex.Earth, out _, out _).ShouldBeFalse();
+        stale.TryGet(CatalogIndex.Jupiter, out _, out _).ShouldBeFalse();
+    }
 
     [Fact(Timeout = 30_000)]
     public async Task AFailedFetchKeepsTheAtlasAndIsCooledDown()

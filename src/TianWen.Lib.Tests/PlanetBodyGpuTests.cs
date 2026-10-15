@@ -21,7 +21,7 @@ namespace TianWen.Lib.Tests;
 /// A5, "The bodies on the GPU") against the CPU render they replace, <see cref="PlanetaryRender.RenderRgba"/> of the same
 /// <see cref="PlanetView"/>, which stays the reference: Saturn at several ring tilts and Sun angles (the near rings over the globe, the
 /// globe's shadow across them, their shadow on it, the dark face), a crescent Venus, the Moon, Jupiter's Great Red Spot (the longitude),
-/// Mars gibbous and the Sun. Both draw the disc onto black at one place and size; the GPU's frame is compared with the CPU's coverage
+/// Mars gibbous, the Earth from its day map and the Sun. Both draw the disc onto black at one place and size; the GPU's frame is compared with the CPU's coverage
 /// times its clamped colour, byte for byte.
 /// </summary>
 [Collection("UI")]
@@ -67,6 +67,8 @@ public sealed class PlanetBodyGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHelper
         { "moon-gibbous", CatalogIndex.Moon, 4, 0, 1, 60, -25, 100 },
         { "jupiter-red-spot", CatalogIndex.Jupiter, 1, 321, 0.5, 10, 0, 110 },
         { "mars-gibbous", CatalogIndex.Mars, 15, 60, 20, 40, 45, 100 },
+        // The Earth from its day map (#1573): over Africa and Europe (central meridian 350 W, so 10 E), the Sun to the west.
+        { "earth-africa", CatalogIndex.Earth, 23, 350, 10, 35, 0, 110 },
         { "sun", CatalogIndex.Sol, 7, 0, 0, 0, 0, 100 },
     };
 
@@ -83,6 +85,10 @@ public sealed class PlanetBodyGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHelper
         var ct = TestContext.Current.CancellationToken;
         var view = View(body, observerLat, meridian, sunLat, sunAzimuth, roll);
         Maps.TryGetValue(body, out var map);
+        if (body != CatalogIndex.Sol)
+        {
+            map.ShouldNotBeNull($"{body} has no map in the atlas: the comparison would be of two flat discs");
+        }
         var flat = new RGBAColor32(0xFF, 0xE0, 0xA0, 0xFF);
         var gpuFrame = RenderGpu(view, map, flat, null, radius);
         var cpuFrame = RenderCpu(view, map, flat, radius, null);

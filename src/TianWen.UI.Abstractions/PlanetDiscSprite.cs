@@ -30,12 +30,15 @@ public static class PlanetDiscSprite
     /// <summary>
     /// The Minnaert exponent each body is lit with: a display choice, near each map's own correction where it has one (OPAL's are 0.85
     /// to 1.0 for the filters behind its composites), and 0.5 for the airless bodies, whose full disc is evenly bright. The Sun is lit
-    /// as a body seen at full phase, so its limb darkens as the square root of mu.
+    /// as a body seen at full phase, so its limb darkens as the square root of mu. The Earth (#1573) takes Mars's 0.75: its day map is a
+    /// cloud-free SURFACE, near Lambertian (k 1) on land, but the air over it scatters light back toward the limb, as Mars's thin
+    /// atmosphere and dust do, so the whole disc darkens less than a bare surface would (the DSCOVR EPIC full-disc pictures keep the
+    /// coasts readable almost to the limb). The default 0.95 is the giants' value, near OPAL's own correction, which the Earth has none of.
     /// </summary>
     public static double MinnaertK(CatalogIndex body) => body switch
     {
         CatalogIndex.Moon or CatalogIndex.Mercury => 0.5,
-        CatalogIndex.Sol or CatalogIndex.Venus or CatalogIndex.Mars => 0.75,
+        CatalogIndex.Sol or CatalogIndex.Venus or CatalogIndex.Mars or CatalogIndex.Earth => 0.75,
         CatalogIndex.Uranus or CatalogIndex.Neptune => 0.85,
         _ => 0.95,
     };

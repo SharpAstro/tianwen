@@ -1,9 +1,9 @@
 # bake-planet-textures
 
 Bakes `src/TianWen.UI.Abstractions/Resources/planet-textures.png`, the sky atlas's OFFLINE planet colour maps
-(docs/plans/atlas-planet-detail.md, "A4: the textured disc", #1037). One 512 x 512 PNG, eight cells of 256 x 128,
-two to a row in `PlanetTextureAtlas.Layout` order (Mercury, Venus / Moon, Mars / Jupiter, Saturn / Uranus,
-Neptune), each equirectangular in `PlanetMap`'s convention: planetographic latitude, row 0 the north edge, WEST
+(docs/plans/atlas-planet-detail.md, "A4: the textured disc", #1037; the Earth since #1573). One 512 x 640 PNG,
+nine cells of 256 x 128, two to a row in `PlanetTextureAtlas.Layout` order (Mercury, Venus / Earth, Moon / Mars,
+Jupiter / Saturn, Uranus / Neptune and an empty cell), each equirectangular in `PlanetMap`'s convention: planetographic latitude, row 0 the north edge, WEST
 longitude with column 0 at 0 degrees and longitude falling to the right. The Sun needs no texture.
 
 ```
@@ -15,7 +15,15 @@ Each source is downloaded into the folder unless already there, read in its own 
 true)`), area-averaged to the cell, and written through `PlanetTextureAtlas.Encode`. The bake prints the file's
 size and each body's mean colour: that is the review, since the PNG is binary. Re-bake by hand and commit.
 
-Size on 2026-10-14: 301,799 bytes.
+Size on 2026-10-14: 301,799 bytes (eight bodies, 512 x 512). On 2026-10-16, with the Earth: 354,808 bytes
+(512 x 640); the other eight cells are bit for bit the 2026-10-14 bake's.
+
+Solar System Scope answers .NET's `HttpClient` with a 403 (seen 2026-10-16) while `curl` gets the file, so fetch its
+three maps into the download folder first, which the bake then reads instead of fetching:
+
+```
+for f in 2k_mercury.jpg 2k_venus_atmosphere.jpg 2k_mars.jpg; do curl -f -o <download folder>/$f https://www.solarsystemscope.com/textures/download/$f; done
+```
 
 ## Sources and licences
 
@@ -23,6 +31,7 @@ Size on 2026-10-14: 301,799 bytes.
 |---|---|---|
 | Mercury | Solar System Scope, `2k_mercury.jpg` (https://www.solarsystemscope.com/textures/) | CC BY 4.0, Solar System Scope, "based on NASA elevation and imagery data" (MESSENGER) |
 | Venus | Solar System Scope, `2k_venus_atmosphere.jpg` | CC BY 4.0, Solar System Scope. A cloud deck has no fixed longitude; the visible disc is nearly featureless, as it is |
+| Earth | NASA Earth Observatory, Blue Marble: Next Generation with topography and bathymetry, July 2004, `world.topo.bathy.200407.3x5400x2700.jpg` (https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/base-topography-bathymetry) | Public domain (NASA's image use guidelines: NASA content "generally are not subject to copyright in the United States", and "NASA should be acknowledged as the source of the material"; this map is marked with no third-party copyright). The Blue Marble page asks: "Anyone using or republishing Blue Marble: Next Generation please credit NASA Earth Observatory." Produced by Reto Stöckli, NASA Earth Observatory (NASA Goddard Space Flight Center). A cloud-free day map; one month serves every date |
 | Moon | NASA Scientific Visualization Studio, CGI Moon Kit, `lroc_color_poles_1k.jpg` (https://svs.gsfc.nasa.gov/4720) | Public domain, NASA's Scientific Visualization Studio, LRO LROC WAC |
 | Mars | Solar System Scope, `2k_mars.jpg` | CC BY 4.0, Solar System Scope, "based on NASA elevation and imagery data" (Viking, MGS) |
 | Jupiter | OPAL 2025b colour composite (F395N, F502N, F631N), `globalmap-small.tif` | NASA/ESA HST, OPAL program; see the acknowledgement below. A colour RENDERING: the filters are not the eye's |
@@ -43,6 +52,12 @@ available at http://dx.doi.org/10.17909/T9G593."
 - OPAL: "left edge = 0 System III W. longitude, decreasing to the right" (the 2025 Jupiter readme), which is
   `PlanetMap`'s own; the Great Red Spot reads at west 321 degrees System III in the 2025b map, where its System II
   longitude at the map's date puts it (pinned by `PlanetTextureAtlasTests`).
+- The Blue Marble is a plate carree centred on Greenwich with east to the right, the left edge 180 degrees, read as
+  the other centred maps are: `PlanetTextureAtlasTests.TheEarthMapHasAfricaAtLongitudeZeroAndNorthUp` checks the
+  Sahara at 22 N 30 E, the Atlantic at 22 N 30 W, Africa at 0 against the Pacific at 180, the sea at 22 S 8 E and
+  Antarctica's ice, and that the same checks fail on the map read mirrored, flipped or half a turn round. Its deep
+  sea is near black in the source itself (a tenth of the cell under the hole threshold), which is why the bake fills
+  no holes in it.
 - Solar System Scope and the SVS Moon Kit are centred on 0 degrees with east growing to the right: on Mars the
   darkest column at +8 degrees (Syrtis Major, 69 E) sits at 0.72 of the width, where (180 + 69) / 360 = 0.69.
 - OPAL's composites are black where Hubble never saw the planet (Uranus's southern hemisphere in 2025, Saturn's north

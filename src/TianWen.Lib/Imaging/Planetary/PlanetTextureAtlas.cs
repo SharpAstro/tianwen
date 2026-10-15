@@ -30,9 +30,10 @@ public static class PlanetTextureAtlas
     public static ImmutableArray<CatalogIndex> Layout { get; } =
     [
         CatalogIndex.Mercury, CatalogIndex.Venus,
-        CatalogIndex.Moon, CatalogIndex.Mars,
-        CatalogIndex.Jupiter, CatalogIndex.Saturn,
-        CatalogIndex.Uranus, CatalogIndex.Neptune,
+        CatalogIndex.Earth, CatalogIndex.Moon,
+        CatalogIndex.Mars, CatalogIndex.Jupiter,
+        CatalogIndex.Saturn, CatalogIndex.Uranus,
+        CatalogIndex.Neptune,
     ];
 
     /// <summary>The atlas's width in pixels.</summary>
@@ -43,10 +44,12 @@ public static class PlanetTextureAtlas
 
     /// <summary>
     /// Where each map came from, as a credit line shows it. The four giants are OPAL's colour composites, whose filters are not the
-    /// eye's: a "colour rendering", never true colour.
+    /// eye's: a "colour rendering", never true colour. The Earth is NASA Earth Observatory's Blue Marble: Next Generation, whose page asks
+    /// that it be credited to "NASA Earth Observatory".
     /// </summary>
     public static string Credit(CatalogIndex body) => body switch
     {
+        CatalogIndex.Earth => "NASA Earth Observatory, Blue Marble: Next Generation (public domain)",
         CatalogIndex.Moon => "NASA SVS / LRO LROC WAC (public domain)",
         CatalogIndex.Mercury or CatalogIndex.Venus or CatalogIndex.Mars => "Solar System Scope, from NASA data (CC BY 4.0)",
         CatalogIndex.Jupiter or CatalogIndex.Saturn or CatalogIndex.Uranus or CatalogIndex.Neptune => "OPAL (HST), colour rendering",
