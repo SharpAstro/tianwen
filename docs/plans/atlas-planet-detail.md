@@ -457,7 +457,8 @@ one frame late, and the GUI logged a slow frame every 250 to 330 ms.
   effect, and the disc stays the circle the hit area is). Each ray meets the oblate spheroid, is lit by Minnaert's law
   (`PlanetDiscSprite.MinnaertK`), reads the colour map at its planetographic latitude and west longitude (texelFetch,
   interpolated as `PlanetMap.Sample` does), and with Saturn crosses the ring plane in depth order, the globe's shadow on
-  the rings and theirs on the globe, the unlit face dark, coverage as straight alpha; Night draws the luminance in the
+  the rings and theirs on the globe, the unlit face glowing with the light the rings pass through them ("The rings' two
+  faces", below), coverage as straight alpha; Night draws the luminance in the
   palette's tint. The text between the two "The trace" markers is the SAME in both files
   (`PlanetBodyGpuTests.TheWebGlTraceIsTheVulkanTrace`); each host states only its block, sampler and pixel centre
   (`screenPixel`: WebGL's framebuffer is y up). A varying interpolated across the quad instead of `gl_FragCoord` put up
@@ -487,6 +488,30 @@ most 3 channel values more than 4 off. A west longitude of the wrong sign, or ri
 nine of the ten (805 to 65,331 values off). `OrreryGpuTests`: forty played frames on `VkSkyMapTab` trace ten bodies a
 frame, build 0 sprites and upload no map again; every disc is lit toward the Sun on the GPU's frame at the instant and
 93 weeks on, framed on the Earth's orbit and at 12 AU (Jupiter and Saturn within 9 degrees).
+
+#### A5: the rings' two faces
+
+Built 2026-10-15, after the controller saw the orrery's rings dark from a camera about 13 degrees above the ecliptic and doubted it.
+**The lit face was right, and so were the dark rings.** The Sun crossed the ring plane in May 2025, so it lights the SOUTH face
+now; Saturn's pole leans 28 degrees from the ecliptic's (ecliptic latitude 61.9), so a camera 13 degrees above the ecliptic is on
+the north side from most directions. `SaturnRingFaceTests` holds it: from the Earth, B and B' (planetocentric) are JPL Horizons' to
+0.1 degree, +21.69 and +21.69 on 2020-07-20 (north face lit and seen) and -7.15 and -7.83 on 2026-10-13 (south face lit and seen);
+for the orrery's camera at 13 and 45 degrees above and below the ecliptic, from four sides, B is the camera's own ray against the
+IAU pole (WGCCRE 2015) to 0.1 degree and B' Horizons', and the face seen lit exactly when the two share a sign. The controller's view
+(azimuth 90, 13 degrees up, Saturn and Neptune left of the Sun and Uranus below) has B +37.8 and B' -7.9 on 2026-10-15: the unlit
+north face. A flipped Sun direction in the orrery fails both dates.
+
+**What was missing was the unlit face's own light.** It was radiance 0; a real ring's unlit face glows with the sunlight scattered
+through it. `SaturnRing.UnlitShare` is single scattering in a slab (Chandrasekhar 1960, *Radiative Transfer*; the form Cuzzi et
+al. 1984 and Dones, Cuzzi and Showalter 1993, Icarus 105, 184, use for the rings): with mu = |sin B| and mu0 = |sin B'| the
+diffusely transmitted intensity is wP/4 mu0/(mu0 - mu) (exp(-tau/mu0) - exp(-tau/mu)), tending to wP/4 (tau/mu) exp(-tau/mu) at mu =
+mu0, and the reflected one wP/4 mu0/(mu0 + mu) (1 - exp(-tau (1/mu0 + 1/mu))). The albedo w and phase function P are unknown here and
+taken isotropic, so they cancel in the ratio and the lit level carries them: the unlit face draws the lit level times transmitted
+over reflected, and nothing in the globe's shadow. From 25 degrees north with the Sun 8 south: 0.97 for C and the Cassini division,
+0.56 for A, 0.017 for B. Measured (`PlanetBodyGpuTests.TheDarkFaceGlowsThroughTheThinRings`, the rings outside the globe and its
+shadow, each ring's median of 255): C 21, Cassini 17, A 60, B 3 on the CPU reference and the Adreno X1-85 alike (GPU against CPU worst
+1, mean 0.007); before, all 0. In absolute terms the A ring is the brightest unlit ring, since its lit level (0.6) is five times the
+C ring's. The ten parity views and Night's no-blue still pass, and `TheWebGlTraceIsTheVulkanTrace` holds the WebGL copy to it.
 
 #### A5: what is open
 
