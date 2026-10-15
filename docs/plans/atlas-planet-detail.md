@@ -448,6 +448,9 @@ prediction (the stereographic shader before the change put it 2.1 px off) and Ni
   page take the same primitives and sprite seam, but nobody has opened it there, nor timed a drag in the browser.
 - **The Earth is a flat disc** and **Play's speed is fixed** (#1573): the texture atlas has no Earth map, and Play runs
   at 10 days a second with nothing to change it.
+- **The strip does not fit a narrow view** (#1584): at 1.5x on 900 px it needs about 1,020 px, the hint already squeezed to
+  nothing. The labelled buttons need a Star that is never wider than its own content, which DIR.Lib's engine does not have
+  (a Star's share is the leftover by weight); `TheStripFitsWithEveryButtonShowing` is skipped until it does.
 
 ## Sequencing
 
