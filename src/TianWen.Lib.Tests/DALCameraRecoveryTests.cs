@@ -343,6 +343,90 @@ internal sealed class FakeCmosState(string serial)
     /// <summary>Called inside every control write, on the calling thread, so a test can hold a stream's pass there.</summary>
     public Action<CMOSControlType>? OnSetControl { get; set; }
 
+    /// <summary>What a stall needs before the body sends frames again.</summary>
+    public enum Cure { Restart, Reopen, Reset, Never }
+
+    private volatile bool _stalled;
+    private Cure _stallCure;
+
+    /// <summary>Whether the body has stopped sending: every frame call answers <see cref="StallCode"/> until it is cured.</summary>
+    public bool Stalled => _stalled;
+
+    /// <summary>What a stalled body answers a frame call with: ToupTek.SDK's GeneralError, or Timeout for one that goes silent.</summary>
+    public CMOSErrorCode StallCode { get; set; } = CMOSErrorCode.GeneralError;
+
+    /// <summary>Stops the body sending until <paramref name="cure"/>: a restart of the stream, a close and open, a reset, or nothing.</summary>
+    public void Stall(Cure cure)
+    {
+        _stallCure = cure;
+        _stalled = true;
+    }
+
+    /// <summary>Cures the stall if <paramref name="what"/> is enough: what a restart cures, a reopen or a reset does too.</summary>
+    public void Undo(Cure what)
+    {
+        if (_stalled && _stallCure != Cure.Never && what >= _stallCure)
+        {
+            _stalled = false;
+        }
+    }
+
+    private int _opens;
+    private int _closes;
+
+    public int Opens => Volatile.Read(ref _opens);
+
+    public int Closes => Volatile.Read(ref _closes);
+
+    public void Opened() => Interlocked.Increment(ref _opens);
+
+    public void Closed() => Interlocked.Increment(ref _closes);
+
+    /// <summary>A body that opens at its defaults, as a camera whose SDK configures it on open: a reopen forgets the stream's settings.</summary>
+    public bool ForgetSettingsOnOpen { get; set; }
+
+    public void ForgetSettings()
+    {
+        Width = Height = 100;
+        StartX = StartY = 0;
+        Format = Formats[0];
+        Controls.Clear();
+        foreach (var (control, value) in PowerOnDefaults())
+        {
+            Controls[control] = value;
+        }
+    }
+
+    /// <summary>Frames the body took under the old window and still holds when a pan returns, as a ToupTek's ring does.</summary>
+    public int PanBacklog { get; set; }
+
+    private int _backlog;
+
+    /// <summary>The frame count served when the last pan of a running stream returned.</summary>
+    public int ServedAtPan { get; private set; }
+
+    public void Panned()
+    {
+        ServedAtPan = FramesServed;
+        Volatile.Write(ref _backlog, PanBacklog);
+    }
+
+    /// <summary>Takes one frame of the backlog a pan left; false once it is empty.</summary>
+    public bool TakeBacklog()
+    {
+        while (Volatile.Read(ref _backlog) is var left and > 0)
+        {
+            if (Interlocked.CompareExchange(ref _backlog, left - 1, left) == left)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>Called inside every stream stop, on the calling thread, so a test can hold a recovery there.</summary>
+    public Action? OnStopVideo { get; set; }
+
     public void StartedStreaming()
     {
         Interlocked.Increment(ref _videoStarts);
@@ -406,13 +490,28 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
     public int ID => 0;
     public string Name => "Scripted CMOS";
     public string CustomId => state.Serial;
-    public bool Open() => state.Present;
+    public bool Open()
+    {
+        if (!state.Present)
+        {
+            return false;
+        }
+        state.Opened();
+        state.Undo(FakeCmosState.Cure.Reopen);
+        if (state.ForgetSettingsOnOpen)
+        {
+            state.ForgetSettings();
+        }
+        return true;
+    }
+
     public bool Close()
     {
         if (state.Streaming)
         {
             state.ClosedWhileStreaming = true;
         }
+        state.Closed();
         return true;
     }
     public string? SerialNumber => state.Serial;
@@ -427,6 +526,7 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
         }
 
         state.PowerCycle();
+        state.Undo(FakeCmosState.Cure.Reset);
         return CMOSErrorCode.Success;
     }
 
@@ -525,6 +625,10 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
     public CMOSErrorCode SetStartPosition(int startX, int startY)
     {
         (state.StartX, state.StartY) = (startX, startY);
+        if (state.Streaming)
+        {
+            state.Panned();
+        }
         return CMOSErrorCode.Success;
     }
 
@@ -557,12 +661,14 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
 
     public CMOSErrorCode StartVideoCapture()
     {
+        state.Undo(FakeCmosState.Cure.Restart);
         state.StartedStreaming();
         return CMOSErrorCode.Success;
     }
 
     public CMOSErrorCode StopVideoCapture()
     {
+        state.OnStopVideo?.Invoke();
         state.StoppedStreaming();
         return CMOSErrorCode.Success;
     }
@@ -578,17 +684,34 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
             state.FailNextFrameWith = null;
             return failure;
         }
+        if (state.Stalled)
+        {
+            // A stalled body answers at once, as ToupTek.SDK does once it has heard the stall; a silent one waits first.
+            if (state.StallCode is CMOSErrorCode.Timeout)
+            {
+                Thread.Sleep(1);
+            }
+            return state.StallCode;
+        }
         var bytesPerPixel = state.Format is PixelDataFormat.RAW8 ? 1 : sizeof(ushort);
         if (bufferSize != state.Width * state.Height * bytesPerPixel)
         {
             return CMOSErrorCode.BufferTooSmall;
         }
 
-        // A body's frame cadence: the call blocks until a frame is there.
-        Thread.Sleep(1);
-        if (state.TimeoutEvery > 0 && state.NextFrameCall() % state.TimeoutEvery == 0)
+        // A frame the body already holds is handed over at once; with none, a call that may not wait answers Timeout and
+        // one that may waits for the body's cadence.
+        if (!state.TakeBacklog())
         {
-            return CMOSErrorCode.Timeout;
+            if (waitMs == 0)
+            {
+                return CMOSErrorCode.Timeout;
+            }
+            Thread.Sleep(1);
+            if (state.TimeoutEvery > 0 && state.NextFrameCall() % state.TimeoutEvery == 0)
+            {
+                return CMOSErrorCode.Timeout;
+            }
         }
 
         var value = state.ServeFrame();

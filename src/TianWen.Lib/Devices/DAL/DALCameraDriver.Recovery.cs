@@ -137,11 +137,50 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo>
     /// <para>Internal rather than private for <c>ToupTekResetRecoveryProbe</c>, the hardware check
     /// that the whole path works on a real camera; nothing else calls it.</para>
     /// </remarks>
-    internal async ValueTask ResetAndReopenAsync(CancellationToken cancellationToken)
+    internal ValueTask<bool> ResetAndReopenAsync(CancellationToken cancellationToken)
+        => ResetAndReopenAsync($"after {ResetAfterConsecutiveLostExposures} lost exposures in a row", cancellationToken);
+
+    /// <summary>
+    /// The reset, <paramref name="why"/> saying what led to it: two lost exposures, or a stalled video stream that a
+    /// restart and a reopen did not bring back (<c>DALCameraDriver.Video.cs</c>). False when the camera refused it, which
+    /// leaves it as it was.
+    /// </summary>
+    private async ValueTask<bool> ResetAndReopenAsync(string why, CancellationToken cancellationToken)
     {
         Interlocked.Exchange(ref _consecutiveLostExposures, 0);
 
-        var settings = _cameraSettings;
+        var (settings, restore) = SettingsToRestore();
+        Logger.LogWarning("Resetting camera {Name} {Why}, as a replug would.", Name, why);
+        var resetResult = _deviceInfo.ResetDevice();
+        if (resetResult is not CMOSErrorCode.Success)
+        {
+            Logger.LogError("Camera {Name} refused the reset ({Error}); it is left as it is.", Name, resetResult);
+            return false;
+        }
+
+        await FindAgainAndRestoreAsync(settings, restore, "its reset", cancellationToken);
+        return true;
+    }
+
+    /// <summary>
+    /// Closes the camera and opens it again, found by the identity it was connected by, with the settings it was running
+    /// with: the rung between a restart of a stalled video stream and a reset (<c>DALCameraDriver.Video.cs</c>).
+    /// </summary>
+    private async ValueTask ReopenAsync(string why, CancellationToken cancellationToken)
+    {
+        var (settings, restore) = SettingsToRestore();
+        Logger.LogWarning("Closing camera {Name} and opening it again {Why}.", Name, why);
+        if (!_deviceInfo.Close())
+        {
+            Logger.LogWarning("Camera {Name} did not close cleanly; opening it again all the same.", Name);
+        }
+
+        await FindAgainAndRestoreAsync(settings, restore, "being closed", cancellationToken);
+    }
+
+    /// <summary>What a reset or a reopen puts back afterwards, read from the camera as it is now.</summary>
+    private (CameraSettings Settings, List<(CMOSControlType Control, int Value)> Controls) SettingsToRestore()
+    {
         var restore = new List<(CMOSControlType Control, int Value)>();
         foreach (var control in RestoredAfterReset)
         {
@@ -150,16 +189,18 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo>
                 restore.Add((control, value));
             }
         }
+        return (_cameraSettings, restore);
+    }
 
-        Logger.LogWarning("Resetting camera {Name} after {Count} lost exposures in a row, as a replug would.",
-            Name, ResetAfterConsecutiveLostExposures);
-        var resetResult = _deviceInfo.ResetDevice();
-        if (resetResult is not CMOSErrorCode.Success)
-        {
-            Logger.LogError("Camera {Name} refused the reset ({Error}); the next exposure is tried as is.", Name, resetResult);
-            return;
-        }
-
+    /// <summary>
+    /// Finds the camera again after <paramref name="after"/> (a reset or a close), waiting up to
+    /// <see cref="ResetReappearTimeout"/> for it to come back on the bus, and restores <paramref name="settings"/> and
+    /// <paramref name="restore"/>. A camera that does not come back leaves the driver in <see cref="CameraState.Error"/>
+    /// and throws.
+    /// </summary>
+    private async ValueTask FindAgainAndRestoreAsync(CameraSettings settings, List<(CMOSControlType Control, int Value)> restore, string after,
+        CancellationToken cancellationToken)
+    {
         var waitedSince = TimeProvider.GetTimestamp();
         while (true)
         {
@@ -173,9 +214,9 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo>
             if (TimeProvider.GetElapsedTime(waitedSince) >= ResetReappearTimeout)
             {
                 _camState = CameraState.Error;
-                Logger.LogError("Camera {Name} did not reappear within {Timeout} of its reset; unplug and replug it.",
-                    Name, ResetReappearTimeout);
-                throw OperationalException(CMOSErrorCode.CameraRemoved, $"Camera did not reappear within {ResetReappearTimeout} of a reset");
+                Logger.LogError("Camera {Name} did not reappear within {Timeout} of {After}; unplug and replug it.",
+                    Name, ResetReappearTimeout, after);
+                throw OperationalException(CMOSErrorCode.CameraRemoved, $"Camera did not reappear within {ResetReappearTimeout} of {after}");
             }
 
             await TimeProvider.SleepAsync(ResetReappearPoll, cancellationToken);
@@ -188,13 +229,13 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo>
         {
             if (_deviceInfo.SetControlValue(control, value) is not CMOSErrorCode.Success and var error)
             {
-                Logger.LogWarning("Camera {Name}: could not restore {Control} = {Value} after the reset ({Error}).",
-                    Name, control, value, error);
+                Logger.LogWarning("Camera {Name}: could not restore {Control} = {Value} after {After} ({Error}).",
+                    Name, control, value, after, error);
             }
         }
 
-        Logger.LogInformation("Camera {Name} is back after its reset, {Elapsed:F1} s, with {Count} settings restored.",
-            Name, TimeProvider.GetElapsedTime(waitedSince).TotalSeconds, restore.Count);
+        Logger.LogInformation("Camera {Name} is back after {After}, {Elapsed:F1} s, with {Count} settings restored.",
+            Name, after, TimeProvider.GetElapsedTime(waitedSince).TotalSeconds, restore.Count);
     }
 
     /// <summary>

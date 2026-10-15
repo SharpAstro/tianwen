@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
@@ -201,6 +202,8 @@ public class DALCameraVideoTests(ITestOutputHelper output)
         });
         failed.Message.ShouldContain("CameraRemoved");
         state.VideoStops.ShouldBe(1, "the stream was stopped on the way out");
+        state.VideoStarts.ShouldBe(1, "a body gone from the bus is not a stall to recover from");
+        camera.VideoStalls.ShouldBe(0);
     }
 
     [Fact(Timeout = 30_000)]
@@ -265,14 +268,311 @@ public class DALCameraVideoTests(ITestOutputHelper output)
 
         await using (var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct))
         {
-            for (var i = 0; i < 50; i++)
+            for (var i = 0; i < 150; i++)
             {
                 (await NextAsync(frames)).Release();
             }
         }
 
-        // One the reader holds, one in the hand-off, one being filled: never one per frame.
-        camera.VideoPlanesAllocated.ShouldBeLessThanOrEqualTo(3);
+        // One the reader holds, the hand-off's worth waiting (66 here), one being filled: never one per frame.
+        camera.VideoPlanesAllocated.ShouldBeLessThanOrEqualTo(TestDalCameraDriver.HandOffFrames(camera.VideoRoi) + 2);
+    }
+
+    /// <summary>
+    /// A reader that pauses is handed every frame the camera read meanwhile, in order, once it reads again: the one-frame
+    /// hand-off this replaced lost most of a 197-frame-a-second recording on a busy machine (TIA2, 2026-10-15).
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task AReaderThatPausesIsHandedEveryFrameItMissedInOrder()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state) = await StreamingCameraAsync();
+
+        await using var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
+        var last = (int)(await NextAsync(frames)).MaxValue;
+        frames.Current.Release();
+
+        // The fake serves a frame a millisecond: a pause long enough for some, well short of the hand-off's 64.
+        var servedBefore = state.FramesServed;
+        SpinWait.SpinUntil(() => state.FramesServed - servedBefore >= 20, TimeSpan.FromSeconds(10)).ShouldBeTrue();
+        for (var i = 0; i < 20; i++)
+        {
+            var frame = await NextAsync(frames);
+            ((int)frame.MaxValue).ShouldBe(last + 1, "no frame is skipped while the reader catches up");
+            last = (int)frame.MaxValue;
+            frame.Release();
+        }
+        camera.VideoFramesReplaced.ShouldBe(0);
+        camera.VideoHandOffHighWater.ShouldBeGreaterThan(1, "the frames waited for the reader");
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AReaderFarBehindLosesTheOldestFramesNotTheNewest()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state) = await StreamingCameraAsync();
+
+        await using var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
+        (await NextAsync(frames)).Release();
+        var limit = TestDalCameraDriver.HandOffFrames(camera.VideoRoi);
+        var servedBefore = state.FramesServed;
+        SpinWait.SpinUntil(() => state.FramesServed - servedBefore >= limit + 20, TimeSpan.FromSeconds(10)).ShouldBeTrue();
+
+        var next = await NextAsync(frames);
+        ((int)next.MaxValue).ShouldBeGreaterThan(servedBefore + 1, "the oldest went first");
+        next.Release();
+        camera.VideoFramesReplaced.ShouldBeGreaterThan(0);
+        camera.VideoHandOffHighWater.ShouldBeLessThanOrEqualTo(limit);
+    }
+
+    /// <summary>
+    /// Frames the body took under the old window and hands over after a pan are not under the new one, nor are frames read
+    /// before the pan reached the body: the recenter loop must not measure the disk on them (it would correct the same
+    /// offset twice). The first frame the body has to be waited for after the pan is the first under the new window.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task FramesTakenBeforeAPanAreNotUnderTheNewWindow()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state) = await StreamingCameraAsync();
+        state.PanBacklog = 3;
+
+        await using var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
+        var first = await NextAsync(frames);
+        camera.IsUnderVideoRoi(first).ShouldBeTrue("nothing has moved the window yet");
+        first.Release();
+
+        await camera.JogRoiAsync(8, 0, ct);
+        Image frame;
+        while (!camera.IsUnderVideoRoi(frame = await NextAsync(frames)))
+        {
+            frame.Release();
+        }
+        ((int)frame.MaxValue).ShouldBeGreaterThan(state.ServedAtPan + state.PanBacklog, "the backlog the pan left was taken under the old window");
+        frame.Release();
+        camera.VideoRoi.X.ShouldBe(26);
+    }
+
+    /// <summary>
+    /// A stall (ToupTek.SDK answers GeneralError once the body stops sending) is brought back by restarting the stream on
+    /// the same handle, which undid 10 of 11 on a G3M678M; the stream goes on, and the stall is counted and logged.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task AStallIsBroughtBackByARestartOfTheStream()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state) = await StreamingCameraAsync();
+
+        await using var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
+        (await NextAsync(frames)).Release();
+        var opens = state.Opens;
+        state.Stall(FakeCmosState.Cure.Restart);
+
+        await ReadUntilRecoveredAsync(camera, frames, 1);
+        camera.VideoRecoveryLog.Single().Rung.ShouldBe(TestDalCameraDriver.VideoRecoveryRung.Restart);
+        camera.VideoStalls.ShouldBe(1);
+        (state.VideoStarts, state.VideoStops).ShouldBe((2, 1), "stopped as it stalled and started again");
+        state.Opens.ShouldBe(opens, "a restart keeps the handle");
+        state.ResetCount.ShouldBe(0);
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AStallARestartCannotUndoIsBroughtBackByClosingAndOpeningTheCameraWithEverySettingTheStreamHad()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state, _) = await ScriptedDalCamera.ConnectAsync(output, formats: [PixelDataFormat.RAW8, PixelDataFormat.RAW16], canStream: true,
+            hasHighSpeed: true, bandwidthMax: 100);
+        camera.NumX = 64;
+        camera.NumY = 32;
+        var options = new VideoCaptureOptions(TimeSpan.FromMilliseconds(5), Gain: 42, HighSpeedMode: true, BitDepth: BitDepth.Int8);
+
+        await using var frames = camera.CaptureVideoAsync(options, ct).GetAsyncEnumerator(ct);
+        (await NextAsync(frames)).Release();
+        await camera.JogRoiAsync(8, -4, ct);
+        while (camera.VideoRoi.X != 26)
+        {
+            (await NextAsync(frames)).Release();
+        }
+        var window = camera.VideoRoi;
+        var opens = state.Opens;
+        state.ForgetSettingsOnOpen = true;
+        state.Stall(FakeCmosState.Cure.Reopen);
+
+        await ReadUntilRecoveredAsync(camera, frames, 1);
+        camera.VideoRecoveryLog.Single().Rung.ShouldBe(TestDalCameraDriver.VideoRecoveryRung.Reopen);
+        (state.Closes, state.Opens).ShouldBe((1, opens + 1), "closed once and opened again, the same body");
+        state.ResetCount.ShouldBe(0, "a reopen was enough");
+
+        // The body opened at its defaults; the stream put back everything it had.
+        state.Controls[CMOSControlType.Exposure].ShouldBe(5000);
+        state.Controls[CMOSControlType.Gain].ShouldBe(42);
+        state.Controls[CMOSControlType.HighSpeedMode].ShouldBe(1);
+        state.Controls[CMOSControlType.BandwidthOverload].ShouldBe(100, "the stream takes the whole bandwidth again");
+        state.Format.ShouldBe(PixelDataFormat.RAW8);
+        (state.Width, state.Height, state.StartX, state.StartY).ShouldBe((window.Width, window.Height, window.X, window.Y), "the window, pans and all");
+        camera.VideoRoi.ShouldBe(window);
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AStallOnlyAResetUndoesIsBroughtBackByTheResetWithTheStreamsSettings()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state, _) = await ScriptedDalCamera.ConnectAsync(output, canReset: true, canStream: true);
+        camera.NumX = 64;
+        camera.NumY = 32;
+
+        await using var frames = camera.CaptureVideoAsync(new VideoCaptureOptions(TimeSpan.FromMilliseconds(5), Gain: 42), ct).GetAsyncEnumerator(ct);
+        (await NextAsync(frames)).Release();
+        state.Stall(FakeCmosState.Cure.Reset);
+
+        await ReadUntilRecoveredAsync(camera, frames, 1);
+        camera.VideoRecoveryLog.Single().Rung.ShouldBe(TestDalCameraDriver.VideoRecoveryRung.Reset);
+        state.ResetCount.ShouldBe(1);
+        state.Closes.ShouldBe(1, "the reopen came first, and did not undo it");
+        state.Controls[CMOSControlType.Exposure].ShouldBe(5000, "a reset puts the body back to its power-on defaults, and the stream its own settings");
+        state.Controls[CMOSControlType.Gain].ShouldBe(42);
+        (state.Width, state.Height).ShouldBe((64, 32));
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AStallNothingUndoesEndsTheStreamWithAPlainReason()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state, _) = await ScriptedDalCamera.ConnectAsync(output, canReset: true, canStream: true);
+        camera.NumX = 64;
+        camera.NumY = 32;
+
+        await using var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
+        (await NextAsync(frames)).Release();
+        state.Stall(FakeCmosState.Cure.Never);
+
+        var failed = await Should.ThrowAsync<InvalidOperationException>(async () =>
+        {
+            while (await frames.MoveNextAsync())
+            {
+                frames.Current.Release();
+            }
+        });
+        failed.Message.ShouldContain("stopped sending frames");
+        failed.Message.ShouldContain("nor a reset brought it back");
+        (camera.VideoStalls, camera.VideoRecoveries).ShouldBe((1, 0));
+        state.ResetCount.ShouldBe(1, "the ladder went all the way up");
+        state.Streaming.ShouldBeFalse("the stream was stopped on the way out");
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task ABodyThatCannotBeResetGivesUpAfterTheReopenAndSaysToReplugIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state) = await StreamingCameraAsync();
+
+        await using var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
+        (await NextAsync(frames)).Release();
+        state.Stall(FakeCmosState.Cure.Never);
+
+        var failed = await Should.ThrowAsync<InvalidOperationException>(async () =>
+        {
+            while (await frames.MoveNextAsync())
+            {
+                frames.Current.Release();
+            }
+        });
+        failed.Message.ShouldContain("cannot be reset from software");
+        state.ResetCount.ShouldBe(0);
+        state.Closes.ShouldBe(1);
+    }
+
+    /// <summary>
+    /// A restart that brings back a body which then sends nothing at all, not even the stall's answer, is caught by the
+    /// first-frame budget and the next rung tried, rather than waited on for ever.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task ABodyThatGoesSilentAfterARestartIsClosedAndOpenedAgain()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state) = await StreamingCameraAsync();
+
+        await using var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
+        (await NextAsync(frames)).Release();
+        state.Stall(FakeCmosState.Cure.Reopen);
+        // The stall is reported once; the restarted stream then answers only Timeout.
+        state.OnStopVideo = () => state.StallCode = CMOSErrorCode.Timeout;
+
+        await ReadUntilRecoveredAsync(camera, frames, 1);
+        camera.VideoRecoveryLog.Single().Rung.ShouldBe(TestDalCameraDriver.VideoRecoveryRung.Reopen);
+        state.VideoStarts.ShouldBe(3, "the first start, the restart that stayed silent, and the start after the reopen");
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AStallSoonAfterARecoveryClimbsTheLadderAndOneLongAfterStartsItAgain()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state, time) = await ScriptedDalCamera.ConnectAsync(output, canStream: true);
+        camera.NumX = 64;
+        camera.NumY = 32;
+
+        await using var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
+        (await NextAsync(frames)).Release();
+        state.Stall(FakeCmosState.Cure.Restart);
+        await ReadUntilRecoveredAsync(camera, frames, 1);
+
+        // Stalled again before the stream had run long enough to count as healthy: the restart did not hold.
+        state.Stall(FakeCmosState.Cure.Restart);
+        await ReadUntilRecoveredAsync(camera, frames, 2);
+        camera.VideoRecoveryLog[1].Rung.ShouldBe(TestDalCameraDriver.VideoRecoveryRung.Reopen);
+        camera.VideoStalls.ShouldBe(1, "one stall, two rungs");
+
+        // Healthy for longer than VideoHealthyAfter: the next stall is a new one, and a restart is tried first again.
+        time.Advance(TestDalCameraDriver.VideoHealthyAfter + TimeSpan.FromSeconds(1));
+        (await NextAsync(frames)).Release();
+        state.Stall(FakeCmosState.Cure.Restart);
+        await ReadUntilRecoveredAsync(camera, frames, 3);
+        camera.VideoRecoveryLog[2].Rung.ShouldBe(TestDalCameraDriver.VideoRecoveryRung.Restart);
+        camera.VideoStalls.ShouldBe(2);
+    }
+
+    /// <summary>
+    /// A stop asked while a stalled stream is being stopped (5 s on a stalled ToupTek) ends the stream there: the next
+    /// rung is never started.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task AStopDuringARecoveryEndsTheStreamWithoutClimbingFurther()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state) = await StreamingCameraAsync();
+        var stopping = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+
+        var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
+        (await NextAsync(frames)).Release();
+        var opens = state.Opens;
+        state.OnStopVideo = () =>
+        {
+            stopping.TrySetResult();
+            release.Wait(TimeSpan.FromSeconds(10));
+        };
+        state.Stall(FakeCmosState.Cure.Reopen);
+        await stopping.Task.WaitAsync(ct);
+
+        var disposed = frames.DisposeAsync().AsTask();
+        release.Set();
+        await disposed;
+
+        state.VideoStarts.ShouldBe(1, "no restart after the stop");
+        state.Opens.ShouldBe(opens, "no reopen either");
+        state.Streaming.ShouldBeFalse();
+    }
+
+    /// <summary>Reads until the stream has come back from its <paramref name="recoveries"/>th stall, releasing what it reads.</summary>
+    private static async Task ReadUntilRecoveredAsync(TestDalCameraDriver camera, IAsyncEnumerator<Image> frames, int recoveries)
+    {
+        while (camera.VideoRecoveries < recoveries)
+        {
+            (await NextAsync(frames)).Release();
+        }
+        // The first frame after the recovery, and one more, so the stream is seen going on.
+        (await NextAsync(frames)).Release();
+        camera.VideoRecoveryLog.Length.ShouldBe(recoveries);
     }
 
     [Fact(Timeout = 30_000)]

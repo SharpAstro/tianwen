@@ -85,6 +85,15 @@ public interface IVideoCameraDriver : ICameraDriver
     RoiRect VideoRoi { get; }
 
     /// <summary>
+    /// Whether <paramref name="frame"/>, one this stream yielded, was taken under <see cref="VideoRoi"/> with every jog
+    /// asked for so far already applied: false for a frame read before a pan reached the camera, and for one the camera
+    /// took before the pan but handed over after it. What the recenter loop asks before it measures a frame, so the
+    /// offset a jog has already corrected is never corrected twice. True for a camera whose window never moves under its
+    /// frames.
+    /// </summary>
+    bool IsUnderVideoRoi(Image frame) => true;
+
+    /// <summary>
     /// Streams frames in video mode until the enumerator is disposed or <paramref name="cancellationToken"/>
     /// is cancelled. Only call when <see cref="CanVideoCapture"/> is <see langword="true"/>. Run the
     /// enumeration off the render / UI thread. See the type remarks for frame-ownership rules.

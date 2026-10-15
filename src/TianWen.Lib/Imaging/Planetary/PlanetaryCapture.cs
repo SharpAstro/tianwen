@@ -521,7 +521,10 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 // A Bayer source is pushed WHOLE: the ring splits it into its four CFA sub-planes itself (it stores
                 // half-res planes, exactly as SerFrameStream does on load), straight into recycled planes. Mono / RGB
                 // push through unchanged. The stream is sized to this frame above, so the dimensions always match.
-                var arrived = timeProvider.GetUtcNow();
+                // The time the camera's driver read the frame where it says so (a DAL camera's stream does), which the
+                // queue between the driver and this loop does not move: the ring and a recording keep the camera's own
+                // cadence, and a stall shows in them as the gap it was. A frame that carries no time is stamped here.
+                var arrived = frame.ImageMeta.ExposureStartTime is var stamped && stamped != default ? stamped : timeProvider.GetUtcNow();
                 stream?.Push(frame, arrived);
                 var received = Interlocked.Increment(ref _framesReceived);
                 Volatile.Write(ref _lastFrameBitDepth, (int)frame.BitDepth);
@@ -531,7 +534,9 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                         Name, frame.Width, frame.Height, frame.ChannelCount, frame.ImageMeta.SensorType);
                 }
 
-                // A recording converts and queues the frame; its own writer does the disk (SerRecording).
+                // A recording converts and queues the frame; its own writer does the disk (SerRecording). Stamped with the
+                // driver's own read time, so its trailer is honest across a stall the driver recovered from: a jump of
+                // the gap's length between two frames, never frames that pretend to be continuous.
                 _recording?.TryAppend(frame, arrived);
 
                 // COM recenter: measure the disk on the just-captured frame (still alive here, before the Release
@@ -784,6 +789,14 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     private async Task MaybeRecenterAsync(ICameraDriver camera, Image frame, CancellationToken token)
     {
         if (Volatile.Read(ref _autoRecenter) != 1)
+        {
+            return;
+        }
+
+        // A frame taken before the last jog reached the camera still shows the offset that jog corrects: measured, it
+        // would be corrected twice. A camera pans while it streams on, so frames taken under the old window can arrive
+        // after the pan, and a queue between the camera and this loop holds a few more (IVideoCameraDriver.IsUnderVideoRoi).
+        if (camera is IVideoCameraDriver { CanJogRoi: true } panning && !panning.IsUnderVideoRoi(frame))
         {
             return;
         }
