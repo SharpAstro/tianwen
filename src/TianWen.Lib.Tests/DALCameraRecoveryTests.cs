@@ -427,6 +427,9 @@ internal sealed class FakeCmosState(string serial)
     /// <summary>Called inside every stream stop, on the calling thread, so a test can hold a recovery there.</summary>
     public Action? OnStopVideo { get; set; }
 
+    /// <summary>What a frame call that may not wait answers instead, as an SDK never asked for one might; null to serve as any.</summary>
+    public CMOSErrorCode? ErrorAtWaitZero { get; set; }
+
     public void StartedStreaming()
     {
         Interlocked.Increment(ref _videoStarts);
@@ -697,6 +700,11 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
         if (bufferSize != state.Width * state.Height * bytesPerPixel)
         {
             return CMOSErrorCode.BufferTooSmall;
+        }
+
+        if (waitMs == 0 && state.ErrorAtWaitZero is { } refusal)
+        {
+            return refusal;
         }
 
         // A frame the body already holds is handed over at once; with none, a call that may not wait answers Timeout and

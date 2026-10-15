@@ -743,13 +743,18 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                 // After a pan, a frame that is already there is one the body took before it: asked for without a wait,
                 // until one has to be waited for.
                 var code = _deviceInfo.GetVideoData(stream.Buffer, FrameBytes(window, bitDepth), settling ? 0 : (int)VideoFrameWait.TotalMilliseconds);
+                if (settling && code is not CMOSErrorCode.Success and not CMOSErrorCode.CameraRemoved)
+                {
+                    // Buffers with nothing more in them (Timeout), and an answer an SDK gives a call it was never asked
+                    // to make without a wait (a ZWO pans mid-stream too), alike end the settle: never a stall, which would
+                    // restart the stream for every recentring pan. A body that has really stalled says so again to the
+                    // next call, which waits.
+                    (settling, settleNext) = (false, true);
+                    continue;
+                }
                 if (code is CMOSErrorCode.Timeout)
                 {
-                    if (settling)
-                    {
-                        (settling, settleNext) = (false, true);
-                    }
-                    else if (segment.Recovering is not null && segment.Frames == 0
+                    if (segment.Recovering is not null && segment.Frames == 0
                         && (waitedForFirst += VideoFrameWait) >= VideoFirstFrameBudget(stream.Exposure))
                     {
                         segment.Stall = new VideoStall(CMOSErrorCode.Timeout, lastFrame, lastFrameAt, Healthy: false);
