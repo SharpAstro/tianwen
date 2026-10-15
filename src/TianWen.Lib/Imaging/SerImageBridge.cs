@@ -62,6 +62,20 @@ public static class SerImageBridge
         var channels = frame.ChannelCount >= 3 ? 3 : 1;
         var (width, height) = (frame.Width, frame.Height);
         var bottomUp = frame.ImageMeta.RowOrder == RowOrder.BottomUp;
+        if (channels == 1 && !bottomUp)
+        {
+            // A mono plane or a Bayer mosaic, top row first: the plane IS the frame, in one vector pass (a camera's video).
+            var plane = frame.GetChannelSpan(0)[..(width * height)];
+            if (depth == 8)
+            {
+                RawPixelConversion.NarrowToByte(plane, frame.SamplesAreUnitReferred ? byte.MaxValue : 1f, destination);
+            }
+            else
+            {
+                RawPixelConversion.NarrowToUInt16(plane, frame.SamplesAreUnitReferred ? ushort.MaxValue : 1f, MemoryMarshal.Cast<byte, ushort>(destination));
+            }
+            return;
+        }
         if (depth == 8)
         {
             Fill(frame, channels, width, height, bottomUp, destination, byte.MaxValue);

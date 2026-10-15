@@ -128,6 +128,86 @@ internal static class RawPixelConversion
     }
 
     /// <summary>
+    /// The way back for a recording: <paramref name="source"/> times <paramref name="scale"/>, rounded to the nearest whole
+    /// number (ties to even, as <see cref="MathF.Round(float)"/>) and clamped to 0..255, into
+    /// <paramref name="destination"/>, in one vector pass.
+    /// </summary>
+    /// <remarks>
+    /// What a SER recording does to every frame of a stream (<c>SerImageBridge.FillSerFrame</c>): the per-sample scalar
+    /// loop it replaced cost 1.78 ms (p50) of a 640 x 480 frame on the capture loop, a third of the 5 ms a frame has at 197
+    /// frames a second (TIA2, 2026-10-15). A NaN sample, which no camera frame holds, is not defined here.
+    /// </remarks>
+    public static void NarrowToByte(ReadOnlySpan<float> source, float scale, Span<byte> destination)
+    {
+        if (destination.Length < source.Length)
+        {
+            throw new ArgumentException($"Destination holds {destination.Length} samples, source has {source.Length}", nameof(destination));
+        }
+
+        var i = 0;
+        var lanes = Vector<byte>.Count;
+        if (Vector.IsHardwareAccelerated && source.Length >= lanes)
+        {
+            var quarter = Vector<float>.Count;
+            var factor = new Vector<float>(scale);
+            var top = new Vector<float>(byte.MaxValue);
+            ref var src = ref MemoryMarshal.GetReference(source);
+            ref var dst = ref MemoryMarshal.GetReference(destination);
+            for (; i <= source.Length - lanes; i += lanes)
+            {
+                var q0 = Whole(Vector.LoadUnsafe(ref src, (nuint)i), factor, top);
+                var q1 = Whole(Vector.LoadUnsafe(ref src, (nuint)(i + quarter)), factor, top);
+                var q2 = Whole(Vector.LoadUnsafe(ref src, (nuint)(i + 2 * quarter)), factor, top);
+                var q3 = Whole(Vector.LoadUnsafe(ref src, (nuint)(i + 3 * quarter)), factor, top);
+                Vector.Narrow(Vector.Narrow(q0, q1), Vector.Narrow(q2, q3)).StoreUnsafe(ref dst, (nuint)i);
+            }
+        }
+
+        for (; i < source.Length; i++)
+        {
+            destination[i] = (byte)Math.Clamp(MathF.Round(source[i] * scale), 0f, byte.MaxValue);
+        }
+    }
+
+    /// <summary>
+    /// <see cref="NarrowToByte"/> into 16 bits: <paramref name="source"/> times <paramref name="scale"/>, rounded and
+    /// clamped to 0..65535.
+    /// </summary>
+    public static void NarrowToUInt16(ReadOnlySpan<float> source, float scale, Span<ushort> destination)
+    {
+        if (destination.Length < source.Length)
+        {
+            throw new ArgumentException($"Destination holds {destination.Length} samples, source has {source.Length}", nameof(destination));
+        }
+
+        var i = 0;
+        var lanes = Vector<ushort>.Count;
+        if (Vector.IsHardwareAccelerated && source.Length >= lanes)
+        {
+            var half = Vector<float>.Count;
+            var factor = new Vector<float>(scale);
+            var top = new Vector<float>(ushort.MaxValue);
+            ref var src = ref MemoryMarshal.GetReference(source);
+            ref var dst = ref MemoryMarshal.GetReference(destination);
+            for (; i <= source.Length - lanes; i += lanes)
+            {
+                var lo = Whole(Vector.LoadUnsafe(ref src, (nuint)i), factor, top);
+                var hi = Whole(Vector.LoadUnsafe(ref src, (nuint)(i + half)), factor, top);
+                Vector.Narrow(lo, hi).StoreUnsafe(ref dst, (nuint)i);
+            }
+        }
+
+        for (; i < source.Length; i++)
+        {
+            destination[i] = (ushort)Math.Clamp(MathF.Round(source[i] * scale), 0f, ushort.MaxValue);
+        }
+    }
+
+    // Scaled, clamped into [0, top], rounded ties to even: in range, clamping first rounds to what rounding first clamps to.
+    private static Vector<uint> Whole(Vector<float> samples, Vector<float> factor, Vector<float> top)
+        => Vector.ConvertToUInt32(Vector.Round(Vector.Min(Vector.Max(samples * factor, Vector<float>.Zero), top)));
+
+    /// <summary>
     /// Widens 32-bit SIGNED samples into <paramref name="destination"/>: an ASCOM camera's
     /// <c>ImageArray</c>, which the standard types as <c>Int32</c>. The conversion rounds exactly as a
     /// scalar <c>(float)</c> cast does, so a value past 2^24 lands where the old per-pixel cast put it.

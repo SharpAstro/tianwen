@@ -50,6 +50,70 @@ public class RawPixelConversionTests
         (min, max).ShouldBe(length == 0 ? ((ushort)0, (ushort)0) : (source.Min(), source.Max()));
     }
 
+    /// <summary>
+    /// The way back a recording takes: scaled, rounded ties to even and clamped, the vector loop agreeing with the scalar
+    /// rule sample for sample, whatever the length, across the range and past both ends of it.
+    /// </summary>
+    [Theory]
+    [InlineData(0, 1f)]
+    [InlineData(1, 1f)]
+    [InlineData(31, 1f)]
+    [InlineData(32, 1f)]
+    [InlineData(33, 1f)]
+    [InlineData(65, 255f)]
+    [InlineData(307200, 1f)]
+    [InlineData(100003, 255f)]
+    public void FloatSamplesNarrowToEightBitsAsTheScalarRuleWould(int length, float scale)
+    {
+        var source = NarrowingSamples(length, byte.MaxValue / scale);
+        var destination = new byte[length];
+
+        RawPixelConversion.NarrowToByte(source, scale, destination);
+
+        for (var i = 0; i < length; i++)
+        {
+            destination[i].ShouldBe((byte)Math.Clamp(MathF.Round(source[i] * scale), 0f, byte.MaxValue), $"sample {i} = {source[i]}");
+        }
+    }
+
+    [Theory]
+    [InlineData(0, 1f)]
+    [InlineData(15, 1f)]
+    [InlineData(16, 1f)]
+    [InlineData(17, 65535f)]
+    [InlineData(100003, 1f)]
+    [InlineData(100003, 65535f)]
+    public void FloatSamplesNarrowToSixteenBitsAsTheScalarRuleWould(int length, float scale)
+    {
+        var source = NarrowingSamples(length, ushort.MaxValue / scale);
+        var destination = new ushort[length];
+
+        RawPixelConversion.NarrowToUInt16(source, scale, destination);
+
+        for (var i = 0; i < length; i++)
+        {
+            destination[i].ShouldBe((ushort)Math.Clamp(MathF.Round(source[i] * scale), 0f, ushort.MaxValue), $"sample {i} = {source[i]}");
+        }
+    }
+
+    // Whole numbers, halves (ties go to even), and values below 0 and past the top, in a range scaled to the target's.
+    private static float[] NarrowingSamples(int length, float top)
+    {
+        var rng = new Random(length);
+        var source = new float[length];
+        for (var i = 0; i < length; i++)
+        {
+            source[i] = (i % 4) switch
+            {
+                0 => MathF.Floor((float)rng.NextDouble() * top),
+                1 => (MathF.Floor((float)rng.NextDouble() * top) + 0.5f),
+                2 => (float)(rng.NextDouble() * 1.2 - 0.1) * top,
+                _ => (float)rng.NextDouble() * top,
+            };
+        }
+        return source;
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
