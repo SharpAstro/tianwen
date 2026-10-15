@@ -63,7 +63,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
     /// <summary>A SER step this long is a stall the stream recovered from, reported apart and the run made again.</summary>
     private static readonly TimeSpan StallStep = TimeSpan.FromSeconds(1);
 
-    /// <summary>Runs made again for a stall, at most.</summary>
+    /// <summary>Runs made again for a stall, at most, unless <c>TIANWEN_TOUPTEK_EXTRA_RUNS</c> says how many: the camera stalls in periods.</summary>
     private const int ExtraRuns = 2;
 
     /// <summary>How often the probe drives the view, as a render loop would.</summary>
@@ -137,8 +137,9 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
                 var jog = (X: RoiX - centred.X, Y: RoiY - centred.Y);
                 runs.Add(await NoViewAsync(kept, pump, jog, duration, ct));
                 var planetary = gui.Services.GetRequiredService<PlanetaryCaptureController>();
+                var extra = IntFromEnvironment("TIANWEN_TOUPTEK_EXTRA_RUNS", ExtraRuns);
                 for (var run = 1; runs.Count(static r => r.Arm.StartsWith("node, view", StringComparison.Ordinal) && !r.Stalled) < wanted
-                    && run <= wanted + ExtraRuns; run++)
+                    && run <= wanted + extra; run++)
                 {
                     runs.Add(await WithViewAsync($"node, view {run}", gui, local, planetary, pump, jog, duration, ct));
                 }
