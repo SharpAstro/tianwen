@@ -34,10 +34,11 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         var bandWeightsOpt = BandWeightsOption();
         var relightOpt = RelightOption();
         var ringFeatherOpt = RingFeatherOption();
+        var noBalanceOpt = NoColourBalanceOption();
         var command = new Command("compose", "A colour master from mono planetary stacks (#1278): each moved onto one disk by its limb, de-rotated to one instant, each filter averaged, red, green and blue joined; IR or L beside it as the luminance.")
         {
             Arguments = { stacksArg },
-            Options = { outputOpt, labels.Planet, labels.Utc, labels.Filter, lrgbOpt, viewingWeightsOpt, bandWeightsOpt, relightOpt, ringFeatherOpt },
+            Options = { outputOpt, labels.Planet, labels.Utc, labels.Filter, lrgbOpt, viewingWeightsOpt, bandWeightsOpt, relightOpt, ringFeatherOpt, noBalanceOpt },
         };
         command.Subcommands.Add(BuildIngest());
         command.Subcommands.Add(BuildRegister());
@@ -67,7 +68,7 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
                 return 1;
             }
             var output = parseResult.GetValue(outputOpt) ?? DefaultName(stacks[0].Planet, derotation.Instant);
-            return await WriteComposedAsync(composed, output, ct) ? 0 : 1;
+            return await WriteComposedAsync(composed, output, !parseResult.GetValue(noBalanceOpt), ct) ? 0 : 1;
         });
         return command;
     }
@@ -156,10 +157,11 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         var stacksArg = new Argument<string[]>("stacks") { Description = "The de-rotated stacks (FITS, as derotate writes them).", Arity = ArgumentArity.OneOrMore };
         var outputOpt = new Option<string?>("--output", "-o") { Description = "The colour master to write (FITS); <planet>_<yyyy-MM-dd-HHmm>_composed.fits in the current folder when not given." };
         var bandWeightsOpt = BandWeightsOption();
+        var noBalanceOpt = NoColourBalanceOption();
         var command = new Command("join", "Step 4: each filter's de-rotated stacks averaged, red, green and blue joined into one colour master; IR or L beside it as the luminance. A stack's join weight (derotate --viewing-weights) is read from <stack>.weight.fits beside it.")
         {
             Arguments = { stacksArg },
-            Options = { outputOpt, bandWeightsOpt },
+            Options = { outputOpt, bandWeightsOpt, noBalanceOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
@@ -178,7 +180,7 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
                 return 1;
             }
             var output = parseResult.GetValue(outputOpt) ?? DefaultName(stacks[0].Planet, stacks[0].Instant);
-            return await WriteComposedAsync(composed, output, ct) ? 0 : 1;
+            return await WriteComposedAsync(composed, output, !parseResult.GetValue(noBalanceOpt), ct) ? 0 : 1;
         });
         return command;
     }
@@ -248,10 +250,11 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         var masterArg = new Argument<string>("master") { Description = "The colour master join wrote (FITS)." };
         var luminanceOpt = new Option<string>("--luminance") { Description = "The luminance join wrote beside it (FITS).", Required = true };
         var outputOpt = new Option<string?>("--output", "-o") { Description = "The detailed master to write (FITS); <master>_lrgb.fits beside the master when not given." };
+        var noBalanceOpt = NoColourBalanceOption();
         var command = new Command("lrgb", "Step 5, optional: the luminance's detail carried into each colour plane by the deep-sky LRGB step, read on the disk: each scale against the disk's level ratio, the colour's shift and the bands' correlation with the luminance.")
         {
             Arguments = { masterArg },
-            Options = { luminanceOpt, outputOpt },
+            Options = { luminanceOpt, outputOpt, noBalanceOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
@@ -290,13 +293,19 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
                 consoleHost.WriteScrollable(string.Create(inv, $"the scales red {scales[0]:0.0000}, green {scales[1]:0.0000}, blue {scales[2]:0.0000}; no planet, instant or limb to read them on the disk"));
             }
             var output = parseResult.GetValue(outputOpt) ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(masterPath)) ?? ".", Path.GetFileNameWithoutExtension(masterPath) + "_lrgb.fits");
-            return await WriteComposedAsync(new PlanetaryComposed(detailed, null), output, ct) ? 0 : 1;
+            return await WriteComposedAsync(new PlanetaryComposed(detailed, null), output, !parseResult.GetValue(noBalanceOpt), ct) ? 0 : 1;
         });
         return command;
     }
 
     // A line of the run's report.
     private void Say(string line) => consoleHost.WriteScrollable(line);
+
+    // What leaves a colour master as its filters gave it, as planetary stack's own switch does.
+    private static Option<bool> NoColourBalanceOption() => new("--no-colour-balance")
+    {
+        Description = "Leave the colour master as its filters gave it, rather than balanced to the planet's own colour (Jupiter's or Saturn's, as planetary stack balances its masters, #1580).",
+    };
 
     // The options that label a stack its header and name do not: the planet, the instant and the filter, for every stack given.
     private static (Option<string?> Planet, Option<string?> Utc, Option<string?> Filter) LabelOptions() => (
@@ -489,15 +498,31 @@ internal sealed class PlanetaryComposeSubCommand(IConsoleHost consoleHost, Maste
         return true;
     }
 
-    // The colour master, its planetary preview beside it, and the luminance beside both when there is one.
-    private async Task<bool> WriteComposedAsync(PlanetaryComposed composed, string output, System.Threading.CancellationToken ct)
+    // The colour master, balanced to the planet's own colour as the stack balances its masters unless asked not to (#1580), its planetary
+    // preview beside it, and the luminance beside both when there is one.
+    private async Task<bool> WriteComposedAsync(PlanetaryComposed composed, string output, bool balanceColour, System.Threading.CancellationToken ct)
     {
         var folder = Path.GetDirectoryName(Path.GetFullPath(output)) ?? ".";
         Directory.CreateDirectory(folder);
-        composed.Master.WriteToFitsFile(output);
+        var (balanced, balance, how) = balanceColour && composed.Master.ChannelCount == 3
+            ? PlanetaryComposition.BalancedToPlanet(composed.Master)
+            : (null, null, "colours left as the filters gave them");
+        var written = balanced ?? composed.Master;
         var stem = Path.Combine(folder, Path.GetFileNameWithoutExtension(output));
-        await previewRenderer.RenderPlanetaryAsync(composed.Master, stem + ".png", ct: ct);
-        consoleHost.WriteScrollable($"wrote {output} and its preview {stem}.png");
+        try
+        {
+            written.WriteToFitsFile(output, null, balance?.HeaderCards());
+            await previewRenderer.RenderPlanetaryAsync(written, stem + ".png", ct: ct);
+            consoleHost.WriteScrollable($"wrote {output} and its preview {stem}.png");
+            if (composed.Master.ChannelCount == 3)
+            {
+                consoleHost.WriteScrollable(how);
+            }
+        }
+        finally
+        {
+            balanced?.Release();
+        }
         if (composed.Luminance is { } luminance)
         {
             var path = stem + "_luminance.fits";

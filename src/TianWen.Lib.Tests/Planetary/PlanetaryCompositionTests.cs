@@ -606,6 +606,55 @@ public sealed class PlanetaryCompositionTests : IDisposable
     }
 
     [Fact(Timeout = 300_000)]
+    public void AComposedMasterIsBalancedToItsPlanetsColourOnceAndAMonoOneNotAtAll()
+    {
+        // A mono capture's colour master keeps the colour its filters gave it, here far too red (#1580: the owner's 2026-10-07 Saturn
+        // rendered salmon-pink); balanced as planetary stack balances its masters, its disk takes Jupiter's own colour.
+        var ct = TestContext.Current.CancellationToken;
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Start);
+        var master = Colour(aspect, new DiskPlacement(63.6, 64.3, Radius, TrueNorth), [0.9, 0.6, 0.55], null);
+        master.ImageMeta.IsColourBalanced.ShouldBeFalse();
+
+        var (balanced, balance, how) = PlanetaryComposition.BalancedToPlanet(master);
+        balanced.ShouldNotBeNull(how);
+        balance.ShouldNotBeNull();
+        ct.ThrowIfCancellationRequested();
+        balanced.ImageMeta.IsColourBalanced.ShouldBeTrue("the balance says so on the master, so a stretch takes one black point");
+        var (red, green, blue) = DiskMeans(balanced);
+        var target = PlanetaryColourBalance.JupiterDiskColour;
+        (red / green).ShouldBe(target.R, 0.03, "the disk's red over green, Jupiter's own");
+        (blue / green).ShouldBe(target.B, 0.03, "the disk's blue over green, Jupiter's own");
+
+        // An lrgb step's input is already balanced, and a mono master has no colour to balance.
+        PlanetaryComposition.BalancedToPlanet(balanced).Balanced.ShouldBeNull("a balanced master is balanced once");
+        var mono = new Image([ToPlane(Render(aspect, new DiskPlacement(63.6, 64.3, Radius, TrueNorth), 0.8))], BitDepth.Float32, 1, 0, 0,
+            new ImageMeta { ObjectName = "Jupiter", ExposureStartTime = Start });
+        PlanetaryComposition.BalancedToPlanet(mono).Balanced.ShouldBeNull("a mono master has no colour to balance");
+    }
+
+    // Each plane's mean over the disk's bright interior (green above half its peak).
+    private static (double Red, double Green, double Blue) DiskMeans(Image image)
+    {
+        var red = image.GetChannelSpan(0);
+        var green = image.GetChannelSpan(1);
+        var blue = image.GetChannelSpan(2);
+        var peak = 0f;
+        foreach (var v in green)
+        {
+            peak = Math.Max(peak, v);
+        }
+        double r = 0, g = 0, b = 0;
+        for (var i = 0; i < green.Length; i++)
+        {
+            if (green[i] > 0.5f * peak)
+            {
+                (r, g, b) = (r + red[i], g + green[i], b + blue[i]);
+            }
+        }
+        return (r, g, b);
+    }
+
+    [Fact(Timeout = 300_000)]
     public void ALuminanceFromAnotherStackIsScaledByTheDiskWeightedByNoiseAndPlacedOnTheOthersDisk()
     {
         // Two colour masters of one capture (#1330): the "demosaic" to place on, and the "drizzle" the luminance is made from, framed
