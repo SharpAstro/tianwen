@@ -1180,10 +1180,12 @@ public sealed class OrreryTests(ITestOutputHelper output)
     /// camera on the planet, which then stays at the view's centre as time runs, and a second press puts the Sun back there. The
     /// camera only looks at another point, so the backdrop's stars (its rotation alone) do not move.
     /// </summary>
-    [Fact(Timeout = 120_000)]
-    public async Task TheCentreToggleCentresTheCameraOnTheFocusedPlanet()
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task TheCentreToggleCentresTheCameraOnTheFocusedPlanet(float dpiScale)
     {
-        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale);
         Select(rig, CatalogIndex.Jupiter);
         rig.Tab.OpenOrrery();
         rig.Render();
@@ -1222,10 +1224,12 @@ public sealed class OrreryTests(ITestOutputHelper output)
     }
 
     /// <summary>With the Sun in focus, or nothing, there is nothing else to centre on: no toggle.</summary>
-    [Fact(Timeout = 120_000)]
-    public async Task TheSunInFocusOffersNoCentreToggle()
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task TheSunInFocusOffersNoCentreToggle(float dpiScale)
     {
-        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale);
         Select(rig, CatalogIndex.Sol);
         rig.Tab.OpenOrrery();
         rig.Render();

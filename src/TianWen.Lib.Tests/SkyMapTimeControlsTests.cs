@@ -21,10 +21,10 @@ public class SkyMapTimeControlsTests
     private static readonly DateTimeOffset Evening = new(2026, 6, 21, 12, 0, 0, TimeSpan.Zero);
 
     private static async Task<(SkyMapTab<RgbaImage> Tab, PlannerState Planner, ITimeProvider Clock, RectF32 Content)>
-        RenderedAsync(RgbaImageRenderer renderer)
+        RenderedAsync(RgbaImageRenderer renderer, float dpiScale = 1f)
     {
         var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
-        var tab = new SkyMapTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+        var tab = new SkyMapTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont(), DpiScale = dpiScale };
         var planner = new PlannerState
         {
             ObjectDb = db,
@@ -55,11 +55,13 @@ public class SkyMapTimeControlsTests
     /// and the time is sized for a scrubbed date with its offset, so neither the new button nor the longer text moves a button
     /// the next press is aimed at (reported by the owner: Now on the right moved them all).
     /// </summary>
-    [Fact]
-    public async Task AStepLeavesEveryStepButtonWhereItWas()
+    [Theory]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task AStepLeavesEveryStepButtonWhereItWas(float dpiScale)
     {
         using var renderer = new RgbaImageRenderer(1000, 600);
-        var (tab, planner, clock, content) = await RenderedAsync(renderer);
+        var (tab, planner, clock, content) = await RenderedAsync(renderer, dpiScale);
         string[] steps = ["SkyTimeStep:-1d", "SkyTimeStep:-1h", "SkyTimeStep:-10m", "SkyTimeStep:+10m", "SkyTimeStep:+1h", "SkyTimeStep:+1d"];
         var before = steps.Select(s => Button(tab, s).X).ToArray();
 
