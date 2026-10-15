@@ -82,6 +82,11 @@ public interface IVideoCameraDriver : ICameraDriver
     /// the size matches the yielded frame, the origin reflects the jogs applied so far. Defaults to a
     /// sensor-sized window at the origin when not streaming.
     /// </summary>
+    /// <remarks>
+    /// It is the window NOW, not necessarily the one a frame in hand was read under: after a pan or a resize, up to a
+    /// queue's depth of frames already read (and, after a pan, a camera's backlog) were taken under the previous window;
+    /// <see cref="IsUnderVideoRoi"/> says which.
+    /// </remarks>
     RoiRect VideoRoi { get; }
 
     /// <summary>
