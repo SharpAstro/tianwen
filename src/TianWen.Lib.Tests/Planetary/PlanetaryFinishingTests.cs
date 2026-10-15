@@ -132,13 +132,51 @@ public class PlanetaryFinishingTests
             sharp[i] = 1 + (0.3f * sharp[i]);
         }
         var blurred = PlanetaryInverse.Apply(sharp, size, size, diffraction.At);
-        var restored = PlanetaryFinishing.Deconvolve(blurred, size, diffraction, 40);
+        // A planet wider than the window, so the whole wave lies on it.
+        var everywhere = new MetricDisk(size / 2.0, size / 2.0, size);
+        var cutoff = PlanetaryFinishing.CutoffCyclesPerPixel(new Pupil(0.28), 550, 0.1);
+        var restored = PlanetaryFinishing.Deconvolve(blurred, size, diffraction, 40, everywhere, cutoff);
         var (truth, before, after) = (Rms(Detail(sharp)), Rms(Detail(blurred)), Rms(Detail(restored)));
         TestContext.Current.TestOutputHelper?.WriteLine($"the wave's RMS: truth {truth:0.0000}, blurred {before:0.0000}, restored {after:0.0000}");
         before.ShouldBeLessThan(truth * 0.5, "the pupil passes well under half of the wave there");
         after.ShouldBeGreaterThan(before * 1.5, "forty steps give much of it back");
         after.ShouldBeLessThan(truth * 1.05, "and not more than there was");
-        PlanetaryFinishing.Deconvolve(blurred, size, diffraction, 0).ShouldBe(blurred, "no steps, no change");
+        PlanetaryFinishing.Deconvolve(blurred, size, diffraction, 0, everywhere, cutoff).ShouldBe(blurred, "no steps, no change");
+    }
+
+    [Fact]
+    public void TheDeconvolutionLeavesTheSkyPastThePlanetAsItWas()
+    {
+        // A small planet in a wide window of noisy sky: inside it the steps sharpen, past two diffraction widths beyond its outline every
+        // pixel is the window's own, so the sky's noise is not raised and no window edge can show (#1171's rule, kept by the deblur too).
+        const int size = 128;
+        var diffraction = PlanetaryInverse.Diffraction(new Pupil(0.28), 550e-9, 0.1);
+        var cutoff = PlanetaryFinishing.CutoffCyclesPerPixel(new Pupil(0.28), 550, 0.1);
+        var disk = new MetricDisk(64, 64, 20);
+        var random = new Random(1171);
+        var sharp = Wave(size, 0.125);
+        for (var i = 0; i < sharp.Length; i++)
+        {
+            var inside = disk.RadiiAt(i % size, i / size) < 1;
+            sharp[i] = (inside ? 1 + (0.3f * sharp[i]) : 0f) + (float)(0.01 * (random.NextDouble() - 0.5));
+        }
+        var blurred = PlanetaryInverse.Apply(sharp, size, size, diffraction.At);
+        var restored = PlanetaryFinishing.Deconvolve(blurred, size, diffraction, 40, disk, cutoff);
+        var past = 1 + (2 / cutoff / disk.Radius);
+        double changedInside = 0;
+        for (var i = 0; i < restored.Length; i++)
+        {
+            var r = disk.RadiiAt(i % size, i / size);
+            if (r >= past)
+            {
+                restored[i].ShouldBe(blurred[i], $"the sky at ({i % size}, {i / size}), {r:0.00} radii out");
+            }
+            else if (r < 0.8)
+            {
+                changedInside = Math.Max(changedInside, Math.Abs(restored[i] - blurred[i]));
+            }
+        }
+        changedInside.ShouldBeGreaterThan(0.01, "inside the planet the steps sharpen");
     }
 
     // The plane less one, the level the deconvolution test's wave rides on.

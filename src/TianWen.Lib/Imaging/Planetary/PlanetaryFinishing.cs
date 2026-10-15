@@ -340,8 +340,15 @@ public static class PlanetaryFinishing
     /// sharpening cuts it (sky 0, disk 1): a deconvolution by the PSF the capture's optics and sampling set, where Kolivas's step
     /// (<see cref="KolivasStep"/>) takes one fixed Moffat on every capture. The window is lifted by a tenth of the disk while it runs, so the
     /// sky's noise stays positive (<see cref="PlanetaryInverse.RichardsonLucy(ReadOnlySpan{float}, int, int, Func{double, double}, int, Action{int, float[]}, double)"/>).
+    /// <para>
+    /// Drawn on the planet only: the steps' change from <paramref name="window"/> is taken whole where <paramref name="disk"/> holds the planet
+    /// (its rings counted, <see cref="MetricDisk.ClearRadiiAt"/>), let fall by a smootherstep over two diffraction widths past the outline
+    /// (2 over <paramref name="cutoff"/> pixels), and is nothing beyond, so the sky stays as the sharpening drew it: no sharpening is drawn
+    /// outside the limb (#1171). Over the whole window, the steps raised the sky's noise, which on a small planet in a wide frame moved the
+    /// preview's black point and showed the window's edge.
+    /// </para>
     /// </summary>
-    public static float[] Deconvolve(ReadOnlySpan<float> window, int size, RadialTransfer diffraction, int iterations)
+    public static float[] Deconvolve(ReadOnlySpan<float> window, int size, RadialTransfer diffraction, int iterations, in MetricDisk disk, double cutoff)
     {
         ArgumentNullException.ThrowIfNull(diffraction);
         if (iterations <= 0)
@@ -356,7 +363,18 @@ public static class PlanetaryFinishing
                 last = plane;
             }
         });
-        return last ?? throw new InvalidOperationException("Richardson-Lucy handed back no last step");
+        var steps = last ?? throw new InvalidOperationException("Richardson-Lucy handed back no last step");
+        var feather = cutoff > 0 ? 2 / cutoff / disk.Radius : 0;
+        for (var i = 0; i < steps.Length; i++)
+        {
+            var r = disk.ClearRadiiAt(i % size, i / size);
+            if (r > 1)
+            {
+                var keep = feather > 0 ? Smootherstep(r, 1, 1 + feather) : 0;
+                steps[i] = (float)(window[i] + (keep * (steps[i] - window[i])));
+            }
+        }
+        return steps;
     }
 
     /// <summary>Each pixel's standard deviation over the <paramref name="side"/>-square about it, the edges mirrored.</summary>
