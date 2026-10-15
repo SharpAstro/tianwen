@@ -303,4 +303,29 @@ public class SaturnRingsTests
         // Brightest beside the division, inside the B ring.
         rings.Single(r => r.Name == "B4").Level.ShouldBeGreaterThan(rings.Single(r => r.Name == "B1").Level);
     }
+
+    /// <summary>
+    /// The unlit face's share of the lit level is the single-scattering ratio of transmitted to reflected light: at mu = mu0 its limit,
+    /// (tau / mu) exp(-tau / mu) over half of (1 - exp(-2 tau / mu)), reached continuously from either side; nearly one for the C ring,
+    /// next to nothing for the B ring, the same whichever sign the sines have, and zero with the Sun in the ring plane.
+    /// </summary>
+    [Fact]
+    public void TheUnlitFaceShowsWhatTheRingPassesThrough()
+    {
+        var c = SaturnRings.Main.Rings.Single(r => r.Name == "C");
+        var b = SaturnRings.Main.Rings.Single(r => r.Name == "B");
+        const double Mu = 0.3;
+        var limit = (c.OpticalDepth / Mu * Math.Exp(-c.OpticalDepth / Mu)) / (0.5 * (1 - Math.Exp(-2 * c.OpticalDepth / Mu)));
+        c.UnlitShare(Mu, -Mu).ShouldBe(limit, 1e-9);
+        c.UnlitShare(Mu + 1e-6, -Mu).ShouldBe(limit, 1e-5);
+        c.UnlitShare(Mu - 1e-6, -Mu).ShouldBe(limit, 1e-5);
+        c.UnlitShare(Mu + 0.01, -Mu).ShouldBe(limit, 0.02);
+
+        // Seen from 25 degrees with the Sun 8 degrees below: 0.972 for C, 0.0175 for B (and 0.557 for A).
+        var (view, sun) = (Math.Sin(25 * Math.PI / 180), -Math.Sin(8 * Math.PI / 180));
+        c.UnlitShare(view, sun).ShouldBe(0.9723, 1e-4);
+        b.UnlitShare(view, sun).ShouldBe(0.01745, 1e-5);
+        c.UnlitShare(-view, -sun).ShouldBe(c.UnlitShare(view, sun));
+        c.UnlitShare(view, 0).ShouldBe(0);
+    }
 }

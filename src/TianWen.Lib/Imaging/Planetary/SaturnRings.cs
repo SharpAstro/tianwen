@@ -20,6 +20,39 @@ public readonly record struct SaturnRing(string Name, double InnerKm, double Out
 {
     /// <summary>The fraction of the light behind the ring that passes through it along a ray at <paramref name="sinElevation"/> to the ring plane.</summary>
     public double Transmission(double sinElevation) => sinElevation == 0 ? 0 : Math.Exp(-OpticalDepth / Math.Abs(sinElevation));
+
+    /// <summary>
+    /// What the face the Sun does NOT light shows, as a share of what the lit face would show at the same angles: the light the ring
+    /// scatters THROUGH itself over what it scatters back. Seen from <paramref name="sinView"/> and lit from <paramref name="sinSun"/>
+    /// (the sines of the camera's and the Sun's elevations over the ring plane, on opposite sides; only their sizes count).
+    /// </summary>
+    /// <remarks>
+    /// A slab of optical depth <c>tau</c> in single scattering (Chandrasekhar 1960, <i>Radiative Transfer</i>, ch. 1; the form used for
+    /// Saturn's rings by Cuzzi et al. 1984, "Saturn's rings: properties and processes", in <i>Planetary Rings</i>, and Dones, Cuzzi and
+    /// Showalter 1993, Icarus 105, 184): with <c>mu = |sin B|</c> and <c>mu0 = |sin B'|</c>, the diffusely reflected intensity is
+    /// <c>F w P / 4 * mu0 / (mu0 + mu) * (1 - exp(-tau (1/mu0 + 1/mu)))</c> and the diffusely transmitted one
+    /// <c>F w P / 4 * mu0 / (mu0 - mu) * (exp(-tau/mu0) - exp(-tau/mu))</c>, which tends to <c>F w P / 4 * (tau/mu) exp(-tau/mu)</c> where
+    /// <c>mu = mu0</c>. The ring's albedo <c>w</c> and phase function <c>P</c> are unknown here and taken as one in both (isotropic), so
+    /// they cancel in the ratio and the lit face's <see cref="Level"/> carries them: the unlit face draws <c>Level</c> times this.
+    /// Nearly one for the thin C ring and the Cassini division, about half for the A ring, a fiftieth or less for the opaque B ring;
+    /// zero with the Sun or the camera in the ring plane.
+    /// </remarks>
+    public double UnlitShare(double sinView, double sinSun)
+    {
+        var (mu, mu0) = (Math.Abs(sinView), Math.Abs(sinSun));
+        if (mu <= 0 || mu0 <= 0 || OpticalDepth <= 0)
+        {
+            return 0;
+        }
+        var (a, b) = (OpticalDepth / mu0, OpticalDepth / mu);
+        var x = b - a;
+        // mu0 / (mu0 - mu) = (tau / mu) / x; near mu = mu0 the series of (1 - exp(-x)) / x keeps it finite.
+        var transmitted = Math.Abs(x) < 1e-3
+            ? b * Math.Exp(-a) * (1 - (x / 2))
+            : mu0 / (mu0 - mu) * (Math.Exp(-a) - Math.Exp(-b));
+        var reflected = mu0 / (mu0 + mu) * (1 - Math.Exp(-(a + b)));
+        return transmitted / reflected;
+    }
 }
 
 /// <summary>

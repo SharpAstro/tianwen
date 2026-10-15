@@ -133,6 +133,89 @@ public sealed class PlanetBodyGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHelper
     }
 
     /// <summary>
+    /// The face of the rings the Sun does not light glows with the light the rings pass through them (<see cref="SaturnRing.UnlitShare"/>):
+    /// seen from 25 degrees north with the Sun 8 degrees south, as the orrery's camera sees Saturn from just above the ecliptic in 2026,
+    /// the nearly clear C ring and Cassini division glow at almost their lit level and the opaque B ring stays dark, on the CPU's
+    /// reference and on the GPU alike. Read off the rings outside the globe's silhouette and its shadow, by each ring's median.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheDarkFaceGlowsThroughTheThinRings()
+    {
+        const float Radius = 55;
+        var view = View(CatalogIndex.Saturn, 25, 300, -8, 30, 0);
+        var map = Maps[CatalogIndex.Saturn];
+        var cpu = RenderCpu(view, map, default, Radius, null);
+        var frames = gpu.VulkanAvailable ? new[] { ("CPU", cpu), ("GPU", RenderGpu(view, map, default, null, Radius)) } : [("CPU", cpu)];
+        if (!gpu.VulkanAvailable)
+        {
+            output.WriteLine($"Vulkan runtime not available on this host ({gpu.UnavailableReason}): the CPU's reference alone");
+        }
+        foreach (var (host, frame) in frames)
+        {
+            var c = RingMedian(frame, view, Radius, 74658, 92000);
+            var b = RingMedian(frame, view, Radius, 92000, 117580);
+            var cassini = RingMedian(frame, view, Radius, 117580, 122170);
+            var a = RingMedian(frame, view, Radius, 122170, 136775);
+            output.WriteLine($"{host}: the dark face's median level, of 255: C {c}, B {b}, Cassini division {cassini}, A {a}");
+            c.ShouldBeGreaterThanOrEqualTo(6, $"{host}: the C ring does not glow");
+            cassini.ShouldBeGreaterThanOrEqualTo(6, $"{host}: the Cassini division does not glow");
+            // Measured on an Adreno X1-85 and the CPU alike: C 21, B 3, Cassini division 17, A 60; before the unlit face glowed, all 0.
+            b.ShouldBeLessThanOrEqualTo(4, $"{host}: the B ring glows");
+            b.ShouldBeLessThan(c / 3, $"{host}: the B ring is not darker than the C ring");
+        }
+        if (frames.Length == 2)
+        {
+            var (worst, mean, over) = Compare(frames[1].Item2, cpu);
+            output.WriteLine($"GPU against CPU: worst {worst}, mean {mean:F3}, {over} values more than 4 off");
+            mean.ShouldBeLessThan(0.02);
+            over.ShouldBeLessThanOrEqualTo(12);
+            await WriteAsync("saturn-dark-face-glow", frames[1].Item2, cpu, TestContext.Current.CancellationToken);
+        }
+    }
+
+    // The median grey level of the pixels whose ray crosses the ring plane between innerKm and outerKm (200 km inside each edge), off the
+    // globe's silhouette and out of its shadow: the shader's own geometry, the pixel's centre at its index plus a half.
+    private static int RingMedian(byte[] frame, in PlanetView view, float radius, double innerKm, double outerKm)
+    {
+        var (right, toward, up, sun) = (view.Right, view.Toward, view.Up, view.Sun);
+        var q = 1 - view.Flattening;
+        var levels = new System.Collections.Generic.List<int>();
+        for (var y = 0; y < Height; y++)
+        {
+            for (var x = 0; x < Width; x++)
+            {
+                var (dx, dy) = ((x + 0.5 - CentreX) / radius, (y + 0.5 - CentreY) / radius);
+                if ((dx * dx) + (dy * dy) < 1.05 * 1.05)
+                {
+                    continue;
+                }
+                var origin = ((float)dx * right) - ((float)dy * up) + (3 * toward);
+                var t = origin.Z / toward.Z;
+                var crossing = new Vector2(origin.X - (t * toward.X), origin.Y - (t * toward.Y));
+                var km = crossing.Length() * 60268.0;
+                if (km < innerKm + 200 || km > outerKm - 200)
+                {
+                    continue;
+                }
+                // The globe's shadow: the ray from the crossing toward the Sun meets the spheroid (PlanetaryProjection.InGlobeShadow).
+                var qa = (sun.X * sun.X) + (sun.Y * sun.Y) + (sun.Z * sun.Z / (q * q));
+                var qb = 2 * ((crossing.X * sun.X) + (crossing.Y * sun.Y));
+                var qc = (crossing.X * crossing.X) + (crossing.Y * crossing.Y) - 1;
+                var d = (qb * qb) - (4 * qa * qc);
+                if (d >= 0 && -qb + Math.Sqrt(d) > 0)
+                {
+                    continue;
+                }
+                var i = ((y * Width) + x) * 4;
+                levels.Add((frame[i] + frame[i + 1] + frame[i + 2]) / 3);
+            }
+        }
+        levels.Count.ShouldBeGreaterThan(100, $"too few pixels read on the ring from {innerKm} to {outerKm} km");
+        levels.Sort();
+        return levels[levels.Count / 2];
+    }
+
+    /// <summary>
     /// A body is clipped as everything else in its pane is: the orrery draws inside <c>PushClip(contentRect)</c>, and a body straddling
     /// the pane's edge, then a 2D fill drawn after it under the same clip (the selection ring and the labels follow the bodies), leave no
     /// pixel outside the clip. The bodies used to set the scissor to the whole renderer, which the renderer re-applies only when its clip

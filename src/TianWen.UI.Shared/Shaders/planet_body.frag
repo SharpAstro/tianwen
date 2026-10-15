@@ -61,6 +61,23 @@ float transmission(float tau, float sinElevation) {
     return sinElevation == 0.0 ? 0.0 : exp(-tau / abs(sinElevation));
 }
 
+// What the face the Sun does not light shows, as a share of the lit face's level (SaturnRing.UnlitShare): single scattering in a slab
+// (Chandrasekhar 1960), the diffusely transmitted light mu0 / (mu0 - mu) (exp(-tau/mu0) - exp(-tau/mu)) over the reflected
+// mu0 / (mu0 + mu) (1 - exp(-tau (1/mu0 + 1/mu))), the albedo and phase function cancelling. Near mu = mu0 the limit's series.
+float unlitShare(float tau, float sinView, float sinSun) {
+    float mu = abs(sinView);
+    float mu0 = abs(sinSun);
+    if (mu <= 0.0 || mu0 <= 0.0 || tau <= 0.0) {
+        return 0.0;
+    }
+    float a = tau / mu0;
+    float b = tau / mu;
+    float x = b - a;
+    float transmitted = abs(x) < 1e-3 ? b * exp(-a) * (1.0 - x / 2.0) : mu0 / (mu0 - mu) * (exp(-a) - exp(-b));
+    float reflected = mu0 / (mu0 + mu) * (1.0 - exp(-(a + b)));
+    return transmitted / reflected;
+}
+
 // PlanetMap.Sample, per plane at once: bilinear between sample centres, wrapping in longitude, held at the poles' rows.
 vec3 sampleMap(float latitudeDeg, float westDeg) {
     ivec2 size = textureSize(uTexture, 0);
@@ -152,10 +169,14 @@ void main() {
                 vec2 crossing = origin.xy + tRing * dir.xy;
                 vec2 ring = ringAt(length(crossing));
                 if (ring.x >= 0.0 && (!onGlobe || tRing < tGlobe)) {
-                    // The face the Sun lights is the one the camera sees when both stand on the same side of the plane.
-                    bool lit = sign(s.z) == sign(toward.z) && !inGlobeShadow(crossing, s, q2Inverse);
+                    // The face the Sun lights is the one the camera sees when both stand on the same side of the plane; the other face
+                    // shows the light the ring scatters through itself. In the globe's shadow neither face has any.
+                    float level = 0.0;
+                    if (!inGlobeShadow(crossing, s, q2Inverse)) {
+                        level = sign(s.z) == sign(toward.z) ? ring.x : ring.x * unlitShare(ring.y, toward.z, s.z);
+                    }
                     float through = transmission(ring.y, toward.z);
-                    radiance = (lit ? ring.x : 0.0) * pc.ringAlbedo.rgb + through * globe;
+                    radiance = level * pc.ringAlbedo.rgb + through * globe;
                     covered = onGlobe ? 1.0 : 1.0 - through;
                 }
             }
