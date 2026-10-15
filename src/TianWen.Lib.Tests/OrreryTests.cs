@@ -1455,10 +1455,6 @@ public sealed class OrreryTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// The orrery through the CPU renderer, true and compressed scale, Jupiter selected: the PNGs a person looks at, written to the
-    /// test output, and every planet's sprite drawn once it has landed.
-    /// </summary>
-    /// <summary>
     /// The orrery's Earth is drawn from its day map (#1573), not the flat disc it was: on the CPU surface, the camera swept round the Earth
     /// until its day side faces it, the lit pixels inside the disc carry the map's colours, the blue of the sea beside the ochre and green
     /// of the land. A flat colour lit by Minnaert's law keeps one chromaticity across the disc (measured with the Earth still flat: a
@@ -1516,6 +1512,10 @@ public sealed class OrreryTests(ITestOutputHelper output)
         best.Spread.ShouldBeGreaterThan(0.1, "the Earth is one colour: it is drawn flat, not from its map");
     }
 
+    /// <summary>
+    /// The orrery through the CPU renderer, true and compressed scale, Jupiter selected: the PNGs a person looks at, written to the
+    /// test output, and every planet's sprite drawn once it has landed.
+    /// </summary>
     [Fact(Timeout = 120_000)]
     public async Task TheOrreryDrawsOnTheCpuSurface()
     {
