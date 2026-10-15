@@ -132,6 +132,71 @@ public sealed class PlanetBodyGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHelper
         mean.ShouldBeLessThan(0.02);
     }
 
+    /// <summary>
+    /// A body is clipped as everything else in its pane is: the orrery draws inside <c>PushClip(contentRect)</c>, and a body straddling
+    /// the pane's edge, then a 2D fill drawn after it under the same clip (the selection ring and the labels follow the bodies), leave no
+    /// pixel outside the clip. The bodies used to set the scissor to the whole renderer, which the renderer re-applies only when its clip
+    /// changes, so they and everything after them in the pane drew unclipped (PR #1589, review round 1).
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public void ABodyAndWhatFollowsItStayInsideThePanesClip()
+    {
+        if (!gpu.VulkanAvailable)
+        {
+            Assert.Skip($"Vulkan runtime not available on this host ({gpu.UnavailableReason})");
+            return;
+        }
+        var view = View(CatalogIndex.Saturn, 26.7, 40, 25.0, 6, 0);
+        var clip = new RectInt(new PointInt(300, 400), new PointInt(100, 100));
+        var frame = gpu.Invoke(() =>
+        {
+            var ctx = gpu.Ctx.ShouldNotBeNull();
+            var renderer = gpu.Renderer.ShouldNotBeNull();
+            using var bodies = new VkPlanetBodies(ctx, () => { });
+            for (var pass = 0; pass < 2; pass++)
+            {
+                renderer.BeginOffscreenFrame(new RGBAColor32(0, 0, 0, 255)).ShouldBeTrue();
+                renderer.PushClip(clip);
+                // Saturn centred on the clip's right edge, its rings reaching 136 px either side.
+                bodies.Draw(renderer, view, 300, 250, 60, Maps[CatalogIndex.Saturn], 1, default, null).ShouldBe(pass == 1);
+                // A strip across the clip's bottom edge, clear of the body: its lower half lies outside the clip.
+                renderer.FillRectangle(new RectInt(new PointInt(280, 420), new PointInt(120, 380)), new RGBAColor32(0, 0, 0xFF, 0xFF));
+                renderer.PopClip();
+                renderer.EndOffscreenFrame();
+            }
+            return ctx.ReadbackOffscreenRgba();
+        });
+
+        var (inside, outside, fillOutside) = (0, 0, 0);
+        for (var y = 0; y < Height; y++)
+        {
+            for (var x = 0; x < Width; x++)
+            {
+                var i = ((y * Width) + x) * 4;
+                var within = x >= 100 && x < 300 && y >= 100 && y < 400;
+                if (!within && frame[i + 2] > 200 && frame[i] < 20)
+                {
+                    fillOutside++;
+                }
+                else if (frame[i] + frame[i + 1] + frame[i + 2] > 0)
+                {
+                    if (within)
+                    {
+                        inside++;
+                    }
+                    else
+                    {
+                        outside++;
+                    }
+                }
+            }
+        }
+        output.WriteLine($"lit pixels inside the clip {inside}, the body's outside it {outside}, the later fill's outside it {fillOutside}");
+        inside.ShouldBeGreaterThan(1000, "nothing was drawn inside the clip");
+        outside.ShouldBe(0, "the body drew outside its pane's clip");
+        fillOutside.ShouldBe(0, "a draw after the body drew outside its pane's clip");
+    }
+
     /// <summary>The shader's ring table is <see cref="SaturnRings.Main"/>'s: every edge, level and optical depth, in order.</summary>
     [Fact]
     public void TheShadersRingTableIsSaturnRingsMain()
