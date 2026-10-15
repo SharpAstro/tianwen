@@ -34,6 +34,11 @@ namespace TianWen.UI.Abstractions
         /// <summary>Where each body was drawn in the last orrery frame and how big: what a click picks from, and what the tests read.</summary>
         internal IReadOnlyList<(CatalogIndex Index, float X, float Y, float Radius)> OrreryDrawn => _orreryHits;
 
+        private readonly List<PlanetView> _orreryViews = [];
+
+        /// <summary>The view each disc of the last orrery frame was traced from (its camera and Sun in the body's frame): what the tests read.</summary>
+        internal IReadOnlyList<PlanetView> OrreryViews => _orreryViews;
+
         private readonly List<(CatalogIndex Index, RectF32 Rect)> _orreryLabels = [];
 
         /// <summary>The labels the last orrery frame drew, each with the box its text was drawn in: what the tests read.</summary>
@@ -320,6 +325,7 @@ namespace TianWen.UI.Abstractions
         private void DrawOrreryBodies(OrreryScene scene, in OrreryCamera camera, DateTimeOffset viewingTime, in OrreryScaling scale, float dpiScale)
         {
             _orreryHits.Clear();
+            _orreryViews.Clear();
             _orreryLabels.Clear();
             var bodies = scene.Bodies;
             Span<(int Index, double Depth, double X, double Y, double Z)> order = stackalloc (int, double, double, double, double)[bodies.Length];
@@ -432,6 +438,7 @@ namespace TianWen.UI.Abstractions
                     toSun[2] = -body.Z;
                     SolarSystemOrbits.EclipticToEquatorial(toSun);
                     var view = PlanetView.FromEquatorial(body.Index, viewingTime, right, toward, toSun);
+                    _orreryViews.Add(view);
                     if (dot || !TryDrawOrreryDisc(view, viewingTime, sx, sy, radius))
                     {
                         Renderer.FillEllipse(new RectInt(
