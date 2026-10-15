@@ -1227,7 +1227,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
     /// The strip fits the view with everything in it at once: the Centre toggle (Saturn in focus), Pause, Now, and a long offset
     /// in the time. Every button lies inside the view, Sky first at its left edge (the owner's screenshot started at "ntre: Sun").
     /// </summary>
-    [Theory(Timeout = 120_000, Skip = "Fails at 1.5x: the strip needs ~1,020 px of a 900 px view; how it gives way awaits the owner's choice")]
+    [Theory(Timeout = 120_000, Skip = "Fails at 1.5x: the strip needs ~1,020 px of 900; needs a content-aware Star in DIR.Lib, #1584")]
     [InlineData(1f)]
     [InlineData(1.5f)]
     public async Task TheStripFitsWithEveryButtonShowing(float dpiScale)
