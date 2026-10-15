@@ -51,7 +51,7 @@ public sealed class OrreryBackdropGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHe
         SkyMapProjection.ProjectGnomonicWithMatrix(SiriusRa, SiriusDec, view, camera.FocalPx, Width / 2f, Height / 2f, out var px, out var py).ShouldBeTrue();
 
         var plain = Render(pipeline, new SkyOrreryBackdrop(view, camera.FocalPx, axis, 90, OrreryCamera.FieldOfViewDeg, 0f, 1f, null));
-        // The bright core's centroid (every channel's maximum above 200) within 15 px of the prediction.
+        // The saturated core's centroid (every channel's maximum at 250 or more, so a neighbour's halo stays out) within 15 px of the prediction.
         double sumX = 0, sumY = 0, sumW = 0;
         for (var y = (int)py - 15; y <= (int)py + 15; y++)
         {
@@ -61,7 +61,7 @@ public sealed class OrreryBackdropGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHe
                 {
                     var i = ((y * Width) + x) * 4;
                     var level = Math.Max(plain[i], Math.Max(plain[i + 1], plain[i + 2]));
-                    if (level > 200)
+                    if (level >= 250)
                     {
                         sumX += (x + 0.5) * level;
                         sumY += (y + 0.5) * level;
@@ -141,6 +141,52 @@ public sealed class OrreryBackdropGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHe
         output.WriteLine($"the Milky Way's median level {median} of 255, for an opacity of {SkyMapTab<RgbaImage>.OrreryMilkyWayAlpha}");
         ((double)median).ShouldBe(SkyMapTab<RgbaImage>.OrreryMilkyWayAlpha * 255.0, 8.0);
         ((int)median).ShouldBeGreaterThanOrEqualTo(128);
+    }
+
+    /// <summary>
+    /// A star's light is its alpha ONCE: halving the backdrop's brightness halves Sirius's level. <c>skymap_star.frag</c> writes its
+    /// colour already multiplied by its alpha, so the star pipeline must add it One/One, as the browser's does; blended SrcAlpha/One
+    /// every desktop star landed at its alpha squared, and the stars behind the orrery (dimmed to a third) at a ninth.
+    /// </summary>
+    [Fact]
+    public async Task HalvingTheBackdropsBrightnessHalvesAStarsLevel()
+    {
+        if (!gpu.VulkanAvailable)
+        {
+            Assert.Skip($"Vulkan runtime not available on this host ({gpu.UnavailableReason})");
+            return;
+        }
+
+        var ct = TestContext.Current.CancellationToken;
+        var db = await SharedCatalogDB.InitAsync(ct);
+        var pipeline = await gpu.GetStarPipelineAsync(db, When, ct);
+        Span<double> dir = [Math.Cos(SiriusDec * Math.PI / 180) * Math.Cos(SiriusRa * Math.PI / 12), Math.Cos(SiriusDec * Math.PI / 180) * Math.Sin(SiriusRa * Math.PI / 12), Math.Sin(SiriusDec * Math.PI / 180)];
+        SolarSystemOrbits.EquatorialToEcliptic(dir);
+        var camera = new OrreryCamera(Math.Atan2(-dir[1], -dir[0]) * 180 / Math.PI, -Math.Asin(dir[2]) * 180 / Math.PI, 6, new RectF32(0, 0, Width, Height));
+        var view = camera.EquatorialView(out var axis);
+        SkyMapProjection.ProjectGnomonicWithMatrix(SiriusRa, SiriusDec, view, camera.FocalPx, Width / 2f, Height / 2f, out var px, out var py).ShouldBeTrue();
+
+        int Peak(float brightness)
+        {
+            var frame = Render(pipeline, new SkyOrreryBackdrop(view, camera.FocalPx, axis, 90, OrreryCamera.FieldOfViewDeg, 0f, brightness, null));
+            var peak = 0;
+            for (var y = (int)py - 2; y <= (int)py + 2; y++)
+            {
+                for (var x = (int)px - 2; x <= (int)px + 2; x++)
+                {
+                    var i = ((y * Width) + x) * 4;
+                    peak = Math.Max(peak, Math.Max(frame[i], Math.Max(frame[i + 1], frame[i + 2])));
+                }
+            }
+            return peak;
+        }
+
+        // Half and a quarter: at full brightness its core saturates.
+        var (full, half) = (Peak(0.5f), Peak(0.25f));
+        output.WriteLine($"Sirius's peak: {full} at brightness 0.5, {half} at 0.25");
+        full.ShouldBeGreaterThan(100);
+        full.ShouldBeLessThan(250);
+        ((double)half).ShouldBe(full / 2.0, 6.0);
     }
 
     private byte[] Render(VkSkyMapPipeline pipeline, SkyOrreryBackdrop backdrop, bool milkyWay = false)

@@ -1137,7 +1137,8 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
                 starVertModule, starFragModule,
                 starBindings, 2, starAttrs, 4,
                 VkPrimitiveTopology.TriangleList,
-                additive: true);
+                additive: true,
+                premultiplied: true);
 
             // ── Line pipeline ──
             // Binding 0: unit vectors (per-vertex), stride = 3 floats
@@ -1243,7 +1244,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         VkVertexInputBindingDescription* bindings, uint bindingCount,
         VkVertexInputAttributeDescription* attributes, uint attributeCount,
         VkPrimitiveTopology topology, bool additive,
-        VkPipelineLayout layoutOverride = default)
+        VkPipelineLayout layoutOverride = default, bool premultiplied = false)
     {
         var api = _ctx.DeviceApi;
         VkUtf8ReadOnlyString entryPoint = "main"u8;
@@ -1294,12 +1295,14 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         var blendAttachments = stackalloc VkPipelineColorBlendAttachmentState[1];
         if (additive)
         {
-            // Additive blending: stars add light (like real sky)
+            // Additive blending: stars add light (like real sky). A fragment shader that writes its colour already multiplied by its
+            // alpha (premultiplied: skymap_star.frag) is added One/One, as the browser's pipeline adds it; SrcAlpha would apply the
+            // alpha a second time and land every star at its alpha squared.
             blendAttachments[0] = new VkPipelineColorBlendAttachmentState
             {
                 colorWriteMask = VkColorComponentFlags.All,
                 blendEnable = true,
-                srcColorBlendFactor = VkBlendFactor.SrcAlpha,
+                srcColorBlendFactor = premultiplied ? VkBlendFactor.One : VkBlendFactor.SrcAlpha,
                 dstColorBlendFactor = VkBlendFactor.One,
                 colorBlendOp = VkBlendOp.Add,
                 srcAlphaBlendFactor = VkBlendFactor.One,
