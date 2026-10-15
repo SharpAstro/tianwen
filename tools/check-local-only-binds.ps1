@@ -38,6 +38,11 @@
 .PARAMETER NoBuild
     Use the last Debug build of TianWen.UI.Gui as it is.
 
+.PARAMETER Placement
+    Where the GUI's window goes as soon as it exists: Left (the default) moves it onto the left half of the primary
+    monitor's work area, full height, so it never covers the right half, where another program may need to be seen;
+    AsIs leaves it where it opens.
+
 .PARAMETER KeepScratch
     Leave the scratch folder (the copy, the data root and every log) for inspection.
 
@@ -49,6 +54,7 @@ param(
     [string] $Scratch = (Join-Path ([IO.Path]::GetTempPath()) ("tianwen-local-only-" + (Get-Date -Format 'yyyyMMdd-HHmmss'))),
     [int] $SettleSeconds = 15,
     [string[]] $OmitNative = @('toupcam.dll'),
+    [ValidateSet('Left', 'AsIs')] [string] $Placement = 'Left',
     [switch] $NoBuild,
     [switch] $KeepScratch
 )
@@ -67,6 +73,54 @@ Add-Type -Namespace TianWenLocalOnlyCheck -Name Native -MemberDefinition @'
 '@
 foreach ($std in -11, -12) {
     [void][TianWenLocalOnlyCheck.Native]::SetHandleInformation([TianWenLocalOnlyCheck.Native]::GetStdHandle($std), 1, 0)
+}
+
+# Placing the GUI's window (-Placement Left): the primary monitor's work area and the window, in physical pixels, since the
+# thread asks per-monitor DPI awareness for the calls, as the SDL window itself is.
+Add-Type -Namespace TianWenLocalOnlyCheck -Name Window -MemberDefinition @'
+public struct RECT { public int Left, Top, Right, Bottom; }
+[DllImport("user32.dll", SetLastError = true)] public static extern bool SystemParametersInfo(uint uiAction, uint uiParam, ref RECT pvParam, uint fWinIni);
+[DllImport("user32.dll", SetLastError = true)] public static extern bool SetWindowPos(System.IntPtr hWnd, System.IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+[DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr hWnd, int nCmdShow);
+[DllImport("user32.dll")] public static extern bool IsZoomed(System.IntPtr hWnd);
+[DllImport("user32.dll")] public static extern bool GetWindowRect(System.IntPtr hWnd, out RECT lpRect);
+[DllImport("user32.dll")] public static extern System.IntPtr SetThreadDpiAwarenessContext(System.IntPtr dpiContext);
+'@
+
+# Moves the process's main window onto the left half of the primary monitor's work area, full height, as soon as it has one,
+# without activating it; un-maximises it first. Reports where it ended up.
+function Move-ToLeftHalf([System.Diagnostics.Process] $Process, [int] $Seconds = 30) {
+    $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
+    while ([DateTime]::UtcNow -lt $deadline -and -not $Process.HasExited) {
+        $Process.Refresh()
+        if ($Process.MainWindowHandle -ne [IntPtr]::Zero) { break }
+        Start-Sleep -Milliseconds 50
+    }
+    $window = $Process.MainWindowHandle
+    if ($Process.HasExited -or $window -eq [IntPtr]::Zero) {
+        Write-Host "the GUI showed no window within $Seconds s to place"
+        return
+    }
+
+    $previous = [TianWenLocalOnlyCheck.Window]::SetThreadDpiAwarenessContext([IntPtr](-4))   # per-monitor aware, v2
+    try {
+        $area = [TianWenLocalOnlyCheck.Window+RECT]::new()
+        [void][TianWenLocalOnlyCheck.Window]::SystemParametersInfo(0x30, 0, [ref]$area, 0)    # SPI_GETWORKAREA
+        if ([TianWenLocalOnlyCheck.Window]::IsZoomed($window)) {
+            [void][TianWenLocalOnlyCheck.Window]::ShowWindow($window, 4)                       # SW_SHOWNOACTIVATE
+        }
+        $half = [int][Math]::Floor(($area.Right - $area.Left) / 2)
+        [void][TianWenLocalOnlyCheck.Window]::SetWindowPos($window, [IntPtr]::Zero, $area.Left, $area.Top, $half, $area.Bottom - $area.Top, 0x14)   # NOZORDER, NOACTIVATE
+        $placed = [TianWenLocalOnlyCheck.Window+RECT]::new()
+        [void][TianWenLocalOnlyCheck.Window]::GetWindowRect($window, [ref]$placed)
+        $onTheLeft = $placed.Right -le $area.Left + $half + 16   # the invisible resize border may reach a few pixels past
+        Write-Host ("GUI window {0} the left half: ({1},{2})-({3},{4}) of the work area ({5},{6})-({7},{8})" -f
+            $(if ($onTheLeft) { 'placed on' } else { 'NOT on' }), $placed.Left, $placed.Top, $placed.Right, $placed.Bottom,
+            $area.Left, $area.Top, $area.Right, $area.Bottom)
+    }
+    finally {
+        [void][TianWenLocalOnlyCheck.Window]::SetThreadDpiAwarenessContext($previous)
+    }
 }
 
 $src = Join-Path (Split-Path -Parent $PSScriptRoot) 'src'
@@ -212,6 +266,9 @@ function Invoke-Check {
         -RedirectStandardOutput (Join-Path $logs 'gui-stdout.log') -RedirectStandardError (Join-Path $logs 'gui-stderr.log')
     $started.Add($gui.Id)
     Write-Host "tianwen-gui started, pid $($gui.Id)"
+    if ($Placement -eq 'Left') {
+        Move-ToLeftHalf $gui
+    }
 
     $attached = Wait-Sampling -Seconds 120 -What 'the GUI to attach to a node' -Until {
         if ($gui.HasExited) { return $true }
@@ -222,6 +279,10 @@ function Invoke-Check {
         Write-Host "the GUI EXITED, code $($gui.ExitCode); its stderr:"
         Get-Content (Join-Path $logs 'gui-stderr.log') -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
         return 2
+    }
+    if ($Placement -eq 'Left') {
+        # Again once it is attached: a window that sized or placed itself while it started is put back.
+        Move-ToLeftHalf $gui
     }
     $node = Invoke-Node GET '/api/v1/node'
     if ($node) {
