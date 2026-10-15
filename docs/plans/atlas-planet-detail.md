@@ -341,9 +341,13 @@ the Sun, is why Venus is a crescent, and the angle between them at the planet is
   the Sun's is then at most 0.4 of its screen distance to the nearest drawn body (to the Sun's EDGE), a 1.5 px dot below
   that: zoomed out the discs do not pile onto the Sun, and a body in FRONT of the Sun (a transit) is a dot, never a disc
   across it. A body behind the Sun is drawn before it (the painter's order, far first). The MOON is placed on SCREEN, a
-  steady reach from the Earth's drawn place (the two radii, a gap and a label line) along its true geocentric direction as
-  projected, so through a month only its direction turns; where that reach would pass half the gap to Venus on screen it is
-  not drawn. Placed in the world instead, at 8 % of the Earth's drawn distance, it was foreshortened by the camera's
+  steady reach from the Earth's drawn place (the two radii, a gap and a label line), turned by its geocentric ECLIPTIC
+  LONGITUDE from the direction the view draws level, so it goes round the Earth on an even circle once a month (turned by
+  its direction as projected, it raced through the line of sight and crawled across the sides: six-hour steps of 1.2 to 9.5
+  degrees at a 30 degree tilt, against 2.96 to 3.68 now, the Moon's own range). The reach comes in to half the screen gap to
+  the nearest neighbouring ORBIT as drawn (Venus's or Mars's), so it never sits on another planet's orbit, and the Moon is
+  hidden only where even its nearest place clear of the Earth's disc would not fit; its label steps out a line at a time
+  where it has come in close. Placed in the world instead, at 8 % of the Earth's drawn distance, it was foreshortened by the camera's
   elevation and clipped by the floor that held it off the Earth: 27.8 to 68.1 px over a month zoomed in, a spiral in Play.
   Labels go down after every disc: the Earth's first (always drawn, so the Earth's and the Moon's never trade places), then
   the focus body's, then nearest first, each under or over its body where its engine-measured box is clear of other discs
@@ -392,7 +396,11 @@ backdrop draw (`SkyMapTab.DrawOrreryBackdrop`, the first thing the frame draws a
   orbits and labels stay readable (the stars add at most 86 of 255 to a channel under a label); the Milky Way (NASA SVS
   Deep Star Maps 2020, the atlas's own texture) has its own opacity, 0.6, not the Sun's altitude at the site, since the
   view is not from the ground. It used to take both factors, 0.35 x 0.2 = 0.07, which the owner saw on the built GUI as a
-  backdrop "super dim". Under Night the tint draws each as its luminance in the palette's accent, so no blue.
+  backdrop "super dim". Under Night the tint draws each as its luminance in the palette's accent, so no blue. In the
+  GUI the stars still read as none at all: the Vulkan star pipeline added `skymap_star.frag`'s already premultiplied colour
+  SrcAlpha/One, so every desktop star landed at its alpha squared (a magnitude 6 star 10 of 255 behind the orrery); it adds
+  One/One now, as the browser's does (`HalvingTheBackdropsBrightnessHalvesAStarsLevel`). The Sun's altitude plays no part:
+  a day and a night instant measured the same in the window.
 - **What a host skips**: the twilight ground, the horizon fill and the lines (Vulkan draws the `Backdrop` phase, WebGL
   checks the backdrop), and `SkyMapState.CurrentViewMatrix` is left as the map's own.
 
