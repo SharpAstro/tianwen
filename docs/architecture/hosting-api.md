@@ -102,9 +102,9 @@ does not take it down and it can never write over a TUI; a spawned node logs to 
    socket and replaced if it is idle, and left running (`BusyWithAnotherWire`) if it holds hardware: an older node
    still running a night after an update. One of this wire but another BUILD (`IsAnotherBuild`) or the other MODE
    (local-only or not, `NodeInfoDto.LocalOnly`) is replaced while it is idle and no client is attached
-   (`LocalNodeLauncher.Replaces`), and for its mode alone only when it is not shared on the LAN (a rig someone shares
-   is not taken away); it is used as it is otherwise, and a mode that differs is then SAID (`ModeNote`), never passed
-   over.
+   (`LocalNodeLauncher.Replaces`), but a node shared on the LAN never by a client of the other mode, whatever its build
+   (the replacement would be local-only, off the LAN, and an agent's worktree build is always another build); it is
+   used as it is otherwise, and a mode that differs is then SAID (`ModeNote`), never passed over.
 2. A socket the client was pointed at (`--node-socket`, `TIANWEN_NODE_SOCKET`) is only ever connected to
    (`NamedNodeUnreachable`, `AnotherWire`).
 3. With nothing on the socket, a node under another account (a service) answering on `localhost:1888` is used as it

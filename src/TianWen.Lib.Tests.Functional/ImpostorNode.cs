@@ -48,9 +48,10 @@ internal sealed class ImpostorNode : IAsyncDisposable
     /// <param name="clientsAttached">How many clients it says are attached.</param>
     /// <param name="localOnly">Whether it says it is local-only: so by default, as every test's own node is started
     /// (<c>--local-only</c>), so that a client compares builds and wires with it and not modes.</param>
+    /// <param name="isShared">Whether it says it is reachable from the LAN.</param>
     public static async Task<ImpostorNode> StartAsync(string? socketPath, int wireVersion, bool holdsHardware, CancellationToken cancellationToken,
         TimeSpan firstAnswerDelay = default, string? installFolder = null, DateTimeOffset? buildWrittenUtc = null, int clientsAttached = 0,
-        bool localOnly = true)
+        bool localOnly = true, bool isShared = false)
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
@@ -86,6 +87,7 @@ internal sealed class ImpostorNode : IAsyncDisposable
                     HoldsHardware = holdsHardware,
                     ClientsAttached = clientsAttached,
                     LocalOnly = localOnly,
+                    IsShared = isShared,
                     InstallFolder = installFolder,
                     BuildWrittenUtc = buildWrittenUtc,
                     NowUtc = DateTimeOffset.UtcNow,

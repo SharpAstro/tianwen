@@ -215,6 +215,24 @@ public class LocalNodeLauncherTests : IDisposable
         node.Node.NodeId.ShouldNotBe("impostor");
     }
 
+    [Fact(Timeout = 60_000)]
+    public async Task ASharedNodeOfAnotherBuildIsNotTakenOffTheLanByALocalOnlyClient()
+    {
+        // An agent's worktree build is always another build: replacing a shared node with a local-only one would take the
+        // rig off the LAN without a word. It is used as it is, and the client says why.
+        var ct = TestContext.Current.CancellationToken;
+        var (options, folder) = Isolated();
+        await using var stop = new StopsNodes(options.SocketPath);
+        await using var shared = await ImpostorNode.StartAsync(options.SocketPath, NodeWire.Version, holdsHardware: false, ct,
+            installFolder: Path.Combine(folder, "another-install"), buildWrittenUtc: DateTimeOffset.UtcNow, localOnly: false, isShared: true);
+
+        var node = await Launcher(options).FindOrStartAsync(ct);
+
+        shared.ShutdownRequests.ShouldBe(0);
+        node.Outcome.ShouldBe(LocalNodeOutcome.Found);
+        node.ModeNote.ShouldNotBeNull().ShouldContain("shares the rig on the LAN");
+    }
+
     [Fact(Timeout = 120_000)]
     public async Task AnIdleNodeOfAnotherBuildIsStoppedAndReplaced()
     {
