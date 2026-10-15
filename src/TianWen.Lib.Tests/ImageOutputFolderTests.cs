@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using Shouldly;
+using TianWen.Lib.Devices;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -40,4 +41,19 @@ public class ImageOutputFolderTests
 
         SpecialFolderHelper.ResolveAppSubFolder(GetFolderPath, Environment.SpecialFolder.MyPictures, "TianWen", Fallback).ShouldBe(Fallback);
     }
+
+    private static readonly string DataRoot = Path.Combine(Path.GetTempPath(), "scratch", "TianWen");
+
+    private static string GetPictures(Environment.SpecialFolder folder, Environment.SpecialFolderOption option) => Pictures;
+
+    [Fact]
+    public void ADataRootKeptApartFromTheUsersKeepsItsImagesUnderIt()
+    {
+        // TIANWEN_DATA_ROOT, a test's node or a scratch one: its recordings and darks used to land in the user's Pictures.
+        External.ResolveImageOutputFolder(dataRootOverridden: true, DataRoot, GetPictures).ShouldBe(Path.Combine(DataRoot, "Images"));
+    }
+
+    [Fact]
+    public void TheUsersOwnDataRootWritesItsImagesToPictures()
+        => External.ResolveImageOutputFolder(dataRootOverridden: false, DataRoot, GetPictures).ShouldBe(Path.Combine(Pictures, "TianWen"));
 }
