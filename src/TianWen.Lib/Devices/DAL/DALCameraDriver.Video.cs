@@ -75,6 +75,15 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
     /// <summary>How many planes the stream has had to allocate: a steady stream allocates none.</summary>
     internal int VideoPlanesAllocated => _videoPlanes.PlanesAllocated;
 
+    /// <summary>Frames the current or last stream read from the body, for the rate probes.</summary>
+    internal long VideoFramesRead => Interlocked.Read(ref _videoFramesRead);
+
+    /// <summary>Frames of the current or last stream that a newer one replaced in the hand-off before the reader took them.</summary>
+    internal long VideoFramesReplaced => Interlocked.Read(ref _videoFramesReplaced);
+
+    /// <summary>Frames the body says it lost in the current or last stream (<see cref="DroppedFrames"/> answers 0 once it ends).</summary>
+    internal int VideoFramesDroppedByBody => Volatile.Read(ref _videoDroppedFrames);
+
     /// <inheritdoc/>
     public bool CanVideoCapture => Connected && _deviceInfo.CanVideoCapture;
 
