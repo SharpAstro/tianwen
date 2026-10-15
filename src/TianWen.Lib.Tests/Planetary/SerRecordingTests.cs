@@ -175,6 +175,34 @@ public class SerRecordingTests : IDisposable
         samples.Take(3).ShouldBe([(ushort)16384, (ushort)32768, ushort.MaxValue], "R, G, B of the first pixel, side by side");
     }
 
+    /// <summary>
+    /// A stream that stalled and was brought back (DALCameraDriver.Video.cs) leaves a gap: the frames either side are
+    /// consecutive in the file, their timestamps the gap apart, and the recording names it. Never a splice that reads
+    /// as one continuous run.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task AStallTheStreamCameBackFromIsAGapInTheTrailerNeverASplice()
+    {
+        var path = NewPath();
+        var recording = Recording(path, TimeSpan.FromMinutes(1));
+        var exposure = TimeSpan.FromMilliseconds(5);
+        Image Frame(int seed) => new Image([new float[4, 8]], BitDepth.Int8, maxValue: seed, minValue: 0f, pedestal: 0f,
+            new ImageMeta { ExposureDuration = exposure });
+
+        var times = new[] { 0, 5, 10, 6510, 6515 }.Select(ms => T0.AddMilliseconds(ms)).ToArray();
+        foreach (var time in times)
+        {
+            recording.TryAppend(Frame(1), time).ShouldBeTrue();
+        }
+        recording.End("done");
+        await recording.Completion.WaitAsync(TestContext.Current.CancellationToken);
+
+        recording.Gaps.ShouldBe([new SerRecordingGap(2, TimeSpan.FromMilliseconds(6500))], "the 6.5 s after the third frame, and nothing at the frame rate");
+        using var reader = SerReader.Open(path);
+        reader.FrameCount.ShouldBe(5, "every frame taken, none invented for the gap");
+        reader.Timestamps.ShouldBe([.. times], "each frame at its own time, so the gap is in the trailer");
+    }
+
     [Fact(Timeout = 30_000)]
     public async Task ARecordingThatNeverTookAFrameLeavesNoFile()
     {

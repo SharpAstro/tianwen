@@ -1,6 +1,8 @@
 using System;
 using System.Buffers;
+using System.Collections.Immutable;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -22,11 +24,20 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// <para><b>A SER frame has one size and one depth</b>, so a frame of another (a window resized, or the stream's depth
 /// switched, mid-recording) ends it, as its duration and a stop do. The file is whole once <see cref="Completion"/> has: its header, frame count included, is written as it
 /// closes.</para>
+/// <para><b>A stall is a gap in the trailer, never a splice.</b> Each frame carries the time its camera's driver read it,
+/// so when a stream stalls and its driver brings it back (a restart, a reopen or a reset, <c>DALCameraDriver.Video.cs</c>)
+/// the two frames either side are consecutive in the file and their timestamps the gap apart (about 6.5 s for a ToupTek
+/// restart). A reader of the SER sees every frame that was taken, none invented, and a jump in time between two; a rate
+/// read as frame count over the timestamp span counts the gap as time without frames, and a de-rotation reads the true
+/// times. The recording notes each gap longer than the exposure plus 1 s (<see cref="Gaps"/>) and logs them as it closes.</para>
 /// </remarks>
 public sealed class SerRecording
 {
     /// <summary>Frames that may wait for the disk before one is dropped: about half a second at video rate.</summary>
     private const int QueueFrames = 64;
+
+    /// <summary>How much longer than its exposure a step between two frames is before it is a gap: a stalled ToupTek says so 1 s past the exposure.</summary>
+    private static readonly TimeSpan GapBeyondExposure = TimeSpan.FromSeconds(1);
 
     private readonly Channel<(byte[] Bytes, DateTimeOffset Arrived)> _queue =
         System.Threading.Channels.Channel.CreateBounded<(byte[], DateTimeOffset)>(new BoundedChannelOptions(QueueFrames) { SingleReader = true, SingleWriter = true });
@@ -45,6 +56,9 @@ public sealed class SerRecording
 
     private int _written;
     private int _dropped;
+    private int _queued;
+    private DateTimeOffset _lastArrived;
+    private ImmutableArray<SerRecordingGap> _gaps = [];
     private int _ended;
     private volatile string? _endReason;
     private volatile string? _failure;
@@ -81,6 +95,9 @@ public sealed class SerRecording
 
     /// <summary>Frames the disk could not keep up with, never recorded.</summary>
     public int FramesDropped => Volatile.Read(ref _dropped);
+
+    /// <summary>The gaps between consecutive frames longer than the exposure plus 1 s: a stream that stalled and came back.</summary>
+    public ImmutableArray<SerRecordingGap> Gaps => _gaps;
 
     /// <summary>Why it ended, in words; null while it records.</summary>
     public string? EndReason => _endReason;
@@ -133,7 +150,15 @@ public sealed class SerRecording
         {
             ArrayPool<byte>.Shared.Return(bytes);
             Interlocked.Increment(ref _dropped);
+            return true;
         }
+
+        // Frames are queued in file order, so the count queued is the index the frame lands at.
+        if (_queued++ > 0 && arrived - _lastArrived is var step && step > frame.ImageMeta.ExposureDuration + GapBeyondExposure)
+        {
+            _gaps = _gaps.Add(new SerRecordingGap(_queued - 2, step));
+        }
+        _lastArrived = arrived;
         return true;
     }
 
@@ -185,6 +210,14 @@ public sealed class SerRecording
         {
             // The header, frame count and trailer included, is written as the writer closes.
             writer?.Dispose();
+            if (_gaps is { Length: > 0 } gaps)
+            {
+                _logger.LogWarning("The planetary recording to {Path} has {Count} gaps, where its stream stalled and came back: {Gaps}", Path, gaps.Length,
+                    string.Join("; ", gaps.Select(gap => $"{gap.Length.TotalSeconds:F2} s after frame {gap.AfterFrame}")));
+            }
         }
     }
 }
+
+/// <summary>A gap in a <see cref="SerRecording"/>: <paramref name="Length"/> between frame <paramref name="AfterFrame"/> (0-based in the file) and the next.</summary>
+public readonly record struct SerRecordingGap(int AfterFrame, TimeSpan Length);
