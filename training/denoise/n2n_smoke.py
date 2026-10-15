@@ -200,6 +200,20 @@ def channel_weights(truth):
     return share[:, :, None, None]
 
 
+def resume_fingerprint(args, meta):
+    """What makes two invocations the SAME run, for --resume to refuse anything else: the recipe's switches, the seed, and
+    the cache's shape. The step cap is left out under --schedule plateau, where it only bounds the run (a resumed run may
+    raise it), and kept under cosine, whose schedule is drawn from it."""
+    keys = ("synthetic", "synthetic_target", "loss", "channel_noise", "upsample", "cond_map", "band_loss", "band_scales",
+            "base", "seed", "batch", "lr", "schedule", "patience", "max_decays", "min_improve", "val_every",
+            "val_loss_cells", "loss_mask", "star_loss", "half_pairs", "pair_time", "snapshot_at")
+    fp = {k: getattr(args, k, None) for k in keys}
+    fp.update(cells=meta["cells"], train_cells=meta["train_cells"])
+    if args.schedule == "cosine":
+        fp["steps"] = args.steps
+    return fp
+
+
 def with_plane(x, plane, strength=1.0):
     """Append a STORED per-pixel conditioning plane [B, H, W] to an image batch: --cond-map, in place of
     with_sigma's broadcast scalar. `strength` keeps the scalar's meaning (overstating the noise is the dial)."""
@@ -1592,7 +1606,34 @@ def train(args):
     # output IS the last step's weights, so this is what a run capped at that step saves, taken from a longer
     # run without touching anything the run computes (R2h, docs/plans/star-remover-training.md).
     snapshots = []
-    for step in range(1, steps + 1):
+    # --checkpoint-every / --resume (2026-10-15, for spot VMs that can be taken away mid-run): everything the loop
+    # carries from one step to the next, so a resumed run continues the SAME run, not a similar one.
+    resume_path = os.path.join(args.cache, args.out.replace(".pt", ".resume.pt"))
+    fingerprint = resume_fingerprint(args, meta)
+    start = 1
+    if args.resume and os.path.exists(resume_path):
+        ck = torch.load(resume_path, map_location=dev, weights_only=False)
+        if ck["fingerprint"] != fingerprint:
+            diff = sorted(k for k in set(ck["fingerprint"]) | set(fingerprint) if ck["fingerprint"].get(k) != fingerprint.get(k))
+            raise SystemExit(f"--resume: {resume_path} is another run's (differs in {', '.join(diff)}); move it aside "
+                             f"or drop --resume")
+        model.load_state_dict(ck["model"])
+        opt.load_state_dict(ck["opt"])
+        if sched is not None:
+            sched.load_state_dict(ck["sched"])
+        rng.bit_generator.state = ck["rng"]
+        torch.set_rng_state(ck["torch_rng"])
+        if ck["cuda_rng"] is not None and torch.cuda.is_available():
+            torch.cuda.set_rng_state_all(ck["cuda_rng"])
+        val_best, val_best_step, val_bad, val_decays = ck["plateau"]
+        val_hist, star_w, running, running_star = ck["val_hist"], ck["star_w"], ck["running"], ck["running_star"]
+        regime_steps = defaultdict(int, ck["regime_steps"])
+        best, best_struct, snapshots = ck["best"], ck["best_struct"], ck["snapshots"]
+        t0 = time.perf_counter() - ck["elapsed"]
+        start = ck["step"] + 1
+        print(f"resumed from {resume_path} after step {ck['step']} (best {val_best:.6e} at {val_best_step}, "
+              f"{val_decays} halvings, lr {opt.param_groups[0]['lr']:.2e})", flush=True)
+    for step in range(start, steps + 1):
         idx = rng.integers(0, n_train, args.batch)
         # Two DIFFERENT subs of the same cell: independent noise, same scene. That is the
         # whole N2N premise, and it is why no clean target is needed.
@@ -1918,6 +1959,21 @@ def train(args):
                 om = og.evaluate(model) if psf01_labels is not None else og.evaluate(model, cond_planes)
                 print(f"  obs{si} {step:6d}   {fmt(om)}", flush=True)
 
+        # Written at the END of a step, once every draw this step makes from the rng streams is made, and through a
+        # rename, so a run taken away while writing leaves the previous checkpoint whole.
+        if args.checkpoint_every and step % args.checkpoint_every == 0 and not stop_now:
+            tmp = resume_path + ".tmp"
+            torch.save({"fingerprint": fingerprint, "step": step, "model": model.state_dict(), "opt": opt.state_dict(),
+                        "sched": sched.state_dict() if sched is not None else None, "rng": rng.bit_generator.state,
+                        "torch_rng": torch.get_rng_state(),
+                        "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+                        "plateau": (val_best, val_best_step, val_bad, val_decays), "val_hist": val_hist,
+                        "star_w": star_w, "running": running[-args.log_every:],
+                        "running_star": running_star[-args.log_every:], "regime_steps": dict(regime_steps),
+                        "best": best, "best_struct": best_struct, "snapshots": snapshots,
+                        "elapsed": time.perf_counter() - t0}, tmp)
+            os.replace(tmp, resume_path)
+
         if stop_now:
             print(f"  stopped at step {step}: the held-out objective's best was {val_best:.6e} at step "
                   f"{val_best_step}", flush=True)
@@ -1983,6 +2039,9 @@ def train(args):
                 print("  no probe met the structure criteria either, so the run has nothing to "
                       "audit against: it fabricated or flattened at every probe.")
         save(model.state_dict(), args.out, steps)
+    # The run is over and its outputs are written: a checkpoint left now would resume a finished run.
+    if os.path.exists(resume_path):
+        os.remove(resume_path)
 
 
 # --------------------------------------------------------------------------- the operator (E3)
@@ -2346,6 +2405,13 @@ if __name__ == "__main__":
                    help="Richardson-Lucy iterations inside the operator (E3.0 pre-registers 20). On noisy "
                         "data the count IS the regulariser, so a different value is a different arm")
     p.add_argument("--out", default="n2n.pt")
+    p.add_argument("--checkpoint-every", type=int, default=0,
+                   help="every N steps, write everything the loop carries (weights, optimizer, rng streams, the "
+                        "plateau's history) to <out>.resume.pt beside --out, atomically; 0 (default) writes none. For a "
+                        "machine that can be taken away mid-run (a spot VM)")
+    p.add_argument("--resume", action="store_true",
+                   help="continue from <out>.resume.pt when it exists (else start fresh): the same run, refused if the "
+                        "recipe or the cache differs (resume_fingerprint)")
     p.add_argument("--snapshot-at", type=int, default=0,
                    help="also save the weights as they stand at this step, as <out>_at<step>.pt: what a run "
                         "capped there saves, from a longer run; 0 (default) saves none")

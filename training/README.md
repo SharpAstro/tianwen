@@ -80,6 +80,16 @@ python n2n_smoke.py --train --cache $env:TIANWEN_SCRATCH\n2n-d8 --loss l2 --upsa
     --band-loss 3 --band-scales "2,4 4,8" --base 32 --steps 4000 --gate-every 100 --seed 2 --out n2n_v19d_s2.pt
 ```
 
+### A machine that can be taken away mid-run (a spot VM)
+
+`--checkpoint-every N` writes everything the loop carries to `<out>.resume.pt` beside `--out` every N steps,
+through a rename so an eviction mid-write leaves the previous one whole: the weights, the optimizer's moments, every
+rng stream, the plateau's history and counters, the star weight and any `--snapshot-at` weights. `--resume` continues
+from it, and refuses one whose recipe or cache differs (`resume_fingerprint`); the step cap may be raised on resume
+under `--schedule plateau`, which it only bounds. The file is removed once the run's outputs are written. It continues
+the SAME run: on 2026-10-15 a 40-step run of the R2j recipe killed after its step-20 checkpoint and resumed matched an
+unbroken one in every one of its 30 tensors, to the bit (on the CPU; a GPU's kernels may not repeat to the bit).
+
 ### Training on injected pairs
 
 The C# side exports a degraded cache that `--prepare` reads with **no change**: its manifest is
