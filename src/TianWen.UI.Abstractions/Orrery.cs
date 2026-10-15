@@ -91,6 +91,12 @@ public sealed class OrreryState
     /// </summary>
     public CatalogIndex? Comet { get; internal set; }
 
+    /// <summary>
+    /// Whether the camera looks at <see cref="Focus"/> (the strip's Centre toggle) rather than the Sun, following it as time runs; a
+    /// click on another body moves the camera with the highlight, a click on the Sun puts the camera back on it.
+    /// </summary>
+    public bool CentredOnFocus { get; internal set; }
+
     /// <summary>The camera's longitude about the ecliptic pole, degrees (ecliptic of J2000).</summary>
     public double AzimuthDeg { get; set; } = -90;
 
@@ -120,7 +126,7 @@ public sealed class OrreryState
 }
 
 /// <summary>
-/// A perspective camera on a point orbiting the Sun, looking at it, the ecliptic's north up: projects a point of the scene (ecliptic
+/// A perspective camera on a point orbiting the Sun (or the body the view is centred on), looking at it, the ecliptic's north up: projects a point of the scene (ecliptic
 /// coordinates in the scale's units) to the screen. A proper view, never mirrored: screen right, screen up and the direction back
 /// toward the camera make a right-handed frame, so a body's sprite is drawn unmirrored.
 /// </summary>
@@ -139,12 +145,14 @@ public readonly struct OrreryCamera
     private readonly double _focal;
     private readonly float _cx, _cy;
 
-    public OrreryCamera(double azimuthDeg, double elevationDeg, double distance, RectF32 rect)
+    /// <param name="target">The point the camera looks at, in the scene's units: the Sun (the origin) unless the view is centred on a
+    /// body. Only the camera's place moves with it; its rotation, and so the backdrop's stars, are the same.</param>
+    public OrreryCamera(double azimuthDeg, double elevationDeg, double distance, RectF32 rect, (double X, double Y, double Z) target = default)
     {
         var (sinAz, cosAz) = Math.SinCos(azimuthDeg * Math.PI / 180);
         var (sinEl, cosEl) = Math.SinCos(Math.Clamp(elevationDeg, -MaxElevationDeg, MaxElevationDeg) * Math.PI / 180);
-        (_ex, _ey, _ez) = (distance * cosEl * cosAz, distance * cosEl * sinAz, distance * sinEl);
-        // Forward toward the Sun; right = forward x ecliptic north; up = right x forward.
+        (_ex, _ey, _ez) = (target.X + (distance * cosEl * cosAz), target.Y + (distance * cosEl * sinAz), target.Z + (distance * sinEl));
+        // Forward toward the target; right = forward x ecliptic north; up = right x forward.
         (_fx, _fy, _fz) = (-cosEl * cosAz, -cosEl * sinAz, -sinEl);
         var (rx, ry) = (_fy, -_fx);
         var rn = Math.Sqrt((rx * rx) + (ry * ry));

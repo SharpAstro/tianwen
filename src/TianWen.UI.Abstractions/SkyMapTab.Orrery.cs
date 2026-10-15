@@ -60,6 +60,7 @@ namespace TianWen.UI.Abstractions
             orrery.Focus = State.Search.InfoPanel is { Index: { } index } && index.IsSolarSystemObject ? index : null;
             orrery.Comet = orrery.Focus is { } focus && focus.ToCatalog() == Catalog.Comet ? focus : null;
             orrery.IsOpen = true;
+            orrery.CentredOnFocus = false;
             orrery.Dragging = false;
             _orreryFramePending = true;
             State.PictureExpanded = false;
@@ -142,10 +143,10 @@ namespace TianWen.UI.Abstractions
             }
 
             FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height, OrreryBackground);
-            var camera = new OrreryCamera(orrery.AzimuthDeg, orrery.ElevationDeg, orrery.Distance, contentRect);
+            var scaling = new OrreryScaling(orrery.Scale, OrreryScaling.ReachFor(orrery.Distance));
+            var camera = new OrreryCamera(orrery.AzimuthDeg, orrery.ElevationDeg, orrery.Distance, contentRect, OrreryCentre(scene, scaling));
             DrawOrreryBackdrop(plannerState, contentRect, camera, viewingTime);
             PushClip(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height);
-            var scaling = new OrreryScaling(orrery.Scale, OrreryScaling.ReachFor(orrery.Distance));
             DrawOrreryOrbits(scene, camera, comet, scaling, dpiScale);
             DrawOrreryBodies(scene, camera, viewingTime, scaling, dpiScale);
             PopClip();
@@ -227,6 +228,19 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>A disc's on-screen radius is at most this share of its screen distance to the nearest drawn body (to the Sun's edge).</summary>
         internal const float OrreryDiscCapShare = 0.4f;
+
+        // What the camera looks at: the focus body's DRAWN place while the view is centred on it (the Earth's for the Moon, which is
+        // drawn beside it), else the Sun.
+        private (double X, double Y, double Z) OrreryCentre(OrreryScene scene, in OrreryScaling scaling)
+        {
+            var orrery = State.Orrery;
+            var on = orrery.Focus is CatalogIndex.Moon ? CatalogIndex.Earth : orrery.Focus;
+            return orrery.CentredOnFocus && on is { } index && index != CatalogIndex.Sol && scene.TryFind(index, out var body)
+                ? scene.Drawn(scaling, body)
+                : default;
+        }
+
+        private const string OrreryCentreAction = "OrreryCentre";
 
         // The camera's distance that shows the focus body's orbit (the Earth's for the Moon, the Mars orbit's span for the Sun or no body).
         private void FrameOrrery(OrreryScene scene)
@@ -703,10 +717,26 @@ namespace TianWen.UI.Abstractions
                     _ => SwitchOrreryScale(auto ? OrreryScale.True : OrreryScale.Auto))
                 .WithTooltip(auto ? "Distances compressed as far as the framing needs; press for true distances" : "True distances; press to compress them as the framing needs");
 
+            // What the camera looks at, ONE toggle naming it, while a body other than the Sun is in focus; sized by the longer label.
+            Layout.Node? centreToggle = null;
+            if (orrery.Focus is { } focus && focus != CatalogIndex.Sol && OrreryScene.TryFind(focus, out var focusBody))
+            {
+                var centred = orrery.CentredOnFocus;
+                var onBody = $"Centre: {focusBody.Name}";
+                centreToggle = Layout.Builder.Text(centred ? onBody : "Centre: Sun", fontSize, ink,
+                        TextAlign.Center, TextAlign.Center, widthSample: onBody.Length >= "Centre: Sun".Length ? onBody : "Centre: Sun")
+                    .PadX(padX).HStar()
+                    .Bg(fill).BgHover(GuiTheme.Hover(fill))
+                    .Clickable(new HitResult.ButtonHit(OrreryCentreAction), _ => ToggleOrreryCentre())
+                    .WithTooltip(centred ? $"The camera follows {focusBody.Name}; press to look at the Sun" : $"The camera looks at the Sun; press to follow {focusBody.Name}");
+            }
+
             // ONE tree over the whole rect: the strip is the bottom row of it, its fill and its content one arranged box.
             var strip = Layout.Builder.HStack(
+                [
                     Button("Sky", "OrreryClose", CloseOrrery, "Back to the sky"),
                     scaleToggle,
+                    .. centreToggle is { } centre ? (ReadOnlySpan<Layout.Node>)[centre] : [],
                     // The wider label sized once, so Play and Pause do not move what follows.
                     Layout.Builder.Text(orrery.Playing ? "Pause" : "Play", fontSize, ink, TextAlign.Center, TextAlign.Center, widthSample: "Pause")
                         .PadX(padX).HStar()
@@ -714,7 +744,8 @@ namespace TianWen.UI.Abstractions
                         .Clickable(new HitResult.ButtonHit("OrreryPlay"), _ => ToggleOrreryPlay())
                         .WithTooltip($"Run time at {orrery.DaysPerSecond:0} days a second"),
                     Layout.Builder.Text("Drag to orbit, wheel to zoom", fontSize, ink, TextAlign.Near, TextAlign.Center).PadX(padX).WStar().HStar(),
-                    BuildTimeControls(timeText, isTimeShifted ? palette.Accent : ink, fontSize, dpiScale, fill, ink))
+                    BuildTimeControls(timeText, isTimeShifted ? palette.Accent : ink, fontSize, dpiScale, fill, ink),
+                ])
                 .WithGap(4f * dpiScale)
                 .PadX(8f * dpiScale)
                 .Bg(fill)
@@ -735,6 +766,13 @@ namespace TianWen.UI.Abstractions
             }
             // No re-framing: the camera's distance is AU in both scales, and the reach it frames is drawn where it is in both.
             State.Orrery.Scale = scale;
+            State.NeedsRedraw = true;
+        }
+
+        private void ToggleOrreryCentre()
+        {
+            // No re-framing: the distance is the camera's from what it looks at, so the view keeps its zoom.
+            State.Orrery.CentredOnFocus = !State.Orrery.CentredOnFocus;
             State.NeedsRedraw = true;
         }
 
@@ -854,6 +892,11 @@ namespace TianWen.UI.Abstractions
                 if (picked is { } pick)
                 {
                     orrery.Focus = pick;
+                    // The Sun has nothing to centre on but itself: the camera goes back to it, and the toggle with it.
+                    if (pick == CatalogIndex.Sol)
+                    {
+                        orrery.CentredOnFocus = false;
+                    }
                 }
             }
             State.NeedsRedraw = true;
