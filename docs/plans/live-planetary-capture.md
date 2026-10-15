@@ -634,7 +634,8 @@ changed. Between the first and second sets the gain went from 1620 to 2252 and t
 and fourth the owner refocused by hand (12993 to 12987), focusing on SharpCap's FFT score, which the owner found worked fairly well.
 
 **What TianWen could not have done that night**, in the order it has to be built:
-1. **Stream from that camera** (#813): only ZWO streams natively; a ToupTek, QHY or Player One body runs the single-exposure loop.
+1. **Stream from that camera** (#813): ZWO streams natively, and ToupTek since ToupTek.SDK 1.2 (TIA2, "Video at the Saturn window on
+   the ToupTek" below); a QHY or Player One body still runs the single-exposure loop.
 2. **Record from the GUI** (#1344): the node records (`SerRecording`), but nothing in the GUI or the CLI asks it to.
 3. **Say how a file was taken** (#1342, Phase I): our recording writes no exposure, gain, offset or focuser position.
 4. **Run the sequence** (#1340, Phase G): nothing moves the filter wheel during a planetary capture.
@@ -647,6 +648,9 @@ The processing side of such a night is the restoration plan's: each file stacked
 ### Frame rate at the Saturn ROI on the ToupTek (measured 2026-10-14)
 
 **Issue:** #813 (its "measure first" item: the rate the single-exposure loop reaches with a small ROI on a real body).
+
+*Since ToupTek.SDK 1.2 this body streams, and a live capture takes video, not the trigger loop measured here: "Video at the Saturn
+window on the ToupTek (measured 2026-10-15)" below. A single exposure still takes the trigger.*
 
 The same G3M678M, on this desktop, at the night's region: 640x480 at (1716, 546), bin 1, gain 2252. The black level differs between
 the layers: the scratch console leaves it at the camera's own, while TianWen's driver sets it to a tenth of its range at connect
@@ -745,6 +749,121 @@ frame info); settle 1 s; count the frames delivered over 3 s by a `Stopwatch`; r
 each run, and reset (`DEVICE_RESET`, then find the camera again) a run that delivers nothing in 2 s. The trigger comparison is the same
 with `TRIGGER = 1`, no speed set, and `Trigger(1)` then a wait for the callback in a loop, once as the process starts and once after
 `timeBeginPeriod(1)`.
+
+### Video at the Saturn window on the ToupTek (measured 2026-10-15)
+
+**Issue:** #813 (ToupTek joins ZWO in the shared DAL video loop; TIA2).
+
+ToupTek.SDK 1.2 (SharpAstro/ToupTek.SDK#4) implements the DAL's video members on the camera's free-running mode, so the G3M678M now
+streams through `DALCameraDriver.Video.cs`, the loop ZWO already used, instead of the trigger loop above. Same camera and window
+(640x480 at 1716, 546; a stream starts centred and is panned there), 8 bits, 5 ms, gain 2252, speed 2 (a stream takes the top
+`BandwidthOverload`, which on this SDK is the speed level). Measured in process by `ToupTekFrameRateProbe` (Release, gated on
+`TIANWEN_TOUPTEK_RATE_PROBE=1`): the driver's stream read with nothing done to a frame, plus the ring's push, plus a recording's
+append (both on the reader, as the capture loop does them), then `PlanetaryCapture` whole, 20 s a layer after 1 s; and recordings
+through the capture loop, read back off their SER.
+
+**The machine was busy, and that is what found the weakness.** Other flights' planetary sharpening held all 16 cores at 100 % for
+every run here, with 126 to 127 threads waiting to run (`\System\Processor Queue Length`). A capture loop meets a milder form of it
+whenever the node's live stack shares its process.
+
+**Before: the one-frame hand-off gave the reader a fraction of the frames.** The driver's own thread read 197 a second in every layer
+(3,935 to 3,948 in 20 s); its reader, woken through the thread pool, was often 50 to 200 ms late, and each frame that arrived while it
+was late replaced the one waiting:
+
+| Layer (one-frame hand-off) | Reader's fps | Replaced in 20 s | Body dropped | Between frames p50 / p99 / max | Reader's own cost p50 / p99 |
+|---|---|---|---|---|---|
+| the driver's stream alone | 83.9 | 2,233 | 35 | 8.0 / 48.5 / 201.0 ms | |
+| + the ring's push | 41.0 | 3,090 | 42 | 22.1 / 71.3 / 150.8 ms | push 0.35 / 1.05 ms |
+| + a recording's append | 99.3 | 1,915 | 0 | 5.6 / 52.9 / 139.2 ms | append 1.78 / 3.92 ms |
+| `PlanetaryCapture` whole | 51.0 | 2,915 | 0 | 6.6 / 90.0 / 165.5 ms | |
+
+A minute's recording through the capture loop held **1,974 frames over 59.98 s, 32.9 fps** off its SER: the driver read 11,839, the
+hand-off replaced 9,853. The rates between layers do not rank (41 below 84) because each layer is a draw from how late the reader
+happened to be; the frames' own cost was never the limit, about 2 ms of the 5.
+
+**What changed, and why each:**
+- **A bounded queue instead of one slot** (`VideoHandOffMaxFrames`, 64; and at most `VideoHandOffBudgetBytes`, 256 MiB, of planes, so
+  a full-frame window queues 8). A reader that pauses catches up from it; one slower than the camera for good still drops, the OLDEST
+  first, so it sees frames a queue old at worst. In every run after it at most 15 frames waited (75 ms), a quarter of the queue. A
+  queue that holds only for a recording was the alternative; one rule for every reader is simpler, and a live view on a reader that
+  keeps up sees no added latency, the queue being empty.
+- **The stream's thread at the highest priority.** It spends nearly all its time waiting on the body, and a frame it is late for waits
+  in the SDK's ring (64 frames here) and then is dropped by the camera. The body dropped 35 and 42 frames in two of the layers before
+  and none in any layer or recording after, under the same load; the before runs were not repeated to pin the priority as the cause.
+- **A recording's conversion in one vector pass** (`RawPixelConversion.NarrowToByte`, `SerImageBridge.FillSerFrame`): the scalar loop
+  was 1.78 ms of a frame at p50, now 0.94 under the same load.
+- **Frames stamped with the driver's read time** (`PlanetaryCapture` takes the frame's own time for the ring and a recording), so a
+  queue between the driver and the loop does not bunch a recording's timestamps, and a stall shows as the gap it was.
+
+| Layer (queue, after) | Reader's fps | Replaced in 20 s | Body dropped | Between frames p50 / p99 / max | Most waiting | Reader's own cost p50 / p99 |
+|---|---|---|---|---|---|---|
+| the driver's stream alone | 194.3 | 0 | 0 | 5.07 / 10.98 / 17.8 ms | 5 | |
+| + the ring's push | 193.9 | 0 | 0 | 5.11 / 9.92 / 15.6 ms | 9 | push 0.32 / 0.75 ms |
+| + a recording's append | 194.2 | 0 | 0 | 5.09 / 9.37 / 13.3 ms | 11 | append 0.94 / 1.50 ms |
+| `PlanetaryCapture` whole | 196.7 | 0 | 0 | 5.17 / 12.11 / 48.1 ms | 9 | |
+
+**The bar (decided with the controller): at least 190 fps read off the SER, frame count over its own timestamp span, 60 s, three
+runs, nothing replaced, the body's drops at or below SharpCap's (about 55 in 100,000).** Met on every run:
+
+| Recording, 60 s | SER frames | Timestamp span | fps off the SER | Read by the driver | Replaced | Body dropped | Most waiting | Gaps over 0.5 s |
+|---|---|---|---|---|---|---|---|---|
+| run 1 | 11,804 | 59.99 s | **196.8** | 11,825 | 0 | 0 | 13 | none |
+| run 2 | 11,806 | 60.00 s | **196.8** | 11,823 | 0 | 0 | 15 | none |
+| run 3 | 11,806 | 60.00 s | **196.8** | 11,818 | 0 | 0 | 13 | none |
+| (the first, before the three) | 11,805 | 60.00 s | 196.8 | 11,811 | 0 | 0 | 11 | none |
+
+196.8 is the camera's own rate at this window (the vendor's console above, the SDK's probe likewise). Each stream's log counts 6 frames
+the body lost, all within its first 250 frames, which take in the start and the pan to the Saturn window and come before the recording
+begins: the pan accounts for one (ToupTek.SDK measured one frame a pan), the start for the rest, not looked into further. Nothing went
+to disk late: the recording's writer dropped none.
+
+**A stalled stream is brought back, not ended.** This camera stalls about once in 1,250 s of streaming at speed 2, in periods, with
+no warning, and ToupTek.SDK 1.2 answers `GeneralError` from the frame call about 1 s (the exposure plus 1 s) after the last frame;
+`CameraRemoved` for a disconnect, `Timeout` for no frame in the wait. The shared loop used to end its stream on any answer but a frame
+or `Timeout`. Now an answer that is neither (nor `CameraRemoved`, which still ends it) is a stall, and the loop brings it back by the
+cheapest rung the SDK's soak measured to work: **restart** the stream on the same handle (10 of 11 stalls, about 6.5 s, 5.2 of them in
+the stop of a stalled camera); then **close and reopen** the camera; then **reset** it as a replug would (`ResetDevice`, 30.4 s for the
+one stall that needed it). Nudging the speed or the window was measured to undo none, so it is not a rung. In
+`DALCameraDriver.Video.cs`:
+- each run of the body's stream between a start and a stop is a segment on a thread of its own; the rungs run between segments, so the
+  reader, which only waits on the queue, is never inside them, and a stop is honoured between rungs, during a reset camera's wait to
+  reappear, and within one frame wait of a segment (a close and reopen, a couple of seconds, finishes first, since a stop half way would
+  leave the camera closed);
+- every setting the stream had (exposure, gain, the window as panned, depth, readout mode, the whole bandwidth) is set again on every
+  start, and the reopen and reset share the find-again-and-restore path a lost single exposure's reset already took
+  (`DALCameraDriver.Recovery.cs`);
+- a stream healthy for `VideoHealthyAfter` (30 s) since it came back starts its next stall from a restart again; one that stalls sooner
+  goes on up; a rung's stream that sees no frame within `VideoFirstFrameBudget` (3 s plus twice the exposure) or answers the stall again
+  has failed; past the last rung the stream ends with a plain reason ("stopped sending frames ... neither a restart of the stream, nor
+  closing and opening the camera, nor a reset brought it back", or, for a body that cannot be reset, to unplug it);
+- stalls and recoveries are counted beside the body's dropped frames and logged, each recovery with its rung and its gap.
+
+**Measured on the camera** (the probe's soak arm, `TIANWEN_TOUPTEK_SOAK_MINUTES=25`, the capture loop streaming the centred 640x480
+window at 5 ms with no recording, under the same load): in 25.0 minutes the stream stalled twice, both `GeneralError`, and a restart
+brought each back, **6.5 s and 6.6 s from the last frame to the next**, 5.3 s of each in the stop of the stalled camera, as ToupTek.SDK
+measured (1 s to notice, about 5.2 s in the stop, the rest the start). The soak read 292,594 frames, 195.0 a second over the whole
+25 minutes with the two gaps in it; the hand-off replaced none, the body dropped none, and at most 38 frames waited for the reader.
+Neither the reopen nor the reset was needed, so on the camera only the first rung has run; the others are pinned by the tests below.
+
+It is generic: ZWO gets the same ladder, without the reset (`CanResetDevice` is false there). No adaptive speed: nothing precedes a
+stall (none of 11 had a dropped frame in the 10 s before it) and speed 2 delivers the most frames even counting its stalls
+(ToupTek.SDK's README, "The speed level, and whether to adapt it"). `DALCameraVideoTests` pins each rung, the give-up, `CameraRemoved`,
+the settings restored, a body that goes silent after a restart, the ladder climbing and starting again, a stop during a recovery, and
+the queue.
+
+**What a SER looks like across a recovery.** Each frame carries the time its driver read it, so the two frames either side of a stall
+are consecutive in the file and their trailer timestamps the gap apart (about 6.5 s for a restart): every frame taken is there and none
+is invented, and nothing pretends the run was continuous. A rate read as frame count over the timestamp span counts the gap as time
+without frames (a minute of frames at 196.8 with a 6.5 s gap reads about 178 over the span: 11,808 over 66.5 s), and a de-rotation
+reads the true times. The recording names
+each step longer than the exposure plus 1 s (`SerRecording.Gaps`) and logs them as it closes (`SerRecordingTests`).
+
+**Recentering after a pan.** A pan blocks its caller 32 to 285 ms at 5 ms while the camera streams on into the SDK's ring, and the frames
+still there when it returns are read after it, under the new `VideoRoi`, though they were taken under the old; the queue adds a few
+more read before the pan. Measured on such a frame, the disk shows the offset the pan has just corrected, and the recenter loop would
+correct it twice. `IVideoCameraDriver.IsUnderVideoRoi(frame)` answers whether a frame was taken under the window with every jog asked
+for applied: the DAL loop counts jogs asked and applied, and after a pan asks for frames without waiting until the SDK has none, the
+first frame it has to wait for being the first under the new window. `PlanetaryCapture` measures no other frame.
 
 ### Phase G: a mono filter-wheel sequence
 
