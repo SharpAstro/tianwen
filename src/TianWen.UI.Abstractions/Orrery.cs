@@ -189,6 +189,25 @@ public readonly struct OrreryCamera
     public double FocalPx => _focal;
 
     /// <summary>
+    /// The camera's frame where screen point (<paramref name="sx"/>, <paramref name="sy"/>) looks, in ecliptic coordinates: the unit
+    /// vector back along the ray through it toward the camera, and the screen's right made square to that. A body drawn there is traced
+    /// as seen along that ray (<see cref="TianWen.Lib.Imaging.Planetary.PlanetView"/>), whatever its own place in the scene: the Moon,
+    /// which is placed on screen beside the Earth, is lit as it is drawn.
+    /// </summary>
+    public void RayFrame(float sx, float sy, Span<double> right, Span<double> toward)
+    {
+        var a = (sx - _cx) / _focal;
+        var b = -(sy - _cy) / _focal;
+        var (dx, dy, dz) = (_fx + (a * _rx) + (b * _ux), _fy + (a * _ry) + (b * _uy), _fz + (a * _rz) + (b * _uz));
+        var n = Math.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+        (toward[0], toward[1], toward[2]) = (-dx / n, -dy / n, -dz / n);
+        var along = (_rx * toward[0]) + (_ry * toward[1]) + (_rz * toward[2]);
+        var (qx, qy, qz) = (_rx - (along * toward[0]), _ry - (along * toward[1]), _rz - (along * toward[2]));
+        var m = Math.Sqrt((qx * qx) + (qy * qy) + (qz * qz));
+        (right[0], right[1], right[2]) = (qx / m, qy / m, qz / m);
+    }
+
+    /// <summary>
     /// The camera's view of the stars at infinity as a sky-map view matrix (J2000 equatorial to camera space, the camera looking along
     /// -Z, x right, y up): the camera's ROTATION alone, no translation, since a star is at infinity, composed with the fixed tilt
     /// from the ecliptic of J2000, the orrery's frame, to the equator the catalogue is in (<see cref="SolarSystemOrbits.EclipticToEquatorial"/>,

@@ -1308,6 +1308,18 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         return _planetSpriteTextures.Draw(renderer, sprite, x, y, radiusPx);
     }
 
+    private VkPlanetBodies? _planetBodies;
+
+    /// <summary>The ray-traced bodies, for the tests that count their uploads.</summary>
+    internal VkPlanetBodies? PlanetBodies => _planetBodies;
+
+    protected override bool DrawPlanetBody(in PlanetView view, float x, float y, float radiusPx, PlanetColourMap? map, int textureVersion,
+        RGBAColor32 flat, RGBAColor32? nightTint)
+    {
+        _planetBodies ??= new VkPlanetBodies(renderer.Context, () => State.NeedsRedraw = true);
+        return _planetBodies.Draw(renderer, view, x, y, radiusPx, map, textureVersion, flat, nightTint);
+    }
+
     protected override bool OnMilkyWayLoaded(ReadOnlySpan<byte> bgraData, int width, int height)
     {
         try
@@ -1341,6 +1353,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     {
         _pictures?.Dispose();
         _planetSpriteTextures?.Dispose();
+        _planetBodies?.Dispose();
         _pipeline?.Dispose();
     }
 }

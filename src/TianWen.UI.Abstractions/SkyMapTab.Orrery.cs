@@ -13,7 +13,8 @@ namespace TianWen.UI.Abstractions
     /// The solar system in 3D (docs/plans/atlas-planet-detail.md, A5, #1039): a MODE of the atlas, opened from a solar-system body's
     /// info panel or by Alt+S, at the atlas's own instant. The Sun at the centre, the planets on their orbits (cached polylines,
     /// <see cref="OrreryScene"/>), each body its textured disc (A4's sprites, <see cref="PlanetSpriteCache.OrreryChannel"/>) at an
-    /// exaggerated, labelled size, lit from the Sun as the CAMERA sees it (<see cref="PhysicalEphemeris.ComputeSeenAlong(CatalogIndex, DateTimeOffset, ReadOnlySpan{double}, ReadOnlySpan{double})"/>).
+    /// exaggerated, labelled size, lit from the Sun as the CAMERA sees it (<see cref="PlanetView"/>: ray-traced on a GPU host through
+    /// <see cref="DrawPlanetBody"/>, the CPU sprite of the same view elsewhere).
     /// A drag orbits the camera about the Sun, the wheel zooms, the strip switches the scale, plays time and steps it as the sky's does.
     /// A CPU perspective projection (<see cref="OrreryCamera"/>) feeds the 2D primitives every host has, so no host needs anything new.
     /// </summary>
@@ -334,7 +335,6 @@ namespace TianWen.UI.Abstractions
             var focus = State.Orrery.Focus;
             var fontSize = BaseFontSize * dpiScale * 0.85f;
             var lineHeight = fontSize * 1.4f;
-            var (eyeX, eyeY, eyeZ) = camera.Eye;
 
             // The Moon is placed on SCREEN: a steady reach from the Earth's drawn place (the two radii, a gap and a label line), turned
             // by its geocentric ecliptic longitude, so it goes round the Earth on an even circle once a month. Placed in the world instead,
@@ -360,9 +360,9 @@ namespace TianWen.UI.Abstractions
                 : ((float, float)?)null;
             Span<(int Index, float X, float Y, float Radius, double Depth)> labels = stackalloc (int, float, float, float, double)[bodies.Length];
             var labelCount = 0;
-            Span<double> toObserver = stackalloc double[3];
-            Span<double> heliocentric = stackalloc double[3];
-            Span<double> pole = stackalloc double[3];
+            Span<double> right = stackalloc double[3];
+            Span<double> toward = stackalloc double[3];
+            Span<double> toSun = stackalloc double[3];
 
             // First where every body lands, then how big each may be: zoomed out, the orbits shrink into the Sun and a disc at its
             // fixed size would pile onto it and its neighbours, so a disc is at most OrreryDiscCapShare of its screen distance to the
@@ -422,24 +422,17 @@ namespace TianWen.UI.Abstractions
                 }
                 else
                 {
-                    toObserver[0] = eyeX - x;
-                    toObserver[1] = eyeY - y;
-                    toObserver[2] = eyeZ - z;
-                    var norm = Math.Sqrt((toObserver[0] * toObserver[0]) + (toObserver[1] * toObserver[1]) + (toObserver[2] * toObserver[2]));
-                    for (var k = 0; k < 3; k++)
-                    {
-                        toObserver[k] /= norm;
-                    }
-                    SolarSystemOrbits.EclipticToEquatorial(toObserver);
-                    heliocentric[0] = body.X;
-                    heliocentric[1] = body.Y;
-                    heliocentric[2] = body.Z;
-                    SolarSystemOrbits.EclipticToEquatorial(heliocentric);
-                    var aspect = PhysicalEphemeris.ComputeSeenAlong(body.Index, viewingTime, heliocentric, toObserver);
-                    PhysicalEphemeris.PoleDirection(body.Index, viewingTime, pole);
-                    SolarSystemOrbits.EquatorialToEcliptic(pole);
-                    var poleScreen = OrreryPoleScreenAngle(camera, x, y, z, pole, norm);
-                    if (dot || !TryDrawOrrerySprite(aspect, sx, sy, radius, poleScreen))
+                    // The body as the camera sees it along the ray it is drawn on: the camera's right and the direction back toward
+                    // it, and the Sun's TRUE direction from the body (which the compressed scale keeps), all turned to J2000 equatorial.
+                    camera.RayFrame(sx, sy, right, toward);
+                    SolarSystemOrbits.EclipticToEquatorial(right);
+                    SolarSystemOrbits.EclipticToEquatorial(toward);
+                    toSun[0] = -body.X;
+                    toSun[1] = -body.Y;
+                    toSun[2] = -body.Z;
+                    SolarSystemOrbits.EclipticToEquatorial(toSun);
+                    var view = PlanetView.FromEquatorial(body.Index, viewingTime, right, toward, toSun);
+                    if (dot || !TryDrawOrreryDisc(view, viewingTime, sx, sy, radius))
                     {
                         Renderer.FillEllipse(new RectInt(
                             new PointInt((int)MathF.Round(sx + radius), (int)MathF.Round(sy + radius)),
@@ -633,32 +626,25 @@ namespace TianWen.UI.Abstractions
             return MathF.Sqrt((ox * ox) + (oy * oy));
         }
 
-        // The screen direction of the body's north pole, degrees from +x toward +y (y down), as PlanetDiscSprite.PoleScreenAngle states
-        // one: the pole projected from a point a thousandth of the camera's distance along it. Straight up when the pole points at the camera.
-        private static double OrreryPoleScreenAngle(in OrreryCamera camera, double x, double y, double z, ReadOnlySpan<double> pole, double distance)
-        {
-            var step = distance * 1e-3;
-            if (camera.TryProject(x, y, z, out var x0, out var y0)
-                && camera.TryProject(x + (pole[0] * step), y + (pole[1] * step), z + (pole[2] * step), out var x1, out var y1)
-                && ((x1 - x0) * (x1 - x0)) + ((y1 - y0) * (y1 - y0)) > 1e-12f)
-            {
-                return Math.Atan2(y1 - y0, x1 - x0) * 180 / Math.PI;
-            }
-            return -90;
-        }
-
-        private bool TryDrawOrrerySprite(in PlanetAspect aspect, float sx, float sy, float radius, double poleScreen)
+        // The body's disc: ray-traced by a GPU host in the camera's own frame (DrawPlanetBody: nothing is built, so Play rebuilds
+        // nothing), else the CPU sprite of the same view (the CPU surface: the tests and the terminal), turned as the view states its pole.
+        private bool TryDrawOrreryDisc(in PlanetView view, DateTimeOffset viewingTime, float sx, float sy, float radius)
         {
             PlanetColourMap? map = null;
             var credit = "";
-            if (aspect.Planet is not (CatalogIndex.Sol or CatalogIndex.Earth) && PlanetTextures.TryGet(aspect.Planet, out var texture, out credit))
+            if (view.Body is not (CatalogIndex.Sol or CatalogIndex.Earth) && PlanetTextures.TryGet(view.Body, out var texture, out credit))
             {
                 map = texture;
             }
             var night = GuiTheme.State == UiThemeState.Night ? GuiTheme.Palette.Accent : (RGBAColor32?)null;
+            if (DrawPlanetBody(view, sx, sy, radius, map, PlanetTextures.Version, OrreryFlat(view.Body), night))
+            {
+                PlanetBodiesTraced++;
+                return true;
+            }
             // An unmirrored view: the camera's right, up and back toward it make a right-handed frame (OrreryCamera).
-            return OrrerySprites.Get(aspect, 2 * radius, PlanetDiscSprite.PoleScreenAngle(0, poleScreen, false), false, map, credit,
-                    OrreryFlat(aspect.Planet), night, GuiTheme.PaletteGeneration, PlanetTextures.Version) is { } sprite
+            return OrrerySprites.Get(view.ToAspect(viewingTime), 2 * radius, view.PoleScreenAngleDeg, false, map, credit,
+                    OrreryFlat(view.Body), night, GuiTheme.PaletteGeneration, PlanetTextures.Version) is { } sprite
                 && DrawPlanetSprite(sprite, sx, sy, radius);
         }
 

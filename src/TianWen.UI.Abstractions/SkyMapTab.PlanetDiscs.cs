@@ -94,6 +94,21 @@ namespace TianWen.UI.Abstractions
             return true;
         }
 
+        /// <summary>How many bodies a host has ray-traced through <see cref="DrawPlanetBody"/>, for the tests.</summary>
+        internal int PlanetBodiesTraced { get; private set; }
+
+        /// <summary>
+        /// Draws the body <paramref name="view"/> describes centred on (<paramref name="x"/>, <paramref name="y"/>), its globe
+        /// <paramref name="radiusPx"/> on screen, RAY-TRACED in the view's own frame (docs/plans/atlas-planet-detail.md, A5, "The bodies on
+        /// the GPU"): the spheroid, Minnaert's law, Saturn's rings with both shadows, coverage as alpha, the colour from
+        /// <paramref name="map"/> (uploaded once per <paramref name="textureVersion"/>) or <paramref name="flat"/>, luminance in
+        /// <paramref name="nightTint"/> under Night. Nothing is built per frame, so time running costs nothing here. False when this host
+        /// cannot, and the caller draws the CPU sprite of the same view (<see cref="PlanetView.ToAspect"/>) instead: the base, the CPU
+        /// surface, keeps <see cref="PlanetaryRender.RenderRgba"/> as the reference the GPU hosts are held to.
+        /// </summary>
+        protected virtual bool DrawPlanetBody(in PlanetView view, float x, float y, float radiusPx, PlanetColourMap? map, int textureVersion,
+            RGBAColor32 flat, RGBAColor32? nightTint) => false;
+
         /// <summary>
         /// The info panel's disc: the selected body's sprite in its slot, as large as the slot holds the whole sprite
         /// (<see cref="PlanetDiscSprite.PanelRadiusPx"/>), NORTH UP AND EAST LEFT, as the sky shows it to the eye (the map's own

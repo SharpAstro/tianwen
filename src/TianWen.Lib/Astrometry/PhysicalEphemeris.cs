@@ -303,6 +303,28 @@ public static class PhysicalEphemeris
         Unit(poleRa, poleDec).CopyTo(pole);
     }
 
+    /// <summary>
+    /// The body's IAU north pole and the direction of its prime meridian in its equator at <paramref name="utc"/>, unit vectors, J2000
+    /// equatorial: the frame a renderer in some other view (the orrery's GPU discs) reads a point's west longitude in, as
+    /// <c>-atan2(point . (pole x primeMeridian), point . primeMeridian)</c>, the very longitude <see cref="ComputeSeenAlong(CatalogIndex, DateTimeOffset, ReadOnlySpan{double}, ReadOnlySpan{double})"/>
+    /// states for a sub-point. The Earth is accepted beside every body <see cref="Supports"/> names.
+    /// </summary>
+    public static void BodyAxes(CatalogIndex planet, DateTimeOffset utc, Span<double> pole, Span<double> primeMeridian)
+    {
+        utc.ToSOFAUtcJdTT(out _, out _, out var tt1, out var tt2);
+        var (poleRa, poleDec, w) = Rotation(planet, tt1 + tt2);
+        Unit(poleRa, poleDec).CopyTo(pole);
+        Span<double> node = [-Math.Sin(poleRa), Math.Cos(poleRa), 0];
+        Span<double> nodeNormal = stackalloc double[3];
+        Cross(pole, node, nodeNormal);
+        // The prime meridian lies W east of the node, in the equator (SubPoint's own reading).
+        var (sinW, cosW) = Math.SinCos(w * Constants.DEGREES2RADIANS);
+        for (var i = 0; i < 3; i++)
+        {
+            primeMeridian[i] = (cosW * node[i]) + (sinW * nodeNormal[i]);
+        }
+    }
+
     /// <summary>Whether the body turns retrograde about its IAU north pole (W decreasing): Venus and Uranus.</summary>
     public static bool RotatesRetrograde(CatalogIndex body) => body is CatalogIndex.Venus or CatalogIndex.Uranus;
 
