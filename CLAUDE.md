@@ -290,6 +290,11 @@ screenshot-poll-and-OCR**. **Every mechanism -- the fake-device URI shapes incl.
 `hasCover=false`, the DEBUG inspector surfaces, the cell-buffer contract -- is in
 `docs/architecture/unattended-ui-driving.md`.** The rules that bite even after reading it:
 
+- **A Debug app is found by the sidecar's `list_instances`, never by a port read off a log.** The `.mcp.json` pins
+  (`SdlVulkan.Renderer.Inspector` 7.70, `Console.Lib.Inspector` 5.7) read DIR.Lib's per-user inspector registry
+  (`%LOCALAPPDATA%/DIR.Lib/inspector`, where an app on DIR.Lib 11.21 or later registers with no socket but its
+  loopback command server) and then multicast, which finds an app below 11.21. **Only a build against the sibling
+  SOURCES has an inspector**, never a worktree's, and nothing on this machine needs `DIR_LIB_INSPECTOR_LAN`.
 - **`ProfileData.SiteLatitude/Longitude` must match the mount URI's `latitude/longitude`** (a split
   site throws "Could not calculate timezone"); canonical wiring
   `SessionTestHelper.CreateSessionAsync(mountPort:"SkyWatcher", latitude, longitude)`.
@@ -1235,8 +1240,8 @@ the session plane", "Invariants 7-13 in full"); the node's lifetime and version 
 once per executable PATH for any other bind): no TCP 1888, no LAN discovery, no network discovery of devices (USB and
 serial kept, Alpaca asks loopback), sharing refused (409, nothing saved), and a node a client starts is in the
 client's mode (one of the other mode is replaced only while idle, unattended and not shared on the LAN, else used and
-SAID: a warning, or the CLI's stderr). **The DEBUG inspectors are left alone**: from DIR.Lib 11.21 their discovery is a file registry, which
-`false` would also remove. **A new network bind asks the mode**:
+SAID: a warning, or the CLI's stderr). **The DEBUG inspectors are left alone**: from DIR.Lib 11.21 their discovery is a per-user file registry that
+binds nothing, which `EnableDiscovery = false` would also remove. **A new network bind asks the mode**:
 `LocalOnlyModeSourceTests` lists every one in `src/`. `tools/check-local-only-binds.ps1` proves it end to end.
 `docs/architecture/hosting-api.md`, "Local-only".
 
