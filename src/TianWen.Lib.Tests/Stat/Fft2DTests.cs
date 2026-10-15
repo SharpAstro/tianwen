@@ -65,5 +65,32 @@ public class Fft2DTests
     public void Rejects_non_power_of_two_dimension()
     {
         Should.Throw<ArgumentException>(() => Fft2D.Forward(new Complex[6 * 4], 6, 4));
+        Should.Throw<ArgumentException>(() => Fft2D.ForwardOnEveryCore(new Complex[6 * 4], 6, 4));
+    }
+
+    // #1577: the transform on every core is the serial one's to the bit, both ways, on grids taller and wider than they are square
+    // (a row and a column pass mixed up would read a non-square grid wrongly) and with more rows and columns than a band takes.
+    [Theory]
+    [InlineData(1024, 64)]
+    [InlineData(64, 1024)]
+    [InlineData(512, 512)]
+    public void OnEveryCoreIsTheSerialTransformToTheBit(int w, int h)
+    {
+        var rng = new Random(1577);
+        var original = new Complex[w * h];
+        for (var i = 0; i < original.Length; i++)
+        {
+            original[i] = new Complex(rng.NextDouble(), rng.NextDouble() - 0.5);
+        }
+
+        Complex[] serial = [.. original];
+        Complex[] everyCore = [.. original];
+        Fft2D.Forward(serial, w, h);
+        Fft2D.ForwardOnEveryCore(everyCore, w, h);
+        everyCore.ShouldBe(serial);
+
+        Fft2D.Inverse(serial, w, h);
+        Fft2D.InverseOnEveryCore(everyCore, w, h);
+        everyCore.ShouldBe(serial);
     }
 }

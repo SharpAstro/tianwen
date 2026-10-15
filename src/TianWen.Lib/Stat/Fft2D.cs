@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Numerics;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Stat;
 
@@ -40,30 +41,101 @@ public static class Fft2D
     /// <summary>Inverse 2D FFT (normalised by <c>width * height</c>) over a span, in place.</summary>
     public static void Inverse(Span<Complex> data, int width, int height) => RowColumn(data, width, height, inverse: true);
 
-    private static void RowColumn(Span<Complex> data, int width, int height, bool inverse)
+    /// <summary>
+    /// <see cref="Forward(Complex[], int, int)"/> with its rows, then its columns, spread over every core: for a large grid
+    /// transformed one at a time, as a Richardson-Lucy step's four are (#1577: one core held a 20-step deblur for 66 s). Every row
+    /// and every column is transformed alone, exactly as the serial pass transforms it, so the result is the same to the bit.
+    /// </summary>
+    public static void ForwardOnEveryCore(Complex[] data, int width, int height)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        RowColumnOnEveryCore(data, width, height, inverse: false);
+    }
+
+    /// <summary><see cref="Inverse(Complex[], int, int)"/> on every core, as <see cref="ForwardOnEveryCore"/>; the same to the bit.</summary>
+    public static void InverseOnEveryCore(Complex[] data, int width, int height)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        RowColumnOnEveryCore(data, width, height, inverse: true);
+    }
+
+    private static void RowColumnOnEveryCore(Complex[] data, int width, int height, bool inverse)
+    {
+        Validate(data.Length, width, height);
+        ParallelFor.RunBands(height, (from, to) =>
+        {
+            for (var y = from; y < to; y++)
+            {
+                Transform(data.AsSpan(y * width, width), inverse);
+            }
+        });
+        // Each band of columns gathers through one scratch of its own.
+        ParallelFor.RunBands(width, (from, to) =>
+        {
+            var col = ArrayPool<Complex>.Shared.Rent(height);
+            try
+            {
+                var column = col.AsSpan(0, height);
+                for (var x = from; x < to; x++)
+                {
+                    TransformColumn(data, column, x, width, inverse);
+                }
+            }
+            finally
+            {
+                ArrayPool<Complex>.Shared.Return(col);
+            }
+        });
+    }
+
+    private static void Validate(int length, int width, int height)
     {
         if (!ComplexFft.IsPowerOfTwo(width) || !ComplexFft.IsPowerOfTwo(height))
         {
             throw new ArgumentException($"FFT dimensions must each be a power of two, got {width}x{height}.");
         }
 
-        if (data.Length != width * height)
+        if (length != width * height)
         {
-            throw new ArgumentException($"data length {data.Length} != width*height ({width * height}).", nameof(data));
+            throw new ArgumentException($"data length {length} != width*height ({width * height}).", "data");
         }
+    }
+
+    private static void Transform(Span<Complex> line, bool inverse)
+    {
+        if (inverse)
+        {
+            ComplexFft.Inverse(line);
+        }
+        else
+        {
+            ComplexFft.Forward(line);
+        }
+    }
+
+    /// <summary>Column <paramref name="x"/> gathered into <paramref name="column"/>, transformed and put back.</summary>
+    private static void TransformColumn(Span<Complex> data, Span<Complex> column, int x, int width, bool inverse)
+    {
+        for (var y = 0; y < column.Length; y++)
+        {
+            column[y] = data[(y * width) + x];
+        }
+
+        Transform(column, inverse);
+        for (var y = 0; y < column.Length; y++)
+        {
+            data[(y * width) + x] = column[y];
+        }
+    }
+
+    private static void RowColumn(Span<Complex> data, int width, int height, bool inverse)
+    {
+        Validate(data.Length, width, height);
 
         // Rows.
         for (var y = 0; y < height; y++)
         {
-            var row = data.Slice(y * width, width);
-            if (inverse)
-            {
-                ComplexFft.Inverse(row);
-            }
-            else
-            {
-                ComplexFft.Forward(row);
-            }
+            Transform(data.Slice(y * width, width), inverse);
         }
 
         // Columns (gathered into a contiguous scratch buffer, since they are strided in the array). It used to
@@ -76,24 +148,7 @@ public static class Fft2D
         {
             for (var x = 0; x < width; x++)
             {
-                for (var y = 0; y < height; y++)
-                {
-                    col[y] = data[(y * width) + x];
-                }
-
-                if (inverse)
-                {
-                    ComplexFft.Inverse(col);
-                }
-                else
-                {
-                    ComplexFft.Forward(col);
-                }
-
-                for (var y = 0; y < height; y++)
-                {
-                    data[(y * width) + x] = col[y];
-                }
+                TransformColumn(data, col, x, width, inverse);
             }
         }
         finally
