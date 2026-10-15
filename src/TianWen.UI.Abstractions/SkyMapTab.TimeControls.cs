@@ -92,9 +92,12 @@ public partial class SkyMapTab<TSurface>
         });
     }
 
+    /// <summary>The widest time the strip shows in ordinary use: a scrubbed date and an offset of two units.</summary>
+    private const string TimeTextWidthSample = "0000-00-00 00:00  (+00w 0d)";
+
     /// <summary>
-    /// The strip's right-hand controls: the back steps, the time (a press opens the landmarks), the forward
-    /// steps, and Now while the view is off live. Device-pixel sizes; the caller arranges them.
+    /// The strip's right-hand controls: Now while the view is off live, the back steps, the time (a press opens the landmarks),
+    /// and the forward steps. Device-pixel sizes; the caller arranges them.
     /// </summary>
     /// <remarks>The fill and ink are the sky strip's own unless the caller states its own: the orrery's come from the palette, so
     /// Night spends no blue there.</remarks>
@@ -113,13 +116,26 @@ public partial class SkyMapTab<TSurface>
                 .Clickable(new HitResult.ButtonHit("SkyTimeStep:" + step.Label), _ => StepTime(step.Delta));
 
         var children = ImmutableArray.CreateBuilder<Layout.Node>(BackSteps.Length + ForwardSteps.Length + 2);
+        // Now on the LEFT, while the view is off live: the group is right-aligned, so a button appearing at its far end moved
+        // every step the next press was aimed at.
+        if (State.TimeOffset != TimeSpan.Zero)
+        {
+            children.Add(Layout.Builder.Text("Now", fontSize, ink, TextAlign.Center, TextAlign.Center)
+                .PadX(padX)
+                .HStar()
+                .Bg(fill).BgHover(GuiTheme.Hover(fill))
+                .Clickable(new HitResult.ButtonHit("SkyTimeNow"), _ => ResetTimeOffset()));
+        }
+
         foreach (var step in BackSteps)
         {
             children.Add(Step(step));
         }
 
+        // Sized for a scrubbed date and an offset of its two largest units, so the live clock turning into a date and an offset
+        // does not move the back steps either; only an offset past a year of weeks is wider.
         children.Add(Layout.Builder.HStack(
-                Layout.Builder.Text(timeText, fontSize, timeColor, TextAlign.Center, TextAlign.Center),
+                Layout.Builder.Text(timeText, fontSize, timeColor, TextAlign.Center, TextAlign.Center, widthSample: TimeTextWidthSample),
                 FormRowLayout.StepMark("▲", fontSize, timeColor))
             .WithGap(4f * dpiScale)
             .CrossCenter()
@@ -131,15 +147,6 @@ public partial class SkyMapTab<TSurface>
         foreach (var step in ForwardSteps)
         {
             children.Add(Step(step));
-        }
-
-        if (State.TimeOffset != TimeSpan.Zero)
-        {
-            children.Add(Layout.Builder.Text("Now", fontSize, ink, TextAlign.Center, TextAlign.Center)
-                .PadX(padX)
-                .HStar()
-                .Bg(fill).BgHover(GuiTheme.Hover(fill))
-                .Clickable(new HitResult.ButtonHit("SkyTimeNow"), _ => ResetTimeOffset()));
         }
 
         // The strip's full height, so each button's text centres in the strip as the info text beside it
