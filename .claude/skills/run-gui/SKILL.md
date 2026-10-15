@@ -43,7 +43,7 @@ under `.claude/worktrees/` finds no siblings, so it has no inspector at all and 
 **The launcher starts the app LOCAL-ONLY** (`TIANWEN_LOCAL_ONLY=1` unless you set the variable yourself): the GUI
 and the node it starts bind nothing but loopback (no LAN discovery, no WiFi device discovery), so a build in a new
 folder raises no firewall prompt on the user's desktop. The mode leaves the inspector alone: until DIR.Lib 11.21 is
-in the sibling checkout, a sibling-source build still answers multicast on UDP 47892, from its already-allowed path,
+in the sibling checkout, a sibling-source Debug build binds multicast on UDP 47892, which prompts from any new path,
 and from 11.21 its discovery is a socket-free file registry. `TIANWEN_LOCAL_ONLY=0` brings the LAN back at the
 price of that prompt for every new build path: ask the user first.
 

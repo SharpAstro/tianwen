@@ -234,7 +234,9 @@ are features; `tools/start-app.ps1` turns it on for every app it launches unless
   an inspector's default discovery is a socket-free file registry, and `EnableDiscovery = false` would take the app
   out of that registry too, leaving every launched GUI unfindable by the MCP sidecars. Until 11.21 is in the sibling
   checkout, a Debug build against the sibling SOURCES (the GPU inspector, and the TUI's console inspector alike)
-  keeps its multicast bind on UDP 47892, from the path it was already allowed through; a build in a worktree under
+  binds multicast on UDP 47892 on every interface, which raises the firewall prompt from ANY new path (the bind check's
+  temporary copy included, so `tools/check-local-only-binds.ps1` refuses such a build before starting anything, exit
+  2, saying to pull `../DIR.Lib`; its `-SelfTest` checks that gate); a build in a worktree under
   `.claude/worktrees/` finds no siblings (`UseLocalSiblings` is empty), so it has no inspector at all.
   `LocalOnlyModeSourceTests.NoDebugInspectorIsToldToStopAnsweringDiscovery` keeps it so.
 - **A new bind must ask the mode**: `LocalOnlyModeSourceTests.EveryNetworkBindInTheShippingCodeIsAKnownOneGatedOnTheMode`

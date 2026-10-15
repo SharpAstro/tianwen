@@ -45,8 +45,8 @@ screenshot-poll-and-OCR**. Three pieces compose:
    **The inspector needs a build against the sibling SOURCES** (`UseLocalSiblings`): a worktree under
    `.claude/worktrees/` finds none, so its Debug GUI has no inspector at all and `list_instances` cannot list it. The
    local-only mode (`TIANWEN_LOCAL_ONLY=1`, which `tools/start-app.ps1` sets) leaves the inspector alone: until DIR.Lib
-   11.21 is in the sibling checkout a sibling-source build answers multicast on UDP 47892 as before, from its
-   already-allowed path, and from 11.21 its discovery is a socket-free file registry
+   11.21 is in the sibling checkout a sibling-source Debug build binds multicast on UDP 47892, which prompts from any
+   new path (a copy, a scratch publish), and from 11.21 its discovery is a socket-free file registry
    ([hosting-api.md](hosting-api.md), "Local-only"). It gives six surfaces:
    - **Describe/state snapshot** (the `AppState` block): `activeTab`, `profile`, `sessionRunning`, `phase`,
      `mountConnected/Name/RaJ2000/DecJ2000/mountSlewing/mountTracking`, `lastNotification`, sky-map viewport,
