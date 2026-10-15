@@ -6,8 +6,10 @@
 // radii, so a point's west longitude is -atan2(y, x). Every pixel is the mean of 3 x 3 rays, each along -toward from the screen
 // point it starts at: the oblate spheroid met first, Minnaert's law (mu0^k mu^(k-1)), the colour map at the point's planetographic
 // latitude and west longitude, and with Saturn's rings the ring-plane crossing in depth order, the globe's shadow on the rings and
-// theirs on the globe. Coverage is the alpha, straight (not premultiplied), as every host blends it. A copy of this file, for
-// WebGL 2, is src/TianWen.UI.Web/SkyMap/WebGlPlanetBodies.cs: change both.
+// theirs on the globe. Coverage is the alpha, straight (not premultiplied), as every host blends it.
+//
+// The WebGL 2 twin is src/TianWen.UI.Web/SkyMap/WebGlPlanetBodies.cs. Everything between the two "The trace" markers below is the
+// SAME TEXT there, which PlanetBodyGpuTests checks: only the declarations above the first marker differ between the two.
 
 layout(push_constant) uniform Body {
     vec4 disc;        // centre x, y (px, y down), equatorial radius (px), extent (equatorial radii: the rings' outer edge, or 1)
@@ -21,11 +23,17 @@ layout(push_constant) uniform Body {
 
 // The colour map: planetographic latitude and WEST longitude, row 0 the north edge, column 0 at 0 degrees with longitude falling
 // to the right (PlanetMap's convention), one texel per sample, read with texelFetch and interpolated here as PlanetMap.Sample does.
-layout(set = 0, binding = 0) uniform sampler2D map;
+layout(set = 0, binding = 0) uniform sampler2D uTexture;
 
 layout(location = 0) out vec4 FragColor;
 
-const float PI = 3.14159265358979;
+// The pixel's centre on screen, px, y down: Vulkan's framebuffer is y down already. (A varying interpolated across the quad instead
+// put up to 77 more values more than 4 off the CPU on the Adreno X1-85.)
+vec2 screenPixel() {
+    return gl_FragCoord.xy;
+}
+
+// ---- The trace (the same text in WebGlPlanetBodies.cs) ----
 
 // SaturnRings.Main, Saturn's equatorial radius 60268 km: inner and outer edge (km), the lit face's level over the map's mean
 // albedo, the normal optical depth. PlanetBodyGpuTests holds this table to SaturnRings.Main.
@@ -55,7 +63,7 @@ float transmission(float tau, float sinElevation) {
 
 // PlanetMap.Sample, per plane at once: bilinear between sample centres, wrapping in longitude, held at the poles' rows.
 vec3 sampleMap(float latitudeDeg, float westDeg) {
-    ivec2 size = textureSize(map, 0);
+    ivec2 size = textureSize(uTexture, 0);
     float west = mod(westDeg, 360.0);
     float fx = (360.0 - west) * float(size.x) / 360.0 - 0.5;
     float fy = clamp((90.0 - latitudeDeg) * float(size.y) / 180.0 - 0.5, 0.0, float(size.y - 1));
@@ -65,8 +73,8 @@ vec3 sampleMap(float latitudeDeg, float westDeg) {
     int x1 = (x0 + 1) % size.x;
     int y0 = min(int(floor(fy)), size.y - 2);
     float ty = fy - float(y0);
-    vec3 top = mix(texelFetch(map, ivec2(x0, y0), 0).rgb, texelFetch(map, ivec2(x1, y0), 0).rgb, tx);
-    vec3 bottom = mix(texelFetch(map, ivec2(x0, y0 + 1), 0).rgb, texelFetch(map, ivec2(x1, y0 + 1), 0).rgb, tx);
+    vec3 top = mix(texelFetch(uTexture, ivec2(x0, y0), 0).rgb, texelFetch(uTexture, ivec2(x1, y0), 0).rgb, tx);
+    vec3 bottom = mix(texelFetch(uTexture, ivec2(x0, y0 + 1), 0).rgb, texelFetch(uTexture, ivec2(x1, y0 + 1), 0).rgb, tx);
     return mix(top, bottom, ty);
 }
 
@@ -94,13 +102,14 @@ void main() {
     vec3 dir = -toward;
     vec3 dirScaled = vec3(dir.xy, dir.z / q);
     float a = dot(dirScaled, dirScaled);
+    vec2 centre = screenPixel();
 
     vec3 colour = vec3(0.0);
     float coverage = 0.0;
     for (int j = 0; j < 3; j++) {
         for (int i = 0; i < 3; i++) {
-            // gl_FragCoord is the pixel's centre; the rays sit at the centres of its 3 x 3 sub-pixels.
-            vec2 p = gl_FragCoord.xy - 0.5 + (vec2(float(i), float(j)) + 0.5) / 3.0;
+            // The rays sit at the centres of the pixel's 3 x 3 sub-pixels.
+            vec2 p = centre - 0.5 + (vec2(float(i), float(j)) + 0.5) / 3.0;
             vec2 disc = (p - pc.disc.xy) / pc.disc.z;
             vec3 origin = disc.x * right - disc.y * up + start * toward;
 
@@ -164,3 +173,5 @@ void main() {
     }
     FragColor = vec4(clamp(rgb, 0.0, 1.0), coverage / 9.0 * pc.toward.w);
 }
+
+// ---- End of the trace ----

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.IO;
+using System.Linq;
 using System.Numerics;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -148,6 +149,33 @@ public sealed class PlanetBodyGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHelper
             double.Parse(row[4].Value, System.Globalization.CultureInfo.InvariantCulture).ShouldBe(rings[i].OpticalDepth);
         }
         source.ShouldContain($"SaturnEquatorialKm = {SaturnRings.Main.OuterKm / SaturnRings.Main.OuterRadii:F1}");
+    }
+
+    /// <summary>
+    /// The browser's trace is the desktop's, word for word: the text between the two "The trace" markers of <c>planet_body.frag</c> and
+    /// of <c>WebGlPlanetBodies.cs</c>'s fragment source, line by line once each line's indentation is dropped. A fix made in one and not
+    /// the other fails here, which is what the parity above cannot see for the copy no test can run.
+    /// </summary>
+    [Fact]
+    public void TheWebGlTraceIsTheVulkanTrace()
+    {
+        static string[] Trace(string fileName)
+        {
+            var lines = File.ReadAllLines(Path.Combine(AppContext.BaseDirectory, "Shaders", fileName));
+            var start = Array.FindIndex(lines, l => l.Contains("// ---- The trace", StringComparison.Ordinal));
+            var end = Array.FindIndex(lines, l => l.Contains("// ---- End of the trace", StringComparison.Ordinal));
+            start.ShouldBeGreaterThanOrEqualTo(0, $"{fileName} has no start marker");
+            end.ShouldBeGreaterThan(start, $"{fileName} has no end marker");
+            return [.. lines[start..end].Select(l => l.Trim())];
+        }
+        var vulkan = Trace("planet_body.frag");
+        var webGl = Trace("WebGlPlanetBodies.cs.txt");
+        vulkan.Length.ShouldBeGreaterThan(100);
+        for (var i = 0; i < Math.Min(vulkan.Length, webGl.Length); i++)
+        {
+            webGl[i].ShouldBe(vulkan[i], $"line {i + 1} of the trace");
+        }
+        webGl.Length.ShouldBe(vulkan.Length);
     }
 
     private byte[] RenderGpu(in PlanetView view, PlanetColourMap? map, RGBAColor32 flat, RGBAColor32? night, float radius)

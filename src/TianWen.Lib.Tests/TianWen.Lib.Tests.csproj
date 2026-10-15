@@ -79,6 +79,8 @@
              CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\TianWen.UI.Web\SkyMap\WebGlSkyMapPipeline.cs" Link="Shaders\WebGlSkyMapPipeline.cs.txt"
              CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\TianWen.UI.Web\SkyMap\WebGlPlanetBodies.cs" Link="Shaders\WebGlPlanetBodies.cs.txt"
+             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
