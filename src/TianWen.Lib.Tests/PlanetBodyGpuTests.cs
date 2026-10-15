@@ -79,6 +79,7 @@ public sealed class PlanetBodyGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHelper
             Assert.Skip($"Vulkan runtime not available on this host ({gpu.UnavailableReason})");
             return;
         }
+        var ct = TestContext.Current.CancellationToken;
         var view = View(body, observerLat, meridian, sunLat, sunAzimuth, roll);
         Maps.TryGetValue(body, out var map);
         var flat = new RGBAColor32(0xFF, 0xE0, 0xA0, 0xFF);
@@ -92,7 +93,7 @@ public sealed class PlanetBodyGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHelper
             covered += cpuFrame[i] + cpuFrame[i + 1] + cpuFrame[i + 2] > 0 ? 1 : 0;
         }
         output.WriteLine($"{name}: phase {view.ToAspect(default).PhaseAngle:F1} deg, {covered} covered px, worst {worst} of 255, mean {mean:F3}, {over} channel values more than 4 off");
-        await WriteAsync(name, gpuFrame, cpuFrame);
+        await WriteAsync(name, gpuFrame, cpuFrame, ct);
 
         covered.ShouldBeGreaterThan(1000, "the CPU render drew no disc to compare with");
         // Measured on an Adreno X1-85: mean 0.004 at most, at most 3 values more than 4 off, the worst 16, all on a shadow's edge, where a
@@ -124,7 +125,7 @@ public sealed class PlanetBodyGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHelper
         }
         var (_, mean, _) = Compare(frame, cpu);
         output.WriteLine($"Night: {lit} lit px, {blue} with any blue, mean difference from the CPU's {mean:F3}");
-        await WriteAsync("saturn-night", frame, cpu);
+        await WriteAsync("saturn-night", frame, cpu, TestContext.Current.CancellationToken);
         lit.ShouldBeGreaterThan(1000);
         blue.ShouldBe(0);
         mean.ShouldBeLessThan(0.02);
@@ -226,11 +227,10 @@ public sealed class PlanetBodyGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHelper
         return (worst, sum / (a.Length * 3 / 4), over);
     }
 
-    private async Task WriteAsync(string name, byte[] gpuFrame, byte[] cpuFrame)
+    private async Task WriteAsync(string name, byte[] gpuFrame, byte[] cpuFrame, System.Threading.CancellationToken ct)
     {
         var folder = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests", DateTime.Now.ToString("yyyyMMdd"), nameof(PlanetBodyGpuTests));
         Directory.CreateDirectory(folder);
-        var ct = TestContext.Current.CancellationToken;
         await File.WriteAllBytesAsync(Path.Combine(folder, $"{name}-gpu.png"), PngWriter.Encode(gpuFrame, Width, Height), ct);
         await File.WriteAllBytesAsync(Path.Combine(folder, $"{name}-cpu.png"), PngWriter.Encode(cpuFrame, Width, Height), ct);
         output.WriteLine(folder);

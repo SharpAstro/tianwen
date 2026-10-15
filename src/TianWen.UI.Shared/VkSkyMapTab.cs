@@ -1313,6 +1313,8 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// <summary>The ray-traced bodies, for the tests that count their uploads.</summary>
     public VkPlanetBodies? PlanetBodies => _planetBodies;
 
+    protected override bool TracesPlanetBodies => true;
+
     protected override bool DrawPlanetBody(in PlanetView view, float x, float y, float radiusPx, PlanetColourMap? map, int textureVersion,
         RGBAColor32 flat, RGBAColor32? nightTint)
     {
