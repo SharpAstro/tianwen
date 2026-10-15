@@ -73,7 +73,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
 
     /// <summary>
     /// What the frames waiting in the hand-off may hold between them, so a large window queues fewer: all 64 of a 640 x 480
-    /// window (1.2 MB a plane), 7 of a 3840 x 2160 one (33 MB). Never fewer than two.
+    /// window (1.2 MB a plane), 8 of a 3840 x 2160 one (33 MB). Never fewer than two.
     /// </summary>
     internal const long VideoHandOffBudgetBytes = 256L << 20;
 
@@ -490,16 +490,8 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                     break;
                 }
 
-                // A stall of the camera's own is one that came after frames (or before the first); a segment a rung started
-                // that never had a frame is that rung failing, not another stall.
-                if (ladder is null || segment.Frames > 0)
-                {
-                    Interlocked.Increment(ref _videoStalls);
-                    Logger.LogWarning("{Camera}'s stream stalled ({Code}), {Since:F2} s after its last frame at {LastFrame:o}",
-                        Name, stall.Code, TimeProvider.GetElapsedTime(stall.LastFrameTimestamp).TotalSeconds, stall.LastFrameAt);
-                }
-
-                // The gap a recovery leaves runs from the last frame before the latest stall.
+                // The gap a recovery leaves runs from the last frame before the latest stall (counted and logged by its
+                // segment as it saw it).
                 var healthy = ladder is null || stall.Healthy;
                 ladder = stall;
                 if (healthy)
@@ -774,6 +766,14 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                 {
                     var healthy = segment.Frames > 0 && TimeProvider.GetElapsedTime(firstFrame) >= VideoHealthyAfter;
                     segment.Stall = new VideoStall(code, lastFrame, lastFrameAt, healthy);
+                    // A stall of the camera's own is one that came after frames (or before the first); a segment a rung
+                    // started that never had a frame is that rung failing, which the stream says instead.
+                    if (segment.Recovering is null || segment.Frames > 0)
+                    {
+                        Interlocked.Increment(ref _videoStalls);
+                        Logger.LogWarning("{Camera}'s stream stalled ({Code}), {Since:F2} s after its last frame at {LastFrame:o}: stopping it",
+                            Name, code, TimeProvider.GetElapsedTime(lastFrame).TotalSeconds, lastFrameAt);
+                    }
                     return;
                 }
 
