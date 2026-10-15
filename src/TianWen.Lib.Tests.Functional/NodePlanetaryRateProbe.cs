@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -15,7 +16,6 @@ using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.ToupTek;
 using TianWen.Lib.Imaging;
-using TianWen.Lib.Sequencing;
 using TianWen.Lib.Tests;
 using TianWen.UI.Abstractions;
 using Xunit;
@@ -74,6 +74,9 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
 
     private static readonly TimeSpan EndpointSampleEvery = TimeSpan.FromSeconds(1);
 
+    /// <summary>How long a start may take to reach its first frame: the node's claim, the camera's start, a first state read.</summary>
+    private static readonly TimeSpan StartBudget = TimeSpan.FromSeconds(30);
+
     private static PlanetaryRequestDto Request => new PlanetaryRequestDto
     {
         OtaIndex = 0,
@@ -104,18 +107,21 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         var camera = device.DeviceUri;
         var wanted = IntFromEnvironment("TIANWEN_TOUPTEK_RECORD_RUNS", 3);
         var duration = TimeSpan.FromSeconds(IntFromEnvironment("TIANWEN_TOUPTEK_RECORD_SECONDS", 60));
+        SamplerSeesThisProcesssOwnSockets();
 
-        var (inProcessBefore, centred) = await InProcessAsync("in process, before", duration, ct);
+        var (inProcessBefore, centred) = await InProcessAsync("in process, before", device, duration, ct);
 
         var runs = new List<Run>();
         var endpoints = new HashSet<OwnedEndpoints.Endpoint>();
         List<NodeStream> streams;
+        int[] watched;
         var kept = await KeptNode.StartAsync(ct, dataRoot => SeedProfileAsync(dataRoot, camera, ct), fakeDevicesOnly: false);
         try
         {
             var nodePid = (await kept.Client.GetNodeAsync(ct)).Value.ShouldNotBeNull("the node answers").ProcessId;
-            int[] watched = [Environment.ProcessId, kept.Keeper.Id, nodePid];
-            output.WriteLine($"node pid {nodePid}, keeper pid {kept.Keeper.Id}, this client's pid {Environment.ProcessId}, data root {kept.DataRoot}");
+            watched = [Environment.ProcessId, kept.Keeper.Id, nodePid];
+            output.WriteLine($"node pid {nodePid}, keeper pid {kept.Keeper.Id}, this client's pid {Environment.ProcessId}, data root {kept.DataRoot}"
+                + $"{(Environment.GetEnvironmentVariable("DOTNET_gcServer") is { } gcServer ? $", DOTNET_gcServer={gcServer} (the node inherits it)" : "")}");
 
             var gui = GuiNodeHarness.ComposeClient(output);
             try
@@ -154,7 +160,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
             await kept.DisposeAsync();
         }
 
-        var (inProcessAfter, _) = await InProcessAsync("in process, after", duration, ct);
+        var (inProcessAfter, _) = await InProcessAsync("in process, after", device, duration, ct);
 
         // The node's streams are its runs, in order.
         streams.Count.ShouldBe(runs.Count, "one video stream of the node's camera for each node recording");
@@ -195,7 +201,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
             output.WriteLine($"  before it: {run.Quiet}");
         }
         output.WriteLine("");
-        output.WriteLine($"Endpoints the node (pid {string.Join(", ", endpoints.Select(static e => e.Pid).Distinct())}) and this client owned, sampled every "
+        output.WriteLine($"TCP listeners and UDP endpoints of the node, its keeper and this client (pids {string.Join(", ", watched)}), sampled every "
             + $"{EndpointSampleEvery.TotalSeconds:F0} s through the node part:");
         foreach (var endpoint in endpoints.OrderBy(static e => e.Pid).ThenBy(static e => e.Protocol).ThenBy(static e => e.Port))
         {
@@ -220,11 +226,280 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         }
     }
 
+    /// <summary>Set to 1 (beside <see cref="ToupTekFrameRateProbe.GateVar"/>) for the real GUI's evidence run, which a person drives.</summary>
+    private const string GuiEvidenceVar = "TIANWEN_TOUPTEK_GUI_EVIDENCE";
+
+    /// <summary>The <c>tianwen-gui</c> executable the evidence run opens.</summary>
+    private const string GuiUnderTestVar = "TIANWEN_GUI_UNDER_TEST";
+
+    /// <summary>Where the evidence run writes its PNG.</summary>
+    private const string GuiEvidenceOutVar = "TIANWEN_GUI_EVIDENCE_OUT";
+
+    private static readonly TimeSpan ClicksRepeatEvery = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Evidence, not a gate: the REAL GUI window, local-only, on its own node (as the gate's), placed on the left half of the
+    /// screen, its planetary mode showing the ToupTek live while the node records a minute; the window captured by
+    /// <c>PrintWindow</c> by its pid to a PNG, and the SER's rate read back. The gate does not cover the renderer's draw cost;
+    /// this run does. A person makes the clicks the GUI has no other way to take (the Live Session tab, the Planetary mode
+    /// pill, the panel's settings and Start), which this prints; the jog to the Saturn window and the recording are sent from
+    /// here (the GUI has no Record control yet, #1344). <c>tools/planetary-gui-evidence.ps1</c> builds and runs it.
+    /// </summary>
+    [Fact(Timeout = 1_800_000)]
+    public async Task TheRealGuiWindowShowsTheCaptureLiveWhileTheNodeRecords()
+    {
+        Assert.SkipUnless(Environment.GetEnvironmentVariable(GateVar) == "1", $"{GateVar} is not 1 (this drives the attached ToupTek camera)");
+        Assert.SkipUnless(Environment.GetEnvironmentVariable(GuiEvidenceVar) == "1", $"{GuiEvidenceVar} is not 1 (a person drives this one: tools/planetary-gui-evidence.ps1)");
+        var guiPath = Environment.GetEnvironmentVariable(GuiUnderTestVar) is { Length: > 0 } named && File.Exists(named)
+            ? named : throw new InvalidOperationException($"{GuiUnderTestVar} names no tianwen-gui executable");
+        var evidence = Directory.CreateDirectory(Environment.GetEnvironmentVariable(GuiEvidenceOutVar) is { Length: > 0 } folder
+            ? folder : throw new InvalidOperationException($"{GuiEvidenceOutVar} names no folder for the PNG")).FullName;
+        var ct = TestContext.Current.CancellationToken;
+        var device = new ToupTekDeviceSource().RegisteredDevices(DeviceType.Camera).FirstOrDefault();
+        Assert.SkipWhen(device is null, "no ToupTek camera attached");
+        var camera = device.DeviceUri;
+        var duration = TimeSpan.FromSeconds(IntFromEnvironment("TIANWEN_TOUPTEK_RECORD_SECONDS", 60));
+
+        // Where a 640 x 480 stream starts (centred), read off the camera in this process before the node holds it.
+        RoiRect centred;
+        {
+            var (probeCamera, _, services) = await ToupTekFrameRateProbe.ConnectAsync(output, LogLevel.Warning, device);
+            await using (services)
+            {
+                try
+                {
+                    var constraints = probeCamera.RoiConstraints;
+                    centred = constraints.Snap(RoiRect.Centered(constraints.MaxWidth, constraints.MaxHeight, RoiWidth, RoiHeight));
+                }
+                finally
+                {
+                    await probeCamera.DisconnectAsync(ct);
+                }
+            }
+        }
+
+        var endpoints = new HashSet<OwnedEndpoints.Endpoint>();
+        string[] streamLines;
+        Process? gui = null;
+        SerRateReadBack ser;
+        int bodyDropped, diskDropped;
+        string load, quiet, placed, png;
+        var kept = await KeptNode.StartAsync(ct, dataRoot => SeedProfileAsync(dataRoot, camera, ct), fakeDevicesOnly: false);
+        try
+        {
+            var client = kept.Client;
+            var nodePid = (await client.GetNodeAsync(ct)).Value.ShouldNotBeNull("the node answers").ProcessId;
+            await NodeWait.UntilTheJobSucceedsAsync(client, await client.ConnectDeviceAsync(camera, ct), ct);
+
+            var start = new ProcessStartInfo(guiPath)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                WorkingDirectory = Path.GetDirectoryName(guiPath),
+            };
+            start.Environment[TianWenDataRoot.EnvironmentVariable] = kept.DataRoot;
+            start.Environment[TianWen.Hosting.Api.NodeSocket.EnvironmentVariable] = kept.SocketPath;
+            start.Environment["TIANWEN_LOCAL_ONLY"] = "1";
+            start.Environment["TIANWEN_GUI_SINGLE_INSTANCE"] = "0";
+            gui = Process.Start(start) ?? throw new InvalidOperationException($"{guiPath} did not start");
+            // What the window says on its stdout and stderr shows here, in the launcher's own window.
+            gui.OutputDataReceived += (_, line) => Echo("gui", line.Data);
+            gui.ErrorDataReceived += (_, line) => Echo("gui stderr", line.Data);
+            gui.BeginOutputReadLine();
+            gui.BeginErrorReadLine();
+            int[] watched = [Environment.ProcessId, kept.Keeper.Id, nodePid, gui.Id];
+            output.WriteLine($"tianwen-gui pid {gui.Id} on node pid {nodePid} (keeper {kept.Keeper.Id}), local-only, data root {kept.DataRoot}");
+
+            var window = await GuiWindow.PlaceOnLeftHalfAsync(gui, TimeSpan.FromSeconds(60), ct) ?? throw new InvalidOperationException("the GUI showed no window");
+            placed = window.Placed;
+            output.WriteLine($"the GUI's window is {placed}");
+
+            // The person's part: until the node streams the Saturn window's size and depth, started from the GUI.
+            var asked = TimeSpan.MinValue;
+            var clock = Stopwatch.StartNew();
+            PlanetaryStateDto? running = null;
+            while (running is null)
+            {
+                gui.HasExited.ShouldBeFalse("the GUI is still open");
+                OwnedEndpoints.Sample(watched, endpoints);
+                var state = (await client.GetPlanetaryAsync(ct)).Value;
+                if (state is { Running: true, FramesReceived: > 0 } on && (on.RoiWidth, on.RoiHeight, on.BitDepth) == (RoiWidth, RoiHeight, BitDepth.Int8))
+                {
+                    running = on;
+                }
+                else if (clock.Elapsed - asked >= ClicksRepeatEvery)
+                {
+                    asked = clock.Elapsed;
+                    output.WriteLine("");
+                    output.WriteLine("PLEASE, in the TianWen GUI window on the LEFT half of the screen:");
+                    output.WriteLine("  1. open the Live Session tab;");
+                    output.WriteLine("  2. pick Planetary on its mode pill;");
+                    output.WriteLine($"  3. in the planetary panel set Exp {SaturnExposure.TotalMilliseconds} ms, Gain {SaturnGain}, ROI {RoiWidth}x{RoiHeight}, depth 8 bit;");
+                    output.WriteLine("  4. press Start. Nothing else: the jog to the Saturn window and the recording are sent from here.");
+                    if (state is { Running: true } wrong)
+                    {
+                        output.WriteLine($"  The capture runs at {wrong.RoiWidth}x{wrong.RoiHeight}, {wrong.BitDepth}: press Stop, set {RoiWidth}x{RoiHeight} and 8 bit, and Start again.");
+                    }
+                }
+                await SystemTimeProvider.Instance.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            }
+            output.WriteLine($"the GUI started the capture: {running.RoiWidth}x{running.RoiHeight}, {running.BitDepth}; "
+                + $"setting {SaturnExposure.TotalMilliseconds} ms and gain {SaturnGain} and jogging to ({RoiX}, {RoiY})");
+
+            // The panel's own values are what the person set; these make sure of them, and the jog moves the window there.
+            (await client.SetPlanetaryControlsAsync(new PlanetaryControlsDto
+            {
+                ExposureMs = SaturnExposure.TotalMilliseconds,
+                Gain = SaturnGain,
+                JogX = RoiX - centred.X,
+                JogY = RoiY - centred.Y,
+            }, ct)).IsSuccess.ShouldBeTrue();
+            await SystemTimeProvider.Instance.SleepAsync(PanAndWarm, ct);
+
+            quiet = await OtherWorktreeBuilds.WaitUntilQuietAsync(ct);
+            var cpu = HostCpuLoad.Start();
+            var recording = await client.StartPlanetaryRecordingAsync(new PlanetaryRecordRequestDto { DurationSeconds = duration.TotalSeconds }, ct);
+            var droppedFrom = recording.Value.ShouldNotBeNull(recording.Error).DroppedFrames;
+            output.WriteLine($"recording {duration.TotalSeconds:F0} s to {recording.Value.Recording?.Path}");
+            png = Path.Combine(evidence, $"gui-planetary-live-{DateTime.Now:yyyyMMdd-HHmmss}.png");
+            var shot = (Width: 0, Height: 0);
+            int? droppedTo = null;
+            PlanetaryRecordingDto? written = null;
+            var recordClock = Stopwatch.StartNew();
+            while (written is null)
+            {
+                OwnedEndpoints.Sample(watched, endpoints);
+                if (shot.Width == 0 && recordClock.Elapsed >= duration / 2)
+                {
+                    shot = GuiWindow.PrintToPng(window.Window, gui.Id, png);
+                    output.WriteLine($"the window, mid-recording, by PrintWindow: {png} ({shot.Width}x{shot.Height})");
+                }
+                var now = (await client.GetPlanetaryAsync(ct)).Value;
+                if (now?.Recording is { Recording: false } ended)
+                {
+                    droppedTo ??= now.DroppedFrames;
+                    written = ended.Written ? ended : null;
+                }
+                await SystemTimeProvider.Instance.SleepAsync(TimeSpan.FromMilliseconds(500), ct);
+            }
+            load = cpu.Describe();
+            written.FailureReason.ShouldBeNull();
+            bodyDropped = (droppedTo ?? droppedFrom) - droppedFrom;
+            diskDropped = written.FramesDropped;
+            ser = ReadBackAndDelete(written);
+            (await client.StopPlanetaryAsync(ct)).IsSuccess.ShouldBeTrue("the capture stops");
+        }
+        finally
+        {
+            // Everything started here stops by its pid: the window first, then the camera and the node.
+            if (gui is { HasExited: false })
+            {
+                gui.Kill();
+                await gui.WaitForExitAsync(CancellationToken.None);
+            }
+            gui?.Dispose();
+            try
+            {
+                await NodeWait.UntilTheJobSucceedsAsync(kept.Client, await kept.Client.DisconnectDeviceAsync(camera, skipWarmUp: true, ct), ct);
+                await kept.Client.ShutdownNodeAsync(ct);
+                await kept.KeeperExitAsync(ct);
+            }
+            finally
+            {
+                streamLines = kept.Keeper.HasExited ? StreamLines(kept.DataRoot) : [];
+                await kept.DisposeAsync();
+            }
+        }
+
+        output.WriteLine("");
+        output.WriteLine($"The real GUI on the node, at the Saturn window ({RoiWidth}x{RoiHeight} at {RoiX}, {RoiY}), 8 bits, {SaturnExposure.TotalMilliseconds} ms, "
+            + $"gain {SaturnGain}, {duration.TotalSeconds:F0} s: {ser.Fps:F1} fps off the SER, which the gate's bar ({Bar}) would {(ser.Fps >= Bar ? "pass" : "MISS")}");
+        output.WriteLine($"  {ser}");
+        output.WriteLine($"  body dropped {bodyDropped} and disk dropped {diskDropped} in the recording");
+        output.WriteLine($"  {load}");
+        output.WriteLine($"  before it: {quiet}");
+        output.WriteLine($"  the window was {placed}; its picture: {png}");
+        output.WriteLine("  the node's streams, from its log:");
+        foreach (var line in streamLines)
+        {
+            output.WriteLine($"    {line}");
+        }
+        output.WriteLine("  TCP listeners and UDP endpoints of the node, its keeper, the GUI and this process:");
+        foreach (var endpoint in endpoints.OrderBy(static e => e.Pid).ThenBy(static e => e.Protocol).ThenBy(static e => e.Port))
+        {
+            output.WriteLine($"    {endpoint}");
+        }
+        endpoints.ShouldAllBe(static e => e.IsLoopback, "no socket off loopback (TIANWEN_LOCAL_ONLY): nothing the firewall would ask about");
+    }
+
+    private void Echo(string what, string? line)
+    {
+        if (line is null)
+        {
+            return;
+        }
+        try
+        {
+            output.WriteLine($"{what}: {line}");
+        }
+        catch (InvalidOperationException)
+        {
+            // The test has ended; the window's last words go nowhere.
+        }
+    }
+
+    /// <summary>The node's camera stream lines (starts, recoveries, ends) from every server log under its data root.</summary>
+    private static string[] StreamLines(string dataRoot)
+        => [.. ServerLogLines(dataRoot).Where(static line => line.Contains("streaming video", StringComparison.Ordinal)
+            || line.Contains("stream is back", StringComparison.Ordinal) || StreamEnd.IsMatch(line))];
+
+    private static IEnumerable<string> ServerLogLines(string dataRoot)
+    {
+        foreach (var day in Directory.EnumerateDirectories(Path.Combine(dataRoot, "Logs")).Order(StringComparer.Ordinal))
+        {
+            foreach (var file in Directory.EnumerateFiles(day, "Server_*.log").Order(StringComparer.Ordinal))
+            {
+                foreach (var line in File.ReadLines(file))
+                {
+                    yield return line;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// The endpoint tables are read right: a loopback TCP listener and UDP socket this process opens, on IPv4 and IPv6, are
+    /// found, so an empty listing of the node's means it bound nothing.
+    /// </summary>
+    private static void SamplerSeesThisProcesssOwnSockets()
+    {
+        using var tcp4 = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        using var tcp6 = new System.Net.Sockets.TcpListener(System.Net.IPAddress.IPv6Loopback, 0);
+        tcp4.Start();
+        tcp6.Start();
+        using var udp4 = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 0));
+        using var udp6 = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.IPv6Loopback, 0));
+        var seen = new HashSet<OwnedEndpoints.Endpoint>();
+        OwnedEndpoints.Sample([Environment.ProcessId], seen);
+        foreach (var (protocol, local) in new (string, System.Net.EndPoint?)[]
+        {
+            ("TCP listen", tcp4.LocalEndpoint), ("TCP listen", tcp6.LocalEndpoint), ("UDP", udp4.Client.LocalEndPoint), ("UDP", udp6.Client.LocalEndPoint),
+        })
+        {
+            var at = local.ShouldBeOfType<System.Net.IPEndPoint>();
+            seen.ShouldContain(new OwnedEndpoints.Endpoint(Environment.ProcessId, protocol, at.Address, at.Port), $"the sampler finds {protocol} {at}");
+        }
+        tcp4.Stop();
+        tcp6.Stop();
+    }
+
     /// <summary>#1596's arm: a recording through <see cref="Imaging.Planetary.PlanetaryCapture"/> in this process, and the window a stream starts at.</summary>
-    private async Task<(Run Run, RoiRect Centred)> InProcessAsync(string arm, TimeSpan duration, CancellationToken ct)
+    private async Task<(Run Run, RoiRect Centred)> InProcessAsync(string arm, ToupTekDevice device, TimeSpan duration, CancellationToken ct)
     {
         var quiet = await OtherWorktreeBuilds.WaitUntilQuietAsync(ct);
-        var (camera, external, services) = await ToupTekFrameRateProbe.ConnectAsync(output, LogLevel.Information);
+        var (camera, external, services) = await ToupTekFrameRateProbe.ConnectAsync(output, LogLevel.Information, device);
         await using var _ = services;
         try
         {
@@ -275,10 +550,11 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         var noted = gui.AppState.Notifications.Length;
         gui.Bus.Post(new StartVideoCaptureSignal(OtaIndex: 0, ExposureMs: SaturnExposure.TotalMilliseconds, Gain: SaturnGain,
             RoiWidth: RoiWidth, RoiHeight: RoiHeight, BitDepth: BitDepth.Int8));
-        IEnumerable<NotificationEntry> Since() => gui.AppState.Notifications.Skip(noted);
-        await pump.UntilAsync(_ => ValueTask.FromResult(planetary.IsCapturing && planetary.Capture.FramesReceived > 0
-            || Since().Any(static n => n.Severity >= NotificationSeverity.Warning)), ct);
-        Since().ShouldNotContain(static n => n.Severity >= NotificationSeverity.Warning, string.Join("; ", Since().Select(static n => n.Message)));
+        // A refused start is a notification, and the planner, with no mount and so no site transform here, posts its own:
+        // the capture running is the answer, the notifications since the post the words when it is not.
+        var starting = System.Diagnostics.Stopwatch.StartNew();
+        await pump.UntilAsync(_ => ValueTask.FromResult(planetary.IsCapturing && planetary.Capture.FramesReceived > 0 || starting.Elapsed > StartBudget), ct);
+        planetary.IsCapturing.ShouldBeTrue(string.Join("; ", gui.AppState.Notifications.Skip(noted).Select(static n => $"{n.Severity}: {n.Message}")));
         planetary.Capture.JogRoi(jog.X, jog.Y);
         await pump.ForAsync(PanAndWarm, ct);
         var shown = planetary.Source.ShouldBeOfType<LiveFramePreviewSource>("RAW shows the camera's live frame");
@@ -361,31 +637,24 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         var streams = new List<NodeStream>();
         (int X, int Y)? start = null;
         var recoveries = new List<string>();
-        var logs = Path.Combine(dataRoot, "Logs");
-        foreach (var day in Directory.EnumerateDirectories(logs).Order(StringComparer.Ordinal))
+        foreach (var line in ServerLogLines(dataRoot))
         {
-            foreach (var file in Directory.EnumerateFiles(day, "Server_*.log").Order(StringComparer.Ordinal))
+            if (StreamStart.Match(line) is { Success: true } started)
             {
-                foreach (var line in File.ReadLines(file))
-                {
-                    if (StreamStart.Match(line) is { Success: true } started)
-                    {
-                        start = (int.Parse(started.Groups["x"].Value, CultureInfo.InvariantCulture), int.Parse(started.Groups["y"].Value, CultureInfo.InvariantCulture));
-                        recoveries.Clear();
-                    }
-                    else if (Recovery.Match(line) is { Success: true } recovery)
-                    {
-                        recoveries.Add(recovery.Value);
-                    }
-                    else if (StreamEnd.Match(line) is { Success: true } ended && start is { } at)
-                    {
-                        streams.Add(new NodeStream(at.X, at.Y, ended.Groups["counts"].Value,
-                            long.Parse(ReplacedCount.Match(line).Groups["replaced"].Value, CultureInfo.InvariantCulture),
-                            int.Parse(ended.Groups["stalls"].Value, CultureInfo.InvariantCulture),
-                            int.Parse(ended.Groups["recovered"].Value, CultureInfo.InvariantCulture), [.. recoveries]));
-                        start = null;
-                    }
-                }
+                start = (int.Parse(started.Groups["x"].Value, CultureInfo.InvariantCulture), int.Parse(started.Groups["y"].Value, CultureInfo.InvariantCulture));
+                recoveries.Clear();
+            }
+            else if (Recovery.Match(line) is { Success: true } recovery)
+            {
+                recoveries.Add(recovery.Value);
+            }
+            else if (StreamEnd.Match(line) is { Success: true } ended && start is { } at)
+            {
+                streams.Add(new NodeStream(at.X, at.Y, ended.Groups["counts"].Value,
+                    long.Parse(ReplacedCount.Match(line).Groups["replaced"].Value, CultureInfo.InvariantCulture),
+                    int.Parse(ended.Groups["stalls"].Value, CultureInfo.InvariantCulture),
+                    int.Parse(ended.Groups["recovered"].Value, CultureInfo.InvariantCulture), [.. recoveries]));
+                start = null;
             }
         }
         return streams;

@@ -296,11 +296,14 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
     /// The attached ToupTek camera, connected in this process and set to the Saturn window's gain, size and origin; skips
     /// the test unless <see cref="GateVar"/> is 1 and a camera is attached.
     /// </summary>
-    internal static async Task<(ToupTekCameraDriver Camera, FakeExternal External, ServiceProvider Services)> ConnectAsync(ITestOutputHelper output, LogLevel level)
+    /// <param name="device">The camera when the caller has found it already: an enumeration OPENS every camera to read its
+    /// serial, so a caller that enumerated passes what it found rather than opening the camera twice in a row.</param>
+    internal static async Task<(ToupTekCameraDriver Camera, FakeExternal External, ServiceProvider Services)> ConnectAsync(ITestOutputHelper output, LogLevel level,
+        ToupTekDevice? device = null)
     {
         Assert.SkipUnless(Environment.GetEnvironmentVariable(GateVar) == "1", $"{GateVar} is not 1 (this drives the attached ToupTek camera)");
         var ct = TestContext.Current.CancellationToken;
-        var device = new ToupTekDeviceSource().RegisteredDevices(DeviceType.Camera).FirstOrDefault();
+        device ??= new ToupTekDeviceSource().RegisteredDevices(DeviceType.Camera).FirstOrDefault();
         Assert.SkipWhen(device is null, "no ToupTek camera attached");
 
         var external = new FakeExternal(output);
