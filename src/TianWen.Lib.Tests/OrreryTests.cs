@@ -1175,6 +1175,63 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Tab.State.Orrery.Scale.ShouldBe(OrreryScale.True);
     }
 
+    /// <summary>
+    /// With a planet in focus the strip offers ONE toggle naming what the camera looks at: a press where it was painted centres the
+    /// camera on the planet, which then stays at the view's centre as time runs, and a second press puts the Sun back there. The
+    /// camera only looks at another point, so the backdrop's stars (its rotation alone) do not move.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheCentreToggleCentresTheCameraOnTheFocusedPlanet()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Select(rig, CatalogIndex.Jupiter);
+        rig.Tab.OpenOrrery();
+        rig.Render();
+        var (cx, cy) = (rig.Content.X + (rig.Content.Width / 2), rig.Content.Y + (rig.Content.Height / 2));
+        var view = rig.Tab.LastOrreryBackdrop.ShouldNotBeNull().View;
+        PaintedTexts(rig).ShouldContain("Centre: Sun");
+
+        void PressCentre()
+        {
+            var button = PaintedButtons(rig, "OrreryCentre")[0];
+            rig.Router.Handle(new InputEvent.MouseDown(button.X + (button.Width / 2), button.Y + (button.Height / 2)));
+            rig.Router.Handle(new InputEvent.MouseUp(button.X + (button.Width / 2), button.Y + (button.Height / 2)));
+            rig.Render();
+        }
+        (float X, float Y) Drawn(CatalogIndex body) => rig.Tab.OrreryDrawn.Single(d => d.Index == body) is var d ? (d.X, d.Y) : default;
+
+        PressCentre();
+        PaintedTexts(rig).ShouldContain("Centre: Jupiter");
+        var jupiter = Drawn(CatalogIndex.Jupiter);
+        output.WriteLine($"centred: Jupiter at ({jupiter.X:F1}, {jupiter.Y:F1}), the view's centre ({cx}, {cy})");
+        jupiter.X.ShouldBe(cx, 1f);
+        jupiter.Y.ShouldBe(cy, 1f);
+        rig.Tab.LastOrreryBackdrop.ShouldNotBeNull().View.ShouldBe(view);
+
+        rig.Tab.State.TimeOffset = TimeSpan.FromDays(60);
+        rig.Render();
+        jupiter = Drawn(CatalogIndex.Jupiter);
+        jupiter.X.ShouldBe(cx, 1f, "the camera did not follow Jupiter");
+        jupiter.Y.ShouldBe(cy, 1f, "the camera did not follow Jupiter");
+
+        PressCentre();
+        PaintedTexts(rig).ShouldContain("Centre: Sun");
+        var sun = Drawn(CatalogIndex.Sol);
+        sun.X.ShouldBe(cx, 1f);
+        sun.Y.ShouldBe(cy, 1f);
+    }
+
+    /// <summary>With the Sun in focus, or nothing, there is nothing else to centre on: no toggle.</summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheSunInFocusOffersNoCentreToggle()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Select(rig, CatalogIndex.Sol);
+        rig.Tab.OpenOrrery();
+        rig.Render();
+        rig.Tab.GetCapturedLayout().Any(n => n.Node.Hit is HitResult.ButtonHit { Action: "OrreryCentre" }).ShouldBeFalse();
+    }
+
     private static string[] PaintedTexts(Rig rig)
         => [.. rig.Tab.GetCapturedLayout()
             .Select(a => a.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } ? text.Value : null)
