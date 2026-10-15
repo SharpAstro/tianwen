@@ -208,6 +208,203 @@ internal static class OtherWorktreeBuilds
 }
 
 /// <summary>
+/// A GUI window an evidence run opens: put on the LEFT half of the primary monitor's work area, full height, never over the
+/// right half (where another program may need to be seen), as <c>tools/check-local-only-binds.ps1</c> places it; and
+/// captured by <c>PrintWindow</c> with <c>PW_RENDERFULLCONTENT</c>, which reads that window alone, swapchain included, with no
+/// activation and no screen copy (a screen copy photographs whatever is on top).
+/// </summary>
+internal static partial class GuiWindow
+{
+    /// <summary>The process's main window once it has one, placed on the left half; null when none appeared within <paramref name="budget"/>.</summary>
+    public static async Task<(nint Window, string Placed)?> PlaceOnLeftHalfAsync(Process process, TimeSpan budget, CancellationToken cancellationToken)
+    {
+        var clock = Stopwatch.StartNew();
+        while (clock.Elapsed < budget && !process.HasExited)
+        {
+            process.Refresh();
+            if (process.MainWindowHandle != nint.Zero)
+            {
+                return (process.MainWindowHandle, PlaceOnLeftHalf(process.MainWindowHandle));
+            }
+            await SystemTimeProvider.Instance.SleepAsync(TimeSpan.FromMilliseconds(50), cancellationToken);
+        }
+        return null;
+    }
+
+    private static string PlaceOnLeftHalf(nint window)
+    {
+        var previous = SetThreadDpiAwarenessContext(PerMonitorAwareV2);
+        try
+        {
+            var area = default(Rect);
+            SystemParametersInfo(SpiGetWorkArea, 0, ref area, 0);
+            if (IsZoomed(window))
+            {
+                ShowWindow(window, SwShowNoActivate);
+            }
+            var half = (area.Right - area.Left) / 2;
+            SetWindowPos(window, nint.Zero, area.Left, area.Top, half, area.Bottom - area.Top, SwpNoZOrder | SwpNoActivate);
+            GetWindowRect(window, out var placed);
+            var onTheLeft = placed.Right <= area.Left + half + 16; // the invisible resize border may reach a few pixels past
+            return $"{(onTheLeft ? "on" : "NOT on")} the left half: ({placed.Left},{placed.Top})-({placed.Right},{placed.Bottom}) "
+                + $"of the work area ({area.Left},{area.Top})-({area.Right},{area.Bottom})";
+        }
+        finally
+        {
+            SetThreadDpiAwarenessContext(previous);
+        }
+    }
+
+    /// <summary>
+    /// Writes <paramref name="window"/>, which must belong to <paramref name="pid"/>, to <paramref name="path"/> as a PNG;
+    /// returns its size in physical pixels.
+    /// </summary>
+    public static (int Width, int Height) PrintToPng(nint window, int pid, string path)
+    {
+        GetWindowThreadProcessId(window, out var owner);
+        if (owner != pid)
+        {
+            throw new InvalidOperationException($"the window belongs to process {owner}, not {pid}: nothing is captured");
+        }
+
+        var previous = SetThreadDpiAwarenessContext(PerMonitorAwareV2);
+        var screen = GetDC(nint.Zero);
+        var dc = CreateCompatibleDC(screen);
+        var bitmap = nint.Zero;
+        var selected = nint.Zero;
+        try
+        {
+            GetWindowRect(window, out var rect);
+            var (width, height) = (rect.Right - rect.Left, rect.Bottom - rect.Top);
+            var header = new BitmapInfoHeader
+            {
+                Size = Marshal.SizeOf<BitmapInfoHeader>(),
+                Width = width,
+                Height = -height, // top-down rows
+                Planes = 1,
+                BitCount = 32,
+            };
+            bitmap = CreateDIBSection(dc, ref header, 0, out var bits, nint.Zero, 0);
+            if (bitmap == nint.Zero)
+            {
+                throw new InvalidOperationException($"no {width}x{height} bitmap to print the window into");
+            }
+            selected = SelectObject(dc, bitmap);
+            if (!PrintWindow(window, dc, PwRenderFullContent))
+            {
+                throw new InvalidOperationException("PrintWindow refused the window");
+            }
+
+            var bgra = new byte[width * height * 4];
+            Marshal.Copy(bits, bgra, 0, bgra.Length);
+            for (var i = 0; i < bgra.Length; i += 4)
+            {
+                (bgra[i], bgra[i + 2]) = (bgra[i + 2], bgra[i]);
+                bgra[i + 3] = 255;
+            }
+            System.IO.File.WriteAllBytes(path, SharpAstro.Png.PngWriter.Encode(bgra, width, height));
+            return (width, height);
+        }
+        finally
+        {
+            if (selected != nint.Zero)
+            {
+                SelectObject(dc, selected);
+            }
+            if (bitmap != nint.Zero)
+            {
+                DeleteObject(bitmap);
+            }
+            DeleteDC(dc);
+            ReleaseDC(nint.Zero, screen);
+            SetThreadDpiAwarenessContext(previous);
+        }
+    }
+
+    private static readonly nint PerMonitorAwareV2 = -4;
+    private const uint SpiGetWorkArea = 0x30;
+    private const int SwShowNoActivate = 4;
+    private const uint SwpNoZOrder = 0x4;
+    private const uint SwpNoActivate = 0x10;
+    private const uint PwRenderFullContent = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Rect
+    {
+        public int Left, Top, Right, Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BitmapInfoHeader
+    {
+        public int Size;
+        public int Width;
+        public int Height;
+        public short Planes;
+        public short BitCount;
+        public int Compression;
+        public int SizeImage;
+        public int XPelsPerMeter;
+        public int YPelsPerMeter;
+        public int ClrUsed;
+        public int ClrImportant;
+    }
+
+    [LibraryImport("user32.dll")]
+    private static partial nint SetThreadDpiAwarenessContext(nint context);
+
+    [LibraryImport("user32.dll", EntryPoint = "SystemParametersInfoW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool SystemParametersInfo(uint action, uint param, ref Rect value, uint winIni);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool IsZoomed(nint window);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool ShowWindow(nint window, int show);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool SetWindowPos(nint window, nint insertAfter, int x, int y, int cx, int cy, uint flags);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetWindowRect(nint window, out Rect rect);
+
+    [LibraryImport("user32.dll")]
+    private static partial uint GetWindowThreadProcessId(nint window, out int processId);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool PrintWindow(nint window, nint dc, uint flags);
+
+    [LibraryImport("user32.dll")]
+    private static partial nint GetDC(nint window);
+
+    [LibraryImport("user32.dll")]
+    private static partial int ReleaseDC(nint window, nint dc);
+
+    [LibraryImport("gdi32.dll")]
+    private static partial nint CreateCompatibleDC(nint dc);
+
+    [LibraryImport("gdi32.dll")]
+    private static partial nint CreateDIBSection(nint dc, ref BitmapInfoHeader header, uint usage, out nint bits, nint section, uint offset);
+
+    [LibraryImport("gdi32.dll")]
+    private static partial nint SelectObject(nint dc, nint gdiObject);
+
+    [LibraryImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool DeleteObject(nint gdiObject);
+
+    [LibraryImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool DeleteDC(nint dc);
+}
+
+/// <summary>
 /// Every TCP listener and UDP endpoint the given processes own, as Windows' own tables hold them (the IP Helper's owner
 /// tables, which <c>Get-NetTCPConnection</c> and <c>Get-NetUDPEndpoint</c> read, and so
 /// <c>tools/check-local-only-binds.ps1</c>): sampled in this process, so a run's socket check starts no program beside it.
