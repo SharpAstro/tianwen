@@ -148,7 +148,7 @@ public partial class SkyMapTab<TSurface>
             .WithGap(4f * dpiScale)
             .CrossCenter()
             .PadX(padX)
-            .WStarUpToContent(min: TimeLabelMinEm * fontSize)
+            .WStarUpToContent(TimeLabelWeight, min: TimeLabelMinEm * fontSize)
             .HStar()
             .Bg(fill).BgHover(GuiTheme.Hover(fill))
             .Clickable(new HitResult.ButtonHit(TimeMenuAction), _ => OpenTimeMenu(_timeButtonRect, fontSize)));
@@ -163,6 +163,13 @@ public partial class SkyMapTab<TSurface>
 
     /// <summary>The narrowest the time button gives way to under pressure, in ems of its font: the date's year and month.</summary>
     internal const float TimeLabelMinEm = 4f;
+
+    /// <summary>
+    /// The time button's weight against a strip's other content-capped labels (each 1): under pressure it gives way half as fast,
+    /// so at 1.5x on a 900 px orrery strip it keeps its whole date and time and only the offset trims (at weight 1 it trimmed
+    /// into the date, #1584).
+    /// </summary>
+    internal const float TimeLabelWeight = 2f;
 
     /// <summary>The time controls (<see cref="BuildTimeControls"/>) as one group, for a strip that arranges them as a unit.</summary>
     private static Layout.Node TimeControlsGroup(ImmutableArray<Layout.Node> controls, float dpiScale)

@@ -762,6 +762,18 @@ namespace TianWen.UI.Abstractions
         internal float StripContentWidth(Layout.Node node)
             => Layout.Engine.Measure(node, new Layout.Size<float>(float.MaxValue, float.MaxValue), MeasureContext(scale: DesignScale.One)).Width;
 
+        /// <summary>The text a strip leaf shows in its arranged width: what the painter's own fit (its <see cref="TextTrim"/>) makes of
+        /// it, so a test reads a trimmed label as drawn.</summary>
+        internal string StripShownText(Layout.ArrangedNode<float> arranged)
+        {
+            if (arranged.Node is not Layout.Node.Leaf { Content: Layout.Content.Text text })
+            {
+                return "";
+            }
+            var ctx = MeasureContext(scale: DesignScale.One);
+            return TextFit.ForWidth(Renderer, text.Value, ctx.FontPath, ctx.Fallback, text.FontSize * ctx.FontScale, arranged.Bounds.Width, text.Trim).Text;
+        }
+
         private void SwitchOrreryScale(OrreryScale scale)
         {
             if (State.Orrery.Scale == scale)

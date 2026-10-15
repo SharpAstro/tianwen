@@ -1255,6 +1255,18 @@ public sealed class OrreryTests(ITestOutputHelper output)
             (bounds.X + bounds.Width).ShouldBeLessThanOrEqualTo(Width + 0.5f, $"{action} ends right of the view");
         }
 
+        // The time buttons are pushed right by the hint, so the last one ends at the strip's right padding whatever the labels do.
+        var lastRight = buttons.Max(b => b.Bounds.X + b.Bounds.Width);
+        lastRight.ShouldBe(Width - (8f * dpiScale), 0.5f, "the last button moved off the strip's right edge");
+
+        // The time is weighted first: at 1.5x it still shows its whole date and time (only the offset may trim).
+        var timeLeaf = rig.Tab.GetCapturedLayout()
+            .Single(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } && text.Value.StartsWith("2028-", StringComparison.Ordinal));
+        var dateTime = ((Layout.Content.Text)((Layout.Node.Leaf)timeLeaf.Node).Content).Value[..16];
+        var shownTime = rig.Tab.StripShownText(timeLeaf);
+        output.WriteLine($"the time shows \"{shownTime}\"");
+        shownTime.ShouldStartWith(dateTime, Case.Sensitive, "the time is trimmed into its date and time");
+
         // At 1.0x each label reads in full; at 1.5x the row is short, so each gives way (narrower than its content) and stays in view.
         string[] labels = ["Distances: auto", "Centre: ", "2028-"];
         foreach (var label in labels)
@@ -1266,6 +1278,8 @@ public sealed class OrreryTests(ITestOutputHelper output)
             if (dpiScale == 1f)
             {
                 bounds.Width.ShouldBeGreaterThanOrEqualTo(content - 0.5f, $"\"{label}\" is trimmed though the strip has room");
+                var leaf = new Layout.ArrangedNode<float>(node, bounds);
+                rig.Tab.StripShownText(leaf).ShouldBe(((Layout.Content.Text)((Layout.Node.Leaf)node).Content).Value, $"\"{label}\" is drawn trimmed");
             }
             else
             {
