@@ -36,7 +36,8 @@ namespace TianWen.Lib.Devices.DAL;
 /// "Video at the Saturn window on the ToupTek (measured 2026-10-15)".</para>
 /// <para><b>A stalled stream is brought back, cheapest first, and given up only when nothing does.</b> A body that stops
 /// sending (any answer from the frame call but a frame, <see cref="CMOSErrorCode.Timeout"/> or
-/// <see cref="CMOSErrorCode.CameraRemoved"/>) is restarted on the same handle; if that brings no frame, closed and
+/// <see cref="CMOSErrorCode.CameraRemoved"/>, or nothing but <see cref="CMOSErrorCode.Timeout"/> for longer than
+/// <see cref="VideoSilenceLimit"/>) is restarted on the same handle; if that brings no frame, closed and
 /// opened again; if that brings none, reset as a replug would (<see cref="INativeDeviceInfo.CanResetDevice"/>), the same
 /// reset and restore a lost single exposure gets (<c>DALCameraDriver.Recovery.cs</c>). ToupTek.SDK measured the order on a
 /// G3M678M (2026-10-15): a restart undid 10 of 11 stalls in about 6.5 s, the eleventh needed the reset, 30.4 s in all,
@@ -84,11 +85,14 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
     internal static readonly TimeSpan VideoHealthyAfter = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// How long a stream that has just been brought back is given for its first frame before the rung counts as failed. A
-    /// ToupTek body that is still dead says so itself, its no-packet timeout firing at the exposure plus 1 s; this catches
-    /// one that goes silent instead.
+    /// How long a stream may go without a frame, every frame call answering Timeout, before it counts as stalled: twice
+    /// the exposure plus 1 s, and never under 2 s. A ToupTek body says it has stalled (GeneralError, its no-packet timeout
+    /// firing at the exposure plus 1 s); a body that goes silent instead, as ASIGetVideoData does with no frame to give,
+    /// would otherwise be waited on for ever. One rule for a stream mid-run and one a rung has just brought back. Counted
+    /// in the frame calls' own waits (<see cref="VideoFrameWait"/> each).
     /// </summary>
-    internal static TimeSpan VideoFirstFrameBudget(TimeSpan exposure) => TimeSpan.FromSeconds(3) + exposure * 2;
+    internal static TimeSpan VideoSilenceLimit(TimeSpan exposure)
+        => exposure * 2 + TimeSpan.FromSeconds(1) is var limit && limit > TimeSpan.FromSeconds(2) ? limit : TimeSpan.FromSeconds(2);
 
     /// <summary>
     /// The longest a settle after a pan lasts (<see cref="IsUnderVideoRoi"/>): past it the next frame is taken as under the
@@ -637,7 +641,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
         var lastFrame = segment.Recovering?.LastFrameTimestamp ?? TimeProvider.GetTimestamp();
         var lastFrameAt = segment.Recovering?.LastFrameAt ?? TimeProvider.GetUtcNow();
         var firstFrame = 0L;
-        var waitedForFirst = TimeSpan.Zero;
+        var silentFor = TimeSpan.Zero;
         var settling = false;
         var settleNext = false;
         var settleStarted = 0L;
@@ -720,6 +724,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                     Volatile.Write(ref _videoWindow, new StrongBox<RoiRect>(window));
                     Volatile.Write(ref _videoWindowSettle, new VideoWindowSettle(stream.JogsApplied, Interlocked.Read(ref _frameSequence) + 1));
                     (settling, settleNext) = (false, false);
+                    silentFor = TimeSpan.Zero;
                     Logger.LogInformation("{Camera} streaming video again: {Width}x{Height} at ({X}, {Y}), {Depth}", Name, window.Width, window.Height,
                         window.X, window.Y, bitDepth);
                 }
@@ -770,14 +775,11 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                     (settling, settleNext) = (false, true);
                     continue;
                 }
-                if (code is CMOSErrorCode.Timeout)
+                // No frame in the wait, which is no failure, until the silence passes VideoSilenceLimit: then the body has
+                // stalled though it says no more than Timeout, and it is the same stall, and the same ladder, as one it
+                // reports.
+                if (code is CMOSErrorCode.Timeout && (silentFor += VideoFrameWait) <= VideoSilenceLimit(stream.Exposure))
                 {
-                    if (segment.Recovering is not null && segment.Frames == 0
-                        && (waitedForFirst += VideoFrameWait) >= VideoFirstFrameBudget(stream.Exposure))
-                    {
-                        segment.Stall = new VideoStall(CMOSErrorCode.Timeout, lastFrame, lastFrameAt, Healthy: false);
-                        return;
-                    }
                     continue;
                 }
                 if (code is CMOSErrorCode.CameraRemoved)
@@ -801,6 +803,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                 }
 
                 var frame = DecodeVideoFrame(stream.Buffer, window, bitDepth, stream.Exposure, gain);
+                silentFor = TimeSpan.Zero;
                 lastFrame = TimeProvider.GetTimestamp();
                 lastFrameAt = frame.ImageMeta.ExposureStartTime;
                 if (segment.Frames++ == 0)
