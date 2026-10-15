@@ -226,12 +226,14 @@ namespace TianWen.RemoteClient
         /// Whether a client replaces <paramref name="running"/>, a node of its own wire, with one it starts: one of another
         /// build (<paramref name="anotherBuild"/>) or of another mode than the client would start (<paramref name="clientLocalOnly"/>,
         /// <see cref="LocalOnlyMode"/>), and only while it is idle and no client is attached; never on a named socket. A
-        /// node shared on the LAN is never replaced for its mode alone: it is a rig someone shares, which a local-only
-        /// client must not take away, so it is used as it is and the client says so (<see cref="ModeNote"/>).
+        /// node shared on the LAN is never replaced by a client of the other mode, whatever its build: it is a rig someone
+        /// shares, and the replacement would be local-only, off the LAN (an agent's worktree build is always another
+        /// build). It is used as it is and the client says so (<see cref="ModeNote"/>).
         /// </summary>
         internal static bool Replaces(NodeInfoDto running, bool named, bool anotherBuild, bool clientLocalOnly) =>
             !named && running is { HoldsHardware: false, ClientsAttached: 0 }
-            && (anotherBuild || (running.LocalOnly != clientLocalOnly && !running.IsShared));
+            && !(running.IsShared && running.LocalOnly != clientLocalOnly)
+            && (anotherBuild || running.LocalOnly != clientLocalOnly);
 
         /// <summary>
         /// What a client says about <paramref name="node"/> when it is not in the mode the client would start one in

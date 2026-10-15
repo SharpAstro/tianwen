@@ -264,7 +264,11 @@ public class LocalOnlyModeTests(ITestOutputHelper output)
         LocalNodeLauncher.Replaces(shared, named: false, anotherBuild: false, clientLocalOnly: true)
             .ShouldBeFalse("a shared node is not replaced for its mode");
         LocalNodeLauncher.Replaces(shared, named: false, anotherBuild: true, clientLocalOnly: true)
-            .ShouldBeTrue("one of another build is replaced as it always was");
+            .ShouldBeFalse("nor for its build: the replacement would be local-only, taking the rig off the LAN (every worktree build is another build)");
+        LocalNodeLauncher.Replaces(shared, named: false, anotherBuild: true, clientLocalOnly: false)
+            .ShouldBeTrue("a client of its own mode replaces another build as it always did, and keeps it on the LAN");
+        LocalNodeLauncher.Replaces(Node(localOnly: false), named: false, anotherBuild: true, clientLocalOnly: true)
+            .ShouldBeTrue("an unshared node of another build is replaced as it always was");
         LocalNodeLauncher.ModeNote(shared, clientLocalOnly: true).ShouldNotBeNull().ShouldContain("shares the rig on the LAN");
     }
 
