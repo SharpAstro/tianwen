@@ -34,8 +34,9 @@ namespace TianWen.RemoteClient
         AnotherAccount,
 
         /// <summary>
-        /// A node of another wire version holds hardware (an older one still running a night after an update), so it
-        /// was left alone. The client can mirror it read-only and offer to restart it once the run ends.
+        /// A node of another wire version holds hardware (an older one still running a night after an update), or shares
+        /// the rig on the LAN and is of the other mode (local-only or not), so it was left alone; the latter carries the
+        /// mode note. The client can mirror it read-only and offer to restart it once the run ends.
         /// </summary>
         BusyWithAnotherWire,
 
@@ -180,6 +181,14 @@ namespace TianWen.RemoteClient
                 {
                     return new LocalNode(LocalNodeOutcome.BusyWithAnotherWire, transport, running,
                         $"A node of another version (build {running.Version}) is running the rig; it is left running, and can be restarted once its run ends");
+                }
+                // A shared node of the other mode is a rig someone shares, and this client's replacement would be off the LAN
+                // (as in Replaces): left running as one holding hardware is, and said.
+                if (running.IsShared && running.LocalOnly != options.StartsLocalOnly)
+                {
+                    var sharedNote = ModeNote(running, options.StartsLocalOnly);
+                    return new LocalNode(LocalNodeOutcome.BusyWithAnotherWire, transport, running,
+                        $"A node of another version (build {running.Version}) shares the rig on the LAN; it is left running; {sharedNote}", sharedNote);
                 }
                 if (!await StopAsync(transport, running, cancellationToken))
                 {
