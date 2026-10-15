@@ -430,6 +430,9 @@ internal sealed class FakeCmosState(string serial)
     /// <summary>What a frame call that may not wait answers instead, as an SDK never asked for one might; null to serve as any.</summary>
     public CMOSErrorCode? ErrorAtWaitZero { get; set; }
 
+    /// <summary>A body that says it can be reset and then refuses to be.</summary>
+    public bool RefuseReset { get; set; }
+
     public void StartedStreaming()
     {
         Interlocked.Increment(ref _videoStarts);
@@ -523,7 +526,7 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
 
     public CMOSErrorCode ResetDevice()
     {
-        if (!state.CanReset)
+        if (!state.CanReset || state.RefuseReset)
         {
             return CMOSErrorCode.GeneralError;
         }

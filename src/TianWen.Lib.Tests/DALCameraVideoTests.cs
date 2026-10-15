@@ -542,6 +542,30 @@ public class DALCameraVideoTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 30_000)]
+    public async Task ABodyThatRefusesItsResetGivesUpAndSaysTheResetWasRefused()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state, _) = await ScriptedDalCamera.ConnectAsync(output, canReset: true, canStream: true);
+        camera.NumX = 64;
+        camera.NumY = 32;
+        state.RefuseReset = true;
+
+        await using var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
+        (await NextAsync(frames)).Release();
+        state.Stall(FakeCmosState.Cure.Never);
+
+        var failed = await Should.ThrowAsync<InvalidOperationException>(async () =>
+        {
+            while (await frames.MoveNextAsync())
+            {
+                frames.Current.Release();
+            }
+        });
+        failed.Message.ShouldContain("refused the reset");
+        failed.Message.ShouldNotContain("nor a reset brought it back", Case.Insensitive, "a reset that never ran brought nothing back");
+    }
+
+    [Fact(Timeout = 30_000)]
     public async Task ABodyThatCannotBeResetGivesUpAfterTheReopenAndSaysToReplugIt()
     {
         var ct = TestContext.Current.CancellationToken;

@@ -540,7 +540,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                     case VideoRecoveryRung.Reset:
                         if (!await ResetAndReopenAsync("to bring its stalled stream back", stop).ConfigureAwait(false))
                         {
-                            throw OperationalException(ladder.Code, GiveUpReason(ladder.Code, rung));
+                            throw OperationalException(ladder.Code, ResetRefusedReason(ladder.Code));
                         }
                         break;
                 }
@@ -599,6 +599,11 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
             ? $"{Name} stopped sending frames ({code}), and neither a restart of the stream, nor closing and opening the camera, nor a reset brought it back"
             : $"{Name} stopped sending frames ({code}), and neither a restart of the stream nor closing and opening the camera brought it back; "
               + "it cannot be reset from software, so unplug it and plug it in again";
+
+    // A reset the camera refused never ran, so it brought nothing back: say what happened rather than that it failed.
+    private string ResetRefusedReason(CMOSErrorCode code)
+        => $"{Name} stopped sending frames ({code}), and neither a restart of the stream nor closing and opening the camera brought it back; "
+           + "the camera refused the reset, so unplug it and plug it in again";
 
     /// <summary>Runs one segment on a thread of its own; completes when it has stopped the body's stream again.</summary>
     private Task RunVideoSegmentAsync(VideoStream stream, VideoSegment segment, Channel<Image> frames, TaskCompletionSource started, CancellationToken stop)
