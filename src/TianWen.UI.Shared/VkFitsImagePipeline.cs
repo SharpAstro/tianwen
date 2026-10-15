@@ -1847,32 +1847,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         return pipeline;
     }
 
-    // Loads a pre-baked SPIR-V shader (Shaders/spirv/<shaderName>.spv, embedded by the csproj) and
-    // creates a VkShaderModule. GLSL is compiled to SPIR-V at build time by tools/BakeShaders, so there
-    // is no runtime shaderc (SdlVulkan.Renderer 6.23 dropped the transitive dependency; baking is what
-    // makes an Android build possible - shaderc ships no android RID - and trims AOT/first-frame cost).
-    // Re-bake and commit the .spv on a shader edit (the TWSH0001 build warning flags a stale bake).
-    private VkShaderModule LoadShaderModule(string shaderName)
-    {
-        var api = _ctx.DeviceApi;
-        var resource = $"TianWen.UI.Shared.Shaders.{shaderName}.spv";
-        using var stream = typeof(VkFitsImagePipeline).Assembly.GetManifestResourceStream(resource)
-            ?? throw new InvalidOperationException(
-                $"Embedded shader '{resource}' not found -- run tools/BakeShaders and commit Shaders/spirv/*.spv.");
-
-        var spirv = new byte[stream.Length];
-        stream.ReadExactly(spirv);
-        fixed (byte* pSpirv = spirv)
-        {
-            VkShaderModuleCreateInfo createInfo = new()
-            {
-                codeSize = (nuint)spirv.Length,
-                pCode = (uint*)pSpirv
-            };
-            api.vkCreateShaderModule(&createInfo, null, out var module).CheckResult();
-            return module;
-        }
-    }
+    // A pre-baked SPIR-V shader (VkShaderModules: no runtime shaderc).
+    private VkShaderModule LoadShaderModule(string shaderName) => VkShaderModules.Load(_ctx, shaderName);
 
     private void PushProjectionAndDraw(
         VkCommandBuffer cmd,
