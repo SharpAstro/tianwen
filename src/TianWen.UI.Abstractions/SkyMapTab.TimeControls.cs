@@ -92,8 +92,11 @@ public partial class SkyMapTab<TSurface>
         });
     }
 
-    /// <summary>The widest time the strip shows in ordinary use: a scrubbed date and an offset of two units.</summary>
-    private const string TimeTextWidthSample = "0000-00-00 00:00  (+00w 0d)";
+    /// <summary>
+    /// The widest time the strip shows in ordinary use: a scrubbed date and an offset of its two largest units, each of two digits
+    /// in the widest unit letter (m), so hours and minutes, days and hours and weeks and days all fit (weeks past 99 aside).
+    /// </summary>
+    internal const string TimeTextWidthSample = "0000-00-00 00:00  (+00m 00m)";
 
     /// <summary>
     /// The strip's right-hand controls: Now while the view is off live, the back steps, the time (a press opens the landmarks),
