@@ -495,12 +495,14 @@ one frame late, and the GUI logged a slow frame every 250 to 330 ms.
 
 **Measured** (Surface Pro 11, Snapdragon X Elite X1E80100, Adreno X1-85, the Debug GUI from a scratch org root,
 2880 x 1814, the orrery opened on the Sun, Play at 10 days a second, 15 s): before, average frame 11.3 ms; after,
-4.6 ms (GPU frame 4.6 and 4.9 ms), 0 sprite builds. Parity on the device (`PlanetBodyGpuTests`, ten views: Saturn open
+4.6 ms (GPU frame 4.6 and 4.9 ms), 0 sprite builds. Parity on the device (`PlanetBodyGpuTests`, eleven views: Saturn open
 north and south, nearly edge-on, its dark face, the shadows at quadrature; a crescent Venus, the Moon, Jupiter's Red
 Spot, Mars, the Sun; the Earth over Africa since #1573, worst 1 of 255, none more than 4 off): mean difference from
 the CPU render 0.004 of 255 at most, worst 1 except a shadow edge (16), at
 most 3 channel values more than 4 off. A west longitude of the wrong sign, or rings without the globe's shadow, fail
-nine of the ten (805 to 65,331 values off). `OrreryGpuTests`: forty played frames on `VkSkyMapTab` trace ten bodies a
+nine of the ten (805 to 65,331 values off). With the Earth the wrong sign fails ten of the eleven, every view with a map
+(the Sun has none): measured on the CPU reference with the map read at minus its west longitude, 2026-10-16, the Earth
+84,762 values more than 4 off and the least of the others 98 (Saturn at quadrature), against the test's 12. `OrreryGpuTests`: forty played frames on `VkSkyMapTab` trace ten bodies a
 frame, build 0 sprites and upload no map again; every disc is lit toward the Sun on the GPU's frame at the instant and
 93 weeks on, framed on the Earth's orbit and at 12 AU (Jupiter and Saturn within 9 degrees).
 
