@@ -165,11 +165,12 @@ public partial class SkyMapTab<TSurface>
     internal const float TimeLabelMinEm = 4f;
 
     /// <summary>
-    /// The time button's weight against a strip's other content-capped labels (each 1): under pressure it gives way half as fast,
-    /// so at 1.5x on a 900 px orrery strip it keeps its whole date and time and only the offset trims (at weight 1 it trimmed
-    /// into the date, #1584).
+    /// The time button's weight against a strip's other content-capped labels (each 1): under pressure it gives way a third as
+    /// fast, so at 1.5x on a 900 px orrery strip it keeps its whole date and time with about four ems to spare and only the
+    /// offset trims (at weight 1 it trimmed into the date; at 2 it kept two ems on Windows and lost a digit on Linux, whose
+    /// glyphs measure a few pixels wider, #1584).
     /// </summary>
-    internal const float TimeLabelWeight = 2f;
+    internal const float TimeLabelWeight = 3f;
 
     /// <summary>The time controls (<see cref="BuildTimeControls"/>) as one group, for a strip that arranges them as a unit.</summary>
     private static Layout.Node TimeControlsGroup(ImmutableArray<Layout.Node> controls, float dpiScale)
