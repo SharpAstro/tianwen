@@ -531,6 +531,8 @@ public sealed class OrreryTests(ITestOutputHelper output)
         Select(rig, focus);
         rig.Tab.OpenOrrery();
         rig.Render();
+        // The Moon's reach fits the gap to the neighbouring orbits once they are built (before, the gap to the two planets).
+        await rig.Tab.OrreryScene.WhenOrbitsBuiltAsync();
         // Zoomed in by this factor on the framing the view opened with.
         rig.Tab.State.Orrery.Distance *= zoom;
         var moonDrawn = 0;
@@ -548,6 +550,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
                 continue;
             }
             apart.Add(MathF.Sqrt(((moon.X - earth.X) * (moon.X - earth.X)) + ((moon.Y - earth.Y) * (moon.Y - earth.Y))));
+            apart[^1].ShouldBe(rig.Tab.LastMoonReach, 0.5f, $"frame {frame}: the Moon is not its reach from the Earth");
             if (labels.Where(l => l.Index == CatalogIndex.Moon).Select(l => l.Rect).FirstOrDefault() is { Width: > 0 } label)
             {
                 moonDrawn++;
@@ -566,9 +569,131 @@ public sealed class OrreryTests(ITestOutputHelper output)
         }
         output.WriteLine($"{focus} x{zoom}: the drawn Earth-Moon distance runs {apart.Min():F1} to {apart.Max():F1} px over the month: "
             + string.Join(" ", apart.Where((_, i) => i % 6 == 0).Select(d => d.ToString("F0"))));
-        // A steady size: the drawn distance within a few percent across the month (only its direction turns).
-        (apart.Max() / apart.Min()).ShouldBeLessThan(1.05f, "the Moon's drawn distance from the Earth swells and shrinks: a spiral");
+        // A steady size: the drawn distance moves only as the gap to the next orbit does, a few percent at most from one six-hour
+        // frame to the next, never swelling and shrinking with the month (a spiral).
+        for (var i = 1; i < apart.Count; i++)
+        {
+            (MathF.Max(apart[i], apart[i - 1]) / MathF.Min(apart[i], apart[i - 1])).ShouldBeLessThan(1.05f, $"the Moon's reach jumps at frame {i}");
+        }
         moonDrawn.ShouldBeGreaterThan(apart.Count / 2);
+    }
+
+    /// <summary>
+    /// Over a lunar month in six-hour steps, at the view's tilt, the Moon goes round the Earth evenly on screen: every step turns it the
+    /// same way, and the largest step is within the Moon's own range of speed (about 1.3 between perigee and apogee) of the smallest.
+    /// Turned by its direction as PROJECTED, it raced through the line of sight and crawled across the sides, four times as fast at a
+    /// 30 degree tilt, which the owner saw as a Moon wobbling round the Earth.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(30.0)]
+    [InlineData(-45.0)]
+    public async Task TheMoonCirclesTheEarthEvenly(double elevationDeg)
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Select(rig, CatalogIndex.Moon);
+        rig.Tab.OpenOrrery();
+        rig.Render();
+        rig.Tab.State.Orrery.ElevationDeg = elevationDeg;
+        rig.Tab.State.Orrery.Distance *= 0.35;
+        var steps = new System.Collections.Generic.List<double>();
+        double? last = null;
+        for (var frame = 0; frame < 120; frame++)
+        {
+            rig.Tab.State.TimeOffset = TimeSpan.FromHours(6 * frame);
+            rig.Render();
+            var drawn = rig.Tab.OrreryDrawn;
+            var earth = drawn.Single(d => d.Index == CatalogIndex.Earth);
+            var moon = drawn.FirstOrDefault(d => d.Index == CatalogIndex.Moon);
+            moon.Index.ShouldBe(CatalogIndex.Moon, $"frame {frame}: zoomed in, the Moon must be drawn");
+            var angle = Math.Atan2(moon.Y - earth.Y, moon.X - earth.X) * 180 / Math.PI;
+            if (last is { } previous)
+            {
+                steps.Add(Math.IEEERemainder(angle - previous, 360));
+            }
+            last = angle;
+        }
+        var magnitudes = steps.Select(Math.Abs).ToArray();
+        output.WriteLine($"tilt {elevationDeg}: steps of {magnitudes.Min():F2} to {magnitudes.Max():F2} degrees");
+        steps.All(s => Math.Sign(s) == Math.Sign(steps[0])).ShouldBeTrue("the Moon turned back on itself");
+        (magnitudes.Max() / magnitudes.Min()).ShouldBeLessThan(1.45);
+    }
+
+    /// <summary>
+    /// The Moon is drawn no farther from the Earth than half the screen gap to the nearest neighbouring orbit as drawn (Venus's and
+    /// Mars's), so it never sits on another planet's orbit; it comes in toward the Earth to fit, and is hidden only when even its
+    /// nearest place (clear of the Earth's disc) would not fit. Measured against the drawn ORBITS, which the owner saw it sitting on
+    /// while the rule kept it half the gap from Venus the planet.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(CatalogIndex.Moon, 1.0)]
+    [InlineData(CatalogIndex.Moon, 0.35)]
+    [InlineData(CatalogIndex.Jupiter, 1.0)]
+    public async Task TheMoonStaysInsideHalfTheGapToTheNeighbouringOrbits(CatalogIndex focus, double zoom)
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Select(rig, focus);
+        rig.Tab.OpenOrrery();
+        rig.Render();
+        await rig.Tab.OrreryScene.WhenOrbitsBuiltAsync();
+        rig.Tab.State.Orrery.Distance *= zoom;
+        var (drawnFrames, hiddenFrames) = (0, 0);
+        for (var frame = 0; frame < 120; frame += 4)
+        {
+            rig.Tab.State.TimeOffset = TimeSpan.FromHours(6 * frame);
+            rig.Render();
+            var drawn = rig.Tab.OrreryDrawn;
+            var earth = drawn.Single(d => d.Index == CatalogIndex.Earth);
+            var gap = NeighbourOrbitGap(rig, earth.X, earth.Y);
+            var moon = drawn.FirstOrDefault(d => d.Index == CatalogIndex.Moon);
+            if (moon.Index == CatalogIndex.Moon)
+            {
+                drawnFrames++;
+                MathF.Sqrt(((moon.X - earth.X) * (moon.X - earth.X)) + ((moon.Y - earth.Y) * (moon.Y - earth.Y)))
+                    .ShouldBeLessThanOrEqualTo((gap / 2) + 0.5f, $"frame {frame}: the Moon is more than half the gap to the next orbit out");
+            }
+            else
+            {
+                hiddenFrames++;
+                // Hidden only where even the nearest place clear of the Earth's disc (the two radii and the 4 px gap) would not fit.
+                (gap / 2).ShouldBeLessThan(6f + 3.5f + 4f, $"frame {frame}: the Moon is hidden with room for it");
+            }
+        }
+        output.WriteLine($"{focus} x{zoom}: the Moon drawn in {drawnFrames} frames, hidden in {hiddenFrames}");
+    }
+
+    // The screen distance from (x, y) to the nearer of Venus's and Mars's orbits as the view draws them: each orbit's samples scaled
+    // and projected, and the distance to every segment between two that project.
+    private static float NeighbourOrbitGap(Rig rig, float x, float y)
+    {
+        var orbits = rig.Tab.OrreryScene.Orbits.ShouldNotBeNull();
+        var camera = CameraOf(rig);
+        var scaling = new OrreryScaling(rig.Tab.State.Orrery.Scale, OrreryScaling.ReachFor(rig.Tab.State.Orrery.Distance));
+        var best = float.PositiveInfinity;
+        foreach (var planet in new[] { CatalogIndex.Venus, CatalogIndex.Mars })
+        {
+            var points = orbits[planet];
+            (float X, float Y)? previous = null;
+            for (var i = 0; i <= points.Length / 3; i++)
+            {
+                var j = i % (points.Length / 3);
+                var (wx, wy, wz) = OrreryScene.Scaled(scaling, points[3 * j], points[(3 * j) + 1], points[(3 * j) + 2]);
+                if (!camera.TryProject(wx, wy, wz, out var sx, out var sy))
+                {
+                    previous = null;
+                    continue;
+                }
+                if (previous is var (px, py))
+                {
+                    var (dx, dy) = (sx - px, sy - py);
+                    var len = (dx * dx) + (dy * dy);
+                    var t = len == 0 ? 0 : Math.Clamp((((x - px) * dx) + ((y - py) * dy)) / len, 0, 1);
+                    var (cx, cy) = (px + (t * dx) - x, py + (t * dy) - y);
+                    best = MathF.Min(best, MathF.Sqrt((cx * cx) + (cy * cy)));
+                }
+                previous = (sx, sy);
+            }
+        }
+        return best;
     }
 
     // Sirius (HIP 32349) and Polaris (HIP 11767), J2000.
@@ -777,8 +902,9 @@ public sealed class OrreryTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// The Moon as the last frame drew it, true; or false when it was not drawn, which is only allowed with Venus within twice the
-    /// Moon's reach of the Earth on screen (D2: the Moon is hidden rather than drawn among the planets).
+    /// The Moon as the last frame drew it, true; or false when it was not drawn, which is only allowed where its reach, come in to half
+    /// the screen gap to the nearest neighbouring orbit, is short of its nearest place clear of the Earth's disc (the Moon is hidden
+    /// rather than drawn on another planet's orbit).
     /// </summary>
     private static bool MoonDrawnOrCrowdedOut(Rig rig, out (CatalogIndex Index, float X, float Y, float Radius) moon)
     {
@@ -788,10 +914,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
         {
             return true;
         }
-        var earth = drawn.Single(d => d.Index == CatalogIndex.Earth);
-        var venus = drawn.Single(d => d.Index == CatalogIndex.Venus);
-        MathF.Sqrt(((venus.X - earth.X) * (venus.X - earth.X)) + ((venus.Y - earth.Y) * (venus.Y - earth.Y)))
-            .ShouldBeLessThan(2 * rig.Tab.LastMoonReach, "the Moon is missing with Venus far from the Earth");
+        rig.Tab.LastMoonReach.ShouldBeLessThan((6f + 3.5f + 4f) * rig.Tab.DpiScale, "the Moon is missing with room for it beside the Earth");
         return false;
     }
 
