@@ -1225,9 +1225,11 @@ public sealed class OrreryTests(ITestOutputHelper output)
 
     /// <summary>
     /// The strip fits the view with everything in it at once: the Centre toggle (Saturn in focus), Pause, Now, and a long offset
-    /// in the time. Every button lies inside the view, Sky first at its left edge (the owner's screenshot started at "ntre: Sun").
+    /// in the time. Every button lies inside the view, Sky first at its left edge (the owner's screenshot started at "ntre: Sun"),
+    /// and at 1.0x, where the row has room, each label (the distance scale, the centre, the time) is laid out at least as wide as
+    /// its own content, so none is trimmed: the labels are content-capped Stars that give way only under pressure (#1584).
     /// </summary>
-    [Theory(Timeout = 120_000, Skip = "Fails at 1.5x: the strip needs ~1,020 px of 900; needs a content-aware Star in DIR.Lib, #1584")]
+    [Theory(Timeout = 120_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
     public async Task TheStripFitsWithEveryButtonShowing(float dpiScale)
@@ -1251,6 +1253,21 @@ public sealed class OrreryTests(ITestOutputHelper output)
             output.WriteLine($"{action}: {bounds.X:F0} to {bounds.X + bounds.Width:F0}");
             bounds.X.ShouldBeGreaterThanOrEqualTo(-0.5f, $"{action} starts left of the view");
             (bounds.X + bounds.Width).ShouldBeLessThanOrEqualTo(Width + 0.5f, $"{action} ends right of the view");
+        }
+
+        // The tree is arranged in device pixels (DesignScale.One), so each label's content is measured the same way.
+        var context = new PixelMeasureContext<RgbaImage>(rig.Renderer, rig.Tab.FontPath);
+        string[] labels = ["Distances: auto", "Centre: ", "2028-"];
+        foreach (var label in labels)
+        {
+            var (node, bounds) = rig.Tab.GetCapturedLayout()
+                .Single(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } && text.Value.StartsWith(label, StringComparison.Ordinal));
+            var content = Layout.Engine.Measure(node, new Layout.Size<float>(float.MaxValue, float.MaxValue), context).Width;
+            output.WriteLine($"{label}: {bounds.Width:F0} of its {content:F0}");
+            if (dpiScale == 1f)
+            {
+                bounds.Width.ShouldBeGreaterThanOrEqualTo(content - 0.5f, $"\"{label}\" is trimmed though the strip has room");
+            }
         }
     }
 
