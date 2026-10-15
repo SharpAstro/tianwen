@@ -1311,7 +1311,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     private VkPlanetBodies? _planetBodies;
 
     /// <summary>The ray-traced bodies, for the tests that count their uploads.</summary>
-    internal VkPlanetBodies? PlanetBodies => _planetBodies;
+    public VkPlanetBodies? PlanetBodies => _planetBodies;
 
     protected override bool DrawPlanetBody(in PlanetView view, float x, float y, float radiusPx, PlanetColourMap? map, int textureVersion,
         RGBAColor32 flat, RGBAColor32? nightTint)
