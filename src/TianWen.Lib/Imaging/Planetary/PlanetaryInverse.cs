@@ -499,7 +499,14 @@ public static class PlanetaryInverse
         {
             field[i] *= grid[i];
         }
-        Fft2D.Inverse(field, n, n);
+        if (n >= EveryCoreFrom)
+        {
+            Fft2D.InverseOnEveryCore(field, n, n);
+        }
+        else
+        {
+            Fft2D.Inverse(field, n, n);
+        }
         var result = new float[width * height];
         for (var y = 0; y < height; y++)
         {
@@ -511,6 +518,12 @@ public static class PlanetaryInverse
         return result;
     }
 
+    /// <summary>
+    /// A grid this wide or wider is transformed on every core, the same to the bit (#1577: a 20-step deblur's 1024-wide grids held one core
+    /// for 66 s); a smaller one stays on its caller's thread, which may already be one of many.
+    /// </summary>
+    internal const int EveryCoreFrom = 512;
+
     internal static Complex[] Transform(ReadOnlySpan<float> plane, int width, int height, int n)
     {
         var field = new Complex[n * n];
@@ -521,7 +534,14 @@ public static class PlanetaryInverse
                 field[(y * n) + x] = plane[(y * width) + x];
             }
         }
-        Fft2D.Forward(field, n, n);
+        if (n >= EveryCoreFrom)
+        {
+            Fft2D.ForwardOnEveryCore(field, n, n);
+        }
+        else
+        {
+            Fft2D.Forward(field, n, n);
+        }
         return field;
     }
 

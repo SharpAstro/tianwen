@@ -6283,6 +6283,19 @@ diffraction recomputed nine times a run: `PlanetaryMasterScore` now carries a tr
 every arm through the comma lists of `--deconvolve-iterations` and `--kolivas-amount`. What remains is FFT work a GPU does far faster
 (#1577, after this lands, with CPU/GPU parity tests).
 
+**The deblur on every core (#1577, 2026-10-16).**
+- **The profile.** One 640 x 640 colour twin, sharpened with `--finish deconvolve` on a quiet desktop, took 118 s:
+  - Richardson-Lucy 66 s, on one core. Its four transforms a step run on a 1024 grid, and `Fft2D` ran them a row at a time.
+  - The CLI's scores 29 s: two more limb fits for its report.
+  - The sharpening's own limb fit 11.5 s, already on about ten cores.
+- **The step.** `Fft2D.ForwardOnEveryCore` / `InverseOnEveryCore` transform the rows, then the columns, in bands over every core.
+  `PlanetaryInverse` takes them for a grid of 512 or more (`EveryCoreFrom`); a smaller grid's caller may already be one of many.
+  Every row and column is transformed alone, so the result is the same to the bit (`OnEveryCoreIsTheSerialTransformToTheBit`, and the
+  twin's sharpened master is unchanged bit for bit).
+- **The gain.** Read in one process, on the loaded desktop: a 1024 transform falls from 392 ms to 57 ms. One channel's 20 steps now
+  take 4.6 to 5.3 s, the transforms 4.2 to 4.5 s of it, where their 80 transforms serial would take about 31 s.
+- **What a GPU would still save** is that remainder: about 15 s for three channels on this box. That gain is read again before any port.
+
 ##### L-DECONV-L: the deblur after the derived gains, and the deblur of a combined image
 
 The owner's question (2026-10-15): the deep-sky colour path deblurs the finished colour image, so would one deblur of a combined image
