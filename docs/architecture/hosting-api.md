@@ -218,9 +218,11 @@ are features; `tools/start-app.ps1` turns it on for every app it launches unless
 | The GUI's LAN discovery | the UDP discovery port on every interface | not registered: no LAN rig is listed; a bound rig is still reached by its last address |
 
 - A device reached as a TCP CLIENT (OnStep or Canon over WiFi, an Alpaca server, PHD2) opens no listener and is kept.
-- **"Share this rig on the LAN" is kept, never applied**: a local-only node saves the setting and answers that it
-  listens on its socket alone; it neither restarts (it would come back local-only, on every toggle) nor writes the
-  logon entry, which would start a node WITHOUT the mode from this path. Turning sharing off still removes an entry.
+- **"Share this rig on the LAN" is refused**: a local-only node answers sharing ON with a 409 ("a local-only node
+  cannot share the rig; start it without the mode to share", which the GUI's toggle shows as a warning) and saves
+  nothing. A restart would come back local-only, on every toggle, and a logon entry would start a node WITHOUT the mode
+  from this path; a saved "on" with neither would be a setting that lies. Turning sharing OFF still saves and removes
+  the entry, since that binds nothing.
 - **A node a client starts is in the client's mode**: the launcher passes `--local-only` to the keeper
   (`LocalNodeOptions.KeeperArguments`), which passes it to the node, and the environment carries it as well.
   `GET /api/v1/node` answers `LocalOnly`. A node found of the other mode is replaced only while idle, unattended and

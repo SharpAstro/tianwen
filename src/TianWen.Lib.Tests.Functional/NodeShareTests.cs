@@ -113,11 +113,11 @@ public class NodeShareTests(ITestOutputHelper outputHelper) : IDisposable
     }
 
     [Fact(Timeout = 30_000)]
-    public async Task ALocalOnlyNodeSavesSharingAndNeitherRestartsNorStartsAtLogon()
+    public async Task ALocalOnlyNodeRefusesToShareAndSavesNothingButStopsSharing()
     {
         // A local-only node (TIANWEN_LOCAL_ONLY) listens on its socket alone whatever the setting: a restart would come back
         // local-only and apply nothing, on every toggle, and a logon entry would start a node WITHOUT the mode from this path,
-        // which binds the LAN and raises the firewall prompt the mode exists to avoid.
+        // which binds the LAN. A saved "on" with neither would be a setting that lies, so sharing on is refused at the source.
         var ct = TestContext.Current.CancellationToken;
         var role = new NodeRole(spawned: true);
         var logon = new RecordedLogonStart();
@@ -126,19 +126,26 @@ public class NodeShareTests(ITestOutputHelper outputHelper) : IDisposable
             services => services.AddSingleton(role).AddSingleton<INodeLogonStart>(logon)
                 .AddSingleton(new NodeListening(socketPath, LanPort: null, LocalOnly: true)),
             socketPath: socketPath);
+        var settingsFile = NodeSettings.PathIn(node.External.AppDataFolder);
 
         var (status, share) = await ShareAsync(node.Client, shared: true);
 
-        status.ShouldBe(200);
-        share.ShouldNotBeNull().Restarting.ShouldBeFalse();
-        share.Shared.ShouldBeTrue("it is saved");
-        share.Listening.ShouldBeFalse();
-        share.Message.ShouldNotBeNull().ShouldContain("local-only");
+        status.ShouldBe(409);
+        share.ShouldBeNull();
+        File.Exists(settingsFile).ShouldBeFalse("nothing is saved");
+        logon.IsSet.ShouldBeFalse("a logon entry would start the node without the mode");
         node.App.Lifetime.ApplicationStopping.IsCancellationRequested.ShouldBeFalse("a restart would come back local-only");
         role.ExitCode.ShouldBe(NodeExitCodes.Stopped);
-        logon.IsSet.ShouldBeFalse("a logon entry would start the node without the mode");
-        JsonDocument.Parse(await File.ReadAllTextAsync(NodeSettings.PathIn(node.External.AppDataFolder), ct))
-            .RootElement.GetProperty("shareOnLan").GetBoolean().ShouldBeTrue("the setting is the machine's, kept for a node started without the mode");
+        // What the GUI's share toggle shows: the answer's error, as a warning.
+        var said = await new TianWenNodeClient(node.Client).SetShareAsync(true, ct);
+        said.IsSuccess.ShouldBeFalse();
+        said.Error.ShouldNotBeNull().ShouldContain("a local-only node cannot share the rig");
+
+        (status, share) = await ShareAsync(node.Client, shared: false);
+
+        status.ShouldBe(200, "turning sharing off binds nothing, so it still works");
+        share.ShouldNotBeNull().Shared.ShouldBeFalse();
+        JsonDocument.Parse(await File.ReadAllTextAsync(settingsFile, ct)).RootElement.GetProperty("shareOnLan").GetBoolean().ShouldBeFalse();
     }
 
     [Fact(Timeout = 30_000)]

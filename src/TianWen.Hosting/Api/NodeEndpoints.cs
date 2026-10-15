@@ -95,22 +95,27 @@ internal static class NodeEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeNodeShareDto);
         }
 
+        // A local-only node (TIANWEN_LOCAL_ONLY) listens on its socket alone whatever the setting: a restart would come back
+        // local-only and apply nothing, and a logon entry would start a node WITHOUT the mode from this path, which binds the
+        // LAN. A saved "on" with neither would be a setting that lies, so sharing on is refused and nothing is saved. Turning
+        // sharing off binds nothing, so it still saves and takes an entry away.
+        if (listening.LocalOnly && request.Shared)
+        {
+            return EnvelopeResults.Json(
+                ResponseEnvelope<NodeShareDto>.Fail("This node is local-only: a local-only node cannot share the rig; start it without the mode to share", 409),
+                HostingJsonContext.Default.ResponseEnvelopeNodeShareDto);
+        }
+
         await settings.UpdateAsync(current => current with { ShareOnLan = request.Shared }, cancellationToken);
 
-        // A local-only node (TIANWEN_LOCAL_ONLY) listens on its socket alone whatever the setting, so the setting is only
-        // kept: a restart would come back local-only and apply nothing, and a logon entry would start a node WITHOUT the
-        // mode from this path, which binds the LAN. Taking an entry away binds nothing, so turning sharing off still does.
         if (listening.LocalOnly)
         {
-            if (!request.Shared)
-            {
-                logon.Set(false, Environment.ProcessPath ?? throw new InvalidOperationException("The node cannot tell which executable it is, to start at logon"));
-            }
+            logon.Set(false, Environment.ProcessPath ?? throw new InvalidOperationException("The node cannot tell which executable it is, to start at logon"));
             return EnvelopeResults.Json(ResponseEnvelope<NodeShareDto>.Ok(new NodeShareDto
             {
-                Shared = request.Shared,
+                Shared = false,
                 Listening = listening.IsShared,
-                Message = "Saved. This node is local-only and listens on its socket alone until it is started without the mode",
+                Message = "The rig is no longer shared on the LAN",
             }), HostingJsonContext.Default.ResponseEnvelopeNodeShareDto);
         }
 
