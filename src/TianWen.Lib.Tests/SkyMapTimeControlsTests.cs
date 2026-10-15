@@ -51,6 +51,32 @@ public class SkyMapTimeControlsTests
         => region.OnClick.ShouldNotBeNull($"{region.Result} is a button").Invoke(InputModifier.None);
 
     /// <summary>
+    /// A step leaves every step button where it was: Now, which appears once the view is off live, comes in on the group's LEFT,
+    /// and the time is sized for a scrubbed date with its offset, so neither the new button nor the longer text moves a button
+    /// the next press is aimed at (reported by the owner: Now on the right moved them all).
+    /// </summary>
+    [Fact]
+    public async Task AStepLeavesEveryStepButtonWhereItWas()
+    {
+        using var renderer = new RgbaImageRenderer(1000, 600);
+        var (tab, planner, clock, content) = await RenderedAsync(renderer);
+        string[] steps = ["SkyTimeStep:-1d", "SkyTimeStep:-1h", "SkyTimeStep:-10m", "SkyTimeStep:+10m", "SkyTimeStep:+1h", "SkyTimeStep:+1d"];
+        var before = steps.Select(s => Button(tab, s).X).ToArray();
+
+        Press(Button(tab, "SkyTimeStep:+1d"));
+        Press(Button(tab, "SkyTimeStep:+1d"));
+        tab.Render(planner, content, clock);
+        HasButton(tab, "SkyTimeNow").ShouldBeTrue();
+        var after = steps.Select(s => Button(tab, s).X).ToArray();
+
+        for (var i = 0; i < steps.Length; i++)
+        {
+            after[i].ShouldBe(before[i], 0.5f, $"{steps[i]} moved");
+        }
+        Button(tab, "SkyTimeNow").X.ShouldBeLessThan(after[0], "Now is not left of the steps");
+    }
+
+    /// <summary>
     /// The controls sit in the MIDDLE of the strip, level with the info text beside them (reported
     /// 2026-09-28, a screenshot: the group measured to one line of text and hugged the strip's top). Each
     /// button spans the strip, and the ink of its label is centred in it, read off the pixels, since a
