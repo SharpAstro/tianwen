@@ -396,16 +396,21 @@ internal static class PlanetaryMasterScore
     }
 
     /// <summary><paramref name="master"/>'s limb undershoot below the sky, each channel on the disk fitted to the whole master, printed as <paramref name="what"/>.</summary>
-    public static void Undershoot(IConsoleHost consoleHost, Image master, CatalogIndex planet, DateTimeOffset when, string what, Image? stack = null)
+    public static void Undershoot(IConsoleHost consoleHost, Image master, CatalogIndex planet, DateTimeOffset when, string what, Image? stack = null) =>
+        Undershoot(consoleHost, master, Disk(master, planet, when), what, stack);
+
+    /// <summary>
+    /// <see cref="Undershoot(IConsoleHost, Image, CatalogIndex, DateTimeOffset, string, Image?)"/> on <paramref name="fitted"/>, the master's
+    /// own <see cref="Disk"/> its caller already fitted (#1577: a sharpening fitted the same master twice, 10.7 s of 118).
+    /// </summary>
+    public static void Undershoot(IConsoleHost consoleHost, Image master, MetricDisk? fitted, string what, Image? stack = null)
     {
         var inv = CultureInfo.InvariantCulture;
-        var limbOptions = PlanetaryLimbFit.OptionsFor(PhysicalEphemeris.Compute(planet, when));
-        if (PlanetaryLimbFit.Fit(master, limbOptions) is not { } fit)
+        if (fitted is not { } disk)
         {
             consoleHost.WriteError($"[planetary] {what}: its limb could not be fitted");
             return;
         }
-        var disk = MetricDisk.From(fit, limbOptions);
         var planes = Enumerable.Range(0, master.ChannelCount).Select(c => PlanetaryMetrics.Normalise(master.GetChannelSpan(c), master.Width, master.Height, disk)).ToArray();
         var undershoots = planes.Select(p => PlanetaryMetrics.LimbUndershoot(p, master.Width, master.Height, disk));
         var rebounds = planes.Select(p => PlanetaryMetrics.LimbRebound(p, master.Width, master.Height, disk));

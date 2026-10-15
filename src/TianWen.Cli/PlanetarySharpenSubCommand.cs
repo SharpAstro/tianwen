@@ -322,6 +322,8 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     }
                     options = options with { GainsModel = PlanetaryGainsModels.EdgeHd11Jupiter };
                 }
+                // The master's own disk, fitted once for its undershoot and its lattice below (each fitted it alone, #1577).
+                var masterDisk = truthPath is null || master.ChannelCount == 3 ? PlanetaryMasterScore.Disk(master, body, instant) : null;
                 if (truthPath is not null)
                 {
                     PlanetaryMasterScore.AgainstTruth(consoleHost, master, truthPath, body, "the master as stacked", aperture: scoredAperture);
@@ -329,7 +331,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 }
                 else
                 {
-                    PlanetaryMasterScore.Undershoot(consoleHost, master, body, instant, "the master as stacked");
+                    PlanetaryMasterScore.Undershoot(consoleHost, master, masterDisk, "the master as stacked");
                 }
                 var kernelName = (parseResult.GetValue(kernelOpt) ?? "edge").ToLowerInvariant();
                 if (kernelName is not ("edge" or "truth"))
@@ -349,7 +351,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                         $"[planetary] the true kernel, each channel, at 0.05, 0.1, 0.2, 0.3 and 0.4 cycles a pixel: {string.Join("; ", trueKernels.Select(k => string.Join(", ", new[] { 0.05, 0.1, 0.2, 0.3, 0.4 }.Select(f => k.At(f).ToString("0.000", inv)))))}"));
                 }
                 // A colour master's 2-pixel lattice, the stack's and each sharpening's on the stack's own disk (#1376).
-                var latticeDisk = master.ChannelCount == 3 ? PlanetaryMasterScore.Disk(master, body, instant) : null;
+                var latticeDisk = master.ChannelCount == 3 ? masterDisk : null;
                 if (latticeDisk is { } stackDisk)
                 {
                     PlanetaryMasterScore.Lattice(consoleHost, master, stackDisk, "the master as stacked");
