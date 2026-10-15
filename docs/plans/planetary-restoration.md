@@ -5832,6 +5832,17 @@ against the recipe and they agree to the bit.
   - The rings come out softer: a thin feature like the Cassini division blurs with the wavelength's diffraction, and 750 nm is 1.4
     times blue's. So the luminance is never the default; whether IR's detail is wanted is the owner's eye.
 
+#### The composed master balanced to the planet's colour (#1580)
+
+`planetary stack` balanced every colour master of Jupiter or Saturn to the planet's own colour; compose did not, so a mono capture's
+master kept the colour its filters gave it, and the owner's 254 mm Saturn of 2026-10-07 rendered salmon-pink wherever it was shown
+without a look (which balances by itself). Compose's one writer now balances it by the same routine (`PlanetaryComposition.BalancedToPlanet`
+over `PlanetaryColourBalance.For`: the planet off OBJECT, the instant off DATE-OBS, the gains alone, since filters have no CFA matrix),
+writes the CBAL cards, and skips a master a balance already touched, so the lrgb step does not balance twice; `--no-colour-balance` on
+compose, join and lrgb leaves it as the filters gave it. On that night's sets 9 and 10 the joined master's preview went from a disk of
+R/G 1.455 and B/G 0.930 to 1.138 and 0.720, by gains R 0.739 and B 0.731 over green: the gains the Boosted look had been applying itself
+(0.745, 0.728).
+
 ### Contrast-adaptive deconvolution (Kolivas's PlanetaryTools)
 
 **Issue:** #1279. The thread our outside captures come from (Cloudy Nights, "The Planetary Imaging Free SER File Thread", saved by the

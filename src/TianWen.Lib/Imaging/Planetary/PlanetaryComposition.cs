@@ -448,6 +448,25 @@ public static class PlanetaryComposition
     }
 
     /// <summary>
+    /// A composed colour master balanced to its planet's own colour (#1580), as <c>planetary stack</c> balances its masters
+    /// (<see cref="PlanetaryColourBalance"/>, #1212, #1235): the planet read off the master's OBJECT and its instant off DATE-OBS, at the
+    /// default saturation, by the gains alone (a mono camera's planes come through filters, with no CFA matrix to read). Null, with the
+    /// reason in words, where there is nothing to balance: not three planes, a master a balance already touched (an lrgb step's input), or a
+    /// planet whose colour is not measured. Without it a mono capture's master kept the colour its filters gave it: the owner's 254 mm
+    /// Saturn of 2026-10-07 rendered salmon-pink. The caller owns the balanced image.
+    /// </summary>
+    public static (Image? Balanced, ColourBalance? Balance, string How) BalancedToPlanet(Image master)
+    {
+        ArgumentNullException.ThrowIfNull(master);
+        if (master.ImageMeta.IsColourBalanced)
+        {
+            return (null, null, "already balanced to the planet's colour");
+        }
+        var (balance, how) = PlanetaryColourBalance.For(master, PlanetaryCaptureName.Named(master.ImageMeta.ObjectName), epoch: null);
+        return balance is null ? (null, null, how) : (balance.Apply(master), balance, how);
+    }
+
+    /// <summary>
     /// Step 4: a de-rotated set (<see cref="Derotate"/>, every stack at one instant on one disk) joined: each filter's stacks averaged, red,
     /// green and blue as one colour master at that instant, the luminance's (IR or L) averaged the same way beside it, null for none. A
     /// filter's stacks are first put on one scale by the disk, each weighted by its noise on it (#1337, <see cref="JoinFilter"/>), so a burst
