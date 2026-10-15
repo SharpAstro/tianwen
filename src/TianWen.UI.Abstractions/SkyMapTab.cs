@@ -1332,7 +1332,7 @@ namespace TianWen.UI.Abstractions
                     BuildModeSwitch(fontSize * 0.85f, dpiScale),
                     Layout.Builder.Spacer().WFixed(8f * dpiScale),
                     Layout.Builder.Fill(key: InfoStripTextKey).WStar(),
-                    BuildTimeControls(timeText, timeColor, fontSize * 0.85f, dpiScale)),
+                    TimeControlsGroup(BuildTimeControls(timeText, timeColor, fontSize * 0.85f, dpiScale), dpiScale)),
                 new RectF32(rect.X + 8, stripY, rect.Width - 16, stripH),
                 // Device pixels, like the rest of the strip.
                 scale: DesignScale.One);

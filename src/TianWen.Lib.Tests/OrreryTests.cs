@@ -1255,18 +1255,23 @@ public sealed class OrreryTests(ITestOutputHelper output)
             (bounds.X + bounds.Width).ShouldBeLessThanOrEqualTo(Width + 0.5f, $"{action} ends right of the view");
         }
 
-        // The tree is arranged in device pixels (DesignScale.One), so each label's content is measured the same way.
-        var context = new PixelMeasureContext<RgbaImage>(rig.Renderer, rig.Tab.FontPath);
+        // At 1.0x each label reads in full; at 1.5x the row is short, so each gives way (narrower than its content) and stays in view.
         string[] labels = ["Distances: auto", "Centre: ", "2028-"];
         foreach (var label in labels)
         {
             var (node, bounds) = rig.Tab.GetCapturedLayout()
                 .Single(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } && text.Value.StartsWith(label, StringComparison.Ordinal));
-            var content = Layout.Engine.Measure(node, new Layout.Size<float>(float.MaxValue, float.MaxValue), context).Width;
+            var content = rig.Tab.StripContentWidth(node);
             output.WriteLine($"{label}: {bounds.Width:F0} of its {content:F0}");
             if (dpiScale == 1f)
             {
                 bounds.Width.ShouldBeGreaterThanOrEqualTo(content - 0.5f, $"\"{label}\" is trimmed though the strip has room");
+            }
+            else
+            {
+                bounds.Width.ShouldBeLessThan(content, $"\"{label}\" did not give way though the strip is short");
+                bounds.X.ShouldBeGreaterThanOrEqualTo(-0.5f, $"\"{label}\" starts left of the view");
+                (bounds.X + bounds.Width).ShouldBeLessThanOrEqualTo(Width + 0.5f, $"\"{label}\" ends right of the view");
             }
         }
     }
