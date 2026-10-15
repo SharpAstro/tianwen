@@ -2006,6 +2006,65 @@ costs the recipe something, and it is not adopted as the line's store until that
 If clean removal RISES past the spread, the detector fix improved the training data, read on one seed until a second
 confirms it.
 
+#### R2i's read: the re-baked store gains at every brightness on seed 0, and past both old seeds on bright stars (2026-10-15)
+
+`r2i_synth4_s0` ended on its own: "stopped at step 216500: the held-out objective's best was 2.262201e-06 at step
+204500". It was scored at 15:51 by the same binary on A's draws (`C:\temp\e2\r2i-read.txt`). It trained once,
+uninterrupted, for 12.5 hours (2026-10-15, 03:17 to 15:50), on 113 training and 8 validation sessions, 4,520 and 320
+cells, with the 15 mono sessions skipped: R2f's split and counts.
+
+**How it got there.** Two things differ from the chain the pre-registration describes, neither in what trains:
+- **The run was relaunched before it trained.** The first chain took its membership from the store's session ledger
+  (`stats/sessions.jsonl`), which keeps one row per night and no pier-side ids, so it exported 99 of the 138 listed
+  sessions: all 38 pier halves and one renamed night were missing. That partial export was set aside untrained
+  (`synth4.partial99-2026-10-14`), and the chain was relaunched with its membership from the PSF store
+  (`stats/psf-sessions.jsonl`), which names the halves. All 138 were exported, in R2f's order and chunks of 10. The
+  relaunched chain was killed twice mid-export and resumed chunk by chunk under a scheduled driver; one chunk finished
+  after its chain died and was recorded from its own log, whose summary reports no failure.
+- **One night was renamed when its filter was identified.** The Uranus-C (IMX585) Lagoon and Trifid night of 2023-08-09
+  was filed under `Unidentified-HaOIII` when R2f exported it and is now under `Optolong-L-Ultimate-3nm`. It was
+  exported under its new name and the training list (`arms/r2-train.txt`) changed to match, so it trains on the same
+  side of the split as in R2f.
+
+**What "the store" covers.** The export and plate code is the same source in R2f's binary and R2i's. The local-sky
+trigger reaches the training data twice: through the masters it registers, and through the plates, whose classical
+remover measures each master's PSF with the same detector. So every difference below is the re-baked store and the
+plates made from it, as the chain built them; nothing in the recipe moved.
+
+| measure | R2g (seed 0, old store) | R2h (seed 1, old store) | R2i (seed 0, re-baked store) |
+|---|---|---|---|
+| clean 5-20 sigma | 75.4 | 78.1 | **79.2** |
+| clean 20-100 sigma | 70.1 | 73.2 | **74.5** |
+| clean 100-1000 sigma | 48.8 | 51.9 | **60.2** |
+| dug 100-1000 sigma | 31.5 | 37.9 | 28.7 |
+| core mean 100-1000 | 0.06 | -0.45 | -0.20 |
+| core RMS 100-1000 | 1.78 | 1.68 | 1.78 |
+| clean saturated | 37.0 | 41.1 | 46.6 |
+| bright-core share % | 1.50 | 1.47 | 1.27 |
+| far sky | 0.26 | 0.28 | 0.22 |
+
+1. **It ends on its own before 480,000: holds.** At step 216,500, 12,000 steps after its best, earlier than R2g
+   (273,000) and R2h (276,000).
+2. **The store changes nothing readable: misses, upward, at every brightness.** Clean +3.9 at 5-20 sigma (bar 2.7),
+   +4.4 at 20-100 (bar 3.1) and +11.5 at 100-1000 (bar 3.1); the dug share -2.8, inside its 6.4.
+3. **The sky: holds.** Far sky 0.22.
+
+**The kill does not fire**: clean removal rises at every brightness.
+
+**Read, not predicted.** R2h's end is the better old-store seed on clean removal at every brightness. Against it R2i
+is +1.1 and +1.3 at 5-20 and 20-100 sigma, inside the spread, and +8.4 at 100-1000 with the dug share 9.1 lower, past
+it. So on bright stars R2i is past both old-store seeds, while on faint and mid-bright stars its gain over seed 0 is no
+larger than the two old seeds' own difference. Saturated stars clean 46.6 % against 37.0 and 41.1; the core stays level
+(mean -0.20, RMS 1.78) and the bright-core share falls to 1.27 %. The held-out objective is not compared with R2g's,
+since its validation cells are cut from the re-baked masters.
+
+**What it decides**, by the registered rule: clean removal rose past the spread, so the detector fix improved the
+training data, read on one seed until a second confirms it. The firm part is the bright stars, which clear the spread
+against both old-store seeds; the faint and mid-bright gains clear it only against the same seed. Nothing holds the
+re-baked store back as the line's store, since the kill guards only a fall: the next arms train on it with R2i as
+their control, and R2g and R2h stay the old store's numbers. The confirmation is R2i's recipe on seed 1, from the same
+`synth4` cache, not yet pre-registered.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
