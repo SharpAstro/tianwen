@@ -637,8 +637,12 @@ namespace TianWen.UI.Abstractions
                 map = texture;
             }
             var night = GuiTheme.State == UiThemeState.Night ? GuiTheme.Palette.Accent : (RGBAColor32?)null;
-            if (DrawPlanetBody(view, sx, sy, radius, map, PlanetTextures.Version, OrreryFlat(view.Body), night))
+            if (TracesPlanetBodies)
             {
+                if (!DrawPlanetBody(view, sx, sy, radius, map, PlanetTextures.Version, OrreryFlat(view.Body), night))
+                {
+                    return false;
+                }
                 PlanetBodiesTraced++;
                 return true;
             }

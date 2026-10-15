@@ -98,13 +98,19 @@ namespace TianWen.UI.Abstractions
         internal int PlanetBodiesTraced { get; private set; }
 
         /// <summary>
+        /// Whether this host ray-traces a body itself (<see cref="DrawPlanetBody"/>): the GPU hosts. The base, the CPU surface, draws the
+        /// CPU sprite of the same view (<see cref="PlanetView.ToAspect"/>) instead, keeping <see cref="PlanetaryRender.RenderRgba"/> as the
+        /// reference the GPU hosts are held to.
+        /// </summary>
+        protected virtual bool TracesPlanetBodies => false;
+
+        /// <summary>
         /// Draws the body <paramref name="view"/> describes centred on (<paramref name="x"/>, <paramref name="y"/>), its globe
         /// <paramref name="radiusPx"/> on screen, RAY-TRACED in the view's own frame (docs/plans/atlas-planet-detail.md, A5, "The bodies on
         /// the GPU"): the spheroid, Minnaert's law, Saturn's rings with both shadows, coverage as alpha, the colour from
         /// <paramref name="map"/> (uploaded once per <paramref name="textureVersion"/>) or <paramref name="flat"/>, luminance in
-        /// <paramref name="nightTint"/> under Night. Nothing is built per frame, so time running costs nothing here. False when this host
-        /// cannot, and the caller draws the CPU sprite of the same view (<see cref="PlanetView.ToAspect"/>) instead: the base, the CPU
-        /// surface, keeps <see cref="PlanetaryRender.RenderRgba"/> as the reference the GPU hosts are held to.
+        /// <paramref name="nightTint"/> under Night. Nothing is built per frame, so time running costs nothing here. Asked only where
+        /// <see cref="TracesPlanetBodies"/>; false while the body's map is still uploading, and the caller draws the flat dot.
         /// </summary>
         protected virtual bool DrawPlanetBody(in PlanetView view, float x, float y, float radiusPx, PlanetColourMap? map, int textureVersion,
             RGBAColor32 flat, RGBAColor32? nightTint) => false;

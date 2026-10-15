@@ -120,7 +120,9 @@ void main() {
                 float mu0 = dot(normal, s);
                 if (mu > 0.0 && mu0 > 0.0) {
                     float latitude = degrees(asin(clamp(normal.z, -1.0, 1.0)));
-                    float west = -degrees(atan(hit.y, hit.x));
+                    // atan(y, x) is UNDEFINED at (0, 0), which a ray meeting the globe at a pole reaches; the CPU's Atan2 reads 0.
+                    float axisLen = length(hit.xy);
+                    float west = axisLen > 1e-9 ? -degrees(atan(hit.y, hit.x)) : 0.0;
                     globe = sampleMap(latitude, west) * pow(mu0, k) * pow(mu, k - 1.0);
                     // The rings' shadow: the Sun's light through the ring its ray from this point crosses.
                     if (hasRings && s.z != 0.0 && -hit.z / s.z > 0.0) {

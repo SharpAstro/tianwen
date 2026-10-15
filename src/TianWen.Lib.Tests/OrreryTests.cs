@@ -1276,14 +1276,28 @@ public sealed class OrreryTests(ITestOutputHelper output)
             rig.Render();
         }
         await SettleAsync(rig);
+        LitAwayFromTheSun(rig.Tab.OrreryDrawn, rig.Renderer.Surface.Pixels, Width, Height, output).ShouldBeEmpty();
+    }
 
-        var drawn = rig.Tab.OrreryDrawn;
+    /// <summary>
+    /// Every planet's disc in <paramref name="pixels"/> (RGBA, <paramref name="width"/> wide) whose brightness-weighted centre lies more
+    /// than 45 degrees from the Sun's place on screen, as the drawn list puts both: what <see cref="EveryDiscIsLitTowardTheSun"/> and its
+    /// GPU twin (<see cref="OrreryGpuTests"/>) judge.
+    /// </summary>
+    internal static System.Collections.Generic.List<string> LitAwayFromTheSun(System.Collections.Generic.IReadOnlyList<(CatalogIndex Index, float X, float Y, float Radius)> drawn,
+        byte[] pixels, int width, int height, ITestOutputHelper output)
+    {
         var sun = drawn.Single(d => d.Index == CatalogIndex.Sol);
-        var pixels = rig.Renderer.Surface.Pixels;
         var failures = new System.Collections.Generic.List<string>();
         foreach (var body in drawn.Where(d => d.Index is CatalogIndex.Mercury or CatalogIndex.Venus or CatalogIndex.Earth
             or CatalogIndex.Mars or CatalogIndex.Jupiter or CatalogIndex.Saturn && d.Radius >= 4))
         {
+            if (body.X - body.Radius < 0 || body.Y - body.Radius < 0 || body.X + body.Radius > width || body.Y + body.Radius > height)
+            {
+                // Not wholly in the view: its lit side cannot be weighed.
+                output.WriteLine($"{body.Index}: at ({body.X:F0}, {body.Y:F0}), not wholly in the view");
+                continue;
+            }
             double sx = 0, sy = 0, sw = 0;
             var r = body.Radius * 0.9f;
             for (var y = (int)(body.Y - r); y <= (int)(body.Y + r); y++)
@@ -1291,16 +1305,21 @@ public sealed class OrreryTests(ITestOutputHelper output)
                 for (var x = (int)(body.X - r); x <= (int)(body.X + r); x++)
                 {
                     var (dx, dy) = (x + 0.5f - body.X, y + 0.5f - body.Y);
-                    if (x < 0 || y < 0 || x >= Width || y >= Height || (dx * dx) + (dy * dy) > r * r)
+                    if (x < 0 || y < 0 || x >= width || y >= height || (dx * dx) + (dy * dy) > r * r)
                     {
                         continue;
                     }
-                    var i = ((y * Width) + x) * 4;
+                    var i = ((y * width) + x) * 4;
                     var level = (pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3.0;
                     sx += dx * level;
                     sy += dy * level;
                     sw += level;
                 }
+            }
+            if (sw <= 0)
+            {
+                failures.Add($"{body.Index} drew a black disc at ({body.X:F0}, {body.Y:F0})");
+                continue;
             }
             var lit = Math.Atan2(sy / sw, sx / sw) * 180 / Math.PI;
             var toSun = Math.Atan2(sun.Y - body.Y, sun.X - body.X) * 180 / Math.PI;
@@ -1311,7 +1330,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
                 failures.Add($"{body.Index} lit {off:F0} deg away from the Sun");
             }
         }
-        failures.ShouldBeEmpty();
+        return failures;
     }
 
     /// <summary>With the Sun in focus, or nothing, there is nothing else to centre on: no toggle.</summary>
