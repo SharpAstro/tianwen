@@ -342,9 +342,10 @@ public class LocalNodeLauncherTests : IDisposable
     [Fact(Timeout = 60_000)]
     public async Task ANodeUnderAnotherAccountIsUsedOverTcp()
     {
-        // A service on the machine runs the node under its own account, invisible to this user's socket and lock.
+        // A service on the machine runs the node under its own account, invisible to this user's socket and lock. It is
+        // reached on TCP 1888, so it is never local-only: a local-only client (this test's) uses it, and says so.
         var ct = TestContext.Current.CancellationToken;
-        await using var service = await ImpostorNode.StartAsync(socketPath: null, NodeWire.Version, holdsHardware: false, ct);
+        await using var service = await ImpostorNode.StartAsync(socketPath: null, NodeWire.Version, holdsHardware: false, ct, localOnly: false);
         var (options, _) = Isolated();
         await using var stop = new StopsNodes(options.SocketPath);
 
@@ -353,6 +354,7 @@ public class LocalNodeLauncherTests : IDisposable
         node.Outcome.ShouldBe(LocalNodeOutcome.AnotherAccount);
         node.Transport.ShouldNotBeNull().SocketPath.ShouldBeNull();
         File.Exists(options.SocketPath).ShouldBeFalse("nothing was started");
+        node.ModeNote.ShouldNotBeNull().ShouldContain("it runs under another account");
     }
 
     [Fact(Timeout = 120_000)]

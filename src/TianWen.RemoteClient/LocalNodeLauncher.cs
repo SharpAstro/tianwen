@@ -194,8 +194,11 @@ namespace TianWen.RemoteClient
             }
             else if (options.AnotherAccountProbe is { } probe && await AskAsync(NodeTransport.OverTcp(probe), cancellationToken) is { } service)
             {
+                // Reached on TCP 1888, so never local-only: a local-only client uses it as it is and says so.
+                var accountNote = ModeNote(service, options.StartsLocalOnly, "it runs under another account");
                 return new LocalNode(LocalNodeOutcome.AnotherAccount, NodeTransport.OverTcp(probe), service,
-                    $"Using the node already running on this machine under another account, at {probe}");
+                    $"Using the node already running on this machine under another account, at {probe}"
+                    + (accountNote is null ? "" : $"; {accountNote}"), accountNote);
             }
 
             return await StartAsync(transport, socketPath, cancellationToken);
@@ -240,17 +243,17 @@ namespace TianWen.RemoteClient
         /// (<paramref name="clientLocalOnly"/>, <see cref="LocalOnlyMode"/>), or null when it is. A node of the other mode is
         /// replaced while idle and unattended; otherwise it is used, and this is how the client says so, never silently.
         /// </summary>
-        internal static string? ModeNote(NodeInfoDto node, bool clientLocalOnly)
+        internal static string? ModeNote(NodeInfoDto node, bool clientLocalOnly, string? reason = null)
         {
             if (node.LocalOnly == clientLocalOnly)
             {
                 return null;
             }
 
-            var why = node.HoldsHardware ? "it is holding the rig"
+            var why = reason ?? (node.HoldsHardware ? "it is holding the rig"
                 : node.ClientsAttached > 0 ? "another client is attached to it"
                 : node.IsShared ? "it shares the rig on the LAN"
-                : "it was not replaced";
+                : "it was not replaced");
             return node.LocalOnly
                 ? $"it is local-only (no LAN, no network discovery of devices) and this client is not; {why}, so it stays so until it restarts"
                 : $"it is not local-only and this client is ({LocalOnlyMode.EnvironmentVariable}), so it may bind the network; {why}";
