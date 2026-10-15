@@ -48,7 +48,10 @@ param(
     [int]$FirstSeed = 0,
     [int]$SnapshotAt = 0,
     # R2j: weigh each channel's error by the inverse of its share of the noise (n2n_smoke.py --channel-noise).
-    [switch]$ChannelNoise
+    [switch]$ChannelNoise,
+    # Write a resume checkpoint every N steps and continue from it when it exists (n2n_smoke.py --checkpoint-every,
+    # --resume), so a reboot or a killed shell costs at most N steps; 0 (default) writes none. Changes nothing trained.
+    [int]$CheckpointEvery = 0
 )
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
@@ -76,7 +79,7 @@ function Export-Ready([string]$arm) {
 Set-Status 'starting'
 
 try {
-    "$Tag at $(git -C $PSScriptRoot rev-parse --short HEAD), $(Get-Date -Format o), patience $Patience, cap $Steps, loss mask $LossMask, seeds from $FirstSeed, snapshot at $SnapshotAt, channel noise $ChannelNoise" | Tee-Object -FilePath $log -Append
+    "$Tag at $(git -C $PSScriptRoot rev-parse --short HEAD), $(Get-Date -Format o), patience $Patience, cap $Steps, loss mask $LossMask, seeds from $FirstSeed, snapshot at $SnapshotAt, channel noise $ChannelNoise, checkpoint every $CheckpointEvery" | Tee-Object -FilePath $log -Append
     while ($AfterPid -gt 0 -and (Get-Process -Id $AfterPid -ErrorAction SilentlyContinue)) {
         if (Stop-Requested "waiting for process $AfterPid") { return }
         Set-Status "waiting for process $AfterPid"
@@ -123,6 +126,7 @@ try {
             if ($LossMask) { $mask.Add('--loss-mask') }
             if ($SnapshotAt -gt 0) { $mask.Add('--snapshot-at'); $mask.Add("$SnapshotAt") }
             if ($ChannelNoise) { $mask.Add('--channel-noise') }
+            if ($CheckpointEvery -gt 0) { $mask.Add('--checkpoint-every'); $mask.Add("$CheckpointEvery"); $mask.Add('--resume') }
             & python n2n_smoke.py --train --cache $cache --synthetic --loss l2 --upsample --cond-map `
                 --band-loss 3 --band-scales "2,4 4,8" --base 32 --schedule plateau --steps $Steps `
                 --val-every 500 --patience $Patience --max-decays 4 --min-improve 0.001 --gate-every 0 `
