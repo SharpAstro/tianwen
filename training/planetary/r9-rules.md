@@ -636,3 +636,10 @@ them against the post or any truth was read.
   over 20 to 80), and one count learned from all four posts (the mean C24 on the derived gains: 0.9478, 0.9657, 0.9663, 0.9659, 0.9661)
   is **20**, the truth's own count, which on the learned gains reads 0.9477 against this post and does not beat 0.9483. The held
   twins' cost of 80 steps against the truth's 20 waits on the grid.
+- **Re-read after a code change (2026-10-15 12:20, disclosed as such, not a verdict of any arm above):** rendering the comparison page
+  showed the deblur raising the sky's noise over the whole sharpening window (on a small planet in a wide frame it moved the preview's
+  black point and showed the window's edge), so `--finish deconvolve` now keeps its change on the planet and its rings, feathered off over
+  two diffraction widths past the outline (branch fix/deconvolve-inside-the-planet). Re-judged against the posts with that build: the
+  EdgeHD Jupiter, learned gains + RL 80: C24 0.9523, L24 0.270 (was 0.9510 / 0.278); learned + RL 20, the twins' own count: 0.9487 /
+  0.288, now past the best earlier effort's 0.9483 / 0.292 where before the change it read 0.9477 / 0.294. The Saturns and the 12-inch
+  SCT within 0.001 of before. The arms' verdicts stand as read; this is what the shipped step now does.

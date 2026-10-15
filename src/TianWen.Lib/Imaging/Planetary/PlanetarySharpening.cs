@@ -902,7 +902,7 @@ public static class PlanetarySharpening
         }
         if (options.Finish.HasFlag(PlanetaryFinish.Deconvolve))
         {
-            finished = PlanetaryFinishing.Deconvolve(finished, size, diffraction, options.DeconvolveIterations);
+            finished = PlanetaryFinishing.Deconvolve(finished, size, diffraction, options.DeconvolveIterations, disk, cutoff);
         }
         if (options.Finish.HasFlag(PlanetaryFinish.Wiener))
         {

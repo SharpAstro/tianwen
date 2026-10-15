@@ -6242,6 +6242,14 @@ master's white level past 0.4 cycles a pixel (0.182, 0.191, 0.197) lies inside i
   fitted to all four posts is 20, the truth's own. So `--finish deconvolve` ships as an OPTION at 20 steps, never a default finish;
   the posts' count stays a taste (#1570).
 
+**The step draws on the planet only (2026-10-15).** Over the whole sharpening window the steps raised the sky's noise; on a small planet
+in a wide frame (the owner's 254 mm Saturn of 2026-10-07) that moved the preview's black point, lifting the sky to brown and showing the
+window's edge. `PlanetaryFinishing.Deconvolve` now keeps its change where the disk (its rings counted) holds the planet, feathered off
+over two diffraction widths past the outline, as the sharpening keeps #1171's rule; the sky past it is the window's own, bit for bit
+(`TheDeconvolutionLeavesTheSkyPastThePlanetAsItWas`). Re-judged, not a verdict: the EdgeHD Jupiter's learned gains + RL 80 read 0.9523 /
+0.270 (was 0.9510 / 0.278), and + RL 20 0.9487 / 0.288, past the best earlier effort at the twins' own count; the other captures moved
+under 0.001. The renders against last time's: https://claude.ai/artifact/RZFse4YHPmHMWa2CTQFKNK.
+
 **Speed.** A twin scored against the aperture truth took about 28 minutes on the shared desktop, most of it the same full-frame
 diffraction recomputed nine times a run: `PlanetaryMasterScore` now carries a truth to the aperture once a process, and one run covers
 every arm through the comma lists of `--deconvolve-iterations` and `--kolivas-amount`. What remains is FFT work a GPU does far faster
