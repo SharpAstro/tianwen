@@ -253,7 +253,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
         // Never disposed: it has no timer and is linked to no other token, so it holds nothing to give back, and a
         // disconnect may still cancel it after the stream has ended. The reader's token cancels it through a registration.
         var stop = new CancellationTokenSource();
-        using var stopOnCancel = cancellationToken.Register(static state => ((CancellationTokenSource)state!).Cancel(), stop);
+        using var stopOnCancel = cancellationToken.Register(stop.Cancel);
 
         Interlocked.Exchange(ref _stagedVideoExposureTicks, 0);
         Interlocked.Exchange(ref _stagedVideoGain, -1);
