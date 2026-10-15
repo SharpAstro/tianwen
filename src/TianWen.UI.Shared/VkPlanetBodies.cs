@@ -96,9 +96,12 @@ public sealed unsafe class VkPlanetBodies : IDisposable
         var api = _ctx.DeviceApi;
         // The renderer's own target, the whole window (or an offscreen frame, whose context has no swapchain to size it by).
         VkViewport viewport = new() { x = 0, y = 0, width = renderer.Width, height = renderer.Height, minDepth = 0f, maxDepth = 1f };
-        VkRect2D scissor = new(0, 0, renderer.Width, renderer.Height);
         api.vkCmdSetViewport(cmd, 0, 1, &viewport);
-        api.vkCmdSetScissor(cmd, 0, scissor);
+        // The scissor is the renderer's CURRENT clip (the orrery's pane), never the whole renderer: a clip of the whole target,
+        // intersected with the enclosing one, applies exactly that, and its pop re-applies the enclosing clip for what follows (the
+        // selection ring, the labels). Setting the scissor by hand left the body and everything after it in the pane unclipped, since
+        // the renderer re-applies a clip only when it changes (PR #1589, review round 1).
+        renderer.PushClip(new RectInt(new PointInt((int)renderer.Width, (int)renderer.Height), new PointInt(0, 0)));
         api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _pipeline);
         var set = texture.DescriptorSet;
         api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics, _layout, 0, 1, &set, 0, null);
@@ -107,6 +110,7 @@ public sealed unsafe class VkPlanetBodies : IDisposable
             api.vkCmdPushConstants(cmd, _layout, VkShaderStageFlags.Vertex | VkShaderStageFlags.Fragment, 0, PushBytes, p);
         }
         api.vkCmdDraw(cmd, 6, 1, 0, 0);
+        renderer.PopClip();
         return true;
     }
 
