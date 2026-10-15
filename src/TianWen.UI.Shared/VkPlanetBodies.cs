@@ -21,7 +21,7 @@ namespace TianWen.UI.Shared;
 public sealed unsafe class VkPlanetBodies : IDisposable
 {
     /// <summary>The push-constant block, seven vec4s: <c>planet_body.frag</c>'s <c>Body</c>.</summary>
-    public const int PushBytes = 7 * 4 * sizeof(float);
+    public const int PushBytes = PlanetBodyMap.BlockFloats * sizeof(float);
 
     private sealed class Slot
     {
@@ -66,9 +66,9 @@ public sealed unsafe class VkPlanetBodies : IDisposable
         {
             slot.Key = key;
             slot.Pending?.Dispose();
-            var (texels, width, height, albedo) = Texels(map, flat);
+            var (texels, width, height) = PlanetBodyMap.FloatTexels(map, flat);
             slot.Pending = VkTexture.CreateDeferred(_ctx, MemoryMarshal.AsBytes(texels.AsSpan()), width, height, VkFormat.R32G32B32A32Sfloat);
-            slot.PendingAlbedo = albedo;
+            slot.PendingAlbedo = PlanetBodyMap.RingAlbedo(map, flat);
             _ctx.QueueTextureUpload(slot.Pending);
             Uploads++;
         }
@@ -89,18 +89,8 @@ public sealed unsafe class VkPlanetBodies : IDisposable
             return false;
         }
 
-        var rings = view.Body == CatalogIndex.Saturn;
-        var tint = nightTint ?? default;
-        Span<float> push =
-        [
-            x, y, radiusPx, rings ? (float)SaturnRings.Main.OuterRadii : 1f,
-            renderer.Width, renderer.Height, (float)(1 - view.Flattening), (float)PlanetDiscSprite.MinnaertK(view.Body),
-            view.Right.X, view.Right.Y, view.Right.Z, rings ? 1f : 0f,
-            view.Toward.X, view.Toward.Y, view.Toward.Z, opacity,
-            view.Sun.X, view.Sun.Y, view.Sun.Z, nightTint.HasValue ? 1f : 0f,
-            slot.ShownAlbedo.R, slot.ShownAlbedo.G, slot.ShownAlbedo.B, 0f,
-            tint.Red / 255f, tint.Green / 255f, tint.Blue / 255f, 0f,
-        ];
+        Span<float> push = stackalloc float[PlanetBodyMap.BlockFloats];
+        PlanetBodyMap.WriteBlock(push, view, x, y, radiusPx, renderer.Width, renderer.Height, slot.ShownAlbedo, nightTint, opacity);
 
         var cmd = renderer.CurrentCommandBuffer;
         var api = _ctx.DeviceApi;
@@ -118,34 +108,6 @@ public sealed unsafe class VkPlanetBodies : IDisposable
         }
         api.vkCmdDraw(cmd, 6, 1, 0, 0);
         return true;
-    }
-
-    // The map as float RGBA texels (the planes exact, as the CPU render reads them) and each plane's mean albedo, which a ring's level
-    // is stated against; a flat body is a 2 x 2 map of its colour, as PlanetDiscSprite's flat map is.
-    private static (float[] Texels, int Width, int Height, (float R, float G, float B) Albedo) Texels(PlanetColourMap? map, RGBAColor32 flat)
-    {
-        if (map is null)
-        {
-            var (r, g, b) = (flat.Red / 255f, flat.Green / 255f, flat.Blue / 255f);
-            return ([r, g, b, 1, r, g, b, 1, r, g, b, 1, r, g, b, 1], 2, 2, (r, g, b));
-        }
-        var (width, height) = (map.Width, map.Height);
-        var texels = new float[width * height * 4];
-        for (var row = 0; row < height; row++)
-        {
-            // PlanetMap.Sample's convention, sample by sample: column c at west 360 - (c + 0.5) * 360 / width, row 0 the north edge.
-            var latitude = 90 - ((row + 0.5) * 180 / height);
-            for (var c = 0; c < width; c++)
-            {
-                var west = 360 - ((c + 0.5) * 360 / width);
-                var i = ((row * width) + c) * 4;
-                texels[i] = (float)map.Red.Sample(latitude, west);
-                texels[i + 1] = (float)map.Green.Sample(latitude, west);
-                texels[i + 2] = (float)map.Blue.Sample(latitude, west);
-                texels[i + 3] = 1;
-            }
-        }
-        return (texels, width, height, ((float)map.Red.MeanAlbedo, (float)map.Green.MeanAlbedo, (float)map.Blue.MeanAlbedo));
     }
 
     private void CreatePipeline()

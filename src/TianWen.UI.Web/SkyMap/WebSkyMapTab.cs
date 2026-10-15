@@ -50,6 +50,19 @@ namespace TianWen.UI.Web.SkyMap
             return _planetSprites.Draw(sprite, x, y, radiusPx);
         }
 
+        private WebGlPlanetBodies? _planetBodies;
+
+        /// <inheritdoc/>
+        protected override bool TracesPlanetBodies => true;
+
+        /// <inheritdoc/>
+        protected override bool DrawPlanetBody(in TianWen.Lib.Imaging.Planetary.PlanetView view, float x, float y, float radiusPx,
+            TianWen.Lib.Imaging.Planetary.PlanetColourMap? map, int textureVersion, RGBAColor32 flat, RGBAColor32? nightTint)
+        {
+            _planetBodies ??= new WebGlPlanetBodies(renderer, RequestPlanetFrame, Logger);
+            return _planetBodies.Draw(view, x, y, radiusPx, map, textureVersion, flat, nightTint);
+        }
+
         /// <summary>A texture or a sprite landed with nothing else happening: the page paints per event, so ask it for one.</summary>
         protected override void RequestPlanetFrame()
         {
