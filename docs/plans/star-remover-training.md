@@ -2114,6 +2114,53 @@ defect every model shares: a bright or saturated star leaves a channel under the
 the luminance hid it. The next arms register their colour measures beside the luminance's. Whether R2i's green dig is
 its seed's or the store's is what R2i's second seed reads.
 
+#### R2j: each channel's error weighed by its own noise, pre-registered (2026-10-15)
+
+Written before it trains, on the owner's word to train a model that respects the colour defect. Tracked by #1338.
+
+**Why the loss, not the data.** On their own export's validation draws (`synth4` for R2i, `synth3` for R2g, scored by
+the same colour eval), both models dig exactly as on A's draws. R2i's bright cores sit at -0.31, -0.56 and +0.10 sigma
+in R, G and B there, against -0.28, -0.56 and +0.14 on A's draws, so the dig is the model's, not a gap between its
+training and the eval. The digs fall in the channels the eval reads as quietest: at 100-1000 sigma R2i digs red on
+34 % of stars and green on 48 %, blue (the noisiest, 2.08 times the luminance's sigma against 1.34 and 1.41) on 13 %.
+The trainer's L2 weighs an error alike in every channel, in the tile's units; the eval and the eye weigh it against
+its channel's noise.
+
+**The change, one variable.** `n2n_smoke.py --channel-noise` (`channel_weights`; `run-r2.ps1 -ChannelNoise`) divides
+each channel's error in the pixel and band terms, and the plateau's held-out objective, by that channel's share of the
+noise. The share is read on the truth tile as ColourDetail reads it (neighbour-difference spread in the channel over
+the luminance's), and the shares are divided by their RMS over the channels. A tile of equally noisy channels keeps
+R2i's objective exactly, and only the channels' weights against each other move. A per-pixel sigma was tried first and
+set aside: in each pixel's own sigma, the worst 1 % of a converged model's pixels hold 66 % of the objective, so it
+would also have re-weighted bright cores against the sky. Checked before launch: on a tile of known noise 0.02, 0.01
+and 0.03 the weights come back within 0.5 %; 1,000 steps of the recipe run at R2i's speed with the held-out objective
+falling (5.3e-4 to 2.8e-4).
+
+**The run.** R2i exactly but for the switch: the same `r2-synth4` cache, seed 0, R2f's trainer and split, patience 24,
+cap 480,000: `run-r2.ps1 -Tag r2j -Arms synth4 -SeedCount 1 -Patience 24 -Steps 480000 -ChannelNoise`. Scored on A's
+draws by the colour eval (`starless-eval-v5.json`), against R2i.
+
+**The bars.** Luminance: the seed spread at convergence as R2i registered it (2.7, 3.1 and 3.1 points clean at 5-20,
+20-100 and 100-1000 sigma). Colour, the same pair of seeds (R2g against R2h) read by the colour eval: 1.9, 0.4 and 0.6
+points clean in colour, and 1.9, 4.4 and 3.8 dug in colour, at 5-20, 20-100 and 100-1000 sigma. One pair of seeds is a
+thin estimate, as it was for the luminance.
+
+**Predictions** (against R2i):
+1. **It ends on its own before 480,000.** Moderate to high.
+2. **The colour digs fall**: dug in colour at most 34.3 % at 20-100 sigma and at most 59.5 % at 100-1000 sigma (R2i's
+   38.7 and 63.3, less the spread). Moderate: it is the hypothesis.
+3. **The digs move toward blue**: at 100-1000 sigma, red's and green's digs each under R2i's (34.3 % and 47.7 %), blue's
+   over R2i's 12.6 %. Low to moderate: it checks the mechanism.
+4. **Luminance removal holds**: clean within the spread of R2i's at every brightness. Moderate.
+5. **The sky**: far sky at most 0.37.
+
+**Kill:** clean removal on the luminance falls by more than its spread at any brightness. Then weighing the channels
+costs what R2i gained, and it is not adopted.
+
+**What it decides.** If (2) and (4) hold, the channel weighting joins the recipe and R2j is the next arms' control. If
+(2) fails, the dig is not the loss's channel weighting. Then the next candidate is the net's input: it is told one
+noise plane for three channels, and a plane per channel needs an export that writes them.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its

@@ -42,7 +42,13 @@ param(
     [int]$Steps = 60000,
     # R2d's D4: leave the sky near the plate's own sources out of the loss (keep.u8 beside the cache: tianwen dataset
     # plate-masks over the export, then n2n_smoke.py --prepare-keep).
-    [switch]$LossMask
+    [switch]$LossMask,
+    # R2h: the first seed to run (seeds FirstSeed..FirstSeed+SeedCount-1), and a step whose weights are also saved
+    # (n2n_smoke.py --snapshot-at; 0 saves none).
+    [int]$FirstSeed = 0,
+    [int]$SnapshotAt = 0,
+    # R2j: weigh each channel's error by the inverse of its share of the noise (n2n_smoke.py --channel-noise).
+    [switch]$ChannelNoise
 )
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
@@ -70,7 +76,7 @@ function Export-Ready([string]$arm) {
 Set-Status 'starting'
 
 try {
-    "$Tag at $(git -C $PSScriptRoot rev-parse --short HEAD), $(Get-Date -Format o), patience $Patience, cap $Steps, loss mask $LossMask" | Tee-Object -FilePath $log -Append
+    "$Tag at $(git -C $PSScriptRoot rev-parse --short HEAD), $(Get-Date -Format o), patience $Patience, cap $Steps, loss mask $LossMask, seeds from $FirstSeed, snapshot at $SnapshotAt, channel noise $ChannelNoise" | Tee-Object -FilePath $log -Append
     while ($AfterPid -gt 0 -and (Get-Process -Id $AfterPid -ErrorAction SilentlyContinue)) {
         if (Stop-Requested "waiting for process $AfterPid") { return }
         Set-Status "waiting for process $AfterPid"
@@ -82,7 +88,7 @@ try {
     New-Item -ItemType Directory -Force $snap | Out-Null
     Copy-Item *.py, run-r2.ps1, arms\r2-train.txt, arms\r2-val.txt $snap -Force
 
-    :seeds foreach ($seed in 0..($SeedCount - 1)) {
+    :seeds foreach ($seed in $FirstSeed..($FirstSeed + $SeedCount - 1)) {
         foreach ($arm in $Arms) {
             $cache = Join-Path $Scratch "r2-$arm"
             $name = "$($Tag)_$($arm -replace '-', '')_s$seed"
@@ -115,6 +121,8 @@ try {
             # splatting a string passes its characters one by one (the first R2d launch, 2026-10-07).
             $mask = [System.Collections.Generic.List[string]]::new()
             if ($LossMask) { $mask.Add('--loss-mask') }
+            if ($SnapshotAt -gt 0) { $mask.Add('--snapshot-at'); $mask.Add("$SnapshotAt") }
+            if ($ChannelNoise) { $mask.Add('--channel-noise') }
             & python n2n_smoke.py --train --cache $cache --synthetic --loss l2 --upsample --cond-map `
                 --band-loss 3 --band-scales "2,4 4,8" --base 32 --schedule plateau --steps $Steps `
                 --val-every 500 --patience $Patience --max-decays 4 --min-improve 0.001 --gate-every 0 `
