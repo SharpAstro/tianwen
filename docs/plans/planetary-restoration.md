@@ -6273,10 +6273,48 @@ earlier effort (0.9483 / 0.292); + RL 20, the twins' own count, 0.9480 / 0.292, 
 The EdgeHD Saturn reads 0.978 at 40 steps, the Meade 0.982, the 12-inch SCT still closest with none. The renders against last time's:
 https://claude.ai/artifact/RZFse4YHPmHMWa2CTQFKNK.
 
+**Verdict 1, on the 14 held twins (read 2026-10-15): HOLDS.** Their mean error against the aperture truth (bands 1 to 4, mean of r, g,
+b): learned gains + RL 20 2.093, below every comparator: the derived gains 2.891, derived `--target aperture` 2.812, learned alone 2.479,
+learned + Kolivas at 15.6 and at 31.2 2.236 and 2.222. RL 10 reads 2.079, RL 80 (the count the other posts choose for this capture)
+2.179: the posts' count costs the truth 4 %. L-DECONV as set still fails, by verdict 2 above.
+
 **Speed.** A twin scored against the aperture truth took about 28 minutes on the shared desktop, most of it the same full-frame
 diffraction recomputed nine times a run: `PlanetaryMasterScore` now carries a truth to the aperture once a process, and one run covers
 every arm through the comma lists of `--deconvolve-iterations` and `--kolivas-amount`. What remains is FFT work a GPU does far faster
 (#1577, after this lands, with CPU/GPU parity tests).
+
+##### L-DECONV-L: the deblur after the derived gains, and the deblur of a combined image
+
+The owner's question (2026-10-15): the deep-sky colour path deblurs the finished colour image, so would one deblur of a combined image
+serve a colour master better than a deblur of each channel? Five arms on the derived gains at strength 1 and 20 steps, pre-registered in
+`training/planetary/r9-rules.md`: N, no deblur; P, each channel deblurred (`--finish deconvolve` as shipped); A0, #1295's luminance
+sharpening; A, that luminance deblurred too; B, each channel sharpened by its own gains, then one deblur of the channels' mean at the
+mean wavelength, its change given to each plane at that plane's share of the mean (an experimental `--deconvolve-on luminance`, not
+merged). Scored on #1295's four colour twins, the 14 held EdgeHD twins and the four captures with a post.
+
+**After the derived gains, the deblur overshoots the truth.** The held EdgeHD twins, mean of r, g, b over bands 1 to 4 against the
+aperture truth (N reproduces L-DECONV's derived 2.891 exactly):
+
+| Held twins | N | P | B | A0 |
+|---|---|---|---|---|
+| all 14 | 2.891 | 3.638 | 3.360 | 2.841 |
+| the deploy family, no warp (6) | 2.195 | 2.252 | 2.107 | 2.210 |
+| the extension, a local warp of 1 to 4 px (8) | 3.413 | 4.677 | 4.300 | 3.314 |
+
+P is further from the truth than N on 11 of 14, and on every warped twin by 27 to 45 %; on #1295's colour twins it is mixed (P over N
+0.99, 1.06, 0.90, 1.07). The derived gains already lift the planet to the truth's contrast up to the cutoff, and 20 steps on top push
+past it; why the warped twins lose most is not measured. Against the posts the same step brings three captures of four closer (C24
+0.933 to 0.947, 0.956 to 0.976, 0.934 to 0.980) and the 12-inch SCT further (0.968 to 0.959). So after the derived gains the deblur is a
+step toward a post's look that costs the truth; after the learned gains, which stop short of the truth's contrast, it is the truth's own
+step (verdict 1 above).
+
+**The combined deblur (B): not adopted under the rule as set.** B beats P on all 14 EdgeHD twins, leaves the globe no further from the
+truth than P on all four colour twins and the rings no further on both Saturns, keeps the gap's colour within 0.01 of the truth's, and
+matches P against the posts (mean C24 0.9657 against 0.9655). It fails one clause, the rings' chroma as a share of the globe's within
+10 % of the truth's (0.51 and 0.48 against 0.43), which every arm fails, no deblur included (0.52 and 0.49): a clause that reads the
+colour balance rather than the deblur. Dropping it after reading would be an amendment, the owner's to make; until then B stays
+unmerged. A (the luminance deblurred) fails colour, detail and the gap. A0 has the least error of all on the held twins and, as #1295
+found, more than N on every colour twin (3 to 19 %).
 
 #### The other stages, read afresh off the twins
 
