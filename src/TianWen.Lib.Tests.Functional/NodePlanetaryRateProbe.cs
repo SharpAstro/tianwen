@@ -118,6 +118,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         var runs = new List<Run>();
         var endpoints = new HashSet<OwnedEndpoints.Endpoint>();
         List<NodeStream> streams;
+        string[] streamLines;
         int[] watched;
         var kept = await KeptNode.StartAsync(ct, dataRoot => SeedProfileAsync(dataRoot, camera, ct), fakeDevicesOnly: false);
         try
@@ -159,6 +160,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
             (await kept.Client.ShutdownNodeAsync(ct)).IsSuccess.ShouldBeTrue("the node takes its own safe stop");
             await kept.KeeperExitAsync(ct);
             streams = ReadStreams(kept.DataRoot);
+            streamLines = StreamLines(kept.DataRoot);
         }
         finally
         {
@@ -216,6 +218,13 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         {
             output.WriteLine("  (none: the node listens on its socket alone)");
         }
+        // The node's own lines, with their times: when each stream started, stalled and came back (its log goes with its data root).
+        output.WriteLine("");
+        output.WriteLine("The node's camera streams, from its log:");
+        foreach (var line in streamLines)
+        {
+            output.WriteLine($"  {line}");
+        }
 
         endpoints.ShouldAllBe(static e => e.IsLoopback, "no socket off loopback (TIANWEN_LOCAL_ONLY): nothing the firewall would ask about");
         var gated = runs.Where(static r => r.Arm.StartsWith("node, view", StringComparison.Ordinal) && !r.Stalled).ToArray();
@@ -254,7 +263,11 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
     public async Task TheRealGuiWindowShowsTheCaptureLiveWhileTheNodeRecords()
     {
         Assert.SkipUnless(Environment.GetEnvironmentVariable(GateVar) == "1", $"{GateVar} is not 1 (this drives the attached ToupTek camera)");
-        Assert.SkipUnless(Environment.GetEnvironmentVariable(GuiEvidenceVar) == "1", $"{GuiEvidenceVar} is not 1 (a person drives this one: tools/planetary-gui-evidence.ps1)");
+        // "check" runs everything a person is not needed for (the node, the window placed, the clicks printed, one picture of the
+        // window, its endpoints) and stops there, so the launcher can be proven before someone is at the desk.
+        var mode = Environment.GetEnvironmentVariable(GuiEvidenceVar);
+        Assert.SkipUnless(mode is "1" or "check", $"{GuiEvidenceVar} is not 1 or check (a person drives this one: tools/planetary-gui-evidence.ps1)");
+        var checkOnly = mode == "check";
         var guiPath = Environment.GetEnvironmentVariable(GuiUnderTestVar) is { Length: > 0 } named && File.Exists(named)
             ? named : throw new InvalidOperationException($"{GuiUnderTestVar} names no tianwen-gui executable");
         var evidence = Directory.CreateDirectory(Environment.GetEnvironmentVariable(GuiEvidenceOutVar) is { Length: > 0 } folder
@@ -294,6 +307,9 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         {
             var client = kept.Client;
             var nodePid = (await client.GetNodeAsync(ct)).Value.ShouldNotBeNull("the node answers").ProcessId;
+            // Active BEFORE the camera connects: a window that attaches to a node running no profile makes one active, and
+            // a node with a device connected refuses the switch ("Disconnect equipment first").
+            (await client.SetActiveProfileAsync(ProfileId, ct)).IsSuccess.ShouldBeTrue("the node runs the probe's profile");
             await NodeWait.UntilTheJobSucceedsAsync(client, await client.ConnectDeviceAsync(camera, ct), ct);
 
             var start = new ProcessStartInfo(guiPath)
@@ -320,6 +336,34 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
             var window = await GuiWindow.PlaceOnLeftHalfAsync(gui, TimeSpan.FromSeconds(60), ct) ?? throw new InvalidOperationException("the GUI showed no window");
             placed = window.Placed;
             output.WriteLine($"the GUI's window is {placed}");
+
+            if (checkOnly)
+            {
+                // The window taken at 5, 15 and 30 s, so a first frame that comes late is told from one PrintWindow cannot
+                // see; its endpoints sampled meanwhile.
+                for (var second = 1; second <= 30; second++)
+                {
+                    gui.HasExited.ShouldBeFalse("the GUI is still open");
+                    OwnedEndpoints.Sample(watched, endpoints);
+                    await SystemTimeProvider.Instance.SleepAsync(TimeSpan.FromSeconds(1), ct);
+                    if (second is 5 or 15 or 30)
+                    {
+                        var check = Path.Combine(evidence, $"gui-check-{second:00}s-{DateTime.Now:yyyyMMdd-HHmmss}.png");
+                        var size = GuiWindow.PrintToPng(window.Window, gui.Id, check);
+                        output.WriteLine($"CHECK ONLY: the window at {second} s ({size.Width}x{size.Height}) by PrintWindow: {check}");
+                    }
+                }
+                var attached = (await client.GetNodeAsync(ct)).Value?.ClientsAttached ?? 0;
+                output.WriteLine($"CHECK ONLY: {attached} client(s) attached to the node");
+                output.WriteLine("  TCP listeners and UDP endpoints of the node, its keeper, the GUI and this process:");
+                foreach (var endpoint in endpoints.OrderBy(static e => e.Pid).ThenBy(static e => e.Protocol).ThenBy(static e => e.Port))
+                {
+                    output.WriteLine($"    {endpoint}");
+                }
+                attached.ShouldBeGreaterThanOrEqualTo(1, "the GUI attached to the probe's node");
+                endpoints.ShouldAllBe(static e => e.IsLoopback, "no socket off loopback (TIANWEN_LOCAL_ONLY)");
+                return;
+            }
 
             // The person's part: until the node streams the Saturn window's size and depth, started from the GUI.
             var asked = TimeSpan.MinValue;
@@ -414,6 +458,14 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
             finally
             {
                 streamLines = kept.Keeper.HasExited ? StreamLines(kept.DataRoot) : [];
+                // The window's and the node's own logs go with the data root: kept beside the picture.
+                foreach (var day in Directory.EnumerateDirectories(Path.Combine(kept.DataRoot, "Logs")))
+                {
+                    foreach (var file in Directory.EnumerateFiles(day, "*.log"))
+                    {
+                        File.Copy(file, Path.Combine(evidence, Path.GetFileName(file)), overwrite: true);
+                    }
+                }
                 await kept.DisposeAsync();
             }
         }
