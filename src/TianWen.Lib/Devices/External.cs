@@ -34,9 +34,28 @@ internal sealed class External(
     /// application. The directory is created if it does not already exist.</remarks>
     public DirectoryInfo AppDataFolder => SharedStaticData.CommonDataRoot;
 
-    public DirectoryInfo ImageOutputFolder { get; } = Directory.CreateDirectory(SpecialFolderHelper.ResolveAppSubFolder(
-        Environment.GetFolderPath, Environment.SpecialFolder.MyPictures, SharedStaticData.AppName,
-        fallback: Path.Combine(SharedStaticData.CommonDataRoot.FullName, "Images")));
+    public DirectoryInfo ImageOutputFolder { get; } = Directory.CreateDirectory(ResolveImageOutputFolder(
+        TianWenDataRoot.IsOverridden, SharedStaticData.CommonDataRoot.FullName, Environment.GetFolderPath));
+
+    /// <summary>
+    /// Where images are written: <c>TianWen</c> in the user's Pictures folder, or <c>Images</c> under the data root when
+    /// <see cref="TianWenDataRoot.EnvironmentVariable"/> names one. A data root kept apart from the user's (a test's node, a
+    /// scratch node) keeps its images apart too, as it keeps its secrets in a file under it rather than in the user's vault:
+    /// a planetary probe's node would otherwise have recorded 3.6 GB a minute into the user's Pictures, and a functional
+    /// test's dark library has.
+    /// </summary>
+    /// <param name="dataRootOverridden"><see cref="TianWenDataRoot.IsOverridden"/>, or a test's stand-in.</param>
+    /// <param name="dataRoot">The data root's full path.</param>
+    /// <param name="getFolderPath"><see cref="Environment.GetFolderPath(Environment.SpecialFolder, Environment.SpecialFolderOption)"/>,
+    /// or a stand-in for a test.</param>
+    internal static string ResolveImageOutputFolder(bool dataRootOverridden, string dataRoot,
+        Func<Environment.SpecialFolder, Environment.SpecialFolderOption, string> getFolderPath)
+    {
+        var underDataRoot = Path.Combine(dataRoot, "Images");
+        return dataRootOverridden
+            ? underDataRoot
+            : SpecialFolderHelper.ResolveAppSubFolder(getFolderPath, Environment.SpecialFolder.MyPictures, SharedStaticData.AppName, fallback: underDataRoot);
+    }
 
     /// <summary>
     /// Profiles are shared between every consumer of this library, for ease of use

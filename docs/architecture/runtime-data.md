@@ -17,6 +17,7 @@ TianWen/
 ├── Planetary/          # telescopes.json: the telescope each camera was last said to be on, which AUTO reads (PlanetaryTelescopeMemory, #1391)
 ├── models/             # AI ONNX models (ModelResolver; also finds GraXpert's model in GraXpert's own cache)
 ├── Secrets/            # 0600 file per device secret, non-Windows or a TIANWEN_DATA_ROOT tree (else Credential Manager)
+├── Images/             # Only in a TIANWEN_DATA_ROOT tree (else Pictures/TianWen): lights, flats, darks, bias, planetary SERs (External.ResolveImageOutputFolder)
 ├── node.sock           # The machine's node's socket (NodeSocket), owner-only on Unix
 ├── node.lock           # One node per socket: held for the node's life, never deleted (NodeLock)
 ├── node-settings.json  # The node's own state: "Share this rig on the LAN" and its active profile (NodeSettings)
