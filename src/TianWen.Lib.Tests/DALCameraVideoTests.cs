@@ -354,6 +354,33 @@ public class DALCameraVideoTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// The settle after a pan asks for a frame without waiting, which a ZWO body (it pans mid-stream too) was never asked
+    /// before. An answer it does not expect there ends the settle and is never a stall: were it one, every recentring
+    /// pan would restart the stream.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task AnErrorToTheSettlesCallWithoutAWaitIsNotAStall()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state) = await StreamingCameraAsync();
+        state.ErrorAtWaitZero = CMOSErrorCode.GeneralError;
+
+        await using var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
+        (await NextAsync(frames)).Release();
+        await camera.JogRoiAsync(8, 0, ct);
+        Image frame;
+        while (!camera.IsUnderVideoRoi(frame = await NextAsync(frames)))
+        {
+            frame.Release();
+        }
+        frame.Release();
+
+        camera.VideoStalls.ShouldBe(0);
+        state.VideoStarts.ShouldBe(1, "the stream was never restarted for it");
+        camera.VideoRoi.X.ShouldBe(26);
+    }
+
+    /// <summary>
     /// A stall (ToupTek.SDK answers GeneralError once the body stops sending) is brought back by restarting the stream on
     /// the same handle, which undid 10 of 11 on a G3M678M; the stream goes on, and the stall is counted and logged.
     /// </summary>
