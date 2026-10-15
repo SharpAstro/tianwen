@@ -18,10 +18,10 @@ namespace TianWen.UI.Shared;
 /// QUEUED into the next frame (<see cref="VulkanContext.QueueTextureUpload"/>) and the body's previous texture is drawn until it lands;
 /// before any has landed the draw answers false and the caller draws the flat dot.
 /// </summary>
-internal sealed unsafe class VkPlanetBodies : IDisposable
+public sealed unsafe class VkPlanetBodies : IDisposable
 {
     /// <summary>The push-constant block, seven vec4s: <c>planet_body.frag</c>'s <c>Body</c>.</summary>
-    internal const int PushBytes = 7 * 4 * sizeof(float);
+    public const int PushBytes = 7 * 4 * sizeof(float);
 
     private sealed class Slot
     {
@@ -94,7 +94,7 @@ internal sealed unsafe class VkPlanetBodies : IDisposable
         Span<float> push =
         [
             x, y, radiusPx, rings ? (float)SaturnRings.Main.OuterRadii : 1f,
-            _ctx.SwapchainWidth, _ctx.SwapchainHeight, (float)(1 - view.Flattening), (float)PlanetDiscSprite.MinnaertK(view.Body),
+            renderer.Width, renderer.Height, (float)(1 - view.Flattening), (float)PlanetDiscSprite.MinnaertK(view.Body),
             view.Right.X, view.Right.Y, view.Right.Z, rings ? 1f : 0f,
             view.Toward.X, view.Toward.Y, view.Toward.Z, opacity,
             view.Sun.X, view.Sun.Y, view.Sun.Z, nightTint.HasValue ? 1f : 0f,
@@ -104,8 +104,9 @@ internal sealed unsafe class VkPlanetBodies : IDisposable
 
         var cmd = renderer.CurrentCommandBuffer;
         var api = _ctx.DeviceApi;
-        VkViewport viewport = new() { x = 0, y = 0, width = _ctx.SwapchainWidth, height = _ctx.SwapchainHeight, minDepth = 0f, maxDepth = 1f };
-        VkRect2D scissor = new(0, 0, _ctx.SwapchainWidth, _ctx.SwapchainHeight);
+        // The renderer's own target, the whole window (or an offscreen frame, whose context has no swapchain to size it by).
+        VkViewport viewport = new() { x = 0, y = 0, width = renderer.Width, height = renderer.Height, minDepth = 0f, maxDepth = 1f };
+        VkRect2D scissor = new(0, 0, renderer.Width, renderer.Height);
         api.vkCmdSetViewport(cmd, 0, 1, &viewport);
         api.vkCmdSetScissor(cmd, 0, scissor);
         api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _pipeline);

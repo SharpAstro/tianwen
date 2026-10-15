@@ -44,12 +44,19 @@ public readonly record struct PlanetView(CatalogIndex Body, Vector3 Right, Vecto
         east[1] = (pole[2] * meridian[0]) - (pole[0] * meridian[2]);
         east[2] = (pole[0] * meridian[1]) - (pole[1] * meridian[0]);
 
-        var towardBody = InBody(toward, meridian, east, pole);
-        var rightBody = InBody(right, meridian, east, pole);
-        rightBody = Vector3.Normalize(rightBody - (Vector3.Dot(rightBody, towardBody) * towardBody));
-        var sunBody = body == CatalogIndex.Sol ? towardBody : InBody(toSun, meridian, east, pole);
+        return InBodyFrame(body, InBody(right, meridian, east, pole), InBody(toward, meridian, east, pole), InBody(toSun, meridian, east, pole));
+    }
+
+    /// <summary>
+    /// The view of <paramref name="body"/> from vectors already in its body frame: <paramref name="right"/> is made square to
+    /// <paramref name="toward"/>, the Sun is lit at full phase, and the flattening is the body's IAU one.
+    /// </summary>
+    public static PlanetView InBodyFrame(CatalogIndex body, Vector3 right, Vector3 toward, Vector3 sun)
+    {
+        toward = Vector3.Normalize(toward);
+        right = Vector3.Normalize(right - (Vector3.Dot(right, toward) * toward));
         var (equatorial, polar) = PhysicalEphemeris.Radii(body);
-        return new PlanetView(body, rightBody, towardBody, sunBody, 1 - (polar / equatorial));
+        return new PlanetView(body, right, toward, body == CatalogIndex.Sol ? toward : Vector3.Normalize(sun), 1 - (polar / equatorial));
     }
 
     /// <summary>
