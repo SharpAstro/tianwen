@@ -490,13 +490,22 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                     break;
                 }
 
-                if (ladder is null || stall.Healthy)
+                // A stall of the camera's own is one that came after frames (or before the first); a segment a rung started
+                // that never had a frame is that rung failing, not another stall.
+                if (ladder is null || segment.Frames > 0)
                 {
-                    ladder = stall;
-                    rung = VideoRecoveryRung.Restart;
                     Interlocked.Increment(ref _videoStalls);
-                    Logger.LogWarning("{Camera}'s stream stalled ({Code}), {Since:F2} s after its last frame at {LastFrame:o}: restarting it",
+                    Logger.LogWarning("{Camera}'s stream stalled ({Code}), {Since:F2} s after its last frame at {LastFrame:o}",
                         Name, stall.Code, TimeProvider.GetElapsedTime(stall.LastFrameTimestamp).TotalSeconds, stall.LastFrameAt);
+                }
+
+                // The gap a recovery leaves runs from the last frame before the latest stall.
+                var healthy = ladder is null || stall.Healthy;
+                ladder = stall;
+                if (healthy)
+                {
+                    rung = VideoRecoveryRung.Restart;
+                    Logger.LogWarning("{Camera}: restarting its stream", Name);
                 }
                 else if (rung is VideoRecoveryRung.Restart)
                 {
