@@ -1,0 +1,305 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Diagnostics;
+using System.Linq;
+using System.Net;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
+using SharpAstro.Ser;
+using TianWen.Lib.Devices;
+
+namespace TianWen.Lib.Tests;
+
+/// <summary>
+/// What a recording's SER says about its rate, read back the one way for every rate probe (TIA2): frame count over the
+/// file's own timestamp span, and each step between consecutive frames' timestamps longer than a stated bound. A frame is
+/// stamped with the time its driver read it, so a step that long is time the driver read nothing.
+/// </summary>
+internal sealed record SerRateReadBack(int Frames, TimeSpan Span, double StepP50Ms, double StepP99Ms, TimeSpan MaxStep,
+    ImmutableArray<(int AfterFrame, TimeSpan Step)> LongSteps, TimeSpan LongStepBound)
+{
+    /// <summary>Frame count over the timestamp span, as #1596's bar reads it.</summary>
+    public double Fps => Span > TimeSpan.Zero ? Frames / Span.TotalSeconds : 0;
+
+    /// <summary>The rate with the long steps' time taken out: what the camera delivered around a stall.</summary>
+    public double FpsOutsideLongSteps
+    {
+        get
+        {
+            var outside = Span - LongSteps.Aggregate(TimeSpan.Zero, static (sum, step) => sum + step.Step);
+            return outside > TimeSpan.Zero ? Frames / outside.TotalSeconds : 0;
+        }
+    }
+
+    public static SerRateReadBack Read(string path, TimeSpan longStepBound)
+    {
+        using var ser = SerReader.Open(path);
+        DateTimeOffset[] stamps = [.. ser.Timestamps];
+        var steps = new double[Math.Max(0, stamps.Length - 1)];
+        var longSteps = ImmutableArray.CreateBuilder<(int, TimeSpan)>();
+        for (var i = 1; i < stamps.Length; i++)
+        {
+            var step = stamps[i] - stamps[i - 1];
+            steps[i - 1] = step.TotalMilliseconds;
+            if (step > longStepBound)
+            {
+                longSteps.Add((i - 1, step));
+            }
+        }
+        Array.Sort(steps);
+        double At(double p) => steps.Length == 0 ? double.NaN : steps[(int)Math.Round(p * (steps.Length - 1))];
+        return new SerRateReadBack(ser.FrameCount, stamps.Length > 1 ? stamps[^1] - stamps[0] : TimeSpan.Zero, At(0.5), At(0.99),
+            TimeSpan.FromMilliseconds(steps.Length == 0 ? 0 : steps[^1]), longSteps.ToImmutable(), longStepBound);
+    }
+
+    public override string ToString()
+    {
+        var longSteps = LongSteps.Length == 0
+            ? "none"
+            : string.Join("; ", LongSteps.Select(static s => $"{s.Step.TotalSeconds:F2} s after frame {s.AfterFrame}"))
+                + $" ({FpsOutsideLongSteps:F1} fps outside them)";
+        return $"SER {Frames} frames over {Span.TotalSeconds:F2} s = {Fps:F1} fps (frame count over its timestamp span), "
+            + $"steps p50 {StepP50Ms:F2} / p99 {StepP99Ms:F2} / max {MaxStep.TotalMilliseconds:F1} ms, "
+            + $"steps over {LongStepBound.TotalMilliseconds:F0} ms: {longSteps}";
+    }
+}
+
+/// <summary>
+/// The whole machine's CPU over an interval, the load a rate run was measured under: the share of every core's time that
+/// was busy (<c>GetSystemTimes</c>), and the processes that used most of it. A run that misses under load is re-run with
+/// its bar unchanged, so the load is reported beside every run.
+/// </summary>
+internal sealed partial class HostCpuLoad
+{
+    private readonly long _idle;
+    private readonly long _kernel;
+    private readonly long _user;
+    private readonly Dictionary<int, (string Name, TimeSpan Cpu)> _processes;
+    private readonly long _started;
+
+    private HostCpuLoad()
+    {
+        (_idle, _kernel, _user) = SystemTimes();
+        _processes = ProcessTimes();
+        _started = Stopwatch.GetTimestamp();
+    }
+
+    public static HostCpuLoad Start() => new HostCpuLoad();
+
+    /// <summary>Busy share of all cores since <see cref="Start"/> in percent, the cores, and the five processes that used the most.</summary>
+    public string Describe()
+    {
+        var (idle, kernel, user) = SystemTimes();
+        var total = (kernel - _kernel) + (user - _user); // kernel time includes the idle time
+        var busy = total > 0 ? 100.0 * (total - (idle - _idle)) / total : double.NaN;
+        var seconds = Stopwatch.GetElapsedTime(_started).TotalSeconds;
+        var top = ProcessTimes()
+            .Select(p => (p.Key, p.Value.Name, Used: _processes.TryGetValue(p.Key, out var before) && before.Name == p.Value.Name ? p.Value.Cpu - before.Cpu : p.Value.Cpu))
+            .OrderByDescending(static p => p.Used)
+            .Take(5)
+            .Select(p => $"{p.Name} {p.Key} {p.Used.TotalSeconds / seconds:F1} cores");
+        return $"host CPU {busy:F0} % busy of {Environment.ProcessorCount} over {seconds:F0} s (most: {string.Join(", ", top)})";
+    }
+
+    private static (long Idle, long Kernel, long User) SystemTimes()
+        => OperatingSystem.IsWindows() && GetSystemTimes(out var idle, out var kernel, out var user) ? (idle, kernel, user) : (0, 0, 0);
+
+    private static Dictionary<int, (string Name, TimeSpan Cpu)> ProcessTimes()
+    {
+        var times = new Dictionary<int, (string Name, TimeSpan Cpu)>();
+        foreach (var process in Process.GetProcesses())
+        {
+            using (process)
+            {
+                try
+                {
+                    times[process.Id] = (process.ProcessName, process.TotalProcessorTime);
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+                {
+                    // Exited, or another account's: not this measurement's to read.
+                }
+            }
+        }
+        return times;
+    }
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetSystemTimes(out long idleTime, out long kernelTime, out long userTime);
+}
+
+/// <summary>
+/// Waits before a rate run until no build or test of another worktree runs (the controller, 2026-10-16: a measurement at
+/// 197 fps never shares the box with another worker's build or test, so a short count cannot be that load): every dotnet,
+/// testhost, MSBuild or VBCSCompiler process, and every test executable, whose command line or executable names the text
+/// <c>TIANWEN_RATE_PROBE_QUIET_FOR</c> holds (a worktree's folder name). Unset, it waits for nothing.
+/// </summary>
+/// <remarks>
+/// A build started from inside the other worktree with relative paths names it in neither, so the host load reported
+/// beside each run (<see cref="HostCpuLoad"/>) stays the arbiter.
+/// </remarks>
+internal static class OtherWorktreeBuilds
+{
+    public const string QuietForVar = "TIANWEN_RATE_PROBE_QUIET_FOR";
+
+    private static readonly TimeSpan Poll = TimeSpan.FromSeconds(10);
+
+    /// <summary>What was waited for, and how long; returns at once when the variable is unset or nothing of it runs.</summary>
+    public static async Task<string> WaitUntilQuietAsync(CancellationToken cancellationToken)
+    {
+        if (Environment.GetEnvironmentVariable(QuietForVar) is not { Length: > 0 } text || !OperatingSystem.IsWindows())
+        {
+            return $"{QuietForVar} unset, no other worktree's builds looked for";
+        }
+
+        var clock = Stopwatch.StartNew();
+        string? first = null;
+        while (true)
+        {
+            var running = await ListAsync(text, cancellationToken);
+            if (running.Length == 0)
+            {
+                return first is null
+                    ? $"nothing of {text} building or testing"
+                    : $"waited {clock.Elapsed.TotalSeconds:F0} s for {text}'s build or test to end ({first})";
+            }
+            first ??= string.Join("; ", running.Take(3));
+            await SystemTimeProvider.Instance.SleepAsync(Poll, cancellationToken);
+        }
+    }
+
+    // Each matching process as "pid name command line", through Win32_Process (the only place another process's command
+    // line is), in a pwsh with no window.
+    private static async Task<string[]> ListAsync(string text, CancellationToken cancellationToken)
+    {
+        const string Script = "$t = $env:TIANWEN_RATE_PROBE_QUIET_FOR; Get-CimInstance Win32_Process | "
+            + "Where-Object { $_.Name -match '^(dotnet|testhost.*|MSBuild.*|VBCSCompiler.*|.*\\.Tests(\\..*)?)\\.exe$' } | "
+            + "Where-Object { ($_.CommandLine -and $_.CommandLine.Contains($t, [StringComparison]::OrdinalIgnoreCase)) -or "
+            + "($_.ExecutablePath -and $_.ExecutablePath.Contains($t, [StringComparison]::OrdinalIgnoreCase)) } | "
+            + "ForEach-Object { '{0} {1} {2}' -f $_.ProcessId, $_.Name, $_.CommandLine }";
+        var start = new ProcessStartInfo("pwsh")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        foreach (var argument in (ReadOnlySpan<string>)["-NoProfile", "-NonInteractive", "-Command", Script])
+        {
+            start.ArgumentList.Add(argument);
+        }
+        start.Environment[QuietForVar] = text;
+        using var pwsh = Process.Start(start) ?? throw new InvalidOperationException("pwsh did not start");
+        var stdout = pwsh.StandardOutput.ReadToEndAsync(cancellationToken);
+        var stderr = pwsh.StandardError.ReadToEndAsync(cancellationToken);
+        await pwsh.WaitForExitAsync(cancellationToken);
+        var listed = await stdout;
+        if (pwsh.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"listing the processes failed ({pwsh.ExitCode}): {await stderr}");
+        }
+        return listed.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(line => !line.StartsWith($"{Environment.ProcessId} ", StringComparison.Ordinal))
+            .ToArray();
+    }
+}
+
+/// <summary>
+/// Every TCP listener and UDP endpoint the given processes own, as Windows' own tables hold them (the IP Helper's owner
+/// tables, which <c>Get-NetTCPConnection</c> and <c>Get-NetUDPEndpoint</c> read, and so
+/// <c>tools/check-local-only-binds.ps1</c>): sampled in this process, so a run's socket check starts no program beside it.
+/// </summary>
+internal static partial class OwnedEndpoints
+{
+    public sealed record Endpoint(int Pid, string Protocol, IPAddress Address, int Port)
+    {
+        public bool IsLoopback => IPAddress.IsLoopback(Address);
+
+        public override string ToString() => $"pid {Pid} {Protocol,-10} {Address}:{Port}{(IsLoopback ? "" : "   NOT LOOPBACK")}";
+    }
+
+    private const int AfInet = 2;
+    private const int AfInet6 = 23;
+    private const int TcpTableOwnerPidListener = 3;
+    private const int UdpTableOwnerPid = 1;
+    private const uint ErrorInsufficientBuffer = 122;
+
+    /// <summary>Adds what <paramref name="pids"/> own now to <paramref name="seen"/>.</summary>
+    public static void Sample(IReadOnlyCollection<int> pids, HashSet<Endpoint> seen)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+        // Row layouts: MIB_TCPROW_OWNER_PID (24 bytes), MIB_TCP6ROW_OWNER_PID (56), MIB_UDPROW_OWNER_PID (12), MIB_UDP6ROW_OWNER_PID (28).
+        Read(tcp: true, AfInet, 24, pids, seen, static row => (V4(row, 4), Port(row, 8), Marshal.ReadInt32(row, 20)), "TCP listen");
+        Read(tcp: true, AfInet6, 56, pids, seen, static row => (V6(row, 0), Port(row, 20), Marshal.ReadInt32(row, 52)), "TCP listen");
+        Read(tcp: false, AfInet, 12, pids, seen, static row => (V4(row, 0), Port(row, 4), Marshal.ReadInt32(row, 8)), "UDP");
+        Read(tcp: false, AfInet6, 28, pids, seen, static row => (V6(row, 0), Port(row, 20), Marshal.ReadInt32(row, 24)), "UDP");
+    }
+
+    private static void Read(bool tcp, int family, int rowSize, IReadOnlyCollection<int> pids, HashSet<Endpoint> seen,
+        Func<nint, (IPAddress Address, int Port, int Pid)> row, string protocol)
+    {
+        var size = 0;
+        var table = nint.Zero;
+        try
+        {
+            while (true)
+            {
+                var result = tcp
+                    ? GetExtendedTcpTable(table, ref size, false, family, TcpTableOwnerPidListener, 0)
+                    : GetExtendedUdpTable(table, ref size, false, family, UdpTableOwnerPid, 0);
+                if (result == 0)
+                {
+                    break;
+                }
+                if (result != ErrorInsufficientBuffer)
+                {
+                    throw new InvalidOperationException($"the {protocol} table for address family {family} could not be read: {result}");
+                }
+                Marshal.FreeHGlobal(table);
+                table = Marshal.AllocHGlobal(size);
+            }
+
+            var entries = Marshal.ReadInt32(table);
+            for (var i = 0; i < entries; i++)
+            {
+                var (address, port, pid) = row(table + 4 + i * rowSize);
+                if (pids.Contains(pid))
+                {
+                    seen.Add(new Endpoint(pid, protocol, address, port));
+                }
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(table);
+        }
+    }
+
+    private static IPAddress V4(nint row, int offset) => new IPAddress((uint)Marshal.ReadInt32(row, offset));
+
+    private static IPAddress V6(nint row, int offset)
+    {
+        var bytes = new byte[16];
+        Marshal.Copy(row + offset, bytes, 0, 16);
+        return new IPAddress(bytes);
+    }
+
+    // The port is the low 16 bits, in network order.
+    private static int Port(nint row, int offset)
+    {
+        var raw = Marshal.ReadInt32(row, offset);
+        return ((raw & 0xFF) << 8) | ((raw >> 8) & 0xFF);
+    }
+
+    [LibraryImport("iphlpapi.dll")]
+    private static partial uint GetExtendedTcpTable(nint table, ref int size, [MarshalAs(UnmanagedType.Bool)] bool order, int family, int tableClass, int reserved);
+
+    [LibraryImport("iphlpapi.dll")]
+    private static partial uint GetExtendedUdpTable(nint table, ref int size, [MarshalAs(UnmanagedType.Bool)] bool order, int family, int tableClass, int reserved);
+}

@@ -42,14 +42,21 @@ namespace TianWen.Lib.Tests;
 [Collection("Devices")]
 public class ToupTekFrameRateProbe(ITestOutputHelper output)
 {
-    private const string GateVar = "TIANWEN_TOUPTEK_RATE_PROBE";
-    private const int RoiX = 1716;
-    private const int RoiY = 546;
-    private const int RoiWidth = 640;
-    private const int RoiHeight = 480;
+    internal const string GateVar = "TIANWEN_TOUPTEK_RATE_PROBE";
+    internal const int RoiX = 1716;
+    internal const int RoiY = 546;
+    internal const int RoiWidth = 640;
+    internal const int RoiHeight = 480;
 
     /// <summary>The 2026-10-07 night's gain from 11:47 UTC on (SharpCap's Analogue Gain, the SDK's percent).</summary>
-    private const short SaturnGain = 2252;
+    internal const short SaturnGain = 2252;
+
+    /// <summary>
+    /// The longest step between two of a recording's frame timestamps the bar allows (TIA2): 20 frame times at 5 ms, a third
+    /// of the SDK's 64-frame ring, so a step this long is the driver's own reading stopped for that long. A recovered stall
+    /// (about 6.5 s) is reported apart.
+    /// </summary>
+    internal static readonly TimeSpan LongStepBound = TimeSpan.FromMilliseconds(100);
 
     private static readonly TimeSpan Warm = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan Measured = TimeSpan.FromSeconds(3);
@@ -58,7 +65,7 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
     private static readonly TimeSpan VideoMeasured = TimeSpan.FromSeconds(20);
 
     /// <summary>The Saturn night's exposure, at which the camera's readout (4.98 ms at speed 2) fits inside the frame time.</summary>
-    private static readonly TimeSpan SaturnExposure = TimeSpan.FromMilliseconds(5);
+    internal static readonly TimeSpan SaturnExposure = TimeSpan.FromMilliseconds(5);
 
     /// <summary>The sleep between ready polls in <see cref="PlanetaryCapture"/>'s rapid-exposure loop.</summary>
     private static readonly TimeSpan CapturePollInterval = TimeSpan.FromMilliseconds(5);
@@ -66,7 +73,7 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
     [Fact(Timeout = 600_000)]
     public async Task WhatTheTriggerPathDeliversAtTheSaturnRoi()
     {
-        var (camera, external, sp) = await ConnectAsync(LogLevel.Warning);
+        var (camera, external, sp) = await ConnectAsync(output, LogLevel.Warning);
         await using var _ = sp;
         try
         {
@@ -125,7 +132,7 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
     [Fact(Timeout = 900_000)]
     public async Task WhereTheVideoRateGoesAtTheSaturnRoi()
     {
-        var (camera, external, sp) = await ConnectAsync(LogLevel.Warning);
+        var (camera, external, sp) = await ConnectAsync(output, LogLevel.Warning);
         await using var _ = sp;
         var ct = TestContext.Current.CancellationToken;
         try
@@ -209,20 +216,22 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
     [Fact(Timeout = 1_800_000)]
     public async Task ARecordingAtTheSaturnWindowKeepsEveryFrame()
     {
-        var (camera, external, sp) = await ConnectAsync(LogLevel.Information);
+        var (camera, external, sp) = await ConnectAsync(output, LogLevel.Information);
         await using var _ = sp;
         var ct = TestContext.Current.CancellationToken;
         var runs = IntFromEnvironment("TIANWEN_TOUPTEK_RECORD_RUNS", 3);
         var seconds = IntFromEnvironment("TIANWEN_TOUPTEK_RECORD_SECONDS", 60);
         try
         {
-            var options = new VideoCaptureOptions(SaturnExposure, Gain: SaturnGain, BitDepth: BitDepth.Int8);
+            var options = SaturnOptions;
             var lines = new List<string>();
             for (var run = 1; run <= runs; run++)
             {
                 var path = Path.Combine(external.ImageOutputFolder.FullName, $"probe-run{run}.ser");
+                var quiet = await OtherWorktreeBuilds.WaitUntilQuietAsync(ct);
+                var load = HostCpuLoad.Start();
                 var result = await CaptureAsync(camera, options, (path, TimeSpan.FromSeconds(seconds)), external.AppLogger, ct);
-                lines.Add($"run {run}: {result.Detail}");
+                lines.Add($"run {run}: {result.Detail}; {load.Describe()}; before it, {quiet}");
                 File.Delete(path);
                 GC.Collect();
             }
@@ -251,7 +260,7 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
     {
         var minutes = IntFromEnvironment("TIANWEN_TOUPTEK_SOAK_MINUTES", 0);
         Assert.SkipWhen(minutes == 0, "TIANWEN_TOUPTEK_SOAK_MINUTES is not set");
-        var (camera, external, sp) = await ConnectAsync(LogLevel.Information);
+        var (camera, external, sp) = await ConnectAsync(output, LogLevel.Information);
         await using var _ = sp;
         var ct = TestContext.Current.CancellationToken;
         try
@@ -280,7 +289,14 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
         }
     }
 
-    private async Task<(ToupTekCameraDriver Camera, FakeExternal External, ServiceProvider Services)> ConnectAsync(LogLevel level)
+    /// <summary>The Saturn window's stream: 5 ms, gain 2252, 8 bits.</summary>
+    internal static VideoCaptureOptions SaturnOptions => new VideoCaptureOptions(SaturnExposure, Gain: SaturnGain, BitDepth: BitDepth.Int8);
+
+    /// <summary>
+    /// The attached ToupTek camera, connected in this process and set to the Saturn window's gain, size and origin; skips
+    /// the test unless <see cref="GateVar"/> is 1 and a camera is attached.
+    /// </summary>
+    internal static async Task<(ToupTekCameraDriver Camera, FakeExternal External, ServiceProvider Services)> ConnectAsync(ITestOutputHelper output, LogLevel level)
     {
         Assert.SkipUnless(Environment.GetEnvironmentVariable(GateVar) == "1", $"{GateVar} is not 1 (this drives the attached ToupTek camera)");
         var ct = TestContext.Current.CancellationToken;
@@ -370,13 +386,18 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
             + $"body dropped {dropped - droppedFrom}{StreamHealth(camera)}, between frames {Percentiles(gaps)}";
     }
 
-    private sealed record CaptureResult(double Fps, string Detail);
+    /// <summary>
+    /// What a capture took: its rate (off the SER when it recorded), its words, and, for a recording, the SER read back and
+    /// the driver's counts over it (read, replaced by the hand-off, dropped by the body, and the recording's own disk drops).
+    /// </summary>
+    internal sealed record CaptureResult(double Fps, string Detail, SerRateReadBack? Ser = null, long Replaced = 0, int BodyDropped = 0,
+        int DiskDropped = 0, int Recoveries = 0);
 
     /// <summary>
     /// <see cref="PlanetaryCapture"/> whole on the driver's stream, moved onto the Saturn window: for
     /// <see cref="VideoMeasured"/> with no recording, or with a recording for its duration, read back off the SER.
     /// </summary>
-    private static async Task<CaptureResult> CaptureAsync(ToupTekCameraDriver camera, VideoCaptureOptions options, (string Path, TimeSpan Duration)? record,
+    internal static async Task<CaptureResult> CaptureAsync(ToupTekCameraDriver camera, VideoCaptureOptions options, (string Path, TimeSpan Duration)? record,
         ILogger logger, CancellationToken ct)
     {
         var gaps = new List<double>();
@@ -425,6 +446,7 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
         Volatile.Write(ref measuring, 0);
         var seconds = clock.Elapsed.TotalSeconds;
         var (read, replaced, dropped, received) = (camera.VideoFramesRead, camera.VideoFramesReplaced, camera.VideoFramesDroppedByBody, capture.FramesReceived);
+        var recoveries = camera.VideoRecoveries;
         await capture.StopAsync(ct);
         var failure = capture.FailureReason is { } failed ? $", FAILED: {failed}" : "";
 
@@ -436,27 +458,12 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
         }
 
         await recording.Completion.WaitAsync(ct);
-        using var ser = SerReader.Open(recording.Path);
-        DateTimeOffset[] stamps = [.. ser.Timestamps];
-        var span = stamps.Length > 1 ? stamps[^1] - stamps[0] : TimeSpan.Zero;
-        var fps = span > TimeSpan.Zero ? ser.FrameCount / span.TotalSeconds : 0;
-        var serGaps = new List<string>();
-        var gapTime = TimeSpan.Zero;
-        for (var i = 1; i < stamps.Length; i++)
-        {
-            if (stamps[i] - stamps[i - 1] is var step && step > TimeSpan.FromMilliseconds(500))
-            {
-                serGaps.Add($"{step.TotalSeconds:F2} s after frame {i - 1}");
-                gapTime += step;
-            }
-        }
-        var withoutGaps = serGaps.Count > 0 && span > gapTime ? $" ({ser.FrameCount / (span - gapTime).TotalSeconds:F1} fps outside the gaps)" : "";
+        var ser = SerRateReadBack.Read(recording.Path, LongStepBound);
         var bodyRate = (dropped - droppedFrom) > 0 ? $" (1 in {(read - readFrom) / (double)(dropped - droppedFrom):F0})" : "";
-        return new CaptureResult(fps,
-            $"SER {ser.FrameCount} frames over {span.TotalSeconds:F2} s = {fps:F1} fps (frame count over its timestamp span){withoutGaps}, "
-            + $"{recording.FramesDropped} dropped by the disk, SER gaps over 0.5 s: {(serGaps.Count > 0 ? string.Join("; ", serGaps) : "none")}, "
-            + $"the recording's own: {recording.Gaps.Length}; "
-            + counts + bodyRate + $"; ended: {recording.EndReason}");
+        return new CaptureResult(ser.Fps,
+            $"{ser}, {recording.FramesDropped} dropped by the disk, the recording's own gaps: {recording.Gaps.Length}; "
+            + counts + bodyRate + $"; ended: {recording.EndReason}",
+            ser, replaced - replacedFrom, dropped - droppedFrom, recording.FramesDropped, recoveries);
     }
 
     /// <summary>The most frames that waited for the reader, and the stream's stalls with what brought each back and the gap it left.</summary>
