@@ -40,8 +40,8 @@ for GPU bugs only).
 
 **The launcher starts the viewer LOCAL-ONLY** (`TIANWEN_LOCAL_ONLY=1` unless you set it). The viewer itself binds
 nothing beyond its inspector, which the mode leaves alone: until DIR.Lib 11.21 is in the sibling checkout a
-sibling-source build answers multicast on UDP 47892 from its already-allowed path, and from 11.21 its discovery is a
-socket-free file registry.
+sibling-source Debug build binds multicast on UDP 47892, which prompts from any new path, and from 11.21 its discovery
+is a socket-free file registry.
 
 **After it closes or crashes, read `src/fitsviewer-stderr.log`** (font atlas diagnostics, shader errors, .NET
 exceptions). A detached app hands back no exit code; a native crash that writes nothing there shows in the

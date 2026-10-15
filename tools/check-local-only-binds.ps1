@@ -43,6 +43,10 @@
     monitor's work area, full height, so it never covers the right half, where another program may need to be seen;
     AsIs leaves it where it opens.
 
+.PARAMETER SelfTest
+    Checks the script's own decisions (the DIR.Lib version gate) on fixed inputs, prints each, and exits 0 only when
+    every one is right. Builds, copies and starts nothing.
+
 .PARAMETER KeepScratch
     Leave the scratch folder (the copy, the data root and every log) for inspection.
 
@@ -55,11 +59,48 @@ param(
     [int] $SettleSeconds = 15,
     [string[]] $OmitNative = @('toupcam.dll'),
     [ValidateSet('Left', 'AsIs')] [string] $Placement = 'Left',
+    [switch] $SelfTest,
     [switch] $NoBuild,
     [switch] $KeepScratch
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Why the check must not run, or $null when it may. A Debug build against the sibling SOURCES (UseLocalSiblings, which is
+# what defines SIBLING_DEBUG_INSPECTORS) attaches the DEBUG inspector, and below DIR.Lib 11.21 its discovery binds
+# multicast on UDP 47892 on every interface: a firewall prompt from any new path, the check's temporary copy included,
+# and a FAIL. From 11.21 discovery is a socket-free file registry, and a build against the packages has no inspector.
+function Get-InspectorRefusal([bool] $SiblingBuild, [version] $DirLibVersion) {
+    if (-not $SiblingBuild) {
+        return $null
+    }
+    if ($null -eq $DirLibVersion) {
+        return 'a build against the sibling sources whose DIR.Lib version cannot be read; pull ../DIR.Lib (11.21 or later) and build again'
+    }
+    if ([version]::new($DirLibVersion.Major, $DirLibVersion.Minor) -lt [version]'11.21') {
+        return "a build against the sibling sources with DIR.Lib $($DirLibVersion.Major).$($DirLibVersion.Minor), whose DEBUG inspector binds multicast on every interface (a firewall prompt from this check's new path); pull ../DIR.Lib (11.21 or later) and build again"
+    }
+    return $null
+}
+
+if ($SelfTest) {
+    $cases = @(
+        @{ Sibling = $true; Version = [version]'11.20.0.0'; Refused = $true },
+        @{ Sibling = $true; Version = [version]'11.21.0.0'; Refused = $false },
+        @{ Sibling = $true; Version = [version]'12.0.0.0'; Refused = $false },
+        @{ Sibling = $true; Version = $null; Refused = $true },
+        @{ Sibling = $false; Version = [version]'11.20.0.0'; Refused = $false }
+    )
+    $wrong = 0
+    foreach ($case in $cases) {
+        $refusal = Get-InspectorRefusal -SiblingBuild $case.Sibling -DirLibVersion $case.Version
+        $ok = ($null -ne $refusal) -eq $case.Refused -and (-not $case.Refused -or $refusal -match 'DIR\.Lib')
+        if (-not $ok) { $wrong++ }
+        Write-Host ("{0} sibling={1} DIR.Lib={2}: {3}" -f $(if ($ok) { 'ok  ' } else { 'FAIL' }), $case.Sibling, $case.Version,
+            $(if ($refusal) { "refused: $refusal" } else { 'runs' }))
+    }
+    exit $(if ($wrong -eq 0) { 0 } else { 1 })
+}
 
 if (-not $IsWindows) {
     throw 'This check reads Windows'' own endpoint tables (Get-NetTCPConnection, Get-NetUDPEndpoint) and runs on Windows only.'
@@ -163,6 +204,18 @@ foreach ($name in $OmitNative) {
         Write-Host "left out $($_.FullName.Substring($bin.Length + 1))"
     }
 }
+
+# Before anything starts: a sibling-source build below DIR.Lib 11.21 would prompt from this new path (Get-InspectorRefusal).
+# The version is read off the DLL actually copied, the one the GUI will load.
+$siblingBuild = ((& dotnet msbuild (Join-Path $src 'TianWen.UI.Gui/TianWen.UI.Gui.csproj') -getProperty:UseLocalSiblings -p:Configuration=Debug 2>$null) -join '').Trim() -eq 'true'
+$dirLib = Join-Path $bin 'DIR.Lib.dll'
+$dirLibVersion = if (Test-Path $dirLib) { [System.Reflection.AssemblyName]::GetAssemblyName($dirLib).Version } else { $null }
+if (Get-InspectorRefusal -SiblingBuild $siblingBuild -DirLibVersion $dirLibVersion) {
+    Write-Host "REFUSED, nothing started: $(Get-InspectorRefusal -SiblingBuild $siblingBuild -DirLibVersion $dirLibVersion)"
+    if (-not $KeepScratch) { Remove-Item -Recurse -Force $Scratch -ErrorAction SilentlyContinue }
+    exit 2
+}
+Write-Host "$(if ($siblingBuild) { 'a build against the sibling sources' } else { 'a build against the packages (no DEBUG inspector)' }), DIR.Lib $dirLibVersion"
 
 # --- The node's API over its socket ---------------------------------------------------------------------------------
 function Invoke-Node([string] $Method, [string] $Path) {

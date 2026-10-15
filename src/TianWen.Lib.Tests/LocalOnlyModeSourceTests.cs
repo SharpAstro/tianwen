@@ -10,8 +10,9 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Source guards for the local-only mode (<see cref="LocalOnlyMode"/>): its variable is read in ONE place; every DEBUG inspector
-/// a host attaches is told whether to answer multicast discovery; and every place in the shipping code that binds a network
+/// Source guards for the local-only mode (<see cref="LocalOnlyMode"/>): its variable is read in ONE place; no DEBUG inspector a
+/// host attaches is told to stop answering discovery (from DIR.Lib 11.21 that would take the app out of the inspector's file
+/// registry too, so the mode leaves the inspector alone); and every place in the shipping code that binds a network
 /// address, joins a multicast group or broadcasts is a KNOWN one, gated on the mode. A new such site fails the last test until
 /// it asks the mode and is listed here, which is the point: the mode promises nothing binds but loopback, and a new UDP socket
 /// written next month would break that promise without a word.
