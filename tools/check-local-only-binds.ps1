@@ -289,13 +289,15 @@ function Invoke-Discovery([string] $Label) {
 
 # --- Run ------------------------------------------------------------------------------------------------------------
 $saved = @{}
-foreach ($name in 'TIANWEN_DATA_ROOT', 'TIANWEN_LOCAL_ONLY', 'TIANWEN_GUI_SINGLE_INSTANCE', 'TIANWEN_NODE_SOCKET') {
+# DIR_LIB_INSPECTOR_LAN too: set, it makes a DEBUG inspector answer multicast on the LAN, from this check's new path.
+foreach ($name in 'TIANWEN_DATA_ROOT', 'TIANWEN_LOCAL_ONLY', 'TIANWEN_GUI_SINGLE_INSTANCE', 'TIANWEN_NODE_SOCKET', 'DIR_LIB_INSPECTOR_LAN') {
     $saved[$name] = [Environment]::GetEnvironmentVariable($name)
 }
 $env:TIANWEN_DATA_ROOT = $data
 $env:TIANWEN_LOCAL_ONLY = '1'
 $env:TIANWEN_GUI_SINGLE_INSTANCE = '0'
 $env:TIANWEN_NODE_SOCKET = $null
+$env:DIR_LIB_INSPECTOR_LAN = $null
 
 $started = [System.Collections.Generic.List[int]]::new()
 

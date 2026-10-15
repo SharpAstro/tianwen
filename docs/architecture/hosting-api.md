@@ -99,8 +99,9 @@ does not take it down and it can never write over a TUI; a spawned node logs to 
 
 **A client finds or starts the node through `LocalNodeLauncher`**, never with a spawn of its own:
 1. It asks the socket. A node there of this wire is the one (`Found`). One of another wire is stopped over its
-   socket and replaced if it is idle, and left running (`BusyWithAnotherWire`) if it holds hardware: an older node
-   still running a night after an update. One of this wire but another BUILD (`IsAnotherBuild`) or the other MODE
+   socket and replaced if it is idle, and left running (`BusyWithAnotherWire`) if it holds hardware (an older node
+   still running a night after an update) or is shared on the LAN and of the other mode (the replacement would be
+   off the LAN; the outcome carries the `ModeNote`). One of this wire but another BUILD (`IsAnotherBuild`) or the other MODE
    (local-only or not, `NodeInfoDto.LocalOnly`) is replaced while it is idle and no client is attached
    (`LocalNodeLauncher.Replaces`), but a node shared on the LAN never by a client of the other mode, whatever its build
    (the replacement would be local-only, off the LAN, and an agent's worktree build is always another build); it is
@@ -230,7 +231,7 @@ are features; `tools/start-app.ps1` turns it on for every app it launches unless
   looks (`LocalNode.ModeNote`): a Warning notification in the GUI and the TUI (`ConnectLocalNodeAsync`), stderr in the
   CLI. A local-only window never silently works through a node that binds the LAN, and an ordinary one never silently
   keeps a local-only node's missing features.
-- **The DEBUG inspectors are left alone**, deliberately (R1 D1 of #1579): from DIR.Lib 11.21 (SharpAstro/DIR.Lib#111)
+- **The DEBUG inspectors are left alone**, deliberately (#1581): from DIR.Lib 11.21 (SharpAstro/DIR.Lib#111)
   an inspector's default discovery is a socket-free file registry, and `EnableDiscovery = false` would take the app
   out of that registry too, leaving every launched GUI unfindable by the MCP sidecars. Until 11.21 is in the sibling
   checkout, a Debug build against the sibling SOURCES (the GPU inspector, and the TUI's console inspector alike)

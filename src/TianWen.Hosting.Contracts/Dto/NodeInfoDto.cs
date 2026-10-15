@@ -36,7 +36,9 @@ public sealed class NodeInfoDto
     /// <summary>
     /// Whether the node binds nothing but loopback and its socket (<c>--local-only</c> or <c>TIANWEN_LOCAL_ONLY</c>): no
     /// LAN, no network discovery of devices. A client replaces an idle, unattended node of the other mode with one of its
-    /// own, as it replaces one of another build, and says so when it cannot. False from a node that predates saying.
+    /// own, as it replaces one of another build or wire, except a node shared on the LAN (<see cref="IsShared"/>), which it
+    /// never takes off the LAN, whatever its build or wire; and it says so whenever it uses a node of the other mode.
+    /// False from a node that predates saying.
     /// </summary>
     public bool LocalOnly { get; init; }
 

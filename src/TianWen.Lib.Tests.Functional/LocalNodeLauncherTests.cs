@@ -200,6 +200,25 @@ public class LocalNodeLauncherTests : IDisposable
         node.Message.ShouldContain(Path.Combine(empty, LocalNodeLauncher.ServerFileName));
     }
 
+    [Fact(Timeout = 60_000)]
+    public async Task ASharedNodeOfAnotherWireIsNotTakenOffTheLanByALocalOnlyClient()
+    {
+        // The other-wire path replaces an idle node too, and a local-only client's replacement would be off the LAN: a
+        // shared node of the other mode is left running there as one holding hardware is, and the client says why.
+        var ct = TestContext.Current.CancellationToken;
+        var (options, _) = Isolated();
+        await using var stop = new StopsNodes(options.SocketPath);
+        await using var shared = await ImpostorNode.StartAsync(options.SocketPath, NodeWire.Version - 1, holdsHardware: false, ct,
+            localOnly: false, isShared: true);
+
+        var node = await Launcher(options).FindOrStartAsync(ct);
+
+        shared.ShutdownRequests.ShouldBe(0);
+        node.Outcome.ShouldBe(LocalNodeOutcome.BusyWithAnotherWire, node.Message);
+        node.Node.ShouldNotBeNull().NodeId.ShouldBe("impostor", "no local-only node was started in its place");
+        node.ModeNote.ShouldNotBeNull().ShouldContain("shares the rig on the LAN");
+    }
+
     [Fact(Timeout = 120_000)]
     public async Task AnIdleNodeOfAnotherWireIsStoppedAndReplaced()
     {
