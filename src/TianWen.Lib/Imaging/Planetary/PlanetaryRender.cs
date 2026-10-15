@@ -81,8 +81,9 @@ public static class PlanetaryRender
     /// depth order: a ring nearer the observer than the globe lies over it, letting through <see cref="SaturnRing.Transmission"/> of the
     /// globe behind, and the globe hides a ring behind it. The globe's shadow falls on the rings (no direct light where the ray from a
     /// ring toward the Sun meets the globe) and the rings' on the globe (the Sun's light through the ring the ray toward it crosses). A
-    /// ring's face away from the Sun is drawn dark: it is the lit face the Earth has seen since the 2009 crossing and until the 2025 one,
-    /// as in every capture here.
+    /// ring's face away from the Sun shows only the light it scatters through itself (<see cref="SaturnRing.UnlitShare"/>: the C ring
+    /// and the Cassini division nearly their lit level, the B ring next to nothing); the Earth saw the lit face from the 2009 crossing
+    /// until the 2025 one, as in every capture here, and sees it again since the Sun crossed (B and B' both south).
     /// </para>
     /// </summary>
     public static float[] Render(PlanetMap map, in PlanetAspect aspect, in DiskPlacement placement, int width, int height, double minnaertK, int supersample = 8,
@@ -430,9 +431,16 @@ public static class PlanetaryRender
             {
                 return new SceneRay(onGlobe, globeLit, latitude, west, sunPow, viewPow, sunTransmission, false, 0, 1);
             }
-            // The face the Sun lights is the one the observer sees when both stand on the same side of the plane.
-            var lit = Math.Sign(_projection.SunSinElevation) == Math.Sign(_projection.SinD) && !_projection.InGlobeShadow(r1, r2);
-            return new SceneRay(onGlobe, globeLit, latitude, west, sunPow, viewPow, sunTransmission, true, lit ? ring.Level : 0, ring.Transmission(_projection.SinD));
+            // The face the Sun lights is the one the observer sees when both stand on the same side of the plane; the other face shows
+            // the light the ring scatters through itself (SaturnRing.UnlitShare). In the globe's shadow neither face has any.
+            var level = 0.0;
+            if (!_projection.InGlobeShadow(r1, r2))
+            {
+                level = Math.Sign(_projection.SunSinElevation) == Math.Sign(_projection.SinD)
+                    ? ring.Level
+                    : ring.Level * ring.UnlitShare(_projection.SinD, _projection.SunSinElevation);
+            }
+            return new SceneRay(onGlobe, globeLit, latitude, west, sunPow, viewPow, sunTransmission, true, level, ring.Transmission(_projection.SinD));
         }
     }
 
