@@ -322,21 +322,26 @@ namespace TianWen.UI.Abstractions
             var lineHeight = fontSize * 1.4f;
             var (eyeX, eyeY, eyeZ) = camera.Eye;
 
-            // The Moon is placed on SCREEN: a steady reach from the Earth's drawn place (the two radii, a gap and a label line), along its
-            // true geocentric direction as projected, so only that direction turns through a month. Placed in the world instead, at a
-            // fraction of the Earth's distance, it was foreshortened by the camera's elevation, long across the view and short along it,
-            // and the floor that kept it off the Earth clipped the short half: 28 to 68 px over a month zoomed in, a spiral in Play.
-            // Where that reach would pass half the gap to Venus on screen the Moon is not drawn, rather than drawn among the planets.
+            // The Moon is placed on SCREEN: a steady reach from the Earth's drawn place (the two radii, a gap and a label line), turned
+            // by its geocentric ecliptic longitude, so it goes round the Earth on an even circle once a month. Placed in the world instead,
+            // at a fraction of the Earth's distance, it was foreshortened by the camera's elevation, long across the view and short along
+            // it, and the floor that kept it off the Earth clipped the short half: 28 to 68 px over a month zoomed in, a spiral in Play.
+            // The reach comes in to half the screen gap to the nearest neighbouring orbit as drawn (Venus's or Mars's), so the Moon never
+            // sits on another planet's orbit; it is hidden only where even its nearest place, clear of the Earth's disc, would not fit.
             var earthOnScreen = scene.TryFind(CatalogIndex.Earth, out var earthBody)
                 && scene.Drawn(scale, earthBody) is var (ex, ey, ez)
                 && camera.TryProject(ex, ey, ez, out var esx, out var esy)
                 ? (esx, esy)
                 : ((float, float)?)null;
-            var moonReach = ((OrreryRadius(CatalogIndex.Earth) + OrreryRadius(CatalogIndex.Moon) + 4f) * dpiScale) + lineHeight;
+            var moonNearest = (OrreryRadius(CatalogIndex.Earth) + OrreryRadius(CatalogIndex.Moon) + 4f) * dpiScale;
+            var moonReach = moonNearest + lineHeight;
+            if (earthOnScreen is var (gex, gey))
+            {
+                moonReach = MathF.Min(moonReach, 0.5f * NeighbourOrbitGap(scene, camera, scale, gex, gey));
+            }
             LastMoonReach = moonReach;
-            var moonOnScreen = earthOnScreen is var (mex, mey) && scene.TryFind(CatalogIndex.Moon, out var moonBody)
+            var moonOnScreen = earthOnScreen is var (mex, mey) && moonReach >= moonNearest && scene.TryFind(CatalogIndex.Moon, out var moonBody)
                 && OrreryMoonScreenDirection(camera, scene.Drawn(scale, earthBody), earthBody, moonBody) is var (ux, uy)
-                && !MoonCrowdsVenus(scene, camera, scale, mex, mey, moonReach)
                 ? (mex + (ux * moonReach), mey + (uy * moonReach))
                 : ((float, float)?)null;
             Span<(int Index, float X, float Y, float Radius, double Depth)> labels = stackalloc (int, float, float, float, double)[bodies.Length];
@@ -476,13 +481,19 @@ namespace TianWen.UI.Abstractions
                 RectF32? place;
                 if (body.Index == CatalogIndex.Moon && earth is var (ex, ey) && MathF.Sqrt(((sx - ex) * (sx - ex)) + ((sy - ey) * (sy - ey))) is > 0 and var d)
                 {
-                    // Outward from the Earth: the box is pushed along the Earth-to-Moon direction until it clears the Moon's disc and gap.
+                    // Outward from the Earth: the box is pushed along the Earth-to-Moon direction until it clears the Moon's disc and gap,
+                    // and a line further each time it would meet the Earth's label or another disc, at most twice: a Moon come in close
+                    // to the Earth (its reach fitted to the gap to the next orbit) keeps its label beyond it.
                     var (ux, uy) = ((sx - ex) / d, (sy - ey) / d);
                     var t = MathF.Min(
                         MathF.Abs(ux) > 1e-6f ? ((width / 2) + reach + gap) / MathF.Abs(ux) : float.MaxValue,
                         MathF.Abs(uy) > 1e-6f ? ((lineHeight / 2) + reach + gap) / MathF.Abs(uy) : float.MaxValue);
-                    var outward = new RectF32(sx + (ux * t) - (width / 2), sy + (uy * t) - (lineHeight / 2), width, lineHeight);
-                    place = LabelIsClear(outward, body.Index) ? outward : null;
+                    place = null;
+                    for (var step = 0; step < 3 && place is null; step++, t += lineHeight)
+                    {
+                        var outward = new RectF32(sx + (ux * t) - (width / 2), sy + (uy * t) - (lineHeight / 2), width, lineHeight);
+                        place = LabelIsClear(outward, body.Index) ? outward : null;
+                    }
                 }
                 else
                 {
@@ -523,49 +534,89 @@ namespace TianWen.UI.Abstractions
             return true;
         }
 
-        private (float X, float Y) _lastMoonDirection = (1f, 0f);
+        // Which way the ecliptic's anticlockwise sense turns on screen: -1 (up the screen, the camera above the ecliptic) or 1 (below).
+        // Kept from the last frame where the plane is seen edge on and the sense cannot be read.
+        private float _moonTurnSense = -1f;
 
         /// <summary>The Moon's screen reach from the Earth in the last frame, pixels: what the tests hold its drawn distance to.</summary>
         internal float LastMoonReach { get; private set; }
 
-        // The unit screen direction from the Earth's drawn place along the Moon's true geocentric direction: the Earth and a point a
-        // thousandth of the camera's distance out from it that way, projected. Along the line of sight that direction is undefined,
-        // and the last one is kept, so the Moon does not jump for the frame it passes behind or before the Earth.
+        // The unit screen direction from the Earth's drawn place to the Moon: the Moon's geocentric ecliptic longitude, measured from the
+        // ecliptic direction the view draws LEVEL (its screen image has no vertical part) and laid off on screen with the plane's sense
+        // of turn, so equal steps of longitude are equal steps round the Earth. The level direction comes from the screen images of the
+        // ecliptic's x and y axes a thousandth of the camera's distance out from the Earth.
         private (float X, float Y)? OrreryMoonScreenDirection(in OrreryCamera camera, (double X, double Y, double Z) earthDrawn,
             in OrreryBody earth, in OrreryBody moon)
         {
-            var (gx, gy, gz) = (moon.X - earth.X, moon.Y - earth.Y, moon.Z - earth.Z);
-            var g = Math.Sqrt((gx * gx) + (gy * gy) + (gz * gz));
             var (cx, cy, cz) = camera.Eye;
             var reach = 1e-3 * Math.Sqrt(((earthDrawn.X - cx) * (earthDrawn.X - cx)) + ((earthDrawn.Y - cy) * (earthDrawn.Y - cy)) + ((earthDrawn.Z - cz) * (earthDrawn.Z - cz)));
-            if (g == 0
-                || !camera.TryProject(earthDrawn.X, earthDrawn.Y, earthDrawn.Z, out var x0, out var y0)
-                || !camera.TryProject(earthDrawn.X + (gx / g * reach), earthDrawn.Y + (gy / g * reach), earthDrawn.Z + (gz / g * reach), out var x1, out var y1))
+            if (!camera.TryProject(earthDrawn.X, earthDrawn.Y, earthDrawn.Z, out var x0, out var y0)
+                || !camera.TryProject(earthDrawn.X + reach, earthDrawn.Y, earthDrawn.Z, out var xa, out var ya)
+                || !camera.TryProject(earthDrawn.X, earthDrawn.Y + reach, earthDrawn.Z, out var xb, out var yb))
             {
                 return null;
             }
-            var (dx, dy) = (x1 - x0, y1 - y0);
-            var d = MathF.Sqrt((dx * dx) + (dy * dy));
-            if (d > 1e-4f)
+            var (ax, ay, bx, by) = ((double)(xa - x0), (double)(ya - y0), (double)(xb - x0), (double)(yb - y0));
+            // cos(level) ay + sin(level) by = 0: the direction whose image is level, turned half round where that image points left.
+            var level = Math.Atan2(-ay, by);
+            if ((Math.Cos(level) * ax) + (Math.Sin(level) * bx) < 0)
             {
-                _lastMoonDirection = (dx / d, dy / d);
+                level += Math.PI;
             }
-            return _lastMoonDirection;
+            // A quarter turn on from it, in the plane: the vertical part of that one's image says which way the plane turns on screen.
+            var across = (-Math.Sin(level) * ay) + (Math.Cos(level) * by);
+            if (Math.Abs(across) > 1e-3 * Math.Sqrt((ax * ax) + (ay * ay) + (bx * bx) + (by * by)))
+            {
+                _moonTurnSense = across < 0 ? -1f : 1f;
+            }
+            var turn = Math.Atan2(moon.Y - earth.Y, moon.X - earth.X) - level;
+            return ((float)Math.Cos(turn), _moonTurnSense * (float)Math.Sin(turn));
         }
 
-        // Whether the Moon's reach would pass half the screen gap from the Earth to Venus.
-        private static bool MoonCrowdsVenus(OrreryScene scene, in OrreryCamera camera, in OrreryScaling scale, float earthX, float earthY, float moonReach)
+        // The screen distance from (x, y) to the nearer of the Earth's neighbouring orbits as drawn, Venus's and Mars's: the distance to
+        // every segment between two of an orbit's samples that project. Before the orbits are built, the distance to the two planets.
+        private static float NeighbourOrbitGap(OrreryScene scene, in OrreryCamera camera, in OrreryScaling scale, float x, float y)
         {
-            if (!scene.TryFind(CatalogIndex.Venus, out var venus))
+            var best = float.PositiveInfinity;
+            var orbits = scene.Orbits;
+            foreach (var planet in (ReadOnlySpan<CatalogIndex>)[CatalogIndex.Venus, CatalogIndex.Mars])
             {
-                return false;
+                if (orbits is not null && orbits.TryGetValue(planet, out var points))
+                {
+                    var count = points.Length / 3;
+                    var (havePrevious, px, py) = (false, 0f, 0f);
+                    for (var i = 0; i <= count; i++)
+                    {
+                        var j = i % count;
+                        var (wx, wy, wz) = OrreryScene.Scaled(scale, points[3 * j], points[(3 * j) + 1], points[(3 * j) + 2]);
+                        if (!camera.TryProject(wx, wy, wz, out var sx, out var sy))
+                        {
+                            havePrevious = false;
+                            continue;
+                        }
+                        if (havePrevious)
+                        {
+                            best = MathF.Min(best, DistanceToSegment(x, y, px, py, sx, sy));
+                        }
+                        (havePrevious, px, py) = (true, sx, sy);
+                    }
+                }
+                else if (scene.TryFind(planet, out var body) && scene.Drawn(scale, body) is var (bx, by, bz)
+                    && camera.TryProject(bx, by, bz, out var bsx, out var bsy))
+                {
+                    best = MathF.Min(best, MathF.Sqrt(((bsx - x) * (bsx - x)) + ((bsy - y) * (bsy - y))));
+                }
             }
-            var (vx, vy, vz) = scene.Drawn(scale, venus);
-            if (!camera.TryProject(vx, vy, vz, out var sx, out var sy))
-            {
-                return false;
-            }
-            return moonReach > 0.5f * MathF.Sqrt(((sx - earthX) * (sx - earthX)) + ((sy - earthY) * (sy - earthY)));
+            return best;
+        }
+
+        private static float DistanceToSegment(float x, float y, float x0, float y0, float x1, float y1)
+        {
+            var (dx, dy) = (x1 - x0, y1 - y0);
+            var length = (dx * dx) + (dy * dy);
+            var t = length == 0 ? 0 : Math.Clamp((((x - x0) * dx) + ((y - y0) * dy)) / length, 0, 1);
+            var (ox, oy) = (x0 + (t * dx) - x, y0 + (t * dy) - y);
+            return MathF.Sqrt((ox * ox) + (oy * oy));
         }
 
         // The screen direction of the body's north pole, degrees from +x toward +y (y down), as PlanetDiscSprite.PoleScreenAngle states
