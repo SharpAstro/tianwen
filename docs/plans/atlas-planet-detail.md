@@ -335,7 +335,8 @@ the Sun, is why Venus is a crescent, and the angle between them at the planet is
   never cross) and every direction from the Sun kept, which is what the lighting needs. The camera's distance is AU in
   both scales and a distance at the reach is drawn where it is in both, so the toggle never re-frames. Orbits stay in true
   AU and are scaled as they are projected, so neither a zoom nor the toggle rebuilds one.
-- **The bodies** are A4's sprites, from a cache of their own (`PlanetSpriteCache.OrreryChannel`), at an exaggerated
+- **The bodies** are ray-traced on a GPU host in the camera's own frame ("A5: the bodies on the GPU", below), and on the
+  CPU surface are A4's sprites, from a cache of their own (`PlanetSpriteCache.OrreryChannel`), at an exaggerated
   size in their true order (the Sun 14 px, Jupiter 10, down to Mercury 4 and the Moon 3.5, times the DPI scale),
   each labelled, the selected one ringed and its orbit drawn in the accent. Every body is placed first, and each disc but
   the Sun's is then at most 0.4 of its screen distance to the nearest drawn body (to the Sun's EDGE), a 1.5 px dot below
@@ -356,14 +357,15 @@ the Sun, is why Venus is a crescent, and the angle between them at the planet is
   Earth map in the atlas. Every colour of the view comes from `GuiTheme.Palette` (space, the Earth, a comet, the strip,
   the shared time controls taking the caller's fill and ink), so Night spends no blue.
   A comet is a point with a tail away from the Sun. A body still building its sprite is a flat dot.
-- **Lit as the camera sees it.** `PhysicalEphemeris.ComputeSeenAlong(body, utc, heliocentric, toObserver)` is
-  `Compute`'s sub-point arithmetic with the observer a DIRECTION instead of the geocentre: the unit vector from the
-  body's DRAWN place to the camera, turned from the ecliptic to the J2000 equator, gives the central meridian and the
-  sub-observer latitude; the Sun's true direction from the body (which the compressed scale keeps) gives the sub-solar
-  point and the phase angle. So a body between the camera and the Sun shows its night side (phase 180). The pole's
-  screen direction is the body's IAU pole (`PhysicalEphemeris.PoleDirection`) projected through the camera a
-  thousandth of its distance out from the body; that angle turns the sprite (`PoleScreenAngle(0, angle, false)`).
-  No sky is involved, so the aspect's position angles, distance and angular size are NaN.
+- **Lit as the camera sees it.** Each body is stated as a `PlanetView` (Lib): three unit vectors in the body's OWN frame
+  (x its prime meridian, z its IAU pole, `PhysicalEphemeris.BodyAxes`): the screen's right and the direction back toward
+  the camera along the ray the body is DRAWN on (`OrreryCamera.RayFrame`, so the Moon, placed on screen beside the Earth,
+  is lit as it is drawn), and the Sun's true direction from the body (which the compressed scale keeps). So a body
+  between the camera and the Sun shows its night side (phase 180). The GPU traces straight from those vectors; the CPU
+  sprite reads them back as an aspect (`PlanetView.ToAspect`: the central meridian, the sub-observer and sub-solar
+  points, the phase angle, as `PhysicalEphemeris.ComputeSeenAlong` states them) turned by the pole's screen angle
+  (`PlanetView.PoleScreenAngleDeg`, the pole projected on the screen's right and up). No sky is involved, so the
+  aspect's position angles, distance and angular size are NaN.
 - **Time:** ONE clock with the sky (`SkyMapTab.ResolveViewingTime`: the planner's date or the live clock, plus
   `SkyMapState.TimeOffset`). The strip carries the sky's own time controls (`BuildTimeControls`: the steps, the
   landmarks drop-up, Now) and the arrow keys and 0 work as on the sky; Play runs the offset at 10 days a second of
@@ -442,10 +444,52 @@ where the camera's rotation and the obliquity put it, stays put through a month'
 on a real Vulkan device (`OrreryBackdropGpuTests`, through the sky's own star pipeline) Sirius is drawn 0.1 px from that
 prediction (the stereographic shader before the change put it 2.1 px off) and Night's frame has no blue.
 
+#### A5: the bodies on the GPU
+
+Built 2026-10-15. **Why:** the CPU sprites were right at rest (`EveryDiscIsLitTowardTheSun`, 0 to 6 degrees off), but
+under Play every body's key changed every frame (306 sprite builds in 40 played frames on the CPU surface, 414 measured
+before in the GUI), the stale sprite was drawn while the next one built, so the lit side ran 15 to 29 degrees behind even
+one frame late, and the GUI logged a slow frame every 250 to 330 ms.
+
+- **One shader per GPU host, one trace.** `planet_body.vert` / `planet_body.frag` (Vulkan, baked SPIR-V) and
+  `WebGlPlanetBodies.cs` (WebGL 2): per pixel, 3 x 3 rays along the direction away from the camera from the screen
+  point (an orthographic impostor per body: at the orrery's exaggerated sizes a body's own perspective is a per-mille
+  effect, and the disc stays the circle the hit area is). Each ray meets the oblate spheroid, is lit by Minnaert's law
+  (`PlanetDiscSprite.MinnaertK`), reads the colour map at its planetographic latitude and west longitude (texelFetch,
+  interpolated as `PlanetMap.Sample` does), and with Saturn crosses the ring plane in depth order, the globe's shadow on
+  the rings and theirs on the globe, the unlit face dark, coverage as straight alpha; Night draws the luminance in the
+  palette's tint. The text between the two "The trace" markers is the SAME in both files
+  (`PlanetBodyGpuTests.TheWebGlTraceIsTheVulkanTrace`); each host states only its block, sampler and pixel centre
+  (`screenPixel`: WebGL's framebuffer is y up). A varying interpolated across the quad instead of `gl_FragCoord` put up
+  to 77 more values more than 4 off the CPU on the Adreno.
+- **Inputs:** one block of seven vec4s (`PlanetBodyMap.WriteBlock`: Vulkan's push constants, WebGL's uniform block): the
+  disc's centre and radius, the viewport, the axis ratio, k, the view's right, toward and Sun vectors, the map's mean
+  albedo per plane (a ring's level is stated against it) and the tint. The ring table is `SaturnRings.Main`'s, written
+  into the shader and held to it by `TheShadersRingTableIsSaturnRingsMain`. Colour maps go up ONCE per body and
+  `PlanetTextures.Version` (`PlanetBodyMap.FloatTexels`: float RGBA on Vulkan, exact; `Rgba8` as a PNG on WebGL, which
+  takes a texture only from a URL); a flat body (the Sun, the Earth) is a 2 x 2 map of its colour.
+- **The seam:** `SkyMapTab.TracesPlanetBodies` / `DrawPlanetBody` (`VkSkyMapTab` through `VkPlanetBodies`, `WebSkyMapTab`
+  through `WebGlPlanetBodies`). A tracing host never falls back to a sprite: while a map uploads the body is its flat
+  dot. The CPU surface (the tests, the TUI, the PNGs) keeps the sprite of the same view, `PlanetaryRender.RenderRgba`,
+  the reference the GPU is held to.
+- **What is left on sprites:** the sky map's planet discs and the info panel's disc. They are A4's sky-frame chain (the
+  view's north at the planet, mirrored views) and are rebuilt only on a size bucket or a time scrub, not per frame;
+  moving them is a separate piece of work, not done here.
+
+**Measured** (Surface Pro 11, Snapdragon X Elite X1E80100, Adreno X1-85, the Debug GUI from a scratch org root,
+2880 x 1814, the orrery opened on the Sun, Play at 10 days a second, 15 s): before, average frame 11.3 ms; after,
+4.6 ms (GPU frame 4.6 and 4.9 ms), 0 sprite builds. Parity on the device (`PlanetBodyGpuTests`, ten views: Saturn open
+north and south, nearly edge-on, its dark face, the shadows at quadrature; a crescent Venus, the Moon, Jupiter's Red
+Spot, Mars, the Sun): mean difference from the CPU render 0.004 of 255 at most, worst 1 except a shadow edge (16), at
+most 3 channel values more than 4 off. A west longitude of the wrong sign, or rings without the globe's shadow, fail
+nine of the ten (805 to 65,331 values off). `OrreryGpuTests`: forty played frames on `VkSkyMapTab` trace ten bodies a
+frame, build 0 sprites and upload no map again; every disc is lit toward the Sun on the GPU's frame at the instant and
+93 weeks on, framed on the Earth's orbit and at 12 AU (Jupiter and Saturn within 9 degrees).
+
 #### A5: what is open
 
-- **Not seen on the GPU hosts yet** (#1572, bench). The tests draw it on the CPU surface; the Vulkan GUI and the WebGL
-  page take the same primitives and sprite seam, but nobody has opened it there, nor timed a drag in the browser.
+- **Not seen in the browser yet** (#1572, bench). The Vulkan GUI is seen (the bodies on the GPU, above); the WebGL page
+  builds the same trace, but nobody has opened it there, nor timed a drag or Play in the browser.
 - **The Earth is a flat disc** and **Play's speed is fixed** (#1573): the texture atlas has no Earth map, and Play runs
   at 10 days a second with nothing to change it.
 - **The strip does not fit a narrow view** (#1584): at 1.5x on 900 px it needs about 1,020 px, the hint already squeezed to
