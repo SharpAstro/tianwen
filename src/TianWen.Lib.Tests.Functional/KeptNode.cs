@@ -61,8 +61,10 @@ internal sealed class KeptNode : IAsyncDisposable
     /// <summary>Starts a keeper, on <paramref name="socketPath"/> when given, else a new socket of its own.</summary>
     /// <param name="arguments">More for the node's command line, which the keeper passes on (a short detach grace).</param>
     /// <param name="environment">More for its environment, which the node inherits (a night's clock, <c>TIANWEN_NOW</c>).</param>
+    /// <param name="fakeDevicesOnly">False for a gated probe of real hardware only: the node then registers every device source,
+    /// the machine's cameras and serial ports included.</param>
     public static Process StartKeeper(string socketPath, string dataRoot, IReadOnlyList<string>? arguments = null,
-        IReadOnlyDictionary<string, string>? environment = null)
+        IReadOnlyDictionary<string, string>? environment = null, bool fakeDevicesOnly = true)
     {
         var start = new ProcessStartInfo(ServerPath)
         {
@@ -71,9 +73,13 @@ internal sealed class KeptNode : IAsyncDisposable
         };
         // A test's node is used by clients that send no presence beat, so it would exit after the idle minute a client-started
         // node has; an hour outlasts any test. A test of that exit passes its own --idle-exit, which comes later and wins.
-        foreach (var argument in (ReadOnlySpan<string>)["--keeper", "--socket", socketPath, "--local-only", "--fake-devices", "--idle-exit", "3600"])
+        foreach (var argument in (ReadOnlySpan<string>)["--keeper", "--socket", socketPath, "--local-only", "--idle-exit", "3600"])
         {
             start.ArgumentList.Add(argument);
+        }
+        if (fakeDevicesOnly)
+        {
+            start.ArgumentList.Add("--fake-devices");
         }
         foreach (var argument in arguments ?? [])
         {
@@ -90,8 +96,9 @@ internal sealed class KeptNode : IAsyncDisposable
     /// <param name="prepareDataRoot">Writes into the node's data root before it starts (a profile it should find).</param>
     /// <param name="arguments">More for the node's command line (<see cref="StartKeeper"/>).</param>
     /// <param name="environment">More for its environment (<see cref="StartKeeper"/>).</param>
+    /// <param name="fakeDevicesOnly">False for a gated probe of real hardware only (<see cref="StartKeeper"/>).</param>
     public static async Task<KeptNode> StartAsync(CancellationToken cancellationToken, Func<string, Task>? prepareDataRoot = null,
-        IReadOnlyList<string>? arguments = null, IReadOnlyDictionary<string, string>? environment = null)
+        IReadOnlyList<string>? arguments = null, IReadOnlyDictionary<string, string>? environment = null, bool fakeDevicesOnly = true)
     {
         var folders = new TempFolders();
         KeptNode node;
@@ -103,7 +110,8 @@ internal sealed class KeptNode : IAsyncDisposable
             {
                 await prepareDataRoot(dataRoot);
             }
-            node = new KeptNode(StartKeeper(Path.Combine(folder, "node.sock"), dataRoot, arguments, environment), Path.Combine(folder, "node.sock"), dataRoot, folders);
+            node = new KeptNode(StartKeeper(Path.Combine(folder, "node.sock"), dataRoot, arguments, environment, fakeDevicesOnly),
+                Path.Combine(folder, "node.sock"), dataRoot, folders);
         }
         catch
         {

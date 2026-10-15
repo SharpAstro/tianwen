@@ -137,50 +137,11 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
             await hub.ConnectAsync(camera, ct);
             await hub.ConnectAsync(focuser, ct);
 
-            // An empty sky for the planner: a full recompute walks every visible cell of the catalogue's grid.
-            var catalog = Substitute.For<ICelestialObjectDB>();
-            catalog.DeepSkyCoordinateGrid.Returns(new RaDecIndex());
-            catalog.AllObjectIndices.Returns(new HashSet<CatalogIndex>());
-            var external = new FakeExternal(output);
-            // No comets: an empty list, never the substitute's default array, which a planner recompute enumerates.
-            var comets = Substitute.For<ICometRepository>();
-            comets.All.Returns(System.Collections.Immutable.ImmutableArray<CometElements>.Empty);
-            var services = new ServiceCollection()
-                .AddSingleton<IExternal>(external)
-                .AddSingleton<ITimeProvider>(new SystemTimeProvider())
-                .AddLogging()
-                .AddSingleton<ViewerState>()
-                .AddSingleton<PlanetaryCaptureController>()
-                .AddSingleton<LiveViewController>()
-                .AddSingleton(catalog)
-                // The planner's start loads the comets beside the catalogue: none, here.
-                .AddSingleton(comets)
-                .AddSingleton(Substitute.For<IPlateSolverFactory>())
-                .BuildServiceProvider();
-
-            var appState = new GuiAppState();
-            var contexts = new ViewContexts();
-            var skyMap = new SkyMapState();
-            var bus = new SignalBus();
-            var tracker = new BackgroundTaskTracker();
-            var cts = new CancellationTokenSource();
-            var equipment = new EquipmentTabState();
-            var planner = new PlannerState();
-            var session = new SessionTabState();
-            var handler = new AppSignalHandler(services, appState, planner, session, equipment,
-                contexts, skyMap, bus, tracker, cts, cts.Token, external);
+            var gui = ComposeClient(output);
+            var (services, cts, appState, contexts, skyMap, bus, tracker, equipment, planner, session, handler) = gui;
 
             // In the mode of the harness's node (not local-only), whatever the test process's environment says.
-            await handler.ConnectLocalNodeAsync(new LocalNodeOptions { NamedSocket = socketPath, AnotherAccountProbe = null, LocalOnly = LocalOnlyMode.Off },
-                requestedProfile: null, includeFake: true, ct);
-            appState.LocalNode.ShouldNotBeNull(appState.LocalNodeProblem);
-            // The first discovery the connect asked for, run to its end, so the Equipment tab lists the rig.
-            bus.ProcessPending(tracker);
-            while (equipment.IsDiscovering || equipment.DiscoveredDevices.Count == 0)
-            {
-                tracker.ProcessCompletions(NullLogger.Instance);
-                await Task.Delay(20, ct);
-            }
+            await gui.ConnectAsync(socketPath, LocalOnlyMode.Off, includeFake: true, ct);
 
             if (remoteOnScreen)
             {
@@ -194,6 +155,71 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
         {
             await node.DisposeAsync();
             throw;
+        }
+    }
+
+    /// <summary>
+    /// The GUI's client half as a window composes it, connected to no node yet: its signal handler and the states it
+    /// writes, over an empty sky, no comets and no plate solver. This harness's, and a probe's on a real tianwen-server.
+    /// </summary>
+    internal static GuiClient ComposeClient(ITestOutputHelper output)
+    {
+        // An empty sky for the planner: a full recompute walks every visible cell of the catalogue's grid.
+        var catalog = Substitute.For<ICelestialObjectDB>();
+        catalog.DeepSkyCoordinateGrid.Returns(new RaDecIndex());
+        catalog.AllObjectIndices.Returns(new HashSet<CatalogIndex>());
+        var external = new FakeExternal(output);
+        // No comets: an empty list, never the substitute's default array, which a planner recompute enumerates.
+        var comets = Substitute.For<ICometRepository>();
+        comets.All.Returns(System.Collections.Immutable.ImmutableArray<CometElements>.Empty);
+        var services = new ServiceCollection()
+            .AddSingleton<IExternal>(external)
+            .AddSingleton<ITimeProvider>(new SystemTimeProvider())
+            .AddLogging()
+            .AddSingleton<ViewerState>()
+            .AddSingleton<PlanetaryCaptureController>()
+            .AddSingleton<LiveViewController>()
+            .AddSingleton(catalog)
+            // The planner's start loads the comets beside the catalogue: none, here.
+            .AddSingleton(comets)
+            .AddSingleton(Substitute.For<IPlateSolverFactory>())
+            .BuildServiceProvider();
+
+        var appState = new GuiAppState();
+        var contexts = new ViewContexts();
+        var skyMap = new SkyMapState();
+        var bus = new SignalBus();
+        var tracker = new BackgroundTaskTracker();
+        var cts = new CancellationTokenSource();
+        var equipment = new EquipmentTabState();
+        var planner = new PlannerState();
+        var session = new SessionTabState();
+        var handler = new AppSignalHandler(services, appState, planner, session, equipment,
+            contexts, skyMap, bus, tracker, cts, cts.Token, external);
+        return new GuiClient(services, cts, appState, contexts, skyMap, bus, tracker, equipment, planner, session, handler);
+    }
+
+    /// <summary>The GUI's client half (<see cref="ComposeClient"/>): what its handler writes, and the handler.</summary>
+    internal sealed record GuiClient(ServiceProvider Services, CancellationTokenSource Cts, GuiAppState AppState, ViewContexts Contexts,
+        SkyMapState SkyMap, SignalBus Bus, BackgroundTaskTracker Tracker, EquipmentTabState Equipment, PlannerState Planner,
+        SessionTabState Session, AppSignalHandler Handler)
+    {
+        /// <summary>
+        /// Connects to the node on <paramref name="socketPath"/> as the GUI connects at start, in <paramref name="localOnly"/>
+        /// whatever the test process's environment says, and runs the first discovery the connect asks for to its end, so
+        /// the Equipment tab lists what the node reaches.
+        /// </summary>
+        public async Task ConnectAsync(string socketPath, LocalOnlyMode localOnly, bool includeFake, CancellationToken ct)
+        {
+            await Handler.ConnectLocalNodeAsync(new LocalNodeOptions { NamedSocket = socketPath, AnotherAccountProbe = null, LocalOnly = localOnly },
+                requestedProfile: null, includeFake, ct);
+            AppState.LocalNode.ShouldNotBeNull(AppState.LocalNodeProblem);
+            Bus.ProcessPending(Tracker);
+            while (Equipment.IsDiscovering || Equipment.DiscoveredDevices.Count == 0)
+            {
+                Tracker.ProcessCompletions(NullLogger.Instance);
+                await Task.Delay(20, ct);
+            }
         }
     }
 
