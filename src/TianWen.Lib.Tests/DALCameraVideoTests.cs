@@ -414,6 +414,27 @@ public class DALCameraVideoTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// A body that goes silent mid-stream, answering only Timeout as ASIGetVideoData does with no frame, is a stall once
+    /// the silence passes <c>VideoSilenceLimit</c>, and the ladder brings it back as it would a stall the body reported.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task ABodyThatGoesSilentMidStreamIsBroughtBack()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state) = await StreamingCameraAsync();
+
+        await using var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
+        (await NextAsync(frames)).Release();
+        state.StallCode = CMOSErrorCode.Timeout;
+        state.Stall(FakeCmosState.Cure.Restart);
+
+        await ReadUntilRecoveredAsync(camera, frames, 1);
+        var recovery = camera.VideoRecoveryLog.Single();
+        (recovery.Code, recovery.Rung).ShouldBe((CMOSErrorCode.Timeout, TestDalCameraDriver.VideoRecoveryRung.Restart));
+        camera.VideoStalls.ShouldBe(1);
+    }
+
+    /// <summary>
     /// A stall (ToupTek.SDK answers GeneralError once the body stops sending) is brought back by restarting the stream on
     /// the same handle, which undid 10 of 11 on a G3M678M; the stream goes on, and the stall is counted and logged.
     /// </summary>
@@ -544,7 +565,7 @@ public class DALCameraVideoTests(ITestOutputHelper output)
 
     /// <summary>
     /// A restart that brings back a body which then sends nothing at all, not even the stall's answer, is caught by the
-    /// first-frame budget and the next rung tried, rather than waited on for ever.
+    /// silence watchdog (<c>VideoSilenceLimit</c>) and the next rung tried, rather than waited on for ever.
     /// </summary>
     [Fact(Timeout = 30_000)]
     public async Task ABodyThatGoesSilentAfterARestartIsClosedAndOpenedAgain()

@@ -833,8 +833,9 @@ one stall that needed it). Nudging the speed or the window was measured to undo 
   start, and the reopen and reset share the find-again-and-restore path a lost single exposure's reset already took
   (`DALCameraDriver.Recovery.cs`);
 - a stream healthy for `VideoHealthyAfter` (30 s) since it came back starts its next stall from a restart again; one that stalls sooner
-  goes on up; a rung's stream that sees no frame within `VideoFirstFrameBudget` (3 s plus twice the exposure) or answers the stall again
-  has failed; past the last rung the stream ends with a plain reason ("stopped sending frames ... neither a restart of the stream, nor
+  goes on up; a rung's stream that answers the stall again, or answers only Timeout for longer than `VideoSilenceLimit` (twice the
+  exposure plus 1 s, at least 2 s), has failed; the same silence mid-stream is a stall of its own (a body that goes quiet rather than
+  saying so, as `ASIGetVideoData` does with no frame); past the last rung the stream ends with a plain reason ("stopped sending frames ... neither a restart of the stream, nor
   closing and opening the camera, nor a reset brought it back", or, for a body that cannot be reset, to unplug it);
 - stalls and recoveries are counted beside the body's dropped frames and logged, each recovery with its rung and its gap.
 
