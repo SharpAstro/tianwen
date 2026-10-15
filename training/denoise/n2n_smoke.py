@@ -176,6 +176,30 @@ def masked_mean(err, mask):
     return (err * mask).sum() / (mask.sum() * err.shape[1]).clamp_min(1.0)
 
 
+def channel_weights(truth):
+    """Each channel's weight [B, C, 1, 1] for --channel-noise (R2j, docs/plans/star-remover-training.md): the inverse of
+    its share of the noise, so an error counts by how far it stands out of the noise of ITS channel, as
+    StarRemovalEval's ColourDetail and the eye judge it. The share is read on the truth tile [B, C, H, W], which carries
+    the background's noise and no injected star, as the spread (median absolute deviation) of horizontal neighbour
+    differences in the channel over the same in the luminance, ColourDetail's own reading. The shares are divided by
+    their RMS over the channels, so a tile whose channels are equally noisy keeps the plain objective exactly, and only
+    the channels' weights against EACH OTHER move: never the weight of a bright core against the sky, which a per-pixel
+    sigma would have moved too (measured 2026-10-15: in each pixel's own sigma, the worst 1 % of a converged model's
+    pixels hold 66 % of the objective). A sample whose luminance has no spread to read keeps equal weights."""
+    import torch
+    d = truth[:, :, :, 1:] - truth[:, :, :, :-1]
+
+    def mad(t):
+        f = t.flatten(2)
+        return (f - f.median(dim=2, keepdim=True).values).abs().median(dim=2).values
+
+    lum = mad(d.mean(dim=1, keepdim=True))                              # [B, 1]
+    share = mad(d) / lum.clamp_min(1e-12)                               # [B, C]
+    share = torch.where((lum > 0) & (share > 0), share, torch.ones_like(share))
+    share = share / share.pow(2).mean(dim=1, keepdim=True).sqrt()
+    return share[:, :, None, None]
+
+
 def with_plane(x, plane, strength=1.0):
     """Append a STORED per-pixel conditioning plane [B, H, W] to an image batch: --cond-map, in place of
     with_sigma's broadcast scalar. `strength` keeps the scalar's meaning (overstating the noise is the dial)."""
@@ -1272,6 +1296,10 @@ def train(args):
         sample = np.asarray(sigma_planes[:min(64, meta["cells"]), 1], dtype=np.float32)
         print(f"conditioning on the STORED per-pixel noise plane (sigma.f16): draw planes p5 "
               f"{np.percentile(sample, 5):.3f} p50 {np.percentile(sample, 50):.3f} p95 {np.percentile(sample, 95):.3f}")
+    if args.channel_noise:
+        if CH == 1:
+            raise SystemExit("--channel-noise weighs the channels against each other: a mono cache has one")
+        print("objective: each channel's error over its share of the noise (--channel-noise, R2j)")
 
     # R2d's D4: the sky near a source the plate itself kept is left out of the pixel and band terms, in training and in
     # the plateau's held-out objective alike, so neither asks the net to keep a faint star it is asked to remove elsewhere.
@@ -1522,16 +1550,20 @@ def train(args):
                         if keep_planes is not None:
                             mc = torch.from_numpy(np.ascontiguousarray(keep_planes[vi, slots - 1])).to(dev).float() \
                                 .unsqueeze(1)[:, :, BORDER:-BORDER, BORDER:-BORDER]
+                        pw, yw = pc, yc
+                        if args.channel_noise:
+                            w = channel_weights(yc)
+                            pw, yw = pc / w, yc / w
                         if mc is not None:
-                            obj = masked_mean((pc - yc).abs() if args.loss == "l1" else (pc - yc) ** 2, mc)
+                            obj = masked_mean((pw - yw).abs() if args.loss == "l1" else (pw - yw) ** 2, mc)
                         else:
-                            obj = (nn.functional.l1_loss(pc, yc) if args.loss == "l1"
-                                   else nn.functional.mse_loss(pc, yc))
+                            obj = (nn.functional.l1_loss(pw, yw) if args.loss == "l1"
+                                   else nn.functional.mse_loss(pw, yw))
                         if args.band_loss > 0:
                             band = 0.0
                             for s1, s2 in band_scales:
                                 k1, k2 = kernels[s1], kernels[s2]
-                                dp, dy = _blur(pc, k1) - _blur(pc, k2), _blur(yc, k1) - _blur(yc, k2)
+                                dp, dy = _blur(pw, k1) - _blur(pw, k2), _blur(yw, k1) - _blur(yw, k2)
                                 band = band + (masked_mean((dp - dy) ** 2, mc) if mc is not None
                                                else nn.functional.mse_loss(dp, dy))
                             obj = obj + args.band_loss * band / len(band_scales)
@@ -1556,6 +1588,10 @@ def train(args):
     # 0.76 and sits 14.6 under the spurious floor against 23.8. Saving it alongside makes that
     # visible instead of leaving it to a re-run with a different threshold.
     best_struct = (-1.0, 0, None, None)
+    # --snapshot-at: the weights as they stand at that step, kept beside the run's own output. With no gate the
+    # output IS the last step's weights, so this is what a run capped at that step saves, taken from a longer
+    # run without touching anything the run computes (R2h, docs/plans/star-remover-training.md).
+    snapshots = []
     for step in range(1, steps + 1):
         idx = rng.integers(0, n_train, args.batch)
         # Two DIFFERENT subs of the same cell: independent noise, same scene. That is the
@@ -1681,15 +1717,21 @@ def train(args):
         if keep_planes is not None:
             mc = torch.from_numpy(np.ascontiguousarray(keep_planes[idx, a - 1])).to(dev).float() \
                 .unsqueeze(1)[:, :, BORDER:-BORDER, BORDER:-BORDER]
+        # R2j's --channel-noise: each channel's error in the pixel and band terms over its share of the noise
+        # (channel_weights); the star term keeps the tile.
+        pw, yw = pc, yc
+        if args.channel_noise:
+            w = channel_weights(yc)
+            pw, yw = pc / w, yc / w
         # L1 converges to the conditional MEDIAN, which for a star near the noise floor sits
         # at the background: an L1 N2N erases faint stars while scoring well on PSNR, because
         # PSNR is dominated by the background pixels it cleans beautifully. L2 converges to the
         # conditional MEAN, which is unbiased and preserves faint flux in expectation.
         if mc is not None:
-            pixel = masked_mean((pc - yc).abs() if args.loss == "l1" else (pc - yc) ** 2, mc)
+            pixel = masked_mean((pw - yw).abs() if args.loss == "l1" else (pw - yw) ** 2, mc)
         else:
-            pixel = (nn.functional.l1_loss(pc, yc) if args.loss == "l1"
-                     else nn.functional.mse_loss(pc, yc))
+            pixel = (nn.functional.l1_loss(pw, yw) if args.loss == "l1"
+                     else nn.functional.mse_loss(pw, yw))
         loss = pixel
 
         # Structure-preserving term. Plain L2 is dominated by the flat background, which is
@@ -1710,7 +1752,7 @@ def train(args):
             band = 0.0
             for s1, s2 in band_scales:
                 k1, k2 = kernels[s1], kernels[s2]
-                dp, dy = _blur(pc, k1) - _blur(pc, k2), _blur(yc, k1) - _blur(yc, k2)
+                dp, dy = _blur(pw, k1) - _blur(pw, k2), _blur(yw, k1) - _blur(yw, k2)
                 band = band + (masked_mean((dp - dy) ** 2, mc) if mc is not None else nn.functional.mse_loss(dp, dy))
             loss = loss + args.band_loss * band / len(band_scales)
 
@@ -1772,6 +1814,9 @@ def train(args):
                     note = f"plateau: rate halved to {lr_now * 0.5:.2e} ({val_decays}/{args.max_decays})"
             print(f"  val  {step:6d}   held-out {val_hist[-1]:.6e}   window {v:.6e}   best {val_best:.6e} at "
                   f"{val_best_step}   lr {lr_now:.2e}   {note}", flush=True)
+
+        if args.snapshot_at and step == args.snapshot_at:
+            snapshots.append(({k: v.detach().cpu().clone() for k, v in model.state_dict().items()}, step))
 
         if step % args.log_every == 0 or step == steps or stop_now:
             el = time.perf_counter() - t0
@@ -1898,6 +1943,9 @@ def train(args):
                     "prior_base": args.prior_base, "prior_every": args.prior_every},
                    os.path.join(args.cache, path))
         print(f"saved -> {os.path.join(args.cache, path)}")
+
+    for state, at in snapshots:
+        save(state, args.out.replace(".pt", f"_at{at}.pt"), at)
 
     if gate is not None and best[3] is not None:
         # The FINAL weights are kept beside the selected ones rather than discarded, so the
@@ -2187,6 +2235,10 @@ if __name__ == "__main__":
                         "as large as the between-config difference on the selection metrics")
     p.add_argument("--log-every", type=int, default=200)
     p.add_argument("--loss", choices=("l1", "l2"), default="l1")
+    p.add_argument("--channel-noise", action="store_true",
+                   help="R2j: weigh each channel's error in the pixel and band terms (and the plateau's held-out "
+                        "objective) by the inverse of its share of the noise, read on the truth (channel_weights), as "
+                        "starless-eval's colour tests judge; a tile of equally noisy channels keeps the plain objective")
     p.add_argument("--upsample", action="store_true")
     p.add_argument("--pair-avg", type=int, default=1)
     p.add_argument("--mix-avg", action="store_true")
@@ -2294,6 +2346,9 @@ if __name__ == "__main__":
                    help="Richardson-Lucy iterations inside the operator (E3.0 pre-registers 20). On noisy "
                         "data the count IS the regulariser, so a different value is a different arm")
     p.add_argument("--out", default="n2n.pt")
+    p.add_argument("--snapshot-at", type=int, default=0,
+                   help="also save the weights as they stand at this step, as <out>_at<step>.pt: what a run "
+                        "capped there saves, from a longer run; 0 (default) saves none")
     p.add_argument("--out-final", default=None,
                    help="where the LAST step's weights go when a gate selected an earlier one "
                         "(default: <out> with _final before the extension)")
