@@ -41,13 +41,17 @@ screenshot-poll-and-OCR**. Three pieces compose:
 
 3. **Drive + observe via the DEBUG inspector, not screenshots.** A **DEBUG** GUI build attaches
    `DebugInspector` (`Program.cs`, compiled out of Release entirely), exposing this process to the
-   `sdl-ui-inspector` MCP sidecar (`.mcp.json` → `dnx SdlVulkan.Renderer.Inspector`, UDP-multicast discovery).
-   **The inspector needs a build against the sibling SOURCES** (`UseLocalSiblings`): a worktree under
+   `sdl-ui-inspector` MCP sidecar (`.mcp.json` → `dnx SdlVulkan.Renderer.Inspector@7.70.4041`).
+   **`list_instances` finds the app through DIR.Lib's per-user inspector registry**: from DIR.Lib 11.21 the
+   inspector writes `%LOCALAPPDATA%/DIR.Lib/inspector/<pid>-<port>.json` as it starts and deletes it as it closes,
+   and binds nothing but its loopback command server, so no build path prompts. The sidecar multicasts after reading
+   the registry, which finds an app built against an older DIR.Lib (it answers on UDP 47892 on every interface and
+   prompts from any new path: a copy, a scratch publish). A sidecar pinned below 7.70 multicasts only and lists no
+   11.21 app. **The inspector needs a build against the sibling SOURCES** (`UseLocalSiblings`): a worktree under
    `.claude/worktrees/` finds none, so its Debug GUI has no inspector at all and `list_instances` cannot list it. The
-   local-only mode (`TIANWEN_LOCAL_ONLY=1`, which `tools/start-app.ps1` sets) leaves the inspector alone: until DIR.Lib
-   11.21 is in the sibling checkout a sibling-source Debug build binds multicast on UDP 47892, which prompts from any
-   new path (a copy, a scratch publish), and from 11.21 its discovery is a socket-free file registry
-   ([hosting-api.md](hosting-api.md), "Local-only"). It gives six surfaces:
+   local-only mode (`TIANWEN_LOCAL_ONLY=1`, which `tools/start-app.ps1` sets) leaves the inspector alone, and
+   `DIR_LIB_INSPECTOR_LAN=1`, which turns an 11.21 app's multicast back on for a sidecar on another machine, is never
+   needed on this one ([hosting-api.md](hosting-api.md), "Local-only"). It gives six surfaces:
    - **Describe/state snapshot** (the `AppState` block): `activeTab`, `profile`, `sessionRunning`, `phase`,
      `mountConnected/Name/RaJ2000/DecJ2000/mountSlewing/mountTracking`, `lastNotification`, sky-map viewport,
      `liveSessionMode` (Preview/PolarAlign/Planetary/Flats) + `flatRunActive`/`flatStatus`.
@@ -121,7 +125,9 @@ from the last client attached (the inspector's `quitQuestion`), answered by post
 The TUI has the same treatment, via `ConsoleDebugInspector` (Console.Lib 4.3+) on the same
 `DIR.Lib.Diagnostics.DebugInspectorCore` transport the GPU inspector now uses, with the
 `Console.Lib.Inspector` MCP sidecar in `.mcp.json` alongside `sdl-ui-inspector`. Wired in
-`TuiSubCommand.RunTuiAsync`, `Pump()`ed once per loop iteration.
+`TuiSubCommand.RunTuiAsync`, `Pump()`ed once per loop iteration. A Debug TUI is found exactly as the GUI is: the
+pinned sidecar (5.7 or later) reads the same registry first and lists the instances whose kind is `tui`, then
+multicasts for one below DIR.Lib 11.21; the SDL sidecar lists only kind `sdl`, so each sees its own apps.
 
 **A terminal reads back as TEXT, which is the one thing a GPU surface cannot offer.** `screen` / `row` /
 `cell` report the **front** cell buffer -- what was actually emitted, not a parallel model that can drift

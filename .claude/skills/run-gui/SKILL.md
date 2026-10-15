@@ -36,16 +36,21 @@ never background the app with shell `&` (the sandbox drops it).
 
 **Readiness and liveness.** The launcher returns once the process is up, which is before the window is.
 Wait on a signal the app writes, or on the inspector WHERE THE BUILD HAS ONE, never on a fixed sleep:
-`mcp__sdl-ui-inspector__list_instances` lists a Debug build against the sibling SOURCES only. A build in a worktree
-under `.claude/worktrees/` finds no siblings, so it has no inspector at all and is never listed; wait on its log
-(`gui-stderr.log`, the node's `Server_*.log`) instead. `Get-Process -Id <pid>` says whether it still runs.
+`mcp__sdl-ui-inspector__list_instances` lists a Debug build against the sibling SOURCES only, by pid. The pinned
+sidecar (`.mcp.json`, `SdlVulkan.Renderer.Inspector` 7.70) finds it in DIR.Lib's per-user inspector registry
+(`%LOCALAPPDATA%/DIR.Lib/inspector`, where an app on DIR.Lib 11.21 or later registers as its inspector starts), and
+by multicast for an app on an older DIR.Lib. A build in a worktree under `.claude/worktrees/` finds no siblings, so
+it has no inspector at all and is never listed; wait on its log (`gui-stderr.log`, the node's `Server_*.log`)
+instead. `Get-Process -Id <pid>` says whether it still runs.
 
 **The launcher starts the app LOCAL-ONLY** (`TIANWEN_LOCAL_ONLY=1` unless you set the variable yourself): the GUI
 and the node it starts bind nothing but loopback (no LAN discovery, no WiFi device discovery), so a build in a new
-folder raises no firewall prompt on the user's desktop. The mode leaves the inspector alone: until DIR.Lib 11.21 is
-in the sibling checkout, a sibling-source Debug build binds multicast on UDP 47892, which prompts from any new path,
-and from 11.21 its discovery is a socket-free file registry. `TIANWEN_LOCAL_ONLY=0` brings the LAN back at the
-price of that prompt for every new build path: ask the user first.
+folder raises no firewall prompt on the user's desktop. The mode leaves the inspector alone, and on DIR.Lib 11.21 or
+later the inspector binds nothing but its loopback command server either. A sibling checkout whose DIR.Lib is below
+11.21 binds multicast on UDP 47892 on every interface, which prompts from any new path. Never set
+`DIR_LIB_INSPECTOR_LAN=1` for a launch: it turns that multicast back on (for a sidecar on another machine) and the
+prompt with it. `TIANWEN_LOCAL_ONLY=0` brings the LAN back at the price of that prompt for every new build path: ask
+the user first.
 
 **Environment reaches the app**, since it inherits the launcher's: anchor the clock with
 `TIANWEN_NOW=2026-06-21T22:00:00+10:00 pwsh -NoProfile -File tools/start-app.ps1 gui`.

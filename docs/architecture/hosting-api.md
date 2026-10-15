@@ -232,14 +232,25 @@ are features; `tools/start-app.ps1` turns it on for every app it launches unless
   CLI. A local-only window never silently works through a node that binds the LAN, and an ordinary one never silently
   keeps a local-only node's missing features.
 - **The DEBUG inspectors are left alone**, deliberately (#1581): from DIR.Lib 11.21 (SharpAstro/DIR.Lib#111)
-  an inspector's default discovery is a socket-free file registry, and `EnableDiscovery = false` would take the app
-  out of that registry too, leaving every launched GUI unfindable by the MCP sidecars. Until 11.21 is in the sibling
-  checkout, a Debug build against the sibling SOURCES (the GPU inspector, and the TUI's console inspector alike)
-  binds multicast on UDP 47892 on every interface, which raises the firewall prompt from ANY new path (the bind check's
-  temporary copy included, so `tools/check-local-only-binds.ps1` refuses such a build before starting anything, exit
-  2, saying to pull `../DIR.Lib`; its `-SelfTest` checks that gate); a build in a worktree under
-  `.claude/worktrees/` finds no siblings (`UseLocalSiblings` is empty), so it has no inspector at all.
+  an inspector's default discovery is a per-user file registry (`%LOCALAPPDATA%/DIR.Lib/inspector`, one
+  `<pid>-<port>.json` per instance; the contract is DIR.Lib's `src/DIR.Lib/Diagnostics/inspector-registry.md`) and its
+  one socket is the loopback command server, so no path prompts. `EnableDiscovery = false` would take the app out of
+  that registry too, leaving every launched GUI unfindable by the MCP sidecars.
   `LocalOnlyModeSourceTests.NoDebugInspectorIsToldToStopAnsweringDiscovery` keeps it so.
+  - **The sidecars `.mcp.json` pins read the registry first and multicast after it**
+    (`SdlVulkan.Renderer.Inspector` 7.70, SharpAstro/SdlVulkan.Renderer#135; `Console.Lib.Inspector` 5.7,
+    SharpAstro/Console.Lib#36), so they find an app on either side of 11.21; an older pin multicasts only and lists no
+    11.21 app. Measured 2026-10-15 on a scratch DIR.Lib 11.21 host started with defaults: one TCP listener on
+    127.0.0.1, no UDP endpoint at all, and each pinned sidecar listed it under its own kind (`sdl`, `tui`) and not the
+    other, while `Console.Lib.Inspector` 4.12 found nothing.
+  - **A Debug build against sibling SOURCES whose `../DIR.Lib` is below 11.21** (the GPU inspector, and the TUI's
+    console inspector alike) binds multicast on UDP 47892 on every interface, which raises the firewall prompt from ANY
+    new path (the bind check's temporary copy included, so `tools/check-local-only-binds.ps1` refuses such a build
+    before starting anything, exit 2, saying to pull `../DIR.Lib`; its `-SelfTest` checks that gate). On 11.21 the
+    same multicast answers only with `DIR_LIB_INSPECTOR_LAN=1`, for a sidecar on another machine; it prompts per path
+    as before, the bind check clears it, and nothing on one machine needs it.
+  - **A build in a worktree under `.claude/worktrees/`** finds no siblings (`UseLocalSiblings` is empty), so it takes
+    them as Release packages and has no inspector at all.
 - **A new bind must ask the mode**: `LocalOnlyModeSourceTests.EveryNetworkBindInTheShippingCodeIsAKnownOneGatedOnTheMode`
   lists every file in `src/` that binds on every interface, broadcasts, joins a multicast group or listens, with the
   file holding its gate, and fails on one it does not know.

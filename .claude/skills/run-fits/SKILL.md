@@ -34,14 +34,15 @@ second launch on the same folder passes its file to the window already open (`--
 
 **Readiness and liveness.** Wait on the inspector (`mcp__sdl-ui-inspector__list_instances`) where the build has
 one, never on a fixed sleep: only a Debug build against the sibling SOURCES does, and a worktree's build under
-`.claude/worktrees/` has none, so read `fitsviewer-stderr.log` there. `Get-Process -Id <pid>` says whether it still
-runs. `-Validation` / `-SyncValidation` load the Vulkan validation layers exactly as for the GUI (Debug only, slow;
-for GPU bugs only).
+`.claude/worktrees/` has none, so read `fitsviewer-stderr.log` there. The pinned sidecar finds the viewer exactly as
+it finds the GUI (see `run-gui`): in DIR.Lib's per-user inspector registry from DIR.Lib 11.21, by multicast below it.
+`Get-Process -Id <pid>` says whether it still runs. `-Validation` / `-SyncValidation` load the Vulkan validation
+layers exactly as for the GUI (Debug only, slow; for GPU bugs only).
 
 **The launcher starts the viewer LOCAL-ONLY** (`TIANWEN_LOCAL_ONLY=1` unless you set it). The viewer itself binds
-nothing beyond its inspector, which the mode leaves alone: until DIR.Lib 11.21 is in the sibling checkout a
-sibling-source Debug build binds multicast on UDP 47892, which prompts from any new path, and from 11.21 its discovery
-is a socket-free file registry.
+nothing beyond its inspector, which the mode leaves alone: on DIR.Lib 11.21 or later that is only the loopback
+command server, while a sibling checkout whose DIR.Lib is below 11.21 binds multicast on UDP 47892, which prompts
+from any new path. Never set `DIR_LIB_INSPECTOR_LAN=1` for a launch, which brings that multicast and its prompt back.
 
 **After it closes or crashes, read `src/fitsviewer-stderr.log`** (font atlas diagnostics, shader errors, .NET
 exceptions). A detached app hands back no exit code; a native crash that writes nothing there shows in the
