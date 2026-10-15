@@ -1458,6 +1458,64 @@ public sealed class OrreryTests(ITestOutputHelper output)
     /// The orrery through the CPU renderer, true and compressed scale, Jupiter selected: the PNGs a person looks at, written to the
     /// test output, and every planet's sprite drawn once it has landed.
     /// </summary>
+    /// <summary>
+    /// The orrery's Earth is drawn from its day map (#1573), not the flat disc it was: on the CPU surface, the camera swept round the Earth
+    /// until its day side faces it, the lit pixels inside the disc carry the map's colours, the blue of the sea beside the ochre and green
+    /// of the land. A flat colour lit by Minnaert's law keeps one chromaticity across the disc (measured with the Earth still flat: a
+    /// spread of 0.015 in the blue share, the 8-bit rounding); the map spreads it (0.54).
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheOrrerysEarthIsDrawnFromItsDayMap()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale: 3f);
+        // The Earth is never selected on the sky; the orrery is opened on Mars and turned to it, as a click on its disc would.
+        Select(rig, CatalogIndex.Mars);
+        rig.Tab.OpenOrrery();
+        rig.Tab.State.Orrery.Focus = CatalogIndex.Earth;
+        rig.Tab.State.Orrery.CentredOnFocus = true;
+        rig.Tab.State.Orrery.ShowBackdrop = false;
+        await SettleAsync(rig);
+
+        var best = (Lit: 0, Spread: 0.0, Azimuth: 0);
+        for (var az = 0; az < 360; az += 30)
+        {
+            rig.Tab.State.Orrery.AzimuthDeg = az;
+            await SettleAsync(rig);
+            var earth = rig.Tab.OrreryDrawn.Single(d => d.Index == CatalogIndex.Earth);
+            var pixels = rig.Renderer.Surface.Pixels;
+            var (lit, low, high) = (0, double.MaxValue, double.MinValue);
+            var inner = 0.6f * earth.Radius;
+            for (var y = (int)(earth.Y - inner); y <= (int)(earth.Y + inner); y++)
+            {
+                for (var x = (int)(earth.X - inner); x <= (int)(earth.X + inner); x++)
+                {
+                    if (((x - earth.X) * (x - earth.X)) + ((y - earth.Y) * (y - earth.Y)) > inner * inner || x < 0 || y < 0 || x >= Width || y >= Height)
+                    {
+                        continue;
+                    }
+                    var i = ((y * Width) + x) * 4;
+                    var sum = pixels[i] + pixels[i + 1] + pixels[i + 2];
+                    // Lit: the map is dark (its mean 0.135, 0.173, 0.225), so the bar is low, but high enough that a flat disc's
+                    // rounding cannot spread its blue share by more than a few hundredths.
+                    if (sum < 40)
+                    {
+                        continue;
+                    }
+                    lit++;
+                    var blueShare = pixels[i + 2] / (double)sum;
+                    (low, high) = (Math.Min(low, blueShare), Math.Max(high, blueShare));
+                }
+            }
+            if (lit > best.Lit)
+            {
+                best = (lit, high - low, az);
+            }
+        }
+        output.WriteLine($"the Earth drawn {rig.Tab.OrreryDrawn.Single(d => d.Index == CatalogIndex.Earth).Radius:F1} px in radius; its day side best seen at azimuth {best.Azimuth}: {best.Lit} lit px inside 0.6 of its radius, blue share spread {best.Spread:F3}");
+        best.Lit.ShouldBeGreaterThan(50, "the camera never saw the Earth's day side");
+        best.Spread.ShouldBeGreaterThan(0.1, "the Earth is one colour: it is drawn flat, not from its map");
+    }
+
     [Fact(Timeout = 120_000)]
     public async Task TheOrreryDrawsOnTheCpuSurface()
     {

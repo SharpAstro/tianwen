@@ -54,7 +54,7 @@ namespace TianWen.UI.Abstractions
         internal double LastOrreryFrameMs { get; private set; }
 
         // Every colour from the palette (CLAUDE.md, "Colour Theme"), so Night spends no blue: space is the content background halfway
-        // to black, the Earth the palette's Info, a comet that halfway to the body text.
+        // to black, the Earth the palette's Info while its map loads, a comet that halfway to the body text.
         private static RGBAColor32 OrreryBackground => GuiTheme.Mix(new RGBAColor32(0, 0, 0, 0xFF), GuiTheme.Palette.ContentBg, 0.5f);
         private static RGBAColor32 EarthColour => GuiTheme.Palette.Info;
         private static RGBAColor32 CometColour => GuiTheme.Mix(GuiTheme.Palette.Info, GuiTheme.Palette.BodyText, 0.5f);
@@ -639,7 +639,7 @@ namespace TianWen.UI.Abstractions
         {
             PlanetColourMap? map = null;
             var credit = "";
-            if (view.Body is not (CatalogIndex.Sol or CatalogIndex.Earth) && PlanetTextures.TryGet(view.Body, out var texture, out credit))
+            if (view.Body is not CatalogIndex.Sol && PlanetTextures.TryGet(view.Body, out var texture, out credit))
             {
                 map = texture;
             }
@@ -659,7 +659,8 @@ namespace TianWen.UI.Abstractions
                 && DrawPlanetSprite(sprite, sx, sy, radius);
         }
 
-        // A disc still building its sprite: the body's own colour, or under Night the tint its sprite will have.
+        // A disc still building its sprite: the body's own colour, or under Night the tint its sprite will have. The Earth's is the
+        // palette's Info only until its day map has loaded (#1573).
         private static RGBAColor32 OrreryFlat(CatalogIndex body)
             => GuiTheme.State == UiThemeState.Night ? GuiTheme.Palette.Accent
                 : body == CatalogIndex.Earth ? EarthColour : SkyMapRenderer.GetPlanetColor(body);

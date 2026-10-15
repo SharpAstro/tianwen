@@ -39,6 +39,11 @@ Source[] sources =
     new(CatalogIndex.Mercury, "https://www.solarsystemscope.com/textures/download/2k_mercury.jpg", CentredOnZero),
     // Venus: the same source's cloud deck. A cloud map has no fixed longitude; the visible disc is nearly featureless, as it is.
     new(CatalogIndex.Venus, "https://www.solarsystemscope.com/textures/download/2k_venus_atmosphere.jpg", CentredOnZero),
+    // The Earth: NASA Earth Observatory's Blue Marble: Next Generation, with topography and bathymetry, July 2004, its smallest whole-world
+    // JPEG (5400 x 2700, 8 km a pixel). A cloud-free day map, public domain ("please credit NASA Earth Observatory"). Plate carree centred
+    // on Greenwich, east to the right; checked by PlanetTextureAtlasTests (Africa at 0, north up). One month for every date: a cell a month
+    // would be eleven more cells for the seasons' snow.
+    new(CatalogIndex.Earth, "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/bmng/bmng-topography-bathymetry/july/world.topo.bathy.200407.3x5400x2700.jpg", CentredOnZero),
     // The Moon: NASA SVS's CGI Moon Kit, LRO LROC WAC colour with the poles filled (public domain). Centred on 0 degrees.
     new(CatalogIndex.Moon, "https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/lroc_color_poles_1k.jpg", CentredOnZero),
     new(CatalogIndex.Mars, "https://www.solarsystemscope.com/textures/download/2k_mars.jpg", CentredOnZero),
