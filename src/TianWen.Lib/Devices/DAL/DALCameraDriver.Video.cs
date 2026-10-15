@@ -90,6 +90,13 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
     /// </summary>
     internal static TimeSpan VideoFirstFrameBudget(TimeSpan exposure) => TimeSpan.FromSeconds(3) + exposure * 2;
 
+    /// <summary>
+    /// The longest a settle after a pan lasts (<see cref="IsUnderVideoRoi"/>): past it the next frame is taken as under the
+    /// new window, as if the body's buffers had run dry, so a reader that never catches up cannot stop the recenter for
+    /// good. A G3M678M's pan blocks 32 to 285 ms at 5 ms, and its ring holds 320 ms.
+    /// </summary>
+    internal static readonly TimeSpan VideoSettleLimit = TimeSpan.FromSeconds(1);
+
     /// <summary>The smallest window side a stream offers: a planetary disc or a focusing star needs more than a few pixels.</summary>
     private const int MinimumVideoWindowSide = 16;
 
@@ -177,7 +184,8 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
     /// A pan blocks its caller while the body streams on into its buffers (32 to 285 ms on a G3M678M at 5 ms), and the
     /// frames still there when it returns are read after it, under the new <see cref="VideoRoi"/>, though they were taken
     /// under the old. So after a pan the segment first asks for a frame without waiting: while one is there it is part of
-    /// that backlog, and the first frame it has to wait for is the first under the new window.
+    /// that backlog, and the first frame it has to wait for is the first under the new window. Any answer but a frame ends
+    /// the settle as an empty buffer does, and so does <see cref="VideoSettleLimit"/>.
     /// </remarks>
     public bool IsUnderVideoRoi(Image frame)
         => Volatile.Read(ref _videoWindowSettle) is { } settle
@@ -632,6 +640,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
         var waitedForFirst = TimeSpan.Zero;
         var settling = false;
         var settleNext = false;
+        var settleStarted = 0L;
         try
         {
             // Everything the stream had, set again: a first start, a restart on the same handle, and a camera opened
@@ -725,6 +734,8 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                     SetVideoWindow(window, bitDepth, resize: false);
                     stream.Window = window;
                     stream.JogsApplied = asked;
+                    // Started before the window is published, so whoever sees the new window knows its settle is under way.
+                    settleStarted = TimeProvider.GetTimestamp();
                     Volatile.Write(ref _videoWindow, new StrongBox<RoiRect>(window));
                     Volatile.Write(ref _videoWindowSettle, new VideoWindowSettle(asked, long.MaxValue));
                     (settling, settleNext) = (true, false);
@@ -738,6 +749,13 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                     {
                         Volatile.Write(ref _videoWindowSettle, settled with { JogsApplied = asked });
                     }
+                }
+
+                // A settle is bounded in time: buffers that never run dry (a reader that never catches up) end it as empty
+                // ones would, or the recenter loop, which measures only frames under the window, would never act again.
+                if (settling && TimeProvider.GetElapsedTime(settleStarted) >= VideoSettleLimit)
+                {
+                    (settling, settleNext) = (false, true);
                 }
 
                 // After a pan, a frame that is already there is one the body took before it: asked for without a wait,
