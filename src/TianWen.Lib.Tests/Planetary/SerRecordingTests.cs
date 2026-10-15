@@ -184,7 +184,7 @@ public class SerRecordingTests : IDisposable
     public async Task AStallTheStreamCameBackFromIsAGapInTheTrailerNeverASplice()
     {
         var path = NewPath();
-        var recording = Recording(path, TimeSpan.FromMinutes(1));
+        var recording = new SerRecording(path, T0, T0 + TimeSpan.FromMinutes(1), NullLogger.Instance, streamed: true);
         var exposure = TimeSpan.FromMilliseconds(5);
         Image Frame(int seed) => new Image([new float[4, 8]], BitDepth.Int8, maxValue: seed, minValue: 0f, pedestal: 0f,
             new ImageMeta { ExposureDuration = exposure });
@@ -201,6 +201,28 @@ public class SerRecordingTests : IDisposable
         using var reader = SerReader.Open(path);
         reader.FrameCount.ShouldBe(5, "every frame taken, none invented for the gap");
         reader.Timestamps.ShouldBe([.. times], "each frame at its own time, so the gap is in the trailer");
+    }
+
+    /// <summary>
+    /// A camera that does not stream takes each frame as an exposure of its own, and a slow download between two is no
+    /// stall: a recording of one names no gap, however far apart its frames.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task ARecordingOfACameraThatDoesNotStreamNamesNoGap()
+    {
+        var path = NewPath();
+        var recording = Recording(path, TimeSpan.FromMinutes(1));
+        var exposure = TimeSpan.FromMilliseconds(5);
+        Image Frame() => new Image([new float[4, 8]], BitDepth.Int8, maxValue: 1, minValue: 0f, pedestal: 0f,
+            new ImageMeta { ExposureDuration = exposure });
+
+        recording.TryAppend(Frame(), T0).ShouldBeTrue();
+        recording.TryAppend(Frame(), T0.AddSeconds(6.5)).ShouldBeTrue();
+        recording.End("done");
+        await recording.Completion.WaitAsync(TestContext.Current.CancellationToken);
+
+        recording.Gaps.ShouldBeEmpty();
+        recording.FramesWritten.ShouldBe(2);
     }
 
     [Fact(Timeout = 30_000)]
