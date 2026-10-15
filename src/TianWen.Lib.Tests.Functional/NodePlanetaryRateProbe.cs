@@ -87,11 +87,15 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         BitDepth = BitDepth.Int8,
     };
 
-    /// <summary>One recording: its arm, its SER read back, the counts over it, and what the box was doing.</summary>
-    private sealed record Run(string Arm, SerRateReadBack Ser, int BodyDropped, int DiskDropped, string Load, string Quiet, string? View = null,
+    /// <summary>One recording: its arm, its SER read back against the time it was asked for, the counts over it, and what the box was doing.</summary>
+    private sealed record Run(string Arm, SerRateReadBack Ser, TimeSpan Asked, int BodyDropped, int DiskDropped, string Load, string Quiet, string? View = null,
         long? Replaced = null, int Recoveries = 0, string? Stream = null)
     {
-        public bool Stalled => Recoveries > 0 || Ser.LongSteps.Any(static s => s.Step >= StallStep);
+        /// <summary>
+        /// A stall the stream recovered from, inside the recording or ending it: a long step in the SER, frames that stop more
+        /// than <see cref="StallStep"/> before the recording's end (a stall that outlasts it), or one the node's log names.
+        /// </summary>
+        public bool Stalled => Recoveries > 0 || Ser.LongSteps.Any(static s => s.Step >= StallStep) || Ser.Span < Asked - StallStep;
     }
 
     /// <summary>One video stream of the node's camera, from its log: where it started, and its own end-of-stream counts.</summary>
@@ -512,7 +516,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
             var described = load.Describe();
             File.Delete(path);
             var ser = result.Ser.ShouldNotBeNull("a recording reads back");
-            return (new Run(arm, ser, result.BodyDropped, result.DiskDropped, described, quiet, Replaced: result.Replaced,
+            return (new Run(arm, ser, duration, result.BodyDropped, result.DiskDropped, described, quiet, Replaced: result.Replaced,
                 Recoveries: result.Recoveries, Stream: result.Detail), centred);
         }
         finally
@@ -536,7 +540,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         var (recording, bodyDropped) = await RecordAsync(client, pump, duration, ct);
         var described = load.Describe();
         (await client.StopPlanetaryAsync(ct)).IsSuccess.ShouldBeTrue("the capture stops");
-        return new Run("node, no view", ReadBackAndDelete(recording), bodyDropped, recording.FramesDropped, described, quiet);
+        return new Run("node, no view", ReadBackAndDelete(recording), duration, bodyDropped, recording.FramesDropped, described, quiet);
     }
 
     /// <summary>
@@ -578,7 +582,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         var view = $"the view: {(shownTo - shownFrom) / seconds:F1} live frames a second shown ({shownTo - shownFrom}), "
             + $"{(readTo - readFrom) / seconds:F1} read ({readTo - readFrom}, {slotsTo - slotsFrom} through shared memory; the node samples at most one "
             + $"each 33 ms, drop-to-latest), {mastersTo - mastersFrom} masters stacked by the node";
-        return new Run(arm, ReadBackAndDelete(recording), bodyDropped, recording.FramesDropped, described, quiet, view);
+        return new Run(arm, ReadBackAndDelete(recording), duration, bodyDropped, recording.FramesDropped, described, quiet, view);
     }
 
     /// <summary>Records the capture going on for <paramref name="duration"/> and waits until its file is whole.</summary>
