@@ -189,10 +189,14 @@ Everything a drawn disk needs: the textured disc (below) and A5 build on this.
 
 Built 2026-10-14 (#1037). The pieces, in the order a frame meets them:
 
-- **Textures.** ONE offline atlas, `planet-textures.png` (512 x 512, 301,799 bytes, `PlanetTextureAtlas`), eight
-  256 x 128 equirectangular colour maps in `PlanetMap`'s convention (WEST longitude, column 0 at 0 degrees, falling
-  to the right), poles filled: Mercury, Venus and Mars from Solar System Scope (CC BY 4.0), the Moon from NASA SVS's
-  LROC map (public domain), Jupiter, Saturn, Uranus and Neptune from OPAL's 2025 colour composites. Baked by
+- **Textures.** ONE offline atlas, `planet-textures.png` (512 x 640, 354,808 bytes, `PlanetTextureAtlas`; 512 x 512
+  and 301,799 bytes before the Earth), nine 256 x 128 equirectangular colour maps in `PlanetMap`'s convention (WEST
+  longitude, column 0 at 0 degrees, falling to the right), poles filled: Mercury, Venus and Mars from Solar System
+  Scope (CC BY 4.0), the Earth from NASA Earth Observatory's Blue Marble: Next Generation (July 2004, cloud-free,
+  public domain, credited "NASA Earth Observatory" as its page asks; #1573, drawn only by the orrery), the Moon from
+  NASA SVS's LROC map (public domain), Jupiter, Saturn, Uranus and Neptune from OPAL's 2025 colour composites. A new
+  atlas size makes `Decode` refuse a stale file whole (`PlanetTexturesTests.TheAtlasHoldsTheEarthAndAStaleAtlasIsRefused`),
+  so a host with an old file draws flat discs, never a map from the wrong cell. Baked by
   `tools/bake-planet-textures` (its README has every source URL, licence and OPAL's acknowledgement), kept in
   `TianWen.UI.Abstractions/Resources`, copied beside every desktop app and served beside the web page. Never fetched
   for Mercury, Venus, the Moon or Mars.
@@ -208,6 +212,14 @@ Built 2026-10-14 (#1037). The pieces, in the order a frame meets them:
   Saturn's north pole); a display fill (`PlanetColourMap.FromRgb8(fillHoles: true)`) holds the nearest kept rows'
   mean colour there. The stacker's `PlanetMap.FilledZonally` is untouched: it copies a row's longitude pattern, which
   streaked a missing hemisphere.
+- **The Earth's longitudes** (#1573). The Blue Marble is a plate carree centred on Greenwich, east to the right, read
+  as the other centred maps are. Pinned by `PlanetTextureAtlasTests.TheEarthMapHasAfricaAtLongitudeZeroAndNorthUp`:
+  the Sahara at 22 N 30 E is sand, the Atlantic at 22 N 30 W sea, Africa at 0 redder than the Pacific at 180, 22 S 8 E
+  sea and Antarctica's ice brighter than the Sahara; the same checks fail on the map read mirrored, flipped or half a
+  turn round. Its deep sea is near black in the source itself (a tenth of the cell sums under the hole threshold, the
+  darkest 12 of 765), so it is not filled and the no-holes test holds the Earth only to never being pure black. Lit
+  with Minnaert k 0.75, as Mars (`PlanetDiscSprite.MinnaertK`): a surface map under an atmosphere that scatters light
+  back toward the limb.
 - **Longitudes.** OPAL's readme: "left edge = 0 System III W. longitude, decreasing to the right", which is
   `PlanetMap`'s own convention. Pinned by the Great Red Spot: the reddest feature at 22 degrees south of the 2025b map
   (2025-12-11) lies at System III 321 W, System II 79 at that date, where the spot was in late 2025
@@ -353,8 +365,8 @@ the Sun, is why Venus is a crescent, and the angle between them at the planet is
   Labels go down after every disc: the Earth's first (always drawn, so the Earth's and the Moon's never trade places), then
   the focus body's, then nearest first, each under or over its body where its engine-measured box is clear of other discs
   and labels, else left out; the Moon's always on its far side from the Earth. The Earth, which A4 never draws, has the IAU's rotation model and radii in `PhysicalEphemeris` now
-  (not in `Supports`, which the atlas and the stacker gate on) and the palette's Info as a flat colour, there being no
-  Earth map in the atlas. Every colour of the view comes from `GuiTheme.Palette` (space, the Earth, a comet, the strip,
+  (not in `Supports`, which the sky map's discs and the stacker gate on), and since #1573 its Blue Marble day map from the atlas,
+  the palette's Info only while the map loads. Every colour of the view comes from `GuiTheme.Palette` (space, the Earth, a comet, the strip,
   the shared time controls taking the caller's fill and ink), so Night spends no blue.
   A comet is a point with a tail away from the Sun. A body still building its sprite is a flat dot.
 - **Lit as the camera sees it.** Each body is stated as a `PlanetView` (Lib): three unit vectors in the body's OWN frame
@@ -470,7 +482,9 @@ one frame late, and the GUI logged a slow frame every 250 to 330 ms.
   albedo per plane (a ring's level is stated against it) and the tint. The ring table is `SaturnRings.Main`'s, written
   into the shader and held to it by `TheShadersRingTableIsSaturnRingsMain`. Colour maps go up ONCE per body and
   `PlanetTextures.Version` (`PlanetBodyMap.FloatTexels`: float RGBA on Vulkan, exact; `Rgba8` as a PNG on WebGL, which
-  takes a texture only from a URL); a flat body (the Sun, the Earth) is a 2 x 2 map of its colour.
+  takes a texture only from a URL); a flat body (the Sun, or a body whose map has not loaded) is a 2 x 2 map of its colour.
+  The Earth reads its day map since #1573 with no shader change, as any other map; the palette's Info is its colour only
+  while the atlas loads.
 - **The seam:** `SkyMapTab.TracesPlanetBodies` / `DrawPlanetBody` (`VkSkyMapTab` through `VkPlanetBodies`, `WebSkyMapTab`
   through `WebGlPlanetBodies`). A tracing host never falls back to a sprite: while a map uploads the body is its flat
   dot. The CPU surface (the tests, the TUI, the PNGs) keeps the sprite of the same view, `PlanetaryRender.RenderRgba`,
@@ -483,7 +497,8 @@ one frame late, and the GUI logged a slow frame every 250 to 330 ms.
 2880 x 1814, the orrery opened on the Sun, Play at 10 days a second, 15 s): before, average frame 11.3 ms; after,
 4.6 ms (GPU frame 4.6 and 4.9 ms), 0 sprite builds. Parity on the device (`PlanetBodyGpuTests`, ten views: Saturn open
 north and south, nearly edge-on, its dark face, the shadows at quadrature; a crescent Venus, the Moon, Jupiter's Red
-Spot, Mars, the Sun): mean difference from the CPU render 0.004 of 255 at most, worst 1 except a shadow edge (16), at
+Spot, Mars, the Sun; the Earth over Africa since #1573, worst 1 of 255, none more than 4 off): mean difference from
+the CPU render 0.004 of 255 at most, worst 1 except a shadow edge (16), at
 most 3 channel values more than 4 off. A west longitude of the wrong sign, or rings without the globe's shadow, fail
 nine of the ten (805 to 65,331 values off). `OrreryGpuTests`: forty played frames on `VkSkyMapTab` trace ten bodies a
 frame, build 0 sprites and upload no map again; every disc is lit toward the Sun on the GPU's frame at the instant and
@@ -517,8 +532,19 @@ C ring's. The ten parity views and Night's no-blue still pass, and `TheWebGlTrac
 
 - **Not seen in the browser yet** (#1572, bench). The Vulkan GUI is seen (the bodies on the GPU, above); the WebGL page
   builds the same trace, but nobody has opened it there, nor timed a drag or Play in the browser.
-- **The Earth is a flat disc** and **Play's speed is fixed** (#1573): the texture atlas has no Earth map, and Play runs
-  at 10 days a second with nothing to change it.
+- **Play's speed is fixed** (#1573): Play runs at 10 days a second with nothing to change it. The issue's other half,
+  the flat Earth, is done (the Blue Marble day map, under A4's textures and the Earth's longitudes, 2026-10-16;
+  `OrreryTests.TheOrrerysEarthIsDrawnFromItsDayMap`: the blue share across the lit disc spreads 0.54 where the flat
+  disc's spread 0.015).
+- **The Earth's clouds and night lights** are not drawn: the day map is cloud-free and the night side black. Each needs
+  a SECOND texture per body, so a second sampler and binding in `VkPlanetBodies`' descriptor layout and in
+  `WebGlPlanetBodies`, a second upload through `PlanetBodyMap`, and in the trace (both `planet_body.frag` and the WebGL
+  copy, held equal by `TheWebGlTraceIsTheVulkanTrace`) clouds blended over the day colour before the lighting and the
+  lights mixed in on the unlit side across a terminator ramp; then the same in `PlanetaryRender.RenderRgba`, the CPU
+  reference, or the parity tests compare different scenes. Sources would be NASA's own (a Blue Marble cloud layer,
+  the Black Marble night lights, public domain), two more 256 x 128 cells (the atlas to 512 x 768, perhaps 40 to
+  60 KB). A static cloud map is one instant's weather, which the orrery's other bodies are not; the owner has not asked
+  for either.
 - **The strip fits a narrow view** (#1584, fixed): at 1.5x on 900 px it needed about 1,020 px, the hint already squeezed
   to nothing, because the labelled buttons could only be Auto, which never shrinks. DIR.Lib 11.22's content-capped Star
   (`WStarUpToContent(min)`) is the fix: "Distances: auto", "Centre: <body>" and the time button are each one, direct
