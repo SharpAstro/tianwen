@@ -2713,6 +2713,12 @@
             // must be N: the pass is drawing landmarks and nothing else, so anything larger is work
             // the caller is about to discard.
             + ",\"cands\":" + (_skyTab?.PrimOverlayCandidateCount ?? 0).ToString(CultureInfo.InvariantCulture)
+            // The orrery (Alt+S): open, playing, the frames it has drawn and the last one's time. What a probe of Play's pacing
+            // waits on, and the count that tells a frame the orrery drew from a repaint of the page around it.
+            + ",\"orreryOpen\":" + ((_skyTab?.State.Orrery.IsOpen ?? false) ? "true" : "false")
+            + ",\"orreryPlaying\":" + ((_skyTab?.State.Orrery.Playing ?? false) ? "true" : "false")
+            + ",\"orreryFrames\":" + (_skyTab?.OrreryFrames ?? 0).ToString(CultureInfo.InvariantCulture)
+            + ",\"orreryMs\":" + (_skyTab?.LastOrreryFrameMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
             + ",\"renderMs\":" + _renderMs.ToString("F1", CultureInfo.InvariantCulture)
             + ",\"gatherMs\":" + (_skyTab?.PrimOverlayGatherMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
             + ",\"uploads\":" + (_skyTab?.OverlayInstanceUploads ?? 0).ToString(CultureInfo.InvariantCulture)
