@@ -265,6 +265,22 @@ on the random arm's draws, arm means with the seed range; `C:\temp\e2\eval_v2_ta
   under the core's own shot noise. An ideal-remover reference (the draw less the injected star's noise-free render,
   which the export does not write today) would calibrate it.
 
+### Colour, which the luminance cancels (2026-10-15)
+
+Every test above reads the channels' mean, so a residue in one colour that another offsets cancels there. The owner saw
+it by eye on R2i's draws ("a lot of dark blotches where the stars were") while every number read R2i as the best remover
+(R2i's by-eye read, under R2 below). `StarRemovalEval` now reads each test per channel too (`ColourDetail` in the report).
+Every measure above is unchanged: the R2f to R2i re-scores (`starless-eval-v5.json`) differ from their `v4` reports only
+in the dug-in-sky test and the plate sources' near zone, both added by #1400's review after the v4 scorer was built.
+- **Each channel in its own noise.** The noise plane is the noise of the channels' mean. A channel's sigma is that times
+  its share, measured on the plate's own sky as the spread of neighbour differences in the channel over the same in the
+  luminance. On A's draws, R, G and B read 1.34, 1.41 and 2.08 times the luminance's.
+- **Clean and dug in colour.** A star is clean in colour when it is clean on the luminance and in every channel by the
+  same two tests. It is dug in colour when it is dug on the luminance or in any channel. Each band also reads each
+  channel's digs and its core's signed mean.
+- **The footprint per channel.** Each channel's signed mean over the footprints, and its share of pixels more than
+  2 sigma under the plate and over it, beside the luminance's share under it.
+
 ## 6. Experiments, in order
 
 | Step | What | Cost | Decides |
@@ -2064,6 +2080,39 @@ against both old-store seeds; the faint and mid-bright gains clear it only again
 re-baked store back as the line's store, since the kill guards only a fall: the next arms train on it with R2i as
 their control, and R2g and R2h stay the old store's numbers. The confirmation is R2i's recipe on seed 1, from the same
 `synth4` cache, not yet pre-registered.
+
+#### R2i by eye: the blotches are one colour, and every model has them (2026-10-15)
+
+The owner looked at R2i beside R2g and R2h on the eval's own draws: crops of stars drawn at random and a blink comparator
+over three draws, also drawn at random (`C:\temp\e2\r2i-look.py`). Their read: "R2i seems to have more leftovers than
+R2g", "a lot of dark blotches where the stars were", and on the third tile R2h beat R2i. Measured over every draw
+(`C:\temp\e2\r2i-blotch.py`, then the eval's colour measures, section 5):
+- **On the luminance R2i digs no more than the others.** The share of footprint pixels 2 sigma under the plate is
+  0.99 % for R2i, 0.99 % for R2g, 1.05 % for R2h and 1.15 % for R2f. The third tile does read R2h ahead (2.66 % of its
+  footprint 2 sigma over the plate for R2i, 1.43 % for R2h, RMS 1.40 against 1.20). That is one draw of 1,280; R2i is
+  the darkest of the three on 243 draws, R2h on 700.
+- **In colour every model digs a channel on most bright stars:**
+
+| clean in colour / dug in colour | R2f | R2g | R2h | R2i |
+|---|---|---|---|---|
+| 20-100 sigma | 33.9 / 52.3 | 40.5 / 38.8 | 40.1 / 43.2 | 43.7 / 38.7 |
+| 100-1000 sigma | 7.9 / 85.7 | 12.6 / 73.1 | 13.2 / 76.9 | 21.2 / 63.3 |
+| saturated | 10.0 / 84.0 | 15.1 / 74.0 | 15.5 / 80.4 | 19.6 / 63.9 |
+
+- **R2i is the best of the four in colour too, and its dig is green.** Its bright cores sit at -0.28, -0.56 and
+  +0.14 sigma in R, G and B, where R2g's sit at -0.22, +0.12 and -0.01 and R2h's at -0.84, -0.13 and -0.13. Low in
+  green and high in blue reads as a dark magenta on screen. Over the footprints R2i's share 2 sigma under the plate is
+  the lowest of the four in red and blue (1.68 % and 0.25 %) and the second highest in green (1.24 %, R2g 0.99 %).
+- **The re-baked store does not move the training data's colour.** Over the 121 colour sessions both exports hold,
+  `synth4` over `synth3`: the linear background's G/R and B/R 1.000 (within 0.3 %), the stretched background level
+  1.000 in every channel (within 1 to 2 %), each channel's noise share 1.005, 0.992 and 1.000, and the injected stars'
+  G/R and B/R 0.996 and 1.003. The stars' colours were reshuffled session by session (32 to 37 sessions moved more than
+  5 %, against 2 to 11 between two halves of one export), but both ways (`C:\temp\e2\r2i-store-colour.py`).
+
+What it changes: R2i's read stands on the measures it was registered on, and R2i also leads in colour. The line has a
+defect every model shares: a bright or saturated star leaves a channel under the plate in 63 to 86 percent of cases, and
+the luminance hid it. The next arms register their colour measures beside the luminance's. Whether R2i's green dig is
+its seed's or the store's is what R2i's second seed reads.
 
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 

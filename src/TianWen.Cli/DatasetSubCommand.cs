@@ -1089,6 +1089,14 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     $"{arm.PlateSources.FarMean:F3} mean {arm.PlateSources.FarRms:F3} rms over {arm.PlateSources.FarPixels}; " +
                     $"a plain L2's squared error: footprints {arm.Loss.Footprints:P1} (bright cores {arm.Loss.BrightCores:P1}), " +
                     $"sky near the plate's sources {arm.Loss.SkyNearSources:P1}, far {arm.Loss.SkyFar:P1}");
+                static string PerChannel(IEnumerable<double> values, string format)
+                    => string.Join("/", values.Select(v => v.ToString(format, CultureInfo.InvariantCulture)));
+                consoleHost.WriteScrollable(
+                    $"[starless-eval]   {arm.Name}: in colour, clean " +
+                    string.Join(", ", arm.Colour.Completeness.Skip(1).Select(static b => $"{b.Band} {b.CleanRate:P1}, dug {b.DugRate:P1}")) +
+                    $"; footprint per channel mean {PerChannel(arm.Colour.FootprintChannelMean, "F3")}, dark {PerChannel(arm.Colour.FootprintChannelDark, "P2")} " +
+                    $"(luminance {arm.Colour.FootprintDark:P2}), bright {PerChannel(arm.Colour.FootprintChannelBright, "P2")}; " +
+                    $"channel noise over the luminance's {PerChannel(arm.Colour.ChannelNoise, "F2")}");
             }
             return 0;
         });

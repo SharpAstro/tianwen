@@ -41,6 +41,10 @@ namespace TianWen.AI.Imaging;
 /// <see cref="FootprintDetail"/> and the per-session rows (<see cref="Report.Sessions"/>) tell them apart.</item>
 /// <item><b>Two models were compared at whatever strength each was trained to.</b> The blended arms
 /// (<see cref="BlendWeights"/>) turn one down, so arms can be read at a matched strength.</item>
+/// <item><b>Every test reads the luminance, so a residue in one colour cancels in it</b> (the owner, by eye on R2i's
+/// draws, 2026-10-15: "a lot of dark blotches where the stars were"). R2i's star cores sat 0.4 sigma under the plate in
+/// green and as far over it in blue, clean on the luminance and a dark magenta blot on screen. <see cref="ColourDetail"/>
+/// reads the same tests on each channel in its own noise beside them.</item>
 /// </list>
 /// </remarks>
 public static class StarRemovalEval
@@ -76,6 +80,10 @@ public static class StarRemovalEval
     /// <summary>The completeness bands' lower edges in the injected core's significance; a star under the first is counted
     /// but not rated, its core being under the noise in the input already.</summary>
     public static readonly ImmutableArray<float> CompletenessEdges = [1f, 5f, 20f, 100f, 1000f];
+
+    /// <summary>A footprint pixel this many sigma of its channel's noise under the plate counts as dark, over it as bright
+    /// (<see cref="ColourDetail"/>): what reads as a blotch on screen, wider than any core.</summary>
+    public const double FootprintPixelSigma = 2.0;
 
     /// <summary>One draw's output: the draw's tile as the export names it, and the output's path in the outputs directory.</summary>
     public sealed record OutputRow(string Tile, string Output);
@@ -157,6 +165,35 @@ public static class StarRemovalEval
     /// <param name="SkyFar">The share on the rest of the sky.</param>
     public sealed record LossShare(double Total, double Footprints, double BrightCores, double SkyNearSources, double SkyFar);
 
+    /// <summary>One significance band's completeness in colour: <see cref="BandRow"/>'s two-sided tests read again on each
+    /// channel, in that channel's own noise (<see cref="ColourDetail.ChannelNoise"/>).</summary>
+    /// <param name="Clean">Stars clean on the luminance (<see cref="BandRow.Clean"/>) and in every channel.</param>
+    /// <param name="Dug">Stars dug on the luminance (<see cref="BandRow.Dug"/>) or in any channel: a core one colour took
+    /// below the plate counts though the others hid it in the luminance.</param>
+    /// <param name="DugByChannel">Stars each channel dug, by its own test.</param>
+    /// <param name="CoreMeanByChannel">Each channel's core left over the plate, signed, in its own sigma, averaged over the
+    /// band's stars.</param>
+    public sealed record ColourBandRow(
+        string Band, int Stars, int Clean, double CleanRate, int Dug, double DugRate, ImmutableArray<int> DugByChannel,
+        ImmutableArray<double> CoreMeanByChannel);
+
+    /// <summary>
+    /// The tests the luminance cancels, read per channel. A channel's sigma is the draw's noise plane (the noise of the
+    /// channels' MEAN) times that channel's share of it, measured on the plate's own sky as the spread of neighbour
+    /// differences in the channel over the same in the luminance; where the plate's sky has no noise to measure, the
+    /// channels are taken as equally noisy, the square root of their count.
+    /// </summary>
+    /// <param name="ChannelNoise">Each channel's sigma over the luminance's, averaged over the draws.</param>
+    /// <param name="Completeness">The bands of <see cref="ArmScores.Completeness"/>, in colour.</param>
+    /// <param name="FootprintChannelMean">Each channel's change on the footprints, signed, in its own sigma.</param>
+    /// <param name="FootprintChannelDark">Each channel's share of footprint pixels more than <see cref="FootprintPixelSigma"/>
+    /// under the plate.</param>
+    /// <param name="FootprintChannelBright">The same, over it.</param>
+    /// <param name="FootprintDark">The luminance's share under it, in the luminance's sigma, for comparison.</param>
+    public sealed record ColourDetail(
+        ImmutableArray<double> ChannelNoise, ImmutableArray<ColourBandRow> Completeness, ImmutableArray<double> FootprintChannelMean,
+        ImmutableArray<double> FootprintChannelDark, ImmutableArray<double> FootprintChannelBright, double FootprintDark);
+
     /// <summary>One output's (or reference's) scores.</summary>
     /// <param name="Name">The model's outputs, a blend of them with the input, or a reference.</param>
     /// <param name="Completeness">Removed stars by significance band (<see cref="CompletenessEdges"/>, a band under the
@@ -170,10 +207,11 @@ public static class StarRemovalEval
     /// <param name="Footprint">The footprint residue's spread over the draws.</param>
     /// <param name="PlateSources">The sky's change near the sources the plate kept, and away from them.</param>
     /// <param name="Loss">Where the squared error a plain L2 sees lives.</param>
+    /// <param name="Colour">The completeness and footprint tests read per channel, which the luminance cancels.</param>
     public sealed record ArmScores(
         string Name, ImmutableArray<BandRow> Completeness, double FootprintRms, long FootprintPixels, double SkyRms, long SkyPixels,
         ImmutableArray<SpeckleRow> Speckles, SpeckleRow SpeckleNull, SkyDetail Sky, FootprintDetail Footprint, PlateSourceDetail PlateSources,
-        LossShare Loss);
+        LossShare Loss, ColourDetail Colour);
 
     /// <summary>One session's scores: every arm over that session's draws alone, so a pooled number can be told from one
     /// night's.</summary>
@@ -281,6 +319,18 @@ public static class StarRemovalEval
         public int[] Speckled { get; } = new int[StarlessSpeckles.BandEdges.Length];
         public int NullSites { get; set; }
         public int NullSpeckled { get; set; }
+        // The colour tests (ColourDetail): per band, then per band and channel; per channel on the footprints.
+        public int[] ColourClean { get; } = new int[BandNames.Length];
+        public int[] ColourDug { get; } = new int[BandNames.Length];
+        public int[][] DugByChannel { get; } = [.. BandNames.Select(_ => new int[channels])];
+        public double[][] CoreByChannelSum { get; } = [.. BandNames.Select(_ => new double[channels])];
+        public double[] FootprintChannelSum { get; } = new double[channels];
+        public long[] FootprintChannelDark { get; } = new long[channels];
+        public long[] FootprintChannelBright { get; } = new long[channels];
+        public long FootprintDark { get; set; }
+        public long[] FootprintChannelPixels { get; } = new long[channels];
+        public double[] ChannelNoiseSum { get; } = new double[channels];
+        public int[] ChannelNoiseDraws { get; } = new int[channels];
     }
 
     private sealed record DrawScores(string SessionId, int Stars, ArmAccumulator[] Arms);
@@ -336,6 +386,7 @@ public static class StarRemovalEval
 
         var (plateSources, near) = PlateSourceZone(plate, input, sigma, absent, size, rim, PlateFwhm(stars));
         var skySigma = SkySigma(plate, input, sigma, absent);
+        var channelNoise = ChannelNoise(platePlanes, plate, input, absent);
 
         // The bright stars' cores (100 sigma and over, saturated ones too), whose share of a plain L2 the loss readout reads.
         var brightCore = new BitMatrix(size, size);
@@ -367,6 +418,11 @@ public static class StarRemovalEval
                 _ => Blend(inputPlanes, outputPlanes, BlendWeights[a - 3]),
             };
             var acc = new ArmAccumulator(channels);
+            for (var c = 0; c < channels; c++)
+            {
+                acc.ChannelNoiseSum[c] = channelNoise[c];
+                acc.ChannelNoiseDraws[c] = 1;
+            }
             foreach (var (x, y, significance, saturated) in sites)
             {
                 var cx = (int)Math.Round(x);
@@ -380,13 +436,38 @@ public static class StarRemovalEval
                     acc.Removed[band]++;
                 }
                 var (over, under) = CorePixelsOff(candidate, plate, sigma, absent, size, x, y);
-                if (Math.Abs(core) < RemovedSigma * s && !over && !under)
+                var clean = Math.Abs(core) < RemovedSigma * s && !over && !under;
+                var dug = core < -RemovedSigma * s || under;
+                if (clean)
                 {
                     acc.Clean[band]++;
                 }
-                if (core < -RemovedSigma * s || under)
+                if (dug)
                 {
                     acc.Dug[band]++;
+                }
+                // The same two tests on each channel, in its own sigma: a colour the luminance cancelled.
+                for (var c = 0; c < channels; c++)
+                {
+                    var sc = s * channelNoise[c];
+                    var coreC = Core(candidatePlanes[c], platePlanes[c], size, cx, cy);
+                    var (overC, underC) = CorePixelsOff(candidatePlanes[c], platePlanes[c], sigma, absent, size, x, y, channelNoise[c]);
+                    clean &= Math.Abs(coreC) < RemovedSigma * sc && !overC && !underC;
+                    var dugC = coreC < -RemovedSigma * sc || underC;
+                    dug |= dugC;
+                    if (dugC)
+                    {
+                        acc.DugByChannel[band][c]++;
+                    }
+                    acc.CoreByChannelSum[band][c] += coreC / sc;
+                }
+                if (clean)
+                {
+                    acc.ColourClean[band]++;
+                }
+                if (dug)
+                {
+                    acc.ColourDug[band]++;
                 }
                 if (skySigma > 0 && (core < -RemovedSigma * skySigma || CoreDugInSky(candidate, plate, absent, size, x, y, skySigma)))
                 {
@@ -408,6 +489,24 @@ public static class StarRemovalEval
                     acc.FootprintSq += z * z;
                     acc.FootprintPixels++;
                     acc.RawFootprintSq += raw;
+                    if (z < -FootprintPixelSigma)
+                    {
+                        acc.FootprintDark++;
+                    }
+                    for (var c = 0; c < channels; c++)
+                    {
+                        var zc = (candidatePlanes[c][i] - platePlanes[c][i]) / (sigma[i] * channelNoise[c]);
+                        acc.FootprintChannelSum[c] += zc;
+                        acc.FootprintChannelPixels[c]++;
+                        if (zc < -FootprintPixelSigma)
+                        {
+                            acc.FootprintChannelDark[c]++;
+                        }
+                        else if (zc > FootprintPixelSigma)
+                        {
+                            acc.FootprintChannelBright[c]++;
+                        }
+                    }
                     if (brightCore[i / size, i % size])
                     {
                         acc.RawBrightCoreSq += raw;
@@ -558,7 +657,9 @@ public static class StarRemovalEval
 
     // Whether any pixel within the speckle test's core radius of a site is more than CorePixelSigma over the plate, and
     // whether any is more than that under it, each in its own pixel's sigma; the rim is not read.
-    private static (bool Over, bool Under) CorePixelsOff(float[] candidate, float[] plate, float[] sigma, BitMatrix absent, int size, float cx, float cy)
+    // sigmaScale reads one channel in its own noise (ChannelNoise); 1 is the luminance, and sigma * 1f is sigma to the bit.
+    private static (bool Over, bool Under) CorePixelsOff(float[] candidate, float[] plate, float[] sigma, BitMatrix absent, int size, float cx, float cy,
+        float sigmaScale = 1f)
     {
         var r = (int)Math.Ceiling(StarlessSpeckles.CoreRadius);
         var x0 = (int)Math.Round(cx);
@@ -577,7 +678,7 @@ public static class StarRemovalEval
                 {
                     continue;
                 }
-                var z = (candidate[i] - plate[i]) / sigma[i];
+                var z = (candidate[i] - plate[i]) / (sigma[i] * sigmaScale);
                 over |= z > CorePixelSigma;
                 under |= z < -CorePixelSigma;
             }
@@ -604,6 +705,59 @@ public static class StarRemovalEval
         }
         var values = sky.ToArray();
         return StatisticsHelper.NthSmallest(values.AsSpan(), values.Length / 2);
+    }
+
+    // Each channel's sigma over the luminance's (ColourDetail.ChannelNoise), read on the plate's own sky inside the rim, off
+    // every injected footprint: the median absolute deviation of horizontal neighbour differences in the channel over the
+    // same in the luminance. A difference cancels the sky's smooth structure and the median the plate's own faint stars. One
+    // channel is the luminance; where there is no noise to read (a channel, or the luminance, of a synthetic test plate) the
+    // channels are taken as equally noisy, sqrt(channels).
+    private static float[] ChannelNoise(float[][] platePlanes, float[] plate, float[] input, BitMatrix absent)
+    {
+        var channels = platePlanes.Length;
+        var scale = new float[channels];
+        if (channels == 1)
+        {
+            scale[0] = 1f;
+            return scale;
+        }
+        var size = absent.Columns;
+        var pairs = new List<int>(plate.Length);
+        for (var i = 0; i + 1 < plate.Length; i++)
+        {
+            var x = i % size;
+            if (x + 1 < size && !absent[i / size, x] && !absent[i / size, x + 1] && input[i] == plate[i] && input[i + 1] == plate[i + 1])
+            {
+                pairs.Add(i);
+            }
+        }
+        var equal = MathF.Sqrt(channels);
+        var lum = NeighbourMad(pairs, plate);
+        for (var c = 0; c < channels; c++)
+        {
+            var ratio = lum > 0 ? NeighbourMad(pairs, platePlanes[c]) / lum : 0f;
+            scale[c] = ratio > 0 ? ratio : equal;
+        }
+        return scale;
+
+        static float NeighbourMad(List<int> pairs, float[] plane)
+        {
+            if (pairs.Count == 0)
+            {
+                return 0f;
+            }
+            var d = new float[pairs.Count];
+            for (var k = 0; k < d.Length; k++)
+            {
+                d[k] = plane[pairs[k] + 1] - plane[pairs[k]];
+            }
+            var median = StatisticsHelper.NthSmallest(d.AsSpan(), d.Length / 2);
+            for (var k = 0; k < d.Length; k++)
+            {
+                d[k] = Math.Abs(d[k] - median);
+            }
+            return StatisticsHelper.NthSmallest(d.AsSpan(), d.Length / 2);
+        }
     }
 
     // Whether any pixel within the speckle test's core radius of a site is more than CorePixelSigma sky sigma under the plate.
@@ -706,6 +860,26 @@ public static class StarRemovalEval
             total.RawFarSq += d.RawFarSq;
             total.NullSites += d.NullSites;
             total.NullSpeckled += d.NullSpeckled;
+            for (var b = 0; b < BandNames.Length; b++)
+            {
+                total.ColourClean[b] += d.ColourClean[b];
+                total.ColourDug[b] += d.ColourDug[b];
+                for (var c = 0; c < d.DugByChannel[b].Length; c++)
+                {
+                    total.DugByChannel[b][c] += d.DugByChannel[b][c];
+                    total.CoreByChannelSum[b][c] += d.CoreByChannelSum[b][c];
+                }
+            }
+            for (var c = 0; c < d.FootprintChannelSum.Length; c++)
+            {
+                total.FootprintChannelSum[c] += d.FootprintChannelSum[c];
+                total.FootprintChannelDark[c] += d.FootprintChannelDark[c];
+                total.FootprintChannelBright[c] += d.FootprintChannelBright[c];
+                total.FootprintChannelPixels[c] += d.FootprintChannelPixels[c];
+                total.ChannelNoiseSum[c] += d.ChannelNoiseSum[c];
+                total.ChannelNoiseDraws[c] += d.ChannelNoiseDraws[c];
+            }
+            total.FootprintDark += d.FootprintDark;
             if (d.FootprintPixels > 0)
             {
                 footprintDraws.Add((Math.Sqrt(d.FootprintSq / d.FootprintPixels), d.FootprintSq));
@@ -750,7 +924,34 @@ public static class StarRemovalEval
                 total.FarPixels, PerPixel(total.FarSum, total.FarPixels), Math.Sqrt(PerPixel(total.FarSq, total.FarPixels)),
                 total.PlateSourcesTaken, Rate(total.PlateSourcesTaken, total.PlateSourceCount),
                 total.PlateSourceCount > 0 ? total.PlateSourceCoreSum / total.PlateSourceCount : double.NaN),
-            Shares(total));
+            Shares(total),
+            Colour(total));
+    }
+
+    // The colour tests' sums, as ColourDetail reports them; the band under the noise is counted, not rated, as above.
+    private static ColourDetail Colour(ArmAccumulator total)
+    {
+        static double Rate(int n, int of) => of > 0 ? (double)n / of : double.NaN;
+        var channels = total.FootprintChannelSum.Length;
+        var bands = BandNames.Select((band, b) =>
+        {
+            var rated = b != 0;
+            var n = total.Stars[b];
+            return new ColourBandRow(band, n,
+                total.ColourClean[b], rated ? Rate(total.ColourClean[b], n) : double.NaN,
+                total.ColourDug[b], rated ? Rate(total.ColourDug[b], n) : double.NaN,
+                [.. total.DugByChannel[b]],
+                [.. total.CoreByChannelSum[b].Select(s => n > 0 ? s / n : double.NaN)]);
+        });
+        static double Per(double sum, long n) => n > 0 ? sum / n : double.NaN;
+        var each = Enumerable.Range(0, channels).ToArray();
+        return new ColourDetail(
+            [.. each.Select(c => Per(total.ChannelNoiseSum[c], total.ChannelNoiseDraws[c]))],
+            [.. bands],
+            [.. each.Select(c => Per(total.FootprintChannelSum[c], total.FootprintChannelPixels[c]))],
+            [.. each.Select(c => Per(total.FootprintChannelDark[c], total.FootprintChannelPixels[c]))],
+            [.. each.Select(c => Per(total.FootprintChannelBright[c], total.FootprintChannelPixels[c]))],
+            Per(total.FootprintDark, total.FootprintPixels));
     }
 
     // The squared error's shares by region, in the tile's own units.

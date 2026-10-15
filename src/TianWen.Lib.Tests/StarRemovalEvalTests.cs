@@ -55,6 +55,15 @@ public sealed class StarRemovalEvalTests : IDisposable
         File.WriteAllBytes(path, bytes);
     }
 
+    // A sky at Sky with Gaussian noise of each channel's own sigma.
+    private static float[][] NoisyPlanes(int seed, IReadOnlyList<float> channelSigmas)
+    {
+        var rng = new Random(seed);
+        return [.. channelSigmas.Select(sigma =>
+            Enumerable.Range(0, Size * Size).Select(_ =>
+                Sky + (sigma * (float)(Math.Sqrt(-2 * Math.Log(1 - rng.NextDouble())) * Math.Cos(2 * Math.PI * rng.NextDouble())))).ToArray())];
+    }
+
     // The trainer's units for the noise plane, as the exporter writes it.
     private static float PlaneValue(float sigma) => sigma * (float)TianWen.Lib.Imaging.Degradation.StretchedNoise.PlaneScale;
 
@@ -289,15 +298,8 @@ public sealed class StarRemovalEvalTests : IDisposable
         var outputs = Path.Combine(root, "outputs");
         // Each channel's noise is the luminance's times root 3, so the plane (the luminance's noise) is Sigma.
         var channelSigma = Sigma * MathF.Sqrt(Channels);
-        float[][] Noise(int seed)
-        {
-            var rng = new Random(seed);
-            return [.. Enumerable.Range(0, Channels).Select(_ =>
-                Enumerable.Range(0, Size * Size).Select(_ =>
-                    Sky + (channelSigma * (float)(Math.Sqrt(-2 * Math.Log(1 - rng.NextDouble())) * Math.Cos(2 * Math.PI * rng.NextDouble())))).ToArray())];
-        }
-        var plateA = Noise(1);
-        var plateB = Noise(2);
+        var plateA = NoisyPlanes(1, [channelSigma, channelSigma, channelSigma]);
+        var plateB = NoisyPlanes(2, [channelSigma, channelSigma, channelSigma]);
         var star = Star(128, 128, 1.0, 3.0);
         var manifest = new List<string>();
         var tileA = WriteDraw(export, "A", 0, (c, i) => plateA[c][i], (c, i) => plateA[c][i] + star[i], [InjectedAt(128, 128)], manifest);
@@ -345,5 +347,67 @@ public sealed class StarRemovalEvalTests : IDisposable
             .ShouldBe(pooled.SkyRms * pooled.SkyRms, 1e-9, "the level and the texture make the whole sky change");
         pooled.Footprint.WorstShare.ShouldBe(1, 1e-9, "only session A's draw has a footprint");
         Arm(report, "input (removes nothing)").Sky.NoiseRatio.ShouldBe(1, 1e-9);
+    }
+
+    [Fact]
+    public async Task AColourTheLuminanceCancelsIsDugInColourThoughCleanOnTheLuminance()
+    {
+        var root = _folders.Create("starless-eval-").FullName;
+        var export = Path.Combine(root, "export");
+        var outputs = Path.Combine(root, "outputs");
+        var star = Star(128, 128, 1.0, 3.0);
+        var manifest = new List<string>();
+        var tile = WriteDraw(export, "S", 0, (_, _) => Sky, (_, i) => Sky + star[i], [InjectedAt(128, 128)], manifest);
+        // R2i's blot (2026-10-15): red removed, green dug and blue left by the same amount, so the luminance IS the plate.
+        // The core holds about 0.6 of the unit peak, so green's core is about 0.03 under: 1.7 sigma of a channel's noise
+        // (root 3 times the luminance's on a plate with no noise of its own), under the 4 sigma pixel test.
+        WriteTile(Path.Combine(outputs, "out0.f16"), (c, i) => c switch { 1 => Sky - (0.05f * star[i]), 2 => Sky + (0.05f * star[i]), _ => Sky }, Channels);
+
+        var report = await ScoreAsync(export, outputs, manifest, [(tile, "out0.f16")]);
+
+        var output = Arm(report, "output");
+        (Band(output).Clean, Band(output).Dug).ShouldBe((1, 0), "the luminance cancels the two colours");
+        var colour = output.Colour.Completeness.Single(static b => b.Stars > 0);
+        (colour.Clean, colour.Dug).ShouldBe((0, 1));
+        colour.DugByChannel.ShouldBe([0, 1, 0]);
+        colour.CoreMeanByChannel[0].ShouldBe(0, 0.05);
+        colour.CoreMeanByChannel[1].ShouldBeLessThan(-1);
+        colour.CoreMeanByChannel[2].ShouldBeGreaterThan(1);
+        output.Colour.ChannelNoise.ShouldAllBe(n => Math.Abs(n - Math.Sqrt(Channels)) < 1e-6, "a plate with no noise reads the channels as equal");
+        output.Colour.FootprintChannelMean[1].ShouldBeLessThan(0);
+        output.Colour.FootprintChannelMean[2].ShouldBeGreaterThan(0);
+        output.Colour.FootprintChannelDark[0].ShouldBe(0);
+        output.Colour.FootprintChannelDark[1].ShouldBeGreaterThan(0, "green's centre is 2.9 of its sigma under the plate");
+        output.Colour.FootprintChannelDark[2].ShouldBe(0);
+        output.Colour.FootprintChannelBright[2].ShouldBeGreaterThan(0);
+        output.Colour.FootprintDark.ShouldBe(0, "nothing is dark in the luminance");
+
+        var plate = Arm(report, "plate (removes all)").Colour.Completeness.Single(static b => b.Stars > 0);
+        (plate.Clean, plate.Dug).ShouldBe((1, 0));
+        var input = Arm(report, "input (removes nothing)").Colour.Completeness.Single(static b => b.Stars > 0);
+        (input.Clean, input.Dug).ShouldBe((0, 0));
+    }
+
+    [Fact]
+    public async Task EachChannelIsReadInItsOwnNoiseAsThePlatesSkyMeasuresIt()
+    {
+        var root = _folders.Create("starless-eval-").FullName;
+        var export = Path.Combine(root, "export");
+        var outputs = Path.Combine(root, "outputs");
+        float[] sigmas = [0.02f, 0.01f, 0.03f];
+        var plate = NoisyPlanes(3, sigmas);
+        var manifest = new List<string>();
+        var tile = WriteDraw(export, "S", 0, (c, i) => plate[c][i], (c, i) => plate[c][i], [], manifest);
+        WriteTile(Path.Combine(outputs, "out0.f16"), (c, i) => plate[c][i], Channels);
+
+        var report = await ScoreAsync(export, outputs, manifest, [(tile, "out0.f16")]);
+
+        // The luminance's noise is the root sum of squares over the count; each channel's share is its sigma over that.
+        var luminance = Math.Sqrt(sigmas.Sum(static s => (double)s * s)) / Channels;
+        var noise = Arm(report, "output").Colour.ChannelNoise;
+        for (var c = 0; c < Channels; c++)
+        {
+            noise[c].ShouldBe(sigmas[c] / luminance, 0.03 * sigmas[c] / luminance, $"channel {c}");
+        }
     }
 }
