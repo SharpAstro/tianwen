@@ -516,19 +516,20 @@ public class DALCameraVideoTests(ITestOutputHelper output)
         state.Stall(FakeCmosState.Cure.Restart);
         await ReadUntilRecoveredAsync(camera, frames, 1);
 
-        // Stalled again before the stream had run long enough to count as healthy: the restart did not hold.
+        // Stalled again before the stream had run long enough to count as healthy: the restart did not hold, so the next
+        // rung brings this one back, though a restart would have done.
         state.Stall(FakeCmosState.Cure.Restart);
         await ReadUntilRecoveredAsync(camera, frames, 2);
         camera.VideoRecoveryLog[1].Rung.ShouldBe(TestDalCameraDriver.VideoRecoveryRung.Reopen);
-        camera.VideoStalls.ShouldBe(1, "one stall, two rungs");
+        camera.VideoStalls.ShouldBe(2, "a stall after frames is the camera's own, whichever rung it gets");
 
-        // Healthy for longer than VideoHealthyAfter: the next stall is a new one, and a restart is tried first again.
+        // Healthy for longer than VideoHealthyAfter: the next stall starts from a restart again.
         time.Advance(TestDalCameraDriver.VideoHealthyAfter + TimeSpan.FromSeconds(1));
         (await NextAsync(frames)).Release();
         state.Stall(FakeCmosState.Cure.Restart);
         await ReadUntilRecoveredAsync(camera, frames, 3);
         camera.VideoRecoveryLog[2].Rung.ShouldBe(TestDalCameraDriver.VideoRecoveryRung.Restart);
-        camera.VideoStalls.ShouldBe(2);
+        camera.VideoStalls.ShouldBe(3);
     }
 
     /// <summary>

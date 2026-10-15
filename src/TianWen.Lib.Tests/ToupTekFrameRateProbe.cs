@@ -36,7 +36,8 @@ namespace TianWen.Lib.Tests;
 /// range. It never asks for a reset, as <see cref="ToupTekResetRecoveryProbe"/> does, but the DAL driver may make one
 /// itself: a stalled stream's last rung, and a body that loses two single exposures in a row. Real clock, since a frame
 /// rate is wall-clock time by nature. The recording arm writes about 3.6 GB a minute to the test's temp folder and
-/// deletes it once read; <c>TIANWEN_TOUPTEK_RECORD_RUNS</c> (3) and <c>TIANWEN_TOUPTEK_RECORD_SECONDS</c> (60) size it.
+/// deletes it once read; <c>TIANWEN_TOUPTEK_RECORD_RUNS</c> (3) and <c>TIANWEN_TOUPTEK_RECORD_SECONDS</c> (60) size it. The soak
+/// runs only when <c>TIANWEN_TOUPTEK_SOAK_MINUTES</c> is set.
 /// </remarks>
 [Collection("Devices")]
 public class ToupTekFrameRateProbe(ITestOutputHelper output)
@@ -240,6 +241,45 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// The capture loop left streaming for <c>TIANWEN_TOUPTEK_SOAK_MINUTES</c> (skipped unless set) at the Saturn window,
+    /// with no recording, to meet the stalls this camera has about once in 1,250 s at speed 2 and see the driver bring
+    /// each back: every stall printed with the rung that undid it and the gap it left.
+    /// </summary>
+    [Fact(Timeout = 7_200_000)]
+    public async Task ASoakAtTheSaturnWindowBringsItsStallsBack()
+    {
+        var minutes = IntFromEnvironment("TIANWEN_TOUPTEK_SOAK_MINUTES", 0);
+        Assert.SkipWhen(minutes == 0, "TIANWEN_TOUPTEK_SOAK_MINUTES is not set");
+        var (camera, external, sp) = await ConnectAsync(LogLevel.Information);
+        await using var _ = sp;
+        var ct = TestContext.Current.CancellationToken;
+        try
+        {
+            var options = new VideoCaptureOptions(SaturnExposure, Gain: SaturnGain, BitDepth: BitDepth.Int8);
+            await using var capture = new PlanetaryCapture(SystemTimeProvider.Instance, external.AppLogger, kind: LiveCaptureKind.LiveView);
+            capture.Start(camera, options, ct).ShouldBeTrue();
+            var clock = Stopwatch.StartNew();
+            var span = TimeSpan.FromMinutes(minutes);
+            while (clock.Elapsed < span && capture.IsCapturing)
+            {
+                await SystemTimeProvider.Instance.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            }
+            var seconds = clock.Elapsed.TotalSeconds;
+            var (read, replaced, dropped) = (camera.VideoFramesRead, camera.VideoFramesReplaced, camera.VideoFramesDroppedByBody);
+            await capture.StopAsync(ct);
+
+            output.WriteLine("");
+            output.WriteLine($"{camera.Name}: soak through the capture loop, {RoiWidth}x{RoiHeight} centred, 8 bits, {SaturnExposure.TotalMilliseconds} ms, "
+                + $"gain {SaturnGain}, {seconds / 60:F1} min{(capture.FailureReason is { } failed ? $", ENDED: {failed}" : "")}");
+            output.WriteLine($"read {read} = {read / seconds:F1} fps over the whole soak, gaps included; replaced {replaced}, body dropped {dropped}{StreamHealth(camera)}");
+        }
+        finally
+        {
+            await camera.DisconnectAsync(ct);
+        }
+    }
+
     private async Task<(ToupTekCameraDriver Camera, FakeExternal External, ServiceProvider Services)> ConnectAsync(LogLevel level)
     {
         Assert.SkipUnless(Environment.GetEnvironmentVariable(GateVar) == "1", $"{GateVar} is not 1 (this drives the attached ToupTek camera)");
@@ -401,22 +441,32 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
         var span = stamps.Length > 1 ? stamps[^1] - stamps[0] : TimeSpan.Zero;
         var fps = span > TimeSpan.Zero ? ser.FrameCount / span.TotalSeconds : 0;
         var serGaps = new List<string>();
+        var gapTime = TimeSpan.Zero;
         for (var i = 1; i < stamps.Length; i++)
         {
             if (stamps[i] - stamps[i - 1] is var step && step > TimeSpan.FromMilliseconds(500))
             {
                 serGaps.Add($"{step.TotalSeconds:F2} s after frame {i - 1}");
+                gapTime += step;
             }
         }
+        var withoutGaps = serGaps.Count > 0 && span > gapTime ? $" ({ser.FrameCount / (span - gapTime).TotalSeconds:F1} fps outside the gaps)" : "";
         var bodyRate = (dropped - droppedFrom) > 0 ? $" (1 in {(read - readFrom) / (double)(dropped - droppedFrom):F0})" : "";
         return new CaptureResult(fps,
-            $"SER {ser.FrameCount} frames over {span.TotalSeconds:F2} s = {fps:F1} fps (frame count over its timestamp span), "
-            + $"{recording.FramesDropped} dropped by the disk, SER gaps over 0.5 s: {(serGaps.Count > 0 ? string.Join("; ", serGaps) : "none")}; "
+            $"SER {ser.FrameCount} frames over {span.TotalSeconds:F2} s = {fps:F1} fps (frame count over its timestamp span){withoutGaps}, "
+            + $"{recording.FramesDropped} dropped by the disk, SER gaps over 0.5 s: {(serGaps.Count > 0 ? string.Join("; ", serGaps) : "none")}, "
+            + $"the recording's own: {recording.Gaps.Length}; "
             + counts + bodyRate + $"; ended: {recording.EndReason}");
     }
 
-    /// <summary>The stream's stalls and what brought each back, where the driver counts them.</summary>
-    private static string StreamHealth(ToupTekCameraDriver camera) => "";
+    /// <summary>The most frames that waited for the reader, and the stream's stalls with what brought each back and the gap it left.</summary>
+    private static string StreamHealth(ToupTekCameraDriver camera)
+    {
+        var each = camera.VideoRecoveryLog is { Length: > 0 } recoveries
+            ? " (" + string.Join("; ", recoveries.Select(r => $"{r.Code} after the frame of {r.LastFrameAt:HH:mm:ss.fff}, back by a {r.Rung}, {r.Gap.TotalSeconds:F1} s without a frame")) + ")"
+            : "";
+        return $", hand-off at most {camera.VideoHandOffHighWater} waiting, {camera.VideoStalls} stalls, {camera.VideoRecoveries} recovered{each}";
+    }
 
     private sealed record Row(string Layer, BitDepth Depth, TimeSpan Exposure, double Fps, int Frames, int Lost,
         (int Width, int Height)? Size, BitDepth? FrameDepth, string Detail);
