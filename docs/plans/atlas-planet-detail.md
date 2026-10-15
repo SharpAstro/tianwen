@@ -462,7 +462,9 @@ one frame late, and the GUI logged a slow frame every 250 to 330 ms.
   (`PlanetBodyGpuTests.TheWebGlTraceIsTheVulkanTrace`); each host states only its block, sampler and pixel centre
   (`screenPixel`: WebGL's framebuffer is y up). A varying interpolated across the quad instead of `gl_FragCoord` put up
   to 77 more values more than 4 off the CPU on the Adreno.
-- **Inputs:** one block of seven vec4s (`PlanetBodyMap.WriteBlock`: Vulkan's push constants, WebGL's uniform block): the
+- **Inputs:** one block of seven vec4s (`PlanetBodyMap.WriteBlock`: Vulkan's push constants; in WebGL ONE instance of seven
+  vec4 attributes in a buffer of the body's own, `PlanetBodyInstances`, since WebGl.Renderer sets a uniform block at once
+  but replays the draws at Present, which drew every body with the last body's block, PR #1589 review round 1): the
   disc's centre and radius, the viewport, the axis ratio, k, the view's right, toward and Sun vectors, the map's mean
   albedo per plane (a ring's level is stated against it) and the tint. The ring table is `SaturnRings.Main`'s, written
   into the shader and held to it by `TheShadersRingTableIsSaturnRingsMain`. Colour maps go up ONCE per body and
