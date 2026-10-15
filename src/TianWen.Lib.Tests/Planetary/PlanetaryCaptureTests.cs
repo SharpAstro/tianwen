@@ -115,6 +115,33 @@ public class PlanetaryCaptureTests(ITestOutputHelper output) : IDisposable
         await pulsed.Task.WaitAsync(ct);
     }
 
+    /// <summary>
+    /// A camera that does not stream stamps a frame with when its exposure STARTED, which is not when it arrived; only a
+    /// stream's frames carry the time their driver read them. So the ring (and a recording) keep the capture's own time
+    /// for a camera that does not stream, as they always did, and a QHY, Player One, ASCOM or Alpaca SER is not shifted.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task AFrameFromACameraThatDoesNotStreamIsStampedWhenItArrived()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var time = new FakeTimeProviderWrapper();
+        // Any instant but the fake clock's own start (2000-01-01).
+        var exposureStarted = new DateTimeOffset(2026, 10, 7, 11, 47, 0, TimeSpan.Zero);
+        var camera = Substitute.For<ICameraDriver>();
+        camera.GetImageReadyAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(true));
+        camera.GetImageAsync(Arg.Any<CancellationToken>()).Returns(_ => ValueTask.FromResult<Image?>(
+            new Image([new float[64, 64]], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta { ExposureStartTime = exposureStarted })));
+
+        await using var capture = new PlanetaryCapture(time, NullLogger.Instance);
+        capture.ArmFrameGate();
+        capture.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(5)), ct).ShouldBeTrue();
+        var next = capture.WaitForNextFrameAsync(ct);
+        capture.StepFrame();
+        await next;
+
+        capture.Stream.ShouldNotBeNull().TimestampOf(0).ShouldBe(time.GetUtcNow(), "the capture's own time, not the exposure's start");
+    }
+
     [Fact(Timeout = 30_000)]
     public async Task ANudgeIsNeverIssuedWhileAnotherRunHoldsTheMount()
     {

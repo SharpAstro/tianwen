@@ -477,6 +477,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         LiveCameraFrameStream? stream = null;
         try
         {
+            var streams = Streams(camera);
             var frames = Frames(camera, options, token);
             if (_frameGate is { } gate)
             {
@@ -521,10 +522,11 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 // A Bayer source is pushed WHOLE: the ring splits it into its four CFA sub-planes itself (it stores
                 // half-res planes, exactly as SerFrameStream does on load), straight into recycled planes. Mono / RGB
                 // push through unchanged. The stream is sized to this frame above, so the dimensions always match.
-                // The time the camera's driver read the frame where it says so (a DAL camera's stream does), which the
-                // queue between the driver and this loop does not move: the ring and a recording keep the camera's own
-                // cadence, and a stall shows in them as the gap it was. A frame that carries no time is stamped here.
-                var arrived = frame.ImageMeta.ExposureStartTime is var stamped && stamped != default ? stamped : timeProvider.GetUtcNow();
+                // A stream's frame carries the time its driver read it (a DAL camera's does), which the queue between the
+                // driver and this loop does not move: the ring and a recording keep the camera's own cadence, and a stall
+                // shows in them as the gap it was. A camera that does not stream stamps a frame with when its exposure
+                // STARTED, not when it arrived, so its frames, and a stream's that carry no time, are stamped here.
+                var arrived = streams && frame.ImageMeta.ExposureStartTime is var stamped && stamped != default ? stamped : timeProvider.GetUtcNow();
                 stream?.Push(frame, arrived);
                 var received = Interlocked.Increment(ref _framesReceived);
                 Volatile.Write(ref _lastFrameBitDepth, (int)frame.BitDepth);
@@ -597,6 +599,10 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         => camera is IVideoCameraDriver { CanVideoCapture: true } video
             ? video.CaptureVideoAsync(options, token)
             : RapidExposureFramesAsync(camera, options, token);
+
+    // Whether the capture takes the camera's own stream (Frames), whose frames carry their own times and whose recording
+    // can show a stall as a gap.
+    private static bool Streams(ICameraDriver camera) => camera is IVideoCameraDriver { CanVideoCapture: true };
 
     // Universal fallback: loop short single-shot exposures on any ICameraDriver. CanJogRoi is implicitly false for this
     // path (no IVideoCameraDriver), so the recenter loop uses mount jog only. Each exposure reads the live one
@@ -685,7 +691,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
         var now = timeProvider.GetUtcNow();
         // The header names the camera and the telescope, so the recording's best stack knows the optics (#1179).
-        recording = new SerRecording(path, now, now + duration, logger, Camera?.Name, Volatile.Read(ref _telescopeField));
+        recording = new SerRecording(path, now, now + duration, logger, Camera?.Name, Volatile.Read(ref _telescopeField),
+            streamed: Camera is { } camera && Streams(camera));
         _recording = recording;
         refusal = null;
         logger.LogInformation("Planetary capture recording to {Path} for {Duration}", path, duration);

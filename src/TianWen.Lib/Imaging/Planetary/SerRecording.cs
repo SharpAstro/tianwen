@@ -29,7 +29,8 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// the two frames either side are consecutive in the file and their timestamps the gap apart (about 6.5 s for a ToupTek
 /// restart). A reader of the SER sees every frame that was taken, none invented, and a jump in time between two; a rate
 /// read as frame count over the timestamp span counts the gap as time without frames, and a de-rotation reads the true
-/// times. The recording notes each gap longer than the exposure plus 1 s (<see cref="Gaps"/>) and logs them as it closes.</para>
+/// times. A recording of a stream notes each gap longer than the exposure plus 1 s (<see cref="Gaps"/>) and logs them as it closes; one
+/// of a camera that takes each frame as an exposure of its own notes none, a slow download between two being no stall.</para>
 /// </remarks>
 public sealed class SerRecording
 {
@@ -53,6 +54,7 @@ public sealed class SerRecording
 
     private readonly string _instrument;
     private readonly string _telescope;
+    private readonly bool _streamed;
 
     private int _written;
     private int _dropped;
@@ -66,13 +68,16 @@ public sealed class SerRecording
     /// <summary>
     /// A recording to <paramref name="path"/> of every frame that arrives before <paramref name="endsAt"/>, its header naming the camera
     /// (<paramref name="instrument"/>) and the telescope (<paramref name="telescope"/>, <see cref="PlanetaryCaptureName.TelescopeField"/>)
-    /// it was taken with, so its best stack knows the optics (#1179).
+    /// it was taken with, so its best stack knows the optics (#1179). <paramref name="streamed"/> says the frames come from a camera's
+    /// stream, the only frames whose spacing can show a stall (<see cref="Gaps"/>).
     /// </summary>
-    public SerRecording(string path, DateTimeOffset startedAt, DateTimeOffset endsAt, ILogger logger, string? instrument = null, string? telescope = null)
+    public SerRecording(string path, DateTimeOffset startedAt, DateTimeOffset endsAt, ILogger logger, string? instrument = null, string? telescope = null,
+        bool streamed = false)
     {
         Path = path;
         _instrument = string.IsNullOrEmpty(instrument) ? "TianWen" : instrument;
         _telescope = telescope ?? "";
+        _streamed = streamed;
         StartedAt = startedAt;
         EndsAt = endsAt;
         _logger = logger;
@@ -153,8 +158,9 @@ public sealed class SerRecording
             return true;
         }
 
-        // Frames are queued in file order, so the count queued is the index the frame lands at.
-        if (_queued++ > 0 && arrived - _lastArrived is var step && step > frame.ImageMeta.ExposureDuration + GapBeyondExposure)
+        // Frames are queued in file order, so the count queued is the index the frame lands at. Only a stream's spacing can
+        // show a stall.
+        if (_queued++ > 0 && _streamed && arrived - _lastArrived is var step && step > frame.ImageMeta.ExposureDuration + GapBeyondExposure)
         {
             _gaps = _gaps.Add(new SerRecordingGap(_queued - 2, step));
         }

@@ -792,8 +792,10 @@ happened to be; the frames' own cost was never the limit, about 2 ms of the 5.
   and none in any layer or recording after, under the same load; the before runs were not repeated to pin the priority as the cause.
 - **A recording's conversion in one vector pass** (`RawPixelConversion.NarrowToByte`, `SerImageBridge.FillSerFrame`): the scalar loop
   was 1.78 ms of a frame at p50, now 0.94 under the same load.
-- **Frames stamped with the driver's read time** (`PlanetaryCapture` takes the frame's own time for the ring and a recording), so a
-  queue between the driver and the loop does not bunch a recording's timestamps, and a stall shows as the gap it was.
+- **Frames stamped with the driver's read time** (`PlanetaryCapture` takes a stream's frame's own time for the ring and a recording), so
+  a queue between the driver and the loop does not bunch a recording's timestamps, and a stall shows as the gap it was. A camera that
+  does not stream stamps a frame with when its exposure started, so its frames keep the capture's own time, as before, and its
+  recording names no gaps (a slow download is no stall).
 
 | Layer (queue, after) | Reader's fps | Replaced in 20 s | Body dropped | Between frames p50 / p99 / max | Most waiting | Reader's own cost p50 / p99 |
 |---|---|---|---|---|---|---|
