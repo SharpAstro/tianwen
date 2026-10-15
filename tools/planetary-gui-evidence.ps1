@@ -28,6 +28,10 @@
 .PARAMETER NoBuild
     Use the last Release builds as they are.
 
+.PARAMETER CheckOnly
+    Prove the launcher with nobody at the desk: the node, the GUI placed on the left half and attached to it, one PrintWindow
+    picture of it and its endpoints, then everything closed by its pid. No capture, no recording.
+
 .EXAMPLE
     pwsh -NoProfile -File tools/planetary-gui-evidence.ps1
 #>
@@ -35,7 +39,8 @@
 param(
     [string] $Out = (Join-Path ([IO.Path]::GetTempPath()) ("tianwen-gui-evidence-" + (Get-Date -Format 'yyyyMMdd-HHmmss'))),
     [int] $Seconds = 60,
-    [switch] $NoBuild
+    [switch] $NoBuild,
+    [switch] $CheckOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -66,7 +71,7 @@ foreach ($exe in $gui, $tests) {
 }
 
 $env:TIANWEN_TOUPTEK_RATE_PROBE = '1'
-$env:TIANWEN_TOUPTEK_GUI_EVIDENCE = '1'
+$env:TIANWEN_TOUPTEK_GUI_EVIDENCE = $(if ($CheckOnly) { 'check' } else { '1' })
 $env:TIANWEN_GUI_UNDER_TEST = $gui
 $env:TIANWEN_GUI_EVIDENCE_OUT = $Out
 $env:TIANWEN_TOUPTEK_RECORD_SECONDS = "$Seconds"

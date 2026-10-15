@@ -310,7 +310,9 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
         var sp = new ServiceCollection()
             .AddSingleton<IExternal>(external)
             .AddSingleton<ITimeProvider>(SystemTimeProvider.Instance)
-            .AddLogging(logging => logging.AddProvider(new XUnitLoggerProvider(output, false)).SetMinimumLevel(level))
+            // Stamped, so a stall's time into its stream can be read off the output.
+            .AddLogging(logging => logging.AddProvider(new XUnitLoggerProvider(output, new XUnitLoggerOptions { TimestampFormat = "HH:mm:ss.fff" }))
+                .SetMinimumLevel(level))
             .BuildServiceProvider();
         var camera = new ToupTekCameraDriver(device, sp);
         await camera.ConnectAsync(ct);
