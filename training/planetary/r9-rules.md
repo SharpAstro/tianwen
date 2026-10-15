@@ -643,3 +643,8 @@ them against the post or any truth was read.
   EdgeHD Jupiter, learned gains + RL 80: C24 0.9523, L24 0.270 (was 0.9510 / 0.278); learned + RL 20, the twins' own count: 0.9487 /
   0.288, now past the best earlier effort's 0.9483 / 0.292 where before the change it read 0.9477 / 0.294. The Saturns and the 12-inch
   SCT within 0.001 of before. The arms' verdicts stand as read; this is what the shipped step now does.
+- **Re-read after the mask (2026-10-15 15:35, the shipped step since #1583):** the deblur now takes its change whole on the globe's
+  interior and the rings, lets it fall to nothing over the globe's last band, and leaves the sky between rings and globe as the
+  sharpening drew it (the owner saw notches bitten into the 2026-10-07 Saturn's limb). Re-judged: the EdgeHD Jupiter, learned gains + RL
+  80: C24 0.9517, L24 0.273, still past the best earlier effort (0.9483 / 0.292); + RL 20: 0.9480 / 0.292, level with it, no longer past
+  it as the unmasked step read (0.9487 / 0.288). EdgeHD Saturn 0.978 at 40, Meade 0.982 at 40, the 12-inch SCT still closest with none.

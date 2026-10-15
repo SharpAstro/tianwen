@@ -6246,9 +6246,21 @@ master's white level past 0.4 cycles a pixel (0.182, 0.191, 0.197) lies inside i
 in a wide frame (the owner's 254 mm Saturn of 2026-10-07) that moved the preview's black point, lifting the sky to brown and showing the
 window's edge. `PlanetaryFinishing.Deconvolve` now keeps its change where the disk (its rings counted) holds the planet, feathered off
 over two diffraction widths past the outline, as the sharpening keeps #1171's rule; the sky past it is the window's own, bit for bit
-(`TheDeconvolutionLeavesTheSkyPastThePlanetAsItWas`). Re-judged, not a verdict: the EdgeHD Jupiter's learned gains + RL 80 read 0.9523 /
-0.270 (was 0.9510 / 0.278), and + RL 20 0.9487 / 0.288, past the best earlier effort at the twins' own count; the other captures moved
-under 0.001. The renders against last time's: https://claude.ai/artifact/RZFse4YHPmHMWa2CTQFKNK.
+(`TheDeconvolutionLeavesTheSkyPastThePlanetAsItWas`).
+
+**And masked to the globe's interior and the rings (2026-10-15).** Over the whole outline, the steps' ringing at the globe's edge, beside
+the dark sky between the rings and the globe, read as notches bitten into that Saturn's limb: a dark rim with bright specks just past it,
+stronger with more steps. The step now takes its change whole on the globe's interior and on the rings (and 2 px about them), lets it fall
+to nothing over the globe's last band (from `PlanetaryDering.LimbBandInner`, #1329's 0.95), and leaves the gap between rings and globe
+and everything past the outline as the sharpening drew them, but where a ring runs off the outline; nothing inside the planet is left
+below the sky (`TheDeconvolutionLeavesTheLimbAsTheSharpeningDrewItAndNeverGoesBelowTheSky`). Putting the planet's model back under the
+sky instead, as the sharpening's own floor does (#1471), painted the model's colour into that gap as red and teal specks, channel by
+channel: not adopted.
+
+Re-judged with the shipped step, not a verdict: the EdgeHD Jupiter's learned gains + RL 80 read 0.9517 / 0.273, still past the best
+earlier effort (0.9483 / 0.292); + RL 20, the twins' own count, 0.9480 / 0.292, level with it (the unmasked step read 0.9487 / 0.288).
+The EdgeHD Saturn reads 0.978 at 40 steps, the Meade 0.982, the 12-inch SCT still closest with none. The renders against last time's:
+https://claude.ai/artifact/RZFse4YHPmHMWa2CTQFKNK.
 
 **Speed.** A twin scored against the aperture truth took about 28 minutes on the shared desktop, most of it the same full-frame
 diffraction recomputed nine times a run: `PlanetaryMasterScore` now carries a truth to the aperture once a process, and one run covers
