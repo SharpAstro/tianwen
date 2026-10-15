@@ -179,6 +179,47 @@ public class PlanetaryFinishingTests
         changedInside.ShouldBeGreaterThan(0.01, "inside the planet the steps sharpen");
     }
 
+    [Fact]
+    public void TheDeconvolutionLeavesTheLimbAsTheSharpeningDrewItAndNeverGoesBelowTheSky()
+    {
+        // A planet with a black band running out to its limb, its fitted outline a pixel and a half past the true limb, as a limb fit can sit:
+        // the steps' ringing at the globe's edge read as notches bitten into the owner's 2026-10-07 Saturn. The interior takes the steps whole,
+        // the globe's last band (from 0.95 of its radius) keeps the window as it was at the outline, and nothing inside goes below the sky.
+        const int size = 128;
+        var diffraction = PlanetaryInverse.Diffraction(new Pupil(0.28), 550e-9, 0.1);
+        var cutoff = PlanetaryFinishing.CutoffCyclesPerPixel(new Pupil(0.28), 550, 0.1);
+        var disk = new MetricDisk(64, 64, 20.5);
+        var truth = new MetricDisk(64, 64, 19);
+        var sharp = new float[size * size];
+        for (var i = 0; i < sharp.Length; i++)
+        {
+            var (x, y) = (i % size, i / size);
+            sharp[i] = truth.RadiiAt(x, y) < 1 ? (Math.Abs(y - 64) <= 1 ? 0f : 1f) : 0f;
+        }
+        var blurred = PlanetaryInverse.Apply(sharp, size, size, diffraction.At);
+        var steps = PlanetaryFinishing.Deconvolve(blurred, size, diffraction, 80, disk, cutoff);
+        double interiorChange = 0;
+        for (var i = 0; i < steps.Length; i++)
+        {
+            var (x, y) = (i % size, i / size);
+            var r = disk.RadiiAt(x, y);
+            if (r > 1)
+            {
+                continue;
+            }
+            steps[i].ShouldBeGreaterThanOrEqualTo(0f, $"inside the planet at ({x}, {y})");
+            if (r > 0.995)
+            {
+                steps[i].ShouldBe(Math.Max(blurred[i], 0f), 1e-3f, $"the outline's last pixel at ({x}, {y}) is as the sharpening drew it");
+            }
+            else if (r < 0.8)
+            {
+                interiorChange = Math.Max(interiorChange, Math.Abs(steps[i] - blurred[i]));
+            }
+        }
+        interiorChange.ShouldBeGreaterThan(0.01, "the interior takes the steps");
+    }
+
     // The plane less one, the level the deconvolution test's wave rides on.
     private static float[] Detail(float[] plane)
     {

@@ -347,6 +347,14 @@ public static class PlanetaryFinishing
     /// outside the limb (#1171). Over the whole window, the steps raised the sky's noise, which on a small planet in a wide frame moved the
     /// preview's black point and showed the window's edge.
     /// </para>
+    /// <para>
+    /// Inside the outline the steps work on the globe's interior and on the rings; over the globe's last band (from
+    /// <see cref="PlanetaryDering.LimbBandInner"/> of its radius out) their change fades away, and where the outline holds neither globe nor
+    /// ring (the sky seen between Saturn's rings and its globe) it is nothing, so the limb stays as the sharpening's own limb fix drew it. Over
+    /// the whole outline, the steps' ringing at the globe's edge beside that dark gap read as notches bitten into the limb (the owner's
+    /// 2026-10-07 Saturn). No pixel is left below the sky: a value there cannot be shown, and putting the planet's model back instead, channel
+    /// by channel as the sharpening's floor does (#1471), painted the model's colour into that gap as red and teal specks.
+    /// </para>
     /// </summary>
     public static float[] Deconvolve(ReadOnlySpan<float> window, int size, RadialTransfer diffraction, int iterations, in MetricDisk disk, double cutoff)
     {
@@ -367,11 +375,18 @@ public static class PlanetaryFinishing
         var feather = cutoff > 0 ? 2 / cutoff / disk.Radius : 0;
         for (var i = 0; i < steps.Length; i++)
         {
-            var r = disk.ClearRadiiAt(i % size, i / size);
-            if (r > 1)
+            var (x, y) = (i % size, i / size);
+            var r = disk.ClearRadiiAt(x, y);
+            // Past the outline nothing, but where a ring runs off it (the steps' change let fall over the feather); inside it the rings and
+            // the globe's interior whole, the globe's last band falling to nothing at the limb, the sky between rings and globe nothing.
+            var ring = disk.RingTouched(x, y);
+            var keep = r > 1
+                ? (ring && feather > 0 ? Smootherstep(r, 1, 1 + feather) : 0)
+                : ring ? 1 : Smootherstep(disk.RadiiAt(x, y), PlanetaryDering.LimbBandInner, 1);
+            steps[i] = (float)(window[i] + (keep * (steps[i] - window[i])));
+            if (r <= 1 && steps[i] < 0)
             {
-                var keep = feather > 0 ? Smootherstep(r, 1, 1 + feather) : 0;
-                steps[i] = (float)(window[i] + (keep * (steps[i] - window[i])));
+                steps[i] = 0f;
             }
         }
         return steps;
