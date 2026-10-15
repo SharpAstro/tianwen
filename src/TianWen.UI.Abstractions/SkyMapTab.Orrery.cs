@@ -697,11 +697,16 @@ namespace TianWen.UI.Abstractions
                     .Clickable(new HitResult.ButtonHit(action), _ => onClick())
                     .WithTooltip(tooltip);
 
+            // The labels give way to the buttons, never the other way round: each is a content-capped Star, read in full while the
+            // strip has room (the hint takes the slack) and trimming its end toward this floor once the buttons have taken the row,
+            // so at 1.5x on a narrow view every button still shows (#1584). Device pixels, as the tree is.
+            var labelMin = OrreryLabelMinEm * fontSize;
+
             // The distance scale is ONE toggle naming the mode in force, sized by the longer label so a press does not move the strip.
             var auto = orrery.Scale == OrreryScale.Auto;
             var scaleToggle = Layout.Builder.Text(auto ? "Distances: auto" : "Distances: true", fontSize, ink,
-                    TextAlign.Center, TextAlign.Center, widthSample: "Distances: auto")
-                .PadX(padX).HStar()
+                    TextAlign.Center, TextAlign.Center, TextTrim.End, widthSample: "Distances: auto")
+                .PadX(padX).WStarUpToContent(min: labelMin).HStar()
                 .Bg(fill).BgHover(GuiTheme.Hover(fill))
                 .Clickable(new HitResult.ButtonHit(OrreryScaleAction),
                     _ => SwitchOrreryScale(auto ? OrreryScale.True : OrreryScale.Auto))
@@ -714,8 +719,8 @@ namespace TianWen.UI.Abstractions
                 var centred = orrery.CentredOnFocus;
                 var onBody = $"Centre: {focusBody.Name}";
                 centreToggle = Layout.Builder.Text(centred ? onBody : "Centre: Sun", fontSize, ink,
-                        TextAlign.Center, TextAlign.Center, widthSample: onBody.Length >= "Centre: Sun".Length ? onBody : "Centre: Sun")
-                    .PadX(padX).HStar()
+                        TextAlign.Center, TextAlign.Center, TextTrim.End, widthSample: onBody.Length >= "Centre: Sun".Length ? onBody : "Centre: Sun")
+                    .PadX(padX).WStarUpToContent(min: labelMin).HStar()
                     .Bg(fill).BgHover(GuiTheme.Hover(fill))
                     .Clickable(new HitResult.ButtonHit(OrreryCentreAction), _ => ToggleOrreryCentre())
                     .WithTooltip(centred ? $"The camera follows {focusBody.Name}; press to look at the Sun" : $"The camera looks at the Sun; press to follow {focusBody.Name}");
@@ -734,7 +739,8 @@ namespace TianWen.UI.Abstractions
                         .Clickable(new HitResult.ButtonHit("OrreryPlay"), _ => ToggleOrreryPlay())
                         .WithTooltip($"Run time at {orrery.DaysPerSecond:0} days a second"),
                     Layout.Builder.Text("Drag to orbit, wheel to zoom", fontSize, ink, TextAlign.Near, TextAlign.Center).PadX(padX).WStar().HStar(),
-                    BuildTimeControls(timeText, isTimeShifted ? palette.Accent : ink, fontSize, dpiScale, fill, ink),
+                    // Direct children of the strip, so the time (a content-capped Star) gives way here as the labels do.
+                    .. BuildTimeControls(timeText, isTimeShifted ? palette.Accent : ink, fontSize, dpiScale, fill, ink).AsSpan(),
                 ])
                 .WithGap(4f * dpiScale)
                 .PadX(8f * dpiScale)
@@ -747,6 +753,14 @@ namespace TianWen.UI.Abstractions
                 scale: DesignScale.One);
             RememberTimeButton(arranged);
         }
+
+        /// <summary>The narrowest a strip label (the distance scale, the centre) gives way to under pressure, in ems of its font.</summary>
+        internal const float OrreryLabelMinEm = 3f;
+
+        /// <summary>How wide a strip node's own content measures, in the device pixels the strip is arranged in (its cap as a
+        /// content-capped Star): the tab's own measure context, so a test reads a label's content without building one.</summary>
+        internal float StripContentWidth(Layout.Node node)
+            => Layout.Engine.Measure(node, new Layout.Size<float>(float.MaxValue, float.MaxValue), MeasureContext(scale: DesignScale.One)).Width;
 
         private void SwitchOrreryScale(OrreryScale scale)
         {

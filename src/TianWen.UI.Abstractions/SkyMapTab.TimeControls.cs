@@ -100,11 +100,13 @@ public partial class SkyMapTab<TSurface>
 
     /// <summary>
     /// The strip's right-hand controls: Now while the view is off live, the back steps, the time (a press opens the landmarks),
-    /// and the forward steps. Device-pixel sizes; the caller arranges them.
+    /// and the forward steps. Device-pixel sizes; the caller arranges them, in a group of their own (<see cref="TimeControlsGroup"/>)
+    /// or as direct children of its strip, which a label that gives way under pressure needs (the time is a content-capped Star:
+    /// it reads in full while the strip has room and trims once the buttons have taken it, #1584).
     /// </summary>
     /// <remarks>The fill and ink are the sky strip's own unless the caller states its own: the orrery's come from the palette, so
     /// Night spends no blue there.</remarks>
-    private Layout.Node BuildTimeControls(string timeText, RGBAColor32 timeColor, float fontSize, float dpiScale,
+    private ImmutableArray<Layout.Node> BuildTimeControls(string timeText, RGBAColor32 timeColor, float fontSize, float dpiScale,
         RGBAColor32? fillColour = null, RGBAColor32? inkColour = null)
     {
         var fill = fillColour ?? InfoPanelBg;
@@ -137,12 +139,16 @@ public partial class SkyMapTab<TSurface>
 
         // Sized for a scrubbed date and an offset of its two largest units, so the live clock turning into a date and an offset
         // does not move the back steps either; only an offset past a year of weeks is wider.
+        // A content-capped Star twice over: the button sits at its content while its strip has room and gives way under pressure,
+        // and inside it the time takes what the mark leaves, trimming its end (the offset) before the date.
         children.Add(Layout.Builder.HStack(
-                Layout.Builder.Text(timeText, fontSize, timeColor, TextAlign.Center, TextAlign.Center, widthSample: TimeTextWidthSample),
+                Layout.Builder.Text(timeText, fontSize, timeColor, TextAlign.Center, TextAlign.Center, TextTrim.End, widthSample: TimeTextWidthSample)
+                    .WStarUpToContent(),
                 FormRowLayout.StepMark("▲", fontSize, timeColor))
             .WithGap(4f * dpiScale)
             .CrossCenter()
             .PadX(padX)
+            .WStarUpToContent(min: TimeLabelMinEm * fontSize)
             .HStar()
             .Bg(fill).BgHover(GuiTheme.Hover(fill))
             .Clickable(new HitResult.ButtonHit(TimeMenuAction), _ => OpenTimeMenu(_timeButtonRect, fontSize)));
@@ -152,11 +158,18 @@ public partial class SkyMapTab<TSurface>
             children.Add(Step(step));
         }
 
+        return children.ToImmutable();
+    }
+
+    /// <summary>The narrowest the time button gives way to under pressure, in ems of its font: the date's year and month.</summary>
+    internal const float TimeLabelMinEm = 4f;
+
+    /// <summary>The time controls (<see cref="BuildTimeControls"/>) as one group, for a strip that arranges them as a unit.</summary>
+    private static Layout.Node TimeControlsGroup(ImmutableArray<Layout.Node> controls, float dpiScale)
         // The strip's full height, so each button's text centres in the strip as the info text beside it
         // does, and its hover fill is the strip's height. Auto, the group measured to one line of text and
         // sat at the strip's top (a stack places a child at the cross-axis START).
-        return Layout.Builder.HStack(children.ToImmutable().AsSpan()).WithGap(2f * dpiScale).HStar();
-    }
+        => Layout.Builder.HStack(controls.AsSpan()).WithGap(2f * dpiScale).HStar();
 
     // Where the strip last laid the time out, device pixels: the drop-up opens above it. Remembered as
     // the strip paints, every frame, because a press handler is not handed its node's arranged rect.

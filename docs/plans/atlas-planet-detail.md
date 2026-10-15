@@ -494,9 +494,15 @@ frame, build 0 sprites and upload no map again; every disc is lit toward the Sun
   builds the same trace, but nobody has opened it there, nor timed a drag or Play in the browser.
 - **The Earth is a flat disc** and **Play's speed is fixed** (#1573): the texture atlas has no Earth map, and Play runs
   at 10 days a second with nothing to change it.
-- **The strip does not fit a narrow view** (#1584): at 1.5x on 900 px it needs about 1,020 px, the hint already squeezed to
-  nothing. The labelled buttons need a Star that is never wider than its own content, which DIR.Lib's engine does not have
-  (a Star's share is the leftover by weight); `TheStripFitsWithEveryButtonShowing` is skipped until it does.
+- **The strip fits a narrow view** (#1584, fixed): at 1.5x on 900 px it needed about 1,020 px, the hint already squeezed
+  to nothing, because the labelled buttons could only be Auto, which never shrinks. DIR.Lib 11.22's content-capped Star
+  (`WStarUpToContent(min)`) is the fix: "Distances: auto", "Centre: <body>" and the time button are each one, direct
+  children of the strip (`BuildTimeControls` hands its buttons back for that; the sky strip keeps them in one group,
+  `TimeControlsGroup`), and the time text inside its button is one too. With room each sits at its content and the hint
+  takes the slack; short, the hint gives way first, then the labels trim their end toward 3 ems (the time button 4).
+  `TheStripFitsWithEveryButtonShowing` runs again: every button inside the view at 1.5x (before, `+10m` ended at 928 px
+  of 900; now `+1d` ends at 888, the labels at 129 of 142, 129 of 133 and the time 97 of 231 px), and at 1.0x each label
+  at least its measured content (94, 89 and 154 px, as before).
 
 ## Sequencing
 
