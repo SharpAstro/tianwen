@@ -393,18 +393,31 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
     /// <summary>
     /// The tail points AWAY from the Sun on screen, along the line from the Sun's drawn place through the comet's head (a radial line
     /// projects to a line through both), and it grows toward perihelion: at perihelion (0.9 AU) it is drawn, past 3 AU, two years on,
-    /// there is none. The law itself: zero from 3 AU out, longer at 2 than at 2.9, longer at 1 than at 2, and capped close in.
+    /// there is none. The law itself: 48 px times the square root of the activity's share (A2 of #1611), held at 14 px out to 2.5 AU
+    /// and tapering linearly to nothing at 3 AU, so a tail never pops in or out; capped close in.
     /// </summary>
     [Theory(Timeout = 120_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
     public async Task TheTailPointsAwayFromTheSunAndGrowsTowardPerihelion(float dpiScale)
     {
-        SkyMapTab<RgbaImage>.OrreryTailLength(3.0).ShouldBe(0);
-        SkyMapTab<RgbaImage>.OrreryTailLength(4.0).ShouldBe(0);
-        SkyMapTab<RgbaImage>.OrreryTailLength(2.0).ShouldBeGreaterThan(SkyMapTab<RgbaImage>.OrreryTailLength(2.9));
-        SkyMapTab<RgbaImage>.OrreryTailLength(1.0).ShouldBeGreaterThan(SkyMapTab<RgbaImage>.OrreryTailLength(2.0));
-        SkyMapTab<RgbaImage>.OrreryTailLength(0.05).ShouldBe(SkyMapTab<RgbaImage>.OrreryTailLength(0.3));
+        static float Length(double r) => SkyMapTab<RgbaImage>.OrreryTailLength(r);
+        Length(3.0).ShouldBe(0);
+        Length(4.0).ShouldBe(0);
+        Length(2.0).ShouldBeGreaterThan(Length(2.9));
+        Length(1.0).ShouldBeGreaterThan(Length(2.0));
+        Length(0.05).ShouldBe(Length(0.3));
+        Length(0.3).ShouldBe(48f, 0.01f);
+        // At 1 AU: 48 times the square root of (1 - 1/9) / (1/0.49 - 1/9).
+        Length(1.0).ShouldBe((float)(48 * Math.Sqrt((1 - (1.0 / 9)) / ((1 / 0.49) - (1.0 / 9)))), 0.01f);
+        Length(2.0).ShouldBe(14f, 0.01f);
+        Length(2.49).ShouldBe(14f, 0.01f);
+        Length(2.75).ShouldBe(7f, 0.01f);
+        // No pop at either end of the taper.
+        Math.Abs(Length(2.5005) - Length(2.4995)).ShouldBeLessThan(0.05f);
+        Length(2.999).ShouldBeLessThan(0.5f);
+        Length(2.99999).ShouldBeLessThan(0.05f);
+        output.WriteLine($"tail lengths, design px: 0.7 AU {Length(0.7):F1}, 1 AU {Length(1.0):F1}, 1.5 AU {Length(1.5):F1}, 2 AU {Length(2.0):F1}, 2.75 AU {Length(2.75):F1}");
 
         var (longitude, _) = Earth();
         var comet = Comet(7, 6, q: 0.9, e: 0.7, inclination: 25, node: 0, argumentOfPerihelion: longitude + 120);
@@ -429,6 +442,28 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
         r.ShouldBeGreaterThan(3);
         rig.Tab.OrreryTails.ShouldNotContain(t => t.Index == index);
         rig.Tab.OrreryDrawn.ShouldContain(d => d.Index == index);
+    }
+
+    /// <summary>
+    /// A tail seen nearly end on still shows (A2 of #1611): its foreshortening is floored at 0.4, so a comet a few degrees off the
+    /// camera's line through the Sun, its tail pointing almost at the camera, draws at least 0.4 of its length.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task ATailSeenEndOnIsFlooredNotLost()
+    {
+        // Five degrees of longitude off the camera's own direction from the Sun (a new view's), at its elevation: the radial line
+        // runs near the ray.
+        var view = new OrreryState();
+        var comet = CometAt(77, view.AzimuthDeg + 5, view.ElevationDeg, 1.0);
+        using var rig = await RigWithAsync(CatalogIndex.Sol, 1f, TestContext.Current.CancellationToken, comet);
+        var index = Index(comet);
+        var tail = rig.Tab.OrreryTails.SingleOrDefault(t => t.Index == index);
+        tail.Index.ShouldBe(index, "the end-on tail was not drawn at all");
+        var length = MathF.Sqrt(((tail.TipX - tail.HeadX) * (tail.TipX - tail.HeadX)) + ((tail.TipY - tail.HeadY) * (tail.TipY - tail.HeadY)));
+        var full = SkyMapTab<RgbaImage>.OrreryTailLength(1.0);
+        output.WriteLine($"end on: {length:F1} px of {full:F1}");
+        length.ShouldBeGreaterThanOrEqualTo((0.4f * full) - 0.05f);
+        length.ShouldBeLessThan(0.5f * full, "the comet is not seen near end on: the test places it wrongly");
     }
 
     /// <summary>
