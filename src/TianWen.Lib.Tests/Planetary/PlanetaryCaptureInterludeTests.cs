@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -215,7 +216,7 @@ public class PlanetaryCaptureInterludeTests(ITestOutputHelper output) : IDisposa
         await StepAsync(capture, 1, ct);
         (await interlude).ShouldBeNull("the stream is back at the first frame it keeps");
 
-        refusedDuring.ShouldBe("The planetary capture has stopped its stream for a test; record once it streams again");
+        refusedDuring.ShouldBe("The planetary capture stops its stream for a test; record once it streams again");
         capture.FramesDroppedAfterInterludes.ShouldBe(3);
         capture.FramesReceived.ShouldBe(received + 1, "of the four frames read since, only the one kept reached the ring");
         capture.Stream.ShouldNotBeNull().LatestIndex.ShouldBe(latest + 1);
@@ -257,6 +258,122 @@ public class PlanetaryCaptureInterludeTests(ITestOutputHelper output) : IDisposa
         await capture.StopAsync(ct);
         await recording.Completion.WaitAsync(ct);
         recording.FramesWritten.ShouldBe(4, "every frame the stream gave is in the one file");
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AnInterludeAskedForFirstRefusesARecordingInWordsAndTheRecordingLeavesNoTrace()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var camera = await CameraAsync(ct);
+        await using var capture = NewCapture();
+        capture.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(2)), ct).ShouldBeTrue();
+        await StepAsync(capture, 2, ct);
+
+        // Asked for and not yet taken: no step has let the loop ask for its next frame.
+        var interlude = capture.InterludeAsync(Nothing(), ct);
+        var path = Path.Combine(_folders.Create("twint").FullName, "refused.ser");
+        capture.TryStartRecording(path, TimeSpan.FromHours(1), out var recording, out var refusal).ShouldBeFalse();
+
+        refusal.ShouldBe("The planetary capture stops its stream for a test; record once it streams again");
+        recording.ShouldBeNull();
+        capture.Recording.ShouldBeNull("a refused recording is never the capture's");
+        await StepUntilAsync(capture, interlude, ct);
+        (await interlude).ShouldBeNull();
+        await StepAsync(capture, 2, ct);
+        File.Exists(path).ShouldBeFalse("and was never written");
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task ARecordingKeepsEveryFrameThroughTheInterludesItRefuses()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var camera = await CameraAsync(ct);
+        await using var capture = NewCapture();
+        capture.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(2)), ct).ShouldBeTrue();
+        var path = Path.Combine(_folders.Create("twint").FullName, "kept.ser");
+        capture.TryStartRecording(path, TimeSpan.FromHours(1), out var recording, out var refusal).ShouldBeTrue(refusal);
+
+        for (var round = 0; round < 3; round++)
+        {
+            await StepAsync(capture, 2, ct);
+            (await capture.InterludeAsync(Nothing(), ct)).ShouldNotBeNull("a recording going on refuses it");
+        }
+        await StepAsync(capture, 2, ct);
+        await capture.StopAsync(ct);
+        await recording.Completion.WaitAsync(ct);
+
+        (recording.FramesWritten, recording.FramesDropped).ShouldBe((8, 0), "every frame the stream gave since the recording began");
+        camera.VideoStarts.Length.ShouldBe(1, "the stream was never stopped");
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task ARecordingAndAnInterludeAskedForAtOnceAreSeenInOneOrder()
+    {
+        // Each looked for the other once its own was in place, which leaves both seeing each other (both refused) or a
+        // recording armed for an instant while an interlude went ahead, a frame appended to it before it ended itself (a
+        // one-frame file). Taken through one claim on the stream, exactly one of the two has it and the other is told why.
+        StressTestGate.SkipOnCi();
+        var ct = TestContext.Current.CancellationToken;
+        var camera = await CameraAsync(ct);
+        // No frame gate: the loop streams freely, so the two meet it wherever it is.
+        await using var capture = new PlanetaryCapture(new FakeTimeProviderWrapper(), NullLogger.Instance,
+            new RollingWindowOptions { FallbackWindowFrames = 10, MaxWindowFrames = 16 });
+        capture.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(1)), ct).ShouldBeTrue();
+        var folder = _folders.Create("twrace");
+        var (recorded, paused) = (0, 0);
+        var random = new Random(1618);
+        for (var i = 0; i < 300; i++)
+        {
+            var path = Path.Combine(folder.FullName, $"race{i}.ser");
+            using var together = new Barrier(2);
+            // A spread of offsets between the two, up to longer than a recording takes to arm (its writer thread starts as it is
+            // made), so the race meets the recording at every point of its arming and each side has the stream first in some.
+            var lead = TimeSpan.FromMicroseconds(random.Next(0, 400));
+            SerRecording? made = null;
+            string? recordRefusal = null;
+            // The interlude's action is held until the recording has its answer, so an interlude that has the stream still has
+            // it then: both answering yes is an overlap, never one finished before the other began.
+            var recordAnswered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var record = Task.Factory.StartNew(() =>
+            {
+                together.SignalAndWait(ct);
+                return capture.TryStartRecording(path, TimeSpan.FromHours(1), out made, out recordRefusal);
+            }, ct, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            var pause = Task.Factory.StartNew(() =>
+            {
+                together.SignalAndWait(ct);
+                // Spun, not slept: a sleep's resolution is a millisecond or more, the whole span this sweeps.
+                var from = Stopwatch.GetTimestamp();
+                while (Stopwatch.GetElapsedTime(from) < lead)
+                {
+                    Thread.SpinWait(16);
+                }
+                return capture.InterludeAsync(new PlanetaryInterlude("a test", async stopped => await recordAnswered.Task.WaitAsync(stopped)), ct);
+            }, ct, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
+
+            var wasRecorded = await record;
+            recordAnswered.SetResult();
+            var answer = await pause;
+            (wasRecorded, answer is null).ShouldNotBe((false, false), $"round {i}: both were refused ({recordRefusal}; {answer})");
+            (wasRecorded, answer is null).ShouldNotBe((true, true), $"round {i}: both had the stream");
+            if (wasRecorded)
+            {
+                recorded++;
+                answer.ShouldNotBeNull().ShouldStartWith("A recording is being made: a test would stop the stream");
+                capture.StopRecording();
+                await made.ShouldNotBeNull().Completion.WaitAsync(ct);
+            }
+            else
+            {
+                paused++;
+                recordRefusal.ShouldNotBeNull().ShouldEndWith("record once it streams again");
+                File.Exists(path).ShouldBeFalse($"round {i}: a refused recording wrote a file");
+            }
+        }
+
+        output.WriteLine($"of 300 rounds, the recording had the stream first in {recorded} and the interlude in {paused}");
+        capture.IsCapturing.ShouldBeTrue();
+        capture.FailureReason.ShouldBeNull();
     }
 
     [Fact(Timeout = 30_000)]
