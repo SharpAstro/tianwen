@@ -1,0 +1,112 @@
+# ZWO ASI224MC (Sony IMX224), the colour camera's red channel: its spectral response, the per-camera CFA triple
+# that FilterCurveDatabase.TryComputeCameraToSrgbMatrix's first strategy reads as ZWO_ASI224MC_R/_G/_B,
+# so a colour planetary master taken with this camera is balanced through its own colour matrix (#1525).
+#
+# PROVENANCE: ZWO's ASI224 manual v1.2, page 7, "Color 224 sensor Relative QE Curve" (the chart image embedded in the PDF, 1024 x 633; the manual is at astrolab.fas.harvard.edu/zwo_asi224_manual_v1.2.pdf).
+# Extracted mechanically by tools/digitize-filter-curve/digitize_filter_curve.py in the default grid mode, the trace selected by
+# its colour (--ink-rgb, read off the chart), sampled every 5 nm; run it with --overlay to redraw this curve onto the chart.
+# Axes: x: 13 of 13 vertical gridlines found, 400 nm at px 122.5, 1000 nm at px 985.0 (1.4375 px/nm); y: 11 of 11 horizontal gridlines, 100 % at px 77.0, 0 % at px 526.0.
+# Validation: --expect-peaks with a 10 nm tolerance, the peak read by eye off the chart: 600 nm read at 605 nm (99.7 %).
+# Past about 880 nm the red trace runs under the green and blue ones (all three share one curve there), so 880 to 1000 nm is interpolated between the visible ends; the matrix fit integrates only to 780 nm.
+#
+# Values: RELATIVE response, 0 to 1 on the chart, written here as percent (the chart's 1.0 is 100); the matrix fit uses the curves' shapes and their ratios to each other, which a common scale does not change.
+# UNITS ARE CHART UNITS: nanometres and percent. The importer converts to the database convention (Angstrom, fraction 0-1).
+wavelength_nm,transmission_pct
+400,8.04
+405,7.76
+410,7.22
+415,6.57
+420,6.20
+425,6.01
+430,4.01
+435,4.02
+440,3.91
+445,3.69
+450,3.52
+455,3.45
+460,3.45
+465,3.64
+470,3.83
+475,3.98
+480,4.19
+485,4.39
+490,4.57
+495,4.80
+500,5.23
+505,5.99
+510,7.06
+515,8.13
+520,9.00
+525,9.27
+530,9.13
+535,8.39
+540,7.49
+545,6.76
+550,6.52
+555,6.73
+560,8.96
+565,15.14
+570,26.25
+575,41.35
+580,58.13
+585,75.69
+590,89.42
+595,96.59
+600,99.30
+605,99.68
+610,99.40
+615,98.73
+620,98.35
+625,98.14
+630,97.71
+635,97.30
+640,97.05
+645,96.71
+650,96.09
+655,94.97
+660,93.32
+665,90.63
+670,87.53
+675,84.65
+680,82.18
+685,80.19
+690,78.86
+695,78.35
+700,78.75
+705,79.72
+710,81.00
+715,82.18
+720,82.79
+725,82.37
+730,81.23
+735,79.73
+740,78.11
+745,76.57
+750,75.66
+755,74.82
+760,73.85
+765,72.67
+770,70.98
+775,69.06
+780,66.99
+785,65.26
+790,63.68
+795,62.12
+800,60.48
+805,58.99
+810,57.81
+815,56.76
+820,55.71
+825,54.45
+830,52.91
+835,51.18
+840,49.60
+845,48.35
+850,44.21
+855,43.53
+860,42.09
+865,40.82
+870,39.39
+875,37.94
+880,36.48
+1000,10.02

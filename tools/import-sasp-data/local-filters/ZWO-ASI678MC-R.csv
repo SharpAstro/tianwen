@@ -1,0 +1,102 @@
+# ZWO ASI678MC (Sony IMX678), the colour camera's red channel: its spectral response, the per-camera CFA triple
+# that FilterCurveDatabase.TryComputeCameraToSrgbMatrix's first strategy reads as ZWO_ASI678MC_R/_G/_B,
+# so a colour planetary master taken with this camera is balanced through its own colour matrix (#1526).
+#
+# PROVENANCE: ZWO's ASI678 manual (Chinese edition) V1.0, page 8, section 3.3 the quantum efficiency chart (the chart image embedded in the PDF, 1200 x 700; the manual is at i.zwoastro.cn/zwo-website/manuals/ASI678_Manual_CN_V1.0.pdf).
+# Extracted mechanically by tools/digitize-filter-curve/digitize_filter_curve.py in the default grid mode, the trace selected by
+# its colour (--ink-rgb, read off the chart), sampled every 5 nm; run it with --overlay to redraw this curve onto the chart.
+# Axes: x: 13 of 13 vertical gridlines found, 400 nm at px 248.0, 1000 nm at px 1040.5 (1.3208 px/nm); y: 11 of 11 horizontal gridlines, 100 % at px 64.0, 0 % at px 582.5.
+# Validation: --expect-peaks with a 10 nm tolerance, the peak read by eye off the chart: 605 nm read at 600 nm (75.2 %).
+# Past 835 nm the red trace runs under the blue and green ones (all three share one curve there), so the curve ends at 835 nm; the matrix fit integrates only to 780 nm.
+#
+# Values: QUANTUM EFFICIENCY in percent, as charted.
+# UNITS ARE CHART UNITS: nanometres and percent. The importer converts to the database convention (Angstrom, fraction 0-1).
+wavelength_nm,transmission_pct
+400,11.35
+405,10.25
+410,8.66
+415,7.18
+420,5.88
+425,4.78
+430,3.82
+435,3.07
+440,2.44
+445,2.09
+450,1.93
+455,1.93
+460,2.08
+465,2.22
+470,2.39
+475,2.63
+480,2.89
+485,3.20
+490,3.50
+495,3.78
+500,3.99
+505,4.24
+510,4.46
+515,4.67
+520,4.90
+525,5.18
+530,5.52
+535,5.93
+540,6.43
+545,7.14
+550,8.20
+555,10.58
+560,15.91
+565,33.56
+570,56.75
+575,65.60
+580,70.29
+585,72.77
+590,74.24
+595,75.01
+600,75.22
+605,75.22
+610,75.12
+615,74.80
+620,74.35
+625,73.72
+630,72.87
+635,71.91
+640,70.60
+645,69.03
+650,66.90
+655,64.55
+660,62.71
+665,61.18
+670,59.79
+675,58.63
+680,57.56
+685,56.75
+690,56.11
+695,55.72
+700,55.54
+705,55.68
+710,56.04
+715,56.61
+720,57.41
+725,58.53
+730,59.88
+735,61.20
+740,62.23
+745,62.87
+750,63.07
+755,63.04
+760,62.81
+765,62.49
+770,61.99
+775,61.43
+780,60.72
+785,59.95
+790,58.99
+795,57.76
+800,56.51
+805,55.28
+810,54.39
+815,53.71
+820,53.12
+825,52.67
+830,52.32
+835,52.17

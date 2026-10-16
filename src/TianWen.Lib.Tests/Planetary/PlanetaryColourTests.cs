@@ -333,11 +333,11 @@ public class PlanetaryColourTests
         (await PlanetaryColourBalance.CameraColourAsync("Camera=ZWO ASI462MC temp=21.5", ct)).ShouldNotBeNull().Matrix.ShouldBe(camera.Matrix);
         (await PlanetaryColourBalance.CameraColourAsync("a camera nobody knows", ct)).ShouldBeNull();
         (await PlanetaryColourBalance.CameraColourAsync(null, ct)).ShouldBeNull();
-        // Two cameras behind captures with a _post have no QE curve, so their balance is by the gains alone, and says so (#1525, #1526:
-        // a curve for either turns its assertion here).
-        (await PlanetaryColourBalance.CameraColourAsync("ZWO ASI224MC", ct)).ShouldBeNull();
-        (await PlanetaryColourBalance.CameraColourAsync("ZWO ASI678MC", ct)).ShouldBeNull();
-        PlanetaryColourBalance.WithoutMatrix("ZWO ASI224MC").ShouldContain("no colour matrix is known for the camera ZWO ASI224MC");
+        // The two cameras behind captures with a _post that lacked a curve now have their own R, G and B responses, digitised from ZWO's
+        // charts (#1525, #1526), so a master from either is balanced through its own matrix; a camera the curves do not know still says so.
+        (await PlanetaryColourBalance.CameraColourAsync("ZWO ASI224MC", ct)).ShouldNotBeNull().Matrix.Length.ShouldBe(9);
+        (await PlanetaryColourBalance.CameraColourAsync("ZWO ASI678MC", ct)).ShouldNotBeNull().Matrix.Length.ShouldBe(9);
+        PlanetaryColourBalance.WithoutMatrix("a camera nobody knows").ShouldContain("no colour matrix is known for the camera a camera nobody knows");
         PlanetaryColourBalance.WithoutMatrix(null).ShouldContain("names no camera");
 
         var (master, disk) = CameraTintedJupiter();
