@@ -2327,7 +2327,7 @@ pay for the bright ones, and the weight is not adopted.
 while (4) holds, the bright cores' error is not the objective's weighting, and the next place to look is the data (R2k).
 If (2) holds and the kill fires, a smaller weight is the next arm, not this one again.
 
-**Amended 2026-10-16 at 22:35, half an hour into the run and before any of its numbers exist.** The bars above are an
+**Amended 2026-10-16 at 22:17, ten minutes into the run and before any of its numbers exist.** The bars above are an
 old-store pair of seeds (R2g, R2h), and on this line a seed has moved the bright stars by 3.1 points at convergence and
 by 12.9 at patience 24 (R2e). So R2i runs again on seed 1 beside R2l (below), and R2l's gains are also read against
 that pair: an improvement is claimed only where it clears the larger of the two spreads.
