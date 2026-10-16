@@ -25,7 +25,8 @@ public interface IExternal
 
     /// <summary>
     /// Default folder where captured FITS images are stored.
-    /// Defaults to <c>Pictures/TianWen</c>. Can be overridden per session.
+    /// Defaults to <c>Pictures/TianWen</c>, or <c>Images</c> under the data root when <c>TIANWEN_DATA_ROOT</c> overrides it
+    /// (a test's or a scratch node's, which touches none of the user's data). Can be overridden per session.
     /// </summary>
     DirectoryInfo ImageOutputFolder { get; }
 
