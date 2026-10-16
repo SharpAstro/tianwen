@@ -8,6 +8,7 @@ using DIR.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.Comets;
+using TianWen.Lib.Devices;
 
 namespace TianWen.UI.Abstractions;
 
@@ -315,7 +316,7 @@ public readonly record struct OrreryBody(CatalogIndex Index, string Name, double
 /// <see cref="CometOrbitBuilds"/>, <see cref="PositionBuilds"/>), and Play across years computes the positions once a minute of the
 /// clock and builds no orbit.
 /// </summary>
-public sealed class OrreryScene(Action? requestRedraw = null)
+public sealed class OrreryScene(Action? requestRedraw = null, ITimeProvider? clock = null)
 {
     /// <summary>Points per planet orbit, the last repeating the first.</summary>
     public const int OrbitSamples = 241;
@@ -353,7 +354,7 @@ public sealed class OrreryScene(Action? requestRedraw = null)
     private int _cometRankings;
     private double _lastRankMs;
 
-    private sealed record Ranking(ICometRepository Repo, int Count, long Bucket, ImmutableArray<CatalogIndex> Brightest, double Ms);
+    private sealed record Ranking(ICometRepository Repo, int Count, long Bucket, ImmutableArray<CatalogIndex> Brightest, TimeSpan Duration);
 
     // The set, read again only when its key moves.
     private ICometRepository? _setRepo;
@@ -383,6 +384,32 @@ public sealed class OrreryScene(Action? requestRedraw = null)
 
     /// <summary>How many times the brightest comets have been ranked: once per month of the clock that a frame shows (and per repository).</summary>
     public int CometRankings => Volatile.Read(ref _cometRankings);
+
+    /// <summary>
+    /// How many of the last ranking's durations pass, after it lands, before the next may start (R1 Q2 of PR #1631): ranking takes at
+    /// most one part in five of the time on any host (a fifth of 1 + 4), wherever the ranking runs. On a desktop a ranking is a pool
+    /// thread's 13 to 16 ms; in the browser's single-threaded WebAssembly build it runs on the page's one thread between frames, 55 to
+    /// 86 ms, and fast Play, which crosses a month nearly every frame, started one nearly every frame (51 in 57 frames) at 3.8 frames a
+    /// second. The months between are skipped: the set is the month's the clock is in when the next ranking starts.
+    /// </summary>
+    public const double RankCooldownFactor = 4;
+
+    /// <summary>
+    /// The least time between a ranking landing and the next starting, whatever the ranking cost: a played frame steps at most 100 ms
+    /// of the wall clock (<c>SkyMapTab.MaxPlayStep</c>), so this is one played step, at most ten rankings a second however fast they are.
+    /// </summary>
+    public static readonly TimeSpan RankCooldownFloor = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>The time after a ranking of <paramref name="rankDuration"/> lands before the next may start.</summary>
+    public static TimeSpan CooldownAfter(TimeSpan rankDuration) => (RankCooldownFactor * rankDuration) + RankCooldownFloor;
+
+    // The clock the cooldown is kept on (the system's unless a test gives its own), when the last ranking landed and how long it took,
+    // and whether a frame is already asked for when the cooldown ends.
+    private readonly ITimeProvider _clock = clock ?? SystemTimeProvider.Instance;
+    private bool _everRanked;
+    private long _rankLandedAt;
+    private TimeSpan _lastRankDuration;
+    private int _wakePending;
 
     /// <summary>How long the last ranking took off the render thread, milliseconds.</summary>
     public double LastRankMs => _lastRankMs;
@@ -581,9 +608,11 @@ public sealed class OrreryScene(Action? requestRedraw = null)
             if (done.IsCompletedSuccessfully && done.Result is var ranked && ReferenceEquals(ranked.Repo, comets))
             {
                 (_brightest, _brightestBucket, _brightestRepo, _brightestCount) = (ranked.Brightest, ranked.Bucket, ranked.Repo, ranked.Count);
-                _lastRankMs = ranked.Ms;
+                _lastRankMs = ranked.Duration.TotalMilliseconds;
                 _brightestVersion++;
             }
+            // Landed, adopted or not: the cooldown runs from here.
+            (_everRanked, _rankLandedAt, _lastRankDuration) = (true, _clock.GetTimestamp(), done.IsCompletedSuccessfully ? done.Result.Duration : TimeSpan.Zero);
         }
         if (comets is null || !showSet || _rankPending is not null)
         {
@@ -609,18 +638,47 @@ public sealed class OrreryScene(Action? requestRedraw = null)
         {
             return;
         }
-        var (pool, count) = (_candidates, all.Length);
+        if (_everRanked && CooldownAfter(_lastRankDuration) - _clock.GetElapsedTime(_rankLandedAt) is var remaining && remaining > TimeSpan.Zero)
+        {
+            WakeAfter(remaining);
+            return;
+        }
+        var (pool, count, clock) = (_candidates, all.Length, _clock);
         IReadOnlySet<CatalogIndex>? members = ReferenceEquals(comets, _brightestRepo) ? new HashSet<CatalogIndex>(_brightest) : null;
         Interlocked.Increment(ref _cometRankings);
         _rankPending = Task.Run(() =>
         {
-            var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            var started = clock.GetTimestamp();
             var brightest = RankAt(pool, bucket, members);
-            return new Ranking(comets, count, bucket, brightest, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            return new Ranking(comets, count, bucket, brightest, clock.GetElapsedTime(started));
         });
         if (requestRedraw is { } redraw)
         {
             _rankPending.ContinueWith(_ => redraw(), TaskScheduler.Default);
+        }
+    }
+
+    // A view held still inside a cooldown draws no frame of its own, so the month it moved to would never be ranked: one frame is asked
+    // for when the cooldown ends (on the scene's clock), at most one at a time, and only where the scene can ask for a frame.
+    private void WakeAfter(TimeSpan remaining)
+    {
+        if (requestRedraw is not { } redraw || Interlocked.CompareExchange(ref _wakePending, 1, 0) != 0)
+        {
+            return;
+        }
+        _ = WakeAsync();
+
+        async Task WakeAsync()
+        {
+            try
+            {
+                await _clock.SleepAsync(remaining);
+            }
+            finally
+            {
+                Volatile.Write(ref _wakePending, 0);
+                redraw();
+            }
         }
     }
 

@@ -55,10 +55,16 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
 
     private static HashSet<CatalogIndex> SetOf(OrreryScene scene) => [.. scene.CometSet.Select(c => Index(c))];
 
-    // The scene brought to the instant with its comet ranking landed: the first update starts the ranking off the render thread, a
-    // frame after it lands adopts it.
-    private static async Task UpdateRankedAsync(OrreryScene scene, DateTimeOffset utc, ICometRepository repo, OrreryCometChoice choice)
+    // The scenes' clock: a fake one, so a ranking's cooldown is the test's to step past, never the machine's.
+    private readonly FakeTimeProviderWrapper _clock = new(Instant);
+
+    private OrreryScene NewScene() => new(clock: _clock);
+
+    // The scene brought to the instant with its comet ranking landed: the clock is stepped past any ranking's cooldown, the first
+    // update starts the ranking off the render thread, a frame after it lands adopts it.
+    private async Task UpdateRankedAsync(OrreryScene scene, DateTimeOffset utc, ICometRepository repo, OrreryCometChoice choice)
     {
+        _clock.Advance(TimeSpan.FromSeconds(10));
         scene.Update(utc, repo, choice);
         await scene.WhenCometsRankedAsync();
         scene.Update(utc, repo, choice);
@@ -90,7 +96,7 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
         }
         var repo = new StubCometRepository([.. Fillers(), faint, great]);
         var choice = new OrreryCometChoice(true, null, null, null);
-        var scene = new OrreryScene();
+        var scene = NewScene();
 
         await UpdateRankedAsync(scene, Instant, repo, choice);
         output.WriteLine($"at {Instant:yyyy-MM}: {scene.CometSet.Length} comets, {string.Join(", ", scene.CometSet.Select(c => c.DisplayName))}");
@@ -113,7 +119,7 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
     {
         var repo = new StubCometRepository([.. Fillers(), Comet(40, m1: 12, q: 1.0, e: 0.6), Comet(41, m1: 11, q: 0.8, e: 0.7, daysFromPerihelion: 200)]);
         var choice = new OrreryCometChoice(true, null, null, null);
-        var scene = new OrreryScene();
+        var scene = NewScene();
         var october = new DateTimeOffset(2026, 10, 2, 0, 0, 0, TimeSpan.Zero);
 
         await UpdateRankedAsync(scene, october, repo, choice);
@@ -128,6 +134,74 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
         await UpdateRankedAsync(scene, october.AddDays(50), repo, choice);
         scene.CometRankings.ShouldBe(2);
         OrreryScene.MonthBucket(october).ShouldNotBe(OrreryScene.MonthBucket(october.AddDays(31)));
+    }
+
+    /// <summary>
+    /// Fast Play does not rank every month it crosses (R1 Q2 of PR #1631): the next ranking starts only once
+    /// <see cref="OrreryScene.CooldownAfter"/> the last one's time has passed since it landed, so the share of the time spent ranking
+    /// stays near a fifth on any host and the months between are skipped. Frames a sixtieth of a second apart, each a month on: the
+    /// rankings are spaced by the cooldown, never one a frame.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task FastPlayRanksOnlyAfterTheCooldown()
+    {
+        OrreryScene.CooldownAfter(TimeSpan.FromMilliseconds(50)).ShouldBe((OrreryScene.RankCooldownFactor * TimeSpan.FromMilliseconds(50)) + OrreryScene.RankCooldownFloor);
+        OrreryScene.RankCooldownFactor.ShouldBeGreaterThanOrEqualTo(4);
+        OrreryScene.RankCooldownFloor.ShouldBeGreaterThan(TimeSpan.Zero);
+        var repo = new StubCometRepository([.. Fillers(), Comet(40, m1: 12, q: 1.0, e: 0.6)]);
+        var choice = new OrreryCometChoice(true, null, null, null);
+        var scene = NewScene();
+        await UpdateRankedAsync(scene, Instant, repo, choice);
+        scene.CometRankings.ShouldBe(1);
+
+        var frame = TimeSpan.FromSeconds(1.0 / 60);
+        var cooldown = OrreryScene.CooldownAfter(TimeSpan.Zero);
+        var started = new List<TimeSpan>();
+        var elapsed = TimeSpan.Zero;
+        for (var month = 1; month <= 120; month++)
+        {
+            _clock.Advance(frame);
+            elapsed += frame;
+            var before = scene.CometRankings;
+            scene.Update(Instant.AddMonths(month), repo, choice);
+            if (scene.CometRankings > before)
+            {
+                started.Add(elapsed);
+            }
+            await scene.WhenCometsRankedAsync();
+        }
+        output.WriteLine($"120 frames a month apart over {elapsed.TotalSeconds:F2} s: {started.Count} rankings, at {string.Join(", ", started.Select(t => $"{t.TotalMilliseconds:F0}"))} ms (cooldown {cooldown.TotalMilliseconds:F0} ms)");
+        started.Count.ShouldBeGreaterThan(0);
+        started.Count.ShouldBeLessThan(120 / 2);
+        for (var i = 1; i < started.Count; i++)
+        {
+            (started[i] - started[i - 1]).ShouldBeGreaterThanOrEqualTo(cooldown - TimeSpan.FromTicks(1));
+        }
+    }
+
+    /// <summary>
+    /// Slow Play (a week a second) still ranks every month: a month is about four seconds of the wall clock, far past the cooldown.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task SlowPlayRanksEveryMonth()
+    {
+        var repo = new StubCometRepository([.. Fillers(), Comet(40, m1: 12, q: 1.0, e: 0.6)]);
+        var choice = new OrreryCometChoice(true, null, null, null);
+        var scene = NewScene();
+        var start = new DateTimeOffset(2026, 10, 2, 0, 0, 0, TimeSpan.Zero);
+        await UpdateRankedAsync(scene, start, repo, choice);
+        var frame = TimeSpan.FromSeconds(1.0 / 60);
+        var months = new HashSet<long> { OrreryScene.MonthBucket(start) };
+        // Six months at a week a second, a frame a sixtieth of a second.
+        for (var t = TimeSpan.Zero; t < TimeSpan.FromDays(183); t += TimeSpan.FromDays(7.0 / 60))
+        {
+            _clock.Advance(frame);
+            scene.Update(start + t, repo, choice);
+            months.Add(OrreryScene.MonthBucket(start + t));
+            await scene.WhenCometsRankedAsync();
+        }
+        output.WriteLine($"{months.Count} months crossed, {scene.CometRankings} rankings");
+        scene.CometRankings.ShouldBe(months.Count);
     }
 
     /// <summary>
@@ -182,7 +256,7 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
             output.WriteLine($"{comet.DisplayName}: magnitude {magnitude:F1} at the instant, {comet.RevolutionsSinceEpoch(InstantJdTt):F1} revolutions since its epoch");
         }
         var repo = new StubCometRepository(defunct, stale, fresh);
-        var scene = new OrreryScene();
+        var scene = NewScene();
 
         await UpdateRankedAsync(scene, Instant, repo, new OrreryCometChoice(true, null, null, null));
         SetOf(scene).ShouldBe([Index(fresh)], ignoreOrder: true);
@@ -206,7 +280,7 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
         output.WriteLine($"peak estimate {SkyMapState.PeakMagnitude(close):F1}, magnitude at the instant {magnitude:F1}");
         magnitude.ShouldBeLessThan(17);
         var repo = new StubCometRepository([.. Fillers().Take(10), close]);
-        var scene = new OrreryScene();
+        var scene = NewScene();
 
         await UpdateRankedAsync(scene, Instant, repo, new OrreryCometChoice(true, null, null, null));
         SetOf(scene).ShouldContain(Index(close));
@@ -224,7 +298,7 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
         var repo = new StubCometRepository([.. bright, .. far, Comet(60, m1: double.NaN)]);
         IReadOnlySet<CatalogIndex> pins = new HashSet<CatalogIndex> { Index(far[2]), CatalogIndex.Mars };
         var choice = new OrreryCometChoice(true, Index(far[0]), Index(far[1]), pins);
-        var scene = new OrreryScene();
+        var scene = NewScene();
 
         await UpdateRankedAsync(scene, Instant, repo, choice);
         var set = SetOf(scene);
@@ -255,7 +329,7 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
             Comet(2, 6, q: 1.1, e: 1.004, inclination: 130, daysFromPerihelion: -40),
             Comet(3, 7, q: 2.5, e: 0.3, inclination: 60, node: 10, argumentOfPerihelion: 200, daysFromPerihelion: 400),
             Comet(4, 8, q: 0.4, e: 0.95, inclination: 5, daysFromPerihelion: 3));
-        var scene = new OrreryScene();
+        var scene = NewScene();
         var choice = new OrreryCometChoice(true, null, null, null);
         await UpdateRankedAsync(scene, Instant, repo, choice);
         scene.CometSet.Length.ShouldBe(4);

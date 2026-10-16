@@ -186,4 +186,101 @@ public sealed class OrreryPlaySpeedTests(TianWenWebFixture fixture, ITestOutputH
         Assert.True(violet > 300, $"only {violet} violet pixels: the comets' orbits are not on the canvas");
         await page.Context.CloseAsync();
     }
+
+    // The ten years a second of the fifteen speeds (index 14).
+    private const int TenYearsRow = 14;
+
+    // A catalogue the size of SBDB's (4,080 comets on 2026-10-16, 1,995 with a magnitude model), generated from a fixed seed: every
+    // comet with a model is ranked each month, so this is the ranking's real workload. Element sets a year or two old, so the
+    // staleness filter scores nearly all of them.
+    private static string RealisticCometQueryResponse()
+    {
+        var instantJd = (new DateTimeOffset(2026, 10, 13, 22, 0, 0, TimeSpan.Zero) - DateTimeOffset.UnixEpoch).TotalDays + 2440587.5;
+        var random = new Random(1631);
+        string Number(double value) => value.ToString("R", CultureInfo.InvariantCulture);
+        var rows = Enumerable.Range(0, 4080).Select(n =>
+        {
+            var q = 0.3 + (5.7 * random.NextDouble() * random.NextDouble());
+            var e = n % 7 == 0 ? 1.0 : 0.1 + (0.89 * random.NextDouble());
+            var tp = instantJd + ((random.NextDouble() - 0.5) * 40 * 365.25);
+            return new string?[]
+            {
+                null, $"{n + 1}P", $"E2E {n}",
+                n < 1995 ? Number(4 + (14 * random.NextDouble())) : null,
+                n < 1995 ? Number(5 + (10 * random.NextDouble())) : null,
+                Number(e), Number(q), Number(180 * random.NextDouble()), Number(360 * random.NextDouble()), Number(360 * random.NextDouble()),
+                Number(tp), Number(instantJd - (random.NextDouble() * 2 * 365.25)),
+            };
+        });
+        return JsonSerializer.Serialize(new
+        {
+            fields = new[] { "prefix", "pdes", "name", "M1", "K1", "e", "q", "i", "om", "w", "tp", "epoch" },
+            data = rows,
+            count = 4080,
+        });
+    }
+
+    /// <summary>
+    /// What Play at ten years a second costs the browser with a catalogue of SBDB's size (R1 Q2 of PR #1631): a frame crosses months
+    /// nearly every time, and each crossing may start a ranking of the comet set, which on the browser's one thread runs between
+    /// frames. Plays half a century, five seconds of the wall clock at least, and reports the rankings started, the last ranking's time, the frames drawn and the
+    /// last frame's time; the rankings must stay bounded by the cooldown (OrreryScene.CooldownAfter).
+    /// </summary>
+    [Fact]
+    public async Task PlayAtTenYearsASecondRanksTheCometsBoundedly()
+    {
+        var page = await fixture.NewPageAsync();
+        var loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        page.Console += (_, m) =>
+        {
+            if (m.Text.Contains("[tianwen-web] comets loaded", StringComparison.Ordinal))
+            {
+                loaded.TrySetResult();
+            }
+        };
+        var body = RealisticCometQueryResponse();
+        await page.RouteAsync("**/comets-sbdb.json", route => route.FulfillAsync(new RouteFulfillOptions
+        {
+            Status = 200, ContentType = "application/json", Body = body,
+        }));
+        await page.GotoAsync(fixture.BaseUrl + AtlasLink, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
+        await Expect(page.Locator("[data-view=sky]")).ToBeVisibleAsync(new() { Timeout = BootTimeout });
+        await Expect(page.Locator(".catalog-loading")).ToHaveCountAsync(0, new() { Timeout = BootTimeout });
+        await loaded.Task.WaitAsync(TimeSpan.FromMilliseconds(BootTimeout), TestContext.Current.CancellationToken);
+        var canvas = page.Locator("#planner");
+
+        await canvas.PressAsync("Alt+s");
+        var stats = await StatsWhenAsync(page, "s.orreryOpen && s.orreryComets >= 30");
+        output.WriteLine($"opened: {stats.GetProperty("orreryComets").GetInt32()} comets, the first ranking {stats.GetProperty("lastRankMs").GetDouble():F1} ms, "
+            + $"a frame {stats.GetProperty("orreryMs").GetDouble():F1} ms");
+
+        await PressAsync(canvas, await PaintedAsync(page, "getButtonRect('OrrerySpeed')", "speedButton"));
+        await PressAsync(canvas, await PaintedAsync(page, $"getDropdownRowRect({TenYearsRow.ToString(CultureInfo.InvariantCulture)})", "speedRow"));
+        await StatsWhenAsync(page, $"s.orreryDaysPerSecond === {(10 * 365.25).ToString(CultureInfo.InvariantCulture)}");
+        var playButton = await PaintedAsync(page, "getButtonRect('OrreryPlay')", "playButton");
+
+        stats = await StatsWhenAsync(page, "s.orreryOpen");
+        var (rankings, frames) = (stats.GetProperty("orreryRankings").GetInt32(), stats.GetProperty("orreryFrames").GetInt32());
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        await PressAsync(canvas, playButton);
+        // Five seconds of the wall clock at least, read off the page's own frames: a played frame steps at most 100 ms, so half a
+        // century takes those five seconds however fast the page draws.
+        var after = await StatsWhenAsync(page, $"s.orreryPlaying && s.timeOffsetDays >= {(50 * 365.25).ToString(CultureInfo.InvariantCulture)}");
+        var seconds = clock.Elapsed.TotalSeconds;
+        await PressAsync(canvas, playButton);
+        var (rankingsDuring, framesDuring) = (after.GetProperty("orreryRankings").GetInt32() - rankings, after.GetProperty("orreryFrames").GetInt32() - frames);
+        var lastRankMs = after.GetProperty("lastRankMs").GetDouble();
+        output.WriteLine($"Play at 10 years/s for {seconds:F1} s of the wall clock: {framesDuring} frames ({framesDuring / seconds:F1} a second), "
+            + $"{rankingsDuring} rankings started, the last ranking {lastRankMs:F1} ms, the last frame {after.GetProperty("orreryMs").GetDouble():F1} ms");
+        Assert.True(framesDuring > 0, "Play drew no frame");
+        // Bounded by the cooldown (OrreryScene.CooldownAfter): a ranking waits four of its own durations and at least 100 ms after the
+        // last one lands, so ranking takes at most about a fifth of the time and never more than ten start a second. Before the
+        // cooldown, 51 rankings started in 57 frames (14.9 s), each 55 to 86 ms on the page's one thread.
+        var rankingShare = rankingsDuring * lastRankMs / (seconds * 1000);
+        output.WriteLine($"the share of the time spent ranking: {rankingShare:P0}");
+        Assert.True(rankingsDuring <= (seconds * 10) + 1, $"{rankingsDuring} rankings in {seconds:F1} s: the cooldown's floor allows ten a second");
+        Assert.True(rankingShare <= 0.25, $"ranking took {rankingShare:P0} of the time, past the cooldown's fifth");
+        Assert.True(after.GetProperty("orreryMs").GetDouble() < 250, "a played frame took a quarter of a second or more");
+        await page.Context.CloseAsync();
+    }
 }

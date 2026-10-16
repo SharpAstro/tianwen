@@ -513,6 +513,20 @@ orbits, comets as a head with a pale fan of a tail away from the Sun, labelled.
     catalogue of 1,995: a ranking takes 13 to 16 ms on the pool (median 14.6); on the render thread a played frame crossing into
     a new month costs 0.69 ms (median of 12) against 0.57 ms for a frame a minute on, and the frame that adopts the ranking 0.7
     ms (2.3 at most), one to four newcomers' orbits built and nothing else.
+  - **A cooldown between rankings** (R1 Q2 of PR #1631): the next ranking starts only once `OrreryScene.CooldownAfter` the last
+    one's duration has passed since it landed, `RankCooldownFactor` (4) times that duration plus `RankCooldownFloor` (100 ms, one
+    played step, `MaxPlayStep`), on the scene's clock (an `ITimeProvider` given to `OrreryScene`, the system's by default, a fake one
+    in the tests). So ranking takes at most about a fifth of the time on any host, and the months between are skipped: the set is the
+    month's the clock is in when the next ranking starts. A view held still inside a cooldown asks for one frame when it ends
+    (`ITimeProvider.SleepAsync`), so the month it moved to is still ranked. The cause was the browser: its single-threaded
+    WebAssembly build runs `Task.Run` on the page's one thread between frames, and fast Play crosses a month nearly every frame.
+    Measured in headless Edge on the Snapdragon X Elite (X1E80100), the interpreted Lightweight build, a generated catalogue of
+    SBDB's size (4,080 comets, 1,995 with a model; `OrreryPlaySpeedTests.PlayAtTenYearsASecondRanksTheCometsBoundedly`), Play at
+    ten years a second: before the cooldown, 51 rankings started in 57 frames over 14.9 s (3.8 frames a second), each ranking 55 to
+    86 ms against a frame of about 74 ms; after it, 12 or 13 rankings over 8 to 23 s, ranking 3 to 8 % of the time, the frame 66 to
+    78 ms, 2.7 to 8.1 frames a second (the frame rate swings with the machine's load from run to run; the rankings do not). What
+    is left is the interpreted frame itself. `FastPlayRanksOnlyAfterTheCooldown` (120 frames a month apart: 15 rankings, 133 ms
+    apart, where there were 120) and `SlowPlayRanksEveryMonth` (a week a second still ranks each month) pin it.
   - **Always added**, whatever the ranking and the filter: the comet the view was opened on, the focused one (a click) and the
     PINNED ones, however faint or stale (`OrreryCometChoice`; `TheOpenedFocusedAndPinnedAreAlwaysIn`,
     `ADefunctOrLongStaleCometIsNotRanked`). Tests: `TheSetIsTheBrightestAtTheViewingInstant` (a faint-peak comet at
