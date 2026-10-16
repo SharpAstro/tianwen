@@ -1547,12 +1547,17 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Description = "--mode stars: read every draw's injected stars back (fitted FWHM and beta, saturated plateaus and edges " +
                           "against the master's own, placement) and write a row per session to injection-measures.jsonl.",
         };
+        var starLobesOpt = new Option<bool>("--star-lobes")
+        {
+            Description = "--mode stars: draw a real star whole, the second-pass rows the plate builder fitted within 2 FWHM of it " +
+                          "carried beside it at their own offsets and amplitudes, instead of each drawn as a star of its own (R2k).",
+        };
 
         var command = new Command("degrade",
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -1652,6 +1657,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 consoleHost.WriteError("--listed-only exports the cells --extra-cells lists; pass a list");
                 return 1;
             }
+            var starLobes = parseResult.GetValue(starLobesOpt);
+            if (starLobes && mode != DatasetDegradationExporter.DegradationMode.Stars)
+            {
+                consoleHost.WriteError("--star-lobes shapes the injected stars; it needs --mode stars");
+                return 1;
+            }
 
             var options = new DatasetDegradationExporter.Options(
                 BakeRoot: parseResult.Required(bakeOpt),
@@ -1686,7 +1697,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 SyntheticBackground: backgroundText == "synthetic",
                 BrightKnotsWide: brightKnotsWide,
                 NebulaKnots: nebulaKnots,
-                Steering: degradeSteering);
+                Steering: degradeSteering,
+                StarLobes: starLobes);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);

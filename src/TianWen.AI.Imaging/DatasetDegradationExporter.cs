@@ -403,6 +403,9 @@ namespace TianWen.AI.Imaging
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.SyntheticBackground.NebulaKnots"/>).</param>
         /// <param name="Steering">With <paramref name="SyntheticBackground"/>: R2e's steered texture
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.SyntheticBackground.Steering"/>); null for arm B's isotropic one.</param>
+        /// <param name="StarLobes">Stars mode: a real star is drawn whole, its second-pass rows carried beside it
+        /// (<see cref="TianWen.Lib.Imaging.StarRemoval.InjectionPopulation.LobeReachFwhm"/>, R2k); off, every row is a star of
+        /// its own.</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -441,7 +444,8 @@ namespace TianWen.AI.Imaging
             bool SyntheticBackground = false,
             bool BrightKnotsWide = false,
             bool NebulaKnots = false,
-            TianWen.Lib.Imaging.StarRemoval.SyntheticBackground.Steering? Steering = null);
+            TianWen.Lib.Imaging.StarRemoval.SyntheticBackground.Steering? Steering = null,
+            bool StarLobes = false);
 
         /// <summary>
         /// The options one session's draws are made with: the warped shape's smoothing chosen by what made the master's noise.

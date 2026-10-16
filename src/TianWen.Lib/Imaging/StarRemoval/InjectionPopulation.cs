@@ -26,9 +26,23 @@ public sealed record InjectionPlan(ImmutableArray<InjectedStar> Stars, int Reque
 /// per-channel amplitudes taken whole (so the brightness distribution and the colours are the field's), each channel's
 /// profile from the master's measured PSF, elongated as the real stars within <see cref="MomentReachPx"/> are; and, on
 /// request, one saturated star with the clip levels and the wing amplitude of one of the master's own saturated stars.
+/// With lobes carried (R2k), a real star is drawn whole: the second-pass rows the builder fitted beside it travel with it
+/// (<see cref="LobeReachFwhm"/>).
 /// </summary>
 public sealed class InjectionPopulation
 {
+    /// <summary>
+    /// With lobes carried, a second-pass row (found on the first pass's residual) whose nearest BRIGHTER first-pass row is
+    /// at most this many of the field's FWHM away is part of that star: it leaves the amplitude pool and the cell's count,
+    /// and is injected beside its star at the offset and with the amplitudes it was fitted with. One real star is not one
+    /// Moffat: over the 201 masters of the 2026-10-12 store, 52 % of the 100 to 1000 sigma stars carry a second-pass row
+    /// within 4 px, at a median 8 % of their significance, pointing one way in 123 of 200 sessions and often in another
+    /// colour (docs/plans/star-remover-training.md, R2k). Those rows are 32 % of the pool a lobe-free draw takes stars from.
+    /// The reach is where their excess over chance ends: the median lobe is 1.71 FWHM out, and past 2 FWHM a second-pass
+    /// row's brightness against its neighbour's stops changing, as a chance neighbour's would.
+    /// </summary>
+    public const double LobeReachFwhm = 2.0;
+
     /// <summary>A random-arm star keeps at least this many FWHM from every subtracted site.</summary>
     public const double ExclusionFwhm = 3.0;
 
@@ -60,16 +74,17 @@ public sealed class InjectionPopulation
     private readonly (double Fwhm, double Beta)[] _psf;
     private readonly double _fieldFwhm;
     private readonly (double X, double Y)[] _sites;
+    private readonly (double X, double Y)[] _countedSites;
     private readonly SiteGrid _siteGrid;
-    private readonly ImmutableArray<double>[] _amplitudes;
-    private readonly (ImmutableArray<double> Amplitudes, ImmutableArray<double> Clips)[] _saturated;
+    private readonly PoolStar[] _amplitudes;
+    private readonly PoolStar[] _saturated;
     private readonly ImmutableArray<double> _fallbackClips;
     private readonly (double X, double Y, double E, double Theta)[] _moments;
     private readonly StarlessFieldProfile? _field;
 
     private InjectionPopulation(
         int width, int height, int channels, BitMatrix? absent, (double Fwhm, double Beta)[] psf, (double X, double Y)[] sites,
-        ImmutableArray<double>[] amplitudes, (ImmutableArray<double>, ImmutableArray<double>)[] saturated, ImmutableArray<double> fallbackClips,
+        (double X, double Y)[] countedSites, PoolStar[] amplitudes, PoolStar[] saturated, ImmutableArray<double> fallbackClips,
         (double X, double Y, double E, double Theta)[] moments, StarlessFieldProfile? field)
     {
         _field = field;
@@ -80,6 +95,7 @@ public sealed class InjectionPopulation
         _psf = psf;
         _fieldFwhm = psf.Average(static p => p.Fwhm);
         _sites = sites;
+        _countedSites = countedSites;
         _siteGrid = new SiteGrid(sites, Math.Max(1.0, ExclusionFwhm * _fieldFwhm));
         _amplitudes = amplitudes;
         _saturated = saturated;
@@ -87,11 +103,24 @@ public sealed class InjectionPopulation
         _moments = moments;
     }
 
+    /// <summary>A star the pool draws: its amplitudes, its clip levels (empty unless saturated) and the lobes that travel with
+    /// it (empty unless lobes are carried).</summary>
+    private sealed record PoolStar(ImmutableArray<double> Amplitudes, ImmutableArray<double> Clips, ImmutableArray<Lobe> Lobes);
+
+    /// <summary>A second-pass row carried beside its star: its offset from the star's centre, and its amplitudes.</summary>
+    private sealed record Lobe(double Dx, double Dy, ImmutableArray<double> Amplitudes);
+
     /// <summary>Subtracted sites the population knows.</summary>
     public int Sites => _sites.Length;
 
+    /// <summary>Subtracted sites a cell's count is taken over: every site but the lobes, which come with their stars.</summary>
+    public int CountedSites => _countedSites.Length;
+
     /// <summary>Unsaturated stars the brightness is drawn from.</summary>
     public int AmplitudePool => _amplitudes.Length;
+
+    /// <summary>Lobes carried by the stars of both pools.</summary>
+    public int CarriedLobes => _amplitudes.Sum(static s => s.Lobes.Length) + _saturated.Sum(static s => s.Lobes.Length);
 
     /// <summary>Saturated stars a saturated injection is drawn from (0 means the fallback clip).</summary>
     public int SaturatedPool => _saturated.Length;
@@ -120,10 +149,12 @@ public sealed class InjectionPopulation
     /// stars will be rendered in (the exporter's unit range, 1 over its divisor); <paramref name="psf"/> is each channel's
     /// FWHM and Moffat beta, the master's own measurement. <paramref name="absent"/> is the frame's absent canvas.
     /// <paramref name="field"/> is the plate builder's own profile, which <see cref="StarProfileFamily.Field"/> draws with.
+    /// <paramref name="lobes"/> carries each star's second-pass rows with it (<see cref="LobeReachFwhm"/>); off, every row
+    /// is a star of its own, as before R2k.
     /// </summary>
     public static InjectionPopulation Build(
         ImmutableArray<FittedStar> catalogue, Image master, Image plate, double scale, IReadOnlyList<(double Fwhm, double Beta)> psf, BitMatrix? absent,
-        StarlessFieldProfile? field = null)
+        StarlessFieldProfile? field = null, bool lobes = false)
     {
         var channels = master.ChannelCount;
         if (psf.Count != channels)
@@ -139,9 +170,35 @@ public sealed class InjectionPopulation
         var fieldFwhm = psf.Average(static p => p.Fwhm);
 
         var sites = catalogue.Where(static s => s.Outcome == StarFitOutcome.Subtracted).Select(static s => ((double)s.X, (double)s.Y)).ToArray();
-        var amplitudes = catalogue
-            .Where(s => Usable(s, channels) && !s.Saturated && s.ChannelAmplitudes.Max() > 0)
-            .Select(s => s.ChannelAmplitudes.Select(a => Math.Max(0.0, a) * scale).ToImmutableArray())
+        var parentOf = lobes ? LobeParents(catalogue, LobeReachFwhm * (field?.Luminance.Fwhm ?? fieldFwhm)) : null;
+        var carried = new Dictionary<int, List<Lobe>>();
+        if (parentOf is not null)
+        {
+            for (var k = 0; k < catalogue.Length; k++)
+            {
+                var s = catalogue[k];
+                // A claimed row the injector cannot draw (not the field's Moffat, or a channel without an amplitude) is part
+                // of its star all the same: it leaves the pool and the count, and is not drawn.
+                if (parentOf[k] is var p and >= 0 && Usable(s, channels) && s.ChannelAmplitudes.Max() > 0)
+                {
+                    if (!carried.TryGetValue(p, out var list))
+                    {
+                        list = [];
+                        carried[p] = list;
+                    }
+                    list.Add(new Lobe(s.X - catalogue[p].X, s.Y - catalogue[p].Y, [.. s.ChannelAmplitudes.Select(a => Math.Max(0.0, a) * scale)]));
+                }
+            }
+        }
+        bool IsLobe(int k) => parentOf is not null && parentOf[k] >= 0;
+        ImmutableArray<Lobe> LobesOf(int k) => carried.TryGetValue(k, out var list) ? [.. list] : [];
+        var countedSites = Enumerable.Range(0, catalogue.Length)
+            .Where(k => catalogue[k].Outcome == StarFitOutcome.Subtracted && !IsLobe(k))
+            .Select(k => ((double)catalogue[k].X, (double)catalogue[k].Y))
+            .ToArray();
+        var amplitudes = Enumerable.Range(0, catalogue.Length)
+            .Where(k => catalogue[k] is var s && Usable(s, channels) && !s.Saturated && s.ChannelAmplitudes.Max() > 0 && !IsLobe(k))
+            .Select(k => new PoolStar([.. catalogue[k].ChannelAmplitudes.Select(a => Math.Max(0.0, a) * scale)], [], LobesOf(k)))
             .ToArray();
         if (amplitudes.Length == 0)
         {
@@ -159,10 +216,11 @@ public sealed class InjectionPopulation
         {
             platePlanes[c] = plate.GetChannelSpan(c).ToArray();
         }
-        var saturated = catalogue
-            .Where(s => InSaturatedPool(s, channels))
-            .Select(s => SaturatedEntry(s, planes, platePlanes, width, height, scale))
-            .Where(static t => t.Clips.Any(double.IsFinite) && t.Clips.All(static v => v > 0))
+        var saturated = Enumerable.Range(0, catalogue.Length)
+            .Where(k => InSaturatedPool(catalogue[k], channels) && !IsLobe(k))
+            .Select(k => (Entry: SaturatedEntry(catalogue[k], planes, platePlanes, width, height, scale), Lobes: LobesOf(k)))
+            .Where(static t => t.Entry.Clips.Any(double.IsFinite) && t.Entry.Clips.All(static v => v > 0))
+            .Select(static t => new PoolStar(t.Entry.Amplitudes, t.Entry.Clips, t.Lobes))
             .ToArray();
         var fallbackClips = Enumerable.Range(0, channels)
             .Select(c => FallbackClipFraction * planes[c].Where(float.IsFinite).DefaultIfEmpty(0f).Max() * scale)
@@ -198,7 +256,40 @@ public sealed class InjectionPopulation
             }
         }
 
-        return new InjectionPopulation(width, height, channels, absent, psf.ToArray(), sites, amplitudes, saturated, fallbackClips, moments.ToArray(), field);
+        return new InjectionPopulation(width, height, channels, absent, psf.ToArray(), sites, countedSites, amplitudes, saturated, fallbackClips,
+            moments.ToArray(), field);
+    }
+
+    /// <summary>
+    /// Each catalogue row's star when it is a lobe, else -1: a Subtracted second-pass row is given the nearest Subtracted
+    /// first-pass row within <paramref name="reach"/> pixels that is more significant than it.
+    /// </summary>
+    internal static int[] LobeParents(ImmutableArray<FittedStar> catalogue, double reach)
+    {
+        var parentOf = new int[catalogue.Length];
+        Array.Fill(parentOf, -1);
+        var first = Enumerable.Range(0, catalogue.Length)
+            .Where(k => catalogue[k].Outcome == StarFitOutcome.Subtracted && !catalogue[k].SecondPass)
+            .ToArray();
+        if (first.Length == 0 || !(reach > 0))
+        {
+            return parentOf;
+        }
+        var grid = new SiteGrid([.. first.Select(k => ((double)catalogue[k].X, (double)catalogue[k].Y))], reach);
+        for (var k = 0; k < catalogue.Length; k++)
+        {
+            var s = catalogue[k];
+            if (s.Outcome != StarFitOutcome.Subtracted || !s.SecondPass)
+            {
+                continue;
+            }
+            var j = grid.Nearest(s.X, s.Y, reach, i => catalogue[first[i]].Significance > s.Significance);
+            if (j >= 0)
+            {
+                parentOf[k] = first[j];
+            }
+        }
+        return parentOf;
     }
 
     /// <summary>
@@ -214,7 +305,7 @@ public sealed class InjectionPopulation
         var y1 = Math.Min(_height, cellY + size + margin);
         var inCell = 0;
         var regionSites = new List<(double X, double Y)>();
-        foreach (var (sx, sy) in _sites)
+        foreach (var (sx, sy) in _countedSites)
         {
             if (sx >= cellX && sx < cellX + size && sy >= cellY && sy < cellY + size)
             {
@@ -238,8 +329,9 @@ public sealed class InjectionPopulation
             {
                 continue;
             }
-            var amplitudes = _amplitudes[rng.Next(_amplitudes.Length)];
-            stars.Add(new InjectedStar(p.X, p.Y, amplitudes, ProfilesAt(p.X, p.Y, family), Saturated: false, ImmutableArray<double>.Empty));
+            var drawn = _amplitudes[rng.Next(_amplitudes.Length)];
+            stars.Add(new InjectedStar(p.X, p.Y, drawn.Amplitudes, ProfilesAt(p.X, p.Y, family), Saturated: false, ImmutableArray<double>.Empty));
+            AddLobes(stars, p, drawn.Lobes, family);
             placed++;
         }
 
@@ -253,25 +345,47 @@ public sealed class InjectionPopulation
             {
                 ImmutableArray<double> amplitudes;
                 ImmutableArray<double> clips;
+                ImmutableArray<Lobe> lobes = [];
                 if (_saturated.Length > 0)
                 {
-                    (amplitudes, clips) = _saturated[rng.Next(_saturated.Length)];
+                    var drawn = _saturated[rng.Next(_saturated.Length)];
+                    (amplitudes, clips, lobes) = (drawn.Amplitudes, drawn.Clips, drawn.Lobes);
                 }
                 else
                 {
                     // No saturated star of its own to copy: clip at the fallback level, a real star's colour taken past it.
                     fallback = true;
                     clips = _fallbackClips;
-                    var colour = _amplitudes[rng.Next(_amplitudes.Length)];
+                    var colour = _amplitudes[rng.Next(_amplitudes.Length)].Amplitudes;
                     var peak = colour.Max();
                     var over = 2.0 + rng.NextDouble() * 18.0;
                     var target = clips.Max() * over;
                     amplitudes = colour.Select(a => peak > 0 ? a / peak * target : target).ToImmutableArray();
                 }
                 stars.Add(new InjectedStar(p.X, p.Y, amplitudes, ProfilesAt(p.X, p.Y, family), Saturated: true, clips));
+                AddLobes(stars, p, lobes, family);
             }
         }
         return new InjectionPlan(stars.ToImmutable(), requested, placed, fallback);
+    }
+
+    // A drawn star's lobes beside it, at their own offsets, each with the profile of where it lands; one that would land off
+    // the frame or on an absent pixel is left out. They draw nothing from the random stream, so a plan with lobes places
+    // and picks its stars as one without them would, the count aside.
+    private void AddLobes(ImmutableArray<InjectedStar>.Builder stars, (double X, double Y) at, ImmutableArray<Lobe> lobes, StarProfileFamily family)
+    {
+        foreach (var lobe in lobes)
+        {
+            var x = at.X + lobe.Dx;
+            var y = at.Y + lobe.Dy;
+            var px = (int)Math.Round(x);
+            var py = (int)Math.Round(y);
+            if (px < 0 || py < 0 || px >= _width || py >= _height || (_absent is { } a && a[py, px]))
+            {
+                continue;
+            }
+            stars.Add(new InjectedStar(x, y, lobe.Amplitudes, ProfilesAt(x, y, family), Saturated: false, ImmutableArray<double>.Empty, Lobe: true));
+        }
     }
 
     private (double X, double Y)? Jitter((double X, double Y) site, Random rng)
@@ -551,6 +665,38 @@ public sealed class InjectionPopulation
                 }
             }
             return false;
+        }
+
+        /// <summary>The nearest point within <paramref name="radius"/> that <paramref name="accept"/> takes, or -1.</summary>
+        public int Nearest(double x, double y, double radius, Func<int, bool> accept)
+        {
+            var reach = (int)Math.Ceiling(radius / _cell);
+            var cx = (int)Math.Floor(x / _cell);
+            var cy = (int)Math.Floor(y / _cell);
+            var best = -1;
+            var bestD2 = radius * radius;
+            for (var gy = cy - reach; gy <= cy + reach; gy++)
+            {
+                for (var gx = cx - reach; gx <= cx + reach; gx++)
+                {
+                    if (!_cells.TryGetValue(Key(gx, gy), out var list))
+                    {
+                        continue;
+                    }
+                    foreach (var i in list)
+                    {
+                        var dx = _points[i].X - x;
+                        var dy = _points[i].Y - y;
+                        var d2 = dx * dx + dy * dy;
+                        if (d2 <= bestD2 && (best < 0 || d2 < bestD2 || i < best) && accept(i))
+                        {
+                            best = i;
+                            bestD2 = d2;
+                        }
+                    }
+                }
+            }
+            return best;
         }
     }
 }

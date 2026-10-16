@@ -138,6 +138,29 @@ public sealed class StarRemovalEvalTests : IDisposable
     }
 
     [Fact]
+    public async Task ALobeIsScoredAsPartOfItsStarAndNotAsAStarOfItsOwn()
+    {
+        var root = _folders.Create("starless-eval-").FullName;
+        var export = Path.Combine(root, "export");
+        var outputs = Path.Combine(root, "outputs");
+        var star = Star(128, 128, 1.0, 3.0);
+        var lobe = Star(131, 128, 0.08, 3.0);
+        var manifest = new List<string>();
+        var tile = WriteDraw(export, "S", 0, (_, _) => Sky, (_, i) => Sky + star[i] + lobe[i],
+            [InjectedAt(128, 128), InjectedAt(131, 128) with { Lobe = true }], manifest);
+        // An output that takes the star and leaves its lobe: 8 sigma at 3 px from the star's centre.
+        WriteTile(Path.Combine(outputs, "out0.f16"), i => Sky + lobe[i], Channels);
+
+        var report = await ScoreAsync(export, outputs, manifest, [(tile, "out0.f16")]);
+
+        report.Stars.ShouldBe(1, "the lobe is no site of its own");
+        var output = Band(Arm(report, "output"));
+        (output.Removed, output.Clean).ShouldBe((1, 0), "the core is gone, and the lobe left beside it is the star not cleanly removed");
+        var plate = Band(Arm(report, "plate (removes all)"));
+        (plate.Removed, plate.Clean).ShouldBe((1, 1));
+    }
+
+    [Fact]
     public async Task ADugCoreIsRemovedOneSidedButNeverCleanAndTheBlendsTurnTheOutputDown()
     {
         var root = _folders.Create("starless-eval-").FullName;
