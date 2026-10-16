@@ -1057,8 +1057,9 @@ clean recordings with the view, in order:
 | `DOTNET_gcServer=0` | 196.8, 196.6, 196.7 | 5 (0.04 %), 15 (0.13 %), 0 | 0, 9, 2 |
 | Server GC + `SustainedLowLatency` while capturing (not kept) | 196.6, 196.5, 196.4 | 28 (0.24 %), 31 (0.26 %), 57 (0.48 %) | 9, 49, 0 |
 | **+ the ring's planes kept across captures (kept)** | 196.0, 196.4, 195.2 | **0, 0, 0** | 43, 21, 92 |
+| **+ the writer woken on its own thread (kept)** | 195.6, 196.8, 196.8 | 67 (0.57 %), 0, 0 | **0, 0, 0** |
 
-Before the fix the same arm replaced 1,793 to 3,263 a minute. What is left is the node's collections: each capture there saw 3 to
+Before the fix the same arm replaced 1,793 to 3,263 a minute. What is left is the node's collections: each node capture with Server GC saw 2 to
 9 gen 2 collections pausing 283 to 592 ms in all (in process, 0 to 4 and 11 to 77 ms). A pause holds every managed thread, the
 reader and the writer included, and its suspension waits for every starved normal-priority thread (the live stack's workers among
 them) to reach a safe point; a pause on top of a backlog passes the hand-off's 64 frames (a third of a second). The disk was not
@@ -1068,36 +1069,38 @@ with the reader. `SustainedLowLatency` kept none of it away: its captures still 
 says as it ends what the process collected and paused, and its heap and working set. **With the ring's planes kept across
 captures** (the last set, on main with #1610, a separate set the same evening) the three clean recordings replaced none, and every
 node capture but the first, whose ring had to be filled fresh (13/10/9 collections, 655 ms), ran with no gen 2 collection at all
-(2 to 5 gen 0, 12 to 372 ms in all; the node's heap 1.3 to 2.7 GB). Of the eighteen clean recordings with the view under the 32
-spinners, eight replaced under 0.1 % (seven none) and the worst 0.79 %, all before the ring's fix; the node arm is accepted as
-measured.
+(2 to 5 gen 0, 12 to 372 ms in all; the node's heap 1.3 to 2.7 GB). Of the twenty-one clean recordings with the view under the 32
+spinners, ten replaced under 0.1 % (nine none); the worst replaced 0.79 % before the ring's fix and 0.57 % after it (beside
+another program's `tianwen` at 0.9 to 1.0 cores). The node arm is accepted as measured.
 
-**The disk's drops are not solved.** Frames the writer's queue dropped, missing from the SER, came in most sets under the 32
-spinners, before the ring's fix and after it (0 to 151 a recording), with the writer's writes taking 1 to 5 ms: the writer held,
-not the disk. In the ring-fix set they were 17, 65, 43 and 21 in the recordings whose load was the 32 spinners and the node alone,
-and 35, 92 and 104 in the three during which another program's `tianwen` (not this probe's, gone before it could be named) used
-1.1 to 1.3 cores. The view's floor was missed twice in that set too (8.6 live frames a second with the spinners alone, 7.3 with
-the other `tianwen`), and stands as measured. What holds the writer, and the hand-off's depth (64 frames, about a third of a
-second) against pauses of up to about 0.6 s, are a follow-up issue.
+**The disk's drops were the writer woken through the pool.** Frames the writer's queue dropped, missing from the SER, came in most
+sets under the 32 spinners (0 to 151 a recording) while each write took 1 to 5 ms: the writer was held, not the disk. Its wait
+was `ReadAllAsync`'s, which keeps no context, so a pool thread took every frame first (review round 1 of #1621); with every pool
+thread held the writer did not wake at all (`SerRecordingWriterWakeTests`). Waking on its own thread, the last set dropped none
+in any recording, the writer waiting 4,321 to 9,016 times a recording and woken on the pool none of them; the ring-fix set before
+it had dropped 17 to 104. The view's floor was missed twice in the ring-fix set (8.6 live frames a second with the spinners alone,
+7.3 beside another program's `tianwen` at 1.1 to 1.3 cores) and stands as measured; in the last set it showed 14.8 to 16.9. The
+hand-off's depth (64 frames, about a third of a second) against pauses of up to about 0.6 s is a follow-up issue.
 
 **What allocates, attributed** (`PlanetaryNodeAllocationProbe`, opt-in with `TIANWEN_ALLOCATION_PROBE=1`: the node's shape in
 process over the fake camera at 640x480, the runtime's own allocation ticks summed by type and heap). **A new capture's frame ring
 is the big one**: it holds `max(2 x MaxWindowFrames, 1024)` frames as float planes, 1,024 x 1.2 MB, and fills with fresh
 large-object planes over a capture's first 1,024 frames, about 5 s: 1,204 MB, all `Single[,]`, every capture, left to the GC when
 it ends (the node's heap of 1.3 to 1.6 GB). Once full, the ring recycles its evicted planes and the capture with its view's 33 ms
-sample allocates 3.0 KB a frame, small objects only. **The live stack allocates 5.6 MB of large objects a master**: the master's
+sample allocates 3.0 KB a frame, small objects only. **The live stack allocates 5.6 MB a master, 4.85 MB of it large objects at five sites**: the master's
 plane (1.4 MB), a frame-sized `Int32[]` (1.4 MB), the registration's FFT buffers (`Complex[]`, 1.2 MB, `CorrelationRegistrar`),
 `Single[]` (0.5 MB) and `Boolean[]` masks (0.35 MB), at 2 to 11 masters a minute. **The ring is fixed** (`RingPlaneShelf`): on
 the probe a second capture's ring fill allocated 1,204 MB before and 3 MB after, with no collection. Left for the follow-up: the
-live stack's 4.9 MB of large objects a master (the five sites above), a ring in the stream's own depth (a quarter of the size at 8
+live stack's 4.85 MB of large objects a master (the five sites above), a ring in the stream's own depth (a quarter of the size at 8
 bits), and a deeper hand-off.
 
 **The view and the node still answer under the load, and are bounded in the probe** (`NodePlanetaryRateProbe`): the node answers
 `GET /api/v1/planetary` at p99 under 250 ms, a gain staged through the GUI's client is on the camera within 1 s outside a stall,
 and the view shows at least what it showed before the fix at the same load (10.7 live frames a second under the 32 spinners, 24.6
-below-normal, 29.8 quiet). Under the 32 spinners after the fix the node answered at p99 124 to 205 ms (181 to 194 before), gains
-landed in 12 to 586 ms (23 to 556 before), and the view showed 13.4 to 20.1 frames a second (10.7 and 13.6 before) but once 9.1,
-**under its floor**, which the gate failed and which stands as measured. Below-normal the node answered at p99 2.5 to 2.9 ms (32
+below-normal, 29.8 quiet). Under the 32 spinners after the fix, over the clean recordings, the node answered at p99 110 to 247 ms (181 and 184
+before), gains landed in 6 to 586 ms (23 to 556 before), and the view showed 7.3 to 20.1 frames a second (10.7 and 13.6 in the
+clean recordings before; 4.7 and 8.5 in two the camera stalled in, set apart, so the floor is 10.7), **under its floor three
+times** (9.1, 8.6, 7.3), which the gate failed and which stands as measured. Below-normal the node answered at p99 2.5 to 2.9 ms (32
 to 62 before) and the view showed 29.7 to 29.9 (24.6 to 28.4); quiet, p99 0.5 ms and 29.8 to 30.0. The reader uses about a
 quarter of a core at 197 frames a second and, with no frame coming, no processor time (`PlanetaryCaptureReaderTests`).
 
