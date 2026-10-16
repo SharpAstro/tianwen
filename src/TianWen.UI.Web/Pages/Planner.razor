@@ -2719,6 +2719,8 @@
             + ",\"orreryPlaying\":" + ((_skyTab?.State.Orrery.Playing ?? false) ? "true" : "false")
             + ",\"orreryFrames\":" + (_skyTab?.OrreryFrames ?? 0).ToString(CultureInfo.InvariantCulture)
             + ",\"orreryMs\":" + (_skyTab?.LastOrreryFrameMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
+            // sunTextured - the frames that traced the Sun from its atlas map (#1608), what a test of the textured Sun waits on.
+            + ",\"sunTextured\":" + (_skyTab?.SunTexturedTraces ?? 0).ToString(CultureInfo.InvariantCulture)
             + ",\"renderMs\":" + _renderMs.ToString("F1", CultureInfo.InvariantCulture)
             + ",\"gatherMs\":" + (_skyTab?.PrimOverlayGatherMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
             + ",\"uploads\":" + (_skyTab?.OverlayInstanceUploads ?? 0).ToString(CultureInfo.InvariantCulture)
