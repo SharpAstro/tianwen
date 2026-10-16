@@ -1007,13 +1007,13 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// A comet's brightness at its peak, roughly: <c>M1 + K1 log10(max(q, 0.05))</c>, the total magnitude at <c>r = q</c> seen
-        /// from an AU away. The ONE ranking of comets by how bright they get, used by the sky's candidacy filter and the orrery's comet
-        /// set (<see cref="OrreryScene.CometSetSize"/>); NaN for a comet with no magnitude model.
+        /// from an AU away: the sky's candidacy filter (<see cref="IsCometCandidate"/>); NaN for a comet with no magnitude model.
         /// </summary>
         /// <summary>
         /// Whether a comet's photometric model could plausibly bring it into naked-marker range: it has a model and an index, and its
-        /// <see cref="PeakMagnitude"/> is no fainter than <see cref="CometCandidacyMagnitudeLimit"/>. The ONE candidacy rule, for the
-        /// sky's per-frame sweep and the orrery's ranking at the viewing instant (<see cref="OrreryScene"/>).
+        /// <see cref="PeakMagnitude"/> is no fainter than <see cref="CometCandidacyMagnitudeLimit"/>. The sky's candidacy rule, for its
+        /// per-frame sweep. The orrery does NOT use it: its monthly ranking scores every comet with a model at the instant
+        /// (<see cref="OrreryScene.RankAt"/>), since a peak estimate just past the limit left out a comet bright now.
         /// </summary>
         internal static bool IsCometCandidate(in CometElements el)
             => el.HasMagnitudeModel && el.CatalogIndex is not null && PeakMagnitude(el) <= CometCandidacyMagnitudeLimit;

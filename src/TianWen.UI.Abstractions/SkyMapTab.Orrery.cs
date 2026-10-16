@@ -142,8 +142,8 @@ namespace TianWen.UI.Abstractions
             var viewingTime = baseTime + State.TimeOffset;
             _lastViewingTime = viewingTime;
 
-            // The comets the app knows (#1611): the brightest at peak while the atlas's comet layer is on, and always the one the view
-            // was opened on, the focused one and the pinned ones.
+            // The comets the app knows (#1611): the brightest at the viewing instant (ranked per month) while the atlas's comet layer is
+            // on, and always the one the view was opened on, the focused one and the pinned ones.
             var scene = OrreryScene;
             scene.Update(viewingTime, plannerState.Comets, new OrreryCometChoice(State.ShowComets, orrery.Comet, orrery.Focus, PinnedCatalogIndices(plannerState)));
             if (_orreryFramePending)

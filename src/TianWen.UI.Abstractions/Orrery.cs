@@ -309,9 +309,9 @@ public readonly record struct OrreryBody(CatalogIndex Index, string Name, double
 /// What the orrery draws, cached so a drag or a scrub costs a projection and no ephemeris: the bodies' positions, the comets' among
 /// them, per MINUTE of the atlas's clock and per version of the comet set; the planets' orbits per CENTURY (built off the render
 /// thread, the Task the hand-off); each comet's orbit per element set, in a dictionary by its index. The comet set (the brightest
-/// at peak, <see cref="CometSetSize"/>, ranked once per repository and count, plus the opened, focused and pinned ones) is read
-/// again only when its KEY changes: the repository, its <see cref="ICometRepository.Version"/>, or the choice; never by comparing
-/// every element set on every frame. A drag changes none of the keys, so it builds nothing (<see cref="OrbitBuilds"/>,
+/// at the viewing instant, <see cref="CometSetSize"/>, ranked once per MONTH of the clock on the pool by <see cref="RankAt"/>, plus
+/// the opened, focused and pinned ones) is read again only when its KEY changes: the repository, its
+/// <see cref="ICometRepository.Version"/>, the ranking adopted, or the choice; never by comparing every element set on every frame. A drag changes none of the keys, so it builds nothing (<see cref="OrbitBuilds"/>,
 /// <see cref="CometOrbitBuilds"/>, <see cref="PositionBuilds"/>), and Play across years computes the positions once a minute of the
 /// clock and builds no orbit.
 /// </summary>
@@ -326,15 +326,18 @@ public sealed class OrreryScene(Action? requestRedraw = null)
     /// <summary>How far an open (parabolic or hyperbolic) comet orbit is drawn from the Sun, AU.</summary>
     public const double OpenOrbitReachAu = 40;
 
-    /// <summary>How many of the brightest comets at peak the orrery draws: about the thirty the controller asked for, which in the
-    /// catalogue of 2026-10 is every comet whose peak estimate is brighter than about magnitude 3.4 (12P/Pons-Brooks among them).</summary>
+    /// <summary>How many of the brightest comets at the viewing instant the orrery draws (<see cref="RankAt"/>): about the thirty the
+    /// controller asked for, which at 2026-10-16 reaches magnitude 17 or so, 10P/Tempel, 161P/Hartley-IRAS, 220P/McNaught and
+    /// P/2026 R2 (Leonard) among them.</summary>
     public const int CometSetSize = 30;
 
     private long _positionsMinute = long.MinValue;
     private int _positionsSetVersion = -1;
     private ImmutableArray<OrreryBody> _bodies = [];
 
-    // The sky's candidates (SkyMapState.IsCometCandidate), gathered once per repository and count of comets.
+    // Every comet the ranking can score (a magnitude model and an index), gathered once per repository and count of comets. Not the
+    // sky's candidates: its candidacy is a PEAK estimate, which left P/2026 R2 (Leonard, peak 18.1 against 18.0) out while it was
+    // magnitude 16 and the seventeenth brightest at the instant.
     private ICometRepository? _candidatesRepo;
     private int _candidatesCount = -1;
     private ImmutableArray<CometElements> _candidates = [];
@@ -393,6 +396,17 @@ public sealed class OrreryScene(Action? requestRedraw = null)
     /// <summary>The instants of a month a comet is scored at: its best magnitude over them, so a comet bright for part of the month counts.</summary>
     public const int RankSamplesPerMonth = 4;
 
+    /// <summary>
+    /// The most revolutions an element set may be past its epoch, at the month's middle, for its comet to be ranked. Two-body
+    /// propagation from an old osculating set drifts in PHASE (CometRepository), and the magnitude law then predicts a perihelion
+    /// passage that is not happening. In the catalogue of 2026-10-16 (1,984 comets ranked) the brightest stale set was C/2020 P4-B, 5.97
+    /// revolutions old, modelled at magnitude 5.8 at r = 0.095 AU near a modelled perihelion on about 2026-10-27, the first of the
+    /// month's best by six magnitudes; every other set among the 45 brightest was at most 4.1 old, the known periodics 0.4 to 2.9. Five
+    /// keeps those and drops the fragments decades out (79P-A and B, 8.6 and 8.7). A comet with no period (an open orbit) has no
+    /// revolutions to count and is kept.
+    /// </summary>
+    public const double MaxRevolutionsSinceEpoch = 5;
+
     /// <summary>The month of <paramref name="utc"/> the set is ranked for: a ranking holds while the view's clock stays in it.</summary>
     public static long MonthBucket(DateTimeOffset utc) => (utc.UtcDateTime.Year * 12L) + utc.UtcDateTime.Month - 1;
 
@@ -426,16 +440,22 @@ public sealed class OrreryScene(Action? requestRedraw = null)
     /// Ranks <paramref name="candidates"/> for the month <paramref name="bucket"/>: each comet's best predicted magnitude over
     /// <see cref="RankSamplesPerMonth"/> instants spread over the month, through the sky's own calls (one
     /// <see cref="CometEphemeris.TryGetEarthState"/> per instant, <see cref="CometEphemeris.TryGetEquatorialJ2000WithMagnitude(in CometElements, in CometEphemeris.EarthState, out double, out double, out double)"/>
-    /// per candidate), then <see cref="SelectBrightest"/>. Pure: run on the pool.
+    /// per candidate), then <see cref="SelectBrightest"/>. A comet the model cannot be trusted for is not scored however bright it
+    /// says it is: a D/ (defunct or lost) designation, and an element set more than <see cref="MaxRevolutionsSinceEpoch"/> past its
+    /// epoch at the month's middle. Pure: run on the pool.
     /// </summary>
     internal static ImmutableArray<CatalogIndex> RankAt(ImmutableArray<CometElements> candidates, long bucket, IReadOnlySet<CatalogIndex>? members)
     {
         var start = new DateTimeOffset((int)(bucket / 12), (int)(bucket % 12) + 1, 1, 0, 0, 0, TimeSpan.Zero);
         var month = start.AddMonths(1) - start;
+        var middleJdTt = CometEphemeris.TryGetEarthState(start + (month / 2), out var middle) ? middle.JdTt : double.NaN;
         var scored = new (CatalogIndex Index, double Best)[candidates.Length];
+        Span<bool> trusted = candidates.Length <= 4096 ? stackalloc bool[candidates.Length] : new bool[candidates.Length];
         for (var i = 0; i < candidates.Length; i++)
         {
-            scored[i] = (candidates[i].CatalogIndex ?? default, double.PositiveInfinity);
+            var el = candidates[i];
+            scored[i] = (el.CatalogIndex ?? default, double.PositiveInfinity);
+            trusted[i] = el.Designation.Kind != CometOrbitKind.Defunct && !(el.RevolutionsSinceEpoch(middleJdTt) > MaxRevolutionsSinceEpoch);
         }
         for (var sample = 0; sample < RankSamplesPerMonth; sample++)
         {
@@ -445,7 +465,7 @@ public sealed class OrreryScene(Action? requestRedraw = null)
             }
             for (var i = 0; i < candidates.Length; i++)
             {
-                if (CometEphemeris.TryGetEquatorialJ2000WithMagnitude(candidates[i], earth, out _, out _, out var magnitude)
+                if (trusted[i] && CometEphemeris.TryGetEquatorialJ2000WithMagnitude(candidates[i], earth, out _, out _, out var magnitude)
                     && magnitude < scored[i].Best)
                 {
                     scored[i].Best = magnitude;
@@ -576,7 +596,7 @@ public sealed class OrreryScene(Action? requestRedraw = null)
             var candidates = ImmutableArray.CreateBuilder<CometElements>();
             foreach (var el in all)
             {
-                if (SkyMapState.IsCometCandidate(el))
+                if (el.HasMagnitudeModel && el.CatalogIndex is not null)
                 {
                     candidates.Add(el);
                 }
