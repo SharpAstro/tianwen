@@ -837,10 +837,27 @@ one stall that needed it). Nudging the speed or the window was measured to undo 
   start, and the reopen and reset share the find-again-and-restore path a lost single exposure's reset already took
   (`DALCameraDriver.Recovery.cs`);
 - a stream healthy for `VideoHealthyAfter` (30 s) since it came back starts its next stall from a restart again; one that stalls sooner
-  goes on up; a rung's stream that answers the stall again, or answers only Timeout for longer than `VideoSilenceLimit` (twice the
-  exposure plus 1 s, at least 2 s), has failed; the same silence mid-stream is a stall of its own (a body that goes quiet rather than
+  goes on up; a rung's stream that answers the stall again, or answers only Timeout for longer than the stream's silence limit
+  (`VideoSilenceWatch`, below), has failed; the same silence mid-stream is a stall of its own (a body that goes quiet rather than
   saying so, as `ASIGetVideoData` does with no frame); past the last rung the stream ends with a plain reason ("stopped sending frames ... neither a restart of the stream, nor
   closing and opening the camera, nor a reset brought it back", or, for a body that cannot be reset, to unplug it);
+- **the silence limit is the STREAM's** (`VideoSilenceWatch`, carried across every rung, never a segment's, so a rung's first frame
+  is held to what the stream has shown it needs), and is the longest of: twice the exposure plus 1 s, at least 2 s; and twice the
+  longest silence any of the stream's last 8 frames came after, plus 1 s, at most 15 s, which is also the limit before the stream
+  has a frame to go by. Two edges of the exposure's limit alone, raised in review round 2 of #1605 and found on no camera here
+  (no ZWO attached), are why: **(a)** a body that finishes the frame in flight at the OLD exposure after it is lowered from over
+  about 2 s (a ZWO may; the G3M678M cuts it short) was called stalled by the new, shorter limit, a restart and a gap for nothing,
+  so after a change the limit holds the longer of the old and new exposure until two frames have arrived, as ToupTek.SDK's
+  `OnExposureChanged` arms its own timeout; **(b)** a healthy stream whose frame period is its READOUT, over 2 s (a 60 MP ZWO at
+  full frame, 16 bits, over USB 2: about 3 s), was stalled on every frame and the ladder gave up on it, where the stream before
+  the watchdog waited for ever, so the frames' own silences widen the limit, capped at 15 s and aging out after 8 frames so one
+  USB hiccup does not widen it for the rest of the stream, and forgotten when the exposure, the window's size, the depth or the
+  readout mode changes (a pan keeps them, its readout being the same, so a recentre never loosens the watchdog; a binning is a
+  stream's from its start). **So a body that slows and then dies is called stalled within twice its longest recent silence plus
+  1 s, at most 15 s** (or its exposure's limit, if longer), and one that never sends its first frame, or stops within the first
+  three after a change, within 15 s. `VideoSilenceWatchTests` pins the rules, and `DALCameraVideoTests` both edges on a scripted
+  body whose frames come after a number of waits: `LoweringTheExposureMidStreamWaitsOutTheFrameInFlight`,
+  `AStreamWhoseFramePeriodIsItsReadoutKeepsStreaming` and `ASlowStreamThatGoesSilentIsBroughtBackAndItsFirstFrameAfterIsNoStall`;
 - stalls and recoveries are counted beside the body's dropped frames and logged, each recovery with its rung and its gap.
 
 **Measured on the camera** (the probe's soak arm, `TIANWEN_TOUPTEK_SOAK_MINUTES=25`, the capture loop streaming the centred 640x480
