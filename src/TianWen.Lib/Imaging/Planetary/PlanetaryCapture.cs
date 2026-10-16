@@ -52,9 +52,13 @@ public enum LiveCaptureKind
 /// to the universal rapid-exposure loop (<see cref="RapidExposureFramesAsync"/>), a short expose, read and repeat.
 /// </para>
 /// <para>
-/// <b>Threading.</b> <see cref="Start"/> spawns the capture loop on a background task, which calls the thread-safe
-/// <see cref="LiveCameraFrameStream.Push"/> and nothing a host reads besides. A live control is STAGED by whoever sets
-/// it and applied by the loop after the next frame, so no driver call crosses onto a host's render thread.
+/// <b>Threading.</b> <see cref="Start"/> runs the capture loop on a thread of its own at
+/// <see cref="ThreadPriority.AboveNormal"/> (<see cref="CaptureReaderThread"/>), never the thread pool: with the machine's
+/// cores busy at normal priority a pool continuation fell behind the driver's hand-off and lost frames (TIA2), and only
+/// the reader is lifted, not the host's live stack or view, which consume the stream below it. So the loop's own awaits
+/// keep their context (no <c>ConfigureAwait(false)</c> on the loop's path), each resuming on that thread. The loop calls
+/// the thread-safe <see cref="LiveCameraFrameStream.Push"/> and nothing a host reads besides. A live control is STAGED by
+/// whoever sets it and applied by the loop after the next frame, so no driver call crosses onto a host's render thread.
 /// </para>
 /// </summary>
 /// <param name="stackOptions">The rolling window the host stacks over, which sizes the ring: twice its frames, at least
@@ -92,6 +96,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
     private int _captureActive;                    // 0/1
     private int _framesReceived;
+    private int _framesOnThreadPool;
+    private int _readerPriority = -1;              // the ThreadPriority the newest frame ran at; -1 before the first
     private volatile string? _failure;
     private long _captureStartTimestamp;
 
@@ -194,8 +200,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         await using var enumerator = frames.GetAsyncEnumerator(token);
         while (true)
         {
-            await gate.WaitAsync(token).ConfigureAwait(false);
-            if (!await enumerator.MoveNextAsync().ConfigureAwait(false))
+            await gate.WaitAsync(token);
+            if (!await enumerator.MoveNextAsync())
             {
                 yield break;
             }
@@ -228,6 +234,15 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
     /// <summary>Total frames pushed into the stream since the current capture started.</summary>
     public int FramesReceived => Volatile.Read(ref _framesReceived);
+
+    /// <summary>
+    /// Frames of the current or last capture whose loop iteration ran on a thread pool thread; none while the loop keeps to its
+    /// own thread (<see cref="CaptureReaderThread"/>). Test seam.
+    /// </summary>
+    internal int FramesOnThreadPool => Volatile.Read(ref _framesOnThreadPool);
+
+    /// <summary>The priority of the thread the newest frame's iteration ran on; null before the first frame. Test seam.</summary>
+    internal ThreadPriority? ReaderPriority => Volatile.Read(ref _readerPriority) is >= 0 and var priority ? (ThreadPriority)priority : null;
 
     /// <summary>The depth the newest frame came in; null before the first.</summary>
     public BitDepth? FrameBitDepth => Volatile.Read(ref _lastFrameBitDepth) is not 0 and var depth ? (BitDepth)depth : null;
@@ -464,7 +479,9 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
         _cts = CancellationTokenSource.CreateLinkedTokenSource(token);
         var loopToken = _cts.Token;
-        _captureTask = Task.Run(() => CaptureLoopAsync(camera, capture, claim, loopToken));
+        Interlocked.Exchange(ref _framesOnThreadPool, 0);
+        Volatile.Write(ref _readerPriority, -1);
+        _captureTask = CaptureReaderThread.Run($"{Name} reader", () => CaptureLoopAsync(camera, capture, claim, loopToken));
 
         logger.LogInformation(
             "Capture started ({Capture}): exposure {Exposure}ms, native={Native}.",
@@ -484,8 +501,16 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 frames = GatedFramesAsync(frames, gate, token);
             }
 
-            await foreach (var frame in frames.ConfigureAwait(false))
+            // No ConfigureAwait(false) on the loop's path: each frame resumes on the reader's own thread (CaptureReaderThread).
+            await foreach (var frame in frames)
             {
+                var reader = Thread.CurrentThread;
+                if (reader.IsThreadPoolThread)
+                {
+                    Interlocked.Increment(ref _framesOnThreadPool);
+                }
+                Volatile.Write(ref _readerPriority, (int)reader.Priority);
+
                 // Size + layout come from the ACTUAL frame, not the camera's SensorType (a video frame may be mono even
                 // on a colour sensor):
                 //   >=3 channels                 -> RGB (already-debayered colour, e.g. Canon Live View JPEG)
@@ -545,7 +570,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 // below) and pull it back to the frame centre -- via the ROI window (fast, mount-free) or, when the ROI
                 // is edge-blocked and mount jog is enabled, a coarse mount nudge. A staged ROI jog is drained by
                 // ApplyPendingControlsAsync below in the same iteration.
-                await MaybeRecenterAsync(camera, frame, token).ConfigureAwait(false);
+                await MaybeRecenterAsync(camera, frame, token);
 
                 // Defensive heartbeat: a steady cadence in the log confirms the capture loop is alive; the last
                 // heartbeat before a freeze bounds when the loop (or the thread it feeds) stopped advancing.
@@ -562,7 +587,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 frame.Release();
 
                 // Apply any live-control changes (exposure / gain / ROI size / pan) staged by a host.
-                await ApplyPendingControlsAsync(camera, token).ConfigureAwait(false);
+                await ApplyPendingControlsAsync(camera, token);
 
                 // Last thing in the iteration, so a waiter observes a fully-settled frame: pushed, recentred, and with
                 // this frame's staged ROI jog already on the camera.
@@ -614,12 +639,12 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     {
         if (options.Gain is { } gain)
         {
-            await camera.SetGainAsync(gain, token).ConfigureAwait(false);
+            await camera.SetGainAsync(gain, token);
         }
 
         while (!token.IsCancellationRequested)
         {
-            await camera.StartExposureAsync(new TimeSpan(Volatile.Read(ref _rapidExposureTicks)), FrameType.Light, token).ConfigureAwait(false);
+            await camera.StartExposureAsync(new TimeSpan(Volatile.Read(ref _rapidExposureTicks)), FrameType.Light, token);
 
             var ready = false;
             while (!ready)
@@ -629,13 +654,13 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                     yield break;
                 }
 
-                ready = await camera.GetImageReadyAsync(token).ConfigureAwait(false);
+                ready = await camera.GetImageReadyAsync(token);
                 if (!ready)
                 {
                     var cancelled = false;
                     try
                     {
-                        await timeProvider.SleepAsync(_readyPollInterval, token).ConfigureAwait(false);
+                        await timeProvider.SleepAsync(_readyPollInterval, token);
                     }
                     catch (OperationCanceledException)
                     {
@@ -648,7 +673,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 }
             }
 
-            if (await camera.GetImageAsync(token).ConfigureAwait(false) is { } image)
+            if (await camera.GetImageAsync(token) is { } image)
             {
                 yield return image;
             }
@@ -952,7 +977,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             {
                 if (camera is ILensFocusCamera lens)
                 {
-                    await lens.DriveLensAsync(lensStep, token).ConfigureAwait(false);
+                    await lens.DriveLensAsync(lensStep, token);
                 }
             }
             catch (OperationCanceledException)
@@ -989,7 +1014,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                         gain >= 0 ? (short)gain : null,
                         highSpeed >= 0 ? highSpeed == 1 : null,
                         depth != 0 ? (BitDepth)depth : null),
-                    token).ConfigureAwait(false);
+                    token);
             }
             else
             {
@@ -1001,13 +1026,13 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 }
                 if (gain >= 0)
                 {
-                    await camera.SetGainAsync((short)gain, token).ConfigureAwait(false);
+                    await camera.SetGainAsync((short)gain, token);
                 }
             }
 
             if (video is { CanJogRoi: true } && (jx != 0 || jy != 0))
             {
-                await video.JogRoiAsync(jx, jy, token).ConfigureAwait(false);
+                await video.JogRoiAsync(jx, jy, token);
             }
 
             // Defensive breadcrumb: these live-control changes are the actions that correlate with a stall, so log
