@@ -672,6 +672,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
         // Zoomed in by this factor on the framing the view opened with.
         rig.Tab.State.Orrery.Distance *= zoom;
         var moonDrawn = 0;
+        var earthOut = 0;
         const int Frames = 120;
         var apart = new System.Collections.Generic.List<float>();
         for (var frame = 0; frame < Frames; frame++)
@@ -679,8 +680,14 @@ public sealed class OrreryTests(ITestOutputHelper output)
             rig.Tab.State.TimeOffset = TimeSpan.FromHours(6 * frame);
             rig.Render();
             var labels = rig.Tab.OrreryLabels;
-            labels.Select(l => l.Index).ShouldContain(CatalogIndex.Earth, $"frame {frame}: the Earth's label is missing");
             var earth = rig.Tab.OrreryDrawn.Single(d => d.Index == CatalogIndex.Earth);
+            // Zoomed in on the Sun the Earth leaves the view during the month, and a body out of the view has no label (A2 of #1611).
+            if (earth.X < 0 || earth.X > Width || earth.Y < 0 || earth.Y > Height)
+            {
+                earthOut++;
+                continue;
+            }
+            labels.Select(l => l.Index).ShouldContain(CatalogIndex.Earth, $"frame {frame}: the Earth's label is missing");
             if (!MoonDrawnOrCrowdedOut(rig, out var moon))
             {
                 continue;
@@ -696,7 +703,9 @@ public sealed class OrreryTests(ITestOutputHelper output)
                 (((lx - moon.X) * ux) + ((ly - moon.Y) * uy)).ShouldBeGreaterThan(0, $"frame {frame}: the Moon's label is on the Earth's side");
             }
         }
-        output.WriteLine($"{focus} x{zoom}: the Moon drawn in {apart.Count} of {Frames} frames, its label in {moonDrawn}");
+        output.WriteLine($"{focus} x{zoom}: the Earth out of the view in {earthOut} of {Frames} frames, the Moon drawn in {apart.Count}, its label in {moonDrawn}");
+        // At x0.2 the Earth leaves the view after about eleven days of the month (76 of 120 frames out): a third of it is still judged.
+        (Frames - earthOut).ShouldBeGreaterThan(Frames / 4, "the Earth was out of the view nearly all month: the test no longer frames it");
         if (apart.Count == 0)
         {
             // At the default framing of 2026-10-13 Venus is days from inferior conjunction, beside the Earth: the Moon stays hidden.

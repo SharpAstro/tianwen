@@ -680,6 +680,38 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// Every label lies inside the view (A2 of #1611: the real catalogue's captures cut names at the edges), a planet's as a comet's,
+    /// the Moon's, the focus body's and the Earth's forced ones too: across framings that put bodies at every edge (zoomed in on the
+    /// Earth and the Moon, centred on Venus, Jupiter or Saturn, looking down from high and from low), with the thirty comets of the demo set.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(CatalogIndex.Moon, 0.35, 30.0, 0.0, false)]
+    [InlineData(CatalogIndex.Moon, 0.2, 30.0, 40.0, false)]
+    [InlineData(CatalogIndex.Venus, 0.5, 70.0, 120.0, true)]
+    [InlineData(CatalogIndex.Jupiter, 0.6, 10.0, 200.0, true)]
+    [InlineData(CatalogIndex.Mars, 1.0, -40.0, 300.0, false)]
+    [InlineData(CatalogIndex.Saturn, 0.3, 50.0, 80.0, true)]
+    public async Task EveryLabelLiesInsideTheView(CatalogIndex focus, double zoom, double elevationDeg, double azimuthDeg, bool centred)
+    {
+        foreach (var dpiScale in new[] { 1f, 1.5f })
+        {
+            using var rig = await RigWithAsync(focus, dpiScale, TestContext.Current.CancellationToken, DemoComets());
+            var orrery = rig.Tab.State.Orrery;
+            orrery.Distance *= zoom;
+            orrery.ElevationDeg = elevationDeg;
+            orrery.AzimuthDeg = azimuthDeg;
+            orrery.CentredOnFocus = centred;
+            rig.Render();
+            var content = rig.Content;
+            var outside = rig.Tab.OrreryLabels.Where(l => l.Rect.X < content.X - 0.01f || l.Rect.Y < content.Y - 0.01f
+                || l.Rect.X + l.Rect.Width > content.X + content.Width + 0.01f || l.Rect.Y + l.Rect.Height > content.Y + content.Height + 0.01f).ToList();
+            output.WriteLine($"{dpiScale}x: {rig.Tab.OrreryLabels.Count} labels, {outside.Count} outside the view: "
+                + string.Join(", ", outside.Select(l => $"{l.Index} at {l.Rect.X:F0},{l.Rect.Y:F0} {l.Rect.Width:F0}x{l.Rect.Height:F0}")));
+            outside.ShouldBeEmpty();
+        }
+    }
+
     // A comet at its perihelion at the instant, at heliocentric ecliptic longitude and latitude (degrees) and distance r: the node a
     // quarter turn back from the longitude and the perihelion a quarter turn on from the node, so the perihelion's latitude is the
     // inclination (R1 Q1 of PR #1631).
