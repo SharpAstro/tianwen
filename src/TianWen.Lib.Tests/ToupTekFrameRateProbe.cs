@@ -478,7 +478,8 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
         var each = camera.VideoRecoveryLog is { Length: > 0 } recoveries
             ? " (" + string.Join("; ", recoveries.Select(r => $"{r.Code} after the frame of {r.LastFrameAt:HH:mm:ss.fff}, back by a {r.Rung}, {r.Gap.TotalSeconds:F1} s without a frame")) + ")"
             : "";
-        return $", hand-off at most {camera.VideoHandOffHighWater} waiting, {camera.VideoStalls} stalls, {camera.VideoRecoveries} recovered{each}";
+        return $", hand-off at most {camera.VideoHandOffHighWater} waiting, {camera.VideoStalls} stalls, {camera.VideoRecoveries} recovered{each}"
+            + $", the reader waited for a frame {camera.VideoReaderWaits} times, {camera.VideoReaderWakesOnPool} of them woken on the thread pool";
     }
 
     private sealed record Row(string Layer, BitDepth Depth, TimeSpan Exposure, double Fps, int Frames, int Lost,
