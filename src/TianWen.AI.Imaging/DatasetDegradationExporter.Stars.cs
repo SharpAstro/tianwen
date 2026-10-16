@@ -112,10 +112,11 @@ public static partial class DatasetDegradationExporter
         }
     }
 
-    /// <summary>One injected star, in the cell's coordinates (pixel centres at integers), per channel where it varies.</summary>
+    /// <summary>One injected star, in the cell's coordinates (pixel centres at integers), per channel where it varies. A
+    /// <paramref name="Lobe"/> is part of the star before it (<see cref="InjectedStar.Lobe"/>): the eval does not score it.</summary>
     public sealed record InjectedStarRow(
         double X, double Y, double[] Amplitude, double[] FwhmPx, double[] Beta, double AxisRatio, double PositionAngleDeg,
-        bool Saturated, double[]? ClipLevel);
+        bool Saturated, double[]? ClipLevel, bool Lobe = false);
 
     /// <summary>One draw's injection: what was asked for, what was placed, and every star; on a synthetic background
     /// (R2d's D2), the knots its target keeps, the same in every draw of the cell.</summary>
@@ -285,7 +286,12 @@ public static partial class DatasetDegradationExporter
                 throw new InvalidOperationException(
                     $"{sessionId}: the plate has no field profile ({stars.ProfilePath(sessionId)}); give the store its profiles with tianwen dataset starless-plates --profiles-only");
             }
-            var population = InjectionPopulation.Build(catalogue, master, plate, 1.0 / divisor, psf, absent, field);
+            var population = InjectionPopulation.Build(catalogue, master, plate, 1.0 / divisor, psf, absent, field, options.StarLobes);
+            if (options.StarLobes)
+            {
+                logger?.LogInformation("[degrade] {Session}: {Lobes} lobes carried with their stars; {Counted} of {Sites} subtracted sites counted",
+                    sessionId, population.CarriedLobes, population.CountedSites, population.Sites);
+            }
             // R2d's D2: in place of the plate, a starless background from its coarse scales up (SyntheticBackground).
             var synthetic = options.SyntheticBackground
                 ? SyntheticBackground.Build(unitPlate, absent, field?.Luminance.Fwhm ?? psf.Average(static p => p.Fwhm), options.BrightKnotsWide,
@@ -573,7 +579,8 @@ public static partial class DatasetDegradationExporter
                 s.Profiles.Length > 0 ? s.Profiles[0].AxisRatio : 1.0,
                 s.Profiles.Length > 0 ? s.Profiles[0].PositionAngleRad * 180.0 / Math.PI : 0.0,
                 s.Saturated,
-                s.Saturated ? [.. s.ClipLevels] : null))],
+                s.Saturated ? [.. s.ClipLevels] : null,
+                s.Lobe))],
             Knots: background is null ? null
                 : [.. knots.Select(static k => new InjectedKnotRow(k.X, k.Y, k.SigmaMajorPx, k.SigmaMinorPx, k.AngleRad * 180.0 / Math.PI, k.Peak))]);
         return (row, injection);

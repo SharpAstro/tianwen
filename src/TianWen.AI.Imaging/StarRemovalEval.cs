@@ -365,10 +365,15 @@ public static class StarRemovalEval
 
         var stars = injection.Stars;
 
-        // The sites: inside the rim with a 3x3 core, each star's significance its injected core over the noise there.
+        // The sites: inside the rim with a 3x3 core, each star's significance its injected core over the noise there. A lobe
+        // is part of the star before it (--star-lobes): its light is on the footprints, and its star's core test reads it.
         var sites = new List<(float X, float Y, float Significance, bool Saturated)>();
         foreach (var star in stars)
         {
+            if (star.Lobe)
+            {
+                continue;
+            }
             var cx = (int)Math.Round(star.X);
             var cy = (int)Math.Round(star.Y);
             if (cx - 1 < rim || cy - 1 < rim || cx + 1 >= size - rim || cy + 1 >= size - rim)

@@ -245,6 +245,63 @@ public class StarInjectionTests(ITestOutputHelper output)
         saturated[0].Profiles.ShouldAllBe(static p => p.Family == StarProfileFamily.Gaussian);
     }
 
+    // R2k's catalogue: a 300 sigma star P with a second-pass lobe L 3 px east (inside 2 FWHM of 2.5 px); a second-pass row F
+    // far from everything; a second-pass row M 3 px from a FAINTER first-pass star Q, which is no parent of it.
+    private static (ImmutableArray<FittedStar> Catalogue, Image Image) LobeCatalogue()
+    {
+        static FittedStar Row(float x, float y, float significance, float amplitude, bool secondPass)
+            => new FittedStar(x, y, significance, amplitude, 1f, 0.1f, 0.01f, StarFitOutcome.Subtracted, false, false, float.NaN, float.NaN,
+                secondPass, float.NaN, StarFitModel.Moffat, [amplitude]);
+        ImmutableArray<FittedStar> catalogue =
+        [
+            Row(100, 100, 300, 0.3f, secondPass: false),
+            Row(103, 100, 20, 0.02f, secondPass: true),
+            Row(200, 200, 10, 0.01f, secondPass: true),
+            Row(60, 160, 5, 0.005f, secondPass: false),
+            Row(63, 160, 15, 0.015f, secondPass: true),
+        ];
+        return (catalogue, Image(256, 0.1f));
+    }
+
+    [Fact]
+    public void ALobeWithinReachOfABrighterFirstPassStarIsThatStarsAndNothingElseIs()
+    {
+        var (catalogue, image) = LobeCatalogue();
+        InjectionPopulation.LobeParents(catalogue, InjectionPopulation.LobeReachFwhm * 2.5).ShouldBe([-1, 0, -1, -1, -1]);
+
+        var plain = InjectionPopulation.Build(catalogue, image, image, 1.0, [(2.5, 3.0)], null);
+        (plain.Sites, plain.CountedSites, plain.AmplitudePool, plain.CarriedLobes).ShouldBe((5, 5, 5, 0), "off, every row is a star of its own");
+
+        var lobed = InjectionPopulation.Build(catalogue, image, image, 1.0, [(2.5, 3.0)], null, lobes: true);
+        (lobed.Sites, lobed.CountedSites, lobed.AmplitudePool, lobed.CarriedLobes).ShouldBe((5, 4, 4, 1),
+            "the lobe leaves the pool and the count, and its star carries it; the far row and the one beside a fainter star stay stars");
+    }
+
+    [Fact]
+    public void ADrawnStarBringsItsLobeAtItsOwnOffsetAndAmplitudes()
+    {
+        var (catalogue, image) = LobeCatalogue();
+        // P and its lobe alone, so every draw is P.
+        ImmutableArray<FittedStar> pair = [catalogue[0], catalogue[1]];
+
+        var lobed = InjectionPopulation.Build(pair, image, image, 1.0, [(2.5, 3.0)], null, lobes: true);
+        var plan = lobed.Plan(0, 0, 256, 0, InjectionPlacement.Random, StarProfileFamily.Moffat, 0.0, new Random(11));
+        (plan.Requested, plan.Placed).ShouldBe((1, 1), "the cell counts one star, P");
+        plan.Stars.Length.ShouldBe(2);
+        var (star, lobe) = (plan.Stars[0], plan.Stars[1]);
+        star.Lobe.ShouldBeFalse();
+        star.Amplitudes[0].ShouldBe(0.3, 1e-6);
+        lobe.Lobe.ShouldBeTrue();
+        lobe.Saturated.ShouldBeFalse();
+        (lobe.X - star.X, lobe.Y - star.Y).ShouldBe((3.0, 0.0));
+        lobe.Amplitudes[0].ShouldBe(0.02, 1e-6);
+
+        var plain = InjectionPopulation.Build(pair, image, image, 1.0, [(2.5, 3.0)], null);
+        var plainPlan = plain.Plan(0, 0, 256, 0, InjectionPlacement.Random, StarProfileFamily.Moffat, 0.0, new Random(11));
+        (plainPlan.Requested, plainPlan.Stars.Length).ShouldBe((2, 2), "off, the lobe is a site and a star of its own");
+        plainPlan.Stars.ShouldAllBe(static s => !s.Lobe);
+    }
+
     [Fact]
     public void OnlyASaturatedStarSubtractedWithTheFieldsMoffatIsInTheSaturatedPool()
     {
