@@ -73,8 +73,11 @@ public readonly record struct OrreryScaling(OrreryScale Scale, double ReachAu)
     }
 }
 
-/// <summary>One speed Play offers: what a second of the wall clock is on the atlas's clock, named and in days.</summary>
-public readonly record struct OrreryPlaySpeed(string Name, double DaysPerSecond);
+/// <summary>
+/// One speed Play offers: what a second of the wall clock is on the atlas's clock, named, named compactly (for a short strip) and in
+/// days.
+/// </summary>
+public readonly record struct OrreryPlaySpeed(string Name, string ShortName, double DaysPerSecond);
 
 /// <summary>
 /// The atlas's solar system in 3D (docs/plans/atlas-planet-detail.md, A5): a MODE of the sky map tab, whose state lives on
@@ -134,21 +137,21 @@ public sealed class OrreryState
     /// </summary>
     public static readonly ImmutableArray<OrreryPlaySpeed> PlaySpeeds =
     [
-        new("6 hours", 0.25),
-        new("12 hours", 0.5),
-        new("1 day", 1),
-        new("2 days", 2),
-        new("4 days", 4),
-        new("1 week", 7),
-        new("2 weeks", 14),
-        new("1 month", JulianYearDays / 12),
-        new("2 months", JulianYearDays / 6),
-        new("4 months", JulianYearDays / 3),
-        new("6 months", JulianYearDays / 2),
-        new("1 year", JulianYearDays),
-        new("2 years", 2 * JulianYearDays),
-        new("5 years", 5 * JulianYearDays),
-        new("10 years", 10 * JulianYearDays),
+        new("6 hours", "6h", 0.25),
+        new("12 hours", "12h", 0.5),
+        new("1 day", "1d", 1),
+        new("2 days", "2d", 2),
+        new("4 days", "4d", 4),
+        new("1 week", "1w", 7),
+        new("2 weeks", "2w", 14),
+        new("1 month", "1mo", JulianYearDays / 12),
+        new("2 months", "2mo", JulianYearDays / 6),
+        new("4 months", "4mo", JulianYearDays / 3),
+        new("6 months", "6mo", JulianYearDays / 2),
+        new("1 year", "1y", JulianYearDays),
+        new("2 years", "2y", 2 * JulianYearDays),
+        new("5 years", "5y", 5 * JulianYearDays),
+        new("10 years", "10y", 10 * JulianYearDays),
     ];
 
     /// <summary>

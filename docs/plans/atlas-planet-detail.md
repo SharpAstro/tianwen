@@ -590,6 +590,16 @@ C ring's. The ten parity views and Night's no-blue still pass, and `TheWebGlTrac
   (`OrreryTests.AppFace`, the same file everywhere), and the orrery strip's gap is 2 units, the time controls' own on the
   sky strip, not 4: thirteen gaps gave back 39 px at 1.5x, and the time keeps 46 px (3 ems) in DejaVu Sans, 49 in DejaVu
   Sans Mono and 75 in Consolas, the labels 53 to 60 px.
+- **The speed button names its speed at any scale** (round 2 of PR #1613). At 1.5x its 3 em floor held the button's padding,
+  gap and mark, and the text got 21 to 28 px of its 91: "1…". The strip is now arranged with the long form ("1 week/s") first,
+  and where the engine leaves that leaf short of its width it is arranged again with the compact form (`OrreryPlaySpeed.ShortName`:
+  "6h/s", "1w/s", "2mo/s", "10y/s"), Auto at its own width sample ("0mo/s") and without the up mark; only the winner is
+  painted. The test is the width SAMPLE's, so the form follows the strip and never the pick. It is an escape hatch, two arranges
+  when short: the engine has no text node with shorter alternates, which would let the painter's own fit choose. With the mark the compact button took 78 px and the time kept 29 px in DejaVu Sans, short of its two ems; without it,
+  at 1.5x on 900 px, the time keeps 38 px (2.5 ems) in DejaVu Sans, 45 in DejaVu Sans Mono and 76 in Consolas, the labels 51 to
+  60 px, and the speed reads "1w/s" in 41 to 46 px; 1.25x is compact too (36 to 40 px), and 1x keeps the long form, 60 to 66 px.
+  `OrreryTests.TheSpeedButtonAlwaysNamesItsSpeed` (1x, 1.25x and 1.5x in both faces, four speeds) failed before, showing "…",
+  "1 …", "1 we…" and "6 hours…".
 
 ## Sequencing
 

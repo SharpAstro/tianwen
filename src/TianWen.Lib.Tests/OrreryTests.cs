@@ -612,8 +612,9 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Tab.State.Orrery.Playing.ShouldBeTrue("a pick does not stop Play");
         rig.Tab.Render(rig.Planner, rig.Content, clock);
         var speedLabel = $"{speed.Name}/s";
+        var compactLabel = $"{speed.ShortName}/s";
         var speedLeaf = rig.Tab.GetCapturedLayout()
-            .Single(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } && text.Value == speedLabel);
+            .Single(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } && (text.Value == speedLabel || text.Value == compactLabel));
         if (dpiScale == 1f)
         {
             rig.Tab.StripShownText(speedLeaf).ShouldBe(speedLabel, "the speed's name is trimmed at 1x: the width sample is narrower than it");
@@ -1388,6 +1389,48 @@ public sealed class OrreryTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// The speed button always names the speed in force, whole: its long form ("1 week/s") where the strip has room, and its compact
+    /// form ("1w/s") where it is short, never a trimmed "1…" (round 2 of #1613: at 1.5x on 900 px the button's floor held its
+    /// padding, gap and mark, and the text got 21 to 28 px of its 91). With the strip as full as it gets (the Centre toggle, Pause,
+    /// Now, a long offset), at 1x, 1.25x and 1.5x, in the platform's face and the app's.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f, false)]
+    [InlineData(1.25f, false)]
+    [InlineData(1.5f, false)]
+    [InlineData(1f, true)]
+    [InlineData(1.25f, true)]
+    [InlineData(1.5f, true)]
+    public async Task TheSpeedButtonAlwaysNamesItsSpeed(float dpiScale, bool appFace)
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale, appFace ? AppFace : null);
+        Select(rig, CatalogIndex.Saturn);
+        rig.Tab.OpenOrrery();
+        rig.Render();
+        rig.Tab.State.TimeOffset = TimeSpan.FromDays((93 * 7) + 1);
+        rig.Tab.State.Orrery.Playing = true;
+
+        foreach (var (days, longForm, compactForm) in new[] { (7.0, "1 week/s", "1w/s"), (0.25, "6 hours/s", "6h/s"),
+                     (365.25 / 6, "2 months/s", "2mo/s"), (3652.5, "10 years/s", "10y/s") })
+        {
+            rig.Tab.State.Orrery.DaysPerSecond = days;
+            rig.Render();
+            var leaf = rig.Tab.GetCapturedLayout()
+                .Single(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } && (text.Value == longForm || text.Value == compactForm));
+            var shown = rig.Tab.StripShownText(leaf);
+            output.WriteLine($"{longForm}: shows \"{shown}\" in {leaf.Bounds.Width:F0} px");
+            if (dpiScale == 1f)
+            {
+                shown.ShouldBe(longForm, "at 1x the strip has room for the long form");
+            }
+            else
+            {
+                shown.ShouldBeOneOf([longForm, compactForm], "the speed is trimmed: the button must name it whole");
+            }
+        }
+    }
+
+    /// <summary>
     /// The strip fits the view with everything in it at once: the Centre toggle (Saturn in focus), Pause, Now, and a long offset
     /// in the time. Every button lies inside the view, Sky first at its left edge (the owner's screenshot started at "ntre: Sun"),
     /// and at 1.0x, where the row has room, each label (the distance scale, the centre, the time) is laid out at least as wide as
@@ -1443,7 +1486,9 @@ public sealed class OrreryTests(ITestOutputHelper output)
         slack.ShouldBeGreaterThanOrEqualTo(2 * timeText.FontSize, "the date and time fit with less than two ems to spare");
 
         // At 1.0x each label reads in full; at 1.5x the row is short, so each gives way (narrower than its content) and stays in view.
-        string[] labels = ["Distances: auto", "Centre: ", "1 week/s", "2028-"];
+        // The speed is not among them: it names its speed whole at every scale, in a compact form when short
+        // (TheSpeedButtonAlwaysNamesItsSpeed).
+        string[] labels = ["Distances: auto", "Centre: ", "2028-"];
         foreach (var label in labels)
         {
             var (node, bounds) = rig.Tab.GetCapturedLayout()
