@@ -65,9 +65,6 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
 
     private static readonly TimeSpan EndpointSampleEvery = TimeSpan.FromSeconds(1);
 
-    /// <summary>How long a start may take to reach its first frame: the node's claim, the camera's start, a first state read.</summary>
-    private static readonly TimeSpan StartBudget = TimeSpan.FromSeconds(30);
-
     private static PlanetaryRequestDto Request => new PlanetaryRequestDto
     {
         OtaIndex = 0,
@@ -330,7 +327,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
             int[] watched = [Environment.ProcessId, kept.Keeper.Id, nodePid, gui.Id];
             output.WriteLine($"tianwen-gui pid {gui.Id} on node pid {nodePid} (keeper {kept.Keeper.Id}), local-only, data root {kept.DataRoot}");
 
-            var window = await GuiWindow.PlaceOnLeftHalfAsync(gui, TimeSpan.FromSeconds(60), ct) ?? throw new InvalidOperationException("the GUI showed no window");
+            var window = await GuiWindow.PlaceOnLeftHalfAsync(gui, ct) ?? throw new InvalidOperationException($"the GUI exited ({gui.ExitCode}) without showing a window");
             placed = window.Placed;
             output.WriteLine($"the GUI's window is {placed}");
 
@@ -604,10 +601,14 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         var noted = gui.AppState.Notifications.Length;
         gui.Bus.Post(new StartVideoCaptureSignal(OtaIndex: 0, ExposureMs: SaturnExposure.TotalMilliseconds, Gain: SaturnGain,
             RoiWidth: RoiWidth, RoiHeight: RoiHeight, BitDepth: BitDepth.Int8));
+        // Dispatched now, so the start's tracked work exists before the drain is taken.
+        gui.Bus.ProcessPending(gui.Tracker);
         // A refused start is a notification, and the planner, with no mount and so no site transform here, posts its own:
         // the capture running is the answer, the notifications since the post the words when it is not.
-        var starting = System.Diagnostics.Stopwatch.StartNew();
-        await pump.UntilAsync(_ => ValueTask.FromResult(planetary.IsCapturing && planetary.Capture.FramesReceived > 0 || starting.Elapsed > StartBudget), ct);
+        // Bounded by the test's token alone: until the start's tracked work has finished and the capture either streams or is not
+        // going at all (refused, or ended at once).
+        var started = gui.Tracker.DrainAsync();
+        await pump.UntilAsync(_ => ValueTask.FromResult(started.IsCompleted && (!planetary.IsCapturing || planetary.Capture.FramesReceived > 0)), ct);
         planetary.IsCapturing.ShouldBeTrue(string.Join("; ", gui.AppState.Notifications.Skip(noted).Select(static n => $"{n.Severity}: {n.Message}")));
         planetary.Capture.JogRoi(jog.X, jog.Y);
         await pump.ForAsync(PanAndWarm, ct);

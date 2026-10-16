@@ -301,11 +301,13 @@ internal static class OtherWorktreeBuilds
 /// </summary>
 internal static partial class GuiWindow
 {
-    /// <summary>The process's main window once it has one, placed on the left half; null when none appeared within <paramref name="budget"/>.</summary>
-    public static async Task<(nint Window, string Placed)?> PlaceOnLeftHalfAsync(Process process, TimeSpan budget, CancellationToken cancellationToken)
+    /// <summary>
+    /// The process's main window once it has one, placed on the left half; null once the process has exited without one. Bounded
+    /// by <paramref name="cancellationToken"/> alone, the test's, never a clock (CLAUDE.md, "No wall-clock timeout inside a test").
+    /// </summary>
+    public static async Task<(nint Window, string Placed)?> PlaceOnLeftHalfAsync(Process process, CancellationToken cancellationToken)
     {
-        var clock = Stopwatch.StartNew();
-        while (clock.Elapsed < budget && !process.HasExited)
+        while (!process.HasExited)
         {
             process.Refresh();
             if (process.MainWindowHandle != nint.Zero)
