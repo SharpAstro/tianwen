@@ -396,7 +396,7 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
     /// the driver's counts over it (read, replaced by the hand-off, dropped by the body, and the recording's own disk drops).
     /// </summary>
     internal sealed record CaptureResult(double Fps, string Detail, SerRateReadBack? Ser = null, long Replaced = 0, int BodyDropped = 0,
-        int DiskDropped = 0, int Recoveries = 0);
+        int DiskDropped = 0, int Stalls = 0);
 
     /// <summary>
     /// <see cref="PlanetaryCapture"/> whole on the driver's stream, moved onto the Saturn window: for
@@ -451,7 +451,8 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
         Volatile.Write(ref measuring, 0);
         var seconds = clock.Elapsed.TotalSeconds;
         var (read, replaced, dropped, received) = (camera.VideoFramesRead, camera.VideoFramesReplaced, camera.VideoFramesDroppedByBody, capture.FramesReceived);
-        var recoveries = camera.VideoRecoveries;
+        // The stalls the stream logged, the start and the pan included: what sets a recording aside (RateGate.StandingOf).
+        var stalls = camera.VideoStalls;
         await capture.StopAsync(ct);
         var failure = capture.FailureReason is { } failed ? $", FAILED: {failed}" : "";
 
@@ -468,7 +469,7 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
         return new CaptureResult(ser.Fps,
             $"{ser}, {recording.FramesDropped} dropped by the disk, the recording's own gaps: {recording.Gaps.Length}; "
             + counts + bodyRate + $"; ended: {recording.EndReason}",
-            ser, replaced - replacedFrom, dropped - droppedFrom, recording.FramesDropped, recoveries);
+            ser, replaced - replacedFrom, dropped - droppedFrom, recording.FramesDropped, stalls);
     }
 
     /// <summary>The most frames that waited for the reader, and the stream's stalls with what brought each back and the gap it left.</summary>

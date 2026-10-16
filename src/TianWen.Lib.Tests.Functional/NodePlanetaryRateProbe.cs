@@ -54,12 +54,6 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
 {
     private static readonly Guid ProfileId = Guid.Parse("7e57ab1e-0b0e-4e5d-9a5e-000000000813");
 
-    /// <summary>The bar, decided with the controller: at least this many frames a second off every gated recording's SER.</summary>
-    private const double Bar = 190;
-
-    /// <summary>A SER step this long is a stall the stream recovered from, reported apart and the run made again.</summary>
-    private static readonly TimeSpan StallStep = TimeSpan.FromSeconds(1);
-
     /// <summary>Runs made again for a stall, at most, unless <c>TIANWEN_TOUPTEK_EXTRA_RUNS</c> says how many: the camera stalls in periods.</summary>
     private const int ExtraRuns = 2;
 
@@ -86,13 +80,13 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
 
     /// <summary>One recording: its arm, its SER read back against the time it was asked for, the counts over it, and what the box was doing.</summary>
     private sealed record Run(string Arm, SerRateReadBack Ser, TimeSpan Asked, int BodyDropped, int DiskDropped, string Load, string Quiet, string? View = null,
-        long? Replaced = null, int Recoveries = 0, string? Stream = null)
+        long? Replaced = null, int? LoggedStalls = null, string? Stream = null)
     {
         /// <summary>
-        /// A stall the stream recovered from, inside the recording or ending it: a long step in the SER, frames that stop more
-        /// than <see cref="StallStep"/> before the recording's end (a stall that outlasts it), or one the node's log names.
+        /// Where it stands (<see cref="RateGate.StandingOf"/>): set aside only for a stall its stream logged (a node's, known once
+        /// the node has exited), and made again also when its SER only looks stalled.
         /// </summary>
-        public bool Stalled => Recoveries > 0 || Ser.LongSteps.Any(static s => s.Step >= StallStep) || Ser.Span < Asked - StallStep;
+        public RateGate.Standing Standing => RateGate.StandingOf(LoggedStalls, Ser, Asked);
     }
 
     /// <summary>One video stream of the node's camera, from its log: where it started, and its own end-of-stream counts.</summary>
@@ -140,7 +134,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
                 var jog = (X: RoiX - centred.X, Y: RoiY - centred.Y);
                 runs.Add(await NoViewAsync(kept, pump, jog, duration, ct));
                 var planetary = gui.Services.GetRequiredService<PlanetaryCaptureController>();
-                for (var run = 1; runs.Count(static r => r.Arm.StartsWith("node, view", StringComparison.Ordinal) && !r.Stalled) < wanted
+                for (var run = 1; runs.Count(static r => r.Arm.StartsWith("node, view", StringComparison.Ordinal) && !r.Standing.MakesAnother) < wanted
                     && run <= wanted + extra; run++)
                 {
                     runs.Add(await WithViewAsync($"node, view {run}", gui, local, planetary, pump, jog, duration, ct));
@@ -166,7 +160,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
 
         // The comparison the gate is for needs a clean in-process recording: made again while none is, as the view's are.
         var inProcessRuns = new List<Run> { inProcessBefore, (await InProcessAsync("in process, after", device, duration, ct)).Run };
-        for (var again = 1; inProcessRuns.All(static r => r.Stalled) && again <= extra; again++)
+        for (var again = 1; inProcessRuns.All(static r => r.Standing.SetAside) && again <= extra; again++)
         {
             inProcessRuns.Add((await InProcessAsync($"in process, again {again}", device, duration, ct)).Run);
         }
@@ -180,13 +174,13 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
             runs[i] = runs[i] with
             {
                 Replaced = stream.Replaced,
-                Recoveries = stream.Recovered,
+                LoggedStalls = stream.Stalls,
                 Stream = stream.Counts + (stream.Recoveries.Count > 0 ? $"; {string.Join("; ", stream.Recoveries)}" : ""),
             };
         }
 
         Run[] all = [inProcessRuns[0], .. runs, .. inProcessRuns.Skip(1)];
-        var baseline = RateGate.InProcessBaseline(inProcessRuns.Where(static r => !r.Stalled).Select(static r => r.Ser.Fps));
+        var baseline = RateGate.InProcessBaseline(inProcessRuns.Where(static r => !r.Standing.SetAside).Select(static r => r.Ser.Fps));
         var against = baseline is { } rate ? $"this run's in-process {rate:F1} fps" : "NO clean in-process recording in this run";
         output.WriteLine("");
         output.WriteLine($"The ToupTek at the Saturn window ({RoiWidth}x{RoiHeight} at {RoiX}, {RoiY}), 8 bits, {SaturnExposure.TotalMilliseconds} ms, gain {SaturnGain}, "
@@ -194,7 +188,9 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         foreach (var run in all)
         {
             output.WriteLine("");
-            output.WriteLine($"{run.Arm}: {run.Ser.Fps:F1} fps, {run.Ser.Fps / (baseline ?? double.NaN):P1} of {against}{(run.Stalled ? ", STALLED: reported apart" : "")}");
+            var standing = run.Standing.SetAside ? $", STALLED ({run.LoggedStalls} logged): reported apart"
+                : run.Standing.MakesAnother ? ", a gap with no stall logged: JUDGED" : "";
+            output.WriteLine($"{run.Arm}: {run.Ser.Fps:F1} fps, {run.Ser.Fps / (baseline ?? double.NaN):P1} of {against}{standing}");
             output.WriteLine($"  {run.Ser}");
             output.WriteLine($"  replaced {(run.Replaced is { } replaced ? replaced.ToString(CultureInfo.InvariantCulture) : "?")}"
                 + $"{(run.Arm.StartsWith("node", StringComparison.Ordinal) ? " (the node's whole stream, from its log)" : "")}, "
@@ -231,17 +227,13 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
 
         endpoints.ShouldAllBe(static e => e.IsLoopback, "no socket off loopback (TIANWEN_LOCAL_ONLY): nothing the firewall would ask about");
         baseline.ShouldNotBeNull("a same-session in-process recording with no stall to compare with: the comparison is the gate's point");
-        var gated = runs.Where(static r => r.Arm.StartsWith("node, view", StringComparison.Ordinal) && !r.Stalled).ToArray();
-        gated.Length.ShouldBeGreaterThanOrEqualTo(wanted, "enough recordings with the view and no stall");
+        // Every recording with the view whose stream logged no stall is judged, a gap in it included.
+        var gated = runs.Where(static r => r.Arm.StartsWith("node, view", StringComparison.Ordinal) && !r.Standing.SetAside).ToArray();
+        gated.Length.ShouldBeGreaterThanOrEqualTo(wanted, "enough recordings with the view whose stream logged no stall");
         foreach (var run in gated)
         {
-            run.Ser.Fps.ShouldBeGreaterThanOrEqualTo(Bar, run.Arm);
-            RateGate.IsWithinInProcess(run.Ser.Fps, baseline)
-                .ShouldBeTrue($"{run.Arm}: {run.Ser.Fps:F1} fps within {RateGate.WithinInProcess:P0} of {against}");
-            run.Replaced.ShouldBe(0, $"{run.Arm}: the hand-off replaced no frame");
-            run.BodyDropped.ShouldBe(0, $"{run.Arm}: the body dropped no frame in the recording");
-            run.DiskDropped.ShouldBe(0, $"{run.Arm}: the disk dropped no frame");
-            run.Ser.LongSteps.ShouldBeEmpty($"{run.Arm}: no step over {LongStepBound.TotalMilliseconds:F0} ms");
+            var failures = RateGate.Failures(run.Ser, run.Replaced, run.BodyDropped, run.DiskDropped, baseline);
+            failures.ShouldBeEmpty($"{run.Arm}: {string.Join("; ", failures)}");
         }
     }
 
@@ -477,7 +469,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
 
         output.WriteLine("");
         output.WriteLine($"The real GUI on the node, at the Saturn window ({RoiWidth}x{RoiHeight} at {RoiX}, {RoiY}), 8 bits, {SaturnExposure.TotalMilliseconds} ms, "
-            + $"gain {SaturnGain}, {duration.TotalSeconds:F0} s: {ser.Fps:F1} fps off the SER, which the gate's bar ({Bar}) would {(ser.Fps >= Bar ? "pass" : "MISS")}");
+            + $"gain {SaturnGain}, {duration.TotalSeconds:F0} s: {ser.Fps:F1} fps off the SER, which the gate's bar ({RateGate.Bar}) would {(ser.Fps >= RateGate.Bar ? "pass" : "MISS")}");
         output.WriteLine($"  {ser}");
         output.WriteLine($"  body dropped {bodyDropped} and disk dropped {diskDropped} in the recording");
         output.WriteLine($"  {load}");
@@ -574,7 +566,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
             File.Delete(path);
             var ser = result.Ser.ShouldNotBeNull("a recording reads back");
             return (new Run(arm, ser, duration, result.BodyDropped, result.DiskDropped, described, quiet, Replaced: result.Replaced,
-                Recoveries: result.Recoveries, Stream: result.Detail), centred);
+                LoggedStalls: result.Stalls, Stream: result.Detail), centred);
         }
         finally
         {
