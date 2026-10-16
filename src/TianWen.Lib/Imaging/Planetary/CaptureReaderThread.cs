@@ -80,7 +80,7 @@ internal sealed class CaptureReaderThread : SynchronizationContext
         }
 
         // Woken once the loop has ended, wherever its last continuation ran.
-        running.ContinueWith(static (_, reader) => ((CaptureReaderThread)reader!)._ready.Release(), this,
+        running.ContinueWith(static (_, reader) => (reader as CaptureReaderThread)?._ready.Release(), this,
             CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         while (!running.IsCompleted)
         {
