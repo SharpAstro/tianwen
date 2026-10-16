@@ -439,6 +439,9 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
         await SystemTimeProvider.Instance.SleepAsync(Warm, ct);
 
         var (readFrom, replacedFrom, droppedFrom, receivedFrom) = (camera.VideoFramesRead, camera.VideoFramesReplaced, camera.VideoFramesDroppedByBody, capture.FramesReceived);
+        // The collections over the measurement, and how long they held every managed thread, the stream's included: a pause
+        // waits for every thread to reach a safe point, a starved one too.
+        var (gen0From, gen1From, gen2From, pausedFrom) = (GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2), GC.GetTotalPauseDuration());
         var clock = Stopwatch.StartNew();
         Volatile.Write(ref measuring, 1);
         SerRecording? recording = null;
@@ -457,13 +460,18 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
         Volatile.Write(ref measuring, 0);
         var seconds = clock.Elapsed.TotalSeconds;
         var (read, replaced, dropped, received) = (camera.VideoFramesRead, camera.VideoFramesReplaced, camera.VideoFramesDroppedByBody, capture.FramesReceived);
+        var (gen0, gen1, gen2, paused) = (GC.CollectionCount(0) - gen0From, GC.CollectionCount(1) - gen1From, GC.CollectionCount(2) - gen2From,
+            GC.GetTotalPauseDuration() - pausedFrom);
         // The stalls the stream logged, the start and the pan included: what sets a recording aside (RateGate.StandingOf).
         var stalls = camera.VideoStalls;
+        var (onPool, readerPriority) = (capture.FramesOnThreadPool, capture.ReaderPriority);
         await capture.StopAsync(ct);
         var failure = capture.FailureReason is { } failed ? $", FAILED: {failed}" : "";
 
         var counts = $"read {read - readFrom}, taken {received - receivedFrom}, replaced {replaced - replacedFrom}, body dropped {dropped - droppedFrom}"
-            + $"{StreamHealth(camera)}, between frames {Percentiles(gaps)}{failure}";
+            + $"{StreamHealth(camera)}, the loop at {readerPriority?.ToString() ?? "?"} with {onPool} frames on the thread pool"
+            + $", {gen0}/{gen1}/{gen2} collections (gen 0/1/2) pausing {paused.TotalMilliseconds:F0} ms in all"
+            + $", between frames {Percentiles(gaps)}{failure}";
         if (recording is null)
         {
             return new CaptureResult((received - receivedFrom) / seconds, counts);
