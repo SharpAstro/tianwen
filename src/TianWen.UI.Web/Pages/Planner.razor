@@ -2729,6 +2729,10 @@
             // The comets the last orrery frame drew (#1611): the set, their tails, and their orbits, what a test of the comets waits on.
             + ",\"orreryComets\":" + (_skyTab?.OrreryScene.CometSet.Length ?? 0).ToString(CultureInfo.InvariantCulture)
             + ",\"orreryTails\":" + (_skyTab?.OrreryTails.Count ?? 0).ToString(CultureInfo.InvariantCulture)
+            // The comet set's monthly rankings: how many have started and how long the last one took (R1 Q2 of PR #1631, a ranking on
+            // the browser's one thread is a stall), what a test of Play's cost reads.
+            + ",\"orreryRankings\":" + (_skyTab?.OrreryScene.CometRankings ?? 0).ToString(CultureInfo.InvariantCulture)
+            + ",\"lastRankMs\":" + (_skyTab?.OrreryScene.LastRankMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
             // sunTextured - the frames that traced the Sun from its atlas map (#1608), what a test of the textured Sun waits on.
             + ",\"sunTextured\":" + (_skyTab?.SunTexturedTraces ?? 0).ToString(CultureInfo.InvariantCulture)
             // planetTextures - the planet textures' version (PlanetTextures.Version): above 0 once the atlas has been adopted.
