@@ -44,45 +44,68 @@ public class PlanetaryNodeAllocationProbe(ITestOutputHelper output)
                 sample.Release();
             }
         });
-        capture.ArmFrameGate();
-        capture.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(5)), ct).ShouldBeTrue();
-        await StepAsync(capture, 1, ct);
-        var capacity = capture.Stream.ShouldNotBeNull().Capacity;
-
-        // While the ring fills (a new capture's first frames), and once it is full and recycles its evicted frames' planes.
         using var ticks = new AllocationTicks();
-        var from = GC.GetTotalAllocatedBytes(precise: true);
-        await StepAsync(capture, capacity, ct);
-        var fillBytes = GC.GetTotalAllocatedBytes(precise: true) - from;
-        var fillTicks = ticks.TakeAndClear();
-        output.WriteLine($"a new capture's first {capacity} frames at 640x480, its ring filling: {fillBytes / 1048576.0:F0} MB, {fillBytes / 1024.0 / capacity:F1} KB a frame");
-        Report(fillTicks);
 
-        from = GC.GetTotalAllocatedBytes(precise: true);
+        // A capture's first frames while its ring fills, the capture stopped and a second started (each recording through the
+        // node is a capture of its own, and a resize a new ring), and the second's ring full, recycling its evicted planes.
+        var capacity = 0;
+        for (var round = 1; round <= 2; round++)
+        {
+            capture.ArmFrameGate();
+            capture.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(5)), ct).ShouldBeTrue();
+            await StepAsync(capture, 1, ct);
+            capacity = capture.Stream.ShouldNotBeNull().Capacity;
+            var fill = Phase.Start(ticks);
+            await StepAsync(capture, capacity, ct);
+            output.WriteLine($"capture {round}'s first {capacity} frames at 640x480, its ring filling: {fill.Describe(capacity, "frame")}");
+            Report(ticks.TakeAndClear());
+            if (round == 1)
+            {
+                await capture.StopAsync(ct);
+            }
+        }
+
+        var steady = Phase.Start(ticks);
         const int Frames = 2_000;
         await StepAsync(capture, Frames, ct);
-        var captureBytes = GC.GetTotalAllocatedBytes(precise: true) - from;
+        var captureBytes = steady.Bytes;
         var captureTicks = ticks.TakeAndClear();
 
         var stream = capture.Stream.ShouldNotBeNull();
         var stacker = new RollingWindowStacker(stream, options);
         (await stacker.StackToAsync(stream.LatestIndex, ct)).Release(); // its accumulators warm
-        from = GC.GetTotalAllocatedBytes(precise: true);
+        output.WriteLine($"then, the ring full, {Frames} frames with a 33 ms view sample: {steady.Describe(Frames, "frame")}");
+        Report(captureTicks);
+        var stack = Phase.Start(ticks);
         const int Masters = 10;
         for (var master = 0; master < Masters; master++)
         {
             await StepAsync(capture, 200, ct);
             (await stacker.StackToAsync(stream.LatestIndex, ct)).Release();
         }
-        var stackBytes = GC.GetTotalAllocatedBytes(precise: true) - from;
-        var stackTicks = ticks.TakeAndClear();
+        output.WriteLine($"the live stack, {Masters} masters over a {stacker.WindowFrameCount}-frame window (and 200 more frames each): {stack.Describe(Masters, "master")}");
+        Report(ticks.TakeAndClear());
         await capture.StopAsync(ct);
+        _ = captureBytes;
+    }
 
-        output.WriteLine($"then, the ring full, {Frames} frames with a 33 ms view sample: {captureBytes / 1024.0 / Frames:F1} KB a frame");
-        Report(captureTicks);
-        output.WriteLine($"the live stack, {Masters} masters over a {stacker.WindowFrameCount}-frame window (and 200 more frames each): "
-            + $"{stackBytes / 1048576.0 / Masters:F1} MB a master");
-        Report(stackTicks);
+    /// <summary>A phase's bytes allocated, and its collections with the time they paused every thread.</summary>
+    private sealed record Phase(long Allocated, int Gen0, int Gen1, int Gen2, TimeSpan Paused)
+    {
+        public static Phase Start(AllocationTicks ticks)
+        {
+            ticks.TakeAndClear();
+            return new Phase(GC.GetTotalAllocatedBytes(precise: true), GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2), GC.GetTotalPauseDuration());
+        }
+
+        public long Bytes => GC.GetTotalAllocatedBytes(precise: true) - Allocated;
+
+        public string Describe(int count, string unit)
+        {
+            var bytes = Bytes;
+            return $"{bytes / 1048576.0:F0} MB, {bytes / 1024.0 / count:F1} KB a {unit}; collections {GC.CollectionCount(0) - Gen0}/{GC.CollectionCount(1) - Gen1}/"
+                + $"{GC.CollectionCount(2) - Gen2} (gen 0/1/2) pausing {(GC.GetTotalPauseDuration() - Paused).TotalMilliseconds:F0} ms";
+        }
     }
 
     private void Report(ConcurrentDictionary<(string Type, bool Large), long> ticks)
