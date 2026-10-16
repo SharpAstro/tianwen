@@ -913,7 +913,11 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
     private static readonly Regex Recovery = new Regex(@"stream is back after its stall .*", RegexOptions.CultureInvariant);
     private static readonly Regex GainOnCamera = new Regex(@"stream is at gain (?<gain>\d+) as of (?<at>\S+)", RegexOptions.CultureInvariant);
 
-    /// <summary>When the stream took a pan or a gain, as its line says (#1628); null for a line that does not say.</summary>
+    /// <summary>
+    /// When the stream took a pan or a gain, read from the time its matched line carries (#1628); null when that text is not a
+    /// time, and <see cref="ReadStreams"/> then skips the line. A line that carries no time at all (one the DAL wrote before #1628)
+    /// never matches <see cref="Panned"/> or <see cref="GainOnCamera"/>, so it is skipped before this is asked.
+    /// </summary>
     private static DateTimeOffset? TakenAt(Match line)
         => DateTimeOffset.TryParse(line.Groups["at"].Value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at) ? at : null;
 
