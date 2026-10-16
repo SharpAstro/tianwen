@@ -171,6 +171,31 @@ public class PlanetaryControlPanelTests
         rig.Posted.ShouldBeEmpty("a live setting goes to the capture, not through a signal");
     }
 
+    /// <summary>The camera's own depth is shown chosen, so its segment takes a press only once another depth is.</summary>
+    [Fact]
+    public void WhileCapturingTheDeeperDepthIsStagedOnceAnotherIsChosen()
+    {
+        using var rig = new Rigged(1f, capturing: true);
+        rig.Press("Depth8");
+        rig.Capture.TakeChanges();
+
+        rig.Press("Depth16");
+
+        rig.Capture.TakeChanges().ShouldNotBeNull().BitDepth.ShouldBe(BitDepth.Int16);
+    }
+
+    [Fact]
+    public void WhileCapturingTheSmallerRoiSizeIsStagedOnTheCaptureAndSizesTheSelection()
+    {
+        using var rig = new Rigged(1f, capturing: true);
+
+        rig.Press("RoiSizeDec");      // 640x360 to 512x512
+
+        var resized = rig.Capture.TakeChanges().ShouldNotBeNull();
+        (resized.RoiWidth, resized.RoiHeight).ShouldBe((512, 512));
+        (rig.Panel.Roi.Width, rig.Panel.Roi.Height).ShouldBe((512, 512));
+    }
+
     [Fact]
     public void WhileCapturingHighSpeedIsSwitchedOnTheCapture()
     {
@@ -234,6 +259,18 @@ public class PlanetaryControlPanelTests
         rig.Paint();
         rig.Capture.TakeChanges().ShouldBeNull("a frame that changed nothing stages nothing");
         rig.Capture.RecenterForStart.ShouldBe(recenter, "and the next Start carries it");
+    }
+
+    [Fact]
+    public void TheRecentersDeadbandNarrowsAndItsGainRisesOnTheCapture()
+    {
+        using var rig = new Rigged(1f, capturing: true);
+
+        rig.Press("RecenterDeadbandDec");   // 4 px to 2 px
+        rig.Press("RecenterGainInc");       // 50 % to 75 %
+
+        var recenter = rig.Capture.TakeChanges().ShouldNotBeNull().Recenter.ShouldNotBeNull();
+        (recenter.Auto, recenter.MountJog, recenter.DeadbandPixels, recenter.Gain).ShouldBe((false, false, 2, 0.75));
     }
 
     [Theory]
