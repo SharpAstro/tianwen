@@ -78,7 +78,8 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
     /// <summary>One recording: its arm, its SER read back against the time it was asked for, the counts over it, and what the box was doing.</summary>
     private sealed record Run(string Arm, SerRateReadBack Ser, TimeSpan Asked, int BodyDropped, int DiskDropped, string Load, string Quiet, string? View = null,
         long? Replaced = null, int? LoggedStalls = null, string? Stream = null, string? Answers = null,
-        IReadOnlyList<(DateTimeOffset Asked, int Gain)>? GainsAsked = null, string? GainsReached = null, TimeSpan? SlowestGain = null)
+        IReadOnlyList<(DateTimeOffset Asked, int Gain)>? GainsAsked = null, string? GainsReached = null, TimeSpan? SlowestGain = null,
+        double? AnswerP99Ms = null, double? ViewShownPerSecond = null)
     {
         /// <summary>
         /// Where it stands (<see cref="RateGate.StandingOf"/>): set aside only for a stall its stream logged (a node's, known once
@@ -250,10 +251,45 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         // Every recording with the view whose stream logged no stall is judged, a gap in it included.
         var gated = runs.Where(static r => r.Arm.StartsWith("node, view", StringComparison.Ordinal) && !r.Standing.SetAside).ToArray();
         gated.Length.ShouldBeGreaterThanOrEqualTo(wanted, "enough recordings with the view whose stream logged no stall");
+        var viewFloor = double.TryParse(Environment.GetEnvironmentVariable(ViewFloorVar), NumberStyles.Float, CultureInfo.InvariantCulture, out var floor) ? floor : (double?)null;
+        output.WriteLine("");
+        output.WriteLine($"Responsiveness bounds (TIA2's capture-priority leg): the node answers GET /api/v1/planetary at p99 under {AnswerP99Within.TotalMilliseconds:F0} ms, "
+            + $"a staged gain is on the camera within {ControlReachesTheCameraWithin.TotalSeconds:F0} s, and the view shows at least "
+            + $"{(viewFloor is { } shownFloor ? $"{shownFloor:F1} live frames a second ({ViewFloorVar})" : $"what it can ({ViewFloorVar} unset)")}");
         foreach (var run in gated)
         {
-            var failures = RateGate.Failures(run.Ser, run.Replaced, run.BodyDropped, run.DiskDropped, baseline);
+            List<string> failures = [.. RateGate.Failures(run.Ser, run.Replaced, run.BodyDropped, run.DiskDropped, baseline),
+                .. ResponsivenessFailures(run, viewFloor)];
             failures.ShouldBeEmpty($"{run.Arm}: {string.Join("; ", failures)}");
+        }
+    }
+
+    /// <summary>The node's p99 answer to the state request, judged on every recording with the view whose stream logged no stall.</summary>
+    private static readonly TimeSpan AnswerP99Within = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>How soon a gain staged through the GUI's client must be on the camera, outside a stall.</summary>
+    private static readonly TimeSpan ControlReachesTheCameraWithin = TimeSpan.FromSeconds(1);
+
+    /// <summary>The live frames a second the view must show at least: the same load's slowest view before the fix (unset for none).</summary>
+    private const string ViewFloorVar = "TIANWEN_RATE_PROBE_VIEW_FLOOR";
+
+    /// <summary>
+    /// What fails a recording with the view on responsiveness (the controller's autopilot, 2026-10-16: starving the view and the
+    /// node is the risk of raising a reader): an answer p99 over the bound, a gain late or never on the camera, a view below its floor.
+    /// </summary>
+    private static IEnumerable<string> ResponsivenessFailures(Run run, double? viewFloor)
+    {
+        if (run.AnswerP99Ms is not { } p99 || p99 >= AnswerP99Within.TotalMilliseconds)
+        {
+            yield return run.AnswerP99Ms is { } late ? $"the node answered at p99 {late:F0} ms, over {AnswerP99Within.TotalMilliseconds:F0}" : "the node's answers were not timed";
+        }
+        if (run.SlowestGain is not { } slowest || slowest > ControlReachesTheCameraWithin)
+        {
+            yield return run.SlowestGain is { } took ? $"a staged gain took {took.TotalMilliseconds:F0} ms to reach the camera" : "a staged gain never reached the camera";
+        }
+        if (viewFloor is { } floor && run.ViewShownPerSecond is { } shown && shown < floor)
+        {
+            yield return $"the view showed {shown:F1} live frames a second, under the {floor:F1} it showed before the fix at this load";
         }
     }
 
@@ -735,7 +771,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
             + $"{(readTo - readFrom) / seconds:F1} read ({readTo - readFrom}, {slotsTo - slotsFrom} through shared memory; the node samples at most one "
             + $"each 33 ms, drop-to-latest), {mastersTo - mastersFrom} masters stacked by the node";
         return new Run(arm, ReadBackAndDelete(recording), duration, bodyDropped, recording.FramesDropped, described, quiet, view,
-            Answers: answers.ToString(), GainsAsked: gainsAsked);
+            Answers: answers.ToString(), GainsAsked: gainsAsked, AnswerP99Ms: answers.P99Ms, ViewShownPerSecond: (shownTo - shownFrom) / seconds);
     }
 
     /// <summary>
@@ -830,6 +866,9 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         private readonly List<double> _ms = [];
 
         public void Add(TimeSpan answeredIn) => _ms.Add(answeredIn.TotalMilliseconds);
+
+        /// <summary>The 99th percentile answer in milliseconds; null when it was never asked.</summary>
+        public double? P99Ms => _ms.Count == 0 ? null : _ms.Order().ElementAt((int)Math.Round(0.99 * (_ms.Count - 1)));
 
         public override string ToString()
         {
