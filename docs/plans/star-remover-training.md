@@ -2384,6 +2384,77 @@ alike; one checkpoint at `--tta 1` is the script as before. Scored on A's draws 
 and makes every further seed worth twice (a spread and a member). E2 holding makes the views free in training and eight
 times the inference. Neither is a better model, and the read says so.
 
+#### R2l's read: the weight moves the bright stars' dig between channels and not their clean rate (2026-10-17)
+
+`r2l_synth4_s0` ended on its own: "stopped at step 113000: the held-out objective's best was 4.111201e-06 at step 77000",
+at 03:27, on the GTX 1070 from 22:07. It ran alone but for two spells: R2i's seed 1 beside it for six minutes (22:17 to
+22:23), and R2k's training from 02:58, whose export pass had loaded its driver before the gate that was to hold it back
+(the pass read the script at 22:07, the gate went in at 22:17). Neither changes what trains, only how fast. Its first
+scoring failed on a driver bug (a one-pair list flattened, so the set's name read `o`) and was run again at 05:28.
+`C:\temp\e2\r2l-read.txt`.
+
+| on A's draws | R2i | R2l |
+|---|---|---|
+| clean 5-20 / 20-100 / 100-1000 sigma | 79.2 / 74.5 / 60.2 | 79.1 / 74.7 / 59.8 |
+| dug 100-1000 sigma | 28.7 | 27.6 |
+| dug R / G / B at 100-1000 sigma | 34.3 / 47.7 / 12.6 | 25.9 / 46.1 / 20.1 |
+| clean in colour 5-20 / 20-100 / 100-1000 sigma | 57.3 / 43.7 / 21.3 | 57.4 / 45.7 / 21.3 |
+| clean / dug saturated | 46.6 / 28.3 | 52.5 / 23.7 |
+| far sky | 0.19 | 0.17 |
+
+1. **It ends on its own before 480,000: holds**, at 113,000, its best at 77,000: earlier than R2i (216,500), on an
+   objective that is not R2i's, so the two lengths do not compare.
+2. **The bright stars gain: misses.** Clean at 100-1000 sigma 59.8 % against at least 63.3.
+3. **The bright digs fall: misses.** 27.6 % against at most 22.3.
+4. **The faint stars hold: holds**, -0.1 and +0.2 points.
+5. **The sky: holds**, 0.17.
+
+**The kill does not fire.** On the twins it reads the same: on the plain twin clean 61.4 against R2i's 61.2 at
+100-1000 sigma, on the lobed one 59.9 against 61.0.
+
+**Read, not predicted.** The weight moved the bright stars' dig from red to blue (red 34.3 to 25.9 %, blue 12.6 to 20.1)
+and left its total where it was. Saturated stars clean 52.5 % against 46.6, and clean in colour at 20-100 sigma rose 2.0
+points (spread 0.4). By the registered rule (2) failing with (4) holding means the bright cores' error is not the
+objective's weighting: the net already spends what it can there. What R2l is worth came from averaging it (below).
+
+#### Averaging at inference read: every average gains past the spread, and the most on the brightest stars (2026-10-17)
+
+Scored at 05:36 to 05:50 on A's draws (`C:\temp\e2\r2-averaging.ps1`, `read_avg.py`, `avg-read.txt`). **The check
+holds**: R2i through the changed script at `--tta 1` gave its 1,280 stored outputs back bit for bit.
+
+| on A's draws | R2i | E1: R2i + R2l | E2: R2i, 8 views | E3: both, 8 views each |
+|---|---|---|---|---|
+| clean 5-20 sigma | 79.2 | 80.7 | 80.1 | **81.1** |
+| clean 20-100 sigma | 74.5 | 76.9 | 76.4 | **78.1** |
+| clean 100-1000 sigma | 60.2 | 65.0 | 66.2 | **68.9** |
+| dug 100-1000 sigma | 28.7 | 24.8 | 24.8 | **22.3** |
+| clean in colour 5-20 / 20-100 / 100-1000 | 57.3 / 43.7 / 21.3 | 60.6 / 50.1 / 28.6 | 59.6 / 48.1 / 31.0 | **61.9 / 53.4 / 35.1** |
+| dug in colour 100-1000 sigma | 63.3 | 57.4 | 54.3 | **50.9** |
+| clean / dug saturated | 46.6 / 28.3 | 54.3 / 18.3 | 52.1 / 19.2 | **62.1 / 14.2** |
+| core RMS 100-1000 sigma | 1.78 | 1.71 | 1.87 | 2.06 |
+| far sky | 0.19 | 0.17 | 0.19 | 0.17 |
+
+1. **E1, the bright stars gain: holds**, 65.0 % against at least 63.3 (+4.7).
+2. **E1, the faint stars hold: holds**, +1.4 and +2.5, both up.
+3. **E2, the bright stars gain: holds**, 66.2 % (+5.9).
+4. **E2, the faint stars hold: holds**, +0.9 and +1.9.
+
+**No kill fires**: no clean rate falls anywhere. E3, read and not predicted, gains at every brightness and in every
+colour test, +8.7 points clean on the bright stars and +13.8 in colour there, with saturated stars clean 62.1 % against
+46.6. Its 20-100 sigma gain (+3.7) is past the spread upward.
+
+**How firm.** E2 compares one model with itself, so no seed spread enters it: on 12,393 bright stars the counting noise
+of a clean rate is about half a point, and the views add six. E1 and E3 average R2l, which alone is no better than R2i,
+so their gains are the averaging's, not R2l's. The core's RMS rises under the views while every rate improves: the
+average pulls most cores inside a sigma and leaves a few further out. And A's draws are injected stars: whether a real
+master's stars come off as much better is for the lightbox.
+
+**What it decides.** Averaging is the first change since R2i that improves the removal past the spread at every
+brightness, and it trains nothing. The product decision (a second model to ship, and eight times the inference per model)
+is the owner's. On the line, every further seed is now both a spread and an ensemble member, which R2i's seed 1 (on the
+T4) is the first of; and a single model that keeps E3's gain is the next training target (distillation, or the views as
+training augmentation).
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
