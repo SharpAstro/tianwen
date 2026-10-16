@@ -228,6 +228,84 @@ public sealed class PlanetDiscRenderTests
         Math.Abs(difference).ShouldBeLessThan(0.5, $"pole {pole:F2} against the sky's {expected:F2}");
     }
 
+    /// <summary>
+    /// The Sun lights itself (#1608): no phase and no Minnaert's law, but the limb darkening of the linear law I(mu) = 1 - u (1 - mu),
+    /// u = <see cref="PlanetaryRender.SolarLimbDarkening"/>, read off a flat map's render at mu 0.9, 0.6, 0.3 and 0.15 against the
+    /// centre. Minnaert's law at full phase, mu^(2k - 1), which the Sun was drawn with, is 0.548 at mu 0.3 where the law is 0.58.
+    /// </summary>
+    [Fact]
+    public void TheSunIsLimbDarkenedByTheLinearLaw()
+    {
+        const int Side = 241;
+        const double Radius = 110;
+        var flat = new PlanetMap([0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f], 4, 2);
+        var map = new PlanetColourMap(flat, flat, flat);
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Sol, Instant);
+        var placement = new DiskPlacement(120, 120, Radius, -90);
+        var image = PlanetaryRender.RenderRgba(map, aspect, placement, Side, Side, PlanetDiscSprite.MinnaertK(CatalogIndex.Sol), 3);
+
+        double Level(int x, int y)
+        {
+            var i = ((y * Side) + x) * 4;
+            return image[i + 3] > 0 ? image[i] / image[i + 3] : 0;
+        }
+        var centre = Level(120, 120);
+        centre.ShouldBe(0.8, 0.002, "the centre of the disc is the map's own level");
+        foreach (var mu in new[] { 0.9, 0.6, 0.3, 0.15 })
+        {
+            // The pixel whose centre is nearest that mu along the screen's x, and the law at the mu of its centre exactly.
+            var x = 120 + (int)Math.Round(Radius * Math.Sqrt(1 - (mu * mu)));
+            var r = (x - 120) / Radius;
+            var expected = 1 - (PlanetaryRender.SolarLimbDarkening * (1 - Math.Sqrt(1 - (r * r))));
+            (Level(x, 120) / centre).ShouldBe(expected, 0.01, $"the limb darkening at mu {mu}");
+        }
+    }
+
+    /// <summary>
+    /// The Sun has no terminator from any direction: lit or not is never asked of it. Rendered straight from the ephemeris (whose Sun has
+    /// no sub-solar point, NaN) and from aspects whose sub-solar point stands anywhere, the far side included, every pixel inside 0.95 of the
+    /// radius is at least nine tenths of the law's level there.
+    /// </summary>
+    [Theory]
+    [InlineData(double.NaN, double.NaN)]
+    [InlineData(180.0, 0.0)]
+    [InlineData(90.0, 40.0)]
+    [InlineData(0.0, -80.0)]
+    public void TheSunHasNoTerminatorFromAnyDirection(double subSolarTurn, double subSolarLatitude)
+    {
+        const int Side = 101;
+        const double Radius = 45;
+        var flat = new PlanetMap([0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f], 4, 2);
+        var map = new PlanetColourMap(flat, flat, flat);
+        var ephemeris = PhysicalEphemeris.Compute(CatalogIndex.Sol, Instant);
+        var aspect = ephemeris with
+        {
+            SubSolarLongitudeIII = ephemeris.CentralMeridianIII + subSolarTurn,
+            SubSolarLatitude = subSolarLatitude,
+            SubSolarLatitudeCentric = subSolarLatitude,
+        };
+        var image = PlanetaryRender.RenderRgba(map, aspect, new DiskPlacement(50, 50, Radius, -90), Side, Side,
+            PlanetDiscSprite.MinnaertK(CatalogIndex.Sol), 3);
+
+        var inside = 0;
+        for (var y = 0; y < Side; y++)
+        {
+            for (var x = 0; x < Side; x++)
+            {
+                var r = Math.Sqrt(((x - 50) * (x - 50)) + ((y - 50) * (y - 50))) / Radius;
+                if (r > 0.95)
+                {
+                    continue;
+                }
+                inside++;
+                var i = ((y * Side) + x) * 4;
+                var law = 0.8 * (1 - (PlanetaryRender.SolarLimbDarkening * (1 - Math.Sqrt(1 - (r * r)))));
+                image[i].ShouldBeGreaterThan((float)(0.9 * law), $"a dark pixel at ({x}, {y}): a terminator");
+            }
+        }
+        inside.ShouldBeGreaterThan(5000);
+    }
+
     /// <summary>Night mode's sprite is the luminance in the Night accent: blue is zero everywhere, and the disc is still drawn.</summary>
     [Fact]
     public void TheNightTintHasNoBlue()
@@ -245,5 +323,33 @@ public sealed class PlanetDiscRenderTests
             drawn += rgba[i * 4] > 0 ? 1 : 0;
         }
         drawn.ShouldBeGreaterThan(500);
+    }
+
+    /// <summary>
+    /// The Sun under Night (#1608) is its atlas map's luminance in the Night accent, as every body is: no blue anywhere, and still
+    /// limb-darkened by the linear law, read along the sprite's middle row at 0.98 of the radius against the centre, where Minnaert's law at full phase is 0.07 darker.
+    /// </summary>
+    [Fact]
+    public void TheNightSunHasNoBlueAndADarkenedLimb()
+    {
+        var sun = PlanetTextureAtlas.Decode(System.IO.File.ReadAllBytes(System.IO.Path.Combine(AppContext.BaseDirectory, PlanetTextureAtlas.FileName)))[CatalogIndex.Sol];
+        var aspect = PhysicalEphemeris.Compute(CatalogIndex.Sol, Instant);
+        const double Radius = 100;
+        var rgba = PlanetDiscSprite.Build(CatalogIndex.Sol, sun, default, aspect, Radius, -90, false, GuiTheme.NightPalette.Accent, out var side);
+
+        var drawn = 0;
+        for (var i = 0; i < side * side; i++)
+        {
+            rgba[(i * 4) + 2].ShouldBe((byte)0);
+            drawn += rgba[i * 4] > 0 ? 1 : 0;
+        }
+        drawn.ShouldBeGreaterThan(30000);
+
+        var middle = (side - 1) / 2;
+        double Red(int dx) => (rgba[((middle * side) + middle + dx) * 4] + rgba[((middle * side) + middle - dx) * 4]) / 2.0;
+        var dx = (int)Math.Round(0.98 * Radius);
+        var r = dx / Radius;
+        var law = 1 - (PlanetaryRender.SolarLimbDarkening * (1 - Math.Sqrt(1 - (r * r))));
+        (Red(dx) / Red(0)).ShouldBe(law, 0.03, "the Night Sun's limb is not the law's");
     }
 }

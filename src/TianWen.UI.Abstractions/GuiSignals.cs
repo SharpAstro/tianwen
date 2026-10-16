@@ -405,6 +405,18 @@ public sealed record StartVideoCaptureSignal(
 public readonly record struct StopVideoCaptureSignal;
 
 /// <summary>
+/// Record the planetary capture going on to a SER file for <paramref name="Duration"/>: the Record control's start (#1344).
+/// The capture's own node writes it, the one the capture was started on, never the view's command target
+/// (<c>POST /api/v1/planetary/record</c>, <c>SerRecording</c>), and finishes it whether or not this window watches; the panel
+/// reads it back from the capture's state. With no capture on show, or one already recording, it is refused in words. No
+/// defaults: a zero duration is the node's to refuse, never a silent sixty seconds.
+/// </summary>
+public readonly record struct StartPlanetaryRecordingSignal(TimeSpan Duration);
+
+/// <summary>End the recording started by <see cref="StartPlanetaryRecordingSignal"/> sooner than its duration; the capture goes on.</summary>
+public readonly record struct StopPlanetaryRecordingSignal;
+
+/// <summary>
 /// Nudge the mount by a small angular step in a cardinal guide direction -- the manual coarse-recenter /
 /// framing control on the planetary panel (the same pulse-guide actuator the COM recenter loop uses for its
 /// edge-blocked fallback). Only valid when no session is running and a mount supporting pulse-guide is

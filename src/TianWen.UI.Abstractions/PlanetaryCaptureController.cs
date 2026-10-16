@@ -41,6 +41,10 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
     private CancellationTokenSource? _runCts;
     private Task? _run;
     private int _stopAsked;
+    // The node the capture on show runs on, from its start until the run ends: where Record and its Stop go, never the view's
+    // command target, since a control of the run on screen goes to its own node (CLAUDE.md, Remote Rigs; review round 1 of
+    // #1610, Q1). Written by a start and by the run's end, read by a record or a stop, each on its own thread.
+    private NodeConnection? _node;
 
     // The live master's Derive: the derived sharpening's gains, seeded into the wavelet sliders (#1159), one with the viewer's.
     private readonly WaveletDerivation _derivation = new WaveletDerivation();
@@ -102,7 +106,7 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
         Capture.Began();
         if (started.Value is { } first)
         {
-            Capture.Update(first);
+            Capture.UpdateFromAnswer(first);
         }
         Volatile.Write(ref _stopAsked, 0);
         var masters = new NodeMasters();
@@ -114,6 +118,7 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
 
         var runCts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
         Interlocked.Exchange(ref _runCts, runCts)?.Dispose();
+        Volatile.Write(ref _node, node);
         _run = Task.Run(() => WatchAsync(node, masters, runCts.Token), CancellationToken.None);
         return null;
     }
@@ -143,10 +148,12 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
                     await node.Client.StopPlanetaryAsync(cancellationToken).ConfigureAwait(false);
                 }
 
+                // Stamped before it is sent: a record's answer that arrives meanwhile is newer than this poll's.
+                var stamp = Capture.PollStamp;
                 var now = await node.Client.GetPlanetaryAsync(cancellationToken).ConfigureAwait(false);
                 if (now is { IsSuccess: true, Value: { } state })
                 {
-                    Capture.Update(state);
+                    Capture.UpdateFromPoll(state, stamp);
                     _state.NeedsRedraw = true;
                     if (!state.Running)
                     {
@@ -186,6 +193,8 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
                     // So does the live frame's.
                 }
             }
+            // Before the end is seen: a start, which waits for it, then writes its own node, never one this clears.
+            Volatile.Write(ref _node, null);
             Capture.Ended();
             _state.IsSequence = false;
             _state.NeedsRedraw = true;
@@ -304,6 +313,65 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
         return published;
     }
 
+    /// <summary>
+    /// Asks the node the capture on show runs on to record it to a SER file for <paramref name="duration"/> (#1344): the node
+    /// writes it and finishes it unwatched, and the state this view reads shows it (<see cref="NodePlanetaryCapture.Recording"/>).
+    /// Answers with the recording as the node's answer shows it, or the refusal in words (no capture on show, one already
+    /// recording, a duration that is not positive).
+    /// </summary>
+    public async Task<PlanetaryRecordAnswer> RecordAsync(TimeSpan duration, CancellationToken cancellationToken)
+    {
+        if (Volatile.Read(ref _node) is not { } node)
+        {
+            return PlanetaryRecordAnswer.Refused(NoCaptureToRecord);
+        }
+        var request = new PlanetaryRecordRequestDto { DurationSeconds = duration.TotalSeconds };
+        var started = await node.Client.StartPlanetaryRecordingAsync(request, cancellationToken).ConfigureAwait(false);
+        return started.IsSuccess
+            ? Show(started.Value)
+            : PlanetaryRecordAnswer.Refused(started.Error ?? "The node did not start the recording");
+    }
+
+    /// <summary>
+    /// Asks the node the capture on show runs on to end the recording going on sooner than its duration; the capture goes on.
+    /// Answers with the recording as the node's answer shows it, ended, or the refusal in words (no recording being made).
+    /// </summary>
+    public async Task<PlanetaryRecordAnswer> StopRecordingAsync(CancellationToken cancellationToken)
+    {
+        if (Volatile.Read(ref _node) is not { } node)
+        {
+            return PlanetaryRecordAnswer.Refused(NoRecordingToStop);
+        }
+        var stopped = await node.Client.StopPlanetaryRecordingAsync(cancellationToken).ConfigureAwait(false);
+        return stopped.IsSuccess
+            ? Show(stopped.Value)
+            : PlanetaryRecordAnswer.Refused(stopped.Error ?? "The node did not stop the recording");
+    }
+
+    // The node's own words for the same refusals, said here when no capture is on show to ask it.
+    internal const string NoCaptureToRecord = "No planetary capture is running to record";
+    internal const string NoRecordingToStop = "No recording is being made";
+
+    // The node's answer to a record or a stop it took is its newest state: shown at once, and never undone by a poll sent before
+    // it (NodePlanetaryCapture.UpdateFromAnswer); the caller reads the recording off the answer itself, not the state shown.
+    private PlanetaryRecordAnswer Show(PlanetaryStateDto? state)
+    {
+        if (state is not null)
+        {
+            Capture.UpdateFromAnswer(state);
+        }
+        _state.NeedsRedraw = true;
+        return new PlanetaryRecordAnswer(state?.Recording, Refusal: null);
+    }
+
+    /// <summary>
+    /// How long the recording going on has left by this computer's clock, which <c>TIANWEN_NOW</c> anchors as it anchors the
+    /// node's; zero when none is being made.
+    /// </summary>
+    public TimeSpan RecordingTimeLeft => Capture.Recording is { Recording: true } recording
+        ? TimeSpan.FromTicks(Math.Max(0, (recording.EndsUtc - _timeProvider.GetUtcNow()).Ticks))
+        : TimeSpan.Zero;
+
     /// <summary>Asks the node to stop the capture; the view follows it until the node says it has ended.</summary>
     public void Stop() => Volatile.Write(ref _stopAsked, 1);
 
@@ -368,4 +436,13 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
             _state.PlanetaryDesign = ota.OpticalDesign;
         }
     }
+}
+
+/// <summary>
+/// A record or its stop as the capture's node answered it (<see cref="PlanetaryCaptureController.RecordAsync"/>): the recording
+/// its answer shows, or why it was refused, in words.
+/// </summary>
+public readonly record struct PlanetaryRecordAnswer(PlanetaryRecordingDto? Recording, string? Refusal)
+{
+    public static PlanetaryRecordAnswer Refused(string refusal) => new PlanetaryRecordAnswer(null, refusal);
 }

@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
+using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
@@ -60,6 +61,101 @@ public class NodePlanetaryViewTests(ITestOutputHelper output)
         capture.JogRoi(-3, -3);
         capture.TakeChanges().ShouldBeNull("a jog there and back moves nothing, so nothing is sent");
     }
+
+    private static PlanetaryStateDto Answer(PlanetaryRecordingDto? recording) => new PlanetaryStateDto
+    {
+        Camera = "Fake camera",
+        Running = true,
+        Recording = recording,
+    };
+
+    private static PlanetaryRecordingDto Recording(int written) => new PlanetaryRecordingDto
+    {
+        Path = "Jupiter_2026-10-16T213000Z.ser",
+        Recording = true,
+        FramesWritten = written,
+    };
+
+    /// <summary>
+    /// A poll sent before a record and answered after it cannot undo the node's answer to the record (review round 1 of #1610,
+    /// N1): the panel, the handler's note and a probe read the recording the moment the node took it, never one poll later.
+    /// </summary>
+    [Fact]
+    public void APollSentBeforeACommandsAnswerCannotUndoIt()
+    {
+        var capture = new NodePlanetaryCapture();
+        capture.Began();
+        var sentBefore = capture.PollStamp;
+
+        capture.UpdateFromAnswer(Answer(Recording(written: 0)));
+        capture.UpdateFromPoll(Answer(recording: null), sentBefore);
+
+        capture.Recording.ShouldNotBeNull("the poll was sent before the record's answer came").Path.ShouldBe("Jupiter_2026-10-16T213000Z.ser");
+        var sentAfter = capture.PollStamp;
+        capture.UpdateFromPoll(Answer(Recording(written: 250)), sentAfter);
+        capture.Recording.ShouldNotBeNull().FramesWritten.ShouldBe(250, "a poll sent after the answer is newer, and shown");
+    }
+
+    /// <summary>
+    /// The run's last poll says it ended, and a command's answer landed while that poll was out: the end is still shown, since
+    /// the node refuses a record or a stop once its run has ended, so no answer can be newer than the end. The panel kept the
+    /// recording as going on until the next Start (review round 2 of #1610, B1).
+    /// </summary>
+    [Fact]
+    public void ARunsEndIsShownEvenWhenACommandsAnswerLandedWhileItsPollWasOut()
+    {
+        var capture = new NodePlanetaryCapture();
+        capture.Began();
+        var sentBefore = capture.PollStamp;
+
+        capture.UpdateFromAnswer(Answer(Recording(written: 100)));
+        capture.UpdateFromPoll(Ended(EndedRecording(written: 120)), sentBefore);
+
+        var shown = capture.Recording.ShouldNotBeNull();
+        (shown.Recording, shown.EndReason).ShouldBe((false, "the capture ended"), "the run has ended, whatever answer came while the poll was out");
+
+        // Nor does an answer that arrives late, saying the run goes on, replace the end once it is shown.
+        capture.UpdateFromAnswer(Answer(Recording(written: 110)));
+        capture.Recording.ShouldNotBeNull().Recording.ShouldBeFalse("no answer is newer than the run's end");
+    }
+
+    /// <summary>
+    /// The end that is always shown belongs to the run it came from: a late poll of the PREVIOUS run that says it ended never
+    /// ends a newer run's panel (review round 2 of #1610, B1, the autopilot's check). Kept true by the stamp naming its run,
+    /// not by the controller's ordering alone.
+    /// </summary>
+    [Fact]
+    public void ALatePollOfThePreviousRunNeverEndsANewerRunsPanel()
+    {
+        var capture = new NodePlanetaryCapture();
+        capture.Began();
+        var previousRuns = capture.PollStamp;
+        capture.Ended();
+
+        capture.Began();
+        capture.UpdateFromAnswer(Answer(Recording(written: 0)));
+        capture.UpdateFromPoll(Ended(EndedRecording(written: 120)), previousRuns);
+
+        capture.Recording.ShouldNotBeNull().Recording.ShouldBeTrue("the newer run goes on");
+        capture.FramesReceived.ShouldBe(0, "nothing of the previous run's last poll is shown");
+    }
+
+    private static PlanetaryRecordingDto EndedRecording(int written) => new PlanetaryRecordingDto
+    {
+        Path = "Jupiter_2026-10-16T213000Z.ser",
+        Recording = false,
+        Written = true,
+        FramesWritten = written,
+        EndReason = "the capture ended",
+    };
+
+    private static PlanetaryStateDto Ended(PlanetaryRecordingDto recording) => new PlanetaryStateDto
+    {
+        Camera = "Fake camera",
+        Running = false,
+        FramesReceived = 5000,
+        Recording = recording,
+    };
 
     [Fact]
     public void AStartDropsWhatWasStagedBeforeIt()

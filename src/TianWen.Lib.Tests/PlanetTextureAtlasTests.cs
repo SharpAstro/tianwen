@@ -130,4 +130,45 @@ public sealed class PlanetTextureAtlasTests
         Checks((lat, east) => Read(-lat, east)).ShouldContain(c => !c.Item2, "the map read flipped north to south passes every check");
         Checks((lat, east) => Read(lat, east + 180)).ShouldContain(c => !c.Item2, "the map read half a turn round passes every check");
     }
+
+    /// <summary>
+    /// The Sun fills the atlas's tenth cell (#1608), beside Neptune: a QUIET photosphere, bright and near uniform, its colour a
+    /// 5772 K body's, with no sample darker than nine tenths of the mean, so it claims no sunspot for a date it does not know. At 256 x
+    /// 128 one sample spans about 17,000 km of the equator, some 170 granules, so what granulation is left is about a percent.
+    /// </summary>
+    [Fact]
+    public void TheSunFillsTheTenthCellWithAQuietPhotosphere()
+    {
+        PlanetTextureAtlas.Layout.IndexOf(CatalogIndex.Sol).ShouldBe(9);
+        PlanetTextureAtlas.Height.ShouldBe(5 * PlanetTextureAtlas.CellHeight, "the Sun takes the empty cell, not a sixth row");
+        var sun = Atlas(CatalogIndex.Sol);
+        var (r, g, b) = (sun.Red.MeanAlbedo, sun.Green.MeanAlbedo, sun.Blue.MeanAlbedo);
+        r.ShouldBeGreaterThan(0.9, "the photosphere is the brightest thing in the atlas");
+        // A 5772 K body in sRGB: red brightest, blue least, but near white, never the sky map's yellow dot.
+        r.ShouldBeGreaterThanOrEqualTo(g);
+        g.ShouldBeGreaterThan(b);
+        b.ShouldBeGreaterThan(0.75);
+        for (var latitude = -89.0; latitude <= 89; latitude += 1)
+        {
+            for (var west = 0.0; west < 360; west += 1.5)
+            {
+                sun.Green.Sample(latitude, west).ShouldBeGreaterThan(0.9 * g, $"a dark spot at {latitude}, {west} W");
+                sun.Green.Sample(latitude, west).ShouldBeLessThan(1.1 * g, $"a bright patch at {latitude}, {west} W");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Every map in the atlas says where it came from: Solar System Scope's CC BY 4.0 requires the attribution wherever the app shows its
+    /// maps, and the info panel draws this line under the disc (#1567).
+    /// </summary>
+    [Fact]
+    public void EveryAtlasBodyHasACredit()
+    {
+        PlanetTextureAtlas.Layout.ShouldContain(CatalogIndex.Sol);
+        foreach (var body in PlanetTextureAtlas.Layout)
+        {
+            PlanetTextureAtlas.Credit(body).ShouldNotBeNullOrWhiteSpace($"{body} has no credit");
+        }
+    }
 }

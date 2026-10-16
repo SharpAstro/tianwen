@@ -73,7 +73,8 @@ public class GeminiFocuserUnplugBench(ITestOutputHelper testOutputHelper)
             Log($"connected at {start}; moving to {target}: PULL THE CABLE WHILE IT RUNS");
             await focuser.BeginMoveAsync(target, ct);
 
-            var lastReconnect = TimeSpan.MinValue;
+            // Null until the first reconnect: TimeSpan.MinValue for "never" overflowed the subtraction below on the first failed read.
+            TimeSpan? lastReconnect = null;
             var faulted = false;
             while (clock.Elapsed < TimeSpan.FromSeconds(60))
             {
@@ -88,7 +89,7 @@ public class GeminiFocuserUnplugBench(ITestOutputHelper testOutputHelper)
                 {
                     faulted = true;
                     Log($"read threw {ex.GetType().Name}: {ex.Message}");
-                    if (clock.Elapsed - lastReconnect >= TimeSpan.FromSeconds(2))
+                    if (lastReconnect is not { } last || clock.Elapsed - last >= TimeSpan.FromSeconds(2))
                     {
                         lastReconnect = clock.Elapsed;
                         try

@@ -8,8 +8,8 @@ namespace TianWen.UI.Abstractions;
 /// A body's colour map as a GPU host uploads it for <c>planet_body.frag</c> (docs/plans/atlas-planet-detail.md, A5, "The bodies on the
 /// GPU"): one texel per map sample in <see cref="PlanetMap"/>'s own convention (row 0 the north edge, column 0 at 0 degrees west,
 /// longitude falling to the right), read with <c>texelFetch</c> and interpolated in the shader as <see cref="PlanetMap.Sample"/> does; and
-/// each plane's mean albedo, what a ring's level is stated against. A body with no map (the Sun, or one whose texture has not loaded,
-/// the Earth included) is a 2 x 2 map of its flat colour, as <see cref="PlanetDiscSprite.Build"/>'s flat map is. The one source of both hosts'
+/// each plane's mean albedo, what a ring's level is stated against. A body with no map (one whose texture has not loaded, the Sun's and
+/// the Earth's included) is a 2 x 2 map of its flat colour, as <see cref="PlanetDiscSprite.Build"/>'s flat map is. The one source of both hosts'
 /// textures, so Vulkan's and WebGL's cannot differ.
 /// </summary>
 public static class PlanetBodyMap
@@ -80,7 +80,7 @@ public static class PlanetBodyMap
             view.Toward.X, view.Toward.Y, view.Toward.Z, opacity,
             view.Sun.X, view.Sun.Y, view.Sun.Z, nightTint.HasValue ? 1f : 0f,
             ringAlbedo.R, ringAlbedo.G, ringAlbedo.B, 0f,
-            tint.Red / 255f, tint.Green / 255f, tint.Blue / 255f, 0f,
+            tint.Red / 255f, tint.Green / 255f, tint.Blue / 255f, (float)PlanetaryRender.LimbDarkening(view.Body),
         ];
         values.CopyTo(block);
     }

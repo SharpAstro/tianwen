@@ -333,6 +333,28 @@ namespace TianWen.UI.Abstractions
                 Notify(NotificationSeverity.Info, "Planetary capture stopped");
             });
 
+            // The Record control (#1344): the capture's own node records it to a SER (its one writer) and finishes it unwatched;
+            // the panel reads it back from the capture's state. A control of the run on screen goes to its own node, so neither
+            // signal resolves the view's command target (CLAUDE.md, Remote Rigs).
+            bus.Subscribe<StartPlanetaryRecordingSignal>(sig =>
+            {
+                RunTracked("StartPlanetaryRecording", "Recording failed to start", async ct =>
+                {
+                    var answer = await planetaryCapture.RecordAsync(sig.Duration, ct);
+                    Notify(answer.Refusal is null ? NotificationSeverity.Info : NotificationSeverity.Warning,
+                        answer.Refusal ?? $"Recording {sig.Duration.TotalSeconds:0.#} s to {Path.GetFileName(answer.Recording?.Path)}");
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
+            bus.Subscribe<StopPlanetaryRecordingSignal>(_ =>
+            {
+                RunTracked("StopPlanetaryRecording", "Recording failed to stop", async ct =>
+                {
+                    var answer = await planetaryCapture.StopRecordingAsync(ct);
+                    Notify(answer.Refusal is null ? NotificationSeverity.Info : NotificationSeverity.Warning, answer.Refusal ?? "Recording stopped");
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
             // Manual mount nudge (planetary panel coarse-recenter buttons): one guide-rate pulse, as the node's job, which
             // ends when the mount reports the pulse done and is refused on a mount a run holds, in the run's name.
             bus.Subscribe<JogMountSignal>(sig =>

@@ -84,11 +84,8 @@ public sealed class PlanetBodyGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHelper
         }
         var ct = TestContext.Current.CancellationToken;
         var view = View(body, observerLat, meridian, sunLat, sunAzimuth, roll);
-        Maps.TryGetValue(body, out var map);
-        if (body != CatalogIndex.Sol)
-        {
-            map.ShouldNotBeNull($"{body} has no map in the atlas: the comparison would be of two flat discs");
-        }
+        // Every body has its map, the Sun's included since #1608: a comparison of two flat discs would test no texture.
+        var map = Maps.GetValueOrDefault(body).ShouldNotBeNull($"{body} has no map in the atlas: the comparison would be of two flat discs");
         var flat = new RGBAColor32(0xFF, 0xE0, 0xA0, 0xFF);
         var gpuFrame = RenderGpu(view, map, flat, null, radius);
         var cpuFrame = RenderCpu(view, map, flat, radius, null);
@@ -108,22 +105,48 @@ public sealed class PlanetBodyGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHelper
         // without the globe's shadow, puts 805 to 65,331 values more than 4 off; the shadow alone, 5,684 on the quadrature case.
         mean.ShouldBeLessThan(0.02, $"{name}: the GPU's disc is not the CPU's");
         over.ShouldBeLessThanOrEqualTo(12, $"{name}: the GPU's disc is not the CPU's");
-        worst.ShouldBeLessThanOrEqualTo(48);
+        worst.ShouldBeLessThanOrEqualTo(48);        if (body == CatalogIndex.Sol)
+        {
+            SunLimbRatio(gpuFrame, radius, 1).ShouldBe(SunLaw(0.98), 0.03, "the GPU's Sun is not limb-darkened by the law");
+        }
     }
 
-    /// <summary>Night draws the luminance in the palette's tint: with a tint of no blue, no pixel of a ringed Saturn has any.</summary>
-    [Fact(Timeout = 120_000)]
-    public async Task NightHasNoBlue()
+    // The Sun's green level at 0.98 of the radius along the centre row, both sides averaged, over its level at the centre, of the frame's
+    // channel `channel`: the shader's pixel centre at its index plus a half.
+    private static double SunLimbRatio(byte[] frame, float radius, int channel)
+    {
+        var row = (int)CentreY;
+        double At(double dx)
+        {
+            var x = (int)Math.Floor(CentreX + dx);
+            return frame[(((row * Width) + x) * 4) + channel];
+        }
+        var reach = 0.98 * radius;
+        return (At(reach) + At(-reach)) / 2 / At(0);
+    }
+
+    // The linear law at r of the radius, against the centre.
+    private static double SunLaw(double r) => 1 - (PlanetaryRender.SolarLimbDarkening * (1 - Math.Sqrt(1 - (r * r))));
+
+    /// <summary>
+    /// Night draws the luminance in the palette's tint: with a tint of no blue, no pixel of a ringed Saturn has any, nor of the Sun (#1608),
+    /// whose limb still darkens by the law in the tint's red.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(CatalogIndex.Saturn)]
+    [InlineData(CatalogIndex.Sol)]
+    public async Task NightHasNoBlue(CatalogIndex body)
     {
         if (!gpu.VulkanAvailable)
         {
             Assert.Skip($"Vulkan runtime not available on this host ({gpu.UnavailableReason})");
             return;
         }
-        var view = View(CatalogIndex.Saturn, 26.7, 40, 25.0, 6, 0);
+        var view = body == CatalogIndex.Sol ? View(body, 7, 0, 0, 0, 0) : View(CatalogIndex.Saturn, 26.7, 40, 25.0, 6, 0);
         var tint = new RGBAColor32(0xE0, 0x30, 0x00, 0xFF);
-        var frame = RenderGpu(view, Maps[CatalogIndex.Saturn], default, tint, 60);
-        var cpu = RenderCpu(view, Maps[CatalogIndex.Saturn], default, 60, tint);
+        const float Radius = 60;
+        var frame = RenderGpu(view, Maps[body], default, tint, Radius);
+        var cpu = RenderCpu(view, Maps[body], default, Radius, tint);
         var (lit, blue) = (0, 0);
         for (var i = 0; i < frame.Length; i += 4)
         {
@@ -131,11 +154,15 @@ public sealed class PlanetBodyGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHelper
             blue += frame[i + 2] != 0 ? 1 : 0;
         }
         var (_, mean, _) = Compare(frame, cpu);
-        output.WriteLine($"Night: {lit} lit px, {blue} with any blue, mean difference from the CPU's {mean:F3}");
-        await WriteAsync("saturn-night", frame, cpu, TestContext.Current.CancellationToken);
+        output.WriteLine($"Night: {body}, {lit} lit px, {blue} with any blue, mean difference from the CPU's {mean:F3}");
+        await WriteAsync($"{body.ToString().ToLowerInvariant()}-night", frame, cpu, TestContext.Current.CancellationToken);
         lit.ShouldBeGreaterThan(1000);
         blue.ShouldBe(0);
         mean.ShouldBeLessThan(0.02);
+        if (body == CatalogIndex.Sol)
+        {
+            SunLimbRatio(frame, Radius, 0).ShouldBe(SunLaw(0.98), 0.04, "the Night Sun is not limb-darkened by the law");
+        }
     }
 
     /// <summary>

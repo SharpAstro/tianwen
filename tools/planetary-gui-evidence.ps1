@@ -12,8 +12,9 @@
     3. Opens tianwen-gui, local-only, on that node, and places its window on the LEFT half of the screen.
     4. Asks the person at the desk, in this console, for the clicks the GUI takes no other way: the Live Session tab, the
        Planetary mode pill, Exp 5 ms, Gain 2252, ROI 640x480, 8 bit, Start. It waits until the node streams that.
-    5. Jogs the window to the Saturn window (1716, 546), records 60 s (the GUI has no Record control yet, #1344), takes the
-       window by PrintWindow mid-recording into -Out, and prints the SER's rate, the node's streams and every TCP
+    5. Jogs the window to the Saturn window (1716, 546), then asks the person for the Record control's Record (#1344), its
+       Secs at -Seconds (60, the field's own until typed over). It waits until the node records, takes the window by
+       PrintWindow halfway through the recording into -Out, and prints the SER's rate, the node's streams and every TCP
        listener and UDP endpoint of the node, the GUI and the test (all must be loopback).
     6. Closes the GUI and stops the node, each by its pid, and leaves the camera closed.
 
@@ -23,7 +24,7 @@
     The folder for the PNG and this run's log; a new one under the temp folder by default.
 
 .PARAMETER Seconds
-    How long the recording lasts.
+    How long the recording lasts: what the person types into the Record control's Secs, and when its picture is taken.
 
 .PARAMETER NoBuild
     Use the last Release builds as they are.
@@ -44,7 +45,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Host.UI.RawUI.WindowTitle = 'TianWen GUI evidence: the planetary capture through the node (TIA2)'
+$Host.UI.RawUI.WindowTitle = 'TianWen GUI evidence: the planetary capture through the node and its Record control (TIA2, #1344)'
 
 $src = Join-Path (Split-Path -Parent $PSScriptRoot) 'src'
 $gui = Join-Path $src 'TianWen.UI.Gui/bin/Release/net10.0/tianwen-gui.exe'

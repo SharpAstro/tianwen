@@ -68,7 +68,7 @@ seam, a controller + tab on top, and a recenter controller.
 > symbol inventory). Recommended order there is **E before D** (E is a single low-risk in-tree commit against
 > the already-published FC.SDK Live View; D is the High-risk DAL -> 2 SDKs -> TianWen NuGet chain).
 | F | decompose the ~3000-line `ImageRendererBase` (see below) | no | DONE 2026-06-28 |
-| G | a mono night: a Record control in the GUI (#1344), then a filter-wheel sequence as a node run (#1340) | no | NOT STARTED ([Phase G](#phase-g-a-mono-filter-wheel-sequence)) |
+| G | a mono night: a Record control in the GUI (#1344), then a filter-wheel sequence as a node run (#1340) | no | **PARTIAL**: the Record control DONE 2026-10-16 (#1344); the sequence (#1340) NOT STARTED ([Phase G](#phase-g-a-mono-filter-wheel-sequence)) |
 | H | focusing on the planet: a burst's sharpness, a readout for focusing by hand, an autofocus, per-filter offsets (#1341) | no | NOT STARTED ([Phase H](#phase-h-focusing-on-the-planet)) |
 | I | a recording writes its camera settings beside it (#1342) | no | NOT STARTED ([Phase I](#phase-i-a-recording-says-how-it-was-taken)) |
 
@@ -152,8 +152,9 @@ releases). D and E are hardware/quality upgrades behind the same contract.
   snapshots), in the camera's own shape and the depth it streams (8 bits for an 8-bit stream, else 16) with each frame's
   arrival time; the loop converts and queues, a writer task of its own does the disk (a frame the disk cannot take is
   dropped and counted); a frame of another size ends it. The node's `/api/v1/planetary/record` finishes its duration
-  unwatched. **Nothing in the GUI or the CLI asks for a recording yet** (#1344, Phase G), and #814's memory-mapped SER,
-  the recording and the frame ring in one, is the optimisation still ahead.
+  unwatched. **The GUI's Planetary mode asks for one with its Record control** (#1344, Phase G: `PlanetaryRecordControl`,
+  `StartPlanetaryRecordingSignal`); the CLI does not yet. #814's memory-mapped SER, the recording and the frame ring in one,
+  is the optimisation still ahead.
 - `TianWen.UI.Abstractions/PlanetaryCaptureController.cs` -- owns a `PlanetaryCapture`; `Tick()` (render
   thread) follows latest + publishes the master + pushes wavelet-sharpen changes.
 - `ViewerState.BuildWaveletOptions()` -- the single source for live-stack wavelet options, now shared by
@@ -636,7 +637,8 @@ and fourth the owner refocused by hand (12993 to 12987), focusing on SharpCap's 
 **What TianWen could not have done that night**, in the order it has to be built:
 1. **Stream from that camera** (#813): ZWO streams natively, and ToupTek since ToupTek.SDK 1.2 (TIA2, "Video at the Saturn window on
    the ToupTek" below); a QHY or Player One body still runs the single-exposure loop.
-2. **Record from the GUI** (#1344): the node records (`SerRecording`), but nothing in the GUI or the CLI asks it to.
+2. **Record from the GUI** (#1344): **done 2026-10-16**. The node records (`SerRecording`) and the Planetary mode's Record control
+   asks it to ([Phase G](#phase-g-a-mono-filter-wheel-sequence)); the CLI still does not.
 3. **Say how a file was taken** (#1342, Phase I): our recording writes no exposure, gain, offset or focuser position.
 4. **Run the sequence** (#1340, Phase G): nothing moves the filter wheel during a planetary capture.
 5. **Focus on the planet** (#1341, Phase H): every focus routine and aid measures stars.
@@ -881,8 +883,10 @@ measured the capture loop in one process. This one measures it through the node,
 `AppSignalHandler`, composed as `GuiNodeHarness` composes it and connected local-only, starts the capture with the panel's
 `StartVideoCaptureSignal` (640x480, 8 bits, 5 ms, gain 2252) and jogs it to (1716, 546) through the panel's controller. Its
 `PlanetaryCaptureController` shows RAW the whole time, reading the camera's live frame through shared memory, its render thread
-driven at 60 Hz. The recording is asked for on the handler's own connection to the node (`POST /api/v1/planetary/record`), the
-request a Record control would send, since the GUI has none yet (#1344). Each recording is read back off its SER as the section
+driven at 60 Hz. The recordings in the table below were asked for on the handler's own connection to the node
+(`POST /api/v1/planetary/record`), the request a Record control sends, since the GUI had none yet; since #1344 the probe posts the
+Record control's own `StartPlanetaryRecordingSignal` and follows the recording on the state the panel reads
+([below](#the-record-control-through-the-node-at-the-saturn-window)). Each recording is read back off its SER as the section
 above reads it (`SerRateReadBack`). In one session and in this order, so each comparison is adjacent in time: the section above's
 in-process recording, a node recording with no view attached, the recordings with the view, the in-process recording again. The
 node's own counts (the hand-off's replaced frames, its stalls) come from its log, read once it has exited.
@@ -946,16 +950,48 @@ been leaving six darks there on every run. It is now `Images` under an overridde
 
 **The real window.** The gate drives the GUI's client, not its renderer, so it does not cover the draw. `tools/planetary-gui-evidence.ps1`
 opens the real `tianwen-gui` on such a node, local-only, on the left half of the screen, asks a person for the clicks the GUI takes no
-other way (the Live Session tab, the Planetary mode pill, the panel's settings, Start), then jogs to the Saturn window, records a
-minute, takes the window by `PrintWindow` mid-recording and reads the SER back
+other way (the Live Session tab, the Planetary mode pill, the panel's settings, Start), jogs to the Saturn window, then asks for the
+Record control's Record (#1344), takes the window by `PrintWindow` halfway through the recording and reads the SER back
 (`NodePlanetaryRateProbe.TheRealGuiWindowShowsTheCaptureLiveWhileTheNodeRecords`); `-CheckOnly` proves it with nobody at the desk.
 **`PrintWindow` takes a black client area while the user's session is disconnected** (`quser` says `Disc`, no monitor active):
 the GUI draws (its log has frames) but nothing composes it, so the picture needs a session on a screen, which the person at the
 desk brings.
 
+### The Record control through the node at the Saturn window
+
+**Issue:** #1344 (measured 2026-10-16, after #1609).
+
+The same probe, its recordings with the view now started by the Record control's own `StartPlanetaryRecordingSignal` and followed
+on the recording's state as the panel reads it (`NodePlanetaryCapture.Recording`), the tracker drained only for the request. One
+60 s recording with the view (`TIANWEN_TOUPTEK_RECORD_RUNS=1`), the other worktrees' builds waited for, the box 14 to 21 % busy of
+16 cores (another flight's training on about one core):
+
+| Recording, 60 s | fps off the SER | SER frames over its span | Steps p50 / p99 / max | Replaced | Body / disk dropped | Host CPU |
+|---|---|---|---|---|---|---|
+| in process, before | 175.6, a stall (6.52 s), 197.0 outside it | 10,535 over 59.99 s | 5.08 / 5.20 / 6523 ms | 0 | 0 / 0 | 18 % |
+| node, no view | 175.6, a stall (6.51 s), 197.0 outside it | 10,537 over 60.00 s | 5.08 / 5.21 / 6515 ms | 0 | 0 / 0 | 21 % |
+| node, view, by the Record control's signal | **196.8** | 11,805 over 60.00 s | 5.08 / 5.20 / 7.5 ms | 0 | 0 / 0 | 21 % |
+| in process, after | 196.8 | 11,805 over 60.00 s | 5.08 / 5.19 / 6.4 ms | 0 | 0 / 0 | 14 % |
+
+The recording the control started is 100.0 % of the session's in-process rate, its view reading 30.3 live frames a second through
+shared memory, the node stacking 11 masters meanwhile, and no TCP listener or UDP endpoint of the node, its keeper or the client.
+The two stalls are the camera's `GeneralError` ones measured above, each brought back by a restart in 6.5 s, reported apart.
+
 ### Phase G: a mono filter-wheel sequence
 
 **Issues:** #1344 (the Record control, first), #1340 (the sequence).
+
+**The Record control (#1344, done 2026-10-16).** A RECORD section in the Planetary mode's panel, under the capture: a duration in
+seconds (a minute to start), Record and Stop, and what the node says of its recording (the file, the frames written and dropped and
+the time left; once it has ended, why, or why it failed). It is `PlanetaryRecordControl`, a declaration the GUI's panel and a test
+paint alike, and it asks through `StartPlanetaryRecordingSignal` and `StopPlanetaryRecordingSignal`, which `AppSignalHandler` sends
+through `PlanetaryCaptureController.RecordAsync` to the capture's OWN node, the one the controller started it on, never the view's
+command target: a control of the run on screen goes to its own node (CLAUDE.md, Remote Rigs; review round 1 of #1610). The node
+stays the recording's one writer, finishes it unwatched, and refuses in words a record with no capture going on or one already
+recording; with no capture on show the controller says the same. The panel reads the recording back from the capture's state
+(`NodePlanetaryCapture.Recording`, polled every 250 ms with the rest), the time left by this computer's clock. Neither is offered
+with no capture on show: Record while the field states a duration, Stop while a recording goes on. Pinned by `PlanetaryRecordingThroughTheNodeTests` (through the node) and `PlanetaryRecordControlTests` (the presses). Its
+settings beside the file are #1342's (Phase I); the sequence below records one file a step through the same route.
 
 - **A run of the node** (`INodeRun`, as the planetary capture is), claiming the camera, the filter wheel and the focuser (the
   per-filter offset moves it). The mount is touched only by the recentre's nudges, which ask `DeviceOwnershipGate` as they do now.

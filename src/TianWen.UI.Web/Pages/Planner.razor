@@ -1356,8 +1356,12 @@
 
         try
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var png = await Http.GetByteArrayAsync(TianWen.Lib.Imaging.Planetary.PlanetTextureAtlas.FileName);
+            Console.WriteLine($"[tianwen-web] planet atlas fetched: {png.Length} bytes in {sw.ElapsedMilliseconds} ms");
+            sw.Restart();
             _skyTab.SubmitPlanetAtlas(png, new TianWen.UI.Web.SkyMap.BrowserPlanetMapStore(Http));
+            Console.WriteLine($"[tianwen-web] planet atlas adopted in {sw.ElapsedMilliseconds} ms, texture version {_skyTab.PlanetTextures.Version}");
             RenderFrame();
         }
         catch (Exception ex)
@@ -2722,6 +2726,10 @@
             + ",\"orreryDaysPerSecond\":" + (_skyTab?.State.Orrery.DaysPerSecond ?? 0).ToString("R", CultureInfo.InvariantCulture)
             + ",\"timeOffsetDays\":" + (_skyTab?.State.TimeOffset.TotalDays ?? 0).ToString("R", CultureInfo.InvariantCulture)
             + ",\"orreryMs\":" + (_skyTab?.LastOrreryFrameMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
+            // sunTextured - the frames that traced the Sun from its atlas map (#1608), what a test of the textured Sun waits on.
+            + ",\"sunTextured\":" + (_skyTab?.SunTexturedTraces ?? 0).ToString(CultureInfo.InvariantCulture)
+            // planetTextures - the planet textures' version (PlanetTextures.Version): above 0 once the atlas has been adopted.
+            + ",\"planetTextures\":" + (_skyTab?.PlanetTextures.Version ?? 0).ToString(CultureInfo.InvariantCulture)
             + ",\"renderMs\":" + _renderMs.ToString("F1", CultureInfo.InvariantCulture)
             + ",\"gatherMs\":" + (_skyTab?.PrimOverlayGatherMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
             + ",\"uploads\":" + (_skyTab?.OverlayInstanceUploads ?? 0).ToString(CultureInfo.InvariantCulture)

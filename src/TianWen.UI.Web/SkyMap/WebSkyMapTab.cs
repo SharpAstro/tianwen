@@ -60,8 +60,19 @@ namespace TianWen.UI.Web.SkyMap
             TianWen.Lib.Imaging.Planetary.PlanetColourMap? map, int textureVersion, RGBAColor32 flat, RGBAColor32? nightTint)
         {
             _planetBodies ??= new WebGlPlanetBodies(renderer, RequestPlanetFrame, Logger);
-            return _planetBodies.Draw(view, x, y, radiusPx, map, textureVersion, flat, nightTint);
+            var drawn = _planetBodies.Draw(view, x, y, radiusPx, map, textureVersion, flat, nightTint);
+            if (drawn && map is not null && view.Body == TianWen.Lib.Astrometry.Catalogs.CatalogIndex.Sol)
+            {
+                SunTexturedTraces++;
+            }
+            return drawn;
         }
+
+        /// <summary>
+        /// How many times a frame has traced the Sun from its atlas map, for the E2E render stats (#1608): what a test waits on before it
+        /// reads the Sun's pixels back, since the map uploads asynchronously and a flat Sun is drawn until it has.
+        /// </summary>
+        internal int SunTexturedTraces { get; private set; }
 
         /// <summary>A texture or a sprite landed with nothing else happening: the page paints per event, so ask it for one.</summary>
         protected override void RequestPlanetFrame()

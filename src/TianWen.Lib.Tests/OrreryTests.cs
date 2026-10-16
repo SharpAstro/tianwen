@@ -1728,6 +1728,35 @@ public sealed class OrreryTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// The orrery's Sun is drawn from its atlas map (#1608), the generated quiet photosphere, not the flat yellow it was: on the CPU
+    /// surface its centre is near white (the flat colour's blue is 0x80) and its limb darkens by the linear law, read at 0.9 of its radius.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheOrrerysSunIsDrawnFromItsMap()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale: 3f);
+        Select(rig, CatalogIndex.Jupiter);
+        rig.Tab.OpenOrrery();
+        rig.Tab.State.Orrery.ShowBackdrop = false;
+        await SettleAsync(rig);
+
+        var sun = rig.Tab.OrreryDrawn.Single(d => d.Index == CatalogIndex.Sol);
+        var pixels = rig.Renderer.Surface.Pixels;
+        (int R, int G, int B) At(float x, float y)
+        {
+            var i = (((int)y * Width) + (int)x) * 4;
+            return (pixels[i], pixels[i + 1], pixels[i + 2]);
+        }
+        var centre = At(sun.X, sun.Y);
+        var reach = 0.9f * sun.Radius;
+        var limb = (At(sun.X + reach, sun.Y).G + At(sun.X - reach, sun.Y).G) / 2.0;
+        var law = 1 - (TianWen.Lib.Imaging.Planetary.PlanetaryRender.SolarLimbDarkening * (1 - Math.Sqrt(1 - (0.9 * 0.9))));
+        output.WriteLine($"the Sun drawn {sun.Radius:F1} px in radius: centre {centre}, green at 0.9 of the radius {limb:F0}, the law's {law * centre.G:F0}");
+        centre.B.ShouldBeGreaterThan(200, "the Sun is its flat yellow, not its photosphere");
+        (limb / centre.G).ShouldBe(law, 0.06, "the Sun's limb is not the law's");
+    }
+
+    /// <summary>
     /// The orrery through the CPU renderer, true and compressed scale, Jupiter selected: the PNGs a person looks at, written to the
     /// test output, and every planet's sprite drawn once it has landed.
     /// </summary>

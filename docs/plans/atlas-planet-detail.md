@@ -3,7 +3,8 @@
 **Status: PARTIAL (raised by the user 2026-08-22).** Tracked here rather than in the next release,
 per the user's instruction: *"for Atlas lets just track it in the plan"*. Built 2026-10-14: finding 2's
 live magnitude, A4's geometry layer (see "What is built" under A4) and A4's textured discs, phases and rings
-("A4: the textured disc"). A5's solar system in 3D the same day ("A5. The solar system in 3D"). Open: A1's sparkline, A2, A3, A4's optional side-by-side strip (#1566), A4's textured-disc follow-ups (#1567), A5's follow-ups ("A5: what is open").
+("A4: the textured disc"). A5's solar system in 3D the same day ("A5. The solar system in 3D"). The Sun's textured,
+limb-darkened disc and every texture's credit 2026-10-16 ("A4: the Sun", #1608). Open: A1's sparkline, A2, A3, A4's optional side-by-side strip (#1566), A4's textured-disc follow-ups (#1567), A5's follow-ups ("A5: what is open").
 
 The notes, in the order they arrived:
 
@@ -189,14 +190,16 @@ Everything a drawn disk needs: the textured disc (below) and A5 build on this.
 
 Built 2026-10-14 (#1037). The pieces, in the order a frame meets them:
 
-- **Textures.** ONE offline atlas, `planet-textures.png` (512 x 640, 354,808 bytes, `PlanetTextureAtlas`; 512 x 512
-  and 301,799 bytes before the Earth), nine 256 x 128 equirectangular colour maps in `PlanetMap`'s convention (WEST
+- **Textures.** ONE offline atlas, `planet-textures.png` (512 x 640, 400,303 bytes, `PlanetTextureAtlas`; 354,808
+  bytes before the Sun, 512 x 512 and 301,799 bytes before the Earth), ten 256 x 128 equirectangular colour maps in `PlanetMap`'s convention (WEST
   longitude, column 0 at 0 degrees, falling to the right), poles filled: Mercury, Venus and Mars from Solar System
   Scope (CC BY 4.0), the Earth from NASA Earth Observatory's Blue Marble: Next Generation (July 2004, cloud-free,
   public domain, credited "NASA Earth Observatory" as its page asks; #1573, drawn only by the orrery), the Moon from
-  NASA SVS's LROC map (public domain), Jupiter, Saturn, Uranus and Neptune from OPAL's 2025 colour composites. A new
+  NASA SVS's LROC map (public domain), Jupiter, Saturn, Uranus and Neptune from OPAL's 2025 colour composites, and the
+  Sun in the tenth cell, generated ("A4: the Sun", #1608). A new
   atlas size makes `Decode` refuse a stale file whole (`PlanetTexturesTests.TheAtlasHoldsTheEarthAndAStaleAtlasIsRefused`),
-  so a host with an old file draws flat discs, never a map from the wrong cell. Baked by
+  so a host with an old file draws flat discs, never a map from the wrong cell; an all-black cell is no map, so the
+  nine-body atlas, the same size as the ten-body one, leaves the Sun flat rather than black. Baked by
   `tools/bake-planet-textures` (its README has every source URL, licence and OPAL's acknowledgement), kept in
   `TianWen.UI.Abstractions/Resources`, copied beside every desktop app and served beside the web page. Never fetched
   for Mercury, Venus, the Moon or Mars.
@@ -233,7 +236,8 @@ Built 2026-10-14 (#1037). The pieces, in the order a frame meets them:
   a pixel of margin, at most 256 px. Straight, not premultiplied, alpha: every host's blend (Vulkan's `SrcAlpha`,
   WebGL's `AlphaOver`, the CPU `BlendPixelAt`) takes straight alpha, and a premultiplied sprite would darken its limb
   twice. The night side is covered and black, as the Moon's dark limb hides the stars. A body below the horizon is
-  baked at 35 % opacity, as its label is. The Sun is the same render lit at full phase from a flat colour.
+  baked at 35 % opacity, as its label is. The Sun is drawn from its map by its limb-darkening law, never lit ("A4: the
+  Sun").
 - **Orientation on screen.** The pole's position angle is east of celestial north, and the VIEW can roll, be
   horizon-up or be mirrored, so the sprite is turned by the pole angle laid off from the screen direction of celestial
   north AT THE PLANET, found by projecting the planet and its neighbours a hundredth of a degree north and east through
@@ -291,8 +295,57 @@ written as `planet-discs.png` in the test output).
 
 - **Textured-disc follow-ups, #1567**:
   - a disc wider than 256 px is the 256 px sprite scaled up;
-  - the atlas's Uranus holds its edge row's colour over the unseen southern hemisphere;
-  - nothing yet shows the texture's credit in the info panel.
+  - the atlas's Uranus holds its edge row's colour over the unseen southern hemisphere.
+  - (Done with #1608: the info panel draws the disc's credit under it; see "A4: the Sun".)
+
+#### A4: the Sun
+
+Built 2026-10-16 (#1608). The atlas's tenth cell, empty beside Neptune since the Earth, holds the Sun; every host draws it
+from that map, self-luminous.
+
+- **The map is generated, not observed.** A real map (SDO/HMI continuum would be the public-domain source) is one day's
+  Sun, and its sunspots would be drawn on every date. At 256 x 128 an observation says nothing more anyway: a sample spans
+  about 17,000 km by 17,000 km, some 170 granules, so the granulation's contrast (of order 10 to 15 % at a granule's scale)
+  averages to about a percent. `tools/bake-planet-textures` makes it (`QuietSun`): a 5772 K black body (IAU 2015 B3) through
+  the CIE 1931 functions (Wyman, Sloan and Shirley's 2013 fit) into sRGB, 1.0000 0.9449 0.9171, times per sample 1 plus a
+  Gaussian of 0.12 over the root of the granules it holds, seeded. Credited "Generated quiet photosphere, 5772 K (TianWen)".
+  The other nine cells re-bake bit for bit (compared pixel by pixel). Pinned by
+  `PlanetTextureAtlasTests.TheSunFillsTheTenthCellWithAQuietPhotosphere` (no sample beyond 10 % of the mean: no spot).
+- **Limb darkening, no lighting.** `PlanetaryRender.LimbDarkening(body)` is the linear law I(mu) = 1 - u (1 - mu), u = 0.6
+  (`SolarLimbDarkening`), for the Sun and 0 for every lit body. The CPU reference (`Scene`) never asks a self-luminous body
+  whether it is lit, so it has no terminator from any direction (the ephemeris gives the Sun no sub-solar point, NaN) and
+  no Minnaert's law; the sprite's old trick, lighting the Sun at full phase, which darkened its limb as the square root of
+  mu (0.548 at mu 0.3 against the law's 0.58), is gone. The trace takes u in the block's `tint.w`, in `planet_body.frag`
+  and its WebGL copy alike. One u for the three channels: the limb's reddening is left out.
+- **Where it shows.** The sky map's Sun disc at its true size and the info panel's disc (the two guards that kept it
+  flat are gone), and the orrery's Sun. Night is its luminance in the palette's tint, as every body's.
+- **Every texture is credited.** NOTICE lists every atlas source (Solar System Scope under CC BY 4.0 with its licence
+  link, which REQUIRES the attribution wherever the maps ship; the Blue Marble; the SVS Moon; OPAL with its requested
+  acknowledgement; the generated Sun), and the info panel draws the disc's credit on a row under the slot
+  (`PanelDisplayOptions.DiscCredit`, reserved in `DesignDiscSectionHeight` whether or not the credit has arrived, so the panel
+  does not move when the texture lands): the #1567 item.
+
+**Tests:** `PlanetDiscRenderTests` (the law at mu 0.9, 0.6, 0.3 and 0.15 within 0.01; no terminator from the ephemeris or
+a sub-solar point anywhere; the Night Sun no blue and its limb the law's), `PlanetBodyGpuTests` (the textured Sun on the
+Adreno X1-85: worst 1 of 255, mean 0.000, none more than 4 off; its limb the law's; Night no blue for Saturn and the Sun),
+`PlanetTexturesTests` (the nine-body atlas leaves the Sun flat), `SkyMapPlanetDiscTests.TheSunsDiscIsItsTexturedPhotosphere`
+(near white, mottled, the limb the law's, `sun-disc.png`), `TheDiscsCreditIsDrawnUnderIt` (every body the map shows),
+`ObjectInfoPanelTests.EveryAtlasBodysCreditIsDrawnUnderItsDisc`, `SkyMapPlanetDiscTests.TheSunsSpriteIsBuiltOnceForAStillView` (its
+NaN sub-solar point keys one sprite, not one a frame), `OrreryTests.TheOrrerysSunIsDrawnFromItsMap`, and the browser's `OrrerySunTests`
+(E2E, headless Edge): Alt+S from the atlas, the atlas response a PNG of 400,303 bytes, two frames traced the textured Sun 68 s after
+the page opened, and the capture's largest near-white blob a filled round disc (432 px in a 24 x 23 px box, centre 254, 241, 234).
+
+#### A4: the atlas the dev server never sent
+
+Found by that E2E (#1608): `dotnet run` of `TianWen.UI.Web` answered `planet-textures.png` with 200 and NO BODY, on origin/main as on
+this branch, so the browser's planets were flat (or dots) in every local run since #1037 and nobody had seen otherwise (#1572). The
+atlas is a `Content` item linked into `wwwroot` from `TianWen.UI.Abstractions/Resources`; the static-asset build gave it the PROJECT's
+`wwwroot` as its content root, the dev server's runtime manifest so mapped it to `wwwroot/planet-textures.png`, which does not exist,
+and the server sent the mapped-but-missing file as an empty 200 (the build manifest, with the real file as its identity and a
+Content-Length of 400,303, looked right). The item now states its own `ContentRoot`, the Resources folder, and the dev server sends the
+committed file byte for byte. The page logs each step (`[tianwen-web] planet atlas fetched: N bytes`, then `adopted`), and the E2E
+fails on a body that is not a PNG. A published build was never affected the same way (publish copies by the asset's identity), but is
+not re-checked here.
 
 ### A5. The solar system in 3D
 
@@ -485,7 +538,7 @@ one frame late, and the GUI logged a slow frame every 250 to 330 ms.
   `WebGlPlanetBodies.cs` (WebGL 2): per pixel, 3 x 3 rays along the direction away from the camera from the screen
   point (an orthographic impostor per body: at the orrery's exaggerated sizes a body's own perspective is a per-mille
   effect, and the disc stays the circle the hit area is). Each ray meets the oblate spheroid, is lit by Minnaert's law
-  (`PlanetDiscSprite.MinnaertK`), reads the colour map at its planetographic latitude and west longitude (texelFetch,
+  (`PlanetDiscSprite.MinnaertK`) or, the self-luminous Sun, drawn by its limb-darkening law (`tint.w`, "A4: the Sun"), reads the colour map at its planetographic latitude and west longitude (texelFetch,
   interpolated as `PlanetMap.Sample` does), and with Saturn crosses the ring plane in depth order, the globe's shadow on
   the rings and theirs on the globe, the unlit face glowing with the light the rings pass through them ("The rings' two
   faces", below), coverage as straight alpha; Night draws the luminance in the
@@ -497,10 +550,10 @@ one frame late, and the GUI logged a slow frame every 250 to 330 ms.
   vec4 attributes in a buffer of the body's own, `PlanetBodyInstances`, since WebGl.Renderer sets a uniform block at once
   but replays the draws at Present, which drew every body with the last body's block, PR #1589 review round 1): the
   disc's centre and radius, the viewport, the axis ratio, k, the view's right, toward and Sun vectors, the map's mean
-  albedo per plane (a ring's level is stated against it) and the tint. The ring table is `SaturnRings.Main`'s, written
+  albedo per plane (a ring's level is stated against it), the tint and a self-luminous body's limb darkening. The ring table is `SaturnRings.Main`'s, written
   into the shader and held to it by `TheShadersRingTableIsSaturnRingsMain`. Colour maps go up ONCE per body and
   `PlanetTextures.Version` (`PlanetBodyMap.FloatTexels`: float RGBA on Vulkan, exact; `Rgba8` as a PNG on WebGL, which
-  takes a texture only from a URL); a flat body (the Sun, or a body whose map has not loaded) is a 2 x 2 map of its colour.
+  takes a texture only from a URL); a flat body (one whose map has not loaded) is a 2 x 2 map of its colour.
   The Earth reads its day map since #1573 with no shader change, as any other map; the palette's Info is its colour only
   while the atlas loads.
 - **The seam:** `SkyMapTab.TracesPlanetBodies` / `DrawPlanetBody` (`VkSkyMapTab` through `VkPlanetBodies`, `WebSkyMapTab`
@@ -519,7 +572,7 @@ Spot, Mars, the Sun; the Earth over Africa since #1573, worst 1 of 255, none mor
 the CPU render 0.004 of 255 at most, worst 1 except a shadow edge (16), at
 most 3 channel values more than 4 off. A west longitude of the wrong sign, or rings without the globe's shadow, fail
 nine of the ten (805 to 65,331 values off). With the Earth the wrong sign fails ten of the eleven, every view with a map
-(the Sun has none): measured on the CPU reference with the map read at minus its west longitude, 2026-10-16, the Earth
+(the Sun had none then; it has its generated map since #1608): measured on the CPU reference with the map read at minus its west longitude, 2026-10-16, the Earth
 84,762 values more than 4 off and the least of the others 98 (Saturn at quadrature), against the test's 12. `OrreryGpuTests`: forty played frames on `VkSkyMapTab` trace ten bodies a
 frame, build 0 sprites and upload no map again; every disc is lit toward the Sun on the GPU's frame at the instant and
 93 weeks on, framed on the Earth's orbit and at 12 AU (Jupiter and Saturn within 9 degrees).
@@ -550,8 +603,9 @@ C ring's. The ten parity views and Night's no-blue still pass, and `TheWebGlTrac
 
 #### A5: what is open
 
-- **Not seen in the browser yet** (#1572, bench). The Vulkan GUI is seen (the bodies on the GPU, above); the WebGL page
-  builds the same trace, but nobody has opened it there, nor timed a drag or Play in the browser.
+- **Seen in the browser once, by the E2E only** (#1572, bench). `OrrerySunTests` (2026-10-16) opened the orrery in headless Edge
+  and read back a textured, limb-darkened Sun and textured planets, once the dev server sent the atlas at all ("A4: the atlas the dev
+  server never sent"). Nobody has looked at it in a real browser yet, nor timed a drag or Play there.
 - **Play's speed** (#1573, done): fifteen speeds from a drop-up beside Play (above, under "What is built"). The issue's
   other half, the flat Earth, is done too (the Blue Marble day map, under A4's textures and the Earth's longitudes,
   2026-10-16; `OrreryTests.TheOrrerysEarthIsDrawnFromItsDayMap`: the blue share across the lit disc spreads 0.54 where the

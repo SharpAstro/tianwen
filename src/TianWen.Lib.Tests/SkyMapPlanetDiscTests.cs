@@ -80,11 +80,11 @@ public sealed class SkyMapPlanetDiscTests
         public void Dispose() => Renderer.Dispose();
     }
 
-    private static async Task<Rig> RigAsync(System.Threading.CancellationToken cancellationToken)
+    private static async Task<Rig> RigAsync(System.Threading.CancellationToken cancellationToken, float dpiScale = 1f)
     {
         var db = await SharedCatalogDB.InitAsync(cancellationToken);
         var renderer = new RgbaImageRenderer(Size, Size);
-        var tab = new DiscTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+        var tab = new DiscTab(renderer) { FontPath = FontResolver.ResolveSystemFont(), DpiScale = dpiScale };
         var planner = new PlannerState
         {
             ObjectDb = db, SiteLatitude = 48.0, SiteLongitude = 11.0, SiteTimeZone = TimeSpan.FromHours(1), PlanningDate = Instant,
@@ -294,6 +294,78 @@ public sealed class SkyMapPlanetDiscTests
         var chi = info.Aspect.ShouldNotBeNull().BrightLimbPositionAngle * Math.PI / 180;
         var cos = ((sx * -Math.Sin(chi)) + (sy * -Math.Cos(chi))) / Math.Sqrt((sx * sx) + (sy * sy));
         Math.Acos(Math.Clamp(cos, -1, 1)).ShouldBeLessThan(15 * Math.PI / 180, "the lit limb faces the Sun");
+    }
+
+    /// <summary>
+    /// The Sun's textured sprite is built ONCE for a view that does not change (#1608): its ephemeris has no sub-solar point (NaN), and a
+    /// key that read that as a different angle each frame would rebuild a 256 px sprite every frame, which on the browser's one thread
+    /// is the whole frame. Ten frames after it has landed build nothing more.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheSunsSpriteIsBuiltOnceForAStillView()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        rig.Tab.State.TimeOffset = TimeSpan.FromHours(-10.7);
+        rig.Look(CatalogIndex.Sol, 300);
+        await rig.RenderSettledAsync();
+        rig.Tab.State.PlanetDiscsDrawn.ShouldContain(CatalogIndex.Sol);
+        var builds = rig.Tab.PlanetSprites.Builds;
+        builds.ShouldBeGreaterThan(0);
+
+        for (var frame = 0; frame < 10; frame++)
+        {
+            rig.Render();
+            await rig.Tab.PlanetSprites.WhenBuiltAsync();
+        }
+        rig.Tab.PlanetSprites.Builds.ShouldBe(builds, "a still view rebuilt the Sun's sprite");
+    }
+
+    /// <summary>
+    /// Selecting a body puts its texture's credit under its disc (#1567, #1608): the line the panel was handed is the body's own credit
+    /// (the atlas's, as no OPAL store is given here), and the row under the slot holds drawn text, many shades of it, where it was empty.
+    /// Every atlas body the map shows, at 1x and 1.5x; the Earth, which it does not, is held by <c>ObjectInfoPanelTests</c>.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(CatalogIndex.Sol, 1f)]
+    [InlineData(CatalogIndex.Moon, 1f)]
+    [InlineData(CatalogIndex.Mercury, 1f)]
+    [InlineData(CatalogIndex.Venus, 1f)]
+    [InlineData(CatalogIndex.Mars, 1f)]
+    [InlineData(CatalogIndex.Jupiter, 1f)]
+    [InlineData(CatalogIndex.Saturn, 1f)]
+    [InlineData(CatalogIndex.Uranus, 1f)]
+    [InlineData(CatalogIndex.Neptune, 1f)]
+    [InlineData(CatalogIndex.Sol, 1.5f)]
+    [InlineData(CatalogIndex.Moon, 1.5f)]
+    [InlineData(CatalogIndex.Mercury, 1.5f)]
+    [InlineData(CatalogIndex.Venus, 1.5f)]
+    [InlineData(CatalogIndex.Mars, 1.5f)]
+    [InlineData(CatalogIndex.Jupiter, 1.5f)]
+    [InlineData(CatalogIndex.Saturn, 1.5f)]
+    [InlineData(CatalogIndex.Uranus, 1.5f)]
+    [InlineData(CatalogIndex.Neptune, 1.5f)]
+    public async Task TheDiscsCreditIsDrawnUnderIt(CatalogIndex body, float dpiScale)
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale);
+        rig.Look(body, 1);
+        await SelectAsync(rig, body);
+        // The credit arrives with the texture: one more frame shows it.
+        await rig.RenderSettledAsync();
+
+        rig.Tab.LastPanelDiscCredit.ShouldBe(TianWen.Lib.Imaging.Planetary.PlanetTextureAtlas.Credit(body));
+        var slot = rig.Tab.LastPanelDiscRect.ShouldNotBeNull();
+        var image = rig.Renderer.Surface;
+        var shades = new HashSet<int>();
+        var rowHeight = ObjectInfoPanel.DesignRowHeight * rig.Tab.DpiScale;
+        for (var y = (int)(slot.Y + slot.Height); y < (int)(slot.Y + slot.Height + rowHeight); y++)
+        {
+            for (var x = (int)slot.X; x < (int)(slot.X + slot.Width); x++)
+            {
+                var i = ((y * image.Width) + x) * 4;
+                shades.Add((image.Pixels[i] << 16) | (image.Pixels[i + 1] << 8) | image.Pixels[i + 2]);
+            }
+        }
+        shades.Count.ShouldBeGreaterThan(8, $"{body}: no text under the disc");
     }
 
     /// <summary>An object that is not a solar-system body gets no disc slot: its panel is as it was.</summary>
@@ -526,5 +598,59 @@ public sealed class SkyMapPlanetDiscTests
             report += $"{side} px: {watch.Elapsed.TotalMilliseconds:F1} ms; ";
         }
         await File.WriteAllTextAsync(Path.Combine(dir, "build-cost.txt"), $"{report}{Environment.ProcessorCount} cores", TestContext.Current.CancellationToken);
+    }
+
+    /// <summary>
+    /// The Sun's disc on the map (#1608) is its atlas map, the quiet photosphere, at its true size: near white at the centre (never the
+    /// yellow of its dot), mottled by the residual granulation, and limb-darkened by the linear law at 0.95 of the radius. At local noon,
+    /// so it is above the horizon and drawn at full opacity. Written as a PNG beside the test output.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheSunsDiscIsItsTexturedPhotosphere()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        rig.Tab.State.TimeOffset = TimeSpan.FromHours(-10.7);
+        rig.Look(CatalogIndex.Sol, 300);
+        await rig.RenderSettledAsync();
+
+        rig.Tab.State.PlanetDiscsDrawn.ShouldContain(CatalogIndex.Sol);
+        var image = rig.Renderer.Surface;
+        var dir = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests", DateTime.Now.ToString("yyyyMMdd"), nameof(TheSunsDiscIsItsTexturedPhotosphere));
+        Directory.CreateDirectory(dir);
+        await File.WriteAllBytesAsync(Path.Combine(dir, "sun-disc.png"), PngWriter.Encode(image.Pixels, Size, Size), TestContext.Current.CancellationToken);
+
+        (int R, int G, int B) At(int x, int y)
+        {
+            var i = ((y * Size) + x) * 4;
+            return (image.Pixels[i], image.Pixels[i + 1], image.Pixels[i + 2]);
+        }
+        var centre = At(Size / 2, Size / 2);
+        centre.B.ShouldBeGreaterThan(200, $"the centre {centre} is the dot's yellow, not the photosphere");
+        var colours = new HashSet<int>();
+        for (var y = (Size / 2) - 60; y < (Size / 2) + 60; y++)
+        {
+            for (var x = (Size / 2) - 60; x < (Size / 2) + 60; x++)
+            {
+                var (r, g, b) = At(x, y);
+                colours.Add((r << 16) | (g << 8) | b);
+            }
+        }
+        colours.Count.ShouldBeGreaterThan(20, "the middle of the disc is a flat fill, not the photosphere's map");
+
+        // Along the middle row, both sides, at 0.95 of the radius (150 px), against the centre's mean over 5 x 5 px.
+        double Green(int x, int y) => At(x, y).G;
+        var centreGreen = 0.0;
+        for (var dy = -2; dy <= 2; dy++)
+        {
+            for (var dx = -2; dx <= 2; dx++)
+            {
+                centreGreen += Green((Size / 2) + dx, (Size / 2) + dy) / 25;
+            }
+        }
+        const int Reach = 142;
+        var limb = (Green((Size / 2) + Reach, Size / 2) + Green((Size / 2) - Reach, Size / 2)) / 2;
+        var r95 = Reach / 150.0;
+        var law = 1 - (TianWen.Lib.Imaging.Planetary.PlanetaryRender.SolarLimbDarkening * (1 - Math.Sqrt(1 - (r95 * r95))));
+        (limb / centreGreen).ShouldBe(law, 0.05, "the Sun's limb on the map is not the law's");
     }
 }

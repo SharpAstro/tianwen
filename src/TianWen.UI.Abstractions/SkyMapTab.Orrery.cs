@@ -654,7 +654,7 @@ namespace TianWen.UI.Abstractions
         {
             PlanetColourMap? map = null;
             var credit = "";
-            if (view.Body is not CatalogIndex.Sol && PlanetTextures.TryGet(view.Body, out var texture, out credit))
+            if (PlanetTextures.TryGet(view.Body, out var texture, out credit))
             {
                 map = texture;
             }
