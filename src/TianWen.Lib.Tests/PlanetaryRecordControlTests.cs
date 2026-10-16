@@ -28,14 +28,17 @@ public class PlanetaryRecordControlTests
         }
     }
 
-    private static (Panel Panel, List<object> Posted, SignalBus Bus) Paint(RgbaImageRenderer renderer, PlanetaryRecordControl control,
+    // The panel's design size, 280 wide as VkPlanetaryTab's, in device pixels at the scale painted.
+    private static RgbaImageRenderer Surface(float scale) => new RgbaImageRenderer((uint)(280 * scale), (uint)(200 * scale));
+
+    private static (Panel Panel, List<object> Posted, SignalBus Bus) Paint(RgbaImageRenderer renderer, float scale, PlanetaryRecordControl control,
         PlanetaryRecordingDto? recording, bool capturing, TimeSpan timeLeft = default)
     {
         var bus = new SignalBus();
         var posted = new List<object>();
         bus.Subscribe<StartPlanetaryRecordingSignal>(s => posted.Add(s));
         bus.Subscribe<StopPlanetaryRecordingSignal>(s => posted.Add(s));
-        var panel = new Panel(renderer) { DpiScale = 1f, FontPath = FontResolver.ResolveSystemFont() };
+        var panel = new Panel(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
         panel.Paint(control, recording, capturing, timeLeft, bus);
         return (panel, posted, bus);
     }
@@ -71,10 +74,11 @@ public class PlanetaryRecordControlTests
         }
     }
 
-    /// <summary>Presses the control's button the way a click arrives, through the router.</summary>
-    private static void Press(Panel panel, SignalBus bus)
+    /// <summary>Presses the control's button the way a click arrives, through the router, where it was painted at <paramref name="scale"/>.</summary>
+    private static void Press(Panel panel, SignalBus bus, float scale)
     {
         var region = Toggle(panel).ShouldNotBeNull("the button offers a press");
+        region.Height.ShouldBe(26f * scale, 0.5f, "the button fills its row, the row's design height at the scale painted");
         var (x, y) = (region.X + region.Width / 2f, region.Y + region.Height / 2f);
         var router = new InputRouter(panel.Ui, new BackgroundTaskTracker(), static () => { }) { Widgets = () => [panel] };
         router.Handle(new InputEvent.MouseDown(x, y));
@@ -96,58 +100,64 @@ public class PlanetaryRecordControlTests
         FailureReason = failure,
     };
 
-    [Fact]
-    public void RecordAsksForTheDurationTheFieldStates()
+    [Theory]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public void RecordAsksForTheDurationTheFieldStates(float scale)
     {
-        using var renderer = new RgbaImageRenderer(280, 200);
+        using var renderer = Surface(scale);
         var control = new PlanetaryRecordControl();
         control.Duration.ShouldBe(TimeSpan.FromSeconds(60), "a minute until the user types another");
         control.DurationInput.Text = "90";
 
-        var (panel, posted, bus) = Paint(renderer, control, recording: null, capturing: true);
-        Press(panel, bus);
+        var (panel, posted, bus) = Paint(renderer, scale, control, recording: null, capturing: true);
+        Press(panel, bus, scale);
 
         posted.ShouldBe([new StartPlanetaryRecordingSignal(TimeSpan.FromSeconds(90))]);
         panel.GetRegisteredRegions().ShouldContain(static r => r.Result is HitResult.TextInputHit, "the duration is a field the user types in");
     }
 
-    [Fact]
-    public void WithNoCaptureGoingOnRecordOffersNoPressAndSaysWhy()
+    [Theory]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public void WithNoCaptureGoingOnRecordOffersNoPressAndSaysWhy(float scale)
     {
-        using var renderer = new RgbaImageRenderer(280, 200);
-        var (panel, _, _) = Paint(renderer, new PlanetaryRecordControl(), recording: null, capturing: false);
+        using var renderer = Surface(scale);
+        var (panel, _, _) = Paint(renderer, scale, new PlanetaryRecordControl(), recording: null, capturing: false);
 
         Toggle(panel).ShouldBeNull("a recording is of the capture going on");
         Texts(new PlanetaryRecordControl(), recording: null, capturing: false).ShouldContain("Start the capture to record it");
     }
 
     [Theory]
-    [InlineData("")]
-    [InlineData("abc")]
-    [InlineData("0")]
-    [InlineData("-5")]
-    [InlineData("86401")]
-    public void AFieldThatStatesNoDurationOffersNoRecordAndSaysWhatItTakes(string text)
+    [InlineData("", 1f)]
+    [InlineData("abc", 1f)]
+    [InlineData("0", 1.5f)]
+    [InlineData("-5", 1f)]
+    [InlineData("86401", 1.5f)]
+    public void AFieldThatStatesNoDurationOffersNoRecordAndSaysWhatItTakes(string text, float scale)
     {
-        using var renderer = new RgbaImageRenderer(280, 200);
+        using var renderer = Surface(scale);
         var control = new PlanetaryRecordControl();
         control.DurationInput.Text = text;
 
-        var (panel, _, _) = Paint(renderer, control, recording: null, capturing: true);
+        var (panel, _, _) = Paint(renderer, scale, control, recording: null, capturing: true);
 
         control.Duration.ShouldBeNull();
         Toggle(panel).ShouldBeNull();
         Texts(control, recording: null, capturing: true).ShouldContain("Seconds, above 0 and up to a day");
     }
 
-    [Fact]
-    public void WhileItRecordsTheButtonStopsItAndThePanelShowsTheFileTheFramesAndTheTimeLeft()
+    [Theory]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public void WhileItRecordsTheButtonStopsItAndThePanelShowsTheFileTheFramesAndTheTimeLeft(float scale)
     {
-        using var renderer = new RgbaImageRenderer(280, 200);
+        using var renderer = Surface(scale);
         var recording = Recording(recording: true, written: 1234, dropped: 2);
 
-        var (panel, posted, bus) = Paint(renderer, new PlanetaryRecordControl(), recording, capturing: true, TimeSpan.FromSeconds(41.2));
-        Press(panel, bus);
+        var (panel, posted, bus) = Paint(renderer, scale, new PlanetaryRecordControl(), recording, capturing: true, TimeSpan.FromSeconds(41.2));
+        Press(panel, bus, scale);
 
         posted.ShouldBe([new StopPlanetaryRecordingSignal()]);
         string.Join(" | ", PlanetaryRecordControl.Describe(recording, TimeSpan.FromSeconds(41.2)))
@@ -156,15 +166,17 @@ public class PlanetaryRecordControlTests
             .ShouldBe(["Secs", "Stop", "Jupiter_Red_2026-10-16T213000Z.ser", "1234 written   2 dropped   0:42 left"]);
     }
 
-    [Fact]
-    public void AStopIsOfferedWhileItRecordsEvenWithTheFieldEmpty()
+    [Theory]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public void AStopIsOfferedWhileItRecordsEvenWithTheFieldEmpty(float scale)
     {
-        using var renderer = new RgbaImageRenderer(280, 200);
+        using var renderer = Surface(scale);
         var control = new PlanetaryRecordControl();
         control.DurationInput.Text = "";
 
-        var (panel, posted, bus) = Paint(renderer, control, Recording(recording: true), capturing: true);
-        Press(panel, bus);
+        var (panel, posted, bus) = Paint(renderer, scale, control, Recording(recording: true), capturing: true);
+        Press(panel, bus, scale);
 
         posted.ShouldBe([new StopPlanetaryRecordingSignal()]);
     }
