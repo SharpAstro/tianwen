@@ -2349,6 +2349,41 @@ GPU. Scored as R2l is.
 No kill: it is a measurement. **What it decides.** Its difference from seed 0 is the same-store seed spread, the bar
 R2l's and R2k's reads take beside the old one; and whether R2i's gain over the old store holds on a second seed.
 
+**Moved to Azure, not run on the desktop (2026-10-16, 22:23).** Beside R2l on the GTX 1070 the two runs shared it: 46 tiles
+a second together against about 45 for one alone, so each would have taken a day. Seed 1 was stopped at step 600 and
+moves to a spot T4, whose cache is already in the blob container. On that GPU its difference from seed 0 also holds the two
+GPUs' arithmetic, which the read must say. East US had no T4 spot capacity in any zone that night or the next morning.
+
+#### Averaging at inference: two models, and the tile's eight flips and turns, pre-registered (2026-10-17)
+
+Written before any of it is scored, on the morning R2l's read missed (below). Tracked by #1338. A model's error at a bright
+core is part bias and part variance from the draw, and averaging attacks the variance: two models trained apart, or one
+model shown its tile flipped and turned and its outputs turned back. Nothing is trained. `r2_infer.py --ckpt a.pt,b.pt`
+averages models' outputs, and `--tta 8` each model's over the eight views, each turned back with its noise plane turned
+alike; one checkpoint at `--tta 1` is the script as before. Scored on A's draws by the colour eval, against R2i.
+
+- **E1**: R2i and R2l averaged.
+- **E2**: R2i over its eight views.
+- **E3**: R2i and R2l, each over its eight views (read, not predicted).
+
+**Checked first:** R2i through the changed script at `--tta 1` gives its stored outputs back bit for bit.
+
+**The bars** are the seed spread R2i registered (2.7, 3.1 and 3.1 points clean at 5-20, 20-100 and 100-1000 sigma).
+
+**Predictions** (against R2i):
+1. **E1, the bright stars gain**: clean at 100-1000 sigma at least 63.3 %. Moderate: the two models differ in what they
+   were taught, so their errors are partly their own.
+2. **E1, the faint stars hold**: clean within the spread at 5-20 and 20-100 sigma.
+3. **E2, the bright stars gain**: at least 63.3 %. Low to moderate: the net never saw a turned tile, and a demosaic's
+   texture and a field's elongation are not the same turned.
+4. **E2, the faint stars hold.**
+
+**Kill**, for each: clean on the luminance falls past the spread at any brightness. Then that average is not adopted.
+
+**What it decides.** E1 holding makes an ensemble of separately trained models a product option at twice the inference,
+and makes every further seed worth twice (a spread and a member). E2 holding makes the views free in training and eight
+times the inference. Neither is a better model, and the read says so.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
