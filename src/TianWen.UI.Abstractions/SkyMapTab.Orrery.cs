@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using DIR.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -131,8 +132,10 @@ namespace TianWen.UI.Abstractions
             var orrery = State.Orrery;
             var dpiScale = DpiScale;
 
-            AdvancePlay(timeProvider);
-            var viewingTime = ResolveViewingTime(plannerState, timeProvider);
+            var baseTime = ResolveBaseTime(plannerState, timeProvider);
+            AdvancePlay(timeProvider, baseTime);
+            var viewingTime = baseTime + State.TimeOffset;
+            _lastViewingTime = viewingTime;
 
             CometElements? comet = null;
             if (orrery.Comet is { } cometIndex
@@ -160,6 +163,7 @@ namespace TianWen.UI.Abstractions
             DrawOrreryStrip(contentRect, viewingTime, plannerState.SiteTimeZone,
                 plannerState.PlanningDate.HasValue || State.TimeOffset != TimeSpan.Zero);
             RenderTimeMenu(contentRect, BaseFontSize * dpiScale * 0.85f, GuiTheme.Palette.PanelBg, GuiTheme.Palette.BodyText);
+            RenderDropUp(SpeedMenu, contentRect, BaseFontSize * dpiScale * 0.85f, GuiTheme.Palette.PanelBg, GuiTheme.Palette.BodyText);
 
             OrreryFrames++;
             LastOrreryFrameMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
@@ -209,7 +213,9 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         internal static readonly TimeSpan MaxPlayStep = TimeSpan.FromMilliseconds(100);
 
-        private void AdvancePlay(ITimeProvider timeProvider)
+        // Play stops AT OrreryState.PlayEnd, the end of the ephemeris's range, the frame drawn there: checked before the offset is
+        // added to the base, since at ten years a second the sum would leave DateTimeOffset's range within minutes and throw.
+        private void AdvancePlay(ITimeProvider timeProvider, DateTimeOffset baseTime)
         {
             var orrery = State.Orrery;
             if (!orrery.Playing)
@@ -221,6 +227,15 @@ namespace TianWen.UI.Abstractions
             {
                 var elapsed = TimeSpan.FromTicks(Math.Min(timeProvider.GetElapsedTime(orrery.PlayTimestamp, now).Ticks, MaxPlayStep.Ticks));
                 State.TimeOffset += TimeSpan.FromDays(orrery.DaysPerSecond * elapsed.TotalSeconds);
+            }
+            var endOffset = OrreryState.PlayEnd - baseTime;
+            if (State.TimeOffset >= endOffset)
+            {
+                State.TimeOffset = endOffset;
+                orrery.Playing = false;
+                orrery.PlayTimestamp = 0;
+                State.NeedsRedraw = true;
+                return;
             }
             orrery.PlayTimestamp = now;
             RequestPlanetFrame();
@@ -734,6 +749,22 @@ namespace TianWen.UI.Abstractions
                     .WithTooltip(centred ? $"The camera follows {focusBody.Name}; press to look at the Sun" : $"The camera looks at the Sun; press to follow {focusBody.Name}");
             }
 
+            // How fast Play runs, ONE label button beside it naming the speed in force, its mark saying a press opens the speeds
+            // (a drop-up, as the time's landmarks are). Sized by the widest name, so a pick does not move what follows; a content-capped
+            // Star like the other labels, so it gives way under pressure.
+            var speedName = PlaySpeedName(orrery.DaysPerSecond);
+            var speedButton = Layout.Builder.HStack(
+                    Layout.Builder.Text($"{speedName}/s", fontSize, ink, TextAlign.Center, TextAlign.Center, TextTrim.End,
+                            widthSample: PlaySpeedWidthSample)
+                        .WStarUpToContent(),
+                    FormRowLayout.StepMark("▲", fontSize, ink))
+                .WithGap(4f * dpiScale)
+                .CrossCenter()
+                .PadX(padX).WStarUpToContent(min: labelMin).HStar()
+                .Bg(fill).BgHover(GuiTheme.Hover(fill))
+                .Clickable(new HitResult.ButtonHit(OrrerySpeedAction), _ => OpenSpeedMenu(_speedButtonRect, fontSize))
+                .WithTooltip($"How fast Play runs: a second is {speedName} on the atlas's clock");
+
             // ONE tree over the whole rect: the strip is the bottom row of it, its fill and its content one arranged box.
             var strip = Layout.Builder.HStack(
                 [
@@ -745,7 +776,8 @@ namespace TianWen.UI.Abstractions
                         .PadX(padX).HStar()
                         .Bg(fill).BgHover(GuiTheme.Hover(fill))
                         .Clickable(new HitResult.ButtonHit("OrreryPlay"), _ => ToggleOrreryPlay())
-                        .WithTooltip($"Run time at {orrery.DaysPerSecond:0} days a second"),
+                        .WithTooltip($"Run time at {speedName} a second"),
+                    speedButton,
                     Layout.Builder.Text("Drag to orbit, wheel to zoom", fontSize, ink, TextAlign.Near, TextAlign.Center).PadX(padX).WStar().HStar(),
                     // Direct children of the strip, so the time (a content-capped Star) gives way here as the labels do.
                     .. BuildTimeControls(timeText, isTimeShifted ? palette.Accent : ink, fontSize, dpiScale, fill, ink).AsSpan(),
@@ -760,6 +792,53 @@ namespace TianWen.UI.Abstractions
                 // Device pixels, like the sky's strip.
                 scale: DesignScale.One);
             RememberTimeButton(arranged);
+        }
+
+        /// <summary>
+        /// The speed button's width sample, wider than every one of the fifteen names in the label's form: two digits before the
+        /// widest unit word (the m of "months" is the widest letter). A sample exactly as wide as "4 months/s" still trimmed it, as
+        /// it did "12 hours/s" and "10 years/s"; <c>EachSpeedRunsItsSpanInAPlayedSecond</c> holds every name untrimmed at 1x.
+        /// </summary>
+        internal const string PlaySpeedWidthSample = "00 months/s";
+
+        /// <summary>The name a rate goes by in the strip: its entry in <see cref="OrreryState.PlaySpeeds"/>, else its days.</summary>
+        internal static string PlaySpeedName(double daysPerSecond)
+        {
+            foreach (var speed in OrreryState.PlaySpeeds)
+            {
+                if (speed.DaysPerSecond == daysPerSecond)
+                {
+                    return speed.Name;
+                }
+            }
+            return $"{daysPerSecond:0.##} days";
+        }
+
+        /// <summary>
+        /// Opens the speeds above <paramref name="anchor"/> (the speed button's arranged rect, device pixels), the one in force
+        /// highlighted. A pick sets the rate and nothing else: Play keeps running if it was.
+        /// </summary>
+        private void OpenSpeedMenu(RectF32 anchor, float fontSize)
+        {
+            var orrery = State.Orrery;
+            var items = ImmutableArray.CreateBuilder<DropdownItem<double>>(OrreryState.PlaySpeeds.Length);
+            var current = -1;
+            foreach (var speed in OrreryState.PlaySpeeds)
+            {
+                if (speed.DaysPerSecond == orrery.DaysPerSecond)
+                {
+                    current = items.Count;
+                }
+                items.Add(new DropdownItem<double>($"1 second = {speed.Name}", speed.DaysPerSecond));
+            }
+            // Wide enough for "1 second = 10 years" at this size, and never narrower than the button it opened from.
+            var width = MathF.Max(anchor.Width, fontSize * 10f);
+            SpeedMenu.Open(anchor.X, anchor.Y, width, items.MoveToImmutable(), item =>
+            {
+                orrery.DaysPerSecond = item.Value;
+                State.NeedsRedraw = true;
+            });
+            SpeedMenu.HighlightIndex = current;
         }
 
         /// <summary>The narrowest a strip label (the distance scale, the centre) gives way to under pressure, in ems of its font.</summary>

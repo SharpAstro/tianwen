@@ -1087,9 +1087,10 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Formats a <see cref="TimeOffset"/> as a compact signed string showing the
         /// largest two non-zero units, e.g. <c>"+3h"</c>, <c>"-1h 30m"</c>,
-        /// <c>"+1w 2d"</c>, <c>"+2d 3h"</c>, <c>"-5h"</c>. Sub-minute magnitudes (and
-        /// zero) render as <c>"+0"</c>. Units: weeks (w), days (d), hours (h),
-        /// minutes (m). ASCII only -- this string lands in the GLSL-adjacent HUD strip.
+        /// <c>"+1w 2d"</c>, <c>"+2d 3h"</c>, <c>"-5h"</c>, <c>"+5y 2w"</c>. Sub-minute magnitudes (and
+        /// zero) render as <c>"+0"</c>. Units: Julian years of 365.25 days (y), weeks (w), days (d), hours (h),
+        /// minutes (m); years so the orrery's Play at up to ten years a second reads "+974y", never "+50817w" (#1573).
+        /// ASCII only -- this string lands in the GLSL-adjacent HUD strip.
         /// </summary>
         public static string FormatOffset(TimeSpan offset)
         {
@@ -1100,6 +1101,9 @@ namespace TianWen.UI.Abstractions
                 return "+0";
             }
 
+            const long MinutesPerYear = 36525 * 24 * 60 / 100;
+            var years = totalMinutes / MinutesPerYear;
+            totalMinutes %= MinutesPerYear;
             var weeks = totalMinutes / (7 * 24 * 60);
             totalMinutes %= 7 * 24 * 60;
             var days = totalMinutes / (24 * 60);
@@ -1110,7 +1114,7 @@ namespace TianWen.UI.Abstractions
             // Largest two non-zero units in descending order.
             Span<(long Value, char Unit)> all =
             [
-                (weeks, 'w'), (days, 'd'), (hours, 'h'), (minutes, 'm')
+                (years, 'y'), (weeks, 'w'), (days, 'd'), (hours, 'h'), (minutes, 'm')
             ];
 
             var result = sign;
