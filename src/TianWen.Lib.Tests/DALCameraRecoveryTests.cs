@@ -424,6 +424,17 @@ internal sealed class FakeCmosState(string serial)
         return false;
     }
 
+    private volatile FrameCreditGate? _frameGate;
+
+    /// <summary>The frames the body may still serve, granted by the test; null, the default, for as many as are asked for.</summary>
+    public FrameCreditGate? FrameGate => _frameGate;
+
+    /// <summary>
+    /// From now on the body serves only frames the test grants, <paramref name="credits"/> of them to start with, so a
+    /// test pauses its reader by a frame count rather than by the wall clock (#1615). Disposing the gate opens it for good.
+    /// </summary>
+    public FrameCreditGate GateFrames(int credits) => _frameGate = new FrameCreditGate(credits);
+
     /// <summary>Called inside every stream stop, on the calling thread, so a test can hold a recovery there.</summary>
     public Action? OnStopVideo { get; set; }
 
@@ -474,6 +485,78 @@ internal sealed class FakeCmosState(string serial)
 
         return Present;
     }
+}
+
+/// <summary>
+/// The frames a <see cref="FakeCmosState"/> may still serve: one credit a frame, and a frame call that finds none BLOCKS until
+/// the test grants more, as a body does for a frame it has not taken yet. It never answers Timeout instead: each Timeout adds
+/// the stream's frame wait to its silence, and eight of them in a row read as a stall, which restarts the stream.
+/// </summary>
+internal sealed class FrameCreditGate : IDisposable
+{
+    // The credits left and the signal of the grant they came from, replaced as one, so a call that finds none left signals
+    // the grant whose credits it used up, never a grant whose credits are on their way.
+    private sealed class Credits(int left, TaskCompletionSource held)
+    {
+        public int Left => left;
+
+        public TaskCompletionSource Held => held;
+    }
+
+    private Credits _credits;
+    // Released once a grant, and once as the gate opens: a blocked call wakes and looks again. Never disposed, since a call
+    // may still be waking on it as the gate opens; it holds no handle unless one is asked for.
+    private readonly SemaphoreSlim _changed = new SemaphoreSlim(0);
+    private volatile bool _open;
+
+    public FrameCreditGate(int credits) => _credits = new Credits(credits, NewHeld());
+
+    /// <summary>
+    /// Lets <paramref name="frames"/> more frames through. The task completes once a frame call finds them all used up, and
+    /// every one of them has then been read from the body and handed off: the driver asks for the next frame only after that.
+    /// </summary>
+    public Task Grant(int frames)
+    {
+        var held = NewHeld();
+        Credits seen;
+        do
+        {
+            seen = Volatile.Read(ref _credits);
+        }
+        while (Interlocked.CompareExchange(ref _credits, new Credits(seen.Left + frames, held), seen) != seen);
+        _changed.Release();
+        return held.Task;
+    }
+
+    /// <summary>Takes one frame's credit, blocking while there is none, unless the gate is open; the frame call's, just before it serves.</summary>
+    public void Take()
+    {
+        while (!_open)
+        {
+            var credits = Volatile.Read(ref _credits);
+            if (credits.Left == 0)
+            {
+                credits.Held.TrySetResult();
+                _changed.Wait();
+            }
+            else if (Interlocked.CompareExchange(ref _credits, new Credits(credits.Left - 1, credits.Held), credits) == credits)
+            {
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Opens the gate for good: a stream blocked in it never sees its stop, so a test disposes the gate before the stream,
+    /// even when an assertion has failed.
+    /// </summary>
+    public void Dispose()
+    {
+        _open = true;
+        _changed.Release();
+    }
+
+    private static TaskCompletionSource NewHeld() => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 }
 
 internal sealed class FakeCmosIterator(FakeCmosState state) : INativeDeviceIterator<FakeCmosCamera>
@@ -725,6 +808,8 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
             }
         }
 
+        // A frame the test has not granted yet is one the body has not taken yet: the call waits for it.
+        state.FrameGate?.Take();
         var value = state.ServeFrame();
         unsafe
         {
