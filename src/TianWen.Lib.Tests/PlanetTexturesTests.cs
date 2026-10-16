@@ -36,12 +36,14 @@ public sealed class PlanetTexturesTests
     /// <summary>
     /// The atlas holds nine bodies, the Earth among them (#1573): two to a row, five rows, so 512 x 640, and the file beside the tests is
     /// that size and gives the Earth its map credited to NASA's Blue Marble. An atlas of the old size (eight bodies, 512 x 512) is refused
-    /// whole, so a stale file leaves the bodies flat, never a map read from the wrong cell.
+    /// whole, so a stale file leaves the bodies flat, never a map read from the wrong cell. The Sun (#1608) took the tenth cell with no
+    /// change of size, so the nine-body atlas it replaces is the same size: its empty cell, all black, is no map, and the Sun stays flat
+    /// rather than drawn black.
     /// </summary>
     [Fact]
     public void TheAtlasHoldsTheEarthAndAStaleAtlasIsRefused()
     {
-        PlanetTextureAtlas.Layout.Length.ShouldBe(9);
+        PlanetTextureAtlas.Layout.Length.ShouldBe(10);
         PlanetTextureAtlas.Layout.ShouldContain(CatalogIndex.Earth);
         (PlanetTextureAtlas.Width, PlanetTextureAtlas.Height).ShouldBe((512, 640));
         PngImageDecoder.TryReadInfo(AtlasBytes(), out var info).ShouldBeTrue();
@@ -60,6 +62,26 @@ public sealed class PlanetTexturesTests
         stale.Version.ShouldBe(0, "an atlas of the old size changes nothing");
         stale.TryGet(CatalogIndex.Earth, out _, out _).ShouldBeFalse();
         stale.TryGet(CatalogIndex.Jupiter, out _, out _).ShouldBeFalse();
+
+        // The nine-body atlas: every cell as committed but the Sun's, black.
+        PngImageDecoder.TryReadInfo(AtlasBytes(), out _).ShouldBeTrue();
+        var rgba = new byte[PlanetTextureAtlas.Width * PlanetTextureAtlas.Height * 4];
+        PngImageDecoder.TryDecodeIntoRgba8(AtlasBytes(), rgba).ShouldBeTrue();
+        PlanetTextureAtlas.TryCell(CatalogIndex.Sol, out var sunX, out var sunY).ShouldBeTrue();
+        var rgb = new byte[PlanetTextureAtlas.Width * PlanetTextureAtlas.Height * 3];
+        for (var i = 0; i < PlanetTextureAtlas.Width * PlanetTextureAtlas.Height; i++)
+        {
+            var (x, y) = (i % PlanetTextureAtlas.Width, i / PlanetTextureAtlas.Width);
+            var inSun = x >= sunX && x < sunX + PlanetTextureAtlas.CellWidth && y >= sunY && y < sunY + PlanetTextureAtlas.CellHeight;
+            for (var c = 0; c < 3; c++)
+            {
+                rgb[(i * 3) + c] = inSun ? (byte)0 : rgba[(i * 4) + c];
+            }
+        }
+        var nineBodies = new PlanetTextures(() => DateTimeOffset.UnixEpoch) { AtlasPath = null };
+        nineBodies.SetAtlas(PngWriter.EncodeRgb8(rgb, PlanetTextureAtlas.Width, PlanetTextureAtlas.Height));
+        nineBodies.TryGet(CatalogIndex.Earth, out _, out _).ShouldBeTrue();
+        nineBodies.TryGet(CatalogIndex.Sol, out _, out _).ShouldBeFalse("an empty cell is no map: the Sun would be drawn black");
     }
 
     [Fact(Timeout = 30_000)]
