@@ -547,8 +547,9 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Each orbit is drawn in its body's colour, from the palette: Mars's red over blue, the Earth's blue over red, a comet's violet
-    /// (red and blue over green), a planet's at the dim alpha and a comet's at its own, the selected one in the accent.
+    /// Each orbit is drawn in its body's colour, from the palette: Mars's red over blue, the Earth's blue over red, a planet's at the
+    /// dim alpha (0x70); a comet's a dim GREY (A2 of #1611), weaker than any planet's (0x40), so thirty of them do not crowd the
+    /// planets out; the selected planet's in the accent.
     /// </summary>
     [Fact(Timeout = 120_000)]
     public async Task OrbitsCarryTheirBodysColour()
@@ -557,16 +558,42 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
         using var rig = await RigWithAsync(CatalogIndex.Jupiter, 1f, TestContext.Current.CancellationToken, comet);
         RGBAColor32 Orbit(CatalogIndex body) => rig.Tab.OrreryOrbitsDrawn.Single(o => o.Index == body).Colour;
 
-        var (mars, earth, violet, jupiter) = (Orbit(CatalogIndex.Mars), Orbit(CatalogIndex.Earth), Orbit(Index(comet)), Orbit(CatalogIndex.Jupiter));
-        output.WriteLine($"Mars {mars}, Earth {earth}, comet {violet}, Jupiter (selected) {jupiter}");
+        var (mars, earth, grey, jupiter) = (Orbit(CatalogIndex.Mars), Orbit(CatalogIndex.Earth), Orbit(Index(comet)), Orbit(CatalogIndex.Jupiter));
+        output.WriteLine($"Mars {mars}, Earth {earth}, comet {grey}, Jupiter (selected) {jupiter}");
         ((int)mars.Red).ShouldBeGreaterThan(mars.Blue + 0x30);
         ((int)earth.Blue).ShouldBeGreaterThan(earth.Red + 0x30);
-        ((int)violet.Red).ShouldBeGreaterThan(violet.Green);
-        ((int)violet.Blue).ShouldBeGreaterThan(violet.Green);
+        var (hi, lo) = (Math.Max(grey.Red, Math.Max(grey.Green, grey.Blue)), Math.Min(grey.Red, Math.Min(grey.Green, grey.Blue)));
+        (hi - lo).ShouldBeLessThanOrEqualTo(0x20, "a comet's orbit is not grey");
         mars.Alpha.ShouldBe((byte)0x70);
-        violet.Alpha.ShouldBe((byte)0x90);
+        grey.Alpha.ShouldBe((byte)0x40);
+        grey.Alpha.ShouldBeLessThan(mars.Alpha);
         jupiter.ShouldBe(GuiTheme.Palette.Accent);
         Orbit(CatalogIndex.Uranus).ShouldNotBe(Orbit(CatalogIndex.Saturn));
+    }
+
+    /// <summary>
+    /// The comet the view is about (the focused one, else the one it was opened on) has its orbit drawn LAST, over every other orbit,
+    /// at full strength in the accent and a pixel thicker; the other comets' stay the dim grey.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task TheFocusedCometsOrbitIsDrawnLastInTheAccent(float dpiScale)
+    {
+        using var rig = await OrreryTests.RigAsync(TestContext.Current.CancellationToken, dpiScale);
+        var opened = OrreryTests.SelectComet(rig);
+        rig.Planner.Comets = new StubCometRepository([opened, .. DemoComets()]);
+        rig.Tab.OpenOrrery();
+        await OrreryTests.SettleAsync(rig);
+        var drawn = rig.Tab.OrreryOrbitsDrawn;
+        drawn.Count(o => IsComet(o.Index)).ShouldBeGreaterThan(1);
+        var last = drawn[^1];
+        var baseThickness = (int)MathF.Max(1, MathF.Round(dpiScale));
+        output.WriteLine($"{drawn.Count} orbits, the last {last.Index} in {last.Colour} at {last.Thickness} px");
+        last.Index.ShouldBe(Index(opened));
+        last.Colour.ShouldBe(GuiTheme.Palette.Accent);
+        last.Thickness.ShouldBe(baseThickness + 1);
+        drawn.Where(o => IsComet(o.Index) && o.Index != Index(opened)).ShouldAllBe(o => o.Colour.Alpha == 0x40 && o.Thickness == baseThickness);
     }
 
     /// <summary>
