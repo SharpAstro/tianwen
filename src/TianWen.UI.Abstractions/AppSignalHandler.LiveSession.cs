@@ -333,6 +333,39 @@ namespace TianWen.UI.Abstractions
                 Notify(NotificationSeverity.Info, "Planetary capture stopped");
             });
 
+            // The Record control (#1344): the node on show records the capture going on to a SER (its one writer) and
+            // finishes it unwatched; the panel reads it back from the capture's state.
+            bus.Subscribe<StartPlanetaryRecordingSignal>(sig =>
+            {
+                if (CommandTargetOrSay("A recording") is not { Node: var node }) return;
+
+                RunTracked("StartPlanetaryRecording", "Recording failed to start", async ct =>
+                {
+                    if (await planetaryCapture.RecordAsync(node, sig.Duration, ct) is { } refusal)
+                    {
+                        Notify(NotificationSeverity.Warning, refusal);
+                        return;
+                    }
+                    var file = Path.GetFileName(planetaryCapture.Capture.Recording?.Path);
+                    Notify(NotificationSeverity.Info, $"Recording {sig.Duration.TotalSeconds:0.#} s to {file}");
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
+            bus.Subscribe<StopPlanetaryRecordingSignal>(_ =>
+            {
+                if (CommandTargetOrSay("Stopping a recording") is not { Node: var node }) return;
+
+                RunTracked("StopPlanetaryRecording", "Recording failed to stop", async ct =>
+                {
+                    if (await planetaryCapture.StopRecordingAsync(node, ct) is { } refusal)
+                    {
+                        Notify(NotificationSeverity.Warning, refusal);
+                        return;
+                    }
+                    Notify(NotificationSeverity.Info, "Recording stopped");
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
             // Manual mount nudge (planetary panel coarse-recenter buttons): one guide-rate pulse, as the node's job, which
             // ends when the mount reports the pulse done and is refused on a mount a run holds, in the run's name.
             bus.Subscribe<JogMountSignal>(sig =>
