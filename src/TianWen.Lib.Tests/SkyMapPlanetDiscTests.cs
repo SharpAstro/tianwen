@@ -296,6 +296,45 @@ public sealed class SkyMapPlanetDiscTests
         Math.Acos(Math.Clamp(cos, -1, 1)).ShouldBeLessThan(15 * Math.PI / 180, "the lit limb faces the Sun");
     }
 
+    /// <summary>
+    /// Selecting a body puts its texture's credit under its disc (#1567, #1608): the line the panel was handed is the body's own credit
+    /// (the atlas's, as no OPAL store is given here), and the row under the slot holds drawn text, many shades of it, where it was empty.
+    /// Every atlas body the map shows; the Earth, which it does not, is held by <c>ObjectInfoPanelTests</c>.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(CatalogIndex.Sol)]
+    [InlineData(CatalogIndex.Moon)]
+    [InlineData(CatalogIndex.Mercury)]
+    [InlineData(CatalogIndex.Venus)]
+    [InlineData(CatalogIndex.Mars)]
+    [InlineData(CatalogIndex.Jupiter)]
+    [InlineData(CatalogIndex.Saturn)]
+    [InlineData(CatalogIndex.Uranus)]
+    [InlineData(CatalogIndex.Neptune)]
+    public async Task TheDiscsCreditIsDrawnUnderIt(CatalogIndex body)
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        rig.Look(body, 1);
+        await SelectAsync(rig, body);
+        // The credit arrives with the texture: one more frame shows it.
+        await rig.RenderSettledAsync();
+
+        rig.Tab.LastPanelDiscCredit.ShouldBe(TianWen.Lib.Imaging.Planetary.PlanetTextureAtlas.Credit(body));
+        var slot = rig.Tab.LastPanelDiscRect.ShouldNotBeNull();
+        var image = rig.Renderer.Surface;
+        var shades = new HashSet<int>();
+        var rowHeight = ObjectInfoPanel.DesignRowHeight * rig.Tab.DpiScale;
+        for (var y = (int)(slot.Y + slot.Height); y < (int)(slot.Y + slot.Height + rowHeight); y++)
+        {
+            for (var x = (int)slot.X; x < (int)(slot.X + slot.Width); x++)
+            {
+                var i = ((y * image.Width) + x) * 4;
+                shades.Add((image.Pixels[i] << 16) | (image.Pixels[i + 1] << 8) | image.Pixels[i + 2]);
+            }
+        }
+        shades.Count.ShouldBeGreaterThan(8, $"{body}: no text under the disc");
+    }
+
     /// <summary>An object that is not a solar-system body gets no disc slot: its panel is as it was.</summary>
     [Fact(Timeout = 120_000)]
     public async Task ADeepSkyObjectGetsNoDiscSlot()

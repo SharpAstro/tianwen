@@ -383,6 +383,7 @@ namespace TianWen.UI.Abstractions
         {
             var dpiScale = DpiScale;
             LastPanelDiscRect = null;
+            LastPanelDiscCredit = null;
 
             // A comet carries a vmag sparkline under the text rows; fetch the state-cached curve
             // (recomputed only when the comet / viewing day changes) and grow the panel to fit it.
@@ -404,7 +405,10 @@ namespace TianWen.UI.Abstractions
                 Picture: ObjectInfoPanel.PictureFor(info.Index, plannerState.ObjectDb),
                 Disk: ObjectInfoPanel.DiskLine(in info),
                 // A solar-system body's disc (A4): the map's narrowest field shows few of them as more than a dot.
-                Disc: info.Aspect is not null);
+                Disc: info.Aspect is not null,
+                // And where its texture came from, under it (#1567), once the texture has landed.
+                DiscCredit: info.Aspect is { } discBody && PlanetTextures.TryGet(discBody.Planet, out _, out var discCredit) ? discCredit : null);
+            LastPanelDiscCredit = options.DiscCredit;
 
             // Copied into locals because a click lambda cannot close over an `in` parameter.
             var pinName = info.Name;
