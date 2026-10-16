@@ -589,7 +589,8 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
     /// <summary>The node's camera stream lines (starts, recoveries, ends) from every server log under its data root.</summary>
     private static string[] StreamLines(string dataRoot)
         => [.. ServerLogLines(dataRoot).Select(static entry => entry.Line).Where(static line => line.Contains("streaming video", StringComparison.Ordinal)
-            || line.Contains("stream is back", StringComparison.Ordinal) || StreamEnd.IsMatch(line))];
+            || line.Contains("stream is back", StringComparison.Ordinal) || StreamEnd.IsMatch(line)
+            || line.Contains("its longest write", StringComparison.Ordinal) || line.Contains("Capture loop ended", StringComparison.Ordinal))];
 
     /// <summary>Every line of the node's logs under its data root, with the day its folder is named for (yyyyMMdd), which a line's own time leaves out.</summary>
     private static IEnumerable<(string Day, string Line)> ServerLogLines(string dataRoot)

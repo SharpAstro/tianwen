@@ -229,6 +229,8 @@ public sealed class SerRecording
         {
             // The header, frame count and trailer included, is written as the writer closes.
             writer?.Dispose();
+            _logger.LogInformation("The planetary recording to {Path} has {Written} frames; the disk dropped {Dropped}, its longest write {Longest:F0} ms",
+                Path, FramesWritten, FramesDropped, LongestWrite.TotalMilliseconds);
             if (_gaps is { Length: > 0 } gaps)
             {
                 _logger.LogWarning("The planetary recording to {Path} has {Count} gaps, where its stream stalled and came back: {Gaps}", Path, gaps.Length,
