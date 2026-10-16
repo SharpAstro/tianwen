@@ -280,7 +280,9 @@ public class DALCameraVideoTests(ITestOutputHelper output)
 
     /// <summary>
     /// A reader that pauses is handed every frame the camera read meanwhile, in order, once it reads again: the one-frame
-    /// hand-off this replaced lost most of a 197-frame-a-second recording on a busy machine (TIA2, 2026-10-15).
+    /// hand-off this replaced lost most of a 197-frame-a-second recording on a busy machine (TIA2, 2026-10-15). The reader
+    /// pauses for a frame count the camera enforces (<see cref="FrameCreditGate"/>), never for a stretch of wall clock,
+    /// which a loaded runner outran: its reader woke 19 frames past the hand-off's limit (#1615).
     /// </summary>
     [Fact(Timeout = 30_000)]
     public async Task AReaderThatPausesIsHandedEveryFrameItMissedInOrder()
@@ -289,24 +291,27 @@ public class DALCameraVideoTests(ITestOutputHelper output)
         var (camera, state) = await StreamingCameraAsync();
 
         await using var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
-        var last = (int)(await NextAsync(frames)).MaxValue;
+        // Disposed before the stream, which a closed gate would hold for ever: a blocked frame call never sees the stop.
+        using var gate = state.GateFrames(credits: 1);
+        var first = (int)(await NextAsync(frames)).MaxValue;
         frames.Current.Release();
 
-        // The fake serves a frame a millisecond: a pause long enough for some, well short of the hand-off's 64.
-        var servedBefore = state.FramesServed;
-        SpinWait.SpinUntil(() => state.FramesServed - servedBefore >= 20 || ct.IsCancellationRequested);
-        ct.ThrowIfCancellationRequested();
-        for (var i = 0; i < 20; i++)
+        // Twenty frames while the reader waits, well short of the hand-off's 64, and not one more until it has read them.
+        await gate.Grant(20).WaitAsync(ct);
+        for (var i = 1; i <= 20; i++)
         {
             var frame = await NextAsync(frames);
-            ((int)frame.MaxValue).ShouldBe(last + 1, "no frame is skipped while the reader catches up");
-            last = (int)frame.MaxValue;
+            ((int)frame.MaxValue).ShouldBe(first + i, "no frame is skipped while the reader catches up");
             frame.Release();
         }
         camera.VideoFramesReplaced.ShouldBe(0);
-        camera.VideoHandOffHighWater.ShouldBeGreaterThan(1, "the frames waited for the reader");
+        camera.VideoHandOffHighWater.ShouldBe(20, "all twenty waited for the reader");
     }
 
+    /// <summary>
+    /// A reader further behind than the hand-off holds loses the OLDEST frames, and reads on from the oldest it kept. It falls
+    /// behind by a frame count the camera enforces (<see cref="FrameCreditGate"/>), never by a stretch of wall clock.
+    /// </summary>
     [Fact(Timeout = 30_000)]
     public async Task AReaderFarBehindLosesTheOldestFramesNotTheNewest()
     {
@@ -314,17 +319,19 @@ public class DALCameraVideoTests(ITestOutputHelper output)
         var (camera, state) = await StreamingCameraAsync();
 
         await using var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
-        (await NextAsync(frames)).Release();
+        // Disposed before the stream, which a closed gate would hold for ever: a blocked frame call never sees the stop.
+        using var gate = state.GateFrames(credits: 1);
+        var first = (int)(await NextAsync(frames)).MaxValue;
+        frames.Current.Release();
         var limit = TestDalCameraDriver.HandOffFrames(camera.VideoRoi);
-        var servedBefore = state.FramesServed;
-        SpinWait.SpinUntil(() => state.FramesServed - servedBefore >= limit + 20 || ct.IsCancellationRequested);
-        ct.ThrowIfCancellationRequested();
 
+        // Twenty frames more than the hand-off holds while the reader waits.
+        await gate.Grant(limit + 20).WaitAsync(ct);
         var next = await NextAsync(frames);
-        ((int)next.MaxValue).ShouldBeGreaterThan(servedBefore + 1, "the oldest went first");
+        ((int)next.MaxValue).ShouldBe(first + 21, "the twenty oldest went first");
         next.Release();
-        camera.VideoFramesReplaced.ShouldBeGreaterThan(0);
-        camera.VideoHandOffHighWater.ShouldBeLessThanOrEqualTo(limit);
+        camera.VideoFramesReplaced.ShouldBe(20);
+        camera.VideoHandOffHighWater.ShouldBe(limit);
     }
 
     /// <summary>
