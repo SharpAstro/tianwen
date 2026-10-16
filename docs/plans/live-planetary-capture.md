@@ -1015,6 +1015,10 @@ with the box quiet. A recording the camera stalled in is reported apart and made
 - **The recording's writer runs on a thread of its own too**: the loop shares its queue's lock and the byte pool's with it, and a
   pool writer held off while it held one held the loop up behind it.
 - **The loop's running Debug lines are written by the pool** (a host's file log is one lock for the process, flushed under it).
+- **A capture's ring takes the planes the last ring of its shape left** (`RingPlaneShelf`): a ring of 1,024 large float planes
+  filled fresh for every capture fed the collector 1.2 GB a capture (below). One shape at a time, one ring's worth at most, given
+  up at the first gen 2 collection 30 s after its last use.
+- `tianwen-server` states `ServerGarbageCollection` (it was on only by the Web SDK's default; workstation GC measured alike).
 - Tried and not kept: holding the process's GC at `SustainedLowLatency` while a capture runs (below: no better, and it is a
   process-wide mode).
 
@@ -1052,6 +1056,7 @@ clean recordings with the view, in order:
 | Server GC (as shipped), again | 196.4, 196.6, 196.8 | 17 (0.14 %), 0, 0 | 43, 7, 0 |
 | `DOTNET_gcServer=0` | 196.8, 196.6, 196.7 | 5 (0.04 %), 15 (0.13 %), 0 | 0, 9, 2 |
 | Server GC + `SustainedLowLatency` while capturing (not kept) | 196.6, 196.5, 196.4 | 28 (0.24 %), 31 (0.26 %), 57 (0.48 %) | 9, 49, 0 |
+| **+ the ring's planes kept across captures (kept)** | 196.0, 196.4, 195.2 | **0, 0, 0** | 43, 21, 92 |
 
 Before the fix the same arm replaced 1,793 to 3,263 a minute. What is left is the node's collections: each capture there saw 3 to
 9 gen 2 collections pausing 283 to 592 ms in all (in process, 0 to 4 and 11 to 77 ms). A pause holds every managed thread, the
@@ -1060,10 +1065,20 @@ them) to reach a safe point; a pause on top of a backlog passes the hand-off's 6
 slow: the frames it was charged with fell out of the writer's queue while its writes took 1 to 5 ms (865 ms once), the writer held
 with the reader. `SustainedLowLatency` kept none of it away: its captures still saw 2 to 8 gen 2 collections pausing 489 to
 1,327 ms in all, the node's heap 1.3 to 1.6 GB and its working set 1.4 to 2.7 GB, so it was taken out again; each capture now
-says as it ends what the process collected and paused, and its heap and working set. **The node arm is accepted as measured**:
-of the fifteen clean recordings with the view under the 32 spinners, five replaced under 0.1 % (four of them none), and the worst
-replaced 0.79 %, at 100 % CPU. What allocates in the node's live stack and view, and the hand-off's depth (64 frames, about a
-third of a second) against pauses of up to about 0.6 s, are a follow-up issue.
+says as it ends what the process collected and paused, and its heap and working set. **With the ring's planes kept across
+captures** (the last set, on main with #1610, a separate set the same evening) the three clean recordings replaced none, and every
+node capture but the first, whose ring had to be filled fresh (13/10/9 collections, 655 ms), ran with no gen 2 collection at all
+(2 to 5 gen 0, 12 to 372 ms in all; the node's heap 1.3 to 2.7 GB). Of the eighteen clean recordings with the view under the 32
+spinners, eight replaced under 0.1 % (seven none) and the worst 0.79 %, all before the ring's fix; the node arm is accepted as
+measured.
+
+**The disk's drops are not solved.** Frames the writer's queue dropped, missing from the SER, came in most sets under the 32
+spinners, before the ring's fix and after it (0 to 151 a recording), with the writer's writes taking 1 to 5 ms: the writer held,
+not the disk. In the ring-fix set they were 17, 65, 43 and 21 in the recordings whose load was the 32 spinners and the node alone,
+and 35, 92 and 104 in the three during which another program's `tianwen` (not this probe's, gone before it could be named) used
+1.1 to 1.3 cores. The view's floor was missed twice in that set too (8.6 live frames a second with the spinners alone, 7.3 with
+the other `tianwen`), and stands as measured. What holds the writer, and the hand-off's depth (64 frames, about a third of a
+second) against pauses of up to about 0.6 s, are a follow-up issue.
 
 **What allocates, attributed** (`PlanetaryNodeAllocationProbe`, opt-in with `TIANWEN_ALLOCATION_PROBE=1`: the node's shape in
 process over the fake camera at 640x480, the runtime's own allocation ticks summed by type and heap). **A new capture's frame ring
@@ -1072,9 +1087,10 @@ large-object planes over a capture's first 1,024 frames, about 5 s: 1,204 MB, al
 it ends (the node's heap of 1.3 to 1.6 GB). Once full, the ring recycles its evicted planes and the capture with its view's 33 ms
 sample allocates 3.0 KB a frame, small objects only. **The live stack allocates 5.6 MB of large objects a master**: the master's
 plane (1.4 MB), a frame-sized `Int32[]` (1.4 MB), the registration's FFT buffers (`Complex[]`, 1.2 MB, `CorrelationRegistrar`),
-`Single[]` (0.5 MB) and `Boolean[]` masks (0.35 MB), at 2 to 11 masters a minute. The levers, for the follow-up: rent the ring's
-planes from a pool that outlives a capture (or keep them in the stream's own depth, a quarter of the size at 8 bits), pool the
-stacker's per-master buffers, and a deeper hand-off.
+`Single[]` (0.5 MB) and `Boolean[]` masks (0.35 MB), at 2 to 11 masters a minute. **The ring is fixed** (`RingPlaneShelf`): on
+the probe a second capture's ring fill allocated 1,204 MB before and 3 MB after, with no collection. Left for the follow-up: the
+live stack's 4.9 MB of large objects a master (the five sites above), a ring in the stream's own depth (a quarter of the size at 8
+bits), and a deeper hand-off.
 
 **The view and the node still answer under the load, and are bounded in the probe** (`NodePlanetaryRateProbe`): the node answers
 `GET /api/v1/planetary` at p99 under 250 ms, a gain staged through the GUI's client is on the camera within 1 s outside a stall,
