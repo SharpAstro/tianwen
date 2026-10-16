@@ -206,8 +206,9 @@ public sealed class OrreryGpuTests(VkOrreryGpuFixture gpu, ITestOutputHelper out
     /// <summary>
     /// The planets' orbits are drawn over the backdrop on the GPU host as they are without it. A sample on an orbit is lit when its
     /// pixel is more than 8 levels brighter than both pixels 5 px either side across the orbit; with the backdrop on at least 80 % of
-    /// the samples lit with it off are lit (the stars along the paths take a few). They read 13 % against 81 % when the sky pass left
-    /// state behind it that hid every 2D primitive after it (docs/plans/atlas-planet-detail.md, A5, "The backdrop").
+    /// the samples lit with it off are lit (the stars along the paths take a few). This scene read 14 % against 91 % (229 and 1,473 of
+    /// 1,625) when the sky pass left the offscreen frame a zero viewport that hid every 2D primitive after it, and 1,396 of 1,625 with
+    /// the fix (docs/plans/atlas-planet-detail.md, A5, "The backdrop").
     /// </summary>
     [Fact(Timeout = 120_000)]
     public async Task TheOrbitsAreDrawnOverTheBackdrop()
