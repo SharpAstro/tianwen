@@ -432,6 +432,7 @@ internal sealed class FakeCmosState(string serial)
     /// <summary>
     /// From now on the body serves only frames the test grants, <paramref name="credits"/> of them to start with, so a
     /// test pauses its reader by a frame count rather than by the wall clock (#1615). Disposing the gate opens it for good.
+    /// A test installs one gate: a second would replace the first without opening it, leaving a call blocked in the first.
     /// </summary>
     public FrameCreditGate GateFrames(int credits) => _frameGate = new FrameCreditGate(credits);
 
@@ -517,9 +518,11 @@ internal sealed class FakeCmosState(string serial)
 /// <summary>
 /// The frames a <see cref="FakeCmosState"/> may still serve: one credit a frame, and a frame call that finds none BLOCKS until
 /// the test grants more, as a body does for a frame it has not taken yet. It never answers Timeout instead: each Timeout adds
-/// the stream's frame wait to its silence, and eight of them in a row read as a stall, which restarts the stream.
+/// the stream's frame wait to its silence, and the one that takes the silence past <c>VideoSilenceLimit</c> reads as a stall,
+/// which restarts the stream: the ninth in a row at these tests' 1 ms exposure, and a later one once the exposure passes half
+/// a second.
 /// </summary>
-internal sealed class FrameCreditGate : IDisposable
+internal sealed class FrameCreditGate(int initialCredits) : IDisposable
 {
     // The credits left and the signal of the grant they came from, replaced as one, so a call that finds none left signals
     // the grant whose credits it used up, never a grant whose credits are on their way.
@@ -530,13 +533,11 @@ internal sealed class FrameCreditGate : IDisposable
         public TaskCompletionSource Held => held;
     }
 
-    private Credits _credits;
+    private Credits _credits = new(initialCredits, NewHeld());
     // Released once a grant, and once as the gate opens: a blocked call wakes and looks again. Never disposed, since a call
     // may still be waking on it as the gate opens; it holds no handle unless one is asked for.
-    private readonly SemaphoreSlim _changed = new SemaphoreSlim(0);
+    private readonly SemaphoreSlim _changed = new(0);
     private volatile bool _open;
-
-    public FrameCreditGate(int credits) => _credits = new Credits(credits, NewHeld());
 
     /// <summary>
     /// Lets <paramref name="frames"/> more frames through. The task completes once a frame call finds them all used up, and
@@ -583,7 +584,7 @@ internal sealed class FrameCreditGate : IDisposable
         _changed.Release();
     }
 
-    private static TaskCompletionSource NewHeld() => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    private static TaskCompletionSource NewHeld() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 }
 
 internal sealed class FakeCmosIterator(FakeCmosState state) : INativeDeviceIterator<FakeCmosCamera>
