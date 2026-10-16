@@ -527,4 +527,58 @@ public sealed class SkyMapPlanetDiscTests
         }
         await File.WriteAllTextAsync(Path.Combine(dir, "build-cost.txt"), $"{report}{Environment.ProcessorCount} cores", TestContext.Current.CancellationToken);
     }
+
+    /// <summary>
+    /// The Sun's disc on the map (#1608) is its atlas map, the quiet photosphere, at its true size: near white at the centre (never the
+    /// yellow of its dot), mottled by the residual granulation, and limb-darkened by the linear law at 0.95 of the radius. At local noon,
+    /// so it is above the horizon and drawn at full opacity. Written as a PNG beside the test output.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheSunsDiscIsItsTexturedPhotosphere()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        rig.Tab.State.TimeOffset = TimeSpan.FromHours(-10.7);
+        rig.Look(CatalogIndex.Sol, 300);
+        await rig.RenderSettledAsync();
+
+        rig.Tab.State.PlanetDiscsDrawn.ShouldContain(CatalogIndex.Sol);
+        var image = rig.Renderer.Surface;
+        var dir = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests", DateTime.Now.ToString("yyyyMMdd"), nameof(TheSunsDiscIsItsTexturedPhotosphere));
+        Directory.CreateDirectory(dir);
+        await File.WriteAllBytesAsync(Path.Combine(dir, "sun-disc.png"), PngWriter.Encode(image.Pixels, Size, Size), TestContext.Current.CancellationToken);
+
+        (int R, int G, int B) At(int x, int y)
+        {
+            var i = ((y * Size) + x) * 4;
+            return (image.Pixels[i], image.Pixels[i + 1], image.Pixels[i + 2]);
+        }
+        var centre = At(Size / 2, Size / 2);
+        centre.B.ShouldBeGreaterThan(200, $"the centre {centre} is the dot's yellow, not the photosphere");
+        var colours = new HashSet<int>();
+        for (var y = (Size / 2) - 60; y < (Size / 2) + 60; y++)
+        {
+            for (var x = (Size / 2) - 60; x < (Size / 2) + 60; x++)
+            {
+                var (r, g, b) = At(x, y);
+                colours.Add((r << 16) | (g << 8) | b);
+            }
+        }
+        colours.Count.ShouldBeGreaterThan(20, "the middle of the disc is a flat fill, not the photosphere's map");
+
+        // Along the middle row, both sides, at 0.95 of the radius (150 px), against the centre's mean over 5 x 5 px.
+        double Green(int x, int y) => At(x, y).G;
+        var centreGreen = 0.0;
+        for (var dy = -2; dy <= 2; dy++)
+        {
+            for (var dx = -2; dx <= 2; dx++)
+            {
+                centreGreen += Green((Size / 2) + dx, (Size / 2) + dy) / 25;
+            }
+        }
+        const int Reach = 142;
+        var limb = (Green((Size / 2) + Reach, Size / 2) + Green((Size / 2) - Reach, Size / 2)) / 2;
+        var r95 = Reach / 150.0;
+        var law = 1 - (TianWen.Lib.Imaging.Planetary.PlanetaryRender.SolarLimbDarkening * (1 - Math.Sqrt(1 - (r95 * r95))));
+        (limb / centreGreen).ShouldBe(law, 0.05, "the Sun's limb on the map is not the law's");
+    }
 }

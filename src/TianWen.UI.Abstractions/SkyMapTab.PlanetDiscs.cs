@@ -123,15 +123,10 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void DrawPanelDisc(in PlanetAspect aspect, RectF32 slot)
         {
-            PlanetColourMap? map = null;
-            var credit = "";
-            if (aspect.Planet != CatalogIndex.Sol)
+            // Every body has its map, the Sun's included (#1608); the slot stays dark until it lands.
+            if (!PlanetTextures.TryGet(aspect.Planet, out var map, out var credit))
             {
-                if (!PlanetTextures.TryGet(aspect.Planet, out var texture, out credit))
-                {
-                    return;
-                }
-                map = texture;
+                return;
             }
             var radius = PlanetDiscSprite.PanelRadiusPx(aspect.Planet, slot.Width, slot.Height);
             var night = GuiTheme.State == UiThemeState.Night ? GuiTheme.Palette.Accent : (RGBAColor32?)null;
@@ -155,15 +150,10 @@ namespace TianWen.UI.Abstractions
                 return false;
             }
 
-            PlanetColourMap? map = null;
-            var credit = "";
-            if (aspect.Planet != CatalogIndex.Sol)
+            // Every body has its map, the Sun's included (#1608): until it lands the dot is drawn.
+            if (!PlanetTextures.TryGet(aspect.Planet, out var map, out var credit))
             {
-                if (!PlanetTextures.TryGet(aspect.Planet, out var texture, out credit))
-                {
-                    return false;
-                }
-                map = texture;
+                return false;
             }
             var night = GuiTheme.State == UiThemeState.Night ? GuiTheme.Palette.Accent : (RGBAColor32?)null;
             var pole = PlanetDiscSprite.PoleScreenAngle(aspect.PolePositionAngle, north, mirrored);
