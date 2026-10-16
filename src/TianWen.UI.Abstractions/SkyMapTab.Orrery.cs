@@ -591,6 +591,9 @@ namespace TianWen.UI.Abstractions
         // over it, wherever its box (the engine's measure of the name) is clear of every disc but its own and of the labels already
         // placed; a label with nowhere clear is left out, never printed over another body. The focus body's and the Earth's are drawn
         // under their bodies whatever they meet. The Moon's is the exception: always on the far side of the Moon from the Earth, or not at all.
+        // Every label lies inside the view (A2 of #1611: the real catalogue's captures cut names at the edges): a body drawn outside it
+        // has none, and a candidate box is shifted sideways into the view (trimmed where wider) before its clear test, while one
+        // outside it above or below is no candidate at all, so the other side is tried; the forced ones are held inside it too.
         private void DrawOrreryLabels(System.Collections.Immutable.ImmutableArray<OrreryBody> bodies,
             Span<(int Index, float X, float Y, float Radius, double Depth)> labels, CatalogIndex? focus, float fontSize, float lineHeight, float dpiScale)
         {
@@ -614,8 +617,22 @@ namespace TianWen.UI.Abstractions
             var palette = GuiTheme.Palette;
             var gap = 3f * dpiScale;
             var context = MeasureContext(scale: DesignScale.One);
+            var (left, top, right, bottom) = (_contentX, _contentY, _contentX + _contentWidth, _contentY + _contentHeight);
+            RectF32? InView(RectF32 box)
+            {
+                if (box.Y < top || box.Y + box.Height > bottom)
+                {
+                    return null;
+                }
+                var w = MathF.Min(box.Width, right - left);
+                return new RectF32(Math.Clamp(box.X, left, right - w), box.Y, w, box.Height);
+            }
             foreach (var (index, sx, sy, radius, _) in labels)
             {
+                if (sx < left || sx > right || sy < top || sy > bottom)
+                {
+                    continue;
+                }
                 var body = bodies[index];
                 var reach = radius * (body.Index == CatalogIndex.Saturn ? 2.3f : 1f);
                 var width = Layout.Engine.Measure(Layout.Builder.Text(body.Name, fontSize, trim: TextTrim.None),
@@ -636,15 +653,18 @@ namespace TianWen.UI.Abstractions
                     place = null;
                     for (var step = 0; step < 3 && place is null; step++, t += lineHeight)
                     {
-                        var outward = new RectF32(sx + (ux * t) - (width / 2), sy + (uy * t) - (lineHeight / 2), width, lineHeight);
-                        place = LabelIsClear(outward, body.Index) ? outward : null;
+                        var outward = InView(new RectF32(sx + (ux * t) - (width / 2), sy + (uy * t) - (lineHeight / 2), width, lineHeight));
+                        place = outward is { } box && LabelIsClear(box, body.Index) ? outward : null;
                     }
                 }
                 else
                 {
-                    place = LabelIsClear(below, body.Index) ? below
-                        : LabelIsClear(above, body.Index) ? above
-                        : selected || body.Index == CatalogIndex.Earth ? below : null;
+                    var (under, over) = (InView(below), InView(above));
+                    place = under is { } u && LabelIsClear(u, body.Index) ? under
+                        : over is { } o && LabelIsClear(o, body.Index) ? over
+                        : selected || body.Index == CatalogIndex.Earth
+                            ? under ?? over ?? InView(new RectF32(below.X, Math.Clamp(below.Y, top, MathF.Max(top, bottom - lineHeight)), below.Width, below.Height))
+                            : null;
                 }
                 if (place is not { } rect)
                 {
