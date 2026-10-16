@@ -831,8 +831,13 @@ namespace TianWen.UI.Abstractions
                 }
                 items.Add(new DropdownItem<double>($"1 second = {speed.Name}", speed.DaysPerSecond));
             }
-            // Wide enough for "1 second = 10 years" at this size, and never narrower than the button it opened from.
-            var width = MathF.Max(anchor.Width, fontSize * 10f);
+            // As wide as the widest row MEASURES, a row being its label padded half an em each side as the dropdown builds it, and
+            // never narrower than the button it opened from.
+            var width = anchor.Width;
+            foreach (var item in items)
+            {
+                width = MathF.Max(width, StripContentWidth(Layout.Builder.Text(item.Label, fontSize).PadX(fontSize * 0.5f)));
+            }
             SpeedMenu.Open(anchor.X, anchor.Y, width, items.MoveToImmutable(), item =>
             {
                 orrery.DaysPerSecond = item.Value;

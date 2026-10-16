@@ -567,9 +567,12 @@ public sealed class OrreryTests(ITestOutputHelper output)
     [InlineData(12)]
     [InlineData(13)]
     [InlineData(14)]
-    public async Task EachSpeedRunsItsSpanInAPlayedSecond(int choice)
+    [InlineData(0, 1.5f)]
+    [InlineData(7, 1.5f)]
+    [InlineData(14, 1.5f)]
+    public async Task EachSpeedRunsItsSpanInAPlayedSecond(int choice, float dpiScale = 1f)
     {
-        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale);
         Select(rig, CatalogIndex.Mars);
         rig.Tab.OpenOrrery();
         var clock = new FakeTimeProviderWrapper(Instant);
@@ -582,6 +585,15 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Tab.SpeedMenu.IsOpen.ShouldBeTrue();
         rig.Tab.SpeedMenu.Items.Select(i => i.Label).ShouldBe(OrreryState.PlaySpeeds.Select(s => $"1 second = {s.Name}"));
         rig.Tab.Render(rig.Planner, rig.Content, clock);
+        // Every row as wide as its label measures, padded as the dropdown pads it: the width is measured, never guessed.
+        var fontSize = ((Layout.Content.Text)((Layout.Node.Leaf)rig.Tab.GetCapturedLayout()
+            .Single(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text { Value: "1 week/s" } }).Node).Content).FontSize;
+        for (var i = 0; i < OrreryState.PlaySpeeds.Length; i++)
+        {
+            var label = rig.Tab.SpeedMenu.Items[i].Label;
+            DropUpRow(rig, i).Width.ShouldBeGreaterThanOrEqualTo(
+                rig.Tab.StripContentWidth(Layout.Builder.Text(label, fontSize).PadX(fontSize * 0.5f)) - 0.5f, $"\"{label}\" overruns its row");
+        }
         var row = DropUpRow(rig, choice);
         (row.Y + row.Height).ShouldBeLessThanOrEqualTo(speedButton.Y + 0.5f, "a drop-up opens above the strip");
         PressAt(rig, row);
@@ -591,10 +603,13 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Tab.State.Orrery.DaysPerSecond.ShouldBe(speed.DaysPerSecond);
         rig.Tab.State.Orrery.Playing.ShouldBeTrue("a pick does not stop Play");
         rig.Tab.Render(rig.Planner, rig.Content, clock);
-        var label = $"{speed.Name}/s";
+        var speedLabel = $"{speed.Name}/s";
         var speedLeaf = rig.Tab.GetCapturedLayout()
-            .Single(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } && text.Value == label);
-        rig.Tab.StripShownText(speedLeaf).ShouldBe(label, "the speed's name is trimmed at 1x: the width sample is narrower than it");
+            .Single(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } && text.Value == speedLabel);
+        if (dpiScale == 1f)
+        {
+            rig.Tab.StripShownText(speedLeaf).ShouldBe(speedLabel, "the speed's name is trimmed at 1x: the width sample is narrower than it");
+        }
 
         var before = rig.Tab.State.TimeOffset;
         for (var frame = 0; frame < 10; frame++)
