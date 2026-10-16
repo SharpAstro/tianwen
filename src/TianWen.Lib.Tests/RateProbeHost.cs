@@ -20,6 +20,13 @@ namespace TianWen.Lib.Tests;
 internal sealed record SerRateReadBack(int Frames, TimeSpan Span, double StepP50Ms, double StepP99Ms, TimeSpan MaxStep,
     ImmutableArray<(int AfterFrame, TimeSpan Step)> LongSteps, TimeSpan LongStepBound)
 {
+    /// <summary>The window the SER's header says it holds, and its depth in bits: what the recording was taken of.</summary>
+    public int Width { get; init; }
+
+    public int Height { get; init; }
+
+    public int PixelDepth { get; init; }
+
     /// <summary>Frame count over the timestamp span, as #1596's bar reads it.</summary>
     public double Fps => Span > TimeSpan.Zero ? Frames / Span.TotalSeconds : 0;
 
@@ -51,7 +58,12 @@ internal sealed record SerRateReadBack(int Frames, TimeSpan Span, double StepP50
         Array.Sort(steps);
         double At(double p) => steps.Length == 0 ? double.NaN : steps[(int)Math.Round(p * (steps.Length - 1))];
         return new SerRateReadBack(ser.FrameCount, stamps.Length > 1 ? stamps[^1] - stamps[0] : TimeSpan.Zero, At(0.5), At(0.99),
-            TimeSpan.FromMilliseconds(steps.Length == 0 ? 0 : steps[^1]), longSteps.ToImmutable(), longStepBound);
+            TimeSpan.FromMilliseconds(steps.Length == 0 ? 0 : steps[^1]), longSteps.ToImmutable(), longStepBound)
+        {
+            Width = ser.Width,
+            Height = ser.Height,
+            PixelDepth = ser.PixelDepthPerPlane,
+        };
     }
 
     public override string ToString()
