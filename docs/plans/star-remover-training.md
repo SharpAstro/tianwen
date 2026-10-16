@@ -2161,6 +2161,51 @@ costs what R2i gained, and it is not adopted.
 (2) fails, the dig is not the loss's channel weighting. Then the next candidate is the net's input: it is told one
 noise plane for three channels, and a plane per channel needs an export that writes them.
 
+#### R2j's read: the weighting moves the dig into blue and costs the bright stars; the kill fires (2026-10-16)
+
+`r2j_synth4_s0` ended on its own: "stopped at step 204500: the held-out objective's best was 3.750105e-06 at step
+180500". It was scored at 16:57 on A's draws by the colour eval (`C:\temp\e2\r2j-read.txt`, `read_r2j.py`).
+
+**The run was started twice.** The first, launched 2026-10-15 at 21:29, reached step 64,600 when the desktop rebooted
+at 00:35 on 2026-10-16, and its scheduled task started it again from step 0 after the next logon. That copy was
+stopped a minute in, and the run was launched again at 08:00 with `--checkpoint-every 2000 --resume` (#1602, #1603),
+which changes nothing trained, at normal priority. It then ran unbroken to its end, so the weights are one continuous
+run from step 0.
+
+| measure | R2g | R2h | R2i | R2j |
+|---|---|---|---|---|
+| clean 5-20 / 20-100 / 100-1000 sigma | 75.4 / 70.1 / 48.8 | 78.1 / 73.2 / 51.9 | 79.2 / 74.5 / 60.2 | 79.5 / **66.2** / **27.4** |
+| dug 100-1000 sigma | 31.5 | 37.9 | 28.7 | **66.5** |
+| clean in colour 5-20 / 20-100 / 100-1000 sigma | 56.8 / 40.5 / 12.6 | 58.7 / 40.1 / 13.2 | 57.3 / 43.7 / 21.2 | 61.4 / 42.4 / 9.5 |
+| dug in colour 20-100 / 100-1000 sigma | 38.8 / 73.1 | 43.2 / 76.9 | 38.7 / 63.3 | 47.7 / 84.5 |
+| dug R / G / B at 100-1000 sigma | 42.6 / 47.6 / 22.3 | 49.1 / 46.8 / 26.3 | 34.3 / 47.7 / 12.6 | 44.1 / 52.3 / **56.1** |
+| core R / G / B at 100-1000 sigma | -0.22 / +0.12 / -0.01 | -0.84 / -0.13 / -0.13 | -0.28 / -0.56 / +0.14 | -0.52 / -0.54 / -1.04 |
+| clean saturated | 37.0 | 41.1 | 46.6 | 25.6 |
+| far sky | 0.20 | 0.19 | 0.19 | 0.20 |
+
+1. **It ends on its own before 480,000: holds.** At step 204,500, 24,000 steps after its best.
+2. **The colour digs fall: misses, the wrong way.** Dug in colour 47.7 % at 20-100 sigma and 84.5 % at 100-1000, against
+   the registered 34.3 and 59.5 at most (R2i 38.7 and 63.3).
+3. **The digs move toward blue: half holds.** Blue's dug share at 100-1000 sigma rose from 12.6 % to 56.1 %, but red's
+   and green's rose too (34.3 to 44.1, 47.7 to 52.3) where the registration asked them to fall.
+4. **Luminance removal holds: misses.** Clean -8.3 points at 20-100 sigma and -32.8 at 100-1000, against bars of 3.1;
+   +0.3 at 5-20.
+5. **The sky: holds.** Far sky 0.20.
+
+**The kill fires**: clean removal on the luminance falls past the spread at 20-100 and 100-1000 sigma, so the channel
+weighting is not adopted.
+
+**Read, not predicted.** Clean in colour at 5-20 sigma rose 4.1 points (61.4 against 57.3, past the 1.9 spread), the one
+gain. The weights did what they were built to do to the objective: blue, the noisiest channel at 2.08 times the
+luminance's sigma against 1.34 and 1.41, weighed about 0.4 of red's per unit error. The model learned to leave blue
+under the plate at the bright cores (-1.04 sigma), and that dig is large enough to take the luminance under too, which
+is where the bright stars' clean removal went.
+
+What it decides, by the registered rule: (2) fails, so the dig is not the loss's channel weighting. Turning one
+channel's weight down hands that channel the dig instead of curing it. The next candidate is the net's input: it is
+told one noise plane, the channels' mean, for three channels, so it cannot see which channel is noisier at a pixel. A
+plane per channel needs an export that writes them. R2i stays the line's control.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
