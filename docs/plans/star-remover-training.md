@@ -2478,6 +2478,15 @@ every band (light left on bright stars 1.28 % against 2.11). The test is gentler
 model's surroundings, so every model reads 95 to 98 %. It says nothing of a halo or a ring left beyond 6 px, which the
 lightbox still has to show.
 
+**Is it the injection or the measure?** (the owner's question: R2l does not beat R2i on injected stars but does on real
+ones.) The same core-against-ring measure on the INJECTED stars (`injected-ring-check.py`, the eval's significance bands,
+lobes read with their star) gives R2l the same lead it has on real ones: 96.7 against 94.5 % within a sigma at 20-100
+sigma and 93.1 against 91.2 at 100-1000 on A's draws, 97.2 against 95.2 at 20-100 on the lobed twin; E3 leads both. So
+the two reads disagree because they measure differently, not because the injected stars are wrong: the eval holds a
+core to the truth, this measure to the model's own surroundings, and R2l more often leaves a star level with a
+surrounding it moved too. The ranking (E3, then R2l, then R2i) is the same on injected and real stars. The levels do not
+compare across the two sets, which band by different significances (the builder's peak, the eval's 3x3 core).
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
