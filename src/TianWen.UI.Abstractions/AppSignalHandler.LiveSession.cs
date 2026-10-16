@@ -340,13 +340,9 @@ namespace TianWen.UI.Abstractions
             {
                 RunTracked("StartPlanetaryRecording", "Recording failed to start", async ct =>
                 {
-                    if (await planetaryCapture.RecordAsync(sig.Duration, ct) is { } refusal)
-                    {
-                        Notify(NotificationSeverity.Warning, refusal);
-                        return;
-                    }
-                    var file = Path.GetFileName(planetaryCapture.Capture.Recording?.Path);
-                    Notify(NotificationSeverity.Info, $"Recording {sig.Duration.TotalSeconds:0.#} s to {file}");
+                    var answer = await planetaryCapture.RecordAsync(sig.Duration, ct);
+                    Notify(answer.Refusal is null ? NotificationSeverity.Info : NotificationSeverity.Warning,
+                        answer.Refusal ?? $"Recording {sig.Duration.TotalSeconds:0.#} s to {Path.GetFileName(answer.Recording?.Path)}");
                 }, onFinally: () => appState.NeedsRedraw = true);
             });
 
@@ -354,12 +350,8 @@ namespace TianWen.UI.Abstractions
             {
                 RunTracked("StopPlanetaryRecording", "Recording failed to stop", async ct =>
                 {
-                    if (await planetaryCapture.StopRecordingAsync(ct) is { } refusal)
-                    {
-                        Notify(NotificationSeverity.Warning, refusal);
-                        return;
-                    }
-                    Notify(NotificationSeverity.Info, "Recording stopped");
+                    var answer = await planetaryCapture.StopRecordingAsync(ct);
+                    Notify(answer.Refusal is null ? NotificationSeverity.Info : NotificationSeverity.Warning, answer.Refusal ?? "Recording stopped");
                 }, onFinally: () => appState.NeedsRedraw = true);
             });
 

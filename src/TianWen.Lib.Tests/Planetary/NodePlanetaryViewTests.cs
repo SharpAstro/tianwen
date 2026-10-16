@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
+using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
@@ -59,6 +60,40 @@ public class NodePlanetaryViewTests(ITestOutputHelper output)
         capture.JogRoi(3, 3);
         capture.JogRoi(-3, -3);
         capture.TakeChanges().ShouldBeNull("a jog there and back moves nothing, so nothing is sent");
+    }
+
+    private static PlanetaryStateDto Answer(PlanetaryRecordingDto? recording) => new PlanetaryStateDto
+    {
+        Camera = "Fake camera",
+        Running = true,
+        Recording = recording,
+    };
+
+    private static PlanetaryRecordingDto Recording(int written) => new PlanetaryRecordingDto
+    {
+        Path = "Jupiter_2026-10-16T213000Z.ser",
+        Recording = true,
+        FramesWritten = written,
+    };
+
+    /// <summary>
+    /// A poll sent before a record and answered after it cannot undo the node's answer to the record (review round 1 of #1610,
+    /// N1): the panel, the handler's note and a probe read the recording the moment the node took it, never one poll later.
+    /// </summary>
+    [Fact]
+    public void APollSentBeforeACommandsAnswerCannotUndoIt()
+    {
+        var capture = new NodePlanetaryCapture();
+        capture.Began();
+        var sentBefore = capture.PollStamp;
+
+        capture.UpdateFromAnswer(Answer(Recording(written: 0)));
+        capture.UpdateFromPoll(Answer(recording: null), sentBefore);
+
+        capture.Recording.ShouldNotBeNull("the poll was sent before the record's answer came").Path.ShouldBe("Jupiter_2026-10-16T213000Z.ser");
+        var sentAfter = capture.PollStamp;
+        capture.UpdateFromPoll(Answer(Recording(written: 250)), sentAfter);
+        capture.Recording.ShouldNotBeNull().FramesWritten.ShouldBe(250, "a poll sent after the answer is newer, and shown");
     }
 
     [Fact]
