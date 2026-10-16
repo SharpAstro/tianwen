@@ -87,7 +87,8 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
     }
 
     /// <summary>One video stream of the node's camera, from its log: where it started, and its own end-of-stream counts.</summary>
-    private sealed record NodeStream(int X, int Y, string Counts, long Replaced, int Stalls, int Recovered, List<string> Recoveries);
+    private sealed record NodeStream(int X, int Y, string Counts, long Replaced, int Stalls, int Recovered, List<string> Recoveries,
+        int Width = 0, int Height = 0, int JogX = 0, int JogY = 0);
 
     [Fact(Timeout = 3_600_000)]
     public async Task TheGuisCaptureRecordsAtTheCamerasRateThroughTheNode()
@@ -168,6 +169,11 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         {
             var stream = streams[i];
             (stream.X, stream.Y).ShouldBe((centred.X, centred.Y), "the node's stream starts centred, where the jog to the Saturn window is counted from");
+            // The window recorded is the one asked for (review round 1 of #1609, N4): the node's stream and the jog it applied,
+            // and the SER's own header.
+            (stream.Width, stream.Height, stream.X + stream.JogX, stream.Y + stream.JogY).ShouldBe((RoiWidth, RoiHeight, RoiX, RoiY),
+                $"{runs[i].Arm}: the node streamed {RoiWidth}x{RoiHeight} at ({RoiX}, {RoiY})");
+            (runs[i].Ser.Width, runs[i].Ser.Height, runs[i].Ser.PixelDepth).ShouldBe((RoiWidth, RoiHeight, 8), $"{runs[i].Arm}: the SER holds 640x480 at 8 bits");
             runs[i] = runs[i] with
             {
                 Replaced = stream.Replaced,
@@ -683,7 +689,8 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
     private static readonly Regex StreamStart = new Regex(@"streaming video: (?<w>\d+)x(?<h>\d+) at \((?<x>\d+), (?<y>\d+)\)", RegexOptions.CultureInvariant);
     private static readonly Regex StreamEnd = new Regex(@"(?<counts>streamed \d+ frames in .* were dropped by the full hand-off .* (?<stalls>\d+) stalls, (?<recovered>\d+) recovered)",
         RegexOptions.CultureInvariant);
-    private static readonly Regex ReplacedCount = new Regex(@"the reader took \d+, (?<replaced>\d+) were dropped", RegexOptions.CultureInvariant);
+    private static readonly Regex Jog = new Regex(@"live control applied: .* jog=\((?<x>-?\d+),(?<y>-?\d+)\)", RegexOptions.CultureInvariant);
+    private static readonly Regex ReplacedCount =new Regex(@"the reader took \d+, (?<replaced>\d+) were dropped", RegexOptions.CultureInvariant);
     private static readonly Regex Recovery = new Regex(@"stream is back after its stall .*", RegexOptions.CultureInvariant);
 
     /// <summary>The node's camera streams, in order, from every server log under its data root.</summary>
@@ -692,12 +699,21 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         var streams = new List<NodeStream>();
         (int X, int Y)? start = null;
         var recoveries = new List<string>();
+        var (width, height, jogX, jogY) = (0, 0, 0, 0);
         foreach (var line in ServerLogLines(dataRoot))
         {
             if (StreamStart.Match(line) is { Success: true } started)
             {
                 start = (int.Parse(started.Groups["x"].Value, CultureInfo.InvariantCulture), int.Parse(started.Groups["y"].Value, CultureInfo.InvariantCulture));
+                (width, height) = (int.Parse(started.Groups["w"].Value, CultureInfo.InvariantCulture), int.Parse(started.Groups["h"].Value, CultureInfo.InvariantCulture));
+                (jogX, jogY) = (0, 0);
                 recoveries.Clear();
+            }
+            else if (Jog.Match(line) is { Success: true } jogged && start is not null)
+            {
+                // The capture loop's own line for each jog it applied to this stream's camera.
+                jogX += int.Parse(jogged.Groups["x"].Value, CultureInfo.InvariantCulture);
+                jogY += int.Parse(jogged.Groups["y"].Value, CultureInfo.InvariantCulture);
             }
             else if (Recovery.Match(line) is { Success: true } recovery)
             {
@@ -708,7 +724,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
                 streams.Add(new NodeStream(at.X, at.Y, ended.Groups["counts"].Value,
                     long.Parse(ReplacedCount.Match(line).Groups["replaced"].Value, CultureInfo.InvariantCulture),
                     int.Parse(ended.Groups["stalls"].Value, CultureInfo.InvariantCulture),
-                    int.Parse(ended.Groups["recovered"].Value, CultureInfo.InvariantCulture), [.. recoveries]));
+                    int.Parse(ended.Groups["recovered"].Value, CultureInfo.InvariantCulture), [.. recoveries], width, height, jogX, jogY));
                 start = null;
             }
         }
