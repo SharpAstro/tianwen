@@ -1651,9 +1651,12 @@ def train(args):
         if sched is not None:
             sched.load_state_dict(ck["sched"])
         rng.bit_generator.state = ck["rng"]
-        torch.set_rng_state(ck["torch_rng"])
+        # map_location moves every tensor in the checkpoint to the device, the saved generator states too, and both
+        # setters take a CPU ByteTensor only: a resume on a GPU failed here (R2i seed 1 on the T4, 2026-10-17), where the
+        # CPU check of #1602 had passed.
+        torch.set_rng_state(ck["torch_rng"].cpu())
         if ck["cuda_rng"] is not None and torch.cuda.is_available():
-            torch.cuda.set_rng_state_all(ck["cuda_rng"])
+            torch.cuda.set_rng_state_all([s.cpu() for s in ck["cuda_rng"]])
         val_best, val_best_step, val_bad, val_decays = ck["plateau"]
         val_hist, star_w, running, running_star = ck["val_hist"], ck["star_w"], ck["running"], ck["running_star"]
         regime_steps = defaultdict(int, ck["regime_steps"])
