@@ -80,7 +80,7 @@ internal static class OtaEndpoints
 
         group.MapPost("/{index:int}/filterwheel/change", async (int index, int position, DeviceOperations devices, CancellationToken ct) =>
             await devices.RigOtaAsync(index, ct) is { FilterWheel: { } wheel }
-                ? EnvelopeResults.Json(devices.ChangeFilter(new FilterChangeRequestDto { DeviceUri = wheel, Position = position }),
+                ? EnvelopeResults.Json(await devices.ChangeFilterAsync(new FilterChangeRequestDto { DeviceUri = wheel, Position = position }, ct),
                     HostingJsonContext.Default.ResponseEnvelopeJobDto)
                 : NoDevice(index, "filter wheel"));
 
