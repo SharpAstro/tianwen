@@ -45,7 +45,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Host.UI.RawUI.WindowTitle = 'TianWen GUI evidence: the planetary capture through the node (TIA2)'
+$Host.UI.RawUI.WindowTitle = 'TianWen GUI evidence: the planetary capture through the node and its Record control (TIA2, #1344)'
 
 $src = Join-Path (Split-Path -Parent $PSScriptRoot) 'src'
 $gui = Join-Path $src 'TianWen.UI.Gui/bin/Release/net10.0/tianwen-gui.exe'
