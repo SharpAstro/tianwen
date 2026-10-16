@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using TianWen.DAL;
+using TianWen.Lib.Extensions;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices.DAL;
@@ -730,8 +731,9 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                     stream.Gain = (short)stagedGain;
                     SetVideoControl(CMOSControlType.Gain, ClampedGain(stagedGain), "set the gain");
                     gain = CurrentGain();
-                    // Once the body has it: when a staged gain reached the camera, for the rate probes (TIA2).
-                    LogDebugOffTheStream("{Camera}'s stream is at gain {Gain}", Name, gain);
+                    // Once the body has it: when a staged gain reached the camera, for the rate probes (TIA2). Written off the
+                    // stream's thread, so the file log's lock never holds the camera's reads (review round 1 of #1621).
+                    Logger.LogDebugOffThread("{Camera}'s stream is at gain {Gain}", Name, gain);
                 }
 
                 // A new size, depth or readout mode needs the stream stopped on every body; the origin is kept where it
@@ -771,7 +773,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                     window = constraints.Snap(window with { X = window.X + dx, Y = window.Y + dy });
                     SetVideoWindow(window, bitDepth, resize: false);
                     // Once the body has it: the window a pan left, as the camera took it, never the jog that asked for it.
-                    LogDebugOffTheStream("{Camera}'s stream window is {Width}x{Height} at ({X}, {Y}) after a pan", Name, window.Width, window.Height, window.X, window.Y);
+                    Logger.LogDebugOffThread("{Camera}'s stream window is {Width}x{Height} at ({X}, {Y}) after a pan", Name, window.Width, window.Height, window.X, window.Y);
                     stream.Window = window;
                     stream.JogsApplied = asked;
                     // Started before the window is published, so whoever sees the new window knows its settle is under way.
@@ -875,20 +877,6 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                     Logger.LogInformation("{Camera}'s stalled stream took {Seconds:F1} s to stop", Name, TimeProvider.GetElapsedTime(stopping).TotalSeconds);
                 }
             }
-        }
-    }
-
-    // A Debug line the stream's thread says as it goes (a pan's window, a staged gain on the body), written by the thread pool: a
-    // host's file log is one lock for its process, flushed to disk under it, and a normal-priority holder a busy machine held off
-    // would stop the camera's reads behind it (review round 1 of #1621). What the line says is taken now; only the writing waits.
-    private void LogDebugOffTheStream(string message, params object?[] args)
-    {
-        if (Logger.IsEnabled(LogLevel.Debug))
-        {
-#pragma warning disable CA2254 // the template is each caller's constant, carried here
-            ThreadPool.UnsafeQueueUserWorkItem(static line => line.Logger.LogDebug(line.Message, line.Args), (Logger, Message: message, Args: args),
-                preferLocal: false);
-#pragma warning restore CA2254
         }
     }
 
