@@ -537,7 +537,9 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                     && (stream is null || stream.Width != planeW || stream.Height != planeH || stream.Layout != layout))
                 {
                     var capacity = Math.Max(_stackOptions.MaxWindowFrames * 2, 1024);
-                    var rebuilt = new LiveCameraFrameStream(planeW, planeH, layout, capacity);
+                    // Its planes from the shelf the last ring of this shape left, when there is one: a ring of a thousand
+                    // large planes filled fresh for every capture fed the collector 1.2 GB a capture (RingPlaneShelf).
+                    var rebuilt = new LiveCameraFrameStream(planeW, planeH, layout, capacity, hasTimestamps: true, RingPlaneShelf.Shared);
                     Volatile.Write(ref _stream, rebuilt);
                     logger.LogInformation(
                         "Planetary capture: {Kind} {W}x{H}x{C} ({Sensor}) -> stream {SW}x{SH} layout {Layout}.",
