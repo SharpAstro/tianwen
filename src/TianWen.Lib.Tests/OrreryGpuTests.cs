@@ -204,6 +204,101 @@ public sealed class OrreryGpuTests(VkOrreryGpuFixture gpu, ITestOutputHelper out
     }
 
     /// <summary>
+    /// The planets' orbits are drawn over the backdrop on the GPU host as they are without it. A sample on an orbit is lit when its
+    /// pixel is more than 8 levels brighter than both pixels 5 px either side across the orbit; with the backdrop on at least 80 % of
+    /// the samples lit with it off are lit (the stars along the paths take a few). They read 13 % against 81 % when the sky pass left
+    /// state behind it that hid every 2D primitive after it (docs/plans/atlas-planet-detail.md, A5, "The backdrop").
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheOrbitsAreDrawnOverTheBackdrop()
+    {
+        if (!gpu.VulkanAvailable)
+        {
+            Assert.Skip($"Vulkan runtime not available on this host ({gpu.UnavailableReason})");
+            return;
+        }
+        var rig = await RigAsync();
+        try
+        {
+            rig.Planner.PlanningDate = new DateTimeOffset(2026, 10, 16, 12, 0, 0, TimeSpan.Zero);
+            rig.Tab.State.ShowComets = false;
+            rig.Tab.State.Orrery.ElevationDeg = 25;
+            await SettleAsync(rig);
+            rig.Tab.State.Orrery.Distance = OrreryCamera.DistanceToFrame(6);
+            var off = Render(rig);
+            rig.Tab.State.Orrery.ShowBackdrop = true;
+            Render(rig);
+            var on = Render(rig);
+            rig.Tab.LastOrreryBackdrop.ShouldNotBeNull("the backdrop was not drawn");
+
+            var folder = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests", DateTime.Now.ToString("yyyyMMdd"), nameof(OrreryGpuTests));
+            Directory.CreateDirectory(folder);
+            await File.WriteAllBytesAsync(Path.Combine(folder, "orrery-gpu-orbits-backdrop.png"), PngWriter.Encode(on, Width, Height), TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(Path.Combine(folder, "orrery-gpu-orbits-plain.png"), PngWriter.Encode(off, Width, Height), TestContext.Current.CancellationToken);
+            output.WriteLine(folder);
+
+            var (litOff, litOn, samples) = (0, 0, 0);
+            var orbits = rig.Tab.OrreryScene.Orbits.ShouldNotBeNull();
+            var camera = new OrreryCamera(rig.Tab.State.Orrery.AzimuthDeg, rig.Tab.State.Orrery.ElevationDeg, rig.Tab.State.Orrery.Distance, new RectF32(0, 0, Width, Height));
+            var scaling = new OrreryScaling(rig.Tab.State.Orrery.Scale, OrreryScaling.ReachFor(rig.Tab.State.Orrery.Distance));
+            foreach (var (planet, points) in orbits)
+            {
+                var (planetOff, planetOn, planetSamples) = (0, 0, 0);
+                (float X, float Y)? previous = null;
+                for (var i = 0; i <= points.Length / 3; i++)
+                {
+                    var j = i % (points.Length / 3);
+                    var (wx, wy, wz) = OrreryScene.Scaled(scaling, points[3 * j], points[(3 * j) + 1], points[(3 * j) + 2]);
+                    if (!camera.TryProject(wx, wy, wz, out var sx, out var sy))
+                    {
+                        previous = null;
+                        continue;
+                    }
+                    if (previous is var (px, py))
+                    {
+                        // The segment's middle, and the two pixels 5 px either side of it along the segment's normal.
+                        var (mx, my) = ((px + sx) / 2, (py + sy) / 2);
+                        var (dx, dy) = (sx - px, sy - py);
+                        var len = MathF.Sqrt((dx * dx) + (dy * dy));
+                        if (len > 0 && mx >= 6 && my >= 6 && mx < Width - 6 && my < Height - 6)
+                        {
+                            var (nx, ny) = (-dy / len * 5, dx / len * 5);
+                            planetSamples++;
+                            planetOff += Lit(off, mx, my, nx, ny) ? 1 : 0;
+                            planetOn += Lit(on, mx, my, nx, ny) ? 1 : 0;
+                        }
+                    }
+                    previous = (sx, sy);
+                }
+                output.WriteLine($"{planet}: {planetOn} of {planetSamples} samples lit over the backdrop, {planetOff} without it");
+                (litOff, litOn, samples) = (litOff + planetOff, litOn + planetOn, samples + planetSamples);
+            }
+            output.WriteLine($"all orbits: {litOn} of {samples} samples lit over the backdrop, {litOff} without it");
+            litOff.ShouldBeGreaterThan(samples / 2, "the orbits are not drawn even without the backdrop");
+            litOn.ShouldBeGreaterThanOrEqualTo(litOff * 8 / 10, "the orbits are not drawn over the backdrop");
+        }
+        finally
+        {
+            gpu.Invoke(() =>
+            {
+                rig.Tab.Dispose();
+                return 0;
+            });
+        }
+
+        static bool Lit(byte[] frame, float x, float y, float nx, float ny)
+        {
+            static int Level(byte[] f, float x, float y)
+            {
+                var i = (((int)y * Width) + (int)x) * 4;
+                return Math.Max(f[i], Math.Max(f[i + 1], f[i + 2]));
+            }
+            var centre = Level(frame, x, y);
+            return centre > Level(frame, x + nx, y + ny) + 8 && centre > Level(frame, x - nx, y - ny) + 8;
+        }
+    }
+
+    /// <summary>
     /// Every planet's disc on the GPU's frame is lit toward the Sun as drawn (<see cref="OrreryTests.LitAwayFromTheSun"/>), at the instant
     /// and after 93 weeks of Play-sized steps: no stale picture is ever drawn, so no frame is a frame behind. Framed on the Earth's orbit
     /// (the view the orrery opens on for the Sun) and out to a reach of 12 AU, where Jupiter and Saturn are in the view too.
