@@ -29,8 +29,8 @@ public sealed class OrrerySunTests(TianWenWebFixture fixture, ITestOutputHelper 
     // Generous: an interpreted Lightweight build draws a frame in about 17 s on this machine, and the atlas's decode is .NET there too.
     private const float OrreryTimeout = 240_000;
 
-    // The atlas is decoded in .NET on the page's one thread, ten cells with their holes filled: minutes in an interpreted build.
-    private const float AtlasTimeout = 900_000;
+    // The atlas is decoded in .NET on the page's one thread, after the catalogue's own work there.
+    private const float AtlasTimeout = 300_000;
 
     // The largest 4-connected component of near-white pixels (each channel above 170, red no more than 45 over blue: the flat Sun's
     // blue, 0x80, never passes), its size, bounding box and centre colour, and the mean green of its outermost ring against its centre.
@@ -93,31 +93,53 @@ public sealed class OrrerySunTests(TianWenWebFixture fixture, ITestOutputHelper 
         }
     }
 
-    [Fact(Timeout = 1_800_000)]
+    [Fact(Timeout = 1_200_000)]
     public async Task TheOrrerysSunIsItsTexturedPhotosphere()
     {
         var dir = Environment.GetEnvironmentVariable("TIANWEN_WEB_SHOTS")
             ?? Path.Combine(Path.GetTempPath(), "tianwen-orrery-sun-shots");
         Directory.CreateDirectory(dir);
 
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         var page = await fixture.NewPageAsync();
         var console = _console;
         page.Console += (_, m) => console.Enqueue($"[{m.Type}] {m.Text}");
         page.PageError += (_, e) => console.Enqueue($"[pageerror] {e}");
-        page.Response += (_, r) => { if (r.Status >= 400 || r.Url.Contains("planet-textures", StringComparison.Ordinal)) console.Enqueue($"[http {r.Status}] {r.Url}"); };
+        var atlasResponse = new TaskCompletionSource<IResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        page.Response += (_, r) =>
+        {
+            if (r.Url.EndsWith("/" + "planet-textures.png", StringComparison.Ordinal))
+            {
+                atlasResponse.TrySetResult(r);
+            }
+            if (r.Status >= 400 || r.Url.Contains("planet-textures", StringComparison.Ordinal))
+            {
+                console.Enqueue($"[http {r.Status}] {r.Url}");
+            }
+        };
 
         await page.GotoAsync(fixture.BaseUrl + "?e2e=1&view=sky", new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
         await Expect(page.Locator("[data-view=sky]")).ToBeVisibleAsync(new() { Timeout = BootTimeout });
+        // As OrreryPlaySpeedTests does: the catalogue's load and the planner's sweep hold the page's one thread for tens of seconds.
+        await Expect(page.Locator(".catalog-loading")).ToHaveCountAsync(0, new() { Timeout = BootTimeout });
+        output.WriteLine($"{clock.Elapsed.TotalSeconds:F0} s: the catalogue has loaded");
         await page.WaitForFunctionAsync(RenderStatsWait.Script("s.frames > 0", "s.frames"),
             null, new PageWaitForFunctionOptions { Timeout = BootTimeout });
 
         // The atlas is fetched beside the page when the sky first opens; until it is adopted every body is flat.
+        // The dev server must SEND the atlas: linked into wwwroot from TianWen.UI.Abstractions, it was mapped under wwwroot and
+        // answered 200 with no body, so the page decoded nothing and every body stayed flat (fixed in TianWen.UI.Web.csproj).
+        var atlas = await (await atlasResponse.Task.WaitAsync(TimeSpan.FromMilliseconds(OrreryTimeout), TestContext.Current.CancellationToken)).BodyAsync();
+        output.WriteLine($"{clock.Elapsed.TotalSeconds:F0} s: the atlas response carried {atlas.Length} bytes");
+        atlas.Length.ShouldBeGreaterThan(100_000, "the server sent the planet texture atlas with no body");
+        atlas.AsSpan(0, 8).ToArray().ShouldBe(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }, "the atlas response is not a PNG");
         await WaitAsync(page, "s.planetTextures > 0", "the planet texture atlas was never adopted", AtlasTimeout);
         TestContext.Current.CancellationToken.ThrowIfCancellationRequested();
+        output.WriteLine($"{clock.Elapsed.TotalSeconds:F0} s: the planet texture atlas is adopted");
         await page.Keyboard.PressAsync("Alt+s");
         await WaitAsync(page, "s.orreryOpen", "the orrery did not open on Alt+S");
         var traced = await WaitAsync(page, "s.sunTextured > 0", "no frame traced the Sun from its map");
-        output.WriteLine($"frames that traced the textured Sun: {traced}");
+        output.WriteLine($"{clock.Elapsed.TotalSeconds:F0} s: frames that traced the textured Sun: {traced}");
 
         var box = await page.Locator("#planner").BoundingBoxAsync() ?? throw new InvalidOperationException("the atlas canvas has no box");
         var path = Path.Combine(dir, "orrery-sun.png");

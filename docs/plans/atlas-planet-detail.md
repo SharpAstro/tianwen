@@ -330,7 +330,22 @@ a sub-solar point anywhere; the Night Sun no blue and its limb the law's), `Plan
 Adreno X1-85: worst 1 of 255, mean 0.000, none more than 4 off; its limb the law's; Night no blue for Saturn and the Sun),
 `PlanetTexturesTests` (the nine-body atlas leaves the Sun flat), `SkyMapPlanetDiscTests.TheSunsDiscIsItsTexturedPhotosphere`
 (near white, mottled, the limb the law's, `sun-disc.png`), `TheDiscsCreditIsDrawnUnderIt` (every body the map shows),
-`ObjectInfoPanelTests.EveryAtlasBodysCreditIsDrawnUnderItsDisc`, and the browser's `OrrerySunTests` (E2E).
+`ObjectInfoPanelTests.EveryAtlasBodysCreditIsDrawnUnderItsDisc`, `SkyMapPlanetDiscTests.TheSunsSpriteIsBuiltOnceForAStillView` (its
+NaN sub-solar point keys one sprite, not one a frame), `OrreryTests.TheOrrerysSunIsDrawnFromItsMap`, and the browser's `OrrerySunTests`
+(E2E, headless Edge): Alt+S from the atlas, the atlas response a PNG of 400,303 bytes, two frames traced the textured Sun 68 s after
+the page opened, and the capture's largest near-white blob a filled round disc (432 px in a 24 x 23 px box, centre 254, 241, 234).
+
+#### A4: the atlas the dev server never sent
+
+Found by that E2E (#1608): `dotnet run` of `TianWen.UI.Web` answered `planet-textures.png` with 200 and NO BODY, on origin/main as on
+this branch, so the browser's planets were flat (or dots) in every local run since #1037 and nobody had seen otherwise (#1572). The
+atlas is a `Content` item linked into `wwwroot` from `TianWen.UI.Abstractions/Resources`; the static-asset build gave it the PROJECT's
+`wwwroot` as its content root, the dev server's runtime manifest so mapped it to `wwwroot/planet-textures.png`, which does not exist,
+and the server sent the mapped-but-missing file as an empty 200 (the build manifest, with the real file as its identity and a
+Content-Length of 400,303, looked right). The item now states its own `ContentRoot`, the Resources folder, and the dev server sends the
+committed file byte for byte. The page logs each step (`[tianwen-web] planet atlas fetched: N bytes`, then `adopted`), and the E2E
+fails on a body that is not a PNG. A published build was never affected the same way (publish copies by the asset's identity), but is
+not re-checked here.
 
 ### A5. The solar system in 3D
 
@@ -570,8 +585,9 @@ C ring's. The ten parity views and Night's no-blue still pass, and `TheWebGlTrac
 
 #### A5: what is open
 
-- **Not seen in the browser yet** (#1572, bench). The Vulkan GUI is seen (the bodies on the GPU, above); the WebGL page
-  builds the same trace, but nobody has opened it there, nor timed a drag or Play in the browser.
+- **Seen in the browser once, by the E2E only** (#1572, bench). `OrrerySunTests` (2026-10-16) opened the orrery in headless Edge
+  and read back a textured, limb-darkened Sun and textured planets, once the dev server sent the atlas at all ("A4: the atlas the dev
+  server never sent"). Nobody has looked at it in a real browser yet, nor timed a drag or Play there.
 - **Play's speed is fixed** (#1573): Play runs at 10 days a second with nothing to change it. The issue's other half,
   the flat Earth, is done (the Blue Marble day map, under A4's textures and the Earth's longitudes, 2026-10-16;
   `OrreryTests.TheOrrerysEarthIsDrawnFromItsDayMap`: the blue share across the lit disc spreads 0.54 where the flat
