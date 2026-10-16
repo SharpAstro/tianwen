@@ -804,10 +804,11 @@ namespace TianWen.UI.Abstractions
                 : body == CatalogIndex.Earth ? EarthColour : SkyMapRenderer.GetPlanetColor(body);
 
         // A comet's tail: a pale fan from the head AWAY from the Sun on screen, as long as the comet is active (OrreryTailLength) and
-        // foreshortened by how nearly it points along the line of sight. The direction is the projection of a point a little further out
-        // on the comet's radial line (the scaled frame keeps every direction from the Sun), so on screen it lies along the line from the
-        // Sun's drawn place through the head. Three nested wedges of one colour build a brighter core, all triangles (DrawTriangles), the
-        // primitive every host fills: Vulkan, WebGL and the CPU surface.
+        // foreshortened by how nearly it points along the line of sight, to no less than OrreryTailMinForeshortening. The direction is
+        // the projection of a point a little further out on the comet's radial line (the scaled frame keeps every direction from the
+        // Sun), so on screen it lies along the line from the Sun's drawn place through the head. Three nested wedges of one colour build
+        // a brighter core, at alphas 0x70, 0x90 and 0xC0 (at half those the real catalogue's tails did not read, A2 of #1611), all
+        // triangles (DrawTriangles), the primitive every host fills: Vulkan, WebGL and the CPU surface.
         private void DrawCometTail(in OrreryCamera camera, in OrreryBody body, double x, double y, double z, float sx, float sy, float dpiScale)
         {
             var r = Math.Sqrt((body.X * body.X) + (body.Y * body.Y) + (body.Z * body.Z));
@@ -827,7 +828,7 @@ namespace TianWen.UI.Abstractions
             var (vx, vy, vz) = (x - ex, y - ey, z - ez);
             var dn = Math.Sqrt((x * x) + (y * y) + (z * z)) * Math.Sqrt((vx * vx) + (vy * vy) + (vz * vz));
             var (cx, cy, cz) = ((y * vz) - (z * vy), (z * vx) - (x * vz), (x * vy) - (y * vx));
-            length *= (float)(Math.Sqrt((cx * cx) + (cy * cy) + (cz * cz)) / dn);
+            length *= (float)Math.Max(OrreryTailMinForeshortening, Math.Sqrt((cx * cx) + (cy * cy) + (cz * cz)) / dn);
             if (length < 1)
             {
                 return;
@@ -835,7 +836,7 @@ namespace TianWen.UI.Abstractions
             var (ux, uy) = (dx / d, dy / d);
             var colour = CometColour;
             Span<float> wedge = stackalloc float[6];
-            foreach (var (share, spread, alpha) in (ReadOnlySpan<(float, float, byte)>)[(1f, 0.32f, 0x38), (0.7f, 0.2f, 0x48), (0.4f, 0.1f, 0x60)])
+            foreach (var (share, spread, alpha) in (ReadOnlySpan<(float, float, byte)>)[(1f, 0.32f, 0x70), (0.7f, 0.2f, 0x90), (0.4f, 0.1f, 0xC0)])
             {
                 var (tipX, tipY) = (sx + (ux * length * share), sy + (uy * length * share));
                 var half = MathF.Max(OrreryCometRadius * dpiScale, spread * length * share);
@@ -869,15 +870,29 @@ namespace TianWen.UI.Abstractions
         /// <summary>The distance from the Sun (AU) beyond which a comet draws no tail: water ice stops subliming at about 3 AU.</summary>
         internal const double OrreryTailOffAu = 3;
 
+        /// <summary>The shortest a tail is drawn inside <see cref="OrreryTailFloorAu"/>, design pixels: a tail always reads as one.</summary>
+        internal const float OrreryTailMinLength = 14f;
+
+        /// <summary>The distance from the Sun (AU) out to which a tail keeps <see cref="OrreryTailMinLength"/>; past it the floor tapers to nothing at <see cref="OrreryTailOffAu"/>.</summary>
+        internal const double OrreryTailFloorAu = 2.5;
+
+        /// <summary>The least share of its length a tail keeps when seen end on, so a tail pointing at the camera is short, never lost.</summary>
+        internal const double OrreryTailMinForeshortening = 0.4;
+
         /// <summary>
         /// A comet's tail length at heliocentric distance <paramref name="r"/> AU, design pixels before foreshortening: its activity as
-        /// the sunlight it gets, <c>1/r^2</c>, less what it gets at <see cref="OrreryTailOffAu"/>, so nothing from 3 AU out, scaled to
-        /// <see cref="OrreryTailMaxLength"/> at <see cref="OrreryTailFullAu"/> and held there closer in (22 px at 1 AU, 3.5 at 2).
+        /// the sunlight it gets, <c>1/r^2</c>, less what it gets at <see cref="OrreryTailOffAu"/>, as a share of the activity at
+        /// <see cref="OrreryTailFullAu"/> (held at 1 closer in), its square root times <see cref="OrreryTailMaxLength"/>: 33 px at
+        /// 1 AU, 20 at 1.5 (A2 of #1611; the linear share gave 22 and 8, and the real comets' tails did not read). Never below
+        /// <see cref="OrreryTailMinLength"/> inside <see cref="OrreryTailFloorAu"/>, the floor then falling linearly to nothing at 3 AU,
+        /// so a tail never pops in or out.
         /// </summary>
         internal static float OrreryTailLength(double r)
         {
             static double Activity(double au) => Math.Max(0, (1 / (au * au)) - (1 / (OrreryTailOffAu * OrreryTailOffAu)));
-            return (float)(OrreryTailMaxLength * Math.Min(1, Activity(Math.Max(r, 1e-3)) / Activity(OrreryTailFullAu)));
+            var share = Math.Min(1, Activity(Math.Max(r, 1e-3)) / Activity(OrreryTailFullAu));
+            var floor = OrreryTailMinLength * Math.Clamp((OrreryTailOffAu - r) / (OrreryTailOffAu - OrreryTailFloorAu), 0, 1);
+            return (float)Math.Max(OrreryTailMaxLength * Math.Sqrt(share), floor);
         }
 
         /// <summary>
