@@ -13,7 +13,9 @@ namespace TianWen.UI.Abstractions
     /// its controls (the toolbar, the sliders, Start/Stop, the steppers) are regions it registers on ITSELF. The
     /// window's router reaches them only through a composite that lists the view as a child, which is why the view
     /// is handed over as a <see cref="Widget"/>: the Live Session tab lists it (see its <c>Children</c>), and only a
-    /// press no region claimed is forwarded to the view's own <see cref="IWidget.HandleInput"/> (a pan, the PiP drag).
+    /// press no region claimed is forwarded to the view's own <see cref="IWidget.HandleInput"/> (a pan). The capture
+    /// panel's controls, its picture-in-picture's drag and its scroll included, are regions of the panel's declaration
+    /// (<see cref="PlanetaryControlPanel"/>), so the router reaches them first.
     /// </para>
     /// </summary>
     public interface IPlanetaryViewWidget<TSurface>

@@ -25,8 +25,8 @@ namespace TianWen.UI.Abstractions
             }
 
             // Planetary mode: the router has already dispatched a press on any of the view's controls (the view is
-            // one of this tab's Children), so what reaches here is what no region claimed: a pan, the PiP drag, a
-            // wheel zoom. Forward those MOUSE events to the view. Keys reach it only at the end of the switch below,
+            // one of this tab's Children), so what reaches here is what no region claimed: a pan, a wheel zoom. (The
+            // capture panel's PiP drag and its scroll are regions of the panel, PlanetaryControlPanel.) Forward those MOUSE events to the view. Keys reach it only at the end of the switch below,
             // after this tab's own and never the window's, so global shortcuts (Esc, mode switching) stay free.
             if (state.Mode == LiveSessionMode.Planetary && PlanetaryView is { } planetaryView
                 && evt is InputEvent.MouseDown or InputEvent.MouseMove or InputEvent.MouseUp or InputEvent.Scroll)

@@ -38,11 +38,11 @@ public class PlanetaryControlPanelTests
     internal sealed class Host(RgbaImageRenderer renderer) : PixelWidgetBase<RgbaImage>(renderer)
     {
         public void Paint(PlanetaryControlPanel panel, NodePlanetaryCapture capture, PreviewOTATelemetry telemetry, SignalBus? bus,
-            RectF32 rect, TimeSpan timeLeft = default)
+            RectF32 rect, TimeSpan timeLeft = default, Func<PointerPress, DragCapture?>? pipPress = null)
         {
             BeginFrame();
             panel.FollowCamera(telemetry);
-            RenderLayout(panel.Build(capture, telemetry, timeLeft, bus), rect);
+            RenderLayout(panel.Build(capture, telemetry, timeLeft, bus, pipPress), rect);
         }
 
         /// <summary>Presses the control <paramref name="action"/> names the way a click arrives, through the router, where it was painted.</summary>
@@ -297,6 +297,65 @@ public class PlanetaryControlPanelTests
         rig.Press("RoiOverlayToggle");
 
         rig.Panel.ShowRoiOnImage.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The picture-in-picture is setup only, so it folds while a capture runs (#1612): its drag is idle-only, and it shows the
+    /// selection, which the recenter's jogs of the running window do not move.
+    /// </summary>
+    [Fact]
+    public void ThePictureInPictureIsOfferedWhileIdleAndFoldsWhileCapturing()
+    {
+        static bool HasPip(Host host) => host.GetCapturedLayout()
+            .Any(static n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Fill { Key: PlanetaryControlPanel.PipKey } });
+
+        using (var idle = new Rigged(1f, capturing: false))
+        {
+            HasPip(idle.Host).ShouldBeTrue();
+        }
+        using var capturing = new Rigged(1f, capturing: true);
+        HasPip(capturing.Host).ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The scrolled panel registers a region of its own over every row, which swallows a press no row claims, so the PiP's
+    /// drag is a press DECLARED on the PiP: the router hands the view the press, every move and the release.
+    /// </summary>
+    [Theory]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public void APressOnThePictureInPictureReachesTheViewAndOwnsTheDragThatFollows(float scale)
+    {
+        using var renderer = new RgbaImageRenderer((uint)(PlanetaryControlPanel.BaseWidth * scale), (uint)(1100 * scale));
+        var host = new Host(renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
+        var panel = new PlanetaryControlPanel();
+        var seen = new List<string>();
+        DragCapture? Press(PointerPress press)
+        {
+            seen.Add("press");
+            return new DragCapture(_ => seen.Add("move"), _ => seen.Add("release"));
+        }
+        host.Paint(panel, new NodePlanetaryCapture(), Rig, bus: null, new RectF32(0f, 0f, PlanetaryControlPanel.BaseWidth * scale, 935 * scale),
+            pipPress: Press);
+
+        var pip = host.GetRegisteredRegions().Single(static r => r.Result is HitResult.ButtonHit { Action: PlanetaryControlPanel.PipKey });
+        var (x, y) = (pip.X + pip.Width / 2f, pip.Y + pip.Height / 2f);
+        var router = new InputRouter(host.Ui, new BackgroundTaskTracker(), static () => { }) { Widgets = () => [host] };
+        router.Handle(new InputEvent.MouseDown(x, y));
+        router.Handle(new InputEvent.MouseMove(x + 30f, y + 400f, MouseButton.Left));
+        router.Handle(new InputEvent.MouseUp(x + 30f, y + 400f));
+
+        seen.ShouldBe(["press", "move", "release"], "the drag stays the PiP's wherever the pointer goes");
+    }
+
+    /// <summary>A panel that fits takes no wheel, which goes on to the view behind it as it did before the panel could scroll.</summary>
+    [Fact]
+    public void APanelThatFitsTakesNoWheel()
+    {
+        using var rig = new Rigged(1f, capturing: false);
+        var router = new InputRouter(rig.Host.Ui, new BackgroundTaskTracker(), static () => { }) { Widgets = () => [rig.Host] };
+
+        router.Handle(new InputEvent.Scroll(-3f, 100f, 400f)).ShouldBeFalse();
     }
 
     [Fact]
