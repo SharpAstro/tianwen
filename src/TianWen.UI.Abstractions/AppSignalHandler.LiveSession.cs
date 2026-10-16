@@ -333,15 +333,14 @@ namespace TianWen.UI.Abstractions
                 Notify(NotificationSeverity.Info, "Planetary capture stopped");
             });
 
-            // The Record control (#1344): the node on show records the capture going on to a SER (its one writer) and
-            // finishes it unwatched; the panel reads it back from the capture's state.
+            // The Record control (#1344): the capture's own node records it to a SER (its one writer) and finishes it unwatched;
+            // the panel reads it back from the capture's state. A control of the run on screen goes to its own node, so neither
+            // signal resolves the view's command target (CLAUDE.md, Remote Rigs).
             bus.Subscribe<StartPlanetaryRecordingSignal>(sig =>
             {
-                if (CommandTargetOrSay("A recording") is not { Node: var node }) return;
-
                 RunTracked("StartPlanetaryRecording", "Recording failed to start", async ct =>
                 {
-                    if (await planetaryCapture.RecordAsync(node, sig.Duration, ct) is { } refusal)
+                    if (await planetaryCapture.RecordAsync(sig.Duration, ct) is { } refusal)
                     {
                         Notify(NotificationSeverity.Warning, refusal);
                         return;
@@ -353,11 +352,9 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<StopPlanetaryRecordingSignal>(_ =>
             {
-                if (CommandTargetOrSay("Stopping a recording") is not { Node: var node }) return;
-
                 RunTracked("StopPlanetaryRecording", "Recording failed to stop", async ct =>
                 {
-                    if (await planetaryCapture.StopRecordingAsync(node, ct) is { } refusal)
+                    if (await planetaryCapture.StopRecordingAsync(ct) is { } refusal)
                     {
                         Notify(NotificationSeverity.Warning, refusal);
                         return;

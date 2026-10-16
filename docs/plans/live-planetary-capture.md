@@ -985,11 +985,12 @@ The two stalls are the camera's `GeneralError` ones measured above, each brought
 seconds (a minute to start), Record and Stop, and what the node says of its recording (the file, the frames written and dropped and
 the time left; once it has ended, why, or why it failed). It is `PlanetaryRecordControl`, a declaration the GUI's panel and a test
 paint alike, and it asks through `StartPlanetaryRecordingSignal` and `StopPlanetaryRecordingSignal`, which `AppSignalHandler` sends
-to the node on show (`CommandTargetOrSay`) through `PlanetaryCaptureController.RecordAsync`: the node stays the recording's one
-writer, finishes it unwatched, and refuses in words a record with no capture going on or one already recording. The panel reads
-the recording back from the capture's state (`NodePlanetaryCapture.Recording`, polled every 250 ms with the rest), the time left by
-this computer's clock. Record is offered only while the capture runs and the field states a duration; Stop whenever a recording
-goes on. Pinned by `PlanetaryRecordingThroughTheNodeTests` (through the node) and `PlanetaryRecordControlTests` (the presses). Its
+through `PlanetaryCaptureController.RecordAsync` to the capture's OWN node, the one the controller started it on, never the view's
+command target: a control of the run on screen goes to its own node (CLAUDE.md, Remote Rigs; review round 1 of #1610). The node
+stays the recording's one writer, finishes it unwatched, and refuses in words a record with no capture going on or one already
+recording; with no capture on show the controller says the same. The panel reads the recording back from the capture's state
+(`NodePlanetaryCapture.Recording`, polled every 250 ms with the rest), the time left by this computer's clock. Neither is offered
+with no capture on show: Record while the field states a duration, Stop while a recording goes on. Pinned by `PlanetaryRecordingThroughTheNodeTests` (through the node) and `PlanetaryRecordControlTests` (the presses). Its
 settings beside the file are #1342's (Phase I); the sequence below records one file a step through the same route.
 
 - **A run of the node** (`INodeRun`, as the planetary capture is), claiming the camera, the filter wheel and the focuser (the
