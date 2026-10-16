@@ -6,9 +6,10 @@ using System.Threading.Tasks;
 namespace TianWen.Lib.Imaging.Planetary;
 
 /// <summary>
-/// The thread a <see cref="PlanetaryCapture"/>'s loop runs on (TIA2's capture-priority leg): a thread of its own at
-/// <see cref="Priority"/>, which is also the loop's <see cref="SynchronizationContext"/>, so every await of the loop that
-/// keeps its context resumes here rather than on the thread pool.
+/// The thread a <see cref="PlanetaryCapture"/>'s loop runs on (TIA2's capture-priority leg), and its recording's writer
+/// (<see cref="SerRecording"/>): a thread of its own at <see cref="Priority"/>, which is also the loop's
+/// <see cref="SynchronizationContext"/>, so every await of the loop that keeps its context resumes here rather than on the
+/// thread pool.
 /// </summary>
 /// <remarks>
 /// <para><b>Why a thread of its own.</b> The loop was a thread pool continuation at normal priority. With the machine's cores
@@ -24,6 +25,10 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// await that completes elsewhere resumes, with <c>ConfigureAwait(false)</c>, on the thread that completed it, a pool
 /// thread, and the loop stays on the pool from then on. So the loop's own awaits keep their context and are posted back
 /// here, and a driver whose frame wait keeps its context (the DAL's) wakes this thread straight from its stream thread.</para>
+/// <para><b>Why the recording's writer too.</b> The loop shares two locks with it, its queue's and the shared byte pool's
+/// per-core stacks, and a writer on the pool that a busy machine held off while it held one held the loop up behind it.
+/// Measured under 32 normal-priority spinners: with the writer on the pool the loop once went 357 ms without a frame and
+/// the hand-off replaced 6; with the writer on a thread of its own, 165 ms at most and none.</para>
 /// </remarks>
 internal sealed class CaptureReaderThread : SynchronizationContext
 {

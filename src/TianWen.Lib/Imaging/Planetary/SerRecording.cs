@@ -18,9 +18,11 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// recording and the stack's frame ring in one.
 /// </summary>
 /// <remarks>
-/// <para><b>The capture loop only converts and queues</b> (<see cref="TryAppend"/>): a writer task of the recording's own
-/// does the disk, so a disk that falls behind costs RECORDED frames, counted in <see cref="FramesDropped"/>, never the
-/// capture's rate or its live view.</para>
+/// <para><b>The capture loop only converts and queues</b> (<see cref="TryAppend"/>): a writer of the recording's own does
+/// the disk, so a disk that falls behind costs RECORDED frames, counted in <see cref="FramesDropped"/>, never the
+/// capture's rate or its live view. The writer runs on a thread of its own at the capture loop's priority
+/// (<see cref="CaptureReaderThread"/>), never the thread pool: the loop shares the queue's lock and the byte pool's with
+/// it, and a pool thread held off by a busy machine while it held one would hold the loop up behind it (TIA2).</para>
 /// <para><b>A SER frame has one size and one depth</b>, so a frame of another (a window resized, or the stream's depth
 /// switched, mid-recording) ends it, as its duration and a stop do. The file is whole once <see cref="Completion"/> has: its header, frame count included, is written as it
 /// closes.</para>
@@ -81,7 +83,7 @@ public sealed class SerRecording
         StartedAt = startedAt;
         EndsAt = endsAt;
         _logger = logger;
-        Completion = Task.Run(WriteAsync);
+        Completion = CaptureReaderThread.Run("planetary recording writer", WriteAsync);
     }
 
     /// <summary>The SER file it writes.</summary>
@@ -183,7 +185,8 @@ public sealed class SerRecording
         SerWriter? writer = null;
         try
         {
-            await foreach (var (bytes, arrived) in _queue.Reader.ReadAllAsync().ConfigureAwait(false))
+            // No ConfigureAwait(false): each frame resumes on the writer's own thread (CaptureReaderThread).
+            await foreach (var (bytes, arrived) in _queue.Reader.ReadAllAsync())
             {
                 try
                 {
