@@ -314,7 +314,9 @@ internal static class OtherWorktreeBuilds
             + "$a = @{}; foreach ($q in $p) { try { $a[$q.ProcessId] = (Get-Process -Id $q.ProcessId -ErrorAction Stop).TotalProcessorTime } catch {} }; "
             + "Start-Sleep -Seconds 3; "
             + "foreach ($q in $p) { try { $c = ((Get-Process -Id $q.ProcessId -ErrorAction Stop).TotalProcessorTime - $a[$q.ProcessId]).TotalSeconds / 3; "
-            + "if ($c -ge 0.5) { '{0} {1} {2:F1} cores' -f $q.ProcessId, $q.Name, $c } } catch {} }";
+            + "if ($c -ge 0.5) { '{0} {1} {2:F1} cores' -f $q.ProcessId, $q.Name, $c } } catch {} }; "
+            // A process that exited between the two looks is caught above, but leaves pwsh's exit code at 1.
+            + "exit 0";
         return RunAsync(Script, QuietButVar, mine, cancellationToken);
     }
 
