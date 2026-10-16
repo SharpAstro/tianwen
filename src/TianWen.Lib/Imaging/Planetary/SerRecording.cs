@@ -103,6 +103,11 @@ public sealed class SerRecording
     /// <summary>Frames the disk could not keep up with, never recorded.</summary>
     public int FramesDropped => Volatile.Read(ref _dropped);
 
+    private long _longestWriteTicks;
+
+    /// <summary>The longest one frame's write took, the file's creation included: past the queue's 64 frames, frames are dropped.</summary>
+    internal TimeSpan LongestWrite => TimeSpan.FromTicks(Volatile.Read(ref _longestWriteTicks));
+
     /// <summary>The gaps between consecutive frames longer than the exposure plus 1 s: a stream that stalled and came back.</summary>
     public ImmutableArray<SerRecordingGap> Gaps => _gaps;
 
@@ -190,6 +195,7 @@ public sealed class SerRecording
             {
                 try
                 {
+                    var started = System.Diagnostics.Stopwatch.GetTimestamp();
                     if (writer is null)
                     {
                         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path) ?? ".");
@@ -197,6 +203,10 @@ public sealed class SerRecording
                     }
                     writer.AppendFrame(bytes.AsSpan(0, (int)writer.FrameSizeBytes), arrived);
                     Interlocked.Increment(ref _written);
+                    if (System.Diagnostics.Stopwatch.GetElapsedTime(started).Ticks is var took && took > Volatile.Read(ref _longestWriteTicks))
+                    {
+                        Volatile.Write(ref _longestWriteTicks, took);
+                    }
                 }
                 finally
                 {

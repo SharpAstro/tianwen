@@ -481,7 +481,7 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
         var ser = SerRateReadBack.Read(recording.Path, LongStepBound);
         var bodyRate = (dropped - droppedFrom) > 0 ? $" (1 in {(read - readFrom) / (double)(dropped - droppedFrom):F0})" : "";
         return new CaptureResult(ser.Fps,
-            $"{ser}, {recording.FramesDropped} dropped by the disk, the recording's own gaps: {recording.Gaps.Length}; "
+            $"{ser}, {recording.FramesDropped} dropped by the disk (its longest write {recording.LongestWrite.TotalMilliseconds:F0} ms), the recording's own gaps: {recording.Gaps.Length}; "
             + counts + bodyRate + $"; ended: {recording.EndReason}",
             ser, replaced - replacedFrom, dropped - droppedFrom, recording.FramesDropped, stalls);
     }
