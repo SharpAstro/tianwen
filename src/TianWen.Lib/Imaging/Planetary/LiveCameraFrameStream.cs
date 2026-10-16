@@ -62,6 +62,15 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
     /// </summary>
     public LiveCameraFrameStream(
         int width, int height, PlanetaryFrameLayout layout, int capacity = 1024, bool hasTimestamps = true)
+        : this(width, height, layout, capacity, hasTimestamps, shelf: null)
+    {
+    }
+
+    /// <summary>
+    /// A live frame stream whose planes come from, and go back to, <paramref name="shelf"/> beyond its own free list (a
+    /// planetary capture's ring, <see cref="RingPlaneShelf"/>): the shelf keeps this ring's shape from now on.
+    /// </summary>
+    internal LiveCameraFrameStream(int width, int height, PlanetaryFrameLayout layout, int capacity, bool hasTimestamps, RingPlaneShelf? shelf)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
@@ -73,13 +82,26 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
         _ring = new Image?[capacity];
         _timestamps = new DateTimeOffset?[capacity];
         _returnPlane = ReturnPlane;
+        _shelf = shelf;
+        // The steady state's planes (see _freePlanes), for every channel a frame of this layout carries.
+        _shelfBound = (capacity + 1) * (layout switch { PlanetaryFrameLayout.SplitCfa => 4, PlanetaryFrameLayout.Rgb => 3, _ => 1 });
+        _shelf?.Keep(Shape, _shelfBound);
     }
+
+    private readonly RingPlaneShelf? _shelf;
+    private readonly int _shelfBound;
+    private int _planesFromShelf;
+
+    private (int Height, int Width, PlanetaryFrameLayout Layout) Shape => (Height, Width, Layout);
 
     /// <summary>Ring capacity: the maximum number of recent frames retained for loading.</summary>
     public int Capacity => _ring.Length;
 
     /// <summary>Planes ever allocated, for the tests that hold the ring to recycling them.</summary>
     internal int PlanesAllocated => Volatile.Read(ref _planesAllocated);
+
+    /// <summary>Planes taken from the shelf a disposed ring of this shape left, rather than allocated.</summary>
+    internal int PlanesFromShelf => Volatile.Read(ref _planesFromShelf);
 
     /// <summary>Index of the most recently pushed frame, or <c>-1</c> before the first push.</summary>
     public int LatestIndex
@@ -233,17 +255,27 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
         {
             return plane;
         }
+        if (_shelf is { } shelf && shelf.TryTake(Shape, out var shelved) && shelved is not null)
+        {
+            Interlocked.Increment(ref _planesFromShelf);
+            return shelved;
+        }
 
         Interlocked.Increment(ref _planesAllocated);
         return new float[Height, Width];
     }
 
-    // A plane's last reference went: back to the pool, unless the stream is gone and nothing will push again.
+    // A plane's last reference went: back to the pool, or, the stream gone and nothing to push again, to the shelf for the
+    // next ring of this shape (and the collector, without one).
     private void ReturnPlane(float[,] plane)
     {
         if (!_disposed)
         {
             _freePlanes.Enqueue(plane);
+        }
+        else
+        {
+            _shelf?.Put(Shape, plane);
         }
     }
 
@@ -399,12 +431,17 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
         }
 
         // The ring's references, released outside the gate like an eviction. A frame a loader still holds
-        // stays valid until that loader releases it; nothing returns to the pool after disposal.
+        // stays valid until that loader releases it, and only then does its plane go anywhere (ReturnPlane): nothing
+        // returns to this ring's pool after disposal.
+        _shelf?.Keep(Shape, _shelfBound);
         foreach (var image in retained)
         {
             image?.Release();
         }
 
-        _freePlanes.Clear();
+        while (_freePlanes.TryDequeue(out var free))
+        {
+            _shelf?.Put(Shape, free);
+        }
     }
 }
