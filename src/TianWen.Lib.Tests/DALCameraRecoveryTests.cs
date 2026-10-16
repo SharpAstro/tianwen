@@ -436,8 +436,35 @@ internal sealed class FakeCmosState(string serial)
     public void StartedStreaming()
     {
         Interlocked.Increment(ref _videoStarts);
+        BeginFrame();
         Streaming = true;
     }
+
+    /// <summary>
+    /// Timeout answers before each frame, every frame call that waits counting as one wait: a stream whose frame period is
+    /// its READOUT, not its exposure (a large frame over a slow bus). 0, the default, for none.
+    /// </summary>
+    public int WaitsPerFrame { get; set; }
+
+    /// <summary>
+    /// Each frame comes as many waits (<see cref="WaitLength"/> each) after the last as the exposure it BEGAN with, read as the
+    /// last was handed over: a body that finishes the frame in flight at the old exposure after a change, as a ZWO may.
+    /// </summary>
+    public bool PacedByExposure { get; set; }
+
+    /// <summary>The wait a frame call stands for here, the stream's own (<c>VideoFrameWait</c>).</summary>
+    public static readonly TimeSpan WaitLength = TimeSpan.FromMilliseconds(250);
+
+    private int _waitsLeft;
+
+    /// <summary>A frame begins: the waits before it is handed over.</summary>
+    public void BeginFrame()
+        => Volatile.Write(ref _waitsLeft, PacedByExposure
+            ? (int)Math.Ceiling(Controls.GetValueOrDefault(CMOSControlType.Exposure) / (WaitLength.TotalMilliseconds * 1000))
+            : WaitsPerFrame);
+
+    /// <summary>Takes one of the waits before the frame in flight, if any is left.</summary>
+    public bool TakeWait() => Interlocked.Decrement(ref _waitsLeft) >= 0;
 
     public void StoppedStreaming()
     {
@@ -723,9 +750,15 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
             {
                 return CMOSErrorCode.Timeout;
             }
+            // A frame still being exposed or read out: this call's whole wait went by without it.
+            if (state.TakeWait())
+            {
+                return CMOSErrorCode.Timeout;
+            }
         }
 
         var value = state.ServeFrame();
+        state.BeginFrame();
         unsafe
         {
             if (bytesPerPixel == 1)

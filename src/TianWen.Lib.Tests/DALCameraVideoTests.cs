@@ -417,7 +417,8 @@ public class DALCameraVideoTests(ITestOutputHelper output)
 
     /// <summary>
     /// A body that goes silent mid-stream, answering only Timeout as ASIGetVideoData does with no frame, is a stall once
-    /// the silence passes <c>VideoSilenceLimit</c>, and the ladder brings it back as it would a stall the body reported.
+    /// the silence passes the stream's limit (<see cref="Devices.DAL.VideoSilenceWatch"/>), and the ladder brings it back as
+    /// it would a stall the body reported.
     /// </summary>
     [Fact(Timeout = 30_000)]
     public async Task ABodyThatGoesSilentMidStreamIsBroughtBack()
@@ -434,6 +435,81 @@ public class DALCameraVideoTests(ITestOutputHelper output)
         var recovery = camera.VideoRecoveryLog.Single();
         (recovery.Code, recovery.Rung).ShouldBe((CMOSErrorCode.Timeout, TestDalCameraDriver.VideoRecoveryRung.Restart));
         camera.VideoStalls.ShouldBe(1);
+    }
+
+    /// <summary>
+    /// (a) A body that finishes the frame in flight at the OLD exposure after it is lowered, as a ZWO may: that frame comes
+    /// the old exposure after the last, and the new exposure's limit called the wait a stall (review round 2 of #1605,
+    /// question 1), a restart and a gap for nothing. The watch holds the longer exposure until two frames have arrived since.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task LoweringTheExposureMidStreamWaitsOutTheFrameInFlight()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state) = await StreamingCameraAsync();
+        state.PacedByExposure = true;
+
+        // 20 s frames, each 80 waits after the last: past the 2 s a 5 ms exposure is allowed, and past the 15 s the frames'
+        // own silences are ever allowed, so only the held exposure covers the frame in flight.
+        await using var frames = camera.CaptureVideoAsync(new VideoCaptureOptions(TimeSpan.FromSeconds(20)), ct).GetAsyncEnumerator(ct);
+        (await NextAsync(frames)).Release();
+        await camera.ApplyVideoControlsAsync(new VideoCaptureOptions(TimeSpan.FromMilliseconds(5)), ct);
+
+        // The frame in flight, then frames at the new exposure.
+        for (var frame = 0; frame < 4; frame++)
+        {
+            (await NextAsync(frames)).Release();
+        }
+        camera.VideoStalls.ShouldBe(0, "the frame in flight came at the exposure it began with, which is no stall");
+        state.Controls[CMOSControlType.Exposure].ShouldBe(5_000, "the new exposure is on the body");
+        state.VideoStarts.ShouldBe(1, "never restarted");
+    }
+
+    /// <summary>
+    /// (b) A healthy stream whose frame period is its READOUT, over 2 s (a 60 MP ZWO at full frame, 16 bits, over USB 2): the
+    /// exposure's limit called every frame's wait a stall and the ladder gave up on it, where the stream before the watchdog
+    /// waited for ever (review round 2 of #1605, question 2). The limit also covers the stream's own recent frames.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task AStreamWhoseFramePeriodIsItsReadoutKeepsStreaming()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state) = await StreamingCameraAsync();
+        state.WaitsPerFrame = 12; // 3 s a frame at a 5 ms exposure
+
+        await using var frames = camera.CaptureVideoAsync(new VideoCaptureOptions(TimeSpan.FromMilliseconds(5)), ct).GetAsyncEnumerator(ct);
+        for (var frame = 0; frame < 5; frame++)
+        {
+            (await NextAsync(frames)).Release();
+        }
+        camera.VideoStalls.ShouldBe(0, "a slow frame is no stall");
+        state.VideoStarts.ShouldBe(1, "never restarted");
+    }
+
+    /// <summary>
+    /// (b) A slow stream that then goes silent is still called stalled, within twice its longest recent silence plus 1 s, and
+    /// a restart brings it back: the limit is the STREAM's, carried across the rung, so the restarted stream's first frame,
+    /// as slow as the ones before, is no second stall.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task ASlowStreamThatGoesSilentIsBroughtBackAndItsFirstFrameAfterIsNoStall()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (camera, state) = await StreamingCameraAsync();
+        state.WaitsPerFrame = 12;
+
+        await using var frames = camera.CaptureVideoAsync(new VideoCaptureOptions(TimeSpan.FromMilliseconds(5)), ct).GetAsyncEnumerator(ct);
+        for (var frame = 0; frame < 3; frame++)
+        {
+            (await NextAsync(frames)).Release();
+        }
+        state.StallCode = CMOSErrorCode.Timeout;
+        state.Stall(FakeCmosState.Cure.Restart);
+
+        await ReadUntilRecoveredAsync(camera, frames, 1);
+        (await NextAsync(frames)).Release();
+        camera.VideoRecoveryLog.Single().Rung.ShouldBe(TestDalCameraDriver.VideoRecoveryRung.Restart);
+        camera.VideoStalls.ShouldBe(1, "the silence, and nothing after the restart");
     }
 
     /// <summary>
@@ -591,7 +667,7 @@ public class DALCameraVideoTests(ITestOutputHelper output)
 
     /// <summary>
     /// A restart that brings back a body which then sends nothing at all, not even the stall's answer, is caught by the
-    /// silence watchdog (<c>VideoSilenceLimit</c>) and the next rung tried, rather than waited on for ever.
+    /// silence watchdog (<see cref="Devices.DAL.VideoSilenceWatch"/>) and the next rung tried, rather than waited on for ever.
     /// </summary>
     [Fact(Timeout = 30_000)]
     public async Task ABodyThatGoesSilentAfterARestartIsClosedAndOpenedAgain()
