@@ -7,6 +7,9 @@
     <Nullable>enable</Nullable>
     <AssemblyName>tianwen-server</AssemblyName>
     <PublishAot>true</PublishAot>
+    <!-- Stated, not left to the Web SDK's default: measured against workstation GC under a saturated box (TIA2), the two kept
+         a planetary capture's frames alike (docs/plans/live-planetary-capture.md). -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
     <ApplicationManifest>../LongPathAware.manifest</ApplicationManifest>
     <Platforms>AnyCPU</Platforms>
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
