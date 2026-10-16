@@ -4,7 +4,7 @@ QHYCCD-QHY294C/IDAS-LPS-D3/10P-Tempel/2026-08-16|QHY294PROC|10P/Tempel 2|IDAS LP
 QHYCCD-QHY294C/IDAS-LPS-D3/Omega-Cen-Cluster/2026-02-20|QHY294PROC|ome Cen Cluster|IDAS LPS D3
 QHYCCD-QHY294C/IDAS-LPS-D3/Running-Chicken-Nebula/2026-02-20|QHY294PROC|Running Chicken Nebula|IDAS LPS D3
 Uranus-C-IMX585/Baader-Semi-APO/eta-Car-Nebula/2023-02-24|Uranus-C (IMX585)|Eta Car Neb OSC|Baader Semi-APO
-Uranus-C-IMX585/Unidentified-HaOIII/Lagoon-and-Trifid/2023-08-09|Uranus-C (IMX585)|M8 M20 OIII HA|Unidentified-HaOIII
+Uranus-C-IMX585/Optolong-L-Ultimate-3nm/Lagoon-and-Trifid/2023-08-09|Uranus-C (IMX585)|M8 M20 OIII HA|Optolong L-Ultimate 3nm
 Vela SNR/Vela SNR P1 120s 2deg 13o r63 b63/2024-02-03|ZWO ASI533MC Pro|Vela SNR P1 120s 2deg 13o r63 b63
 Vela SNR/Vela SNR P2 120s 2deg 13o r63 b63/2024-02-03|ZWO ASI533MC Pro|Vela SNR P2 120s 2deg 13o r63 b63
 Vela SNR/Vela SNR P3 120s 2deg 13o r63 b63/2024-02-03|ZWO ASI533MC Pro|Vela SNR P3 120s 2deg 13o r63 b63
