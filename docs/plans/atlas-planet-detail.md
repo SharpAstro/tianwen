@@ -607,6 +607,15 @@ backdrop draw (`SkyMapTab.DrawOrreryBackdrop`, the first thing the frame draws a
   a day and a night instant measured the same in the window.
 - **What a host skips**: the twilight ground, the horizon fill and the lines (Vulkan draws the `Backdrop` phase, WebGL
   checks the backdrop), and `SkyMapState.CurrentViewMatrix` is left as the map's own.
+- **What the pass leaves behind it, on Vulkan**: the sky pipeline clips the viewport and scissor to the map rect, and
+  `VkSkyMapTab.RestoreFullTarget` puts back the RENDERER's whole target (`renderer.Width` x `Height`, as `VkPlanetBodies`
+  sizes its own). Its three copies sized it by the context's swapchain, which an offscreen frame does not have: 0 x 0. So
+  on the headless Vulkan host every 2D primitive after the backdrop fell into a zero viewport until the planet bodies set
+  their own, and the orbits (drawn before the bodies) vanished, while the bodies, the labels and the strip still drew.
+  Found by the comets leg (PR #1631): 229 of 1,625 orbit samples lit with the backdrop on (the stars along the paths)
+  against 1,473 with it off, the same at c2053b53, whose real window drew every orbit over the stars, so a window was
+  never affected; not the sky pass's pipelines, push constants or descriptor sets (skipping its draws outright left the
+  orbits as missing). After: 1,396 of 1,625 (`OrreryGpuTests.TheOrbitsAreDrawnOverTheBackdrop`).
 
 The CPU surface (the tests, the PNGs) draws `SkyMapRenderer`'s star field through the same view, culled the same two
 ways from unit vectors made once per catalogue (7 ms a frame at 900 x 600 where walking the catalogue's lookups cost 249);
@@ -717,6 +726,9 @@ shadow, each ring's median of 255): C 21, Cassini 17, A 60, B 3 on the CPU refer
 C ring's. The ten parity views and Night's no-blue still pass, and `TheWebGlTraceIsTheVulkanTrace` holds the WebGL copy to it.
 
 #### A5: what is open
+
+- **The orbits over the backdrop on the headless Vulkan host** (found in PR #1631, fixed): the offscreen frame's zero
+  viewport after the sky pass ("A5: the backdrop", what the pass leaves behind it). Nothing of it is left.
 
 - **The comets (#1611, done but for a look in a real browser)**: the set (ranked at the viewing instant), tails, labels,
   clicks and orbit colours are built ("A5: the comets"). The sky's own drawing of lost and defunct comets from stale sets is #1630. Seen in headless Edge by the E2E only, with eight synthetic comets; nobody has yet looked at the real
