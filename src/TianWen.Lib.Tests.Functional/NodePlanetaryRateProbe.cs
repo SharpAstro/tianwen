@@ -77,7 +77,8 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
 
     /// <summary>One recording: its arm, its SER read back against the time it was asked for, the counts over it, and what the box was doing.</summary>
     private sealed record Run(string Arm, SerRateReadBack Ser, TimeSpan Asked, int BodyDropped, int DiskDropped, string Load, string Quiet, string? View = null,
-        long? Replaced = null, int? LoggedStalls = null, string? Stream = null)
+        long? Replaced = null, int? LoggedStalls = null, string? Stream = null, string? Answers = null,
+        IReadOnlyList<(DateTimeOffset Asked, int Gain)>? GainsAsked = null, string? GainsReached = null, TimeSpan? SlowestGain = null)
     {
         /// <summary>
         /// Where it stands (<see cref="RateGate.StandingOf"/>): set aside only for a stall its stream logged (a node's, known once
@@ -86,9 +87,12 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         public RateGate.Standing Standing => RateGate.StandingOf(LoggedStalls, Ser, Asked);
     }
 
-    /// <summary>One video stream of the node's camera, from its log: where it started, and its own end-of-stream counts.</summary>
+    /// <summary>
+    /// One video stream of the node's camera, from its log: where it started, its own end-of-stream counts, and the window the
+    /// camera had after its last pan (the DAL's own line once the body has the window), null when it never panned.
+    /// </summary>
     private sealed record NodeStream(int X, int Y, string Counts, long Replaced, int Stalls, int Recovered, List<string> Recoveries,
-        int Width = 0, int Height = 0, int JogX = 0, int JogY = 0);
+        int Width = 0, int Height = 0, RoiRect? Panned = null, IReadOnlyList<(DateTimeOffset At, int Gain)>? Gains = null);
 
     [Fact(Timeout = 3_600_000)]
     public async Task TheGuisCaptureRecordsAtTheCamerasRateThroughTheNode()
@@ -169,16 +173,19 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         {
             var stream = streams[i];
             (stream.X, stream.Y).ShouldBe((centred.X, centred.Y), "the node's stream starts centred, where the jog to the Saturn window is counted from");
-            // The window recorded is the one asked for (review round 1 of #1609, N4): the node's stream and the jog it applied,
-            // and the SER's own header.
-            (stream.Width, stream.Height, stream.X + stream.JogX, stream.Y + stream.JogY).ShouldBe((RoiWidth, RoiHeight, RoiX, RoiY),
-                $"{runs[i].Arm}: the node streamed {RoiWidth}x{RoiHeight} at ({RoiX}, {RoiY})");
+            // The window recorded is the one asked for (review round 1 of #1609, N4): the window the camera had after the pan, as
+            // the DAL logs it once the body has it, never the jog the capture loop asked for (review round 2 of #1609), and the
+            // SER's own header.
+            stream.Panned.ShouldBe(new RoiRect(RoiX, RoiY, RoiWidth, RoiHeight), $"{runs[i].Arm}: the node's camera streamed {RoiWidth}x{RoiHeight} at ({RoiX}, {RoiY})");
             (runs[i].Ser.Width, runs[i].Ser.Height, runs[i].Ser.PixelDepth).ShouldBe((RoiWidth, RoiHeight, 8), $"{runs[i].Arm}: the SER holds 640x480 at 8 bits");
+            var (gainsReached, slowestGain) = runs[i].GainsAsked is { Count: > 0 } gainsAsked ? GainsReached(gainsAsked, stream.Gains ?? []) : (null, null);
             runs[i] = runs[i] with
             {
                 Replaced = stream.Replaced,
                 LoggedStalls = stream.Stalls,
                 Stream = stream.Counts + (stream.Recoveries.Count > 0 ? $"; {string.Join("; ", stream.Recoveries)}" : ""),
+                GainsReached = gainsReached,
+                SlowestGain = slowestGain,
             };
         }
 
@@ -203,6 +210,14 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
             if (run.View is { } view)
             {
                 output.WriteLine($"  {view}");
+            }
+            if (run.Answers is { } answers)
+            {
+                output.WriteLine($"  {answers}");
+            }
+            if (run.GainsReached is { } gainsReached)
+            {
+                output.WriteLine($"  {gainsReached}");
             }
             if (run.Stream is { } streamCounts)
             {
@@ -537,10 +552,11 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
 
     /// <summary>The node's camera stream lines (starts, recoveries, ends) from every server log under its data root.</summary>
     private static string[] StreamLines(string dataRoot)
-        => [.. ServerLogLines(dataRoot).Where(static line => line.Contains("streaming video", StringComparison.Ordinal)
+        => [.. ServerLogLines(dataRoot).Select(static entry => entry.Line).Where(static line => line.Contains("streaming video", StringComparison.Ordinal)
             || line.Contains("stream is back", StringComparison.Ordinal) || StreamEnd.IsMatch(line))];
 
-    private static IEnumerable<string> ServerLogLines(string dataRoot)
+    /// <summary>Every line of the node's logs under its data root, with the day its folder is named for (yyyyMMdd), which a line's own time leaves out.</summary>
+    private static IEnumerable<(string Day, string Line)> ServerLogLines(string dataRoot)
     {
         foreach (var day in Directory.EnumerateDirectories(Path.Combine(dataRoot, "Logs")).Order(StringComparer.Ordinal))
         {
@@ -548,10 +564,45 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
             {
                 foreach (var line in File.ReadLines(file))
                 {
-                    yield return line;
+                    yield return (Path.GetFileName(day), line);
                 }
             }
         }
+    }
+
+    private static readonly Regex LineTime = new Regex(@"^\[(?<time>\d\d:\d\d:\d\d\.\d{3}) (?<zone>[+-]\d\d:\d\d)\]", RegexOptions.CultureInvariant);
+
+    /// <summary>When a node log line was written, from its own time and its folder's day; null for a line without one (an exception's).</summary>
+    private static DateTimeOffset? WrittenAt(string day, string line)
+        => LineTime.Match(line) is { Success: true } time
+           && DateTimeOffset.TryParseExact($"{day} {time.Groups["time"].Value} {time.Groups["zone"].Value}", "yyyyMMdd HH:mm:ss.fff zzz",
+               CultureInfo.InvariantCulture, DateTimeStyles.None, out var at)
+            ? at
+            : null;
+
+    /// <summary>
+    /// When each gain the GUI's client staged reached the camera: the DAL's own line once the body has a staged gain, the first
+    /// after it was asked for, and the time between; and the longest of them, null when one never arrived.
+    /// </summary>
+    private static (string Said, TimeSpan? Longest) GainsReached(IReadOnlyList<(DateTimeOffset Asked, int Gain)> asked, IReadOnlyList<(DateTimeOffset At, int Gain)> reached)
+    {
+        var said = new List<string>();
+        TimeSpan? longest = TimeSpan.Zero;
+        foreach (var (at, gain) in asked)
+        {
+            if (reached.Where(r => r.At >= at).OrderBy(static r => r.At).FirstOrDefault() is { At: var on } got && on != default)
+            {
+                var took = on - at;
+                longest = longest is { } so ? (took > so ? took : so) : null;
+                said.Add($"gain {gain} staged at {at:HH:mm:ss.fff} was on the camera ({got.Gain}) {took.TotalMilliseconds:F0} ms later");
+            }
+            else
+            {
+                longest = null;
+                said.Add($"gain {gain} staged at {at:HH:mm:ss.fff} NEVER reached the camera");
+            }
+        }
+        return (string.Join("; ", said), longest);
     }
 
     /// <summary>
@@ -617,10 +668,11 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         await pump.ForAsync(PanAndWarm, ct);
 
         var load = HostCpuLoad.Start();
-        var (recording, bodyDropped) = await RecordAsync(client, pump, duration, ct);
+        var (recording, bodyDropped, answers) = await RecordAsync(client, pump, duration, ct);
         var described = load.Describe();
         (await client.StopPlanetaryAsync(ct)).IsSuccess.ShouldBeTrue("the capture stops");
-        return new Run("node, no view", ReadBackAndDelete(recording), duration, bodyDropped, recording.FramesDropped, described, quiet);
+        return new Run("node, no view", ReadBackAndDelete(recording), duration, bodyDropped, recording.FramesDropped, described, quiet,
+            Answers: answers.ToString());
     }
 
     /// <summary>
@@ -652,7 +704,23 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
             (await local.Client.GetPlanetaryAsync(ct)).Value?.Masters ?? 0);
         var load = HostCpuLoad.Start();
         var clock = System.Diagnostics.Stopwatch.StartNew();
-        var (recording, bodyDropped) = await RecordBySignalAsync(gui, planetary, pump, duration, ct);
+        // A live control staged through the GUI's own capture client while it records, as the panel's Gain field stages one: one up a
+        // third of the way in, back two thirds in. When each reached the camera is read from the node's log once it has exited.
+        var gainsAsked = new List<(DateTimeOffset Asked, int Gain)>();
+        var (recording, bodyDropped, answers) = await RecordBySignalAsync(gui, planetary, local.Client, pump, duration, ct, elapsed =>
+        {
+            var next = gainsAsked.Count switch
+            {
+                0 when elapsed >= duration / 3 => SaturnGain + 1,
+                1 when elapsed >= duration * 2 / 3 => SaturnGain,
+                _ => -1,
+            };
+            if (next >= 0)
+            {
+                gainsAsked.Add((DateTimeOffset.Now, next));
+                planetary.Capture.SetGain(next);
+            }
+        });
         var seconds = clock.Elapsed.TotalSeconds;
         var described = load.Describe();
         var (shownTo, readTo, slotsTo, mastersTo) = (shown.FrameCount, planetary.LiveFramesRead, planetary.LiveFramesFromSharedMemory,
@@ -666,7 +734,8 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         var view = $"the view: {(shownTo - shownFrom) / seconds:F1} live frames a second shown ({shownTo - shownFrom}), "
             + $"{(readTo - readFrom) / seconds:F1} read ({readTo - readFrom}, {slotsTo - slotsFrom} through shared memory; the node samples at most one "
             + $"each 33 ms, drop-to-latest), {mastersTo - mastersFrom} masters stacked by the node";
-        return new Run(arm, ReadBackAndDelete(recording), duration, bodyDropped, recording.FramesDropped, described, quiet, view);
+        return new Run(arm, ReadBackAndDelete(recording), duration, bodyDropped, recording.FramesDropped, described, quiet, view,
+            Answers: answers.ToString(), GainsAsked: gainsAsked);
     }
 
     /// <summary>
@@ -674,10 +743,13 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
     /// <see cref="StartPlanetaryRecordingSignal"/> (#1344), and waits until its file is whole on the recording's own state as the
     /// panel reads it (<see cref="NodePlanetaryCapture.Recording"/>). The tracker is drained only for the request: the handler
     /// tracks the request alone, so the drain ends with the node's answer, never with the recording
-    /// (<c>PlanetaryRecordingThroughTheNodeTests</c> pins it), and a refused record ends it too, with its words.
+    /// (<c>PlanetaryRecordingThroughTheNodeTests</c> pins it), and a refused record ends it too, with its words. Meanwhile the
+    /// node's state is asked for on <paramref name="client"/> every 100 ms and each answer timed, as <see cref="RecordAsync"/> does,
+    /// and <paramref name="whileRecording"/> is called at each ask with the time the recording has run.
     /// </summary>
-    private static async Task<(PlanetaryRecordingDto Recording, int BodyDropped)> RecordBySignalAsync(GuiNodeHarness.GuiClient gui,
-        PlanetaryCaptureController planetary, Pump pump, TimeSpan duration, CancellationToken ct)
+    private static async Task<(PlanetaryRecordingDto Recording, int BodyDropped, AnswerTimes Answers)> RecordBySignalAsync(GuiNodeHarness.GuiClient gui,
+        PlanetaryCaptureController planetary, TianWen.RemoteClient.TianWenNodeClient client, Pump pump, TimeSpan duration, CancellationToken ct,
+        Action<TimeSpan>? whileRecording = null)
     {
         var noted = gui.AppState.Notifications.Length;
         gui.Bus.Post(new StartPlanetaryRecordingSignal(duration));
@@ -690,34 +762,56 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         started.Recording.ShouldBeTrue(said);
         (started.EndsUtc - started.StartedUtc).ShouldBe(duration, "the node records for the duration the signal asked");
         var droppedFrom = planetary.Capture.DroppedFrames;
+        var clock = Stopwatch.StartNew();
+        var answers = new AnswerTimes();
 
         int? droppedTo = null;
-        await pump.UntilAsync(_ =>
+        await pump.UntilAsync(async token =>
         {
+            var asked = Stopwatch.GetTimestamp();
+            if ((await client.GetPlanetaryAsync(token)).Value is { Recording: { Recording: true } })
+            {
+                answers.Add(Stopwatch.GetElapsedTime(asked));
+                whileRecording?.Invoke(clock.Elapsed);
+            }
             if (planetary.Capture.Recording is { Recording: false })
             {
                 droppedTo ??= planetary.Capture.DroppedFrames;
             }
-            return ValueTask.FromResult(planetary.Capture.Recording is { Written: true });
+            return planetary.Capture.Recording is { Written: true };
         }, ct);
         var recording = planetary.Capture.Recording.ShouldNotBeNull();
         recording.Path.ShouldBe(started.Path, "the recording the signal started");
         recording.FailureReason.ShouldBeNull();
-        return (recording, (droppedTo ?? droppedFrom) - droppedFrom);
+        return (recording, (droppedTo ?? droppedFrom) - droppedFrom, answers);
     }
 
-    /// <summary>Records the capture going on for <paramref name="duration"/> on a client of the node's own, and waits until its file is whole.</summary>
-    private static async Task<(PlanetaryRecordingDto Recording, int BodyDropped)> RecordAsync(TianWen.RemoteClient.TianWenNodeClient client, Pump pump,
-        TimeSpan duration, CancellationToken ct)
+    /// <summary>
+    /// Records the capture going on for <paramref name="duration"/> on a client of the node's own, and waits until its file is
+    /// whole. The node's state is asked
+    /// for every 100 ms meanwhile, as a client polls it, and each answer's time is kept (TIA2's capture-priority leg: the node
+    /// must answer while the box is loaded); <paramref name="whileRecording"/>, when given, is called at each ask with the time
+    /// the recording has run.
+    /// </summary>
+    private static async Task<(PlanetaryRecordingDto Recording, int BodyDropped, AnswerTimes Answers)> RecordAsync(TianWen.RemoteClient.TianWenNodeClient client,
+        Pump pump, TimeSpan duration, CancellationToken ct, Action<TimeSpan>? whileRecording = null)
     {
         var started = await client.StartPlanetaryRecordingAsync(new PlanetaryRecordRequestDto { DurationSeconds = duration.TotalSeconds }, ct);
         var state = started.Value.ShouldNotBeNull(started.Error);
+        var clock = Stopwatch.StartNew();
+        var answers = new AnswerTimes();
         var droppedFrom = state.DroppedFrames;
         int? droppedTo = null;
         PlanetaryRecordingDto? written = null;
         await pump.UntilAsync(async token =>
         {
+            var asked = Stopwatch.GetTimestamp();
             var now = (await client.GetPlanetaryAsync(token)).Value;
+            if (now?.Recording is { Recording: true })
+            {
+                answers.Add(Stopwatch.GetElapsedTime(asked));
+                whileRecording?.Invoke(clock.Elapsed);
+            }
             if (now?.Recording is { Recording: false } ended)
             {
                 droppedTo ??= now.DroppedFrames;
@@ -727,7 +821,26 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         }, ct);
         var recording = written.ShouldNotBeNull();
         recording.FailureReason.ShouldBeNull();
-        return (recording, (droppedTo ?? droppedFrom) - droppedFrom);
+        return (recording, (droppedTo ?? droppedFrom) - droppedFrom, answers);
+    }
+
+    /// <summary>How long the node took to answer <c>GET /api/v1/planetary</c>, from this client, each time it was asked during a recording.</summary>
+    private sealed class AnswerTimes
+    {
+        private readonly List<double> _ms = [];
+
+        public void Add(TimeSpan answeredIn) => _ms.Add(answeredIn.TotalMilliseconds);
+
+        public override string ToString()
+        {
+            if (_ms.Count == 0)
+            {
+                return "the node's state was never asked for while it recorded";
+            }
+            double[] sorted = [.. _ms.Order()];
+            double At(double p) => sorted[(int)Math.Round(p * (sorted.Length - 1))];
+            return $"the node answered GET /api/v1/planetary {sorted.Length} times while it recorded, p50 {At(0.5):F1} / p99 {At(0.99):F1} / max {sorted[^1]:F1} ms";
+        }
     }
 
     private static SerRateReadBack ReadBackAndDelete(PlanetaryRecordingDto recording)
@@ -752,11 +865,12 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
     }
 
     private static readonly Regex StreamStart = new Regex(@"streaming video: (?<w>\d+)x(?<h>\d+) at \((?<x>\d+), (?<y>\d+)\)", RegexOptions.CultureInvariant);
-    private static readonly Regex StreamEnd = new Regex(@"(?<counts>streamed \d+ frames in .* were dropped by the full hand-off .* (?<stalls>\d+) stalls, (?<recovered>\d+) recovered)",
+    private static readonly Regex StreamEnd = new Regex(@"(?<counts>streamed \d+ frames in .* were dropped by the full hand-off .* (?<stalls>\d+) stalls, (?<recovered>\d+) recovered[^\r\n]*)",
         RegexOptions.CultureInvariant);
-    private static readonly Regex Jog = new Regex(@"live control applied: .* jog=\((?<x>-?\d+),(?<y>-?\d+)\)", RegexOptions.CultureInvariant);
+    private static readonly Regex Panned = new Regex(@"stream window is (?<w>\d+)x(?<h>\d+) at \((?<x>\d+), (?<y>\d+)\) after a pan", RegexOptions.CultureInvariant);
     private static readonly Regex ReplacedCount =new Regex(@"the reader took \d+, (?<replaced>\d+) were dropped", RegexOptions.CultureInvariant);
     private static readonly Regex Recovery = new Regex(@"stream is back after its stall .*", RegexOptions.CultureInvariant);
+    private static readonly Regex GainOnCamera = new Regex(@"stream is at gain (?<gain>\d+)", RegexOptions.CultureInvariant);
 
     /// <summary>The node's camera streams, in order, from every server log under its data root.</summary>
     private static List<NodeStream> ReadStreams(string dataRoot)
@@ -764,21 +878,28 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         var streams = new List<NodeStream>();
         (int X, int Y)? start = null;
         var recoveries = new List<string>();
-        var (width, height, jogX, jogY) = (0, 0, 0, 0);
-        foreach (var line in ServerLogLines(dataRoot))
+        var gains = new List<(DateTimeOffset At, int Gain)>();
+        var (width, height) = (0, 0);
+        RoiRect? panned = null;
+        foreach (var (day, line) in ServerLogLines(dataRoot))
         {
             if (StreamStart.Match(line) is { Success: true } started)
             {
                 start = (int.Parse(started.Groups["x"].Value, CultureInfo.InvariantCulture), int.Parse(started.Groups["y"].Value, CultureInfo.InvariantCulture));
                 (width, height) = (int.Parse(started.Groups["w"].Value, CultureInfo.InvariantCulture), int.Parse(started.Groups["h"].Value, CultureInfo.InvariantCulture));
-                (jogX, jogY) = (0, 0);
+                panned = null;
                 recoveries.Clear();
+                gains.Clear();
             }
-            else if (Jog.Match(line) is { Success: true } jogged && start is not null)
+            else if (GainOnCamera.Match(line) is { Success: true } gain && start is not null && WrittenAt(day, line) is { } gainAt)
             {
-                // The capture loop's own line for each jog it applied to this stream's camera.
-                jogX += int.Parse(jogged.Groups["x"].Value, CultureInfo.InvariantCulture);
-                jogY += int.Parse(jogged.Groups["y"].Value, CultureInfo.InvariantCulture);
+                gains.Add((gainAt, int.Parse(gain.Groups["gain"].Value, CultureInfo.InvariantCulture)));
+            }
+            else if (Panned.Match(line) is { Success: true } pan && start is not null)
+            {
+                // The DAL's own line once the body has the window a pan left: the last one is where the stream recorded.
+                panned = new RoiRect(int.Parse(pan.Groups["x"].Value, CultureInfo.InvariantCulture), int.Parse(pan.Groups["y"].Value, CultureInfo.InvariantCulture),
+                    int.Parse(pan.Groups["w"].Value, CultureInfo.InvariantCulture), int.Parse(pan.Groups["h"].Value, CultureInfo.InvariantCulture));
             }
             else if (Recovery.Match(line) is { Success: true } recovery)
             {
@@ -789,7 +910,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
                 streams.Add(new NodeStream(at.X, at.Y, ended.Groups["counts"].Value,
                     long.Parse(ReplacedCount.Match(line).Groups["replaced"].Value, CultureInfo.InvariantCulture),
                     int.Parse(ended.Groups["stalls"].Value, CultureInfo.InvariantCulture),
-                    int.Parse(ended.Groups["recovered"].Value, CultureInfo.InvariantCulture), [.. recoveries], width, height, jogX, jogY));
+                    int.Parse(ended.Groups["recovered"].Value, CultureInfo.InvariantCulture), [.. recoveries], width, height, panned, [.. gains]));
                 start = null;
             }
         }
