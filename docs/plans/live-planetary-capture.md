@@ -68,7 +68,7 @@ seam, a controller + tab on top, and a recenter controller.
 > symbol inventory). Recommended order there is **E before D** (E is a single low-risk in-tree commit against
 > the already-published FC.SDK Live View; D is the High-risk DAL -> 2 SDKs -> TianWen NuGet chain).
 | F | decompose the ~3000-line `ImageRendererBase` (see below) | no | DONE 2026-06-28 |
-| G | a mono night: a Record control in the GUI (#1344), then a filter-wheel sequence as a node run (#1340) | no | **PARTIAL**: the Record control DONE 2026-10-16 (#1344); the sequence (#1340) NOT STARTED ([Phase G](#phase-g-a-mono-filter-wheel-sequence)) |
+| G | a mono night: a Record control in the GUI (#1344), then a filter-wheel sequence as a node run (#1340) | no | **PARTIAL**: the Record control DONE 2026-10-16 (#1344); the one filter change and the capture's interlude DONE 2026-10-17, the node's side of #1618 ([the filter change and the interlude](#the-filter-change-and-the-interlude-1618-done-2026-10-17)); the panel's FILTER section (#1618) and the sequence (#1340) NOT STARTED ([Phase G](#phase-g-a-mono-filter-wheel-sequence)) |
 | H | focusing on the planet: a burst's sharpness, a readout for focusing by hand, an autofocus, per-filter offsets (#1341) | no | NOT STARTED ([Phase H](#phase-h-focusing-on-the-planet)) |
 | I | a recording writes its camera settings beside it (#1342) | no | NOT STARTED ([Phase I](#phase-i-a-recording-says-how-it-was-taken)) |
 
@@ -1137,10 +1137,11 @@ settings beside the file are #1342's (Phase I); the sequence below records one f
 - **Steps and sets.** A step is a filter, an exposure, a gain, an offset, a bit depth, and a frame count or a duration; a set is the
   steps in order. The run repeats the set N times, until a time, or until the planet sinks below an altitude, with an optional pause
   between sets and an optional refocus every K sets (Phase H).
-- **One filter change, the session's.** `Session.SwitchFilterIfNeededAsync` (the wheel moved, its arrival awaited, the focus offset
-  applied relative to the luminance filter) is hoisted into one routine both call; the offset rule is never copied.
+- **One filter change, the session's**, built (below): `FilterChange.ChangeAsync`, which the session's four callers and the node's
+  device plane call; the offset rule is never copied.
 - **A stream's controls are the ones set when it starts** (the DAL's video contract). Between steps the run stops the stream, moves
-  the wheel, sets the controls and restarts, then drops the first frames after the change before it records.
+  the wheel, sets the controls and restarts, then drops the first frames after the change before it records: the capture's
+  interlude (below), whose `RestartAt` carries a step's exposure, gain, depth and window.
 - **Each step is one `SerRecording`**, named by `PlanetaryCaptureName.RecordingFileName` (planet, filter, time) into one folder per
   run. The survey then reads the run as one session per filter (#1336), and `planetary compose` takes the stacks as they are.
 - **How long a step lasts is the planet's turn.** The stacker de-rotates a file only once the turn moves the disk's middle a pixel,
@@ -1153,6 +1154,47 @@ settings beside the file are #1342's (Phase I); the sequence below records one f
 **Needs** native video on the camera (#813). **Done when** a functional test on the fake camera, wheel and focuser runs two sets of
 R, G and B into six SERs named per filter, the wheel moved five times and each offset applied, and the survey reads three sessions;
 then a night on the bench.
+
+#### The filter change and the interlude (#1618, done 2026-10-17)
+
+**Issues:** #1618 (its node side: the change through the device plane, the stream stopped and started again, the refusal while
+recording; the panel's FILTER section is still open there), #1340 (whose sequence calls both). Flight TIA4, leg filter-core.
+
+- **`FilterChange.ChangeAsync` (Lib, `Devices/FilterChange.cs`) is the one filter change.** The wheel is turned unless it holds the
+  slot already, its arrival awaited for at most `ArrivalTimeout` (2 minutes; the session's wait had no bound), and the focuser,
+  when the caller gives one (`FilterFocuser`), moved by `FocusOffsetSteps`: **the offset of the filter arrived at less the offset of
+  the filter LEFT**, through `BacklashCompensation`. How the wheel and the focuser are read and moved is the caller's
+  (`FilterWheelMotion`, `FilterFocuser`): the session passes its resilient calls and its backlash estimate, the node the drivers'
+  own (`Direct`). A wheel still turning when asked is waited for first, since the filter left is the one it settles on; a slot the
+  wheel names no filter for moves no focuser.
+- **The rule it replaced was wrong.** The session added the TARGET's offset against luminance to wherever the focuser stood, and only
+  when that offset was not zero, so on the fake wheel (L 0, R +20, G 0, B -15) R to G stayed at +20 and R to B landed at +5. A walk
+  L, R, G, B, L now lands at 0, +20, 0, -15, 0 against the L focus (`FilterChangeTests`). It matters on a mono planetary night, where
+  the wheel walks R, G, B again and again; a deep-sky session that focused on luminance and changed filters straight from it had the
+  right answer by luck, and one that went R to G kept red's focus for green.
+- **`PlanetaryCapture.InterludeAsync` is the one stream pause** (`PlanetaryInterlude`), for a filter change now, a sequence's step
+  (#1340) and a full-sensor still (#1033). The loop's frames come through `StreamSegmentsAsync`: an interlude is taken as the loop asks
+  for its next frame, the segment's enumeration is LEFT, which is how a driver stops its stream (so the DAL's silence watch, a
+  segment's own, never sees a stall), the caller's action runs on the capture's thread, and the stream starts again **at the settings
+  it had, every live control since its start folded in**, or at what `RestartAt` returns given those (`PlanetaryStreamSettings`: the
+  options, the window's size and binning; a full-sensor still is `s => s with { RoiWidth = 0, RoiHeight = 0 }`, asked only once the
+  action succeeded). Its first `DropFrames` frames (2 by default) are released before any reaches the ring, the live stack, a
+  recording or the host's `onFrame`, and the interlude ends at the first frame kept. The capture's claim on the camera stays the
+  loop's throughout, given back once as the capture ends; whatever else the action moves, its caller claims.
+- **A recording and an interlude never overlap.** A recording going on refuses an interlude in words ("A recording is being made: a
+  filter change would stop the stream it is made from, and put frames from before and after it in one file. Stop the recording, or
+  let it end, first"), and no recording starts while one is under way; each looks for the other once its own is in place, so of two
+  asked for at once one always sees the other, with no lock. An action's failure is its caller's, thrown once the stream is back as
+  it was, and the capture goes on. `MeasuredFps` leaves out the time the stream stood stopped.
+- **On the reader's path**: one iterator for the capture, its awaits on the reader's context as the loop's are, so a frame allocates
+  nothing more; the rate once the stream is back is the body's, the ring (and its planes, `RingPlaneShelf`) the same unless the
+  window changed. The live stack's rolling window still holds the frames before the change until they pass out of it; giving each
+  filter a fresh window is the sequence's (#1340), which rebuilds by step.
+- **The device plane's `ChangeFilterAsync` stays the one route** (`docs/architecture/hosting-api.md`, "Moving a focuser, a filter
+  wheel or a mount"): it moves the focuser of the OTA the active profile puts the wheel on, claims the wheel and that focuser while it
+  moves them, and while a planetary capture streams through the wheel (`NodePlanetaryRun.StreamsThrough`, the node's run) runs as
+  that capture's interlude; during a recording it answers 409 in the words above and the wheel does not move. Pinned through a node
+  by `PlanetaryFilterChangeTests`, the interlude by `PlanetaryCaptureInterludeTests`.
 
 ### Phase H: focusing on the planet
 
