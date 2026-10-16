@@ -112,6 +112,8 @@ public class TonightsBestTests
     {
         public ImmutableArray<CometElements> All => [.. comets.Select(c => c.El)];
 
+        public int Version => 0;
+
         public bool TryGet(CatalogIndex index, out CometElements elements)
         {
             foreach (var c in comets)

@@ -60,6 +60,11 @@ namespace TianWen.UI.Abstractions
         private static RGBAColor32 EarthColour => GuiTheme.Palette.Info;
         private static RGBAColor32 CometColour => GuiTheme.Mix(GuiTheme.Palette.Info, GuiTheme.Palette.BodyText, 0.5f);
 
+        // A comet's orbit is violet: the error colour's red and green with the info colour's blue (a magenta in the dark palette, a
+        // purple in the light one), taken three tenths toward the dim text so it sits with the planets' orbits. Never used under Night.
+        private static RGBAColor32 CometOrbitColour
+            => GuiTheme.Mix(GuiTheme.Palette.Error with { Blue = GuiTheme.Palette.Info.Blue }, GuiTheme.Palette.DimText, 0.3f);
+
         /// <summary>Opens the orrery on the selected body when it is one of the Sun's (the panel's button, Alt+S); the selection is kept.</summary>
         internal void OpenOrrery()
         {
@@ -137,14 +142,10 @@ namespace TianWen.UI.Abstractions
             var viewingTime = baseTime + State.TimeOffset;
             _lastViewingTime = viewingTime;
 
-            CometElements? comet = null;
-            if (orrery.Comet is { } cometIndex
-                && plannerState.Comets is { } comets && comets.TryGet(cometIndex, out var elements))
-            {
-                comet = elements;
-            }
+            // The comets the app knows (#1611): the brightest at peak while the atlas's comet layer is on, and always the one the view
+            // was opened on, the focused one and the pinned ones.
             var scene = OrreryScene;
-            scene.Update(viewingTime, comet);
+            scene.Update(viewingTime, plannerState.Comets, new OrreryCometChoice(State.ShowComets, orrery.Comet, orrery.Focus, PinnedCatalogIndices(plannerState)));
             if (_orreryFramePending)
             {
                 _orreryFramePending = false;
@@ -156,8 +157,9 @@ namespace TianWen.UI.Abstractions
             var camera = new OrreryCamera(orrery.AzimuthDeg, orrery.ElevationDeg, orrery.Distance, contentRect, OrreryCentre(scene, scaling));
             DrawOrreryBackdrop(plannerState, contentRect, camera, viewingTime);
             PushClip(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height);
-            DrawOrreryOrbits(scene, camera, comet, scaling, dpiScale);
-            DrawOrreryBodies(scene, camera, viewingTime, scaling, dpiScale);
+
+            DrawOrreryOrbits(scene, camera, scaling, dpiScale);
+            DrawOrreryBodies(scene, camera, viewingTime, scaling, contentRect, plannerState.Comets, dpiScale);
             PopClip();
 
             DrawOrreryStrip(contentRect, viewingTime, plannerState.SiteTimeZone,
@@ -247,6 +249,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>The smallest a body is drawn, design pixels: a dot, never a disc, below which its disc cap would put it.</summary>
         internal const float OrreryDotRadius = 1.5f;
 
+        /// <summary>A comet's head, design pixels: a dot, never a disc.</summary>
+        internal const float OrreryCometRadius = 2.5f;
+
         /// <summary>A disc's on-screen radius is at most this share of its screen distance to the nearest drawn body (to the Sun's edge).</summary>
         internal const float OrreryDiscCapShare = 0.4f;
 
@@ -275,48 +280,122 @@ namespace TianWen.UI.Abstractions
             orrery.Distance = Math.Clamp(OrreryCamera.DistanceToFrame(reachAu * 1.15), MinOrreryDistance, MaxOrreryDistance);
         }
 
-        private void DrawOrreryOrbits(OrreryScene scene, in OrreryCamera camera, in CometElements? comet, in OrreryScaling scale, float dpiScale)
+        // Every orbit in its body's colour (OrreryOrbitColour), the selected body's in the accent; the comets' from the orbits the scene
+        // keeps by index, built when the set was read, never here.
+        private void DrawOrreryOrbits(OrreryScene scene, in OrreryCamera camera, in OrreryScaling scale, float dpiScale)
         {
-            var palette = GuiTheme.Palette;
-            var dim = palette.DimText with { Alpha = 0x70 };
+            _orreryOrbitsDrawn.Clear();
+            OrbitSegmentsDrawn = 0;
+            var accent = GuiTheme.Palette.Accent;
             var focus = State.Orrery.Focus;
             var thickness = (int)MathF.Max(1, MathF.Round(dpiScale));
             if (scene.Orbits is { } orbits)
             {
                 foreach (var (planet, points) in orbits)
                 {
-                    DrawOrbitPolyline(points, camera, scale, planet == focus ? palette.Accent : dim, thickness);
+                    var colour = planet == focus ? accent : OrreryOrbitColour(planet);
+                    DrawOrbitPolyline(scene.ScaledOrbit(points, scale), camera, colour, thickness);
+                    _orreryOrbitsDrawn.Add((planet, colour));
                 }
             }
-            if (comet is { } el)
+            foreach (var comet in scene.CometSet)
             {
-                DrawOrbitPolyline(scene.CometOrbit(el), camera, scale, el.CatalogIndex == focus ? palette.Accent : CometColour with { Alpha = 0x90 }, thickness);
+                if (comet.CatalogIndex is { } index && scene.TryGetCometOrbit(index, out var points))
+                {
+                    var colour = index == focus ? accent : OrreryOrbitColour(index);
+                    DrawOrbitPolyline(scene.ScaledOrbit(points, scale), camera, colour, thickness);
+                    _orreryOrbitsDrawn.Add((index, colour));
+                }
             }
         }
 
-        // One polyline per run of points in front of the camera; a point behind it breaks the line rather than wrapping to the far side.
-        private void DrawOrbitPolyline(double[] points, in OrreryCamera camera, in OrreryScaling scale, RGBAColor32 colour, int thickness)
+        /// <summary>
+        /// How far an orbit's drawn line may stray from a sample it skips, design pixels: a stretch of samples is drawn as ONE segment while
+        /// every sample inside it lies within this of the segment, so an orbit costs what its curvature on screen asks, not its sample count.
+        /// </summary>
+        internal const float OrbitTolerance = 0.35f;
+
+        /// <summary>Segments in the orbit polylines the last orrery frame handed the renderer: what the tests read.</summary>
+        internal int OrbitSegmentsDrawn { get; private set; }
+
+        // An orbit's SCALED points (OrreryScene.ScaledOrbit), one polyline per run of them in front of the camera; a point behind it breaks the line rather than wrapping to the far side.
+        // A segment wholly outside the view (its box off it) breaks it too, and the samples between two drawn vertices are skipped while
+        // each lies within OrbitTolerance of the segment joining them: the line's cost on a GPU host is per segment (each is a box of its
+        // own), and thirty comets' 361-point orbits drawn whole made its frame six times dearer (#1611; "A5: the comets" in the plan has
+        // the numbers). The skipped samples wait in the run's own buffer past its last vertex, so nothing is allocated.
+        private void DrawOrbitPolyline(double[] points, in OrreryCamera camera, RGBAColor32 colour, int thickness)
         {
             var count = points.Length / 3;
             Span<(float X, float Y)> run = count <= 512 ? stackalloc (float, float)[count] : new (float, float)[count];
             var length = 0;
+            var pending = 0;
+            var tolerance = OrbitTolerance * DpiScale;
+            var (left, top) = (_contentX - thickness, _contentY - thickness);
+            var (right, bottom) = (_contentX + _contentWidth + thickness, _contentY + _contentHeight + thickness);
+
             for (var i = 0; i < count; i++)
             {
-                var (x, y, z) = OrreryScene.Scaled(scale, points[3 * i], points[(3 * i) + 1], points[(3 * i) + 2]);
-                if (camera.TryProject(x, y, z, out var sx, out var sy))
+                if (!camera.TryProject(points[3 * i], points[(3 * i) + 1], points[(3 * i) + 2], out var sx, out var sy))
+                {
+                    Flush(run, ref length, ref pending);
+                    continue;
+                }
+                if (length == 0)
                 {
                     run[length++] = (sx, sy);
                     continue;
                 }
+                var (px, py) = run[length + pending - 1];
+                if (MathF.Max(px, sx) < left || MathF.Min(px, sx) > right || MathF.Max(py, sy) < top || MathF.Min(py, sy) > bottom)
+                {
+                    // Off the view: the run ends at the last sample, and starts again here.
+                    Flush(run, ref length, ref pending);
+                    run[length++] = (sx, sy);
+                    continue;
+                }
+                if (!Straight(run, length, pending, sx, sy, tolerance))
+                {
+                    // The last sample becomes a vertex; the stretch from it starts with this one.
+                    run[length] = run[length + pending - 1];
+                    length++;
+                    pending = 0;
+                }
+                run[length + pending++] = (sx, sy);
+            }
+            Flush(run, ref length, ref pending);
+
+            // Whether every sample waiting after the last vertex lies within tolerance of the segment from that vertex to (qx, qy).
+            static bool Straight(Span<(float X, float Y)> run, int length, int pending, float qx, float qy, float tolerance)
+            {
+                var (kx, ky) = run[length - 1];
+                var (dx, dy) = (qx - kx, qy - ky);
+                var span = MathF.Sqrt((dx * dx) + (dy * dy));
+                for (var j = length; j < length + pending; j++)
+                {
+                    var (wx, wy) = (run[j].X - kx, run[j].Y - ky);
+                    var off = span < 1e-3f ? MathF.Sqrt((wx * wx) + (wy * wy)) : MathF.Abs((wx * dy) - (wy * dx)) / span;
+                    if (off > tolerance || (wx * dx) + (wy * dy) < 0 || (wx * dx) + (wy * dy) > span * span)
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            void Flush(Span<(float X, float Y)> run, ref int length, ref int pending)
+            {
+                if (pending > 0)
+                {
+                    run[length] = run[length + pending - 1];
+                    length++;
+                    pending = 0;
+                }
                 if (length > 1)
                 {
                     Renderer.DrawPolyline(run[..length], colour, thickness);
+                    OrbitSegmentsDrawn += length - 1;
                 }
                 length = 0;
-            }
-            if (length > 1)
-            {
-                Renderer.DrawPolyline(run[..length], colour, thickness);
             }
         }
 
@@ -337,11 +416,13 @@ namespace TianWen.UI.Abstractions
             _ => 3f,
         };
 
-        private void DrawOrreryBodies(OrreryScene scene, in OrreryCamera camera, DateTimeOffset viewingTime, in OrreryScaling scale, float dpiScale)
+        private void DrawOrreryBodies(OrreryScene scene, in OrreryCamera camera, DateTimeOffset viewingTime, in OrreryScaling scale,
+            RectF32 rect, ICometRepository? comets, float dpiScale)
         {
             _orreryHits.Clear();
             _orreryViews.Clear();
             _orreryLabels.Clear();
+            _orreryTails.Clear();
             var bodies = scene.Bodies;
             Span<(int Index, double Depth, double X, double Y, double Z)> order = stackalloc (int, double, double, double, double)[bodies.Length];
             for (var i = 0; i < bodies.Length; i++)
@@ -388,8 +469,10 @@ namespace TianWen.UI.Abstractions
             // First where every body lands, then how big each may be: zoomed out, the orbits shrink into the Sun and a disc at its
             // fixed size would pile onto it and its neighbours, so a disc is at most OrreryDiscCapShare of its screen distance to the
             // nearest drawn body (to the Sun's EDGE: the Sun keeps its size), and a dot of OrreryDotRadius below that. A body in front
-            // of the Sun (a transit) is so a dot, never a disc across it.
+            // of the Sun (a transit) is so a dot, never a disc across it. A comet is a dot of its own size (OrreryCometRadius), and never
+            // the neighbour a planet's disc is capped by, so the planets' discs are the same size with comets beside them or without.
             Span<(bool Shown, float X, float Y)> placed = stackalloc (bool, float, float)[order.Length];
+            Span<bool> isComet = stackalloc bool[order.Length];
             var sunRadius = OrreryRadius(CatalogIndex.Sol) * dpiScale;
             var sunAt = -1;
             for (var slot = 0; slot < order.Length; slot++)
@@ -403,9 +486,20 @@ namespace TianWen.UI.Abstractions
                     (sx, sy) = moonOnScreen ?? (sx, sy);
                 }
                 placed[slot] = (shown, sx, sy);
+                isComet[slot] = bodies[index].Index.ToCatalog() == Catalog.Comet;
                 if (shown && bodies[index].Index == CatalogIndex.Sol)
                 {
                     sunAt = slot;
+                }
+            }
+
+            // The tails first, under every head and disc.
+            for (var slot = 0; slot < order.Length; slot++)
+            {
+                if (isComet[slot] && placed[slot] is (true, var hx, var hy))
+                {
+                    var (index, _, x, y, z) = order[slot];
+                    DrawCometTail(camera, bodies[index], x, y, z, hx, hy, dpiScale);
                 }
             }
 
@@ -418,11 +512,15 @@ namespace TianWen.UI.Abstractions
                     continue;
                 }
                 var radius = OrreryRadius(body.Index) * dpiScale;
-                if (body.Index != CatalogIndex.Sol)
+                if (isComet[slot])
+                {
+                    radius = OrreryCometRadius * dpiScale;
+                }
+                else if (body.Index != CatalogIndex.Sol)
                 {
                     for (var j = 0; j < order.Length; j++)
                     {
-                        if (j == slot || !placed[j].Shown)
+                        if (j == slot || !placed[j].Shown || isComet[j])
                         {
                             continue;
                         }
@@ -436,10 +534,17 @@ namespace TianWen.UI.Abstractions
                 {
                     radius = OrreryDotRadius * dpiScale;
                 }
-                var isComet = body.Index.ToCatalog() == Catalog.Comet;
-                if (isComet)
+                if (isComet[slot])
                 {
-                    DrawCometMark(camera, x, y, z, sx, sy, radius);
+                    Renderer.FillEllipse(new RectInt(
+                        new PointInt((int)MathF.Round(sx + radius), (int)MathF.Round(sy + radius)),
+                        new PointInt((int)MathF.Round(sx - radius), (int)MathF.Round(sy - radius))), CometColour);
+                    // On screen with an element set a revolution or more old: ask for the current apparition (single-flight, a
+                    // no-op once upgraded, so asking per drawn comet per frame is free), only for a comet that is drawn.
+                    if (body.ElementsStale && comets is not null && rect.Contains(sx, sy))
+                    {
+                        comets.RequestCurrentApparition(body.Index);
+                    }
                 }
                 else
                 {
@@ -483,7 +588,12 @@ namespace TianWen.UI.Abstractions
         private void DrawOrreryLabels(System.Collections.Immutable.ImmutableArray<OrreryBody> bodies,
             Span<(int Index, float X, float Y, float Radius, double Depth)> labels, CatalogIndex? focus, float fontSize, float lineHeight, float dpiScale)
         {
-            int Rank(CatalogIndex index) => index == CatalogIndex.Earth ? 0 : index == focus ? 1 : 2;
+            // The planets (the Sun and the Moon with them) outrank the comets; of the comets, the focused one and the one the view was
+            // opened on come first.
+            var opened = State.Orrery.Comet;
+            int Rank(CatalogIndex index) => index == CatalogIndex.Earth ? 0
+                : index.ToCatalog() == Catalog.Comet ? (index == focus || index == opened ? 3 : 4)
+                : index == focus ? 1 : 2;
             labels.Sort((a, b) => Rank(bodies[a.Index].Index).CompareTo(Rank(bodies[b.Index].Index)) is var byRank and not 0
                 ? byRank
                 : a.Depth.CompareTo(b.Depth));
@@ -680,16 +790,96 @@ namespace TianWen.UI.Abstractions
             => GuiTheme.State == UiThemeState.Night ? GuiTheme.Palette.Accent
                 : body == CatalogIndex.Earth ? EarthColour : SkyMapRenderer.GetPlanetColor(body);
 
-        // A comet is a point with a tail pointing away from the Sun, as long as a fifth of its drawn distance from it.
-        private void DrawCometMark(in OrreryCamera camera, double x, double y, double z, float sx, float sy, float radius)
+        // A comet's tail: a pale fan from the head AWAY from the Sun on screen, as long as the comet is active (OrreryTailLength) and
+        // foreshortened by how nearly it points along the line of sight. The direction is the projection of a point a little further out
+        // on the comet's radial line (the scaled frame keeps every direction from the Sun), so on screen it lies along the line from the
+        // Sun's drawn place through the head. Three nested wedges of one colour build a brighter core, all triangles (DrawTriangles), the
+        // primitive every host fills: Vulkan, WebGL and the CPU surface.
+        private void DrawCometTail(in OrreryCamera camera, in OrreryBody body, double x, double y, double z, float sx, float sy, float dpiScale)
         {
-            if (camera.TryProject(x * 1.2, y * 1.2, z * 1.2, out var tx, out var ty))
+            var r = Math.Sqrt((body.X * body.X) + (body.Y * body.Y) + (body.Z * body.Z));
+            var length = OrreryTailLength(r) * dpiScale;
+            if (length < 1 || !camera.TryProject(x * 1.05, y * 1.05, z * 1.05, out var ox, out var oy))
             {
-                Renderer.DrawLine(sx, sy, tx, ty, CometColour with { Alpha = 0xA0 }, (int)MathF.Max(1, MathF.Round(radius / 2)));
+                return;
             }
-            Renderer.FillEllipse(new RectInt(
-                new PointInt((int)MathF.Round(sx + radius), (int)MathF.Round(sy + radius)),
-                new PointInt((int)MathF.Round(sx - radius), (int)MathF.Round(sy - radius))), CometColour);
+            var (dx, dy) = (ox - sx, oy - sy);
+            var d = MathF.Sqrt((dx * dx) + (dy * dy));
+            if (d < 1e-3f)
+            {
+                return;
+            }
+            // sin of the angle between the radial line and the ray from the camera: a tail pointing at the camera is seen end on.
+            var (ex, ey, ez) = camera.Eye;
+            var (vx, vy, vz) = (x - ex, y - ey, z - ez);
+            var dn = Math.Sqrt((x * x) + (y * y) + (z * z)) * Math.Sqrt((vx * vx) + (vy * vy) + (vz * vz));
+            var (cx, cy, cz) = ((y * vz) - (z * vy), (z * vx) - (x * vz), (x * vy) - (y * vx));
+            length *= (float)(Math.Sqrt((cx * cx) + (cy * cy) + (cz * cz)) / dn);
+            if (length < 1)
+            {
+                return;
+            }
+            var (ux, uy) = (dx / d, dy / d);
+            var colour = CometColour;
+            Span<float> wedge = stackalloc float[6];
+            foreach (var (share, spread, alpha) in (ReadOnlySpan<(float, float, byte)>)[(1f, 0.32f, 0x38), (0.7f, 0.2f, 0x48), (0.4f, 0.1f, 0x60)])
+            {
+                var (tipX, tipY) = (sx + (ux * length * share), sy + (uy * length * share));
+                var half = MathF.Max(OrreryCometRadius * dpiScale, spread * length * share);
+                wedge[0] = sx;
+                wedge[1] = sy;
+                wedge[2] = tipX - (uy * half);
+                wedge[3] = tipY + (ux * half);
+                wedge[4] = tipX + (uy * half);
+                wedge[5] = tipY - (ux * half);
+                Renderer.DrawTriangles(wedge, colour with { Alpha = alpha });
+            }
+            _orreryTails.Add((body.Index, sx, sy, sx + (ux * length), sy + (uy * length)));
+        }
+
+        private readonly List<(CatalogIndex Index, float HeadX, float HeadY, float TipX, float TipY)> _orreryTails = [];
+
+        /// <summary>The comets' tails the last orrery frame drew, head to tip: what the tests read.</summary>
+        internal IReadOnlyList<(CatalogIndex Index, float HeadX, float HeadY, float TipX, float TipY)> OrreryTails => _orreryTails;
+
+        private readonly List<(CatalogIndex Index, RGBAColor32 Colour)> _orreryOrbitsDrawn = [];
+
+        /// <summary>The orbits the last orrery frame drew, each with its colour: what the tests read.</summary>
+        internal IReadOnlyList<(CatalogIndex Index, RGBAColor32 Colour)> OrreryOrbitsDrawn => _orreryOrbitsDrawn;
+
+        /// <summary>The longest a comet's tail is drawn, design pixels: at <see cref="OrreryTailFullAu"/> or closer to the Sun.</summary>
+        internal const float OrreryTailMaxLength = 48f;
+
+        /// <summary>The distance from the Sun (AU) inside which a tail is drawn at its full length.</summary>
+        internal const double OrreryTailFullAu = 0.7;
+
+        /// <summary>The distance from the Sun (AU) beyond which a comet draws no tail: water ice stops subliming at about 3 AU.</summary>
+        internal const double OrreryTailOffAu = 3;
+
+        /// <summary>
+        /// A comet's tail length at heliocentric distance <paramref name="r"/> AU, design pixels before foreshortening: its activity as
+        /// the sunlight it gets, <c>1/r^2</c>, less what it gets at <see cref="OrreryTailOffAu"/>, so nothing from 3 AU out, scaled to
+        /// <see cref="OrreryTailMaxLength"/> at <see cref="OrreryTailFullAu"/> and held there closer in (22 px at 1 AU, 3.5 at 2).
+        /// </summary>
+        internal static float OrreryTailLength(double r)
+        {
+            static double Activity(double au) => Math.Max(0, (1 / (au * au)) - (1 / (OrreryTailOffAu * OrreryTailOffAu)));
+            return (float)(OrreryTailMaxLength * Math.Min(1, Activity(Math.Max(r, 1e-3)) / Activity(OrreryTailFullAu)));
+        }
+
+        /// <summary>
+        /// The colour <paramref name="body"/>'s orbit is drawn in when it is not the selected one (A1 of #1611): a planet's is its body's
+        /// own (<see cref="OrreryFlat"/>, the Earth's the palette's Info) taken a fifth toward the dim text, at the dim alpha; a comet's
+        /// is a violet from the palette (<see cref="CometOrbitColour"/>), a little stronger. Under Night every orbit is the
+        /// palette's tint, as every body is, so no orbit spends blue.
+        /// </summary>
+        internal static RGBAColor32 OrreryOrbitColour(CatalogIndex body)
+        {
+            var palette = GuiTheme.Palette;
+            var night = GuiTheme.State == UiThemeState.Night;
+            return body.ToCatalog() == Catalog.Comet
+                ? (night ? palette.Accent : CometOrbitColour) with { Alpha = 0x90 }
+                : (night ? palette.Accent : GuiTheme.Mix(palette.DimText, OrreryFlat(body), 0.8f)) with { Alpha = 0x70 };
         }
 
         private const string OrreryScaleAction = "OrreryScale";

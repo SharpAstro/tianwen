@@ -105,7 +105,8 @@ public sealed class PlanetBodyGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHelper
         // without the globe's shadow, puts 805 to 65,331 values more than 4 off; the shadow alone, 5,684 on the quadrature case.
         mean.ShouldBeLessThan(0.02, $"{name}: the GPU's disc is not the CPU's");
         over.ShouldBeLessThanOrEqualTo(12, $"{name}: the GPU's disc is not the CPU's");
-        worst.ShouldBeLessThanOrEqualTo(48);        if (body == CatalogIndex.Sol)
+        worst.ShouldBeLessThanOrEqualTo(48);
+        if (body == CatalogIndex.Sol)
         {
             SunLimbRatio(gpuFrame, radius, 1).ShouldBe(SunLaw(0.98), 0.03, "the GPU's Sun is not limb-darkened by the law");
         }
