@@ -2487,6 +2487,36 @@ core to the truth, this measure to the model's own surroundings, and R2l more of
 surrounding it moved too. The ranking (E3, then R2l, then R2i) is the same on injected and real stars. The levels do not
 compare across the two sets, which band by different significances (the builder's peak, the eval's 3x3 core).
 
+#### Real stars are noisier at their cores than injected ones (2026-10-17)
+
+The owner's idea, the same morning: "maybe the injected stars lose the underlying noise that was present?" The injector
+gives a star its shot noise by the master's calibration (`NoiseCalibration.SigmaAt`: one sub's sigma times the square root
+of the level over the background, above the pedestal, clamped to 0.25 to 1000, at the master's depth), and the noise plane
+the net is conditioned on is the same formula. Measured two ways:
+
+- **On the plates** (`C:\temp\e2\noise-at-stars.py`, 95 sessions of the 2026-10-12 store): the plate under a subtracted,
+  uninpainted star keeps that star's noise, and its adjacent-difference scatter at the core is a median 2.04 times
+  `SigmaAt` there (p25 1.42, p75 2.97, 100,000 channel-stars), normalised on each session's sky. The cap never binds. But
+  the plate is the master less a FITTED model, and at a 1.7 px FWHM a 2 % misfit of a 100 sigma star is 2 sigma a pixel,
+  so this read cannot tell noise from fit.
+- **On half pairs, with no model** (`half-noise-at-stars.py`, three caches of half-master tiles, 15 sessions): (A - B) / 2
+  has the master's variance and no star in it, so its scatter at a real star's core, over the noise plane, over the same
+  on the sky, is what a real star carries against what an injected one gets:
+
+| a real star's peak | stars | (A - B) / 2 at the core against the plane, sky-normalised (median over the three caches) |
+|---|---|---|
+| 10-30 sigma | 59,000 | 1.15 to 1.36 |
+| 30-100 sigma | 27,000 | 1.87 to 2.53 |
+| 100-300 sigma | 5,400 | 2.69 to 4.69 |
+| 300 sigma and over | 150 | 2.94 to 3.91 |
+
+So a real bright star's core is three to five times noisier than the injector makes it, and the excess grows with the
+star's amplitude rather than its square root: it is the sub-to-sub seeing, guiding and registration the halves differ by,
+about 2 to 4 % of the star's peak a pixel beyond its shot noise. Injected stars are too clean exactly where the eval
+fails most, and the plane under-states a real core's noise by the same factor. **The next arm (R2m, not yet registered):
+that profile jitter injected with each star, in proportion to its level and fitted to the half pairs, the plane left as
+it is, since a real tile's plane is computed the same way; a better eval set and better training data in one.**
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
