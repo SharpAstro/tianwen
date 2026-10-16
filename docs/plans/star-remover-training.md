@@ -2455,6 +2455,29 @@ is the owner's. On the line, every further seed is now both a spread and an ense
 T4) is the first of; and a single model that keeps E3's gain is the next training target (distillation, or the views as
 training augmentation).
 
+#### The real stars: the same order on the validation masters' own stars (2026-10-17)
+
+Read, not predicted, the same morning, because A's draws are injected stars. The 8 validation sessions' REAL master tiles,
+their own stars in, came from the 2026-10-12 store by a noise-mode export (40 cells a session, each tile with its noise
+plane; `C:\temp\e2\real-val-export.ps1`), and every model and average ran over them (`real-star-infer.ps1`). No truth
+exists there, so `real-star-check.py` reads what is LEFT at each star the plate builder subtracted (first pass,
+unsaturated, inside the rim): the output's 3x3 core less the median of a ring 6 to 10 px out, in the tile's noise sigma.
+53,108 stars: 33,934 at 5-20 sigma, 14,959 at 20-100 and 4,215 at 100-1000 by the builder's significance.
+
+| real stars | input | R2i | R2l | E1 | E2 | E3 |
+|---|---|---|---|---|---|---|
+| left within 1 sigma, 5-20 sigma | 0.0 | 94.8 | 95.7 | 95.8 | 95.3 | **96.1** |
+| left within 1 sigma, 20-100 sigma | 0.0 | 97.1 | **98.9** | 98.6 | 97.5 | 98.8 |
+| left within 1 sigma, 100-1000 sigma | 0.0 | 96.4 | 97.6 | 97.9 | 97.1 | **98.2** |
+| light left (over +1), 100-1000 sigma | 100 | 2.11 | 1.28 | 1.07 | 1.73 | **0.83** |
+| dug (under -1), 100-1000 sigma | 0 | 1.47 | 1.12 | 1.04 | 1.21 | **0.93** |
+
+The averages hold their order on real stars, E3 first at the faint and the bright end, and the counting noise is about 0.3
+points on the bright stars. What the injected draws did not show, the real ones do: R2l alone leaves less than R2i in
+every band (light left on bright stars 1.28 % against 2.11). The test is gentler than the eval, a core against its own
+model's surroundings, so every model reads 95 to 98 %. It says nothing of a halo or a ring left beyond 6 px, which the
+lightbox still has to show.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
