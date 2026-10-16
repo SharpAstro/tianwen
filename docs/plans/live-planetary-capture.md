@@ -883,8 +883,10 @@ measured the capture loop in one process. This one measures it through the node,
 `AppSignalHandler`, composed as `GuiNodeHarness` composes it and connected local-only, starts the capture with the panel's
 `StartVideoCaptureSignal` (640x480, 8 bits, 5 ms, gain 2252) and jogs it to (1716, 546) through the panel's controller. Its
 `PlanetaryCaptureController` shows RAW the whole time, reading the camera's live frame through shared memory, its render thread
-driven at 60 Hz. The recording is asked for on the handler's own connection to the node (`POST /api/v1/planetary/record`), the
-request a Record control would send, since the GUI has none yet (#1344). Each recording is read back off its SER as the section
+driven at 60 Hz. The recordings in the table below were asked for on the handler's own connection to the node
+(`POST /api/v1/planetary/record`), the request a Record control sends, since the GUI had none yet; since #1344 the probe posts the
+Record control's own `StartPlanetaryRecordingSignal` and follows the recording on the state the panel reads
+([below](#the-record-control-through-the-node-at-the-saturn-window)). Each recording is read back off its SER as the section
 above reads it (`SerRateReadBack`). In one session and in this order, so each comparison is adjacent in time: the section above's
 in-process recording, a node recording with no view attached, the recordings with the view, the in-process recording again. The
 node's own counts (the hand-off's replaced frames, its stalls) come from its log, read once it has exited.
@@ -948,12 +950,32 @@ been leaving six darks there on every run. It is now `Images` under an overridde
 
 **The real window.** The gate drives the GUI's client, not its renderer, so it does not cover the draw. `tools/planetary-gui-evidence.ps1`
 opens the real `tianwen-gui` on such a node, local-only, on the left half of the screen, asks a person for the clicks the GUI takes no
-other way (the Live Session tab, the Planetary mode pill, the panel's settings, Start), then jogs to the Saturn window, records a
-minute, takes the window by `PrintWindow` mid-recording and reads the SER back
+other way (the Live Session tab, the Planetary mode pill, the panel's settings, Start), jogs to the Saturn window, then asks for the
+Record control's Record (#1344), takes the window by `PrintWindow` halfway through the recording and reads the SER back
 (`NodePlanetaryRateProbe.TheRealGuiWindowShowsTheCaptureLiveWhileTheNodeRecords`); `-CheckOnly` proves it with nobody at the desk.
 **`PrintWindow` takes a black client area while the user's session is disconnected** (`quser` says `Disc`, no monitor active):
 the GUI draws (its log has frames) but nothing composes it, so the picture needs a session on a screen, which the person at the
 desk brings.
+
+### The Record control through the node at the Saturn window
+
+**Issue:** #1344 (measured 2026-10-16, after #1609).
+
+The same probe, its recordings with the view now started by the Record control's own `StartPlanetaryRecordingSignal` and followed
+on the recording's state as the panel reads it (`NodePlanetaryCapture.Recording`), the tracker drained only for the request. One
+60 s recording with the view (`TIANWEN_TOUPTEK_RECORD_RUNS=1`), the other worktrees' builds waited for, the box 14 to 21 % busy of
+16 cores (another flight's training on about one core):
+
+| Recording, 60 s | fps off the SER | SER frames over its span | Steps p50 / p99 / max | Replaced | Body / disk dropped | Host CPU |
+|---|---|---|---|---|---|---|
+| in process, before | 175.6, a stall (6.52 s), 197.0 outside it | 10,535 over 59.99 s | 5.08 / 5.20 / 6523 ms | 0 | 0 / 0 | 18 % |
+| node, no view | 175.6, a stall (6.51 s), 197.0 outside it | 10,537 over 60.00 s | 5.08 / 5.21 / 6515 ms | 0 | 0 / 0 | 21 % |
+| node, view, by the Record control's signal | **196.8** | 11,805 over 60.00 s | 5.08 / 5.20 / 7.5 ms | 0 | 0 / 0 | 21 % |
+| in process, after | 196.8 | 11,805 over 60.00 s | 5.08 / 5.19 / 6.4 ms | 0 | 0 / 0 | 14 % |
+
+The recording the control started is 100.0 % of the session's in-process rate, its view reading 30.3 live frames a second through
+shared memory, the node stacking 11 masters meanwhile, and no TCP listener or UDP endpoint of the node, its keeper or the client.
+The two stalls are the camera's `GeneralError` ones measured above, each brought back by a restart in 6.5 s, reported apart.
 
 ### Phase G: a mono filter-wheel sequence
 
