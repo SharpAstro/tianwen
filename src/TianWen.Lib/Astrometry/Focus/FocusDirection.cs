@@ -32,4 +32,10 @@ public readonly record struct FocusDirection(bool PreferOutward, bool OutwardIsP
     /// Use this to determine overshoot direction in backlash compensation and scan direction in auto-focus.
     /// </summary>
     public readonly int PreferredSign => PreferredDirectionIsPositive ? 1 : -1;
+
+    /// <summary>
+    /// The direction an OTA's profile states, outward and outward-positive where it states nothing: what a session builds
+    /// its OTAs with and what the node's device plane moves a focuser by, one rule for both.
+    /// </summary>
+    public static FocusDirection Of(Devices.OTAData ota) => new FocusDirection(ota.PreferOutwardFocus ?? true, ota.OutwardIsPositive ?? true);
 }

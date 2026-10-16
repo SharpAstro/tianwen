@@ -91,8 +91,8 @@ internal static class DeviceEndpoints
         group.MapPost("/devices/focuser/stop", async (DeviceRequestDto request, DeviceOperations devices, CancellationToken ct) =>
             EnvelopeResults.Json(await devices.StopFocuserAsync(request.DeviceUri, ct), HostingJsonContext.Default.ResponseEnvelopeString));
 
-        group.MapPost("/devices/filterwheel/change", (FilterChangeRequestDto request, DeviceOperations devices) =>
-            EnvelopeResults.Json(devices.ChangeFilter(request), HostingJsonContext.Default.ResponseEnvelopeJobDto));
+        group.MapPost("/devices/filterwheel/change", async (FilterChangeRequestDto request, DeviceOperations devices, CancellationToken ct) =>
+            EnvelopeResults.Json(await devices.ChangeFilterAsync(request, ct), HostingJsonContext.Default.ResponseEnvelopeJobDto));
 
         group.MapPost("/devices/mount/goto", async (MountGotoRequestDto request, DeviceOperations devices, CancellationToken ct) =>
             EnvelopeResults.Json(await devices.GotoAsync(request, ct), HostingJsonContext.Default.ResponseEnvelopeJobDto));

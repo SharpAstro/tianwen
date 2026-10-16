@@ -108,7 +108,7 @@ internal class SessionFactory(
             var focuser = otaData.Focuser is { } focuserUri ? Wrapped("Focuser", DeviceFromUri(focuserUri, i), d => new Focuser(d, serviceProvider)) : null;
             var filterWheel = otaData.FilterWheel is { } filterWheelUri ? Wrapped("Filter wheel", DeviceFromUri(filterWheelUri, i), d => new FilterWheel(d, serviceProvider)) : null;
 
-            var focusDirection = new FocusDirection(otaData.PreferOutwardFocus ?? true, otaData.OutwardIsPositive ?? true);
+            var focusDirection = FocusDirection.Of(otaData);
             var ota = new OTA(otaData.Name, otaData.FocalLength, camera, cover, focuser, focusDirection, filterWheel, Switches: null, otaData.Aperture, otaData.OpticalDesign);
             otas.Add(ota);
 
