@@ -613,7 +613,8 @@ backdrop draw (`SkyMapTab.DrawOrreryBackdrop`, the first thing the frame draws a
   on the headless Vulkan host every 2D primitive after the backdrop fell into a zero viewport until the planet bodies set
   their own, and the orbits (drawn before the bodies) vanished, while the bodies, the labels and the strip still drew.
   Found by the comets leg (PR #1631): 229 of 1,625 orbit samples lit with the backdrop on (the stars along the paths)
-  against 1,473 with it off, the same at c2053b53, whose real window drew every orbit over the stars, so a window was
+  against 1,473 with it off, the same at the #1584 commit ("fix(atlas): the orrery strip's time keeps its date and time on Linux's glyphs
+  too (#1584)"), whose real window drew every orbit over the stars, so a window was
   never affected; not the sky pass's pipelines, push constants or descriptor sets (skipping its draws outright left the
   orbits as missing). After: 1,396 of 1,625 (`OrreryGpuTests.TheOrbitsAreDrawnOverTheBackdrop`).
 
