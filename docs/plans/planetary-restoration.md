@@ -3462,8 +3462,9 @@ scored on one scale. The rules were set on #1366 before anything ran.
 | colour Jupiter (r+g+b) | 6.234 | **5.592** | 6.692 | 8.367 |
 | Saturn 2022-10-09 (r+g+b) | 4.879 | 5.133 | 6.259 | **4.612** |
 
-- **Not the default**: it beat every strength only on nostill and Saturn. It never rang more than the telescope target at 1.5x (limb
-  profile error 0.004 to 0.037 against 0.018 to 0.052).
+- **Not the default at first**: on these twins, all sampled coarser than their optics resolve, it beat every strength only on nostill and
+  Saturn. It never rang more than the telescope target at 1.5x (limb profile error 0.004 to 0.037 against 0.018 to 0.052). It is the
+  default now where the pixels resolve the telescope (#1632, below).
 - **Where it loses, the kernel is the cause**: on the calibrated twin it derived 8.43, 1.24, 1.53, 0.82 where the truth's own gains against
   the same truth are 7.48, 0.68, 1.48, 1.02, band 2 lifted almost twice as far. Dividing more by a kernel that is a model's guess in the
   finest bands (#1120, #1140) amplifies the guess; where the edge's kernel is right (nostill: no still layer, no warp) it pays 39 %.
@@ -3476,6 +3477,31 @@ scored on one scale. The rules were set on #1366 before anything ran.
 The deconvolution's headroom is the kernel: each Red twin's own best gains, applied through the derived window with
 `planetary sharpen --gains`, leave 22 to 30 % less error than the derived ones, but they do not carry across twins with different air.
 Whether a night's own twin can supply them is #1369 (the AUTO mode's step 0, `planetary-stacking.md`).
+
+**The default where the pixels resolve the telescope (#1632, the owner, 2026-10-17).** `PlanetarySharpenTarget.Auto`, the default,
+takes the aperture where every channel's pupil cutoff lies below 0.5 cycles a pixel (`PlanetarySharpening.ApertureTargetCutoffBelow`,
+resolved once by `PlanetarySharpening.TargetFor`, the target taken in `PlanetarySharpenResult.Target`) and the telescope elsewhere, so
+`planetary stack`, `planetary sharpen` (`--target auto`), the viewer's Auto view and the live view's Derive all take it. Gains given or
+learned (#817, #1552) were fitted toward the telescope and keep it. Two experiments, rules set before each ran
+(`training/planetary/r9-rules.md`), found the aperture target the best arm wherever the sampling resolves the optics:
+
+| Finely sampled EdgeHD Jupiter twins | Detail, bands 1 to 4 | Limb, inside + outside | Light past the limb |
+|---|---|---|---|
+| L-ORDER, 14 held: telescope / deblur after the gains / aperture | 2.891 / 3.360 / **2.812** | 0.081 / 0.080 / **0.033** | 0.0445 (telescope), **0.0108** (aperture) |
+| L-TARGET, 40 training: telescope / deblur after the gains / aperture | 2.674 / 2.934 / **2.594** | 0.0805 / 0.0795 / **0.0303** | |
+
+- **The limb is the aperture's on all 40 training twins**, 2 to 4 times truer, rebound at most 0.0024 and no undershoot: the seeing halo
+  past the limb goes, and a capture ends at its limb as the posts do (the owner, on the EdgeHD Jupiter: "there's still this blurry ring
+  around the planet that is totally absent from post").
+- **Detail is no worse on the mean, and not better everywhere**: on the 24 plain twins it ties the telescope target (2.306 against
+  2.296) and the deblur after the gains is ahead (2.212); on the 16 warped and blurred ones it is best on every twin (f: 2.948 against
+  3.196 and 3.970).
+- **Against the posts** (mean C24 over bands 2 to 4, the four captures re-stacked through each camera's matrix): 0.9667 against the
+  telescope target's 0.9486 and the deblur after the gains' 0.9634. The rim (0.9 to 1.1 of the outline) as each preview shows it carries 2
+  to 8 times less colour: 0.075 against 0.168 on the EdgeHD Jupiter, 0.0085 against 0.068 on the 12-inch SCT Jupiter, 0.045 against 0.105
+  on the EdgeHD Saturn (the posts 0.018, 0.020, 0.073).
+- **Where the sampling is coarser than the optics** (the colour twins, cutoffs 1.0 to 1.3) it rang (rebound up to 0.035) and lost detail on
+  three of four, which is the gate's reason.
 
 ### The noise read off the halves (#1373)
 

@@ -55,8 +55,8 @@ public sealed record PlanetaryBestStackOptions(CatalogIndex? Planet, Pupil? Tele
     public bool LuminanceOnly { get; init; }
 
     /// <summary>
-    /// What the derived gains restore toward (<see cref="PlanetarySharpenOptions.Target"/>, #1366): the planet through the pupil's
-    /// diffraction, the default, or with the telescope undone too, an option the AUTO mode's tune may choose (A2).
+    /// What the derived gains restore toward (<see cref="PlanetarySharpenOptions.Target"/>, #1366): by default the aperture where the master
+    /// resolves the telescope and the telescope elsewhere (<see cref="PlanetarySharpenTarget.Auto"/>, #1632), or either by name.
     /// </summary>
     public PlanetarySharpenTarget Target { get; init; }
 
@@ -211,7 +211,7 @@ public static class PlanetaryBestStack
     /// </summary>
     public static (Image Sharpened, string How) Sharpen(Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope,
         ImmutableArray<double> wavelengthsNm = default, PlanetaryLimbFix? fix = null, double strength = 1, bool luminanceOnly = false,
-        PlanetarySharpenTarget target = PlanetarySharpenTarget.Telescope, PlanetaryChannelLimb channelLimb = PlanetaryChannelLimb.Shared,
+        PlanetarySharpenTarget target = PlanetarySharpenTarget.Auto, PlanetaryChannelLimb channelLimb = PlanetaryChannelLimb.Shared,
         PlanetaryLimbDarkening limbDarkening = PlanetaryLimbDarkening.Fitted, ImmutableArray<double> heldMinnaertK = default, double? edgeReach = null,
         double? plateScaleArcsec = null, PlanetaryGainsModel? gainsModel = null)
     {
@@ -256,7 +256,7 @@ public static class PlanetaryBestStack
         }
         var inv = CultureInfo.InvariantCulture;
         return (result.Sharpened, result.Derived
-            ? string.Create(inv, $"gains {string.Join(", ", result.Gains.Select(g => g.ToString("0.00", inv)))} derived through the limb's edge{StrengthWords(strength)}{(luminanceOnly && master.ChannelCount == 3 ? " on the luminance, the stack's colour kept" : "")}, {Describe(result.Fix)}{(result.LearnedInWords() is { } learned ? $"; {learned}" : "")}")
+            ? string.Create(inv, $"gains {string.Join(", ", result.Gains.Select(g => g.ToString("0.00", inv)))} derived through the limb's edge{TargetWords(result.Target)}{StrengthWords(strength)}{(luminanceOnly && master.ChannelCount == 3 ? " on the luminance, the stack's colour kept" : "")}, {Describe(result.Fix)}{(result.LearnedInWords() is { } learned ? $"; {learned}" : "")}")
             : $"PlanetaryDefault{StrengthWords(strength)} with the limb kept as stacked; the telescope's aperture gives the derived sharpening",
             result.Derived && options.Pupil is { } pupil ? (result, options, pupil) : null);
     }
@@ -267,7 +267,7 @@ public static class PlanetaryBestStack
         PlanetaryChannelAlignmentResult? channels, double strength)
     {
         var lead = string.Create(CultureInfo.InvariantCulture,
-            $"derived for {options.Planet} through a {pupil.DiameterM * 1000:0} mm pupil at {options.WavelengthsNm[0]:0} nm");
+            $"derived for {options.Planet} through a {pupil.DiameterM * 1000:0} mm pupil at {options.WavelengthsNm[0]:0} nm{TargetWords(result.Target)}");
         var tail = (channels is null ? "" : $"; {channels.Describe()}") + (balance is null ? "" : $"; {balance.Describe()}");
         return new DerivedGains([.. result.Gains.Select(g => (float)g)], $"{lead}{StrengthWords(strength)}{tail}", result.Limb?.WithColour(balance, channels))
         {
@@ -285,6 +285,10 @@ public static class PlanetaryBestStack
             ? preset
             : preset with { Gains = [.. PlanetarySharpening.Strengthened([.. preset.Gains.Select(g => (double)g)], strength).Select(g => (float)g)] };
     }
+
+    // The target in words, where the telescope was undone too (#1632).
+    internal static string TargetWords(PlanetarySharpenTarget target)
+        => target is PlanetarySharpenTarget.Aperture ? " toward the aperture (the telescope's diffraction undone)" : "";
 
     // A strength in words, where it is not the truth's.
     internal static string StrengthWords(double strength)

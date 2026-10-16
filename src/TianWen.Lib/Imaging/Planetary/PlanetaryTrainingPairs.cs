@@ -129,9 +129,11 @@ public static class PlanetaryTrainingPairs
         }
         var meta = default(ImageMeta) with { ObjectName = "Jupiter", ExposureStartTime = when };
         var stackImage = new Image([stack], BitDepth.Float32, 1, 0, 0, meta);
+        // The pair's truth is the planet through the pupil, so the derived input restores toward the same, whatever the default (#1632).
         var options = new PlanetarySharpenOptions(CatalogIndex.Jupiter, when, psf.Header.Pupil ?? DefaultPupil)
         {
             WavelengthsNm = [psf.Header.WavelengthM * 1e9],
+            Target = PlanetarySharpenTarget.Telescope,
         };
         if (PlanetarySharpening.Sharpen(stackImage, options) is not { Derived: true } result)
         {

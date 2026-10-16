@@ -47,7 +47,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var deconvolveIterationsOpt = new Option<string>("--deconvolve-iterations") { Description = "The Richardson-Lucy steps --finish deconvolve takes; a comma list finishes with each, each written and scored.", DefaultValueFactory = _ => "20" };
         var colourOpt = new Option<string>("--colour") { Description = "How a colour master's detail is sharpened (#1295): perchannel (the default: each channel through its own diffraction), luminance (the mean of the planes sharpened once, every plane given the stack's own colour), or both to compare them.", DefaultValueFactory = _ => "perchannel" };
         var strengthOpt = new Option<string>("--strength") { Description = "How far past the truth bands 2 and 3 are taken (#1251): 1, the default, is the derived sharpening; a comma list sharpens at each (e.g. '1,1.5,2'), each written and scored.", DefaultValueFactory = _ => "1" };
-        var targetOpt = new Option<string>("--target") { Description = "What the derived gains restore toward (#1366): telescope (the default: the planet through the pupil's diffraction), aperture (the telescope's diffraction undone too, up to its cutoff), or both to compare them.", DefaultValueFactory = _ => "telescope" };
+        var targetOpt = new Option<string>("--target") { Description = "What the derived gains restore toward (#1366): auto (the default, #1632: the aperture where every channel's pupil cutoff lies below 0.5 cycles a pixel, the master resolving the telescope, else the telescope), telescope (the planet through the pupil's diffraction), aperture (the telescope's diffraction undone too, up to its cutoff), or both (telescope and aperture) to compare them.", DefaultValueFactory = _ => "auto" };
         var scoreAgainstOpt = new Option<string>("--score-against") { Description = "With --truth, what every sharpening is scored against (#1366): telescope (the default: the truth as rendered, through the pupil) or aperture (the truth carried to the aperture target, the pupil's diffraction divided out and the taper put in).", DefaultValueFactory = _ => "telescope" };
         var gainsOpt = new Option<string?>("--gains") { Description = "Apply these a trous gains instead of deriving them, finest first, comma separated, one set per channel separated by ';' (the last repeated): a twin's own best gains, say, applied through the same limb window (#817). Layers past a set are held at 1." };
         var learnedOpt = new Option<bool>("--learned-gains") { Description = "Take each channel's a trous gains from the learned model (#1552, PlanetaryGainsModels) where the master lies inside what it was fitted on (its sampling, and its limb's edge inside its twins'); elsewhere the derived gains stand. Each channel says which, and why." };
@@ -263,9 +263,10 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 };
                 consoleHost.WriteScrollable(string.Create(inv,
                     $"{Path.GetFileName(path)}: {master.ChannelCount}ch {master.Width}x{master.Height}, {body} at {instant:yyyy-MM-dd HH:mm:ss} UTC, {(options.Pupil is { } p ? $"a {p.DiameterM * 1000:0} mm pupil {p.ObstructionRatio:P0} obstructed" : "no telescope (the preset, the limb kept as stacked)")}"));
-                var targetName = (parseResult.GetValue(targetOpt) ?? "telescope").ToLowerInvariant();
+                var targetName = (parseResult.GetValue(targetOpt) ?? "auto").ToLowerInvariant();
                 PlanetarySharpenTarget[] targets = targetName switch
                 {
+                    "auto" => [PlanetarySharpenTarget.Auto],
                     "both" => [PlanetarySharpenTarget.Telescope, PlanetarySharpenTarget.Aperture],
                     "telescope" => [PlanetarySharpenTarget.Telescope],
                     "aperture" => [PlanetarySharpenTarget.Aperture],
@@ -273,7 +274,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 };
                 if (targets.Length == 0)
                 {
-                    consoleHost.WriteError($"--target {targetName}: telescope, aperture or both");
+                    consoleHost.WriteError($"--target {targetName}: auto, telescope, aperture or both");
                     return 1;
                 }
                 var scoreAgainst = (parseResult.GetValue(scoreAgainstOpt) ?? "telescope").ToLowerInvariant();
@@ -506,7 +507,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                         var strengthWords = (strength == 1 ? "" : string.Create(inv, $", strength {strength:0.##}"))
                             + (finish == PlanetaryFinish.None ? "" : $", finished {finishWord}" + (finish.HasFlag(PlanetaryFinish.Deconvolve) ? $" ({deconvolveIterations} steps)" : ""))
                             + (luminance && master.ChannelCount == 3 ? ", the luminance sharpened, the stack's colour kept" : "")
-                            + (target == PlanetarySharpenTarget.Aperture ? ", toward the aperture (the telescope undone)" : "")
+                            + (result.Target == PlanetarySharpenTarget.Aperture ? ", toward the aperture (the telescope undone)" : "")
                             + (options.FixedGains.IsDefaultOrEmpty ? "" : ", the gains given, not derived")
                             + (options.GainsModel is null ? "" : ", the gains learned where the model holds")
                             + (options.GivenKernels.IsDefaultOrEmpty ? "" : ", through the true kernel")

@@ -79,12 +79,24 @@ public enum PlanetaryColourFinestBand
 }
 
 /// <summary>
-/// What the derived sharpening restores toward (#1366). The twins' truth is the OPAL map through the pupil's own diffraction, and so is the
-/// default target: the gains undo the air and the stack, never the telescope, and a capture's own post sits at about 1.5 to 2 times it
-/// (#1251), much as the gain that undoes a 23 % obstructed pupil's diffraction (1.6 at a quarter of its cutoff, 2.8 at half).
+/// What the derived sharpening restores toward (#1366). <see cref="Telescope"/> undoes the air and the stack, never the telescope;
+/// <see cref="Aperture"/> undoes the telescope's own diffraction too, where a capture's own post sits (about 1.5 to 2 times the telescope
+/// target, #1251, much as the gain that undoes a 23 % obstructed pupil's diffraction, 1.6 at a quarter of its cutoff, 2.8 at half). The
+/// default, <see cref="Auto"/>, takes the aperture wherever the pixels resolve the telescope (#1632).
 /// </summary>
 public enum PlanetarySharpenTarget
 {
+    /// <summary>
+    /// <see cref="Aperture"/> where every channel's pupil cutoff lies below <see cref="PlanetarySharpening.ApertureTargetCutoffBelow"/>
+    /// cycles a pixel (the master resolves the telescope's diffraction), else <see cref="Telescope"/> (#1632). On the 40 EdgeHD training
+    /// twins (cutoffs 0.23 to 0.31) the aperture target's limb was 2 to 4 times truer than the telescope's on every twin and its detail no
+    /// worse on the mean (L-TARGET); on twins sampled coarser than their optics (cutoffs 1.0 to 1.3) it rang and lost detail (L-ORDER).
+    /// Resolved by <see cref="PlanetarySharpening.TargetFor"/>; the target taken is <see cref="PlanetarySharpenResult.Target"/>. Gains
+    /// given (<see cref="PlanetarySharpenOptions.FixedGains"/>) or learned (<see cref="PlanetarySharpenOptions.GainsModel"/>) were fitted
+    /// toward the telescope, so with them it takes the telescope.
+    /// </summary>
+    Auto,
+
     /// <summary>The planet through the pupil's own diffraction: what a perfect telescope of this aperture would show.</summary>
     Telescope,
 
@@ -255,10 +267,11 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     public double Strength { get; init; } = 1;
 
     /// <summary>
-    /// What the derived gains restore toward (<see cref="PlanetarySharpenTarget"/>, #1366): the planet through the pupil's diffraction by
-    /// default, or the planet itself band-limited to the pupil's cutoff. The edge is still read against the limb model through the pupil (the
-    /// stack's blur is the air's over the telescope's), and the model drawn outside the limb is the target's. The batch sharpening's option:
-    /// a live view's limb is drawn through the pupil.
+    /// What the derived gains restore toward (<see cref="PlanetarySharpenTarget"/>, #1366): by default (<see cref="PlanetarySharpenTarget.Auto"/>,
+    /// #1632) the planet itself band-limited to the pupil's cutoff where the master resolves the telescope, else the planet through the
+    /// pupil's diffraction. The edge is still read against the limb model through the pupil (the stack's blur is the air's over the
+    /// telescope's), and the model drawn outside the limb, which a live view keeps (<see cref="PlanetarySharpenResult.Limb"/>), is the
+    /// target's.
     /// </summary>
     public PlanetarySharpenTarget Target { get; init; }
 
@@ -417,6 +430,14 @@ public sealed record PlanetarySharpenResult(Image Sharpened, bool Derived, Plane
     public ImmutableArray<(double From, double To)> WienerCuts { get; init; } = [];
 
     /// <summary>
+    /// What the derived gains restored toward, <see cref="PlanetarySharpenOptions.Target"/> resolved by
+    /// <see cref="PlanetarySharpening.TargetFor"/> (#1632): <see cref="PlanetarySharpenTarget.Telescope"/> or
+    /// <see cref="PlanetarySharpenTarget.Aperture"/>, never <see cref="PlanetarySharpenTarget.Auto"/>; the telescope where nothing was
+    /// derived.
+    /// </summary>
+    public PlanetarySharpenTarget Target { get; init; } = PlanetarySharpenTarget.Telescope;
+
+    /// <summary>
     /// The first channel's derived gains at each of <see cref="PlanetarySharpenOptions.FitStops"/>, in its order: each exactly the gains a
     /// sharpening at that <see cref="PlanetarySharpenOptions.Strength"/> derives. Empty where none were asked or nothing was derived.
     /// </summary>
@@ -503,6 +524,38 @@ public static class PlanetarySharpening
     /// </summary>
     public const double SplitCfaPlaneNyquist = 0.25;
 
+    /// <summary>
+    /// The pupil cutoff, cycles a pixel, below which every channel must lie for <see cref="PlanetarySharpenTarget.Auto"/> to take the
+    /// aperture (#1632): a master sampled at least twice as fine as its optics resolve, so the telescope's diffraction is in its pixels to be
+    /// undone. The twins that confirmed the aperture target lie at 0.23 to 0.31; those it rang on, at 1.0 to 1.3.
+    /// </summary>
+    public const double ApertureTargetCutoffBelow = 0.5;
+
+    /// <summary>
+    /// The target the gains restore toward (#1632): <paramref name="asked"/> as it is when it names one, else, for
+    /// <see cref="PlanetarySharpenTarget.Auto"/>, the aperture where every one of the channels' <paramref name="cutoffs"/> (cycles a pixel,
+    /// <see cref="PlanetaryFinishing.CutoffCyclesPerPixel"/>) lies below <see cref="ApertureTargetCutoffBelow"/>, the telescope otherwise.
+    /// </summary>
+    public static PlanetarySharpenTarget TargetFor(PlanetarySharpenTarget asked, ReadOnlySpan<double> cutoffs)
+    {
+        if (asked is not PlanetarySharpenTarget.Auto)
+        {
+            return asked;
+        }
+        if (cutoffs.IsEmpty)
+        {
+            return PlanetarySharpenTarget.Telescope;
+        }
+        foreach (var cutoff in cutoffs)
+        {
+            if (!(cutoff < ApertureTargetCutoffBelow))
+            {
+                return PlanetarySharpenTarget.Telescope;
+            }
+        }
+        return PlanetarySharpenTarget.Aperture;
+    }
+
     /// <summary>The sharpened master, a new image the caller owns, and what it took; null when the limb cannot be fitted.</summary>
     public static PlanetarySharpenResult? Sharpen(Image master, PlanetarySharpenOptions options)
     {
@@ -570,6 +623,18 @@ public static class PlanetarySharpening
         // The contrast-adaptive finish reads the STACK's luminance: the mean of every channel's window, each normalised on the disk.
         var contrastFrom = options.Pupil is not null && options.Finish.HasFlag(PlanetaryFinish.Adaptive) ? LuminanceWindow(master, limbWindow, own) : null;
         var cutoffs = new double[options.Pupil is null ? 0 : master.ChannelCount];
+        if (options.Pupil is { } cutoffPupil)
+        {
+            for (var c = 0; c < cutoffs.Length; c++)
+            {
+                cutoffs[c] = PlanetaryFinishing.CutoffCyclesPerPixel(cutoffPupil, options.WavelengthsNm[Math.Min(c, options.WavelengthsNm.Length - 1)], limbWindow.ArcsecPerPixel);
+            }
+        }
+        // What the gains restore toward, decided once for every channel by their cutoffs (#1632). Gains given or learned were fitted toward
+        // the telescope (#817, #1552), so the automatic choice leaves them there; a target asked for by name is taken as asked.
+        var restoreToward = options.FixedGains.IsDefaultOrEmpty && options.GainsModel is null
+            ? TargetFor(options.Target, cutoffs)
+            : TargetFor(options.Target, []);
         var whiteLevels = new PlanetaryWhiteLevel[options.Pupil is null ? 0 : master.ChannelCount];
         var channelEdges = new (LimbFit Fit, double EdgeAtTenth, double EdgeAtThreeTenths, double NearGlow)[options.Pupil is null ? 0 : master.ChannelCount];
         var channelLearned = new string?[options.Pupil is not null && options.GainsModel is not null ? master.ChannelCount : 0];
@@ -600,7 +665,7 @@ public static class PlanetarySharpening
                 // The model through the pupil is what the edge is read against (the stack's blur is the air's over the telescope's); the
                 // target is what the gains restore toward, the same model unless the telescope is to be undone too (#1366).
                 var throughPupil = channelWindow.Through(diffraction);
-                var target = options.Target is PlanetarySharpenTarget.Aperture
+                var target = restoreToward is PlanetarySharpenTarget.Aperture
                     ? PlanetaryFinishing.ApertureTarget(pupil, wavelengthNm, limbWindow.ArcsecPerPixel)
                     : diffraction;
                 var diskTarget = ReferenceEquals(target, diffraction) ? throughPupil : channelWindow.Through(target);
@@ -682,7 +747,6 @@ public static class PlanetarySharpening
                 }
                 sharpened = Apply(window, size, channelDisk, channelSharp, f => kernel(f) * diffraction.At(f), target.At, gains.AsSpan(), [], options.Fix, diskTarget, blurredDisk,
                     options.LimbBand, options.UnderSky);
-                cutoffs[c] = PlanetaryFinishing.CutoffCyclesPerPixel(pupil, wavelengthNm, limbWindow.ArcsecPerPixel);
                 var sharpening = gains;
                 (sharpened, var wienerCut) = Finished(window, sharpened, contrastFrom ?? window, size, channelDisk, options, cutoffs[c], white,
                     f => PlanetaryWaveletGains.Transfer(sharpening.AsSpan(), f), diffraction);
@@ -735,6 +799,7 @@ public static class PlanetarySharpening
             Limb = options.Pupil is { } kept && channelLimbs is null ? PlanetaryLiveLimb.Kept(master, fit, limbOptions, aspect, limbWindow, kept, options.WavelengthsNm, [.. models], [.. diffractions],
                 (options.LimbBand, options.UnderSky)) : null,
             Cutoffs = [.. cutoffs],
+            Target = options.Pupil is null ? PlanetarySharpenTarget.Telescope : restoreToward,
             WhiteLevels = [.. whiteLevels],
             ChannelEdges = [.. channelEdges],
             ChannelLearned = [.. channelLearned],
