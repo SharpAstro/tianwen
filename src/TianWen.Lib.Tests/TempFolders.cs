@@ -59,13 +59,29 @@ public sealed class TempFolders : IDisposable
         DirectoryInfo folder;
         do
         {
-            folder = new DirectoryInfo(Path.Combine(Root, prefix + Path.GetRandomFileName()));
+            folder = new DirectoryInfo(Path.Combine(Root, prefix + RandomName()));
         }
         while (folder.Exists);
 
         folder.Create();
         _folders.Enqueue(folder);
         return folder;
+    }
+
+    /// <summary>
+    /// Twelve random lowercase letters, as long as <see cref="Path.GetRandomFileName"/>'s name so a socket's path stays short, but with no
+    /// digit (#1626): a planetary capture's path is read for its telescope folder by folder outward
+    /// (<c>PlanetaryCaptureName.TelescopeOfPath</c>), and a random name of a-z0-5 holding <c>4in</c> or <c>102mm</c> named one, which
+    /// failed a test that expected none now and then.
+    /// </summary>
+    internal static string RandomName()
+    {
+        Span<char> name = stackalloc char[12];
+        for (var i = 0; i < name.Length; i++)
+        {
+            name[i] = (char)('a' + Random.Shared.Next(26));
+        }
+        return new string(name);
     }
 
     public void Dispose()

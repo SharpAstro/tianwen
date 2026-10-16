@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using Shouldly;
+using TianWen.Lib.Imaging.Planetary;
 using TianWen.Lib.IO;
 using Xunit;
 
@@ -60,5 +61,19 @@ public class TestTempFoldersTests
             .ToArray();
 
         offenders.ShouldBeEmpty("a test's temporary folder comes from TempFolders, whose root is swept of what a delete missed");
+    }
+
+    // #1626: a planetary capture's path is read for its telescope folder by folder outward, so a random folder name holding a digit beside a
+    // letter ("4in" read as a 102 mm telescope) failed ViewerAutoViewTests on a CI leg. A folder TempFolders makes names none.
+    [Fact]
+    public void AFoldersRandomNameNamesNoTelescope()
+    {
+        using var temp = new TempFolders();
+        for (var i = 0; i < 500; i++)
+        {
+            var folder = temp.Create("t");
+            folder.Name[1..].ShouldAllBe(c => char.IsAsciiLetterLower(c), "letters only, so no digit stands beside a unit's word");
+            PlanetaryCaptureName.TelescopeOfPath(Path.Combine(folder.FullName, "capture.ser")).ApertureMm.ShouldBeNull(folder.FullName);
+        }
     }
 }
