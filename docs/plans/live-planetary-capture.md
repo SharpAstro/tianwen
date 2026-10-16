@@ -1048,15 +1048,15 @@ frames that waited in the hand-off). The body dropped no frame in any of them. B
 | quiet | node, view | 196.8 (0) x3 (node-rate's gate) | 196.8 (0) x3; peaks 3, 4, 5 |
 
 **Through the node under the 32 spinners the bar is met by most recordings, not all.** Every recording reads at least 194.0 fps
-off its SER and the body drops nothing, but the hand-off still replaced a fraction of a percent in some. Each set below is three
-clean recordings with the view, in order:
+off its SER and the body drops nothing, but the hand-off still replaced a fraction of a percent in some. Each set below is its
+clean recordings with the view, in order: three in every set but `DOTNET_gcServer=0`, whose third was one the camera stalled in:
 
 | Set (32 normal spinners, through the node, with the view) | fps off the SER | Replaced (share) | Disk dropped |
 |---|---|---|---|
 | the fix, first set | 196.2, 196.5, 195.2 | 32 (0.27 %), 32 (0.27 %), **92 (0.79 %)** | 29, 17, 0 |
 | + the Debug lines off the reader | 196.0, 196.2, 194.0 | 31 (0.26 %), 0, 26 (0.22 %) | 43, 33, 151 |
 | Server GC (as shipped), again | 196.4, 196.6, 196.8 | 17 (0.14 %), 0, 0 | 43, 7, 0 |
-| `DOTNET_gcServer=0` | 196.8, 196.6, 196.7 | 5 (0.04 %), 15 (0.13 %), 0 | 0, 9, 2 |
+| `DOTNET_gcServer=0` | 196.8, 196.6 | 5 (0.04 %), 15 (0.13 %) | 0, 9 |
 | Server GC + `SustainedLowLatency` while capturing (not kept) | 196.6, 196.5, 196.4 | 28 (0.24 %), 31 (0.26 %), 57 (0.48 %) | 9, 49, 0 |
 | **+ the ring's planes kept across captures (kept)** | 196.0, 196.4, 195.2 | **0, 0, 0** | 43, 21, 92 |
 | **+ the writer woken on its own thread (kept)** | 195.6, 196.8, 196.8 | 67 (0.57 %), 0, 0 | **0, 0, 0** |
@@ -1073,9 +1073,11 @@ with the reader. `SustainedLowLatency` kept none of it away: its captures still 
 says as it ends what the process collected and paused, and its heap and working set. **With the ring's planes kept across
 captures** (the last set, on main with #1610, a separate set the same evening) the three clean recordings replaced none, and every
 node capture but the first, whose ring had to be filled fresh (13/10/9 collections, 655 ms), ran with no gen 2 collection at all
-(2 to 5 gen 0, 12 to 372 ms in all; the node's heap 1.3 to 2.7 GB). Of the twenty-one clean recordings with the view under the 32
-spinners, ten replaced under 0.1 % (nine none); the worst replaced 0.79 % before the ring's fix and 0.57 % after it (beside
-another program's `tianwen` at 0.9 to 1.0 cores). The node arm is accepted as measured.
+(2 to 5 gen 0, 12 to 372 ms in all; the node's heap 1.3 to 2.7 GB). Of the twenty clean recordings with the view under the 32
+spinners, nine replaced under 0.1 % (eight none); the worst replaced 0.79 % before the ring's fix and 0.57 % after it, with only
+the spinners in its host's top five (0.7 to 0.8 cores each). Another program's `tianwen` ran in that set too, at 1.0 and 0.9 cores
+beside its first in-process recording and its fourth recording with the view, one the camera stalled in. The node arm is accepted
+as measured.
 
 **The disk's drops were the writer woken through the pool.** Frames the writer's queue dropped, missing from the SER, came in most
 sets under the 32 spinners (0 to 151 a recording) while each write took 1 to 5 ms: the writer was held, not the disk. Its wait
@@ -1103,18 +1105,18 @@ bits), and a deeper hand-off.
 **The view and the node still answer under the load, and are bounded in the probe** (`NodePlanetaryRateProbe`): the node answers
 `GET /api/v1/planetary` at p99 under 250 ms, a gain staged through the GUI's client is on the camera within 1 s outside a stall,
 and the view shows at least what it showed before the fix at the same load (10.7 live frames a second under the 32 spinners, 24.6
-below-normal, 29.8 quiet). Under the 32 spinners after the fix, over the clean recordings, the node answered at p99 110 to 247 ms (181 and 184
-before), gains landed in 6 to 586 ms (23 to 405 before; each timed from the DAL's line, which these runs still wrote on the
-stream's thread), and the view showed 7.3 to 20.1 frames a second (10.7 and 13.6 in the
+below-normal, 29.8 quiet). Under the 32 spinners after the fix, over the same twenty clean recordings, the node answered at p99
+101 to 247 ms (181 and 184 before), gains landed in 6 to 586 ms (23 to 405 before; each timed from the DAL's line, which these
+runs still wrote on the stream's thread), and the view showed 7.3 to 22.8 frames a second (10.7 and 13.6 in the
 clean recordings before; 4.7 and 8.5 in two the camera stalled in, set apart, so the floor is 10.7), **under its floor three
 times** (9.1, 8.6, 7.3), which the gate failed and which stands as measured. Below-normal the node answered at p99 2.5 to 2.9 ms (32
 to 62 before) and the view showed 29.7 to 29.9 (24.6 to 28.4); quiet, p99 0.5 ms and 29.8 to 30.0. The reader uses about a
 quarter of a core at 197 frames a second and, with no frame coming, no processor time (`PlanetaryCaptureReaderTests`).
 
-**The camera stalled as often after the fix as before.** Counted from every stream's own closing line, the stall rate is today's
-and the box's, not the fix's: 11 stalls in 1,349 s of streaming before (one in 123 s; under the 32 spinners 7 in 655 s,
-below-normal 4 in 694 s), 25 in 3,032 s after (one in 121 s; under the 32 spinners 10 in 1,272 s, below-normal 10 in 1,005 s,
-quiet 5 in 755 s), against one in 1,250 s in ToupTek.SDK's soak. A stall costs a recording about 6.5 s.
+**The camera stalled as often after the fix as before.** Counted from every stream's own closing line in the A/B's runs, the stall
+rate is today's and the box's, not the fix's: 11 stalls in 1,349 s of streaming before (one in 123 s; under the 32 spinners 7 in
+655 s, below-normal 4 in 694 s), 24 in 2,985 s after (one in 124 s; under the 32 spinners 9 in 1,225 s, below-normal 10 in
+1,005 s, quiet 5 in 755 s), against one in 1,250 s in ToupTek.SDK's soak. A stall costs a recording about 6.5 s.
 
 **The probes.** The node gate's in-process baseline now takes only recordings that fail nothing by themselves (review round 2 of
 #1609), and its window check reads the window the camera has from the DAL's own line once the body has it, not the jog that asked
