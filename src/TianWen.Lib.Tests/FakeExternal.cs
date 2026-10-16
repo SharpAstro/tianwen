@@ -126,6 +126,10 @@ public class FakeExternal : IExternal
     /// beside a failed assertion. Without one the provider's loggers write nowhere.
     /// </summary>
     public IServiceProvider BuildServiceProvider(ITestOutputHelper? logTo) =>
+        BuildServiceProvider(logTo is null ? null : new XUnitLoggerProvider(logTo, false), LogLevel.Information);
+
+    /// <summary><see cref="BuildServiceProvider()"/>, with every logger it hands out writing to <paramref name="logTo"/> from <paramref name="minimumLevel"/> up.</summary>
+    public IServiceProvider BuildServiceProvider(ILoggerProvider? logTo, LogLevel minimumLevel) =>
         new ServiceCollection()
             .AddSingleton<IExternal>(this)
             .AddSingleton<ITimeProvider>(_timeProvider)
@@ -134,7 +138,7 @@ public class FakeExternal : IExternal
             {
                 if (logTo is not null)
                 {
-                    builder.SetMinimumLevel(LogLevel.Information).AddProvider(new XUnitLoggerProvider(logTo, false));
+                    builder.SetMinimumLevel(minimumLevel).AddProvider(logTo);
                 }
             })
             .BuildServiceProvider();

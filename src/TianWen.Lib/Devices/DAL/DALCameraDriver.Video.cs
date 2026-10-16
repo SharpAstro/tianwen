@@ -732,8 +732,9 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                     SetVideoControl(CMOSControlType.Gain, ClampedGain(stagedGain), "set the gain");
                     gain = CurrentGain();
                     // Once the body has it: when a staged gain reached the camera, for the rate probes (TIA2). Written off the
-                    // stream's thread, so the file log's lock never holds the camera's reads (review round 1 of #1621).
-                    Logger.LogDebugOffThread("{Camera}'s stream is at gain {Gain}", Name, gain);
+                    // stream's thread, so the file log's lock never holds the camera's reads (review round 1 of #1621), and so its
+                    // write is late and out of order: the line carries the time the stream took it (#1628).
+                    Logger.LogDebugOffThread("{Camera}'s stream is at gain {Gain} as of {At:O}", Name, gain, TimeProvider.GetUtcNow());
                 }
 
                 // A new size, depth or readout mode needs the stream stopped on every body; the origin is kept where it
@@ -772,8 +773,10 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                 {
                     window = constraints.Snap(window with { X = window.X + dx, Y = window.Y + dy });
                     SetVideoWindow(window, bitDepth, resize: false);
-                    // Once the body has it: the window a pan left, as the camera took it, never the jog that asked for it.
-                    Logger.LogDebugOffThread("{Camera}'s stream window is {Width}x{Height} at ({X}, {Y}) after a pan", Name, window.Width, window.Height, window.X, window.Y);
+                    // Once the body has it: the window a pan left, as the camera took it, never the jog that asked for it, and when
+                    // (#1628).
+                    Logger.LogDebugOffThread("{Camera}'s stream window is {Width}x{Height} at ({X}, {Y}) after a pan, as of {At:O}", Name, window.Width, window.Height,
+                        window.X, window.Y, TimeProvider.GetUtcNow());
                     stream.Window = window;
                     stream.JogsApplied = asked;
                     // Started before the window is published, so whoever sees the new window knows its settle is under way.

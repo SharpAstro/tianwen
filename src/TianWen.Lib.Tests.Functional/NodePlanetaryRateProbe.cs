@@ -92,7 +92,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
     /// One video stream of the node's camera, from its log: where it started, its own end-of-stream counts, and the window the
     /// camera had after its last pan (the DAL's own line once the body has the window), null when it never panned.
     /// </summary>
-    private sealed record NodeStream(int X, int Y, string Counts, long Replaced, int Stalls, int Recovered, List<string> Recoveries,
+    internal sealed record NodeStream(int X, int Y, string Counts, long Replaced, int Stalls, int Recovered, List<string> Recoveries,
         int Width = 0, int Height = 0, RoiRect? Panned = null, IReadOnlyList<(DateTimeOffset At, int Gain)>? Gains = null);
 
     [Fact(Timeout = 3_600_000)]
@@ -619,7 +619,8 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
 
     /// <summary>
     /// When each gain the GUI's client staged reached the camera: the DAL's own line once the body has a staged gain, the first
-    /// after it was asked for, and the time between; and the longest of them, null when one never arrived.
+    /// after it was asked for, at the time the line says the stream took it (never its write, which is the pool's, #1628), and the
+    /// time between; and the longest of them, null when one never arrived.
     /// </summary>
     private static (string Said, TimeSpan? Longest) GainsReached(IReadOnlyList<(DateTimeOffset Asked, int Gain)> asked, IReadOnlyList<(DateTimeOffset At, int Gain)> reached)
     {
@@ -907,39 +908,49 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
     private static readonly Regex StreamStart = new Regex(@"streaming video: (?<w>\d+)x(?<h>\d+) at \((?<x>\d+), (?<y>\d+)\)", RegexOptions.CultureInvariant);
     private static readonly Regex StreamEnd = new Regex(@"(?<counts>streamed \d+ frames in .* were dropped by the full hand-off .* (?<stalls>\d+) stalls, (?<recovered>\d+) recovered[^\r\n]*)",
         RegexOptions.CultureInvariant);
-    private static readonly Regex Panned = new Regex(@"stream window is (?<w>\d+)x(?<h>\d+) at \((?<x>\d+), (?<y>\d+)\) after a pan", RegexOptions.CultureInvariant);
+    private static readonly Regex Panned = new Regex(@"stream window is (?<w>\d+)x(?<h>\d+) at \((?<x>\d+), (?<y>\d+)\) after a pan, as of (?<at>\S+)", RegexOptions.CultureInvariant);
     private static readonly Regex ReplacedCount =new Regex(@"the reader took \d+, (?<replaced>\d+) were dropped", RegexOptions.CultureInvariant);
     private static readonly Regex Recovery = new Regex(@"stream is back after its stall .*", RegexOptions.CultureInvariant);
-    private static readonly Regex GainOnCamera = new Regex(@"stream is at gain (?<gain>\d+)", RegexOptions.CultureInvariant);
+    private static readonly Regex GainOnCamera = new Regex(@"stream is at gain (?<gain>\d+) as of (?<at>\S+)", RegexOptions.CultureInvariant);
 
-    /// <summary>The node's camera streams, in order, from every server log under its data root.</summary>
-    private static List<NodeStream> ReadStreams(string dataRoot)
+    /// <summary>When the stream took a pan or a gain, as its line says (#1628); null for a line that does not say.</summary>
+    private static DateTimeOffset? TakenAt(Match line)
+        => DateTimeOffset.TryParse(line.Groups["at"].Value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at) ? at : null;
+
+    /// <summary>
+    /// The node's camera streams, in order, from every server log under its data root. A stream's own lines (its start, a
+    /// recovery, its end) are written on its thread, in order; a pan's and a gain's are written by the thread pool (review round 1
+    /// of #1621), so they land late, past their stream's end or the next one's start. Each says when the stream took it (#1628):
+    /// it goes to the stream that had started by then, wherever in the file it landed, and a gain is timed by it, never by its write.
+    /// </summary>
+    internal static List<NodeStream> ReadStreams(string dataRoot)
     {
         var streams = new List<NodeStream>();
+        // When every stream started, those that never ended included, and the start of each one that ended.
+        var startedAt = new List<DateTimeOffset>();
+        var startOf = new List<int>();
         (int X, int Y)? start = null;
         var recoveries = new List<string>();
-        var gains = new List<(DateTimeOffset At, int Gain)>();
         var (width, height) = (0, 0);
-        RoiRect? panned = null;
+        var pans = new List<(DateTimeOffset At, RoiRect Window)>();
+        var gains = new List<(DateTimeOffset At, int Gain)>();
         foreach (var (day, line) in ServerLogLines(dataRoot))
         {
             if (StreamStart.Match(line) is { Success: true } started)
             {
                 start = (int.Parse(started.Groups["x"].Value, CultureInfo.InvariantCulture), int.Parse(started.Groups["y"].Value, CultureInfo.InvariantCulture));
                 (width, height) = (int.Parse(started.Groups["w"].Value, CultureInfo.InvariantCulture), int.Parse(started.Groups["h"].Value, CultureInfo.InvariantCulture));
-                panned = null;
+                startedAt.Add(WrittenAt(day, line) ?? throw new InvalidOperationException($"A stream's start line without its time: {line}"));
                 recoveries.Clear();
-                gains.Clear();
             }
-            else if (GainOnCamera.Match(line) is { Success: true } gain && start is not null && WrittenAt(day, line) is { } gainAt)
+            else if (GainOnCamera.Match(line) is { Success: true } gain && TakenAt(gain) is { } gainAt)
             {
                 gains.Add((gainAt, int.Parse(gain.Groups["gain"].Value, CultureInfo.InvariantCulture)));
             }
-            else if (Panned.Match(line) is { Success: true } pan && start is not null)
+            else if (Panned.Match(line) is { Success: true } pan && TakenAt(pan) is { } panAt)
             {
-                // The DAL's own line once the body has the window a pan left: the last one is where the stream recorded.
-                panned = new RoiRect(int.Parse(pan.Groups["x"].Value, CultureInfo.InvariantCulture), int.Parse(pan.Groups["y"].Value, CultureInfo.InvariantCulture),
-                    int.Parse(pan.Groups["w"].Value, CultureInfo.InvariantCulture), int.Parse(pan.Groups["h"].Value, CultureInfo.InvariantCulture));
+                pans.Add((panAt, new RoiRect(int.Parse(pan.Groups["x"].Value, CultureInfo.InvariantCulture), int.Parse(pan.Groups["y"].Value, CultureInfo.InvariantCulture),
+                    int.Parse(pan.Groups["w"].Value, CultureInfo.InvariantCulture), int.Parse(pan.Groups["h"].Value, CultureInfo.InvariantCulture))));
             }
             else if (Recovery.Match(line) is { Success: true } recovery)
             {
@@ -950,9 +961,23 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
                 streams.Add(new NodeStream(at.X, at.Y, ended.Groups["counts"].Value,
                     long.Parse(ReplacedCount.Match(line).Groups["replaced"].Value, CultureInfo.InvariantCulture),
                     int.Parse(ended.Groups["stalls"].Value, CultureInfo.InvariantCulture),
-                    int.Parse(ended.Groups["recovered"].Value, CultureInfo.InvariantCulture), [.. recoveries], width, height, panned, [.. gains]));
+                    int.Parse(ended.Groups["recovered"].Value, CultureInfo.InvariantCulture), [.. recoveries], width, height));
+                startOf.Add(startedAt.Count - 1);
                 start = null;
             }
+        }
+
+        // Each pan and gain to the stream that had started by the time the stream took it; the last pan is where it recorded (the DAL's
+        // own line once the body has the window a pan left).
+        for (var i = 0; i < streams.Count; i++)
+        {
+            var from = startedAt[startOf[i]];
+            var until = startOf[i] + 1 < startedAt.Count ? startedAt[startOf[i] + 1] : DateTimeOffset.MaxValue;
+            streams[i] = streams[i] with
+            {
+                Panned = pans.Where(p => p.At >= from && p.At < until).OrderBy(static p => p.At).Select(static p => (RoiRect?)p.Window).LastOrDefault(),
+                Gains = [.. gains.Where(g => g.At >= from && g.At < until).OrderBy(static g => g.At)],
+            };
         }
         return streams;
     }
