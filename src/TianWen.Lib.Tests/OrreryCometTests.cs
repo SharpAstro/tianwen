@@ -543,4 +543,68 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
             }
         }
     }
+
+    // A comet at its perihelion at the instant, at heliocentric ecliptic longitude and latitude (degrees) and distance r: the node a
+    // quarter turn back from the longitude and the perihelion a quarter turn on from the node, so the perihelion's latitude is the
+    // inclination (R1 Q1 of PR #1631).
+    private static CometElements CometAt(int number, double longitudeDeg, double latitudeDeg, double r)
+        => latitudeDeg >= 0
+            ? Comet(number, m1: 0, q: r, e: 0.5, inclination: latitudeDeg, node: longitudeDeg - 90, argumentOfPerihelion: 90)
+            : Comet(number, m1: 0, q: r, e: 0.5, inclination: -latitudeDeg, node: longitudeDeg + 90, argumentOfPerihelion: 270);
+
+    /// <summary>
+    /// A comet's head never takes a PLANET's label (R1 Q1 of PR #1631): with two heads placed on Mars's two label boxes, the one under
+    /// it and the one over it, and the thirty comets of the demo set besides, every planet labelled without comets is labelled with
+    /// them. A comet's own label still keeps clear of the planets' discs and of other heads.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task APlanetsLabelIsNotHiddenByACometsHead()
+    {
+        using var without = await RigWithAsync(CatalogIndex.Jupiter, 1f, TestContext.Current.CancellationToken);
+        var planetsLabelled = without.Tab.OrreryLabels.Select(l => l.Index).ToHashSet();
+        planetsLabelled.ShouldContain(CatalogIndex.Mars);
+        var mars = without.Tab.OrreryDrawn.Single(d => d.Index == CatalogIndex.Mars);
+        var label = without.Tab.OrreryLabels.Single(l => l.Index == CatalogIndex.Mars).Rect;
+        // The box under the disc and the one over it, as DrawOrreryLabels places them: their centres, a box's half height from its edge.
+        var halfBox = label.Height / 2;
+        var underY = label.Y > mars.Y ? label.Y + halfBox : (2 * mars.Y) - (label.Y + halfBox);
+        var overY = (2 * mars.Y) - underY;
+
+        var orrery = without.Tab.State.Orrery;
+        var camera = new OrreryCamera(orrery.AzimuthDeg, orrery.ElevationDeg, orrery.Distance, without.Content);
+        var scaling = new OrreryScaling(orrery.Scale, OrreryScaling.ReachFor(orrery.Distance));
+        without.Tab.OrreryScene.TryFind(CatalogIndex.Mars, out var body).ShouldBeTrue();
+        var r = Math.Sqrt((body.X * body.X) + (body.Y * body.Y) + (body.Z * body.Z));
+        var longitude = Math.Atan2(body.Y, body.X) * 180 / Math.PI;
+        var latitude = Math.Asin(body.Z / r) * 180 / Math.PI;
+        float ScreenY(double beta)
+        {
+            var (b, l) = (beta * Math.PI / 180, longitude * Math.PI / 180);
+            var (x, y, z) = scaling.Apply(r * Math.Cos(b) * Math.Cos(l), r * Math.Cos(b) * Math.Sin(l), r * Math.Sin(b));
+            camera.TryProject(x, y, z, out _, out var sy).ShouldBeTrue();
+            return sy;
+        }
+        // The latitude that puts a head at screen height y: the screen's y falls as the latitude rises, so bisect.
+        double LatitudeFor(float y)
+        {
+            var (lo, hi) = (latitude - 20, latitude + 20);
+            for (var step = 0; step < 60; step++)
+            {
+                var mid = (lo + hi) / 2;
+                (lo, hi) = ScreenY(mid) > y ? (mid, hi) : (lo, mid);
+            }
+            return (lo + hi) / 2;
+        }
+        var (under, over) = (CometAt(91, longitude, LatitudeFor(underY), r), CometAt(92, longitude, LatitudeFor(overY), r));
+
+        using var with = await RigWithAsync(CatalogIndex.Jupiter, 1f, TestContext.Current.CancellationToken, [.. DemoComets(), under, over]);
+        foreach (var comet in new[] { under, over })
+        {
+            var head = with.Tab.OrreryDrawn.Single(d => d.Index == Index(comet));
+            output.WriteLine($"{comet.DisplayName}'s head at ({head.X:F1}, {head.Y:F1}); Mars at ({mars.X:F1}, {mars.Y:F1}), its label box {label.X:F0},{label.Y:F0} {label.Width:F0} x {label.Height:F0}");
+            MathF.Abs(head.X - mars.X).ShouldBeLessThan(2f);
+        }
+        var labelledWith = with.Tab.OrreryLabels.Select(l => l.Index).ToHashSet();
+        planetsLabelled.Where(p => !labelledWith.Contains(p)).ShouldBeEmpty("planets labelled without comets that lost their label to a comet");
+    }
 }

@@ -656,8 +656,15 @@ namespace TianWen.UI.Abstractions
         {
             static bool Overlap(RectF32 a, RectF32 b)
                 => a.X < b.X + b.Width && b.X < a.X + a.Width && a.Y < b.Y + b.Height && b.Y < a.Y + a.Height;
+            // A comet's head never takes a planet's label (R1 Q1 of PR #1631): every head is placed before any label, so a head on both
+            // of a planet's boxes would drop it. A comet's own label keeps clear of the planets' discs and of the other heads.
+            var ownerIsComet = owner.ToCatalog() == Catalog.Comet;
             foreach (var (index, x, y, radius) in _orreryHits)
             {
+                if (!ownerIsComet && index.ToCatalog() == Catalog.Comet)
+                {
+                    continue;
+                }
                 if (index != owner && Overlap(rect, new RectF32(x - radius, y - radius, 2 * radius, 2 * radius)))
                 {
                     return false;
