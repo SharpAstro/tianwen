@@ -368,7 +368,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
             }
 
             // The person's part: until the node streams the Saturn window's size and depth, started from the GUI.
-            var asked = TimeSpan.MinValue;
+            TimeSpan? asked = null;
             var clock = Stopwatch.StartNew();
             PlanetaryStateDto? running = null;
             while (running is null)
@@ -380,7 +380,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
                 {
                     running = on;
                 }
-                else if (clock.Elapsed - asked >= ClicksRepeatEvery)
+                else if (ClickPrompt.Due(asked, clock.Elapsed, ClicksRepeatEvery))
                 {
                     asked = clock.Elapsed;
                     output.WriteLine("");
@@ -412,7 +412,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
             quiet = await OtherWorktreeBuilds.WaitUntilQuietAsync(ct);
 
             // The person's second part: the Record control's Record (#1344), the control this picture is of. Until the node records.
-            asked = TimeSpan.MinValue;
+            asked = null;
             PlanetaryRecordingDto? started = null;
             var droppedFrom = 0;
             while (started is null)
@@ -425,7 +425,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
                     started = going;
                     droppedFrom = state.DroppedFrames;
                 }
-                else if (clock.Elapsed - asked >= ClicksRepeatEvery)
+                else if (ClickPrompt.Due(asked, clock.Elapsed, ClicksRepeatEvery))
                 {
                     asked = clock.Elapsed;
                     output.WriteLine("");
