@@ -2726,6 +2726,9 @@
             + ",\"orreryDaysPerSecond\":" + (_skyTab?.State.Orrery.DaysPerSecond ?? 0).ToString("R", CultureInfo.InvariantCulture)
             + ",\"timeOffsetDays\":" + (_skyTab?.State.TimeOffset.TotalDays ?? 0).ToString("R", CultureInfo.InvariantCulture)
             + ",\"orreryMs\":" + (_skyTab?.LastOrreryFrameMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
+            // The comets the last orrery frame drew (#1611): the set, their tails, and their orbits, what a test of the comets waits on.
+            + ",\"orreryComets\":" + (_skyTab?.OrreryScene.CometSet.Length ?? 0).ToString(CultureInfo.InvariantCulture)
+            + ",\"orreryTails\":" + (_skyTab?.OrreryTails.Count ?? 0).ToString(CultureInfo.InvariantCulture)
             // sunTextured - the frames that traced the Sun from its atlas map (#1608), what a test of the textured Sun waits on.
             + ",\"sunTextured\":" + (_skyTab?.SunTexturedTraces ?? 0).ToString(CultureInfo.InvariantCulture)
             // planetTextures - the planet textures' version (PlanetTextures.Version): above 0 once the atlas has been adopted.

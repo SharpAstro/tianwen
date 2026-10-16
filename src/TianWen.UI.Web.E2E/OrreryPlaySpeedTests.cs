@@ -101,4 +101,89 @@ public sealed class OrreryPlaySpeedTests(TianWenWebFixture fixture, ITestOutputH
         output.WriteLine($"the canvas: {path}");
         await page.Context.CloseAsync();
     }
+
+    // Eight periodic comets near perihelion at the pinned instant, in the bulk SBDB query's own shape (the fields and a row of strings
+    // each), which the page fetches as comets-sbdb.json: a dev server has no baked file (pages.yml bakes it), so the test serves it.
+    private static string CometQueryResponse()
+    {
+        var instantJd = (new DateTimeOffset(2026, 10, 13, 22, 0, 0, TimeSpan.Zero) - DateTimeOffset.UnixEpoch).TotalDays + 2440587.5;
+        var rows = Enumerable.Range(0, 8).Select(n => new[]
+        {
+            null, $"{201 + n}P", $"E2E {n}", (5 + n).ToString(CultureInfo.InvariantCulture), "10", "0.6",
+            (0.6 + (0.1 * n)).ToString(CultureInfo.InvariantCulture), (10 + (17 * n)).ToString(CultureInfo.InvariantCulture),
+            (40 * n).ToString(CultureInfo.InvariantCulture), (73 * n % 360).ToString(CultureInfo.InvariantCulture),
+            (instantJd - (8 * (n - 3))).ToString("R", CultureInfo.InvariantCulture), (instantJd - (8 * (n - 3))).ToString("R", CultureInfo.InvariantCulture),
+        });
+        return JsonSerializer.Serialize(new
+        {
+            fields = new[] { "prefix", "pdes", "name", "M1", "K1", "e", "q", "i", "om", "w", "tp", "epoch" },
+            data = rows,
+            count = 8,
+        });
+    }
+
+    // The pixels of a comet's orbit: violet (red and blue each well above green). No planet's orbit, disc or label is.
+    private const string VioletPixelsScript = """
+        async (b64) => {
+            const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+            const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+            const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(bitmap, 0, 0);
+            const { data } = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+            let violet = 0;
+            for (let i = 0; i < data.length; i += 4) {
+                if (data[i] > data[i + 1] + 30 && data[i + 2] > data[i + 1] + 30) violet++;
+            }
+            return violet;
+        }
+        """;
+
+    /// <summary>
+    /// The comets the app knows are drawn in the browser's orrery (#1611): served the bulk comet set, Alt+S opens the orrery with every
+    /// comet of it drawn, tails among them, and the canvas carries the comets' violet orbits.
+    /// </summary>
+    [Fact]
+    public async Task TheCometsAreDrawnWithTheirOrbitsAndTails()
+    {
+        var page = await fixture.NewPageAsync();
+        var loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        page.Console += (_, m) =>
+        {
+            if (m.Text.Contains("[tianwen-web] comets loaded", StringComparison.Ordinal))
+            {
+                loaded.TrySetResult();
+            }
+        };
+        var body = CometQueryResponse();
+        await page.RouteAsync("**/comets-sbdb.json", route => route.FulfillAsync(new RouteFulfillOptions
+        {
+            Status = 200, ContentType = "application/json", Body = body,
+        }));
+        await page.GotoAsync(fixture.BaseUrl + AtlasLink, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
+        await Expect(page.Locator("[data-view=sky]")).ToBeVisibleAsync(new() { Timeout = BootTimeout });
+        await Expect(page.Locator(".catalog-loading")).ToHaveCountAsync(0, new() { Timeout = BootTimeout });
+        await loaded.Task.WaitAsync(TimeSpan.FromMilliseconds(BootTimeout), TestContext.Current.CancellationToken);
+        var canvas = page.Locator("#planner");
+
+        await canvas.PressAsync("Alt+s");
+        var stats = await StatsWhenAsync(page, "s.orreryOpen && s.orreryComets >= 8 && s.orreryTails > 0");
+        output.WriteLine($"the orrery drew {stats.GetProperty("orreryComets").GetInt32()} comets, {stats.GetProperty("orreryTails").GetInt32()} tails, "
+            + $"in {stats.GetProperty("orreryMs").GetDouble():F1} ms");
+
+        var dir = Environment.GetEnvironmentVariable("TIANWEN_WEB_SHOTS") ?? Path.Combine(Path.GetTempPath(), "tianwen-orrery-shots");
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "orrery-comets.png");
+        var box = await canvas.BoundingBoxAsync() ?? throw new InvalidOperationException("the atlas canvas has no box");
+        var png = await page.ScreenshotAsync(new PageScreenshotOptions
+        {
+            Path = path,
+            Clip = new Clip { X = box.X, Y = box.Y, Width = box.Width, Height = box.Height },
+        });
+        output.WriteLine($"the canvas: {path}");
+        var violet = await page.EvaluateAsync<int>(VioletPixelsScript, Convert.ToBase64String(png));
+        output.WriteLine($"violet pixels (the comets' orbits): {violet}");
+        Assert.True(violet > 300, $"only {violet} violet pixels: the comets' orbits are not on the canvas");
+        await page.Context.CloseAsync();
+    }
 }
