@@ -49,6 +49,9 @@ public sealed class NodePlanetaryCapture
     /// <summary>Why the node's capture failed, in words; null while it goes well.</summary>
     public string? FailureReason => Volatile.Read(ref _state)?.FailureReason;
 
+    /// <summary>The node's recording of the capture going on, or the last one to end, as last read; null before any (#1344).</summary>
+    public PlanetaryRecordingDto? Recording => Volatile.Read(ref _state)?.Recording;
+
     public void SetExposure(TimeSpan exposure) => Stage(p => p with { ExposureMs = exposure.TotalMilliseconds });
 
     public void SetGain(int gain) => Stage(p => p with { Gain = (short)Math.Clamp(gain, 0, short.MaxValue) });

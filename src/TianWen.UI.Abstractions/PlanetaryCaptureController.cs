@@ -304,6 +304,57 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
         return published;
     }
 
+    /// <summary>
+    /// Asks <paramref name="node"/> to record the capture going on to a SER file for <paramref name="duration"/> (#1344): the
+    /// node writes it and finishes it unwatched, and the state this view reads shows it (<see cref="NodePlanetaryCapture.Recording"/>).
+    /// Answers the node's refusal in its words (no capture going on, one already recording, a duration that is not positive),
+    /// or null once it records.
+    /// </summary>
+    public async Task<string?> RecordAsync(NodeConnection node, TimeSpan duration, CancellationToken cancellationToken)
+    {
+        var request = new PlanetaryRecordRequestDto { DurationSeconds = duration.TotalSeconds };
+        var started = await node.Client.StartPlanetaryRecordingAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!started.IsSuccess)
+        {
+            return started.Error ?? "The node did not start the recording";
+        }
+        Show(started.Value);
+        return null;
+    }
+
+    /// <summary>
+    /// Asks <paramref name="node"/> to end the recording going on sooner than its duration; the capture goes on. Answers the
+    /// node's refusal in its words (no recording being made), or null once it has ended it.
+    /// </summary>
+    public async Task<string?> StopRecordingAsync(NodeConnection node, CancellationToken cancellationToken)
+    {
+        var stopped = await node.Client.StopPlanetaryRecordingAsync(cancellationToken).ConfigureAwait(false);
+        if (!stopped.IsSuccess)
+        {
+            return stopped.Error ?? "The node did not stop the recording";
+        }
+        Show(stopped.Value);
+        return null;
+    }
+
+    // The node's answer to a record or a stop it took is its newest state: shown at once, not at the next poll.
+    private void Show(PlanetaryStateDto? state)
+    {
+        if (state is not null)
+        {
+            Capture.Update(state);
+        }
+        _state.NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// How long the recording going on has left by this computer's clock, which <c>TIANWEN_NOW</c> anchors as it anchors the
+    /// node's; zero when none is being made.
+    /// </summary>
+    public TimeSpan RecordingTimeLeft => Capture.Recording is { Recording: true } recording
+        ? TimeSpan.FromTicks(Math.Max(0, (recording.EndsUtc - _timeProvider.GetUtcNow()).Ticks))
+        : TimeSpan.Zero;
+
     /// <summary>Asks the node to stop the capture; the view follows it until the node says it has ended.</summary>
     public void Stop() => Volatile.Write(ref _stopAsked, 1);
 
