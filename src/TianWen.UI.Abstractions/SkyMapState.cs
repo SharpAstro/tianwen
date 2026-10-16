@@ -1006,10 +1006,6 @@ namespace TianWen.UI.Abstractions
             => new(DateTime.SpecifyKind(DateTime.FromOADate(jdTt - 2415018.5), DateTimeKind.Utc));
 
         /// <summary>
-        /// A comet's brightness at its peak, roughly: <c>M1 + K1 log10(max(q, 0.05))</c>, the total magnitude at <c>r = q</c> seen
-        /// from an AU away: the sky's candidacy filter (<see cref="IsCometCandidate"/>); NaN for a comet with no magnitude model.
-        /// </summary>
-        /// <summary>
         /// Whether a comet's photometric model could plausibly bring it into naked-marker range: it has a model and an index, and its
         /// <see cref="PeakMagnitude"/> is no fainter than <see cref="CometCandidacyMagnitudeLimit"/>. The sky's candidacy rule, for its
         /// per-frame sweep. The orrery does NOT use it: its monthly ranking scores every comet with a model at the instant
@@ -1018,6 +1014,10 @@ namespace TianWen.UI.Abstractions
         internal static bool IsCometCandidate(in CometElements el)
             => el.HasMagnitudeModel && el.CatalogIndex is not null && PeakMagnitude(el) <= CometCandidacyMagnitudeLimit;
 
+        /// <summary>
+        /// A comet's brightness at its peak, roughly: <c>M1 + K1 log10(max(q, 0.05))</c>, the total magnitude at <c>r = q</c> seen
+        /// from an AU away: the sky's candidacy filter (<see cref="IsCometCandidate"/>); NaN for a comet with no magnitude model.
+        /// </summary>
         internal static double PeakMagnitude(in CometElements el)
             => el.AbsoluteMagnitudeM1 + (el.SlopeK1 * Math.Log10(Math.Max(el.PerihelionDistanceAu, 0.05)));
 
