@@ -109,6 +109,29 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
         get { lock (_gate) { return _count - 1; } }
     }
 
+    private int _runStart;
+
+    /// <summary>
+    /// Index of the first frame of the stream's current RUN: 0, or the first frame pushed since its stream last started again
+    /// after an interlude (<see cref="PlanetaryCapture.InterludeAsync"/>: a filter changed, a step of a sequence, a still). A
+    /// live stack never folds a frame from before it with one after (<see cref="LiveStackLoop"/> starts its window again here),
+    /// and the ring keeps its planes, so a restart allocates nothing. Read <see cref="LatestIndex"/> first: a run marked between
+    /// the two reads then starts past the latest frame, which no stack takes.
+    /// </summary>
+    public int RunStart
+    {
+        get { lock (_gate) { return _runStart; } }
+    }
+
+    /// <summary>Marks the next frame pushed as the first of a new run (<see cref="RunStart"/>): the capture loop's, before that push.</summary>
+    internal void StartRun()
+    {
+        lock (_gate)
+        {
+            _runStart = _count;
+        }
+    }
+
     /// <inheritdoc/>
     public int FrameCount
     {

@@ -229,6 +229,13 @@ internal sealed class NodePlanetaryRun : INodeRun
     /// <summary>The OTA whose camera streams.</summary>
     internal int OtaIndex => _otaIndex;
 
+    // The newest master's window, its first frame in the high half and its last in the low; -1 before any.
+    private long _lastWindow = -1;
+
+    /// <summary>The ring indices of the newest master's window, first and last; null before any master. Test seam.</summary>
+    internal (int Start, int End)? LastWindow
+        => Interlocked.Read(ref _lastWindow) is >= 0 and var packed ? ((int)(packed >> 32), (int)packed) : null;
+
     /// <summary>
     /// Whether this capture streams through <paramref name="filterWheel"/>, the wheel its OTA's profile named as it was prepared:
     /// a filter change of that wheel is then the capture's interlude (<see cref="PlanetaryCapture.InterludeAsync"/>).
@@ -387,6 +394,7 @@ internal sealed class NodePlanetaryRun : INodeRun
         return LiveStackLoop.RunAsync(() => Capture.IsCapturing, () => Capture.Stream, _stackOptions, _timeProvider,
             (master, stacker, _) =>
             {
+                Interlocked.Exchange(ref _lastWindow, ((long)stacker.WindowStart << 32) | (uint)stacker.WindowEnd);
                 Volatile.Write(ref _stackedFrames, stacker.WindowFrameCount);
                 Interlocked.Increment(ref _masters);
                 _frames.Publish(FrameSources.PlanetaryMaster, master);

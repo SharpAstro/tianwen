@@ -56,11 +56,10 @@ public class PlanetaryFilterChangeTests(ITestOutputHelper outputHelper)
         return ended;
     }
 
-    [Fact(Timeout = 120_000)]
-    public async Task AFilterChangeDuringACaptureRestartsItsStreamRefocusesByTheOffsetAndNamesTheNextRecording()
+    // An active profile whose one OTA has the fake camera, wheel and focuser, all three connected.
+    private static async Task<(IDeviceHub Hub, FakeCameraDriver Camera, IFilterWheelDriver Wheel, IFocuserDriver Focuser)> MonoRigAsync(NodeHarness node,
+        CancellationToken ct)
     {
-        var ct = TestContext.Current.CancellationToken;
-        await using var node = await NodeHarness.StartAsync(outputHelper, ct);
         var ota = new OTAData("Test OTA", 1200, Camera.DeviceUri, null, Focuser.DeviceUri, Wheel.DeviceUri, null, null, Aperture: 254,
             OpticalDesign: OpticalDesign.Newtonian);
         var profile = new Profile(Guid.NewGuid(), "Mono rig", new ProfileData(NoneDevice.Instance.DeviceUri, NoneDevice.Instance.DeviceUri, [ota]));
@@ -71,6 +70,15 @@ public class PlanetaryFilterChangeTests(ITestOutputHelper outputHelper)
         var wheel = (IFilterWheelDriver)await hub.ConnectAsync(Wheel, ct);
         var focuser = (IFocuserDriver)await hub.ConnectAsync(Focuser, ct);
         (await wheel.GetPositionAsync(ct)).ShouldBe(L, "the fake wheel starts at luminance");
+        return (hub, camera, wheel, focuser);
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AFilterChangeDuringACaptureRestartsItsStreamRefocusesByTheOffsetAndNamesTheNextRecording()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var node = await NodeHarness.StartAsync(outputHelper, ct);
+        var (hub, camera, wheel, focuser) = await MonoRigAsync(node, ct);
         var luminanceFocus = await focuser.GetPositionAsync(ct);
 
         var client = new TianWenNodeClient(node.Client);
@@ -120,5 +128,46 @@ public class PlanetaryFilterChangeTests(ITestOutputHelper outputHelper)
         await UntilStateAsync(client, "the recording to be written", s => s.Recording is { Written: true }, ct);
         (await client.StopPlanetaryAsync(ct)).IsSuccess.ShouldBeTrue();
         hub.TryGetLease(Camera.DeviceUri, out _).ShouldBeFalse("the capture ends normally and gives the camera back");
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task AFilterChangeStartsTheLiveStackAgainAtTheFirstFrameAfterIt()
+    {
+        // The frames before a filter change were taken through another filter and focus: a live stack that went on folding
+        // them in showed a blend of both for a whole window (500 frames by default). It starts again as a new window does,
+        // and the counters and the rate carry on.
+        var ct = TestContext.Current.CancellationToken;
+        await using var node = await NodeHarness.StartAsync(outputHelper, ct);
+        await MonoRigAsync(node, ct);
+        var client = new TianWenNodeClient(node.Client);
+        (await client.StartPlanetaryAsync(new PlanetaryRequestDto(), ct)).IsSuccess.ShouldBeTrue();
+        var stacking = await UntilStateAsync(client, "a master to be stacked", s => s is { Masters: > 0, StackedFrames: > 0 }, ct);
+        var run = node.Node.CurrentRun.ShouldBeOfType<NodePlanetaryRun>();
+
+        await ChangeAsync(client, R, ct);
+
+        var ring = run.Capture.Stream.ShouldNotBeNull();
+        var restart = ring.RunStart;
+        outputHelper.WriteLine($"the run restarted at frame {restart}, {stacking.FramesReceived} frames received before the change");
+        restart.ShouldBeGreaterThan(stacking.FramesReceived - 1, "the run starts at a frame after the change");
+        (int Start, int End) past = default;
+        await UntilAsync("a master past the change", _ =>
+        {
+            var window = run.LastWindow;
+            if (window is { } seen && seen.End >= restart)
+            {
+                past = seen;
+                return ValueTask.FromResult((true, $"window {seen}"));
+            }
+            return ValueTask.FromResult((false, window is null ? "no master" : $"window {window}"));
+        }, ct);
+        var (start, end) = past;
+        outputHelper.WriteLine($"the first master seen past the change stacks frames {start} to {end}");
+        start.ShouldBeGreaterThanOrEqualTo(restart, "the stack folds no frame from before the change");
+
+        var after = (await client.GetPlanetaryAsync(ct)).Value.ShouldNotBeNull();
+        after.FramesReceived.ShouldBeGreaterThan(stacking.FramesReceived, "the frames received carry on from before the change");
+        ring.ShouldBeSameAs(run.Capture.Stream, "the ring and its planes are the same: a restart allocates no new one");
+        (await client.StopPlanetaryAsync(ct)).IsSuccess.ShouldBeTrue();
     }
 }

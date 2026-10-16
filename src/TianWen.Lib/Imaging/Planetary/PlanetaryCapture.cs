@@ -831,6 +831,10 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                     {
                         // The rate is the stream's, so the time it stood stopped is not counted against it (MeasuredFps).
                         Interlocked.Add(ref _interludeTicks, timeProvider.GetElapsedTime(stoppedAt).Ticks);
+                        // The live stack starts again at this frame, the first the ring keeps after the interlude: what came
+                        // before was taken through another filter, focus or window. A ring rebuilt for this frame (its window
+                        // changed) starts at it anyway. The ring and its planes, the counters and the rate carry on.
+                        Volatile.Read(ref _stream)?.StartRun();
                         restarted = null;
                         Interlocked.CompareExchange(ref _interlude, null, back);
                         back.Restarted();
