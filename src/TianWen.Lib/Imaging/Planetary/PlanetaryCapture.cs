@@ -492,6 +492,9 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     private async Task CaptureLoopAsync(ICameraDriver camera, VideoCaptureOptions options, DeviceLeaseSet? claim, CancellationToken token)
     {
         LiveCameraFrameStream? stream = null;
+        // The process's collections over the capture, and how long they held every managed thread, the reader's and the
+        // driver's included: said as the loop ends, beside its frames.
+        var (gen0From, gen1From, gen2From, pausedFrom) = (GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2), GC.GetTotalPauseDuration());
         try
         {
             var streams = Streams(camera);
@@ -576,7 +579,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 // heartbeat before a freeze bounds when the loop (or the thread it feeds) stopped advancing.
                 if (received % 250 == 0)
                 {
-                    logger.LogDebug(
+                    LogDebugOffTheReader(
                         "Capture heartbeat ({Capture}): received {Received}, stream {StreamCount}, {Fps:F0} fps, {Dropped} dropped.",
                         Name, received, stream?.FrameCount ?? 0, MeasuredFps, DroppedFrames);
                 }
@@ -605,6 +608,11 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         }
         finally
         {
+            logger.LogInformation(
+                "Capture loop ended ({Capture}): {Frames} frames, {OnPool} of them on the thread pool; the process collected {Gen0}/{Gen1}/{Gen2} times (gen 0/1/2), pausing {Paused:F0} ms in all",
+                Name, FramesReceived, FramesOnThreadPool, GC.CollectionCount(0) - gen0From, GC.CollectionCount(1) - gen1From, GC.CollectionCount(2) - gen2From,
+                (GC.GetTotalPauseDuration() - pausedFrom).TotalMilliseconds);
+
             // A recording ends with the frames that feed it; what it queued is still written.
             _recording?.End("the capture ended");
 
@@ -616,6 +624,21 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             // the per-frame signal), so this is sticky: every later wait returns at once too, and a stopped or faulted
             // loop surfaces as a failed predicate rather than as a hang. Start arms a fresh signal for the next run.
             Volatile.Read(ref _frameSignal).TrySetResult();
+        }
+    }
+
+    // A line the loop says at Debug as it goes (a heartbeat, a recentre's jog, a live control applied), written by the thread
+    // pool rather than the reader: a host's file log is one lock for every logger in its process, its writer flushing each
+    // line to disk under it, and a normal-priority thread a busy machine holds off while it holds that lock would hold the
+    // reader up behind it (TIA2). What the line says is taken now; only the writing waits.
+    private void LogDebugOffTheReader(string message, params object?[] args)
+    {
+        if (logger.IsEnabled(LogLevel.Debug))
+        {
+#pragma warning disable CA2254 // the template is each caller's constant, carried here
+            ThreadPool.UnsafeQueueUserWorkItem(static line => line.Logger.LogDebug(line.Message, line.Args), (Logger: logger, Message: message, Args: args),
+                preferLocal: false);
+#pragma warning restore CA2254
         }
     }
 
@@ -869,7 +892,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             {
                 // Stage the pan -- ApplyPendingControlsAsync drains it onto the camera this same iteration.
                 JogRoi(decision.RoiDx, decision.RoiDy);
-                logger.LogDebug(
+                LogDebugOffTheReader(
                     "Planetary recenter: ROI jog ({Dx},{Dy}) for COM offset ({Ox:F1},{Oy:F1}) px.",
                     decision.RoiDx, decision.RoiDy, decision.OffsetX, decision.OffsetY);
             }
@@ -1037,7 +1060,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
             // Defensive breadcrumb: these live-control changes are the actions that correlate with a stall, so log
             // exactly what was applied -- the last such line before a freeze pinpoints the trigger.
-            logger.LogDebug(
+            LogDebugOffTheReader(
                 "Planetary live control applied: roi={RoiW}x{RoiH} exposureTicks={ExpTicks} gain={Gain} jog=({Jx},{Jy}) depth={Depth} highSpeed={HighSpeed}.",
                 rw, rh, expTicks, gain, jx, jy, depth, highSpeed);
         }
