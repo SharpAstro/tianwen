@@ -10,17 +10,46 @@ namespace TianWen.Lib.Tests;
 [Collection("Scheduling")]
 public sealed class FilterCurveDatabaseTests(ITestOutputHelper output)
 {
+    // #1525, #1526: the ASI224MC's and ASI678MC's own R, G and B responses, digitised from ZWO's charts, peak where the digitiser read
+    // them off the chart (its own gate), and give each camera a colour matrix of the family the database's other Sony colour cameras get:
+    // white kept (each row sums to one), each channel its own (the diagonal leads its row), the filters' overlap undone (a negative term
+    // off the diagonal in every row).
+    [Theory]
+    [InlineData("ZWO ASI224MC", 605, 535, 460)]
+    [InlineData("ZWO ASI678MC", 600, 505, 450)]
+    public async Task AColourCamerasOwnResponsesPeakWhereItsChartDoesAndGiveItAMatrix(string camera, double redNm, double greenNm, double blueNm)
+    {
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+        foreach (var (channel, peakNm) in new[] { ("R", redNm), ("G", greenNm), ("B", blueNm) })
+        {
+            FilterCurveDatabase.TryGetFilter($"{camera.Replace(' ', '_')}_{channel}", out var curve).ShouldBeTrue();
+            var best = Enumerable.Range(0, (int)curve.Count).MaxBy(i => curve.ThroughputAt(i));
+            (curve.WavelengthAt(best) / 10).ShouldBe(peakNm, 10, $"{camera} {channel} peaks where its chart does (the database holds Angstrom)");
+        }
+
+        FilterCurveDatabase.TryComputeCameraToSrgbMatrix(camera, out var m).ShouldBeTrue();
+        for (var row = 0; row < 3; row++)
+        {
+            var (a, b, c) = ((double)m[row * 3], (double)m[(row * 3) + 1], (double)m[(row * 3) + 2]);
+            (a + b + c).ShouldBe(1, 0.01, $"{camera} row {row} keeps white");
+            ((double)m[row * 4]).ShouldBeGreaterThan(1.2, $"{camera} row {row}: its own channel leads");
+            new[] { a, b, c }.Where((_, k) => k != row).ShouldContain(v => v < 0, $"{camera} row {row} undoes the filters' overlap");
+        }
+        output.WriteLine($"{camera}: [{string.Join(", ", m.Select(v => v.ToString("0.000")))}]");
+    }
+
     [Fact]
-    public async Task LoadAsync_LoadsAll184Curves()
+    public async Task LoadAsync_LoadsAll190Curves()
     {
         await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
 
         FilterCurveDatabase.IsLoaded.ShouldBeTrue();
-        // 176 upstream (SETI Astro's SASP_data.fits) + 8 local, digitised from vendor charts and
+        // 176 upstream (SETI Astro's SASP_data.fits) + 14 local, digitised from vendor charts and
         // merged by tools/import-sasp-data --merge-only: IDAS_LPS_D3, IDAS_NBZ,
-        // ASKAR_COLOURMAGIC_D1/D2, OPTOLONG_L_QUAD_ENHANCE, OPTOLONG_L_ULTIMATE, OPTOLONG_L_ENHANCE
-        // and BAADER_SEMI_APO. Local curves live in tools/import-sasp-data/local-filters/.
-        FilterCurveDatabase.AllCurves.Length.ShouldBe(184);
+        // ASKAR_COLOURMAGIC_D1/D2, OPTOLONG_L_QUAD_ENHANCE, OPTOLONG_L_ULTIMATE, OPTOLONG_L_ENHANCE,
+        // BAADER_SEMI_APO, and the colour cameras' own R, G and B responses ZWO_ASI224MC_R/G/B and
+        // ZWO_ASI678MC_R/G/B (#1525, #1526). Local curves live in tools/import-sasp-data/local-filters/.
+        FilterCurveDatabase.AllCurves.Length.ShouldBe(190);
 
         foreach (var curve in FilterCurveDatabase.AllCurves)
         {
