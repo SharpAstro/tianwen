@@ -80,11 +80,11 @@ public sealed class SkyMapPlanetDiscTests
         public void Dispose() => Renderer.Dispose();
     }
 
-    private static async Task<Rig> RigAsync(System.Threading.CancellationToken cancellationToken)
+    private static async Task<Rig> RigAsync(System.Threading.CancellationToken cancellationToken, float dpiScale = 1f)
     {
         var db = await SharedCatalogDB.InitAsync(cancellationToken);
         var renderer = new RgbaImageRenderer(Size, Size);
-        var tab = new DiscTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+        var tab = new DiscTab(renderer) { FontPath = FontResolver.ResolveSystemFont(), DpiScale = dpiScale };
         var planner = new PlannerState
         {
             ObjectDb = db, SiteLatitude = 48.0, SiteLongitude = 11.0, SiteTimeZone = TimeSpan.FromHours(1), PlanningDate = Instant,
@@ -299,21 +299,30 @@ public sealed class SkyMapPlanetDiscTests
     /// <summary>
     /// Selecting a body puts its texture's credit under its disc (#1567, #1608): the line the panel was handed is the body's own credit
     /// (the atlas's, as no OPAL store is given here), and the row under the slot holds drawn text, many shades of it, where it was empty.
-    /// Every atlas body the map shows; the Earth, which it does not, is held by <c>ObjectInfoPanelTests</c>.
+    /// Every atlas body the map shows, at 1x and 1.5x; the Earth, which it does not, is held by <c>ObjectInfoPanelTests</c>.
     /// </summary>
     [Theory(Timeout = 120_000)]
-    [InlineData(CatalogIndex.Sol)]
-    [InlineData(CatalogIndex.Moon)]
-    [InlineData(CatalogIndex.Mercury)]
-    [InlineData(CatalogIndex.Venus)]
-    [InlineData(CatalogIndex.Mars)]
-    [InlineData(CatalogIndex.Jupiter)]
-    [InlineData(CatalogIndex.Saturn)]
-    [InlineData(CatalogIndex.Uranus)]
-    [InlineData(CatalogIndex.Neptune)]
-    public async Task TheDiscsCreditIsDrawnUnderIt(CatalogIndex body)
+    [InlineData(CatalogIndex.Sol, 1f)]
+    [InlineData(CatalogIndex.Moon, 1f)]
+    [InlineData(CatalogIndex.Mercury, 1f)]
+    [InlineData(CatalogIndex.Venus, 1f)]
+    [InlineData(CatalogIndex.Mars, 1f)]
+    [InlineData(CatalogIndex.Jupiter, 1f)]
+    [InlineData(CatalogIndex.Saturn, 1f)]
+    [InlineData(CatalogIndex.Uranus, 1f)]
+    [InlineData(CatalogIndex.Neptune, 1f)]
+    [InlineData(CatalogIndex.Sol, 1.5f)]
+    [InlineData(CatalogIndex.Moon, 1.5f)]
+    [InlineData(CatalogIndex.Mercury, 1.5f)]
+    [InlineData(CatalogIndex.Venus, 1.5f)]
+    [InlineData(CatalogIndex.Mars, 1.5f)]
+    [InlineData(CatalogIndex.Jupiter, 1.5f)]
+    [InlineData(CatalogIndex.Saturn, 1.5f)]
+    [InlineData(CatalogIndex.Uranus, 1.5f)]
+    [InlineData(CatalogIndex.Neptune, 1.5f)]
+    public async Task TheDiscsCreditIsDrawnUnderIt(CatalogIndex body, float dpiScale)
     {
-        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale);
         rig.Look(body, 1);
         await SelectAsync(rig, body);
         // The credit arrives with the texture: one more frame shows it.

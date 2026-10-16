@@ -26,7 +26,11 @@ namespace TianWen.UI.Web.E2E;
 public sealed class OrrerySunTests(TianWenWebFixture fixture, ITestOutputHelper output)
 {
     private const float BootTimeout = 180_000;
-    private const float OrreryTimeout = 60_000;
+    // Generous: an interpreted Lightweight build draws a frame in about 17 s on this machine, and the atlas's decode is .NET there too.
+    private const float OrreryTimeout = 240_000;
+
+    // The atlas is decoded in .NET on the page's one thread, ten cells with their holes filled: minutes in an interpreted build.
+    private const float AtlasTimeout = 900_000;
 
     // The largest 4-connected component of near-white pixels (each channel above 170, red no more than 45 over blue: the flat Sun's
     // blue, 0x80, never passes), its size, bounding box and centre colour, and the mean green of its outermost ring against its centre.
@@ -64,7 +68,32 @@ public sealed class OrrerySunTests(TianWenWebFixture fixture, ITestOutputHelper 
         }
         """;
 
-    [Fact(Timeout = 300_000)]
+    private readonly ConcurrentQueue<string> _console = new();
+
+    // Waits on the render stats; on a timeout, fails naming what did not happen and the last snapshot the page answered.
+    private async Task<int> WaitAsync(IPage page, string condition, string failure, float timeout = OrreryTimeout)
+    {
+        try
+        {
+            await page.WaitForFunctionAsync(RenderStatsWait.Script(condition, "s.orreryFrames + s.sunTextured + 1"),
+                null, new PageWaitForFunctionOptions { Timeout = timeout });
+            return await page.EvaluateAsync<int>("() => window.__tianwenStats.sunTextured");
+        }
+        catch (TimeoutException)
+        {
+            var last = await page.EvaluateAsync<string?>("() => JSON.stringify(window.__tianwenStats ?? null)");
+            var shot = Path.Combine(Path.GetTempPath(), "tianwen-orrery-sun-shots", "orrery-timeout.png");
+            await page.ScreenshotAsync(new PageScreenshotOptions { Path = shot });
+            foreach (var line in _console)
+            {
+                output.WriteLine("  " + line);
+            }
+            output.WriteLine($"capture at the timeout: {shot}");
+            throw new TimeoutException($"{failure}; the last render stats: {last}");
+        }
+    }
+
+    [Fact(Timeout = 1_800_000)]
     public async Task TheOrrerysSunIsItsTexturedPhotosphere()
     {
         var dir = Environment.GetEnvironmentVariable("TIANWEN_WEB_SHOTS")
@@ -72,19 +101,22 @@ public sealed class OrrerySunTests(TianWenWebFixture fixture, ITestOutputHelper 
         Directory.CreateDirectory(dir);
 
         var page = await fixture.NewPageAsync();
-        var console = new ConcurrentQueue<string>();
+        var console = _console;
         page.Console += (_, m) => console.Enqueue($"[{m.Type}] {m.Text}");
         page.PageError += (_, e) => console.Enqueue($"[pageerror] {e}");
+        page.Response += (_, r) => { if (r.Status >= 400 || r.Url.Contains("planet-textures", StringComparison.Ordinal)) console.Enqueue($"[http {r.Status}] {r.Url}"); };
 
         await page.GotoAsync(fixture.BaseUrl + "?e2e=1&view=sky", new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
         await Expect(page.Locator("[data-view=sky]")).ToBeVisibleAsync(new() { Timeout = BootTimeout });
         await page.WaitForFunctionAsync(RenderStatsWait.Script("s.frames > 0", "s.frames"),
             null, new PageWaitForFunctionOptions { Timeout = BootTimeout });
 
+        // The atlas is fetched beside the page when the sky first opens; until it is adopted every body is flat.
+        await WaitAsync(page, "s.planetTextures > 0", "the planet texture atlas was never adopted", AtlasTimeout);
+        TestContext.Current.CancellationToken.ThrowIfCancellationRequested();
         await page.Keyboard.PressAsync("Alt+s");
-        var traced = await (await page.WaitForFunctionAsync(
-            RenderStatsWait.Script("s.orreryOpen && s.sunTextured > 0", "s.sunTextured"),
-            null, new PageWaitForFunctionOptions { Timeout = OrreryTimeout })).JsonValueAsync<int>();
+        await WaitAsync(page, "s.orreryOpen", "the orrery did not open on Alt+S");
+        var traced = await WaitAsync(page, "s.sunTextured > 0", "no frame traced the Sun from its map");
         output.WriteLine($"frames that traced the textured Sun: {traced}");
 
         var box = await page.Locator("#planner").BoundingBoxAsync() ?? throw new InvalidOperationException("the atlas canvas has no box");
