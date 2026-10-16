@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Shouldly;
 using TianWen.DAL;
 using TianWen.Lib.Devices;
@@ -204,7 +205,7 @@ internal static class ScriptedDalCamera
 {
     internal static async Task<(TestDalCameraDriver Camera, FakeCmosState State, FakeTimeProviderWrapper Time)> ConnectAsync(
         ITestOutputHelper output, bool canReset = false, IReadOnlyList<PixelDataFormat>? formats = null, bool canStream = false,
-        BayerPattern bayerPattern = BayerPattern.Monochrome, bool hasHighSpeed = false, int bandwidthMax = 0)
+        BayerPattern bayerPattern = BayerPattern.Monochrome, bool hasHighSpeed = false, int bandwidthMax = 0, ILoggerProvider? logTo = null)
     {
         var time = new FakeTimeProviderWrapper();
         var external = new FakeExternal(output, time);
@@ -218,7 +219,8 @@ internal static class ScriptedDalCamera
             HasHighSpeed = hasHighSpeed,
             BandwidthMax = bandwidthMax,
         };
-        var camera = new TestDalCameraDriver(device, external.BuildServiceProvider(), state);
+        // A log the test reads takes the driver's lines from Debug up; with none, its loggers write nowhere.
+        var camera = new TestDalCameraDriver(device, logTo is null ? external.BuildServiceProvider() : external.BuildServiceProvider(logTo, LogLevel.Debug), state);
         await camera.ConnectAsync(TestContext.Current.CancellationToken);
         camera.Connected.ShouldBeTrue();
         return (camera, state, time);

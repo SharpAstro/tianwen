@@ -1014,7 +1014,9 @@ with the box quiet. A recording the camera stalled in is reported apart and made
 - **The DAL's frame wait keeps its reader's context**, so the stream's thread wakes the reader straight, never through the pool.
 - **The recording's writer runs on a thread of its own too**: the loop shares its queue's lock and the byte pool's with it, and a
   pool writer held off while it held one held the loop up behind it.
-- **The loop's running Debug lines are written by the pool** (a host's file log is one lock for the process, flushed under it).
+- **The loop's running Debug lines are written by the pool** (a host's file log is one lock for the process, flushed under it),
+  and so are the DAL's pan and gain lines on the stream's thread, all through one extension (`LogDebugOffThread`): a write that
+  throws there costs the line, never the process (#1628), and a time a reader needs is carried in the line, never read off its write.
 - **A capture's ring takes the planes the last ring of its shape left** (`RingPlaneShelf`): a ring of 1,024 large float planes
   filled fresh for every capture fed the collector 1.2 GB a capture (below). One shape at a time, one ring's worth at most, given
   up at the first gen 2 collection 30 s after its last use.
@@ -1116,7 +1118,8 @@ quiet 5 in 755 s), against one in 1,250 s in ToupTek.SDK's soak. A stall costs a
 
 **The probes.** The node gate's in-process baseline now takes only recordings that fail nothing by themselves (review round 2 of
 #1609), and its window check reads the window the camera has from the DAL's own line once the body has it, not the jog that asked
-for it. Each recording waits until no other build or test uses CPU (`TIANWEN_RATE_PROBE_QUIET_BUT`: the compiler server names no
+for it. A pan's and a gain's line says when the stream took it, and the probe places each in its stream and times a gain by that,
+never by the line's write or its place in the file, both the pool's (#1628). Each recording waits until no other build or test uses CPU (`TIANWEN_RATE_PROBE_QUIET_BUT`: the compiler server names no
 worktree, and another worker's csc took 5 cores in a gated run). The driver counts where its reader woke (`VideoReaderWakesOnPool`),
 a recording keeps its longest write, and each capture says as it ends where its frames ran and what the collections paused.
 

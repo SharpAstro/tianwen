@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Shouldly;
 using TianWen.DAL;
 using TianWen.Lib.Devices;
@@ -148,6 +151,71 @@ public class DALCameraVideoTests(ITestOutputHelper output)
         await using var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
         (await NextAsync(frames)).Release();
         (camera.VideoRoi.X % 2, camera.VideoRoi.Y % 2).ShouldBe((0, 0));
+    }
+
+    /// <summary>
+    /// The stream's line for a staged gain says when the stream took it (#1628). The line is written by the thread pool, so it can
+    /// land late and out of order, and a reader that timed the gain off the line's write (the node rate probe's 1 s bound) counted
+    /// the pool's delay. Here its write is held while the clock moves on an hour.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task AStagedGainsLineSaysWhenTheStreamTookItNotWhenItWasWritten()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var log = new HeldGainLine();
+        var (camera, _, time) = await ScriptedDalCamera.ConnectAsync(output, canStream: true, logTo: log);
+        camera.NumX = 64;
+        camera.NumY = 32;
+
+        await using var frames = camera.CaptureVideoAsync(OneMillisecond, ct).GetAsyncEnumerator(ct);
+        (await NextAsync(frames)).Release();
+        var staged = time.GetUtcNow();
+        await camera.ApplyVideoControlsAsync(new VideoCaptureOptions(TimeSpan.FromMilliseconds(1), Gain: 42), ct);
+        while (!log.Arrived.Task.IsCompleted)
+        {
+            (await NextAsync(frames)).Release();
+        }
+        var arrived = time.GetUtcNow();
+        time.Advance(TimeSpan.FromHours(1));
+        log.LetGo.Set();
+        var line = await log.Written.Task.WaitAsync(ct);
+
+        var said = Regex.Match(line, @"stream is at gain (?<gain>\d+) as of (?<at>\S+)$", RegexOptions.CultureInvariant);
+        said.Success.ShouldBeTrue($"the line carries the time: {line}");
+        said.Groups["gain"].Value.ShouldBe("42");
+        var at = DateTimeOffset.Parse(said.Groups["at"].Value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+        at.ShouldBeInRange(staged, arrived, "the time the stream took the gain, before the line reached the pool, never the hour its write was held");
+    }
+
+    /// <summary>
+    /// A log that holds the write of the stream's gain line until it is let go, as a pool a busy machine holds would, and keeps what
+    /// the line said once written. Disposing it lets go, so a test that fails never leaves a pool thread held.
+    /// </summary>
+    private sealed class HeldGainLine : ILoggerProvider, ILogger
+    {
+        public TaskCompletionSource Arrived { get; } = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // Never disposed, as in SerRecordingWriterWakeTests: a held write may still be waiting on it.
+        public ManualResetEventSlim LetGo { get; } = new ManualResetEventSlim(false);
+
+        public TaskCompletionSource<string> Written { get; } = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ILogger CreateLogger(string categoryName) => this;
+
+        public void Dispose() => LetGo.Set();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (formatter(state, exception).Contains("stream is at gain", StringComparison.Ordinal) && Arrived.TrySetResult())
+            {
+                LetGo.Wait();
+                Written.TrySetResult(formatter(state, exception));
+            }
+        }
     }
 
     [Fact(Timeout = 30_000)]
