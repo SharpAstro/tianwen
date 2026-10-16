@@ -1065,6 +1065,17 @@ of the fifteen clean recordings with the view under the 32 spinners, five replac
 replaced 0.79 %, at 100 % CPU. What allocates in the node's live stack and view, and the hand-off's depth (64 frames, about a
 third of a second) against pauses of up to about 0.6 s, are a follow-up issue.
 
+**What allocates, attributed** (`PlanetaryNodeAllocationProbe`, opt-in with `TIANWEN_ALLOCATION_PROBE=1`: the node's shape in
+process over the fake camera at 640x480, the runtime's own allocation ticks summed by type and heap). **A new capture's frame ring
+is the big one**: it holds `max(2 x MaxWindowFrames, 1024)` frames as float planes, 1,024 x 1.2 MB, and fills with fresh
+large-object planes over a capture's first 1,024 frames, about 5 s: 1,204 MB, all `Single[,]`, every capture, left to the GC when
+it ends (the node's heap of 1.3 to 1.6 GB). Once full, the ring recycles its evicted planes and the capture with its view's 33 ms
+sample allocates 3.0 KB a frame, small objects only. **The live stack allocates 5.6 MB of large objects a master**: the master's
+plane (1.4 MB), a frame-sized `Int32[]` (1.4 MB), the registration's FFT buffers (`Complex[]`, 1.2 MB, `CorrelationRegistrar`),
+`Single[]` (0.5 MB) and `Boolean[]` masks (0.35 MB), at 2 to 11 masters a minute. The levers, for the follow-up: rent the ring's
+planes from a pool that outlives a capture (or keep them in the stream's own depth, a quarter of the size at 8 bits), pool the
+stacker's per-master buffers, and a deeper hand-off.
+
 **The view and the node still answer under the load, and are bounded in the probe** (`NodePlanetaryRateProbe`): the node answers
 `GET /api/v1/planetary` at p99 under 250 ms, a gain staged through the GUI's client is on the camera within 1 s outside a stall,
 and the view shows at least what it showed before the fix at the same load (10.7 live frames a second under the 32 spinners, 24.6
