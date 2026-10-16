@@ -919,10 +919,12 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
     (#1468): its pixel is a 2x2 cell mean, half a pixel short of a detector's box, and the kernel took the gap for blur.
   - **The derived gains are the truth's; anything past it is the strength OPTION, never the default** (#1251,
     `PlanetarySharpenOptions.Strength`, `--strength`, `PlanetaryWaveletGains.Boost`); **never multiply derived
-    gains**. **"The truth" is the planet through the pupil's own diffraction**: undoing the telescope too is
-    an option (`PlanetarySharpenTarget.Aperture`, `--target aperture`, #1366; score it `--score-against
-    aperture`). **Read a gain set by its FILTER** (`PlanetaryWaveletGains.Transfer`). The panel's
-    `PlanetaryStrength` is never saved.
+    gains**. **"The truth" is the planet through the pupil's own diffraction**, and **the gains undo the telescope
+    too wherever the pixels resolve it, by ONE rule** (`PlanetarySharpenTarget.Auto`, the default: the aperture where
+    every channel's cutoff is below 0.5 cycles a pixel, `PlanetarySharpening.TargetFor`, #1632; `--target
+    telescope|aperture` forces either, #1366; score it `--score-against aperture`); gains given or learned keep the
+    telescope they were fitted toward. **Read a gain set by its FILTER** (`PlanetaryWaveletGains.Transfer`). The
+    panel's `PlanetaryStrength` is never saved.
   - **Learned gains are an OPTION, applied only inside what their twins covered** (`--learned-gains`,
     `PlanetaryGainsModels`, `PlanetaryGainsModel.Predict`, #1552): every reading inside the twins' range and the
     pupil cutoff within 10 % of theirs, else the derived gains stand and each channel says why

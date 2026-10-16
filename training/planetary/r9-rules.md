@@ -713,3 +713,102 @@ them against the post or any truth was read.
   a Wiener up to the cutoff and which RL 20 then overshoots. On derived gains the deblur is a step toward the posts that costs the truth.
 - **A0 (#1295's luminance option, no deblur) is the best EdgeHD mean** (8.52, better than N on 10 of 14: +0.7 % unwarped, -2.9 %
   warped), and worse than N on every colour twin's detail (+3 to +19 %), as #1295 found.
+
+
+## L-ORDER: deblur before the wavelets, or after (the owner, 2026-10-16 21:00 +11: "is deconvolve before or after wavelet sharpening", then "yes run the experiment", with the EdgeHD Jupiter's limb beside its post: "look how much sharper the edge is on theirs, ours is kind of double"; set before any arm below was run)
+
+- **The question:** TianWen deblurs AFTER the gains, and over the globe's last band its change fades to nothing, so the limb stays as the
+  sharpening's limb fix drew it (soft). The usual order elsewhere deblurs the stack first, then sharpens. Does deblurring the stack first,
+  over the whole planet with its limb, and deriving the gains from the deblurred stack serve better?
+- **The arms**, all on the derived gains at strength 1, 20 Richardson-Lucy steps, the deblur on the channels' mean (the combined deblur,
+  `--deconvolve-on luminance`), one build (`i1056/bin-order`, branch exp/deconvolve-on-luminance with `--deconvolve-order`):
+  - **A** after the gains, as the combined deblur runs today (the owner's pick for the default, 2026-10-16);
+  - **F** first: the stack deblurred over the whole planet, its limb and the gap between rings and globe taken in, feathered over two
+    diffraction widths past the outline; then the gains derived from it, toward the telescope's truth (`--deconvolve-order before`);
+  - **FA** as F, the gains toward the aperture's truth (`--target aperture`), since the deblur took the telescope out first;
+  - **N** no deblur, for reference. (The run also makes N and A toward the aperture; read, not judged.)
+- **Inputs:** L-DECONV-L's: the 14 held EdgeHD twins, #1295's four colour twins, the four captures with a post, the owner's 2026-10-07
+  Saturn (pictures only).
+- **Scores:** each twin against its truth carried to the aperture (`--score-against aperture`): the error over bands 1 to 4 (mean over r,
+  g, b), and the limb: `the limb profile's error within 8 px inside it` plus `outside` (mean over r, g, b). Each capture through
+  `planetary judge` against its post: C24.
+- **Verdicts, F and FA each against A:**
+  1. The limb: the limb's error (inside plus outside) below A's on the mean over the 14 EdgeHD twins, and on at least three of the four
+     colour twins.
+  2. Detail: the mean error over bands 1 to 4 on the 14 EdgeHD twins at or below A's; on each colour twin within 3 % of A's.
+  3. The posts: mean C24 over the four at or above A's.
+  All three: a candidate for the order of the default, the owner to decide. 1 with 2 or 3 failing: reported as a limb option. Otherwise not
+  adopted.
+- Corrected before any arm was read: the limb reach is the CLI's `PlanetaryMetrics.LimbReachPx`, printed as "within 6 px", not the 8 px
+  first written above. Disclosed: a smoke run of the colour twin sat-p5 (same build and arguments) read the variant labels; its log is
+  kept as sat-p5's run. Of its scores only the master as stacked and the N arm's limb line were seen; the arms' lines were cut off.
+
+## L-COLOUR: the colour contrast the blur takes, and a chroma gain read off the twins to restore it (the owner, 2026-10-16 21:30 +11: "having --posted is very useless as the whole idea is that we come up with the proper colour balance"; set before any measurement below)
+
+- **The question:** as shown and through the camera's matrix, the four posts carry 1.7 to 3 times our colour spread. The twins are rendered
+  channel by channel at one wavelength each, so they hold no cross-talk between the CFA's filters: any colour contrast a twin's master
+  lacks against its truth is the blur's (seeing, the pupil, the stack). How much does the chain lose, and does ONE chroma gain about the
+  planet's own colour, read off the twins, restore it? A gain the truth asks for is a balance from the data; a gain fitted to posts is a look.
+- **The masters:** each twin sharpened as the default-to-be (derived gains, strength 1, the combined deblur after the gains, 20 steps),
+  written to FITS; the build `i1056/bin-order` (L-ORDER's). Inputs: #1295's four colour twins and L-DECONV's 14 held EdgeHD twins.
+- **The reading** (python, glue over the written planes and the truth's .r, .g, .b): inside 0.9 of the disk (each from its own limb, the
+  sky off), each channel divided by its disk mean so both share one mean colour; each pixel taken to the interior's mean luminance; OKLab
+  a, b. The spread is the RMS of (a, b) about their mean. s* is the gain on (a, b) about the master's mean that minimises the per-pixel
+  OKLab distance to the truth (golden-section over 0.5 to 4).
+- **The rule:** if s* over the 18 twins has a coefficient of variation at or below 20 %, one gain serves them: its mean is a candidate for
+  the balance's saturation, the owner to decide, and what it does to the four posts' spread ratio is reported (not a verdict). If s* varies
+  more, its relation to the stack's own blur is reported and nothing is adopted.
+
+### L-COLOUR read 2026-10-17 01:00 (18 twins, bin-order, the combined deblur after the derived gains)
+
+- **By the rule as set: one gain serves them** (s* over the 18: mean 1.03, sd 0.20, CV 19 %, range 0.50 to 1.31), so the candidate is 1.03.
+- **Disclosed, the reading is invalid on the two Saturn twins:** their s* sits on the search's lower bound (0.50) and their truth spread is
+  four times the master's. The region (0.9 of the half-light outline) takes in the rings and the gap, where master and truth do not line up
+  pixel for pixel, so shrinking the colour lowers the distance. A globe-only region would be needed; not re-run.
+- **On the 16 Jupiter twins the chain keeps most of the colour contrast:** the 14 EdgeHD twins' sharpened masters hold 0.0092 to 0.0103 of
+  the truth's 0.0112 (ratio 1.09 to 1.21), s* 1.01 to 1.12; the two undersampled colour Jupiters 1.64 and 1.74, s* 1.31 and 1.19. Without
+  the two Saturns, s* is about 1.10 at a CV under 10 %.
+- **So the posts' 1.7 to 2.2 times our spread (as shown, through each camera's matrix) is mostly their authors' saturation**, not colour the
+  blur took: the truth asks a gain of about 1.1 at the EdgeHD Jupiter's sampling. Nothing adopted; the owner decides whether 1.1 is applied.
+
+### L-ORDER read 2026-10-17 02:20 (all 23 inputs, bin-order)
+
+- **F (the deblur first, gains toward the telescope): not adopted.** Limb FAILS (EdgeHD mean 0.0755 below A's 0.0801, but better on only one
+  colour twin of four); detail FAILS (EdgeHD 2.8993 below A's 3.3602, but sat-p5 8 % above A's); posts FAIL (0.9536 against 0.9657).
+- **FA (the deblur first, gains toward the aperture): a limb option by the rule.** Limb holds (EdgeHD 0.0207 against 0.0801, every colour
+  twin better); detail FAILS (EdgeHD 3.5215 against 3.3602); posts FAIL by a hair (0.9650 against 0.9657).
+- **Read beside them, not a verdict, and the finding that matters: no Richardson-Lucy at all, the derived gains toward the aperture (N-ap,
+  `--target aperture`), is the best of every arm on the finely sampled EdgeHD twins**: detail 2.8124 (N 2.8912, A 3.3602), limb 0.0332 with
+  the outside alone 0.0108 (N 0.0445: the seeing halo past the limb goes), rebound 0.0009 at most 0.0021, and the posts' best mean C24
+  0.9671 (A 0.9657). It repeats L-DECONV's derived `--target aperture` 2.8124 on the same twins.
+- **On the coarsely sampled colour twins (cutoff 1.0 to 1.3 cycles a pixel) the aperture target rings and loses:** detail worse on three of
+  four (up to +15 %), rebound 0.012 (at most 0.035) against no deblur's 0.003. Undoing the telescope pays only where the sampling
+  resolves its diffraction (the cutoff below 0.5 cycles a pixel). A rule gated on that is a new experiment, set before it is read.
+
+## L-TARGET: the derived gains toward the aperture where the sampling resolves the optics (set 2026-10-17 02:25 +11, after L-ORDER's read, which found it; to be confirmed on twins that did not find it, before any arm below is run)
+
+- **The question:** on the 14 held EdgeHD twins, no Richardson-Lucy and the derived gains toward the aperture (T, `--target aperture`) beat
+  the combined deblur after the gains (A) and no deblur (N) on detail and the limb, with no ringing to speak of, while on coarsely sampled
+  twins it rang. Does it hold on the 40 EdgeHD TRAINING twins (fine sampling, cutoffs 0.23 to 0.31 cycles a pixel), which no part of this
+  finding has read?
+- **The arms**, derived gains at strength 1, one build (`i1056/bin-order`): N (telescope target, no deblur), A (telescope target, the
+  combined deblur after the gains, 20 steps), T (aperture target, no deblur). Scored against the truth carried to the aperture.
+- **Verdicts, T against both A and N, on the 40 twins' means (mean over r, g, b):**
+  1. Detail: the error over bands 1 to 4 below both.
+  2. The limb: the limb profile's error within 6 px, inside plus outside, below both.
+  3. No overdone edge: the rebound past the limb at most 0.005 of the disk and the undershoot below the sky at most 0.002 on every twin.
+  All three: a candidate for the default where every channel's pupil cutoff lies below 0.5 cycles a pixel (the telescope target elsewhere),
+  the owner to decide. Otherwise not adopted.
+- Disclosed (2026-10-17 04:01): the report was run once on the 13 of 40 twins then complete (d000 to d012, all of the deploy family, no
+  warp), to check the run's progress: T's detail was above A's on all 13 (2.289 against 2.158) and its limb below on all 13 (0.020 against
+  0.074). The rule and the full run stand as set; the verdict is read on all 40.
+
+### L-TARGET read 2026-10-17 08:58 (all 40 training twins, bin-order)
+
+- **All three verdicts hold, on the 40 twins' means as set: a candidate for the default where every channel's pupil cutoff lies below
+  0.5 cycles a pixel, the owner to decide.** Detail N 2.674, A 2.934, T 2.594; limb N 0.0805, A 0.0795, T 0.0303; T's rebound at most
+  0.0024, undershoot 0.
+- **Read beside, by family, and it qualifies the detail clause:** on the 24 plain twins (d, the deploy family unwarped) T ties no deblur
+  (2.306 against N 2.296, below it on 11 of 24) and the deblur after the gains is best (2.212, T below it on 3 of 24); on the 16 warped and
+  blurred twins (e, f) T is below both on every f twin and every e twin but one against N (f: T 2.948, N 3.196, A 3.970; e: T 3.259, N
+  3.375, A 4.159). T is below both on detail on 16 of 40 in all. The limb is T's on all 40 (2 to 4 times truer in every family).

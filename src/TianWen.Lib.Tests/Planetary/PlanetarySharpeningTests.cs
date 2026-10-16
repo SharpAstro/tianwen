@@ -585,15 +585,56 @@ public class PlanetarySharpeningTests
         Should.Throw<ArgumentException>(() => PlanetarySharpening.Sharpen(master, options with { LuminanceOnly = true }));
     }
 
+    [Theory]
+    [InlineData(new[] { 0.23, 0.26, 0.31 }, PlanetarySharpenTarget.Aperture)]
+    [InlineData(new[] { 0.49 }, PlanetarySharpenTarget.Aperture)]
+    [InlineData(new[] { 0.23, 0.26, 0.5 }, PlanetarySharpenTarget.Telescope)]
+    [InlineData(new[] { 1.0, 1.13, 1.34 }, PlanetarySharpenTarget.Telescope)]
+    [InlineData(new[] { 0.3, double.NaN }, PlanetarySharpenTarget.Telescope)]
+    [InlineData(new double[0], PlanetarySharpenTarget.Telescope)]
+    public void TheAutomaticTargetIsTheApertureOnlyWhereEveryChannelResolvesTheTelescope(double[] cutoffs, PlanetarySharpenTarget expected)
+    {
+        // #1632: the aperture where every channel's pupil cutoff lies below 0.5 cycles a pixel (the EdgeHD twins it won on lie at 0.23 to
+        // 0.31), the telescope where any channel is sampled coarser (the colour twins it rang on lie at 1.0 to 1.3) or a cutoff is unknown.
+        PlanetarySharpening.TargetFor(PlanetarySharpenTarget.Auto, cutoffs).ShouldBe(expected);
+        new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope).Target.ShouldBe(PlanetarySharpenTarget.Auto, "the automatic target is the default");
+        PlanetarySharpening.TargetFor(PlanetarySharpenTarget.Telescope, cutoffs).ShouldBe(PlanetarySharpenTarget.Telescope, "a target asked for by name is taken");
+        PlanetarySharpening.TargetFor(PlanetarySharpenTarget.Aperture, cutoffs).ShouldBe(PlanetarySharpenTarget.Aperture, "a target asked for by name is taken");
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task TheDefaultTargetUndoesTheTelescopeOnlyWhereThePixelsResolveIt()
+    {
+        // #1632: the default resolves once, by every channel's cutoff, to one of the two named targets and sharpens exactly as that target
+        // asked by name would. The fixture's Jupiter is about 0.6" a pixel: through a 254 mm pupil at 650 nm its cutoff is about 1.1 cycles a
+        // pixel (coarser than the optics resolve, the telescope), through a 100 mm pupil about 0.45 (the aperture).
+        var ct = TestContext.Current.CancellationToken;
+        var (_, stack) = NoisyStack();
+        foreach (var (pupil, expected) in new[] { (Telescope, PlanetarySharpenTarget.Telescope), (new Pupil(0.1, ObstructionRatio: 0.23), PlanetarySharpenTarget.Aperture) })
+        {
+            var options = new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, pupil) { WavelengthsNm = [650] };
+            var automatic = (await Task.Run(() => PlanetarySharpening.Sharpen(stack, options), ct)).ShouldNotBeNull();
+            var named = (await Task.Run(() => PlanetarySharpening.Sharpen(stack, options with { Target = expected }), ct)).ShouldNotBeNull();
+            TestContext.Current.TestOutputHelper?.WriteLine($"{pupil.DiameterM * 1000:0} mm: cutoff {automatic.Cutoffs[0]:0.000} cycles a pixel, {automatic.Target}");
+
+            automatic.Target.ShouldBe(expected, $"a {pupil.DiameterM * 1000:0} mm pupil cuts off at {automatic.Cutoffs[0]:0.000} cycles a pixel");
+            named.Target.ShouldBe(expected, "a target asked for by name is the one taken");
+            automatic.Gains.ShouldBe(named.Gains, "the same gains as the target asked for by name");
+            automatic.Sharpened.GetChannelSpan(0).SequenceEqual(named.Sharpened.GetChannelSpan(0)).ShouldBeTrue("and the same pixels");
+            automatic.Sharpened.Release();
+            named.Sharpened.Release();
+        }
+    }
+
     [Fact(Timeout = 300_000)]
     public async Task TheApertureTargetTakesTheMidBandsPastTheTelescopesOwnTruth()
     {
-        // #1366: the default target is the planet through the pupil's diffraction, so the gains undo the air and the stack and never the
+        // #1366: toward the telescope (the planet through the pupil's diffraction) the gains undo the air and the stack and never the
         // telescope. Toward the aperture (the planet itself band-limited to the cutoff) the Wiener target divides the pupil's transfer out
         // too, so the mid bands go past where the telescope target leaves them, and the limb is still kept from ringing.
         var ct = TestContext.Current.CancellationToken;
         var (truth, stack) = NoisyStack();
-        var options = new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650] };
+        var options = new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650], Target = PlanetarySharpenTarget.Telescope };
 
         var telescope = (await Task.Run(() => PlanetarySharpening.Sharpen(stack, options), ct)).ShouldNotBeNull();
         var aperture = (await Task.Run(() => PlanetarySharpening.Sharpen(stack, options with { Target = PlanetarySharpenTarget.Aperture }), ct)).ShouldNotBeNull();
