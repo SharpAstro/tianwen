@@ -106,7 +106,7 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
         Capture.Began();
         if (started.Value is { } first)
         {
-            Capture.Update(first);
+            Capture.UpdateFromAnswer(first);
         }
         Volatile.Write(ref _stopAsked, 0);
         var masters = new NodeMasters();
@@ -148,10 +148,12 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
                     await node.Client.StopPlanetaryAsync(cancellationToken).ConfigureAwait(false);
                 }
 
+                // Stamped before it is sent: a record's answer that arrives meanwhile is newer than this poll's.
+                var stamp = Capture.PollStamp;
                 var now = await node.Client.GetPlanetaryAsync(cancellationToken).ConfigureAwait(false);
                 if (now is { IsSuccess: true, Value: { } state })
                 {
-                    Capture.Update(state);
+                    Capture.UpdateFromPoll(state, stamp);
                     _state.NeedsRedraw = true;
                     if (!state.Running)
                     {
@@ -314,56 +316,52 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
     /// <summary>
     /// Asks the node the capture on show runs on to record it to a SER file for <paramref name="duration"/> (#1344): the node
     /// writes it and finishes it unwatched, and the state this view reads shows it (<see cref="NodePlanetaryCapture.Recording"/>).
-    /// Answers the refusal in words (no capture on show, one already recording, a duration that is not positive), or null once
-    /// it records.
+    /// Answers with the recording as the node's answer shows it, or the refusal in words (no capture on show, one already
+    /// recording, a duration that is not positive).
     /// </summary>
-    public async Task<string?> RecordAsync(TimeSpan duration, CancellationToken cancellationToken)
+    public async Task<PlanetaryRecordAnswer> RecordAsync(TimeSpan duration, CancellationToken cancellationToken)
     {
         if (Volatile.Read(ref _node) is not { } node)
         {
-            return NoCaptureToRecord;
+            return PlanetaryRecordAnswer.Refused(NoCaptureToRecord);
         }
         var request = new PlanetaryRecordRequestDto { DurationSeconds = duration.TotalSeconds };
         var started = await node.Client.StartPlanetaryRecordingAsync(request, cancellationToken).ConfigureAwait(false);
-        if (!started.IsSuccess)
-        {
-            return started.Error ?? "The node did not start the recording";
-        }
-        Show(started.Value);
-        return null;
+        return started.IsSuccess
+            ? Show(started.Value)
+            : PlanetaryRecordAnswer.Refused(started.Error ?? "The node did not start the recording");
     }
 
     /// <summary>
     /// Asks the node the capture on show runs on to end the recording going on sooner than its duration; the capture goes on.
-    /// Answers the refusal in words (no recording being made), or null once it has ended it.
+    /// Answers with the recording as the node's answer shows it, ended, or the refusal in words (no recording being made).
     /// </summary>
-    public async Task<string?> StopRecordingAsync(CancellationToken cancellationToken)
+    public async Task<PlanetaryRecordAnswer> StopRecordingAsync(CancellationToken cancellationToken)
     {
         if (Volatile.Read(ref _node) is not { } node)
         {
-            return NoRecordingToStop;
+            return PlanetaryRecordAnswer.Refused(NoRecordingToStop);
         }
         var stopped = await node.Client.StopPlanetaryRecordingAsync(cancellationToken).ConfigureAwait(false);
-        if (!stopped.IsSuccess)
-        {
-            return stopped.Error ?? "The node did not stop the recording";
-        }
-        Show(stopped.Value);
-        return null;
+        return stopped.IsSuccess
+            ? Show(stopped.Value)
+            : PlanetaryRecordAnswer.Refused(stopped.Error ?? "The node did not stop the recording");
     }
 
     // The node's own words for the same refusals, said here when no capture is on show to ask it.
     internal const string NoCaptureToRecord = "No planetary capture is running to record";
     internal const string NoRecordingToStop = "No recording is being made";
 
-    // The node's answer to a record or a stop it took is its newest state: shown at once, not at the next poll.
-    private void Show(PlanetaryStateDto? state)
+    // The node's answer to a record or a stop it took is its newest state: shown at once, and never undone by a poll sent before
+    // it (NodePlanetaryCapture.UpdateFromAnswer); the caller reads the recording off the answer itself, not the state shown.
+    private PlanetaryRecordAnswer Show(PlanetaryStateDto? state)
     {
         if (state is not null)
         {
-            Capture.Update(state);
+            Capture.UpdateFromAnswer(state);
         }
         _state.NeedsRedraw = true;
+        return new PlanetaryRecordAnswer(state?.Recording, Refusal: null);
     }
 
     /// <summary>
@@ -438,4 +436,13 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
             _state.PlanetaryDesign = ota.OpticalDesign;
         }
     }
+}
+
+/// <summary>
+/// A record or its stop as the capture's node answered it (<see cref="PlanetaryCaptureController.RecordAsync"/>): the recording
+/// its answer shows, or why it was refused, in words.
+/// </summary>
+public readonly record struct PlanetaryRecordAnswer(PlanetaryRecordingDto? Recording, string? Refusal)
+{
+    public static PlanetaryRecordAnswer Refused(string refusal) => new PlanetaryRecordAnswer(null, refusal);
 }

@@ -12,7 +12,9 @@ namespace TianWen.UI.Abstractions;
 /// docs/plans/hardware-in-the-server.md, #936; the node's <c>NodePlanetary</c> runs <see cref="PlanetaryCapture"/>, its
 /// stack, its recenter and its recording). The panel's live controls are staged here and sent to the node by the run's loop
 /// only as they CHANGE (<see cref="TakeChanges"/>): the panel pushes its recenter settings every frame, which over HTTP
-/// would be a request a frame. The telemetry the panel shows is the node's, as last read (<see cref="Update"/>).
+/// would be a request a frame. The telemetry the panel shows is the node's, as last read: a poll's
+/// (<see cref="UpdateFromPoll"/>), or the node's answer to a command it took (<see cref="UpdateFromAnswer"/>), which a poll
+/// sent before it cannot undo.
 /// </summary>
 public sealed class NodePlanetaryCapture
 {
@@ -26,31 +28,42 @@ public sealed class NodePlanetaryCapture
 
     private Pending _pending = Pending.None;
     private PlanetaryRecenterDto? _recenter;
-    private PlanetaryStateDto? _state;
+    private Shown _shown = Shown.None;
     private int _running;
+
+    // The node's state as last shown, and how many answers to commands have been shown: a poll's state is shown only if no
+    // command's answer was shown after that poll was sent, so a poll sent before a record and answered after it cannot undo the
+    // record's answer (review round 1 of #1610, N1). Replaced whole, by compare-and-swap: a poll's answer and a command's arrive
+    // on two threads.
+    private sealed record Shown(PlanetaryStateDto? State, long Answers)
+    {
+        public static readonly Shown None = new Shown(null, 0);
+    }
+
+    private PlanetaryStateDto? State => Volatile.Read(ref _shown).State;
 
     /// <summary>Whether this computer's node runs the capture this view started: from its start until the node says it ended.</summary>
     public bool IsCapturing => Volatile.Read(ref _running) == 1;
 
     /// <summary>The readout window as the node snapped it to the camera's ROI rule, or zero before the node's first answer.</summary>
-    public (int Width, int Height) Roi => Volatile.Read(ref _state) is { } state ? (state.RoiWidth, state.RoiHeight) : (0, 0);
+    public (int Width, int Height) Roi => State is { } state ? (state.RoiWidth, state.RoiHeight) : (0, 0);
 
-    public int FramesReceived => Volatile.Read(ref _state)?.FramesReceived ?? 0;
+    public int FramesReceived => State?.FramesReceived ?? 0;
 
-    public int DroppedFrames => Volatile.Read(ref _state)?.DroppedFrames ?? 0;
+    public int DroppedFrames => State?.DroppedFrames ?? 0;
 
-    public double MeasuredFps => Volatile.Read(ref _state)?.FramesPerSecond ?? 0;
+    public double MeasuredFps => State?.FramesPerSecond ?? 0;
 
     /// <summary>The recenter's last measured offset of the disk from the ROI's centre, in pixels.</summary>
-    public (double X, double Y) LastComOffset => Volatile.Read(ref _state) is { } state ? (state.OffsetX ?? 0, state.OffsetY ?? 0) : (0, 0);
+    public (double X, double Y) LastComOffset => State is { } state ? (state.OffsetX ?? 0, state.OffsetY ?? 0) : (0, 0);
 
-    public RecenterActuator LastRecenterActuator => Volatile.Read(ref _state)?.RecenterActuator ?? default;
+    public RecenterActuator LastRecenterActuator => State?.RecenterActuator ?? default;
 
     /// <summary>Why the node's capture failed, in words; null while it goes well.</summary>
-    public string? FailureReason => Volatile.Read(ref _state)?.FailureReason;
+    public string? FailureReason => State?.FailureReason;
 
     /// <summary>The node's recording of the capture going on, or the last one to end, as last read; null before any (#1344).</summary>
-    public PlanetaryRecordingDto? Recording => Volatile.Read(ref _state)?.Recording;
+    public PlanetaryRecordingDto? Recording => State?.Recording;
 
     public void SetExposure(TimeSpan exposure) => Stage(p => p with { ExposureMs = exposure.TotalMilliseconds });
 
@@ -65,7 +78,7 @@ public sealed class NodePlanetaryCapture
     public void SetHighSpeed(bool on) => Stage(p => p with { HighSpeed = on });
 
     /// <summary>The depth the newest frame came in, as the node reports it; null before the first.</summary>
-    public BitDepth? FrameBitDepth => Volatile.Read(ref _state)?.BitDepth;
+    public BitDepth? FrameBitDepth => State?.BitDepth;
 
     /// <summary>Pans the ROI by a step; steps taken between two sends add up.</summary>
     public void JogRoi(int dxPixels, int dyPixels) => Stage(p => p with { JogX = p.JogX + dxPixels, JogY = p.JogY + dyPixels });
@@ -128,12 +141,34 @@ public sealed class NodePlanetaryCapture
     internal void Began()
     {
         Interlocked.Exchange(ref _pending, Pending.None);
-        Volatile.Write(ref _state, null);
+        ImmutableInterlocked.Update(ref _shown, static shown => shown with { State = null });
         Volatile.Write(ref _running, 1);
     }
 
-    /// <summary>The node's state of the run, as last read.</summary>
-    internal void Update(PlanetaryStateDto state) => Volatile.Write(ref _state, state);
+    /// <summary>The stamp a poll takes before it is sent, for <see cref="UpdateFromPoll"/>.</summary>
+    internal long PollStamp => Volatile.Read(ref _shown).Answers;
+
+    /// <summary>
+    /// The node's state of the run as a poll sent at <paramref name="stamp"/> read it: shown unless a command's answer was shown
+    /// since the poll was sent, which is newer than it.
+    /// </summary>
+    internal void UpdateFromPoll(PlanetaryStateDto state, long stamp)
+    {
+        var shown = Volatile.Read(ref _shown);
+        while (shown.Answers == stamp)
+        {
+            var seen = Interlocked.CompareExchange(ref _shown, shown with { State = state }, shown);
+            if (ReferenceEquals(seen, shown))
+            {
+                return;
+            }
+            shown = seen;
+        }
+    }
+
+    /// <summary>The node's answer to a command it took (a start, a record, its stop): its newest state, shown at once.</summary>
+    internal void UpdateFromAnswer(PlanetaryStateDto state)
+        => ImmutableInterlocked.Update(ref _shown, shown => new Shown(state, shown.Answers + 1));
 
     /// <summary>The run has ended on the node, or this view stopped watching it.</summary>
     internal void Ended() => Volatile.Write(ref _running, 0);
