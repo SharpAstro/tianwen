@@ -31,13 +31,16 @@ public sealed class NodePlanetaryCapture
     private Shown _shown = Shown.None;
     private int _running;
 
-    // The node's state as last shown, and how many answers to commands have been shown: a poll's state is shown only if no
-    // command's answer was shown after that poll was sent, so a poll sent before a record and answered after it cannot undo the
-    // record's answer (review round 1 of #1610, N1). Replaced whole, by compare-and-swap: a poll's answer and a command's arrive
-    // on two threads.
-    private sealed record Shown(PlanetaryStateDto? State, long Answers)
+    // The node's state as last shown, the run it belongs to, and how many answers to commands have been shown in it. A poll's
+    // state is shown only within the run it was sent in, and only if no command's answer was shown after it was sent, so a poll
+    // sent before a record and answered after it cannot undo the record's answer (review round 1 of #1610, N1); but a poll that
+    // says the run ENDED is shown whatever answer came meanwhile, since the node refuses a record or a stop once its run has
+    // ended, so no answer can be newer than the end (round 2, B1). Keyed to its run, so a late end of the previous run never
+    // ends a newer run's panel, whatever the controller's order. Replaced whole, by compare-and-swap: a poll's answer and a
+    // command's arrive on two threads.
+    private sealed record Shown(PlanetaryStateDto? State, long Answers, long Run)
     {
-        public static readonly Shown None = new Shown(null, 0);
+        public static readonly Shown None = new Shown(null, 0, 0);
     }
 
     private PlanetaryStateDto? State => Volatile.Read(ref _shown).State;
@@ -141,21 +144,28 @@ public sealed class NodePlanetaryCapture
     internal void Began()
     {
         Interlocked.Exchange(ref _pending, Pending.None);
-        ImmutableInterlocked.Update(ref _shown, static shown => shown with { State = null });
+        ImmutableInterlocked.Update(ref _shown, static shown => new Shown(null, shown.Answers, shown.Run + 1));
         Volatile.Write(ref _running, 1);
     }
 
-    /// <summary>The stamp a poll takes before it is sent, for <see cref="UpdateFromPoll"/>.</summary>
-    internal long PollStamp => Volatile.Read(ref _shown).Answers;
+    /// <summary>The stamp a poll takes before it is sent, for <see cref="UpdateFromPoll"/>: the run it is of, and the answers shown so far.</summary>
+    internal (long Run, long Answers) PollStamp
+    {
+        get
+        {
+            var shown = Volatile.Read(ref _shown);
+            return (shown.Run, shown.Answers);
+        }
+    }
 
     /// <summary>
-    /// The node's state of the run as a poll sent at <paramref name="stamp"/> read it: shown unless a command's answer was shown
-    /// since the poll was sent, which is newer than it.
+    /// The node's state of the run as a poll sent at <paramref name="stamp"/> read it: shown if it is of the run on show and
+    /// either says the run ended or was sent after every command's answer shown so far, which would be newer than it.
     /// </summary>
-    internal void UpdateFromPoll(PlanetaryStateDto state, long stamp)
+    internal void UpdateFromPoll(PlanetaryStateDto state, (long Run, long Answers) stamp)
     {
         var shown = Volatile.Read(ref _shown);
-        while (shown.Answers == stamp)
+        while (shown.Run == stamp.Run && (shown.Answers == stamp.Answers || !state.Running))
         {
             var seen = Interlocked.CompareExchange(ref _shown, shown with { State = state }, shown);
             if (ReferenceEquals(seen, shown))
@@ -166,9 +176,14 @@ public sealed class NodePlanetaryCapture
         }
     }
 
-    /// <summary>The node's answer to a command it took (a start, a record, its stop): its newest state, shown at once.</summary>
+    /// <summary>
+    /// The node's answer to a command it took (a start, a record, its stop): its newest state, shown at once; but never over the
+    /// run's end once shown, which no answer that says the run goes on can be newer than.
+    /// </summary>
     internal void UpdateFromAnswer(PlanetaryStateDto state)
-        => ImmutableInterlocked.Update(ref _shown, shown => new Shown(state, shown.Answers + 1));
+        => ImmutableInterlocked.Update(ref _shown, shown => shown.State is { Running: false } && state.Running
+            ? shown
+            : new Shown(state, shown.Answers + 1, shown.Run));
 
     /// <summary>The run has ended on the node, or this view stopped watching it.</summary>
     internal void Ended() => Volatile.Write(ref _running, 0);
