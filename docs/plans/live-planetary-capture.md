@@ -1059,7 +1059,9 @@ clean recordings with the view, in order:
 | **+ the ring's planes kept across captures (kept)** | 196.0, 196.4, 195.2 | **0, 0, 0** | 43, 21, 92 |
 | **+ the writer woken on its own thread (kept)** | 195.6, 196.8, 196.8 | 67 (0.57 %), 0, 0 | **0, 0, 0** |
 
-Before the fix the same arm replaced 1,793 to 3,263 a minute. What is left is the node's collections: each node capture with Server GC saw 2 to
+Before the fix the same arm's two clean recordings replaced 1,793 and 2,076 (each the node's whole stream, about 66 s; the first
+recording with the view, which the camera stalled in, replaced 3,263 in 73 s).
+What is left is the node's collections: each node capture with Server GC saw 2 to
 9 gen 2 collections pausing 283 to 592 ms in all (in process, 0 to 4 and 11 to 77 ms). A pause holds every managed thread, the
 reader and the writer included, and its suspension waits for every starved normal-priority thread (the live stack's workers among
 them) to reach a safe point; a pause on top of a backlog passes the hand-off's 64 frames (a third of a second). The disk was not
@@ -1077,8 +1079,10 @@ another program's `tianwen` at 0.9 to 1.0 cores). The node arm is accepted as me
 sets under the 32 spinners (0 to 151 a recording) while each write took 1 to 5 ms: the writer was held, not the disk. Its wait
 was `ReadAllAsync`'s, which keeps no context, so a pool thread took every frame first (review round 1 of #1621); with every pool
 thread held the writer did not wake at all (`SerRecordingWriterWakeTests`). Waking on its own thread, the last set dropped none
-in any recording, the writer waiting 4,321 to 9,016 times a recording and woken on the pool none of them; the ring-fix set before
-it had dropped 17 to 104. The view's floor was missed twice in the ring-fix set (8.6 live frames a second with the spinners alone,
+in any of its seven recordings, the writer waiting 4,321 to 9,016 times a recording and woken on the pool none of them; the
+ring-fix set before it had dropped 17 to 104 over its seven (17, 65, 43 and 21 with the spinners alone; 35, 92 and 104 beside
+another program's `tianwen`), and 43, 21 and 92 in its three clean recordings with the view.
+The view's floor was missed twice in the ring-fix set (8.6 live frames a second with the spinners alone,
 7.3 beside another program's `tianwen` at 1.1 to 1.3 cores) and stands as measured; in the last set it showed 14.8 to 16.9. The
 hand-off's depth (64 frames, about a third of a second) against pauses of up to about 0.6 s is a follow-up issue.
 
@@ -1098,7 +1102,8 @@ bits), and a deeper hand-off.
 `GET /api/v1/planetary` at p99 under 250 ms, a gain staged through the GUI's client is on the camera within 1 s outside a stall,
 and the view shows at least what it showed before the fix at the same load (10.7 live frames a second under the 32 spinners, 24.6
 below-normal, 29.8 quiet). Under the 32 spinners after the fix, over the clean recordings, the node answered at p99 110 to 247 ms (181 and 184
-before), gains landed in 6 to 586 ms (23 to 556 before), and the view showed 7.3 to 20.1 frames a second (10.7 and 13.6 in the
+before), gains landed in 6 to 586 ms (23 to 405 before; each timed from the DAL's line, which these runs still wrote on the
+stream's thread), and the view showed 7.3 to 20.1 frames a second (10.7 and 13.6 in the
 clean recordings before; 4.7 and 8.5 in two the camera stalled in, set apart, so the floor is 10.7), **under its floor three
 times** (9.1, 8.6, 7.3), which the gate failed and which stands as measured. Below-normal the node answered at p99 2.5 to 2.9 ms (32
 to 62 before) and the view showed 29.7 to 29.9 (24.6 to 28.4); quiet, p99 0.5 ms and 29.8 to 30.0. The reader uses about a
