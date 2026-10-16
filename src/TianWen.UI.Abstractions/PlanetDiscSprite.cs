@@ -29,8 +29,8 @@ public static class PlanetDiscSprite
 
     /// <summary>
     /// The Minnaert exponent each body is lit with: a display choice, near each map's own correction where it has one (OPAL's are 0.85
-    /// to 1.0 for the filters behind its composites), and 0.5 for the airless bodies, whose full disc is evenly bright. The Sun is lit
-    /// as a body seen at full phase, so its limb darkens as the square root of mu. The Earth (#1573) takes Mars's 0.75: its day map is a
+    /// to 1.0 for the filters behind its composites), and 0.5 for the airless bodies, whose full disc is evenly bright. The Sun is not lit
+    /// at all: it is drawn by its limb-darkening law (<see cref="PlanetaryRender.LimbDarkening"/>, #1608), so its k is never read. The Earth (#1573) takes Mars's 0.75: its day map is a
     /// cloud-free SURFACE, near Lambertian (k 1) on land, but the air over it scatters light back toward the limb, as Mars's thin
     /// atmosphere and dust do, so the whole disc darkens less than a bare surface would (the DSCOVR EPIC full-disc pictures keep the
     /// coasts readable almost to the limb). The default 0.95 is the giants' value, near OPAL's own correction, which the Earth has none of.
@@ -38,7 +38,7 @@ public static class PlanetDiscSprite
     public static double MinnaertK(CatalogIndex body) => body switch
     {
         CatalogIndex.Moon or CatalogIndex.Mercury => 0.5,
-        CatalogIndex.Sol or CatalogIndex.Venus or CatalogIndex.Mars or CatalogIndex.Earth => 0.75,
+        CatalogIndex.Venus or CatalogIndex.Mars or CatalogIndex.Earth => 0.75,
         CatalogIndex.Uranus or CatalogIndex.Neptune => 0.85,
         _ => 0.95,
     };
@@ -107,7 +107,7 @@ public static class PlanetDiscSprite
     /// <summary>
     /// The sprite: <see cref="SideFor"/> squared pixels of 8-bit RGBA, straight (not premultiplied) alpha, as every host's blend takes
     /// it, so a limb pixel half covered keeps its colour at half alpha. <paramref name="map"/> null draws the body in a flat
-    /// <paramref name="flat"/> colour (the Sun, or a body whose texture has not loaded). With <paramref name="nightTint"/> the sprite is
+    /// <paramref name="flat"/> colour (a body whose texture has not loaded). With <paramref name="nightTint"/> the sprite is
     /// the luminance in that colour, so Night mode keeps blue at zero. <paramref name="opacity"/> scales the alpha: a body below the
     /// horizon is drawn faint, as its label is, and every host then blends the sprite the same way.
     /// </summary>
@@ -117,12 +117,10 @@ public static class PlanetDiscSprite
         side = SideFor(body, radiusPx);
         var placement = Placement(side, radiusPx, poleScreenAngleDeg, mirrored);
         var colours = map ?? Flat(flat);
-        // The Sun lights itself: drawn as a body at full phase, the sub-solar point under the observer.
-        var lit = body == CatalogIndex.Sol
-            ? aspect with { SubSolarLongitudeIII = aspect.CentralMeridianIII, SubSolarLatitude = aspect.SubObserverLatitude, SubSolarLatitudeCentric = aspect.SubObserverLatitudeCentric }
-            : aspect;
+        // The Sun lights itself: the render draws it by its limb-darkening law (PlanetaryRender.LimbDarkening), never lit, so its
+        // sub-solar point (none, from the ephemeris) is never asked.
         var rings = body == CatalogIndex.Saturn ? SaturnRings.Main : null;
-        var linear = PlanetaryRender.RenderRgba(colours, lit, placement, side, side, MinnaertK(body), Supersample, rings);
+        var linear = PlanetaryRender.RenderRgba(colours, aspect, placement, side, side, MinnaertK(body), Supersample, rings);
 
         var rgba = new byte[side * side * 4];
         for (var i = 0; i < side * side; i++)

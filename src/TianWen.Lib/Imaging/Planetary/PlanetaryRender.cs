@@ -2,6 +2,7 @@ using System;
 using System.Collections.Immutable;
 using System.Numerics;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging.Optics;
 using TianWen.Lib.Stat;
 
@@ -119,6 +120,19 @@ public static class PlanetaryRender
         }
         return image;
     }
+
+    /// <summary>
+    /// The Sun's limb darkening (#1608): the linear law I(mu) = I(1) (1 - u (1 - mu)), with u about 0.6, the
+    /// usual single coefficient for the visible (as #1608 asks). One u for all three channels: the limb's reddening is left out.
+    /// </summary>
+    public const double SolarLimbDarkening = 0.6;
+
+    /// <summary>
+    /// The linear limb-darkening coefficient of a SELF-LUMINOUS body, which is drawn by the law and never lit, so it has no phase, no
+    /// terminator and no Minnaert's law: <see cref="SolarLimbDarkening"/> for the Sun, and 0 for every body the Sun lights. The GPU's trace
+    /// takes the same number (<c>planet_body.frag</c>'s <c>tint.w</c>).
+    /// </summary>
+    public static double LimbDarkening(CatalogIndex body) => body == CatalogIndex.Sol ? SolarLimbDarkening : 0;
 
     /// <summary>
     /// The scene in colour, for the sky atlas's planet discs (docs/plans/atlas-planet-detail.md, A4, #1037): the same geometry as
@@ -401,6 +415,9 @@ public static class PlanetaryRender
         private readonly PlanetaryProjection _projection = new(aspect, placement);
         private readonly double _k = minnaertK;
         private readonly SaturnRings? _rings = rings;
+        // A self-luminous body's limb darkening (the Sun's), or 0 for a body the Sun lights.
+        private readonly double _u = LimbDarkening(aspect.Planet);
+        private readonly bool _selfLuminous = aspect.Planet == CatalogIndex.Sol;
 
         public double Radiance(PlanetMap map, double ringScale, double x, double y)
         {
@@ -415,9 +432,15 @@ public static class PlanetaryRender
         public SceneRay Trace(double x, double y)
         {
             var onGlobe = _projection.TrySurface(x, y, out var latitude, out var west, out var mu, out var mu0, out var globeT, out var x1, out var x2, out var x3);
-            var globeLit = onGlobe && mu > 0 && mu0 > 0;
+            // A self-luminous body is never lit: the Sun's sub-solar point is none (NaN), and it has no night side.
+            var globeLit = onGlobe && mu > 0 && (_selfLuminous || mu0 > 0);
             double sunPow = 0, viewPow = 0, sunTransmission = double.NaN;
-            if (globeLit)
+            if (globeLit && _selfLuminous)
+            {
+                // The linear limb-darkening law in place of Minnaert's.
+                (sunPow, viewPow) = (1 - (_u * (1 - mu)), 1);
+            }
+            else if (globeLit)
             {
                 sunPow = Math.Pow(mu0, _k);
                 viewPow = Math.Pow(mu, _k - 1);

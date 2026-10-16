@@ -177,6 +177,10 @@ namespace TianWen.UI.Web.SkyMap
                 float q2Inverse = 1.0 / (q * q);
                 float k = pc.frame.w;
                 bool hasRings = pc.right.w > 0.5;
+                // A self-luminous body (the Sun) is drawn by the linear limb-darkening law, never lit: no phase, no terminator, no Minnaert's law
+                // (PlanetaryRender.LimbDarkening).
+                float u = pc.tint.w;
+                bool selfLuminous = u > 0.0;
                 // A ray starts in front of everything the body has, and runs away from the camera.
                 float start = pc.disc.w + 1.0;
                 vec3 dir = -toward;
@@ -207,12 +211,12 @@ namespace TianWen.UI.Web.SkyMap
                             vec3 normal = normalize(vec3(hit.xy, hit.z * q2Inverse));
                             float mu = dot(normal, toward);
                             float mu0 = dot(normal, s);
-                            if (mu > 0.0 && mu0 > 0.0) {
+                            if (mu > 0.0 && (selfLuminous || mu0 > 0.0)) {
                                 float latitude = degrees(asin(clamp(normal.z, -1.0, 1.0)));
                                 // atan(y, x) is UNDEFINED at (0, 0), which a ray meeting the globe at a pole reaches; the CPU's Atan2 reads 0.
                                 float axisLen = length(hit.xy);
                                 float west = axisLen > 1e-9 ? -degrees(atan(hit.y, hit.x)) : 0.0;
-                                globe = sampleMap(latitude, west) * pow(mu0, k) * pow(mu, k - 1.0);
+                                globe = sampleMap(latitude, west) * (selfLuminous ? 1.0 - u * (1.0 - mu) : pow(mu0, k) * pow(mu, k - 1.0));
                                 // The rings' shadow: the Sun's light through the ring its ray from this point crosses.
                                 if (hasRings && s.z != 0.0 && -hit.z / s.z > 0.0) {
                                     vec2 shade = hit.xy + (-hit.z / s.z) * s.xy;
