@@ -104,6 +104,14 @@ public sealed class SerRecording
     public int FramesDropped => Volatile.Read(ref _dropped);
 
     private long _longestWriteTicks;
+    private long _writerWaits;
+    private long _writerWakesOnPool;
+
+    /// <summary>How often the writer found its queue empty and waited for a frame.</summary>
+    internal long WriterWaits => Interlocked.Read(ref _writerWaits);
+
+    /// <summary>Of <see cref="WriterWaits"/>, the waits that woke on a thread pool thread rather than the writer's own.</summary>
+    internal long WriterWakesOnPool => Interlocked.Read(ref _writerWakesOnPool);
 
     /// <summary>The longest one frame's write took, the file's creation included: past the queue's 64 frames, frames are dropped.</summary>
     internal TimeSpan LongestWrite => TimeSpan.FromTicks(Volatile.Read(ref _longestWriteTicks));
@@ -187,30 +195,30 @@ public sealed class SerRecording
 
     private async Task WriteAsync()
     {
-        SerWriter? writer = null;
         try
         {
-            // No ConfigureAwait(false): each frame resumes on the writer's own thread (CaptureReaderThread).
-            await foreach (var (bytes, arrived) in _queue.Reader.ReadAllAsync())
+            // The wait keeps the writer's context, so a frame wakes the writer's own thread (CaptureReaderThread). Not ReadAllAsync:
+            // it waits with ConfigureAwait(false), so a pool thread took each frame first, and with the pool held the writer did not
+            // wake at all (review round 1 of #1621, SerRecordingWriterWakeTests).
+            while (true)
             {
-                try
+                var wait = _queue.Reader.WaitToReadAsync();
+                var waited = !wait.IsCompleted;
+                if (!await wait)
                 {
-                    var started = System.Diagnostics.Stopwatch.GetTimestamp();
-                    if (writer is null)
+                    break;
+                }
+                if (waited)
+                {
+                    Interlocked.Increment(ref _writerWaits);
+                    if (Thread.CurrentThread.IsThreadPoolThread)
                     {
-                        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path) ?? ".");
-                        writer = new SerWriter(Path, _width, _height, _color, pixelDepthPerPlane: _depth, instrument: _instrument, telescope: _telescope);
-                    }
-                    writer.AppendFrame(bytes.AsSpan(0, (int)writer.FrameSizeBytes), arrived);
-                    Interlocked.Increment(ref _written);
-                    if (System.Diagnostics.Stopwatch.GetElapsedTime(started).Ticks is var took && took > Volatile.Read(ref _longestWriteTicks))
-                    {
-                        Volatile.Write(ref _longestWriteTicks, took);
+                        Interlocked.Increment(ref _writerWakesOnPool);
                     }
                 }
-                finally
+                while (_queue.Reader.TryRead(out var queued))
                 {
-                    ArrayPool<byte>.Shared.Return(bytes);
+                    WriteOne(queued.Bytes, queued.Arrived);
                 }
             }
         }
@@ -228,14 +236,42 @@ public sealed class SerRecording
         finally
         {
             // The header, frame count and trailer included, is written as the writer closes.
-            writer?.Dispose();
-            _logger.LogInformation("The planetary recording to {Path} has {Written} frames; the disk dropped {Dropped}, its longest write {Longest:F0} ms",
-                Path, FramesWritten, FramesDropped, LongestWrite.TotalMilliseconds);
+            _writer?.Dispose();
+            _logger.LogInformation("The planetary recording to {Path} has {Written} frames; the disk dropped {Dropped}, its longest write {Longest:F0} ms; "
+                + "the writer waited for a frame {Waits} times, {OnPool} of them woken on the thread pool",
+                Path, FramesWritten, FramesDropped, LongestWrite.TotalMilliseconds, WriterWaits, WriterWakesOnPool);
             if (_gaps is { Length: > 0 } gaps)
             {
                 _logger.LogWarning("The planetary recording to {Path} has {Count} gaps, where its stream stalled and came back: {Gaps}", Path, gaps.Length,
                     string.Join("; ", gaps.Select(gap => $"{gap.Length.TotalSeconds:F2} s after frame {gap.AfterFrame}")));
             }
+        }
+    }
+
+    // The file, opened with the first frame and closed as the writer ends.
+    private SerWriter? _writer;
+
+    // One queued frame onto the disk, the file opened with the first; its bytes go back to the pool however it went.
+    private void WriteOne(byte[] bytes, DateTimeOffset arrived)
+    {
+        try
+        {
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (_writer is null)
+            {
+                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path) ?? ".");
+                _writer = new SerWriter(Path, _width, _height, _color, pixelDepthPerPlane: _depth, instrument: _instrument, telescope: _telescope);
+            }
+            _writer.AppendFrame(bytes.AsSpan(0, (int)_writer.FrameSizeBytes), arrived);
+            Interlocked.Increment(ref _written);
+            if (System.Diagnostics.Stopwatch.GetElapsedTime(started).Ticks is var took && took > Volatile.Read(ref _longestWriteTicks))
+            {
+                Volatile.Write(ref _longestWriteTicks, took);
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(bytes);
         }
     }
 }
