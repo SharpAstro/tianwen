@@ -16,6 +16,13 @@ public interface ICometRepository
     /// <summary>All loaded comets. Empty until <see cref="EnsureLoadedAsync"/> has completed at least once.</summary>
     ImmutableArray<CometElements> All { get; }
 
+    /// <summary>
+    /// Changes whenever an element set a reader could get changes: a load, a refresh, an apparition upgrade. A consumer that
+    /// caches what <see cref="TryGet"/> answered for many comets (the orrery's comet set) re-reads them only when this moves,
+    /// never compares every element set on every frame.
+    /// </summary>
+    int Version { get; }
+
     /// <summary>Looks up a comet by its <see cref="Catalog.Comet"/> <see cref="CatalogIndex"/>.</summary>
     bool TryGet(CatalogIndex index, out CometElements elements);
 

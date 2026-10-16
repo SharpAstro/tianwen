@@ -120,6 +120,12 @@ internal sealed class CometRepository : ICometRepository
 
     public ImmutableArray<CometElements> All => _all;
 
+    // Raised after every swap of _all/_byIndex or _apparitions, so a reader that sees the new version sees the new sets.
+    private int _version;
+
+    /// <inheritdoc/>
+    public int Version => Volatile.Read(ref _version);
+
     /// <summary>
     /// The current-apparition set when one has been fetched, else the bulk SBDB record. Every consumer
     /// goes through here (including <see cref="TryGetPosition"/>), so upgrading a comet's elements
@@ -305,6 +311,7 @@ internal sealed class CometRepository : ICometRepository
 
                 var entry = new ApparitionEntry(_timeProvider.GetUtcNow(), elements);
                 _apparitions = _apparitions.SetItem(index, entry);
+                Interlocked.Increment(ref _version);
                 _apparitionFailedAtUtc.TryRemove(index, out _);
                 resolved = true;
                 _logger.LogInformation(
@@ -387,6 +394,7 @@ internal sealed class CometRepository : ICometRepository
             }
 
             _apparitions = builder.ToImmutable();
+            Interlocked.Increment(ref _version);
             Volatile.Write(ref _apparitionsLoaded, true);
         }
         finally
@@ -454,6 +462,7 @@ internal sealed class CometRepository : ICometRepository
 
         _byIndex = builder.ToImmutable();
         _all = [.. comets];
+        Interlocked.Increment(ref _version);
         Volatile.Write(ref _loadedOnce, true);
     }
 }

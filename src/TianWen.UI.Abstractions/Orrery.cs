@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Numerics;
 using System.Threading;
@@ -290,13 +291,29 @@ public readonly struct OrreryCamera
         => radius / Math.Sin(fill * FieldOfViewDeg * Math.PI / 360);
 }
 
-/// <summary>A body where the orrery draws it at one instant: true heliocentric ecliptic AU (the Moon's own place, not the drawn one).</summary>
-public readonly record struct OrreryBody(CatalogIndex Index, string Name, double X, double Y, double Z);
+/// <summary>
+/// Which comets the orrery draws besides the brightest (<see cref="OrreryScene.CometSetSize"/>): the brightest only while
+/// <paramref name="ShowSet"/> (the atlas's comet layer), and always the comet the view was opened on, the focused one and the pinned
+/// ones, as a pin shows a comet on the sky with its layer off.
+/// </summary>
+public readonly record struct OrreryCometChoice(bool ShowSet, CatalogIndex? Opened, CatalogIndex? Focus, IReadOnlySet<CatalogIndex>? Pinned);
 
 /// <summary>
-/// What the orrery draws, cached so a drag or a scrub costs a projection and no ephemeris: the bodies' positions per MINUTE of the
-/// atlas's clock, the planets' orbits per CENTURY (built off the render thread, the Task the hand-off), and a comet's orbit per
-/// element set. A drag changes none of the keys, so it builds nothing (<see cref="OrbitBuilds"/>, <see cref="CometOrbitBuilds"/>).
+/// A body where the orrery draws it at one instant: true heliocentric ecliptic AU (the Moon's own place, not the drawn one). For a
+/// comet, <paramref name="ElementsStale"/> says its element set is a revolution or more old at that instant
+/// (<see cref="CometElements.IsElementSetStale"/>), so the view asks for the current apparition while it draws it.
+/// </summary>
+public readonly record struct OrreryBody(CatalogIndex Index, string Name, double X, double Y, double Z, bool ElementsStale = false);
+
+/// <summary>
+/// What the orrery draws, cached so a drag or a scrub costs a projection and no ephemeris: the bodies' positions, the comets' among
+/// them, per MINUTE of the atlas's clock and per version of the comet set; the planets' orbits per CENTURY (built off the render
+/// thread, the Task the hand-off); each comet's orbit per element set, in a dictionary by its index. The comet set (the brightest
+/// at peak, <see cref="CometSetSize"/>, ranked once per repository and count, plus the opened, focused and pinned ones) is read
+/// again only when its KEY changes: the repository, its <see cref="ICometRepository.Version"/>, or the choice; never by comparing
+/// every element set on every frame. A drag changes none of the keys, so it builds nothing (<see cref="OrbitBuilds"/>,
+/// <see cref="CometOrbitBuilds"/>, <see cref="PositionBuilds"/>), and Play across years computes the positions once a minute of the
+/// clock and builds no orbit.
 /// </summary>
 public sealed class OrreryScene(Action? requestRedraw = null)
 {
@@ -309,46 +326,69 @@ public sealed class OrreryScene(Action? requestRedraw = null)
     /// <summary>How far an open (parabolic or hyperbolic) comet orbit is drawn from the Sun, AU.</summary>
     public const double OpenOrbitReachAu = 40;
 
+    /// <summary>How many of the brightest comets at peak the orrery draws: about the thirty the controller asked for, which in the
+    /// catalogue of 2026-10 is every comet whose peak estimate is brighter than about magnitude 3.4 (12P/Pons-Brooks among them).</summary>
+    public const int CometSetSize = 30;
+
     private long _positionsMinute = long.MinValue;
-    private CometElements? _positionsComet;
+    private int _positionsSetVersion = -1;
     private ImmutableArray<OrreryBody> _bodies = [];
+
+    // The brightest at peak, ranked once per repository and count of comets (as the sky's candidacy filter is rebuilt).
+    private ICometRepository? _rankedRepo;
+    private int _rankedCount = -1;
+    private ImmutableArray<CatalogIndex> _brightest = [];
+    private int _cometRankings;
+
+    // The set, read again only when its key moves.
+    private ICometRepository? _setRepo;
+    private int _setRepoVersion;
+    private OrreryCometChoice _setChoice;
+    private int _setVersion;
+    private ImmutableArray<CometElements> _cometSet = [];
+    private readonly Dictionary<CatalogIndex, (CometElements Elements, double[] Points)> _cometOrbits = [];
 
     private long _orbitCentury = long.MinValue;
     private Task<ImmutableDictionary<CatalogIndex, double[]>>? _orbitsPending;
     private ImmutableDictionary<CatalogIndex, double[]>? _orbits;
     private int _orbitBuilds;
 
-    private CometElements? _cometOrbitElements;
-    private double[] _cometOrbit = [];
     private int _cometOrbitBuilds;
     private int _positionBuilds;
 
     /// <summary>How many times the planets' orbits have been built: once, unless the clock crosses a century.</summary>
     public int OrbitBuilds => Volatile.Read(ref _orbitBuilds);
 
-    /// <summary>How many times a comet orbit has been built: once per element set.</summary>
+    /// <summary>How many times a comet orbit has been built: once per comet and element set.</summary>
     public int CometOrbitBuilds => _cometOrbitBuilds;
 
-    /// <summary>How many times the positions have been computed: once per minute of the clock that a frame shows.</summary>
+    /// <summary>How many times the positions have been computed: once per minute of the clock that a frame shows, and per comet set.</summary>
     public int PositionBuilds => _positionBuilds;
 
-    /// <summary>The Sun, the planets, the Moon and the comet (when one is given) at the last instant <see cref="Update"/> saw.</summary>
+    /// <summary>How many times the brightest comets have been ranked: once per repository and count of comets.</summary>
+    public int CometRankings => _cometRankings;
+
+    /// <summary>The comets drawn, each with the element set it is drawn from (the repository's, apparition upgrade included).</summary>
+    public ImmutableArray<CometElements> CometSet => _cometSet;
+
+    /// <summary>The Sun, the planets, the Moon and the comet set at the last instant <see cref="Update"/> saw.</summary>
     public ImmutableArray<OrreryBody> Bodies => _bodies;
 
     /// <summary>
-    /// Brings the positions to <paramref name="utc"/> (to its minute) and the comet's to <paramref name="comet"/>'s elements, and
-    /// starts the orbits' build if the century changed. Cheap when nothing did.
+    /// Brings the comet set to what <paramref name="choice"/> asks of <paramref name="comets"/> (when its key changed), the positions
+    /// to <paramref name="utc"/> (to its minute), and starts the planets' orbits' build if the century changed. Cheap when nothing did.
     /// </summary>
-    public void Update(DateTimeOffset utc, in CometElements? comet)
+    public void Update(DateTimeOffset utc, ICometRepository? comets = null, in OrreryCometChoice choice = default)
     {
+        UpdateCometSet(comets, choice);
         var minute = utc.UtcTicks / TimeSpan.TicksPerMinute;
-        // Keyed on the comet's ELEMENTS, as its orbit is: an apparition upgrade keeps the index and changes them, and a position
-        // keyed on the index would stay on the old orbit until the minute changed.
-        if (minute != _positionsMinute || comet != _positionsComet)
+        // Keyed on the set's version too: an apparition upgrade keeps a comet's index and changes its elements, and must move it onto
+        // its new orbit at once, not when the minute changes.
+        if (minute != _positionsMinute || _setVersion != _positionsSetVersion)
         {
             _positionsMinute = minute;
-            _positionsComet = comet;
-            _bodies = ComputeBodies(new DateTimeOffset(minute * TimeSpan.TicksPerMinute, TimeSpan.Zero), comet);
+            _positionsSetVersion = _setVersion;
+            _bodies = ComputeBodies(new DateTimeOffset(minute * TimeSpan.TicksPerMinute, TimeSpan.Zero), _cometSet.AsSpan());
             _positionBuilds++;
         }
 
@@ -383,18 +423,130 @@ public sealed class OrreryScene(Action? requestRedraw = null)
         }
     }
 
-    /// <summary>The comet's orbit (true AU), built once per element set: <see cref="CometOrbitSamples"/> points.</summary>
+    /// <summary>
+    /// The comet's orbit (true AU, <see cref="CometOrbitSamples"/> points), built once per comet and element set and kept by its
+    /// index: what the set's read asks for each member, so a frame never does.
+    /// </summary>
     public double[] CometOrbit(in CometElements elements)
     {
-        if (_cometOrbitElements != elements)
+        var index = elements.CatalogIndex ?? default;
+        if (_cometOrbits.TryGetValue(index, out var built) && built.Elements == elements)
         {
-            _cometOrbitElements = elements;
-            var points = new double[3 * CometOrbitSamples];
-            CometEphemeris.SampleOrbit(elements, points, OpenOrbitReachAu);
-            _cometOrbit = points;
-            _cometOrbitBuilds++;
+            return built.Points;
         }
-        return _cometOrbit;
+        var points = new double[3 * CometOrbitSamples];
+        CometEphemeris.SampleOrbit(elements, points, OpenOrbitReachAu);
+        _cometOrbits[index] = (elements, points);
+        _cometOrbitBuilds++;
+        return points;
+    }
+
+    /// <summary>The orbit drawn for the comet <paramref name="index"/>, when it is in the set.</summary>
+    public bool TryGetCometOrbit(CatalogIndex index, out double[] orbit)
+    {
+        if (_cometOrbits.TryGetValue(index, out var built))
+        {
+            orbit = built.Points;
+            return true;
+        }
+        orbit = [];
+        return false;
+    }
+
+    // The set's key: the repository by reference, its version, and the choice (the pinned set by reference: the tab's pinned set is
+    // rebuilt only when the proposals change). Read again only when it moves; the brightest are ranked again only when the repository
+    // or its count does.
+    private void UpdateCometSet(ICometRepository? comets, in OrreryCometChoice choice)
+    {
+        var version = comets?.Version ?? 0;
+        if (ReferenceEquals(comets, _setRepo) && version == _setRepoVersion && choice.ShowSet == _setChoice.ShowSet
+            && choice.Opened == _setChoice.Opened && choice.Focus == _setChoice.Focus && ReferenceEquals(choice.Pinned, _setChoice.Pinned))
+        {
+            return;
+        }
+        (_setRepo, _setRepoVersion, _setChoice) = (comets, version, choice);
+        _setVersion++;
+        if (comets is null)
+        {
+            _cometSet = [];
+            _cometOrbits.Clear();
+            return;
+        }
+
+        var members = new List<CatalogIndex>(CometSetSize + 4);
+        void Add(CatalogIndex? index)
+        {
+            if (index is { } i && i.ToCatalog() == Catalog.Comet && !members.Contains(i))
+            {
+                members.Add(i);
+            }
+        }
+        Add(choice.Opened);
+        Add(choice.Focus);
+        if (choice.Pinned is { } pinned)
+        {
+            foreach (var index in pinned)
+            {
+                Add(index);
+            }
+        }
+        if (choice.ShowSet)
+        {
+            foreach (var index in Brightest(comets))
+            {
+                Add(index);
+            }
+        }
+
+        var set = ImmutableArray.CreateBuilder<CometElements>(members.Count);
+        foreach (var index in members)
+        {
+            if (comets.TryGet(index, out var elements))
+            {
+                set.Add(elements);
+                CometOrbit(elements);
+            }
+        }
+        _cometSet = set.ToImmutable();
+        // The orbits of comets that left the set go with them.
+        if (_cometOrbits.Count > _cometSet.Length)
+        {
+            foreach (var index in new List<CatalogIndex>(_cometOrbits.Keys))
+            {
+                if (!members.Contains(index))
+                {
+                    _cometOrbits.Remove(index);
+                }
+            }
+        }
+    }
+
+    // The CometSetSize brightest at peak, ranked as the sky ranks them (SkyMapState.PeakMagnitude); a comet with no magnitude model
+    // cannot be ranked and is left out.
+    private ImmutableArray<CatalogIndex> Brightest(ICometRepository comets)
+    {
+        var all = comets.All;
+        if (ReferenceEquals(comets, _rankedRepo) && all.Length == _rankedCount)
+        {
+            return _brightest;
+        }
+        var ranked = new List<(double Peak, CatalogIndex Index)>(all.Length);
+        foreach (var el in all)
+        {
+            if (el.HasMagnitudeModel && el.CatalogIndex is { } index)
+            {
+                ranked.Add((SkyMapState.PeakMagnitude(el), index));
+            }
+        }
+        ranked.Sort(static (a, b) => a.Peak.CompareTo(b.Peak));
+        var brightest = ImmutableArray.CreateBuilder<CatalogIndex>(Math.Min(CometSetSize, ranked.Count));
+        for (var i = 0; i < brightest.Capacity; i++)
+        {
+            brightest.Add(ranked[i].Index);
+        }
+        (_rankedRepo, _rankedCount, _brightest) = (comets, all.Length, brightest.MoveToImmutable());
+        _cometRankings++;
+        return _brightest;
     }
 
     /// <summary>For a test that wants the orbits the next frame draws.</summary>
@@ -408,6 +560,45 @@ public sealed class OrreryScene(Action? requestRedraw = null)
 
     /// <summary>A true heliocentric point where <paramref name="scaling"/> draws it (<see cref="OrreryScaling.Apply"/>).</summary>
     public static (double X, double Y, double Z) Scaled(in OrreryScaling scaling, double x, double y, double z) => scaling.Apply(x, y, z);
+
+    private OrreryScaling _scaledFor;
+    private int _scaledGeneration;
+    private readonly Dictionary<double[], (int Generation, double[] Points)> _scaled = new(ReferenceEqualityComparer.Instance);
+    private int _scaledOrbitBuilds;
+
+    /// <summary>How many times an orbit's points have been scaled: once per orbit and scaling, so never by a drag or by Play.</summary>
+    public int ScaledOrbitBuilds => _scaledOrbitBuilds;
+
+    /// <summary>
+    /// An orbit's points (<see cref="Orbits"/>, <see cref="TryGetCometOrbit"/>) where <paramref name="scaling"/> draws them, kept per
+    /// orbit until the scaling changes (a zoom of the auto scale, the scale's toggle), into the same array: the drawing then only
+    /// projects, which is what a drag or a played frame costs.
+    /// </summary>
+    public double[] ScaledOrbit(double[] orbit, in OrreryScaling scaling)
+    {
+        if (scaling != _scaledFor)
+        {
+            _scaledFor = scaling;
+            _scaledGeneration++;
+        }
+        if (_scaled.TryGetValue(orbit, out var kept) && kept.Generation == _scaledGeneration)
+        {
+            return kept.Points;
+        }
+        if (kept.Points is null && _scaled.Count >= 4 * (SolarSystemOrbits.Planets.Length + CometSetSize))
+        {
+            // Orbits replaced (a century's, a comet's new elements) leave their arrays behind as keys: let them go.
+            _scaled.Clear();
+        }
+        var points = kept.Points ?? new double[orbit.Length];
+        for (var i = 0; i + 2 < orbit.Length; i += 3)
+        {
+            (points[i], points[i + 1], points[i + 2]) = scaling.Apply(orbit[i], orbit[i + 1], orbit[i + 2]);
+        }
+        _scaled[orbit] = (_scaledGeneration, points);
+        _scaledOrbitBuilds++;
+        return points;
+    }
 
     /// <summary>
     /// Where <paramref name="body"/> is DRAWN in the scene: its scaled position, and for the Moon the Earth's, since at any scale that
@@ -438,9 +629,9 @@ public sealed class OrreryScene(Action? requestRedraw = null)
         return false;
     }
 
-    private static ImmutableArray<OrreryBody> ComputeBodies(DateTimeOffset utc, in CometElements? comet)
+    private static ImmutableArray<OrreryBody> ComputeBodies(DateTimeOffset utc, ReadOnlySpan<CometElements> comets)
     {
-        var builder = ImmutableArray.CreateBuilder<OrreryBody>(11);
+        var builder = ImmutableArray.CreateBuilder<OrreryBody>(11 + comets.Length);
         builder.Add(new OrreryBody(CatalogIndex.Sol, "Sun", 0, 0, 0));
         Span<double> xyz = stackalloc double[3];
         foreach (var planet in SolarSystemOrbits.Planets)
@@ -451,12 +642,15 @@ public sealed class OrreryScene(Action? requestRedraw = null)
         SolarSystemOrbits.TryGetPosition(CatalogIndex.Moon, utc, xyz);
         builder.Add(new OrreryBody(CatalogIndex.Moon, "Moon", xyz[0], xyz[1], xyz[2]));
 
-        if (comet is { } el && el.CatalogIndex is { } index)
+        if (comets.Length > 0)
         {
             utc.ToSOFAUtcJdTT(out _, out _, out var tt1, out var tt2);
-            if (CometEphemeris.TryGetHeliocentricEcliptic(el, tt1 + tt2, xyz, out _))
+            foreach (var el in comets)
             {
-                builder.Add(new OrreryBody(index, el.DisplayName, xyz[0], xyz[1], xyz[2]));
+                if (el.CatalogIndex is { } index && CometEphemeris.TryGetHeliocentricEcliptic(el, tt1 + tt2, xyz, out _))
+                {
+                    builder.Add(new OrreryBody(index, el.DisplayName, xyz[0], xyz[1], xyz[2], el.IsElementSetStale(tt1 + tt2)));
+                }
             }
         }
         return builder.ToImmutable();

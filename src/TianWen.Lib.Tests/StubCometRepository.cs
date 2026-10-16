@@ -18,6 +18,15 @@ internal sealed class StubCometRepository(params CometElements[] comets) : ICome
 {
     public ImmutableArray<CometElements> All => [.. comets];
 
+    public int Version { get; private set; }
+
+    /// <summary>Replaces the element set at <paramref name="at"/> (an apparition upgrade: the same index, new elements) and moves <see cref="Version"/>.</summary>
+    public void Replace(int at, CometElements elements)
+    {
+        comets[at] = elements;
+        Version++;
+    }
+
     /// <summary>
     /// A comet with the given designation and SBDB common name. Orbital elements are placeholders:
     /// every caller here is testing identity and naming, not the ephemeris.

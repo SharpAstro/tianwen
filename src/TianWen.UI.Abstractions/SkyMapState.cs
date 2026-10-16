@@ -1005,6 +1005,14 @@ namespace TianWen.UI.Abstractions
         private static DateTimeOffset JdTtToUtc(double jdTt)
             => new(DateTime.SpecifyKind(DateTime.FromOADate(jdTt - 2415018.5), DateTimeKind.Utc));
 
+        /// <summary>
+        /// A comet's brightness at its peak, roughly: <c>M1 + K1 log10(max(q, 0.05))</c>, the total magnitude at <c>r = q</c> seen
+        /// from an AU away. The ONE ranking of comets by how bright they get, used by the sky's candidacy filter and the orrery's comet
+        /// set (<see cref="OrreryScene.CometSetSize"/>); NaN for a comet with no magnitude model.
+        /// </summary>
+        internal static double PeakMagnitude(in CometElements el)
+            => el.AbsoluteMagnitudeM1 + (el.SlopeK1 * Math.Log10(Math.Max(el.PerihelionDistanceAu, 0.05)));
+
         private void RebuildCometCandidatesIfNeeded(ICometRepository comets)
         {
             var all = comets.All;
@@ -1020,9 +1028,7 @@ namespace TianWen.UI.Abstractions
                 {
                     continue;
                 }
-                var q = Math.Max(el.PerihelionDistanceAu, 0.05);
-                var peakish = el.AbsoluteMagnitudeM1 + el.SlopeK1 * Math.Log10(q);
-                if (peakish <= CometCandidacyMagnitudeLimit)
+                if (PeakMagnitude(el) <= CometCandidacyMagnitudeLimit)
                 {
                     candidates.Add(el);
                 }

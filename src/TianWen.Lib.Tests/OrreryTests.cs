@@ -169,36 +169,6 @@ public sealed class OrreryTests(ITestOutputHelper output)
         }
     }
 
-    /// <summary>
-    /// An apparition upgrade replaces a comet's elements under the same index while the view is open: the comet's position follows
-    /// the NEW elements at once, without a change of time, so it stays on the orbit drawn from them.
-    /// </summary>
-    [Fact]
-    public void NewElementsForTheSameCometMoveItOntoItsNewOrbit()
-    {
-        CometDesignation.TryParse("12P", out var designation).ShouldBeTrue();
-        var perihelion = 2461330.5;
-        var before = new CometElements(designation, "Pons-Brooks", 0.9, 0.7, 20, 100, 80, perihelion, perihelion, 8, 10);
-        var after = before with { ArgumentOfPerihelionDeg = 140, EpochJdTt = perihelion + 1 };
-        var index = before.CatalogIndex.ShouldNotBeNull();
-
-        var scene = new OrreryScene();
-        scene.Update(Instant, before);
-        scene.Update(Instant, after);
-        scene.TryFind(index, out var comet).ShouldBeTrue();
-
-        var orbit = scene.CometOrbit(after);
-        Span<double> at = [comet.X, comet.Y, comet.Z];
-        var nearest = double.MaxValue;
-        for (var i = 0; i + 1 < orbit.Length / 3; i++)
-        {
-            nearest = Math.Min(nearest, SegmentDistance(at, orbit.AsSpan(3 * i, 3), orbit.AsSpan(3 * (i + 1), 3)));
-        }
-        var r = Math.Sqrt((comet.X * comet.X) + (comet.Y * comet.Y) + (comet.Z * comet.Z));
-        output.WriteLine($"off the new orbit by {nearest:E2} AU at r {r:F3} AU");
-        (nearest / r).ShouldBeLessThan(1e-3);
-    }
-
     private static double Radius((double X, double Y, double Z) p) => Math.Sqrt((p.X * p.X) + (p.Y * p.Y) + (p.Z * p.Z));
 
     /// <summary>
@@ -1290,7 +1260,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Tab.State.ShowMilkyWay.ShouldBe(milkyWay);
     }
 
-    private static RectF32[] PaintedButtons(Rig rig, params string[] actions)
+    internal static RectF32[] PaintedButtons(Rig rig, params string[] actions)
         => [.. actions.Select(action => rig.Tab.GetCapturedLayout()
             .Single(n => n.Node.Hit is HitResult.ButtonHit { Action: var a } && a == action).Bounds)
             .Select(b => new RectF32(b.X, b.Y, b.Width, b.Height))];
@@ -1757,13 +1727,15 @@ public sealed class OrreryTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// The orrery through the CPU renderer, true and compressed scale, Jupiter selected: the PNGs a person looks at, written to the
-    /// test output, and every planet's sprite drawn once it has landed.
+    /// The orrery through the CPU renderer, true and compressed scale, Jupiter selected and a set of comets the size of the one the app
+    /// draws (<see cref="OrreryCometTests.DemoComets"/>): the PNGs a person looks at, written to the test output, and every planet's
+    /// sprite drawn once it has landed.
     /// </summary>
     [Fact(Timeout = 120_000)]
     public async Task TheOrreryDrawsOnTheCpuSurface()
     {
         using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        rig.Planner.Comets = new StubCometRepository(OrreryCometTests.DemoComets());
         Select(rig, CatalogIndex.Jupiter);
         rig.Tab.OpenOrrery();
         var folder = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests", DateTime.Now.ToString("yyyyMMdd"), nameof(OrreryTests));
@@ -1835,7 +1807,9 @@ public sealed class OrreryNightTests
         {
             GuiTheme.Apply(UiThemeState.Night, desktopIsDark: true);
             using var rig = await OrreryTests.RigAsync(TestContext.Current.CancellationToken);
-            OrreryTests.SelectComet(rig);
+            var opened = OrreryTests.SelectComet(rig);
+            // The set too, so its orbits and tails are under the test as well as the opened comet's.
+            rig.Planner.Comets = new StubCometRepository([opened, .. OrreryCometTests.DemoComets()]);
             rig.Tab.OpenOrrery();
             rig.Tab.State.TimeOffset = TimeSpan.FromDays(1);
             for (var pass = 0; pass < 3; pass++)
@@ -1864,6 +1838,13 @@ public sealed class OrreryNightTests
                 }
             }
             blue.ShouldBe(0, "pixels with any blue under Night");
+            // ...with the comets' orbits and tails among them, and every orbit the palette's tint.
+            rig.Tab.OrreryTails.Count.ShouldBeGreaterThan(0, "no comet tail was drawn under Night");
+            rig.Tab.OrreryOrbitsDrawn.Count(o => o.Index.ToCatalog() == Catalog.Comet).ShouldBeGreaterThan(1);
+            foreach (var (index, colour) in rig.Tab.OrreryOrbitsDrawn)
+            {
+                colour.Blue.ShouldBe((byte)0, $"{index}'s orbit spends blue under Night");
+            }
         }
         finally
         {

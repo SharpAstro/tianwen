@@ -137,6 +137,72 @@ public sealed class OrreryGpuTests(VkOrreryGpuFixture gpu, ITestOutputHelper out
     }
 
     /// <summary>
+    /// The comets on the GPU host (#1611): the set's heads, orbits and tails are 2D primitives (<c>FillEllipse</c>, <c>DrawPolyline</c>,
+    /// <c>DrawTriangles</c>) the Vulkan renderer fills as the CPU surface does. With the layer on, every drawn head and the middle of
+    /// every drawn tail differ from the same frame with the layer off; the frame's CPU time with and without the set is reported.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheCometsDrawOnTheGpuHost()
+    {
+        if (!gpu.VulkanAvailable)
+        {
+            Assert.Skip($"Vulkan runtime not available on this host ({gpu.UnavailableReason})");
+            return;
+        }
+        var rig = await RigAsync();
+        try
+        {
+            rig.Planner.Comets = new StubCometRepository(OrreryCometTests.DemoComets());
+            rig.Tab.State.Orrery.ElevationDeg = 30;
+            await SettleAsync(rig);
+            double Median()
+            {
+                var times = new double[20];
+                for (var frame = 0; frame < times.Length; frame++)
+                {
+                    rig.Tab.State.Orrery.AzimuthDeg += 0.05;
+                    Render(rig);
+                    times[frame] = rig.Tab.LastOrreryFrameMs;
+                }
+                Array.Sort(times);
+                return times[times.Length / 2];
+            }
+            var withComets = Median();
+            var on = Render(rig);
+            var heads = rig.Tab.OrreryDrawn.Where(d => d.Index.ToCatalog() == Catalog.Comet && d.X >= 0 && d.Y >= 0 && d.X < Width && d.Y < Height).ToList();
+            var tails = rig.Tab.OrreryTails.Where(t => t.HeadX >= 0 && t.HeadY >= 0 && t.TipX >= 0 && t.TipY >= 0 && t.HeadX < Width && t.TipX < Width && t.HeadY < Height && t.TipY < Height).ToList();
+            rig.Tab.State.ShowComets = false;
+            var withoutComets = Median();
+            var off = Render(rig);
+
+            var folder = Path.Combine(Path.GetTempPath(), "TianWen.Lib.Tests", DateTime.Now.ToString("yyyyMMdd"), nameof(OrreryGpuTests));
+            Directory.CreateDirectory(folder);
+            await File.WriteAllBytesAsync(Path.Combine(folder, "orrery-gpu-comets.png"), PngWriter.Encode(on, Width, Height), TestContext.Current.CancellationToken);
+            output.WriteLine(folder);
+
+            bool Differs(float x, float y)
+            {
+                var i = (((int)y * Width) + (int)x) * 4;
+                return Math.Abs(on[i] - off[i]) + Math.Abs(on[i + 1] - off[i + 1]) + Math.Abs(on[i + 2] - off[i + 2]) > 12;
+            }
+            output.WriteLine($"GPU host: {heads.Count} comet heads and {tails.Count} tails on screen; frame median {withComets:F2} ms with the set, {withoutComets:F2} ms without (CPU time of the frame's build and submit)");
+            heads.Count.ShouldBeGreaterThan(5);
+            tails.Count.ShouldBeGreaterThan(0);
+            heads.Where(h => !Differs(h.X, h.Y)).Select(h => h.Index).ShouldBeEmpty("a comet's head is not on the GPU's frame");
+            tails.Where(t => !Differs((t.HeadX + t.TipX) / 2, (t.HeadY + t.TipY) / 2)).Select(t => t.Index)
+                .ShouldBeEmpty("a comet's tail is not on the GPU's frame");
+        }
+        finally
+        {
+            gpu.Invoke(() =>
+            {
+                rig.Tab.Dispose();
+                return 0;
+            });
+        }
+    }
+
+    /// <summary>
     /// Every planet's disc on the GPU's frame is lit toward the Sun as drawn (<see cref="OrreryTests.LitAwayFromTheSun"/>), at the instant
     /// and after 93 weeks of Play-sized steps: no stale picture is ever drawn, so no frame is a frame behind. Framed on the Earth's orbit
     /// (the view the orrery opens on for the Sun) and out to a reach of 12 AU, where Jupiter and Saturn are in the view too.
