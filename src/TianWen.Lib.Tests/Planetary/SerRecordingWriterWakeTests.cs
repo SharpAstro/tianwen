@@ -51,7 +51,13 @@ public sealed class SerRecordingWriterWakeTests : IDisposable
         WaitUntil(() => recording.FramesWritten == 1, ct);
 
         ThreadPool.GetMaxThreads(out var maxWorkers, out var maxPorts);
-        using var release = new ManualResetEventSlim(false);
+        // Never disposed, on purpose (#1628): one held item can still be queued when the release is set (this test's own thread
+        // may hold the last place the cap allows), and if it started only after a dispose its Wait would throw
+        // ObjectDisposedException out of a pool work item, which ends the test process. Undisposed, a late item finds the event
+        // set and returns at once. Nothing leaks: the event makes a kernel handle only if its WaitHandle is asked for, and
+        // nothing here asks. Counting the items out instead would need its own wait, and one that ran out would leave the same
+        // choice of disposing under a queued item.
+        var release = new ManualResetEventSlim(false);
         var held = 0;
         ThreadPool.SetMaxThreads(Environment.ProcessorCount, maxPorts).ShouldBeTrue("premise: the pool can be capped at the core count");
         try
