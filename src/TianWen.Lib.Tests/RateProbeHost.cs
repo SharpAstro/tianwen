@@ -96,13 +96,23 @@ internal static class RateGate
     /// no count of them), a frame the body or the disk dropped, a step over the SER's long-step bound.
     /// </summary>
     public static IReadOnlyList<string> Failures(SerRateReadBack ser, long? replaced, int bodyDropped, int diskDropped, double? baseline)
+        => Judge(ser, replaced, bodyDropped, diskDropped, baseline, compare: true);
+
+    /// <summary>
+    /// What fails a recording by itself, in words: every failure <see cref="Failures"/> names but the comparison with the
+    /// in-process rate, which an in-process recording is the other side of.
+    /// </summary>
+    public static IReadOnlyList<string> OwnFailures(SerRateReadBack ser, long? replaced, int bodyDropped, int diskDropped)
+        => Judge(ser, replaced, bodyDropped, diskDropped, baseline: null, compare: false);
+
+    private static List<string> Judge(SerRateReadBack ser, long? replaced, int bodyDropped, int diskDropped, double? baseline, bool compare)
     {
         var failures = new List<string>();
         if (ser.Fps < Bar)
         {
             failures.Add($"{ser.Fps:F1} fps, under the bar of {Bar}");
         }
-        if (!IsWithinInProcess(ser.Fps, baseline))
+        if (compare && !IsWithinInProcess(ser.Fps, baseline))
         {
             failures.Add(baseline is { } rate && double.IsFinite(rate)
                 ? $"{ser.Fps:F1} fps, {ser.Fps / rate:P1} of the in-process {rate:F1}, not within {WithinInProcess:P0}"
@@ -148,10 +158,18 @@ internal static class RateGate
         return new Standing(SetAside: logged, MakesAnother: logged || looksStalled);
     }
 
-    /// <summary>The same session's in-process rate: the mean of its in-process recordings that did not stall, or null when none did not.</summary>
-    public static double? InProcessBaseline(IEnumerable<double> cleanRates)
+    /// <summary>One in-process recording the baseline may take: its SER read back and the counts over it.</summary>
+    public readonly record struct InProcessRun(SerRateReadBack Ser, long? Replaced, int BodyDropped, int DiskDropped);
+
+    /// <summary>
+    /// The same session's in-process rate: the mean of its in-process recordings that did not stall (the caller leaves those out)
+    /// and fail nothing by themselves (<see cref="OwnFailures"/>), or null when none is left. A degraded one, its frames replaced
+    /// or dropped or a step in it over the bound, would lower the bar a node recording is held to (review round 2 of #1609).
+    /// </summary>
+    public static double? InProcessBaseline(IEnumerable<InProcessRun> unstalled)
     {
-        double[] rates = [.. cleanRates];
+        double[] rates = [.. unstalled.Where(static run => OwnFailures(run.Ser, run.Replaced, run.BodyDropped, run.DiskDropped).Count == 0)
+            .Select(static run => run.Ser.Fps)];
         return rates.Length > 0 ? rates.Average() : null;
     }
 

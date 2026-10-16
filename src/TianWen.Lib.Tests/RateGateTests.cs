@@ -17,6 +17,7 @@ public class RateGateTests
         // Both in-process recordings stalled: the comparison the gate exists for cannot be made, and must not pass. A NaN
         // baseline did, since a comparison through CompareTo ranks NaN below every rate (review round 1 of #1609, B1).
         var baseline = RateGate.InProcessBaseline([]);
+        baseline.ShouldBeNull();
 
         RateGate.IsWithinInProcess(196.8, baseline).ShouldBeFalse("a node recording is within no baseline at all");
         RateGate.IsWithinInProcess(196.8, double.NaN).ShouldBeFalse("nor within one that is not a number");
@@ -25,11 +26,31 @@ public class RateGateTests
     [Fact]
     public void TheBaselineIsTheMeanOfTheCleanInProcessRates()
     {
-        var baseline = RateGate.InProcessBaseline([196.8, 196.6]);
+        var baseline = RateGate.InProcessBaseline([Clean(11_808), Clean(11_796)]);
 
         baseline.ShouldNotBeNull().ShouldBe(196.7, tolerance: 1e-9);
         RateGate.IsWithinInProcess(191.0, baseline).ShouldBeTrue("97.1 % of it");
         RateGate.IsWithinInProcess(190.0, baseline).ShouldBeFalse("96.6 % of it");
+    }
+
+    [Fact]
+    public void AnInProcessRecordingThatFailsByItselfIsNoPartOfTheBaseline()
+    {
+        // Each degraded in its own way, none stalled: averaged in, they would lower the 3 % bar a node recording is held to
+        // (review round 2 of #1609). Only the clean one is the baseline.
+        RateGate.InProcessRun[] runs =
+        [
+            Clean(11_808),
+            new RateGate.InProcessRun(Ser(11_700), Replaced: 108, BodyDropped: 0, DiskDropped: 0),
+            new RateGate.InProcessRun(Ser(11_790), Replaced: 0, BodyDropped: 3, DiskDropped: 0),
+            new RateGate.InProcessRun(Ser(11_790), Replaced: 0, BodyDropped: 0, DiskDropped: 2),
+            new RateGate.InProcessRun(Ser(11_780, TimeSpan.FromMilliseconds(400)), Replaced: 0, BodyDropped: 0, DiskDropped: 0),
+            new RateGate.InProcessRun(Ser(11_790), Replaced: null, BodyDropped: 0, DiskDropped: 0),
+            new RateGate.InProcessRun(Ser(9_000), Replaced: 0, BodyDropped: 0, DiskDropped: 0),
+        ];
+
+        RateGate.InProcessBaseline(runs).ShouldNotBeNull().ShouldBe(196.8, tolerance: 1e-9);
+        RateGate.InProcessBaseline(runs.Skip(1)).ShouldBeNull("no in-process recording is clean, so there is nothing to compare with");
     }
 
     private static readonly TimeSpan Minute = TimeSpan.FromSeconds(60);
@@ -37,6 +58,8 @@ public class RateGateTests
     private static SerRateReadBack Ser(int frames, params TimeSpan[] longSteps)
         => new SerRateReadBack(frames, Minute, 5.08, 5.2, longSteps.Length > 0 ? longSteps.Max() : TimeSpan.FromMilliseconds(6),
             [.. longSteps.Select((step, i) => (1000 * (i + 1), step))], TimeSpan.FromMilliseconds(100));
+
+    private static RateGate.InProcessRun Clean(int frames) => new RateGate.InProcessRun(Ser(frames), Replaced: 0, BodyDropped: 0, DiskDropped: 0);
 
     [Fact]
     public void AGapTheStreamLoggedNoStallForIsJudgedAndFails()

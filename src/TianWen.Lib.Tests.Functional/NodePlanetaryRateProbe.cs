@@ -183,7 +183,9 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         }
 
         Run[] all = [inProcessRuns[0], .. runs, .. inProcessRuns.Skip(1)];
-        var baseline = RateGate.InProcessBaseline(inProcessRuns.Where(static r => !r.Standing.SetAside).Select(static r => r.Ser.Fps));
+        // Only an in-process recording that fails nothing by itself is the baseline (review round 2 of #1609).
+        var baseline = RateGate.InProcessBaseline(inProcessRuns.Where(static r => !r.Standing.SetAside)
+            .Select(static r => new RateGate.InProcessRun(r.Ser, r.Replaced, r.BodyDropped, r.DiskDropped)));
         var against = baseline is { } rate ? $"this run's in-process {rate:F1} fps" : "NO clean in-process recording in this run";
         output.WriteLine("");
         output.WriteLine($"The ToupTek at the Saturn window ({RoiWidth}x{RoiHeight} at {RoiX}, {RoiY}), 8 bits, {SaturnExposure.TotalMilliseconds} ms, gain {SaturnGain}, "
