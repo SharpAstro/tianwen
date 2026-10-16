@@ -117,6 +117,8 @@ public class NodeKeeperProcessTests
         var logs = Directory.GetFiles(Path.Combine(kept.DataRoot, "Logs"), "*.log", SearchOption.AllDirectories).Select(Path.GetFileName).ToArray();
         logs.ShouldContain(name => name!.StartsWith("Server_"), "the node logs under the root it was given");
         logs.ShouldContain(name => name!.StartsWith("Keeper_"), "and so does its keeper");
+        // Its images too, never the user's Pictures (External.ResolveImageOutputFolder): a test's dark library landed there.
+        Directory.Exists(Path.Combine(kept.DataRoot, "Images")).ShouldBeTrue("the node keeps its images under the root it was given");
     }
 
     [Fact(Timeout = 120_000)]
