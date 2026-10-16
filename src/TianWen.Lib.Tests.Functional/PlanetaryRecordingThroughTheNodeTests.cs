@@ -82,8 +82,12 @@ public class PlanetaryRecordingThroughTheNodeTests(ITestOutputHelper output)
         var duration = TimeSpan.FromMinutes(10);
 
         h.Post(new StartPlanetaryRecordingSignal(duration));
+        // The handler's tracked work is the request alone: a drain of the tracker ends with the node's answer, never with the
+        // recording, which the capture's own poll follows outside the tracker. A watch tracked until the recording ends would
+        // hold this drain, and a probe's start wait, for the ten minutes.
         await h.UntilSettledAsync(ct);
         ShouldNotHaveWarned(h);
+        planetary.Capture.Recording.ShouldNotBeNull().Recording.ShouldBeTrue("the drain ended while the recording goes on");
 
         // While it records, what the panel shows is the node's: the file, the frames written and dropped, and the time left.
         await h.UntilAsync(() => planetary.Capture.Recording is { Recording: true, FramesWritten: > 0 }, ct);
