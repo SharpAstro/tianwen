@@ -670,7 +670,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
             // An interlude asked for and never taken, or taken and never streamed after, is told the capture ended. Taken
             // only once the capture is marked ended, so one asked for meanwhile sees that for itself (InterludeAsync).
-            if (Interlocked.Exchange(ref _interlude, null) is { } left)
+            if (Volatile.Read(ref _streamUse) is InterludeRequest left && Interlocked.CompareExchange(ref _streamUse, null, left) == left)
             {
                 left.Refuse(left.WasTaken
                     ? $"The {Name} did not stream again after {left.Interlude.What}: {_failure ?? "it was stopped"}"
@@ -715,10 +715,11 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     // an interlude starts it again where it was. The loop's own, written and read only on its thread.
     private VideoCaptureOptions _streamOptions = new(MinExposure);
 
-    // The interlude asked for and not yet finished, or null: set by its caller (InterludeAsync), taken between two frames by
-    // the loop, cleared by whoever finishes it. A recording and an interlude each look for the other once their own is set,
-    // so of two asked for at once one always sees the other (TryStartRecording).
-    private InterludeRequest? _interlude;
+    // The stream's one claim: the recording armed on it (a SerRecording, free again once it has ended), or the interlude asked
+    // for and not yet finished (an InterludeRequest, taken between two frames by the loop, cleared by whoever finishes it), or
+    // null. A recording and an interlude each take it through TryClaimStream, one compare-and-swap, so of two asked for at
+    // once exactly one has the stream and the other is told why; a recording is the loop's to append to only once it holds it.
+    private object? _streamUse;
     private int _framesDroppedAfterInterludes;
     private long _interludeTicks;                  // the time the current capture's stream stood stopped for interludes
 
@@ -731,28 +732,46 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     /// </summary>
     /// <param name="what">What the interlude is for, as it completes a sentence ("a filter change").</param>
     public string? InterludeRefusal(string what)
+        => IsCapturing ? InterludeRefusalFor(Volatile.Read(ref _streamUse), what) : NotStreaming(what);
+
+    private string NotStreaming(string what) => $"No {Name} is streaming, so {what} has no stream to stop";
+
+    // Why the stream's claim, as `use` holds it, refuses an interlude for `what`; null when it is free.
+    private string? InterludeRefusalFor(object? use, string what) => use switch
     {
-        if (!IsCapturing)
+        SerRecording { IsRecording: true } => $"A recording is being made: {what} would stop the stream it is made from, and put frames "
+            + "from before and after it in one file. Stop the recording, or let it end, first",
+        InterludeRequest other => $"The {Name} stops its stream for {other.Interlude.What}; {what} waits until that is done",
+        _ => null,
+    };
+
+    // Why the stream's claim, as `use` holds it, refuses a recording; null when it is free.
+    private string? RecordingRefusalFor(object? use) => use switch
+    {
+        SerRecording { IsRecording: true } => "A recording is already being made",
+        InterludeRequest interlude => $"The {Name} stops its stream for {interlude.Interlude.What}; record once it streams again",
+        _ => null,
+    };
+
+    // Takes the stream's one claim for `claimant`, an armed recording or an interlude, unless what holds it refuses (`refusalFor`):
+    // the one place the two are put in order. Retried only when the claim changed between its read and the swap.
+    private bool TryClaimStream(object claimant, Func<object?, string?> refusalFor, [NotNullWhen(false)] out string? refusal)
+    {
+        while (true)
         {
-            return $"No {Name} is streaming, so {what} has no stream to stop";
+            var use = Volatile.Read(ref _streamUse);
+            if (refusalFor(use) is { } busy)
+            {
+                refusal = busy;
+                return false;
+            }
+            if (Interlocked.CompareExchange(ref _streamUse, claimant, use) == use)
+            {
+                refusal = null;
+                return true;
+            }
         }
-        if (_recording is { IsRecording: true })
-        {
-            return RecordingRefusal(what);
-        }
-        if (Volatile.Read(ref _interlude) is { } other)
-        {
-            return $"The {Name} has stopped its stream for {other.Interlude.What}; {what} waits until that is done";
-        }
-        return null;
     }
-
-    private string InterludeUnderWay(InterludeRequest interlude)
-        => $"The {Name} has stopped its stream for {interlude.Interlude.What}; record once it streams again";
-
-    private static string RecordingRefusal(string what)
-        => $"A recording is being made: {what} would stop the stream it is made from, and put frames from before and after it in "
-            + "one file. Stop the recording, or let it end, first";
 
     /// <summary>
     /// Stops the running capture's stream between two frames, runs <paramref name="interlude"/>'s action, and starts the stream
@@ -775,18 +794,19 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             return refusal;
         }
 
+        // The stream's one claim, which a recording takes too: whichever of the two has it first, the other is refused.
         var request = new InterludeRequest(interlude, cancellationToken);
-        if (Interlocked.CompareExchange(ref _interlude, request, null) is { } other)
+        if (!TryClaimStream(request, use => InterludeRefusalFor(use, interlude.What), out var busy))
         {
-            return $"The {Name} has stopped its stream for {other.Interlude.What}; {interlude.What} waits until that is done";
+            return busy;
         }
 
-        // Looked at again once the request is in place: a recording armed before it is seen here, one armed after sees the
-        // request (TryStartRecording); a loop that ended before it is seen here, one ending after takes it (the loop's finally).
-        if (_recording is { IsRecording: true } || !IsCapturing)
+        // Looked at again once the claim is held: a loop that ended before it is seen here, one ending after takes it (the
+        // loop's finally).
+        if (!IsCapturing)
         {
-            Interlocked.CompareExchange(ref _interlude, null, request);
-            return InterludeRefusal(interlude.What) ?? RecordingRefusal(interlude.What);
+            Interlocked.CompareExchange(ref _streamUse, null, request);
+            return NotStreaming(interlude.What);
         }
 
         string? outcome;
@@ -796,7 +816,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         }
         if (request.WasWithdrawn)
         {
-            Interlocked.CompareExchange(ref _interlude, null, request);
+            Interlocked.CompareExchange(ref _streamUse, null, request);
             cancellationToken.ThrowIfCancellationRequested();
         }
         return outcome;
@@ -836,7 +856,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                         // changed) starts at it anyway. The ring and its planes, the counters and the rate carry on.
                         Volatile.Read(ref _stream)?.StartRun();
                         restarted = null;
-                        Interlocked.CompareExchange(ref _interlude, null, back);
+                        Interlocked.CompareExchange(ref _streamUse, null, back);
                         back.Restarted();
                     }
                     yield return frame;
@@ -844,7 +864,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
                 // Between two frames, and only there: the one just taken is whole in the ring, the recording and the host.
                 // Dropped frames run on to the first one kept, with no interlude between.
-                if (dropping == 0 && restarted is null && Volatile.Read(ref _interlude) is { } asked && asked.TryTake())
+                if (dropping == 0 && restarted is null && Volatile.Read(ref _streamUse) is InterludeRequest asked && asked.TryTake())
                 {
                     interlude = asked;
                     stoppedAt = timeProvider.GetTimestamp();
@@ -1042,36 +1062,27 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             refusal = "No planetary capture is running to record";
             return false;
         }
-        if (_recording is { IsRecording: true })
+        // Asked first, so a refusal makes nothing: a recording starts its writer as it is made.
+        if (RecordingRefusalFor(Volatile.Read(ref _streamUse)) is { } busy)
         {
-            refusal = "A recording is already being made";
-            return false;
-        }
-        if (Volatile.Read(ref _interlude) is { } interlude)
-        {
-            refusal = InterludeUnderWay(interlude);
+            refusal = busy;
             return false;
         }
 
         var now = timeProvider.GetUtcNow();
         // The header names the camera and the telescope, so the recording's best stack knows the optics (#1179).
-        recording = new SerRecording(path, now, now + duration, logger, Camera?.Name, Volatile.Read(ref _telescopeField),
+        var made = new SerRecording(path, now, now + duration, logger, Camera?.Name, Volatile.Read(ref _telescopeField),
             streamed: Camera is { } camera && Streams(camera));
-        var before = _recording;
-        _recording = recording;
-        // Looked at again once the recording is in place (InterludeAsync looks for a recording once its request is): of the
-        // two asked for at once, one always sees the other. A recording ended before its first frame writes no file, and the
-        // last one to end stays the one a host reads.
-        Interlocked.MemoryBarrier();
-        if (Volatile.Read(ref _interlude) is { } raced)
+        // Armed only once it holds the stream's one claim, the claim an interlude takes too: the loop never appends to a
+        // recording that lost it, so a refused one ends with no frame and no file, and the last one to end stays the one a
+        // host reads.
+        if (!TryClaimStream(made, RecordingRefusalFor, out refusal))
         {
-            recording.End("an interlude stopped the stream as it began");
-            _recording = before;
-            recording = null;
-            refusal = InterludeUnderWay(raced);
+            made.End("another took the stream first");
             return false;
         }
-        refusal = null;
+        _recording = made;
+        recording = made;
         logger.LogInformation("Planetary capture recording to {Path} for {Duration}", path, duration);
         return true;
     }
