@@ -75,12 +75,14 @@ public sealed class PlanetaryRecordControl
         {
             rows.Add(Line("Seconds, above 0 and up to a day", small, GuiTheme.Palette.Warn, rowHeight));
         }
+        // A greyed Record always says why: with no capture on show there is nothing to record, the last recording or none.
+        if (!capturing)
+        {
+            rows.Add(Line(recording is null ? "Start the capture to record it" : "Start the capture to record again", small,
+                GuiTheme.Palette.DimText, rowHeight));
+        }
         if (recording is null)
         {
-            if (!capturing)
-            {
-                rows.Add(Line("Start the capture to record it", small, GuiTheme.Palette.DimText, rowHeight));
-            }
             return rows.ToImmutable();
         }
 

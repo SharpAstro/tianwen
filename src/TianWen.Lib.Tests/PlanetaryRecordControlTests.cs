@@ -144,6 +144,25 @@ public class PlanetaryRecordControlTests
         Toggle(panel).ShouldBeNull("there is no capture's node to send a stop to");
     }
 
+    /// <summary>
+    /// Once the capture has stopped with its last recording shown, Record is greyed and says why, beside what that recording
+    /// was; it used to grey with no word (review round 1 of #1610, N2).
+    /// </summary>
+    [Theory]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public void OnceTheCaptureHasStoppedAGreyedRecordSaysWhyBesideTheLastRecording(float scale)
+    {
+        using var renderer = Surface(scale);
+        var ended = Recording(recording: false, written: 11760, dropped: 0, endReason: "the capture ended", whole: true);
+
+        var (panel, _, _) = Paint(renderer, scale, new PlanetaryRecordControl(), ended, capturing: false);
+
+        Toggle(panel).ShouldBeNull("a recording is of the capture going on");
+        Texts(new PlanetaryRecordControl(), ended, capturing: false).ShouldBe(["Secs", "Record", "Start the capture to record again",
+            "Jupiter_Red_2026-10-16T213000Z.ser", "Ended because the capture ended", "11760 written   0 dropped"]);
+    }
+
     [Theory]
     [InlineData("", 1f)]
     [InlineData("abc", 1f)]
