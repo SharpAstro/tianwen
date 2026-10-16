@@ -110,6 +110,9 @@
                 // the canvas at the exact target (there is no DOM for these). Return "null" when absent.
                 getPlannerSearchRect: function () { return ref.invokeMethodAsync('GetPlannerSearchRectJson'); },
                 getPlannerSuggestionRect: function (i) { return ref.invokeMethodAsync('GetPlannerSuggestionRectJson', i); },
+                // A canvas-drawn button by its action, and a row of the open drop-up by index (CSS px), "null" when absent.
+                getButtonRect: function (action) { return ref.invokeMethodAsync('GetButtonRectJson', action); },
+                getDropdownRowRect: function (i) { return ref.invokeMethodAsync('GetDropdownRowRectJson', i); },
                 // Repaint accounting -> {frames, coalesced, gathers}. Lets a test assert the two perf
                 // properties of a continuous gesture (frames coalesce onto vsync; the overlay cache does
                 // not re-gather per event) without reading a Chrome trace by hand.

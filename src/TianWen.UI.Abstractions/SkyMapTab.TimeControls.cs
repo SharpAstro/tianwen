@@ -37,6 +37,11 @@ public partial class SkyMapTab<TSurface>
     /// <summary>The night's landmarks, opened by a press on the strip's time; its value is the scrub offset.</summary>
     internal DropdownMenuState<TimeSpan> TimeMenu { get; } = new();
 
+    /// <summary>The orrery's play speeds, opened by a press on the strip's speed; its value is days a second.</summary>
+    internal DropdownMenuState<double> SpeedMenu { get; } = new();
+
+    internal const string OrrerySpeedAction = "OrrerySpeed";
+
     /// <summary>Moves the atlas's viewing time by <paramref name="delta"/>: the arrow keys and the strip's buttons.</summary>
     internal void StepTime(TimeSpan delta)
     {
@@ -94,7 +99,8 @@ public partial class SkyMapTab<TSurface>
 
     /// <summary>
     /// The widest time the strip shows in ordinary use: a scrubbed date and an offset of its two largest units, each of two digits
-    /// in the widest unit letter (m), so hours and minutes, days and hours and weeks and days all fit (weeks past 99 aside).
+    /// in the widest unit letter (m), so hours and minutes, days and hours, weeks and days and years and weeks all fit (years past
+    /// 99 aside, which only the orrery's Play reaches, and trim at the offset's end).
     /// </summary>
     internal const string TimeTextWidthSample = "0000-00-00 00:00  (+00m 00m)";
 
@@ -165,57 +171,75 @@ public partial class SkyMapTab<TSurface>
     internal const float TimeLabelMinEm = 4f;
 
     /// <summary>
-    /// The time button's weight against a strip's other content-capped labels (each 1): under pressure it gives way a third as
-    /// fast, so at 1.5x on a 900 px orrery strip it keeps its whole date and time with about four ems to spare and only the
-    /// offset trims (at weight 1 it trimmed into the date; at 2 it kept two ems on Windows and lost a digit on Linux, whose
-    /// glyphs measure a few pixels wider, #1584).
+    /// The time button's weight against a strip's other content-capped labels (each 1): under pressure it gives way a quarter as
+    /// fast, so at 1.5x on a 900 px orrery strip it keeps its whole date and time with about three and a half ems to spare and only
+    /// the offset trims (at weight 1 it trimmed into the date; at 2 it kept two ems on Windows and lost a digit on Linux, whose
+    /// glyphs measure a few pixels wider, #1584). It was 3 until the orrery's speed button came in beside Play (#1573), a fourth
+    /// label sharing the squeeze: at 3 the time kept only 26 px (1.7 ems) past its date and time; at 4, 53 px (3.5 ems), the
+    /// labels 54 px each, in Consolas. That was the Windows test face: in DejaVu Sans Mono (Linux's) it kept 27 px and in the
+    /// app's own DejaVu Sans 23, so the orrery strip's gap went from 4 to 2 (46 px in DejaVu Sans, 49 in DejaVu Sans Mono).
     /// </summary>
-    internal const float TimeLabelWeight = 3f;
+    internal const float TimeLabelWeight = 4f;
+
+    /// <summary>
+    /// The gap between the time controls, in units the caller scales by its DPI: the sky strip's group and the orrery strip's whole
+    /// row both space their buttons by it.
+    /// </summary>
+    internal const float TimeControlGapUnits = 2f;
 
     /// <summary>The time controls (<see cref="BuildTimeControls"/>) as one group, for a strip that arranges them as a unit.</summary>
     private static Layout.Node TimeControlsGroup(ImmutableArray<Layout.Node> controls, float dpiScale)
         // The strip's full height, so each button's text centres in the strip as the info text beside it
         // does, and its hover fill is the strip's height. Auto, the group measured to one line of text and
         // sat at the strip's top (a stack places a child at the cross-axis START).
-        => Layout.Builder.HStack(controls.AsSpan()).WithGap(2f * dpiScale).HStar();
+        => Layout.Builder.HStack(controls.AsSpan()).WithGap(TimeControlGapUnits * dpiScale).HStar();
 
-    // Where the strip last laid the time out, device pixels: the drop-up opens above it. Remembered as
+    // Where the strip last laid the time (and the orrery's speed) out, device pixels: the drop-up opens above it. Remembered as
     // the strip paints, every frame, because a press handler is not handed its node's arranged rect.
     private RectF32 _timeButtonRect;
+    private RectF32 _speedButtonRect;
 
-    /// <summary>Remembers where the strip laid the time out, for the drop-up a press on it opens.</summary>
+    /// <summary>Remembers where the strip laid the time and the orrery's speed out, for the drop-up a press on either opens.</summary>
     private void RememberTimeButton(ImmutableArray<Layout.ArrangedNode<float>> arranged)
     {
         foreach (var node in arranged)
         {
-            if (node.Node.Hit is HitResult.ButtonHit { Action: TimeMenuAction })
+            switch (node.Node.Hit)
             {
-                _timeButtonRect = new RectF32(node.Bounds.X, node.Bounds.Y, node.Bounds.Width, node.Bounds.Height);
-                return;
+                case HitResult.ButtonHit { Action: TimeMenuAction }:
+                    _timeButtonRect = new RectF32(node.Bounds.X, node.Bounds.Y, node.Bounds.Width, node.Bounds.Height);
+                    break;
+                case HitResult.ButtonHit { Action: OrrerySpeedAction }:
+                    _speedButtonRect = new RectF32(node.Bounds.X, node.Bounds.Y, node.Bounds.Width, node.Bounds.Height);
+                    break;
             }
         }
     }
 
-    /// <summary>
-    /// Paints the landmarks drop-up when it is open, LAST of the sky pass so it lies over the strip and the
-    /// map; its backdrop dismisses, and Escape comes from being painted.
-    /// </summary>
+    /// <summary>Paints the landmarks drop-up when it is open (<see cref="RenderDropUp{T}"/>).</summary>
     private void RenderTimeMenu(RectF32 viewport, float fontSize, RGBAColor32? fillColour = null, RGBAColor32? inkColour = null)
+        => RenderDropUp(TimeMenu, viewport, fontSize, fillColour, inkColour);
+
+    /// <summary>
+    /// Paints a strip's drop-up when it is open (the landmarks, the orrery's speeds), LAST of the pass so it lies over the strip and
+    /// the map; its backdrop dismisses, and Escape comes from being painted.
+    /// </summary>
+    private void RenderDropUp<T>(DropdownMenuState<T> menu, RectF32 viewport, float fontSize, RGBAColor32? fillColour = null, RGBAColor32? inkColour = null)
     {
         var fill = fillColour ?? InfoPanelBg;
-        if (!TimeMenu.IsOpen)
+        if (!menu.IsOpen)
         {
             return;
         }
 
-        var anchor = new RectF32(TimeMenu.AnchorX, TimeMenu.AnchorY, TimeMenu.AnchorWidth, 0f);
+        var anchor = new RectF32(menu.AnchorX, menu.AnchorY, menu.AnchorWidth, 0f);
         RenderLayout(
-            Layout.Builder.Dropdown(anchor, TimeMenu,
+            Layout.Builder.Dropdown(anchor, menu,
                 fontSize: fontSize,
                 textColor: inkColour ?? InfoText,
                 background: fill with { Alpha = 0xFF },
                 highlight: GuiTheme.Hover(fill),
-                maxHeight: MathF.Max(fontSize, TimeMenu.AnchorY - viewport.Y),
+                maxHeight: MathF.Max(fontSize, menu.AnchorY - viewport.Y),
                 side: Layout.DockSide.Top),
             viewport,
             // Device pixels, as the strip is: the default context would scale the tree as design units.

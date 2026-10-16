@@ -2722,6 +2722,9 @@
             + ",\"orreryOpen\":" + ((_skyTab?.State.Orrery.IsOpen ?? false) ? "true" : "false")
             + ",\"orreryPlaying\":" + ((_skyTab?.State.Orrery.Playing ?? false) ? "true" : "false")
             + ",\"orreryFrames\":" + (_skyTab?.OrreryFrames ?? 0).ToString(CultureInfo.InvariantCulture)
+            // The speed in force (days a second) and the atlas's scrub offset (days): what a test of the speed drop-up reads back.
+            + ",\"orreryDaysPerSecond\":" + (_skyTab?.State.Orrery.DaysPerSecond ?? 0).ToString("R", CultureInfo.InvariantCulture)
+            + ",\"timeOffsetDays\":" + (_skyTab?.State.TimeOffset.TotalDays ?? 0).ToString("R", CultureInfo.InvariantCulture)
             + ",\"orreryMs\":" + (_skyTab?.LastOrreryFrameMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
             // sunTextured - the frames that traced the Sun from its atlas map (#1608), what a test of the textured Sun waits on.
             + ",\"sunTextured\":" + (_skyTab?.SunTexturedTraces ?? 0).ToString(CultureInfo.InvariantCulture)
@@ -2818,6 +2821,16 @@
     [JSInvokable]
     public string GetPlannerSuggestionRectJson(int index)
         => RegionRectCssJson(r => r.Result is HitResult.ListItemHit { ListId: "Suggestion", Index: var idx } && idx == index);
+
+    // A canvas-drawn button by its action (the orrery's strip: "OrreryPlay", "OrrerySpeed"), so an E2E presses it where it was painted.
+    [JSInvokable]
+    public string GetButtonRectJson(string action)
+        => RegionRectCssJson(r => r.Result is HitResult.ButtonHit { Action: var a } && a == action);
+
+    // A row of the open drop-up (the orrery's speeds, the atlas's landmarks), by index.
+    [JSInvokable]
+    public string GetDropdownRowRectJson(int index)
+        => RegionRectCssJson(r => r.Result is HitResult.ListItemHit { ListId: DropdownMenuState<string>.ListId, Index: var idx } && idx == index);
 
     // Finds the first registered clickable matching the predicate and returns its rect as CSS px, or
     // "null" when absent (widget not rendered / dropdown not shown). Regions are re-registered every

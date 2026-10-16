@@ -219,6 +219,17 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private DateTimeOffset ResolveViewingTime(PlannerState plannerState, ITimeProvider timeProvider)
         {
+            var viewingTime = ResolveBaseTime(plannerState, timeProvider) + State.TimeOffset;
+            _lastViewingTime = viewingTime;
+            return viewingTime;
+        }
+
+        /// <summary>
+        /// The instant the scrub offset is added to: the planner's date when one is set, else the live clock. Apart from
+        /// <see cref="ResolveViewingTime"/> so the orrery's Play can bound the offset before it is added (<see cref="OrreryState.PlayEnd"/>).
+        /// </summary>
+        private DateTimeOffset ResolveBaseTime(PlannerState plannerState, ITimeProvider timeProvider)
+        {
             // Viewing time: use the planning date (which preserves time-of-day across
             // date shifts) when set, otherwise live wall-clock time cached with 1s refresh.
             var nowTicks = timeProvider.GetTimestamp();
@@ -249,10 +260,7 @@ namespace TianWen.UI.Abstractions
             // the scrubbed instant keeps advancing with real time in live mode (offset is fixed,
             // liveTime keeps advancing). PlanningDate stays planner-driven; scrubbing
             // here never recomputes the planner.
-            var baseTime = plannerState.PlanningDate?.ToUniversalTime() ?? liveTime;
-            var viewingTime = baseTime + State.TimeOffset;
-            _lastViewingTime = viewingTime;
-            return viewingTime;
+            return plannerState.PlanningDate?.ToUniversalTime() ?? liveTime;
         }
 
         // The rest of RenderSkyBehind, once the instant and the site are known.

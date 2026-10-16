@@ -433,9 +433,27 @@ the Sun, is why Venus is a crescent, and the angle between them at the planet is
   aspect's position angles, distance and angular size are NaN.
 - **Time:** ONE clock with the sky (`SkyMapTab.ResolveViewingTime`: the planner's date or the live clock, plus
   `SkyMapState.TimeOffset`). The strip carries the sky's own time controls (`BuildTimeControls`: the steps, the
-  landmarks drop-up, Now) and the arrow keys and 0 work as on the sky; Play runs the offset at 10 days a second of
-  the wall clock, a frame stepping at most 100 ms of it (`MaxPlayStep`: ten minutes on another tab used to jump
-  sixteen years), so the sky shows the same instant when the view goes back. Playing is a STANDING reason to draw
+  landmarks drop-up, Now) and the arrow keys and 0 work as on the sky; Play runs the offset at the speed in force
+  (`OrreryState.DaysPerSecond`), a frame stepping at most 100 ms of the wall clock (`MaxPlayStep`: ten minutes on another
+  tab used to jump sixteen years), so the sky shows the same instant when the view goes back.
+- **Play's speed** (#1573, 2026-10-16). A label button beside Play names the speed in force ("1 week/s", the up-arrow mark
+  saying a press opens a menu) and opens a drop-up of `OrreryState.PlaySpeeds`, TheSkyLive's fifteen: 1 second = 6 hours,
+  12 hours, 1, 2 and 4 days, 1 and 2 weeks, 1, 2, 4 and 6 months, 1, 2, 5 and 10 years (a month a twelfth of a Julian
+  year). It is the time menu's own drop-up (`RenderDropUp`, which the landmarks now go through too), a second caller, not a
+  copy. A pick sets the rate and nothing else, so Play keeps running across it. The default is **1 week**: the entry nearest
+  the ten days a second Play ran at before (3 days off against 2 weeks' 4; on the ladder's ratio scale the two all but tie,
+  and the slower keeps the Moon readable, a lunar month in four seconds rather than two). The button is a content-capped
+  Star like the strip's other labels, sized by `PlaySpeedWidthSample` ("00 months/s": a sample exactly as wide as "4
+  months/s" still trimmed it at 1x). **Play stops at `OrreryState.PlayEnd`**, 4000-01-01 12:00 UTC, J2000 plus 2000 years:
+  VSOP87 keeps its stated precision 2000 years either side of J2000 for Jupiter and Saturn, its narrowest (4000 for the
+  inner planets, 6000 for Uranus and Neptune), and at ten years a second the clock would otherwise leave DateTimeOffset's
+  range (year 9999) in about twenty minutes, which threw in the render path. The bound is checked in `AdvancePlay` against
+  the offset BEFORE it is added to the base (`ResolveBaseTime`, split out of `ResolveViewingTime` for it), so an offset
+  scrubbed past the end is brought back by the first played frame. `SkyMapState.FormatOffset` reads Julian years
+  ("+1974y", "+5y 2w") so a long play keeps the strip's time short. `OrreryTests.EachSpeedRunsItsSpanInAPlayedSecond` (each
+  of the fifteen picked through the router, then ten 100 ms frames move the clock by exactly that span),
+  `PlayAtTenYearsASecondStopsAtTheEndOfTheEphemeris`, `APlayedOffsetReadsInYears`; in the browser,
+  `OrreryPlaySpeedTests.APickedSpeedIsTheRatePlayRunsAt` (Alt+S, the drop-up, "1 second = 2 years", Play). Playing is a STANDING reason to draw
   (`SkyMapState.NeedsContinuousFrames`), asked by the GUI's redraw check: the one-shot `NeedsRedraw` a played frame
   sets is cleared by the GUI after the frame, which held Play to about a frame a second. The browser asks for each
   frame as a coalesced repaint.
@@ -588,10 +606,10 @@ C ring's. The ten parity views and Night's no-blue still pass, and `TheWebGlTrac
 - **Seen in the browser once, by the E2E only** (#1572, bench). `OrrerySunTests` (2026-10-16) opened the orrery in headless Edge
   and read back a textured, limb-darkened Sun and textured planets, once the dev server sent the atlas at all ("A4: the atlas the dev
   server never sent"). Nobody has looked at it in a real browser yet, nor timed a drag or Play there.
-- **Play's speed is fixed** (#1573): Play runs at 10 days a second with nothing to change it. The issue's other half,
-  the flat Earth, is done (the Blue Marble day map, under A4's textures and the Earth's longitudes, 2026-10-16;
-  `OrreryTests.TheOrrerysEarthIsDrawnFromItsDayMap`: the blue share across the lit disc spreads 0.54 where the flat
-  disc's spread 0.015).
+- **Play's speed** (#1573, done): fifteen speeds from a drop-up beside Play (above, under "What is built"). The issue's
+  other half, the flat Earth, is done too (the Blue Marble day map, under A4's textures and the Earth's longitudes,
+  2026-10-16; `OrreryTests.TheOrrerysEarthIsDrawnFromItsDayMap`: the blue share across the lit disc spreads 0.54 where the
+  flat disc's spread 0.015). Nothing of #1573 is left.
 - **The Earth's clouds and night lights** are not drawn: the day map is cloud-free and the night side black. Each needs
   a SECOND texture per body, so a second sampler and binding in `VkPlanetBodies`' descriptor layout and in
   `WebGlPlanetBodies`, a second upload through `PlanetBodyMap`, and in the trace (both `planet_body.frag` and the WebGL
@@ -614,7 +632,28 @@ C ring's. The ten parity views and Night's no-blue still pass, and `TheWebGlTrac
   of 900; now `+1d` ends at 888, the labels at 77 of 142 and 77 of 133 px and the time text at 200 of 231, showing
   "2028-07-26 23:00  (+93w…", 68 px or 4.5 ems past its date and time; the test asks two ems), and at 1.0x each label
   drawn in full at its measured content (94, 89 and 154 px, as before), the last button ending at the strip's right
-  padding (892) as it did.
+  padding (892) as it did. **Re-measured with the speed button (#1573)**, a fourth content-capped label: at weight 3 the
+  time kept only 26 px (1.7 ems) past its date and time at 1.5x and the test failed, so `TimeLabelWeight` is 4. At 1.5x
+  the labels sit at 54 of 142, 54 of 133 and 54 of 91 px (the speed's text 22 of 91, its mark showing), the time at 185 of
+  231 showing "2028-07-26 23:00  (+1…", 53 px or 3.5 ems past its date and time, and `+1d` still ends at 888; at 1.0x every
+  label is drawn in full (94, 89, 60 and 154 px), the last button ending at 892. **Those numbers were one face's**: the
+  test drew with `FontResolver.ResolveSystemFont()`, a monospace face that is Consolas on Windows and DejaVu Sans Mono on
+  Linux, a tenth wider (102 against 94 px for "Distances: auto" at 1x), so the Linux CI leg kept 27 px at 1.5x and failed
+  (PR #1613); forcing DejaVu Sans Mono here reproduced it to the pixel. Neither is the face the app draws with, DejaVu Sans
+  (`BundledFonts`), in which the strip kept only 23 px on every platform. The test now measures in the app's face as well
+  (`OrreryTests.AppFace`, the same file everywhere), and the orrery strip's gap is 2 units, the time controls' own on the
+  sky strip, not 4: thirteen gaps gave back 39 px at 1.5x, and the time keeps 46 px (3 ems) in DejaVu Sans, 49 in DejaVu
+  Sans Mono and 75 in Consolas, the labels 53 to 60 px.
+- **The speed button names its speed at any scale** (round 2 of PR #1613). At 1.5x its 3 em floor held the button's padding,
+  gap and mark, and the text got 21 to 28 px of its 91: "1…". The strip is now arranged with the long form ("1 week/s") first,
+  and where the engine leaves that leaf short of its width it is arranged again with the compact form (`OrreryPlaySpeed.ShortName`:
+  "6h/s", "1w/s", "2mo/s", "10y/s"), Auto at its own width sample ("0mo/s") and without the up mark; only the winner is
+  painted. The test is the width SAMPLE's, so the form follows the strip and never the pick. It is an escape hatch, two arranges
+  when short: the engine has no text node with shorter alternates, which would let the painter's own fit choose. With the mark the compact button took 78 px and the time kept 29 px in DejaVu Sans, short of its two ems; without it,
+  at 1.5x on 900 px, the time keeps 38 px (2.5 ems) in DejaVu Sans, 45 in DejaVu Sans Mono and 76 in Consolas, the labels 51 to
+  60 px, and the speed reads "1w/s" in 41 to 46 px; 1.25x is compact too (36 to 40 px), and 1x keeps the long form, 60 to 66 px.
+  `OrreryTests.TheSpeedButtonAlwaysNamesItsSpeed` (1x, 1.25x and 1.5x in both faces, four speeds) failed before, showing "…",
+  "1 …", "1 we…" and "6 hours…".
 
 ## Sequencing
 

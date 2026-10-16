@@ -74,6 +74,12 @@ public readonly record struct OrreryScaling(OrreryScale Scale, double ReachAu)
 }
 
 /// <summary>
+/// One speed Play offers: what a second of the wall clock is on the atlas's clock, named, named compactly (for a short strip) and in
+/// days.
+/// </summary>
+public readonly record struct OrreryPlaySpeed(string Name, string ShortName, double DaysPerSecond);
+
+/// <summary>
 /// The atlas's solar system in 3D (docs/plans/atlas-planet-detail.md, A5): a MODE of the sky map tab, whose state lives on
 /// <see cref="SkyMapState.Orrery"/>. The camera orbits the Sun; the instant is the atlas's own (<see cref="SkyMapState.TimeOffset"/>).
 /// </summary>
@@ -115,8 +121,54 @@ public sealed class OrreryState
     /// <summary>Whether the sky map's stars and Milky Way are drawn behind the scene, at infinity (on by default).</summary>
     public bool ShowBackdrop { get; set; } = true;
 
-    /// <summary>How fast a play runs, in days of the atlas's clock per second of the wall clock.</summary>
-    public double DaysPerSecond { get; set; } = 10;
+    /// <summary>
+    /// How fast a play runs, in days of the atlas's clock per second of the wall clock: one of <see cref="PlaySpeeds"/>, a week by
+    /// default (<see cref="DefaultPlaySpeed"/>).
+    /// </summary>
+    public double DaysPerSecond { get; set; } = DefaultPlaySpeed.DaysPerSecond;
+
+    // A month is a twelfth of a Julian year, so twelve of them are the year the list's next entries are.
+    private const double JulianYearDays = 365.25;
+
+    /// <summary>
+    /// The speeds Play offers, "1 second = <see cref="OrreryPlaySpeed.Name"/>" (#1573, TheSkyLive's orrery's fifteen), slowest
+    /// first: about a doubling a step, so the drop-up reads as a ladder from the Moon's motion (six hours a second) to Neptune's (ten
+    /// years).
+    /// </summary>
+    public static readonly ImmutableArray<OrreryPlaySpeed> PlaySpeeds =
+    [
+        new("6 hours", "6h", 0.25),
+        new("12 hours", "12h", 0.5),
+        new("1 day", "1d", 1),
+        new("2 days", "2d", 2),
+        new("4 days", "4d", 4),
+        new("1 week", "1w", 7),
+        new("2 weeks", "2w", 14),
+        new("1 month", "1mo", JulianYearDays / 12),
+        new("2 months", "2mo", JulianYearDays / 6),
+        new("4 months", "4mo", JulianYearDays / 3),
+        new("6 months", "6mo", JulianYearDays / 2),
+        new("1 year", "1y", JulianYearDays),
+        new("2 years", "2y", 2 * JulianYearDays),
+        new("5 years", "5y", 5 * JulianYearDays),
+        new("10 years", "10y", 10 * JulianYearDays),
+    ];
+
+    /// <summary>
+    /// The speed a new view plays at: a week a second, the entry nearest the ten days a second Play ran at before it offered a
+    /// choice (3 days off against 2 weeks' 4; on the ladder's own ratio scale the two are all but tied, and the slower keeps the
+    /// fastest thing on screen, the Moon, readable: a lunar month in four seconds rather than two).
+    /// </summary>
+    public static OrreryPlaySpeed DefaultPlaySpeed => PlaySpeeds[5];
+
+    /// <summary>
+    /// The latest instant Play runs to, where it stops: J2000 plus two thousand years, the span over which VSOP87, the planets'
+    /// ephemeris, keeps its stated precision for every planet (Bretagnon and Francou 1988: 4000 years either side of J2000 for the
+    /// inner planets, 6000 for Uranus and Neptune, 2000 for Jupiter and Saturn, the narrowest). Past it the orbits drawn are no longer
+    /// the planets'; and at ten years a second the clock would leave <see cref="DateTimeOffset"/>'s range (year 9999) in about
+    /// twenty minutes, which threw in the render path. From today Play reaches it in about three minutes at ten years a second.
+    /// </summary>
+    public static readonly DateTimeOffset PlayEnd = new(4000, 1, 1, 12, 0, 0, TimeSpan.Zero);
 
     internal bool Dragging;
     internal bool Pinching;

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using DIR.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -131,8 +132,10 @@ namespace TianWen.UI.Abstractions
             var orrery = State.Orrery;
             var dpiScale = DpiScale;
 
-            AdvancePlay(timeProvider);
-            var viewingTime = ResolveViewingTime(plannerState, timeProvider);
+            var baseTime = ResolveBaseTime(plannerState, timeProvider);
+            AdvancePlay(timeProvider, baseTime);
+            var viewingTime = baseTime + State.TimeOffset;
+            _lastViewingTime = viewingTime;
 
             CometElements? comet = null;
             if (orrery.Comet is { } cometIndex
@@ -160,6 +163,7 @@ namespace TianWen.UI.Abstractions
             DrawOrreryStrip(contentRect, viewingTime, plannerState.SiteTimeZone,
                 plannerState.PlanningDate.HasValue || State.TimeOffset != TimeSpan.Zero);
             RenderTimeMenu(contentRect, BaseFontSize * dpiScale * 0.85f, GuiTheme.Palette.PanelBg, GuiTheme.Palette.BodyText);
+            RenderDropUp(SpeedMenu, contentRect, BaseFontSize * dpiScale * 0.85f, GuiTheme.Palette.PanelBg, GuiTheme.Palette.BodyText);
 
             OrreryFrames++;
             LastOrreryFrameMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
@@ -209,7 +213,9 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         internal static readonly TimeSpan MaxPlayStep = TimeSpan.FromMilliseconds(100);
 
-        private void AdvancePlay(ITimeProvider timeProvider)
+        // Play stops AT OrreryState.PlayEnd, the end of the ephemeris's range, the frame drawn there: checked before the offset is
+        // added to the base, since at ten years a second the sum would leave DateTimeOffset's range within minutes and throw.
+        private void AdvancePlay(ITimeProvider timeProvider, DateTimeOffset baseTime)
         {
             var orrery = State.Orrery;
             if (!orrery.Playing)
@@ -221,6 +227,15 @@ namespace TianWen.UI.Abstractions
             {
                 var elapsed = TimeSpan.FromTicks(Math.Min(timeProvider.GetElapsedTime(orrery.PlayTimestamp, now).Ticks, MaxPlayStep.Ticks));
                 State.TimeOffset += TimeSpan.FromDays(orrery.DaysPerSecond * elapsed.TotalSeconds);
+            }
+            var endOffset = OrreryState.PlayEnd - baseTime;
+            if (State.TimeOffset >= endOffset)
+            {
+                State.TimeOffset = endOffset;
+                orrery.Playing = false;
+                orrery.PlayTimestamp = 0;
+                State.NeedsRedraw = true;
+                return;
             }
             orrery.PlayTimestamp = now;
             RequestPlanetFrame();
@@ -734,8 +749,35 @@ namespace TianWen.UI.Abstractions
                     .WithTooltip(centred ? $"The camera follows {focusBody.Name}; press to look at the Sun" : $"The camera looks at the Sun; press to follow {focusBody.Name}");
             }
 
+            // How fast Play runs, ONE label button beside it naming the speed in force, its mark saying a press opens the speeds
+            // (a drop-up, as the time's landmarks are). Sized by the widest name, so a pick does not move what follows. The long form
+            // ("1 week/s") is a content-capped Star like the other labels; where the strip leaves it short of its width the button
+            // takes the compact form instead ("1w/s", no mark), Auto at its own width sample, so it names the speed whole at any
+            // scale and never reads "1..." (round 2 of #1613).
+            var speedName = PlaySpeedName(orrery.DaysPerSecond);
+            var speedLabel = $"{speedName}/s";
+            Layout.Node SpeedButton(bool compact)
+            {
+                var text = compact
+                    ? Layout.Builder.Text($"{PlaySpeedShortName(orrery.DaysPerSecond)}/s", fontSize, ink, TextAlign.Center, TextAlign.Center,
+                        widthSample: PlaySpeedCompactWidthSample)
+                    : Layout.Builder.Text(speedLabel, fontSize, ink, TextAlign.Center, TextAlign.Center, TextTrim.End,
+                        widthSample: PlaySpeedWidthSample).WStarUpToContent();
+                // The compact form drops the mark: with it the button took 78 px at 1.5x in the app's face and the time kept 29 px
+                // past its date and time, short of its two ems; the tooltip and the drop-up still say what a press does.
+                var button = (compact
+                        ? Layout.Builder.HStack(text)
+                        : Layout.Builder.HStack(text, FormRowLayout.StepMark("▲", fontSize, ink)).WithGap(4f * dpiScale))
+                    .CrossCenter()
+                    .PadX(padX);
+                return (compact ? button : button.WStarUpToContent(min: labelMin)).HStar()
+                    .Bg(fill).BgHover(GuiTheme.Hover(fill))
+                    .Clickable(new HitResult.ButtonHit(OrrerySpeedAction), _ => OpenSpeedMenu(_speedButtonRect, fontSize))
+                    .WithTooltip($"How fast Play runs: a second is {speedName} on the atlas's clock");
+            }
+
             // ONE tree over the whole rect: the strip is the bottom row of it, its fill and its content one arranged box.
-            var strip = Layout.Builder.HStack(
+            Layout.Node Strip(bool compactSpeed) => Layout.Builder.VStack(Layout.Builder.Spacer().HStar(), Layout.Builder.HStack(
                 [
                     Button("Sky", "OrreryClose", CloseOrrery, "Back to the sky"),
                     scaleToggle,
@@ -745,28 +787,127 @@ namespace TianWen.UI.Abstractions
                         .PadX(padX).HStar()
                         .Bg(fill).BgHover(GuiTheme.Hover(fill))
                         .Clickable(new HitResult.ButtonHit("OrreryPlay"), _ => ToggleOrreryPlay())
-                        .WithTooltip($"Run time at {orrery.DaysPerSecond:0} days a second"),
+                        .WithTooltip($"Run time at {speedName} a second"),
+                    SpeedButton(compactSpeed),
                     Layout.Builder.Text("Drag to orbit, wheel to zoom", fontSize, ink, TextAlign.Near, TextAlign.Center).PadX(padX).WStar().HStar(),
                     // Direct children of the strip, so the time (a content-capped Star) gives way here as the labels do.
                     .. BuildTimeControls(timeText, isTimeShifted ? palette.Accent : ink, fontSize, dpiScale, fill, ink).AsSpan(),
                 ])
-                .WithGap(4f * dpiScale)
+                // The time controls' own gap on the sky strip (TimeControlsGroup). At 4 the thirteen gaps took 78 px of a 900 px
+                // strip at 1.5x, and in the app's own face (DejaVu Sans) the time kept 23 px past its date and time.
+                .WithGap(TimeControlGapUnits * dpiScale)
                 .PadX(8f * dpiScale)
                 .Bg(fill)
-                .RowH(stripH);
-            var arranged = RenderLayout(
-                Layout.Builder.VStack(Layout.Builder.Spacer().HStar(), strip),
-                rect,
-                // Device pixels, like the sky's strip.
-                scale: DesignScale.One);
+                .RowH(stripH));
+
+            // Arranged with the long form first; the engine's answer decides the form, and only the winner is painted. Device pixels,
+            // like the sky's strip.
+            var arranged = ArrangeLayout(Strip(compactSpeed: false), rect, scale: DesignScale.One);
+            if (!SpeedReadsWhole(arranged, speedLabel))
+            {
+                arranged = ArrangeLayout(Strip(compactSpeed: true), rect, scale: DesignScale.One);
+            }
+            PaintLayout(arranged, scale: DesignScale.One);
             RememberTimeButton(arranged);
+        }
+
+        /// <summary>
+        /// The speed button's width sample, wider than every one of the fifteen names in the label's form: two digits before the
+        /// widest unit word (the m of "months" is the widest letter). A sample exactly as wide as "4 months/s" still trimmed it, as
+        /// it did "12 hours/s" and "10 years/s"; <c>EachSpeedRunsItsSpanInAPlayedSecond</c> holds every name untrimmed at 1x.
+        /// </summary>
+        internal const string PlaySpeedWidthSample = "00 months/s";
+
+        /// <summary>
+        /// The compact form's width sample, at least as wide as every short name in the label's form: "2mo/s" is the widest in a
+        /// proportional face (the m), and every one is five characters or fewer in a monospace one.
+        /// </summary>
+        internal const string PlaySpeedCompactWidthSample = "0mo/s";
+
+        /// <summary>
+        /// Whether the arranged long-form speed leaf got its whole width: its width SAMPLE's, not the name in force, on purpose, so the
+        /// form is a property of the strip (its scale, face and the rest of the row) and never of the pick, and a pick from "1 week"
+        /// to "10 years" does not swap the form under the pointer.
+        /// </summary>
+        /// <remarks>An escape hatch: the engine has no node that offers a shorter form of its text (CollapseBelow only removes one),
+        /// so the strip is arranged twice when short. A text node with alternates in DIR.Lib would let the painter's own fit choose.</remarks>
+        private bool SpeedReadsWhole(ImmutableArray<Layout.ArrangedNode<float>> arranged, string speedLabel)
+        {
+            foreach (var node in arranged)
+            {
+                if (node.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } && text.Value == speedLabel)
+                {
+                    return node.Bounds.Width >= StripContentWidth(node.Node) - 0.5f;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>The compact name a rate goes by in a short strip: its entry's <see cref="OrreryPlaySpeed.ShortName"/>, else its days.</summary>
+        internal static string PlaySpeedShortName(double daysPerSecond)
+        {
+            foreach (var speed in OrreryState.PlaySpeeds)
+            {
+                if (speed.DaysPerSecond == daysPerSecond)
+                {
+                    return speed.ShortName;
+                }
+            }
+            return $"{daysPerSecond:0.##}d";
+        }
+
+        /// <summary>The name a rate goes by in the strip: its entry in <see cref="OrreryState.PlaySpeeds"/>, else its days.</summary>
+        internal static string PlaySpeedName(double daysPerSecond)
+        {
+            foreach (var speed in OrreryState.PlaySpeeds)
+            {
+                if (speed.DaysPerSecond == daysPerSecond)
+                {
+                    return speed.Name;
+                }
+            }
+            return $"{daysPerSecond:0.##} days";
+        }
+
+        /// <summary>
+        /// Opens the speeds above <paramref name="anchor"/> (the speed button's arranged rect, device pixels), the one in force
+        /// highlighted. A pick sets the rate and nothing else: Play keeps running if it was.
+        /// </summary>
+        private void OpenSpeedMenu(RectF32 anchor, float fontSize)
+        {
+            var orrery = State.Orrery;
+            var items = ImmutableArray.CreateBuilder<DropdownItem<double>>(OrreryState.PlaySpeeds.Length);
+            var current = -1;
+            foreach (var speed in OrreryState.PlaySpeeds)
+            {
+                if (speed.DaysPerSecond == orrery.DaysPerSecond)
+                {
+                    current = items.Count;
+                }
+                items.Add(new DropdownItem<double>($"1 second = {speed.Name}", speed.DaysPerSecond));
+            }
+            // As wide as the widest row MEASURES, a row being its label padded half an em each side as the dropdown builds it, and
+            // never narrower than the button it opened from. The half em mirrors DIR.Lib's Layout.Builder.Dropdown rowPadding: a
+            // stopgap until Dropdown can size its list to its rows itself (which would also retire OpenTimeMenu's eight ems).
+            var width = anchor.Width;
+            foreach (var item in items)
+            {
+                width = MathF.Max(width, StripContentWidth(Layout.Builder.Text(item.Label, fontSize).PadX(fontSize * 0.5f)));
+            }
+            SpeedMenu.Open(anchor.X, anchor.Y, width, items.MoveToImmutable(), item =>
+            {
+                orrery.DaysPerSecond = item.Value;
+                State.NeedsRedraw = true;
+            });
+            SpeedMenu.HighlightIndex = current;
         }
 
         /// <summary>The narrowest a strip label (the distance scale, the centre) gives way to under pressure, in ems of its font.</summary>
         internal const float OrreryLabelMinEm = 3f;
 
         /// <summary>How wide a strip node's own content measures, in the device pixels the strip is arranged in (its cap as a
-        /// content-capped Star): the tab's own measure context, so a test reads a label's content without building one.</summary>
+        /// content-capped Star): the tab's own measure context, so a test reads a label's content without building one, and the
+        /// strip decides the speed button's form by it (<see cref="SpeedReadsWhole"/>).</summary>
         internal float StripContentWidth(Layout.Node node)
             => Layout.Engine.Measure(node, new Layout.Size<float>(float.MaxValue, float.MaxValue), MeasureContext(scale: DesignScale.One)).Width;
 

@@ -100,7 +100,8 @@ public sealed class OrreryGpuTests(VkOrreryGpuFixture gpu, ITestOutputHelper out
                 Render(rig);
             }
             var tracedPerFrame = (rig.Tab.PlanetBodiesTraced - traced) / (double)Frames;
-            rig.Tab.State.TimeOffset.TotalDays.ShouldBeGreaterThan(30, "Play did not run the clock");
+            // Four seconds of the wall clock: three of them at the speed in force is a clock that ran.
+            rig.Tab.State.TimeOffset.TotalDays.ShouldBeGreaterThan(3 * rig.Tab.State.Orrery.DaysPerSecond, "Play did not run the clock");
 
             using var cpu = await OrreryTests.RigAsync(TestContext.Current.CancellationToken);
             OrreryTests.Select(cpu, CatalogIndex.Sol);

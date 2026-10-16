@@ -304,11 +304,20 @@ public sealed class OrreryTests(ITestOutputHelper output)
         public void Dispose() => Renderer.Dispose();
     }
 
-    internal static async Task<Rig> RigAsync(System.Threading.CancellationToken cancellationToken, float dpiScale = 1f)
+    /// <summary>The app's own text face (BundledFonts' DejaVu Sans), the same file on every platform, copied beside the tests.</summary>
+    internal static string AppFace => Path.Combine(AppContext.BaseDirectory, "TestFonts", "DejaVuSans.ttf");
+
+    /// <param name="fontPath">The face the tab draws with; the platform's monospace default when null (Consolas on Windows,
+    /// DejaVu Sans Mono on Linux, about a tenth wider).</param>
+    internal static async Task<Rig> RigAsync(System.Threading.CancellationToken cancellationToken, float dpiScale = 1f, string? fontPath = null)
     {
         var db = await SharedCatalogDB.InitAsync(cancellationToken);
         var renderer = new RgbaImageRenderer(Width, Height);
-        var tab = new SkyMapTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont(), DpiScale = dpiScale };
+        var tab = new SkyMapTab<RgbaImage>(renderer)
+        {
+            FontPath = fontPath ?? FontResolver.ResolveSystemFont(),
+            DpiScale = dpiScale,
+        };
         var planner = new PlannerState
         {
             ObjectDb = db, SiteLatitude = 48.0, SiteLongitude = 11.0, SiteTimeZone = TimeSpan.FromHours(1), PlanningDate = Instant,
@@ -486,7 +495,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
 
     /// <summary>
     /// Ten minutes on another tab is one frame's gap when the view comes back: Play steps at most
-    /// <see cref="SkyMapTab{TSurface}.MaxPlayStep"/> of the wall clock a frame (a day at 10 days a second), never sixteen years.
+    /// <see cref="SkyMapTab{TSurface}.MaxPlayStep"/> of the wall clock a frame (seven tenths of a day at the default week a second), never years.
     /// A frame a sixtieth of a second on steps the sixtieth.
     /// </summary>
     [Fact(Timeout = 120_000)]
@@ -502,18 +511,174 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Router.Handle(new InputEvent.MouseUp(play.X + (play.Width / 2), play.Y + (play.Height / 2)));
         rig.Tab.Render(rig.Planner, rig.Content, clock);
 
+        var orrery = rig.Tab.State.Orrery;
         var before = rig.Tab.State.TimeOffset;
         clock.Advance(TimeSpan.FromSeconds(1.0 / 60));
         rig.Tab.Render(rig.Planner, rig.Content, clock);
-        (rig.Tab.State.TimeOffset - before).TotalDays.ShouldBe(10.0 / 60, 1e-3);
+        (rig.Tab.State.TimeOffset - before).TotalDays.ShouldBe(orrery.DaysPerSecond / 60, 1e-3);
 
         before = rig.Tab.State.TimeOffset;
         clock.Advance(TimeSpan.FromMinutes(10));
         rig.Tab.Render(rig.Planner, rig.Content, clock);
         var step = rig.Tab.State.TimeOffset - before;
         output.WriteLine($"ten minutes away stepped {step.TotalDays:F3} days");
-        step.TotalDays.ShouldBeLessThanOrEqualTo(10 * 0.1 + 1e-9);
+        step.TotalDays.ShouldBeLessThanOrEqualTo(orrery.DaysPerSecond * 0.1 + 1e-9);
         step.TotalDays.ShouldBeGreaterThan(0);
+    }
+
+    private static void PressAt(Rig rig, RectF32 rect)
+    {
+        rig.Router.Handle(new InputEvent.MouseDown(rect.X + (rect.Width / 2), rect.Y + (rect.Height / 2)));
+        rig.Router.Handle(new InputEvent.MouseUp(rect.X + (rect.Width / 2), rect.Y + (rect.Height / 2)));
+    }
+
+    // The painted row of the open drop-up at index, as a press finds it.
+    private static RectF32 DropUpRow(Rig rig, int index)
+        => rig.Tab.GetRegisteredRegions()
+            .Where(r => r.Result is HitResult.ListItemHit { ListId: DropdownMenuState<string>.ListId, Index: var i } && i == index)
+            .Select(r => new RectF32(r.X, r.Y, r.Width, r.Height))
+            .Single();
+
+    /// <summary>
+    /// The fifteen speeds of #1573, "1 second = X" from six hours to ten years (TheSkyLive's orrery's), in order, each as many days
+    /// as its name says (a month a twelfth of a Julian year).
+    /// </summary>
+    [Fact]
+    public void ThePlaySpeedsAreTheFifteenOfTheIssue()
+    {
+        const double Year = 365.25;
+        OrreryState.PlaySpeeds.Select(s => s.Name).ShouldBe(
+            ["6 hours", "12 hours", "1 day", "2 days", "4 days", "1 week", "2 weeks", "1 month", "2 months", "4 months", "6 months",
+             "1 year", "2 years", "5 years", "10 years"]);
+        OrreryState.PlaySpeeds.Select(s => s.DaysPerSecond).ShouldBe(
+            [0.25, 0.5, 1, 2, 4, 7, 14, Year / 12, Year / 6, Year / 3, Year / 2, Year, 2 * Year, 5 * Year, 10 * Year]);
+        new OrreryState().DaysPerSecond.ShouldBe(7, "the default is one week a second, the entry nearest the old ten days");
+    }
+
+    /// <summary>
+    /// The speed button beside Play opens a drop-up of the fifteen speeds ABOVE it; a press on a row through the router sets the
+    /// rate, the button then names it, and a played second of the wall clock (ten frames of <see cref="SkyMapTab{TSurface}.MaxPlayStep"/>)
+    /// moves the atlas's clock by exactly that span. Picked while playing, so Play keeps running across a pick.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    [InlineData(7)]
+    [InlineData(8)]
+    [InlineData(9)]
+    [InlineData(10)]
+    [InlineData(11)]
+    [InlineData(12)]
+    [InlineData(13)]
+    [InlineData(14)]
+    [InlineData(0, 1.5f)]
+    [InlineData(7, 1.5f)]
+    [InlineData(14, 1.5f)]
+    public async Task EachSpeedRunsItsSpanInAPlayedSecond(int choice, float dpiScale = 1f)
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale);
+        Select(rig, CatalogIndex.Mars);
+        rig.Tab.OpenOrrery();
+        var clock = new FakeTimeProviderWrapper(Instant);
+        rig.Tab.Render(rig.Planner, rig.Content, clock);
+        PressAt(rig, PaintedButtons(rig, "OrreryPlay")[0]);
+        rig.Tab.Render(rig.Planner, rig.Content, clock);
+
+        var speedButton = PaintedButtons(rig, SkyMapTab<RgbaImage>.OrrerySpeedAction)[0];
+        PressAt(rig, speedButton);
+        rig.Tab.SpeedMenu.IsOpen.ShouldBeTrue();
+        rig.Tab.SpeedMenu.Items.Select(i => i.Label).ShouldBe(OrreryState.PlaySpeeds.Select(s => $"1 second = {s.Name}"));
+        rig.Tab.Render(rig.Planner, rig.Content, clock);
+        // Every row's text, as PAINTED (the leaf the dropdown laid out inside its own padding), is at least as wide as that text
+        // measures: the width is measured, never guessed (ten ems overran "1 second = 6 hours").
+        foreach (var item in rig.Tab.SpeedMenu.Items)
+        {
+            var (node, bounds) = rig.Tab.GetCapturedLayout()
+                .Single(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } && text.Value == item.Label);
+            bounds.Width.ShouldBeGreaterThanOrEqualTo(rig.Tab.StripContentWidth(node) - 0.5f, $"\"{item.Label}\" overruns its row");
+        }
+        var row = DropUpRow(rig, choice);
+        (row.Y + row.Height).ShouldBeLessThanOrEqualTo(speedButton.Y + 0.5f, "a drop-up opens above the strip");
+        PressAt(rig, row);
+
+        var speed = OrreryState.PlaySpeeds[choice];
+        rig.Tab.SpeedMenu.IsOpen.ShouldBeFalse();
+        rig.Tab.State.Orrery.DaysPerSecond.ShouldBe(speed.DaysPerSecond);
+        rig.Tab.State.Orrery.Playing.ShouldBeTrue("a pick does not stop Play");
+        rig.Tab.Render(rig.Planner, rig.Content, clock);
+        var speedLabel = $"{speed.Name}/s";
+        var compactLabel = $"{speed.ShortName}/s";
+        var speedLeaf = rig.Tab.GetCapturedLayout()
+            .Single(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } && (text.Value == speedLabel || text.Value == compactLabel));
+        if (dpiScale == 1f)
+        {
+            rig.Tab.StripShownText(speedLeaf).ShouldBe(speedLabel, "the speed's name is trimmed at 1x: the width sample is narrower than it");
+        }
+
+        var before = rig.Tab.State.TimeOffset;
+        for (var frame = 0; frame < 10; frame++)
+        {
+            clock.Advance(SkyMapTab<RgbaImage>.MaxPlayStep);
+            rig.Tab.Render(rig.Planner, rig.Content, clock);
+        }
+        output.WriteLine($"{speed.Name}: a played second moved the clock {(rig.Tab.State.TimeOffset - before).TotalDays:F4} days");
+        (rig.Tab.State.TimeOffset - before).TotalDays.ShouldBe(speed.DaysPerSecond, 1e-6);
+    }
+
+    /// <summary>
+    /// A played offset reads in years once it passes one (a Julian year, 365.25 days), so the strip's time stays short at ten years a
+    /// second: "+5214w" was what a century read as.
+    /// </summary>
+    [Theory]
+    [InlineData(365.25, "+1y")]
+    [InlineData(-365.25, "-1y")]
+    [InlineData(100 * 365.25, "+100y")]
+    [InlineData((5 * 365.25) + 14, "+5y 2w")]
+    [InlineData(1974 * 365.25, "+1974y")]
+    [InlineData(364, "+52w")]
+    public void APlayedOffsetReadsInYears(double days, string expected)
+        => SkyMapState.FormatOffset(TimeSpan.FromDays(days)).ShouldBe(expected);
+
+    /// <summary>
+    /// At ten years a second the clock reaches the end of the ephemeris's range within minutes, and past DateTimeOffset's year 9999
+    /// within hours, which threw in the render path: Play stops AT <see cref="OrreryState.PlayEnd"/>, the frame drawn there.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task PlayAtTenYearsASecondStopsAtTheEndOfTheEphemeris()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        Select(rig, CatalogIndex.Mars);
+        rig.Tab.OpenOrrery();
+        var clock = new FakeTimeProviderWrapper(Instant);
+        rig.Tab.Render(rig.Planner, rig.Content, clock);
+        var orrery = rig.Tab.State.Orrery;
+        orrery.DaysPerSecond = OrreryState.PlaySpeeds[^1].DaysPerSecond;
+        // Two years short of the end: a played second is ten.
+        rig.Tab.State.TimeOffset = OrreryState.PlayEnd.AddYears(-2) - Instant;
+        PressAt(rig, PaintedButtons(rig, "OrreryPlay")[0]);
+        rig.Tab.Render(rig.Planner, rig.Content, clock);
+
+        for (var frame = 0; frame < 10; frame++)
+        {
+            clock.Advance(SkyMapTab<RgbaImage>.MaxPlayStep);
+            rig.Tab.Render(rig.Planner, rig.Content, clock);
+        }
+        orrery.Playing.ShouldBeFalse("Play ran past the end of the ephemeris");
+        (Instant + rig.Tab.State.TimeOffset).ShouldBe(OrreryState.PlayEnd);
+
+        // Scrubbed past the end and played: the first played frame brings the clock back to the end, never past year 9999.
+        rig.Tab.State.TimeOffset = DateTimeOffset.MaxValue.AddDays(-1) - Instant;
+        PressAt(rig, PaintedButtons(rig, "OrreryPlay")[0]);
+        rig.Tab.Render(rig.Planner, rig.Content, clock);
+        clock.Advance(SkyMapTab<RgbaImage>.MaxPlayStep);
+        rig.Tab.Render(rig.Planner, rig.Content, clock);
+        orrery.Playing.ShouldBeFalse();
+        (Instant + rig.Tab.State.TimeOffset).ShouldBe(OrreryState.PlayEnd);
     }
 
     /// <summary>
@@ -1224,17 +1389,64 @@ public sealed class OrreryTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// The speed button always names the speed in force, whole: its long form ("1 week/s") where the strip has room, and its compact
+    /// form ("1w/s") where it is short, never a trimmed "1…" (round 2 of #1613: at 1.5x on 900 px the button's floor held its
+    /// padding, gap and mark, and the text got 21 to 28 px of its 91). With the strip as full as it gets (the Centre toggle, Pause,
+    /// Now, a long offset), at 1x, 1.25x and 1.5x, in the platform's face and the app's.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f, false)]
+    [InlineData(1.25f, false)]
+    [InlineData(1.5f, false)]
+    [InlineData(1f, true)]
+    [InlineData(1.25f, true)]
+    [InlineData(1.5f, true)]
+    public async Task TheSpeedButtonAlwaysNamesItsSpeed(float dpiScale, bool appFace)
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale, appFace ? AppFace : null);
+        Select(rig, CatalogIndex.Saturn);
+        rig.Tab.OpenOrrery();
+        rig.Render();
+        rig.Tab.State.TimeOffset = TimeSpan.FromDays((93 * 7) + 1);
+        rig.Tab.State.Orrery.Playing = true;
+
+        foreach (var (days, longForm, compactForm) in new[] { (7.0, "1 week/s", "1w/s"), (0.25, "6 hours/s", "6h/s"),
+                     (365.25 / 6, "2 months/s", "2mo/s"), (3652.5, "10 years/s", "10y/s") })
+        {
+            rig.Tab.State.Orrery.DaysPerSecond = days;
+            rig.Render();
+            var leaf = rig.Tab.GetCapturedLayout()
+                .Single(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } && (text.Value == longForm || text.Value == compactForm));
+            var shown = rig.Tab.StripShownText(leaf);
+            output.WriteLine($"{longForm}: shows \"{shown}\" in {leaf.Bounds.Width:F0} px");
+            if (dpiScale == 1f)
+            {
+                shown.ShouldBe(longForm, "at 1x the strip has room for the long form");
+            }
+            else
+            {
+                shown.ShouldBeOneOf([longForm, compactForm], "the speed is trimmed: the button must name it whole");
+            }
+        }
+    }
+
+    /// <summary>
     /// The strip fits the view with everything in it at once: the Centre toggle (Saturn in focus), Pause, Now, and a long offset
     /// in the time. Every button lies inside the view, Sky first at its left edge (the owner's screenshot started at "ntre: Sun"),
     /// and at 1.0x, where the row has room, each label (the distance scale, the centre, the time) is laid out at least as wide as
     /// its own content, so none is trimmed: the labels are content-capped Stars that give way only under pressure (#1584).
     /// </summary>
     [Theory(Timeout = 120_000)]
-    [InlineData(1f)]
-    [InlineData(1.5f)]
-    public async Task TheStripFitsWithEveryButtonShowing(float dpiScale)
+    [InlineData(1f, false)]
+    [InlineData(1.5f, false)]
+    [InlineData(1f, true)]
+    [InlineData(1.5f, true)]
+    public async Task TheStripFitsWithEveryButtonShowing(float dpiScale, bool appFace)
     {
-        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale);
+        // Measured twice: in the platform's monospace default the other orrery tests draw with, which is a different face on each
+        // OS (Linux's DejaVu Sans Mono is a tenth wider than Windows's Consolas, so the CI leg kept 27 px where this box kept 53),
+        // and in the face the app actually draws with, the same file everywhere.
+        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale, appFace ? AppFace : null);
         Select(rig, CatalogIndex.Saturn);
         rig.Tab.OpenOrrery();
         rig.Render();
@@ -1247,6 +1459,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
             .Select(n => (Action: ((HitResult.ButtonHit)n.Node.Hit!).Action, n.Bounds))
             .ToArray();
         buttons.Select(b => b.Action).ShouldContain("OrreryCentre");
+        buttons.Select(b => b.Action).ShouldContain(SkyMapTab<RgbaImage>.OrrerySpeedAction);
         buttons.Select(b => b.Action).ShouldContain("SkyTimeNow");
         foreach (var (action, bounds) in buttons)
         {
@@ -1273,6 +1486,8 @@ public sealed class OrreryTests(ITestOutputHelper output)
         slack.ShouldBeGreaterThanOrEqualTo(2 * timeText.FontSize, "the date and time fit with less than two ems to spare");
 
         // At 1.0x each label reads in full; at 1.5x the row is short, so each gives way (narrower than its content) and stays in view.
+        // The speed is not among them: it names its speed whole at every scale, in a compact form when short
+        // (TheSpeedButtonAlwaysNamesItsSpeed).
         string[] labels = ["Distances: auto", "Centre: ", "2028-"];
         foreach (var label in labels)
         {
