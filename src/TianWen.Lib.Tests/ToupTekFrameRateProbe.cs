@@ -221,17 +221,23 @@ public class ToupTekFrameRateProbe(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var runs = IntFromEnvironment("TIANWEN_TOUPTEK_RECORD_RUNS", 3);
         var seconds = IntFromEnvironment("TIANWEN_TOUPTEK_RECORD_SECONDS", 60);
+        // A run the camera stalled in is reported apart and made again, as the node rate probe does: the camera stalls in
+        // periods, and a stall costs a recording about 1,300 frames whatever the capture does.
+        var extra = IntFromEnvironment("TIANWEN_TOUPTEK_EXTRA_RUNS", 2);
         try
         {
             var options = SaturnOptions;
             var lines = new List<string>();
-            for (var run = 1; run <= runs; run++)
+            var clean = 0;
+            for (var run = 1; clean < runs && run <= runs + extra; run++)
             {
                 var path = Path.Combine(external.ImageOutputFolder.FullName, $"probe-run{run}.ser");
                 var quiet = await OtherWorktreeBuilds.WaitUntilQuietAsync(ct);
                 var load = HostCpuLoad.Start();
                 var result = await CaptureAsync(camera, options, (path, TimeSpan.FromSeconds(seconds)), external.AppLogger, ct);
-                lines.Add($"run {run}: {result.Detail}; {load.Describe()}; before it, {quiet}");
+                var stalled = result.Stalls > 0 ? $" (STALLED, {result.Stalls} logged: reported apart)" : "";
+                clean += result.Stalls > 0 ? 0 : 1;
+                lines.Add($"run {run}{stalled}: {result.Detail}; {load.Describe()}; before it, {quiet}");
                 File.Delete(path);
                 GC.Collect();
             }
