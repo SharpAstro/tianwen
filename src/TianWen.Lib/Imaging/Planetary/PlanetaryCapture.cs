@@ -928,7 +928,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
         if (_mountUri is { } mountUri && DeviceOwnershipGate.Evaluate(_mountHub, mountUri, DeviceAction.Actuate) is { Allowed: false } verdict)
         {
-            logger.LogDebug("Planetary recenter mount pulse skipped: {Reason}", verdict.Describe());
+            // Said on every refused frame, so written off the reader too (review round 1 of #1621, N1).
+            LogDebugOffTheReader("Planetary recenter mount pulse skipped: {Reason}", verdict.Describe());
             return;
         }
 
