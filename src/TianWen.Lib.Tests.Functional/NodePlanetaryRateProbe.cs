@@ -41,9 +41,9 @@ namespace TianWen.Lib.Tests.Functional;
 /// or tests. Through the whole node part it samples the node's, its keeper's and this process's TCP listeners and UDP
 /// endpoints, and every one must be on loopback.</para>
 /// <para>The capture is started by <see cref="StartVideoCaptureSignal"/>, as the planetary panel's Start posts it, and the
-/// recording by the handler's OWN connection to the node (<c>StartPlanetaryRecordingAsync</c>), the exact request a Record
-/// control would send: the GUI has no Record control yet (#1344). Once #1344 lands, this posts that control's signal instead.
-/// The gate measures the node's path with the GUI's own client, not the renderer's draw.</para>
+/// recording by <see cref="StartPlanetaryRecordingSignal"/>, as the panel's Record control posts it (#1344), followed on the
+/// recording's own state as the panel reads it. The baseline with no view records on a client of its own, the GUI not being in
+/// it. The gate measures the node's path with the GUI's own client, not the renderer's draw.</para>
 /// <para>Set <c>TIANWEN_TOUPTEK_RATE_PROBE=1</c> with the camera attached and no other program holding it; the recordings
 /// are <c>TIANWEN_TOUPTEK_RECORD_RUNS</c> (3) of <c>TIANWEN_TOUPTEK_RECORD_SECONDS</c> (60). Each SER (about 3.6 GB a
 /// minute) is deleted once read back. The node's own counts (the hand-off's replaced frames, its stalls) are read from its
@@ -256,8 +256,9 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
     /// screen, its planetary mode showing the ToupTek live while the node records a minute; the window captured by
     /// <c>PrintWindow</c> by its pid to a PNG, and the SER's rate read back. The gate does not cover the renderer's draw cost;
     /// this run does. A person makes the clicks the GUI has no other way to take (the Live Session tab, the Planetary mode
-    /// pill, the panel's settings and Start), which this prints; the jog to the Saturn window and the recording are sent from
-    /// here (the GUI has no Record control yet, #1344). <c>tools/planetary-gui-evidence.ps1</c> builds and runs it.
+    /// pill, the panel's settings and Start, then the Record control's Record, #1344), which this prints; only the jog to the
+    /// Saturn window is sent from here, between the two. The picture is taken halfway through the recording, so it shows the
+    /// Record control while it records. <c>tools/planetary-gui-evidence.ps1</c> builds and runs it.
     /// </summary>
     [Fact(Timeout = 1_800_000)]
     public async Task TheRealGuiWindowShowsTheCaptureLiveWhileTheNodeRecords()
@@ -302,6 +303,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         SerRateReadBack ser;
         int bodyDropped, diskDropped;
         string load, quiet, placed, png;
+        TimeSpan recorded;
         var kept = await KeptNode.StartAsync(ct, dataRoot => SeedProfileAsync(dataRoot, camera, ct), fakeDevicesOnly: false);
         try
         {
@@ -386,7 +388,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
                     output.WriteLine("  1. open the Live Session tab;");
                     output.WriteLine("  2. pick Planetary on its mode pill;");
                     output.WriteLine($"  3. in the planetary panel set Exp {SaturnExposure.TotalMilliseconds} ms, Gain {SaturnGain}, ROI {RoiWidth}x{RoiHeight}, depth 8 bit;");
-                    output.WriteLine("  4. press Start. Nothing else: the jog to the Saturn window and the recording are sent from here.");
+                    output.WriteLine("  4. press Start. The jog to the Saturn window is sent from here; then this asks for Record.");
                     if (state is { Running: true } wrong)
                     {
                         output.WriteLine($"  The capture runs at {wrong.RoiWidth}x{wrong.RoiHeight}, {wrong.BitDepth}: press Stop, set {RoiWidth}x{RoiHeight} and 8 bit, and Start again.");
@@ -408,10 +410,34 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
             await SystemTimeProvider.Instance.SleepAsync(PanAndWarm, ct);
 
             quiet = await OtherWorktreeBuilds.WaitUntilQuietAsync(ct);
+
+            // The person's second part: the Record control's Record (#1344), the control this picture is of. Until the node records.
+            asked = TimeSpan.MinValue;
+            PlanetaryRecordingDto? started = null;
+            var droppedFrom = 0;
+            while (started is null)
+            {
+                gui.HasExited.ShouldBeFalse("the GUI is still open");
+                OwnedEndpoints.Sample(watched, endpoints);
+                var state = (await client.GetPlanetaryAsync(ct)).Value;
+                if (state is { Recording: { Recording: true } going })
+                {
+                    started = going;
+                    droppedFrom = state.DroppedFrames;
+                }
+                else if (clock.Elapsed - asked >= ClicksRepeatEvery)
+                {
+                    asked = clock.Elapsed;
+                    output.WriteLine("");
+                    output.WriteLine("PLEASE, in the same window's planetary panel, under RECORD:");
+                    output.WriteLine($"  5. make Secs say {duration.TotalSeconds:F0} (it says 60 until typed over) and press Record. Nothing else: "
+                        + "the window's picture is taken from here halfway through the recording.");
+                }
+                await SystemTimeProvider.Instance.SleepAsync(TimeSpan.FromMilliseconds(250), ct);
+            }
             var cpu = HostCpuLoad.Start();
-            var recording = await client.StartPlanetaryRecordingAsync(new PlanetaryRecordRequestDto { DurationSeconds = duration.TotalSeconds }, ct);
-            var droppedFrom = recording.Value.ShouldNotBeNull(recording.Error).DroppedFrames;
-            output.WriteLine($"recording {duration.TotalSeconds:F0} s to {recording.Value.Recording?.Path}");
+            recorded = started.EndsUtc - started.StartedUtc;
+            output.WriteLine($"the GUI's Record started {recorded.TotalSeconds:F0} s to {started.Path}");
             png = Path.Combine(evidence, $"gui-planetary-live-{DateTime.Now:yyyyMMdd-HHmmss}.png");
             var shot = (Width: 0, Height: 0);
             int? droppedTo = null;
@@ -420,7 +446,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
             while (written is null)
             {
                 OwnedEndpoints.Sample(watched, endpoints);
-                if (shot.Width == 0 && recordClock.Elapsed >= duration / 2)
+                if (shot.Width == 0 && recordClock.Elapsed >= recorded / 2)
                 {
                     shot = GuiWindow.PrintToPng(window.Window, gui.Id, png);
                     output.WriteLine($"the window, mid-recording, by PrintWindow: {png} ({shot.Width}x{shot.Height})");
@@ -472,7 +498,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
 
         output.WriteLine("");
         output.WriteLine($"The real GUI on the node, at the Saturn window ({RoiWidth}x{RoiHeight} at {RoiX}, {RoiY}), 8 bits, {SaturnExposure.TotalMilliseconds} ms, "
-            + $"gain {SaturnGain}, {duration.TotalSeconds:F0} s: {ser.Fps:F1} fps off the SER, which the gate's bar ({RateGate.Bar}) would {(ser.Fps >= RateGate.Bar ? "pass" : "MISS")}");
+            + $"gain {SaturnGain}, {recorded.TotalSeconds:F0} s by the GUI's Record: {ser.Fps:F1} fps off the SER, which the gate's bar ({RateGate.Bar}) would {(ser.Fps >= RateGate.Bar ? "pass" : "MISS")}");
         output.WriteLine($"  {ser}");
         output.WriteLine($"  body dropped {bodyDropped} and disk dropped {diskDropped} in the recording");
         output.WriteLine($"  {load}");
@@ -597,7 +623,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
 
     /// <summary>
     /// A gated recording: the capture started by the panel's signal, the GUI's planetary view on RAW reading the camera's live
-    /// frame through shared memory, and the recording asked for on the handler's own connection (#1344).
+    /// frame through shared memory, and the recording started by the Record control's signal (#1344).
     /// </summary>
     private static async Task<Run> WithViewAsync(string arm, GuiNodeHarness.GuiClient gui, LocalNodeConnection local, PlanetaryCaptureController planetary,
         Pump pump, (int X, int Y) jog, TimeSpan duration, CancellationToken ct)
@@ -624,7 +650,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
             (await local.Client.GetPlanetaryAsync(ct)).Value?.Masters ?? 0);
         var load = HostCpuLoad.Start();
         var clock = System.Diagnostics.Stopwatch.StartNew();
-        var (recording, bodyDropped) = await RecordAsync(local.Client, pump, duration, ct);
+        var (recording, bodyDropped) = await RecordBySignalAsync(gui, planetary, pump, duration, ct);
         var seconds = clock.Elapsed.TotalSeconds;
         var described = load.Describe();
         var (shownTo, readTo, slotsTo, mastersTo) = (shown.FrameCount, planetary.LiveFramesRead, planetary.LiveFramesFromSharedMemory,
@@ -641,7 +667,44 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
         return new Run(arm, ReadBackAndDelete(recording), duration, bodyDropped, recording.FramesDropped, described, quiet, view);
     }
 
-    /// <summary>Records the capture going on for <paramref name="duration"/> and waits until its file is whole.</summary>
+    /// <summary>
+    /// Records the capture going on for <paramref name="duration"/> as the Record control's button does, by posting
+    /// <see cref="StartPlanetaryRecordingSignal"/> (#1344), and waits until its file is whole on the recording's own state as the
+    /// panel reads it (<see cref="NodePlanetaryCapture.Recording"/>). The tracker is drained only for the request: the handler
+    /// tracks the request alone, so the drain ends with the node's answer, never with the recording
+    /// (<c>PlanetaryRecordingThroughTheNodeTests</c> pins it), and a refused record ends it too, with its words.
+    /// </summary>
+    private static async Task<(PlanetaryRecordingDto Recording, int BodyDropped)> RecordBySignalAsync(GuiNodeHarness.GuiClient gui,
+        PlanetaryCaptureController planetary, Pump pump, TimeSpan duration, CancellationToken ct)
+    {
+        var noted = gui.AppState.Notifications.Length;
+        gui.Bus.Post(new StartPlanetaryRecordingSignal(duration));
+        // Dispatched now, so the record's tracked work exists before the drain is taken.
+        gui.Bus.ProcessPending(gui.Tracker);
+        var asked = gui.Tracker.DrainAsync();
+        await pump.UntilAsync(_ => ValueTask.FromResult(asked.IsCompleted), ct);
+        var said = string.Join("; ", gui.AppState.Notifications.Skip(noted).Select(static n => $"{n.Severity}: {n.Message}"));
+        var started = planetary.Capture.Recording.ShouldNotBeNull(said);
+        started.Recording.ShouldBeTrue(said);
+        (started.EndsUtc - started.StartedUtc).ShouldBe(duration, "the node records for the duration the signal asked");
+        var droppedFrom = planetary.Capture.DroppedFrames;
+
+        int? droppedTo = null;
+        await pump.UntilAsync(_ =>
+        {
+            if (planetary.Capture.Recording is { Recording: false })
+            {
+                droppedTo ??= planetary.Capture.DroppedFrames;
+            }
+            return ValueTask.FromResult(planetary.Capture.Recording is { Written: true });
+        }, ct);
+        var recording = planetary.Capture.Recording.ShouldNotBeNull();
+        recording.Path.ShouldBe(started.Path, "the recording the signal started");
+        recording.FailureReason.ShouldBeNull();
+        return (recording, (droppedTo ?? droppedFrom) - droppedFrom);
+    }
+
+    /// <summary>Records the capture going on for <paramref name="duration"/> on a client of the node's own, and waits until its file is whole.</summary>
     private static async Task<(PlanetaryRecordingDto Recording, int BodyDropped)> RecordAsync(TianWen.RemoteClient.TianWenNodeClient client, Pump pump,
         TimeSpan duration, CancellationToken ct)
     {
