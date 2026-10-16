@@ -55,55 +55,144 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
 
     private static HashSet<CatalogIndex> SetOf(OrreryScene scene) => [.. scene.CometSet.Select(c => Index(c))];
 
+    // The scene brought to the instant with its comet ranking landed: the first update starts the ranking off the render thread, a
+    // frame after it lands adopts it.
+    private static async Task UpdateRankedAsync(OrreryScene scene, DateTimeOffset utc, ICometRepository repo, OrreryCometChoice choice)
+    {
+        scene.Update(utc, repo, choice);
+        await scene.WhenCometsRankedAsync();
+        scene.Update(utc, repo, choice);
+    }
+
+    // Thirty comets on circular orbits at 1.5 AU, about magnitude 10 to 14 at any instant: enough to fill the set without the others.
+    private static List<CometElements> Fillers()
+        => [.. Enumerable.Range(1, 30).Select(n => Comet(n, m1: 8 + (0.1 * n), q: 1.5, e: 0, inclination: 10, node: 0, argumentOfPerihelion: 12 * n))];
+
     /// <summary>
-    /// The set is the <see cref="OrreryScene.CometSetSize"/> brightest at PEAK, ranked as the sky ranks them
-    /// (<c>M1 + K1 log10(max(q, 0.05))</c>: a comet of M1 -5 that never comes inside 30 AU ranks between M1 9 and 10), with no comet
-    /// that has no magnitude model; the comet the view was opened on and a pinned one are added however faint. It is ranked once per
-    /// repository and count, however often the scene is updated or an apparition upgrade lands; with the layer off only the opened
-    /// and pinned comets are left.
+    /// The set is the <see cref="OrreryScene.CometSetSize"/> brightest at the VIEWING INSTANT (#1611, the pilot's amendment): a
+    /// periodic comet of faint peak (M1 12) at perihelion on the date is in the set, and ten years on, near aphelion, it is out; a
+    /// great comet (M1 -6, perihelion 0.2 AU) fifty years past its perihelion, far out, is out, though its PEAK estimate ranks it
+    /// first of all. Each is in the sky's candidacy set (<see cref="SkyMapState.IsCometCandidate"/>).
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheSetIsTheBrightestAtTheViewingInstant()
+    {
+        var faint = Comet(40, m1: 12, q: 1.0, e: 0.6, inclination: 5, node: 0, argumentOfPerihelion: 30);
+        var great = Comet(41, m1: -6, q: 0.2, e: 0.995, daysFromPerihelion: 50 * 365.25);
+        SkyMapState.IsCometCandidate(faint).ShouldBeTrue();
+        SkyMapState.IsCometCandidate(great).ShouldBeTrue();
+        SkyMapState.PeakMagnitude(great).ShouldBeLessThan(SkyMapState.PeakMagnitude(faint));
+        foreach (var at in new[] { Instant, Instant.AddYears(10) })
+        {
+            CometEphemeris.TryGetEquatorialJ2000WithMagnitude(faint, at, out _, out _, out var faintMag);
+            CometEphemeris.TryGetEquatorialJ2000WithMagnitude(great, at, out _, out _, out var greatMag);
+            CometEphemeris.TryGetEquatorialJ2000WithMagnitude(Fillers()[^1], at, out _, out _, out var fillerMag);
+            output.WriteLine($"{at:yyyy-MM}: the faint comet {faintMag:F1}, the great one {greatMag:F1}, the faintest filler {fillerMag:F1}");
+        }
+        var repo = new StubCometRepository([.. Fillers(), faint, great]);
+        var choice = new OrreryCometChoice(true, null, null, null);
+        var scene = new OrreryScene();
+
+        await UpdateRankedAsync(scene, Instant, repo, choice);
+        output.WriteLine($"at {Instant:yyyy-MM}: {scene.CometSet.Length} comets, {string.Join(", ", scene.CometSet.Select(c => c.DisplayName))}");
+        SetOf(scene).ShouldContain(Index(faint), "the faint comet at its perihelion is not in the set");
+        SetOf(scene).ShouldNotContain(Index(great), "the great comet far out is in the set");
+        scene.CometSet.Length.ShouldBe(OrreryScene.CometSetSize);
+
+        var later = Instant.AddYears(10);
+        await UpdateRankedAsync(scene, later, repo, choice);
+        output.WriteLine($"at {later:yyyy-MM}: {string.Join(", ", scene.CometSet.Select(c => c.DisplayName))}");
+        SetOf(scene).ShouldNotContain(Index(faint), "the faint comet near aphelion is still in the set");
+    }
+
+    /// <summary>
+    /// The ranking is per MONTH of the view's clock: two instants in one month give the same set and one ranking; crossing into the
+    /// next month ranks once, and a second instant in that month not again.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task AMonthIsRankedOnce()
+    {
+        var repo = new StubCometRepository([.. Fillers(), Comet(40, m1: 12, q: 1.0, e: 0.6), Comet(41, m1: 11, q: 0.8, e: 0.7, daysFromPerihelion: 200)]);
+        var choice = new OrreryCometChoice(true, null, null, null);
+        var scene = new OrreryScene();
+        var october = new DateTimeOffset(2026, 10, 2, 0, 0, 0, TimeSpan.Zero);
+
+        await UpdateRankedAsync(scene, october, repo, choice);
+        var first = SetOf(scene);
+        scene.CometRankings.ShouldBe(1);
+        await UpdateRankedAsync(scene, october.AddDays(25), repo, choice);
+        scene.CometRankings.ShouldBe(1);
+        SetOf(scene).ShouldBe(first, ignoreOrder: true);
+
+        await UpdateRankedAsync(scene, october.AddDays(31), repo, choice);
+        scene.CometRankings.ShouldBe(2);
+        await UpdateRankedAsync(scene, october.AddDays(50), repo, choice);
+        scene.CometRankings.ShouldBe(2);
+        OrreryScene.MonthBucket(october).ShouldNotBe(OrreryScene.MonthBucket(october.AddDays(31)));
+    }
+
+    /// <summary>
+    /// The edge of the set does not flicker: a member scores <see cref="OrreryScene.MembershipHysteresisMag"/> brighter than it is, so
+    /// one just past the cutoff (0.6 mag fainter than the best outsider) stays, and one past it by more than that (1.2) goes.
     /// </summary>
     [Fact]
-    public void TheSetIsTheBrightestAtPeakPlusTheOpenedAndPinned()
+    public void AMemberJustPastTheCutoffStays()
     {
-        var comets = Enumerable.Range(1, 40).Select(n => Comet(n, m1: n)).ToList();
-        comets.Add(Comet(41, m1: -5, q: 30));
-        comets.Add(Comet(42, m1: double.NaN));
-        var repo = new StubCometRepository([.. comets]);
-        var opened = Index(comets[39]);
-        var pinned = Index(comets[38]);
-        IReadOnlySet<CatalogIndex> pins = new HashSet<CatalogIndex> { pinned, CatalogIndex.Mars };
+        var indices = Enumerable.Range(1, 31).Select(n => Index(Comet(n, m1: n))).ToArray();
+        (CatalogIndex, double)[] Scored(double lastBest)
+            => [.. indices.Select((index, i) => (index, i < 29 ? (double)i : i == 29 ? 30.0 : lastBest))];
+        IReadOnlySet<CatalogIndex> members = new HashSet<CatalogIndex>(indices.Take(29).Append(indices[30]));
 
+        var kept = OrreryScene.SelectBrightest(Scored(30.6), members);
+        kept.Length.ShouldBe(30);
+        kept.ShouldContain(indices[30], "a member 0.6 mag past the cutoff was dropped");
+        kept.ShouldNotContain(indices[29]);
+
+        var dropped = OrreryScene.SelectBrightest(Scored(31.2), members);
+        dropped.ShouldNotContain(indices[30], "a member 1.2 mag past the cutoff was kept");
+        dropped.ShouldContain(indices[29]);
+
+        var fresh = OrreryScene.SelectBrightest(Scored(30.6), null);
+        fresh.ShouldNotContain(indices[30], "with no members the cutoff is the magnitude alone");
+    }
+
+    /// <summary>
+    /// The comet the view was opened on, the focused one and a pinned one are always in, however faint and wherever they are, beside
+    /// the thirty brightest; with the layer off only they are left. An apparition upgrade re-reads the set without ranking again.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheOpenedFocusedAndPinnedAreAlwaysIn()
+    {
+        var bright = Enumerable.Range(1, 35).Select(n => Comet(n, m1: 5 + (0.1 * n), q: 1.2, e: 0.5, argumentOfPerihelion: 10 * n)).ToList();
+        var far = Enumerable.Range(50, 3).Select(n => Comet(n, m1: 16, q: 3, e: 0.9, daysFromPerihelion: 3000)).ToList();
+        var repo = new StubCometRepository([.. bright, .. far, Comet(60, m1: double.NaN)]);
+        IReadOnlySet<CatalogIndex> pins = new HashSet<CatalogIndex> { Index(far[2]), CatalogIndex.Mars };
+        var choice = new OrreryCometChoice(true, Index(far[0]), Index(far[1]), pins);
         var scene = new OrreryScene();
-        var choice = new OrreryCometChoice(true, opened, null, pins);
-        scene.Update(Instant, repo, choice);
-        var expected = comets.Take(29).Append(comets[40]).Select(c => Index(c)).Append(opened).Append(pinned).ToHashSet();
-        output.WriteLine($"set: {string.Join(", ", scene.CometSet.Select(c => c.DisplayName))}");
-        SetOf(scene).ShouldBe(expected, ignoreOrder: true);
-        OrreryScene.CometSetSize.ShouldBe(30);
 
-        for (var minute = 1; minute <= 5; minute++)
-        {
-            scene.Update(Instant.AddMinutes(minute), repo, choice);
-        }
-        repo.Replace(0, comets[0] with { ArgumentOfPerihelionDeg = 140 });
+        await UpdateRankedAsync(scene, Instant, repo, choice);
+        var set = SetOf(scene);
+        output.WriteLine($"set: {string.Join(", ", scene.CometSet.Select(c => c.DisplayName))}");
+        set.Count.ShouldBe(OrreryScene.CometSetSize + 3);
+        set.ShouldContain(Index(far[0]));
+        set.ShouldContain(Index(far[1]));
+        set.ShouldContain(Index(far[2]));
+
+        repo.Replace(0, bright[0] with { ArgumentOfPerihelionDeg = 140 });
         scene.Update(Instant, repo, choice);
         scene.CometRankings.ShouldBe(1);
-        scene.CometSet.Single(c => Index(c) == Index(comets[0])).ArgumentOfPerihelionDeg.ShouldBe(140);
+        scene.CometSet.Single(c => Index(c) == Index(bright[0])).ArgumentOfPerihelionDeg.ShouldBe(140);
 
         scene.Update(Instant, repo, choice with { ShowSet = false });
-        SetOf(scene).ShouldBe([opened, pinned], ignoreOrder: true);
-
-        scene.Update(Instant, new StubCometRepository([.. comets, Comet(43, m1: -20)]), choice);
-        scene.CometRankings.ShouldBe(2);
-        SetOf(scene).ShouldContain(Index(Comet(43, m1: -20)));
+        SetOf(scene).ShouldBe([Index(far[0]), Index(far[1]), Index(far[2])], ignoreOrder: true);
     }
 
     /// <summary>
     /// Each comet of the set sits on its OWN drawn orbit, a closed, an open and an inclined one; and an apparition upgrade (the same
     /// index, new elements, the repository's version moved) moves the comet onto its new orbit at once, with no change of time.
     /// </summary>
-    [Fact]
-    public void EachCometSitsOnItsOwnDrawnOrbit()
+    [Fact(Timeout = 120_000)]
+    public async Task EachCometSitsOnItsOwnDrawnOrbit()
     {
         var repo = new StubCometRepository(
             Comet(1, 5, q: 0.9, e: 0.7, daysFromPerihelion: 20),
@@ -112,7 +201,7 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
             Comet(4, 8, q: 0.4, e: 0.95, inclination: 5, daysFromPerihelion: 3));
         var scene = new OrreryScene();
         var choice = new OrreryCometChoice(true, null, null, null);
-        scene.Update(Instant, repo, choice);
+        await UpdateRankedAsync(scene, Instant, repo, choice);
         scene.CometSet.Length.ShouldBe(4);
         AllOnTheirOrbits();
 

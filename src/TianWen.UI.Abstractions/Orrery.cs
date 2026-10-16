@@ -334,15 +334,28 @@ public sealed class OrreryScene(Action? requestRedraw = null)
     private int _positionsSetVersion = -1;
     private ImmutableArray<OrreryBody> _bodies = [];
 
-    // The brightest at peak, ranked once per repository and count of comets (as the sky's candidacy filter is rebuilt).
-    private ICometRepository? _rankedRepo;
-    private int _rankedCount = -1;
+    // The sky's candidates (SkyMapState.IsCometCandidate), gathered once per repository and count of comets.
+    private ICometRepository? _candidatesRepo;
+    private int _candidatesCount = -1;
+    private ImmutableArray<CometElements> _candidates = [];
+
+    // The brightest at the viewing instant, ranked per MONTH of the clock off the render thread (the Task the hand-off); the ranking
+    // adopted, the month and repository it is of, and its version, which is in the set's key.
     private ImmutableArray<CatalogIndex> _brightest = [];
+    private long _brightestBucket = long.MinValue;
+    private ICometRepository? _brightestRepo;
+    private int _brightestCount = -1;
+    private int _brightestVersion;
+    private Task<Ranking>? _rankPending;
     private int _cometRankings;
+    private double _lastRankMs;
+
+    private sealed record Ranking(ICometRepository Repo, int Count, long Bucket, ImmutableArray<CatalogIndex> Brightest, double Ms);
 
     // The set, read again only when its key moves.
     private ICometRepository? _setRepo;
     private int _setRepoVersion;
+    private int _setBrightestVersion;
     private OrreryCometChoice _setChoice;
     private int _setVersion;
     private ImmutableArray<CometElements> _cometSet = [];
@@ -365,8 +378,91 @@ public sealed class OrreryScene(Action? requestRedraw = null)
     /// <summary>How many times the positions have been computed: once per minute of the clock that a frame shows, and per comet set.</summary>
     public int PositionBuilds => _positionBuilds;
 
-    /// <summary>How many times the brightest comets have been ranked: once per repository and count of comets.</summary>
-    public int CometRankings => _cometRankings;
+    /// <summary>How many times the brightest comets have been ranked: once per month of the clock that a frame shows (and per repository).</summary>
+    public int CometRankings => Volatile.Read(ref _cometRankings);
+
+    /// <summary>How long the last ranking took off the render thread, milliseconds.</summary>
+    public double LastRankMs => _lastRankMs;
+
+    /// <summary>
+    /// How many magnitudes brighter a comet already in the set is scored than it is (#1611): the edge of the set moves only for a
+    /// comet that is clearly brighter, so a month's re-ranking does not flicker members in and out at the cutoff.
+    /// </summary>
+    public const double MembershipHysteresisMag = 1.0;
+
+    /// <summary>The instants of a month a comet is scored at: its best magnitude over them, so a comet bright for part of the month counts.</summary>
+    public const int RankSamplesPerMonth = 4;
+
+    /// <summary>The month of <paramref name="utc"/> the set is ranked for: a ranking holds while the view's clock stays in it.</summary>
+    public static long MonthBucket(DateTimeOffset utc) => (utc.UtcDateTime.Year * 12L) + utc.UtcDateTime.Month - 1;
+
+    /// <summary>
+    /// The <see cref="CometSetSize"/> brightest of <paramref name="scored"/> (each comet's best magnitude over the month), a member of
+    /// the current set (<paramref name="members"/>) scored <see cref="MembershipHysteresisMag"/> brighter than it is; ties go to the
+    /// lower index, so a ranking is the same however the candidates were ordered.
+    /// </summary>
+    internal static ImmutableArray<CatalogIndex> SelectBrightest(ReadOnlySpan<(CatalogIndex Index, double Best)> scored, IReadOnlySet<CatalogIndex>? members)
+    {
+        var ranked = new (double Score, CatalogIndex Index)[scored.Length];
+        var count = 0;
+        foreach (var (index, best) in scored)
+        {
+            if (double.IsFinite(best))
+            {
+                ranked[count++] = (members is not null && members.Contains(index) ? best - MembershipHysteresisMag : best, index);
+            }
+        }
+        var span = ranked.AsSpan(0, count);
+        span.Sort(static (a, b) => a.Score.CompareTo(b.Score) is var byScore and not 0 ? byScore : a.Index.CompareTo(b.Index));
+        var brightest = ImmutableArray.CreateBuilder<CatalogIndex>(Math.Min(CometSetSize, count));
+        for (var i = 0; i < brightest.Capacity; i++)
+        {
+            brightest.Add(span[i].Index);
+        }
+        return brightest.MoveToImmutable();
+    }
+
+    /// <summary>
+    /// Ranks <paramref name="candidates"/> for the month <paramref name="bucket"/>: each comet's best predicted magnitude over
+    /// <see cref="RankSamplesPerMonth"/> instants spread over the month, through the sky's own calls (one
+    /// <see cref="CometEphemeris.TryGetEarthState"/> per instant, <see cref="CometEphemeris.TryGetEquatorialJ2000WithMagnitude(in CometElements, in CometEphemeris.EarthState, out double, out double, out double)"/>
+    /// per candidate), then <see cref="SelectBrightest"/>. Pure: run on the pool.
+    /// </summary>
+    internal static ImmutableArray<CatalogIndex> RankAt(ImmutableArray<CometElements> candidates, long bucket, IReadOnlySet<CatalogIndex>? members)
+    {
+        var start = new DateTimeOffset((int)(bucket / 12), (int)(bucket % 12) + 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var month = start.AddMonths(1) - start;
+        var scored = new (CatalogIndex Index, double Best)[candidates.Length];
+        for (var i = 0; i < candidates.Length; i++)
+        {
+            scored[i] = (candidates[i].CatalogIndex ?? default, double.PositiveInfinity);
+        }
+        for (var sample = 0; sample < RankSamplesPerMonth; sample++)
+        {
+            if (!CometEphemeris.TryGetEarthState(start + (month * ((sample + 0.5) / RankSamplesPerMonth)), out var earth))
+            {
+                continue;
+            }
+            for (var i = 0; i < candidates.Length; i++)
+            {
+                if (CometEphemeris.TryGetEquatorialJ2000WithMagnitude(candidates[i], earth, out _, out _, out var magnitude)
+                    && magnitude < scored[i].Best)
+                {
+                    scored[i].Best = magnitude;
+                }
+            }
+        }
+        return SelectBrightest(scored, members);
+    }
+
+    /// <summary>For a test that wants the ranking the next frame adopts.</summary>
+    internal async Task WhenCometsRankedAsync()
+    {
+        if (_rankPending is { } pending)
+        {
+            await pending;
+        }
+    }
 
     /// <summary>The comets drawn, each with the element set it is drawn from (the repository's, apparition upgrade included).</summary>
     public ImmutableArray<CometElements> CometSet => _cometSet;
@@ -380,6 +476,7 @@ public sealed class OrreryScene(Action? requestRedraw = null)
     /// </summary>
     public void Update(DateTimeOffset utc, ICometRepository? comets = null, in OrreryCometChoice choice = default)
     {
+        UpdateRanking(comets, choice.ShowSet, utc);
         UpdateCometSet(comets, choice);
         var minute = utc.UtcTicks / TimeSpan.TicksPerMinute;
         // Keyed on the set's version too: an apparition upgrade keeps a comet's index and changes its elements, and must move it onto
@@ -453,18 +550,73 @@ public sealed class OrreryScene(Action? requestRedraw = null)
         return false;
     }
 
-    // The set's key: the repository by reference, its version, and the choice (the pinned set by reference: the tab's pinned set is
-    // rebuilt only when the proposals change). Read again only when it moves; the brightest are ranked again only when the repository
-    // or its count does.
-    private void UpdateCometSet(ICometRepository? comets, in OrreryCometChoice choice)
+    // Adopts a ranking that has landed, and starts one when the month (or the repository) moved past the one adopted and none is in
+    // flight. The ranking runs on the pool, the adopted set drawn until it lands: fast Play crosses a month nearly every frame, so at most
+    // one is in flight, and the month it lands for may already be behind the clock, which the next frame then ranks again.
+    private void UpdateRanking(ICometRepository? comets, bool showSet, DateTimeOffset utc)
     {
-        var version = comets?.Version ?? 0;
-        if (ReferenceEquals(comets, _setRepo) && version == _setRepoVersion && choice.ShowSet == _setChoice.ShowSet
-            && choice.Opened == _setChoice.Opened && choice.Focus == _setChoice.Focus && ReferenceEquals(choice.Pinned, _setChoice.Pinned))
+        if (_rankPending is { IsCompleted: true } done)
+        {
+            _rankPending = null;
+            if (done.IsCompletedSuccessfully && done.Result is var ranked && ReferenceEquals(ranked.Repo, comets))
+            {
+                (_brightest, _brightestBucket, _brightestRepo, _brightestCount) = (ranked.Brightest, ranked.Bucket, ranked.Repo, ranked.Count);
+                _lastRankMs = ranked.Ms;
+                _brightestVersion++;
+            }
+        }
+        if (comets is null || !showSet || _rankPending is not null)
         {
             return;
         }
-        (_setRepo, _setRepoVersion, _setChoice) = (comets, version, choice);
+
+        var all = comets.All;
+        if (!ReferenceEquals(comets, _candidatesRepo) || all.Length != _candidatesCount)
+        {
+            var candidates = ImmutableArray.CreateBuilder<CometElements>();
+            foreach (var el in all)
+            {
+                if (SkyMapState.IsCometCandidate(el))
+                {
+                    candidates.Add(el);
+                }
+            }
+            (_candidatesRepo, _candidatesCount, _candidates) = (comets, all.Length, candidates.ToImmutable());
+        }
+
+        var bucket = MonthBucket(utc);
+        if (bucket == _brightestBucket && ReferenceEquals(comets, _brightestRepo) && all.Length == _brightestCount)
+        {
+            return;
+        }
+        var (pool, count) = (_candidates, all.Length);
+        IReadOnlySet<CatalogIndex>? members = ReferenceEquals(comets, _brightestRepo) ? new HashSet<CatalogIndex>(_brightest) : null;
+        Interlocked.Increment(ref _cometRankings);
+        _rankPending = Task.Run(() =>
+        {
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            var brightest = RankAt(pool, bucket, members);
+            return new Ranking(comets, count, bucket, brightest, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        });
+        if (requestRedraw is { } redraw)
+        {
+            _rankPending.ContinueWith(_ => redraw(), TaskScheduler.Default);
+        }
+    }
+
+    // The set's key: the repository by reference, its version, the ranking adopted (its version moves with the month's ranking), and
+    // the choice (the pinned set by reference: the tab's pinned set is rebuilt only when the proposals change). Read again only when it
+    // moves: only a newcomer's orbit is built.
+    private void UpdateCometSet(ICometRepository? comets, in OrreryCometChoice choice)
+    {
+        var version = comets?.Version ?? 0;
+        if (ReferenceEquals(comets, _setRepo) && version == _setRepoVersion && _brightestVersion == _setBrightestVersion
+            && choice.ShowSet == _setChoice.ShowSet && choice.Opened == _setChoice.Opened && choice.Focus == _setChoice.Focus
+            && ReferenceEquals(choice.Pinned, _setChoice.Pinned))
+        {
+            return;
+        }
+        (_setRepo, _setRepoVersion, _setChoice, _setBrightestVersion) = (comets, version, choice, _brightestVersion);
         _setVersion++;
         if (comets is null)
         {
@@ -492,7 +644,7 @@ public sealed class OrreryScene(Action? requestRedraw = null)
         }
         if (choice.ShowSet)
         {
-            foreach (var index in Brightest(comets))
+            foreach (var index in _brightest)
             {
                 Add(index);
             }
@@ -519,34 +671,6 @@ public sealed class OrreryScene(Action? requestRedraw = null)
                 }
             }
         }
-    }
-
-    // The CometSetSize brightest at peak, ranked as the sky ranks them (SkyMapState.PeakMagnitude); a comet with no magnitude model
-    // cannot be ranked and is left out.
-    private ImmutableArray<CatalogIndex> Brightest(ICometRepository comets)
-    {
-        var all = comets.All;
-        if (ReferenceEquals(comets, _rankedRepo) && all.Length == _rankedCount)
-        {
-            return _brightest;
-        }
-        var ranked = new List<(double Peak, CatalogIndex Index)>(all.Length);
-        foreach (var el in all)
-        {
-            if (el.HasMagnitudeModel && el.CatalogIndex is { } index)
-            {
-                ranked.Add((SkyMapState.PeakMagnitude(el), index));
-            }
-        }
-        ranked.Sort(static (a, b) => a.Peak.CompareTo(b.Peak));
-        var brightest = ImmutableArray.CreateBuilder<CatalogIndex>(Math.Min(CometSetSize, ranked.Count));
-        for (var i = 0; i < brightest.Capacity; i++)
-        {
-            brightest.Add(ranked[i].Index);
-        }
-        (_rankedRepo, _rankedCount, _brightest) = (comets, all.Length, brightest.MoveToImmutable());
-        _cometRankings++;
-        return _brightest;
     }
 
     /// <summary>For a test that wants the orbits the next frame draws.</summary>
