@@ -994,6 +994,97 @@ The recording the control started is 100.0 % of the session's in-process rate, i
 shared memory, the node stacking 11 masters meanwhile, and no TCP listener or UDP endpoint of the node, its keeper or the client.
 The two stalls are the camera's `GeneralError` ones measured above, each brought back by a restart in 6.5 s, reported apart.
 
+### The capture's reader above a busy machine (measured 2026-10-16)
+
+**Issue:** #813 (TIA2's capture-priority leg).
+
+The section above found that with the box saturated at normal priority the capture loses frames in process and through the node
+alike, because the capture loop's reader was a thread pool continuation at normal priority. This leg lifts the reader, and only
+the reader, and measures it the way node-rate did: the ToupTek at the Saturn window, 60 s recordings read back off their SER, in
+process (`ToupTekFrameRateProbe.ARecordingAtTheSaturnWindowKeepsEveryFrame`) and through the node with the GUI's live view
+(`NodePlanetaryRateProbe`), under 32 spinning processes at normal priority (100 % of the 16 cores), at below-normal priority, and
+with the box quiet. A recording the camera stalled in is reported apart and made again (up to 5 more).
+
+**What changed, and why each.**
+- **The loop runs on a thread of its own at AboveNormal** (`CaptureReaderThread`): above any normal-priority load, below the
+  driver's Highest stream thread and the OS. The thread is also the loop's `SynchronizationContext`, and the loop's awaits keep
+  their context, so every frame resumes there. It waits for work by blocking on a semaphore, on purpose: an await would hand the
+  wake back to the pool, a spin would hold a core with no frame coming. The process's priority is untouched, so the live stack and
+  the view stay below the reader. Every driver gets it, the loop being one for all.
+- **The DAL's frame wait keeps its reader's context**, so the stream's thread wakes the reader straight, never through the pool.
+- **The recording's writer runs on a thread of its own too**: the loop shares its queue's lock and the byte pool's with it, and a
+  pool writer held off while it held one held the loop up behind it.
+- **The loop's running Debug lines are written by the pool** (a host's file log is one lock for the process, flushed under it).
+- Tried and not kept: holding the process's GC at `SustainedLowLatency` while a capture runs (below: no better, and it is a
+  process-wide mode).
+
+**Measured first, in process under the 32 spinners, one clean recording each** (the reader's waits counted by the driver):
+
+| Variant | fps off the SER | Replaced | Waits woken on the pool | Hand-off peak | Reader's longest gap |
+|---|---|---|---|---|---|
+| before: the loop on the pool | 154.1 to 182.5 | 464 to 1,290 | every one | 64 | |
+| the loop on its own thread | 196.7 | 2 | all 5,423 | 64 | 340 ms |
+| + the DAL's wait keeps its context | 196.7 | 6 | none of 6,218 | 64 | 357 ms |
+| + the writer on its own thread | **196.8** | **0** | none | 32 | 165 ms |
+
+The collections were not where the in-process gaps went: 5 to 8 a minute, 8 to 23 ms of pause in all.
+
+**The A/B, 60 s recordings the camera did not stall in** (fps off the SER; replaced by the hand-off; the disk's drops; the most
+frames that waited in the hand-off). The body dropped no frame in any of them. Before the fix nothing woke the reader but the pool.
+
+| Load | Arm | Before the fix | After the fix |
+|---|---|---|---|
+| 32 normal spinners | in process | 182.5 (875 replaced), 178.3 (1,086; disk 21); all three of the in-process probe's own recordings stalled: 154.1, 158.4, 167.8 (464 to 1,290), peak 64 in all | **196.8** (0), **196.5** (0; disk 15), **196.7** (6, 0.05 %); peaks 31, 54, 64 |
+| 32 normal spinners | node, view | 169.5 (1,793), 162.7 (2,076), peak 64 | below |
+| below-normal | in process | 196.8 (0), 196.8 (0), 196.7 (1); peaks 52, 31, 64 | 196.8 (0) x3; peaks 11, 2, 1 |
+| below-normal | node, view | 196.8 (0), 196.6 (9), 196.8 (0) | 196.8 (0) x3; peaks 4, 3, 4 |
+| quiet | in process | 196.8 (node-rate's gate, earlier the same day) | 196.8 (0) x3; peaks 9, 1, 1 |
+| quiet | node, view | 196.8 (0) x3 (node-rate's gate) | 196.8 (0) x3; peaks 3, 4, 5 |
+
+**Through the node under the 32 spinners the bar is met by most recordings, not all.** Every recording reads at least 194.0 fps
+off its SER and the body drops nothing, but the hand-off still replaced a fraction of a percent in some. Each set below is three
+clean recordings with the view, in order:
+
+| Set (32 normal spinners, through the node, with the view) | fps off the SER | Replaced (share) | Disk dropped |
+|---|---|---|---|
+| the fix, first set | 196.2, 196.5, 195.2 | 32 (0.27 %), 32 (0.27 %), **92 (0.79 %)** | 29, 17, 0 |
+| + the Debug lines off the reader | 196.0, 196.2, 194.0 | 31 (0.26 %), 0, 26 (0.22 %) | 43, 33, 151 |
+| Server GC (as shipped), again | 196.4, 196.6, 196.8 | 17 (0.14 %), 0, 0 | 43, 7, 0 |
+| `DOTNET_gcServer=0` | 196.8, 196.6, 196.7 | 5 (0.04 %), 15 (0.13 %), 0 | 0, 9, 2 |
+| Server GC + `SustainedLowLatency` while capturing (not kept) | 196.6, 196.5, 196.4 | 28 (0.24 %), 31 (0.26 %), 57 (0.48 %) | 9, 49, 0 |
+
+Before the fix the same arm replaced 1,793 to 3,263 a minute. What is left is the node's collections: each capture there saw 3 to
+9 gen 2 collections pausing 283 to 592 ms in all (in process, 0 to 4 and 11 to 77 ms). A pause holds every managed thread, the
+reader and the writer included, and its suspension waits for every starved normal-priority thread (the live stack's workers among
+them) to reach a safe point; a pause on top of a backlog passes the hand-off's 64 frames (a third of a second). The disk was not
+slow: the frames it was charged with fell out of the writer's queue while its writes took 1 to 5 ms (865 ms once), the writer held
+with the reader. `SustainedLowLatency` kept none of it away: its captures still saw 2 to 8 gen 2 collections pausing 489 to
+1,327 ms in all, the node's heap 1.3 to 1.6 GB and its working set 1.4 to 2.7 GB, so it was taken out again; each capture now
+says as it ends what the process collected and paused, and its heap and working set. **The node arm is accepted as measured**:
+of the fifteen clean recordings with the view under the 32 spinners, five replaced under 0.1 % (four of them none), and the worst
+replaced 0.79 %, at 100 % CPU. What allocates in the node's live stack and view, and the hand-off's depth (64 frames, about a
+third of a second) against pauses of up to about 0.6 s, are a follow-up issue.
+
+**The view and the node still answer under the load, and are bounded in the probe** (`NodePlanetaryRateProbe`): the node answers
+`GET /api/v1/planetary` at p99 under 250 ms, a gain staged through the GUI's client is on the camera within 1 s outside a stall,
+and the view shows at least what it showed before the fix at the same load (10.7 live frames a second under the 32 spinners, 24.6
+below-normal, 29.8 quiet). Under the 32 spinners after the fix the node answered at p99 124 to 205 ms (181 to 194 before), gains
+landed in 12 to 586 ms (23 to 556 before), and the view showed 13.4 to 20.1 frames a second (10.7 and 13.6 before) but once 9.1,
+**under its floor**, which the gate failed and which stands as measured. Below-normal the node answered at p99 2.5 to 2.9 ms (32
+to 62 before) and the view showed 29.7 to 29.9 (24.6 to 28.4); quiet, p99 0.5 ms and 29.8 to 30.0. The reader uses about a
+quarter of a core at 197 frames a second and, with no frame coming, no processor time (`PlanetaryCaptureReaderTests`).
+
+**The camera stalled as often after the fix as before.** Counted from every stream's own closing line, the stall rate is today's
+and the box's, not the fix's: 11 stalls in 1,349 s of streaming before (one in 123 s; under the 32 spinners 7 in 655 s,
+below-normal 4 in 694 s), 25 in 3,032 s after (one in 121 s; under the 32 spinners 10 in 1,272 s, below-normal 10 in 1,005 s,
+quiet 5 in 755 s), against one in 1,250 s in ToupTek.SDK's soak. A stall costs a recording about 6.5 s.
+
+**The probes.** The node gate's in-process baseline now takes only recordings that fail nothing by themselves (review round 2 of
+#1609), and its window check reads the window the camera has from the DAL's own line once the body has it, not the jog that asked
+for it. Each recording waits until no other build or test uses CPU (`TIANWEN_RATE_PROBE_QUIET_BUT`: the compiler server names no
+worktree, and another worker's csc took 5 cores in a gated run). The driver counts where its reader woke (`VideoReaderWakesOnPool`),
+a recording keeps its longest write, and each capture says as it ends where its frames ran and what the collections paused.
+
 ### Phase G: a mono filter-wheel sequence
 
 **Issues:** #1344 (the Record control, first), #1340 (the sequence).
