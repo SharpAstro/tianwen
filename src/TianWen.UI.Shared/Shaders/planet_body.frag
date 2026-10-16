@@ -4,7 +4,8 @@
 // scene as the CPU's PlanetaryRender.RenderRgba (its Scene and SceneRay), which stays the reference this is held to
 // (PlanetBodyGpuTests). The body frame has x along the prime meridian, z along the IAU north pole and y = z x x, in equatorial
 // radii, so a point's west longitude is -atan2(y, x). Every pixel is the mean of 3 x 3 rays, each along -toward from the screen
-// point it starts at: the oblate spheroid met first, Minnaert's law (mu0^k mu^(k-1)), the colour map at the point's planetographic
+// point it starts at: the oblate spheroid met first, Minnaert's law (mu0^k mu^(k-1)), or for the self-luminous Sun the linear
+// limb-darkening law (1 - u (1 - mu)), the colour map at the point's planetographic
 // latitude and west longitude, and with Saturn's rings the ring-plane crossing in depth order, the globe's shadow on the rings and
 // theirs on the globe. Coverage is the alpha, straight (not premultiplied), as every host blends it.
 //
@@ -18,7 +19,7 @@ layout(push_constant) uniform Body {
     vec4 toward;      // xyz: toward the camera, in the body frame; w: opacity
     vec4 sun;         // xyz: toward the Sun, in the body frame; w: 1 under Night
     vec4 ringAlbedo;  // rgb: the colour map's mean albedo per plane, what a ring's level is stated against
-    vec4 tint;        // rgb: Night's tint, the luminance drawn in it
+    vec4 tint;        // rgb: Night's tint, the luminance drawn in it; w: a self-luminous body's limb-darkening u (the Sun's), else 0
 } pc;
 
 // The colour map: planetographic latitude and WEST longitude, row 0 the north edge, column 0 at 0 degrees with longitude falling
@@ -114,6 +115,10 @@ void main() {
     float q2Inverse = 1.0 / (q * q);
     float k = pc.frame.w;
     bool hasRings = pc.right.w > 0.5;
+    // A self-luminous body (the Sun) is drawn by the linear limb-darkening law, never lit: no phase, no terminator, no Minnaert's law
+    // (PlanetaryRender.LimbDarkening).
+    float u = pc.tint.w;
+    bool selfLuminous = u > 0.0;
     // A ray starts in front of everything the body has, and runs away from the camera.
     float start = pc.disc.w + 1.0;
     vec3 dir = -toward;
@@ -144,12 +149,12 @@ void main() {
                 vec3 normal = normalize(vec3(hit.xy, hit.z * q2Inverse));
                 float mu = dot(normal, toward);
                 float mu0 = dot(normal, s);
-                if (mu > 0.0 && mu0 > 0.0) {
+                if (mu > 0.0 && (selfLuminous || mu0 > 0.0)) {
                     float latitude = degrees(asin(clamp(normal.z, -1.0, 1.0)));
                     // atan(y, x) is UNDEFINED at (0, 0), which a ray meeting the globe at a pole reaches; the CPU's Atan2 reads 0.
                     float axisLen = length(hit.xy);
                     float west = axisLen > 1e-9 ? -degrees(atan(hit.y, hit.x)) : 0.0;
-                    globe = sampleMap(latitude, west) * pow(mu0, k) * pow(mu, k - 1.0);
+                    globe = sampleMap(latitude, west) * (selfLuminous ? 1.0 - u * (1.0 - mu) : pow(mu0, k) * pow(mu, k - 1.0));
                     // The rings' shadow: the Sun's light through the ring its ray from this point crosses.
                     if (hasRings && s.z != 0.0 && -hit.z / s.z > 0.0) {
                         vec2 shade = hit.xy + (-hit.z / s.z) * s.xy;
