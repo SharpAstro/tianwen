@@ -1115,6 +1115,33 @@ for it. Each recording waits until no other build or test uses CPU (`TIANWEN_RAT
 worktree, and another worker's csc took 5 cores in a gated run). The driver counts where its reader woke (`VideoReaderWakesOnPool`),
 a recording keeps its longest write, and each capture says as it ends where its frames ran and what the collections paused.
 
+### The capture panel fits a 1080-line screen
+
+**Issue:** #1612 (done 2026-10-17).
+
+The left half of a 1080-line screen leaves the panel about 935 design units at 100 %, under the GUI's status bar and the Live
+Session top strip, and in its tallest state (capturing, the depth and high-speed rows, the readout, auto-recenter's offset row, a
+focuser, an ended recording with the duration field's hint) the panel ran to 992: the focuser's jog row and its hint fell off.
+It did not show on the desktop it was found on, whose work area is 1848 lines tall, and no test could see it, since the panel was
+built inside `VkPlanetaryTab` from its private fields.
+
+- **The panel is a declaration**, `PlanetaryControlPanel` (UI.Abstractions), after `PlanetaryRecordControl`'s pattern: its
+  settings, its rows and what each control posts (Start and Stop, the jogs, Record) or stages on `NodePlanetaryCapture` while a
+  capture runs (exposure, gain, depth, high speed, the ROI's size and pan, the recenter). The view paints its tree and keeps what
+  only it can draw: the sensor's picture-in-picture, its drag and the ROI on the stream. `PlanetaryControlPanelTests` presses each
+  control through the router.
+- **While a capture runs, every live control is on screen without scrolling**: the rows that are setup only fold. Today that is
+  the picture-in-picture, whose drag is idle-only and which shows the selection, a thing the recenter's jogs of the running window
+  do not move. The last row then ends 901 units down.
+- **Where folding is not enough, the panel scrolls**, by the wheel (a scroll declared on its stack, a bar that shows it): idle
+  with the last recording shown is 961, and a smaller screen or a larger scale has less room still (at 150 % a 1080-line screen
+  leaves about 623). A panel that fits takes no wheel, which goes on to the viewer as before.
+- **The picture-in-picture's drag is a press declared on its fill**, since the scrolled stack's own region swallows a press no row
+  claims; the view supplies it, being the one that knows where it drew the sensor.
+- **`PlanetaryControlPanelFitTests` is the guard every section passes**: both tallest states arranged in 280 by 935 at scales 1
+  and 1.5, every control and every row inside, without scrolling while capturing. Its output says where the last row ends, so the
+  FILTER section and the sequence editor below can see how much room is left.
+
 ### Phase G: a mono filter-wheel sequence
 
 **Issues:** #1344 (the Record control, first), #1340 (the sequence).
