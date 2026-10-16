@@ -585,14 +585,13 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Tab.SpeedMenu.IsOpen.ShouldBeTrue();
         rig.Tab.SpeedMenu.Items.Select(i => i.Label).ShouldBe(OrreryState.PlaySpeeds.Select(s => $"1 second = {s.Name}"));
         rig.Tab.Render(rig.Planner, rig.Content, clock);
-        // Every row as wide as its label measures, padded as the dropdown pads it: the width is measured, never guessed.
-        var fontSize = ((Layout.Content.Text)((Layout.Node.Leaf)rig.Tab.GetCapturedLayout()
-            .Single(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text { Value: "1 week/s" } }).Node).Content).FontSize;
-        for (var i = 0; i < OrreryState.PlaySpeeds.Length; i++)
+        // Every row's text, as PAINTED (the leaf the dropdown laid out inside its own padding), is at least as wide as that text
+        // measures: the width is measured, never guessed (ten ems overran "1 second = 6 hours").
+        foreach (var item in rig.Tab.SpeedMenu.Items)
         {
-            var label = rig.Tab.SpeedMenu.Items[i].Label;
-            DropUpRow(rig, i).Width.ShouldBeGreaterThanOrEqualTo(
-                rig.Tab.StripContentWidth(Layout.Builder.Text(label, fontSize).PadX(fontSize * 0.5f)) - 0.5f, $"\"{label}\" overruns its row");
+            var (node, bounds) = rig.Tab.GetCapturedLayout()
+                .Single(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } && text.Value == item.Label);
+            bounds.Width.ShouldBeGreaterThanOrEqualTo(rig.Tab.StripContentWidth(node) - 0.5f, $"\"{item.Label}\" overruns its row");
         }
         var row = DropUpRow(rig, choice);
         (row.Y + row.Height).ShouldBeLessThanOrEqualTo(speedButton.Y + 0.5f, "a drop-up opens above the strip");

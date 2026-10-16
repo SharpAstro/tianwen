@@ -832,7 +832,8 @@ namespace TianWen.UI.Abstractions
                 items.Add(new DropdownItem<double>($"1 second = {speed.Name}", speed.DaysPerSecond));
             }
             // As wide as the widest row MEASURES, a row being its label padded half an em each side as the dropdown builds it, and
-            // never narrower than the button it opened from.
+            // never narrower than the button it opened from. The half em mirrors DIR.Lib's Layout.Builder.Dropdown rowPadding: a
+            // stopgap until Dropdown can size its list to its rows itself (which would also retire OpenTimeMenu's eight ems).
             var width = anchor.Width;
             foreach (var item in items)
             {
