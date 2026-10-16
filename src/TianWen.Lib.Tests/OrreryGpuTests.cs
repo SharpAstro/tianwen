@@ -70,6 +70,7 @@ public sealed class OrreryGpuTests(VkOrreryGpuFixture gpu, ITestOutputHelper out
             await atlas.WaitAsync(TestContext.Current.CancellationToken);
         }
         await rig.Tab.OrreryScene.WhenOrbitsBuiltAsync();
+        await rig.Tab.OrreryScene.WhenCometsRankedAsync();
         Render(rig);
         Render(rig);
     }

@@ -668,6 +668,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Render();
         // The Moon's reach fits the gap to the neighbouring orbits once they are built (before, the gap to the two planets).
         await rig.Tab.OrreryScene.WhenOrbitsBuiltAsync();
+        await rig.Tab.OrreryScene.WhenCometsRankedAsync();
         // Zoomed in by this factor on the framing the view opened with.
         rig.Tab.State.Orrery.Distance *= zoom;
         var moonDrawn = 0;
@@ -770,6 +771,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Tab.OpenOrrery();
         rig.Render();
         await rig.Tab.OrreryScene.WhenOrbitsBuiltAsync();
+        await rig.Tab.OrreryScene.WhenCometsRankedAsync();
         rig.Tab.State.Orrery.Distance *= zoom;
         var (drawnFrames, hiddenFrames) = (0, 0);
         for (var frame = 0; frame < 120; frame += 4)
@@ -964,6 +966,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
                 await atlas.WaitAsync(TestContext.Current.CancellationToken);
             }
             await rig.Tab.OrreryScene.WhenOrbitsBuiltAsync();
+            await rig.Tab.OrreryScene.WhenCometsRankedAsync();
             await rig.Tab.OrrerySprites.WhenBuiltAsync();
         }
         rig.Render();
@@ -1615,6 +1618,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Tab.OpenOrrery();
         rig.Render();
         await rig.Tab.OrreryScene.WhenOrbitsBuiltAsync();
+        await rig.Tab.OrreryScene.WhenCometsRankedAsync();
         rig.Render();
         var scene = rig.Tab.OrreryScene;
         scene.OrbitBuilds.ShouldBe(1);
@@ -1752,6 +1756,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
                     await atlas.WaitAsync(TestContext.Current.CancellationToken);
                 }
                 await rig.Tab.OrreryScene.WhenOrbitsBuiltAsync();
+                await rig.Tab.OrreryScene.WhenCometsRankedAsync();
                 await rig.Tab.OrrerySprites.WhenBuiltAsync();
             }
             rig.Render();
@@ -1820,6 +1825,7 @@ public sealed class OrreryNightTests
                     await atlas.WaitAsync(TestContext.Current.CancellationToken);
                 }
                 await rig.Tab.OrreryScene.WhenOrbitsBuiltAsync();
+                await rig.Tab.OrreryScene.WhenCometsRankedAsync();
                 await rig.Tab.OrrerySprites.WhenBuiltAsync();
             }
             rig.Tab.State.Orrery.Distance = OrreryCamera.DistanceToFrame(Math.Sqrt(6));

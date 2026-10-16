@@ -1010,6 +1010,14 @@ namespace TianWen.UI.Abstractions
         /// from an AU away. The ONE ranking of comets by how bright they get, used by the sky's candidacy filter and the orrery's comet
         /// set (<see cref="OrreryScene.CometSetSize"/>); NaN for a comet with no magnitude model.
         /// </summary>
+        /// <summary>
+        /// Whether a comet's photometric model could plausibly bring it into naked-marker range: it has a model and an index, and its
+        /// <see cref="PeakMagnitude"/> is no fainter than <see cref="CometCandidacyMagnitudeLimit"/>. The ONE candidacy rule, for the
+        /// sky's per-frame sweep and the orrery's ranking at the viewing instant (<see cref="OrreryScene"/>).
+        /// </summary>
+        internal static bool IsCometCandidate(in CometElements el)
+            => el.HasMagnitudeModel && el.CatalogIndex is not null && PeakMagnitude(el) <= CometCandidacyMagnitudeLimit;
+
         internal static double PeakMagnitude(in CometElements el)
             => el.AbsoluteMagnitudeM1 + (el.SlopeK1 * Math.Log10(Math.Max(el.PerihelionDistanceAu, 0.05)));
 
@@ -1024,11 +1032,7 @@ namespace TianWen.UI.Abstractions
             var candidates = new List<CometElements>();
             foreach (var el in all)
             {
-                if (!el.HasMagnitudeModel || el.CatalogIndex is null)
-                {
-                    continue;
-                }
-                if (PeakMagnitude(el) <= CometCandidacyMagnitudeLimit)
+                if (IsCometCandidate(el))
                 {
                     candidates.Add(el);
                 }
