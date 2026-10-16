@@ -32,7 +32,8 @@
   <!-- The planets' offline texture atlas, served beside the page (Planner.razor's LoadPlanetAtlasAsync); one file, kept in
        TianWen.UI.Abstractions where the desktop hosts copy it from. -->
   <ItemGroup>
-    <Content Include="..\TianWen.UI.Abstractions\Resources\planet-textures.png" Link="wwwroot\planet-textures.png" CopyToOutputDirectory="Never" />
+    <Content Include="..\TianWen.UI.Abstractions\Resources\planet-textures.png" Link="wwwroot\planet-textures.png" CopyToOutputDirectory="Never"
+             ContentRoot="$(MSBuildThisFileDirectory)..\TianWen.UI.Abstractions\Resources\" />
   </ItemGroup>
 
   <ItemGroup>

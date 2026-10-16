@@ -297,6 +297,30 @@ public sealed class SkyMapPlanetDiscTests
     }
 
     /// <summary>
+    /// The Sun's textured sprite is built ONCE for a view that does not change (#1608): its ephemeris has no sub-solar point (NaN), and a
+    /// key that read that as a different angle each frame would rebuild a 256 px sprite every frame, which on the browser's one thread
+    /// is the whole frame. Ten frames after it has landed build nothing more.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheSunsSpriteIsBuiltOnceForAStillView()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        rig.Tab.State.TimeOffset = TimeSpan.FromHours(-10.7);
+        rig.Look(CatalogIndex.Sol, 300);
+        await rig.RenderSettledAsync();
+        rig.Tab.State.PlanetDiscsDrawn.ShouldContain(CatalogIndex.Sol);
+        var builds = rig.Tab.PlanetSprites.Builds;
+        builds.ShouldBeGreaterThan(0);
+
+        for (var frame = 0; frame < 10; frame++)
+        {
+            rig.Render();
+            await rig.Tab.PlanetSprites.WhenBuiltAsync();
+        }
+        rig.Tab.PlanetSprites.Builds.ShouldBe(builds, "a still view rebuilt the Sun's sprite");
+    }
+
+    /// <summary>
     /// Selecting a body puts its texture's credit under its disc (#1567, #1608): the line the panel was handed is the body's own credit
     /// (the atlas's, as no OPAL store is given here), and the row under the slot holds drawn text, many shades of it, where it was empty.
     /// Every atlas body the map shows, at 1x and 1.5x; the Earth, which it does not, is held by <c>ObjectInfoPanelTests</c>.
