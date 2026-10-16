@@ -14,8 +14,9 @@ namespace TianWen.Lib.Tests.Functional;
 
 /// <summary>
 /// A real <c>tianwen-server --keeper</c>, and the node it keeps, as a client would start them: the server built
-/// beside the tests (src/ExeBeside.targets), on a socket and a data root of the test's own, with the fake devices
-/// only, so it touches neither the user's AppData nor any hardware of the machine it runs on.
+/// beside the tests (src/ExeBeside.targets), on a socket and a data root of the test's own, so it touches none of the
+/// user's data. With the fake devices only by default, so it touches no hardware of the machine it runs on either; a
+/// gated probe of real hardware (<see cref="NodePlanetaryRateProbe"/>) starts it with every device source instead.
 /// </summary>
 internal sealed class KeptNode : IAsyncDisposable
 {

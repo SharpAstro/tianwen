@@ -88,9 +88,10 @@ does not take it down and it can never write over a TUI; a spawned node logs to 
 - **`HoldsHardware`** on `GET /api/v1/node`: a device connected or a run going on. A node that holds hardware is
   never stopped to replace it.
 - **`--fake-devices`** registers the fake device source and no other, for a node that must touch no hardware: a
-  test's, or a demonstration's. With `TIANWEN_DATA_ROOT` it touches none of the user's data either
-  (`KeptNode`, the functional tests' real keeper and node), its images included: they go to `Images` under that root,
-  not the user's Pictures (`External.ResolveImageOutputFolder`; until 2026-10-16 a test's dark library landed there).
+  test's, or a demonstration's (`KeptNode`, the functional tests' real keeper and node, unless a gated probe of real
+  hardware asks for every source). With `TIANWEN_DATA_ROOT` a node touches none of the user's data either, its images
+  included: they go to `Images` under that root, not the user's Pictures (`External.ResolveImageOutputFolder`; until
+  2026-10-16 a test's dark library landed there).
 - **`--detach-grace <seconds>`** sets how long an interactive run goes on once no client is present (`NodeRunWatch`,
   a minute by default), passed from the keeper to its node: for a respawn that takes longer, or a test that cannot
   wait a minute per detach (`NodeRunsProcessTests`, P5's proof, runs with 3 s).
