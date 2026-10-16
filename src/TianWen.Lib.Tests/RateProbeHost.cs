@@ -261,21 +261,37 @@ internal static class OtherWorktreeBuilds
 {
     public const string QuietForVar = "TIANWEN_RATE_PROBE_QUIET_FOR";
 
+    /// <summary>
+    /// Set to this worktree's folder name instead of <see cref="QuietForVar"/> to wait for EVERY other build or test: any
+    /// dotnet, MSBuild, compiler (csc, the compiler server), testhost or test process whose command line does not name it and
+    /// that uses half a core or more over 3 s. The compiler server and MSBuild's reused nodes name no worktree, so they are
+    /// judged by the CPU they use (TIA2's capture-priority leg: another worker's csc took 5 cores in a gated run).
+    /// </summary>
+    public const string QuietButVar = "TIANWEN_RATE_PROBE_QUIET_BUT";
+
     private static readonly TimeSpan Poll = TimeSpan.FromSeconds(10);
 
     /// <summary>What was waited for, and how long; returns at once when the variable is unset or nothing of it runs.</summary>
     public static async Task<string> WaitUntilQuietAsync(CancellationToken cancellationToken)
     {
+        if (Environment.GetEnvironmentVariable(QuietButVar) is { Length: > 0 } mine && OperatingSystem.IsWindows())
+        {
+            return await WaitUntilAsync($"every build or test but {mine}'s", () => ListBusyAsync(mine, cancellationToken), cancellationToken);
+        }
         if (Environment.GetEnvironmentVariable(QuietForVar) is not { Length: > 0 } text || !OperatingSystem.IsWindows())
         {
             return $"{QuietForVar} unset, no other worktree's builds looked for";
         }
+        return await WaitUntilAsync(text, () => ListAsync(text, cancellationToken), cancellationToken);
+    }
 
+    private static async Task<string> WaitUntilAsync(string text, Func<Task<string[]>> list, CancellationToken cancellationToken)
+    {
         var clock = Stopwatch.StartNew();
         string? first = null;
         while (true)
         {
-            var running = await ListAsync(text, cancellationToken);
+            var running = await list();
             if (running.Length == 0)
             {
                 return first is null
@@ -287,15 +303,36 @@ internal static class OtherWorktreeBuilds
         }
     }
 
+    // Each build or test process not naming <mine> that used half a core or more over 3 s, as "pid name cores", through
+    // Win32_Process (the only place another process's command line is), in a pwsh with no window.
+    private static Task<string[]> ListBusyAsync(string mine, CancellationToken cancellationToken)
+    {
+        const string Script = "$t = $env:TIANWEN_RATE_PROBE_QUIET_BUT; $p = Get-CimInstance Win32_Process | "
+            + "Where-Object { $_.Name -match '^(dotnet|csc|testhost.*|MSBuild.*|VBCSCompiler.*|.*\\.Tests(\\..*)?)\\.exe$' -and "
+            + "-not ($_.CommandLine -and $_.CommandLine.Contains($t, [StringComparison]::OrdinalIgnoreCase)) -and "
+            + "-not ($_.ExecutablePath -and $_.ExecutablePath.Contains($t, [StringComparison]::OrdinalIgnoreCase)) }; "
+            + "$a = @{}; foreach ($q in $p) { try { $a[$q.ProcessId] = (Get-Process -Id $q.ProcessId -ErrorAction Stop).TotalProcessorTime } catch {} }; "
+            + "Start-Sleep -Seconds 3; "
+            + "foreach ($q in $p) { try { $c = ((Get-Process -Id $q.ProcessId -ErrorAction Stop).TotalProcessorTime - $a[$q.ProcessId]).TotalSeconds / 3; "
+            + "if ($c -ge 0.5) { '{0} {1} {2:F1} cores' -f $q.ProcessId, $q.Name, $c } } catch {} }";
+        return RunAsync(Script, QuietButVar, mine, cancellationToken);
+    }
+
     // Each matching process as "pid name command line", through Win32_Process (the only place another process's command
     // line is), in a pwsh with no window.
-    private static async Task<string[]> ListAsync(string text, CancellationToken cancellationToken)
+    private static Task<string[]> ListAsync(string text, CancellationToken cancellationToken)
     {
         const string Script = "$t = $env:TIANWEN_RATE_PROBE_QUIET_FOR; Get-CimInstance Win32_Process | "
             + "Where-Object { $_.Name -match '^(dotnet|testhost.*|MSBuild.*|VBCSCompiler.*|.*\\.Tests(\\..*)?)\\.exe$' } | "
             + "Where-Object { ($_.CommandLine -and $_.CommandLine.Contains($t, [StringComparison]::OrdinalIgnoreCase)) -or "
             + "($_.ExecutablePath -and $_.ExecutablePath.Contains($t, [StringComparison]::OrdinalIgnoreCase)) } | "
             + "ForEach-Object { '{0} {1} {2}' -f $_.ProcessId, $_.Name, $_.CommandLine }";
+        return RunAsync(Script, QuietForVar, text, cancellationToken);
+    }
+
+    // Runs a listing script in a pwsh with no window, the text it matches handed over in <variable>; its lines, this process's left out.
+    private static async Task<string[]> RunAsync(string script, string variable, string text, CancellationToken cancellationToken)
+    {
         var start = new ProcessStartInfo("pwsh")
         {
             UseShellExecute = false,
@@ -303,11 +340,11 @@ internal static class OtherWorktreeBuilds
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
-        foreach (var argument in (ReadOnlySpan<string>)["-NoProfile", "-NonInteractive", "-Command", Script])
+        foreach (var argument in (ReadOnlySpan<string>)["-NoProfile", "-NonInteractive", "-Command", script])
         {
             start.ArgumentList.Add(argument);
         }
-        start.Environment[QuietForVar] = text;
+        start.Environment[variable] = text;
         using var pwsh = Process.Start(start) ?? throw new InvalidOperationException("pwsh did not start");
         var stdout = pwsh.StandardOutput.ReadToEndAsync(cancellationToken);
         var stderr = pwsh.StandardError.ReadToEndAsync(cancellationToken);
