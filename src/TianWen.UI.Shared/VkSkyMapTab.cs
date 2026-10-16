@@ -258,18 +258,27 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
         // Restore the full-window viewport/scissor for text overlay rendering
         // (the pipeline sets a clipped viewport/scissor for the sky map area)
-        var ctx2 = renderer.Context;
-        var cmd2 = renderer.CurrentCommandBuffer;
-        var api = ctx2.DeviceApi;
+        RestoreFullTarget(renderer.CurrentCommandBuffer);
+    }
+
+    /// <summary>
+    /// The viewport and scissor of the renderer's whole target, for what is drawn after a sky pass clipped them to the map rect.
+    /// Sized by the RENDERER, never the swapchain: an offscreen frame's context has no swapchain, so its extent read 0 x 0 and every
+    /// 2D primitive after the orrery's backdrop (its orbits) fell into a zero viewport, while what reset the viewport itself (the
+    /// planet bodies, <see cref="VkPlanetBodies"/>) still drew (docs/plans/atlas-planet-detail.md, A5, "The backdrop").
+    /// </summary>
+    private void RestoreFullTarget(Vortice.Vulkan.VkCommandBuffer cmd)
+    {
+        var api = renderer.Context.DeviceApi;
         Vortice.Vulkan.VkViewport fullVp = new()
         {
             x = 0, y = 0,
-            width = ctx2.SwapchainWidth, height = ctx2.SwapchainHeight,
+            width = renderer.Width, height = renderer.Height,
             minDepth = 0f, maxDepth = 1f
         };
-        Vortice.Vulkan.VkRect2D fullScissor = new(0, 0, ctx2.SwapchainWidth, ctx2.SwapchainHeight);
-        api.vkCmdSetViewport(cmd2, 0, 1, &fullVp);
-        api.vkCmdSetScissor(cmd2, 0, fullScissor);
+        Vortice.Vulkan.VkRect2D fullScissor = new(0, 0, renderer.Width, renderer.Height);
+        api.vkCmdSetViewport(cmd, 0, 1, &fullVp);
+        api.vkCmdSetScissor(cmd, 0, fullScissor);
     }
 
     /// <summary>What the line pass needs from the backdrop pass: the map rect it was drawn into and
@@ -293,7 +302,6 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
         _deferredGeometry = null;
 
-        var ctx = renderer.Context;
         var cmd = renderer.CurrentCommandBuffer;
         _pipeline.Draw(cmd, State, g.MapWidth, g.MapHeight, contentRect.X, contentRect.Y,
             g.MilkyWayAlpha, g.Horizon, g.Meridian, g.AltAzGrid, g.FovOutlines,
@@ -301,16 +309,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
         // The pipeline clips its viewport to the map rect; everything drawn after this is in window
         // coordinates, exactly as at the end of the backdrop pass.
-        var api = ctx.DeviceApi;
-        Vortice.Vulkan.VkViewport fullVp = new()
-        {
-            x = 0, y = 0,
-            width = ctx.SwapchainWidth, height = ctx.SwapchainHeight,
-            minDepth = 0f, maxDepth = 1f
-        };
-        Vortice.Vulkan.VkRect2D fullScissor = new(0, 0, ctx.SwapchainWidth, ctx.SwapchainHeight);
-        api.vkCmdSetViewport(cmd, 0, 1, &fullVp);
-        api.vkCmdSetScissor(cmd, 0, fullScissor);
+        RestoreFullTarget(cmd);
     }
 
     /// <summary>
@@ -534,17 +533,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
                 // Restore full-window viewport/scissor so subsequent text labels (which
                 // use window-absolute coords via Renderer.DrawText) render correctly.
-                var api = ctx.DeviceApi;
-                var cmd = renderer.CurrentCommandBuffer;
-                Vortice.Vulkan.VkViewport fullVp = new()
-                {
-                    x = 0, y = 0,
-                    width = ctx.SwapchainWidth, height = ctx.SwapchainHeight,
-                    minDepth = 0f, maxDepth = 1f
-                };
-                Vortice.Vulkan.VkRect2D fullScissor = new(0, 0, ctx.SwapchainWidth, ctx.SwapchainHeight);
-                api.vkCmdSetViewport(cmd, 0, 1, &fullVp);
-                api.vkCmdSetScissor(cmd, 0, fullScissor);
+                RestoreFullTarget(renderer.CurrentCommandBuffer);
             }
         }
 
