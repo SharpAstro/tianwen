@@ -582,7 +582,14 @@ C ring's. The ten parity views and Night's no-blue still pass, and `TheWebGlTrac
   time kept only 26 px (1.7 ems) past its date and time at 1.5x and the test failed, so `TimeLabelWeight` is 4. At 1.5x
   the labels sit at 54 of 142, 54 of 133 and 54 of 91 px (the speed's text 22 of 91, its mark showing), the time at 185 of
   231 showing "2028-07-26 23:00  (+1…", 53 px or 3.5 ems past its date and time, and `+1d` still ends at 888; at 1.0x every
-  label is drawn in full (94, 89, 60 and 154 px), the last button ending at 892.
+  label is drawn in full (94, 89, 60 and 154 px), the last button ending at 892. **Those numbers were one face's**: the
+  test drew with `FontResolver.ResolveSystemFont()`, a monospace face that is Consolas on Windows and DejaVu Sans Mono on
+  Linux, a tenth wider (102 against 94 px for "Distances: auto" at 1x), so the Linux CI leg kept 27 px at 1.5x and failed
+  (PR #1613); forcing DejaVu Sans Mono here reproduced it to the pixel. Neither is the face the app draws with, DejaVu Sans
+  (`BundledFonts`), in which the strip kept only 23 px on every platform. The test now measures in the app's face as well
+  (`OrreryTests.AppFace`, the same file everywhere), and the orrery strip's gap is 2 units, the time controls' own on the
+  sky strip, not 4: thirteen gaps gave back 39 px at 1.5x, and the time keeps 46 px (3 ems) in DejaVu Sans, 49 in DejaVu
+  Sans Mono and 75 in Consolas, the labels 53 to 60 px.
 
 ## Sequencing
 

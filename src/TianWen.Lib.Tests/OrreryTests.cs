@@ -304,11 +304,20 @@ public sealed class OrreryTests(ITestOutputHelper output)
         public void Dispose() => Renderer.Dispose();
     }
 
-    internal static async Task<Rig> RigAsync(System.Threading.CancellationToken cancellationToken, float dpiScale = 1f)
+    /// <summary>The app's own text face (BundledFonts' DejaVu Sans), the same file on every platform, copied beside the tests.</summary>
+    internal static string AppFace => Path.Combine(AppContext.BaseDirectory, "TestFonts", "DejaVuSans.ttf");
+
+    /// <param name="fontPath">The face the tab draws with; the platform's monospace default when null (Consolas on Windows,
+    /// DejaVu Sans Mono on Linux, about a tenth wider).</param>
+    internal static async Task<Rig> RigAsync(System.Threading.CancellationToken cancellationToken, float dpiScale = 1f, string? fontPath = null)
     {
         var db = await SharedCatalogDB.InitAsync(cancellationToken);
         var renderer = new RgbaImageRenderer(Width, Height);
-        var tab = new SkyMapTab<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont(), DpiScale = dpiScale };
+        var tab = new SkyMapTab<RgbaImage>(renderer)
+        {
+            FontPath = fontPath ?? FontResolver.ResolveSystemFont(),
+            DpiScale = dpiScale,
+        };
         var planner = new PlannerState
         {
             ObjectDb = db, SiteLatitude = 48.0, SiteLongitude = 11.0, SiteTimeZone = TimeSpan.FromHours(1), PlanningDate = Instant,
@@ -1385,11 +1394,16 @@ public sealed class OrreryTests(ITestOutputHelper output)
     /// its own content, so none is trimmed: the labels are content-capped Stars that give way only under pressure (#1584).
     /// </summary>
     [Theory(Timeout = 120_000)]
-    [InlineData(1f)]
-    [InlineData(1.5f)]
-    public async Task TheStripFitsWithEveryButtonShowing(float dpiScale)
+    [InlineData(1f, false)]
+    [InlineData(1.5f, false)]
+    [InlineData(1f, true)]
+    [InlineData(1.5f, true)]
+    public async Task TheStripFitsWithEveryButtonShowing(float dpiScale, bool appFace)
     {
-        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale);
+        // Measured twice: in the platform's monospace default the other orrery tests draw with, which is a different face on each
+        // OS (Linux's DejaVu Sans Mono is a tenth wider than Windows's Consolas, so the CI leg kept 27 px where this box kept 53),
+        // and in the face the app actually draws with, the same file everywhere.
+        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale, appFace ? AppFace : null);
         Select(rig, CatalogIndex.Saturn);
         rig.Tab.OpenOrrery();
         rig.Render();

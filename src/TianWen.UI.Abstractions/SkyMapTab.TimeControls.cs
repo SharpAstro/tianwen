@@ -176,16 +176,23 @@ public partial class SkyMapTab<TSurface>
     /// the offset trims (at weight 1 it trimmed into the date; at 2 it kept two ems on Windows and lost a digit on Linux, whose
     /// glyphs measure a few pixels wider, #1584). It was 3 until the orrery's speed button came in beside Play (#1573), a fourth
     /// label sharing the squeeze: at 3 the time kept only 26 px (1.7 ems) past its date and time; at 4, 53 px (3.5 ems), the
-    /// labels 54 px each.
+    /// labels 54 px each, in Consolas. That was the Windows test face: in DejaVu Sans Mono (Linux's) it kept 27 px and in the
+    /// app's own DejaVu Sans 23, so the orrery strip's gap went from 4 to 2 (46 px in DejaVu Sans, 49 in DejaVu Sans Mono).
     /// </summary>
     internal const float TimeLabelWeight = 4f;
+
+    /// <summary>
+    /// The gap between the time controls, in units the caller scales by its DPI: the sky strip's group and the orrery strip's whole
+    /// row both space their buttons by it.
+    /// </summary>
+    internal const float TimeControlGapUnits = 2f;
 
     /// <summary>The time controls (<see cref="BuildTimeControls"/>) as one group, for a strip that arranges them as a unit.</summary>
     private static Layout.Node TimeControlsGroup(ImmutableArray<Layout.Node> controls, float dpiScale)
         // The strip's full height, so each button's text centres in the strip as the info text beside it
         // does, and its hover fill is the strip's height. Auto, the group measured to one line of text and
         // sat at the strip's top (a stack places a child at the cross-axis START).
-        => Layout.Builder.HStack(controls.AsSpan()).WithGap(2f * dpiScale).HStar();
+        => Layout.Builder.HStack(controls.AsSpan()).WithGap(TimeControlGapUnits * dpiScale).HStar();
 
     // Where the strip last laid the time (and the orrery's speed) out, device pixels: the drop-up opens above it. Remembered as
     // the strip paints, every frame, because a press handler is not handed its node's arranged rect.

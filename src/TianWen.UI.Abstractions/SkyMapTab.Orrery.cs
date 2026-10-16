@@ -782,7 +782,9 @@ namespace TianWen.UI.Abstractions
                     // Direct children of the strip, so the time (a content-capped Star) gives way here as the labels do.
                     .. BuildTimeControls(timeText, isTimeShifted ? palette.Accent : ink, fontSize, dpiScale, fill, ink).AsSpan(),
                 ])
-                .WithGap(4f * dpiScale)
+                // The time controls' own gap on the sky strip (TimeControlsGroup). At 4 the thirteen gaps took 78 px of a 900 px
+                // strip at 1.5x, and in the app's own face (DejaVu Sans) the time kept 23 px past its date and time.
+                .WithGap(TimeControlGapUnits * dpiScale)
                 .PadX(8f * dpiScale)
                 .Bg(fill)
                 .RowH(stripH);
