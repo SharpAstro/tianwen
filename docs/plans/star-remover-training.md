@@ -2206,6 +2206,52 @@ channel's weight down hands that channel the dig instead of curing it. The next 
 told one noise plane, the channels' mean, for three channels, so it cannot see which channel is noisier at a pixel. A
 plane per channel needs an export that writes them. R2i stays the line's control.
 
+#### R2l: the bright cores weighed up in the objective, pre-registered (2026-10-16)
+
+Written before it trains, on the owner's goal of 2026-10-16: an overnight run that measurably improves the removal.
+Tracked by #1338. It is lettered after R2k (the lobes, above), whose export it trains beside, and runs first because
+it needs no new export.
+
+**Why the objective.** R2i's weakest band is the bright one: 60.2 % clean at 100 to 1000 sigma against 79.2 % at 5 to
+20, with 28.7 % dug. The trainer's L2 counts an error in the tile's units alike on every pixel, while the eval asks a
+bright core to within one sigma of its own noise, and bright pixels are few. On A's draws, the pixels where the star
+layer (draw less plate, the channels' mean) stands 100 sigma or more of the draw's own noise, grown by one pixel, are
+0.61 % of the pixels inside the rim and hold 7.2 % of R2i's squared error (`C:\temp\e2\bright-share.py`). The eval's
+own readout, over the 3x3 cores alone, puts them at 1.27 %.
+
+**The change, one variable.** `n2n_smoke.py --bright-weight 5 --bright-sigma 100` (`bright_weights`; `run-r2.ps1
+-BrightWeight 5 -BrightSigma 100`) weighs those pixels 5 times in the pixel and band terms, and in the plateau's
+held-out objective. It is a weighted mean, so a tile with no bright star keeps R2i's objective exactly. The trainer
+finds the region itself, from the draw, its truth and the draw's stored noise plane: no star list is read. With R2i's
+errors, 5 would give the region about 28 % of the objective. The value is set once and is not tuned: 2.3 would give
+15 %, and 40 at 300 sigma would also give 15 % over 0.05 % of the pixels. Checked before launch: 1,000 steps of the
+recipe ran at R2i's speed (42 tiles a second) with the held-out objective falling (1.57e-4 to 1.05e-4).
+
+**The run.** R2i exactly but for the switch: the same `r2-synth4` cache, seed 0, R2f's trainer and split, patience 24,
+cap 480,000, a resume checkpoint every 2,000 steps: `run-r2.ps1 -Tag r2l -Arms synth4 -SeedCount 1 -Patience 24 -Steps
+480000 -CheckpointEvery 2000 -BrightWeight 5 -BrightSigma 100`. Scored on A's draws by the colour eval
+(`starless-eval-v5.json`), against R2i, and on R2k's two twins of them (read, not predicted).
+
+**The bars** are R2j's: on the luminance the seed spread at convergence (2.7, 3.1 and 3.1 points clean at 5-20, 20-100
+and 100-1000 sigma, 6.4 dug at 100-1000), in colour 1.9, 0.4 and 0.6 clean and 1.9, 4.4 and 3.8 dug.
+
+**Predictions** (against R2i):
+1. **It ends on its own before 480,000.** Moderate to high.
+2. **The bright stars gain**: clean at 100-1000 sigma at least 63.3 % (R2i's 60.2 plus the spread). Moderate: it is the
+   hypothesis.
+3. **The bright digs fall**: dug at 100-1000 sigma at most 22.3 % (28.7 less 6.4). Low to moderate: the weight
+   penalises a dig and a leftover alike.
+4. **The faint stars hold**: clean within the spread of R2i's at 5-20 and 20-100 sigma (at least 76.5 % and 71.4 %).
+   Moderate: 99.4 % of the pixels keep their weight, but their share of the objective falls from about 93 % to 72 %.
+5. **The sky**: far sky at most 0.37.
+
+**Kill:** clean removal on the luminance falls by more than its spread at 5-20 or 20-100 sigma. Then the faint stars
+pay for the bright ones, and the weight is not adopted.
+
+**What it decides.** If (2) and (4) hold, the weight joins the recipe and R2l is the next arms' control. If (2) fails
+while (4) holds, the bright cores' error is not the objective's weighting, and the next place to look is the data (R2k).
+If (2) holds and the kill fires, a smaller weight is the next arm, not this one again.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its

@@ -200,6 +200,21 @@ def channel_weights(truth):
     return share[:, :, None, None]
 
 
+def bright_weights(x, y, plane, sigma_floor, weight):
+    """The per-pixel weight map [B, 1, H, W] for --bright-weight (R2l, docs/plans/star-remover-training.md): `weight` where
+    the star layer (the draw x less its truth y, the channels' mean) stands at least `sigma_floor` of the draw's own noise
+    (plane [B, H, W] in PLANE_SCALE units) above zero, grown by one pixel, and 1 elsewhere. A bright core's error counts
+    in the tile's units like any sky pixel's, and such pixels are few: on A's draws the 100 sigma region is 0.61 % of the
+    pixels and 7.2 % of R2i's squared error, while the eval asks its core to within one sigma. Used as masked_mean's mask,
+    it is a weighted mean, so a tile with no bright star keeps the plain objective's scale."""
+    import torch
+    sigma = plane.float().unsqueeze(1) / PLANE_SCALE
+    z = (x - y).mean(dim=1, keepdim=True) / sigma.clamp_min(1e-12)
+    bright = (z >= sigma_floor).float()
+    bright = torch.nn.functional.max_pool2d(bright, kernel_size=3, stride=1, padding=1)
+    return 1.0 + (weight - 1.0) * bright
+
+
 def resume_fingerprint(args, meta):
     """What makes two invocations the SAME run, for --resume to refuse anything else: the recipe's switches, the seed, and
     the cache's shape. The step cap is left out under --schedule plateau, where it only bounds the run (a resumed run may
@@ -208,6 +223,9 @@ def resume_fingerprint(args, meta):
             "base", "seed", "batch", "lr", "schedule", "patience", "max_decays", "min_improve", "val_every",
             "val_loss_cells", "loss_mask", "star_loss", "half_pairs", "pair_time", "snapshot_at")
     fp = {k: getattr(args, k, None) for k in keys}
+    # Only when set, so a checkpoint written before R2l still resumes.
+    if getattr(args, "bright_weight", 0.0):
+        fp.update(bright_weight=args.bright_weight, bright_sigma=args.bright_sigma)
     fp.update(cells=meta["cells"], train_cells=meta["train_cells"])
     if args.schedule == "cosine":
         fp["steps"] = args.steps
@@ -1314,6 +1332,13 @@ def train(args):
         if CH == 1:
             raise SystemExit("--channel-noise weighs the channels against each other: a mono cache has one")
         print("objective: each channel's error over its share of the noise (--channel-noise, R2j)")
+    if args.bright_weight:
+        if sigma_planes is None:
+            raise SystemExit("--bright-weight reads the star layer in the draw's own noise: it needs --cond-map's planes")
+        if not args.bright_weight > 1.0 or not args.bright_sigma > 0.0:
+            raise SystemExit("--bright-weight takes a weight over 1 and --bright-sigma a floor over 0")
+        print(f"objective: pixels where the star layer stands {args.bright_sigma:g} sigma or more (grown by one pixel) "
+              f"weighed {args.bright_weight:g} times (--bright-weight, R2l)")
 
     # R2d's D4: the sky near a source the plate itself kept is left out of the pixel and band terms, in training and in
     # the plateau's held-out objective alike, so neither asks the net to keep a faint star it is asked to remove elsewhere.
@@ -1564,6 +1589,10 @@ def train(args):
                         if keep_planes is not None:
                             mc = torch.from_numpy(np.ascontiguousarray(keep_planes[vi, slots - 1])).to(dev).float() \
                                 .unsqueeze(1)[:, :, BORDER:-BORDER, BORDER:-BORDER]
+                        if args.bright_weight:
+                            bw = bright_weights(x, y, torch.from_numpy(np.ascontiguousarray(sigma_planes[vi, slots])).to(dev),
+                                                args.bright_sigma, args.bright_weight)[:, :, BORDER:-BORDER, BORDER:-BORDER]
+                            mc = bw if mc is None else mc * bw
                         pw, yw = pc, yc
                         if args.channel_noise:
                             w = channel_weights(yc)
@@ -1758,6 +1787,11 @@ def train(args):
         if keep_planes is not None:
             mc = torch.from_numpy(np.ascontiguousarray(keep_planes[idx, a - 1])).to(dev).float() \
                 .unsqueeze(1)[:, :, BORDER:-BORDER, BORDER:-BORDER]
+        # R2l's --bright-weight: the bright cores' pixels weighed up, as a weighted mean (bright_weights).
+        if args.bright_weight:
+            bw = bright_weights(x, y, torch.from_numpy(np.ascontiguousarray(sigma_planes[idx, a])).to(dev),
+                                args.bright_sigma, args.bright_weight)[:, :, BORDER:-BORDER, BORDER:-BORDER]
+            mc = bw if mc is None else mc * bw
         # R2j's --channel-noise: each channel's error in the pixel and band terms over its share of the noise
         # (channel_weights); the star term keeps the tile.
         pw, yw = pc, yc
@@ -2298,6 +2332,12 @@ if __name__ == "__main__":
                    help="R2j: weigh each channel's error in the pixel and band terms (and the plateau's held-out "
                         "objective) by the inverse of its share of the noise, read on the truth (channel_weights), as "
                         "starless-eval's colour tests judge; a tile of equally noisy channels keeps the plain objective")
+    p.add_argument("--bright-weight", type=float, default=0.0,
+                   help="R2l: weigh the pixels where the star layer (draw less truth) stands --bright-sigma or more of the "
+                        "draw's own noise, grown by one pixel, this many times in the pixel and band terms and the "
+                        "plateau's held-out objective (a weighted mean); 0 keeps the plain objective. Needs --cond-map")
+    p.add_argument("--bright-sigma", type=float, default=100.0,
+                   help="R2l: the star layer's floor, in the draw's own noise sigma, for --bright-weight")
     p.add_argument("--upsample", action="store_true")
     p.add_argument("--pair-avg", type=int, default=1)
     p.add_argument("--mix-avg", action="store_true")
