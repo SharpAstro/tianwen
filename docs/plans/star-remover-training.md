@@ -2206,6 +2206,81 @@ channel's weight down hands that channel the dig instead of curing it. The next 
 told one noise plane, the channels' mean, for three channels, so it cannot see which channel is noisier at a pixel. A
 plane per channel needs an export that writes them. R2i stays the line's control.
 
+#### R2k: a real star injected whole, its lobes beside it, pre-registered (2026-10-16)
+
+Written before it trains, on the owner's agreement of 2026-10-16 to this arm ahead of the per-channel planes, after the
+real masters were measured. Tracked by #1338.
+
+**What the real masters show** (the 201 catalogues of the 2026-10-12 store, `C:\temp\e2\real-master-crowding.py`,
+`bright-satellites.py`, `bright-satellites-2.py`, `lobe-directions.py`, `lobe-claims.py`):
+- **The injector's count is the master's.** A master holds a median 316 Subtracted stars over 5 sigma per 256 px cell
+  (p10 69, p90 710), 18 over 100 sigma and 1.8 saturated; a test tile asks for the cell's own sites times 1.1, the
+  margin.
+- **One real bright star is not one Moffat.** 52 % of the 100 to 1000 sigma stars have a Subtracted neighbour within 4
+  px, and 94 % of those neighbours are second-pass rows (found on the first pass's residual) at a median 8 % of the
+  star's significance. They point one way in 123 of 200 sessions (Rayleigh z over 20; the mean resultant length's median
+  0.15, up to 0.82), radially on some trains (a cosine of +0.6 to +0.7 against the direction from the frame centre on the
+  SV605CC L-Quad nights, -0.5 to -0.67 on the ASI533 L-Ultimate ones), often in another colour (red's share +0.47 to
+  +0.58 on the SV605CC nights), and fade against their star (7.3 % of it at 100 to 200 sigma, 2.3 % past 1000; a log-log
+  slope of 0.46, part of it the 5 sigma floor). So they are the star's shape, the optics', with some real close
+  companions among them.
+- **The injector draws them as stars.** They are 32.4 % of its pool (3.65 M of 11.25 M rows; 40.5 % of the 5 to 20 sigma
+  ones), placed at random as stars of their own, while every injected bright star is one round profile.
+- **Crowding cannot be judged from the catalogue.** Without the second pass, a real bright star has a neighbour under 4 px
+  for 1.5 % of them against 22.3 % for the same stars at random positions: the builder cannot see a pair that close.
+- **The quiet validation master is inside the training range**, at its bottom: 1.8 % of the training cells are quieter
+  than its draws (0.00093).
+
+**The change, one variable.** `dataset degrade --star-lobes` (`InjectionPopulation.Build(lobes: true)`): a second-pass
+row whose nearest brighter first-pass row lies within `LobeReachFwhm` (2) field FWHM is that star's. It leaves the
+amplitude pool and the cell's count, and is injected beside its star at the offset and with the amplitudes it was fitted
+with, flagged `Lobe`. The reach is where the excess ends: the median lobe is 1.71 FWHM out, and past 2 FWHM a second-pass
+row's brightness against its neighbour's stops changing. The eval scores a lobe as part of its star: never a site of its
+own, its light on the footprints, and its star not clean while it is left. On lobe-free draws the eval is unchanged: R2i's
+outputs on A's draws re-score byte for byte as the v5 report.
+
+**The pre-check, run before this was written.** Two twins of A's draws, from the same 09-29 store, plates, seed and
+arguments by the lobe branch's binary: PLAIN, without the switch, gives A's draws back byte for byte (tiles, plates and
+noise planes; the rows add a `Lobe` field), and LOBED, with it. They hold 7 of A's 8 sessions: the Orion night's master
+in that store was baked again after A's draws, and its old plate no longer fits it (4151 against 4155 px). In the lobed
+twin 35.2 % of the 100 to 1000 sigma stars carry a lobe, and a draw a median 46 lobes. R2i on both, by the same eval:
+
+| R2i | plain twin | lobed twin |
+|---|---|---|
+| clean 5-20 / 20-100 / 100-1000 sigma | 79.6 / 75.1 / 61.2 | 79.8 / 75.1 / 61.0 |
+| dug 100-1000 sigma | 29.6 | 30.0 |
+| clean in colour 100-1000 sigma | 22.5 | 19.7 |
+| dug in colour 100-1000 sigma | 63.6 | 66.6 |
+| clean / dug saturated | 52.1 / 23.7 | 49.7 / 32.4 |
+
+So the lobes cost a model that never saw one almost nothing on the luminance (0.3 points clean on bright stars) and 2.8
+points clean in colour on bright stars, where the lobe's other colour shows. That bounds what this arm can win on
+injected stars, and it is small: the arm is run because its data are the real stars' and the owner chose it, not on the
+promise of a large number.
+
+**The run.** Export: R2i's export command exactly (the 2026-10-12 store and its plates, R2f's 138 sessions with the PSF
+store's ids, chunks of 10, `--seed 1`, the synthetic background, its steer and knots) plus `--star-lobes`, into `synth5`,
+by the lobe branch's binary (`tianwen 9.0.0+ebcab93a`, main plus this change), started the night of 2026-10-16 before
+the PR merged. Training: R2i's recipe on it, `run-r2.ps1 -Tag r2k -Arms synth5 -SeedCount 1 -Patience 24 -Steps 480000
+-CheckpointEvery 2000`, once a GPU slot is free (R2l and R2i's seed 1 hold it first). Scored on A's draws and both twins.
+
+**The bars** are R2l's, the larger of the old-store and the same-store seed spreads.
+
+**Predictions** (against R2i):
+1. **It ends on its own before 480,000.** Moderate to high.
+2. **On the lobed twin, colour gains at the bright stars**: clean in colour at 100-1000 sigma at least 20.3 % (R2i's 19.7
+   plus the colour spread 0.6). Low to moderate: the pre-check leaves 2.8 points to win.
+3. **On A's draws, the luminance holds**: clean within the spread of R2i's at every brightness. Moderate: the faint pool
+   loses its lobes (40 % of its 5 to 20 sigma rows), so the faint stars it trains on are fewer and the real ones.
+4. **The sky**: far sky at most 0.37.
+
+**Kill:** clean removal on the luminance falls by more than the spread at any brightness on A's draws. Then the lobes cost
+the recipe more than they bring, and the switch stays off.
+
+**What it decides.** If (2) and (3) hold, `--star-lobes` joins the export recipe, the injected stars being the real ones.
+If (3) holds and (2) misses, it is a draw: the switch costs nothing and buys nothing measurable, and is adopted only if a
+real master's removal by eye favours it. The per-channel planes stay the next candidate for the colour dig either way.
+
 #### R2l: the bright cores weighed up in the objective, pre-registered (2026-10-16)
 
 Written before it trains, on the owner's goal of 2026-10-16: an overnight run that measurably improves the removal.
@@ -2251,6 +2326,28 @@ pay for the bright ones, and the weight is not adopted.
 **What it decides.** If (2) and (4) hold, the weight joins the recipe and R2l is the next arms' control. If (2) fails
 while (4) holds, the bright cores' error is not the objective's weighting, and the next place to look is the data (R2k).
 If (2) holds and the kill fires, a smaller weight is the next arm, not this one again.
+
+**Amended 2026-10-16 at 22:35, half an hour into the run and before any of its numbers exist.** The bars above are an
+old-store pair of seeds (R2g, R2h), and on this line a seed has moved the bright stars by 3.1 points at convergence and
+by 12.9 at patience 24 (R2e). So R2i runs again on seed 1 beside R2l (below), and R2l's gains are also read against
+that pair: an improvement is claimed only where it clears the larger of the two spreads.
+
+#### R2i on seed 1, the line's own seed spread, pre-registered (2026-10-16)
+
+Written before it trains. R2i's read named it as its confirmation; it runs now because an arm read on one seed against
+a control on one seed is read against a spread measured on another store (`feedback`: decompose the variance before
+the next arm). The same `r2-synth4` cache and recipe, seed 1, a resume checkpoint every 2,000 steps: `run-r2.ps1 -Tag
+r2i -Arms synth4 -FirstSeed 1 -SeedCount 1 -Patience 24 -Steps 480000 -CheckpointEvery 2000`, beside R2l on the same
+GPU. Scored as R2l is.
+
+**Predictions** (against R2i on seed 0):
+1. **It ends on its own before 480,000.** Moderate to high.
+2. **Within the old-store spread**: clean within 2.7, 3.1 and 3.1 points of seed 0's at 5-20, 20-100 and 100-1000
+   sigma. Moderate: R2i's gain over R2g past that spread was 3.9, 4.4 and 11.5 points, so a seed 1 that falls back to
+   R2g says the store's gain was partly a seed.
+
+No kill: it is a measurement. **What it decides.** Its difference from seed 0 is the same-store seed spread, the bar
+R2l's and R2k's reads take beside the old one; and whether R2i's gain over the old store holds on a second seed.
 
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
