@@ -3,7 +3,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Dto;
+using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging.Planetary;
 
 namespace TianWen.Hosting;
 
@@ -25,8 +27,7 @@ internal sealed partial class DeviceOperations
     /// <summary>How often a job asks a moving device whether it has settled.</summary>
     private static readonly TimeSpan SettlePoll = TimeSpan.FromMilliseconds(250);
 
-    /// <summary>The longest a filter wheel or a park may take before the job gives it up.</summary>
-    private static readonly TimeSpan FilterMoveTimeout = TimeSpan.FromMinutes(2);
+    /// <summary>The longest a park may take before the job gives it up (a filter wheel's is <see cref="FilterChange.ArrivalTimeout"/>).</summary>
     private static readonly TimeSpan ParkTimeout = TimeSpan.FromMinutes(5);
 
     /// <summary>
@@ -91,8 +92,20 @@ internal sealed partial class DeviceOperations
         return ResponseEnvelope<string>.Ok($"{NameOf(uri)}: stopped");
     }
 
-    /// <summary>Turns the filter wheel to a position, counted from 0, as a job that ends when the wheel is there.</summary>
-    public ResponseEnvelope<JobDto> ChangeFilter(FilterChangeRequestDto request)
+    /// <summary>What a filter change is called in its claim on the wheel and the focuser, and in a capture's refusal.</summary>
+    internal const string FilterChangeOwner = "a filter change";
+
+    /// <summary>
+    /// Turns the filter wheel to a position, counted from 0, through the one filter change the session makes
+    /// (<see cref="FilterChange.ChangeAsync"/>), as a job that ends when the wheel is there and the focuser of the OTA the active
+    /// profile puts the wheel on, when one is connected, has moved by the focus offset of the filter arrived at less the one
+    /// left. The job claims the wheel and that focuser while it moves them.
+    /// <para>While a planetary capture streams through the wheel (the node's run, never a UI flag) the change is that capture's
+    /// interlude (<see cref="PlanetaryCapture.InterludeAsync"/>): its stream stops, the wheel and the focuser move, and it
+    /// streams again at the settings it had, the first frames after dropped; the capture keeps claiming only the camera.
+    /// A recording going on refuses it in words (409) and the wheel does not move, rather than one file holding two filters.</para>
+    /// </summary>
+    public async Task<ResponseEnvelope<JobDto>> ChangeFilterAsync(FilterChangeRequestDto request, CancellationToken cancellationToken)
     {
         if (!TryIdle<IFilterWheelDriver>(request.DeviceUri, "filter wheel", out var uri, out var wheel, out var refused))
         {
@@ -106,22 +119,76 @@ internal sealed partial class DeviceOperations
             return ResponseEnvelope<JobDto>.Fail(filters.Count == 0 ? $"{name} names no filters" : $"{name} has positions 0 to {filters.Count - 1}");
         }
 
-        var filter = filters[position].DisplayName ?? $"position {position}";
+        // The focuser the offset moves: the one on the OTA the active profile puts this wheel on, when it is connected, as the
+        // session moves only a connected one. It is asked as the wheel was: a run holding it, or a job moving it, refuses.
+        FilterFocuser? focuser = null;
+        Uri? focuserUri = null;
+        if (await ActiveProfileAsync(cancellationToken) is { Data.OTAs: var otas }
+            && OtaWithWheel(otas, uri) is { Focuser: { Scheme: not "none" } focusing } ota
+            && hub.TryGetConnectedDriver<IFocuserDriver>(focusing, out var focuserDriver))
+        {
+            if (DeviceOwnershipGate.Evaluate(hub, focusing, DeviceAction.Actuate) is { Allowed: false } held)
+            {
+                return ResponseEnvelope<JobDto>.Fail($"{name} cannot take its filter's focus offset: {held.Describe()}", 409);
+            }
+            if (jobs.TryGetRunningOn(focusing, out var moving))
+            {
+                return Busy(NameOf(focusing), moving).As<JobDto>();
+            }
+            focuser = FilterFocuser.Direct(focuserDriver, FocusDirection.Of(ota));
+            focuserUri = focusing;
+        }
+
+        // A planetary capture streaming through the wheel has its stream stopped for the change; a recording refuses it now.
+        var capture = hosted.CurrentRun is NodePlanetaryRun run && run.StreamsThrough(uri) ? run.Capture : null;
+        if (capture?.InterludeRefusal(FilterChangeOwner) is { } streaming)
+        {
+            return ResponseEnvelope<JobDto>.Fail(streaming, 409);
+        }
+
+        var filter = FilterChange.NameOf(filters, position);
+        Uri[] moved = focuserUri is { } f ? [uri, f] : [uri];
         return Start(FilterJob, uri, name, async (step, ct) =>
         {
-            step.Report($"Turning {name} to {filter}");
-            await wheel.BeginMoveAsync(position, ct);
-            var deadline = timeProvider.GetUtcNow() + FilterMoveTimeout;
-            while (await wheel.GetPositionAsync(ct) != position)
+            step.Report(capture is null ? $"Turning {name} to {filter}" : $"Stopping the planetary capture's stream and turning {name} to {filter}");
+            if (!DeviceLeaseSet.TryAcquire(hub, moved, FilterChangeOwner, out var claim, out var verdict))
             {
-                if (timeProvider.GetUtcNow() > deadline)
-                {
-                    throw new TimeoutException($"{name} did not reach {filter} within {FilterMoveTimeout.TotalMinutes:F0} minutes");
-                }
-                await timeProvider.SleepAsync(SettlePoll, ct);
+                throw new InvalidOperationException(verdict.Describe());
             }
-            return $"{name} at {filter}";
+            using (claim)
+            {
+                var outcome = default(FilterChangeOutcome);
+                async ValueTask ChangeAsync(CancellationToken token)
+                    => outcome = await FilterChange.ChangeAsync(wheel, FilterWheelMotion.Direct(wheel), position, focuser, timeProvider, logger, name, token);
+
+                if (capture is null)
+                {
+                    await ChangeAsync(ct);
+                }
+                else if (await capture.InterludeAsync(new PlanetaryInterlude(FilterChangeOwner, ChangeAsync), ct) is { } refusal)
+                {
+                    throw new InvalidOperationException(refusal);
+                }
+
+                var done = outcome.FocuserPosition is { } at
+                    ? $"{name} at {filter}; the focuser moved {outcome.FocusOffsetSteps:+0;-0} steps to {at} for its focus offset"
+                    : $"{name} at {filter}";
+                return capture is null ? done : $"{done}; the planetary capture streams again";
+            }
         });
+    }
+
+    // The OTA a profile puts a wheel on; none when no OTA names it.
+    private static OTAData? OtaWithWheel(System.Collections.Immutable.ImmutableArray<OTAData> otas, Uri wheel)
+    {
+        foreach (var ota in otas)
+        {
+            if (ota.FilterWheel is { } named && DeviceUriExtensions.DeviceKeyComparer.Equals(named.DeviceKey, wheel.DeviceKey))
+            {
+                return ota;
+            }
+        }
+        return null;
     }
 
     /// <summary>

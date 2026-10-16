@@ -230,6 +230,14 @@ internal sealed class NodePlanetaryRun : INodeRun
     internal int OtaIndex => _otaIndex;
 
     /// <summary>
+    /// Whether this capture streams through <paramref name="filterWheel"/>, the wheel its OTA's profile named as it was prepared:
+    /// a filter change of that wheel is then the capture's interlude (<see cref="PlanetaryCapture.InterludeAsync"/>).
+    /// </summary>
+    internal bool StreamsThrough(Uri filterWheel)
+        => IsRunning && Capture.IsCapturing && _filterWheelUri is { } wheel
+           && DeviceUriExtensions.DeviceKeyComparer.Equals(wheel.DeviceKey, filterWheel.DeviceKey);
+
+    /// <summary>
     /// What a recording made at <paramref name="utc"/> is named for (#1179): the body the profile's mount points at
     /// (<see cref="PlanetaryCaptureName.PointedAt"/>) and the filter the OTA's wheel holds in the beam, each null where there is no such
     /// device, it does not answer, or the mount points at no planet. Reads only: the capture claims the camera alone.
