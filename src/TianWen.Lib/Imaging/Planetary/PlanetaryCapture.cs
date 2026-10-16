@@ -241,11 +241,6 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     /// </summary>
     internal int FramesOnThreadPool => Volatile.Read(ref _framesOnThreadPool);
 
-    private int _holdsGcLatency;
-
-    /// <summary>Whether the capture's loop holds the process's GC latency mode (<see cref="CaptureGcLatency"/>). Test seam.</summary>
-    internal bool HoldsGcLatency => Volatile.Read(ref _holdsGcLatency) == 1;
-
     /// <summary>The priority of the thread the newest frame's iteration ran on; null before the first frame. Test seam.</summary>
     internal ThreadPriority? ReaderPriority => Volatile.Read(ref _readerPriority) is >= 0 and var priority ? (ThreadPriority)priority : null;
 
@@ -500,17 +495,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         // The process's collections over the capture, and how long they held every managed thread, the reader's and the
         // driver's included: said as the loop ends, beside its frames.
         var (gen0From, gen1From, gen2From, pausedFrom) = (GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2), GC.GetTotalPauseDuration());
-        // A planetary capture keeps blocking full collections away while it runs (CaptureGcLatency), put back on every path
-        // out by the finally below; a live view keeps nothing, so it holds nothing.
-        IDisposable? latency = null;
         try
         {
-            if (kind is LiveCaptureKind.Planetary)
-            {
-                latency = CaptureGcLatency.Process.Hold();
-                Volatile.Write(ref _holdsGcLatency, 1);
-            }
-
             var streams = Streams(camera);
             var frames = Frames(camera, options, token);
             if (_frameGate is { } gate)
@@ -628,8 +614,6 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 Name, FramesReceived, FramesOnThreadPool, GC.CollectionCount(0) - gen0From, GC.CollectionCount(1) - gen1From, GC.CollectionCount(2) - gen2From,
                 (GC.GetTotalPauseDuration() - pausedFrom).TotalMilliseconds, System.Runtime.GCSettings.LatencyMode,
                 GC.GetGCMemoryInfo().HeapSizeBytes / 1048576.0, Environment.WorkingSet / 1048576.0);
-            latency?.Dispose();
-            Volatile.Write(ref _holdsGcLatency, 0);
 
             // A recording ends with the frames that feed it; what it queued is still written.
             _recording?.End("the capture ended");
