@@ -1081,7 +1081,7 @@ another program's `tianwen` at 0.9 to 1.0 cores). The node arm is accepted as me
 sets under the 32 spinners (0 to 151 a recording) while each write took 1 to 5 ms: the writer was held, not the disk. Its wait
 was `ReadAllAsync`'s, which keeps no context, so a pool thread took every frame first (review round 1 of #1621); with every pool
 thread held the writer did not wake at all (`SerRecordingWriterWakeTests`). Waking on its own thread, the last set dropped none
-in any of its seven recordings, the writer waiting 4,321 to 9,016 times a recording and woken on the pool none of them; the
+in any of its eight recordings, the writer waiting 4,321 to 9,016 times a recording and woken on the pool none of them; the
 ring-fix set before it had dropped 17 to 104 over its seven (17, 65, 43 and 21 with the spinners alone; 35, 92 and 104 beside
 another program's `tianwen`), and 43, 21 and 92 in its three clean recordings with the view.
 The view's floor was missed twice in the ring-fix set (8.6 live frames a second with the spinners alone,
