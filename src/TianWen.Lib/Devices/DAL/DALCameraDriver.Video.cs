@@ -124,6 +124,8 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
     // what brought each back.
     private long _videoFramesRead;
     private long _videoFramesReplaced;
+    private long _videoReaderWaits;
+    private long _videoReaderWakesOnPool;
     private int _videoHandOffHighWater;
     private int _videoStalls;
     private int _videoRecoveries;
@@ -154,6 +156,12 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
 
     /// <summary>The most frames that ever waited for the reader in the hand-off, in the current or last stream.</summary>
     internal int VideoHandOffHighWater => Volatile.Read(ref _videoHandOffHighWater);
+
+    /// <summary>How often the reader of the current or last stream found the hand-off empty and waited for a frame.</summary>
+    internal long VideoReaderWaits => Interlocked.Read(ref _videoReaderWaits);
+
+    /// <summary>Of <see cref="VideoReaderWaits"/>, the waits that woke on a thread pool thread rather than the reader's own.</summary>
+    internal long VideoReaderWakesOnPool => Interlocked.Read(ref _videoReaderWakesOnPool);
 
     /// <summary>The stalls the current or last stream had, recovered or not.</summary>
     internal int VideoStalls => Volatile.Read(ref _videoStalls);
@@ -275,6 +283,8 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
         Interlocked.Exchange(ref _stagedHighSpeed, -1);
         Interlocked.Exchange(ref _videoFramesRead, 0);
         Interlocked.Exchange(ref _videoFramesReplaced, 0);
+        Interlocked.Exchange(ref _videoReaderWaits, 0);
+        Interlocked.Exchange(ref _videoReaderWakesOnPool, 0);
         Volatile.Write(ref _videoHandOffHighWater, 0);
         Volatile.Write(ref _videoStalls, 0);
         Volatile.Write(ref _videoRecoveries, 0);
@@ -313,18 +323,32 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
     }
 
     /// <summary>The stream's next frame; null once it has ended or been cancelled, and its failure thrown if it failed.</summary>
-    private static async ValueTask<Image?> NextVideoFrameAsync(ChannelReader<Image> frames, CancellationToken cancellationToken)
+    private async ValueTask<Image?> NextVideoFrameAsync(ChannelReader<Image> frames, CancellationToken cancellationToken)
     {
         try
         {
-            while (await frames.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
+            while (true)
             {
+                var wait = frames.WaitToReadAsync(cancellationToken);
+                var waited = !wait.IsCompleted;
+                if (!await wait.ConfigureAwait(false))
+                {
+                    return null;
+                }
+                if (waited)
+                {
+                    // Where the reader woke when it had to wait for a frame: the thread pool, or the reader's own thread.
+                    Interlocked.Increment(ref _videoReaderWaits);
+                    if (Thread.CurrentThread.IsThreadPoolThread)
+                    {
+                        Interlocked.Increment(ref _videoReaderWakesOnPool);
+                    }
+                }
                 if (frames.TryRead(out var frame))
                 {
                     return frame;
                 }
             }
-            return null;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -578,9 +602,10 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
             var seconds = TimeProvider.GetElapsedTime(streamStart).TotalSeconds;
             Logger.LogInformation(
                 "{Camera} streamed {Frames} frames in {Seconds:F1} s ({Rate:F1} a second): the reader took {Taken}, {Replaced} were dropped by the full hand-off "
-                + "(at most {HighWater} waited), the body dropped {Dropped}, {Stalls} stalls, {Recoveries} recovered",
+                + "(at most {HighWater} waited), the body dropped {Dropped}, {Stalls} stalls, {Recoveries} recovered; the reader waited for a frame {Waits} times, "
+                + "{WakesOnPool} of them woken on the thread pool",
                 Name, read, seconds, seconds > 0 ? read / seconds : 0, read - replaced, replaced, VideoHandOffHighWater, Volatile.Read(ref _videoDroppedFrames),
-                VideoStalls, VideoRecoveries);
+                VideoStalls, VideoRecoveries, VideoReaderWaits, VideoReaderWakesOnPool);
             if (failure is not null)
             {
                 Logger.LogError(failure, "{Camera}'s video stream failed", Name);
@@ -705,6 +730,8 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                     stream.Gain = (short)stagedGain;
                     SetVideoControl(CMOSControlType.Gain, ClampedGain(stagedGain), "set the gain");
                     gain = CurrentGain();
+                    // Once the body has it: when a staged gain reached the camera, for the rate probes (TIA2).
+                    Logger.LogDebug("{Camera}'s stream is at gain {Gain}", Name, gain);
                 }
 
                 // A new size, depth or readout mode needs the stream stopped on every body; the origin is kept where it
@@ -742,6 +769,8 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
                 {
                     window = constraints.Snap(window with { X = window.X + dx, Y = window.Y + dy });
                     SetVideoWindow(window, bitDepth, resize: false);
+                    // Once the body has it: the window a pan left, as the camera took it, never the jog that asked for it.
+                    Logger.LogDebug("{Camera}'s stream window is {Width}x{Height} at ({X}, {Y}) after a pan", Name, window.Width, window.Height, window.X, window.Y);
                     stream.Window = window;
                     stream.JogsApplied = asked;
                     // Started before the window is published, so whoever sees the new window knows its settle is under way.
