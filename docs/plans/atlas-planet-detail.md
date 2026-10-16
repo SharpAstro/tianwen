@@ -199,7 +199,8 @@ Built 2026-10-14 (#1037). The pieces, in the order a frame meets them:
   Sun in the tenth cell, generated ("A4: the Sun", #1608). A new
   atlas size makes `Decode` refuse a stale file whole (`PlanetTexturesTests.TheAtlasHoldsTheEarthAndAStaleAtlasIsRefused`),
   so a host with an old file draws flat discs, never a map from the wrong cell; an all-black cell is no map, so the
-  nine-body atlas, the same size as the ten-body one, leaves the Sun flat rather than black. Baked by
+  nine-body atlas, the same size as the ten-body one, leaves the Sun with no map rather than a black one. Since #1617 only the
+  orrery then draws it flat: the sky map draws its dot and the info panel's slot stays dark until the atlas loads. Baked by
   `tools/bake-planet-textures` (its README has every source URL, licence and OPAL's acknowledgement), kept in
   `TianWen.UI.Abstractions/Resources`, copied beside every desktop app and served beside the web page. Never fetched
   for Mercury, Venus, the Moon or Mars.
@@ -328,7 +329,7 @@ from that map, self-luminous.
 **Tests:** `PlanetDiscRenderTests` (the law at mu 0.9, 0.6, 0.3 and 0.15 within 0.01; no terminator from the ephemeris or
 a sub-solar point anywhere; the Night Sun no blue and its limb the law's), `PlanetBodyGpuTests` (the textured Sun on the
 Adreno X1-85: worst 1 of 255, mean 0.000, none more than 4 off; its limb the law's; Night no blue for Saturn and the Sun),
-`PlanetTexturesTests` (the nine-body atlas leaves the Sun flat), `SkyMapPlanetDiscTests.TheSunsDiscIsItsTexturedPhotosphere`
+`PlanetTexturesTests` (the nine-body atlas gives the Sun no map), `SkyMapPlanetDiscTests.TheSunsDiscIsItsTexturedPhotosphere`
 (near white, mottled, the limb the law's, `sun-disc.png`), `TheDiscsCreditIsDrawnUnderIt` (every body the map shows),
 `ObjectInfoPanelTests.EveryAtlasBodysCreditIsDrawnUnderItsDisc`, `SkyMapPlanetDiscTests.TheSunsSpriteIsBuiltOnceForAStillView` (its
 NaN sub-solar point keys one sprite, not one a frame), `OrreryTests.TheOrrerysSunIsDrawnFromItsMap`, and the browser's `OrrerySunTests`
@@ -375,16 +376,18 @@ the Sun, is why Venus is a crescent, and the angle between them at the planet is
   body's distance from the Sun (the Earth's for the Moon, the span of Mars's orbit for the Sun or no selection).
 - **Positions:** `SolarSystemOrbits` (Lib): `VSOP87a.GetBody`'s heliocentric ecliptic coordinates, no light time (the
   orrery shows one instant from outside); the Moon from Meeus's series about VSOP87's Earth. An orbit is one sidereal
-  period of the same series (`SolarSystemOrbits.SampleOrbit`, 241 points, closed), so a planet sits on its own. A
-  comet is the one the view was OPENED on (`OrreryState.Comet`, kept apart from the highlight, which a click moves), from the elements the comet repository holds (`ICometRepository.TryGet`, apparition
-  upgrade included): its place from `CometEphemeris.TryGetHeliocentricEcliptic` and its orbit from
+  period of the same series (`SolarSystemOrbits.SampleOrbit`, 241 points, closed), so a planet sits on its own. The
+  comets are the app's set ("A5: the comets", below, #1611), among them the one the view was OPENED on (`OrreryState.Comet`, kept
+  apart from the highlight, which a click moves), each from the elements the comet repository holds (`ICometRepository.TryGet`,
+  apparition upgrade included): its place from `CometEphemeris.TryGetHeliocentricEcliptic` and its orbit from
   `CometEphemeris.SampleOrbit` (361 points evenly in true anomaly, the whole ellipse, an open orbit to 40 AU each
   side), both through one perifocal frame (`PerifocalAxes`), so it sits on its drawn orbit.
 - **The cache** (`OrreryScene`): the positions per MINUTE of the atlas's clock, the planets' orbits per CENTURY of it,
-  built on the thread pool (the Task the hand-off, a landing asks for a frame), and a comet's orbit AND position per
-  element set (an apparition upgrade keeps the index and changes the elements, and must move the comet at once).
-  Orbits are stored in true AU and the scale is applied as each point is projected, so switching the scale builds
-  nothing. A drag changes no key, so it builds nothing (`OrbitBuilds`, `CometOrbitBuilds`, `PositionBuilds`).
+  built on the thread pool (the Task the hand-off, a landing asks for a frame), and each comet's orbit per element set, by
+  its index; the positions are keyed on the comet set's version too (an apparition upgrade keeps the index and changes the
+  elements, and must move the comet at once). Orbits are stored in true AU and scaled once per orbit and scaling
+  (`OrreryScene.ScaledOrbit`, into the same array), so a drag or Play only projects and switching the scale builds no orbit. A
+  drag changes no key, so it builds nothing (`OrbitBuilds`, `CometOrbitBuilds`, `PositionBuilds`, `ScaledOrbitBuilds`).
 - **The camera** (`OrreryCamera`): a 45 degree perspective on a point orbiting the Sun and looking at it, the
   ecliptic's north up; a drag turns its azimuth and elevation (0.35 degree a pixel, the elevation held inside 89),
   the wheel and a pinch its distance, which stays inside a reach of a quarter of an AU to fifty
@@ -421,7 +424,8 @@ the Sun, is why Venus is a crescent, and the angle between them at the planet is
   (not in `Supports`, which the sky map's discs and the stacker gate on), and since #1573 its Blue Marble day map from the atlas,
   the palette's Info only while the map loads. Every colour of the view comes from `GuiTheme.Palette` (space, the Earth, a comet, the strip,
   the shared time controls taking the caller's fill and ink), so Night spends no blue.
-  A comet is a point with a tail away from the Sun. A body still building its sprite is a flat dot.
+  A comet is a dot with a fan of a tail away from the Sun, never a planet's neighbour in the disc cap ("A5: the comets"). A
+  body still building its sprite is a flat dot.
 - **Lit as the camera sees it.** Each body is stated as a `PlanetView` (Lib): three unit vectors in the body's OWN frame
   (x its prime meridian, z its IAU pole, `PhysicalEphemeris.BodyAxes`): the screen's right and the direction back toward
   the camera along the ray the body is DRAWN on (`OrreryCamera.RayFrame`, so the Moon, placed on screen beside the Earth,
@@ -457,12 +461,72 @@ the Sun, is why Venus is a crescent, and the angle between them at the planet is
   (`SkyMapState.NeedsContinuousFrames`), asked by the GUI's redraw check: the one-shot `NeedsRedraw` a played frame
   sets is cleared by the GUI after the frame, which held Play to about a frame a second. The browser asks for each
   frame as a coalesced repaint.
-- **Click** a body (a press that did not move) to put the highlight on it; the atlas's selection and the comet the
-  view was opened on are left as they are.
+- **Click** a body (a press that did not move), a comet's head among them, to put the highlight on it; the atlas's selection
+  and the comet the view was opened on are left as they are.
 - **Centre.** With a body other than the Sun in focus the strip has one toggle naming what the camera looks at
   (`Centre: Sun` / `Centre: Jupiter`, `OrreryState.CentredOnFocus`): centred, the camera looks at the body's drawn place
   (the Earth's for the Moon) and follows it as time runs; a click moves it with the highlight, a click on the Sun puts it
   back. `OrreryCamera` only gains a look-at point, so its rotation and the backdrop's stars are unchanged.
+
+#### A5: the comets
+
+Issue: #1611 (2026-10-16), with its amendment A1 (every orbit in its body's colour), after TheSkyLive's orrery: coloured
+orbits, comets as a head with a pale fan of a tail away from the Sun, labelled.
+
+- **Which comets: a FIXED set**, so none blinks in and out under Play (the sky's rule, its magnitude limit at the instant,
+  would). The `OrreryScene.CometSetSize` = **30** brightest at PEAK, ranked by `SkyMapState.PeakMagnitude`
+  (`M1 + K1 log10(max(q, 0.05))`), the ONE estimate the sky's candidacy filter uses too, so the two never drift; a comet with
+  no magnitude model is not ranked. Thirty is about the number the controller asked for; in the catalogue cached on
+  2026-10-16 (4,080 comets, 1,995 with a magnitude model) it is every comet whose peak estimate is brighter than about
+  magnitude 3.4, 12P/Pons-Brooks the thirtieth. Most are great comets of the last century on near-parabolic orbits, so their
+  heads are far out today and their orbits cross the inner system as long arcs. Ranked once per repository and count of
+  comets, as the sky's candidacy is. **Always added**: the comet the view was opened on, the focused one (a click) and the
+  PINNED ones, however faint (`OrreryCometChoice`).
+- **The comet layer** (`SkyMapState.ShowComets`, the atlas's comet toggle) gates the thirty; the opened, focused and pinned
+  comets are drawn with it off, as a pin shows a comet on the sky with its layer off (`TheCometLayerOffDrawsNone`: the set, its
+  tails, orbits and labels are gone, the opened comet stays).
+- **The cache.** The set is read again only when its KEY moves: the repository (by reference), its `ICometRepository.Version`
+  (new: raised by a load, a refresh and every apparition upgrade), or the choice; never by comparing thirty element sets on
+  every frame. Its orbits are kept by index (rebuilt only for an index whose elements changed), the positions per minute of
+  the clock and per set version, all of them in one sweep. A drag builds nothing and scales no orbit again; a played frame
+  inside the same minute builds nothing; five years on, the positions are computed once and no orbit is built or scaled
+  (`OrreryCometTests.ADragOrAPlayedMinuteBuildsNothing`).
+- **The current apparition** is asked for (`RequestCurrentApparition`) only for a comet DRAWN in the view whose element set is a
+  revolution or more old at the instant (`OrreryBody.ElementsStale`), as the sky asks for its stale markers.
+- **Heads are dots** (`OrreryCometRadius`, 2.5 design px), never discs, and a comet is never a planet's nearest neighbour in the
+  disc cap: a comet a degree and a half along Mars's orbit from it shrank Mars's disc from 5 to 2.19 px; the planets' radii are
+  now the same with comets beside them or without (`ThePlanetsDiscsAreTheSameSizeWithAndWithoutComets`, which failed so with the
+  exclusion taken out).
+- **The tail** points AWAY from the Sun on screen: its direction is the projection of a point 5 % further out on the comet's
+  radial line (the scaled frame keeps every direction from the Sun), so it lies on the line from the Sun's drawn place through
+  the head (0.03 degrees off in the test). **Its length follows the comet's activity** as the sunlight it gets, `1/r^2`, less its
+  value at 3 AU, where water ice stops subliming, so there is no tail from 3 AU out:
+  `L(r) = 48 px * min(1, a(r) / a(0.7 AU))`, `a(r) = max(0, 1/r^2 - 1/9)`, full at 0.7 AU or closer, 22 px at 1 AU, 3.5 at 2
+  (`OrreryTailLength`); then foreshortened by the sine of the angle between the radial line and the ray from the camera, so a
+  tail pointing at the camera is seen end on. It is drawn first, under every head and disc, as three nested wedges of the
+  comet's colour (`DrawTriangles`, which every host fills: Vulkan, WebGL, the CPU surface), a brighter core near the head.
+- **Labels**: placed as the planets' are, under or over the head where clear, else left out. The planets (the Sun and the Moon
+  with them) outrank every comet; of the comets, the focused one and the one the view was opened on come first
+  (`CometsAreLabelledAfterThePlanetsAndNoLabelOverprints`: 18 of 30 comet labels placed beside 7 planets', none overprinting).
+- **Click and Centre**: a press that did not move on a head puts the highlight on the comet; the strip then offers
+  `Centre: <comet>`, and centred the camera follows it as time runs (`AClickSelectsACometAndCentreFollowsIt`).
+- **Orbit colours (A1).** Every orbit is drawn in its body's colour (`OrreryOrbitColour`): a planet's is its own
+  (`OrreryFlat`: `SkyMapRenderer.GetPlanetColor`, read and not changed, the Earth's the palette's Info) taken a fifth toward the
+  dim text, at the dim alpha 0x70; a comet's is a violet from the palette (the error colour's red and green with the info
+  colour's blue, three tenths toward the dim text) at 0x90; the selected body's stays the accent (`OrbitsCarryTheirBodysColour`).
+  Under Night every orbit is the palette's tint (`OrreryNightTests`: no blue in any pixel with thirty-one comets' orbits and
+  tails drawn, and no orbit's colour with any).
+- **Cost.** Thirty comets' 361-point orbits are 10,830 samples a frame. On a GPU host a line costs per SEGMENT (each is a box of
+  its own, `VkRenderer.DrawPolyline`), and drawn whole they made the frame's CPU time several times the planets' alone. So the
+  orbits are drawn SIMPLIFIED on screen (`OrbitTolerance`, 0.35 design px: the samples between two vertices are skipped while
+  each lies within that of the segment, and a segment wholly off the view breaks the line) and scaled once per scaling
+  (`ScaledOrbit`). Measured on the Snapdragon X Elite (X1E80100, Adreno X1-85), Debug, 900 x 600, thirty synthetic comets
+  (`OrreryCometTests.DemoComets`), medians of 20 frames: on the GPU host (`OrreryGpuTests.TheCometsDrawOnTheGpuHost`) the orbits
+  went from 5,562 segments in 4.2 ms to 1,171 segments in 1.9 ms, the frame from 8.2 ms to between 1.9 and 3.2 ms (runs vary
+  on this machine) against 0.4 to 0.8 ms with the layer off; on the CPU surface (`TheOrreryDrawsOnTheCpuSurface`, where the
+  raster is the cost) 5.65 and 5.27 ms (auto, true scale) against 5.56 and 6.60 ms before the comets came. In the browser
+  (`OrreryPlaySpeedTests.TheCometsAreDrawnWithTheirOrbitsAndTails`, headless Edge, eight comets served as `comets-sbdb.json`)
+  a frame with them drew in 33 ms on the interpreted Lightweight build.
 
 #### A5: the backdrop
 
@@ -602,6 +666,10 @@ shadow, each ring's median of 255): C 21, Cassini 17, A 60, B 3 on the CPU refer
 C ring's. The ten parity views and Night's no-blue still pass, and `TheWebGlTraceIsTheVulkanTrace` holds the WebGL copy to it.
 
 #### A5: what is open
+
+- **The comets (#1611, done but for a look in a real browser)**: the set, tails, labels, clicks and orbit colours are built
+  ("A5: the comets"). Seen in headless Edge by the E2E only, with eight synthetic comets; nobody has yet looked at the real
+  catalogue's thirty in the app or the browser, nor timed Play with them there.
 
 - **Seen in the browser once, by the E2E only** (#1572, bench). `OrrerySunTests` (2026-10-16) opened the orrery in headless Edge
   and read back a textured, limb-darkened Sun and textured planets, once the dev server sent the atlas at all ("A4: the atlas the dev
