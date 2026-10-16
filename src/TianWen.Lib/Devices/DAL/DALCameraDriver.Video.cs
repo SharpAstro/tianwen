@@ -286,8 +286,9 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
             streamEnded = Task.Run(() => RunVideoAsync(options, frames, started, stop.Token), CancellationToken.None);
             Volatile.Write(ref _videoStreamEnded, streamEnded);
 
-            // A stream the body refused to start throws here, naming what was refused.
-            await started.Task.ConfigureAwait(false);
+            // A stream the body refused to start throws here, naming what was refused. Keeps its context, as the frame wait
+            // below does (NextVideoFrameAsync), so a reader of its own goes on there from the first frame.
+            await started.Task;
 
             while (await NextVideoFrameAsync(frames.Reader, cancellationToken).ConfigureAwait(false) is { } frame)
             {
@@ -321,7 +322,11 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
             {
                 var wait = frames.WaitToReadAsync(cancellationToken);
                 var waited = !wait.IsCompleted;
-                if (!await wait.ConfigureAwait(false))
+                // Keeps its context, on purpose: a reader with one of its own (a planetary capture's thread,
+                // CaptureReaderThread) is woken there straight from the stream's thread, never through the thread pool,
+                // whose normal-priority workers wait behind a busy machine's load. A reader without one resumes on the pool
+                // as any await would.
+                if (!await wait)
                 {
                     return null;
                 }
