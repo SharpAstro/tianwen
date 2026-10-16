@@ -9,6 +9,7 @@ using TianWen.DAL;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Extensions;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
@@ -578,10 +579,11 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 await MaybeRecenterAsync(camera, frame, token);
 
                 // Defensive heartbeat: a steady cadence in the log confirms the capture loop is alive; the last
-                // heartbeat before a freeze bounds when the loop (or the thread it feeds) stopped advancing.
+                // heartbeat before a freeze bounds when the loop (or the thread it feeds) stopped advancing. This line and the
+                // loop's other Debug lines are written off the reader, so the file log's lock never holds it up (TIA2).
                 if (received % 250 == 0)
                 {
-                    LogDebugOffTheReader(
+                    logger.LogDebugOffThread(
                         "Capture heartbeat ({Capture}): received {Received}, stream {StreamCount}, {Fps:F0} fps, {Dropped} dropped.",
                         Name, received, stream?.FrameCount ?? 0, MeasuredFps, DroppedFrames);
                 }
@@ -628,21 +630,6 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             // the per-frame signal), so this is sticky: every later wait returns at once too, and a stopped or faulted
             // loop surfaces as a failed predicate rather than as a hang. Start arms a fresh signal for the next run.
             Volatile.Read(ref _frameSignal).TrySetResult();
-        }
-    }
-
-    // A line the loop says at Debug as it goes (a heartbeat, a recentre's jog, a live control applied), written by the thread
-    // pool rather than the reader: a host's file log is one lock for every logger in its process, its writer flushing each
-    // line to disk under it, and a normal-priority thread a busy machine holds off while it holds that lock would hold the
-    // reader up behind it (TIA2). What the line says is taken now; only the writing waits.
-    private void LogDebugOffTheReader(string message, params object?[] args)
-    {
-        if (logger.IsEnabled(LogLevel.Debug))
-        {
-#pragma warning disable CA2254 // the template is each caller's constant, carried here
-            ThreadPool.UnsafeQueueUserWorkItem(static line => line.Logger.LogDebug(line.Message, line.Args), (Logger: logger, Message: message, Args: args),
-                preferLocal: false);
-#pragma warning restore CA2254
         }
     }
 
@@ -896,7 +883,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             {
                 // Stage the pan -- ApplyPendingControlsAsync drains it onto the camera this same iteration.
                 JogRoi(decision.RoiDx, decision.RoiDy);
-                LogDebugOffTheReader(
+                logger.LogDebugOffThread(
                     "Planetary recenter: ROI jog ({Dx},{Dy}) for COM offset ({Ox:F1},{Oy:F1}) px.",
                     decision.RoiDx, decision.RoiDy, decision.OffsetX, decision.OffsetY);
             }
@@ -929,7 +916,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         if (_mountUri is { } mountUri && DeviceOwnershipGate.Evaluate(_mountHub, mountUri, DeviceAction.Actuate) is { Allowed: false } verdict)
         {
             // Said on every refused frame, so written off the reader too (review round 1 of #1621, N1).
-            LogDebugOffTheReader("Planetary recenter mount pulse skipped: {Reason}", verdict.Describe());
+            logger.LogDebugOffThread("Planetary recenter mount pulse skipped: {Reason}", verdict.Describe());
             return;
         }
 
@@ -1065,7 +1052,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
             // Defensive breadcrumb: these live-control changes are the actions that correlate with a stall, so log
             // exactly what was applied -- the last such line before a freeze pinpoints the trigger.
-            LogDebugOffTheReader(
+            logger.LogDebugOffThread(
                 "Planetary live control applied: roi={RoiW}x{RoiH} exposureTicks={ExpTicks} gain={Gain} jog=({Jx},{Jy}) depth={Depth} highSpeed={HighSpeed}.",
                 rw, rh, expTicks, gain, jx, jy, depth, highSpeed);
         }
