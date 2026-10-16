@@ -5922,8 +5922,19 @@ binary may be run as a reference, as torchmfbd was.
   a look all resolve it there. The FITS card `CBALCAM` names the camera whose matrix the balance went through; `--colour-matrix none`
   (`PlanetaryBestStackOptions.CameraMatrix`) is the balance before.
 - **A camera with no QE curve is balanced by its gains alone, and the log says so in one wording** (`PlanetaryColourBalance.WithoutMatrix`).
-  Two of the four captures with a `_post` are such, so their masters now name their cameras and are otherwise the same to the last digit
-  against the post: the 12-inch SCT Jupiter (ASI224MC, #1525) and the EdgeHD Jupiter (ASI678MC, #1526).
+  Two of the four captures with a `_post` were such until 2026-10-16: the 12-inch SCT Jupiter (ASI224MC, #1525) and the EdgeHD Jupiter
+  (ASI678MC, #1526).
+- **Both now have the camera's own R, G and B responses** (2026-10-16, `tools/import-sasp-data/local-filters/ZWO-ASI224MC-*.csv` and
+  `ZWO-ASI678MC-*.csv`, merged as `ZWO_ASI224MC_R/G/B` and `ZWO_ASI678MC_R/G/B`, the per-camera triple the matrix fit reads first).
+  - **The source:** ZWO's own charts (the ASI224 manual v1.2, page 7; the ASI678 manual V1.0, page 8), digitised by
+    `tools/digitize-filter-curve` with every trace checked on its overlay and its peak against the chart.
+  - **The matrices:** both fall in the family of the database's other Sony colour cameras: each row sums to one, the diagonal leads at 1.6
+    to 2.0, and every row undoes the filters' overlap.
+  - **Re-stacked from their SERs:** each master's colour spread rises 1.6 times, linear 0.0051 to 0.0081 and 0.0046 to 0.0075. The post's
+    spread over the master's, as shown, falls from 2.80 to 1.70 (the SCT) and from 3.51 to 2.07 (the EdgeHD). The tint stays where the
+    gains put it.
+  - **The detail against the post moves little:** C24 0.9673 to 0.9637 on the SCT, whose two stacks differ only by the matrix (its
+    negative terms lift a little noise into the luminance); 0.9473 to 0.9470 on the EdgeHD.
 - **On the two that resolve, the masters come closer to the post's colour** (the full chain at today's defaults, 2026-10-12, against
   2026-10-11's). The post's chroma spread over the master's, linear and as shown: the EdgeHD Saturn (ASI183MC) 3.90 to 3.04 and 2.49 to
   1.87; the 16-inch Saturn (Uranus-C) 5.50 to 4.25 and 3.27 to 2.21. The disk's mean is where it was (0.0753 to 0.0752 and 0.0423 to
@@ -6502,7 +6513,8 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   (`planetary colour --camera`, `PlanetaryColourBalance.GainsThrough`, #1279 rule E) lifts the chroma 1.45 to 1.52 times as invisibly; Jupiter's
   true colour is that pale, and what is SEEN is the look (#1273, #1277). **The balance goes through that matrix by default** (the owner,
   2026-10-12), found by the camera the master's `INSTRUME` names, which a stack carries over from its SER header; a camera with no QE curve
-  is balanced by its gains alone (#1525, #1526): "The camera's own colour matrix (#1279, rule E)" above. **A camera matrix from spectral curves is a least-squares FIT onto the CIE functions**
+  is balanced by its gains alone (the ASI224MC and ASI678MC have their own curves since 2026-10-16, #1525, #1526): "The camera's own colour
+  matrix (#1279, rule E)" above. **A camera matrix from spectral curves is a least-squares FIT onto the CIE functions**
   (`CameraColorMatrix.ComputeCamXyz`, through their Gram inverse), never the curves' projections, which read red as green (a 5D Mark II's red
   row came out 11.99 and -12.07 against dcraw's measured 2.07 and -1.32; pinned against dcraw in `CameraColorMatrixTests`). **Saturn's globe is read where its rings leave it clear** (S6, #1235; `MetricDisk.RingTouched`, the rings
   take the globe's gains), and **an OPAL apparition's I/F factors come from its own readme** (`PlanetaryColour.ReadmeFilters`), never a
