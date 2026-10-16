@@ -64,23 +64,22 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
         scene.Update(utc, repo, choice);
     }
 
-    // Thirty comets on circular orbits at 1.5 AU, about magnitude 10 to 14 at any instant: enough to fill the set without the others.
+    // Thirty comets on circular orbits at 3 AU, about magnitude 14 to 17 at any instant: enough to fill the set without the others. At 3
+    // AU a revolution is 5.2 years, so ten years on their element sets are under two revolutions old and the ranking still trusts them.
     private static List<CometElements> Fillers()
-        => [.. Enumerable.Range(1, 30).Select(n => Comet(n, m1: 8 + (0.1 * n), q: 1.5, e: 0, inclination: 10, node: 0, argumentOfPerihelion: 12 * n))];
+        => [.. Enumerable.Range(1, 30).Select(n => Comet(n, m1: 8 + (0.1 * n), q: 3, e: 0, inclination: 10, node: 0, argumentOfPerihelion: 12 * n))];
 
     /// <summary>
     /// The set is the <see cref="OrreryScene.CometSetSize"/> brightest at the VIEWING INSTANT (#1611, the pilot's amendment): a
     /// periodic comet of faint peak (M1 12) at perihelion on the date is in the set, and ten years on, near aphelion, it is out; a
     /// great comet (M1 -6, perihelion 0.2 AU) fifty years past its perihelion, far out, is out, though its PEAK estimate ranks it
-    /// first of all. Each is in the sky's candidacy set (<see cref="SkyMapState.IsCometCandidate"/>).
+    /// first of all.
     /// </summary>
     [Fact(Timeout = 120_000)]
     public async Task TheSetIsTheBrightestAtTheViewingInstant()
     {
         var faint = Comet(40, m1: 12, q: 1.0, e: 0.6, inclination: 5, node: 0, argumentOfPerihelion: 30);
         var great = Comet(41, m1: -6, q: 0.2, e: 0.995, daysFromPerihelion: 50 * 365.25);
-        SkyMapState.IsCometCandidate(faint).ShouldBeTrue();
-        SkyMapState.IsCometCandidate(great).ShouldBeTrue();
         SkyMapState.PeakMagnitude(great).ShouldBeLessThan(SkyMapState.PeakMagnitude(faint));
         foreach (var at in new[] { Instant, Instant.AddYears(10) })
         {
@@ -154,6 +153,63 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
 
         var fresh = OrreryScene.SelectBrightest(Scored(30.6), null);
         fresh.ShouldNotContain(indices[30], "with no members the cutoff is the magnitude alone");
+    }
+
+    // A comet of the designation given (a D/ one too), its perihelion daysFromPerihelion before the instant and its elements stated
+    // epochDaysBefore before it.
+    private static CometElements Designated(string designation, double m1, double q = 1.0, double e = 0.6, double daysFromPerihelion = 0,
+        double epochDaysBefore = 0, double k1 = 10)
+    {
+        CometDesignation.TryParse(designation, out var parsed).ShouldBeTrue();
+        return new CometElements(parsed, "Test", q, e, 20, 100, 80, InstantJdTt - daysFromPerihelion, InstantJdTt - epochDaysBefore, m1, k1);
+    }
+
+    /// <summary>
+    /// The ranking leaves out what its model cannot be trusted for, however bright the model says it is: a D/ (defunct or lost) comet,
+    /// and an element set more than <see cref="OrreryScene.MaxRevolutionsSinceEpoch"/> revolutions old at the month's middle (ten
+    /// here, its perihelion modelled on the date). Opened, focused or pinned, each is drawn all the same, as they bypass the ranking.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task ADefunctOrLongStaleCometIsNotRanked()
+    {
+        var defunct = Designated("5D", m1: 4);
+        var stale = Designated("77P", m1: 4, daysFromPerihelion: 10 * Math.Pow(1.0 / (1 - 0.6), 1.5) * 365.25, epochDaysBefore: 10 * Math.Pow(1.0 / (1 - 0.6), 1.5) * 365.25);
+        stale.RevolutionsSinceEpoch(InstantJdTt).ShouldBeGreaterThan(OrreryScene.MaxRevolutionsSinceEpoch);
+        var fresh = Designated("78P", m1: 9);
+        foreach (var comet in new[] { defunct, stale, fresh })
+        {
+            CometEphemeris.TryGetEquatorialJ2000WithMagnitude(comet, Instant, out _, out _, out var magnitude).ShouldBeTrue();
+            output.WriteLine($"{comet.DisplayName}: magnitude {magnitude:F1} at the instant, {comet.RevolutionsSinceEpoch(InstantJdTt):F1} revolutions since its epoch");
+        }
+        var repo = new StubCometRepository(defunct, stale, fresh);
+        var scene = new OrreryScene();
+
+        await UpdateRankedAsync(scene, Instant, repo, new OrreryCometChoice(true, null, null, null));
+        SetOf(scene).ShouldBe([Index(fresh)], ignoreOrder: true);
+
+        IReadOnlySet<CatalogIndex> pins = new HashSet<CatalogIndex> { Index(stale) };
+        await UpdateRankedAsync(scene, Instant, repo, new OrreryCometChoice(true, Index(defunct), null, pins));
+        SetOf(scene).ShouldBe([Index(fresh), Index(defunct), Index(stale)], ignoreOrder: true);
+    }
+
+    /// <summary>
+    /// The ranking is over every comet with a magnitude model, not the sky's candidates: a comet whose PEAK estimate is past the
+    /// sky's candidacy limit (as P/2026 R2 (Leonard)'s, 18.1, is) but which is bright at the instant, passing near the Earth, is in.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task ACometPastTheSkysCandidacyButBrightNowIsIn()
+    {
+        var (longitude, r) = Earth();
+        var close = Comet(70, m1: 19.5, q: r, e: 0.5, inclination: 0, node: 0, argumentOfPerihelion: longitude + 8, k1: 7.5);
+        SkyMapState.IsCometCandidate(close).ShouldBeFalse("the sky's candidacy would take it");
+        CometEphemeris.TryGetEquatorialJ2000WithMagnitude(close, Instant, out _, out _, out var magnitude).ShouldBeTrue();
+        output.WriteLine($"peak estimate {SkyMapState.PeakMagnitude(close):F1}, magnitude at the instant {magnitude:F1}");
+        magnitude.ShouldBeLessThan(17);
+        var repo = new StubCometRepository([.. Fillers().Take(10), close]);
+        var scene = new OrreryScene();
+
+        await UpdateRankedAsync(scene, Instant, repo, new OrreryCometChoice(true, null, null, null));
+        SetOf(scene).ShouldContain(Index(close));
     }
 
     /// <summary>

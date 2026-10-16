@@ -473,21 +473,58 @@ the Sun, is why Venus is a crescent, and the angle between them at the planet is
 Issue: #1611 (2026-10-16), with its amendment A1 (every orbit in its body's colour), after TheSkyLive's orrery: coloured
 orbits, comets as a head with a pale fan of a tail away from the Sun, labelled.
 
-- **Which comets: a FIXED set**, so none blinks in and out under Play (the sky's rule, its magnitude limit at the instant,
-  would). The `OrreryScene.CometSetSize` = **30** brightest at PEAK, ranked by `SkyMapState.PeakMagnitude`
-  (`M1 + K1 log10(max(q, 0.05))`), the ONE estimate the sky's candidacy filter uses too, so the two never drift; a comet with
-  no magnitude model is not ranked. Thirty is about the number the controller asked for; in the catalogue cached on
-  2026-10-16 (4,080 comets, 1,995 with a magnitude model) it is every comet whose peak estimate is brighter than about
-  magnitude 3.4, 12P/Pons-Brooks the thirtieth. Most are great comets of the last century on near-parabolic orbits, so their
-  heads are far out today and their orbits cross the inner system as long arcs. Ranked once per repository and count of
-  comets, as the sky's candidacy is. **Always added**: the comet the view was opened on, the focused one (a click) and the
-  PINNED ones, however faint (`OrreryCometChoice`).
+- **Which comets: the 30 brightest at the VIEWING INSTANT, ranked per MONTH** (`OrreryScene.CometSetSize`, `RankAt`). Ranked
+  first at PEAK (`SkyMapState.PeakMagnitude`), the thirty were great comets of the last century, far out and tailless today,
+  while TheSkyLive's orrery shows the comets of NOW: 10P/Tempel, 161P/Hartley-IRAS, 220P/McNaught and P/2026 R2 (Leonard) all
+  ranked 9 to 12 magnitudes past that cutoff. The rule now:
+  - **The pool is every comet with a magnitude model and an index** (1,995 of 4,080 in the catalogue cached on 2026-10-16),
+    NOT the sky's candidates (`SkyMapState.IsCometCandidate`, a peak estimate of 18.0 or brighter, which stays the sky's and its
+    per-frame sweep's alone): Leonard's peak estimate is 18.1, so the candidacy left it out while it was magnitude 16, the
+    seventeenth brightest in the month.
+  - **The score** is each comet's best predicted magnitude over four instants spread over the view's month
+    (`RankSamplesPerMonth`), through the sky's own calls (one `CometEphemeris.TryGetEarthState` per instant,
+    `TryGetEquatorialJ2000WithMagnitude` per comet), so a comet bright for part of the month counts. A member of the set is
+    scored a magnitude brighter than it is (`MembershipHysteresisMag`), so the edge does not flicker month to month.
+  - **The month is the bucket** (`MonthBucket`): a ranking holds while the clock stays in its month, so two instants of a month
+    give one ranking (`AMonthIsRankedOnce`). A fixed set within the month, so nothing blinks under Play the way the sky's
+    magnitude limit at the instant would.
+  - **What the model cannot be trusted for is not ranked** (in `RankAt` only, never `IsCometCandidate`, which has no instant): a
+    D/ (defunct or lost) designation, and an element set more than `MaxRevolutionsSinceEpoch` = **5** revolutions past its
+    epoch at the month's middle. Two-body propagation drifts in PHASE from an old set, and the magnitude law then models a
+    perihelion that is not happening. Measured over the catalogue at 2026-10-16: unfiltered, C/2020 P4-B ranked first at 5.8, its
+    set 5.97 revolutions old, at r = 0.095 AU near a modelled perihelion about 2026-10-27 (the month's fourth sample; magnitude
+    13.6 on the 16th), six magnitudes ahead of the next; 5D/Brorsen (lost since 1879, 27 revolutions) ranked second at 6.5, and
+    3D/Biela, D/1978 R1 and 34D/Gale were in the thirty. Every other set among the 45 brightest was at most 4.1 revolutions old
+    (the known periodics 0.4 to 2.9), so five keeps those and drops the fragments decades out (79P-A and B, 8.6 and 8.7). An open
+    orbit has no period and is kept. The sky still draws such comets from the same stale sets: #1630.
+  - **No comet of the thirty came within 0.05 AU of the Earth** at its best sample (the closest, Leonard, at 0.32 AU), so the
+    score needs no floor on the geocentric distance; the magnitude law is the sky's, unchanged.
+  - **The thirty at 2026-10-16**, best magnitude of the month: 332P/Ikeya-Murakami 11.9, 260P/McNaught 13.4, C/2024 T5 (ATLAS)
+    13.5, 16P/Brooks 13.5, **10P/Tempel 13.9 (5th)**, C/2026 A2 (Bok) 14.0, **161P/Hartley-IRAS 14.6 (7th)**, 128P-A/Shoemaker-Holt
+    15.0, C/2024 J3 (ATLAS) 15.0, 78P/Gehrels 15.2, C/2024 R4 (PANSTARRS) 15.4, P/2010 H2 (Vales) 15.6, C/2025 V2 (Rankin) 15.8,
+    C/2023 R1 (PANSTARRS) 15.9, C/2015 D1 (SOHO) 16.0, **P/2026 R2 (Leonard) 16.0 (16th)**, **220P/McNaught 16.0 (17th)**,
+    C/2014 UN271 (Bernardinelli-Bernstein) 16.1, C/2025 Y1 (ATLAS) 16.1, 88P/Howell 16.2, 169P/NEAT 16.3, 11P/Tempel-Swift-LINEAR
+    16.3, C/2025 M2 (PANSTARRS) 16.4, 123P/West-Hartley 16.7, C/2022 QE78 (ATLAS) 16.7, C/2022 N2 (PANSTARRS) 16.9, 2P/Encke 16.9,
+    84P/Giclas 16.9, P/1996 R2 (Lagerkvist) 17.0, 112P/Urata-Niijima 17.1. The ranking reads the BULK element sets (as the sky's
+    sweep does); the drawing reads each comet's through `ICometRepository.TryGet`, apparition upgrade included.
+  - **Off the render thread.** A month is ranked on the pool (`Task.Run`, the Task the hand-off, a landing asks for a frame),
+    the set already drawn kept until the ranking lands; at most one is in flight, so fast Play, which crosses a month nearly
+    every frame, ranks the month the clock is in when the last one lands. Measured on the Snapdragon X Elite, Debug, the
+    catalogue of 1,995: a ranking takes 13 to 16 ms on the pool (median 14.6); on the render thread a played frame crossing into
+    a new month costs 0.69 ms (median of 12) against 0.57 ms for a frame a minute on, and the frame that adopts the ranking 0.7
+    ms (2.3 at most), one to four newcomers' orbits built and nothing else.
+  - **Always added**, whatever the ranking and the filter: the comet the view was opened on, the focused one (a click) and the
+    PINNED ones, however faint or stale (`OrreryCometChoice`; `TheOpenedFocusedAndPinnedAreAlwaysIn`,
+    `ADefunctOrLongStaleCometIsNotRanked`). Tests: `TheSetIsTheBrightestAtTheViewingInstant` (a faint-peak comet at
+    perihelion in, ten years on out; a great comet fifty years past perihelion out, which ranking at peak put first),
+    `ACometPastTheSkysCandidacyButBrightNowIsIn`, `AMemberJustPastTheCutoffStays`.
 - **The comet layer** (`SkyMapState.ShowComets`, the atlas's comet toggle) gates the thirty; the opened, focused and pinned
   comets are drawn with it off, as a pin shows a comet on the sky with its layer off (`TheCometLayerOffDrawsNone`: the set, its
   tails, orbits and labels are gone, the opened comet stays).
 - **The cache.** The set is read again only when its KEY moves: the repository (by reference), its `ICometRepository.Version`
-  (new: raised by a load, a refresh and every apparition upgrade), or the choice; never by comparing thirty element sets on
-  every frame. Its orbits are kept by index (rebuilt only for an index whose elements changed), the positions per minute of
+  (new: raised by a load, a refresh and every apparition upgrade), the ranking adopted, or the choice; never by comparing thirty
+  element sets on every frame. Its orbits are kept by index (rebuilt only for an index whose elements changed, so a new month
+  builds only its newcomers'), the positions per minute of
   the clock and per set version, all of them in one sweep. A drag builds nothing and scales no orbit again; a played frame
   inside the same minute builds nothing; five years on, the positions are computed once and no orbit is built or scaled
   (`OrreryCometTests.ADragOrAPlayedMinuteBuildsNothing`).
@@ -667,8 +704,8 @@ C ring's. The ten parity views and Night's no-blue still pass, and `TheWebGlTrac
 
 #### A5: what is open
 
-- **The comets (#1611, done but for a look in a real browser)**: the set, tails, labels, clicks and orbit colours are built
-  ("A5: the comets"). Seen in headless Edge by the E2E only, with eight synthetic comets; nobody has yet looked at the real
+- **The comets (#1611, done but for a look in a real browser)**: the set (ranked at the viewing instant), tails, labels,
+  clicks and orbit colours are built ("A5: the comets"). The sky's own drawing of lost and defunct comets from stale sets is #1630. Seen in headless Edge by the E2E only, with eight synthetic comets; nobody has yet looked at the real
   catalogue's thirty in the app or the browser, nor timed Play with them there.
 
 - **Seen in the browser once, by the E2E only** (#1572, bench). `OrrerySunTests` (2026-10-16) opened the orrery in headless Edge
