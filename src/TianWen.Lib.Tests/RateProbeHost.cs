@@ -306,6 +306,20 @@ internal static class OtherWorktreeBuilds
 }
 
 /// <summary>
+/// When an evidence run prints its clicks for a person: at once, then again each time the interval has passed, until the person
+/// has made them.
+/// </summary>
+internal static class ClickPrompt
+{
+    /// <summary>
+    /// Whether the clicks are due to be printed at <paramref name="now"/>, on a clock started with the run, when they were last
+    /// printed at <paramref name="lastPrinted"/>, null before the first print. Never a <see cref="TimeSpan.MinValue"/> for "never":
+    /// subtracting it from the clock overflows.
+    /// </summary>
+    public static bool Due(TimeSpan? lastPrinted, TimeSpan now, TimeSpan every) => lastPrinted is not { } last || now - last >= every;
+}
+
+/// <summary>
 /// A GUI window an evidence run opens: put on the LEFT half of the primary monitor's work area, full height, never over the
 /// right half (where another program may need to be seen), as <c>tools/check-local-only-binds.ps1</c> places it; and
 /// captured by <c>PrintWindow</c> with <c>PW_RENDERFULLCONTENT</c>, which reads that window alone, swapchain included, with no
