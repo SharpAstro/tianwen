@@ -1227,8 +1227,13 @@ recording; the panel's FILTER section is still open there), #1340 (whose sequenc
   it was, and the capture goes on. `MeasuredFps` leaves out the time the stream stood stopped.
 - **On the reader's path**: one iterator for the capture, its awaits on the reader's context as the loop's are, so a frame allocates
   nothing more; the rate once the stream is back is the body's, the ring (and its planes, `RingPlaneShelf`) the same unless the
-  window changed. The live stack's rolling window still holds the frames before the change until they pass out of it; giving each
-  filter a fresh window is the sequence's (#1340), which rebuilds by step.
+  window changed.
+- **The live stack starts again after every interlude**, as it does after a new window: the interlude marks the ring's RUN at its
+  first kept frame (`LiveCameraFrameStream.RunStart`), `LiveStackLoop` starts a new stacker when the run moves as when the ring is
+  rebuilt, and that stacker's window never reaches back before it (`RollingWindowStacker`'s `firstIndex`). No flag: a filter
+  change, a sequence's step and a still all want it. The ring is NOT rebuilt for it, since a ring left behind gives its planes to
+  nobody and a new one fills fresh (1.2 GB a capture at 640x480, TIA2), while disposing one fails a stack still reading it; the
+  frame counters, the rate and a recording carry on.
 - **The device plane's `ChangeFilterAsync` stays the one route** (`docs/architecture/hosting-api.md`, "Moving a focuser, a filter
   wheel or a mount"): it moves the focuser of the OTA the active profile puts the wheel on, claims the wheel and that focuser while it
   moves them, and while a planetary capture streams through the wheel (`NodePlanetaryRun.StreamsThrough`, the node's run) runs as
