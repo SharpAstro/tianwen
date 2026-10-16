@@ -262,21 +262,30 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     }
 
     /// <summary>
-    /// The viewport and scissor of the renderer's whole target, for what is drawn after a sky pass clipped them to the map rect.
-    /// Sized by the RENDERER, never the swapchain: an offscreen frame's context has no swapchain, so its extent read 0 x 0 and every
-    /// 2D primitive after the orrery's backdrop (its orbits) fell into a zero viewport, while what reset the viewport itself (the
-    /// planet bodies, <see cref="VkPlanetBodies"/>) still drew (docs/plans/atlas-planet-detail.md, A5, "The backdrop").
+    /// The extent of the whole target, for what is drawn after a sky pass clipped the viewport and scissor to the map rect: the
+    /// SWAPCHAIN's when there is one, the renderer's only when there is none. A window keeps what it drew with: on the published
+    /// 7.64 renderer a window maximised to the work area (#1574) has a renderer of 1920 x 1233 over a 1920 x 1200 swapchain, and
+    /// the renderer's size would shift what follows by up to 33 px. An offscreen frame's context has no swapchain, 0 x 0, which
+    /// was a zero viewport: every 2D primitive after the orrery's backdrop (its orbits) vanished, while what sets its own viewport
+    /// (the planet bodies, <see cref="VkPlanetBodies"/>) still drew (docs/plans/atlas-planet-detail.md, A5, "The backdrop").
+    /// Public because this assembly grants no <c>InternalsVisibleTo</c>, and the tests pin the choice.
     /// </summary>
+    public static (uint Width, uint Height) FullTargetExtent(uint swapchainWidth, uint swapchainHeight, uint rendererWidth, uint rendererHeight)
+        => swapchainWidth > 0 && swapchainHeight > 0 ? (swapchainWidth, swapchainHeight) : (rendererWidth, rendererHeight);
+
+    // The viewport and scissor of the whole target (FullTargetExtent), after a sky pass clipped them to the map rect.
     private void RestoreFullTarget(Vortice.Vulkan.VkCommandBuffer cmd)
     {
-        var api = renderer.Context.DeviceApi;
+        var ctx = renderer.Context;
+        var api = ctx.DeviceApi;
+        var (width, height) = FullTargetExtent(ctx.SwapchainWidth, ctx.SwapchainHeight, renderer.Width, renderer.Height);
         Vortice.Vulkan.VkViewport fullVp = new()
         {
             x = 0, y = 0,
-            width = renderer.Width, height = renderer.Height,
+            width = width, height = height,
             minDepth = 0f, maxDepth = 1f
         };
-        Vortice.Vulkan.VkRect2D fullScissor = new(0, 0, renderer.Width, renderer.Height);
+        Vortice.Vulkan.VkRect2D fullScissor = new(0, 0, width, height);
         api.vkCmdSetViewport(cmd, 0, 1, &fullVp);
         api.vkCmdSetScissor(cmd, 0, fullScissor);
     }

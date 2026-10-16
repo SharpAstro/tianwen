@@ -608,8 +608,12 @@ backdrop draw (`SkyMapTab.DrawOrreryBackdrop`, the first thing the frame draws a
 - **What a host skips**: the twilight ground, the horizon fill and the lines (Vulkan draws the `Backdrop` phase, WebGL
   checks the backdrop), and `SkyMapState.CurrentViewMatrix` is left as the map's own.
 - **What the pass leaves behind it, on Vulkan**: the sky pipeline clips the viewport and scissor to the map rect, and
-  `VkSkyMapTab.RestoreFullTarget` puts back the RENDERER's whole target (`renderer.Width` x `Height`, as `VkPlanetBodies`
-  sizes its own). Its three copies sized it by the context's swapchain, which an offscreen frame does not have: 0 x 0. So
+  `VkSkyMapTab.RestoreFullTarget` puts back the whole target, `FullTargetExtent`: the SWAPCHAIN's extent when there is
+  one, the renderer's size (`renderer.Width` x `Height`, as `VkPlanetBodies` sizes its own) only when there is none. Both
+  cases exist because a window must keep what it drew with: on the published 7.64 renderer a window maximised to the work
+  area (#1574) has a renderer of 1920 x 1233 over a 1920 x 1200 swapchain, and the renderer's size would shift everything
+  after a sky pass by up to 33 px (`VkSkyMapTabTargetTests`). Its three copies sized it by the swapchain alone, which an
+  offscreen frame does not have: 0 x 0. So
   on the headless Vulkan host every 2D primitive after the backdrop fell into a zero viewport until the planet bodies set
   their own, and the orbits (drawn before the bodies) vanished, while the bodies, the labels and the strip still drew.
   Found by the comets leg (PR #1631): 229 of 1,625 orbit samples lit with the backdrop on (the stars along the paths)
