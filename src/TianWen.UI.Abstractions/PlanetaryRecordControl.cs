@@ -39,8 +39,9 @@ public sealed class PlanetaryRecordControl
     {
         var recordingNow = recording is { Recording: true };
         var duration = Duration;
-        // Stop whenever a recording goes on; Record only while the capture runs and the field states a duration.
-        var enabled = recordingNow || (capturing && duration is not null);
+        // Both go to the capture's own node, so neither is offered with no capture on show: Stop while a recording goes on,
+        // Record while the field states a duration.
+        var enabled = capturing && (recordingNow || duration is not null);
         var fill = !enabled ? GuiTheme.AltRowBg : recordingNow ? GuiTheme.DangerButtonBg : GuiTheme.GoButtonBg;
         var button = Layout.Builder.Text(recordingNow ? "Stop" : "Record", fontSize, enabled ? GuiTheme.InkOn(fill) : GuiTheme.Palette.DimText,
                 TextAlign.Center, TextAlign.Center, widthSample: "Record")

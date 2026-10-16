@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Sequencing;
+using TianWen.RemoteClient;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -118,6 +119,45 @@ public class PlanetaryRecordingThroughTheNodeTests(ITestOutputHelper output)
         var capture = (await h.Local.Client.GetPlanetaryAsync(ct)).Value.ShouldNotBeNull();
         capture.Running.ShouldBeTrue("the capture goes on after its recording is stopped");
         planetary.IsCapturing.ShouldBeTrue();
+
+        h.Post(new StopVideoCaptureSignal());
+        await h.UntilAsync(() => !planetary.IsCapturing, ct);
+    }
+
+    /// <summary>
+    /// Record and its Stop are controls of the capture on screen, so they go to the capture's OWN node, never the view's
+    /// command target (CLAUDE.md, Remote Rigs: "a control of the RUN on screen goes to its own node"). A capture started on a
+    /// granted rig records there while this computer's view is on show, where Record used to reach this computer's node and be
+    /// refused (review round 1 of #1610, Q1).
+    /// </summary>
+    [Fact(Timeout = 90_000)]
+    public async Task RecordAndItsStopGoToTheCapturesOwnNodeWhicheverViewIsOnShow()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var h = await GuiNodeHarness.StartAsync(output, ct);
+        var (rigNode, rig, _) = await h.ConnectRigAsync(output, ct);
+        await GuiNodeHarness.GrantAsync(rigNode, rig, ct);
+        var planetary = await CapturingAsync(h);
+        var rigClient = new TianWenNodeClient(rigNode.Client);
+        (await rigClient.GetPlanetaryAsync(ct)).Value.ShouldNotBeNull().Running.ShouldBeTrue("premise: the capture is the rig's");
+
+        h.Contexts.Activate(h.Contexts.Local).ShouldBeTrue();
+        h.Contexts.IsRemoteActive.ShouldBeFalse("premise: this computer's view is on show");
+        h.Post(new StartPlanetaryRecordingSignal(TimeSpan.FromMinutes(10)));
+        await h.UntilSettledAsync(ct);
+
+        ShouldNotHaveWarned(h);
+        (await rigClient.GetPlanetaryAsync(ct)).Value.ShouldNotBeNull().Recording.ShouldNotBeNull()
+            .Recording.ShouldBeTrue("the capture's own node records it");
+        (await h.Local.Client.GetPlanetaryAsync(ct)).IsNotFound.ShouldBeTrue("this computer's node ran no capture, and was asked nothing");
+
+        h.Post(new StopPlanetaryRecordingSignal());
+        await h.UntilSettledAsync(ct);
+
+        ShouldNotHaveWarned(h);
+        var stopped = (await rigClient.GetPlanetaryAsync(ct)).Value.ShouldNotBeNull();
+        (stopped.Running, stopped.Recording?.Recording, stopped.Recording?.EndReason).ShouldBe((true, false, "it was stopped"),
+            "the stop reached the capture's own node, and the capture goes on");
 
         h.Post(new StopVideoCaptureSignal());
         await h.UntilAsync(() => !planetary.IsCapturing, ct);

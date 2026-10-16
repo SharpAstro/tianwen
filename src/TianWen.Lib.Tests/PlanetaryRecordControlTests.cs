@@ -129,6 +129,21 @@ public class PlanetaryRecordControlTests
         Texts(new PlanetaryRecordControl(), recording: null, capturing: false).ShouldContain("Start the capture to record it");
     }
 
+    /// <summary>
+    /// Record and its Stop go to the capture's own node, so with no capture on show neither is offered, a recording the last
+    /// state read still calls going on included (review round 1 of #1610, Q1).
+    /// </summary>
+    [Theory]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public void WithNoCaptureOnShowNeitherRecordNorStopIsOffered(float scale)
+    {
+        using var renderer = Surface(scale);
+        var (panel, _, _) = Paint(renderer, scale, new PlanetaryRecordControl(), Recording(recording: true), capturing: false);
+
+        Toggle(panel).ShouldBeNull("there is no capture's node to send a stop to");
+    }
+
     [Theory]
     [InlineData("", 1f)]
     [InlineData("abc", 1f)]
