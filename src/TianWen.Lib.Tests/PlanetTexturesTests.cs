@@ -37,8 +37,9 @@ public sealed class PlanetTexturesTests
     /// The atlas holds nine bodies, the Earth among them (#1573): two to a row, five rows, so 512 x 640, and the file beside the tests is
     /// that size and gives the Earth its map credited to NASA's Blue Marble. An atlas of the old size (eight bodies, 512 x 512) is refused
     /// whole, so a stale file leaves the bodies flat, never a map read from the wrong cell. The Sun (#1608) took the tenth cell with no
-    /// change of size, so the nine-body atlas it replaces is the same size: its empty cell, all black, is no map, and the Sun stays flat
-    /// rather than drawn black.
+    /// change of size, so the nine-body atlas it replaces is the same size: its empty cell, all black, is no map, so the Sun gets none
+    /// rather than a black one (since #1617 only the orrery then draws it flat; the sky map draws its dot and the info panel's slot stays
+    /// dark until the atlas loads).
     /// </summary>
     [Fact]
     public void TheAtlasHoldsTheEarthAndAStaleAtlasIsRefused()
