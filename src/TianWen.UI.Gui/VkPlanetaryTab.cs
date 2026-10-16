@@ -43,12 +43,10 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
     // The panel: the capture settings, the ROI selection, the recording and the recenter. Render-thread only.
     private readonly PlanetaryControlPanel _panel = new PlanetaryControlPanel();
 
-    // PiP drag: the sensor-thumbnail rect + sensor->pixel scale captured in DrawRoiPip, so HandleInput can
-    // hit-test the PiP and map the cursor back to sensor coords to reposition the ROI. Drag is idle-only.
+    // PiP drag: the sensor-thumbnail rect + sensor->pixel scale captured in DrawRoiPip, so the PiP's press can tell a press
+    // on the sensor from one beside it and map the cursor back to sensor coords to reposition the ROI.
     private RectF32 _pipSensorRect;
     private float _pipScale;
-    private bool _pipDragging;
-    private bool _capturing;                      // mirrors controller.IsCapturing, for the HandleInput gate
 
     // The active OTA's focuser telemetry, refreshed each frame by RenderPlanetary (drives the focuser readout
     // + whether the jog row is shown). Render-thread only.
@@ -116,7 +114,6 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
         // Resolve the ROI rules + sensor dims from the OTA telemetry snapshot (populated off-thread from the
         // connected camera) -- so the picker reflects the REAL camera's constraints, pre-capture, without ever
         // touching the driver on the render thread. Falls back to a plausible sensor before a camera reports.
-        _capturing = controller.IsCapturing; // mirrored for the PiP-drag gate in HandleInput (idle-only)
         _panel.FollowCamera(_focuser);
 
         var panelW = MathF.Min(PlanetaryControlPanel.BaseWidth * dpiScale, contentRect.Width * 0.5f);
@@ -164,7 +161,9 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
     // .Clickable leaves register here, after that, so they survive. Design-unit sizes/fonts are scaled by RenderLayout.
     private void RenderControlPanel(PlanetaryCaptureController controller, RectF32 panel, float dpiScale)
     {
-        var panelTree = _panel.Build(controller.Capture, _focuser, controller.RecordingTimeLeft, Bus);
+        // A PiP not drawn this frame (folded while capturing, or scrolled out of the panel) has no sensor to press on.
+        _pipScale = 0f;
+        var panelTree = _panel.Build(controller.Capture, _focuser, controller.RecordingTimeLeft, Bus, PressPip);
         // The panel's only Fill leaf is the ROI PiP.
         RenderLayout(panelTree, panel, scale: Scale,
             drawFill: (fill, r) =>
@@ -256,30 +255,21 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
     }
 
     /// <summary>
-    /// Intercepts ROI drags inside the PiP before the base viewer. A press inside the PiP sensor thumbnail
-    /// begins a drag that re-centres the ROI on the cursor (mapped to sensor coords + snapped); without this
-    /// the press would fall through to the base and start an image pan (the PiP Fill leaf has no clickable).
-    /// Idle-only: a drag moves the SELECTION the next Start takes, while a running capture's readout window moves
-    /// only through the panel's Pan and Size steppers, which stage the jog on the capture as they move the selection.
-    /// All other events defer to the base (toolbar / WB + wavelet sliders / pan / zoom).
+    /// The PiP's press, declared on the panel's PiP fill so the router hands it here: a press on the sensor thumbnail
+    /// begins a drag that re-centres the ROI on the cursor (mapped to sensor coords + snapped) until the button comes up;
+    /// a press beside the thumbnail is declined. Idle-only, since the panel declares the PiP only while idle: a drag
+    /// moves the SELECTION the next Start takes, while a running capture's readout window moves only through the panel's
+    /// Pan and Size steppers, which stage the jog on the capture as they move the selection.
     /// </summary>
-    public override bool HandleInput(InputEvent evt)
+    private DragCapture? PressPip(PointerPress press)
     {
-        switch (evt)
+        if (!InPipSensor(press.X, press.Y))
         {
-            case InputEvent.MouseDown(var px, var py, _, _, _) when !_capturing && InPipSensor(px, py):
-                _pipDragging = true;
-                SetRoiCentreFromPip(px, py);
-                return true;
-            case InputEvent.MouseMove(var px, var py) when _pipDragging:
-                SetRoiCentreFromPip(px, py);
-                return true;
-            case InputEvent.MouseUp(_, _, _) when _pipDragging:
-                _pipDragging = false;
-                return true;
+            return null;
         }
 
-        return base.HandleInput(evt);
+        SetRoiCentreFromPip(press.X, press.Y);
+        return new DragCapture(move => SetRoiCentreFromPip(move.X, move.Y), static _ => { });
     }
 
     private bool InPipSensor(float px, float py)

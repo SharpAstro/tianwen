@@ -19,6 +19,13 @@ namespace TianWen.UI.Abstractions;
 /// every frame (<see cref="NodePlanetaryCapture.ConfigureRecenter"/> sends it only when it changed). Render thread only: every
 /// field is written by a press the router dispatches on that thread.
 /// </para>
+/// <para>
+/// <b>It fits the left half of a 1080-line screen at 100 %</b>, about 935 design units under the GUI's status bar and the Live
+/// Session top strip, and <c>PlanetaryControlPanelFitTests</c> holds every section to it. While a capture runs, every row a
+/// user acts on is on screen without scrolling: the rows that are setup only fold away, which today is the picture-in-picture
+/// (its drag is idle-only, and it shows the selection, which the recenter's jogs of the running window do not move). Where
+/// folding is not enough (idle with the last recording shown, a smaller screen, a larger scale) the panel scrolls, by the wheel.
+/// </para>
 /// </summary>
 public sealed class PlanetaryControlPanel
 {
@@ -96,6 +103,10 @@ public sealed class PlanetaryControlPanel
     private int _gainIdx = 2;                      // 50%
     private const double MountNudgeArcsec = 30.0;  // manual N/S/E/W nudge step
 
+    // The panel's scroll, for where its rows outgrow the room it is given. The engine states what it scrolls over each frame,
+    // and a wheel over the panel moves it (the router asks the region the scrolled stack registers); a bar shows that it does.
+    private readonly ListScrollController _scroll = new ListScrollController { Mode = ScrollBarMode.Decorative };
+
     /// <summary>The Record control (#1344): its duration field and its rows.</summary>
     public PlanetaryRecordControl Record { get; } = new PlanetaryRecordControl();
 
@@ -162,13 +173,16 @@ public sealed class PlanetaryControlPanel
     }
 
     /// <summary>
-    /// The panel as one tree for a frame: a column of fixed-height rows, its background the panel's, sized in design units.
-    /// Each call is a frame of the panel, so it first hands <paramref name="capture"/> the recenter the panel shows.
+    /// The panel as one tree for a frame: a scrolled column of fixed-height rows, its background the panel's, sized in design
+    /// units. Each call is a frame of the panel, so it first hands <paramref name="capture"/> the recenter the panel shows.
     /// <paramref name="telemetry"/> is the OTA's (the focuser's readout and jog, and which depths and readouts the camera
     /// offers), <paramref name="recordingTimeLeft"/> the recording's by this computer's clock
-    /// (<see cref="PlanetaryCaptureController.RecordingTimeLeft"/>).
+    /// (<see cref="PlanetaryCaptureController.RecordingTimeLeft"/>). <paramref name="pipPress"/> is what a press on the
+    /// picture-in-picture does, the view's, since only the view knows where it drew the sensor inside the fill: a press the
+    /// scrolled panel's own region would otherwise swallow.
     /// </summary>
-    public Layout.Node Build(NodePlanetaryCapture capture, PreviewOTATelemetry telemetry, TimeSpan recordingTimeLeft, SignalBus? bus)
+    public Layout.Node Build(NodePlanetaryCapture capture, PreviewOTATelemetry telemetry, TimeSpan recordingTimeLeft, SignalBus? bus,
+        Func<PointerPress, DragCapture?>? pipPress = null)
     {
         var capturing = capture.IsCapturing;
 
@@ -247,7 +261,12 @@ public sealed class PlanetaryControlPanel
         rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
         rows.Add(Layout.Builder.Box(0f, 1f, Divider).RowH(1f));
         rows.Add(SectionHeader("REGION (ROI)"));
-        rows.Add(Layout.Builder.Fill(key: PipKey).RowH(BaseRowHeight * 3f));
+        // Setup only, so it folds while a capture runs (see the class remarks): the fit of a 1080-line screen needs its rows.
+        if (!capturing)
+        {
+            var pip = Layout.Builder.Fill(key: PipKey).RowH(BaseRowHeight * 3f);
+            rows.Add(pipPress is null ? pip : pip.Pressable(new HitResult.ButtonHit(PipKey), pipPress));
+        }
         rows.Add(Stepper("Size", $"{_roi.Width}x{_roi.Height}", "RoiSize",
             () => { SetRoiSize(_roiSizeIdx - 1); if (capturing) capture.SetRoiSize(_roi.Width, _roi.Height); },
             () => { SetRoiSize(_roiSizeIdx + 1); if (capturing) capture.SetRoiSize(_roi.Width, _roi.Height); }));
@@ -325,7 +344,7 @@ public sealed class PlanetaryControlPanel
                 .RowH(BaseRowHeight));
         }
 
-        return Layout.Builder.VStack(rows.ToArray()).Pad(BasePanelPad).WithGap(BaseGap).Bg(PanelBg);
+        return Layout.Builder.VStack(rows.ToArray()).Pad(BasePanelPad).WithGap(BaseGap).Bg(PanelBg).WithScroll(_scroll);
     }
 
     private static Layout.Node SectionHeader(string text)
