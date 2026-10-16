@@ -67,6 +67,31 @@ internal sealed record SerRateReadBack(int Frames, TimeSpan Span, double StepP50
 }
 
 /// <summary>
+/// The node rate gate's comparison with the same session's in-process rate (TIA2), out of the probe so its rules are tested: a
+/// recording through the node must read within <see cref="WithinInProcess"/> of the in-process recordings made beside it.
+/// </summary>
+internal static class RateGate
+{
+    /// <summary>How far below the same session's in-process rate a gated recording may read.</summary>
+    public const double WithinInProcess = 0.03;
+
+    /// <summary>The same session's in-process rate: the mean of its in-process recordings that did not stall, or null when none did not.</summary>
+    public static double? InProcessBaseline(IEnumerable<double> cleanRates)
+    {
+        double[] rates = [.. cleanRates];
+        return rates.Length > 0 ? rates.Average() : null;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="fps"/> is within <see cref="WithinInProcess"/> of <paramref name="baseline"/>. No baseline, or one
+    /// that is not a number, is never within: the comparison is what the gate is for, and a comparison through
+    /// <see cref="double.CompareTo(double)"/> (as Shouldly's is) ranks NaN below every rate, so a missing baseline used to pass it.
+    /// </summary>
+    public static bool IsWithinInProcess(double fps, double? baseline)
+        => baseline is { } rate && double.IsFinite(rate) && fps >= (1 - WithinInProcess) * rate;
+}
+
+/// <summary>
 /// The whole machine's CPU over an interval, the load a rate run was measured under: the share of every core's time that
 /// was busy (<c>GetSystemTimes</c>), and the processes that used most of it. A run that misses under load is re-run with
 /// its bar unchanged, so the load is reported beside every run.
