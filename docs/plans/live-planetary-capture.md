@@ -1003,7 +1003,7 @@ alike, because the capture loop's reader was a thread pool continuation at norma
 the reader, and measures it the way node-rate did: the ToupTek at the Saturn window, 60 s recordings read back off their SER, in
 process (`ToupTekFrameRateProbe.ARecordingAtTheSaturnWindowKeepsEveryFrame`) and through the node with the GUI's live view
 (`NodePlanetaryRateProbe`), under 32 spinning processes at normal priority (100 % of the 16 cores), at below-normal priority, and
-with the box quiet. A recording the camera stalled in is reported apart and made again (up to 5 more).
+with the box quiet. A recording the camera stalled in is reported apart and made again (2 more by default, `TIANWEN_TOUPTEK_EXTRA_RUNS`; these runs allowed 5).
 
 **What changed, and why each.**
 - **The loop runs on a thread of its own at AboveNormal** (`CaptureReaderThread`): above any normal-priority load, below the
