@@ -37,6 +37,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>The info panel's disc slot as the last frame painted it, or null when the panel had none: what the tests read.</summary>
         internal RectF32? LastPanelDiscRect { get; private set; }
 
+        /// <summary>The credit line the last frame's panel drew under its disc, or null: what the tests read.</summary>
+        internal string? LastPanelDiscCredit { get; private set; }
+
         /// <summary>Whether anything about a disc has been touched (its textures or its sprites), for the test of a wide field.</summary>
         internal bool PlanetDiscsTouched => _planetTextures is not null || _planetSprites is not null;
 

@@ -361,6 +361,35 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// The disc says where its texture came from (#1567, #1608): every atlas body's credit is a line of the disc section, arranged
+        /// UNDER the disc's slot and inside the section's height, which the panel reserves whether or not the credit has arrived, so the
+        /// panel does not jump when the texture lands. Solar System Scope's CC BY 4.0 asks for exactly this wherever its maps show.
+        /// </summary>
+        [Fact]
+        public void EveryAtlasBodysCreditIsDrawnUnderItsDisc()
+        {
+            using var renderer = new RgbaImageRenderer(400, 400);
+            var context = new PixelMeasureContext<RgbaImage>(renderer, FontResolver.ResolveSystemFont());
+            var unknown = new ObjectInfoPanel.PanelDisplayOptions(Disc: true);
+            foreach (var body in TianWen.Lib.Imaging.Planetary.PlanetTextureAtlas.Layout)
+            {
+                var credit = TianWen.Lib.Imaging.Planetary.PlanetTextureAtlas.Credit(body);
+                var options = new ObjectInfoPanel.PanelDisplayOptions(Disc: true, DiscCredit: credit);
+                ObjectInfoPanel.DesignMediaHeight(in options).ShouldBe(ObjectInfoPanel.DesignMediaHeight(in unknown));
+                var height = ObjectInfoPanel.DesignMediaHeight(in options);
+                var media = ObjectInfoPanel.BuildMediaSections(in options, in Palette).ShouldNotBeNull();
+                var arranged = Layout.Engine.Arrange(media, new Rect<float>(0, 0, ObjectInfoPanel.DesignWidth, height), context);
+
+                var disc = arranged.Single(a => a.Node is Layout.Node.Leaf { Content: Layout.Content.Fill { Key: ObjectInfoPanel.DiscFillKey } }).Bounds;
+                var line = arranged.Where(a => a.Node is Layout.Node.Leaf { Content: Layout.Content.Text { Value: var value } } && value == credit)
+                    .ShouldHaveSingleItem($"{body}: the credit \"{credit}\" is not in the panel").Bounds;
+                line.Y.ShouldBeGreaterThanOrEqualTo(disc.Y + disc.Height, $"{body}: the credit is not under the disc");
+                (line.Y + line.Height).ShouldBeLessThanOrEqualTo(height, $"{body}: the credit falls outside the section");
+                line.Height.ShouldBeGreaterThan(0f);
+            }
+        }
+
+        /// <summary>
         /// How many children the row has. Counting rather than inspecting content: what matters is that
         /// an action produces a button and a missing action produces nothing, which is a count.
         /// <c>Length</c> rather than <c>Count</c>: ImmutableArray only exposes the latter through

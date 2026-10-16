@@ -90,6 +90,10 @@ namespace TianWen.UI.Abstractions
         /// draws into (<see cref="DiscFillKey"/>): the Sun, the Moon or a planet as it is now, phased, turned and, for Saturn,
         /// ringed. The map's narrowest field shows few planets as more than a dot, so the panel is where the disc is seen.
         /// </param>
+        /// <param name="DiscCredit">
+        /// The disc's texture credit (<see cref="PlanetTextures.TryGet"/>, <c>PlanetTextureAtlas.Credit</c>), drawn under the disc; null
+        /// until the texture has landed, when the row stays empty.
+        /// </param>
         public readonly record struct PanelDisplayOptions(
             bool ShowAltAz = false,
             bool ShowRiseSet = false,
@@ -98,7 +102,8 @@ namespace TianWen.UI.Abstractions
             bool Sparkline = false,
             ObjectArticleImage? Picture = null,
             string? Disk = null,
-            bool Disc = false);
+            bool Disc = false,
+            string? DiscCredit = null);
 
         /// <summary>What the article link reads.</summary>
         public const string ArticleLinkLabel = "Wikipedia";
@@ -124,8 +129,11 @@ namespace TianWen.UI.Abstractions
         /// <summary>The disc section's margin above and below its slot: the one number the section's spacers and its height read.</summary>
         public const float DesignDiscMargin = 4f;
 
-        /// <summary>The disc section's whole design height: the slot and its margins.</summary>
-        public const float DesignDiscSectionHeight = DesignDiscMargin + DesignDiscHeight + DesignDiscMargin;
+        /// <summary>
+        /// The disc section's whole design height: the slot, its margins and the credit row under it, reserved whether or not the
+        /// credit has arrived, so the panel does not move when the texture lands.
+        /// </summary>
+        public const float DesignDiscSectionHeight = DesignDiscMargin + DesignDiscHeight + DesignRowHeight + DesignDiscMargin;
 
         /// <summary>The key of the large view's slot, drawn by the same host hook at a bigger size.</summary>
         public const string LargePictureFillKey = "ObjectInfoPictureLarge";
@@ -517,6 +525,13 @@ namespace TianWen.UI.Abstractions
                         Layout.Builder.Fill(key: DiscFillKey).WStar().HStar().Bg(PictureFrame),
                         Layout.Builder.Spacer().WFixed(8f).HStar())
                         .RowH(DesignDiscHeight),
+                    // Where the disc's texture came from (#1567): a CC BY map must say so wherever it shows.
+                    Layout.Builder.HStack(
+                        Layout.Builder.Spacer().WFixed(8f).HStar(),
+                        Layout.Builder.Text(options.DiscCredit ?? "", DesignFontSize * 0.8f, palette.DimText, TextAlign.Near, TextAlign.Center)
+                            .WStar().HStar(),
+                        Layout.Builder.Spacer().WFixed(8f).HStar())
+                        .RowH(DesignRowHeight),
                     Layout.Builder.Spacer().RowH(DesignDiscMargin))
                 : null;
             var picture = options.Picture is { } image ? BuildPictureSection(in image, in palette, onOpenPicture) : null;
