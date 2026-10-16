@@ -75,6 +75,67 @@ internal static class RateGate
     /// <summary>How far below the same session's in-process rate a gated recording may read.</summary>
     public const double WithinInProcess = 0.03;
 
+    /// <summary>The bar, decided with the controller: at least this many frames a second off every gated recording's SER.</summary>
+    public const double Bar = 190;
+
+    /// <summary>
+    /// What fails a recording the gate judges, in words, or nothing when it passes: under <see cref="Bar"/>, not within
+    /// <see cref="WithinInProcess"/> of the same session's in-process rate (or no such rate), a frame the hand-off replaced (or
+    /// no count of them), a frame the body or the disk dropped, a step over the SER's long-step bound.
+    /// </summary>
+    public static IReadOnlyList<string> Failures(SerRateReadBack ser, long? replaced, int bodyDropped, int diskDropped, double? baseline)
+    {
+        var failures = new List<string>();
+        if (ser.Fps < Bar)
+        {
+            failures.Add($"{ser.Fps:F1} fps, under the bar of {Bar}");
+        }
+        if (!IsWithinInProcess(ser.Fps, baseline))
+        {
+            failures.Add(baseline is { } rate && double.IsFinite(rate)
+                ? $"{ser.Fps:F1} fps, {ser.Fps / rate:P1} of the in-process {rate:F1}, not within {WithinInProcess:P0}"
+                : "no same-session in-process rate to compare with");
+        }
+        if (replaced is not 0)
+        {
+            failures.Add(replaced is { } count ? $"{count} replaced by the hand-off" : "no count of the frames the hand-off replaced");
+        }
+        if (bodyDropped != 0)
+        {
+            failures.Add($"{bodyDropped} dropped by the body");
+        }
+        if (diskDropped != 0)
+        {
+            failures.Add($"{diskDropped} dropped by the disk");
+        }
+        if (ser.LongSteps.Length > 0)
+        {
+            failures.Add($"{ser.LongSteps.Length} step(s) over {ser.LongStepBound.TotalMilliseconds:F0} ms, the longest {ser.MaxStep.TotalMilliseconds:F0} ms");
+        }
+        return failures;
+    }
+
+    /// <summary>A SER step this long, or a SER ending this much before its recording does, looks like a stall.</summary>
+    public static readonly TimeSpan StallStep = TimeSpan.FromSeconds(1);
+
+    /// <summary>Where a recording stands: set aside and reported apart, and whether another run is made in its place.</summary>
+    public readonly record struct Standing(bool SetAside, bool MakesAnother);
+
+    /// <summary>
+    /// Where a recording stands. Only a stall its stream LOGGED sets it aside (the node's stream-end line, the in-process
+    /// driver's <c>VideoStalls</c>): a gap the stream did not log as one is the node's or the box's (a reader late past the
+    /// hand-off, a disk that held the recorder), and the gate judges it. How the SER looks (a step of
+    /// <see cref="StallStep"/> or more, or frames ending that much before the recording) only decides whether another run is
+    /// made, since a node's stalls are read from its log once it has exited.
+    /// </summary>
+    /// <param name="loggedStalls">The stalls the stream logged, or null while not yet known.</param>
+    public static Standing StandingOf(int? loggedStalls, SerRateReadBack ser, TimeSpan asked)
+    {
+        var looksStalled = ser.LongSteps.Any(step => step.Step >= StallStep) || ser.Span < asked - StallStep;
+        var logged = loggedStalls > 0;
+        return new Standing(SetAside: logged, MakesAnother: logged || looksStalled);
+    }
+
     /// <summary>The same session's in-process rate: the mean of its in-process recordings that did not stall, or null when none did not.</summary>
     public static double? InProcessBaseline(IEnumerable<double> cleanRates)
     {
