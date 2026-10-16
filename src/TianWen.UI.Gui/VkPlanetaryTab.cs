@@ -22,8 +22,9 @@ namespace TianWen.UI.Gui;
 /// = the content area minus the left panel; the GPU image quad still projects over the full surface. Per
 /// frame: <see cref="PlanetaryCaptureController.Tick"/> publishes the latest live-stack master, then the base
 /// viewer renders <see cref="PlanetaryCaptureController.Source"/>, then the panel draws on top. Capture
-/// (Start/Stop, exposure, gain, ROI) and the focuser jog are posted as signals (the view only routes; the
-/// capture wiring lives in <c>AppSignalHandler</c>, the focuser jog reuses <c>JogFocuserSignal</c>).
+/// (Start/Stop, exposure, gain, ROI), the recording (<see cref="PlanetaryRecordControl"/>, #1344) and the focuser
+/// jog are posted as signals (the view only routes; the capture wiring lives in <c>AppSignalHandler</c>, the
+/// focuser jog reuses <c>JogFocuserSignal</c>).
 /// </para>
 /// <para>
 /// The panel is built with the <c>DIR.Lib.Layout</c> engine (a <c>Layout.Builder</c> tree of star-weighted
@@ -107,6 +108,9 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
     // VideoBitDepths and CanFastReadout). A null depth is the camera's own, shown as its deepest. Render-thread only.
     private BitDepth? _bitDepth;
     private bool _highSpeed = true;
+
+    // The Record control (#1344): its duration field and its rows. Render-thread only.
+    private readonly PlanetaryRecordControl _record = new PlanetaryRecordControl();
 
     // --- RECENTER (Phase C): COM auto-recenter via ROI jog + opt-in coarse mount jog. Render-thread only;
     // synced to the controller (ConfigureRecenter) once per render. Both are OPT-IN (the user, 2026-09-28): the
@@ -298,6 +302,13 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
             var readout = $"{controller.Capture.MeasuredFps:F0} fps   {controller.Capture.FramesReceived} frm   {controller.Capture.DroppedFrames} drop{depth}";
             rows.Add(Layout.Builder.Text(readout, PanelFontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center).RowH(BaseRowHeight));
         }
+
+        // --- Record section (#1344): the node writes the SER and finishes it unwatched; this asks and shows what it says. ---
+        rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
+        rows.Add(Layout.Builder.Box(0f, 1f, Divider).RowH(1f));
+        rows.Add(SectionHeader("RECORD"));
+        rows.AddRange(_record.Rows(controller.Capture.Recording, capturing, controller.RecordingTimeLeft, Bus,
+            PanelFontSize, BaseRowHeight, BaseGap * 0.6f));
 
         // --- Region of Interest section: PiP sensor thumbnail + the ROI rect, size presets (snapped to the
         // camera's RoiConstraints), pan, and the on-stream overlay toggle. All live during capture: Size
