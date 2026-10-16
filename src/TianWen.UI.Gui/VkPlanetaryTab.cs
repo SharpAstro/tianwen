@@ -1,9 +1,6 @@
 using System;
-using System.Collections.Immutable;
 using DIR.Lib;
 using SdlVulkan.Renderer;
-using TianWen.DAL;
-using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Shared;
@@ -21,77 +18,30 @@ namespace TianWen.UI.Gui;
 /// The viewer is told to arrange within a content rect (<see cref="ImageRendererBase{TSurface}.SetContentRegion"/>)
 /// = the content area minus the left panel; the GPU image quad still projects over the full surface. Per
 /// frame: <see cref="PlanetaryCaptureController.Tick"/> publishes the latest live-stack master, then the base
-/// viewer renders <see cref="PlanetaryCaptureController.Source"/>, then the panel draws on top. Capture
-/// (Start/Stop, exposure, gain, ROI), the recording (<see cref="PlanetaryRecordControl"/>, #1344) and the focuser
-/// jog are posted as signals (the view only routes; the capture wiring lives in <c>AppSignalHandler</c>, the
-/// focuser jog reuses <c>JogFocuserSignal</c>).
+/// viewer renders <see cref="PlanetaryCaptureController.Source"/>, then the panel draws on top.
 /// </para>
 /// <para>
-/// The panel is built with the <c>DIR.Lib.Layout</c> engine (a <c>Layout.Builder</c> tree of star-weighted
-/// rows), not pixel arithmetic -- placement is weights + spacers, and draw == hit by construction.
+/// The panel is a declaration, <see cref="PlanetaryControlPanel"/> (#1612): its settings, its rows and what each control
+/// posts or stages live there, so a test arranges the same tree. This view paints it and keeps what only it can draw: the
+/// sensor's picture-in-picture (the panel's <see cref="PlanetaryControlPanel.PipKey"/> fill), its drag, and the ROI
+/// outlined on the stream.
 /// </para>
 /// </summary>
 public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<VulkanContext>
 {
-    // Panel text follows the GUI's standard metrics (design units; RenderLayout scales by DpiScale) so it
-    // matches the other tabs' chrome. Named to avoid hiding the inherited ImageRendererBase.BaseFontSize.
+    // Named to avoid hiding the inherited ImageRendererBase.BaseFontSize; design units, as the panel's text.
     private static readonly float PanelFontSize = GuiTheme.Metrics.BaseFontSize;
-    private const float BasePanelWidth = 280f;
     private const float BaseRowHeight = 26f;
-    private const float BasePanelPad = 8f;
-    private const float BaseGap = 5f;
-
-    // Planetary captures a single OTA; its focuser jog targets OTA index 0 (mirrors the single-OTA focus path).
-    private const int PlanetaryOtaIndex = 0;
 
     private static RGBAColor32 ContentBg => TianWen.UI.Abstractions.GuiTheme.Palette.ContentBg;
-    private static RGBAColor32 PanelBg => GuiTheme.Palette.HeaderBg;
-    private static RGBAColor32 HeaderText => GuiTheme.Palette.HeaderText;
     private static RGBAColor32 DimText => GuiTheme.Palette.DimText;
-    private static RGBAColor32 StartBg => TianWen.UI.Abstractions.GuiTheme.GoButtonBg;
-    private static RGBAColor32 StopBg => TianWen.UI.Abstractions.GuiTheme.DangerButtonBg;
-    private static RGBAColor32 ButtonText => TianWen.UI.Abstractions.GuiTheme.InkOn(StartBg);
-    private static RGBAColor32 SectionText => TianWen.UI.Abstractions.GuiTheme.Palette.DimText;
-    private static RGBAColor32 Divider => TianWen.UI.Abstractions.GuiTheme.Palette.Separator;
-    private static RGBAColor32 MovingText => TianWen.UI.Abstractions.GuiTheme.Palette.Warn;
-    private static RGBAColor32 StepBtnBg => TianWen.UI.Abstractions.GuiTheme.NeutralButtonBg;
-    private static RGBAColor32 StepBtnDisabledBg => TianWen.UI.Abstractions.GuiTheme.AltRowBg;
-    private static RGBAColor32 JogBg => TianWen.UI.Abstractions.GuiTheme.NeutralButtonBg;
     // ROI picture-in-picture + the red ROI rectangle (PiP sensor thumbnail + the on-stream overlay).
     private static RGBAColor32 PipSensorBg => TianWen.UI.Abstractions.GuiTheme.Palette.ContentBg;
     private static RGBAColor32 PipSensorBorder => TianWen.UI.Abstractions.GuiTheme.Palette.SeparatorStrong;
     private static RGBAColor32 RoiColor => TianWen.UI.Abstractions.GuiTheme.Palette.Error;
-    private static RGBAColor32 CheckOnBg => TianWen.UI.Abstractions.GuiTheme.GoButtonBg;
 
-    // Capture settings, edited by the panel steppers and posted on Start. Mutated only on the render thread
-    // (in click handlers dispatched synchronously from input), so plain fields are fine.
-    private static readonly double[] ExposurePresetsMs = [0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500];
-    private int _exposureIdx = 4;                 // 10 ms
-
-    private const int GainStep = 10;
-    private const int GainMax = 1000;
-    private int _gain = 100;
-
-    // ROI is a FREE rect within the camera's hardware constraints, not a fixed list -- these presets are just
-    // snapped-to-constraint convenience sizes the size stepper cycles. The chosen rect (_roi) is snapped to the
-    // connected camera's RoiConstraints (step / alignment / sensor bounds) every frame.
-    private static readonly (int W, int H)[] RoiSizePresets =
-        [(320, 240), (512, 512), (640, 360), (640, 480), (800, 600), (1024, 768), (1280, 960)];
-    private int _roiSizeIdx = 2;                  // 640x360
-
-    // Fallback sensor when no camera is connected yet, so the PiP still renders a plausible frame. A typical
-    // small planetary CMOS (e.g. IMX585-class); replaced by the real sensor dims the moment a camera reports.
-    private const int FallbackSensorW = 1936;
-    private const int FallbackSensorH = 1096;
-
-    // The current ROI selection (origin + snapped size), the sensor it was snapped against, and whether the
-    // ROI rectangle is overlaid on the live stream. Render-thread only (mutated in click handlers).
-    private RoiRect _roi;
-    private RoiConstraints _roiConstraints = RoiConstraints.ForSensor(FallbackSensorW, FallbackSensorH);
-    private int _sensorW = FallbackSensorW;
-    private int _sensorH = FallbackSensorH;
-    private bool _roiInitialised;
-    private bool _roiOverlay = true;              // draw the ROI extent on the live stream
+    // The panel: the capture settings, the ROI selection, the recording and the recenter. Render-thread only.
+    private readonly PlanetaryControlPanel _panel = new PlanetaryControlPanel();
 
     // PiP drag: the sensor-thumbnail rect + sensor->pixel scale captured in DrawRoiPip, so HandleInput can
     // hit-test the PiP and map the cursor back to sensor coords to reposition the ROI. Drag is idle-only.
@@ -103,26 +53,6 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
     // The active OTA's focuser telemetry, refreshed each frame by RenderPlanetary (drives the focuser readout
     // + whether the jog row is shown). Render-thread only.
     private PreviewOTATelemetry _focuser = PreviewOTATelemetry.Unknown;
-
-    // The stream's depth and high-speed readout, offered only where the camera has a choice (its telemetry's
-    // VideoBitDepths and CanFastReadout). A null depth is the camera's own, shown as its deepest. Render-thread only.
-    private BitDepth? _bitDepth;
-    private bool _highSpeed = true;
-
-    // The Record control (#1344): its duration field and its rows. Render-thread only.
-    private readonly PlanetaryRecordControl _record = new PlanetaryRecordControl();
-
-    // --- RECENTER (Phase C): COM auto-recenter via ROI jog + opt-in coarse mount jog. Render-thread only;
-    // synced to the controller (ConfigureRecenter) once per render. Both are OPT-IN (the user, 2026-09-28): the
-    // operator turns the recenter on once the rig is ready for it, and it costs the capture loop about 20 ms a frame at
-    // full frame. Mount jog moves the scope, and its sign is uncalibrated. ---
-    private bool _autoRecenter;
-    private bool _mountJog;
-    private static readonly int[] DeadbandPresetsPx = [2, 4, 8, 16, 32];
-    private int _deadbandIdx = 1;                 // 4 px
-    private static readonly int[] RecenterGainPresetsPct = [10, 25, 50, 75, 100];
-    private int _gainIdx = 2;                      // 50%
-    private const double MountNudgeArcsec = 30.0;  // manual N/S/E/W nudge step
 
     // One-time, planetary-appropriate defaults pushed onto the shared ViewerState the first time the view
     // renders: show the live stack (RAW/STACK starts on STACK), expose the info panel (the wavelet-sharpen +
@@ -139,7 +69,7 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
     public PixelWidgetBase<VulkanContext> Widget => this;
 
     /// <summary>
-    /// <see cref="IPlanetaryViewWidget"/> entry point: renders the left control panel + the live
+    /// <see cref="IPlanetaryViewWidget{TSurface}"/> entry point: renders the left control panel + the live
     /// rolling-window stack (via the shared viewer). Drives <paramref name="controller"/> off the shared
     /// <see cref="PlanetaryCaptureController.ViewerState"/> (the same DI-singleton the controller holds, so
     /// wavelet-slider changes in the info panel reach the capture loop's sharpen).
@@ -187,9 +117,9 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
         // connected camera) -- so the picker reflects the REAL camera's constraints, pre-capture, without ever
         // touching the driver on the render thread. Falls back to a plausible sensor before a camera reports.
         _capturing = controller.IsCapturing; // mirrored for the PiP-drag gate in HandleInput (idle-only)
-        ResolveAndEnsureRoi();
+        _panel.FollowCamera(_focuser);
 
-        var panelW = MathF.Min(BasePanelWidth * dpiScale, contentRect.Width * 0.5f);
+        var panelW = MathF.Min(PlanetaryControlPanel.BaseWidth * dpiScale, contentRect.Width * 0.5f);
         var panelRect = new RectF32(contentRect.X, contentRect.Y, panelW, contentRect.Height);
         var viewerRect = new RectF32(contentRect.X + panelW, contentRect.Y,
             MathF.Max(0f, contentRect.Width - panelW), contentRect.Height);
@@ -211,7 +141,7 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
         // The ROI overlay + panel both draw on top of the rendered viewer via FillRect (same as the panel),
         // so they survive Render. The overlay outlines the displayed frame: the live stream IS the ROI crop,
         // so the ROI rect maps to the whole displayed image (clamped to the viewer area when zoomed in).
-        if (_roiOverlay && source is not null)
+        if (_panel.ShowRoiOnImage && source is not null)
         {
             DrawRoiOnStream(dpiScale);
         }
@@ -230,377 +160,39 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
         }
     }
 
-    // Builds + paints the left control panel as one Layout.Builder tree (a VStack of fixed-height rows). The
-    // base viewer already cleared + re-armed the clickable tracker in Render(); the layout's .Clickable leaves
-    // register here, after that, so they survive. Design-unit sizes/fonts are scaled by RenderLayout(dpiScale).
+    // Paints the panel's tree. The base viewer already cleared + re-armed the clickable tracker in Render(); the layout's
+    // .Clickable leaves register here, after that, so they survive. Design-unit sizes/fonts are scaled by RenderLayout.
     private void RenderControlPanel(PlanetaryCaptureController controller, RectF32 panel, float dpiScale)
     {
-        var capturing = controller.IsCapturing;
-        // Exposure / gain / ROI size + pan are all live-tunable WHILE capturing now (just like a real
-        // planetary capture), so the steppers stay enabled; a change updates the local value and, when a
-        // capture is running, is pushed to the controller to take effect on the next frame.
-        var canEdit = true;
-
-        // Keep the controller's recenter config in lock-step with the panel toggles/steppers (cheap volatile
-        // writes; one sync point picks up the initial default + any change, no per-click plumbing).
-        PushRecenter(controller);
-
-        // --- Capture section ---
-        var captureFill = capturing ? StopBg : StartBg;
-        var startStop = Layout.Builder.Text(capturing ? "Stop" : "Start", PanelFontSize, ButtonText, TextAlign.Center, TextAlign.Center)
-            .Bg(captureFill).BgHover(GuiTheme.Hover(captureFill)).RowH(BaseRowHeight)
-            .Clickable(new HitResult.ButtonHit("PlanetaryCaptureToggle"), _ =>
+        var panelTree = _panel.Build(controller.Capture, _focuser, controller.RecordingTimeLeft, Bus);
+        // The panel's only Fill leaf is the ROI PiP.
+        RenderLayout(panelTree, panel, scale: Scale,
+            drawFill: (fill, r) =>
             {
-                if (capturing)
+                if (fill.Key == PlanetaryControlPanel.PipKey)
                 {
-                    Bus?.Post(new StopVideoCaptureSignal());
-                }
-                else
-                {
-                    Bus?.Post(new StartVideoCaptureSignal(
-                        ExposureMs: ExposurePresetsMs[_exposureIdx],
-                        Gain: (short)_gain,
-                        RoiWidth: _roi.Width,
-                        RoiHeight: _roi.Height,
-                        BitDepth: _bitDepth,
-                        HighSpeed: _focuser.CanFastReadout ? _highSpeed : null));
+                    DrawRoiPip(r, dpiScale);
                 }
             });
-
-        var exposureMs = ExposurePresetsMs[_exposureIdx];
-
-        var rows = ImmutableArray.CreateBuilder<Layout.Node>();
-        rows.Add(SectionHeader("CAPTURE"));
-        rows.Add(startStop);
-        // Steppers stay editable during capture: a change updates the local value and, if a capture is
-        // running, pushes it to the controller so it takes effect on the next frame (live exposure / gain).
-        rows.Add(Stepper("Exp", $"{exposureMs:0.##} ms", canEdit, "Exposure",
-            () => { _exposureIdx = Math.Max(0, _exposureIdx - 1); PushExposure(controller, capturing); },
-            () => { _exposureIdx = Math.Min(ExposurePresetsMs.Length - 1, _exposureIdx + 1); PushExposure(controller, capturing); }));
-        rows.Add(Stepper("Gain", _gain.ToString(), canEdit, "Gain",
-            () => { _gain = Math.Max(0, _gain - GainStep); if (capturing) controller.Capture.SetGain(_gain); },
-            () => { _gain = Math.Min(GainMax, _gain + GainStep); if (capturing) controller.Capture.SetGain(_gain); }));
-        // IsDefault first: a camera with no reading yet holds a default array, whose Length throws.
-        if (_focuser.VideoBitDepths is { IsDefault: false, Length: > 1 } depths)
-        {
-            rows.Add(DepthRow(depths, controller, capturing));
-        }
-        if (_focuser.CanFastReadout)
-        {
-            rows.Add(CheckRow("High speed", _highSpeed, "HighSpeed", () =>
-            {
-                _highSpeed = !_highSpeed;
-                if (capturing)
-                {
-                    controller.Capture.SetHighSpeed(_highSpeed);
-                }
-            }));
-        }
-        if (capturing)
-        {
-            var depth = controller.Capture.FrameBitDepth is { } streamed ? $"   {streamed.BitSize} bit" : "";
-            var readout = $"{controller.Capture.MeasuredFps:F0} fps   {controller.Capture.FramesReceived} frm   {controller.Capture.DroppedFrames} drop{depth}";
-            rows.Add(Layout.Builder.Text(readout, PanelFontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center).RowH(BaseRowHeight));
-        }
-
-        // --- Record section (#1344): the node writes the SER and finishes it unwatched; this asks and shows what it says. ---
-        rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
-        rows.Add(Layout.Builder.Box(0f, 1f, Divider).RowH(1f));
-        rows.Add(SectionHeader("RECORD"));
-        rows.AddRange(_record.Rows(controller.Capture.Recording, capturing, controller.RecordingTimeLeft, Bus,
-            PanelFontSize, BaseRowHeight, BaseGap * 0.6f));
-
-        // --- Region of Interest section: PiP sensor thumbnail + the ROI rect, size presets (snapped to the
-        // camera's RoiConstraints), pan, and the on-stream overlay toggle. All live during capture: Size
-        // rebuilds the stream at the new framing on the next frame; Pan jogs the readout window (the fast,
-        // mount-free recenter actuator). While idle they position the SELECTION shown in the PiP + overlay,
-        // applied on the next Start.
-        rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
-        rows.Add(Layout.Builder.Box(0f, 1f, Divider).RowH(1f));
-        rows.Add(SectionHeader("REGION (ROI)"));
-        rows.Add(Layout.Builder.Fill(key: "RoiPip").RowH(BaseRowHeight * 3f));
-        rows.Add(Stepper("Size", $"{_roi.Width}x{_roi.Height}", canEdit, "RoiSize",
-            () => { SetRoiSize(_roiSizeIdx - 1); if (capturing) controller.Capture.SetRoiSize(_roi.Width, _roi.Height); },
-            () => { SetRoiSize(_roiSizeIdx + 1); if (capturing) controller.Capture.SetRoiSize(_roi.Width, _roi.Height); }));
-        rows.Add(Layout.Builder.HStack(
-                Layout.Builder.Text("Pan", PanelFontSize, DimText, TextAlign.Near, TextAlign.Center).WFixed(40f).HStar(),
-                RoiPanButton("◀", "RoiPanLeft", canEdit, -1, 0, controller, capturing),
-                RoiPanButton("▶", "RoiPanRight", canEdit, 1, 0, controller, capturing),
-                RoiPanButton("▲", "RoiPanUp", canEdit, 0, -1, controller, capturing),
-                RoiPanButton("▼", "RoiPanDown", canEdit, 0, 1, controller, capturing))
-            .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f));
-        rows.Add(OverlayToggleRow());
-
-        // --- Recenter section (Phase C): keep the planet centred. Auto-recenter jogs the readout window
-        // (fast, mount-free) to null the disk's COM drift; the opt-in Mount jog is the coarse fallback when the
-        // ROI reaches the sensor edge. Deadband/Gain tune the loop; the N/S/E/W buttons are a manual nudge. ---
-        rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
-        rows.Add(Layout.Builder.Box(0f, 1f, Divider).RowH(1f));
-        rows.Add(SectionHeader("RECENTER"));
-        rows.Add(CheckRow("Auto-recenter (ROI)", _autoRecenter, "RecenterAuto", () => _autoRecenter = !_autoRecenter));
-        rows.Add(Stepper("Deadband", $"{DeadbandPresetsPx[_deadbandIdx]} px", true, "RecenterDeadband",
-            () => _deadbandIdx = Math.Max(0, _deadbandIdx - 1),
-            () => _deadbandIdx = Math.Min(DeadbandPresetsPx.Length - 1, _deadbandIdx + 1)));
-        rows.Add(Stepper("Gain", $"{RecenterGainPresetsPct[_gainIdx]}%", true, "RecenterGain",
-            () => _gainIdx = Math.Max(0, _gainIdx - 1),
-            () => _gainIdx = Math.Min(RecenterGainPresetsPct.Length - 1, _gainIdx + 1)));
-        if (capturing && _autoRecenter)
-        {
-            var (ox, oy) = controller.Capture.LastComOffset;
-            rows.Add(Layout.Builder.Text(
-                    $"off {ox:+0.0;-0.0},{oy:+0.0;-0.0} px   {controller.Capture.LastRecenterActuator}",
-                    PanelFontSize * 0.8f, DimText, TextAlign.Near, TextAlign.Center)
-                .RowH(BaseRowHeight * 0.8f));
-        }
-        rows.Add(CheckRow("Mount jog (coarse)", _mountJog, "RecenterMount", () => _mountJog = !_mountJog));
-        rows.Add(Layout.Builder.HStack(
-                Layout.Builder.Text("Nudge", PanelFontSize, DimText, TextAlign.Near, TextAlign.Center).WFixed(40f).HStar(),
-                MountNudgeButton("N", "MountNudgeN", GuideDirection.North),
-                MountNudgeButton("S", "MountNudgeS", GuideDirection.South),
-                MountNudgeButton("E", "MountNudgeE", GuideDirection.East),
-                MountNudgeButton("W", "MountNudgeW", GuideDirection.West))
-            .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f));
-
-        // --- Focuser section (reuses JogFocuserSignal -- the same path the Live Session OTA panel posts) ---
-        rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
-        rows.Add(Layout.Builder.Box(0f, 1f, Divider).RowH(1f));
-        rows.Add(SectionHeader("FOCUSER"));
-        if (_focuser.FocuserConnected)
-        {
-            var focLabel = $"Pos: {_focuser.FocusPosition}";
-            if (!double.IsNaN(_focuser.FocuserTempC))
-            {
-                focLabel += $"   {_focuser.FocuserTempC:F1}°C";
-            }
-            if (_focuser.FocuserIsMoving)
-            {
-                focLabel += "   ⇄";
-            }
-            rows.Add(Layout.Builder.Text(focLabel, PanelFontSize, _focuser.FocuserIsMoving ? MovingText : HeaderText, TextAlign.Near, TextAlign.Center)
-                .RowH(BaseRowHeight));
-
-            // Jog row: [<<] [<] [>] [>>] -- coarse +/-100, fine +/-10 (matches the Live Session OTA panel).
-            rows.Add(Layout.Builder.HStack(
-                    JogButton("«", "FocCoarseIn", -100),
-                    JogButton("‹", "FocFineIn", -10),
-                    JogButton("›", "FocFineOut", 10),
-                    JogButton("»", "FocCoarseOut", 100))
-                .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f));
-            rows.Add(Layout.Builder.Text("fine 10  /  coarse 100", PanelFontSize * 0.8f, DimText, TextAlign.Center, TextAlign.Center)
-                .RowH(BaseRowHeight * 0.7f));
-        }
-        else
-        {
-            rows.Add(Layout.Builder.Text("No focuser connected", PanelFontSize, DimText, TextAlign.Near, TextAlign.Center)
-                .RowH(BaseRowHeight));
-        }
-
-        var panelTree = Layout.Builder.VStack(rows.ToArray())
-            .Pad(BasePanelPad).WithGap(BaseGap).Bg(PanelBg);
-        // The panel's only Fill leaf is the ROI PiP, so the draw callback unconditionally paints it.
-        RenderLayout(panelTree, panel, scale: Scale,
-            drawFill: (_, r) => DrawRoiPip(r, dpiScale));
     }
-
-    private static Layout.Node SectionHeader(string text)
-        => Layout.Builder.Text(text, PanelFontSize, SectionText, TextAlign.Near, TextAlign.Center).RowH(BaseRowHeight);
-
-    // "label [-] value [+]" as one fixed-height row. The -/+ leaves register clickables only when enabled; a
-    // click runs the action and GuiEventHandlerBase sets NeedsRedraw, so the new value shows next frame.
-    private Layout.Node Stepper(string label, string value, bool enabled, string idPrefix, Action onDec, Action onInc)
-    {
-        var btnBg = enabled ? StepBtnBg : StepBtnDisabledBg;
-        var valueColor = enabled ? HeaderText : DimText;
-        var iconSize = PanelFontSize * Layout.Content.Icon.TextSizeRatio;
-        var dec = Layout.Builder.Icon(Layout.IconKind.Minus, iconSize, enabled ? ButtonText : DimText)
-            .WFixed(BaseRowHeight).HStar().Bg(btnBg)
-            .Clickable(enabled ? new HitResult.ButtonHit(idPrefix + "Dec") : null,
-                enabled ? (Action<InputModifier>)(_ => onDec()) : null);
-        if (enabled) dec = dec.BgHover(GuiTheme.Hover(btnBg));
-        var inc = Layout.Builder.Icon(Layout.IconKind.Plus, iconSize, enabled ? ButtonText : DimText)
-            .WFixed(BaseRowHeight).HStar().Bg(btnBg)
-            .Clickable(enabled ? new HitResult.ButtonHit(idPrefix + "Inc") : null,
-                enabled ? (Action<InputModifier>)(_ => onInc()) : null);
-        if (enabled) inc = inc.BgHover(GuiTheme.Hover(btnBg));
-        return Layout.Builder.HStack(
-                Layout.Builder.Text(label, PanelFontSize, DimText, TextAlign.Near, TextAlign.Center).WFixed(52f).HStar(),
-                dec,
-                Layout.Builder.Text(value, PanelFontSize, valueColor, TextAlign.Center, TextAlign.Center).WStar().HStar(),
-                inc)
-            .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f);
-    }
-
-    // The stream's depth, one segment per depth the camera streams in; a change while capturing restarts its stream in it.
-    private Layout.Node DepthRow(ImmutableArray<BitDepth> depths, PlanetaryCaptureController controller, bool capturing)
-    {
-        var options = new Layout.ButtonGroupOption<BitDepth>[depths.Length];
-        for (var i = 0; i < depths.Length; i++)
-        {
-            options[i] = new Layout.ButtonGroupOption<BitDepth>(depths[i], $"{depths[i].BitSize} bit") { Hit = new HitResult.ButtonHit($"Depth{depths[i].BitSize}") };
-        }
-        var selected = _bitDepth is { } chosen && depths.Contains(chosen) ? chosen : depths[^1];
-        var style = new Layout.ButtonGroupStyle(CheckOnBg, StepBtnBg, HeaderText, DimText, GuiTheme.Hover(StepBtnBg));
-        return Layout.Builder.HStack(
-                Layout.Builder.Text("Depth", PanelFontSize, DimText, TextAlign.Near, TextAlign.Center).WFixed(52f).HStar(),
-                Layout.Builder.ButtonGroup<BitDepth>(options, selected, depth =>
-                {
-                    _bitDepth = depth;
-                    if (capturing)
-                    {
-                        controller.Capture.SetBitDepth(depth);
-                    }
-                }, style, PanelFontSize * 0.9f).Stretch())
-            .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f);
-    }
-
-    private Layout.Node JogButton(string glyph, string id, int steps)
-        => FormRowLayout.StepMark(glyph, PanelFontSize, ButtonText)
-            .WStar().HStar().Bg(JogBg).BgHover(GuiTheme.Hover(JogBg))
-            .Clickable(new HitResult.ButtonHit(id), _ => Bus?.Post(new JogFocuserSignal(PlanetaryOtaIndex, steps)));
-
-    // --- ROI selection (4c) -------------------------------------------------------------------------------
-
-    // Resolve the sensor dims + ROI constraints from the OTA telemetry snapshot (off-thread populated, so the
-    // render thread never touches the driver), falling back to a plausible sensor until a camera reports. The
-    // ROI is (re)centred on first use or a sensor change, and otherwise re-snapped so it stays legal if the
-    // constraints refresh. Render-thread only.
-    private void ResolveAndEnsureRoi()
-    {
-        int sw, sh;
-        RoiConstraints c;
-        if (_focuser.CameraConnected && _focuser.SensorWidth > 0 && _focuser.SensorHeight > 0)
-        {
-            sw = _focuser.SensorWidth;
-            sh = _focuser.SensorHeight;
-            // A connected camera always reports valid constraints (the DIM default is a free rect over the
-            // sensor); guard against an all-zero default just in case the snapshot predates the camera read.
-            c = _focuser.RoiConstraints.MaxWidth > 0 ? _focuser.RoiConstraints : RoiConstraints.ForSensor(sw, sh);
-        }
-        else
-        {
-            sw = FallbackSensorW;
-            sh = FallbackSensorH;
-            c = RoiConstraints.ForSensor(sw, sh);
-        }
-
-        _roiConstraints = c;
-        var sensorChanged = sw != _sensorW || sh != _sensorH;
-        _sensorW = sw;
-        _sensorH = sh;
-
-        if (!_roiInitialised || sensorChanged)
-        {
-            var p = RoiSizePresets[_roiSizeIdx];
-            _roi = c.Snap(RoiRect.Centered(sw, sh, p.W, p.H));
-            _roiInitialised = true;
-        }
-        else
-        {
-            _roi = c.Snap(_roi); // keep it legal against the (possibly refreshed) constraints
-        }
-    }
-
-    // Cycle the size preset, snapping to the current constraints; keep the current origin (Snap re-clamps so
-    // the new size still fits the sensor).
-    private void SetRoiSize(int idx)
-    {
-        _roiSizeIdx = Math.Clamp(idx, 0, RoiSizePresets.Length - 1);
-        var p = RoiSizePresets[_roiSizeIdx];
-        _roi = _roiConstraints.Snap(new RoiRect(_roi.X, _roi.Y, p.W, p.H));
-    }
-
-    // One pan step in sensor pixels: ~5% of the sensor per click (at least one origin step).
-    private (int Dx, int Dy) RoiPanDelta(int dirX, int dirY)
-        => (dirX * Math.Max(_roiConstraints.OriginStepX, _sensorW / 20),
-            dirY * Math.Max(_roiConstraints.OriginStepY, _sensorH / 20));
-
-    // Pan the ROI selection origin (the PiP / overlay), then snap to alignment + bounds.
-    private void PanRoi(int dirX, int dirY)
-    {
-        var (dx, dy) = RoiPanDelta(dirX, dirY);
-        _roi = _roiConstraints.Snap(new RoiRect(_roi.X + dx, _roi.Y + dy, _roi.Width, _roi.Height));
-    }
-
-    private Layout.Node RoiPanButton(string glyph, string id, bool enabled, int dirX, int dirY,
-        PlanetaryCaptureController controller, bool capturing)
-    {
-        var roiPanFill = enabled ? JogBg : StepBtnDisabledBg;
-        var node = FormRowLayout.StepMark(glyph, PanelFontSize, enabled ? ButtonText : DimText)
-            .WStar().HStar().Bg(roiPanFill)
-            .Clickable(enabled ? new HitResult.ButtonHit(id) : null,
-                enabled ? (Action<InputModifier>)(_ =>
-                {
-                    // Move the SELECTION (PiP / overlay); while capturing also jog the live readout window by
-                    // the same pixel delta -- the fast, mount-free recenter actuator.
-                    if (capturing)
-                    {
-                        var (dx, dy) = RoiPanDelta(dirX, dirY);
-                        controller.Capture.JogRoi(dx, dy);
-                    }
-                    PanRoi(dirX, dirY);
-                }) : null);
-        return enabled ? node.BgHover(GuiTheme.Hover(roiPanFill)) : node;
-    }
-
-    // Pushes the currently-selected exposure preset to a running capture (no-op while idle; applied on Start).
-    private void PushExposure(PlanetaryCaptureController controller, bool capturing)
-    {
-        if (capturing)
-        {
-            controller.Capture.SetExposure(TimeSpan.FromMilliseconds(ExposurePresetsMs[_exposureIdx]));
-        }
-    }
-
-    // "[x] Show ROI on image" -- toggles the on-stream overlay. Allowed any time (a display toggle, not a
-    // capture setting), so it is not gated on the idle state like the steppers.
-    private Layout.Node OverlayToggleRow()
-        => CheckRow("Show ROI on image", _roiOverlay, "RoiOverlayToggle", () => _roiOverlay = !_roiOverlay);
-
-    // A checkbox row: green bg when on, neutral when off, and a DRAWN tick in a well (DIR.Lib's declared
-    // Checkbox) where it used to write "[x] " into the label, which is a mark in a text run. The base
-    // re-armed the clickable tracker in Render(), so the row's hit registers after that and survives.
-    private Layout.Node CheckRow(string label, bool on, string id, Action onClick)
-    {
-        var style = new Layout.CheckboxStyle(ContentBg, CheckOnBg, DimText, GuiTheme.Hover(on ? CheckOnBg : StepBtnBg))
-        {
-            CheckedLabelColor = HeaderText,
-            RowFill = StepBtnBg,
-            CheckedRowFill = CheckOnBg,
-            BoxSize = PanelFontSize * 0.9f,
-        };
-        return Layout.Builder.Checkbox(label, on, _ => onClick(), style, PanelFontSize * 0.9f, new HitResult.ButtonHit(id))
-            .PadX(4f)
-            .RowH(BaseRowHeight);
-    }
-
-    // A single-glyph mount-nudge button (manual coarse recenter / framing) -- posts the same JogMountSignal /
-    // pulse-guide actuator the COM recenter loop uses for its edge-blocked fallback.
-    private Layout.Node MountNudgeButton(string glyph, string id, GuideDirection direction)
-        => Layout.Builder.Text(glyph, PanelFontSize, ButtonText, TextAlign.Center, TextAlign.Center)
-            .WStar().HStar().Bg(JogBg).BgHover(GuiTheme.Hover(JogBg))
-            .Clickable(new HitResult.ButtonHit(id), _ => Bus?.Post(new JogMountSignal(direction, MountNudgeArcsec)));
-
-    // Pushes the current recenter config to the controller (called on every toggle / stepper change). Cheap;
-    // the controller stages it for the capture loop to read next frame.
-    private void PushRecenter(PlanetaryCaptureController controller)
-        => controller.Capture.ConfigureRecenter(_autoRecenter, _mountJog,
-            DeadbandPresetsPx[_deadbandIdx], RecenterGainPresetsPct[_gainIdx] / 100.0);
 
     // The PiP: a sensor-proportioned thumbnail (dark box) with the red ROI rectangle drawn at its mapped
     // position -- the primary "where on the sensor does my high-speed crop sit" visualisation.
     private void DrawRoiPip(RectF32 area, float dpiScale)
     {
+        var sensorW = _panel.SensorWidth;
+        var sensorH = _panel.SensorHeight;
         var inset = 4f * dpiScale;
         var availW = area.Width - 2f * inset;
         var availH = area.Height - 2f * inset;
-        if (_sensorW <= 0 || _sensorH <= 0 || availW <= 1f || availH <= 1f)
+        if (sensorW <= 0 || sensorH <= 0 || availW <= 1f || availH <= 1f)
         {
             return;
         }
 
-        var s = MathF.Min(availW / _sensorW, availH / _sensorH);
-        var boxW = _sensorW * s;
-        var boxH = _sensorH * s;
+        var s = MathF.Min(availW / sensorW, availH / sensorH);
+        var boxW = sensorW * s;
+        var boxH = sensorH * s;
         var boxX = area.X + (area.Width - boxW) * 0.5f;
         var boxY = area.Y + (area.Height - boxH) * 0.5f;
         FillRect(boxX, boxY, boxW, boxH, PipSensorBg);
@@ -610,10 +202,11 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
         _pipSensorRect = new RectF32(boxX, boxY, boxW, boxH);
         _pipScale = s;
 
-        var rx = boxX + _roi.X * s;
-        var ry = boxY + _roi.Y * s;
-        var rw = MathF.Max(1f, _roi.Width * s);
-        var rh = MathF.Max(1f, _roi.Height * s);
+        var roi = _panel.Roi;
+        var rx = boxX + roi.X * s;
+        var ry = boxY + roi.Y * s;
+        var rw = MathF.Max(1f, roi.Width * s);
+        var rh = MathF.Max(1f, roi.Height * s);
         StrokeRect(rx, ry, rw, rh, MathF.Max(1.5f, 1.5f * dpiScale), RoiColor);
     }
 
@@ -639,8 +232,9 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
             return;
         }
 
+        var roi = _panel.Roi;
         StrokeRect(l, t, r - l, b - t, MathF.Max(2f, 2f * dpiScale), RoiColor);
-        DrawText($"ROI {_roi.Width}x{_roi.Height}", fontPath,
+        DrawText($"ROI {roi.Width}x{roi.Height}", fontPath,
             l + 4f * dpiScale, t + 3f * dpiScale, r - l, BaseRowHeight * dpiScale,
             PanelFontSize * 0.8f * dpiScale, RoiColor, TextAlign.Near, TextAlign.Near);
     }
@@ -665,8 +259,9 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
     /// Intercepts ROI drags inside the PiP before the base viewer. A press inside the PiP sensor thumbnail
     /// begins a drag that re-centres the ROI on the cursor (mapped to sensor coords + snapped); without this
     /// the press would fall through to the base and start an image pan (the PiP Fill leaf has no clickable).
-    /// Idle-only -- the ROI is fixed during a running capture, matching the disabled pan/size steppers. All
-    /// other events defer to the base (toolbar / WB + wavelet sliders / pan / zoom).
+    /// Idle-only: a drag moves the SELECTION the next Start takes, while a running capture's readout window moves
+    /// only through the panel's Pan and Size steppers, which stage the jog on the capture as they move the selection.
+    /// All other events defer to the base (toolbar / WB + wavelet sliders / pan / zoom).
     /// </summary>
     public override bool HandleInput(InputEvent evt)
     {
@@ -700,10 +295,6 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
             return;
         }
 
-        var sx = (px - _pipSensorRect.X) / _pipScale;
-        var sy = (py - _pipSensorRect.Y) / _pipScale;
-        var x = (int)MathF.Round(sx - _roi.Width / 2f);
-        var y = (int)MathF.Round(sy - _roi.Height / 2f);
-        _roi = _roiConstraints.Snap(new RoiRect(x, y, _roi.Width, _roi.Height));
+        _panel.CentreRoiOn((px - _pipSensorRect.X) / _pipScale, (py - _pipSensorRect.Y) / _pipScale);
     }
 }
