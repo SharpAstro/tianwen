@@ -642,7 +642,19 @@ the position, the mount has landed or reports itself parked), and cancelling it 
 
 - **Focuser**: `POST /api/v1/devices/focuser/move` (`FocuserMoveRequestDto`: a `Position`, or `Steps` from where it
   is, one of the two, inside `0..MaxStep`) and `/focuser/stop`.
-- **Filter wheel**: `POST /api/v1/devices/filterwheel/change` (`FilterChangeRequestDto`, a position counted from 0).
+- **Filter wheel**: `POST /api/v1/devices/filterwheel/change` (`FilterChangeRequestDto`, a position counted from 0), and
+  `/api/v1/ota/{index}/filterwheel/change?position=N` for an OTA's wheel. **It is the session's one filter change**
+  (`FilterChange.ChangeAsync`, #1618; `docs/plans/live-planetary-capture.md`, Phase G): the wheel turned, its arrival
+  awaited for at most `FilterChange.ArrivalTimeout` (2 minutes), and the focuser of the OTA the ACTIVE PROFILE puts the wheel
+  on, when it is connected, moved by the focus offset of the filter arrived at less the one left, through its backlash rule
+  and the OTA's `FocusDirection.Of`. A run holding that focuser, or a job moving it, refuses the change (409) as the wheel's
+  own would, and the job claims the wheel and the focuser (owner `a filter change`) while it moves them. **While a planetary
+  capture streams through the wheel** (the node's run, `NodePlanetaryRun.StreamsThrough`), the change is the capture's
+  INTERLUDE (`PlanetaryCapture.InterludeAsync`): its stream stops between two frames, the wheel and the focuser move, and it
+  streams again at the settings it had, its first two frames dropped; the capture keeps claiming only the camera. **While
+  that capture records, the change is refused at once (409) in the capture's words and nothing moves**: one file must not
+  hold two filters. The next recording is named for the new filter, the name read off the wheel as it starts (#1179).
+  Pinned by `PlanetaryFilterChangeTests` (a real node), `FilterChangeTests` and `PlanetaryCaptureInterludeTests`.
 - **Mount**: `POST /api/v1/devices/mount/goto` (`MountGotoRequestDto`, J2000), `/park`, `/unpark`, `/tracking`
   (immediate), `/stop`, and `/nudge` (P6 part 1: `MountNudgeRequestDto`, a direction and arcseconds above 0), one
   guide-rate pulse through `MountNudge` as a job that ends when the mount reports the pulse DONE, since the pulse runs on
@@ -667,7 +679,7 @@ goto (it passed them to the mount as they were), and a slew, a park, an unpark, 
 **Ownership is asked before whether the device is even connected**, on every device-plane route
 (`TryConnectedAndFree`): a device a run holds is refused with the run's name whatever state its driver is in, which
 is `ActuationGate`'s rule and what `NodeActuationGateTests` pins over the re-pointed routes. `TianWenNodeClient` has
-`MoveFocuserAsync`, `StopFocuserAsync`, `ChangeFilterAsync`, `GotoAsync`, `ParkMountAsync`, `UnparkMountAsync`,
+`MoveFocuserAsync`, `StopFocuserAsync`, `ChangeFilterAsync`, `ChangeOtaFilterAsync`, `GotoAsync`, `ParkMountAsync`, `UnparkMountAsync`,
 `SetMountTrackingAsync`, `NudgeMountAsync` and `StopMountAsync`. Pinned by `MotionOperationTests` (a real node) and
 `NodeActuationGateTests`.
 
