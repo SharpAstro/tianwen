@@ -1847,7 +1847,7 @@ public sealed class OrreryNightTests
             // ...with the comets' orbits and tails among them, and every orbit the palette's tint.
             rig.Tab.OrreryTails.Count.ShouldBeGreaterThan(0, "no comet tail was drawn under Night");
             rig.Tab.OrreryOrbitsDrawn.Count(o => o.Index.ToCatalog() == Catalog.Comet).ShouldBeGreaterThan(1);
-            foreach (var (index, colour) in rig.Tab.OrreryOrbitsDrawn)
+            foreach (var (index, colour, _) in rig.Tab.OrreryOrbitsDrawn)
             {
                 colour.Blue.ShouldBe((byte)0, $"{index}'s orbit spends blue under Night");
             }

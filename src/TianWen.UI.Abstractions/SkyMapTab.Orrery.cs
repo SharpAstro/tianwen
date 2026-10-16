@@ -60,10 +60,9 @@ namespace TianWen.UI.Abstractions
         private static RGBAColor32 EarthColour => GuiTheme.Palette.Info;
         private static RGBAColor32 CometColour => GuiTheme.Mix(GuiTheme.Palette.Info, GuiTheme.Palette.BodyText, 0.5f);
 
-        // A comet's orbit is violet: the error colour's red and green with the info colour's blue (a magenta in the dark palette, a
-        // purple in the light one), taken three tenths toward the dim text so it sits with the planets' orbits. Never used under Night.
-        private static RGBAColor32 CometOrbitColour
-            => GuiTheme.Mix(GuiTheme.Palette.Error with { Blue = GuiTheme.Palette.Info.Blue }, GuiTheme.Palette.DimText, 0.3f);
+        // A comet's orbit is a dim grey (A2 of #1611: thirty coloured orbits crowded the planets out): the dim text halfway to the body
+        // text, a neutral in the light and dark palettes, drawn weaker than any planet's (OrreryOrbitColour). Never used under Night.
+        private static RGBAColor32 CometOrbitColour => GuiTheme.Mix(GuiTheme.Palette.DimText, GuiTheme.Palette.BodyText, 0.5f);
 
         /// <summary>Opens the orrery on the selected body when it is one of the Sun's (the panel's button, Alt+S); the selection is kept.</summary>
         internal void OpenOrrery()
@@ -280,14 +279,16 @@ namespace TianWen.UI.Abstractions
             orrery.Distance = Math.Clamp(OrreryCamera.DistanceToFrame(reachAu * 1.15), MinOrreryDistance, MaxOrreryDistance);
         }
 
-        // Every orbit in its body's colour (OrreryOrbitColour), the selected body's in the accent; the comets' from the orbits the scene
-        // keeps by index, built when the set was read, never here.
+        // Every orbit in its body's colour (OrreryOrbitColour), the selected planet's in the accent; the comets' from the orbits the
+        // scene keeps by index, built when the set was read, never here, in a dim grey. The comet the view is about (the focused one,
+        // else the one it was opened on) is drawn LAST, over every other orbit, in the accent at full strength and a pixel thicker.
         private void DrawOrreryOrbits(OrreryScene scene, in OrreryCamera camera, in OrreryScaling scale, float dpiScale)
         {
             _orreryOrbitsDrawn.Clear();
             OrbitSegmentsDrawn = 0;
             var accent = GuiTheme.Palette.Accent;
             var focus = State.Orrery.Focus;
+            var highlighted = focus is { } focused && focused.ToCatalog() == Catalog.Comet ? focused : State.Orrery.Comet;
             var thickness = (int)MathF.Max(1, MathF.Round(dpiScale));
             if (scene.Orbits is { } orbits)
             {
@@ -295,17 +296,22 @@ namespace TianWen.UI.Abstractions
                 {
                     var colour = planet == focus ? accent : OrreryOrbitColour(planet);
                     DrawOrbitPolyline(scene.ScaledOrbit(points, scale), camera, colour, thickness);
-                    _orreryOrbitsDrawn.Add((planet, colour));
+                    _orreryOrbitsDrawn.Add((planet, colour, thickness));
                 }
             }
             foreach (var comet in scene.CometSet)
             {
-                if (comet.CatalogIndex is { } index && scene.TryGetCometOrbit(index, out var points))
+                if (comet.CatalogIndex is { } index && index != highlighted && scene.TryGetCometOrbit(index, out var points))
                 {
-                    var colour = index == focus ? accent : OrreryOrbitColour(index);
+                    var colour = OrreryOrbitColour(index);
                     DrawOrbitPolyline(scene.ScaledOrbit(points, scale), camera, colour, thickness);
-                    _orreryOrbitsDrawn.Add((index, colour));
+                    _orreryOrbitsDrawn.Add((index, colour, thickness));
                 }
+            }
+            if (highlighted is { } about && scene.TryGetCometOrbit(about, out var aboutPoints))
+            {
+                DrawOrbitPolyline(scene.ScaledOrbit(aboutPoints, scale), camera, accent, thickness + 1);
+                _orreryOrbitsDrawn.Add((about, accent, thickness + 1));
             }
         }
 
@@ -849,10 +855,10 @@ namespace TianWen.UI.Abstractions
         /// <summary>The comets' tails the last orrery frame drew, head to tip: what the tests read.</summary>
         internal IReadOnlyList<(CatalogIndex Index, float HeadX, float HeadY, float TipX, float TipY)> OrreryTails => _orreryTails;
 
-        private readonly List<(CatalogIndex Index, RGBAColor32 Colour)> _orreryOrbitsDrawn = [];
+        private readonly List<(CatalogIndex Index, RGBAColor32 Colour, int Thickness)> _orreryOrbitsDrawn = [];
 
-        /// <summary>The orbits the last orrery frame drew, each with its colour: what the tests read.</summary>
-        internal IReadOnlyList<(CatalogIndex Index, RGBAColor32 Colour)> OrreryOrbitsDrawn => _orreryOrbitsDrawn;
+        /// <summary>The orbits the last orrery frame drew, in the order drawn, each with its colour and thickness: what the tests read.</summary>
+        internal IReadOnlyList<(CatalogIndex Index, RGBAColor32 Colour, int Thickness)> OrreryOrbitsDrawn => _orreryOrbitsDrawn;
 
         /// <summary>The longest a comet's tail is drawn, design pixels: at <see cref="OrreryTailFullAu"/> or closer to the Sun.</summary>
         internal const float OrreryTailMaxLength = 48f;
@@ -876,16 +882,16 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// The colour <paramref name="body"/>'s orbit is drawn in when it is not the selected one (A1 of #1611): a planet's is its body's
-        /// own (<see cref="OrreryFlat"/>, the Earth's the palette's Info) taken a fifth toward the dim text, at the dim alpha; a comet's
-        /// is a violet from the palette (<see cref="CometOrbitColour"/>), a little stronger. Under Night every orbit is the
-        /// palette's tint, as every body is, so no orbit spends blue.
+        /// own (<see cref="OrreryFlat"/>, the Earth's the palette's Info) taken a fifth toward the dim text, at the dim alpha 0x70; a
+        /// comet's is a dim grey from the palette (<see cref="CometOrbitColour"/>) at 0x40, always weaker than a planet's (A2 of #1611).
+        /// Under Night every orbit is the palette's tint, as every body is, so no orbit spends blue.
         /// </summary>
         internal static RGBAColor32 OrreryOrbitColour(CatalogIndex body)
         {
             var palette = GuiTheme.Palette;
             var night = GuiTheme.State == UiThemeState.Night;
             return body.ToCatalog() == Catalog.Comet
-                ? (night ? palette.Accent : CometOrbitColour) with { Alpha = 0x90 }
+                ? (night ? palette.Accent : CometOrbitColour) with { Alpha = 0x40 }
                 : (night ? palette.Accent : GuiTheme.Mix(palette.DimText, OrreryFlat(body), 0.8f)) with { Alpha = 0x70 };
         }
 
