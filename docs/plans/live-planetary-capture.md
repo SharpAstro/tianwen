@@ -1222,9 +1222,14 @@ recording; the panel's FILTER section is still open there), #1340 (whose sequenc
   loop's throughout, given back once as the capture ends; whatever else the action moves, its caller claims.
 - **A recording and an interlude never overlap.** A recording going on refuses an interlude in words ("A recording is being made: a
   filter change would stop the stream it is made from, and put frames from before and after it in one file. Stop the recording, or
-  let it end, first"), and no recording starts while one is under way; each looks for the other once its own is in place, so of two
-  asked for at once one always sees the other, with no lock. An action's failure is its caller's, thrown once the stream is back as
-  it was, and the capture goes on. `MeasuredFps` leaves out the time the stream stood stopped.
+  let it end, first"), and no recording starts while one is asked for or under way ("The planetary capture stops its stream for a
+  filter change; record once it streams again"). **Both take ONE claim on the stream** (`PlanetaryCapture.TryClaimStream`, one
+  compare-and-swap of the field holding the armed recording or the interlude), so of two asked for at once exactly one has the stream
+  and the other is told why, synchronously; a recording is the loop's to append to only once it holds the claim, so a refused one
+  ends with no frame and no file. Each looked for the other once its own was in place before (review of #1618's node side), which left
+  a window of a few instructions where a recording could be armed for an instant beside an interlude; 1,800 racing rounds never met it,
+  and the claim leaves none. An action's failure is its caller's, thrown once the stream is back as it was, and the capture goes on.
+  `MeasuredFps` leaves out the time the stream stood stopped.
 - **On the reader's path**: one iterator for the capture, its awaits on the reader's context as the loop's are, so a frame allocates
   nothing more; the rate once the stream is back is the body's, the ring (and its planes, `RingPlaneShelf`) the same unless the
   window changed.
