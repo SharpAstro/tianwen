@@ -2568,6 +2568,15 @@ adds nothing a reader could call a gain.
 on real stars 1.21 against 0.93), so E3 stays the best combination; R2k alone on the real stars leaves 95.4 % of the bright
 ones within a sigma against R2i's 96.4, the dig again (2.92 % against 1.47).
 
+#### Averaging with R2i's seed 1, pre-registered (2026-10-17)
+
+Written while seed 1 trains, before any of its numbers exist. **E5**: R2i's seeds 0 and 1, eight views each: the cleanest
+average there is, one recipe twice, so whatever it gains is the averaging's alone. **E6**: R2i's two seeds and R2l, eight
+views each. On A's draws and the validation masters' real stars, against R2i and E3. **Predictions**: (1) E5's clean at
+100-1000 sigma at least 63.3 % (R2i plus the spread); (2) E6's at least E3's 68.9 less 1 point; (3) neither lets a clean
+rate fall past the spread against R2i. **Kill**: none, read. **What it decides**: whether two seeds of one recipe average
+as well as two recipes do, which says whether a product average needs different recipes or only more seeds.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
