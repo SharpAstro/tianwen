@@ -18,9 +18,7 @@ namespace TianWen.Lib.Tests;
 /// <para>Skips when Vulkan is unavailable, like the other GPU suites, so a driverless CI stays
 /// green.</para>
 /// </remarks>
-// Same collection as the other OffscreenGpuFixture consumers: it is what serialises them, and
-// repeated Vulkan init/destroy across concurrent classes is what makes the runtime SIGSEGV at exit.
-[Collection("Imaging")]
+[Collection(GpuCollection.Name)]
 public sealed class GpuChannelFormatTests : IClassFixture<OffscreenGpuFixture>
 {
     private readonly OffscreenGpuFixture _gpu;

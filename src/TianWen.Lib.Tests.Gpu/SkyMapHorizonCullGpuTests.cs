@@ -38,7 +38,7 @@ namespace TianWen.Lib.Tests;
 /// layer live. It is worth having on a TILER, where the two are not equivalent, and it is worth
 /// having everywhere as the cull's own regression test.</para>
 /// </remarks>
-[Collection("UI")]
+[Collection(GpuCollection.Name)]
 public sealed class SkyMapHorizonCullGpuTests(VkSkyMapGpuFixture gpu) : IClassFixture<VkSkyMapGpuFixture>
 {
     private const int Width = VkSkyMapGpuFixture.Width;

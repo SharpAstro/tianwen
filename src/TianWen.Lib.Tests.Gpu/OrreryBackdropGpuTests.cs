@@ -18,7 +18,7 @@ namespace TianWen.Lib.Tests;
 /// rotation and the obliquity, so Sirius is drawn where the camera's own math puts it; and Night's tint leaves no blue in the frame.
 /// The CPU surface's counterpart is <see cref="OrreryTests"/>; this is the half only a GPU can answer, and it writes the GPU's picture.
 /// </summary>
-[Collection("UI")]
+[Collection(GpuCollection.Name)]
 public sealed class OrreryBackdropGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHelper output) : IClassFixture<VkSkyMapGpuFixture>
 {
     private const int Width = VkSkyMapGpuFixture.Width;

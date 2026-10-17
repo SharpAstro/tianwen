@@ -21,7 +21,7 @@ namespace TianWen.Lib.Tests
     /// a comparison that only covered a prefix -- the shape a hand-rolled or lazily-optimised version
     /// would take -- passes every other test here and fails that one.</para>
     /// </remarks>
-    [Collection("Imaging")]
+    [Collection(GpuCollection.Name)]
     public sealed class StretchUboChangeDetectionTests : IClassFixture<OffscreenGpuFixture>
     {
         private readonly OffscreenGpuFixture _gpu;
