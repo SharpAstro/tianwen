@@ -2517,6 +2517,43 @@ fails most, and the plane under-states a real core's noise by the same factor. *
 that profile jitter injected with each star, in proportion to its level and fitted to the half pairs, the plane left as
 it is, since a real tile's plane is computed the same way; a better eval set and better training data in one.**
 
+#### R2k's read: the lobes buy colour on the bright stars and cost them a dig (2026-10-17)
+
+`r2k_synth5_s0` ended on its own: "stopped at step 230000: the held-out objective's best was 2.171420e-06 at step
+206000", at 13:40 on the GTX 1070. It trained from 02:58, sharing the GPU with R2l for half an hour (its export pass had
+loaded the driver before the gate that was to hold it), and was scored by its driver on A's draws and both twins
+(`C:\temp\e2\r2k-read.txt`).
+
+| | R2i | R2k |
+|---|---|---|
+| A's draws: clean 5-20 / 20-100 / 100-1000 sigma | 79.2 / 74.5 / 60.2 | 80.3 / 75.7 / 58.0 |
+| A's draws: dug 100-1000 sigma | 28.7 | **35.6** |
+| A's draws: clean in colour 100-1000 sigma | 21.3 | 23.8 |
+| lobed twin: clean / dug 100-1000 sigma | 61.0 / 30.0 | 58.1 / 37.7 |
+| lobed twin: clean in colour 100-1000 sigma | 19.7 | **23.9** |
+| A's draws: clean / dug saturated | 46.6 / 28.3 | 48.4 / 37.4 |
+
+1. **It ends on its own before 480,000: holds**, at 230,000.
+2. **On the lobed twin, colour gains at the bright stars: holds**, 23.9 % against at least 20.3 (+4.2), and on A's draws too
+   (+2.5).
+3. **On A's draws the luminance holds: holds**, +1.0, +1.2 and -2.2 against bars of 2.7, 3.1 and 3.1.
+4. **The sky: holds**, 0.20.
+
+**The kill does not fire.** **Read, not predicted:** the dug share at 100-1000 sigma rose 6.9 points on A's draws (35.6
+against 28.7, the seed spread there 6.4) and 7.7 on the lobed twin, and saturated stars dug 37.4 % against 28.3. So R2k
+digs its bright stars more while their colour comes out cleaner: taught that a bright star may carry a lobe, it takes more
+light round a bright core, which the injected stars without one pay for. By the registered rule (2) and (3) holding make
+`--star-lobes` the export's switch; the dig says to read it once more beside the core jitter (R2m), which changes the same
+cores, before it becomes the default. The averages take it as a member (below).
+
+#### Averaging with R2k, pre-registered (2026-10-17)
+
+Written before it is scored. **E4**: R2i, R2l and R2k, each over its eight views (`r2_infer.py --ckpt` with the three,
+`--tta 8`), on A's draws and on the validation masters' real stars, against R2i and against E3. **Predictions**: (1) E4's
+clean at 100-1000 sigma is at least E3's 68.9 % less 1 point (a third member, the one that digs more, need not add, but
+should not take much away); (2) no clean rate falls past the spread against R2i. **Kill**: none; it is the average's next
+member, read. **What it decides**: whether the averages keep gaining with members that differ in their data.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
