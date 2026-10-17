@@ -1144,13 +1144,15 @@ built inside `VkPlanetaryTab` from its private fields.
   the picture-in-picture, whose drag is idle-only and which shows the selection, a thing the recenter's jogs of the running window
   do not move. The last row then ends 901 units down.
 - **Where folding is not enough, the panel scrolls**, by the wheel (a scroll declared on its stack, a bar that shows it): idle
-  with the last recording shown is 961, and a smaller screen or a larger scale has less room still (at 150 % a 1080-line screen
-  leaves about 623). A panel that fits takes no wheel, which goes on to the viewer as before.
+  with the last recording shown is 961, and a smaller screen or a larger scale has less room still. At 150 % a 1080-line screen
+  leaves about 623 units (less still, since the chrome above grows too), so there the panel scrolls even while capturing and the
+  focuser's jog is a wheel away. A panel that fits takes no wheel, which goes on to the viewer as before.
 - **The picture-in-picture's drag is a press declared on its fill**, since the scrolled stack's own region swallows a press no row
   claims; the view supplies it, being the one that knows where it drew the sensor.
 - **`PlanetaryControlPanelFitTests` is the guard every section passes**: both tallest states arranged in 280 by 935 at scales 1
-  and 1.5, every control and every row inside, without scrolling while capturing. Its output says where the last row ends, so the
-  FILTER section and the sequence editor below can see how much room is left.
+  and 1.5, every control and every row inside, without scrolling while capturing; and the 150 % screen, the capturing state in
+  935 device pixels at scale 1.5, where the wheel reaches every control a notch at a time. Its output says where the last row
+  ends, so the FILTER section and the sequence editor below can see how much room is left.
 
 ### Phase G: a mono filter-wheel sequence
 
