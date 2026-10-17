@@ -66,12 +66,11 @@ namespace TianWen.UI.Abstractions
         /// change -- which is exactly the shape of bug that makes damage tracking distrusted.
         /// </remarks>
         /// <remarks>
-        /// NOT sealed: VkPlanetaryTab overrides it. A subclass that does so bypasses this wrapper and
-        /// therefore never narrows, which lands on the full repaint -- the safe answer -- so overriding
-        /// costs correctness nothing. Sealing it to force the wrapper was tried and simply does not
-        /// compile against that subclass.
+        /// Sealed, so every viewer's input passes through this wrapper. VkPlanetaryTab used to override it
+        /// for its picture-in-picture's drag, which kept it open; that drag is now a press declared on the
+        /// capture panel (<see cref="PlanetaryControlPanel"/>, #1635), and nothing else overrides it.
         /// </remarks>
-        public override bool HandleInput(InputEvent evt)
+        public sealed override bool HandleInput(InputEvent evt)
         {
             _narrowedThisEvent = false;
             var redrawBefore = _state?.NeedsRedraw ?? false;
