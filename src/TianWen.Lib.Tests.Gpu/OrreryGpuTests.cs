@@ -24,7 +24,7 @@ public sealed class VkOrreryGpuFixture : OffscreenGpuFixtureBase
 /// which keeps the sprites, builds them by the hundred; and every disc lit toward the Sun on the GPU's own frame, after a run of
 /// Play-sized steps as at rest.
 /// </summary>
-[Collection("UI")]
+[Collection(GpuCollection.Name)]
 public sealed class OrreryGpuTests(VkOrreryGpuFixture gpu, ITestOutputHelper output) : IClassFixture<VkOrreryGpuFixture>
 {
     private const int Width = OrreryTests.Width;

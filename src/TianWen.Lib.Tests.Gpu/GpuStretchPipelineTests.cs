@@ -30,7 +30,7 @@ namespace TianWen.Lib.Tests;
 /// Skips when Vulkan is unavailable (no driver, no ICD): the test outputs the failure reason
 /// and reports as Skipped rather than Failed, so CI without GPU drivers stays green.
 /// </summary>
-[Collection("Imaging")]
+[Collection(GpuCollection.Name)]
 public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
 {
     private const int Width = 1280;
@@ -482,9 +482,9 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
     }
 
     /// <summary>
-    /// Builds an offscreen Vulkan context, runs <see cref="VkFitsImagePipeline"/> against the
-    /// given image + uniforms, and reads back the rendered RGBA bytes. Throws on Vulkan init
-    /// failure (caller catches via <see cref="IsVulkanInitFailure"/> and skips the test).
+    /// Runs the fixture's <see cref="VkFitsImagePipeline"/> against the given image + uniforms on the
+    /// offscreen target and reads back the rendered RGBA bytes. The caller skips the test first when
+    /// the fixture reports Vulkan unavailable.
     /// <paramref name="curveLut"/> may be <c>default</c> for "no curve LUT"; <paramref name="hdrAmount"/>
     /// 0f disables the HDR knee. Both mirror the parameters <see cref="Image.RenderStretchedRgba"/>
     /// accepts so CPU and GPU paths can be driven from the same theory cases.

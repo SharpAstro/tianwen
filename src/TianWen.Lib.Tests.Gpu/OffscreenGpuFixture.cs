@@ -1,50 +1,45 @@
 using System;
-using System.Collections.Concurrent;
-using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.UI.Shared;
-using Vortice.Vulkan;
-using static Vortice.Vulkan.Vulkan;
 
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Base xUnit fixture that owns a single offscreen Vulkan stack (VkInstance +
-/// <see cref="VulkanContext"/> + <see cref="VkRenderer"/> + <see cref="VkFitsImagePipeline"/>)
-/// at a fixed size, created once and disposed once. Concrete size-specific fixtures derive from
-/// it (see <see cref="OffscreenGpuFixture"/>, <see cref="VkPrimitiveGpuFixture"/>,
-/// <see cref="VkHistogramGpuFixture"/>); each is wired as an <c>IClassFixture&lt;T&gt;</c> so a
-/// GPU test class creates its Vulkan stack ONCE, not per test method.
+/// Base xUnit fixture that gives a GPU test class the process's one offscreen Vulkan stack
+/// (<see cref="SharedGpuStack"/>), with its target sized for the class and a <see cref="VkRenderer"/>
+/// and <see cref="VkFitsImagePipeline"/> of the class's own. Concrete size-specific fixtures derive
+/// from it (see <see cref="OffscreenGpuFixture"/>, <see cref="VkPrimitiveGpuFixture"/>,
+/// <see cref="VkHistogramGpuFixture"/>); each is wired as an <c>IClassFixture&lt;T&gt;</c>, so a GPU
+/// test class sets up its renderer and pipeline ONCE, not per test method.
 ///
-/// Why this must be a fixture, not per-test setup: xUnit constructs a fresh test-class instance
-/// per test method, so any Vulkan init in a test method's body (or the class ctor) runs on EVERY
-/// method. Repeated vkInitialize + vkCreateInstance + vkCreateDebugUtilsMessengerEXT + teardown
-/// makes Mesa lavapipe + the Khronos validation layer + the libvulkan loader accumulate enough
-/// TLS / process-global state that the runtime SIGSEGVs during process exit -- xUnit reports
-/// "Catastrophic failure: Test process crashed with exit code 139". Hoisting the stack into a
-/// class fixture removes the churn (one init/destroy per class instead of per method).
+/// <para><b>The instance and the device are the process's, never the class's</b>
+/// (<see cref="SharedGpuStack"/> says why). A fixture resizes the one offscreen target and destroys
+/// only what it built, so every GPU test class belongs in <see cref="GpuCollection"/>, which runs one
+/// class at a time. A second fixture asking for the stack while another holds it throws, naming
+/// both, rather than resize the target under the first.</para>
+///
+/// <para>Why a fixture rather than per-test setup: xUnit constructs a fresh test-class instance per
+/// test method, so any Vulkan setup in a test method's body (or the class ctor) runs on EVERY method,
+/// and repeated Vulkan init and teardown is what made Mesa lavapipe SIGSEGV at process exit ("Test
+/// process crashed with exit code 139").</para>
 ///
 /// Channel/histogram textures inside <see cref="VkFitsImagePipeline"/> resize automatically per
 /// upload, so the shared pipeline handles arbitrary per-test image dimensions transparently.
 ///
-/// <para><b>The fixture owns a dedicated thread, and every Vulkan call runs on it.</b> A VkQueue and
-/// VkCommandPool require external synchronization, and an offscreen device relies on single-owner
-/// submission rather than taking a lock, so it asserts that submissions come from the thread that
-/// created it. A test that hopped onto the thread pool to do its GPU work (an <c>await Task.Run</c>
-/// around the render) therefore submitted from a foreign thread. That was always unsynchronised
-/// access; until the device grew the assertion it merely happened not to be caught, which is the
-/// worse of the two outcomes. Marshalling through <see cref="InvokeAsync{T}"/> /
-/// <see cref="Invoke{T}"/> makes ownership correct by construction and serialises the shared stack
-/// as a side effect, so it cannot depend on which thread xUnit happens to run a test method on.</para>
-///
-/// <para>A pump thread rather than a lock: the constraint here is thread AFFINITY, not mutual
-/// exclusion, and no lock can give a foreign thread permission to submit.</para>
+/// <para>Every call that touches <see cref="Ctx"/>, <see cref="Renderer"/> or <see cref="Pipeline"/>
+/// goes through <see cref="Invoke{T}"/> / <see cref="InvokeAsync{T}"/>, which run it on the stack's
+/// own thread: a VkQueue needs one owner, and a test that hopped onto the thread pool for its GPU work
+/// would submit from a foreign one.</para>
 /// </summary>
-public abstract unsafe class OffscreenGpuFixtureBase : IDisposable
+public abstract class OffscreenGpuFixtureBase : IDisposable
 {
+    private static OffscreenGpuFixtureBase? s_holder;
+
+    private readonly SharedGpuStack _stack;
+
     public bool VulkanAvailable { get; private set; }
     public string? UnavailableReason { get; private set; }
 
@@ -54,129 +49,52 @@ public abstract unsafe class OffscreenGpuFixtureBase : IDisposable
     public VkRenderer? Renderer { get; private set; }
     public VkFitsImagePipeline? Pipeline { get; private set; }
 
-    private readonly BlockingCollection<Action> _work = new();
-    private readonly Thread _owner;
-
     protected OffscreenGpuFixtureBase(int width, int height)
     {
-        using var ready = new ManualResetEventSlim(false);
-
-        _owner = new Thread(() =>
+        if (Interlocked.CompareExchange(ref s_holder, this, null) is { } holder)
         {
-            Initialise(width, height);
-            ready.Set();
+            throw new InvalidOperationException(
+                $"{GetType().Name} asked for the shared GPU stack while {holder.GetType().Name} still holds it. " +
+                $"Every GPU test class belongs in [Collection(GpuCollection.Name)], which runs one class at a time.");
+        }
 
-            // GetConsumingEnumerable ends when Dispose calls CompleteAdding, at which point the
-            // teardown item queued just before it has already run -- so the stack is destroyed on the
-            // same thread that built it, which vkDestroyDevice needs just as much as submission does.
-            foreach (var item in _work.GetConsumingEnumerable())
-            {
-                item();
-            }
-        })
+        _stack = SharedGpuStack.Instance;
+        if (_stack.Ctx is not { } ctx)
         {
-            IsBackground = true,
-            Name = $"gpu-fixture-{GetType().Name}",
-        };
+            UnavailableReason = _stack.UnavailableReason;
+            return;
+        }
 
-        _owner.Start();
-
-        // Waiting here publishes everything Initialise wrote: the ctor returns only once the stack
-        // exists (or is known unavailable), so tests never see a half-built fixture.
-        ready.Wait();
-    }
-
-    private void Initialise(int width, int height)
-    {
         try
         {
-            vkInitialize().CheckResult();
-            VkInstanceCreateInfo ici = new();
-            vkCreateInstance(&ici, null, out var instance).CheckResult();
-
-            // VulkanContext.Dispose() destroys the instance at teardown, so the fixture
-            // doesn't separately track it -- Ctx.Dispose() in the fixture's Dispose covers
-            // both the device + instance lifecycle.
-            Ctx = VulkanContext.CreateOffscreen(instance, (uint)width, (uint)height);
-            Renderer = new VkRenderer(Ctx, (uint)width, (uint)height);
-            Pipeline = new VkFitsImagePipeline(Ctx);
+            _stack.Invoke(() =>
+            {
+                ctx.ResizeOffscreen((uint)width, (uint)height);
+                Renderer = new VkRenderer(ctx, (uint)width, (uint)height);
+                Pipeline = new VkFitsImagePipeline(ctx);
+                return 0;
+            });
+            Ctx = ctx;
             VulkanAvailable = true;
         }
         catch (Exception ex)
         {
-            VulkanAvailable = false;
             UnavailableReason = $"{ex.GetType().Name}: {ex.Message}";
         }
     }
 
     /// <summary>
-    /// Runs GPU work on the fixture's own thread and returns its result. Use this for every call that
+    /// Runs GPU work on the stack's own thread and returns its result. Use this for every call that
     /// touches <see cref="Ctx"/>, <see cref="Renderer"/> or <see cref="Pipeline"/>.
     /// </summary>
-    public T Invoke<T>(Func<T> work)
-    {
-        // Re-entrant calls run inline: already the owning thread, and posting would deadlock waiting
-        // for a pump that is busy running this very item.
-        if (Thread.CurrentThread == _owner)
-        {
-            return work();
-        }
-
-        var result = default(T);
-        ExceptionDispatchInfo? failure = null;
-        using var done = new ManualResetEventSlim(false);
-
-        _work.Add(() =>
-        {
-            try
-            {
-                result = work();
-            }
-            catch (Exception ex)
-            {
-                // Captured rather than thrown: an exception escaping the pump kills the thread and
-                // every later test in the class hangs waiting on a queue nothing drains.
-                failure = ExceptionDispatchInfo.Capture(ex);
-            }
-            finally
-            {
-                done.Set();
-            }
-        });
-
-        done.Wait();
-        failure?.Throw();
-        return result!;
-    }
+    public T Invoke<T>(Func<T> work) => _stack.Invoke(work);
 
     /// <summary>
     /// Awaitable form of <see cref="Invoke{T}"/>, so an async test keeps its shape without hopping the
     /// GPU work onto the thread pool.
     /// </summary>
     public Task<T> InvokeAsync<T>(Func<T> work, CancellationToken cancellationToken = default)
-    {
-        if (Thread.CurrentThread == _owner)
-        {
-            return Task.FromResult(work());
-        }
-
-        var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var registration = cancellationToken.Register(() => completion.TrySetCanceled(cancellationToken));
-
-        _work.Add(() =>
-        {
-            try
-            {
-                completion.TrySetResult(work());
-            }
-            catch (Exception ex)
-            {
-                completion.TrySetException(ex);
-            }
-        });
-
-        return completion.Task;
-    }
+        => _stack.InvokeAsync(work, cancellationToken);
 
     /// <summary>
     /// The framebuffer is sized to the largest image any test in the class renders, so a smaller test
@@ -201,9 +119,9 @@ public abstract unsafe class OffscreenGpuFixtureBase : IDisposable
     }
 
     /// <summary>
-    /// Destroys any device-owned state a derived fixture built beyond the base stack. Runs on the
-    /// fixture's own thread, before the base pipeline, renderer and context, so nothing outlives the
-    /// device it was created on.
+    /// Destroys any device-owned state a derived fixture built beyond the base pipeline and renderer.
+    /// Runs on the stack's thread, before those two, so nothing this class built outlives its class:
+    /// the device goes on to serve the next one.
     /// </summary>
     protected virtual void DisposeDeviceObjects()
     {
@@ -211,20 +129,31 @@ public abstract unsafe class OffscreenGpuFixtureBase : IDisposable
 
     public void Dispose()
     {
-        if (VulkanAvailable)
+        try
         {
-            _work.Add(() =>
+            if (_stack.Ctx is { } ctx)
             {
-                DisposeDeviceObjects();
-                Pipeline?.Dispose();
-                Renderer?.Dispose();
-                Ctx?.Dispose();
-            });
-        }
+                _stack.Invoke(() =>
+                {
+                    // The device outlives this class, so nothing it still runs may reference what goes next.
+                    if (!ctx.TryWaitAllFramesIdle($"{GetType().Name} teardown"))
+                    {
+                        throw new TimeoutException(
+                            $"the GPU did not go idle at the end of {GetType().Name}'s class; its pipeline and renderer are left in place " +
+                            "rather than destroyed under work that may still be running");
+                    }
 
-        _work.CompleteAdding();
-        _owner.Join();
-        _work.Dispose();
+                    DisposeDeviceObjects();
+                    Pipeline?.Dispose();
+                    Renderer?.Dispose();
+                    return 0;
+                });
+            }
+        }
+        finally
+        {
+            Interlocked.CompareExchange(ref s_holder, null, this);
+        }
     }
 }
 

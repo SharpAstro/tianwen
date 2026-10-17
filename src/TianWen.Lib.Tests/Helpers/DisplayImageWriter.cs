@@ -10,8 +10,8 @@ namespace TianWen.Lib.Tests.Helpers;
 /// <summary>
 /// Test-only helper that writes <b>display-encoded</b> 8-bit RGB/RGBA buffers as
 /// browser-viewable TIFF or PNG with an embedded sRGB v4 ICC profile. Centralises
-/// the pattern previously duplicated across <see cref="GpuStretchPipelineTests"/>,
-/// <see cref="VkRendererPrimitiveTests"/>, and <see cref="StretchTests_NewPipeline"/>.
+/// the pattern previously duplicated across <c>GpuStretchPipelineTests</c>,
+/// <c>VkRendererPrimitiveTests</c> (both in TianWen.Lib.Tests.Gpu), and <see cref="StretchTests_NewPipeline"/>.
 ///
 /// <para>
 /// The buffers passed in must already be sRGB-display-encoded, i.e., post-stretch
