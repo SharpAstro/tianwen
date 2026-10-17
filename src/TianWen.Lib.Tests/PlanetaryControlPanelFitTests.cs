@@ -15,7 +15,8 @@ namespace TianWen.Lib.Tests;
 /// The planetary capture panel fits the left half of a 1080-line screen (#1612): about 935 design units are left under the
 /// GUI's status bar and the Live Session top strip, at 100 %. Arranged in its tallest states at scales 1 and 1.5, every control
 /// and every row lies inside that height whole: while a capture runs without scrolling, and while idle once the wheel has
-/// brought it there. A section added to the panel passes this too.
+/// brought it there. On the same screen at 150 % (935 device pixels, about 623 design units) the panel scrolls even while
+/// capturing, and the wheel reaches every control. A section added to the panel passes all three.
 /// </summary>
 public class PlanetaryControlPanelFitTests
 {
@@ -224,6 +225,42 @@ public class PlanetaryControlPanelFitTests
 
         Controls.Except(controls).ToArray().ShouldBeEmpty($"every control is inside {LeftHalfHeight} design units, or the wheel brings it there");
         (field || scrolled.Field).ShouldBeTrue();
+        texts.Except(shown).ToArray().ShouldBeEmpty("and every row");
+    }
+
+    /// <summary>
+    /// A 1080-line screen at 150 %: the panel is given the same 935 device pixels, about 623 design units, which its
+    /// capturing state (909) does not fit, so there it scrolls even while a capture runs, and the wheel reaches every
+    /// control and every row a notch at a time. The chrome above the panel grows at 150 % too, so the real room is less
+    /// still; the wheel covers that all the same.
+    /// </summary>
+    [Fact]
+    public void OnA1080LineScreenAt150PercentTheWheelReachesEveryControlWhileCapturing()
+    {
+        const float scale = 1.5f;
+        using var painted = new Painted(scale);
+        painted.Tallest(capturing: true);
+        var texts = painted.TextsOfTheTree();
+        var rect = new RectF32(0f, 0f, PlanetaryControlPanel.BaseWidth * scale, LeftHalfHeight);
+
+        painted.Paint(rect);
+        var (controls, shown, field) = painted.WholeInside(rect);
+        Controls.Except(controls).ShouldNotBeEmpty("at 150 % the capturing panel is taller than the room, so the case is one that scrolls");
+
+        // A notch at a time through the router, as a wheel arrives, so no row slips between two views.
+        var router = new InputRouter(painted.Host.Ui, new BackgroundTaskTracker(), static () => { }) { Widgets = () => [painted.Host] };
+        for (var notch = 0; notch < 40; notch++)
+        {
+            router.Handle(new InputEvent.Scroll(-1f, rect.Width / 2f, rect.Height / 2f));
+            painted.Paint(rect);
+            var seen = painted.WholeInside(rect);
+            controls.UnionWith(seen.Controls);
+            shown.UnionWith(seen.Texts);
+            field |= seen.Field;
+        }
+
+        Controls.Except(controls).ToArray().ShouldBeEmpty("the wheel brings every live control whole into the 150 % screen's room");
+        field.ShouldBeTrue("and the recording's duration");
         texts.Except(shown).ToArray().ShouldBeEmpty("and every row");
     }
 }
