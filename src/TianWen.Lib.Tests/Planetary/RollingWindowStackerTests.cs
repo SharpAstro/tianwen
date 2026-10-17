@@ -478,6 +478,25 @@ public class RollingWindowStackerTests
     }
 
     [Fact]
+    public async Task AStackGivenAFirstFrameNeverFoldsOneBeforeIt()
+    {
+        // A live ring's run (LiveCameraFrameStream.RunStart): after a filter change the frames before it were taken through
+        // another filter, and a window of 6 ending at frame 8 would otherwise reach back to frame 3.
+        var ct = TestContext.Current.CancellationToken;
+        using var ring = LiveRing(capacity: 16, count: 5);
+        ring.StartRun();
+        PushInto(ring, 5, 9);
+        ring.RunStart.ShouldBe(5);
+        var stacker = new RollingWindowStacker(ring, new RollingWindowOptions { FallbackWindowFrames = 6, MaxWindowFrames = 6 }, firstIndex: ring.RunStart);
+
+        stacker.ComputeWindowStart(8).ShouldBe(5);
+        (await stacker.StackToAsync(8, ct)).Release();
+        (stacker.WindowStart, stacker.WindowEnd).ShouldBe((5, 8));
+        (await stacker.StackToAsync(2, ct)).Release();
+        (stacker.WindowStart, stacker.WindowEnd).ShouldBe((5, 5), "a playhead before the run is held at its first frame");
+    }
+
+    [Fact]
     public void Frame_count_fallback_applies_when_untimed()
     {
         var stacker = new RollingWindowStacker(new InMemoryFrameStream(SharpestAtFive()),

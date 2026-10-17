@@ -27,6 +27,43 @@ namespace TianWen.Lib.Imaging.Planetary;
 public readonly record struct PlanetaryCaptureRequest(int OtaIndex, TimeSpan Exposure, short? Gain, int RoiWidth, int RoiHeight,
     BitDepth? BitDepth = null, bool? HighSpeed = null, short Bin = 1);
 
+/// <summary>
+/// What a capture's stream runs at, as an interlude starts it again (<see cref="PlanetaryCapture.InterludeAsync"/>): the
+/// stream's own controls, as started and with every live control since folded in, and the readout window's size and binning,
+/// zero by zero for the whole sensor (<see cref="PlanetaryCapture.ConfigureRoi"/>). The window's origin is the driver's: a
+/// stream starts centred, and a pan is a jog once it runs.
+/// </summary>
+public readonly record struct PlanetaryStreamSettings(VideoCaptureOptions Options, int RoiWidth, int RoiHeight, short Bin);
+
+/// <summary>
+/// A pause in a running capture's stream (<see cref="PlanetaryCapture.InterludeAsync"/>), the ONE routine for whatever must
+/// happen with the stream stopped: a filter change (#1618), a sequence's step (#1340), a full-sensor still (#1033). The
+/// stream is stopped between two frames, <paramref name="Action"/> runs, and the stream starts again, at the settings it had
+/// or at <see cref="RestartAt"/>'s, its first <see cref="DropFrames"/> frames dropped. The capture keeps its claim on the
+/// camera throughout; whatever else the action drives, its caller claims.
+/// </summary>
+/// <param name="What">What the pause is for, as it completes a sentence ("a filter change"), said in the refusals.</param>
+/// <param name="Action">Run with the stream stopped, on the capture's thread, on a token cancelled when the capture stops or
+/// the caller gives up. Its failure is its caller's, thrown to it once the stream is back at the settings it had.</param>
+public sealed record PlanetaryInterlude(string What, Func<CancellationToken, ValueTask> Action)
+{
+    /// <summary>The frames dropped after a restart unless the caller says otherwise.</summary>
+    public const int DefaultDropFrames = 2;
+
+    /// <summary>
+    /// The settings the stream starts again at, given the ones it had; null for the same. A full-sensor still takes
+    /// <c>s =&gt; s with { RoiWidth = 0, RoiHeight = 0 }</c> and a second interlude back, or takes its still in
+    /// <see cref="Action"/> and comes back at the window it proposes. Asked only once the action has succeeded.
+    /// </summary>
+    public Func<PlanetaryStreamSettings, PlanetaryStreamSettings>? RestartAt { get; init; }
+
+    /// <summary>
+    /// Frames dropped after the restart before any reaches the ring, the live stack, a recording or the host's <c>onFrame</c>:
+    /// what a body reads as its stream starts, and what the optics show while they settle from what the action moved.
+    /// </summary>
+    public int DropFrames { get; init; } = DefaultDropFrames;
+}
+
 /// <summary>What a <see cref="PlanetaryCapture"/> is for, which decides whether it keeps the frames it streams.</summary>
 public enum LiveCaptureKind
 {
@@ -251,7 +288,10 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     /// <summary>Frames the camera/SDK reported dropped (buffer starvation), 0 for cameras that can't report it.</summary>
     public int DroppedFrames => (_camera as IVideoCameraDriver)?.DroppedFrames ?? 0;
 
-    /// <summary>Measured delivered frame rate (frames / elapsed capture time), 0 before the first frame.</summary>
+    /// <summary>
+    /// Measured delivered frame rate (frames / elapsed capture time, less the time its stream stood stopped for interludes),
+    /// 0 before the first frame.
+    /// </summary>
     public double MeasuredFps
     {
         get
@@ -262,7 +302,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 return 0.0;
             }
 
-            var elapsed = timeProvider.GetElapsedTime(Volatile.Read(ref _captureStartTimestamp)).TotalSeconds;
+            var elapsed = (timeProvider.GetElapsedTime(Volatile.Read(ref _captureStartTimestamp)) - new TimeSpan(Interlocked.Read(ref _interludeTicks))).TotalSeconds;
             return elapsed > 0 ? n / elapsed : 0.0;
         }
     }
@@ -476,6 +516,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         _failure = null;
         Volatile.Write(ref _rapidExposureTicks, capture.Exposure.Ticks);
         Interlocked.Exchange(ref _framesReceived, 0);
+        Interlocked.Exchange(ref _framesDroppedAfterInterludes, 0);
+        Interlocked.Exchange(ref _interludeTicks, 0);
         _captureStartTimestamp = timeProvider.GetTimestamp();
 
         _cts = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -492,6 +534,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
     private async Task CaptureLoopAsync(ICameraDriver camera, VideoCaptureOptions options, DeviceLeaseSet? claim, CancellationToken token)
     {
+        _streamOptions = options;
         LiveCameraFrameStream? stream = null;
         // The process's collections over the capture, and how long they held every managed thread, the reader's and the
         // driver's included: said as the loop ends, beside its frames.
@@ -499,7 +542,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         try
         {
             var streams = Streams(camera);
-            var frames = Frames(camera, options, token);
+            // The stream in segments, an interlude between two (StreamSegmentsAsync): the claim stays this loop's throughout.
+            var frames = StreamSegmentsAsync(camera, token);
             if (_frameGate is { } gate)
             {
                 frames = GatedFramesAsync(frames, gate, token);
@@ -626,6 +670,15 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             claim?.Dispose();
             Interlocked.Exchange(ref _captureActive, 0);
 
+            // An interlude asked for and never taken, or taken and never streamed after, is told the capture ended. Taken
+            // only once the capture is marked ended, so one asked for meanwhile sees that for itself (InterludeAsync).
+            if (Volatile.Read(ref _streamUse) is InterludeRequest left && Interlocked.CompareExchange(ref _streamUse, null, left) == left)
+            {
+                left.Refuse(left.WasTaken
+                    ? $"The {Name} did not stream again after {left.Interlude.What}: {_failure ?? "it was stopped"}"
+                    : $"The {Name} ended before {left.Interlude.What} could stop its stream");
+            }
+
             // Release anyone waiting on a frame that will now never arrive. Completed in place WITHOUT re-arming (unlike
             // the per-frame signal), so this is sticky: every later wait returns at once too, and a stopped or faulted
             // loop surfaces as a failed predicate rather than as a hang. Start arms a fresh signal for the next run.
@@ -642,6 +695,280 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     // Whether the capture takes the camera's own stream (Frames), whose frames carry their own times and whose recording
     // can show a stall as a gap.
     private static bool Streams(ICameraDriver camera) => camera is IVideoCameraDriver { CanVideoCapture: true };
+
+    // ── Interludes: the stream stopped, an action run, the stream started again (#1618, #1340, #1033) ─────────────────
+
+    // What the stream runs at now: as started, and each live control folded in once applied (ApplyPendingControlsAsync), so
+    // an interlude starts it again where it was. The loop's own, written and read only on its thread.
+    private VideoCaptureOptions _streamOptions = new(MinExposure);
+
+    // The stream's one claim: the recording armed on it (a SerRecording, free again once it has ended), or the interlude asked
+    // for and not yet finished (an InterludeRequest, taken between two frames by the loop, cleared by whoever finishes it), or
+    // null. A recording and an interlude each take it through TryClaimStream, one compare-and-swap, so of two asked for at
+    // once exactly one has the stream and the other is told why; a recording is the loop's to append to only once it holds it.
+    private object? _streamUse;
+    private int _framesDroppedAfterInterludes;
+    private long _interludeTicks;                  // the time the current capture's stream stood stopped for interludes
+
+    /// <summary>Frames of the current or last capture an interlude dropped (<see cref="PlanetaryInterlude.DropFrames"/>). Test seam.</summary>
+    internal int FramesDroppedAfterInterludes => Volatile.Read(ref _framesDroppedAfterInterludes);
+
+    /// <summary>
+    /// Why an interlude (<see cref="InterludeAsync"/>) for <paramref name="what"/> cannot be had now, in words; null when it
+    /// can. What a host asks before it starts anything the interlude would carry, so a refusal is an answer, not a failed job.
+    /// </summary>
+    /// <param name="what">What the interlude is for, as it completes a sentence ("a filter change").</param>
+    public string? InterludeRefusal(string what)
+        => IsCapturing ? InterludeRefusalFor(Volatile.Read(ref _streamUse), what) : NotStreaming(what);
+
+    private string NotStreaming(string what) => $"No {Name} is streaming, so {what} has no stream to stop";
+
+    // Why the stream's claim, as `use` holds it, refuses an interlude for `what`; null when it is free.
+    private string? InterludeRefusalFor(object? use, string what) => use switch
+    {
+        SerRecording { IsRecording: true } => $"A recording is being made: {what} would stop the stream it is made from, and put frames "
+            + "from before and after it in one file. Stop the recording, or let it end, first",
+        InterludeRequest other => $"The {Name} stops its stream for {other.Interlude.What}; {what} waits until that is done",
+        _ => null,
+    };
+
+    // Why the stream's claim, as `use` holds it, refuses a recording; null when it is free.
+    private string? RecordingRefusalFor(object? use) => use switch
+    {
+        SerRecording { IsRecording: true } => "A recording is already being made",
+        InterludeRequest interlude => $"The {Name} stops its stream for {interlude.Interlude.What}; record once it streams again",
+        _ => null,
+    };
+
+    // Takes the stream's one claim for `claimant`, an armed recording or an interlude, unless what holds it refuses (`refusalFor`):
+    // the one place the two are put in order. Retried only when the claim changed between its read and the swap.
+    private bool TryClaimStream(object claimant, Func<object?, string?> refusalFor, [NotNullWhen(false)] out string? refusal)
+    {
+        while (true)
+        {
+            var use = Volatile.Read(ref _streamUse);
+            if (refusalFor(use) is { } busy)
+            {
+                refusal = busy;
+                return false;
+            }
+            if (Interlocked.CompareExchange(ref _streamUse, claimant, use) == use)
+            {
+                refusal = null;
+                return true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Stops the running capture's stream between two frames, runs <paramref name="interlude"/>'s action, and starts the stream
+    /// again (<see cref="PlanetaryInterlude"/>): at the settings it had, the live controls since its start included, or at
+    /// <see cref="PlanetaryInterlude.RestartAt"/>'s, its first <see cref="PlanetaryInterlude.DropFrames"/> frames dropped. The
+    /// capture's claim on the camera is kept throughout, and a recording is not made across one: one going on refuses it, and
+    /// none may start until the stream is back.
+    /// </summary>
+    /// <param name="cancellationToken">Gives up an interlude not yet begun; one begun has its action's token cancelled and
+    /// ends once the stream is back, so whatever its caller claimed for the action is never let go while the action runs.</param>
+    /// <returns>Null once the stream is back at the first frame past the dropped ones, else why none could be had, in words
+    /// (<see cref="InterludeRefusal"/>, or the capture ended first).</returns>
+    /// <exception cref="Exception">Whatever the action threw (its cancellation included), once the stream is back at the
+    /// settings it had.</exception>
+    public async Task<string?> InterludeAsync(PlanetaryInterlude interlude, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(interlude);
+        if (InterludeRefusal(interlude.What) is { } refusal)
+        {
+            return refusal;
+        }
+
+        // The stream's one claim, which a recording takes too: whichever of the two has it first, the other is refused.
+        var request = new InterludeRequest(interlude, cancellationToken);
+        if (!TryClaimStream(request, use => InterludeRefusalFor(use, interlude.What), out var busy))
+        {
+            return busy;
+        }
+
+        // Looked at again once the claim is held: a loop that ended before it is seen here, one ending after takes it (the
+        // loop's finally).
+        if (!IsCapturing)
+        {
+            Interlocked.CompareExchange(ref _streamUse, null, request);
+            return NotStreaming(interlude.What);
+        }
+
+        string? outcome;
+        using (cancellationToken.Register(static state => (state as InterludeRequest)?.TryWithdraw(), request))
+        {
+            outcome = await request.Done.Task.ConfigureAwait(false);
+        }
+        if (request.WasWithdrawn)
+        {
+            Interlocked.CompareExchange(ref _streamUse, null, request);
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        return outcome;
+    }
+
+    // The camera's frames over every segment of the capture's stream: the stream, and after an interlude taken between two of
+    // its frames, the next, started at the settings the interlude left. Leaving a segment's enumeration is what stops it (a
+    // driver's stop is its enumerator's end, IVideoCameraDriver), so a stream stopped on purpose is never a stream gone quiet:
+    // the DAL's silence watch is the segment's own. The frames an interlude drops are released here and reach nothing. An
+    // interlude is looked for as the loop asks for its next frame (behind a test's frame gate, once a step lets it), never
+    // after a frame it has not finished. One iterator for the capture, its awaits on the reader's context like the loop's,
+    // so no frame allocates.
+    private async IAsyncEnumerable<Image> StreamSegmentsAsync(ICameraDriver camera, [EnumeratorCancellation] CancellationToken token)
+    {
+        InterludeRequest? restarted = null;
+        var dropping = 0;
+        var stoppedAt = 0L;
+        while (true)
+        {
+            InterludeRequest? interlude = null;
+            await foreach (var frame in Frames(camera, _streamOptions, token))
+            {
+                if (dropping > 0)
+                {
+                    dropping--;
+                    Interlocked.Increment(ref _framesDroppedAfterInterludes);
+                    frame.Release();
+                }
+                else
+                {
+                    if (restarted is { } back)
+                    {
+                        // The rate is the stream's, so the time it stood stopped is not counted against it (MeasuredFps).
+                        Interlocked.Add(ref _interludeTicks, timeProvider.GetElapsedTime(stoppedAt).Ticks);
+                        // The live stack starts again at this frame, the first the ring keeps after the interlude: what came
+                        // before was taken through another filter, focus or window. A ring rebuilt for this frame (its window
+                        // changed) starts at it anyway. The ring and its planes, the counters and the rate carry on.
+                        Volatile.Read(ref _stream)?.StartRun();
+                        restarted = null;
+                        Interlocked.CompareExchange(ref _streamUse, null, back);
+                        back.Restarted();
+                    }
+                    yield return frame;
+                }
+
+                // Between two frames, and only there: the one just taken is whole in the ring, the recording and the host.
+                // Dropped frames run on to the first one kept, with no interlude between.
+                if (dropping == 0 && restarted is null && Volatile.Read(ref _streamUse) is InterludeRequest asked && asked.TryTake())
+                {
+                    interlude = asked;
+                    stoppedAt = timeProvider.GetTimestamp();
+                    break;
+                }
+            }
+
+            if (interlude is null || !await RunInterludeAsync(camera, interlude, token))
+            {
+                yield break;
+            }
+            (restarted, dropping) = (interlude, Math.Max(0, interlude.Interlude.DropFrames));
+        }
+    }
+
+    // Runs an interlude the loop took, its stream stopped: the action, on the capture's token and its caller's, then the
+    // settings it starts again at, the window put on the camera where they change it. False when the capture is stopping,
+    // which the loop's end then tells the interlude.
+    private async Task<bool> RunInterludeAsync(ICameraDriver camera, InterludeRequest request, CancellationToken token)
+    {
+        var interlude = request.Interlude;
+        var had = new PlanetaryStreamSettings(_streamOptions, camera.NumX, camera.NumY, (short)camera.BinX);
+        logger.LogInformation("Capture ({Capture}): the stream stopped for {What}.", Name, interlude.What);
+
+        var restartAt = had;
+        using var either = CancellationTokenSource.CreateLinkedTokenSource(token, request.CallerToken);
+        try
+        {
+            await interlude.Action(either.Token);
+            if (interlude.RestartAt is { } transform)
+            {
+                var asked = transform(had);
+                if (asked.Options.Exposure < MinExposure)
+                {
+                    asked = asked with { Options = asked.Options with { Exposure = MinExposure } };
+                }
+                if ((asked.RoiWidth, asked.RoiHeight, asked.Bin) != (had.RoiWidth, had.RoiHeight, had.Bin))
+                {
+                    ConfigureRoi(camera, asked.RoiWidth, asked.RoiHeight, asked.Bin);
+                }
+                restartAt = asked;
+            }
+        }
+        catch (OperationCanceledException ex) when (either.IsCancellationRequested)
+        {
+            // The caller gave up, or the capture is stopping: the action's cancel is the caller's to hear.
+            logger.LogInformation(ex, "Capture ({Capture}): {What} was cancelled with the stream stopped.", Name, interlude.What);
+            request.Failed(ex);
+        }
+        catch (Exception ex)
+        {
+            // The caller's to hear once the stream is back; the capture goes on at the settings it had.
+            logger.LogWarning(ex, "Capture ({Capture}): {What} failed with the stream stopped; it streams again as it was.", Name, interlude.What);
+            request.Failed(ex);
+            restartAt = had;
+        }
+
+        if (token.IsCancellationRequested)
+        {
+            logger.LogInformation("Capture ({Capture}): stopped during {What}; the stream is not started again.", Name, interlude.What);
+            return false;
+        }
+
+        _streamOptions = restartAt.Options;
+        Volatile.Write(ref _rapidExposureTicks, restartAt.Options.Exposure.Ticks);
+        logger.LogInformation("Capture ({Capture}): streaming again after {What} at {Width}x{Height} bin {Bin}, {Exposure} ms, dropping {Drop} frames.",
+            Name, interlude.What, camera.NumX, camera.NumY, camera.BinX, restartAt.Options.Exposure.TotalMilliseconds, interlude.DropFrames);
+        return true;
+    }
+
+    // One interlude from its asking to its end. Done answers null once the stream is back, a refusal in words, or the
+    // action's failure; Done's continuations never run on the reader.
+    private sealed class InterludeRequest(PlanetaryInterlude interlude, CancellationToken callerToken)
+    {
+        private const int Pending = 0, Taken = 1, Withdrawn = 2;
+        private int _state;
+        private Exception? _failure;
+
+        public PlanetaryInterlude Interlude => interlude;
+
+        public CancellationToken CallerToken => callerToken;
+
+        public TaskCompletionSource<string?> Done { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool WasTaken => Volatile.Read(ref _state) == Taken;
+
+        public bool WasWithdrawn => Volatile.Read(ref _state) == Withdrawn;
+
+        // The loop's, between two frames; false once its caller has given it up.
+        public bool TryTake() => Interlocked.CompareExchange(ref _state, Taken, Pending) == Pending;
+
+        // Its caller's, giving up one the loop has not taken.
+        public void TryWithdraw()
+        {
+            if (Interlocked.CompareExchange(ref _state, Withdrawn, Pending) == Pending)
+            {
+                Done.TrySetResult(null);
+            }
+        }
+
+        public void Failed(Exception failure) => _failure = failure;
+
+        // The stream is back: its caller hears so, or of its action's failure.
+        public void Restarted()
+        {
+            if (_failure is { } failure)
+            {
+                Done.TrySetException(failure);
+            }
+            else
+            {
+                Done.TrySetResult(null);
+            }
+        }
+
+        public void Refuse(string why) => Done.TrySetResult(why);
+    }
 
     // Universal fallback: loop short single-shot exposures on any ICameraDriver. CanJogRoi is implicitly false for this
     // path (no IVideoCameraDriver), so the recenter loop uses mount jog only. Each exposure reads the live one
@@ -722,18 +1049,27 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             refusal = "No planetary capture is running to record";
             return false;
         }
-        if (_recording is { IsRecording: true })
+        // Asked first, so a refusal makes nothing: a recording starts its writer as it is made.
+        if (RecordingRefusalFor(Volatile.Read(ref _streamUse)) is { } busy)
         {
-            refusal = "A recording is already being made";
+            refusal = busy;
             return false;
         }
 
         var now = timeProvider.GetUtcNow();
         // The header names the camera and the telescope, so the recording's best stack knows the optics (#1179).
-        recording = new SerRecording(path, now, now + duration, logger, Camera?.Name, Volatile.Read(ref _telescopeField),
+        var made = new SerRecording(path, now, now + duration, logger, Camera?.Name, Volatile.Read(ref _telescopeField),
             streamed: Camera is { } camera && Streams(camera));
-        _recording = recording;
-        refusal = null;
+        // Armed only once it holds the stream's one claim, the claim an interlude takes too: the loop never appends to a
+        // recording that lost it, so a refused one ends with no frame and no file, and the last one to end stays the one a
+        // host reads.
+        if (!TryClaimStream(made, RecordingRefusalFor, out refusal))
+        {
+            made.End("another took the stream first");
+            return false;
+        }
+        _recording = made;
+        recording = made;
         logger.LogInformation("Planetary capture recording to {Path} for {Duration}", path, duration);
         return true;
     }
@@ -1043,6 +1379,19 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 {
                     await camera.SetGainAsync((short)gain, token);
                 }
+            }
+
+            // What the stream runs at from here, which an interlude starts it again at (RunInterludeAsync).
+            if (expTicks > 0 || gain >= 0 || depth != 0 || highSpeed >= 0)
+            {
+                var had = _streamOptions;
+                _streamOptions = had with
+                {
+                    Exposure = expTicks > 0 ? new TimeSpan(expTicks) : had.Exposure,
+                    Gain = gain >= 0 ? (short)gain : had.Gain,
+                    HighSpeedMode = highSpeed >= 0 ? highSpeed == 1 : had.HighSpeedMode,
+                    BitDepth = depth != 0 ? (BitDepth)depth : had.BitDepth,
+                };
             }
 
             if (video is { CanJogRoi: true } && (jx != 0 || jy != 0))

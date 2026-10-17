@@ -1190,9 +1190,9 @@ internal partial record Session
             : ValueTask.FromResult(-1);
 
     /// <summary>
-    /// Switches the filter wheel to the target position if it's not already there.
-    /// Waits for the wheel to finish moving, then applies the focuser offset delta
-    /// relative to the reference filter if the OTA has a focuser and non-zero offsets.
+    /// Turns the OTA's wheel to <paramref name="targetFilterPosition"/> through the one filter change
+    /// (<see cref="FilterChange.ChangeAsync"/>: the wheel's arrival awaited, the focuser moved by the offset of the filter
+    /// arrived at less the one left), with the session's resilient calls and its backlash estimate.
     /// </summary>
     private async ValueTask SwitchFilterIfNeededAsync(
         int telescopeIndex,
@@ -1200,73 +1200,23 @@ internal partial record Session
         int targetFilterPosition,
         CancellationToken cancellationToken)
     {
-        var currentPosition = await ResilientInvokeAsync(
-            filterWheelDriver, filterWheelDriver.GetPositionAsync,
-            ResilientCallOptions.IdempotentRead, cancellationToken);
-        if (currentPosition == targetFilterPosition)
-        {
-            return;
-        }
-
         var telescope = Setup.Telescopes[telescopeIndex];
-        var targetFilter = targetFilterPosition < filterWheelDriver.Filters.Count
-            ? filterWheelDriver.Filters[targetFilterPosition]
-            : new InstalledFilter(Filter.Unknown, 0);
-
-        _logger.LogInformation("Telescope #{TelescopeNumber}: switching filter to {Filter} (position {Position}).",
-            telescopeIndex + 1, targetFilter.Filter, targetFilterPosition);
-
-        await ResilientInvokeAsync(
-            filterWheelDriver,
-            ct => filterWheelDriver.BeginMoveAsync(targetFilterPosition, ct),
-            ResilientCallOptions.AbsoluteMove, cancellationToken);
-
-        // Poll until the wheel reports it has arrived (position != -1 and equals target)
-        while (!cancellationToken.IsCancellationRequested)
+        FilterFocuser? focuser = null;
+        if (telescope.Focuser?.Driver is { Connected: true } focuserDriver)
         {
-            var pos = await ResilientInvokeAsync(
-                filterWheelDriver, filterWheelDriver.GetPositionAsync,
-                ResilientCallOptions.IdempotentRead, cancellationToken);
-            if (pos == targetFilterPosition)
-            {
-                break;
-            }
-
-            await _timeProvider.SleepAsync(TimeSpan.FromMilliseconds(250), cancellationToken);
+            var (backlashIn, backlashOut) = GetEffectiveBacklash(focuserDriver);
+            focuser = new FilterFocuser(
+                focuserDriver,
+                ct => ResilientInvokeAsync(focuserDriver, focuserDriver.GetPositionAsync, ResilientCallOptions.IdempotentRead, ct),
+                ResilientMotion(focuserDriver), backlashIn, backlashOut, telescope.FocusDirection);
         }
 
-        // Apply focuser offset delta if the telescope has a focuser and the filter has an offset
-        if (telescope.Focuser?.Driver is { Connected: true } focuserDriver && targetFilter.Position != 0)
-        {
-            // Find the reference filter (luminance or position 0) to compute the delta
-            var refOffset = 0;
-            for (var j = 0; j < filterWheelDriver.Filters.Count; j++)
-            {
-                if (filterWheelDriver.Filters[j].Filter.Bandpass == Bandpass.Luminance)
-                {
-                    refOffset = filterWheelDriver.Filters[j].Position;
-                    break;
-                }
-            }
+        var wheelMotion = new FilterWheelMotion(
+            ct => ResilientInvokeAsync(filterWheelDriver, filterWheelDriver.GetPositionAsync, ResilientCallOptions.IdempotentRead, ct),
+            (position, ct) => ResilientInvokeAsync(filterWheelDriver, c => filterWheelDriver.BeginMoveAsync(position, c), ResilientCallOptions.AbsoluteMove, ct));
 
-            var delta = targetFilter.Position - refOffset;
-            if (delta != 0)
-            {
-                var currentFocusPos = await ResilientInvokeAsync(
-                    focuserDriver, focuserDriver.GetPositionAsync,
-                    ResilientCallOptions.IdempotentRead, cancellationToken);
-                var targetFocusPos = currentFocusPos + delta;
-
-                _logger.LogInformation("Telescope #{TelescopeNumber}: applying focus offset {Delta} steps for filter {Filter} (pos {From} -> {To}).",
-                    telescopeIndex + 1, delta, targetFilter.Filter, currentFocusPos, targetFocusPos);
-
-                var (filterBacklashIn, filterBacklashOut) = GetEffectiveBacklash(focuserDriver);
-                await BacklashCompensation.MoveWithCompensationAsync(
-                    focuserDriver, ResilientMotion(focuserDriver), targetFocusPos, currentFocusPos,
-                    filterBacklashIn, filterBacklashOut,
-                    telescope.FocusDirection, _timeProvider, cancellationToken);
-            }
-        }
+        await FilterChange.ChangeAsync(filterWheelDriver, wheelMotion, targetFilterPosition, focuser, _timeProvider, _logger,
+            $"Telescope #{telescopeIndex + 1}", cancellationToken);
     }
 
     /// <summary>

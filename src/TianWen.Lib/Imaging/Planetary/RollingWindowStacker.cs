@@ -194,12 +194,18 @@ public sealed class RollingWindowStacker
     // the window's scores (zero for a frame the ring dropped before it was graded, or that graded out).
     private readonly record struct Contribution(float Weight, float Dx, float Dy, float Score);
 
-    public RollingWindowStacker(IPlanetaryFrameStream stream, RollingWindowOptions? options = null)
+    /// <param name="firstIndex">The first frame any window may hold: a live ring's current run (<see cref="LiveCameraFrameStream.RunStart"/>),
+    /// so a stack begun after a filter change folds nothing from before it. 0 for a whole stream.</param>
+    public RollingWindowStacker(IPlanetaryFrameStream stream, RollingWindowOptions? options = null, int firstIndex = 0)
     {
         ArgumentNullException.ThrowIfNull(stream);
+        ArgumentOutOfRangeException.ThrowIfNegative(firstIndex);
         _stream = stream;
         _options = options ?? new RollingWindowOptions();
+        _firstIndex = firstIndex;
     }
+
+    private readonly int _firstIndex;
 
     /// <summary>Index of the current alignment reference frame, or <c>-1</c> before the first stack.</summary>
     public int ReferenceIndex => _refIndex;
@@ -246,12 +252,12 @@ public sealed class RollingWindowStacker
     public async Task<Image> StackToAsync(int playheadIndex, CancellationToken cancellationToken = default)
     {
         var count = _stream.FrameCount;
-        if (count <= 0)
+        if (count <= _firstIndex)
         {
-            throw new InvalidOperationException("The frame stream is empty.");
+            throw new InvalidOperationException(_firstIndex == 0 ? "The frame stream is empty." : $"The frame stream has no frame from {_firstIndex} on yet.");
         }
 
-        var f = Math.Clamp(playheadIndex, 0, count - 1);
+        var f = Math.Clamp(playheadIndex, _firstIndex, count - 1);
         var windowStart = ComputeWindowStart(f);
 
         var aged = _refIndex >= 0 && _refIndex < windowStart; // alignment reference aged out of the window
@@ -360,7 +366,7 @@ public sealed class RollingWindowStacker
     }
 
     // The window's first frame: walk back from f while still within WindowDuration of capture time, else
-    // a fixed frame count. Both clamp to 0.
+    // a fixed frame count. Both clamp to the first frame a window may hold (0, or a live ring's run start).
     internal int ComputeWindowStart(int f)
     {
         int start;
@@ -368,7 +374,7 @@ public sealed class RollingWindowStacker
         {
             var cutoff = tEnd - _options.WindowDuration;
             start = f;
-            while (start > 0 && _stream.TimestampOf(start - 1) is { } tPrev && tPrev >= cutoff)
+            while (start > _firstIndex && _stream.TimestampOf(start - 1) is { } tPrev && tPrev >= cutoff)
             {
                 start--;
             }
@@ -382,7 +388,7 @@ public sealed class RollingWindowStacker
         // capture in a 5-minute window, and the per-frame fold/align cost makes that a multi-second batch
         // stack rather than a live one. min(time-bound, frame-cap).
         var maxStart = f - _options.MaxWindowFrames + 1;
-        return Math.Max(start, maxStart);
+        return Math.Max(Math.Max(start, maxStart), _firstIndex);
     }
 
     // Takes the window's best folded frame (ties to the earliest) as the alignment reference without folding the window again

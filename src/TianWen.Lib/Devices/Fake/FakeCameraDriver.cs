@@ -1633,6 +1633,13 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
             ? new RoiRect(_videoRoiStartX, _videoRoiStartY, _videoRoiWidth, _videoRoiHeight)
             : new RoiRect(0, 0, CameraXSize, CameraYSize);
 
+    /// <summary>
+    /// What each video stream of this camera was started with, in order: its options and its window's size and binning. A test
+    /// seam for a stream started again (an interlude restarts it at the settings it had, <c>PlanetaryCapture.InterludeAsync</c>).
+    /// Written as each stream starts, one stream at a time.
+    /// </summary>
+    internal System.Collections.Immutable.ImmutableArray<(VideoCaptureOptions Options, int Width, int Height, short Bin)> VideoStarts { get; private set; } = [];
+
     /// <inheritdoc/>
     public async IAsyncEnumerable<Image> CaptureVideoAsync(
         VideoCaptureOptions options,
@@ -1650,6 +1657,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
 
         try
         {
+            VideoStarts = VideoStarts.Add((options, NumX, NumY, (short)BinX));
             if (options.Gain is { } gain)
             {
                 await SetGainAsync(gain, cancellationToken).ConfigureAwait(false);

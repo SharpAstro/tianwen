@@ -616,10 +616,23 @@ namespace TianWen.RemoteClient
             SendJsonAsync(HttpMethod.Post, "api/v1/devices/focuser/stop", new DeviceRequestDto { DeviceUri = deviceUri.ToString() },
                 HostingJsonContext.Default.DeviceRequestDto, HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
 
-        /// <summary><c>POST /devices/filterwheel/change</c> -- turns the wheel to a position counted from 0, as a job that ends when it is there.</summary>
+        /// <summary>
+        /// <c>POST /devices/filterwheel/change</c> -- turns the wheel to a position counted from 0 through the session's one filter
+        /// change, as a job that ends when it is there and its OTA's focuser has taken the focus offset. While a planetary capture
+        /// streams through the wheel it is the capture's interlude (its stream stopped and started again); refused (409) in words
+        /// while that capture records.
+        /// </summary>
         public Task<NodeResult<JobDto>> ChangeFilterAsync(Uri deviceUri, int position, CancellationToken cancellationToken) =>
             SendJsonAsync(HttpMethod.Post, "api/v1/devices/filterwheel/change", new FilterChangeRequestDto { DeviceUri = deviceUri.ToString(), Position = position },
                 HostingJsonContext.Default.FilterChangeRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
+        /// <summary>
+        /// <c>POST /ota/{index}/filterwheel/change</c> -- <see cref="ChangeFilterAsync"/> for the wheel of OTA <paramref name="otaIndex"/>
+        /// (the running session's, else the active profile's), so a client need not know the wheel's URI.
+        /// </summary>
+        public Task<NodeResult<JobDto>> ChangeOtaFilterAsync(int otaIndex, int position, CancellationToken cancellationToken) =>
+            PostAsync($"api/v1/ota/{otaIndex.ToString(CultureInfo.InvariantCulture)}/filterwheel/change?position={position.ToString(CultureInfo.InvariantCulture)}",
+                content: null, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
 
         /// <summary><c>POST /devices/mount/goto</c> -- slews to a J2000 position through the one goto every host uses, as a job that ends when the mount has landed. What only the mount can answer (below the horizon) fails the job with its reason.</summary>
         public Task<NodeResult<JobDto>> GotoAsync(MountGotoRequestDto request, CancellationToken cancellationToken) =>
