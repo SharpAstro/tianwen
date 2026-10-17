@@ -6,8 +6,6 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <Platforms>AnyCPU</Platforms>
-    <!-- GpuStretchPipelineTests.RenderViaOffscreenGpu uses Vortice.Vulkan's VkInstanceCreateInfo
-         which requires unsafe pointer handling for vkCreateInstance. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
@@ -144,9 +142,8 @@
     <ProjectReference Include="..\TianWen.UI.Abstractions\TianWen.UI.Abstractions.csproj" />
     <ProjectReference Include="..\TianWen.RemoteClient\TianWen.RemoteClient.csproj" />
     <ProjectReference Include="..\TianWen.Hosting\TianWen.Hosting.csproj" />
-    <!-- Pulls in VkFitsImagePipeline + SdlVulkan.Renderer for the GPU offscreen
-         pipeline test (GpuStretchPipelineTests). Vulkan native libs are loaded
-         lazily on the first Vulkan call; tests skip if the runtime is unavailable. -->
+    <!-- The UI.Shared types tested without a device. A test that drives a real GPU goes in
+         TianWen.Lib.Tests.Gpu, a process of its own (#1634), never here. -->
     <ProjectReference Include="..\TianWen.UI.Shared\TianWen.UI.Shared.csproj" />
     <!-- The TUI chrome (tab bar geometry) is testable without a terminal; see TuiTabBarTests. -->
     <ProjectReference Include="..\TianWen.Cli\TianWen.Cli.csproj" />
@@ -161,6 +158,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="TianWen.Lib.Tests.Functional" />
+    <InternalsVisibleTo Include="TianWen.Lib.Tests.Gpu" />
     <InternalsVisibleTo Include="TianWen.Lib.Tests.Simulators" />
   </ItemGroup>
 

@@ -355,6 +355,7 @@ jobs:
       run: dotnet restore
       working-directory: src
     - name: Build
+      id: build
       # Release legs only. The DEBUG leg builds its own, narrower target below -- it must NOT build
       # the solution in Debug, because CI resolves siblings as PACKAGES and a published package is
       # built Release, so the #if DEBUG types the debug-inspector layer consumes are absent from it
@@ -394,6 +395,18 @@ jobs:
         DOTNET_DbgMiniDumpType: "2"
         DOTNET_DbgMiniDumpName: /tmp/coredump-%e-%p-%t.dmp
       run: dotnet test TianWen.Lib.Tests -c $BUILD_CONF --no-build --filter "Category!=Heavy" --output Detailed --crashdump --hangdump --hangdump-timeout 5min --crash-sequence on --results-directory test-results/
+      working-directory: src
+    - name: GPU Tests
+      # Every test that drives a real GPU (here lavapipe), in a process of its own (#1634): a fault inside a GPU driver
+      # cannot be caught in .NET and ends the process it happens in, so it ends this step, never the unit suite. For the
+      # same reason it runs whatever the unit tests did, on any build that succeeded. No Heavy filter: nothing here is
+      # Heavy, and heavy-tests.yml does not run this project, so a filter would drop such a test from every run.
+      if: ${{ !cancelled() && matrix.config == 'Release' && steps.build.outcome == 'success' }}
+      env:
+        DOTNET_DbgEnableMiniDump: "1"
+        DOTNET_DbgMiniDumpType: "2"
+        DOTNET_DbgMiniDumpName: /tmp/coredump-%e-%p-%t.dmp
+      run: dotnet test TianWen.Lib.Tests.Gpu -c $BUILD_CONF --no-build --output Detailed --crashdump --hangdump --hangdump-timeout 5min --crash-sequence on --results-directory test-results-gpu/
       working-directory: src
     # ---------------------------------------------------------------------------------------
     # DEBUG leg. Some instrumentation is compiled out of Release, so the Release run above
@@ -478,6 +491,7 @@ jobs:
         name: test-blame-${{ matrix.leg }}
         path: |
           src/test-results/
+          src/test-results-gpu/
           src/test-results-debug/
           /tmp/coredump-*.dmp
         if-no-files-found: ignore

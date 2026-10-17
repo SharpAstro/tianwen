@@ -85,6 +85,7 @@ src/
 ├── TianWen.Lib/ (core, net10.0)   TianWen.Devices.Native/ (ZWO + QHYCCD drivers, so Lib carries no vendor natives)
 ├── TianWen.Lib.SourceGenerators/ (Roslyn: DispatchInterfaceGenerator)
 ├── TianWen.Lib.Tests/ (unit, xUnit v3)   .Tests.Functional/ (Session loops with FakeTimeProvider)
+├── TianWen.Lib.Tests.Gpu/ (every test that drives a real GPU: its own process, one shared Vulkan device)
 ├── TianWen.Lib.Tests.Simulators/ (on-demand tests vs LIVE Alpaca/ASCOM simulators; gated, skip by default)
 ├── TianWen.Cli/ (AOT → `tianwen`)   TianWen.Server/ (headless, AOT → `tianwen-server`)
 ├── TianWen.AscomHost/ (Windows-only out-of-proc host for in-proc COM ASCOM drivers)
@@ -215,6 +216,10 @@ and `LALR.CC` is deliberately exempt from the shared shape, so leave it alone.
   `KeptNode`). A helper that names a folder after its test takes the test's `TempFolders` (`FitsFixture.CreateTempDir`,
   `TempStackingWorkspace`): a fixed parent of its own under `%TEMP%` is a folder nothing sweeps (#1323: about
   9,000 folders and 1.1 GB in a week). `TestTempFoldersTests` fails on a bare `CreateTempSubdirectory` in any test project.
+- **A test that drives a real GPU goes in `TianWen.Lib.Tests.Gpu`, never the unit suite** (#1634): a fault inside a GPU
+  driver cannot be caught in .NET and ends its whole process, and the unit host died twice on one in NVIDIA's Vulkan driver.
+  The run shares ONE instance and device (`SharedGpuStack`); a fixture derives from `OffscreenGpuFixtureBase`, which resizes
+  the one target per class, and the class is `[Collection(GpuCollection.Name)]`, or the fixture throws naming both holders.
 - **A thread stress test runs off CI** (the owner, 2026-10-10; `StressTestGate.SkipOnCi`): one that hammers an object
   from several threads for wall-clock time measures the runner, and on a shared 4-core runner its loops held the thread
   pool and stalled the whole test process into the hang dump (#1385). Its loops take threads of their own

@@ -7,6 +7,7 @@
 [assembly: InternalsVisibleTo("TianWen.Devices.Native")]
 [assembly: InternalsVisibleTo("TianWen.Lib.Tests")]
 [assembly: InternalsVisibleTo("TianWen.Lib.Tests.Functional")]
+[assembly: InternalsVisibleTo("TianWen.Lib.Tests.Gpu")]
 [assembly: InternalsVisibleTo("TianWen.Lib.Tests.Simulators")]
 [assembly: InternalsVisibleTo("TianWen.UI.Abstractions")]
 [assembly: InternalsVisibleTo("TianWen.UI.Benchmarks")]

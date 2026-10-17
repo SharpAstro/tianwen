@@ -1565,7 +1565,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
     /// <summary>
     /// Every planet's disc in <paramref name="pixels"/> (RGBA, <paramref name="width"/> wide) whose brightness-weighted centre lies more
     /// than 45 degrees from the Sun's place on screen, as the drawn list puts both: what <see cref="EveryDiscIsLitTowardTheSun"/> and its
-    /// GPU twin (<see cref="OrreryGpuTests"/>) judge.
+    /// GPU twin (<c>OrreryGpuTests</c>, in TianWen.Lib.Tests.Gpu) judge.
     /// </summary>
     internal static System.Collections.Generic.List<string> LitAwayFromTheSun(System.Collections.Generic.IReadOnlyList<(CatalogIndex Index, float X, float Y, float Radius)> drawn,
         byte[] pixels, int width, int height, ITestOutputHelper output)

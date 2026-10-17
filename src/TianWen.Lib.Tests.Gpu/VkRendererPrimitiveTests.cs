@@ -27,7 +27,7 @@ namespace TianWen.Lib.Tests;
 ///
 /// Skips when Vulkan is unavailable (no driver / no ICD).
 /// </summary>
-[Collection("Imaging")]
+[Collection(GpuCollection.Name)]
 public sealed class VkRendererPrimitiveTests(VkPrimitiveGpuFixture gpuFixture, ITestOutputHelper output)
     : IClassFixture<VkPrimitiveGpuFixture>
 {
