@@ -2577,6 +2577,67 @@ views each. On A's draws and the validation masters' real stars, against R2i and
 rate fall past the spread against R2i. **Kill**: none, read. **What it decides**: whether two seeds of one recipe average
 as well as two recipes do, which says whether a product average needs different recipes or only more seeds.
 
+#### R2i's seed 1 read: the faint stars repeat, and the bright stars lie 4.3 points apart (2026-10-17)
+
+`r2i_synth4_s1` ended on its own: "stopped at step 166000: the held-out objective's best was 2.441324e-06 at step
+142000", at 14:27 on the Azure spot T4. It was evicted once (about 07:30) and resumed from its step-44,000 checkpoint
+with its RNG states. The resume also stopped its sync to the container, because the line that installs the sync's cron
+entry empties the crontab when it runs a second time. Training went on, so the weights were synced by hand at 14:32 and
+scored by the driver at 14:33 to 14:36, by the same binary as seed 0, on A's draws and both of R2k's twins
+(`C:\temp\e2\read_s1.py`).
+
+| | seed 0 | seed 1 |
+|---|---|---|
+| A's draws: clean 5-20 / 20-100 / 100-1000 sigma | 79.2 / 74.5 / 60.2 | 80.6 / 75.3 / 55.9 |
+| A's draws: dug 100-1000 sigma | 28.7 | 32.3 |
+| A's draws: clean in colour 100-1000 sigma | 21.3 | 19.0 |
+| A's draws: clean / dug saturated | 46.6 / 28.3 | 46.6 / 35.6 |
+| plain twin: clean / dug 100-1000 sigma | 61.2 / 29.6 | 57.5 / 32.4 |
+| lobed twin: clean / dug 100-1000 sigma | 61.0 / 30.0 | 56.6 / 33.8 |
+| real stars, 100-1000 sigma: within a sigma / dug | 96.4 / 1.47 | 95.4 / 2.78 |
+
+1. **It ends on its own before 480,000: holds**, at 166,000 (seed 0 at 216,500).
+2. **Within the old-store spread: holds on the faint stars, misses on the bright ones.** Clean +1.3 and +0.8 at 5-20 and
+   20-100 sigma (bars 2.7 and 3.1), and -4.3 at 100-1000 (bar 3.1), with -3.7 and -4.4 on the two twins. On the real
+   stars it is the same: better than seed 0 on faint stars (96.4 % within a sigma against 94.8), worse on bright ones.
+
+**What it decides.** The same-store seed spread is 1.3, 0.8 and 4.3 points clean, and 3.5 dug at 100-1000 sigma. It is
+one difference, as the old store's was, and it holds the T4's arithmetic and one resume as well as the seed. From here
+the line reads its bright stars against **4.3 points** (the larger of the two spreads) and its faint ones against the
+old store's 2.7 and 3.1. Nothing read so far changes: R2l's -0.4 and R2k's -2.2 at 100-1000 sigma were inside both
+bars, and R2k's +6.9 dig is past the same-store 3.5 as it was past the old 6.4. **The re-baked store's gain holds on
+a second seed, smaller**: seed for seed against the old store's seed 1 (R2h, 78.1 / 73.2 / 51.9), seed 1 gains +2.5,
++2.1 and +4.0, against seed 0's +3.9, +4.4 and +11.5 over R2g. The bright stars clear the spread on both seeds; the
+faint gain is at the spread.
+
+#### E5 and E6 read: the averaging's gain does not need different recipes, and three members lead on real stars (2026-10-17)
+
+Scored at 14:38 to 14:46 (`C:\temp\e2\r2-averaging-e56.ps1`, `read_s1.py`, `real-star-read-e56.txt`).
+
+| | R2i | E3: R2i + R2l | E5: R2i's two seeds | E6: two seeds + R2l |
+|---|---|---|---|---|
+| A's draws: clean 5-20 / 20-100 / 100-1000 sigma | 79.2 / 74.5 / 60.2 | 81.1 / 78.1 / **68.9** | 81.4 / 78.0 / 66.7 | **81.5 / 78.5** / 68.8 |
+| A's draws: dug 100-1000 sigma | 28.7 | **22.3** | 24.7 | 22.8 |
+| A's draws: clean in colour 100-1000 / clean saturated | 21.3 / 46.6 | 35.1 / **62.1** | 33.1 / 54.3 | **35.3** / 60.3 |
+| the members' mean, clean 100-1000 sigma | | 60.0 | 58.1 | 58.6 |
+| the average over its members' mean | | +8.9 | +8.7 | **+10.2** |
+| real stars, 5-20 / 20-100 / 100-1000 sigma within a sigma | 94.8 / 97.1 / 96.4 | 96.1 / 98.8 / 98.2 | 96.3 / 98.4 / 97.8 | **96.6 / 98.9 / 98.4** |
+| real stars, 100-1000 sigma: light left / dug | 2.11 / 1.47 | 0.83 / 0.93 | 1.07 / 1.09 | **0.78 / 0.81** |
+
+1. **E5's bright stars gain: holds**, 66.7 % against at least 63.3.
+2. **E6 against E3: holds**, 68.8 % against at least 67.9.
+3. **No clean rate falls past the spread against R2i: holds** for both; every rate rises.
+
+**What it decides.** Two seeds of one recipe gain over their members' mean as much as two recipes do (+8.7 against
++8.9), so the averaging needs no second recipe: E5 lands below E3 only because seed 1 is the weaker member, and the
+seed lottery is itself 4.3 points on bright stars. A third member adds 1.3 points more over the mean. On A's draws E6 and
+E3 are one result, every difference inside its counting noise (half a point on 12,393 bright stars, about 3 on the 219
+saturated ones, where E6 is 1.8 lower); on the real stars E6 is first in every band,
+with the least light left and the least dug at 100-1000 sigma, though its lead over E3 there (0.2 points) is inside the
+0.3 counting noise. So a product average is any few members of the line's recipe, and its quality follows the members;
+which ones ship, and at what inference cost, is the owner's. On the line, the target stays a single model that keeps an
+average's gain, and R2m (the core jitter) is the next training arm.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
