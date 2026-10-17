@@ -19,7 +19,7 @@ namespace TianWen.Lib.Tests;
 /// and the resulting vertex buffer is uploaded with <c>ctx.WriteVertices</c> later. Catches
 /// regressions in vertex count, unit-sphere invariants, and constellation HIP lookup without
 /// any Vulkan setup. Cheaper than the offscreen-render comp tests in
-/// <see cref="VkRendererPrimitiveTests"/> and <see cref="GpuStretchPipelineTests"/>.
+/// <c>VkRendererPrimitiveTests</c> and <c>GpuStretchPipelineTests</c> (TianWen.Lib.Tests.Gpu).
 /// </summary>
 public sealed class SkyMapLineTessellationTests(ITestOutputHelper output)
 {

@@ -24,7 +24,7 @@ namespace TianWen.Lib.Tests;
 /// Mars gibbous, the Earth from its day map and the Sun. Both draw the disc onto black at one place and size; the GPU's frame is compared with the CPU's coverage
 /// times its clamped colour, byte for byte.
 /// </summary>
-[Collection("UI")]
+[Collection(GpuCollection.Name)]
 public sealed class PlanetBodyGpuTests(VkSkyMapGpuFixture gpu, ITestOutputHelper output) : IClassFixture<VkSkyMapGpuFixture>
 {
     private const int Width = VkSkyMapGpuFixture.Width;

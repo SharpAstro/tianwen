@@ -21,7 +21,7 @@ namespace TianWen.Lib.Tests;
 /// the spike column contains the channel-coloured bar; columns without spikes stay at the
 /// clear color.
 /// </summary>
-[Collection("Imaging")]
+[Collection(GpuCollection.Name)]
 public sealed class VkHistogramPipelineTests(VkHistogramGpuFixture gpuFixture, ITestOutputHelper output)
     : IClassFixture<VkHistogramGpuFixture>
 {

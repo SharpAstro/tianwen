@@ -12,7 +12,7 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// The shader's VNG and MHC demosaics against <see cref="Image.DebayerVNGAsync"/> and <see cref="Image.DebayerMHCAsync"/>, on
+/// The shader's VNG and MHC demosaics against <c>Image.DebayerVNGAsync</c> and <c>Image.DebayerMHCAsync</c>, on
 /// the same mosaic, and the shader's colour demosaics against a mosaic whose colours are each flat, out to the frame's edge.
 /// </summary>
 /// <remarks>
@@ -32,7 +32,7 @@ namespace TianWen.Lib.Tests;
 /// with <see cref="StretchMode.None"/>, neutral white balance and no curves, so both sides reduce to
 /// clamp-and-quantise and any divergence localises to the demosaic.</para>
 /// </remarks>
-[Collection("Imaging")]
+[Collection(GpuCollection.Name)]
 public sealed class GpuVngDebayerParityTests(OffscreenGpuFixture gpu, ITestOutputHelper output)
     : IClassFixture<OffscreenGpuFixture>
 {

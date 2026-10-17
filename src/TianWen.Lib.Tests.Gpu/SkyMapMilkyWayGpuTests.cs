@@ -29,7 +29,7 @@ namespace TianWen.Lib.Tests;
 /// Cygnus's; <c>MILKYWAY_LZ</c> renders another texture file instead of the shipped one, so two textures can be put
 /// side by side through the same pipeline.</para>
 /// </remarks>
-[Collection("UI")]
+[Collection(GpuCollection.Name)]
 public sealed class SkyMapMilkyWayGpuTests(VkSkyMapGpuFixture gpu) : IClassFixture<VkSkyMapGpuFixture>
 {
     private const int Width = VkSkyMapGpuFixture.Width;
