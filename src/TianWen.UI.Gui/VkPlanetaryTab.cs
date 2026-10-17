@@ -197,7 +197,7 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
         FillRect(boxX, boxY, boxW, boxH, PipSensorBg);
         StrokeRect(boxX, boxY, boxW, boxH, MathF.Max(1f, dpiScale), PipSensorBorder);
 
-        // Remember the sensor box + scale so HandleInput can map a drag in the PiP back to sensor coords.
+        // Remember the sensor box + scale so the PiP's press (PressPip) can map a drag back to sensor coords.
         _pipSensorRect = new RectF32(boxX, boxY, boxW, boxH);
         _pipScale = s;
 
