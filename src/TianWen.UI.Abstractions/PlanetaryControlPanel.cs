@@ -323,6 +323,7 @@ public sealed class PlanetaryControlPanel
             }
             if (telemetry.FocuserIsMoving)
             {
+                // A character, not an icon: neither DIR.Lib's IconKind nor BakedIcons draws a swap arrow yet.
                 focLabel += "   ⇄";
             }
             rows.Add(Layout.Builder.Text(focLabel, PanelFontSize, telemetry.FocuserIsMoving ? MovingText : HeaderText, TextAlign.Near, TextAlign.Center)
@@ -353,11 +354,11 @@ public sealed class PlanetaryControlPanel
     // "label [-] value [+]" as one fixed-height row; a press runs the action, and the new value shows next frame.
     private static Layout.Node Stepper(string label, string value, string idPrefix, Action onDec, Action onInc)
     {
-        var iconSize = PanelFontSize * Layout.Content.Icon.TextSizeRatio;
-        var dec = Layout.Builder.Icon(Layout.IconKind.Minus, iconSize, ButtonText)
+        // Its marks resolve where every step, jog and pan mark does (CLAUDE.md, Layout DSL).
+        var dec = FormRowLayout.StepMark("-", PanelFontSize, ButtonText)
             .WFixed(BaseRowHeight).HStar().Bg(StepBtnBg).BgHover(GuiTheme.Hover(StepBtnBg))
             .Clickable(new HitResult.ButtonHit(idPrefix + "Dec"), _ => onDec());
-        var inc = Layout.Builder.Icon(Layout.IconKind.Plus, iconSize, ButtonText)
+        var inc = FormRowLayout.StepMark("+", PanelFontSize, ButtonText)
             .WFixed(BaseRowHeight).HStar().Bg(StepBtnBg).BgHover(GuiTheme.Hover(StepBtnBg))
             .Clickable(new HitResult.ButtonHit(idPrefix + "Inc"), _ => onInc());
         return Layout.Builder.HStack(
