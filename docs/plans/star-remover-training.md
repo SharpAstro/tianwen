@@ -2554,6 +2554,20 @@ clean at 100-1000 sigma is at least E3's 68.9 % less 1 point (a third member, th
 should not take much away); (2) no clean rate falls past the spread against R2i. **Kill**: none; it is the average's next
 member, read. **What it decides**: whether the averages keep gaining with members that differ in their data.
 
+**E4 read** (14:00, `C:\temp\e2\r2-averaging-e4.ps1`, `real-star-read-e4.txt`): both predictions hold, and the third member
+adds nothing a reader could call a gain.
+
+| | R2i | E3 | E4 |
+|---|---|---|---|
+| A's draws: clean 5-20 / 20-100 / 100-1000 sigma | 79.2 / 74.5 / 60.2 | 81.1 / 78.1 / **68.9** | **81.7 / 78.4** / 68.1 |
+| A's draws: dug 100-1000 sigma | 28.7 | **22.3** | 25.0 |
+| A's draws: clean in colour 100-1000 / clean saturated | 21.2 / 46.6 | 35.1 / 62.1 | **36.4 / 63.5** |
+| real stars, 100-1000 sigma: within a sigma / dug | 96.4 / 1.47 | **98.2 / 0.93** | 98.1 / 1.21 |
+
+(1) holds, 68.1 % against at least 67.9; (2) holds. R2k carries its dig into the average (dug 25.0 against E3's 22.3, and
+on real stars 1.21 against 0.93), so E3 stays the best combination; R2k alone on the real stars leaves 95.4 % of the bright
+ones within a sigma against R2i's 96.4, the dig again (2.92 % against 1.47).
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
