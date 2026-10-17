@@ -416,7 +416,7 @@ mosaic-scale masters; phase 11 expands the rejector menu; phases 14 + 15
 shows the accumulating stack during capture (per-target, automatic reset on
 target switch). Phase 16 (chunked tier-3) is gated on real user need.
 
-A standalone stacking GUI app is not in scope; the existing FITS viewer +
+**Superseded 2026-10-17 by `stacking-workbench.md`**, which the owner asked for (a GUI stacking app, deep sky and planetary). As written before: a standalone stacking GUI app is not in scope; the existing FITS viewer +
 session live preview cover the user-facing UX for both batch (post-session
 inspect masters in the viewer) and live (preview pane during capture)
 workflows. If a dedicated stacking workbench becomes desirable later it
@@ -681,7 +681,7 @@ stack can toggle the config off.
 
 4. ~~**UI surface**~~: **RESOLVED**. CLI-first (phase 13 `tianwen stack`) for
    batch; the live-session preview pane in `LiveSessionTab` gets a "show stack"
-   toggle (phase 15) for during-capture viewing. No new "Stacking tab" needed.
+   toggle (phase 15) for during-capture viewing. No new "Stacking tab" needed. A stacking app beside the session's path is `stacking-workbench.md` (2026-10-17).
 
 5. **Live-stack scope v1**: single-filter only? Multi-filter SHO compositing
    adds 4-5 days but is what most narrowband users want.

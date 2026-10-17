@@ -11,6 +11,7 @@ Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase
 | [astro-archive-survey](astro-archive-survey.md) | **REFERENCE SNAPSHOT** (added 2026-09-25): the archive survey. Open: QHY294 darks (#465, #731), the Organized gap (#471, #723), unsurveyed roots (#724, #728). |
 | [damage-based-repaint](damage-based-repaint.md) | **SHIPPED in 6.3** ("6.3 -- damage-based repaint"; added 2026-09-25). The plan carries no per-phase status; whether D4, the GUI host on `LayoutDamage`, is done is not stated. |
 | [dpi-scale](dpi-scale.md) | **DONE** (added 2026-09-25): per-window `DpiScale` / `FontPath` properties on the widget base. |
+| [stacking-workbench](stacking-workbench.md) | **NOT STARTED** (added 2026-10-17): a GUI workbench for deep-sky and planetary stacking, one step per engine routine, each step's result kept; W0, where it lives, is the owner's decision (#1640), then W1 to W8 (#1641 to #1648). |
 | [server-enhance-job-model](server-enhance-job-model.md) | **NOT STARTED, not backlog** (added 2026-09-25): job ids, history and cancel for the enhance endpoint. Build only when a client needs them. |
 | [sharpastro-lzip](sharpastro-lzip.md) | **COMPLETE** (added 2026-09-25): the managed lzip library, encoder included. |
 | [web-showcase](web-showcase.md) | **LIVE; follow-ups open** (added 2026-09-25): the deployed WebAssembly showcase. Open: IndexedDB profiles (#906), and measuring the payload (#907). |
