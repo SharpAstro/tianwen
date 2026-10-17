@@ -419,19 +419,23 @@ public sealed class PlanetaryControlPanel
     }
 
     private Layout.Node RoiPanButton(string glyph, string id, int dirX, int dirY, NodePlanetaryCapture capture, bool capturing)
-        => FormRowLayout.StepMark(glyph, PanelFontSize, ButtonText)
-            .WStar().HStar().Bg(JogBg).BgHover(GuiTheme.Hover(JogBg))
-            .Clickable(new HitResult.ButtonHit(id), _ =>
+    {
+        // Move the SELECTION (PiP / overlay); while capturing also jog the live readout window by the same pixel delta: the
+        // fast, mount-free recenter actuator.
+        void Pan()
+        {
+            if (capturing)
             {
-                // Move the SELECTION (PiP / overlay); while capturing also jog the live readout window by the same pixel
-                // delta: the fast, mount-free recenter actuator.
-                if (capturing)
-                {
-                    var (dx, dy) = RoiPanDelta(dirX, dirY);
-                    capture.JogRoi(dx, dy);
-                }
-                PanRoi(dirX, dirY);
-            });
+                var (dx, dy) = RoiPanDelta(dirX, dirY);
+                capture.JogRoi(dx, dy);
+            }
+            PanRoi(dirX, dirY);
+        }
+
+        return FormRowLayout.StepMark(glyph, PanelFontSize, ButtonText)
+            .WStar().HStar().Bg(JogBg).BgHover(GuiTheme.Hover(JogBg))
+            .Clickable(new HitResult.ButtonHit(id), _ => Pan());
+    }
 
     // Stages the selected exposure preset on a running capture (nothing while idle; the next Start carries it).
     private void PushExposure(NodePlanetaryCapture capture, bool capturing)
