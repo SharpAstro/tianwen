@@ -22,10 +22,14 @@ def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--export", required=True, help="the Stars-mode export (injections.jsonl and its tiles)")
     p.add_argument("--cache", required=True, help="where the checkpoint lives")
-    p.add_argument("--ckpt", required=True, help="the checkpoint's file name in --cache")
+    p.add_argument("--ckpt", required=True,
+                   help="the checkpoint's file name in --cache; several, comma separated, average their outputs (an ensemble)")
     p.add_argument("--val-from-list", required=True, help="the sessions to score, one id per line (# comments)")
     p.add_argument("--out", required=True, help="the outputs directory (created)")
     p.add_argument("--batch", type=int, default=16)
+    p.add_argument("--tta", type=int, choices=(1, 2, 4, 8), default=1,
+                   help="average each model's output over this many of the tile's eight flips and quarter turns, each "
+                        "turned back: 2 is a mirror, 4 the quarter turns, 8 all of them; 1 (default) the tile as it is")
     a = p.parse_args()
 
     import torch
@@ -41,7 +45,11 @@ def main():
     if not rows:
         raise SystemExit(f"no draw of {a.export} belongs to a session in {a.val_from_list}")
 
-    model, _ = S.load_model(a.cache, a.ckpt, dev)
+    models = [S.load_model(a.cache, c.strip(), dev)[0] for c in a.ckpt.split(",")]
+    if len({m.cond_map for m in models}) != 1:
+        raise SystemExit("an ensemble's checkpoints must all take the noise plane, or none")
+    views = [(flip, turns) for flip in (False, True) for turns in range(4)]
+    views = {1: views[:1], 2: [views[0], views[4]], 4: views[:4], 8: views}[a.tta]
     tile_bytes = S.CH * S.TILE * S.TILE * 2
     os.makedirs(os.path.join(a.out, "tiles"), exist_ok=True)
     index = []
@@ -50,12 +58,21 @@ def main():
             chunk = rows[i:i + a.batch]
             x = np.stack([read(os.path.join(a.export, r["Tile"]), tile_bytes, (S.CH, S.TILE, S.TILE)) for r in chunk])
             xt = torch.from_numpy(x).to(dev)
-            if model.cond_map:
+            if models[0].cond_map:
                 planes = np.stack([read(os.path.join(a.export, r["Tile"][:-len(".f16")] + SIGMA_EXT), S.TILE * S.TILE * 2,
                                         (S.TILE, S.TILE)) for r in chunk])
-                y = model(S.with_plane(xt, planes)).cpu().numpy()
+                inp = S.with_plane(xt, planes)
             else:
-                y = model(xt).cpu().numpy()
+                inp = xt
+            # Each model through each view, turned back and averaged: the plane turns with the tile it conditions.
+            total = None
+            for model in models:
+                for flip, turns in views:
+                    v = inp.flip(-1) if flip else inp
+                    out = torch.rot90(model(torch.rot90(v, turns, dims=(-2, -1))), -turns, dims=(-2, -1))
+                    out = out.flip(-1) if flip else out
+                    total = out if total is None else total + out
+            y = (total / (len(models) * len(views))).cpu().numpy()
             for r, out in zip(chunk, y):
                 name = f"tiles/{len(index):06d}.f16"
                 out.astype("<f2").tofile(os.path.join(a.out, name))
@@ -63,7 +80,7 @@ def main():
     with open(os.path.join(a.out, "outputs.jsonl"), "w", encoding="utf-8", newline="\n") as fh:
         for row in index:
             fh.write(json.dumps(row) + "\n")
-    print(f"{len(index)} draws of {len(sessions)} sessions through {a.ckpt} -> {a.out}")
+    print(f"{len(index)} draws of {len(sessions)} sessions through {a.ckpt} ({len(views)} views each) -> {a.out}")
 
 
 def read(path, nbytes, shape):
