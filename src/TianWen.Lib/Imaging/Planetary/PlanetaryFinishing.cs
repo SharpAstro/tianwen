@@ -44,6 +44,27 @@ public enum PlanetaryFinish
 public readonly record struct PupilTransferRow(double Fraction, double CyclesPerPixel, double Transfer, double StepGain, double TikhonovGain);
 
 /// <summary>
+/// The shape of the aperture target's fall to nothing at the cutoff (<see cref="PlanetaryFinishing.ApertureTaper"/>, L-TAPER, #1661): how much
+/// of the band it keeps whole, against how far its edge response overshoots a step. An edge's response is the running sum of the taper's
+/// line spread, its one-dimensional inverse transform (the projection-slice theorem), so a taper whose line spread dips below zero rings by
+/// itself, however smooth it is.
+/// </summary>
+public enum PlanetaryApertureTaper
+{
+    /// <summary>
+    /// A raised cosine from one at nothing to nothing at the cutoff, the default (L-TAPER): an edge response 0.6 % past a step. On the
+    /// captures with a post it rebounds at most 0.004 past the limb, where Tukey rebounded 0.008 on Saturn, and lands as near the posts.
+    /// </summary>
+    Hann,
+
+    /// <summary>One to half the cutoff, a raised cosine from there to nothing (#1366, the default until L-TAPER): an edge response 7.9 % past a step.</summary>
+    Tukey,
+
+    /// <summary>The clear aperture's own transfer at the cutoff, whose spread (an Airy pattern) is never negative: no overshoot, and its wing kept.</summary>
+    Clear,
+}
+
+/// <summary>
 /// The finishing steps of <see cref="PlanetaryFinish"/>, each on one channel's window as <see cref="PlanetarySharpening"/> cuts it: a square
 /// of <c>size</c> pixels normalised on the disk (sky 0, disk 1), the planet described by a <see cref="MetricDisk"/> in its own coordinates.
 /// docs/plans/planetary-restoration.md, "Contrast-adaptive deconvolution (Kolivas's PlanetaryTools)".
@@ -91,25 +112,43 @@ public static class PlanetaryFinishing
         return rows;
     }
 
-    /// <summary>The aperture target's taper is one to this fraction of the cutoff (a Tukey window, alpha 0.5, #1366).</summary>
-    public const double ApertureTaperStart = 0.5;
+    /// <summary>The Tukey taper is one to this fraction of its cutoff (alpha 0.5, #1366).</summary>
+    public const double TukeyTaperStart = 0.5;
 
     /// <summary>
-    /// The aperture target's transfer at <paramref name="cyclesPerPixel"/> (<see cref="PlanetarySharpenTarget.Aperture"/>, #1366): one to
-    /// <see cref="ApertureTaperStart"/> of the <paramref name="cutoff"/>, a raised cosine from there to nothing at it. The scene band-limited
-    /// where the pupil band-limits it, with no edge of its own to ring.
+    /// A Tukey taper at <paramref name="cyclesPerPixel"/>: one to <see cref="TukeyTaperStart"/> of the <paramref name="cutoff"/>, a raised
+    /// cosine from there to nothing at it. Its line spread dips to a tenth below zero, so an edge through it overshoots by 7.9 %: the aperture
+    /// target's shape until L-TAPER (<see cref="PlanetaryApertureTaper.Tukey"/>), and still the cut of a colour master's Wiener target at its
+    /// planes' Nyquist (<see cref="PlanetarySharpenOptions.ColourTargetCutFor"/>, #1398), which L-TAPER did not measure.
     /// </summary>
-    public static double ApertureTaper(double cyclesPerPixel, double cutoff)
+    public static double TukeyTaper(double cyclesPerPixel, double cutoff)
     {
         var u = cyclesPerPixel / cutoff;
-        return u <= ApertureTaperStart ? 1 : u >= 1 ? 0 : 0.5 * (1 + Math.Cos(Math.PI * (u - ApertureTaperStart) / (1 - ApertureTaperStart)));
+        return u <= TukeyTaperStart ? 1 : u >= 1 ? 0 : 0.5 * (1 + Math.Cos(Math.PI * (u - TukeyTaperStart) / (1 - TukeyTaperStart)));
+    }
+
+    /// <summary>
+    /// The aperture target's transfer at <paramref name="cyclesPerPixel"/> (<see cref="PlanetarySharpenTarget.Aperture"/>, #1366) in the
+    /// <paramref name="shape"/> asked: the scene band-limited where the pupil band-limits it, falling to nothing at the <paramref name="cutoff"/>.
+    /// The fall has an edge of its own to ring unless its line spread stays non-negative (<see cref="PlanetaryApertureTaper"/>).
+    /// </summary>
+    public static double ApertureTaper(double cyclesPerPixel, double cutoff, PlanetaryApertureTaper shape)
+    {
+        var u = cyclesPerPixel / cutoff;
+        return shape switch
+        {
+            PlanetaryApertureTaper.Hann => u >= 1 ? 0 : 0.5 * (1 + Math.Cos(Math.PI * u)),
+            PlanetaryApertureTaper.Tukey => TukeyTaper(cyclesPerPixel, cutoff),
+            PlanetaryApertureTaper.Clear => u >= 1 ? 0 : 2 / Math.PI * (Math.Acos(u) - (u * Math.Sqrt(1 - (u * u)))),
+            _ => throw new ArgumentOutOfRangeException(nameof(shape), shape, "no such aperture taper"),
+        };
     }
 
     /// <summary>
     /// <see cref="ApertureTaper"/> at the <paramref name="pupil"/>'s cutoff for <paramref name="wavelengthNm"/> and the plate scale, as a radial
     /// transfer read out to 0.75 cycles a pixel (past a square grid's corner).
     /// </summary>
-    public static RadialTransfer ApertureTarget(Pupil pupil, double wavelengthNm, double arcsecPerPixel)
+    public static RadialTransfer ApertureTarget(Pupil pupil, double wavelengthNm, double arcsecPerPixel, PlanetaryApertureTaper shape = PlanetaryApertureTaper.Hann)
     {
         const int ringsPerCycle = 1024;
         var cutoff = CutoffCyclesPerPixel(pupil, wavelengthNm, arcsecPerPixel);
@@ -117,7 +156,7 @@ public static class PlanetaryFinishing
         var values = new double[rings];
         for (var r = 0; r < rings; r++)
         {
-            values[r] = ApertureTaper(r / (double)ringsPerCycle, cutoff);
+            values[r] = ApertureTaper(r / (double)ringsPerCycle, cutoff, shape);
         }
         return new RadialTransfer([.. values], ringsPerCycle);
     }
@@ -133,11 +172,12 @@ public static class PlanetaryFinishing
     /// truth's own reach, as the sharpening reads its window's: the default grid loses the wing and read the mid frequencies about 1.5 %
     /// high, so the truth it divided came out that much low (#1398).
     /// </summary>
-    public static float[] ApertureTruth(ReadOnlySpan<float> truth, int width, int height, Pupil pupil, double wavelengthNm, double arcsecPerPixel)
+    public static float[] ApertureTruth(ReadOnlySpan<float> truth, int width, int height, Pupil pupil, double wavelengthNm, double arcsecPerPixel,
+        PlanetaryApertureTaper shape = PlanetaryApertureTaper.Hann)
     {
         var diffraction = PlanetaryInverse.Diffraction(pupil, wavelengthNm * 1e-9, arcsecPerPixel, reachPx: Math.Max(width, height));
         var cutoff = CutoffCyclesPerPixel(pupil, wavelengthNm, arcsecPerPixel);
-        return PlanetaryInverse.Apply(truth, width, height, f => diffraction.At(f) is var d && d >= ApertureTruthFloor ? ApertureTaper(f, cutoff) / d : 0);
+        return PlanetaryInverse.Apply(truth, width, height, f => diffraction.At(f) is var d && d >= ApertureTruthFloor ? ApertureTaper(f, cutoff, shape) / d : 0);
     }
 
     /// <summary>The low-pass's transfer at <paramref name="cyclesPerPixel"/>: one to <see cref="CutoffStart"/> of the cutoff, zero past it.</summary>

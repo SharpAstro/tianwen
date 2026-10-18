@@ -812,3 +812,114 @@ them against the post or any truth was read.
   (2.306 against N 2.296, below it on 11 of 24) and the deblur after the gains is best (2.212, T below it on 3 of 24); on the 16 warped and
   blurred twins (e, f) T is below both on every f twin and every e twin but one against N (f: T 2.948, N 3.196, A 3.970; e: T 3.259, N
   3.375, A 4.159). T is below both on detail on 16 of 40 in all. The limb is T's on all 40 (2 to 4 times truer in every family).
+
+## L-KOLIVAS: Kolivas's damped step through the capture's own pupil, and the deblur first kept off the limb (the owner, 2026-10-17 07:00 +11: "possible to adopt kolivas but with our new deblur?", and on FA's picture: "there's still this blurry ring around the planet that is totally abscent from post"; set 2026-10-17 07:36 before any arm below was run)
+
+- **The arms**, derived gains at strength 1, one build (`i1056/bin-kolivas`, exp/deconvolve-on-luminance plus `--kolivas-psf` and
+  `--deconvolve-order before-interior`), each at both targets (telescope, aperture): Km (Kolivas's own 1.29 px Moffat, as shipped) and Kp
+  (his damped step, d = 1 + s sqrt(C)(c - 1), with the pupil's diffraction for the blur), each at amounts 15.6 and 31.2; FAi (the combined
+  deblur first, kept off the limb as the deblur after keeps it); and N, A, FA re-run in the same build as the baselines.
+- **Inputs:** the 14 held EdgeHD twins (scored against the truth carried to the aperture, as L-ORDER), the four captures with a post (their
+  fresh matrix masters, judged by `planetary judge`'s mean C24 over bands 2 to 4), the owner's Saturn of 7 October (by eye only).
+- **Verdict 1, Kp at each amount and target on its own (the candidate finish):**
+  a. the posts: mean C24 over the four captures above the same target's no-finish arm (N at the telescope target, T at the aperture), and
+     above it on at least three of the four;
+  b. not overdone on the real captures: the rebound past the limb at most 0.005 of the disk and the undershoot at most 0.002, every channel
+     of every capture and the owner's Saturn;
+  c. not overdone on the twins: the detail error (bands 1 to 4) and the limb error (inside plus outside) on the 14 twins' means not above
+     N's, the shipped default's.
+  All three: a candidate default finish, the owner to decide. Km is read beside it, not judged.
+- **Verdict 2, FAi against FA:** the limb error on the 14 twins below FA's, b. as above, and the posts' mean C24 at least FA's. All three:
+  FAi replaces FA as the limb option.
+- **Read beside, not a verdict:** lifted crops of every arm's limb (the dark end raised so a thin shell shows) on the four captures and the
+  owner's Saturn, looked at by eye and described as such; the CLI's rebound did not see FA's shell (0.0006 on the EdgeHD Jupiter).
+- Added 2026-10-17 07:49, read beside and not a verdict (no arm read yet): `planetary judge` already reports the rim (0.9 to 1.1 of the
+  outline) as each master's preview shows it. On the EdgeHD Jupiter's T master of L-ORDER, the one capture looked at so far, our rim's
+  chroma is 0.0748 at hue -0.6 deg (2.03 times the planet's cast, a red-magenta fringe) against the post's 0.0184. `kolivas/rim.py`
+  keeps the judge's full report for every arm and tabulates the rim against the post's.
+- Amended 2026-10-17 10:25, before any twin was read (none had finished): the run's 16 arms took about two hours a twin, ten more hours
+  for the 14. The three twins then running (d024, d025, d026) finish with all 16; the other 11 run only the arms a verdict reads, N, T,
+  Kp at 15.6 and 31.2 at both targets, and A, FA and FAi toward the aperture (two runs of `bin-kolivas-b`, a whole copy of
+  `bin-kolivas`, the same bytes). Km, A, F and FAi toward the telescope are read beside on d024 to d026 alone. No verdict changes.
+
+### L-KOLIVAS read 2026-10-18 (14 held twins for the verdicts' arms, four captures with a post, the owner's Saturn; bin-kolivas, bin-kolivas-b)
+
+- **Verdict 1 fails for Kp at both amounts and both targets: not a candidate finish.** The posts: Kp15.6 0.9446 and Kp31.2 0.9144
+  against N 0.9486 (above on 1 of 4), at the aperture 0.9356 and 0.8907 against T 0.9667 (above on 0 of 4). The twins: detail 3.61 to
+  10.56 and limb 0.099 to 0.161 against N's 2.891 and 0.0811. Real edges hold only for Kp31.2 at the telescope target (rebound at most
+  0.0040). Km (Kolivas's own Moffat), read beside on d024 to d026 only, does no better on the posts (best 0.9593).
+- **Verdict 2 fails: FAi does not replace FA.** Limb 0.0350 against FA's 0.0207, posts 0.9468 against 0.9617, real rebound up to 0.0095.
+- **Read beside, the posts:** T, the shipped default where sampled finely, has the highest mean C24 of every arm (0.9667), FA next
+  (0.9617).
+- **Read beside, the rim (0.9 to 1.1 of the outline) as shown, chroma against the post's:** T is far closer to the posts than N on every
+  capture (EdgeHD Jupiter 0.0748 against N 0.1675, post 0.0183; 12-inch Jupiter 0.0085 against 0.0683, post 0.0203; EdgeHD Saturn 0.0450
+  against 0.1046, post 0.0731; Meade Saturn 0.0645 against 0.1896, post 0.0224). The EdgeHD Jupiter's rim is still four times its post's.
+- **Read beside, and it qualifies the default: T's rebound past the limb on the three Saturns is 0.0068 to 0.0083 of the disk**
+  (EdgeHD Saturn 0.0082, 0.0071, 0.0007; the owner's Saturn 0.0073, 0.0083, 0.0079; Meade Saturn 0.0068, 0.0049, 0.0058), above the 0.005
+  this rule calls overdone, where the stack itself is 0.0010 to 0.0018 and N 0.0008 to 0.0012. On the two Jupiters at most 0.0022.
+  By eye: invisible in the picture as written; in the lifted crop a one-pixel shell hugging the outline.
+- **Its cause, computed (not measured on a capture):** the aperture target's taper (one to half the cutoff, a raised cosine to nothing at
+  it, `PlanetaryFinishing.ApertureTaper`) has an edge response that overshoots a perfect step by 7.8 % (by the projection-slice theorem, the
+  running sum of the inverse 1-D transform of the taper; the same at cutoffs 0.25, 0.30 and 0.45 cycles a pixel). A Hann taper (a raised
+  cosine from zero) overshoots 0.7 %, the clear aperture's own transfer (an Airy pattern, never negative) not at all. Jupiter's limb
+  darkening leaves its limb a small step, Saturn's globe and rings sharper ones. The code's "no edge of its own to ring" is wrong.
+
+## L-TAPER: the aperture target with a taper that does not ring (set 2026-10-18, after L-KOLIVAS's read found Saturn's 0.007 to 0.008 rebound and its cause; before any arm below was built or run)
+
+- **The question:** the aperture target's Tukey taper (one to half the cutoff, a raised cosine to nothing at it) overshoots a perfect step
+  by 7.8 %, and T rebounds 0.0068 to 0.0083 past the limb on the three Saturns, above the 0.005 called overdone. Does a taper whose edge
+  response does not overshoot keep what T gained over N, with every rebound under 0.005?
+- **The arms**, derived gains at strength 1, no finish, one build (`i1056/bin-taper`, main plus an `--aperture-taper tukey|hann|clear`
+  option that shapes the target and the truth it is scored against alike): T (Tukey, as shipped), H (Hann: a raised cosine from nothing
+  to the cutoff, 0.7 % overshoot computed), C (the clear aperture's own transfer at the same cutoff, an Airy pattern, never negative, no
+  overshoot), each toward the aperture; and N (the telescope target), run beside each so it is scored against each truth.
+- **Inputs:** the 14 held EdgeHD twins (each arm scored against the truth carried to its OWN taper, N against the same one), the four
+  captures with a post (their fresh matrix masters, judged by `planetary judge`'s mean C24 over bands 2 to 4), the owner's Saturn of
+  7 October (its edges only).
+- **Verdicts, for H and for C:**
+  1. Not overdone on the real captures: the rebound past the limb at most 0.005 of the disk and the undershoot at most 0.002, every
+     channel of the four captures and the owner's Saturn.
+  2. The posts: mean C24 over the four captures at least N's, and above N's on at least three of the four.
+  3. The twins: against its own taper's truth, the detail error (bands 1 to 4) and the limb error (inside plus outside) on the 14 twins'
+     means below N's against that truth, and every twin's rebound at most 0.005 and undershoot at most 0.002.
+  All three: the taper replaces Tukey in the aperture target (the owner to decide). Both: the higher mean C24 on the posts. Neither: Tukey
+  stays, and its rebound on Saturn is recorded as a limitation.
+- **Read beside, not a verdict:** T's row as the reference (it fails 1 by L-KOLIVAS's read); each arm's detail against T's (Tukey) truth,
+  to show what a smoother taper gives up; the rim's chroma as shown against each post (`rim.py`); lifted crops of the limb by eye.
+
+### The EdgeHD Jupiter's "red rim": a reading of the wrong field (2026-10-18, by eye and the judge's own gated measure; not a verdict)
+
+- The rim chroma tabulated above and in the 07:49 note (`rim.py`) is the rim band's MEAN colour at one luminance, which counts every pixel
+  from 0.9 to 1.1 of the outline in full, the near-black falloff included. In the default (T) master of the EdgeHD Jupiter the linear rim
+  is 0.0058, a quarter of the cast; as shown it reads 0.0748 because the falloff's last pixels are red only, (1, 0, 0) of 255 (red's
+  diffraction wing is the widest), and at one luminance such a pixel is pure red. By eye at 8x: no rim, the limb falls neutrally to black
+  ((29, 31, 26), (8, 7, 5), 0); lifted, a few one-step red specks.
+- The judge already gates this (`ColourReading.RimOffHue`: the rim's colour off the planet's hue, p90, over pixels at least 0.1 of the
+  interior's luminance, #1273). On it, as shown, T against the post: EdgeHD Jupiter 0.0256 against 0.0584, 12-inch Jupiter 0.0301
+  against 0.0509, EdgeHD Saturn 0.0275 against 0.0266, Meade Saturn 0.0277 against 0.0212. N 0.0344, 0.0268, 0.0168, 0.0264; FA the
+  lowest (0.0187, 0.0226, 0.0182, 0.0236); Kolivas's arms the highest (Kp31.2 at the aperture 0.058 to 0.093).
+- So the open lead closes: no rim to fix. A rim is read by `RimOffHue` from here on, never the mean.
+
+### L-TAPER read (2026-10-18 21:00 +11): H and C both hold all three verdicts; by the rule for both, H, the higher on the posts
+
+- **Disclosed:** the report's first pass printed nothing for the posts and the twins' edges, from two bugs in its glue, not in a rule:
+  the masters' file filter still named L-KOLIVAS's `_fnone` (this run writes `_auto_sharpened[_aperture]`, so no master was judged),
+  and a twin prints each channel's undershoot and rebound on its score line, not the real capture's edge line. Both fixed, the judge
+  run again over the same 16 masters; no sharpening was re-run and no verdict changed. The detail, limb and real-edge numbers were seen
+  before the fix (they are the same after it).
+- **Verdict 1, real edges (worst undershoot, rebound over every channel):** H 0, 0.0039 (own Saturn; EdgeHD Jupiter 0, 12-inch Jupiter
+  0.0029, EdgeHD Saturn 0.0012, Meade Saturn 0.0019): **holds**. C 0, 0.0005: **holds**. T as the reference 0, 0.0083 (EdgeHD Saturn
+  0.0082, Meade Saturn 0.0068): fails, as L-KOLIVAS read.
+- **Verdict 2, posts' mean C24:** N 0.9486; H **0.9639**, above N on 4 of 4 (0.9527, 0.9713, 0.9727, 0.9590 against 0.9377, 0.9623,
+  0.9663, 0.9280): **holds**. C 0.9583, 4 of 4 (0.9463, 0.9670, 0.9723, 0.9473): **holds**. T 0.9667 (reproduces L-KOLIVAS's T).
+- **Verdict 3, the 14 twins against each arm's own truth:** H detail 2.6207 against N 3.0770, limb 0.0283 against 0.0654, worst twin
+  edge 0.0001, 0.0001: **holds**. C detail 2.6105 against N 3.1796, limb 0.0236 against 0.0385, edges 0, 0: **holds**. T 2.8124
+  against 2.8912, limb 0.0332 against 0.0811, edges 0, 0.0021.
+- **So, by the rule for both: H** (0.9639 against C's 0.9583). It replaces Tukey in the aperture target if the owner says so.
+- **Read beside:** against Tukey's own truth H scores 2.4483 and C 2.5721, both below T's 2.8124, so the smoother taper gives up nothing
+  T's truth can see. H's posts' C24 is 0.0028 under T's and 0.0153 over N's. The rim off the cast's hue as shown (p90; the post's own
+  reading moves a little with the master it is judged beside): H 0.0228, 0.0296, 0.0197, 0.0268, at or below T's (0.0256, 0.0301,
+  0.0275, 0.0277) on all four; posts 0.0591, 0.0512, 0.0295, 0.0239.
+- **By eye, lifted** (`taper/crops/`): T draws a dark line round Saturn's globe and rings and magenta specks in the ring shadow; H a trace
+  of the line, fewer specks; C no line but a soft glow past the limb (the Airy wing its own truth keeps), like N's but fainter, and a
+  softer Jupiter. Both T and H show faint lobes off Saturn's ring tips far out (both, so not the taper's).

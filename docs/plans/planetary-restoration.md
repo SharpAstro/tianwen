@@ -3450,8 +3450,8 @@ transfer (the kernel read off the limb's edge times the pupil's diffraction) ont
 OPAL through that same diffraction: 1x is what a perfect telescope of the capture's aperture would show, and the owner found it soft. A
 23 % obstructed pupil passes 0.61 of the scene at a quarter of its cutoff and 0.36 at half, so undoing it asks 1.6 to 2.8 times more,
 where the posts sit (#1251). `PlanetarySharpenTarget.Aperture` (`planetary sharpen --target aperture`) restores toward the planet itself,
-band-limited by a Tukey taper (flat to half the cutoff, a raised cosine to nothing at it; `PlanetaryFinishing.ApertureTaper`) through the
-same noise floor; `--score-against aperture` carries a twin's truth to that target (`PlanetaryFinishing.ApertureTruth`) so every arm is
+band-limited by a taper (`PlanetaryFinishing.ApertureTaper`; set here as a Tukey, flat to half the cutoff and a raised cosine to nothing at
+it, and a Hann since #1661, below) through the same noise floor; `--score-against aperture` carries a twin's truth to that target (`PlanetaryFinishing.ApertureTruth`) so every arm is
 scored on one scale. The rules were set on #1366 before anything ran.
 
 | Twin, bands 1 to 4 against the aperture truth | telescope 1x | 1.5x | 2x | aperture |
@@ -3497,11 +3497,39 @@ learned (#817, #1552) were fitted toward the telescope and keep it. Two experime
   2.296) and the deblur after the gains is ahead (2.212); on the 16 warped and blurred ones it is best on every twin (f: 2.948 against
   3.196 and 3.970).
 - **Against the posts** (mean C24 over bands 2 to 4, the four captures re-stacked through each camera's matrix): 0.9667 against the
-  telescope target's 0.9486 and the deblur after the gains' 0.9634. The rim (0.9 to 1.1 of the outline) as each preview shows it carries 2
-  to 8 times less colour: 0.075 against 0.168 on the EdgeHD Jupiter, 0.0085 against 0.068 on the 12-inch SCT Jupiter, 0.045 against 0.105
-  on the EdgeHD Saturn (the posts 0.018, 0.020, 0.073).
+  telescope target's 0.9486 and the deblur after the gains' 0.9634. The rim's colour as each preview shows it, read off the planet's own hue
+  pixel by pixel (`ColourReading.RimOffHue`, p90, over pixels at least a tenth of the interior's luminance): 0.0256, 0.0301, 0.0275 and
+  0.0277 on the EdgeHD Jupiter, the 12-inch SCT Jupiter, the EdgeHD Saturn and the Meade 16 Saturn, against the telescope target's 0.0344,
+  0.0268, 0.0168 and 0.0264 and the posts' 0.0584, 0.0509, 0.0266 and 0.0212. (This bullet first quoted the rim band's MEAN colour at one
+  luminance, which counts the near-black falloff's last pixels in full; as shown, red's wider diffraction wing leaves those pure red, so
+  the mean read a red rim that is not there, and a rim is read off the hue from here on.)
 - **Where the sampling is coarser than the optics** (the colour twins, cutoffs 1.0 to 1.3) it rang (rebound up to 0.035) and lost detail on
   three of four, which is the gate's reason.
+
+**The taper: Hann, not Tukey (#1661, L-TAPER, the owner, 2026-10-18).** The Tukey taper rang by itself, though its comment said it had "no
+edge of its own to ring". An edge's response is the running sum of the taper's line spread, its one-dimensional inverse transform (the
+projection-slice theorem), and the Tukey's dips a tenth below zero: an edge through it overshoots by 7.9 %. On the three Saturns that was
+a rebound past the limb of 0.0068 to 0.0083 of the disk, above the 0.005 the experiments call overdone, and lifted, a dark line round the
+globe and the rings with magenta specks in their shadow. L-TAPER, with its rules set before any arm was built (`training/planetary/r9-rules.md`),
+compared T (Tukey), H (Hann: a raised cosine from nothing, 0.6 %) and C (the clear aperture's own transfer, whose Airy spread is never
+negative: no overshoot), each toward the aperture and each against the telescope target N, scored against the truth carried to its own
+taper:
+
+| | T | H | C |
+|---|---|---|---|
+| Worst rebound past the limb on the real captures (at most 0.005) | 0.0083 | **0.0039** | 0.0005 |
+| Posts, mean C24 (N 0.9486; each above N on all four) | 0.9667 | **0.9639** | 0.9583 |
+| 14 held twins' detail, bands 1 to 4, own truth (N beside) | 2.81 (2.89) | **2.62** (3.08) | 2.61 (3.18) |
+| Their limb error, inside + outside (N beside) | 0.033 (0.081) | **0.028** (0.065) | 0.024 (0.039) |
+| Their detail against Tukey's own truth | 2.81 | 2.45 | 2.57 |
+
+- **H and C both hold every verdict; by the rule set for that case the higher on the posts, H, replaces Tukey** (`PlanetaryApertureTaper`,
+  `PlanetarySharpenOptions.ApertureTaper`; `planetary sharpen --aperture-taper hann|tukey|clear`, the truth `--score-against aperture`
+  reads following it, or `--score-taper` naming another). It gives up nothing even on Tukey's own truth, and 0.0028 of C24 on the posts.
+- **Beside the verdicts:** the rim off the hue as shown (p90) is H 0.0228, 0.0296, 0.0197 and 0.0268, at or below T on all four captures.
+  Lifted, H keeps a trace of T's line; C keeps no line but a faint glow past the limb, its Airy wing, and a softer Jupiter.
+- **Tukey stays where L-TAPER did not look**: the cut of a colour master's Wiener target at its planes' Nyquist (`PlanetaryFinishing.TukeyTaper`,
+  #1398).
 
 ### The noise read off the halves (#1373)
 

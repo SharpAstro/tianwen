@@ -101,7 +101,7 @@ public enum PlanetarySharpenTarget
     Telescope,
 
     /// <summary>
-    /// The planet itself, band-limited to the pupil's cutoff by <see cref="PlanetaryFinishing.ApertureTaper"/>: the telescope's diffraction
+    /// The planet itself, band-limited to the pupil's cutoff by <see cref="PlanetaryFinishing.ApertureTaper"/> (Hann by default, #1661): the telescope's diffraction
     /// undone too, as far as the stack's noise floor lets the Wiener target go. Past the cutoff nothing of the scene reaches the stack.
     /// </summary>
     Aperture,
@@ -276,6 +276,12 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     public PlanetarySharpenTarget Target { get; init; }
 
     /// <summary>
+    /// The aperture target's fall to nothing at the cutoff (<see cref="PlanetaryApertureTaper"/>, L-TAPER, #1661): Hann by default, whose edge
+    /// response overshoots a step by 0.6 % where #1366's Tukey overshot by 7.9 % and rebounded 0.008 of the disk past Saturn's limb.
+    /// </summary>
+    public PlanetaryApertureTaper ApertureTaper { get; init; }
+
+    /// <summary>
     /// Gains to apply in place of the derived ones, finest first, one set per channel (the last repeated for any channel beyond them): a
     /// layer past a set's end is held at 1. Everything else is as derived (the limb fit, its window and the model drawn outside it), so a
     /// set fitted elsewhere, a twin's own best gains, say, is applied as the derived ones would be (#817, whether a twin's gains transfer).
@@ -361,7 +367,7 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
 
     /// <summary>
     /// The layout a colour master was stacked from, given to cut its Wiener TARGET to nothing at the Nyquist of the planes that layout
-    /// integrates, by #1366's taper (<see cref="PlanetaryFinishing.ApertureTaper"/>), which starts at half of it: from 0.125 cycles a pixel to
+    /// integrates, by #1366's taper (<see cref="PlanetaryFinishing.TukeyTaper"/>), which starts at half of it: from 0.125 cycles a pixel to
     /// nothing at 0.25 for <see cref="PlanetaryFrameLayout.SplitCfa"/> (<see cref="PlanetarySharpening.SplitCfaPlaneNyquist"/>), the only layout
     /// whose Nyquist is known here; any other throws, so a colour path that integrates on the full grid (the Bayer drizzle of #1091) cannot
     /// inherit a cut that is not its own. Nothing is restored where a demosaiced plane carries nothing (#1376, arm C'): a twin's true kernel
@@ -666,7 +672,7 @@ public static class PlanetarySharpening
                 // target is what the gains restore toward, the same model unless the telescope is to be undone too (#1366).
                 var throughPupil = channelWindow.Through(diffraction);
                 var target = restoreToward is PlanetarySharpenTarget.Aperture
-                    ? PlanetaryFinishing.ApertureTarget(pupil, wavelengthNm, limbWindow.ArcsecPerPixel)
+                    ? PlanetaryFinishing.ApertureTarget(pupil, wavelengthNm, limbWindow.ArcsecPerPixel, options.ApertureTaper)
                     : diffraction;
                 var diskTarget = ReferenceEquals(target, diffraction) ? throughPupil : channelWindow.Through(target);
                 (models[c], diffractions[c]) = (diskTarget, target);
@@ -687,7 +693,7 @@ public static class PlanetarySharpening
                 var given = options.GivenKernels.IsDefaultOrEmpty ? null : options.GivenKernels[Math.Min(c, options.GivenKernels.Length - 1)];
                 var kernel = Tabulated(f => Math.Clamp(given is { } g ? g.At(f) : physical is { } p ? p.TransferAt(f) : edge.TransferAt(f), 0, 1));
                 Func<double, double>? targetCut = colourPlaneNyquist is { } nyquist && (options.OfColour ? 3 : master.ChannelCount) == 3
-                    ? f => PlanetaryFinishing.ApertureTaper(f, nyquist)
+                    ? f => PlanetaryFinishing.TukeyTaper(f, nyquist)
                     : null;
                 var power = PlanetaryWaveletGains.StackPower(window, size, size, channelDisk);
                 var white = PlanetaryInverse.WhiteNoise(PlanetaryWaveletGains.Interior(window, size, size, channelDisk), size, size);
