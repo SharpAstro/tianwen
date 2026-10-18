@@ -2833,6 +2833,66 @@ seed 1 trained there and took -0.9 / 4.8 / 1.8 %. So #1658 (M31's nucleus taken 
 out of an average. A member's nucleus has to be measured before it ships, as E5's two members were, and the line needs
 an objective or a training scene that holds a bright core that is not a star.
 
+#### R2nc: R2n with its gradient clipped, pre-registered (2026-10-19)
+
+Written before it trains, on the owner's word of 2026-10-19 ("R2n and R2m both on Azure"). Tracked by #1338. R2n blew up
+at step 12,200 and so never tested reach. R2nc is R2n exactly (R2i's recipe with `--levels 4 --max-ch 256`, seed 0, the
+synth4 cache, patience 24, cap 480,000, a resume checkpoint every 2,000 steps), with one stabiliser:
+
+- `--clip-grad 8`: each step's gradient norm held to 8 times the median of the last 200 steps' norms (none before step 50).
+
+Adam already bounds a step to about three learning rates per weight. But a step whose gradient is a hundred times the
+recent ones moves every weight that far at once, along that one batch's direction. Held to 8 times, the same step moves
+about half as far. An ordinary batch with bright stars passes untouched. On the first 300 steps of a test it bound 2 of
+100 steps, and a run killed after step 100 resumed to the same held-out score at step 200, to every digit. It trains on
+an Azure spot T4 under the owner's guards, as R2i's seed 1 and R2o did. Its driver deletes the VM itself once the weights
+are fetched (the owner's correction of R2o's, which left that to the session).
+
+**Predictions.** R2n's six with R2n's bars: (1) bright stars clean at least 64.5 %, (2) saturated at least 50.0 %, (3) the
+faint bands at least 77.9 and 73.7 %, (4) the ring dug past -1 sigma on at most 38 % of bright stars, (5) real bright
+stars flat on at least 96.4 %, and (6) M31's central 6 px taken at most 5 % in every channel. One more:
+
+7. No blow-up: no logged training loss above 1e-3 after step 2,000.
+
+**Read, not predicted:** how often the clip binds after step 2,000.
+
+**Kill:** if (7) holds and bright stars clean below R2i's 60.2 %, reach is not what they lack, and the deeper net is
+dropped. If (7) fails, the arm is void again and the stabiliser was not enough. **What it decides:** as R2n's.
+
+#### R2p: one model distilled from E5's average, pre-registered (2026-10-19)
+
+Written before it trains, on the owner's word of 2026-10-19 ("distillation on this box"), and the next step R2o's kill
+named. Tracked by #1338. R2o showed that the averaging's gain is the average's own: eight views make partly independent
+errors that cancel, whatever the net was trained on. So one model must be TOLD the average's answer. E5 is the teacher
+(R2i's two seeds, eight views each), never E6, which carries R2l's appetite for nuclei.
+
+**The teacher.** `n2n_teacher.py` runs E5 over every injected draw of the synth4 cache (4,840 cells x 4 draws), each
+member through its eight views and turned back, as `r2_infer.py` averaged it for scoring. It writes `teacher.f16` in the
+cache's own order, with `teacher.json` naming the members, their hashes and the cache, in about 25 minutes on the 1070.
+
+**The arm.** R2i's recipe exactly (two levels, seed 0, patience 24, cap 480,000, a resume checkpoint every 2,000 steps),
+with one switch:
+
+- `--teacher`: each draw regresses onto the teacher's output on that same draw instead of the clean tile.
+
+The held-out objective still reads the clean tile, so the schedule stops on the truth, not on the teacher. The draws and
+the generator's stream are R2i's. One caveat: the teacher's members trained on these draws, so the teacher is better on
+them than on draws it never saw. The student therefore learns a target between the truth and E5's answer on new data.
+It trains on the 1070, while R2nc and R2m have the T4s.
+
+**Predictions.** The bars are the same-store spread (1.3 / 0.8 / 4.3 points clean at 5-20 / 20-100 / 100-1000 sigma). E5
+cleans 81.4 / 78.0 / 66.7 %, digs 24.7 % at 100-1000 sigma, and reads 97.8 % of real bright stars flat.
+1. One model, one view: bright stars clean at least 64.5 % (R2i's 60.2 plus the spread), most of the way to E5's 66.7.
+2. The faint bands hold: 5-20 sigma at least 77.9 % and 20-100 at least 73.7 %.
+3. Real bright stars (`r2-real-val`, 100-1000 sigma) flat on at least R2i's 96.4 %.
+4. M31's nucleus stays: at most 5 % of the central 6 px in every channel. E5's members took at most 4.8 % each.
+
+**Read, not predicted:** R2p's own eight views' gain, and R2p against E5 band by band.
+
+**Kill:** bright stars below R2i's 60.2 % at one view means distillation does not carry the average into one model
+either. The single-model target then stops, and a shipped model is an average (which one is the owner's call). **What it
+decides:** whether one model at an eighth of E5's inference carries most of its gain.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its

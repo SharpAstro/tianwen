@@ -21,12 +21,13 @@ level.
 """
 import argparse
 import copy
+import hashlib
 import json
 import os
 import random
 import struct
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 
 import numpy as np
 
@@ -231,6 +232,10 @@ def resume_fingerprint(args, meta):
         fp.update(levels=args.levels, max_ch=args.max_ch)
     if getattr(args, "bright_weight", 0.0):
         fp.update(bright_weight=args.bright_weight, bright_sigma=args.bright_sigma)
+    if getattr(args, "clip_grad", 0.0):
+        fp.update(clip_grad=args.clip_grad)
+    if getattr(args, "teacher", None):
+        fp.update(teacher=os.path.basename(os.path.normpath(args.teacher)))
     fp.update(cells=meta["cells"], train_cells=meta["train_cells"])
     if args.schedule == "cosine":
         fp["steps"] = args.steps
@@ -1683,6 +1688,34 @@ def train(args):
     # --checkpoint-every / --resume (2026-10-15, for spot VMs that can be taken away mid-run): everything the loop
     # carries from one step to the next, so a resumed run continues the SAME run, not a similar one.
     resume_path = os.path.join(args.cache, args.out.replace(".pt", ".resume.pt"))
+    # R2p's --teacher: each synthetic draw regresses onto a teacher's output on that same draw (n2n_teacher.py) instead of
+    # the clean tile, so one model is trained toward an average's answer. The held-out objective still reads the clean
+    # tile, so the schedule stops on the truth and not on the teacher.
+    teacher = None
+    if args.teacher:
+        if regimes != [SYNTH] or synth_target != SLOT_MASTER or scale_aug is not None or psf01_labels is not None:
+            raise SystemExit("--teacher is implemented for the plain synthetic regime against the clean tile only")
+        with open(os.path.join(args.teacher, "teacher.json"), encoding="utf-8") as fh:
+            tmeta = json.load(fh)
+        with open(os.path.join(args.cache, "meta.json"), "rb") as fh:
+            cache_sha = hashlib.sha256(fh.read()).hexdigest()
+        if tmeta["cells"] != meta["cells"] or tmeta["draws"] != draws or tmeta["cache_meta_sha256"] != cache_sha:
+            raise SystemExit(f"--teacher: {args.teacher} was made over another cache ({tmeta['cells']} cells x "
+                             f"{tmeta['draws']} draws, meta {tmeta['cache_meta_sha256'][:12]}) than {args.cache} ({meta['cells']} "
+                             f"x {draws}, meta {cache_sha[:12]})")
+        done_path = os.path.join(args.teacher, "teacher.done")
+        if not os.path.exists(done_path) or int(open(done_path).read()) != meta["cells"]:
+            raise SystemExit(f"--teacher: {args.teacher} is not finished (teacher.done short of {meta['cells']} cells)")
+        teacher = np.memmap(os.path.join(args.teacher, "teacher.f16"), dtype=np.float16, mode="r",
+                            shape=(meta["cells"], draws, CH, TILE, TILE))
+        print(f"teacher ON: each draw regresses onto {', '.join(tmeta['members'])} over {tmeta['views']} views "
+              f"({args.teacher}); the held-out objective still reads the clean tile", flush=True)
+    # R2nc's --clip-grad: the gradient's norm held to that many times the median of the last 200 steps' norms, so one step
+    # cannot throw the net off as R2n's did at step 12,200, while an ordinary step passes untouched.
+    grad_hist, clipped, grad_max = deque(maxlen=200), 0, 0.0
+    if args.clip_grad:
+        print(f"gradient clipping ON: the norm held to {args.clip_grad:g} x the median of the last 200 steps' norms "
+              f"(none before 50 steps)", flush=True)
     fingerprint = resume_fingerprint(args, meta)
     start = 1
     if args.resume and os.path.exists(resume_path):
@@ -1708,6 +1741,9 @@ def train(args):
         val_hist, star_w, running, running_star = ck["val_hist"], ck["star_w"], ck["running"], ck["running_star"]
         regime_steps = defaultdict(int, ck["regime_steps"])
         best, best_struct, snapshots = ck["best"], ck["best_struct"], ck["snapshots"]
+        if ck.get("clip") is not None:
+            hist, clipped, grad_max = ck["clip"]
+            grad_hist.extend(hist)
         t0 = time.perf_counter() - ck["elapsed"]
         start = ck["step"] + 1
         print(f"resumed from {resume_path} after step {ck['step']} (best {val_best:.6e} at {val_best_step}, "
@@ -1733,7 +1769,8 @@ def train(args):
             # Input: one injected draw. Target: the undegraded tile every draw was made from, or on a
             # pair cache whichever night --synthetic-target names.
             x = torch.from_numpy(np.ascontiguousarray(mm[idx, a])).to(dev).float()
-            y = torch.from_numpy(np.ascontiguousarray(mm[idx, synth_target])).to(dev).float()
+            y = torch.from_numpy(np.ascontiguousarray(mm[idx, synth_target] if teacher is None
+                                                      else teacher[idx, a - 1])).to(dev).float()
             if scale_aug is not None:
                 # E3.2's scale augmentation: the whole batch resampled by one factor so its stars
                 # are narrower in pixels than the pool's masters offer (seed 0's prior carried its
@@ -1920,6 +1957,12 @@ def train(args):
                 running_star.append(float(s_term.item()))
         opt.zero_grad(set_to_none=True)
         loss.backward()
+        if args.clip_grad:
+            limit = args.clip_grad * float(np.median(grad_hist)) if len(grad_hist) >= 50 else float("inf")
+            norm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), limit))
+            grad_hist.append(norm)
+            clipped += norm > limit
+            grad_max = max(grad_max, norm)
         opt.step()
         if ema is not None:
             # Warmed up, so the first steps do not average in the random start: decay min(d, (1 + t) / (10 + t)).
@@ -1957,6 +2000,10 @@ def train(args):
                     note = f"plateau: rate halved to {lr_now * 0.5:.2e} ({val_decays}/{args.max_decays})"
             print(f"  val  {step:6d}   held-out {val_hist[-1]:.6e}   window {v:.6e}   best {val_best:.6e} at "
                   f"{val_best_step}   lr {lr_now:.2e}   {note}", flush=True)
+            if args.clip_grad:
+                print(f"  clip {step:6d}   clipped {clipped} of the last {args.val_every} steps, median gradient norm "
+                      f"{float(np.median(grad_hist)):.3e}, largest {grad_max:.3e}", flush=True)
+                clipped, grad_max = 0, 0.0
 
         if args.snapshot_at and step == args.snapshot_at:
             snapshots.append(({k: v.detach().cpu().clone() for k, v in model.state_dict().items()}, step))
@@ -2074,6 +2121,7 @@ def train(args):
                         "star_w": star_w, "running": running[-args.log_every:],
                         "running_star": running_star[-args.log_every:], "regime_steps": dict(regime_steps),
                         "best": best, "best_struct": best_struct, "snapshots": snapshots,
+                        "clip": (list(grad_hist), clipped, grad_max) if args.clip_grad else None,
                         "elapsed": time.perf_counter() - t0}, tmp)
             os.replace(tmp, resume_path)
 
@@ -2376,6 +2424,12 @@ if __name__ == "__main__":
                    help="a cell list added AFTER the seeded pick, each cell to the split its session is "
                         "in and never twice; the pick itself is unchanged, so every earlier cell stays")
     p.add_argument("--base", type=int, default=32)
+    p.add_argument("--teacher", default=None,
+                   help="R2p: a folder from n2n_teacher.py; each synthetic draw regresses onto the teacher's output on it "
+                        "instead of the clean tile (distillation), while the held-out objective still reads the clean tile")
+    p.add_argument("--clip-grad", type=float, default=0.0,
+                   help="R2nc: hold the gradient's norm to this many times the median of the last 200 steps' norms "
+                        "(none before 50 steps); 0 (default) clips nothing")
     p.add_argument("--dihedral", action="store_true",
                    help="R2o: train each sample in a random one of its 8 flips and quarter turns, planes turned with it")
     p.add_argument("--ema", type=float, default=0.0,
