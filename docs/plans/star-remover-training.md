@@ -2751,6 +2751,38 @@ members ship, the owner's call. R2n is R2i's recipe without the weight, so it ca
 (above): no worse than R2i's own seeds. A nebula's bright knots, the Lagoon's and the Trifid's, are still to be read per
 member the same way.
 
+#### Core protection: the brightest part of an extended source kept from any remover (2026-10-19)
+
+Tracked by #1658, on the owner's idea of 2026-10-19: identify the large, extended sources, mask the absolute brightest
+part of each, and keep it out of the stars layer, "something you can do with SXT in a very manual, tedious way". The
+owner's other reason: SXT can take the brightest part of M42 as one large star. It is the inference half of #1658; the
+training half (bright compact cores the target keeps, in the synthetic scenes) waits for R2p, R2nc and R2m to be read.
+
+**`ExtendedCoreMask` (TianWen.Lib), applied in the split** (`NarrowbandCombination.SplitStarsAsync` with options;
+`image remove-stars --protect-cores`), so it holds for any remover, RC-Astro's as well as ours:
+1. The large-scale map: the luminance's 8 px block median, median-filtered over 7 blocks (56 px). A star covers too
+   little of any window to survive it, and an extended source survives.
+2. An extended source is a connected region of that map 3 per-pixel sky sigmas over the sky. The sigma comes from
+   second differences, which a galaxy's gradient does not reach; first differences read 15 % high on a steep one.
+3. A source whose peak stands 50 sigmas or more gets a core: where the map is at least half that peak, at most 1 % of
+   the source's area, its brightest blocks first. A frame-filling nebula therefore gives up only its brightest part.
+4. The core is grown by the feather's reach and then feathered, so it takes the input back whole and the ramp lies outside.
+
+Measured first as a prototype on the owner's frames (`C:/temp/e2/extended-mask.py`, E6's starless plates):
+
+| frame | core | E6's take there |
+|---|---|---|
+| M31 | one, 2,944 px about the nucleus (0.1 % of the galaxy) | 16.5 / 7.9 / 6.2 % of the central 6 px (R / G / B), to 0 |
+| Lagoon (OIII) | one, 2,048 px about its brightest knot | the knot in E6's stars layer, gone from it |
+| Trifid (8-bit) | one, 14,976 px | little either way |
+
+Through the product (`image remove-stars --protect-cores` with E6's three models at 8 views), the same cores came back:
+2,048 px on the Lagoon, 2,944 px on M31. M31's central 6 px are taken 0 % in every channel. Grown and feathered, the
+protected region changes 9,318 and 12,238 px, and keeps 3 of the Lagoon's 13,718 compact sources over 20 sigma and 2 of
+M31's 23,728 out of the stars layer. The owner, on the Lagoon's crops: "it does make the stars a lot cleaner". The price
+is those few stars, which stay in the starless plate. Off by default until the owner says otherwise. The stacking workbench draws the cores and lets
+the user drop or add one (`stacking-workbench.md`, Deep sky, step 6). Pinned by `ExtendedCoreMaskTests`.
+
 #### Halos left around bright stars: an option to remove them, deferred (2026-10-18)
 
 The owner's first look at E6 on whole frames: "we mostly leave some halos around". A bright star leaves a soft disc in
