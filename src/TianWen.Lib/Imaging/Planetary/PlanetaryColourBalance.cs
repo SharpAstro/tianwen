@@ -29,9 +29,12 @@ public sealed record ColourBalance(LinearRgb Gains, MetricDisk Disk, double Satu
     /// </summary>
     public CameraColour? Camera { get; init; }
 
+    /// <summary>Whether the disk's mean is taken to grey (<see cref="PlanetaryColourBalance.NeutralColour"/>, #1664) rather than the planet's own colour.</summary>
+    public bool Neutral { get; init; }
+
     /// <summary>The balance in words, for a log or a status line.</summary>
     public string Describe() => string.Create(CultureInfo.InvariantCulture,
-        $"balanced to {(Planet == CatalogIndex.Saturn ? "Saturn" : "Jupiter")}'s colour: gains R {Gains.R:0.000}, B {Gains.B:0.000} over green{(Camera is { } camera ? $" through the {camera.Camera}'s matrix" : "")}, saturation {Saturation:0.0#}");
+        $"balanced to {(Neutral ? "grey, a neutral white point" : Planet == CatalogIndex.Saturn ? "Saturn's colour" : "Jupiter's colour")}: gains R {Gains.R:0.000}, B {Gains.B:0.000} over green{(Camera is { } camera ? $" through the {camera.Camera}'s matrix" : "")}, saturation {Saturation:0.0#}");
 
     /// <summary>The FITS card holding the red gain over green.</summary>
     public const string RedGainCard = "CBALGNR";
@@ -45,8 +48,11 @@ public sealed record ColourBalance(LinearRgb Gains, MetricDisk Disk, double Satu
     /// <summary>The FITS card naming the camera whose matrix the balance went through (#1279); absent for a gain a channel alone.</summary>
     public const string CameraCard = "CBALCAM";
 
+    /// <summary>The FITS card saying the white point was grey (#1664), <c>neutral</c>; absent for the planet's own colour.</summary>
+    public const string WhitePointCard = "CBALWP";
+
     /// <summary>Every card <see cref="HeaderCards"/> writes, for a writer that carries a balanced master's cards over from its file.</summary>
-    public static IReadOnlyList<string> Cards { get; } = [RedGainCard, BlueGainCard, SaturationCard, CameraCard];
+    public static IReadOnlyList<string> Cards { get; } = [RedGainCard, BlueGainCard, SaturationCard, CameraCard, WhitePointCard];
 
     /// <summary>FITS cards recording the balance, so a balanced master says so and by how much.</summary>
     public IReadOnlyDictionary<string, (object Value, string Comment)> HeaderCards()
@@ -60,6 +66,10 @@ public sealed record ColourBalance(LinearRgb Gains, MetricDisk Disk, double Satu
         if (Camera is { } camera)
         {
             cards[CameraCard] = (camera.Camera, "colour balance: through this camera's matrix (#1279)");
+        }
+        if (Neutral)
+        {
+            cards[WhitePointCard] = ("neutral", "colour balance: the disk's mean taken to grey (#1664)");
         }
         return cards;
     }
@@ -77,8 +87,8 @@ public sealed record ColourBalance(LinearRgb Gains, MetricDisk Disk, double Satu
 
 /// <summary>
 /// A colour planetary master balanced to the planet's own colour (#1212 step 2, docs/plans/planetary-restoration.md, "A planetary
-/// master's colour"): each channel's sky taken off, one gain a channel taking the disk's mean colour to the target's, then, when asked
-/// (<see cref="DefaultSaturation"/> is none), a saturation about the disk's colour at each pixel's luminance. Both steps are linear (a
+/// master's colour"): each channel's sky taken off, one gain a channel taking the disk's mean colour to the target's, then a saturation about
+/// the disk's colour at each pixel's luminance (<see cref="DefaultSaturation"/>, 1.1, #1664). Both steps are linear (a
 /// diagonal gain, and <c>a + s (c - a)</c> with <c>a</c> the disk's colour at the pixel's linear sRGB luminance, which it keeps), so the
 /// master stays a linear master.
 /// </summary>
@@ -108,15 +118,21 @@ public static class PlanetaryColourBalance
     };
 
     /// <summary>
-    /// The saturation a balance applies by default: none, the gains alone (the owner, 2026-10-06, #1212). <see cref="EyeSaturation"/> was
-    /// the default until then, and it is one switch away (<c>planetary stack --colour-saturation</c>). Shown on the five colour
-    /// captures it moved each pixel 0.002 to 0.003 in OKLab, a tenth of what the eye can tell (0.02), and the disk's mean colour not at
-    /// all; what is SEEN is the look (#1273, #1277). Every capture still read duller than OPAL's reflectance at its resolution, and the
-    /// camera's own matrix (<see cref="GainsThrough"/>, <see cref="CameraColourAsync"/>) lifts the chroma 1.45 to 1.52 times from the
-    /// sensor's curves (#1279, rule E): the saturation was standing in for the overlap of the camera's channels, so the balance goes through
-    /// the camera's matrix by default and the saturation stays one (the owner, 2026-10-12).
+    /// The saturation a balance applies by default: 1.1, the colour contrast the blur takes, given back (the owner, 2026-10-19, #1664). On
+    /// the twins, rendered a channel at a wavelength so that nothing but the blur can take colour away, the sharpened masters held 0.0092 to
+    /// 0.0103 of the truth's 0.0112 OKLab spread, and the gain about the planet's own colour that brings each nearest its truth was 1.01 to
+    /// 1.12, about 1.10 (L-COLOUR). The posts' 1.7 to 2.1 times our spread on Jupiter is their authors' saturation, a look (#1273).
+    /// Before: none, the gains alone (2026-10-06 to 10-19), when the camera's own matrix (<see cref="GainsThrough"/>, #1279 rule E) took over
+    /// what <see cref="EyeSaturation"/>, the default until 2026-10-06, had stood in for, the overlap of the camera's channels.
     /// </summary>
-    public const double DefaultSaturation = 1;
+    public const double DefaultSaturation = 1.1;
+
+    /// <summary>
+    /// The colour a neutral white point takes the disk's mean to, grey (<c>planetary stack --white-point neutral</c>, #1664): an option, the
+    /// planet's own colour the default. Both of the outside observers' Jupiter posts are near grey, both Saturn posts keep a warm cast like
+    /// OPAL's, and grey colours Saturn's rim, so no white point follows from them (#1304, #1664).
+    /// </summary>
+    public static LinearRgb NeutralColour { get; } = new LinearRgb(1, 1, 1);
 
     /// <summary>
     /// The colour matrix of the camera <paramref name="instrument"/> names (a master's INSTRUME, a SER header's Instrument, read by
@@ -154,9 +170,10 @@ public static class PlanetaryColourBalance
     /// with the reason in words: Jupiter's and Saturn's colours are the ones measured, a mono master has none to balance, and the disk comes
     /// from the limb fit at the master's instant (<paramref name="epoch"/>, else its own DATE-OBS and EXPTIME's middle), Saturn's read where
     /// its rings leave it clear. The gains are read through <paramref name="camera"/>'s matrix when one is given, and the balance applies it.
+    /// <paramref name="neutral"/> takes the disk's mean to grey (<see cref="NeutralColour"/>) in place of the planet's colour.
     /// </summary>
     public static (ColourBalance? Balance, string How) For(Image stacked, CatalogIndex? planet, DateTimeOffset? epoch, double saturation = DefaultSaturation,
-        CameraColour? camera = null)
+        CameraColour? camera = null, bool neutral = false)
     {
         if (stacked.ChannelCount != 3)
         {
@@ -171,7 +188,7 @@ public static class PlanetaryColourBalance
             return (null, "colours left as captured: the master carries no time to fit its limb at");
         }
         return PlanetaryLimbFit.FitAt(stacked, body, instant) is { } limb
-            ? For(stacked, body, limb.Disk, saturation, camera)
+            ? For(stacked, body, limb.Disk, saturation, camera, neutral)
             : (null, "colours left as captured: the limb did not fit");
     }
 
@@ -181,22 +198,23 @@ public static class PlanetaryColourBalance
     /// fitted twice for it.
     /// </summary>
     public static (ColourBalance? Balance, string How) For(Image stacked, CatalogIndex planet, in MetricDisk disk, double saturation = DefaultSaturation,
-        CameraColour? camera = null)
+        CameraColour? camera = null, bool neutral = false)
     {
         if (stacked.ChannelCount != 3)
         {
             return (null, "a mono master, so no colour to balance");
         }
-        if (DiskColourOf(planet) is not { } target)
+        if (DiskColourOf(planet) is not { } planetColour)
         {
             return (null, "colours left as captured: only Jupiter's and Saturn's colours are measured (#1212, #1235)");
         }
+        var target = neutral ? NeutralColour : planetColour;
         var (gains, _) = GainsFor(stacked, disk, target, camera?.Matrix);
         if (!double.IsFinite(gains.R) || !double.IsFinite(gains.B) || gains.R <= 0 || gains.B <= 0)
         {
             return (null, "colours left as captured: the disk's mean colour could not be read");
         }
-        var balance = new ColourBalance(gains, disk, saturation, target) { Planet = planet, Camera = camera };
+        var balance = new ColourBalance(gains, disk, saturation, target) { Planet = planet, Camera = camera, Neutral = neutral };
         return (balance, balance.Describe());
     }
 

@@ -3120,6 +3120,12 @@ nearest are November 2024's. Each map is scaled to I/F by its readme's factor (t
   captures, and measured as shown none was there to see: each pixel moved 0.002 to 0.003 in OKLab at 1.4 and 0.0035 to 0.0045 through the
   matrix, against the 0.02 an eye can tell, and the disk's mean colour not at all. The boosted look moved them 0.008 to 0.010, 9 to 13 % of
   the disk past what the eye tells (#1212).
+- **Since 2026-10-19 the saturation is 1.1 by default, and the white point stays the planet's own with grey an option** (#1664, the owner's
+  choice by eye on each capture's Hann master as OPAL, x1.1, neutral and both, beside its post; nothing fitted to a post). 1.1 is what the
+  twins' truth asks back from the blur (L-COLOUR: the 14 held EdgeHD Jupiter twins' masters held 0.0092 to 0.0103 of the truth's 0.0112
+  spread, the gain bringing each nearest its truth 1.01 to 1.12); it moves 3 of the 4 posts' spread nearer, and the rest of their 1.7 to 2.1
+  times on Jupiter is their saturation, a look. `planetary stack --white-point neutral` takes the disk to grey (card CBALWP): nearer both
+  Jupiter posts (cast 0.012 and 0.007 off against OPAL's 0.028), far off the EdgeHD Saturn's (0.064 against 0.015), whose rim it colours.
 - **It comes after the sharpening**, which reads each channel's edge through that channel's own diffraction; the saturation mixes the
   channels (at 1.4 red takes about a third of green, negatively).
 - **Both masters say so**: the FITS cards CBALGNR, CBALGNB and CBALSAT. `planetary stack --colour-saturation` sets the strength,

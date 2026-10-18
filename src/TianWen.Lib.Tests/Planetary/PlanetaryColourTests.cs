@@ -321,6 +321,26 @@ public class PlanetaryColourTests
     }
 
     [Fact(Timeout = 300_000)]
+    public async Task ANeutralWhitePointTakesTheDiskToGreyAndSaysSo()
+    {
+        // #1664 (the owner, 2026-10-19): the planet's own colour stays the white point, grey an option; the default saturation gives back
+        // the colour contrast the blur takes, 1.1 (L-COLOUR), and a disk of one colour is left on its target either way.
+        var ct = TestContext.Current.CancellationToken;
+        var (master, disk) = CameraTintedJupiter();
+        PlanetaryColourBalance.DefaultSaturation.ShouldBe(1.1);
+
+        var (balance, how) = await Task.Run(() => PlanetaryColourBalance.For(master, CatalogIndex.Jupiter, disk, neutral: true), ct);
+        how.ShouldContain("neutral");
+        var applied = balance.ShouldNotBeNull().Apply(master);
+        balance.HeaderCards()[ColourBalance.WhitePointCard].Value.ShouldBe("neutral");
+        var mean = PlanetaryColour.DiskMean(applied.GetChannelSpan(0), applied.GetChannelSpan(1), applied.GetChannelSpan(2), 240, 240, disk, default);
+        mean.ChromaDistance(PlanetaryColourBalance.NeutralColour).ShouldBeLessThan(1e-4, "the disk's mean is grey");
+
+        var (opal, _) = PlanetaryColourBalance.For(master, CatalogIndex.Jupiter, disk);
+        opal.ShouldNotBeNull().HeaderCards().ContainsKey(ColourBalance.WhitePointCard).ShouldBeFalse("the planet's own colour needs no card");
+    }
+
+    [Fact(Timeout = 300_000)]
     public async Task AColourJupiterIsBalancedThroughTheCamerasOwnMatrixWhichItsHeaderNames()
     {
         // The camera's own matrix in the balance (#1279, the owner's call of 2026-10-12): found by the name a header gives the camera, even
