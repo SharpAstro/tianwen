@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging.Enhancement;
+using TianWen.Lib.Imaging.StarRemoval;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging;
@@ -41,13 +42,37 @@ public static class NarrowbandCombination
     public static async Task<(Image[] Starless, Image[] Stars)> SplitStarsAsync(
         IReadOnlyList<Image> planes, IStarRemover remover, CancellationToken cancellationToken = default)
     {
+        var (starless, stars, _) = await SplitStarsAsync(planes, remover, protectCores: null, cancellationToken);
+        return (starless, stars);
+    }
+
+    /// <summary>
+    /// <see cref="SplitStarsAsync(IReadOnlyList{Image}, IStarRemover, CancellationToken)"/>, and with
+    /// <paramref name="protectCores"/> each plate takes its plane back in the plane's extended cores (<see cref="ExtendedCoreMask"/>,
+    /// #1658) before its stars are read, so no galaxy nucleus or nebula knot the remover took ends up in the stars. Also each
+    /// plane's cores; null without <paramref name="protectCores"/>.
+    /// </summary>
+    public static async Task<(Image[] Starless, Image[] Stars, ExtendedCoreMask[]? Cores)> SplitStarsAsync(
+        IReadOnlyList<Image> planes, IStarRemover remover, ExtendedCoreMask.Options? protectCores, CancellationToken cancellationToken = default)
+    {
         var starless = await StarlessAsync(planes, remover, cancellationToken);
+        var cores = protectCores is null ? null : new ExtendedCoreMask[planes.Count];
         var stars = new Image[planes.Count];
         for (var i = 0; i < planes.Count; i++)
         {
+            if (cores is not null)
+            {
+                cores[i] = ExtendedCoreMask.Find(planes[i], protectCores);
+                if (cores[i].Cores.Length > 0)
+                {
+                    var plate = starless[i];
+                    starless[i] = cores[i].Apply(planes[i], plate);
+                    plate.Release();
+                }
+            }
             stars[i] = Stars(planes[i], starless[i]);
         }
-        return (starless, stars);
+        return (starless, stars, cores);
     }
 
     /// <summary>

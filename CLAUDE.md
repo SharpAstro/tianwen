@@ -1130,7 +1130,9 @@ choose AND probe the licence on the FIRST `EnhanceAsync`, never at DI registrati
   `OnnxTianWenStarRemover`): none ship and none are registered, so RC-Astro stays the registered `IStarRemover`. It
   averages its models over a tile's flips and turns in half-overlapping triangle windows, and never through
   `N2nLinearRunner`, whose `RestoreLevel` would put the removed starlight back as a haze.
-  `docs/plans/star-remover-training.md`, "A whole-frame runner".
+  `docs/plans/star-remover-training.md`, "A whole-frame runner". **Core protection (`--protect-cores`, `ExtendedCoreMask`,
+  #1658) is applied in the split, `NarrowbandCombination.SplitStarsAsync`, never inside a remover**, so a galaxy's nucleus
+  is kept from RC-Astro's remover as from ours.
 - **RC-Astro (BlurX / NoiseX / StarXTerminator)** is driven through the `rc-astro` CLI's `--json` NDJSON protocol,
   never loaded into ORT (encrypted weights). **A plate outside `[0, 1]` is mapped in and back by
   `RcAstroEnhancerBase`**; **BlurX stops at 1**, so a deblur hands it the brightest star at a quarter of the ceiling

@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using System.CommandLine;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.AI.Imaging.Onnx;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
+using TianWen.Lib.Imaging.StarRemoval;
 
 namespace TianWen.Cli;
 
@@ -166,12 +168,17 @@ internal sealed partial class ImageSubCommand
             DefaultValueFactory = _ => 8,
         };
         var monoAsRgbOpt = new Option<bool>("--mono-as-rgb") { Description = "With --model: put a mono master in all three channels (the models are one-shot colour and none was measured on mono)." };
+        var protectCoresOpt = new Option<bool>("--protect-cores")
+        {
+            Description = "Keep the brightest part of each galaxy or nebula out of the stars, whichever remover runs: a nucleus like M31's or "
+                + "a bright knot a remover takes as a star stays in the starless plate, with the stars inside it (#1658).",
+        };
         var cmd = new Command("remove-stars", "Star removal (RC-Astro StarXTerminator, or TianWen's own weights named with --model): the starless "
             + "plate and the stars it took out, each on its input's scale, so image add-stars puts them back exactly. Several masters "
             + "go through on one scale, so a scale measured between two of them still holds between their plates.")
         {
             Arguments = { mastersArg },
-            Options = { outputOpt, noStarsOpt, modelOpt, viewsOpt, monoAsRgbOpt },
+            Options = { outputOpt, noStarsOpt, modelOpt, viewsOpt, monoAsRgbOpt, protectCoresOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -186,9 +193,17 @@ internal sealed partial class ImageSubCommand
                 : null;
             IStarRemover remover = own ?? starRemover;
             consoleHost.WriteScrollable($"[remove-stars] {paths.Length} master(s) through {remover.Name}");
-            var (starless, stars) = await NarrowbandCombination.SplitStarsAsync(masters, remover, ct);
+            var (starless, stars, cores) = await NarrowbandCombination.SplitStarsAsync(
+                masters, remover, parseResult.GetValue(protectCoresOpt) ? ExtendedCoreMask.Options.Default : null, ct);
             for (var i = 0; i < starless.Length; i++)
             {
+                if (cores?[i] is { } mask)
+                {
+                    consoleHost.WriteScrollable(mask.Cores.Length == 0
+                        ? $"[remove-stars] {Path.GetFileName(paths[i])}: no extended source bright enough to protect"
+                        : $"[remove-stars] {Path.GetFileName(paths[i])}: protected " + string.Join("; ", mask.Cores.Select(c =>
+                            string.Create(CultureInfo.InvariantCulture, $"({c.X}, {c.Y}), peak {c.PeakSigma:F0} sigma, {c.CoreAreaPx} px of {c.SourceAreaPx}"))));
+                }
                 var dst = StepOutput(paths[i], "_starless", parseResult.GetValue(outputOpt), paths.Length);
                 WriteStep(starless[i], dst, wcs, "remove-stars");
                 if (!parseResult.GetValue(noStarsOpt))

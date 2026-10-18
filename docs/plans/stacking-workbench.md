@@ -84,7 +84,10 @@ cancellation, a `SynchronousProgress` into state the frame reads).
 5. **Integrate**: the rejector and the strategy (drizzle where it pays), the weighting once it exists (#451), the result with its
    rejection and coverage maps.
 6. **Process**: the canonical program as toggles in order (autocrop, gradient, SPCC white balance, deblur, denoise, star removal),
-   each with before and after.
+   each with before and after. Star removal carries its **core protection** (`image remove-stars --protect-cores`, #1658): the
+   brightest part of each galaxy or nebula is kept out of the stars layer whichever remover runs, a nucleus like M31's or a knot like
+   the Lagoon's that a remover otherwise takes as a star. The step draws the cores it found on the image, and the user drops one or
+   adds a region with a click. StarXTerminator leaves that to a hand-drawn mask (the owner, 2026-10-19).
 7. **Colour**: mono masters composed (`ColourComposition`), the stretch, a look.
 8. **Export**: FITS, TIFF, PNG, JPEG XR, with the provenance and every step's command line in the file.
 
@@ -173,7 +176,7 @@ from the manifest, not from scratch.
 ### W6 Processing and colour
 
 Tracked as #1646. The canonical enhance program as ordered toggles with before and after, mono colour composition, the planetary colour step's balance
-and looks.
+and looks. Star removal's core protection (#1658) is drawn on the image there, its cores editable by a click (Deep sky, step 6).
 
 ### W7 Profiles and batches
 
