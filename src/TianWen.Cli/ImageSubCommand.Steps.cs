@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.AI.Imaging.Onnx;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
@@ -153,12 +154,24 @@ internal sealed partial class ImageSubCommand
         var mastersArg = new Argument<string[]>("masters") { Description = "FITS images to split; several go through on one scale.", Arity = ArgumentArity.OneOrMore };
         var outputOpt = new Option<string?>("--output", "-o") { Description = "The starless FITS, with one input only. Default: <input>_starless.fits." };
         var noStarsOpt = new Option<bool>("--no-stars") { Description = "Write the starless plate only, not the stars (the input less its starless plate, written beside the starless output: <input>_stars.fits by default, <name>_stars.fits beside an -o of <name>_starless.fits or <name>.fits)." };
-        var cmd = new Command("remove-stars", "Star removal (RC-Astro StarXTerminator; TianWen's own star remover is planned): the starless "
+        var modelOpt = new Option<string[]>("--model")
+        {
+            Description = "TianWen's own star-remover weights instead of the registered remover: ONNX files of the R2 line, each with its "
+                + "contract beside it, averaged together (docs/plans/star-remover-training.md). None ship; this is the path to try them.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+        var viewsOpt = new Option<int>("--views")
+        {
+            Description = "With --model: how many of a tile's eight flips and quarter turns each model sees, turned back and averaged (1, 2, 4 or 8).",
+            DefaultValueFactory = _ => 8,
+        };
+        var monoAsRgbOpt = new Option<bool>("--mono-as-rgb") { Description = "With --model: put a mono master in all three channels (the models are one-shot colour and none was measured on mono)." };
+        var cmd = new Command("remove-stars", "Star removal (RC-Astro StarXTerminator, or TianWen's own weights named with --model): the starless "
             + "plate and the stars it took out, each on its input's scale, so image add-stars puts them back exactly. Several masters "
             + "go through on one scale, so a scale measured between two of them still holds between their plates.")
         {
             Arguments = { mastersArg },
-            Options = { outputOpt, noStarsOpt },
+            Options = { outputOpt, noStarsOpt, modelOpt, viewsOpt, monoAsRgbOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -167,8 +180,13 @@ internal sealed partial class ImageSubCommand
             {
                 return 1;
             }
-            consoleHost.WriteScrollable($"[remove-stars] {paths.Length} master(s) through {starRemover.Name}");
-            var (starless, stars) = await NarrowbandCombination.SplitStarsAsync(masters, starRemover, ct);
+            // Weights named on the command line are a remover of this run's own, and closed with it; otherwise the registered one.
+            using var own = parseResult.GetValue(modelOpt) is { Length: > 0 } models
+                ? OnnxTianWenStarRemover.Open(models, parseResult.GetValue(viewsOpt), parseResult.GetValue(monoAsRgbOpt), logger)
+                : null;
+            IStarRemover remover = own ?? starRemover;
+            consoleHost.WriteScrollable($"[remove-stars] {paths.Length} master(s) through {remover.Name}");
+            var (starless, stars) = await NarrowbandCombination.SplitStarsAsync(masters, remover, ct);
             for (var i = 0; i < starless.Length; i++)
             {
                 var dst = StepOutput(paths[i], "_starless", parseResult.GetValue(outputOpt), paths.Length);

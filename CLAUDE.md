@@ -1124,6 +1124,11 @@ choose AND probe the licence on the FIRST `EnhanceAsync`, never at DI registrati
   against the file, the graph and the runner's own `ModelFeed`; an absent sidecar, or a field the runner relies on
   left out, is a refusal. A retrain gets a new file name and contract (a plain tracked `Content` file, not LFS), and
   a new model ships its contract in its first commit.
+- **TianWen's own star remover runs only on weights a caller NAMES** (`image remove-stars --model a.onnx b.onnx`,
+  `OnnxTianWenStarRemover`): none ship and none are registered, so RC-Astro stays the registered `IStarRemover`. It
+  averages its models over a tile's flips and turns in half-overlapping triangle windows, and never through
+  `N2nLinearRunner`, whose `RestoreLevel` would put the removed starlight back as a haze.
+  `docs/plans/star-remover-training.md`, "A whole-frame runner".
 - **RC-Astro (BlurX / NoiseX / StarXTerminator)** is driven through the `rc-astro` CLI's `--json` NDJSON protocol,
   never loaded into ORT (encrypted weights). **A plate outside `[0, 1]` is mapped in and back by
   `RcAstroEnhancerBase`**; **BlurX stops at 1**, so a deblur hands it the brightest star at a quarter of the ceiling

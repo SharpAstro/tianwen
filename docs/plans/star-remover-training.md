@@ -2670,6 +2670,33 @@ that annulus (the scorer checks the 3 px core, the real-star check compares the 
 core jitter) runs next. **What it decides:** whether the line's base net grows. If (1) and (2) hold, four levels become
 the recipe every later arm and average starts from.
 
+#### A whole-frame runner: an average over a master, in overlapping windows (2026-10-18)
+
+Asked for by the owner to see E6 on whole frames, and tracked by #1338. Until then the line had no path that put a
+checkpoint over a whole master; every number came from 256 px tiles scored one by one. `OnnxTianWenStarRemover`
+(`TianWen.AI.Imaging`) is that path, reached as `tianwen image remove-stars <master> --model a.onnx b.onnx ... --views 8`.
+It goes through the same split as RC-Astro's remover (`NarrowbandCombination.SplitStarsAsync`: one scale, the canvas ring
+filled for the remover and absent again after, the stars as the input less the starless plate). No weights ship. Each
+named ONNX file loads only against the contract beside it, fed as the shipped denoiser is, since it is the same graph
+shape. `n2n_export.py` writes a model and its contract.
+
+- **Not the denoiser's runner.** `N2nLinearRunner` puts each chunk's median back after the net (`RestoreLevel`), which
+  corrects a denoiser's level prior but would return a star remover's removed light as a haze.
+- **The windows, clean-room from StarNet2.** That tiling was reproduced exactly against StarNet2's exe, which the owner
+  keeps as a judge only. The tile's 16 px rim is never used. Its interior is weighted by a triangle, zero at the rim and
+  one at the centre, and the windows step by half the interior (112 px), so two triangles sum to one everywhere. Each
+  pixel is therefore decided mostly by the window that sees it centrally, where a star is not cut. The frame is mirrored
+  out by the rim plus a step, so its own edges get the same overlap.
+- **The average is E6's.** Every named model sees each window in its 1, 2, 4 or 8 views (`r2_infer.py`'s order). Each
+  output is turned back and all are averaged in the stretched domain, as the scored averages were. Then comes one
+  unstretch.
+- **Mono.** A mono master is put in all three channels only when asked (`--mono-as-rgb`), and the mean of the three
+  outputs comes back. No model here was trained or measured on mono.
+
+The first frames were the owner's, in `C:/temp/startnet2`. Pinned by `StarRemoverRunnerTests`: the views are
+`torch.rot90`'s and undo themselves, the triangles sum to one, the mirror is reflect-101, and a frame with a canvas ring
+goes through end to end, using the denoiser's weights as a stand-in graph.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
