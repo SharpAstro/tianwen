@@ -327,8 +327,8 @@ public sealed class PlanetaryControlPanel
             rows.Add(telemetry.FocuserIsMoving
                 ? Layout.Builder.HStack(
                         position.WStar().HStar(),
-                        FormRowLayout.StepMark("‹", PanelFontSize, MovingText).WFixed(PanelFontSize * 0.6f).HStar(),
-                        FormRowLayout.StepMark("›", PanelFontSize, MovingText).WFixed(PanelFontSize * 0.6f).HStar())
+                        FormRowLayout.StepMark("‹", PanelFontSize, MovingText).HStar(),
+                        FormRowLayout.StepMark("›", PanelFontSize, MovingText).HStar())
                     .RowH(BaseRowHeight)
                 : position.RowH(BaseRowHeight));
 
