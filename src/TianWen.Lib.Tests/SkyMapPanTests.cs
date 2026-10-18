@@ -114,17 +114,13 @@ public class SkyMapPanTests
     }
 
     [Theory]
-    // Alt/Az keeps the horizon parallel to the window, as Stellarium's alt-az mode does (the owner, 2026-10-12): a
-    // pan solves for the LEVEL frame that puts the grabbed point exactly under the pointer, so the frame is level
-    // throughout and the sky still goes exactly where the drag takes it. It used to be a rigid rotation that tilted
-    // the horizon by whatever the gesture earned and kept it.
-    //
-    // From the zenith a drag leaves it by pulling the sky in TOWARD the centre: overhead, a point's altitude is its
-    // distance from the centre, so a drag outward would ask for an altitude past 90 and is held at the zenith
-    // (InAltAz_ASidewaysDragAtTheZenithTurnsTheViewAboutIt covers what it does there).
-    [InlineData(40.0, 300f, 300f, 450f, 370f, "from the zenith")]      // the site's zenith Dec: straight overhead
-    [InlineData(38.0, 300f, 300f, 450f, 370f, "just off the zenith")]  // inside the lock cone, where the zenith names no up
+    // Alt/Az keeps the horizon parallel to the window and pans as Stellarium's alt-az mode does (the owner, 2026-10-12 and
+    // 2026-10-19): the drag moves the view in azimuth and altitude, so the frame is level throughout and the sky goes the
+    // way the drag goes, the grabbed point close under the pointer low in the sky (within 15 percent of the drag: exact at
+    // the centre, off it the projection's own curvature). Near the zenith, InAltAz_ADragUpToAndPastTheZenithIsCalmAndStopsAtIt,
+    // InAltAz_ASidewaysDragJustUnderTheZenithTurnsInProportion and InAltAz_FromTheZenithADragUpLeavesItAndADragDownHoldsIt.
     [InlineData(10.0, 430f, 330f, 610f, 455f, "well down the sky")]    // diagonally, so a sign error on either axis shows
+    [InlineData(-30.0, 430f, 330f, 610f, 455f, "near the horizon")]
     public void InAltAz_APanKeepsTheHorizonLevelAndMovesTheSkyTheWayTheDragWent(
         double startDec, float fromX, float fromY, float toX, float toY, string where)
     {
@@ -149,8 +145,8 @@ public class SkyMapPanTests
         var moved = new Vector2(x - fromX, y - fromY);
         Vector2.Dot(moved, dragged).ShouldBeGreaterThan(0.8f * dragged.LengthSquared(),
             $"the grabbed point went the way the drag went ({where}): to ({x:F0}, {y:F0}) for a drag to ({toX}, {toY})");
-        Vector2.Distance(new Vector2(x, y), new Vector2(toX, toY)).ShouldBeLessThan(1f,
-            $"and landed under the pointer ({where}): ({x:F1}, {y:F1}) against ({toX}, {toY})");
+        Vector2.Distance(new Vector2(x, y), new Vector2(toX, toY)).ShouldBeLessThan(0.15f * dragged.Length(),
+            $"and landed close under the pointer ({where}): ({x:F1}, {y:F1}) against ({toX}, {toY})");
 
         // And nothing moves once the gesture is over.
         for (var frame = 0; frame < 600; frame++)
@@ -162,27 +158,135 @@ public class SkyMapPanTests
             .ShouldBeLessThan(0.5, $"and it must not drift once the gesture is over ({where})");
     }
 
+    /// <summary>
+    /// At the zenith a drag that pulls the sky up (the pointer moving up) leaves it, toward the azimuth the view faced, with the horizon
+    /// level; one that pulls it down asks for an altitude past 90 and is held at the zenith, never over the top.
+    /// </summary>
     [Fact]
-    public void InAltAz_ADragAcrossTheZenithLandsLevelAndUprightOnTheFarSide()
+    public void InAltAz_FromTheZenithADragUpLeavesItAndADragDownHoldsIt()
     {
-        // Carried right across the zenith, the view must come out the other side with the horizon level and the
-        // zenith UP, not upside down: an alt-az mount passing under the zenith turns through half a turn in
-        // azimuth, and so does the frame. The rigid pan alone would land inverted here.
         var (zx, zy, zz) = SkyMapState.RaDecToUnitVec(8.0, 40.0);
         var zenith = new Vector3(zx, zy, zz);
         var s = new SkyMapState { Mode = SkyMapMode.Horizon, FieldOfViewDeg = Fov, CenterRA = 8.0, CenterDec = 30.0 };
         s.UpdateRollForReference(zx, zy, zz, FrameSeconds);
+        DragThrough(s, zenith, 500f, 100f, [(500f, 400f)]);
+        var (az0, alt0) = AzAlt(s, zenith);
+        double.RadiansToDegrees(alt0).ShouldBe(90.0, 0.01, "the drag up to the zenith stops at it");
 
-        // Ten degrees below the zenith, pulling the sky down by about twenty: the centre goes up and over.
-        Drag(s, 500f, 140f, 500f, 400f);
-        s.IsDragging = false;
+        DragThrough(s, zenith, 500f, 400f, [(500f, 600f)]);
+        double.RadiansToDegrees(AzAlt(s, zenith).Alt).ShouldBe(90.0, 0.01, "a drag down at the zenith is held there");
 
+        DragThrough(s, zenith, 500f, 500f, [(500f, 300f)]);
+        var (az, alt) = AzAlt(s, zenith);
+        double.RadiansToDegrees(alt).ShouldBeLessThan(80.0, "a drag up leaves the zenith");
+        double.RadiansToDegrees(SkyMapState.NormalizeSignedAngle(az - az0)).ShouldBe(0.0, 0.01, "toward the azimuth the view faced");
+        HorizonTiltDeg(s, zenith).ShouldBeLessThan(0.05, "with the horizon level");
+    }
+
+    // A level view's azimuth (radians, from north through east) and altitude, from its forward and up together, which name the
+    // azimuth even with the centre at the zenith.
+    private static (double Az, double Alt) AzAlt(SkyMapState s, Vector3 zenith)
+    {
         var m = ViewMatrix(s);
         var forward = new Vector3(-m.M31, -m.M32, -m.M33);
         var up = new Vector3(m.M21, m.M22, m.M23);
-        Vector3.Dot(forward, zenith).ShouldBeLessThan(MathF.Cos(float.DegreesToRadians(5f)), "the centre left the zenith's cone");
-        HorizonTiltDeg(s, zenith).ShouldBeLessThan(0.05, "the horizon is level on the far side");
-        Vector3.Dot(up, zenith).ShouldBeGreaterThan(0f, "and screen-up still leans toward the zenith");
+        var alt = Math.Asin(Math.Clamp(Vector3.Dot(forward, zenith), -1f, 1f));
+        var level = Vector3.Normalize(forward * (float)Math.Cos(alt) - up * (float)Math.Sin(alt));
+        var north = Vector3.Normalize(Vector3.UnitZ - zenith * zenith.Z);
+        var east = Vector3.Cross(north, zenith);
+        return (Math.Atan2(Vector3.Dot(level, east), Vector3.Dot(level, north)), alt);
+    }
+
+    // One press and a pointer that moves to each of (x, y) in turn, as the app hands every move of a drag to the state: each
+    // step measured from the press, through the frame the press found. Returns the largest turn of screen-up between two moves.
+    private static double DragThrough(SkyMapState s, Vector3 zenith, float fromX, float fromY, (float X, float Y)[] path)
+    {
+        var ppr = SkyMapProjection.PixelsPerRadian(ContentH, s.FieldOfViewDeg);
+        float cx = ContentW * 0.5f, cy = ContentH * 0.5f;
+        var startMatrix = ViewMatrix(s);
+        s.IsDragging = true;
+        s.DragStart = (fromX, fromY);
+        s.DragStartCenter = (s.CenterRA, s.CenterDec);
+        s.DragStartViewMatrix = startMatrix;
+        var (ra1, dec1) = SkyMapProjection.UnprojectWithMatrix(fromX, fromY, startMatrix, ppr, cx, cy);
+        var g = SkyMapState.RaDecToUnitVec(ra1, dec1);
+        var grabbed = new Vector3(g.X, g.Y, g.Z);
+        var previousUp = new Vector3(startMatrix.M21, startMatrix.M22, startMatrix.M23);
+        var worst = 0.0;
+        foreach (var (x, y) in path)
+        {
+            var (ra2, dec2) = SkyMapProjection.UnprojectWithMatrix(x, y, startMatrix, ppr, cx, cy);
+            var p = SkyMapState.RaDecToUnitVec(ra2, dec2);
+            s.Pan(grabbed, new Vector3(p.X, p.Y, p.Z));
+            var m = ViewMatrix(s);
+            var up = new Vector3(m.M21, m.M22, m.M23);
+            worst = Math.Max(worst, double.RadiansToDegrees(Math.Acos(Math.Clamp(Vector3.Dot(up, previousUp), -1f, 1f))));
+            previousUp = up;
+        }
+        s.IsDragging = false;
+        return worst;
+    }
+
+    /// <summary>
+    /// The owner's gesture (2026-10-19): a slow drag from low in the sky up toward and past the zenith, which spun the view
+    /// "violently". Stellarium's alt-az way: the altitude rises with the drag and STOPS at the zenith, never going over the top, and
+    /// the view never turns more than a few degrees between two moves of the pointer; the azimuth it looked along is the one it
+    /// still looks along, and the horizon is level throughout.
+    /// </summary>
+    [Fact]
+    public void InAltAz_ADragUpToAndPastTheZenithIsCalmAndStopsAtIt()
+    {
+        var (zx, zy, zz) = SkyMapState.RaDecToUnitVec(8.0, 40.0);
+        var zenith = new Vector3(zx, zy, zz);
+        // Seventy degrees up, facing south (the zenith's RA, twenty degrees of Dec below it).
+        var s = new SkyMapState { Mode = SkyMapMode.Horizon, FieldOfViewDeg = Fov, CenterRA = 8.0, CenterDec = 20.0 };
+        s.UpdateRollForReference(zx, zy, zz, FrameSeconds);
+        var (az0, alt0) = AzAlt(s, zenith);
+
+        // Pulling the sky down the whole window, a pixel at a time: about 45 degrees, past the zenith by 25.
+        var path = new (float X, float Y)[600];
+        for (var i = 0; i < path.Length; i++)
+        {
+            path[i] = (500f, 100f + i + 1);
+        }
+        var worst = DragThrough(s, zenith, 500f, 100f, path);
+        var (az, alt) = AzAlt(s, zenith);
+        System.Console.WriteLine($"from alt {double.RadiansToDegrees(alt0):F1} az {double.RadiansToDegrees(az0):F1}: to alt {double.RadiansToDegrees(alt):F2} az {double.RadiansToDegrees(az):F1}, worst turn between moves {worst:F2} deg");
+
+        worst.ShouldBeLessThan(2.0, "the view turned violently between two moves of the pointer");
+        double.RadiansToDegrees(alt).ShouldBe(90.0, 0.01, "the drag stops at the zenith, never over the top");
+        double.RadiansToDegrees(SkyMapState.NormalizeSignedAngle(az - az0)).ShouldBe(0.0, 0.01, "the view still faces the way it did");
+    }
+
+    /// <summary>
+    /// Just under the zenith a sideways drag turns the view in proportion to the drag, as Stellarium does: at most twice the drag's own
+    /// angle in azimuth, never the half turn it took to keep the grabbed star exactly under the pointer there.
+    /// </summary>
+    [Fact]
+    public void InAltAz_ASidewaysDragJustUnderTheZenithTurnsInProportion()
+    {
+        var (zx, zy, zz) = SkyMapState.RaDecToUnitVec(8.0, 40.0);
+        var zenith = new Vector3(zx, zy, zz);
+        // Two degrees under the zenith, facing south.
+        var s = new SkyMapState { Mode = SkyMapMode.Horizon, FieldOfViewDeg = Fov, CenterRA = 8.0, CenterDec = 38.0 };
+        s.UpdateRollForReference(zx, zy, zz, FrameSeconds);
+        var (az0, _) = AzAlt(s, zenith);
+
+        var path = new (float X, float Y)[100];
+        for (var i = 0; i < path.Length; i++)
+        {
+            path[i] = (450f + i + 1, 300f);
+        }
+        var worst = DragThrough(s, zenith, 450f, 300f, path);
+        var (az, alt) = AzAlt(s, zenith);
+        var dragDeg = double.RadiansToDegrees(100.0 / SkyMapProjection.PixelsPerRadian(ContentH, Fov));
+        var turned = double.RadiansToDegrees(Math.Abs(SkyMapState.NormalizeSignedAngle(az - az0)));
+        System.Console.WriteLine($"a {dragDeg:F2} deg sideways drag at alt {double.RadiansToDegrees(alt):F1}: azimuth turned {turned:F2} deg, worst turn between moves {worst:F2} deg");
+
+        // A 1 percent margin: the drag's angle on screen is not exactly its pixels over the scale.
+        turned.ShouldBeLessThanOrEqualTo(2.02 * dragDeg, "a sideways drag under the zenith turned the view out of proportion");
+        turned.ShouldBeGreaterThan(0.5 * dragDeg, "and it still turns");
+        worst.ShouldBeLessThan(2.0, "the view turned violently between two moves of the pointer");
     }
 
     [Fact]
