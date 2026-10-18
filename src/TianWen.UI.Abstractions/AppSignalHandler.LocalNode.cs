@@ -39,7 +39,6 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            _appState.LocalNode = connection;
             if (connection.Outcome is LocalNodeOutcome.StartedWithTheClient)
             {
                 // The launcher's words say why; what they mean for a night is worth saying once.
@@ -52,8 +51,13 @@ namespace TianWen.UI.Abstractions
                 Notify(NotificationSeverity.Warning, $"This computer's node is used as it is: {note}.");
             }
 
+            // The connection is published only once its profile is chosen and read. Published first, the frames' profile poll
+            // (RefreshNodeProfiles) took the first read itself, before the profile was chosen, and this one was then skipped as
+            // already in flight or not due: the profile was counted known while still null, and the Equipment tab said "No
+            // equipment profile configured" at start on a node that runs one (LocalProfileAtConnectTests).
             await ChooseLocalProfileAsync(connection.Client, requestedProfile, cancellationToken).ConfigureAwait(false);
             await connection.MaybeRefreshProfileAsync(cancellationToken).ConfigureAwait(false);
+            _appState.LocalNode = connection;
             _appState.LocalProfileKnown = true;
             _appState.NeedsRedraw = true;
 
