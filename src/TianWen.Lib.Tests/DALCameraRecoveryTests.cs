@@ -230,7 +230,22 @@ internal static class ScriptedDalCamera
 internal sealed class TestDalCameraDriver(FakeDevice device, IServiceProvider sp, FakeCmosState state)
     : DALCameraDriver<FakeDevice, FakeCmosCamera>(device, sp)
 {
+    private readonly TaskCompletionSource _disconnectBegun = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     public static TimeSpan Grace(TimeSpan duration) => LostExposureGrace(duration);
+
+    /// <summary>
+    /// Completes as a disconnect reaches the driver's own disconnect: the driver reads as disconnecting already
+    /// (<c>Connected</c> is false), and has not yet stopped a stream going on nor waited for it. A test holds a stream's pass
+    /// on it to put the pass inside that window, released by the disconnect itself rather than by a clock (#1624).
+    /// </summary>
+    public Task DisconnectBegun => _disconnectBegun.Task;
+
+    protected override Task<bool> DoDisconnectDeviceAsync(int connectionId, CancellationToken cancellationToken)
+    {
+        _disconnectBegun.TrySetResult();
+        return base.DoDisconnectDeviceAsync(connectionId, cancellationToken);
+    }
 
     public override string? DriverInfo => "Scripted DAL camera";
 
