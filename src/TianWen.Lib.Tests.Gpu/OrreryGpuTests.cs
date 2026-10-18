@@ -46,6 +46,9 @@ public sealed class OrreryGpuTests(VkOrreryGpuFixture gpu, ITestOutputHelper out
         var site = TianWen.Lib.Astrometry.SOFA.SiteContext.Create(48.0, 11.0, OrreryTests.Instant);
         rig.Tab.State.Search.InfoPanel = SkyMapSearchActions.PlanetInfoPanel(db, marker, 48.0, 11.0, OrreryTests.Instant, site);
         rig.Tab.OpenOrrery();
+        // The Sun's panel opens with the view (#1656) and covers the frame's bottom left, where a disc or a comet's head is
+        // judged: closed, as only the bodies are under test here.
+        rig.Tab.State.Orrery.Selected = null;
         // The stars behind are the sky pipeline's, measured by OrreryBackdropGpuTests; here only the bodies are judged.
         rig.Tab.State.Orrery.ShowBackdrop = false;
         rig.Tab.State.Orrery.ElevationDeg = 80;
