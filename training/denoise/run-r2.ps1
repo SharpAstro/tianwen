@@ -55,7 +55,11 @@ param(
     # R2l: weigh the pixels where the star layer stands BrightSigma or more of the draw's own noise this many times
     # (n2n_smoke.py --bright-weight, --bright-sigma); 0 (default) keeps the plain objective.
     [double]$BrightWeight = 0,
-    [double]$BrightSigma = 100
+    [double]$BrightSigma = 100,
+    # R2n: how many times the U-Net halves the tile (n2n_smoke.py --levels; 2, the default, is every model before R2n) and
+    # the cap on any level's channels (--max-ch; 0 is none).
+    [int]$Levels = 2,
+    [int]$MaxCh = 0
 )
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
@@ -83,7 +87,7 @@ function Export-Ready([string]$arm) {
 Set-Status 'starting'
 
 try {
-    "$Tag at $(git -C $PSScriptRoot rev-parse --short HEAD), $(Get-Date -Format o), patience $Patience, cap $Steps, loss mask $LossMask, seeds from $FirstSeed, snapshot at $SnapshotAt, channel noise $ChannelNoise, checkpoint every $CheckpointEvery, bright weight $BrightWeight over $BrightSigma sigma" | Tee-Object -FilePath $log -Append
+    "$Tag at $(git -C $PSScriptRoot rev-parse --short HEAD), $(Get-Date -Format o), patience $Patience, cap $Steps, loss mask $LossMask, seeds from $FirstSeed, snapshot at $SnapshotAt, channel noise $ChannelNoise, checkpoint every $CheckpointEvery, bright weight $BrightWeight over $BrightSigma sigma, levels $Levels, channel cap $MaxCh" | Tee-Object -FilePath $log -Append
     while ($AfterPid -gt 0 -and (Get-Process -Id $AfterPid -ErrorAction SilentlyContinue)) {
         if (Stop-Requested "waiting for process $AfterPid") { return }
         Set-Status "waiting for process $AfterPid"
@@ -135,6 +139,8 @@ try {
                 $mask.Add('--bright-weight'); $mask.Add($BrightWeight.ToString([cultureinfo]::InvariantCulture))
                 $mask.Add('--bright-sigma'); $mask.Add($BrightSigma.ToString([cultureinfo]::InvariantCulture))
             }
+            if ($Levels -ne 2) { $mask.Add('--levels'); $mask.Add("$Levels") }
+            if ($MaxCh -gt 0) { $mask.Add('--max-ch'); $mask.Add("$MaxCh") }
             & python n2n_smoke.py --train --cache $cache --synthetic --loss l2 --upsample --cond-map `
                 --band-loss 3 --band-scales "2,4 4,8" --base 32 --schedule plateau --steps $Steps `
                 --val-every 500 --patience $Patience --max-decays 4 --min-improve 0.001 --gate-every 0 `

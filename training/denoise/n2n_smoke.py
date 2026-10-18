@@ -223,7 +223,9 @@ def resume_fingerprint(args, meta):
             "base", "seed", "batch", "lr", "schedule", "patience", "max_decays", "min_improve", "val_every",
             "val_loss_cells", "loss_mask", "star_loss", "half_pairs", "pair_time", "snapshot_at")
     fp = {k: getattr(args, k, None) for k in keys}
-    # Only when set, so a checkpoint written before R2l still resumes.
+    # Only when set, so a checkpoint written before R2l (or R2n) still resumes.
+    if getattr(args, "levels", 2) != 2 or getattr(args, "max_ch", 0):
+        fp.update(levels=args.levels, max_ch=args.max_ch)
     if getattr(args, "bright_weight", 0.0):
         fp.update(bright_weight=args.bright_weight, bright_sigma=args.bright_sigma)
     fp.update(cells=meta["cells"], train_cells=meta["train_cells"])
@@ -810,10 +812,16 @@ def prepare_stars(cache, max_per_tile=32):
 
 
 # --------------------------------------------------------------------------- model
-def build_model(base, upsample=False, cond=0):
+def build_model(base, upsample=False, cond=0, levels=2, max_ch=0):
     """cond is a PLANE COUNT, not a flag: 0 off, 1 the scalar background sigma, COND_BANDS the
     per-band profile. It reads as a bool at every call site that only asks "is conditioning on",
-    and `int(True) == 1`, so checkpoints written when it really was a bool still load correctly."""
+    and `int(True) == 1`, so checkpoints written when it really was a bool still load correctly.
+
+    `levels` is how many times the net halves the tile on the way down (R2n, 2026-10-18): 2, the default, is the net every
+    model before R2n is (256, 128 and 64 px, about 66 px of reach), with the same parameter names, so their checkpoints
+    load unchanged. Each level doubles the channels, capped at `max_ch` when it is set (0: no cap), and doubles the reach:
+    4 levels take a 256 px tile down to 16 px, a reach about the tile's own size, the way StarNet2's eight levels reach
+    across its 512 px window."""
     import torch.nn as nn
 
     def block(cin, cout):
@@ -842,8 +850,12 @@ def build_model(base, upsample=False, cond=0):
         def __init__(self):
             super().__init__()
             cin = CH + int(cond)
-            self.e1, self.e2, self.e3 = block(cin, base), block(base, base*2), block(base*2, base*4)
-            self.mid = block(base*4, base*4)
+            # Encoder ei at level i (1 is the full tile) holds ch(i) channels; the deepest, e{levels+1}, feeds `mid`. The
+            # names are the two-level net's (e1 e2 e3 mid u3 d3 u2 d2 out), so every checkpoint before R2n loads as it was.
+            ch = [None] + [base * 2 ** (i - 1) if not max_ch else min(base * 2 ** (i - 1), max_ch) for i in range(1, levels + 2)]
+            for i in range(1, levels + 2):
+                setattr(self, f"e{i}", block(cin if i == 1 else ch[i - 1], ch[i]))
+            self.mid = block(ch[levels + 1], ch[levels + 1])
             # ConvTranspose(k=2,s=2) is the textbook checkerboard generator: the kernel does
             # not evenly tile the stride, so output pixels get uneven numbers of contributions
             # and flat areas mottle. Nearest-upsample + 3x3 conv has no such asymmetry.
@@ -852,24 +864,25 @@ def build_model(base, upsample=False, cond=0):
                     return nn.Sequential(nn.Upsample(scale_factor=2, mode="nearest"),
                                          nn.Conv2d(cin, cout, 3, padding=1))
                 return nn.ConvTranspose2d(cin, cout, 2, stride=2)
-            self.u3 = up(base*4, base*2)
-            self.d3 = block(base*4, base*2)
-            self.u2 = up(base*2, base)
-            self.d2 = block(base*2, base)
+            # Decoder: u{j} brings level j up to j-1, d{j} joins it with e{j-1}'s skip.
+            for j in range(levels + 1, 1, -1):
+                setattr(self, f"u{j}", up(ch[j], ch[j - 1]))
+                setattr(self, f"d{j}", block(2 * ch[j - 1], ch[j - 1]))
             self.out = nn.Conv2d(base, CH, 1)
             self.pool = nn.MaxPool2d(2)
+            self.levels = levels
 
         def forward(self, x):
-            e1 = self.e1(x)
-            e2 = self.e2(self.pool(e1))
-            e3 = self.e3(self.pool(e2))
-            m = self.mid(e3)
-            d3 = self.d3(torch.cat([self.u3(m), e2], 1))
-            d2 = self.d2(torch.cat([self.u2(d3), e1], 1))
+            skips = [getattr(self, "e1")(x)]
+            for i in range(2, self.levels + 2):
+                skips.append(getattr(self, f"e{i}")(self.pool(skips[-1])))
+            d = self.mid(skips[-1])
+            for j in range(self.levels + 1, 1, -1):
+                d = getattr(self, f"d{j}")(torch.cat([getattr(self, f"u{j}")(d), skips[j - 2]], 1))
             # Residual: the net predicts the CORRECTION, so an untrained net is the identity
             # rather than noise, which makes "did it help" readable from step one. The
             # conditioning plane is an input only, so the residual adds to the IMAGE channels.
-            return x[:, :CH] + self.out(d2)
+            return x[:, :CH] + self.out(d)
 
     return UNet()
 
@@ -986,7 +999,7 @@ def load_model(cache, name, dev):
                                   every=ck.get("prior_every", 1))
         model = OP.RLOperator(ck["rl_k"], prior=prior).to(dev)
     else:
-        model = build_model(ck["base"], ck.get("upsample", False), planes).to(dev)
+        model = build_model(ck["base"], ck.get("upsample", False), planes, ck.get("levels", 2), ck.get("max_ch", 0)).to(dev)
     model.load_state_dict(ck["model"])
     model.eval()
     # E16: a model that conditions on the stored per-pixel plane says so, so no caller can feed it the scalar.
@@ -1395,10 +1408,10 @@ def train(args):
               f"every {args.prior_every} iteration(s), zero-initialised so step 0 IS E3.0), "
               f"{params/1e6:.2f} M params; the row's kernel and the session's stretch ride on the label planes")
     else:
-        model = build_model(args.base, args.upsample, cond_planes).to(dev)
+        model = build_model(args.base, args.upsample, cond_planes, args.levels, args.max_ch).to(dev)
         params = sum(p.numel() for p in model.parameters())
     opt = torch.optim.Adam(model.parameters(), args.lr)
-    print(f"device {dev}, U-Net base={args.base}, {params/1e6:.2f} M params, "
+    print(f"device {dev}, U-Net base={args.base}, levels={args.levels}{f' (channels capped at {args.max_ch})' if args.max_ch else ''}, {params/1e6:.2f} M params, "
           f"{n_train} train cells, conditioning planes {cond_planes}")
     gate_labels = operator_labels if operator_labels is not None else psf01_labels
 
@@ -2028,6 +2041,7 @@ def train(args):
 
     def save(state, path, selected_at):
         torch.save({"model": state, "base": args.base, "upsample": args.upsample, "channels": CH,
+                    "levels": args.levels, "max_ch": args.max_ch,
                     "cond": cond_planes, "cond_map": sigma_planes is not None, "half_pairs": args.half_pairs,
                     "loss_mask": keep_planes is not None,
                     "regimes": [str(k) for k in regimes], "selected_at_step": selected_at,
@@ -2305,6 +2319,11 @@ if __name__ == "__main__":
                    help="a cell list added AFTER the seeded pick, each cell to the split its session is "
                         "in and never twice; the pick itself is unchanged, so every earlier cell stays")
     p.add_argument("--base", type=int, default=32)
+    p.add_argument("--levels", type=int, default=2,
+                   help="how many times the U-Net halves the tile going down (R2n): 2, the default, is every model before "
+                        "R2n (about 66 px of reach); each more level doubles the reach")
+    p.add_argument("--max-ch", type=int, default=0,
+                   help="cap each level's channel count (0: none, channels double every level)")
     p.add_argument("--batch", type=int, default=8)
     p.add_argument("--lr", type=float, default=2e-4)
     p.add_argument("--steps", type=int, default=4000,

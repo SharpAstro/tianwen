@@ -2638,6 +2638,38 @@ with the least light left and the least dug at 100-1000 sigma, though its lead o
 which ones ship, and at what inference cost, is the owner's. On the line, the target stays a single model that keeps an
 average's gain, and R2m (the core jitter) is the next training arm.
 
+#### R2n: four levels deep instead of two, so the net reaches past a bright star, pre-registered (2026-10-18)
+
+Written before it trains, on the owner's word of 2026-10-18 to apply what other star removers do. Tracked by #1338. The
+idea comes clean-room from StarNet2, which the owner keeps as a judge only: its weights never ship and its outputs never
+train anything. Its graph halves a 512 px tile eight times, so every output pixel can draw on the whole window; R2i halves
+a 256 px tile twice. Read off the two ONNX graphs (`C:/temp/e2/net-stages.py`), R2i has 0.81 M weights and a reach of 66 px,
+StarNet2 32.87 M and 1,037 px. On our scorer StarNet2 itself lost to R2i by far (bright injected stars 15 % clean against
+60 %, real bright stars 87 % flat against 96 %), so size alone does not win; this arm tests reach alone.
+
+**The arm.** R2i's recipe exactly (seed 0, the re-baked store's synth4 cache, patience 24, cap 480,000, a resume
+checkpoint every 2,000 steps), with `--levels 4 --max-ch 256`: the tile halves four times (256 to 16 px), the channels
+double up to 256 and stop, 6.86 M weights, and a reach of about 294 px, wider than the tile. Two levels stays the default,
+and every earlier checkpoint loads as it was (R2i's does, checked). On the 1070 a forward and backward pass runs 52 tiles/s
+against R2i's 68.
+
+**The ring.** Measured the same day on the owner's eye (a violet ring where the brightest star was): on A's 10,517 bright
+unsaturated injected stars, the 3 to 6 px annulus sits at -0.40 / -0.56 / -0.33 sigma (R / G / B) under R2i, with a
+channel dug past -1 sigma on 43.1 % of them (E6: 37.1 %). It is a bias, so averaging barely moves it. Neither eval reads
+that annulus (the scorer checks the 3 px core, the real-star check compares the core with 6 to 10 px), so
+`C:/temp/e2/ring-annulus.py` measures it until the scorer carries it.
+
+**Predictions.** The bars are the same-store seed spread: 1.3 / 0.8 / 4.3 points clean at 5-20 / 20-100 / 100-1000 sigma.
+1. Bright stars (100 to 1000 sigma) clean at least 64.5 %, R2i's 60.2 plus the spread.
+2. Saturated stars clean at least 50.0 %, R2i's 46.6 plus their counting noise (about 3.4 points on 219 stars).
+3. The faint bands hold: 5-20 sigma at least 77.9 % and 20-100 at least 73.7 %.
+4. The ring shallows: a channel dug past -1 sigma in the annulus on at most 38 % of bright stars (R2i's 43.1 less 5).
+5. Real bright stars (`r2-real-val`, 100-1000 sigma) read flat on at least R2i's 96.4 %.
+
+**Kill:** bright stars clean below R2i's 60.2 % means reach is not what they lack; the deeper net is dropped and R2m (the
+core jitter) runs next. **What it decides:** whether the line's base net grows. If (1) and (2) hold, four levels become
+the recipe every later arm and average starts from.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
