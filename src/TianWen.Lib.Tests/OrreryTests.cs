@@ -1415,7 +1415,8 @@ public sealed class OrreryTests(ITestOutputHelper output)
     /// <summary>
     /// The comet filter's button always names its step, whole: its long form ("Comets ≤12") where the strip has room, at 1x, and its
     /// compact form ("≤12") where it is short, never trimmed. With the strip as full as it gets (the Centre toggle, Pause, Now, a long
-    /// offset), at 1x, 1.25x and 1.5x, in the platform's face and the app's; the speed keeps its own rule beside it.
+    /// offset), at 1x, 1.25x and 1.5x, in the platform's face and the app's (the long form at 1x asked of the app's face only); the speed
+    /// keeps its own rule beside it.
     /// </summary>
     [Theory(Timeout = 120_000)]
     [InlineData(1f, false)]
@@ -1442,7 +1443,9 @@ public sealed class OrreryTests(ITestOutputHelper output)
                 .Single(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } && (text.Value == longForm || text.Value == compactForm));
             var shown = rig.Tab.StripShownText(leaf);
             output.WriteLine($"{step.Name}: shows \"{shown}\" in {leaf.Bounds.Width:F0} px");
-            if (dpiScale == 1f)
+            // At 1x the app's face leaves room for the long form. The platform's need not: DejaVu Sans Mono (Linux's) is a tenth wider,
+            // and with the strip this full the long form left "Distances: auto" 100 px of its 102, so the strip goes compact there.
+            if (dpiScale == 1f && appFace)
             {
                 shown.ShouldBe(longForm, "at 1x the strip has room for the long form");
             }
