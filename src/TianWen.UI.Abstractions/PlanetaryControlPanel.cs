@@ -321,13 +321,16 @@ public sealed class PlanetaryControlPanel
             {
                 focLabel += $"   {telemetry.FocuserTempC:F1}°C";
             }
-            if (telemetry.FocuserIsMoving)
-            {
-                // A character, not an icon: neither DIR.Lib's IconKind nor BakedIcons draws a swap arrow yet.
-                focLabel += "   ⇄";
-            }
-            rows.Add(Layout.Builder.Text(focLabel, PanelFontSize, telemetry.FocuserIsMoving ? MovingText : HeaderText, TextAlign.Near, TextAlign.Center)
-                .RowH(BaseRowHeight));
+            var position = Layout.Builder.Text(focLabel, PanelFontSize, telemetry.FocuserIsMoving ? MovingText : HeaderText,
+                TextAlign.Near, TextAlign.Center);
+            // A moving focuser is marked by a pair of drawn carets, the jog row's own marks, never a symbol in the text run.
+            rows.Add(telemetry.FocuserIsMoving
+                ? Layout.Builder.HStack(
+                        position.WStar().HStar(),
+                        FormRowLayout.StepMark("‹", PanelFontSize, MovingText).WFixed(PanelFontSize * 0.6f).HStar(),
+                        FormRowLayout.StepMark("›", PanelFontSize, MovingText).WFixed(PanelFontSize * 0.6f).HStar())
+                    .RowH(BaseRowHeight)
+                : position.RowH(BaseRowHeight));
 
             // Jog row: [<<] [<] [>] [>>], coarse +/-100, fine +/-10 (matches the Live Session OTA panel).
             rows.Add(Layout.Builder.HStack(

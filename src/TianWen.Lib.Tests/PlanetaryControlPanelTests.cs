@@ -301,6 +301,23 @@ public class PlanetaryControlPanelTests
         rig.Posted.ShouldBe([new JogMountSignal(direction, 30.0)]);
     }
 
+    /// <summary>A moving focuser is marked by drawn carets, never a symbol character in the text run, which Night cannot tint.</summary>
+    [Fact]
+    public void AMovingFocuserIsMarkedByDrawnIconsNotACharacter()
+    {
+        using var rig = new Rigged(1f, capturing: false, Rig with { FocuserIsMoving = true });
+        var layout = rig.Host.GetCapturedLayout();
+
+        layout.Any(static n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text { Value: var v } } && v.Contains('⇄'))
+            .ShouldBeFalse();
+        layout.Any(static n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text { Value: "Pos: 12345   8.5°C" } })
+            .ShouldBeTrue("the position keeps its words");
+        var marks = layout.Where(static n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Icon })
+            .Select(static n => ((Layout.Content.Icon)((Layout.Node.Leaf)n.Node).Content).Kind).ToArray();
+        marks.ShouldContain(Layout.IconKind.CaretLeft);
+        marks.ShouldContain(Layout.IconKind.CaretRight);
+    }
+
     [Fact]
     public void WithNoFocuserThePanelSaysSoAndOffersNoJog()
     {
