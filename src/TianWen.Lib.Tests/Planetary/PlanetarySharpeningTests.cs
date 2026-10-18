@@ -527,23 +527,28 @@ public class PlanetarySharpeningTests
     }
 
     [Fact]
-    public void TheApertureTaperIsFlatToHalfTheCutoffAndNothingFromIt()
+    public void TheTukeyTaperIsFlatToHalfTheCutoffAndNothingFromIt()
     {
-        // #1366: the aperture target's band limit, a Tukey window (alpha 0.5) over the pupil's cutoff, set before anything was measured.
+        // #1366: the aperture target's band limit until L-TAPER (#1661), a Tukey window (alpha 0.5) over the pupil's cutoff, set before
+        // anything was measured; still the cut of a colour master's Wiener target at its planes' Nyquist (#1398).
         const double cutoff = 0.4;
-        PlanetaryFinishing.ApertureTaper(0, cutoff).ShouldBe(1);
-        PlanetaryFinishing.ApertureTaper(0.5 * cutoff, cutoff).ShouldBe(1);
-        PlanetaryFinishing.ApertureTaper(0.75 * cutoff, cutoff).ShouldBe(0.5, 1e-12);
-        PlanetaryFinishing.ApertureTaper(cutoff, cutoff).ShouldBe(0);
-        PlanetaryFinishing.ApertureTaper(1.3 * cutoff, cutoff).ShouldBe(0);
+        PlanetaryFinishing.TukeyTaper(0, cutoff).ShouldBe(1);
+        PlanetaryFinishing.TukeyTaper(0.5 * cutoff, cutoff).ShouldBe(1);
+        PlanetaryFinishing.TukeyTaper(0.75 * cutoff, cutoff).ShouldBe(0.5, 1e-12);
+        PlanetaryFinishing.TukeyTaper(cutoff, cutoff).ShouldBe(0);
+        PlanetaryFinishing.TukeyTaper(1.3 * cutoff, cutoff).ShouldBe(0);
 
-        // The target as a transfer, at a pupil's own cutoff: nothing is asked past it.
+        // The target as a transfer, at a pupil's own cutoff: nothing is asked past it, in the Tukey shape asked and in Hann's, the default.
         var arcsecPerPixel = 0.2;
         var fc = PlanetaryFinishing.CutoffCyclesPerPixel(Telescope, 650, arcsecPerPixel);
-        var target = PlanetaryFinishing.ApertureTarget(Telescope, 650, arcsecPerPixel);
-        target.At(0.25 * fc).ShouldBe(1, 1e-3);
-        target.At(0.75 * fc).ShouldBe(0.5, 0.01);
-        target.At(Math.Min(1.05 * fc, 0.7)).ShouldBe(0, 1e-9);
+        var tukey = PlanetaryFinishing.ApertureTarget(Telescope, 650, arcsecPerPixel, PlanetaryApertureTaper.Tukey);
+        tukey.At(0.25 * fc).ShouldBe(1, 1e-3);
+        tukey.At(0.75 * fc).ShouldBe(0.5, 0.01);
+        tukey.At(Math.Min(1.05 * fc, 0.7)).ShouldBe(0, 1e-9);
+        var hann = PlanetaryFinishing.ApertureTarget(Telescope, 650, arcsecPerPixel);
+        hann.At(0.5 * fc).ShouldBe(0.5, 0.01);
+        hann.At(Math.Min(1.05 * fc, 0.7)).ShouldBe(0, 1e-9);
+        new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope).ApertureTaper.ShouldBe(PlanetaryApertureTaper.Hann);
 
         // The Wiener target toward it is the taper times the plain one over the same transfer.
         ImmutableArray<double> power = [.. Enumerable.Repeat(1.0, 64)];
@@ -552,6 +557,38 @@ public class PlanetarySharpeningTests
         var toward = PlanetaryWaveletGains.Wiener(power, noise, f => 0.5, f => f < 0.25 ? 1 : 0);
         toward.Take(16).ShouldBe(plain.Take(16));
         toward.Skip(16).ShouldAllBe(w => w == 0);
+    }
+
+    [Theory]
+    [InlineData(PlanetaryApertureTaper.Hann, 0.005, 0.008)]
+    [InlineData(PlanetaryApertureTaper.Tukey, 0.075, 0.085)]
+    [InlineData(PlanetaryApertureTaper.Clear, 0, 1e-3)]
+    public void AnEdgeThroughEachApertureTaperOvershootsByItsOwnLineSpread(PlanetaryApertureTaper shape, double atLeast, double atMost)
+    {
+        // #1661, L-TAPER: an edge's response is the running sum of the taper's line spread, its one-dimensional inverse transform (the
+        // projection-slice theorem), so a taper rings by itself wherever that spread dips below zero: #1366's Tukey by 7.9 %, which rebounded
+        // 0.008 of the disk past Saturn's limb, Hann by 0.6 %, the clear aperture's own transfer (an Airy spread) not at all.
+        const double cutoff = 0.4, dx = 0.1;
+        const int taps = 2000, samples = 2000;
+        var df = cutoff / taps;
+        var step = new double[samples];
+        var sum = 0.0;
+        for (var i = 0; i < samples; i++)
+        {
+            var x = (i - (samples / 2)) * dx;
+            var spread = 0.0;
+            for (var k = 0; k <= taps; k++)
+            {
+                var f = k * df;
+                spread += (k is 0 or taps ? 0.5 : 1) * PlanetaryFinishing.ApertureTaper(f, cutoff, shape) * Math.Cos(2 * Math.PI * f * x);
+            }
+            sum += 2 * spread * df * dx;
+            step[i] = sum;
+        }
+
+        ((step.Max() / step[^1]) - 1).ShouldBeInRange(atLeast, atMost, "the step's overshoot, over its level 100 px past the edge");
+        PlanetaryFinishing.ApertureTaper(0, cutoff, shape).ShouldBe(1, 1e-12, "the taper keeps the scene's mean");
+        PlanetaryFinishing.ApertureTaper(cutoff, cutoff, shape).ShouldBe(0, 1e-12, "and nothing at the cutoff");
     }
 
     [Theory]
@@ -567,7 +604,7 @@ public class PlanetarySharpeningTests
 
         Should.Throw<ArgumentException>(() => PlanetarySharpening.Sharpen(master, options)).Message.ShouldContain(layout.ToString());
         PlanetarySharpening.SplitCfaPlaneNyquist.ShouldBe(0.25);
-        (PlanetaryFinishing.ApertureTaperStart * PlanetarySharpening.SplitCfaPlaneNyquist).ShouldBe(0.125, "the cut's taper starts at 0.125");
+        (PlanetaryFinishing.TukeyTaperStart * PlanetarySharpening.SplitCfaPlaneNyquist).ShouldBe(0.125, "the cut's taper starts at 0.125");
     }
 
     [Theory]

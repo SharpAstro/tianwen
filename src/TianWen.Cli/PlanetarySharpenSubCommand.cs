@@ -48,6 +48,8 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var colourOpt = new Option<string>("--colour") { Description = "How a colour master's detail is sharpened (#1295): perchannel (the default: each channel through its own diffraction), luminance (the mean of the planes sharpened once, every plane given the stack's own colour), or both to compare them.", DefaultValueFactory = _ => "perchannel" };
         var strengthOpt = new Option<string>("--strength") { Description = "How far past the truth bands 2 and 3 are taken (#1251): 1, the default, is the derived sharpening; a comma list sharpens at each (e.g. '1,1.5,2'), each written and scored.", DefaultValueFactory = _ => "1" };
         var targetOpt = new Option<string>("--target") { Description = "What the derived gains restore toward (#1366): auto (the default, #1632: the aperture where every channel's pupil cutoff lies below 0.5 cycles a pixel, the master resolving the telescope, else the telescope), telescope (the planet through the pupil's diffraction), aperture (the telescope's diffraction undone too, up to its cutoff), or both (telescope and aperture) to compare them.", DefaultValueFactory = _ => "auto" };
+        var taperOpt = new Option<string>("--aperture-taper") { Description = "The aperture target's fall to nothing at the cutoff (#1661, L-TAPER): hann (the default: a raised cosine from nothing, an edge response 0.6 % past a step), tukey (#1366's: one to half the cutoff, 7.9 %, which rebounded past Saturn's limb) or clear (the clear aperture's own transfer, an Airy pattern: no overshoot, its wing kept). Shapes the truth --score-against aperture reads alike.", DefaultValueFactory = _ => "hann" };
+        var scoreTaperOpt = new Option<string?>("--score-taper") { Description = "With --score-against aperture, the taper the truth is carried to when it is not the target's own (--aperture-taper): hann, tukey or clear. L-TAPER scored every taper against Tukey's truth too (#1661)." };
         var scoreAgainstOpt = new Option<string>("--score-against") { Description = "With --truth, what every sharpening is scored against (#1366): telescope (the default: the truth as rendered, through the pupil) or aperture (the truth carried to the aperture target, the pupil's diffraction divided out and the taper put in).", DefaultValueFactory = _ => "telescope" };
         var gainsOpt = new Option<string?>("--gains") { Description = "Apply these a trous gains instead of deriving them, finest first, comma separated, one set per channel separated by ';' (the last repeated): a twin's own best gains, say, applied through the same limb window (#817). Layers past a set are held at 1." };
         var learnedOpt = new Option<bool>("--learned-gains") { Description = "Take each channel's a trous gains from the learned model (#1552, PlanetaryGainsModels) where the master lies inside what it was fitted on (its sampling, and its limb's edge inside its twins'); elsewhere the derived gains stand. Each channel says which, and why." };
@@ -75,13 +77,13 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var command = new Command("sharpen", "Sharpen a planetary master again, by gains derived through the limb's edge (R8), the limb kept from ringing.")
         {
             Arguments = { masterArg },
-            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, plateScaleOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, deconvolveIterationsOpt, targetOpt, scoreAgainstOpt, gainsOpt, learnedOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbFloorOpt, limbKOpt, channelLimbOpt, halvesOpt, autoOpt, designOpt },
+            Options = { planetOpt, utcOpt, wavelengthOpt, fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, plateScaleOpt, ringEdgeOpt, slidersOpt, truthOpt, outputOpt, noWriteOpt, stackedPreviewOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, finishOpt, kolivasAmountOpt, deconvolveIterationsOpt, targetOpt, taperOpt, scoreTaperOpt, scoreAgainstOpt, gainsOpt, learnedOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbFloorOpt, limbKOpt, channelLimbOpt, halvesOpt, autoOpt, designOpt },
         };
 
         // What --auto refuses: every setting the pipeline's sharpening otherwise takes (A2, #1389, found none worth tuning per capture).
         Option[] autoRefuses =
         [
-            fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, plateScaleOpt, ringEdgeOpt, slidersOpt, finishOpt, kolivasAmountOpt, deconvolveIterationsOpt, targetOpt, gainsOpt,
+            fixOpt, fitOpt, finestOpt, colourOpt, strengthOpt, edgeReachOpt, plateScaleOpt, ringEdgeOpt, slidersOpt, finishOpt, kolivasAmountOpt, deconvolveIterationsOpt, targetOpt, taperOpt, gainsOpt,
             learnedOpt, shrinkOpt, noiseOpt, kernelOpt, colourTargetOpt, wienerFloorOpt, limbFloorOpt, limbKOpt, channelLimbOpt, halvesOpt, pupil.Obstruction,
         ];
 
@@ -288,7 +290,20 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     consoleHost.WriteError("--score-against aperture needs the telescope (--telescope or --aperture-mm)");
                     return 1;
                 }
-                // The truth every score reads: as rendered, or carried to the aperture target (#1366).
+                var taperName = parseResult.GetValue(taperOpt) ?? "hann";
+                if (Taper(taperName) is not { } apertureTaper)
+                {
+                    consoleHost.WriteError($"--aperture-taper {taperName}: hann, tukey or clear");
+                    return 1;
+                }
+                options = options with { ApertureTaper = apertureTaper };
+                var scoreTaperName = parseResult.GetValue(scoreTaperOpt);
+                if ((scoreTaperName is null ? apertureTaper : Taper(scoreTaperName)) is not { } scoredTaper)
+                {
+                    consoleHost.WriteError($"--score-taper {scoreTaperName}: hann, tukey or clear");
+                    return 1;
+                }
+                // The truth every score reads: as rendered, or carried to the aperture target (#1366), in the taper asked.
                 var scoredAperture = scoreAgainst == "aperture" ? options.Pupil : null;
                 if (parseResult.GetValue(gainsOpt) is { } gainsText)
                 {
@@ -327,8 +342,8 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 var masterDisk = truthPath is null || master.ChannelCount == 3 ? PlanetaryMasterScore.Disk(master, body, instant) : null;
                 if (truthPath is not null)
                 {
-                    PlanetaryMasterScore.AgainstTruth(consoleHost, master, truthPath, body, "the master as stacked", aperture: scoredAperture);
-                    PlanetaryMasterScore.TruthGains(consoleHost, master, truthPath, body, scoredAperture);
+                    PlanetaryMasterScore.AgainstTruth(consoleHost, master, truthPath, body, "the master as stacked", aperture: scoredAperture, taper: scoredTaper);
+                    PlanetaryMasterScore.TruthGains(consoleHost, master, truthPath, body, scoredAperture, scoredTaper);
                 }
                 else
                 {
@@ -576,7 +591,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                         }
                         if (truthPath is not null)
                         {
-                            PlanetaryMasterScore.AgainstTruth(consoleHost, result.Sharpened, truthPath, body, what, master, scoredAperture);
+                            PlanetaryMasterScore.AgainstTruth(consoleHost, result.Sharpened, truthPath, body, what, master, scoredAperture, scoredTaper);
                         }
                         else
                         {
@@ -616,7 +631,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                                     }
                                     if (truthPath is not null)
                                     {
-                                        PlanetaryMasterScore.AgainstTruth(consoleHost, image, truthPath, body, label, aperture: scoredAperture);
+                                        PlanetaryMasterScore.AgainstTruth(consoleHost, image, truthPath, body, label, aperture: scoredAperture, taper: scoredTaper);
                                     }
                                     else
                                     {
@@ -709,4 +724,13 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         }
         return StatisticsHelper.NthSmallest(times, times.Length / 2);
     }
+
+    // An aperture taper by its name (--aperture-taper, --score-taper, #1661), or null for none of them.
+    private static PlanetaryApertureTaper? Taper(string name) => name.ToLowerInvariant() switch
+    {
+        "hann" => PlanetaryApertureTaper.Hann,
+        "tukey" => PlanetaryApertureTaper.Tukey,
+        "clear" => PlanetaryApertureTaper.Clear,
+        _ => null,
+    };
 }
