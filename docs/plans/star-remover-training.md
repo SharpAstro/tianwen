@@ -2673,6 +2673,35 @@ that annulus (the scorer checks the 3 px core, the real-star check compares the 
 core jitter) runs next. **What it decides:** whether the line's base net grows. If (1) and (2) hold, four levels become
 the recipe every later arm and average starts from.
 
+#### R2o: one model that keeps the views' average, pre-registered (2026-10-18)
+
+Written before it trains, on the owner's question "possible to do averaging as part of a single model?" and the word "use
+azure". Tracked by #1338. Most of what averaging bought came from a model's own views, not from more models: E2 (R2i
+over its 8 flips and turns) cleaned 66.2 % of bright stars against R2i's 60.2, and E5 (R2i's two seeds, 8 views each)
+added only half a point more (66.7). The trainer has never shown the net a flipped or turned tile. So the net is not
+symmetric under them, its eight views disagree, and averaging them cancels the disagreement.
+
+**The arm.** R2i's recipe exactly (two levels, seed 0, the synth4 cache, patience 24, cap 480,000, a resume checkpoint
+every 2,000 steps), with two switches:
+- `--dihedral`: each training sample in a random one of its 8 views, its noise plane turned with it.
+- `--ema 0.999`: a running average of the weights (about 1,000 steps), saved as the output `r2o_synth4_s0.pt`.
+
+The live weights are saved beside it as `r2o_synth4_s0_raw.pt`. The schedule reads the live weights, so the raw model is
+R2i plus the views and nothing else, and one run reads both effects. It trains on an Azure spot T4 under the owner's
+guards, while R2n has the 1070.
+
+**Predictions.** The bars are the same-store spread (1.3 / 0.8 / 4.3 points clean at 5-20 / 20-100 / 100-1000 sigma);
+E2 is 80.1 / 76.4 / 66.2 clean, dug 24.8 at 100-1000, saturated 52.1 clean.
+1. One model, one view: R2o cleans bright stars at least 64.5 % (R2i's 60.2 plus the spread), most of the way to E2.
+2. Its views agree: R2o over 8 views gains at most 3.0 points on bright stars over R2o at one view (R2i's views gained 6.0).
+3. The views carry it: R2o's raw model alone also cleans bright stars at least 64.5 %.
+4. The faint bands hold: 5-20 sigma at least 77.9 % and 20-100 at least 73.7 %.
+5. M31's nucleus stays: at most 5 % of the central 6 px in every channel (#1658).
+
+**Kill:** bright stars below R2i's 60.2 % at one view means training on the views does not move the average's gain into
+the weights. Distillation from E5 (not E6, which carries R2l's appetite for nuclei) is then next. **What it decides:**
+whether a shipped single model can carry most of the average's gain at an eighth of its inference, or a 24th of E6's.
+
 #### A whole-frame runner: an average over a master, in overlapping windows (2026-10-18)
 
 Asked for by the owner to see E6 on whole frames, and tracked by #1338. Until then the line had no path that put a
