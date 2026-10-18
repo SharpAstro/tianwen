@@ -63,7 +63,11 @@ param(
     # R2o: train each sample in a random one of its 8 flips and turns (n2n_smoke.py --dihedral), and keep a running average
     # of the weights with this decay, saved as the output with the live weights beside it as _raw (--ema; 0 is none).
     [switch]$Dihedral,
-    [double]$Ema = 0
+    [double]$Ema = 0,
+    # R2nc: hold each step's gradient norm to this many times the median of the last 200 (n2n_smoke.py --clip-grad; 0 is
+    # none). R2p: regress each draw onto a teacher's output from n2n_teacher.py instead of the clean tile (--teacher).
+    [double]$ClipGrad = 0,
+    [string]$Teacher = ''
 )
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
@@ -91,7 +95,7 @@ function Export-Ready([string]$arm) {
 Set-Status 'starting'
 
 try {
-    "$Tag at $(git -C $PSScriptRoot rev-parse --short HEAD), $(Get-Date -Format o), patience $Patience, cap $Steps, loss mask $LossMask, seeds from $FirstSeed, snapshot at $SnapshotAt, channel noise $ChannelNoise, checkpoint every $CheckpointEvery, bright weight $BrightWeight over $BrightSigma sigma, levels $Levels, channel cap $MaxCh, dihedral $Dihedral, ema $Ema" | Tee-Object -FilePath $log -Append
+    "$Tag at $(git -C $PSScriptRoot rev-parse --short HEAD), $(Get-Date -Format o), patience $Patience, cap $Steps, loss mask $LossMask, seeds from $FirstSeed, snapshot at $SnapshotAt, channel noise $ChannelNoise, checkpoint every $CheckpointEvery, bright weight $BrightWeight over $BrightSigma sigma, levels $Levels, channel cap $MaxCh, dihedral $Dihedral, ema $Ema, clip $ClipGrad, teacher '$Teacher'" | Tee-Object -FilePath $log -Append
     while ($AfterPid -gt 0 -and (Get-Process -Id $AfterPid -ErrorAction SilentlyContinue)) {
         if (Stop-Requested "waiting for process $AfterPid") { return }
         Set-Status "waiting for process $AfterPid"
@@ -147,6 +151,8 @@ try {
             if ($MaxCh -gt 0) { $mask.Add('--max-ch'); $mask.Add("$MaxCh") }
             if ($Dihedral) { $mask.Add('--dihedral') }
             if ($Ema -gt 0) { $mask.Add('--ema'); $mask.Add($Ema.ToString([cultureinfo]::InvariantCulture)) }
+            if ($ClipGrad -gt 0) { $mask.Add('--clip-grad'); $mask.Add($ClipGrad.ToString([cultureinfo]::InvariantCulture)) }
+            if ($Teacher) { $mask.Add('--teacher'); $mask.Add($Teacher) }
             & python n2n_smoke.py --train --cache $cache --synthetic --loss l2 --upsample --cond-map `
                 --band-loss 3 --band-scales "2,4 4,8" --base 32 --schedule plateau --steps $Steps `
                 --val-every 500 --patience $Patience --max-decays 4 --min-improve 0.001 --gate-every 0 `
