@@ -268,6 +268,13 @@ public readonly struct OrreryCamera
     public double FocalPx => _focal;
 
     /// <summary>
+    /// A DIRECTION in ecliptic coordinates as the camera turns it: its components along the screen's right and up, and toward the
+    /// viewer (positive when it points back at the camera). The camera's rotation alone, no perspective: what the compass draws (#1657).
+    /// </summary>
+    public (double Right, double Up, double Toward) Orient(double x, double y, double z)
+        => ((x * _rx) + (y * _ry) + (z * _rz), (x * _ux) + (y * _uy) + (z * _uz), -((x * _fx) + (y * _fy) + (z * _fz)));
+
+    /// <summary>
     /// The camera's frame where screen point (<paramref name="sx"/>, <paramref name="sy"/>) looks, in ecliptic coordinates: the unit
     /// vector back along the ray through it toward the camera, and the screen's right made square to that. A body drawn there is traced
     /// as seen along that ray (<see cref="TianWen.Lib.Imaging.Planetary.PlanetView"/>), whatever its own place in the scene: the Moon,

@@ -163,6 +163,7 @@ namespace TianWen.UI.Abstractions
             DrawOrreryOrbits(scene, camera, scaling, dpiScale);
             DrawOrreryBodies(scene, camera, viewingTime, scaling, contentRect, plannerState.Comets, dpiScale);
             PopClip();
+            DrawOrreryCompass(camera, contentRect, dpiScale);
             DrawOrreryPanel(plannerState, scene, contentRect, viewingTime);
 
             DrawOrreryStrip(contentRect, viewingTime, plannerState.SiteTimeZone,

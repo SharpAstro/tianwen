@@ -1920,4 +1920,41 @@ public sealed class OrreryNightTests
             GuiTheme.Apply(UiThemeState.Dark, desktopIsDark: true);
         }
     }
+
+    /// <summary>
+    /// A planet's info panel in the orrery (#1656), disc and all, spends no blue under Night either: the panel's chrome, its rows, its
+    /// buttons, the disc and the slot it sits in, and the compass (#1657). The slot's near-black was (8, 8, 12): 41,545 pixels of blue.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task NightSpendsNoBlueInAPlanetsPanel()
+    {
+        try
+        {
+            GuiTheme.Apply(UiThemeState.Night, desktopIsDark: true);
+            using var rig = await OrreryTests.RigAsync(TestContext.Current.CancellationToken);
+            OrreryTests.Select(rig, CatalogIndex.Saturn);
+            rig.Tab.OpenOrrery();
+            await OrreryTests.SettleAsync(rig);
+            await rig.Tab.PanelSprites.WhenBuiltAsync();
+            rig.Render();
+
+            rig.Tab.LastOrreryPanel.ShouldNotBeNull().Index.ShouldBe(CatalogIndex.Saturn);
+            rig.Tab.LastPanelDiscRect.ShouldNotBeNull("the panel drew no disc");
+            rig.Tab.LastOrreryCompass.ShouldNotBeNull("no compass was drawn");
+            var pixels = rig.Renderer.Surface.Pixels;
+            var blue = 0;
+            for (var i = 0; i < pixels.Length; i += 4)
+            {
+                if (pixels[i + 2] != 0)
+                {
+                    blue++;
+                }
+            }
+            blue.ShouldBe(0, "pixels with any blue under Night");
+        }
+        finally
+        {
+            GuiTheme.Apply(UiThemeState.Dark, desktopIsDark: true);
+        }
+    }
 }
