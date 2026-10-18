@@ -175,7 +175,7 @@ public sealed class OrreryState
     /// ephemeris, keeps its stated precision for every planet (Bretagnon and Francou 1988: 4000 years either side of J2000 for the
     /// inner planets, 6000 for Uranus and Neptune, 2000 for Jupiter and Saturn, the narrowest). Past it the orbits drawn are no longer
     /// the planets'; and at ten years a second the clock would leave <see cref="DateTimeOffset"/>'s range (year 9999) in about
-    /// twenty minutes, which threw in the render path. From today Play reaches it in about three minutes at ten years a second.
+    /// thirteen minutes (from 2026, the 7,973 years to it in 797 s), which threw in the render path. From today Play reaches it in about three minutes at ten years a second.
     /// </summary>
     public static readonly DateTimeOffset PlayEnd = new(4000, 1, 1, 12, 0, 0, TimeSpan.Zero);
 

@@ -451,7 +451,7 @@ the Sun, is why Venus is a crescent, and the angle between them at the planet is
   months/s" still trimmed it at 1x). **Play stops at `OrreryState.PlayEnd`**, 4000-01-01 12:00 UTC, J2000 plus 2000 years:
   VSOP87 keeps its stated precision 2000 years either side of J2000 for Jupiter and Saturn, its narrowest (4000 for the
   inner planets, 6000 for Uranus and Neptune), and at ten years a second the clock would otherwise leave DateTimeOffset's
-  range (year 9999) in about twenty minutes, which threw in the render path. The bound is checked in `AdvancePlay` against
+  range (year 9999) in about thirteen minutes (from 2026, 7,973 years in 797 s), which threw in the render path. The bound is checked in `AdvancePlay` against
   the offset BEFORE it is added to the base (`ResolveBaseTime`, split out of `ResolveViewingTime` for it), so an offset
   scrubbed past the end is brought back by the first played frame. `SkyMapState.FormatOffset` reads Julian years
   ("+1974y", "+5y 2w") so a long play keeps the strip's time short. `OrreryTests.EachSpeedRunsItsSpanInAPlayedSecond` (each
@@ -470,8 +470,9 @@ the Sun, is why Venus is a crescent, and the angle between them at the planet is
 
 #### A5: the comets
 
-Issue: #1611 (2026-10-16), with its amendment A1 (every orbit in its body's colour), after TheSkyLive's orrery: coloured
-orbits, comets as a head with a pale fan of a tail away from the Sun, labelled.
+Issue: #1611 (2026-10-16), with its amendments A1 (every orbit in its body's colour) and A2 (thirty comets were "super
+crowded": a magnitude filter, comet orbits a dim grey), after TheSkyLive's orrery: coloured orbits, comets as a head with a
+pale fan of a tail away from the Sun, labelled.
 
 - **Which comets: the 30 brightest at the VIEWING INSTANT, ranked per MONTH** (`OrreryScene.CometSetSize`, `RankAt`). Ranked
   first at PEAK (`SkyMapState.PeakMagnitude`), the thirty were great comets of the last century, far out and tailless today,
@@ -532,7 +533,35 @@ orbits, comets as a head with a pale fan of a tail away from the Sun, labelled.
     `ADefunctOrLongStaleCometIsNotRanked`). Tests: `TheSetIsTheBrightestAtTheViewingInstant` (a faint-peak comet at
     perihelion in, ten years on out; a great comet fifty years past perihelion out, which ranking at peak put first),
     `ACometPastTheSkysCandidacyButBrightNowIsIn`, `AMemberJustPastTheCutoffStays`.
-- **The comet layer** (`SkyMapState.ShowComets`, the atlas's comet toggle) gates the thirty; the opened, focused and pinned
+  - **A ranking that throws** (#1631 R2) is logged through the tab's logger, its exception read (so observed), and its month,
+    repository and count of comets are not ranked again until one of them moves: before, a faulted ranking adopted nothing,
+    its cooldown was the 100 ms floor (no duration), and it was started again ten times a second, unseen. The set already drawn
+    stays. `OrreryScene.Rank` is the seam a test makes throw: `ARankingThatThrowsIsLoggedAndNotRetriedEveryFrame` (ten frames a
+    second apart in one month: 1 attempt and one warning, where there were 10 and none; the next month is tried afresh). The
+    held view's wake has its test too, `AViewHeldInTheCooldownIsWokenWhenItEnds` (a scene with a frame request on a pumped fake
+    clock: held inside the cooldown nothing is ranked and no frame asked for; when it ends one frame is, and it ranks the month;
+    seen failing, a 30 s timeout, with the wake taken out).
+- **The comet filter** (amendment A2 of #1611): of the ranked set, the comets whose MONTH-BEST magnitude (the ranking's own
+  score, carried through it beside each index, so Play inside a month never flickers one at the limit) is at or brighter
+  than the step's limit: **Naked eye 6, Binoculars 9, Small telescope 12 (the default), All** (the whole ranked set,
+  `CometSetSize` 30, which stays as the performance cap). `OrreryCometFilter.Steps`; the step is `OrreryState.CometFilter`,
+  kept for the session as the view's other settings are, never saved. It filters the SET, so orbits, heads, tails, labels and
+  hits all follow; the opened, focused and pinned comets bypass it as they bypass the ranking. The real catalogue at
+  2026-10-16 has no comet brighter than 11.9 (332P/Ikeya-Murakami, above), so the default draws one and Naked eye or
+  Binoculars none but what is opened, focused or pinned. **On the strip** it is one label button after the speed, "Comets
+  ≤12 ▲" (or "All comets"), its press opening the four steps as a drop-up (the shared `RenderDropUp`, as the speeds'), sized
+  by the widest of its forms so a pick never moves what follows. Where the strip is short it takes its compact form ("≤12",
+  no mark, half the padding) BEFORE the speed takes its own (`ReadsWhole`, the speed's escape hatch generalised: the long
+  forms first, then the filter compact, then both). To fit it `OrreryLabelMinEm` went from 3 to 2.25 and `TimeLabelWeight`
+  from 4 to 6, the speed's compact form to half padding as well. Measured on 900 px: at 1x the filter shows "Comets ≤12" in
+  60 px (Consolas) and 69 (DejaVu Sans), the long form; at 1.5x it is compact, "≤12" in 21 to 32 px, the button 34 px
+  (262 to 296) in Consolas and 41 (259 to 300) in DejaVu Sans, the time keeping 85 px past its date and time in Consolas
+  and 38 (2.5 ems) in DejaVu Sans, `+1d` still ending at 888. Tests: `EachFilterStepKeepsTheCometsBrightEnoughForIt`
+  (month-bests 1.5 to 17.6: 2, 4, 6 and 30 comets), `TheOpenedFocusedAndPinnedBypassTheFilter`,
+  `APlayedMonthDoesNotFlickerAtTheLimit` (a comet 6.7 to 12.3 over the month stays drawn under Binoculars),
+  `TheStripsFilterPicksAStepAndTheViewDrawsOnlyIt` (through the router, at 1x and 1.5x: 2, 4, 6 and 30 heads),
+  `TheCometFilterAlwaysNamesItsStep` (1x, 1.25x, 1.5x, both faces), `TheStripFitsWithEveryButtonShowing` re-measured.
+- **The comet layer** (`SkyMapState.ShowComets`, the atlas's comet toggle) gates the ranked set (and so the filter); the opened, focused and pinned
   comets are drawn with it off, as a pin shows a comet on the sky with its layer off (`TheCometLayerOffDrawsNone`: the set, its
   tails, orbits and labels are gone, the opened comet stays).
 - **The cache.** The set is read again only when its KEY moves: the repository (by reference), its `ICometRepository.Version`
@@ -551,20 +580,32 @@ orbits, comets as a head with a pale fan of a tail away from the Sun, labelled.
 - **The tail** points AWAY from the Sun on screen: its direction is the projection of a point 5 % further out on the comet's
   radial line (the scaled frame keeps every direction from the Sun), so it lies on the line from the Sun's drawn place through
   the head (0.03 degrees off in the test). **Its length follows the comet's activity** as the sunlight it gets, `1/r^2`, less its
-  value at 3 AU, where water ice stops subliming, so there is no tail from 3 AU out:
-  `L(r) = 48 px * min(1, a(r) / a(0.7 AU))`, `a(r) = max(0, 1/r^2 - 1/9)`, full at 0.7 AU or closer, 22 px at 1 AU, 3.5 at 2
-  (`OrreryTailLength`); then foreshortened by the sine of the angle between the radial line and the ray from the camera, so a
-  tail pointing at the camera is seen end on. It is drawn first, under every head and disc, as three nested wedges of the
-  comet's colour (`DrawTriangles`, which every host fills: Vulkan, WebGL, the CPU surface), a brighter core near the head.
-- **Labels**: placed as the planets' are, under or over the head where clear, else left out. The planets (the Sun and the Moon
+  value at 3 AU, where water ice stops subliming, so there is no tail from 3 AU out, taken through a SQUARE ROOT (amendment A2
+  of #1611: the linear share gave 22 px at 1 AU and 8 at 1.5, and the real catalogue's tails did not read):
+  `L(r) = max(48 px * sqrt(min(1, a(r) / a(0.7 AU))), floor(r))`, `a(r) = max(0, 1/r^2 - 1/9)`, with a floor of 14 design px
+  (`OrreryTailMinLength`) inside 2.5 AU (`OrreryTailFloorAu`) falling linearly to nothing at 3 AU, so no tail pops in or out:
+  48 px at 0.7 AU or closer, 32.6 at 1, 19.9 at 1.5, 14.0 at 2, 7.0 at 2.75 (`OrreryTailLength`). It is then foreshortened by
+  the sine of the angle between the radial line and the ray from the camera, to no less than 0.4 of its length
+  (`OrreryTailMinForeshortening`), so a tail pointing at the camera is short, never lost. It is drawn first, under every head
+  and disc, as three nested wedges of the comet's colour at alphas 0x70, 0x90 and 0xC0 (half those did not read), a brighter
+  core near the head (`DrawTriangles`, which every host fills: Vulkan, WebGL, the CPU surface).
+- **Labels**: placed as the planets' are, under or over the head where clear, else left out. **Every label lies inside the
+  view**, for every body (amendment A2 of #1611: the real catalogue's captures cut names at the edges): a candidate box is
+  shifted sideways into the content rect before the clear test (trimmed if wider), a box outside it above or below is no
+  candidate, so the other side is tried, and the Moon's outward loop and the forced fallback for the focus and the Earth are
+  clamped too; a body drawn outside the view is unlabelled (`EveryLabelLiesInsideTheView`, six views at 1x and 1.5x, 3 to 14
+  labels each, none outside). The planets (the Sun and the Moon
   with them) outrank every comet; of the comets, the focused one and the one the view was opened on come first
   (`CometsAreLabelledAfterThePlanetsAndNoLabelOverprints`: 18 of 30 comet labels placed beside 7 planets', none overprinting).
 - **Click and Centre**: a press that did not move on a head puts the highlight on the comet; the strip then offers
   `Centre: <comet>`, and centred the camera follows it as time runs (`AClickSelectsACometAndCentreFollowsIt`).
 - **Orbit colours (A1).** Every orbit is drawn in its body's colour (`OrreryOrbitColour`): a planet's is its own
   (`OrreryFlat`: `SkyMapRenderer.GetPlanetColor`, read and not changed, the Earth's the palette's Info) taken a fifth toward the
-  dim text, at the dim alpha 0x70; a comet's is a violet from the palette (the error colour's red and green with the info
-  colour's blue, three tenths toward the dim text) at 0x90; the selected body's stays the accent (`OrbitsCarryTheirBodysColour`).
+  dim text, at the dim alpha 0x70; a comet's is a DIM GREY from the palette (`CometOrbitColour`, the dim text halfway to the
+  body text, a neutral in the light and dark palettes) at 0x40, always weaker than a planet's (amendment A2 of #1611: a violet
+  at 0x90 drew every comet orbit stronger than the planets' at 0x70). The selected planet's stays the accent; the focused comet's (else
+  the one the view was opened on) is drawn LAST, over every other orbit, in the accent at full strength and a pixel thicker
+  (`OrbitsCarryTheirBodysColour`).
   Under Night every orbit is the palette's tint (`OrreryNightTests`: no blue in any pixel with thirty-one comets' orbits and
   tails drawn, and no orbit's colour with any).
 - **Cost.** Thirty comets' 361-point orbits are 10,830 samples a frame. On a GPU host a line costs per SEGMENT (each is a box of
@@ -736,7 +777,9 @@ C ring's. The ten parity views and Night's no-blue still pass, and `TheWebGlTrac
   viewport after the sky pass ("A5: the backdrop", what the pass leaves behind it). Nothing of it is left.
 
 - **The comets (#1611, done but for a look in a real browser)**: the set (ranked at the viewing instant), tails, labels,
-  clicks and orbit colours are built ("A5: the comets"). The sky's own drawing of lost and defunct comets from stale sets is #1630. Seen in headless Edge by the E2E only, with eight synthetic comets; nobody has yet looked at the real
+  clicks and orbit colours are built ("A5: the comets"), and amendment A2 with them: the magnitude filter (Small telescope
+  by default), grey comet orbits, tails that read, every label inside the view, and #1631 R2's two notes (a failed ranking
+  logged and not retried every 100 ms; the held view's wake tested). The sky's own drawing of lost and defunct comets from stale sets is #1630. Seen in headless Edge by the E2E only, with eight synthetic comets; nobody has yet looked at the real
   catalogue's thirty in the app or the browser, nor timed Play with them there.
 
 - **Seen in the browser once, by the E2E only** (#1572, bench). `OrrerySunTests` (2026-10-16) opened the orrery in headless Edge
