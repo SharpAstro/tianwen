@@ -1290,8 +1290,11 @@ public static class SkyMapSearchActions
 
         if (db.TryLookupByIndex(planetIdx, out var obj))
         {
+            // The catalogue calls the Sun "Sol" and the Moon "Luna"; the map's labels and the orrery's say Sun and Moon, and so does
+            // their panel (GetPlanetLabel).
+            var title = planetIdx == CatalogIndex.Sol ? "Sun" : planetIdx == CatalogIndex.Moon ? "Moon" : obj.DisplayName;
             return SkyMapInfoPanelData.FromPosition(
-                obj.DisplayName, raHours, decDeg, siteLat, siteLon, viewingUtc, site)
+                title, raHours, decDeg, siteLat, siteLon, viewingUtc, site)
                 with
                 {
                     ObjType = obj.ObjectType,

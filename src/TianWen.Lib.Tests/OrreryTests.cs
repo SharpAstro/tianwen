@@ -377,6 +377,8 @@ public sealed class OrreryTests(ITestOutputHelper output)
             rig.Tab.State.NeedsContinuousFrames.ShouldBeTrue();
         }
 
+        // The first Escape closes the panel the view opened with (#1656), the second the view, which stops Play.
+        rig.Router.Handle(new InputEvent.KeyDown(InputKey.Escape)).ShouldBeTrue();
         rig.Router.Handle(new InputEvent.KeyDown(InputKey.Escape)).ShouldBeTrue();
         rig.Tab.State.NeedsContinuousFrames.ShouldBeFalse();
     }
@@ -1266,6 +1268,9 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Render();
         rig.Tab.OrreryFrames.ShouldBe(1);
 
+        // The first Escape closes the panel the view opened with (#1656), the second the view.
+        rig.Router.Handle(new InputEvent.KeyDown(InputKey.Escape)).ShouldBeTrue();
+        rig.Tab.State.Orrery.IsOpen.ShouldBeTrue();
         rig.Router.Handle(new InputEvent.KeyDown(InputKey.Escape)).ShouldBeTrue();
         rig.Tab.State.Orrery.IsOpen.ShouldBeFalse();
         rig.Tab.State.Search.InfoPanel.ShouldBe(selection);
@@ -1713,6 +1718,8 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Tab.State.Orrery.Focus = CatalogIndex.Earth;
         rig.Tab.State.Orrery.CentredOnFocus = true;
         rig.Tab.State.Orrery.ShowBackdrop = false;
+        // Mars's panel, open with the view (#1656), would cover the Earth at 3x.
+        rig.Tab.State.Orrery.Selected = null;
         await SettleAsync(rig);
 
         var best = (Lit: 0, Spread: 0.0, Azimuth: 0);
@@ -1766,6 +1773,8 @@ public sealed class OrreryTests(ITestOutputHelper output)
         Select(rig, CatalogIndex.Jupiter);
         rig.Tab.OpenOrrery();
         rig.Tab.State.Orrery.ShowBackdrop = false;
+        // Jupiter's panel, open with the view (#1656), would cover the Sun at 3x.
+        rig.Tab.State.Orrery.Selected = null;
         await SettleAsync(rig);
 
         var sun = rig.Tab.OrreryDrawn.Single(d => d.Index == CatalogIndex.Sol);

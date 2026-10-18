@@ -45,9 +45,27 @@ namespace TianWen.UI.Abstractions
         /// theme-derived colours to the same panel, which is why the colours are a parameter rather
         /// than something the shared class decides: re-tinting a shipped panel is not part of sharing
         /// its layout, and doing it silently would have been.
+        /// <para>
+        /// Under Night the literals give way to the palette (#1656, found by the orrery's Night test: the panel spent 64,400
+        /// pixels of blue): read text in BodyText, the buttons the named fills, as Night asks of everything (CLAUDE.md, "Colour
+        /// Theme"). Light and Dark keep the shipped colours.
+        /// </para>
         /// </remarks>
         private static ObjectInfoPanel.PanelPalette InfoPanelPalette
-            => new ObjectInfoPanel.PanelPalette(
+            => GuiTheme.State == UiThemeState.Night
+                ? new ObjectInfoPanel.PanelPalette(
+                    Background: GuiTheme.Palette.PanelBg,
+                    Border: GuiTheme.Palette.Separator,
+                    Text: GuiTheme.Palette.BodyText,
+                    DimText: GuiTheme.Palette.BodyText,
+                    ButtonText: GuiTheme.Palette.BodyText,
+                    GotoBg: GuiTheme.PrimaryButtonBg,
+                    DisabledBg: GuiTheme.NeutralButtonBg,
+                    ViewBg: GuiTheme.PrimaryButtonBg,
+                    PinBg: GuiTheme.GoButtonBg,
+                    UnpinBg: GuiTheme.DangerButtonBg,
+                    Link: GuiTheme.Palette.Accent)
+                : new ObjectInfoPanel.PanelPalette(
                 Background: InfoPanelBg,
                 Border: SearchPanelBorder,
                 Text: SearchText,
@@ -439,23 +457,6 @@ namespace TianWen.UI.Abstractions
                     // The solar system in 3D (A5), for a body of the Sun's: a planet, the Sun, the Moon or a comet.
                     Orrery: pinIndex is { } bodyIndex && bodyIndex.IsSolarSystemObject ? OpenOrrery : null);
 
-            // The BOX comes from the same method the content does. It used to be two literals sitting
-            // here (348 wide, 205 or 250 tall) while ObjectInfoPanel computed its own for the viewer,
-            // which is the drift the hoist was meant to close: a row added to the shared panel would
-            // have grown one host and left the other with a box sized for the rows it no longer had.
-            var pw = ObjectInfoPanel.DesignWidth * dpiScale;
-            var ph = ObjectInfoPanel.DesignHeight(in options, in actions) * dpiScale;
-            var px = contentRect.X + 12f * dpiScale;
-
-            // Bottom-left, clear of the status strip -- and never climbing out of the TOP of the
-            // content rect. Nothing clips the panel, so in a rect shorter than it is the clamp only
-            // chooses which end is lost: the button row off the bottom rather than the object's NAME
-            // off the top, which is the row the panel exists for.
-            var py = MathF.Max(
-                contentRect.Y,
-                contentRect.Y + contentRect.Height - ph - 32f * dpiScale);
-            var fontSize = 12f * dpiScale;
-
             // The selection's own marks on the map go down BEFORE the panel, so the panel covers them. They
             // were drawn last, and a big object's ring (the SMC's, selected with its panel open) ran across
             // the panel's text and picture, while every other ellipse, drawn in an earlier pass, went under it.
@@ -484,14 +485,54 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
+            var aspect = info.Aspect;
+            DrawObjectPanelBox(in info, in options, in actions, magCurve, contentRect,
+                aspect is { } body ? rect => DrawPanelDisc(body, rect) : null);
+
+            // The large view is NOT drawn here: see RenderLargePicture, which Render calls last.
+        }
+
+        /// <summary>
+        /// The object panel itself, bottom-left of <paramref name="contentRect"/>: its box, rows, sparkline, disc and picture, links, buttons
+        /// and close. Shared by the sky (after the selection's marks on the map) and the orrery (#1656), which has no sky to mark;
+        /// <paramref name="drawDisc"/> fills the disc's slot, each host from its own view of the body.
+        /// </summary>
+        private void DrawObjectPanelBox(
+            in SkyMapInfoPanelData info,
+            in ObjectInfoPanel.PanelDisplayOptions options,
+            in ObjectInfoPanel.PanelActions actions,
+            ReadOnlySpan<float> magCurve,
+            RectF32 contentRect,
+            Action<RectF32>? drawDisc)
+        {
+            var dpiScale = DpiScale;
+            var palette = InfoPanelPalette;
+            var hasCurve = magCurve.Length > 0;
+            // The BOX comes from the same method the content does. It used to be two literals sitting
+            // here (348 wide, 205 or 250 tall) while ObjectInfoPanel computed its own for the viewer,
+            // which is the drift the hoist was meant to close: a row added to the shared panel would
+            // have grown one host and left the other with a box sized for the rows it no longer had.
+            var pw = ObjectInfoPanel.DesignWidth * dpiScale;
+            var ph = ObjectInfoPanel.DesignHeight(in options, in actions) * dpiScale;
+            var px = contentRect.X + 12f * dpiScale;
+
+            // Bottom-left, clear of the status strip -- and never climbing out of the TOP of the
+            // content rect. Nothing clips the panel, so in a rect shorter than it is the clamp only
+            // chooses which end is lost: the button row off the bottom rather than the object's NAME
+            // off the top, which is the row the panel exists for.
+            var py = MathF.Max(
+                contentRect.Y,
+                contentRect.Y + contentRect.Height - ph - 32f * dpiScale);
+            var fontSize = 12f * dpiScale;
+
             // The border rect is the panel's whole visual extent, so ONE no-op Clickable there swallows
             // a press anywhere on the panel -- its blank area included, not just its buttons -- rather
             // than letting it fall through to the map's own click-select underneath. Registered on the
             // border layer rather than the background one so the two rects do not both claim the region.
-            RenderLayout(Layout.Builder.Spacer().Bg(SearchPanelBorder)
+            RenderLayout(Layout.Builder.Spacer().Bg(palette.Border)
                     .Clickable(new HitResult.ButtonHit("InfoPanelBackground"), _ => { }),
                 new RectF32(px - 1, py - 1, pw + 2, ph + 2));
-            RenderLayout(Layout.Builder.Spacer().Bg(InfoPanelBg), new RectF32(px, py, pw, ph));
+            RenderLayout(Layout.Builder.Spacer().Bg(palette.Background), new RectF32(px, py, pw, ph));
 
             // Text inset from the panel edge, and narrow enough to clear the close affordance.
             var textX = px + 10f;
@@ -518,7 +559,6 @@ namespace TianWen.UI.Abstractions
                 var sectionY = py + row + 8f * dpiScale
                     + (hasCurve ? (ObjectInfoPanel.DesignSparklineHeight + 4f) * dpiScale : 0f);
                 var picture = options.Picture;
-                var aspect = info.Aspect;
                 RenderLayout(media,
                     new RectF32(px, sectionY, pw, ObjectInfoPanel.DesignMediaHeight(in options) * dpiScale),
                     scale: Scale,
@@ -531,10 +571,7 @@ namespace TianWen.UI.Abstractions
                         else if (fill.Key == ObjectInfoPanel.DiscFillKey)
                         {
                             LastPanelDiscRect = rect;
-                            if (aspect is { } body)
-                            {
-                                DrawPanelDisc(body, rect);
-                            }
+                            drawDisc?.Invoke(rect);
                         }
                     });
             }
@@ -569,8 +606,6 @@ namespace TianWen.UI.Abstractions
                 RenderLayout(closeNode,
                     new RectF32(px + pw - closeSize, py, closeSize, closeSize), scale: Scale);
             }
-
-            // The large view is NOT drawn here: see RenderLargePicture, which Render calls last.
         }
 
         // Draw the selected solar-system body's sky path (planet or comet) as a thin polyline over its
@@ -786,6 +821,10 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 SparklineLine = new(0x88, 0xEE, 0xCC, 0xFF);
         private static readonly RGBAColor32 SparklineNow  = new(0xFF, 0xEE, 0x60, 0xFF);
 
+        // The sparkline's colours under Night come from the palette, as the panel's do (InfoPanelPalette).
+        private static bool Night => GuiTheme.State == UiThemeState.Night;
+        private static RGBAColor32 SparklineLabelColour => Night ? GuiTheme.Palette.BodyText : SearchDimText;
+
         /// <summary>
         /// Draw a small vmag sparkline: magnitude vs time with the axis INVERTED (brighter/lower magnitude
         /// at the top), auto-scaled to the finite-sample range, with a left gutter carrying the bright/faint
@@ -816,7 +855,7 @@ namespace TianWen.UI.Abstractions
                 // Flat / degenerate curve (e.g. a distant comet whose brightness barely moves): a bare
                 // label reads clearer than a flat line pinned to an arbitrary edge.
                 DrawText("vmag ~flat".AsSpan(), fontPath, x, y, w, h,
-                    fontSize * 0.8f, SearchDimText, TextAlign.Near, TextAlign.Center);
+                    fontSize * 0.8f, SparklineLabelColour, TextAlign.Near, TextAlign.Center);
                 return;
             }
 
@@ -826,15 +865,16 @@ namespace TianWen.UI.Abstractions
             var range = max - min;
 
             // Axis frame (left + bottom).
-            DrawLine(plotX, y, plotX, y + h, SparklineAxis);
-            DrawLine(plotX, y + h, plotX + plotW, y + h, SparklineAxis);
+            var axis = Night ? GuiTheme.Palette.Separator : SparklineAxis;
+            DrawLine(plotX, y, plotX, y + h, axis);
+            DrawLine(plotX, y + h, plotX + plotW, y + h, axis);
 
             // Bright (min mag) at top, faint (max mag) at bottom.
             var labelFont = fontSize * 0.7f;
             DrawText($"{min:F1}".AsSpan(), fontPath, x, y - labelFont * 0.2f, gutter - 3f, labelFont * 1.4f,
-                labelFont, SearchDimText, TextAlign.Far, TextAlign.Near);
+                labelFont, SparklineLabelColour, TextAlign.Far, TextAlign.Near);
             DrawText($"{max:F1}".AsSpan(), fontPath, x, y + h - labelFont * 1.2f, gutter - 3f, labelFont * 1.4f,
-                labelFont, SearchDimText, TextAlign.Far, TextAlign.Near);
+                labelFont, SparklineLabelColour, TextAlign.Far, TextAlign.Near);
 
             var n = mags.Length;
             var prevX = 0f;
@@ -851,7 +891,7 @@ namespace TianWen.UI.Abstractions
                 var fy = y + h * ((mags[i] - min) / range); // min -> top, max -> bottom
                 if (prevValid)
                 {
-                    DrawLine(prevX, prevY, fx, fy, SparklineLine);
+                    DrawLine(prevX, prevY, fx, fy, Night ? GuiTheme.Palette.Accent : SparklineLine);
                 }
                 prevX = fx;
                 prevY = fy;
@@ -864,8 +904,9 @@ namespace TianWen.UI.Abstractions
             {
                 var nx = plotX + plotW * (n == 1 ? 0.5f : mid / (float)(n - 1));
                 var ny = y + h * ((mags[mid] - min) / range);
-                DrawLine(nx, y, nx, y + h, new RGBAColor32(SparklineNow.Red, SparklineNow.Green, SparklineNow.Blue, 0x40));
-                FillCircle(nx, ny, 2.5f, SparklineNow);
+                var now = Night ? GuiTheme.Palette.BodyText : SparklineNow;
+                DrawLine(nx, y, nx, y + h, now with { Alpha = 0x40 });
+                FillCircle(nx, ny, 2.5f, now);
             }
         }
 

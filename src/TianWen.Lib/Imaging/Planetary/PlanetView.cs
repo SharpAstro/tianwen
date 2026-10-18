@@ -48,6 +48,37 @@ public readonly record struct PlanetView(CatalogIndex Body, Vector3 Right, Vecto
     }
 
     /// <summary>
+    /// The view of <paramref name="body"/> from another place in the solar system (the orrery's info panel, #1656): both positions are
+    /// heliocentric ecliptic of J2000, AU, the Sun at the origin. The view looks from <paramref name="vantageAu"/> at the body, ecliptic
+    /// north up (when the line of sight runs along the ecliptic pole, the vernal equinox's direction is up instead), lit from the Sun.
+    /// </summary>
+    /// <param name="distanceAu">How far the vantage is from the body, AU.</param>
+    public static PlanetView FromVantage(CatalogIndex body, DateTimeOffset utc, (double X, double Y, double Z) bodyAu,
+        (double X, double Y, double Z) vantageAu, out double distanceAu)
+    {
+        Span<double> toward = [vantageAu.X - bodyAu.X, vantageAu.Y - bodyAu.Y, vantageAu.Z - bodyAu.Z];
+        distanceAu = Math.Sqrt((toward[0] * toward[0]) + (toward[1] * toward[1]) + (toward[2] * toward[2]));
+        var (tx, ty, tz) = (toward[0] / distanceAu, toward[1] / distanceAu, toward[2] / distanceAu);
+
+        // Up is the ecliptic pole square to the line of sight, else the vernal equinox's direction; right = up x toward.
+        var (ux, uy, uz) = (-tz * tx, -tz * ty, 1 - (tz * tz));
+        if ((ux * ux) + (uy * uy) + (uz * uz) < 1e-12)
+        {
+            (ux, uy, uz) = (1 - (tx * tx), -tx * ty, -tx * tz);
+        }
+        Span<double> right = [(uy * tz) - (uz * ty), (uz * tx) - (ux * tz), (ux * ty) - (uy * tx)];
+        Span<double> toSun = [-bodyAu.X, -bodyAu.Y, -bodyAu.Z];
+        SolarSystemOrbits.EclipticToEquatorial(toward);
+        SolarSystemOrbits.EclipticToEquatorial(right);
+        SolarSystemOrbits.EclipticToEquatorial(toSun);
+        return FromEquatorial(body, utc, right, toward, toSun);
+    }
+
+    /// <summary>The apparent equatorial diameter of <paramref name="body"/> from <paramref name="distanceAu"/>, arcseconds.</summary>
+    public static double AngularDiameterArcsec(CatalogIndex body, double distanceAu)
+        => 2 * Math.Atan(PhysicalEphemeris.Radii(body).Equatorial / (distanceAu * Constants.KMAU)) * 180 / Math.PI * 3600;
+
+    /// <summary>
     /// The view of <paramref name="body"/> from vectors already in its body frame: <paramref name="right"/> is made square to
     /// <paramref name="toward"/>, the Sun is lit at full phase, and the flattening is the body's IAU one.
     /// </summary>

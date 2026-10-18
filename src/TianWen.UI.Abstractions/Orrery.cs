@@ -101,10 +101,28 @@ public sealed class OrreryState
     public CatalogIndex? Comet { get; internal set; }
 
     /// <summary>
-    /// Whether the camera looks at <see cref="Focus"/> (the strip's Centre toggle) rather than the Sun, following it as time runs; a
-    /// click on another body moves the camera with the highlight, a click on the Sun puts the camera back on it.
+    /// Whether the camera looks at <see cref="Focus"/> (the strip's Centre toggle, the panel's Centre) rather than the Sun, following it
+    /// as time runs. While it does, a click on another body opens that body's panel and leaves the camera where it is (#1656), so the
+    /// body is seen from the centre; the panel's Centre then moves the camera to it.
     /// </summary>
     public bool CentredOnFocus { get; internal set; }
+
+    /// <summary>
+    /// The body whose info panel the view shows (#1656): set by a click on it, or the body the view was opened on; null with the panel
+    /// closed. Apart from <see cref="Focus"/>, so while the view is centred a body can be seen FROM the centre (<see cref="PanelVantage"/>).
+    /// </summary>
+    public CatalogIndex? Selected { get; internal set; }
+
+    /// <summary>What the camera is centred on: the focus while <see cref="CentredOnFocus"/>, else the Sun.</summary>
+    public CatalogIndex Centre => CentredOnFocus && Focus is { } focus ? focus : CatalogIndex.Sol;
+
+    /// <summary>
+    /// Where the panel's disc of <paramref name="selected"/> is seen from (#1656, the owner's rule): the orrery's centre, so centred on
+    /// the Sun every planet is fully lit and centred on the Earth it is the telescope's view; the body that IS the centre is seen from
+    /// the Sun, and the Sun from the Earth.
+    /// </summary>
+    public static CatalogIndex PanelVantage(CatalogIndex selected, CatalogIndex centre)
+        => selected != centre ? centre : selected == CatalogIndex.Sol ? CatalogIndex.Earth : CatalogIndex.Sol;
 
     /// <summary>The camera's longitude about the ecliptic pole, degrees (ecliptic of J2000).</summary>
     public double AzimuthDeg { get; set; } = -90;
