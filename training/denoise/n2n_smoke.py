@@ -20,6 +20,7 @@ shot-noise scaling does not predict, and the sqrt(n) figure is the optimistic bo
 level.
 """
 import argparse
+import copy
 import json
 import os
 import random
@@ -224,6 +225,8 @@ def resume_fingerprint(args, meta):
             "val_loss_cells", "loss_mask", "star_loss", "half_pairs", "pair_time", "snapshot_at")
     fp = {k: getattr(args, k, None) for k in keys}
     # Only when set, so a checkpoint written before R2l (or R2n) still resumes.
+    if getattr(args, "dihedral", False) or getattr(args, "ema", 0.0):
+        fp.update(dihedral=args.dihedral, ema=args.ema)
     if getattr(args, "levels", 2) != 2 or getattr(args, "max_ch", 0):
         fp.update(levels=args.levels, max_ch=args.max_ch)
     if getattr(args, "bright_weight", 0.0):
@@ -232,6 +235,23 @@ def resume_fingerprint(args, meta):
     if args.schedule == "cosine":
         fp["steps"] = args.steps
     return fp
+
+
+def dihedral_views(rng, n):
+    """R2o's training views: for each of n samples, whether it is mirrored left to right and how many quarter turns follow,
+    drawn from the trainer's own generator so a seed fixes them."""
+    return rng.integers(0, 2, n), rng.integers(0, 4, n)
+
+
+def apply_views(t, views):
+    """Each sample of a torch [N, C, H, W] or numpy [N, H, W] batch in its view: mirrored left to right when its flip is set,
+    then turned a quarter that many times over the last two axes, as r2_infer.py makes a view (torch.rot90's direction)."""
+    import torch
+    flips, turns = views
+    if torch.is_tensor(t):
+        return torch.stack([torch.rot90(t[i].flip(-1) if flips[i] else t[i], int(turns[i]), dims=(-2, -1)) for i in range(len(t))])
+    return np.ascontiguousarray(np.stack([np.rot90(np.flip(t[i], -1) if flips[i] else t[i], int(turns[i]), axes=(-2, -1))
+                                          for i in range(len(t))]))
 
 
 def with_plane(x, plane, strength=1.0):
@@ -1410,6 +1430,18 @@ def train(args):
     else:
         model = build_model(args.base, args.upsample, cond_planes, args.levels, args.max_ch).to(dev)
         params = sum(p.numel() for p in model.parameters())
+    # R2o's running average of the weights: a shadow the optimiser never touches, updated after every step and saved as the
+    # run's output, with the live weights saved beside it (_raw). The schedule still reads the live weights, so the raw
+    # model is exactly the recipe without the average.
+    ema = None
+    if args.ema:
+        ema = copy.deepcopy(model).eval()
+        for q in ema.parameters():
+            q.requires_grad_(False)
+        print(f"weight average ON: decay {args.ema} (about {1 / (1 - args.ema):.0f} steps), saved as the output, the live "
+              f"weights beside it as _raw", flush=True)
+    if args.dihedral:
+        print("training views ON: each sample mirrored and turned at random (the 8 views averaging used at inference)", flush=True)
     opt = torch.optim.Adam(model.parameters(), args.lr)
     print(f"device {dev}, U-Net base={args.base}, levels={args.levels}{f' (channels capped at {args.max_ch})' if args.max_ch else ''}, {params/1e6:.2f} M params, "
           f"{n_train} train cells, conditioning planes {cond_planes}")
@@ -1660,6 +1692,8 @@ def train(args):
             raise SystemExit(f"--resume: {resume_path} is another run's (differs in {', '.join(diff)}); move it aside "
                              f"or drop --resume")
         model.load_state_dict(ck["model"])
+        if ema is not None:
+            ema.load_state_dict(ck["ema"])
         opt.load_state_dict(ck["opt"])
         if sched is not None:
             sched.load_state_dict(ck["sched"])
@@ -1757,6 +1791,18 @@ def train(args):
             x = torch.from_numpy(np.ascontiguousarray(mm[idx, a])).to(dev).float()
             y = torch.from_numpy(np.ascontiguousarray(mm[idx, b])).to(dev).float()
 
+        # This step's per-pixel planes, picked once so a training view turns them with the tile.
+        plane_now = sigma_planes[idx, a] if sigma_planes is not None else None
+        keep_now = keep_planes[idx, a - 1] if keep_planes is not None else None
+        if args.dihedral and k == SYNTH:
+            # R2o: the tile, its target and its planes in one random view per sample, so one model learns the answer
+            # averaging its eight views gave (E2: +6.0 points on bright stars). Drawn only when on, so earlier runs keep
+            # their generator stream.
+            views = dihedral_views(rng, args.batch)
+            x, y = apply_views(x, views), apply_views(y, views)
+            plane_now = apply_views(np.asarray(plane_now), views) if plane_now is not None else None
+            keep_now = apply_views(np.asarray(keep_now), views) if keep_now is not None else None
+
         if psf01_labels is not None:
             # Each sample's label follows the SLOT it was drawn from, since that is the tile the
             # exporter measured. A cell with an unlabelled slot falls back to the batch's median
@@ -1791,7 +1837,7 @@ def train(args):
             pred = model(DG.with_psf01(x, lab))
         elif sigma_planes is not None:
             # Each sample's plane follows the SLOT it was drawn from: the draw's own noise, per pixel.
-            pred = model(with_plane(x, sigma_planes[idx, a]))
+            pred = model(with_plane(x, plane_now))
         else:
             pred = model(with_sigma(x, planes=cond_planes) if cond_planes else x)
         # Mask the rim: at inference no output pixel comes from a chunk edge, so a loss over
@@ -1801,11 +1847,11 @@ def train(args):
         # R2d's D4: each draw's own mask, the sky near the plate's own sources left out.
         mc = None
         if keep_planes is not None:
-            mc = torch.from_numpy(np.ascontiguousarray(keep_planes[idx, a - 1])).to(dev).float() \
+            mc = torch.from_numpy(np.ascontiguousarray(keep_now)).to(dev).float() \
                 .unsqueeze(1)[:, :, BORDER:-BORDER, BORDER:-BORDER]
         # R2l's --bright-weight: the bright cores' pixels weighed up, as a weighted mean (bright_weights).
         if args.bright_weight:
-            bw = bright_weights(x, y, torch.from_numpy(np.ascontiguousarray(sigma_planes[idx, a])).to(dev),
+            bw = bright_weights(x, y, torch.from_numpy(np.ascontiguousarray(plane_now)).to(dev),
                                 args.bright_sigma, args.bright_weight)[:, :, BORDER:-BORDER, BORDER:-BORDER]
             mc = bw if mc is None else mc * bw
         # R2j's --channel-noise: each channel's error in the pixel and band terms over its share of the noise
@@ -1875,6 +1921,12 @@ def train(args):
         opt.zero_grad(set_to_none=True)
         loss.backward()
         opt.step()
+        if ema is not None:
+            # Warmed up, so the first steps do not average in the random start: decay min(d, (1 + t) / (10 + t)).
+            d = min(args.ema, (1.0 + step) / (10.0 + step))
+            with torch.no_grad():
+                for qe, q in zip(ema.parameters(), model.parameters()):
+                    qe.mul_(d).add_(q, alpha=1.0 - d)
         if sched is not None:
             sched.step()
         running.append(loss.item())
@@ -2013,7 +2065,8 @@ def train(args):
         # rename, so a run taken away while writing leaves the previous checkpoint whole.
         if args.checkpoint_every and step % args.checkpoint_every == 0 and not stop_now:
             tmp = resume_path + ".tmp"
-            torch.save({"fingerprint": fingerprint, "step": step, "model": model.state_dict(), "opt": opt.state_dict(),
+            torch.save({"fingerprint": fingerprint, "step": step, "model": model.state_dict(),
+                        "ema": ema.state_dict() if ema is not None else None, "opt": opt.state_dict(),
                         "sched": sched.state_dict() if sched is not None else None, "rng": rng.bit_generator.state,
                         "torch_rng": torch.get_rng_state(),
                         "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
@@ -2041,7 +2094,7 @@ def train(args):
 
     def save(state, path, selected_at):
         torch.save({"model": state, "base": args.base, "upsample": args.upsample, "channels": CH,
-                    "levels": args.levels, "max_ch": args.max_ch,
+                    "levels": args.levels, "max_ch": args.max_ch, "dihedral": args.dihedral, "ema": args.ema,
                     "cond": cond_planes, "cond_map": sigma_planes is not None, "half_pairs": args.half_pairs,
                     "loss_mask": keep_planes is not None,
                     "regimes": [str(k) for k in regimes], "selected_at_step": selected_at,
@@ -2089,7 +2142,11 @@ def train(args):
             else:
                 print("  no probe met the structure criteria either, so the run has nothing to "
                       "audit against: it fabricated or flattened at every probe.")
-        save(model.state_dict(), args.out, steps)
+        if ema is not None:
+            save(ema.state_dict(), args.out, steps)
+            save(model.state_dict(), args.out.replace(".pt", "_raw.pt"), steps)
+        else:
+            save(model.state_dict(), args.out, steps)
     # The run is over and its outputs are written: a checkpoint left now would resume a finished run.
     if os.path.exists(resume_path):
         os.remove(resume_path)
@@ -2319,6 +2376,11 @@ if __name__ == "__main__":
                    help="a cell list added AFTER the seeded pick, each cell to the split its session is "
                         "in and never twice; the pick itself is unchanged, so every earlier cell stays")
     p.add_argument("--base", type=int, default=32)
+    p.add_argument("--dihedral", action="store_true",
+                   help="R2o: train each sample in a random one of its 8 flips and quarter turns, planes turned with it")
+    p.add_argument("--ema", type=float, default=0.0,
+                   help="R2o: keep a running average of the weights with this decay (0.999 is about 1,000 steps) and save it "
+                        "as the output, the live weights beside it as _raw; 0 (default) keeps none")
     p.add_argument("--levels", type=int, default=2,
                    help="how many times the U-Net halves the tile going down (R2n): 2, the default, is every model before "
                         "R2n (about 66 px of reach); each more level doubles the reach")

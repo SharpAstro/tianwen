@@ -59,7 +59,11 @@ param(
     # R2n: how many times the U-Net halves the tile (n2n_smoke.py --levels; 2, the default, is every model before R2n) and
     # the cap on any level's channels (--max-ch; 0 is none).
     [int]$Levels = 2,
-    [int]$MaxCh = 0
+    [int]$MaxCh = 0,
+    # R2o: train each sample in a random one of its 8 flips and turns (n2n_smoke.py --dihedral), and keep a running average
+    # of the weights with this decay, saved as the output with the live weights beside it as _raw (--ema; 0 is none).
+    [switch]$Dihedral,
+    [double]$Ema = 0
 )
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
@@ -87,7 +91,7 @@ function Export-Ready([string]$arm) {
 Set-Status 'starting'
 
 try {
-    "$Tag at $(git -C $PSScriptRoot rev-parse --short HEAD), $(Get-Date -Format o), patience $Patience, cap $Steps, loss mask $LossMask, seeds from $FirstSeed, snapshot at $SnapshotAt, channel noise $ChannelNoise, checkpoint every $CheckpointEvery, bright weight $BrightWeight over $BrightSigma sigma, levels $Levels, channel cap $MaxCh" | Tee-Object -FilePath $log -Append
+    "$Tag at $(git -C $PSScriptRoot rev-parse --short HEAD), $(Get-Date -Format o), patience $Patience, cap $Steps, loss mask $LossMask, seeds from $FirstSeed, snapshot at $SnapshotAt, channel noise $ChannelNoise, checkpoint every $CheckpointEvery, bright weight $BrightWeight over $BrightSigma sigma, levels $Levels, channel cap $MaxCh, dihedral $Dihedral, ema $Ema" | Tee-Object -FilePath $log -Append
     while ($AfterPid -gt 0 -and (Get-Process -Id $AfterPid -ErrorAction SilentlyContinue)) {
         if (Stop-Requested "waiting for process $AfterPid") { return }
         Set-Status "waiting for process $AfterPid"
@@ -141,6 +145,8 @@ try {
             }
             if ($Levels -ne 2) { $mask.Add('--levels'); $mask.Add("$Levels") }
             if ($MaxCh -gt 0) { $mask.Add('--max-ch'); $mask.Add("$MaxCh") }
+            if ($Dihedral) { $mask.Add('--dihedral') }
+            if ($Ema -gt 0) { $mask.Add('--ema'); $mask.Add($Ema.ToString([cultureinfo]::InvariantCulture)) }
             & python n2n_smoke.py --train --cache $cache --synthetic --loss l2 --upsample --cond-map `
                 --band-loss 3 --band-scales "2,4 4,8" --base 32 --schedule plateau --steps $Steps `
                 --val-every 500 --patience $Patience --max-decays 4 --min-improve 0.001 --gate-every 0 `
