@@ -5,6 +5,7 @@ using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
+using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.Comets;
@@ -349,8 +350,14 @@ public readonly record struct OrreryBody(CatalogIndex Index, string Name, double
 /// <see cref="CometOrbitBuilds"/>, <see cref="PositionBuilds"/>), and Play across years computes the positions once a minute of the
 /// clock and builds no orbit.
 /// </summary>
-public sealed class OrreryScene(Action? requestRedraw = null, ITimeProvider? clock = null)
+public sealed class OrreryScene(Action? requestRedraw = null, ITimeProvider? clock = null, ILogger? logger = null)
 {
+    /// <summary>How a month is ranked: <see cref="RankAt"/>, unless a test gives one that fails.</summary>
+    internal delegate ImmutableArray<(CatalogIndex Index, double Best)> Ranker(ImmutableArray<CometElements> candidates, long bucket, IReadOnlySet<CatalogIndex>? members);
+
+    /// <summary>The ranking the pool runs for a month: <see cref="RankAt"/> in the app.</summary>
+    internal Ranker Rank { get; init; } = RankAt;
+
     /// <summary>Points per planet orbit, the last repeating the first.</summary>
     public const int OrbitSamples = 241;
 
@@ -384,6 +391,11 @@ public sealed class OrreryScene(Action? requestRedraw = null, ITimeProvider? clo
     private int _brightestCount = -1;
     private int _brightestVersion;
     private Task<Ranking>? _rankPending;
+
+    // The month, repository and count of comets the ranking in flight is for, and those of the last one that FAILED: a failure is not
+    // tried again until one of them moves, or it would be started anew every cooldown (#1631 R2), its exception never seen.
+    private (ICometRepository? Repo, int Count, long Bucket) _rankPendingKey;
+    private (ICometRepository? Repo, int Count, long Bucket) _rankFailedKey = (null, -1, long.MinValue);
     private int _cometRankings;
     private double _lastRankMs;
 
@@ -539,12 +551,12 @@ public sealed class OrreryScene(Action? requestRedraw = null, ITimeProvider? clo
         return SelectBrightest(scored, members);
     }
 
-    /// <summary>For a test that wants the ranking the next frame adopts.</summary>
+    /// <summary>For a test that wants the ranking the next frame adopts, or sees fail: it waits, and the frame reads the outcome.</summary>
     internal async Task WhenCometsRankedAsync()
     {
         if (_rankPending is { } pending)
         {
-            await pending;
+            await ((Task)pending).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         }
     }
 
@@ -648,6 +660,14 @@ public sealed class OrreryScene(Action? requestRedraw = null, ITimeProvider? clo
                 _lastRankMs = ranked.Duration.TotalMilliseconds;
                 _brightestVersion++;
             }
+            else if (!done.IsCompletedSuccessfully)
+            {
+                // Reading the exception observes it; the month is not ranked again (the set adopted stays) until the key moves.
+                var error = done.Exception?.GetBaseException();
+                _rankFailedKey = _rankPendingKey;
+                logger?.LogWarning(error, "The orrery could not rank the brightest comets for {Year}-{Month:00}; the comets drawn stay as they were",
+                    _rankPendingKey.Bucket / 12, (_rankPendingKey.Bucket % 12) + 1);
+            }
             // Landed, adopted or not: the cooldown runs from here.
             (_everRanked, _rankLandedAt, _lastRankDuration) = (true, _clock.GetTimestamp(), done.IsCompletedSuccessfully ? done.Result.Duration : TimeSpan.Zero);
         }
@@ -675,18 +695,23 @@ public sealed class OrreryScene(Action? requestRedraw = null, ITimeProvider? clo
         {
             return;
         }
+        if (bucket == _rankFailedKey.Bucket && ReferenceEquals(comets, _rankFailedKey.Repo) && all.Length == _rankFailedKey.Count)
+        {
+            return;
+        }
         if (_everRanked && CooldownAfter(_lastRankDuration) - _clock.GetElapsedTime(_rankLandedAt) is var remaining && remaining > TimeSpan.Zero)
         {
             WakeAfter(remaining);
             return;
         }
-        var (pool, count, clock) = (_candidates, all.Length, _clock);
+        var (pool, count, clock, rank) = (_candidates, all.Length, _clock, Rank);
         IReadOnlySet<CatalogIndex>? members = ReferenceEquals(comets, _brightestRepo) ? Indices(_brightest) : null;
         Interlocked.Increment(ref _cometRankings);
+        _rankPendingKey = (comets, all.Length, bucket);
         _rankPending = Task.Run(() =>
         {
             var started = clock.GetTimestamp();
-            var brightest = RankAt(pool, bucket, members);
+            var brightest = rank(pool, bucket, members);
             return new Ranking(comets, count, bucket, brightest, clock.GetElapsedTime(started));
         });
         if (requestRedraw is { } redraw)

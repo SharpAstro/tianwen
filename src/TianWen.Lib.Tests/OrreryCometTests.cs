@@ -1,9 +1,12 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
+using Microsoft.Extensions.Logging;
 using Shouldly;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -202,6 +205,103 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
         }
         output.WriteLine($"{months.Count} months crossed, {scene.CometRankings} rankings");
         scene.CometRankings.ShouldBe(months.Count);
+    }
+
+    /// <summary>
+    /// A view held still inside a ranking's cooldown (#1631 R2) draws no frame of its own, so the month it moved to would never be
+    /// ranked: the scene asks for ONE frame when the cooldown ends, on its own clock, and the frame that follows ranks that month.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task AViewHeldInTheCooldownIsWokenWhenItEnds()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        _clock.ExternalTimePump = true;
+        using var frames = new SemaphoreSlim(0);
+        var scene = new OrreryScene(() => frames.Release(), _clock);
+        var repo = new StubCometRepository([.. Fillers(), Comet(40, m1: 12, q: 1.0, e: 0.6)]);
+        var choice = new OrreryCometChoice(true, null, null, null);
+        var october = new DateTimeOffset(2026, 10, 2, 0, 0, 0, TimeSpan.Zero);
+
+        // October ranked: its landing asks for the frame that adopts it (the cooldown runs from that frame), and the planets' orbits'
+        // first build asks for one of its own; both are taken here, so any frame after is the wake's.
+        scene.Update(october, repo, choice);
+        await scene.WhenCometsRankedAsync();
+        await scene.WhenOrbitsBuiltAsync();
+        await frames.WaitAsync(ct);
+        await frames.WaitAsync(ct);
+        scene.Update(october, repo, choice);
+        scene.CometRankings.ShouldBe(1);
+
+        // The view moves to November and is held there, twice, inside the cooldown: nothing is ranked and no frame is asked for yet.
+        var november = october.AddMonths(1);
+        scene.Update(november, repo, choice);
+        scene.Update(november, repo, choice);
+        scene.CometRankings.ShouldBe(1);
+        frames.CurrentCount.ShouldBe(0);
+
+        // The cooldown ends on the scene's clock: one frame is asked for, and that frame ranks November.
+        _clock.Advance(OrreryScene.CooldownAfter(TimeSpan.Zero));
+        await frames.WaitAsync(ct);
+        scene.Update(november, repo, choice);
+        scene.CometRankings.ShouldBe(2, "the frame the wake asked for did not rank the month the view was held in");
+        await scene.WhenCometsRankedAsync();
+        await frames.WaitAsync(ct);
+        scene.Update(november, repo, choice);
+        scene.Brightest.Length.ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>
+    /// A ranking that throws (#1631 R2) is logged with its exception, which observes it, and is not started again for the same month,
+    /// repository and catalogue: with a frame a second, well past every cooldown, it is tried ONCE a month, never every 100 ms; the
+    /// next month is tried afresh.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task ARankingThatThrowsIsLoggedAndNotRetriedEveryFrame()
+    {
+        var log = new RecordingLogger();
+        var attempts = 0;
+        var scene = new OrreryScene(clock: _clock, logger: log)
+        {
+            Rank = (_, _, _) =>
+            {
+                Interlocked.Increment(ref attempts);
+                throw new InvalidOperationException("the ranking failed");
+            },
+        };
+        var repo = new StubCometRepository([.. Fillers()]);
+        var choice = new OrreryCometChoice(true, null, null, null);
+        var october = new DateTimeOffset(2026, 10, 2, 0, 0, 0, TimeSpan.Zero);
+
+        for (var frame = 0; frame < 10; frame++)
+        {
+            await UpdateRankedAsync(scene, october.AddHours(frame), repo, choice);
+        }
+        output.WriteLine($"ten frames in October: {attempts} attempts, {log.Entries.Count} entries logged");
+        attempts.ShouldBe(1, "a ranking that threw was started again in the same month");
+        var entry = log.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Exception.ShouldBeOfType<InvalidOperationException>();
+        scene.Brightest.ShouldBeEmpty();
+
+        for (var frame = 0; frame < 10; frame++)
+        {
+            await UpdateRankedAsync(scene, october.AddMonths(1).AddHours(frame), repo, choice);
+        }
+        output.WriteLine($"and ten in November: {attempts} attempts, {log.Entries.Count} entries logged");
+        attempts.ShouldBe(2, "the next month was not tried afresh, or was tried more than once");
+        log.Entries.Count.ShouldBe(2);
+    }
+
+    private sealed class RecordingLogger : ILogger
+    {
+        public ConcurrentQueue<(LogLevel Level, Exception? Exception)> Entries { get; } = new ConcurrentQueue<(LogLevel Level, Exception? Exception)>();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => Entries.Enqueue((logLevel, exception));
     }
 
     // Comets at perihelion at the instant, M1 from 1 to 11 in steps of 2, beside the thirty fillers (magnitude 14 to 17): the month's
