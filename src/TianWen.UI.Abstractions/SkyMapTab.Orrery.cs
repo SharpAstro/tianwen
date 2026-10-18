@@ -27,7 +27,7 @@ namespace TianWen.UI.Abstractions
         private readonly List<(CatalogIndex Index, float X, float Y, float Radius)> _orreryHits = [];
 
         /// <summary>The orrery's positions and orbits, for the tests that count their builds.</summary>
-        internal OrreryScene OrreryScene => _orreryScene ??= new OrreryScene(RequestPlanetFrame);
+        internal OrreryScene OrreryScene => _orreryScene ??= new OrreryScene(RequestPlanetFrame, logger: Logger);
 
         /// <summary>The orrery's disc sprites: a cache of their own, so the map's and the panel's sprites of a body are not evicted by it.</summary>
         internal PlanetSpriteCache OrrerySprites => _orrerySprites ??= new PlanetSpriteCache(RequestPlanetFrame, PlanetSpriteCache.OrreryChannel);
