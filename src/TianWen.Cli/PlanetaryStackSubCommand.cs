@@ -176,8 +176,13 @@ internal sealed class PlanetaryStackSubCommand(
         };
         var colourSaturationOpt = new Option<double>("--colour-saturation")
         {
-            Description = "The saturation a colour master of Jupiter or Saturn is balanced at: its disk's mean colour (Saturn's globe where its rings leave it clear) is taken to the planet's own (OPAL's reflectance through the eye's response, #1212, #1235), one gain a channel, then, above 1, saturated about that colour at each pixel's luminance. Both masters are balanced, the FITS cards CBALGNR, CBALGNB and CBALSAT say by how much. 1, the default, is the balance alone; 1.4 was the default until 2026-10-06.",
+            Description = "The saturation a colour master of Jupiter or Saturn is balanced at: its disk's mean colour (Saturn's globe where its rings leave it clear) is taken to the planet's own (OPAL's reflectance through the eye's response, #1212, #1235), one gain a channel, then saturated about that colour at each pixel's luminance. Both masters are balanced, the FITS cards CBALGNR, CBALGNB and CBALSAT say by how much. 1.1, the default (#1664), gives back the colour contrast the blur takes, as the twins' truth measured it (L-COLOUR); 1 is the gains alone, the default from 2026-10-06 to 10-19; 1.4 was the default until 2026-10-06.",
             DefaultValueFactory = _ => PlanetaryColourBalance.DefaultSaturation,
+        };
+        var whitePointOpt = new Option<string>("--white-point")
+        {
+            Description = "What the colour balance takes the disk's mean to (#1664): opal (the default, the planet's own colour from OPAL's reflectance) or neutral (grey). Both outside observers' Jupiter posts are near grey and both Saturn posts warm like OPAL's, so neither follows from them; the FITS card CBALWP says neutral.",
+            DefaultValueFactory = _ => "opal",
         };
         var noColourBalanceOpt = new Option<bool>("--no-colour-balance")
         {
@@ -328,7 +333,7 @@ internal sealed class PlanetaryStackSubCommand(
             Options =
             {
                 outputOpt, labelOpt, keepOpt, pointKeepOpt, gradeCacheOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt,
-                noPerPointOpt, noSignalGateOpt, noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt, colourMatrixOpt,
+                noPerPointOpt, noSignalGateOpt, noChannelAlignOpt, noCropOpt, colourSaturationOpt, whitePointOpt, noColourBalanceOpt, colourMatrixOpt,
                 noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, wavelengthOpt, fixOpt, strengthOpt, sharpenLuminanceOpt, channelLimbOpt, limbKOpt, edgeReachOpt, plateScaleOpt, learnedOpt, pupil.ApertureMm, pupil.Obstruction, pupil.Telescope, noPngOpt, pngGammaOpt, reportOpt, reportOnlyOpt,
                 tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt, meshRegularizationOpt, estimatorOpt, correlationOpt, interpolationOpt,
                 referenceFramesOpt, derotateOpt, noDerotateOpt, planetOpt, turnNorthOverOpt, northOpt, eachFileOpt, legacyOpt, truthOpt, halvesOpt, sessionOpt, manifestOpt, epochOpt,
@@ -340,7 +345,7 @@ internal sealed class PlanetaryStackSubCommand(
         Option[] autoRefuses =
         [
             keepOpt, pointKeepOpt, qualityOpt, globalOpt, drizzleOpt, drizzlePixfracOpt, drizzleGlobalOpt, noPerPointOpt, noSignalGateOpt,
-            noChannelAlignOpt, noCropOpt, colourSaturationOpt, noColourBalanceOpt, colourMatrixOpt, noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, fixOpt, strengthOpt,
+            noChannelAlignOpt, noCropOpt, colourSaturationOpt, whitePointOpt, noColourBalanceOpt, colourMatrixOpt, noSharpenOpt, sharpenPresetOpt, sharpenGainsOpt, fixOpt, strengthOpt,
             sharpenLuminanceOpt, channelLimbOpt, limbKOpt, edgeReachOpt, plateScaleOpt, learnedOpt, pupil.Obstruction, tileSizeOpt, apSpacingOpt, maxApOpt, placementOpt, patchSizeOpt, meshSpacingOpt, meshInfluenceOpt,
             meshRegularizationOpt, estimatorOpt, correlationOpt, interpolationOpt, referenceFramesOpt, derotateOpt, noDerotateOpt, turnNorthOverOpt, northOpt, eachFileOpt,
             legacyOpt, truthOpt, halvesOpt, epochOpt, reportOnlyOpt,
@@ -407,6 +412,12 @@ internal sealed class PlanetaryStackSubCommand(
             if (colourMatrix is not ("camera" or "none"))
             {
                 consoleHost.WriteError($"--colour-matrix {colourMatrix}: camera or none");
+                return 1;
+            }
+            var whitePoint = (parseResult.GetValue(whitePointOpt) ?? "opal").ToLowerInvariant();
+            if (whitePoint is not ("opal" or "neutral"))
+            {
+                consoleHost.WriteError($"--white-point {whitePoint}: opal or neutral");
                 return 1;
             }
             var legacy = parseResult.GetValue(legacyOpt);
@@ -853,7 +864,7 @@ internal sealed class PlanetaryStackSubCommand(
                 }
                 var (balance, howBalanced) = unbalanced
                     ? (null, "colours left as captured")
-                    : PlanetaryColourBalance.For(master, planet, result.Epoch, parseResult.GetValue(colourSaturationOpt), camera);
+                    : PlanetaryColourBalance.For(master, planet, result.Epoch, parseResult.GetValue(colourSaturationOpt), camera, whitePoint == "neutral");
                 var written = balance?.Apply(master) ?? master;
                 var (masterFits, sharpenedFits) = PlanetaryBestStack.OutputPaths(runDir, baseName, prefix);
                 written.WriteToFitsFile(masterFits, null, balance?.HeaderCards());
