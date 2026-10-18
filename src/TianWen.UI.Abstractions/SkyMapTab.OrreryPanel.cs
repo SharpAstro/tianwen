@@ -51,9 +51,10 @@ public partial class SkyMapTab<TSurface>
                 },
             };
             view = seen;
+            // Short enough for the panel at 1x in the platform's face ("the rest from the Earth" trimmed there).
             footnote = vantage == CatalogIndex.Earth
-                ? $"Disc seen from the Earth, {distanceAu:F2} AU"
-                : $"Disc seen from {BodyName(vantage)}, {distanceAu:F2} AU; the rest from the Earth";
+                ? $"Disc from the Earth, {distanceAu:F2} AU"
+                : $"Disc from {BodyName(vantage)}, {distanceAu:F2} AU; rows from the Earth";
             (LastOrreryPanelVantage, LastOrreryPanelView) = (vantage, seen);
         }
 

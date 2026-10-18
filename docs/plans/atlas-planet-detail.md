@@ -774,6 +774,43 @@ shadow, each ring's median of 255): C 21, Cassini 17, A 60, B 3 on the CPU refer
 1, mean 0.007); before, all 0. In absolute terms the A ring is the brightest unlit ring, since its lit level (0.6) is five times the
 C ring's. The ten parity views and Night's no-blue still pass, and `TheWebGlTraceIsTheVulkanTrace` holds the WebGL copy to it.
 
+#### A5: the info panel and the compass
+
+Issues: #1656 (the panel) and #1657 (the compass), both asked by the owner on 2026-10-18 on the built GUI: "i asked for the info
+box to be visible in the alt-s mode but its not there" (amendment A2 (2) of #1611, planned as a leg after comets-tune and never
+started), and "its really hard to make out where north and south is".
+
+- **A click on a body opens the sky's object panel for it** over the orrery (`SkyMapTab.OrreryPanel.cs`): a planet, the Sun, the
+  Moon, a comet, and the Earth. The body the view was opened on keeps its panel open (`OrreryState.Selected`). The panel is the
+  sky's own, split from the sky's marks (`DrawObjectPanelBox`, which the sky's `DrawInfoPanel` now calls after its path and
+  reticle), so a row added to it reaches both. Its rows are the sky's, from the Earth (RA/Dec, magnitude, altitude, rise and set);
+  the Earth's say nothing it cannot see of itself (`CoordinateLine` prints dashes for an unknown position). The actions fit the
+  orrery: Pin, and **Centre** (a new `PanelActions.Centre`), which centres the camera on the body. **Escape closes the panel
+  first, then the view** (`EscapeOrrery`); a click on nothing closes the panel.
+- **The disc is the body seen from the orrery's centre** (`OrreryState.PanelVantage`, the owner's rule): centred on the Sun every
+  planet is full, centred on the Earth it is the telescope's view, centred elsewhere the view from there; the centre itself is
+  seen from the Sun, and the Sun from the Earth. The geometry is `PlanetView.FromVantage` (ecliptic north up, lit from the Sun) and
+  `PlanetView.AngularDiameterArcsec`, so the disc line's diameter and lit fraction are the vantage's, and a footnote says so ("Disc
+  from Mars, 1.52 AU; rows from the Earth"). The disc is drawn by the orrery's own disc routine (traced on a GPU host, a sprite in
+  the panel's cache otherwise). Checked against the sky: Venus from the Earth at the test instant has 155.77 degrees of phase
+  against `PhysicalEphemeris`'s 155.76, and 57.44" in both. **Centred, a click opens a panel and keeps the camera**, so a body can
+  be seen from the centre at all; before, a click moved the centre with it.
+- **The compass** (`SkyMapTab.OrreryCompass.cs`, top right). The camera keeps ecliptic north up on screen at every azimuth and
+  elevation, so an arrow alone would always point up; what the eye loses is which SIDE of the planets' plane it looks from, how
+  steeply, and which way longitude runs. So the compass is the plane as a ring (squashed by the tilt: a line edge on, round from a
+  pole), its N-S axis with the end that faces the viewer drawn over the ring and the far one dim under it (N faces you above the
+  plane, S below it), and the vernal equinox's tick, "0°", which turns with the camera (`OrreryCamera.Orient`). The ecliptic is
+  the reference: the Sun's own rotation pole is 7.25 degrees from it.
+- **Found on the way**: the Sun's and the Moon's panels, on the sky as in the orrery, were titled Sol and Luna, the catalogue's
+  names, where the map's labels say Sun and Moon; and under Night the panel spent blue: its hand-picked chrome (64,400 pixels in the
+  orrery) and the picture frame's near-black, (8, 8, 12) (41,545 more around a disc). Under Night the panel and its sparkline now
+  take the palette, and the frame is black; Light and Dark keep the shipped colours.
+- Tests: `OrreryPanelTests` (the rule, the geometry against the sky, a click on each body at 1x and 1.5x, centring on the Earth
+  then seeing Venus's crescent, a comet's panel with no disc, Escape), `OrreryCompassTests` (N up and foreshortened by the
+  elevation at four views, toward the viewer only above the plane; the equinox's side at two azimuths; the ring a line edge on and
+  round from overhead; inside the view at 1x and 1.5x), `OrreryNightTests.NightSpendsNoBlueInAPlanetsPanel`. Each was seen failing
+  with its behaviour taken out.
+
 #### A5: what is open
 
 - **The orbits over the backdrop on the headless Vulkan host** (found in PR #1631, fixed): the offscreen frame's zero
@@ -784,6 +821,8 @@ C ring's. The ten parity views and Night's no-blue still pass, and `TheWebGlTrac
   by default), grey comet orbits, tails that read, every label inside the view, and #1631 R2's two notes (a failed ranking
   logged and not retried every 100 ms; the held view's wake tested). The sky's own drawing of lost and defunct comets from stale sets is #1630. Seen in headless Edge by the E2E only, with eight synthetic comets; nobody has yet looked at the real
   catalogue's thirty in the app or the browser, nor timed Play with them there.
+- **The info panel and the compass (#1656, #1657, done)**: "A5: the info panel and the compass". Seen on the CPU surface and the
+  headless Vulkan host; not yet in the browser, where the panel's disc is WebGL's trace.
 
 - **Seen in the browser once, by the E2E only** (#1572, bench). `OrrerySunTests` (2026-10-16) opened the orrery in headless Edge
   and read back a textured, limb-darkened Sun and textured planets, once the dev server sent the atlas at all ("A4: the atlas the dev

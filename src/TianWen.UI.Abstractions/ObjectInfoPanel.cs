@@ -551,8 +551,11 @@ namespace TianWen.UI.Abstractions
         }
 
         // A picture frame is near-black in every theme, as image data is never re-tinted: a dim grey would
-        // read as a mat around the picture rather than the absence of one.
-        private static readonly RGBAColor32 PictureFrame = new RGBAColor32(0x08, 0x08, 0x0C, 0xFF);
+        // read as a mat around the picture rather than the absence of one. Under Night it is black, since its
+        // faint blue was still blue: 41,545 pixels of a disc's slot in the orrery's panel (#1656).
+        private static RGBAColor32 PictureFrame => GuiTheme.State == UiThemeState.Night
+            ? new RGBAColor32(0x00, 0x00, 0x00, 0xFF)
+            : new RGBAColor32(0x08, 0x08, 0x0C, 0xFF);
 
         // What the large view dims its host behind: dark enough that the picture is what the eye lands on,
         // and translucent so the sky (or the photograph) is still recognisably there.
