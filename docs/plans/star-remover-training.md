@@ -2764,6 +2764,75 @@ nebula's light away from stars, against E6's 6.0 % and StarNet2's 7.6 %). In the
 part of the Milky Way into its stars layer too. E6 kept the nebula and the sky best, but left halos and a few faint stars,
 and took part of M31's nucleus (16.5 % of its red, where SXT and StarNet2 took about none).
 
+#### R2n's read: the deeper net blew up at step 12,200 and never recovered, so reach is untested (2026-10-19)
+
+Trained on the 1070 from 19:40 to 23:51 on 2026-10-18 and scored by the same binary as R2i (`C:/temp/e2/read_r2no.py`).
+At step 12,000 its held-out objective was 8.5e-6 and still falling. Over the next 400 steps the training loss went from
+1e-5 to 3.7 and then 27.7, and the held-out objective rose 150-fold to 1.3e-3. It came down again only slowly, never
+regained its step-12,000 best (9.3e-6) through four halvings, and stopped at 72,000 for want of a gain. The trainer
+saves the last weights, which held out at 1.2e-5, against 2.4e-6 for R2i's seed 1 and 2.5e-6 for R2o. 39 logged steps
+of R2n's loss sit above 1e-3; R2o, on two levels, logged none.
+
+| | R2i | R2n |
+|---|---|---|
+| A's draws: clean 5-20 / 20-100 / 100-1000 sigma | 79.2 / 74.5 / 60.2 | 29.8 / 24.3 / 0.8 |
+| A's draws: dug 100-1000 sigma / clean saturated | 28.7 / 46.6 | 57.1 / 3.7 |
+| real stars, 5-20 / 20-100 / 100-1000 sigma within a sigma | 94.8 / 97.1 / 96.4 | 53.5 / 81.4 / 66.4 |
+| ring, 3-6 px (R / G / B): mean; a channel dug past -1 / left past +1 | -0.40 / -0.56 / -0.33; 43.1 / 12.4 % | +1.28 / +1.62 / +0.59; 19.4 / 71.0 % |
+| M31, central 6 px taken (R / G / B) | 3.1 / 3.1 / 0.3 % | 24.5 / 36.3 / 26.5 % |
+
+Predictions 1, 2, 3, 5 and 6 miss by far. Prediction 4 holds on its letter only: the annulus is dug on fewer stars
+because it is left bright on 71 % of them.
+
+**What it decides.** The kill's condition is met (0.8 % against 60.2), but its reading, that reach is not what the bright
+stars lack, needs a net that trained, and this one blew up. So the arm is **void, not killed**: reach is still untested.
+The blow-up belongs to the deeper net at R2i's recipe (learning rate 2e-4 from the first step, no warm-up, no gradient
+clipping, no normalisation layers); no two-level run of the line has shown one. A rerun needs one stabiliser, pre-registered
+as its own arm, and gradient-norm clipping is the smallest change that leaves the recipe otherwise R2i's. Whether it runs,
+and before what, is the owner's call.
+
+#### R2o's read: training on the views moves none of their average into the weights, and the nucleus goes (2026-10-19)
+
+Trained on the Azure spot T4 from 21:14 on 2026-10-18. It was evicted once (about 03:10) and resumed from its
+step-144,000 checkpoint, halved four times, and stopped on its own at 150,500 (best 2.55e-6 at 102,500; R2i's seed 1,
+2.44e-6 at 142,000). The driver fetched both models at 03:45, deallocated the VM and scored them by the same binary as R2i.
+The VM and its network were deleted at 07:52, and the run's SAS file with them. October's spend in both groups, R2i's seed
+1 and R2o together, was about A$5.50 as Azure reported it the next morning (its cost data lags by a day), two fifths
+of it the storage account's egress to the VM's region.
+
+| | R2i | E2: R2i, 8 views | R2o | R2o raw | R2o, 8 views |
+|---|---|---|---|---|---|
+| A's draws: clean 5-20 / 20-100 / 100-1000 sigma | 79.2 / 74.5 / 60.2 | 80.1 / 76.4 / **66.2** | 80.3 / 74.7 / 56.8 | 80.3 / 74.7 / 56.5 | **81.3 / 76.8** / 63.5 |
+| A's draws: dug 100-1000 sigma | 28.7 | **24.8** | 33.2 | 33.2 | 28.9 |
+| A's draws: clean in colour 100-1000 / clean saturated | 21.3 / 46.6 | **31.0** / 52.1 | 18.1 / 47.0 | 15.5 / 45.2 | 26.3 / **58.0** |
+| plain / lobed twin: clean 100-1000 sigma | 61.2 / 61.0 | | 58.1 / 56.8 | | |
+| real stars, 5-20 / 20-100 / 100-1000 sigma within a sigma | 94.8 / 97.1 / 96.4 | | 96.2 / 98.4 / 95.9 | 96.5 / 98.4 / 95.0 | |
+| real stars, 100-1000 sigma dug | 1.47 | | 2.89 | 4.08 | |
+| ring, 3-6 px: a channel dug past -1 | 43.1 % | 42.6 % | 44.3 % | 43.0 % | 44.2 % |
+| M31, central 6 px taken (R / G / B) | 3.1 / 3.1 / 0.3 % | | 40.4 / 32.2 / 29.3 % | | |
+
+1. **One model, one view, bright stars at least 64.5 %: misses**, 56.8 (3.4 below R2i, inside the 4.3 spread).
+2. **Its views agree, 8 views gaining at most 3.0 points: misses**, +6.7 (R2i's views gained 6.0).
+3. **The raw model alone at least 64.5 %: misses**, 56.5. The weight average adds 0.3.
+4. **The faint bands hold: holds**, 80.3 and 74.7.
+5. **M31's nucleus stays under 5 %: misses**, 40.4 / 32.2 / 29.3 %, more than R2l took (35.9 / 14.9 / 14.9).
+
+**The kill fires** (56.8 below R2i's 60.2 at one view), inside the seed spread but with no gain to show.
+
+**What it decides.** The arm assumed the views disagree because the net had never seen them, so that training on them
+would make them agree and leave nothing to average. Trained on all eight, its views still gain as much as R2i's (6.7
+against 6.0). So the gain is the average's own: eight views make eight partly independent errors, and averaging cancels
+them however the net was trained. A single model does not get it this way. The weight average buys nothing at the end of
+a schedule halved four times, where the live weights barely move. The pre-registered next is distillation from E5 (one
+model trained toward E5's output, never E6's, which carries R2l's appetite for nuclei).
+
+**The nucleus is not R2l's alone.** R2o carries no bright-core weight and takes more of M31's red nucleus than R2l did. It
+also digs bright stars more than R2i (33.2 % against 28.7 on A's draws, 2.89 % against 1.47 on real stars), which goes
+with taking a bright compact core, though nothing here shows which causes which. It is not the T4's arithmetic: R2i's
+seed 1 trained there and took -0.9 / 4.8 / 1.8 %. So #1658 (M31's nucleus taken as a star) is not fixed by leaving R2l
+out of an average. A member's nucleus has to be measured before it ships, as E5's two members were, and the line needs
+an objective or a training scene that holds a bright core that is not a star.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
