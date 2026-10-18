@@ -406,6 +406,10 @@ namespace TianWen.AI.Imaging
         /// <param name="StarLobes">Stars mode: a real star is drawn whole, its second-pass rows carried beside it
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.InjectionPopulation.LobeReachFwhm"/>, R2k); off, every row is a star of
         /// its own.</param>
+        /// <param name="StarSubs">Stars mode: every injected star rendered as the stack of virtual subs a saturated one is,
+        /// so an unsaturated star carries the profile jitter a real master's does beyond its shot noise
+        /// (<see cref="TianWen.Lib.Imaging.StarRemoval.StarInjection.Render"/>, R2m); off, an unsaturated star is its exact
+        /// profile.</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -445,7 +449,8 @@ namespace TianWen.AI.Imaging
             bool BrightKnotsWide = false,
             bool NebulaKnots = false,
             TianWen.Lib.Imaging.StarRemoval.SyntheticBackground.Steering? Steering = null,
-            bool StarLobes = false);
+            bool StarLobes = false,
+            bool StarSubs = false);
 
         /// <summary>
         /// The options one session's draws are made with: the warped shape's smoothing chosen by what made the master's noise.
