@@ -2665,6 +2665,9 @@ that annulus (the scorer checks the 3 px core, the real-star check compares the 
 3. The faint bands hold: 5-20 sigma at least 77.9 % and 20-100 at least 73.7 %.
 4. The ring shallows: a channel dug past -1 sigma in the annulus on at most 38 % of bright stars (R2i's 43.1 less 5).
 5. Real bright stars (`r2-real-val`, 100-1000 sigma) read flat on at least R2i's 96.4 %.
+6. M31's nucleus stays: R2n alone over 8 views takes at most 5 % of the central 6 px in every channel (R2i 3.1 / 3.1 /
+   0.3 %, its seed 1 -0.9 / 4.8 / 1.8 %). Registered after R2n started training and before anything of it was scored
+   ("Bright compact structure taken as stars", below, #1658).
 
 **Kill:** bright stars clean below R2i's 60.2 % means reach is not what they lack; the deeper net is dropped and R2m (the
 core jitter) runs next. **What it decides:** whether the line's base net grows. If (1) and (2) hold, four levels become
@@ -2696,6 +2699,41 @@ shape. `n2n_export.py` writes a model and its contract.
 The first frames were the owner's, in `C:/temp/startnet2`. Pinned by `StarRemoverRunnerTests`: the views are
 `torch.rot90`'s and undo themselves, the triangles sum to one, the mirror is reflect-101, and a frame with a canvas ring
 goes through end to end, using the denoiser's weights as a stand-in graph.
+
+#### Bright compact structure taken as stars: a galaxy nucleus, a nebula knot (2026-10-18)
+
+Tracked by #1658. The owner saw it three times on the first whole frames: a green-and-red blob in M31's core in E6's stars layer, and the
+Lagoon's and the Trifid's bright knots with their dust lanes. Measured on M31 (`C:/temp/e2/m31-nucleus.py`, the share of
+the input's light a starless frame no longer holds), E6 takes 16.5 / 7.9 / 6.2 % (R / G / B) of the central 6 px and
+2.8 / 0.6 / 0.6 % from 6 to 12 px. StarNet2's exe and StarXTerminator take about none of either (within 1 %). The
+owner's word: "M31 needs some fixing". The green in an unlinked stretch is a smaller excess further out (25 to 100 px,
+about 0.1 % of the light), largest in green relative to that channel's own noise.
+
+**It is R2l's objective, not reach.** Each member alone over 8 views, same frame:
+
+| | R2i | R2i, seed 1 | R2l | E6 (all three) |
+|---|---|---|---|---|
+| central 6 px taken (R / G / B) | 3.1 / 3.1 / 0.3 % | -0.9 / 4.8 / 1.8 % | **35.9 / 14.9 / 14.9 %** | 16.5 / 7.9 / 6.2 % |
+
+R2l weighs the pixels where the star layer stands 100 sigma or more five times. It learned to take any bright compact
+core, a galaxy's nucleus with it, and E3 and E6 inherit that through it. E5 (R2i's two seeds, no R2l) leaves the nucleus
+nearly whole for 2.1 points of bright-star clean rate on A's draws (66.7 % against E6's 68.8 %), which bears on which
+members ship, the owner's call. R2n is R2i's recipe without the weight, so it carries the nucleus as a sixth prediction
+(above): no worse than R2i's own seeds. A nebula's bright knots, the Lagoon's and the Trifid's, are still to be read per
+member the same way.
+
+#### Halos left around bright stars: an option to remove them, deferred (2026-10-18)
+
+The owner's first look at E6 on whole frames: "we mostly leave some halos around". A bright star leaves a soft disc in
+the starless frame, on Andromeda and the Sagittarius Triplet alike, wider than the 66 px the net can see. Overlap and
+averaging cannot reach it. R2n tests whether more reach removes it. If it does not, or not fully, the owner wants an
+option that just removes the halos. Deferred by the owner, and tracked by #1659.
+
+The comparison on the owner's frames that day (E6, StarNet2's exe and StarXTerminator, whole frames, no truth) found
+that each remover gives something up. SXT removed the most stars but took the most nebula with them (on M8, 9.7 % of the
+nebula's light away from stars, against E6's 6.0 % and StarNet2's 7.6 %). In the owner's experience it often takes a good
+part of the Milky Way into its stars layer too. E6 kept the nebula and the sky best, but left halos and a few faint stars,
+and took part of M31's nucleus (16.5 % of its red, where SXT and StarNet2 took about none).
 
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
