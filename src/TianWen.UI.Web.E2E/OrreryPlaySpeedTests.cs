@@ -122,26 +122,15 @@ public sealed class OrreryPlaySpeedTests(TianWenWebFixture fixture, ITestOutputH
         });
     }
 
-    // The pixels of a comet's orbit: violet (red and blue each well above green). No planet's orbit, disc or label is.
-    private const string VioletPixelsScript = """
-        async (b64) => {
-            const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-            const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
-            const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(bitmap, 0, 0);
-            const { data } = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
-            let violet = 0;
-            for (let i = 0; i < data.length; i += 4) {
-                if (data[i] > data[i + 1] + 30 && data[i + 2] > data[i + 1] + 30) violet++;
-            }
-            return violet;
-        }
-        """;
+    // The strip's comet filter (A2 of #1611) and the row of its drop-up that keeps every comet ranked.
+    private const string CometFilterAction = "OrreryCometFilter";
+    private const int AllCometsRow = 3;
 
     /// <summary>
-    /// The comets the app knows are drawn in the browser's orrery (#1611): served the bulk comet set, Alt+S opens the orrery with every
-    /// comet of it drawn, tails among them, and the canvas carries the comets' violet orbits.
+    /// The comets the app knows are drawn in the browser's orrery (#1611): served the bulk comet set, Alt+S opens the orrery with the
+    /// comets the default filter (Small telescope, magnitude 12) keeps; All, picked from the strip's filter drop-up, draws every comet
+    /// of it, each with its orbit, tails among them. The canvas is written for a person to look at (the orbits are a dim grey, A2 of
+    /// #1611, which no pixel count tells from the backdrop's dim stars, so the frame's own count of the orbits it drew is read).
     /// </summary>
     [Fact]
     public async Task TheCometsAreDrawnWithTheirOrbitsAndTails()
@@ -167,23 +156,29 @@ public sealed class OrreryPlaySpeedTests(TianWenWebFixture fixture, ITestOutputH
         var canvas = page.Locator("#planner");
 
         await canvas.PressAsync("Alt+s");
-        var stats = await StatsWhenAsync(page, "s.orreryOpen && s.orreryComets >= 8 && s.orreryTails > 0");
-        output.WriteLine($"the orrery drew {stats.GetProperty("orreryComets").GetInt32()} comets, {stats.GetProperty("orreryTails").GetInt32()} tails, "
-            + $"in {stats.GetProperty("orreryMs").GetDouble():F1} ms");
+        // Small telescope by default (magnitude 12, A2 of #1611): some of the eight, never more.
+        var stats = await StatsWhenAsync(page, "s.orreryOpen && s.orreryComets > 0 && s.orreryCometFilter === 12");
+        var atDefault = stats.GetProperty("orreryComets").GetInt32();
+        output.WriteLine($"Small telescope: {atDefault} comets");
+        Assert.InRange(atDefault, 1, 8);
+
+        // All, picked from the strip's filter drop-up as a person would: every comet of the eight, each with its orbit.
+        await PressAsync(canvas, await PaintedAsync(page, $"getButtonRect('{CometFilterAction}')", "filterButton"));
+        await PressAsync(canvas, await PaintedAsync(page, $"getDropdownRowRect({AllCometsRow.ToString(CultureInfo.InvariantCulture)})", "filterRow"));
+        stats = await StatsWhenAsync(page, "s.orreryCometFilter === -1 && s.orreryComets >= 8 && s.orreryCometOrbits >= 8 && s.orreryTails > 0");
+        output.WriteLine($"All: the orrery drew {stats.GetProperty("orreryComets").GetInt32()} comets, {stats.GetProperty("orreryCometOrbits").GetInt32()} orbits, "
+            + $"{stats.GetProperty("orreryTails").GetInt32()} tails, in {stats.GetProperty("orreryMs").GetDouble():F1} ms");
 
         var dir = Environment.GetEnvironmentVariable("TIANWEN_WEB_SHOTS") ?? Path.Combine(Path.GetTempPath(), "tianwen-orrery-shots");
         Directory.CreateDirectory(dir);
         var path = Path.Combine(dir, "orrery-comets.png");
         var box = await canvas.BoundingBoxAsync() ?? throw new InvalidOperationException("the atlas canvas has no box");
-        var png = await page.ScreenshotAsync(new PageScreenshotOptions
+        await page.ScreenshotAsync(new PageScreenshotOptions
         {
             Path = path,
             Clip = new Clip { X = box.X, Y = box.Y, Width = box.Width, Height = box.Height },
         });
         output.WriteLine($"the canvas: {path}");
-        var violet = await page.EvaluateAsync<int>(VioletPixelsScript, Convert.ToBase64String(png));
-        output.WriteLine($"violet pixels (the comets' orbits): {violet}");
-        Assert.True(violet > 300, $"only {violet} violet pixels: the comets' orbits are not on the canvas");
         await page.Context.CloseAsync();
     }
 
@@ -250,7 +245,11 @@ public sealed class OrreryPlaySpeedTests(TianWenWebFixture fixture, ITestOutputH
         var canvas = page.Locator("#planner");
 
         await canvas.PressAsync("Alt+s");
-        var stats = await StatsWhenAsync(page, "s.orreryOpen && s.orreryComets >= 30");
+        await StatsWhenAsync(page, "s.orreryOpen && s.orreryFrames > 0");
+        // Every comet ranked (the filter's All), so the set is the thirty and the ranking's whole workload is drawn.
+        await PressAsync(canvas, await PaintedAsync(page, $"getButtonRect('{CometFilterAction}')", "filterButton"));
+        await PressAsync(canvas, await PaintedAsync(page, $"getDropdownRowRect({AllCometsRow.ToString(CultureInfo.InvariantCulture)})", "filterRow"));
+        var stats = await StatsWhenAsync(page, "s.orreryOpen && s.orreryCometFilter === -1 && s.orreryComets >= 30");
         output.WriteLine($"opened: {stats.GetProperty("orreryComets").GetInt32()} comets, the first ranking {stats.GetProperty("lastRankMs").GetDouble():F1} ms, "
             + $"a frame {stats.GetProperty("orreryMs").GetDouble():F1} ms");
 

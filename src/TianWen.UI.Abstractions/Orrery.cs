@@ -129,6 +129,12 @@ public sealed class OrreryState
     /// </summary>
     public double DaysPerSecond { get; set; } = DefaultPlaySpeed.DaysPerSecond;
 
+    /// <summary>
+    /// Which of the brightest comets the view draws (the strip's filter), Small telescope by default: kept for the session, as the
+    /// view's other settings are, never saved.
+    /// </summary>
+    public OrreryCometFilter CometFilter { get; set; } = OrreryCometFilter.Default;
+
     // A month is a twelfth of a Julian year, so twelve of them are the year the list's next entries are.
     private const double JulianYearDays = 365.25;
 
@@ -297,7 +303,34 @@ public readonly struct OrreryCamera
 /// <paramref name="ShowSet"/> (the atlas's comet layer), and always the comet the view was opened on, the focused one and the pinned
 /// ones, as a pin shows a comet on the sky with its layer off.
 /// </summary>
-public readonly record struct OrreryCometChoice(bool ShowSet, CatalogIndex? Opened, CatalogIndex? Focus, IReadOnlySet<CatalogIndex>? Pinned);
+/// <param name="MaxMagnitude">The faintest month-best magnitude of the brightest drawn (<see cref="OrreryCometFilter"/>), or null for
+/// every one ranked; the opened, focused and pinned comets are drawn whatever it is.</param>
+public readonly record struct OrreryCometChoice(bool ShowSet, CatalogIndex? Opened, CatalogIndex? Focus, IReadOnlySet<CatalogIndex>? Pinned,
+    double? MaxMagnitude = null);
+
+/// <summary>
+/// One step of the orrery's comet filter (amendment A2 of #1611: thirty comets were "super crowded"): of the comets ranked brightest
+/// at the viewing instant, the ones whose best magnitude over the month (the ranking's own score, so Play inside a month never
+/// flickers one at the limit) is <paramref name="MaxMagnitude"/> or brighter; null keeps them all, up to
+/// <see cref="OrreryScene.CometSetSize"/>. Named in the drop-up, and compactly in a short strip.
+/// </summary>
+public readonly record struct OrreryCometFilter(string Name, string ShortName, double? MaxMagnitude)
+{
+    /// <summary>The four steps, the fewest comets first: what the eye, binoculars and a small telescope reach, and every one ranked.</summary>
+    public static readonly ImmutableArray<OrreryCometFilter> Steps =
+    [
+        new("Naked eye", "≤6", 6),
+        new("Binoculars", "≤9", 9),
+        new("Small telescope", "≤12", 12),
+        new("All", "All", null),
+    ];
+
+    /// <summary>A new view's step: Small telescope, magnitude 12.</summary>
+    public static OrreryCometFilter Default => Steps[2];
+
+    /// <summary>Every comet ranked.</summary>
+    public static OrreryCometFilter All => Steps[3];
+}
 
 /// <summary>
 /// A body where the orrery draws it at one instant: true heliocentric ecliptic AU (the Moon's own place, not the drawn one). For a
@@ -345,7 +378,7 @@ public sealed class OrreryScene(Action? requestRedraw = null, ITimeProvider? clo
 
     // The brightest at the viewing instant, ranked per MONTH of the clock off the render thread (the Task the hand-off); the ranking
     // adopted, the month and repository it is of, and its version, which is in the set's key.
-    private ImmutableArray<CatalogIndex> _brightest = [];
+    private ImmutableArray<(CatalogIndex Index, double Best)> _brightest = [];
     private long _brightestBucket = long.MinValue;
     private ICometRepository? _brightestRepo;
     private int _brightestCount = -1;
@@ -354,7 +387,10 @@ public sealed class OrreryScene(Action? requestRedraw = null, ITimeProvider? clo
     private int _cometRankings;
     private double _lastRankMs;
 
-    private sealed record Ranking(ICometRepository Repo, int Count, long Bucket, ImmutableArray<CatalogIndex> Brightest, TimeSpan Duration);
+    private sealed record Ranking(ICometRepository Repo, int Count, long Bucket, ImmutableArray<(CatalogIndex Index, double Best)> Brightest, TimeSpan Duration);
+
+    /// <summary>The ranking adopted: the brightest at the viewing instant, brightest first, each with its best magnitude over the month.</summary>
+    internal ImmutableArray<(CatalogIndex Index, double Best)> Brightest => _brightest;
 
     // The set, read again only when its key moves.
     private ICometRepository? _setRepo;
@@ -440,25 +476,26 @@ public sealed class OrreryScene(Action? requestRedraw = null, ITimeProvider? clo
     /// <summary>
     /// The <see cref="CometSetSize"/> brightest of <paramref name="scored"/> (each comet's best magnitude over the month), a member of
     /// the current set (<paramref name="members"/>) scored <see cref="MembershipHysteresisMag"/> brighter than it is; ties go to the
-    /// lower index, so a ranking is the same however the candidates were ordered.
+    /// lower index, so a ranking is the same however the candidates were ordered. Each comet comes with its month's best as scored,
+    /// the hysteresis aside: what the filter (<see cref="OrreryCometChoice.MaxMagnitude"/>) reads.
     /// </summary>
-    internal static ImmutableArray<CatalogIndex> SelectBrightest(ReadOnlySpan<(CatalogIndex Index, double Best)> scored, IReadOnlySet<CatalogIndex>? members)
+    internal static ImmutableArray<(CatalogIndex Index, double Best)> SelectBrightest(ReadOnlySpan<(CatalogIndex Index, double Best)> scored, IReadOnlySet<CatalogIndex>? members)
     {
-        var ranked = new (double Score, CatalogIndex Index)[scored.Length];
+        var ranked = new (double Score, CatalogIndex Index, double Best)[scored.Length];
         var count = 0;
         foreach (var (index, best) in scored)
         {
             if (double.IsFinite(best))
             {
-                ranked[count++] = (members is not null && members.Contains(index) ? best - MembershipHysteresisMag : best, index);
+                ranked[count++] = (members is not null && members.Contains(index) ? best - MembershipHysteresisMag : best, index, best);
             }
         }
         var span = ranked.AsSpan(0, count);
         span.Sort(static (a, b) => a.Score.CompareTo(b.Score) is var byScore and not 0 ? byScore : a.Index.CompareTo(b.Index));
-        var brightest = ImmutableArray.CreateBuilder<CatalogIndex>(Math.Min(CometSetSize, count));
+        var brightest = ImmutableArray.CreateBuilder<(CatalogIndex, double)>(Math.Min(CometSetSize, count));
         for (var i = 0; i < brightest.Capacity; i++)
         {
-            brightest.Add(span[i].Index);
+            brightest.Add((span[i].Index, span[i].Best));
         }
         return brightest.MoveToImmutable();
     }
@@ -471,7 +508,7 @@ public sealed class OrreryScene(Action? requestRedraw = null, ITimeProvider? clo
     /// says it is: a D/ (defunct or lost) designation, and an element set more than <see cref="MaxRevolutionsSinceEpoch"/> past its
     /// epoch at the month's middle. Pure: run on the pool.
     /// </summary>
-    internal static ImmutableArray<CatalogIndex> RankAt(ImmutableArray<CometElements> candidates, long bucket, IReadOnlySet<CatalogIndex>? members)
+    internal static ImmutableArray<(CatalogIndex Index, double Best)> RankAt(ImmutableArray<CometElements> candidates, long bucket, IReadOnlySet<CatalogIndex>? members)
     {
         var start = new DateTimeOffset((int)(bucket / 12), (int)(bucket % 12) + 1, 1, 0, 0, 0, TimeSpan.Zero);
         var month = start.AddMonths(1) - start;
@@ -644,7 +681,7 @@ public sealed class OrreryScene(Action? requestRedraw = null, ITimeProvider? clo
             return;
         }
         var (pool, count, clock) = (_candidates, all.Length, _clock);
-        IReadOnlySet<CatalogIndex>? members = ReferenceEquals(comets, _brightestRepo) ? new HashSet<CatalogIndex>(_brightest) : null;
+        IReadOnlySet<CatalogIndex>? members = ReferenceEquals(comets, _brightestRepo) ? Indices(_brightest) : null;
         Interlocked.Increment(ref _cometRankings);
         _rankPending = Task.Run(() =>
         {
@@ -656,6 +693,16 @@ public sealed class OrreryScene(Action? requestRedraw = null, ITimeProvider? clo
         {
             _rankPending.ContinueWith(_ => redraw(), TaskScheduler.Default);
         }
+    }
+
+    private static HashSet<CatalogIndex> Indices(ImmutableArray<(CatalogIndex Index, double Best)> ranked)
+    {
+        var set = new HashSet<CatalogIndex>(ranked.Length);
+        foreach (var (index, _) in ranked)
+        {
+            set.Add(index);
+        }
+        return set;
     }
 
     // A view held still inside a cooldown draws no frame of its own, so the month it moved to would never be ranked: one frame is asked
@@ -690,7 +737,7 @@ public sealed class OrreryScene(Action? requestRedraw = null, ITimeProvider? clo
         var version = comets?.Version ?? 0;
         if (ReferenceEquals(comets, _setRepo) && version == _setRepoVersion && _brightestVersion == _setBrightestVersion
             && choice.ShowSet == _setChoice.ShowSet && choice.Opened == _setChoice.Opened && choice.Focus == _setChoice.Focus
-            && ReferenceEquals(choice.Pinned, _setChoice.Pinned))
+            && ReferenceEquals(choice.Pinned, _setChoice.Pinned) && choice.MaxMagnitude == _setChoice.MaxMagnitude)
         {
             return;
         }
@@ -722,9 +769,13 @@ public sealed class OrreryScene(Action? requestRedraw = null, ITimeProvider? clo
         }
         if (choice.ShowSet)
         {
-            foreach (var index in _brightest)
+            // The filter reads each comet's month-best, the ranking's own score, so it holds for the month as the ranking does.
+            foreach (var (index, best) in _brightest)
             {
-                Add(index);
+                if (choice.MaxMagnitude is not { } faintest || best <= faintest)
+                {
+                    Add(index);
+                }
             }
         }
 
