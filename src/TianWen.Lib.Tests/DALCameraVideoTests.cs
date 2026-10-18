@@ -530,13 +530,19 @@ public class DALCameraVideoTests(ITestOutputHelper output)
         (await NextAsync(frames)).Release();
         await camera.ApplyVideoControlsAsync(new VideoCaptureOptions(TimeSpan.FromMilliseconds(5)), ct);
 
-        // The frame in flight, then frames at the new exposure.
-        for (var frame = 0; frame < 4; frame++)
+        // The stream takes the new exposure at its next turn, while the hand-off may still hold frames read before it (#1638):
+        // read on until the body has it, then until the stream has read the frame in flight and one at the new exposure. Every
+        // read waits on the test's token, never on a clock.
+        long? readWhenTaken = null;
+        while (readWhenTaken is not { } taken || camera.VideoFramesRead < taken + 2)
         {
             (await NextAsync(frames)).Release();
+            if (readWhenTaken is null && state.Controls[CMOSControlType.Exposure] == 5_000)
+            {
+                readWhenTaken = camera.VideoFramesRead;
+            }
         }
         camera.VideoStalls.ShouldBe(0, "the frame in flight came at the exposure it began with, which is no stall");
-        state.Controls[CMOSControlType.Exposure].ShouldBe(5_000, "the new exposure is on the body");
         state.VideoStarts.ShouldBe(1, "never restarted");
     }
 
