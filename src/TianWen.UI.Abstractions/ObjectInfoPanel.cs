@@ -221,12 +221,13 @@ namespace TianWen.UI.Abstractions
             string? ArticleUrl = null,
             string? AtlasUrl = null,
             Action? AtlasOpened = null,
-            Action? Orrery = null)
+            Action? Orrery = null,
+            Action? Centre = null)
         {
             /// <summary>Whether any button at all is offered, i.e. whether the row needs its height.</summary>
             public bool HasButtons
                 => Goto is not null || ViewInPlanner is not null || TogglePin is not null
-                   || SolveSync is not null || Orrery is not null;
+                   || SolveSync is not null || Orrery is not null || Centre is not null;
 
             /// <summary>Whether any link is offered, i.e. whether the link row needs its height.</summary>
             public bool HasLinks => ArticleUrl is { Length: > 0 } || AtlasUrl is { Length: > 0 };
@@ -338,9 +339,14 @@ namespace TianWen.UI.Abstractions
             return subtitle.Length == 0 ? "(no designation)" : subtitle;
         }
 
-        /// <summary>The position, sexagesimal, as every other panel in this app states it.</summary>
+        /// <summary>
+        /// The position, sexagesimal, as every other panel in this app states it; dashes where it is not known, as the Earth's is not
+        /// from the Earth (the orrery's panel, #1656).
+        /// </summary>
         public static string CoordinateLine(in SkyMapInfoPanelData info)
-            => $"RA {CoordinateUtils.HoursToHMS(info.RA)}   Dec {CoordinateUtils.DegreesToDMS(info.Dec)}";
+            => double.IsNaN(info.RA) || double.IsNaN(info.Dec)
+                ? "RA -   Dec -"
+                : $"RA {CoordinateUtils.HoursToHMS(info.RA)}   Dec {CoordinateUtils.DegreesToDMS(info.Dec)}";
 
         /// <summary>
         /// Magnitude, surface brightness, B-V and angular size -- each omitted when the catalogue does
@@ -599,6 +605,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>The orrery button's action, for a host or an inspector.</summary>
         public const string OrreryAction = "ObjectInfoOrrery";
 
+        /// <summary>The Centre button's action, the orrery's panel's (#1656): centre the orrery on the body.</summary>
+        public const string CentreAction = "ObjectInfoCentre";
+
         /// <summary>
         /// The action row, right-aligned, or null when the host offered no actions.
         /// </summary>
@@ -642,7 +651,7 @@ namespace TianWen.UI.Abstractions
             // that can act lights under the pointer; a disabled Goto does not, since nothing would happen. A
             // solar-system body's fourth, the orrery, makes every button the engine's measure of its label and
             // padding, so all four fit the panel whatever they say; a row of three keeps its widths.
-            var measured = actions.Orrery is not null;
+            var measured = actions.Orrery is not null || actions.Centre is not null;
             Layout.Node Sized(Layout.Node node, float width) => measured ? node.PadX(10f) : node.WFixed(width);
             var parts = new System.Collections.Generic.List<Layout.Node>(9)
             {
@@ -701,6 +710,17 @@ namespace TianWen.UI.Abstractions
                     .BgHover(ButtonHover(palette.ViewBg, in palette))
                     .Clickable(new HitResult.ButtonHit(OrreryAction), _ => orrery())
                     .WithTooltip("The solar system in 3D, at this instant"));
+            }
+
+            if (actions.Centre is { } centre)
+            {
+                Add(Layout.Builder
+                    .Text("Centre", dFont, palette.ButtonText, TextAlign.Center, TextAlign.Center)
+                    .PadX(10f).HStar()
+                    .Bg(palette.ViewBg)
+                    .BgHover(ButtonHover(palette.ViewBg, in palette))
+                    .Clickable(new HitResult.ButtonHit(CentreAction), _ => centre())
+                    .WithTooltip("Centre the orrery on it, and see the others from it"));
             }
 
             parts.Add(Layout.Builder.Spacer().WFixed(10f).HStar());

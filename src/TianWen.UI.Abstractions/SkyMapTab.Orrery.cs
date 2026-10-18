@@ -70,6 +70,8 @@ namespace TianWen.UI.Abstractions
             var orrery = State.Orrery;
             orrery.Focus = State.Search.InfoPanel is { Index: { } index } && index.IsSolarSystemObject ? index : null;
             orrery.Comet = orrery.Focus is { } focus && focus.ToCatalog() == Catalog.Comet ? focus : null;
+            // The body the view was opened on keeps its panel open (#1656).
+            orrery.Selected = orrery.Focus;
             orrery.IsOpen = true;
             orrery.CentredOnFocus = false;
             orrery.Dragging = false;
@@ -103,7 +105,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Alt+S, declared on the painted tree like F3 (<see cref="RenderSearchBinding"/>): never an arm in the key switch, where
         /// <see cref="SkyMapLayers.TryToggleByKey"/>, which ignores modifiers, would also toggle the Milky Way. While the orrery is
-        /// open, Escape is declared beside it.
+        /// open, Escape is declared beside it: it closes the orrery's panel first, then the view (<see cref="EscapeOrrery"/>).
         /// </summary>
         private void RenderOrreryBinding(RectF32 contentRect)
         {
@@ -117,7 +119,7 @@ namespace TianWen.UI.Abstractions
                 RenderLayout(
                     Layout.Builder.Spacer().Stretch()
                         .WithShortcut(InputKey.Escape)
-                        .Activatable(_ => CloseOrrery()),
+                        .Activatable(_ => EscapeOrrery()),
                     contentRect);
             }
         }
@@ -161,6 +163,7 @@ namespace TianWen.UI.Abstractions
             DrawOrreryOrbits(scene, camera, scaling, dpiScale);
             DrawOrreryBodies(scene, camera, viewingTime, scaling, contentRect, plannerState.Comets, dpiScale);
             PopClip();
+            DrawOrreryPanel(plannerState, scene, contentRect, viewingTime);
 
             DrawOrreryStrip(contentRect, viewingTime, plannerState.SiteTimeZone,
                 plannerState.PlanningDate.HasValue || State.TimeOffset != TimeSpan.Zero);
@@ -575,7 +578,8 @@ namespace TianWen.UI.Abstractions
                     }
                 }
 
-                var selected = body.Index == focus;
+                // The ring marks the body whose panel is open, else the focus.
+                var selected = body.Index == (State.Orrery.Selected ?? focus);
                 if (selected)
                 {
                     var ring = radius + (4f * dpiScale);
@@ -795,7 +799,8 @@ namespace TianWen.UI.Abstractions
 
         // The body's disc: ray-traced by a GPU host in the camera's own frame (DrawPlanetBody: nothing is built, so Play rebuilds
         // nothing), else the CPU sprite of the same view (the CPU surface: the tests and the terminal), turned as the view states its pole.
-        private bool TryDrawOrreryDisc(in PlanetView view, DateTimeOffset viewingTime, float sx, float sy, float radius)
+        private bool TryDrawOrreryDisc(in PlanetView view, DateTimeOffset viewingTime, float sx, float sy, float radius,
+            PlanetSpriteCache? sprites = null)
         {
             PlanetColourMap? map = null;
             var credit = "";
@@ -814,7 +819,7 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
             // An unmirrored view: the camera's right, up and back toward it make a right-handed frame (OrreryCamera).
-            return OrrerySprites.Get(view.ToAspect(viewingTime), 2 * radius, view.PoleScreenAngleDeg, false, map, credit,
+            return (sprites ?? OrrerySprites).Get(view.ToAspect(viewingTime), 2 * radius, view.PoleScreenAngleDeg, false, map, credit,
                     OrreryFlat(view.Body), night, GuiTheme.PaletteGeneration, PlanetTextures.Version) is { } sprite
                 && DrawPlanetSprite(sprite, sx, sy, radius);
         }
@@ -1250,7 +1255,7 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>How wide a strip node's own content measures, in the device pixels the strip is arranged in (its cap as a
         /// content-capped Star): the tab's own measure context, so a test reads a label's content without building one, and the
-        /// strip decides the speed button's form by it (<see cref="SpeedReadsWhole"/>).</summary>
+        /// strip decides the speed button's form by it (<see cref="ReadsWhole"/>).</summary>
         internal float StripContentWidth(Layout.Node node)
             => Layout.Engine.Measure(node, new Layout.Size<float>(float.MaxValue, float.MaxValue), MeasureContext(scale: DesignScale.One)).Width;
 
@@ -1375,7 +1380,9 @@ namespace TianWen.UI.Abstractions
             return true;
         }
 
-        // A press that did not move is a click: it puts the highlight on the body under it (the atlas's selection is left as it is).
+        // A press that did not move is a click: it opens the panel of the body under it (#1656), and a click on nothing closes it. Not
+        // centred, it moves the highlight too; centred, the camera stays on the centre, so the body is seen from it, and the panel's
+        // Centre moves the camera. The atlas's selection is left as it is.
         private bool EndOrreryDrag(float x, float y)
         {
             var orrery = State.Orrery;
@@ -1397,14 +1404,10 @@ namespace TianWen.UI.Abstractions
                         (best, picked) = (d, index);
                     }
                 }
-                if (picked is { } pick)
+                orrery.Selected = picked;
+                if (picked is { } pick && !orrery.CentredOnFocus)
                 {
                     orrery.Focus = pick;
-                    // The Sun has nothing to centre on but itself: the camera goes back to it, and the toggle with it.
-                    if (pick == CatalogIndex.Sol)
-                    {
-                        orrery.CentredOnFocus = false;
-                    }
                 }
             }
             State.NeedsRedraw = true;

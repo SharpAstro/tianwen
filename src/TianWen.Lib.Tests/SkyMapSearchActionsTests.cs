@@ -457,7 +457,9 @@ public class SkyMapSearchActionsTests
 
         var positions = skyMap.GetPlanetPositionsCached(viewingUtc);
         positions.Length.ShouldBeGreaterThan(0, "the ephemeris must yield at least one planet to commit");
-        var (planetIdx, pRa, pDec) = positions[0];
+        // A planet: the Sun and the Moon, first in the cache, are titled Sun and Moon whatever the catalogue calls them.
+        var planet = positions.ToArray().First(p => p.Index != CatalogIndex.Sol && p.Index != CatalogIndex.Moon);
+        var (planetIdx, pRa, pDec) = planet;
 
         // The catalog returns the planet as a NaN-coord solar-system stub (as the real DB does).
         var db = new PlanetStubDb(planetIdx, "TestPlanet");
@@ -475,8 +477,8 @@ public class SkyMapSearchActionsTests
         info.ObjType.ShouldBe(ObjectType.Planet, "the predefined planet type carries into the panel");
         // The LIVE magnitude at the viewing instant from the same cache entry, not the stub's static -2.2
         // (docs/plans/atlas-planet-detail.md, finding 2) and not NaN ("mag -").
-        float.IsFinite(positions[0].VMag).ShouldBeTrue();
-        info.VMag.ShouldBe(positions[0].VMag);
+        float.IsFinite(planet.VMag).ShouldBeTrue();
+        info.VMag.ShouldBe(planet.VMag);
         // Constellation is computed from the LIVE position (planets wander) -- not the catalog stub.
         if (ConstellationBoundary.TryFindConstellation(pRa, pDec, out var expectedConstellation))
         {
