@@ -297,7 +297,8 @@ public class DALCameraVideoTests(ITestOutputHelper output)
     /// stops the stream and waits for it. A pass that began just before a disconnect therefore read the size inside
     /// that window, through <c>NumX</c> / <c>NumY</c>, which throw there: the stream ended with "not connected"
     /// instead of stopping (once on CI, in <see cref="ADisconnectStopsTheStreamBeforeItClosesTheBody"/>). Held in
-    /// that window on purpose: a staged gain's control write waits until the disconnect has begun.
+    /// that window on purpose: a staged gain's control write waits until the disconnect has begun, and is let go by the
+    /// disconnect itself (<see cref="TestDalCameraDriver.DisconnectBegun"/>), never by a clock a loaded runner outruns (#1624).
     /// </summary>
     [Fact(Timeout = 30_000)]
     public async Task APassUnderWayAsTheDisconnectBeginsStillStopsCleanly()
@@ -313,7 +314,9 @@ public class DALCameraVideoTests(ITestOutputHelper output)
         {
             if (control is CMOSControlType.Gain && held.TrySetResult())
             {
-                SpinWait.SpinUntil(() => !camera.Connected, TimeSpan.FromSeconds(10));
+                // On the stream's own thread, which the disconnect waits for once it has stopped it: so the release comes from
+                // inside the disconnect, after it reads as disconnecting and before it stops this stream.
+                camera.DisconnectBegun.Wait(ct);
             }
         };
         await camera.ApplyVideoControlsAsync(new VideoCaptureOptions(TimeSpan.Zero, Gain: 42), ct);
