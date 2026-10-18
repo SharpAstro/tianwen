@@ -469,7 +469,7 @@ public static partial class DatasetDegradationExporter
         var masterDepth = 1.0 / Math.Sqrt(Math.Max(1, stackedFrames));
         var floors = calibrations.Select(k => InjectionFloorSigma * k.SigmaAt(k.BackgroundAdu, masterDepth)).ToArray();
         var local = plan.Stars.Select(s => s with { X = s.X - cell.X, Y = s.Y - cell.Y }).ToArray();
-        var render = StarInjection.Render(basePlanes, size, size, cellAbsent, local, floors, new Random(seed ^ 0x6d2b79f5));
+        var render = StarInjection.Render(basePlanes, size, size, cellAbsent, local, floors, new Random(seed ^ 0x6d2b79f5), options.StarSubs);
 
         var (drawShape, drawSigma) = DrawNoiseShape(options, seed);
 

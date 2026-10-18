@@ -58,10 +58,15 @@ public static class StarInjection
     /// unsaturated stars go in first, so a saturated one's clip takes an unsaturated neighbour on its plateau with it, as the
     /// sensor clips the sum (only the plate itself is never darkened); <paramref name="rng"/> draws
     /// the virtual subs only, so the render of an unsaturated field does not consume it.
+    /// <para><paramref name="stackAll"/> (R2m) renders every star as that stack of virtual subs, an unsaturated one with no
+    /// clip, so it carries the profile jitter a real master's star does beyond its shot noise: its subs' seeing, guiding and
+    /// registration, which half pairs measure at 2 to 5 % of a star's peak a pixel at the core, and this scatter leaves at
+    /// about 4 % (docs/plans/star-remover-training.md, "Real stars are noisier at their cores than injected ones"). Its
+    /// virtual subs then consume <paramref name="rng"/> too.</para>
     /// </summary>
     public static InjectionRender Render(
         IReadOnlyList<float[]> plate, int width, int height, BitMatrix? absent, IReadOnlyList<InjectedStar> stars,
-        IReadOnlyList<double> floors, Random rng)
+        IReadOnlyList<double> floors, Random rng, bool stackAll = false)
     {
         var channels = plate.Count;
         var planes = new float[channels][];
@@ -77,6 +82,11 @@ public static class StarInjection
         {
             if (!star.Saturated)
             {
+                if (stackAll)
+                {
+                    RenderStacked(plate, planes, unclipped, width, height, absent, star, floors, rng);
+                    continue;
+                }
                 for (var c = 0; c < channels; c++)
                 {
                     AddStar(planes[c], width, height, absent, star.X, star.Y, star.Amplitudes[c], star.Profiles[c], floors[c]);
@@ -88,7 +98,7 @@ public static class StarInjection
         {
             if (star.Saturated)
             {
-                RenderSaturated(plate, planes, unclipped, width, height, absent, star, floors, rng);
+                RenderStacked(plate, planes, unclipped, width, height, absent, star, floors, rng);
             }
         }
         return new InjectionRender(planes, unclipped);
@@ -124,7 +134,8 @@ public static class StarInjection
         }
     }
 
-    private static void RenderSaturated(
+    // A star as a stack of virtual subs: a saturated one clipped at its levels, an unsaturated one (stackAll) at none.
+    private static void RenderStacked(
         IReadOnlyList<float[]> plate, float[][] planes, float[][] unclipped, int width, int height, BitMatrix? absent, InjectedStar star,
         IReadOnlyList<double> floors, Random rng)
     {
@@ -173,7 +184,7 @@ public static class StarInjection
                     // everything beneath, one stood above the clip: 3 pixels on Centaurus A's checks); only a plate already
                     // above the level (it should not be) is left as it is. A channel the star did not clip has no level
                     // (positive infinity, InjectionPopulation), so nothing clips there.
-                    var clip = Math.Max(star.ClipLevels[c], plate[c][i]);
+                    var clip = star.Saturated ? Math.Max(star.ClipLevels[c], plate[c][i]) : double.PositiveInfinity;
                     double sum = 0;
                     var clipped = 0;
                     for (var k = 0; k < VirtualSubs; k++)

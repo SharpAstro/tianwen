@@ -2868,7 +2868,9 @@ errors that cancel, whatever the net was trained on. So one model must be TOLD t
 
 **The teacher.** `n2n_teacher.py` runs E5 over every injected draw of the synth4 cache (4,840 cells x 4 draws), each
 member through its eight views and turned back, as `r2_infer.py` averaged it for scoring. It writes `teacher.f16` in the
-cache's own order, with `teacher.json` naming the members, their hashes and the cache, in about 25 minutes on the 1070.
+cache's own order, with `teacher.json` naming the members, their hashes and the cache. It took 30 minutes on the 1070. Over 60 draws its
+output sits 400 times closer to the clean tile than the input does (squared error 1.1e-6 against 4.6e-4), with no
+non-finite pixel.
 
 **The arm.** R2i's recipe exactly (two levels, seed 0, patience 24, cap 480,000, a resume checkpoint every 2,000 steps),
 with one switch:
@@ -2892,6 +2894,40 @@ cleans 81.4 / 78.0 / 66.7 %, digs 24.7 % at 100-1000 sigma, and reads 97.8 % of 
 **Kill:** bright stars below R2i's 60.2 % at one view means distillation does not carry the average into one model
 either. The single-model target then stops, and a shipped model is an average (which one is the owner's call). **What it
 decides:** whether one model at an eighth of E5's inference carries most of its gain.
+
+#### R2m: every injected star a stack of virtual subs, pre-registered (2026-10-19)
+
+Written before its export runs, on the owner's word of 2026-10-19 ("R2n and R2m both on Azure"), and on the owner's own
+idea of 2026-10-17 ("Real stars are noisier at their cores than injected ones", above). Tracked by #1338. A real master's
+star is the average of its subs, each seen, guided and registered a little differently, so the star departs from a
+smooth profile at its core by 2 to 5 % of its peak a pixel beyond its shot noise. An injected unsaturated star has been
+its exact profile. A saturated one already is a stack: 8 virtual subs, each with its own amplitude and width (5 %
+scatter) and offset (0.25 px a side). That was made to match the masters' own plateaus.
+
+**The switch.** `dataset degrade --star-subs` renders EVERY injected star as that stack, an unsaturated one with no clip
+(`StarInjection.Render(stackAll)`). No new constant. At the saturated path's own scatter, an unsaturated star departs at
+its 3x3 core by a median 4.0 % of its peak as (A - B) / 2 (a simulation over Moffats of FWHM 1.8 to 3.0 px: 3.3 to 4.2 %).
+That is the statistic the half pairs were read with. Against its exact profile it departs by 5.3 %
+(`StarInjectionTests`), and it keeps its light. The half pairs read 3.3 to 5.3 % at 10 to 30 sigma and 2.9 to 4.2 % at 30
+to 100 sigma, as `sqrt(r^2 - 1)` over the band's middle peak. The noise plane is left as it is, since a real tile's
+plane is computed the same way.
+
+**The arm.** The export is R2i's command exactly (the same store, plates, sessions, seed 1, synthetic background, steer
+and knots) plus `--star-subs`, into `r1-train-synth6`. Its cache `r2-synth6` has 4 draws and the same night split. On it
+runs R2i's recipe exactly (two levels, seed 0, patience 24, cap 480,000, a resume checkpoint every 2,000 steps), on the
+second Azure spot T4. It is scored on the same eval as every arm (A's draws and both twins, all exact-profile stars) and
+on the validation masters' real tiles, whose stars carry the jitter.
+
+**Predictions.** The bars are the same-store spread (1.3 / 0.8 / 4.3 points clean at 5-20 / 20-100 / 100-1000 sigma) and
+the real-star check's counting noise (about 0.3 points on its 4,215 bright stars).
+1. Real bright stars (100-1000 sigma) flat on at least 97.0 % (R2i's 96.4 plus twice the counting noise).
+2. Real bright stars left bright (past +1 sigma) on at most 1.5 % (R2i's 2.11).
+3. A's draws hold within the spread: clean at least 77.9 / 73.7 / 55.9 % at 5-20 / 20-100 / 100-1000 sigma.
+4. M31's nucleus stays: at most 5 % of the central 6 px in every channel.
+
+**Kill:** real bright stars flat below R2i's 96.4 % means the injected jitter does not carry to real stars, and the switch
+is dropped. **What it decides:** whether `--star-subs` becomes the line's export. With (1) and (3) holding, it does, and
+every later arm and average starts from it.
 
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 

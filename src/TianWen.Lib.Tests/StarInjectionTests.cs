@@ -188,6 +188,44 @@ public class StarInjectionTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void AStackedUnsaturatedStarCarriesAFewPercentOfItsPeakAtItsCoreAndKeepsItsFlux()
+    {
+        // R2m: rendered as the stack of virtual subs a saturated star is, an unsaturated one departs from its exact profile
+        // at the core by what real masters' stars carry beyond their shot noise (half pairs: 2 to 5 % of the peak a pixel at
+        // 10 to 100 sigma), and keeps its light.
+        const int size = 41;
+        var plate = new[] { Filled(size, 0.05f) };
+        var profile = StarProfile.Round(StarProfileFamily.Moffat, 2.3, 3.0);
+        var shares = new double[40];
+        for (var s = 0; s < shares.Length; s++)
+        {
+            var star = new InjectedStar(20.0 + (0.1 * (s % 7)), 20.0 - (0.07 * (s % 5)), [2.0], [profile], false, []);
+            var exact = StarInjection.Render(plate, size, size, null, [star], [1e-7], new Random(s)).Planes[0];
+            var stacked = StarInjection.Render(plate, size, size, null, [star], [1e-7], new Random(s), stackAll: true).Planes[0];
+            var peak = exact.Max() - 0.05;
+            double sq = 0;
+            for (var y = 19; y <= 21; y++)
+            {
+                for (var x = 19; x <= 21; x++)
+                {
+                    var d = stacked[(y * size) + x] - exact[(y * size) + x];
+                    sq += d * d;
+                }
+            }
+            shares[s] = Math.Sqrt(sq / 9) / peak;
+            var flux = exact.Sum(v => v - 0.05);
+            stacked.Sum(v => v - 0.05).ShouldBe(flux, flux * 0.15, "the subs scatter the light, they neither add nor take it");
+        }
+        Array.Sort(shares);
+        var median = shares[shares.Length / 2];
+        output.WriteLine($"core departure from the exact profile, rms over 3x3: median {100 * median:F2} % of the peak, range {100 * shares[0]:F2} to {100 * shares[^1]:F2} %");
+        median.ShouldBeInRange(0.02, 0.07);
+        StarInjection.Render(plate, size, size, null, [new InjectedStar(20, 20, [2.0], [profile], false, [])], [1e-7], new Random(1)).Planes[0]
+            .ShouldBe(StarInjection.Render(plate, size, size, null, [new InjectedStar(20, 20, [2.0], [profile], false, [])], [1e-7], new Random(2)).Planes[0],
+                "without the switch an unsaturated star draws nothing from the generator");
+    }
+
+    [Fact]
     public void TheSameSeedGivesTheSameSaturatedStar()
     {
         const int size = 40;
