@@ -204,6 +204,150 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
         scene.CometRankings.ShouldBe(months.Count);
     }
 
+    // Comets at perihelion at the instant, M1 from 1 to 11 in steps of 2, beside the thirty fillers (magnitude 14 to 17): the month's
+    // best magnitudes run from about 1 to 17, so each step of the filter keeps a different set.
+    private static List<CometElements> SpreadOfMagnitudes()
+        => [.. Fillers(), .. Enumerable.Range(0, 6).Select(n => Comet(60 + n, m1: 1 + (2 * n), q: 1.1, e: 0.6, inclination: 10 + (20 * n), node: 30 * n))];
+
+    /// <summary>
+    /// The comet filter (amendment A2 of #1611): each step keeps the ranked comets whose MONTH-BEST magnitude is at or brighter than its
+    /// limit, Naked eye 6, Binoculars 9, Small telescope 12 (the default), All the whole ranked set, its ceiling
+    /// <see cref="OrreryScene.CometSetSize"/>; each step's set holds the one before it.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task EachFilterStepKeepsTheCometsBrightEnoughForIt()
+    {
+        OrreryCometFilter.Steps.Select(s => s.MaxMagnitude).ShouldBe([6.0, 9.0, 12.0, null]);
+        OrreryCometFilter.Default.ShouldBe(OrreryCometFilter.Steps[2]);
+        new OrreryState().CometFilter.ShouldBe(OrreryCometFilter.Default);
+        var repo = new StubCometRepository([.. SpreadOfMagnitudes()]);
+        var scene = NewScene();
+        await UpdateRankedAsync(scene, Instant, repo, new OrreryCometChoice(true, null, null, null));
+        var ranked = scene.Brightest;
+        ranked.Length.ShouldBe(OrreryScene.CometSetSize);
+        output.WriteLine($"ranked, month-best: {string.Join(", ", ranked.Select(r => $"{r.Best:F1}"))}");
+
+        var previous = new HashSet<CatalogIndex>();
+        foreach (var step in OrreryCometFilter.Steps)
+        {
+            scene.Update(Instant, repo, new OrreryCometChoice(true, null, null, null, step.MaxMagnitude));
+            var set = SetOf(scene);
+            var expected = ranked.Where(r => step.MaxMagnitude is not { } max || r.Best <= max).Select(r => r.Index).ToHashSet();
+            output.WriteLine($"{step.Name}: {set.Count} comets");
+            set.ShouldBe(expected, ignoreOrder: true);
+            set.IsSupersetOf(previous).ShouldBeTrue($"{step.Name} dropped a comet the step before kept");
+            set.Count.ShouldBeGreaterThan(previous.Count, $"{step.Name} keeps no more than the step before: the fixture does not separate the steps");
+            previous = set;
+        }
+        previous.Count.ShouldBe(OrreryScene.CometSetSize);
+        scene.CometRankings.ShouldBe(1, "a change of filter ranked again");
+    }
+
+    /// <summary>
+    /// The comet the view was opened on, the focused one and the pinned ones bypass the filter, as on the sky: all faint, all drawn at
+    /// Naked eye.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheOpenedFocusedAndPinnedBypassTheFilter()
+    {
+        var faint = Enumerable.Range(80, 3).Select(n => Comet(n, m1: 16, q: 3, e: 0.9, daysFromPerihelion: 3000)).ToList();
+        var repo = new StubCometRepository([.. SpreadOfMagnitudes(), .. faint]);
+        IReadOnlySet<CatalogIndex> pins = new HashSet<CatalogIndex> { Index(faint[2]) };
+        var choice = new OrreryCometChoice(true, Index(faint[0]), Index(faint[1]), pins, OrreryCometFilter.Steps[0].MaxMagnitude);
+        var scene = NewScene();
+        await UpdateRankedAsync(scene, Instant, repo, choice);
+        var set = SetOf(scene);
+        output.WriteLine($"Naked eye with three faint ones opened, focused and pinned: {string.Join(", ", scene.CometSet.Select(c => c.DisplayName))}");
+        set.ShouldContain(Index(faint[0]));
+        set.ShouldContain(Index(faint[1]));
+        set.ShouldContain(Index(faint[2]));
+        set.Count.ShouldBe(3 + scene.Brightest.Count(r => r.Best <= 6));
+    }
+
+    /// <summary>
+    /// The filter reads the MONTH's best, so Play inside a month never flickers a comet in and out at the limit: frames every six hours
+    /// across a month at Binoculars draw one set, though a comet's magnitude at the instant moves through the limit meanwhile.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task APlayedMonthDoesNotFlickerAtTheLimit()
+    {
+        var start = new DateTimeOffset(2026, 10, 1, 0, 0, 0, TimeSpan.Zero);
+        // One that fades through the limit inside the month: at a 0.3 AU perihelion on its first day, magnitude 6.7, and by the
+        // month's end 12.3.
+        var fading = Comet(70, m1: 12, q: 0.3, e: 0.9, inclination: 5, node: 0, daysFromPerihelion: (Instant - start).TotalDays);
+        var fadingMags = Enumerable.Range(0, 31).Select(d => CometEphemeris.TryGetEquatorialJ2000WithMagnitude(fading, start.AddDays(d), out _, out _, out var m) ? m : double.NaN).ToList();
+        output.WriteLine($"the fading comet over the month: {fadingMags.Min():F1} to {fadingMags.Max():F1}");
+        var repo = new StubCometRepository([.. SpreadOfMagnitudes(), fading]);
+        var choice = new OrreryCometChoice(true, null, null, null, OrreryCometFilter.Steps[1].MaxMagnitude);
+        var scene = NewScene();
+        await UpdateRankedAsync(scene, start, repo, choice);
+        var first = SetOf(scene);
+        first.Count.ShouldBeGreaterThan(0);
+        var crossed = new HashSet<CatalogIndex>();
+        for (var hours = 6; hours < 31 * 24; hours += 6)
+        {
+            var at = start.AddHours(hours);
+            _clock.Advance(TimeSpan.FromSeconds(1.0 / 60));
+            scene.Update(at, repo, choice);
+            SetOf(scene).ShouldBe(first, ignoreOrder: true, $"the set changed at +{hours} h");
+            foreach (var comet in repo.All)
+            {
+                CometEphemeris.TryGetEquatorialJ2000WithMagnitude(comet, at, out _, out _, out var magnitude);
+                if (first.Contains(Index(comet)) && magnitude > 9)
+                {
+                    crossed.Add(Index(comet));
+                }
+            }
+        }
+        output.WriteLine($"{first.Count} comets drawn all month, {crossed.Count} of them fainter than 9 at some instant of it");
+        first.Count.ShouldBeLessThan(scene.Brightest.Length, "Binoculars kept every comet ranked: the filter is not applied");
+        crossed.Count.ShouldBeGreaterThan(0, "no comet drawn crossed the limit: the test proves nothing");
+        scene.CometRankings.ShouldBe(1);
+    }
+
+    /// <summary>
+    /// The strip's comet filter: a press opens the four steps as a drop-up above it, a pick sets the step (remembered on the view's
+    /// state for the session), and the view then draws only the comets that step keeps: their orbits, heads, tails, labels and the
+    /// heads a click can take.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task TheStripsFilterPicksAStepAndTheViewDrawsOnlyIt(float dpiScale)
+    {
+        using var rig = await RigWithAsync(CatalogIndex.Mars, dpiScale, TestContext.Current.CancellationToken, [.. SpreadOfMagnitudes()]);
+        var orrery = rig.Tab.State.Orrery;
+        orrery.CometFilter.ShouldBe(OrreryCometFilter.Default);
+        var ranked = rig.Tab.OrreryScene.Brightest;
+        ranked.Length.ShouldBe(OrreryScene.CometSetSize);
+        for (var i = 0; i < OrreryCometFilter.Steps.Length; i++)
+        {
+            var step = OrreryCometFilter.Steps[i];
+            var button = OrreryTests.PaintedButtons(rig, SkyMapTab<RgbaImage>.OrreryCometFilterAction)[0];
+            OrreryTests.PressAt(rig, button);
+            rig.Tab.CometFilterMenu.IsOpen.ShouldBeTrue();
+            rig.Tab.CometFilterMenu.Items.Length.ShouldBe(OrreryCometFilter.Steps.Length);
+            rig.Render();
+            var row = OrreryTests.DropUpRow(rig, i);
+            (row.Y + row.Height).ShouldBeLessThanOrEqualTo(button.Y + 0.5f, "a drop-up opens above the strip");
+            OrreryTests.PressAt(rig, row);
+            rig.Tab.CometFilterMenu.IsOpen.ShouldBeFalse();
+            orrery.CometFilter.ShouldBe(step);
+            rig.Render();
+
+            var kept = ranked.Where(r => step.MaxMagnitude is not { } max || r.Best <= max).Select(r => r.Index).ToHashSet();
+            output.WriteLine($"{step.Name}: {kept.Count} kept, {rig.Tab.OrreryDrawn.Count(d => IsComet(d.Index))} heads drawn, "
+                + $"{rig.Tab.OrreryTails.Count} tails, {rig.Tab.OrreryLabels.Count(l => IsComet(l.Index))} comet labels");
+            SetOf(rig.Tab.OrreryScene).ShouldBe(kept, ignoreOrder: true);
+            rig.Tab.OrreryDrawn.Where(d => IsComet(d.Index)).ShouldAllBe(d => kept.Contains(d.Index));
+            rig.Tab.OrreryOrbitsDrawn.Where(o => IsComet(o.Index)).ShouldAllBe(o => kept.Contains(o.Index));
+            rig.Tab.OrreryTails.ShouldAllBe(t => kept.Contains(t.Index));
+            rig.Tab.OrreryLabels.Where(l => IsComet(l.Index)).ShouldAllBe(l => kept.Contains(l.Index));
+            rig.Tab.OrreryOrbitsDrawn.Count(o => IsComet(o.Index)).ShouldBe(kept.Count);
+            OrreryTests.PaintedTexts(rig).ShouldContain(t => t == SkyMapTab<RgbaImage>.CometFilterLabel(step) || t == step.ShortName);
+        }
+    }
+
     /// <summary>
     /// The edge of the set does not flicker: a member scores <see cref="OrreryScene.MembershipHysteresisMag"/> brighter than it is, so
     /// one just past the cutoff (0.6 mag fainter than the best outsider) stays, and one past it by more than that (1.2) goes.
@@ -216,16 +360,16 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
             => [.. indices.Select((index, i) => (index, i < 29 ? (double)i : i == 29 ? 30.0 : lastBest))];
         IReadOnlySet<CatalogIndex> members = new HashSet<CatalogIndex>(indices.Take(29).Append(indices[30]));
 
-        var kept = OrreryScene.SelectBrightest(Scored(30.6), members);
+        var kept = OrreryScene.SelectBrightest(Scored(30.6), members).Select(k => k.Index).ToArray();
         kept.Length.ShouldBe(30);
         kept.ShouldContain(indices[30], "a member 0.6 mag past the cutoff was dropped");
         kept.ShouldNotContain(indices[29]);
 
-        var dropped = OrreryScene.SelectBrightest(Scored(31.2), members);
+        var dropped = OrreryScene.SelectBrightest(Scored(31.2), members).Select(k => k.Index).ToArray();
         dropped.ShouldNotContain(indices[30], "a member 1.2 mag past the cutoff was kept");
         dropped.ShouldContain(indices[29]);
 
-        var fresh = OrreryScene.SelectBrightest(Scored(30.6), null);
+        var fresh = OrreryScene.SelectBrightest(Scored(30.6), null).Select(k => k.Index).ToArray();
         fresh.ShouldNotContain(indices[30], "with no members the cutoff is the magnitude alone");
     }
 
@@ -510,6 +654,9 @@ public sealed class OrreryCometTests(ITestOutputHelper output)
     {
         var comets = Enumerable.Range(1, 12).Select(n => Comet(n, n, q: 0.5 + (0.2 * n), argumentOfPerihelion: 30 * n, daysFromPerihelion: 10 * n)).ToArray();
         using var rig = await RigWithAsync(CatalogIndex.Saturn, 1f, TestContext.Current.CancellationToken, comets);
+        // Every one of the twelve drawn, whatever its magnitude: the filter is not under test here.
+        rig.Tab.State.Orrery.CometFilter = OrreryCometFilter.All;
+        await OrreryTests.SettleAsync(rig);
         var scene = rig.Tab.OrreryScene;
         scene.CometSet.Length.ShouldBe(12);
         var (orbits, cometOrbits, positions) = (scene.OrbitBuilds, scene.CometOrbitBuilds, scene.PositionBuilds);

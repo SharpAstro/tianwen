@@ -142,9 +142,10 @@ namespace TianWen.UI.Abstractions
             _lastViewingTime = viewingTime;
 
             // The comets the app knows (#1611): the brightest at the viewing instant (ranked per month) while the atlas's comet layer is
-            // on, and always the one the view was opened on, the focused one and the pinned ones.
+            // on, as far as the strip's filter reaches, and always the one the view was opened on, the focused one and the pinned ones.
             var scene = OrreryScene;
-            scene.Update(viewingTime, plannerState.Comets, new OrreryCometChoice(State.ShowComets, orrery.Comet, orrery.Focus, PinnedCatalogIndices(plannerState)));
+            scene.Update(viewingTime, plannerState.Comets, new OrreryCometChoice(State.ShowComets, orrery.Comet, orrery.Focus,
+                PinnedCatalogIndices(plannerState), orrery.CometFilter.MaxMagnitude));
             if (_orreryFramePending)
             {
                 _orreryFramePending = false;
@@ -165,6 +166,7 @@ namespace TianWen.UI.Abstractions
                 plannerState.PlanningDate.HasValue || State.TimeOffset != TimeSpan.Zero);
             RenderTimeMenu(contentRect, BaseFontSize * dpiScale * 0.85f, GuiTheme.Palette.PanelBg, GuiTheme.Palette.BodyText);
             RenderDropUp(SpeedMenu, contentRect, BaseFontSize * dpiScale * 0.85f, GuiTheme.Palette.PanelBg, GuiTheme.Palette.BodyText);
+            RenderDropUp(CometFilterMenu, contentRect, BaseFontSize * dpiScale * 0.85f, GuiTheme.Palette.PanelBg, GuiTheme.Palette.BodyText);
 
             OrreryFrames++;
             LastOrreryFrameMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
@@ -1002,20 +1004,45 @@ namespace TianWen.UI.Abstractions
                     : Layout.Builder.Text(speedLabel, fontSize, ink, TextAlign.Center, TextAlign.Center, TextTrim.End,
                         widthSample: PlaySpeedWidthSample).WStarUpToContent();
                 // The compact form drops the mark: with it the button took 78 px at 1.5x in the app's face and the time kept 29 px
-                // past its date and time, short of its two ems; the tooltip and the drop-up still say what a press does.
+                // past its date and time, short of its two ems; the tooltip and the drop-up still say what a press does. It takes half
+                // the padding too, as the comet filter's compact form does: the filter's 50 px left the time 3 px short of its date and
+                // time at 1.5x in the app's face.
                 var button = (compact
                         ? Layout.Builder.HStack(text)
                         : Layout.Builder.HStack(text, FormRowLayout.StepMark("▲", fontSize, ink)).WithGap(4f * dpiScale))
                     .CrossCenter()
-                    .PadX(padX);
+                    .PadX(compact ? padX / 2 : padX);
                 return (compact ? button : button.WStarUpToContent(min: labelMin)).HStar()
                     .Bg(fill).BgHover(GuiTheme.Hover(fill))
                     .Clickable(new HitResult.ButtonHit(OrrerySpeedAction), _ => OpenSpeedMenu(_speedButtonRect, fontSize))
                     .WithTooltip($"How fast Play runs: a second is {speedName} on the atlas's clock");
             }
 
+            // Which comets are drawn (amendment A2 of #1611), ONE label button the same way: the step in force, its mark saying a press
+            // opens the four steps as a drop-up; the long form ("Comets ≤12") where the strip has room, the compact one ("≤12", no mark)
+            // where it is short. Sized by the widest of its forms as the engine measures them, so a pick does not move what follows.
+            var filter = orrery.CometFilter;
+            var filterLabel = CometFilterLabel(filter);
+            Layout.Node FilterButton(bool compact)
+            {
+                var text = compact
+                    ? Layout.Builder.Text(filter.ShortName, fontSize, ink, TextAlign.Center, TextAlign.Center,
+                        widthSample: WidestOf(fontSize, static step => step.ShortName))
+                    : Layout.Builder.Text(filterLabel, fontSize, ink, TextAlign.Center, TextAlign.Center, TextTrim.End,
+                        widthSample: WidestOf(fontSize, CometFilterLabel) + "0").WStarUpToContent();
+                var button = (compact
+                        ? Layout.Builder.HStack(text)
+                        : Layout.Builder.HStack(text, FormRowLayout.StepMark("▲", fontSize, ink)).WithGap(4f * dpiScale))
+                    .CrossCenter()
+                    .PadX(compact ? padX / 2 : padX);
+                return (compact ? button : button.WStarUpToContent(min: labelMin)).HStar()
+                    .Bg(fill).BgHover(GuiTheme.Hover(fill))
+                    .Clickable(new HitResult.ButtonHit(OrreryCometFilterAction), _ => OpenCometFilterMenu(_cometFilterButtonRect, fontSize))
+                    .WithTooltip(CometFilterTooltip(filter));
+            }
+
             // ONE tree over the whole rect: the strip is the bottom row of it, its fill and its content one arranged box.
-            Layout.Node Strip(bool compactSpeed) => Layout.Builder.VStack(Layout.Builder.Spacer().HStar(), Layout.Builder.HStack(
+            Layout.Node Strip(bool compactSpeed, bool compactFilter) => Layout.Builder.VStack(Layout.Builder.Spacer().HStar(), Layout.Builder.HStack(
                 [
                     Button("Sky", "OrreryClose", CloseOrrery, "Back to the sky"),
                     scaleToggle,
@@ -1027,6 +1054,7 @@ namespace TianWen.UI.Abstractions
                         .Clickable(new HitResult.ButtonHit("OrreryPlay"), _ => ToggleOrreryPlay())
                         .WithTooltip($"Run time at {speedName} a second"),
                     SpeedButton(compactSpeed),
+                    FilterButton(compactFilter),
                     Layout.Builder.Text("Drag to orbit, wheel to zoom", fontSize, ink, TextAlign.Near, TextAlign.Center).PadX(padX).WStar().HStar(),
                     // Direct children of the strip, so the time (a content-capped Star) gives way here as the labels do.
                     .. BuildTimeControls(timeText, isTimeShifted ? palette.Accent : ink, fontSize, dpiScale, fill, ink).AsSpan(),
@@ -1038,12 +1066,16 @@ namespace TianWen.UI.Abstractions
                 .Bg(fill)
                 .RowH(stripH));
 
-            // Arranged with the long form first; the engine's answer decides the form, and only the winner is painted. Device pixels,
-            // like the sky's strip.
-            var arranged = ArrangeLayout(Strip(compactSpeed: false), rect, scale: DesignScale.One);
-            if (!SpeedReadsWhole(arranged, speedLabel))
+            // Arranged with the long forms first; the engine's answer decides the forms, and only the winner is painted: the filter
+            // gives way to its compact form first, then the speed with it. Device pixels, like the sky's strip.
+            var arranged = ArrangeLayout(Strip(compactSpeed: false, compactFilter: false), rect, scale: DesignScale.One);
+            if (!ReadsWhole(arranged, filterLabel) || !ReadsWhole(arranged, speedLabel))
             {
-                arranged = ArrangeLayout(Strip(compactSpeed: true), rect, scale: DesignScale.One);
+                arranged = ArrangeLayout(Strip(compactSpeed: false, compactFilter: true), rect, scale: DesignScale.One);
+                if (!ReadsWhole(arranged, speedLabel))
+                {
+                    arranged = ArrangeLayout(Strip(compactSpeed: true, compactFilter: true), rect, scale: DesignScale.One);
+                }
             }
             PaintLayout(arranged, scale: DesignScale.One);
             RememberTimeButton(arranged);
@@ -1063,22 +1095,82 @@ namespace TianWen.UI.Abstractions
         internal const string PlaySpeedCompactWidthSample = "0mo/s";
 
         /// <summary>
-        /// Whether the arranged long-form speed leaf got its whole width: its width SAMPLE's, not the name in force, on purpose, so the
-        /// form is a property of the strip (its scale, face and the rest of the row) and never of the pick, and a pick from "1 week"
-        /// to "10 years" does not swap the form under the pointer.
+        /// Whether the arranged long-form leaf showing <paramref name="label"/> (the speed's, the comet filter's) got its whole width:
+        /// its width SAMPLE's, not the name in force, on purpose, so the form is a property of the strip (its scale, face and the rest of
+        /// the row) and never of the pick, and a pick from "1 week" to "10 years" does not swap the form under the pointer.
         /// </summary>
         /// <remarks>An escape hatch: the engine has no node that offers a shorter form of its text (CollapseBelow only removes one),
-        /// so the strip is arranged twice when short. A text node with alternates in DIR.Lib would let the painter's own fit choose.</remarks>
-        private bool SpeedReadsWhole(ImmutableArray<Layout.ArrangedNode<float>> arranged, string speedLabel)
+        /// so the strip is arranged again when short. A text node with alternates in DIR.Lib would let the painter's own fit choose.</remarks>
+        private bool ReadsWhole(ImmutableArray<Layout.ArrangedNode<float>> arranged, string label)
         {
             foreach (var node in arranged)
             {
-                if (node.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } && text.Value == speedLabel)
+                if (node.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } && text.Value == label)
                 {
                     return node.Bounds.Width >= StripContentWidth(node.Node) - 0.5f;
                 }
             }
             return false;
+        }
+
+        /// <summary>The filter's long form on the strip: "Comets ≤12", or "All comets".</summary>
+        internal static string CometFilterLabel(OrreryCometFilter step)
+            => step.MaxMagnitude is null ? "All comets" : $"Comets {step.ShortName}";
+
+        // The filter's tooltip and the drop-up's rows: what a step reaches, in words.
+        private static string CometFilterReach(OrreryCometFilter step)
+            => step.MaxMagnitude is { } faintest ? $"comets to magnitude {faintest:0}" : $"the {OrreryScene.CometSetSize} brightest comets";
+
+        private static string CometFilterTooltip(OrreryCometFilter step)
+            => $"Comets drawn: {step.Name}, {CometFilterReach(step)} at their best this month; press for the others";
+
+        // The widest of the four steps' forms as the engine measures them: the filter button's width sample, so a pick never moves
+        // what follows it. The long form's sample is a digit wider, as the speed's has its own (PlaySpeedWidthSample): a sample
+        // exactly as wide as "Comets ≤12" still trimmed it at 1x in the platform's face.
+        private string WidestOf(float fontSize, Func<OrreryCometFilter, string> form)
+        {
+            var (widest, width) = ("", -1f);
+            foreach (var step in OrreryCometFilter.Steps)
+            {
+                var text = form(step);
+                var w = StripContentWidth(Layout.Builder.Text(text, fontSize, trim: TextTrim.None));
+                if (w > width)
+                {
+                    (widest, width) = (text, w);
+                }
+            }
+            return widest;
+        }
+
+        /// <summary>
+        /// Opens the comet filter's steps above <paramref name="anchor"/> (the filter button's arranged rect, device pixels), the one in
+        /// force highlighted. A pick sets the step, remembered on the view's state for the session.
+        /// </summary>
+        private void OpenCometFilterMenu(RectF32 anchor, float fontSize)
+        {
+            var orrery = State.Orrery;
+            var items = ImmutableArray.CreateBuilder<DropdownItem<OrreryCometFilter>>(OrreryCometFilter.Steps.Length);
+            var current = -1;
+            foreach (var step in OrreryCometFilter.Steps)
+            {
+                if (step == orrery.CometFilter)
+                {
+                    current = items.Count;
+                }
+                items.Add(new DropdownItem<OrreryCometFilter>($"{step.Name}: {CometFilterReach(step)}", step));
+            }
+            // As wide as the widest row measures, as the speeds' drop-up is (OpenSpeedMenu).
+            var width = anchor.Width;
+            foreach (var item in items)
+            {
+                width = MathF.Max(width, StripContentWidth(Layout.Builder.Text(item.Label, fontSize).PadX(fontSize * 0.5f)));
+            }
+            CometFilterMenu.Open(anchor.X, anchor.Y, width, items.MoveToImmutable(), item =>
+            {
+                orrery.CometFilter = item.Value;
+                State.NeedsRedraw = true;
+            });
+            CometFilterMenu.HighlightIndex = current;
         }
 
         /// <summary>The compact name a rate goes by in a short strip: its entry's <see cref="OrreryPlaySpeed.ShortName"/>, else its days.</summary>
@@ -1140,8 +1232,12 @@ namespace TianWen.UI.Abstractions
             SpeedMenu.HighlightIndex = current;
         }
 
-        /// <summary>The narrowest a strip label (the distance scale, the centre) gives way to under pressure, in ems of its font.</summary>
-        internal const float OrreryLabelMinEm = 3f;
+        /// <summary>
+        /// The narrowest a strip label (the distance scale, the centre) gives way to under pressure, in ems of its font: 2.25, down from
+        /// 3 when the comet filter joined the strip. With the compact forms' half padding and the time's weight at 6
+        /// (<see cref="TimeLabelWeight"/>), at 2.5 the time kept exactly its two ems at 1.5x in the app's face.
+        /// </summary>
+        internal const float OrreryLabelMinEm = 2.25f;
 
         /// <summary>How wide a strip node's own content measures, in the device pixels the strip is arranged in (its cap as a
         /// content-capped Star): the tab's own measure context, so a test reads a label's content without building one, and the

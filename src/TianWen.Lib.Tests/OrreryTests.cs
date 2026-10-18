@@ -496,14 +496,14 @@ public sealed class OrreryTests(ITestOutputHelper output)
         step.TotalDays.ShouldBeGreaterThan(0);
     }
 
-    private static void PressAt(Rig rig, RectF32 rect)
+    internal static void PressAt(Rig rig, RectF32 rect)
     {
         rig.Router.Handle(new InputEvent.MouseDown(rect.X + (rect.Width / 2), rect.Y + (rect.Height / 2)));
         rig.Router.Handle(new InputEvent.MouseUp(rect.X + (rect.Width / 2), rect.Y + (rect.Height / 2)));
     }
 
     // The painted row of the open drop-up at index, as a press finds it.
-    private static RectF32 DropUpRow(Rig rig, int index)
+    internal static RectF32 DropUpRow(Rig rig, int index)
         => rig.Tab.GetRegisteredRegions()
             .Where(r => r.Result is HitResult.ListItemHit { ListId: DropdownMenuState<string>.ListId, Index: var i } && i == index)
             .Select(r => new RectF32(r.X, r.Y, r.Width, r.Height))
@@ -1413,6 +1413,47 @@ public sealed class OrreryTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// The comet filter's button always names its step, whole: its long form ("Comets ≤12") where the strip has room, at 1x, and its
+    /// compact form ("≤12") where it is short, never trimmed. With the strip as full as it gets (the Centre toggle, Pause, Now, a long
+    /// offset), at 1x, 1.25x and 1.5x, in the platform's face and the app's; the speed keeps its own rule beside it.
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f, false)]
+    [InlineData(1.25f, false)]
+    [InlineData(1.5f, false)]
+    [InlineData(1f, true)]
+    [InlineData(1.25f, true)]
+    [InlineData(1.5f, true)]
+    public async Task TheCometFilterAlwaysNamesItsStep(float dpiScale, bool appFace)
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken, dpiScale, appFace ? AppFace : null);
+        Select(rig, CatalogIndex.Saturn);
+        rig.Tab.OpenOrrery();
+        rig.Render();
+        rig.Tab.State.TimeOffset = TimeSpan.FromDays((93 * 7) + 1);
+        rig.Tab.State.Orrery.Playing = true;
+
+        foreach (var step in OrreryCometFilter.Steps)
+        {
+            rig.Tab.State.Orrery.CometFilter = step;
+            rig.Render();
+            var (longForm, compactForm) = (SkyMapTab<RgbaImage>.CometFilterLabel(step), step.ShortName);
+            var leaf = rig.Tab.GetCapturedLayout()
+                .Single(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } && (text.Value == longForm || text.Value == compactForm));
+            var shown = rig.Tab.StripShownText(leaf);
+            output.WriteLine($"{step.Name}: shows \"{shown}\" in {leaf.Bounds.Width:F0} px");
+            if (dpiScale == 1f)
+            {
+                shown.ShouldBe(longForm, "at 1x the strip has room for the long form");
+            }
+            else
+            {
+                shown.ShouldBeOneOf([longForm, compactForm], "the filter is trimmed: the button must name its step whole");
+            }
+        }
+    }
+
+    /// <summary>
     /// The strip fits the view with everything in it at once: the Centre toggle (Saturn in focus), Pause, Now, and a long offset
     /// in the time. Every button lies inside the view, Sky first at its left edge (the owner's screenshot started at "ntre: Sun"),
     /// and at 1.0x, where the row has room, each label (the distance scale, the centre, the time) is laid out at least as wide as
@@ -1442,6 +1483,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
             .ToArray();
         buttons.Select(b => b.Action).ShouldContain("OrreryCentre");
         buttons.Select(b => b.Action).ShouldContain(SkyMapTab<RgbaImage>.OrrerySpeedAction);
+        buttons.Select(b => b.Action).ShouldContain(SkyMapTab<RgbaImage>.OrreryCometFilterAction);
         buttons.Select(b => b.Action).ShouldContain("SkyTimeNow");
         foreach (var (action, bounds) in buttons)
         {
@@ -1584,7 +1626,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
         rig.Tab.GetCapturedLayout().Any(n => n.Node.Hit is HitResult.ButtonHit { Action: "OrreryCentre" }).ShouldBeFalse();
     }
 
-    private static string[] PaintedTexts(Rig rig)
+    internal static string[] PaintedTexts(Rig rig)
         => [.. rig.Tab.GetCapturedLayout()
             .Select(a => a.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } ? text.Value : null)
             .OfType<string>()];

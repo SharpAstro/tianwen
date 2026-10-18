@@ -42,6 +42,11 @@ public partial class SkyMapTab<TSurface>
 
     internal const string OrrerySpeedAction = "OrrerySpeed";
 
+    /// <summary>The orrery's comet filter steps, opened by a press on the strip's filter.</summary>
+    internal DropdownMenuState<OrreryCometFilter> CometFilterMenu { get; } = new();
+
+    internal const string OrreryCometFilterAction = "OrreryCometFilter";
+
     /// <summary>Moves the atlas's viewing time by <paramref name="delta"/>: the arrow keys and the strip's buttons.</summary>
     internal void StepTime(TimeSpan delta)
     {
@@ -177,9 +182,11 @@ public partial class SkyMapTab<TSurface>
     /// glyphs measure a few pixels wider, #1584). It was 3 until the orrery's speed button came in beside Play (#1573), a fourth
     /// label sharing the squeeze: at 3 the time kept only 26 px (1.7 ems) past its date and time; at 4, 53 px (3.5 ems), the
     /// labels 54 px each, in Consolas. That was the Windows test face: in DejaVu Sans Mono (Linux's) it kept 27 px and in the
-    /// app's own DejaVu Sans 23, so the orrery strip's gap went from 4 to 2 (46 px in DejaVu Sans, 49 in DejaVu Sans Mono).
+    /// app's own DejaVu Sans 23, so the orrery strip's gap went from 4 to 2 (46 px in DejaVu Sans, 49 in DejaVu Sans Mono). The
+    /// orrery's comet filter (A2 of #1611) took 34 px more at 1.5x, its compact form with the speed's at half padding: at 4 the time
+    /// then kept 15 px in DejaVu Sans, so 6.
     /// </summary>
-    internal const float TimeLabelWeight = 4f;
+    internal const float TimeLabelWeight = 6f;
 
     /// <summary>
     /// The gap between the time controls, in units the caller scales by its DPI: the sky strip's group and the orrery strip's whole
@@ -198,6 +205,7 @@ public partial class SkyMapTab<TSurface>
     // the strip paints, every frame, because a press handler is not handed its node's arranged rect.
     private RectF32 _timeButtonRect;
     private RectF32 _speedButtonRect;
+    private RectF32 _cometFilterButtonRect;
 
     /// <summary>Remembers where the strip laid the time and the orrery's speed out, for the drop-up a press on either opens.</summary>
     private void RememberTimeButton(ImmutableArray<Layout.ArrangedNode<float>> arranged)
@@ -211,6 +219,9 @@ public partial class SkyMapTab<TSurface>
                     break;
                 case HitResult.ButtonHit { Action: OrrerySpeedAction }:
                     _speedButtonRect = new RectF32(node.Bounds.X, node.Bounds.Y, node.Bounds.Width, node.Bounds.Height);
+                    break;
+                case HitResult.ButtonHit { Action: OrreryCometFilterAction }:
+                    _cometFilterButtonRect = new RectF32(node.Bounds.X, node.Bounds.Y, node.Bounds.Width, node.Bounds.Height);
                     break;
             }
         }
