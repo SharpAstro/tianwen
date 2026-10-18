@@ -967,7 +967,8 @@ namespace TianWen.UI.Abstractions
 
             // The distance scale is ONE toggle naming the mode in force, sized by the longer label so a press does not move the strip.
             var auto = orrery.Scale == OrreryScale.Auto;
-            var scaleToggle = Layout.Builder.Text(auto ? "Distances: auto" : "Distances: true", fontSize, ink,
+            var scaleLabel = auto ? "Distances: auto" : "Distances: true";
+            var scaleToggle = Layout.Builder.Text(scaleLabel, fontSize, ink,
                     TextAlign.Center, TextAlign.Center, TextTrim.End, widthSample: "Distances: auto")
                 .PadX(padX).WStarUpToContent(min: labelMin).HStar()
                 .Bg(fill).BgHover(GuiTheme.Hover(fill))
@@ -977,11 +978,13 @@ namespace TianWen.UI.Abstractions
 
             // What the camera looks at, ONE toggle naming it, while a body other than the Sun is in focus; sized by the longer label.
             Layout.Node? centreToggle = null;
+            string? centreLabel = null;
             if (orrery.Focus is { } focus && focus != CatalogIndex.Sol && OrreryScene.TryFind(focus, out var focusBody))
             {
                 var centred = orrery.CentredOnFocus;
                 var onBody = $"Centre: {focusBody.Name}";
-                centreToggle = Layout.Builder.Text(centred ? onBody : "Centre: Sun", fontSize, ink,
+                centreLabel = centred ? onBody : "Centre: Sun";
+                centreToggle = Layout.Builder.Text(centreLabel, fontSize, ink,
                         TextAlign.Center, TextAlign.Center, TextTrim.End, widthSample: onBody.Length >= "Centre: Sun".Length ? onBody : "Centre: Sun")
                     .PadX(padX).WStarUpToContent(min: labelMin).HStar()
                     .Bg(fill).BgHover(GuiTheme.Hover(fill))
@@ -1067,9 +1070,12 @@ namespace TianWen.UI.Abstractions
                 .RowH(stripH));
 
             // Arranged with the long forms first; the engine's answer decides the forms, and only the winner is painted: the filter
-            // gives way to its compact form first, then the speed with it. Device pixels, like the sky's strip.
+            // gives way to its compact form first, then the speed with it. The strip is short when ANY of its labels is left short of
+            // its width, not only the two with a compact form: at 1x in DejaVu Sans Mono (Linux's face) the filter and the speed read
+            // whole while "Distances: auto" took the squeeze, 100 px of its 102. Device pixels, like the sky's strip.
             var arranged = ArrangeLayout(Strip(compactSpeed: false, compactFilter: false), rect, scale: DesignScale.One);
-            if (!ReadsWhole(arranged, filterLabel) || !ReadsWhole(arranged, speedLabel))
+            if (!ReadsWhole(arranged, filterLabel) || !ReadsWhole(arranged, speedLabel) || !ReadsWhole(arranged, scaleLabel)
+                || (centreLabel is not null && !ReadsWhole(arranged, centreLabel)))
             {
                 arranged = ArrangeLayout(Strip(compactSpeed: false, compactFilter: true), rect, scale: DesignScale.One);
                 if (!ReadsWhole(arranged, speedLabel))
@@ -1095,7 +1101,8 @@ namespace TianWen.UI.Abstractions
         internal const string PlaySpeedCompactWidthSample = "0mo/s";
 
         /// <summary>
-        /// Whether the arranged long-form leaf showing <paramref name="label"/> (the speed's, the comet filter's) got its whole width:
+        /// Whether the arranged leaf showing <paramref name="label"/> (the speed's and the comet filter's long forms, the distance scale's,
+        /// the centre's) got its whole width:
         /// its width SAMPLE's, not the name in force, on purpose, so the form is a property of the strip (its scale, face and the rest of
         /// the row) and never of the pick, and a pick from "1 week" to "10 years" does not swap the form under the pointer.
         /// </summary>

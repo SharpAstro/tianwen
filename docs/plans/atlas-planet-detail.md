@@ -552,7 +552,10 @@ pale fan of a tail away from the Sun, labelled.
   ≤12 ▲" (or "All comets"), its press opening the four steps as a drop-up (the shared `RenderDropUp`, as the speeds'), sized
   by the widest of its forms so a pick never moves what follows. Where the strip is short it takes its compact form ("≤12",
   no mark, half the padding) BEFORE the speed takes its own (`ReadsWhole`, the speed's escape hatch generalised: the long
-  forms first, then the filter compact, then both). To fit it `OrreryLabelMinEm` went from 3 to 2.25 and `TimeLabelWeight`
+  forms first, then the filter compact, then both). The strip counts as short when ANY of its labels is left short of its
+  width, the distance scale and the centre too: at 1x in DejaVu Sans Mono (the Linux CI leg's platform face) the filter and the
+  speed read whole while "Distances: auto" took the squeeze, 100 px of its 102, so the filter goes compact there at 1x, where
+  Consolas and the app's DejaVu Sans keep the long form. To fit it `OrreryLabelMinEm` went from 3 to 2.25 and `TimeLabelWeight`
   from 4 to 6, the speed's compact form to half padding as well. Measured on 900 px: at 1x the filter shows "Comets ≤12" in
   60 px (Consolas) and 69 (DejaVu Sans), the long form; at 1.5x it is compact, "≤12" in 21 to 32 px, the button 34 px
   (262 to 296) in Consolas and 41 (259 to 300) in DejaVu Sans, the time keeping 85 px past its date and time in Consolas
