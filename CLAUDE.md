@@ -968,7 +968,7 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
     black point** (`ImageMeta.IsColourBalanced`, CBALSAT, #1229). **Colour is compared with a post AS SHOWN**
     (`PlanetaryReferenceJudge.ReadShown`, #1273). **A colour look is a RENDERING, never a master**
     (`PlanetaryColourLook`, `planetary look`, `ColourLook.Boosted` / `Posted`, #1305; a looked COPY in the viewer,
-    `Prepare` / `OnMaster`, #1277).
+    `Prepare` / `OnMaster`, #1277), **and one fitted to a post lands on it as SHOWN** (`FittedAsShown`, #1653).
   - What was measured and NOT adopted, so do not re-run it as new: `--finish cutoff` / `wiener` / `adaptive`
     (#1279, #1281; **the derived gains are already a Wiener**), `--shrink` (#1313, read off `planetary stack
     --halves`), `--noise halves` (#1373, `PlanetarySharpenOptions.NoiseHalves`), `--colour-finest bounded` and

@@ -202,6 +202,65 @@ public static class PlanetaryColourLook
     /// </summary>
     public static Image? TryApply(Image master, in MetricDisk disk, ColourLook look) => Applied(master, disk, look).Image;
 
+    /// <summary>How many times <see cref="FittedAsShown"/> corrects a fit in the planes by what the preview's stretch did to it.</summary>
+    public const int ShownFitRounds = 4;
+
+    /// <summary>
+    /// The look that takes <paramref name="master"/> to a <paramref name="reference"/> read as a post is read (decoded from sRGB, as it is
+    /// shown) as the look itself is SHOWN (#1653). The planetary preview shows a balanced master at 1.7 to 2 times its planes' chroma, so
+    /// <see cref="ColourLook.FittedTo"/>, whose targets land in the planes, overshoots the post it was fitted to by as much once rendered. So
+    /// the fit in the planes comes first, then, <see cref="ShownFitRounds"/> times, each quantile's target is scaled by the reference's chroma
+    /// over the look's as shown (<see cref="PlanetaryReferenceJudge.ReadShown"/>), and the cast moved by their difference over the stretch's
+    /// gain on the cast's chroma. <paramref name="miss"/> is what is left: the largest of every quantile's |shown over reference - 1| and the
+    /// cast's distance from the reference's over the reference's chroma.
+    /// </summary>
+    public static ColourLook FittedAsShown(Image master, in MetricDisk disk, in ColourReading reference, out double miss)
+    {
+        ArgumentNullException.ThrowIfNull(master);
+        var grid = PlanetaryColourReading.QuantileGrid;
+        var look = ColourLook.FittedTo(reference);
+        for (var round = 0; ; round++)
+        {
+            var (looked, _) = Apply(master, disk, look);
+            ColourReading shown, linear;
+            try
+            {
+                shown = PlanetaryReferenceJudge.ReadShown(looked, disk);
+                linear = PlanetaryColourReading.Read(looked, disk);
+            }
+            finally
+            {
+                looked.Release();
+            }
+            var (da, db) = (reference.Cast.A - shown.Cast.A, reference.Cast.B - shown.Cast.B);
+            miss = Math.Sqrt((da * da) + (db * db)) / reference.Cast.Chroma;
+            foreach (var q in grid)
+            {
+                miss = Math.Max(miss, Math.Abs((shown.ChromaAt(q) / reference.ChromaAt(q)) - 1));
+            }
+            if (round == ShownFitRounds)
+            {
+                return look;
+            }
+
+            var target = ImmutableArray.CreateBuilder<double>(grid.Length);
+            for (var k = 0; k < grid.Length; k++)
+            {
+                var (want, got) = (reference.ChromaAt(grid[k]), shown.ChromaAt(grid[k]));
+                target.Add(got > 0 && double.IsFinite(want / got) ? look.TargetChroma[k] * want / got : look.TargetChroma[k]);
+            }
+            // The stretch bends each channel on its own, so it raises the cast's chroma about as it raises the planet's; a difference seen
+            // on screen is that much smaller in the planes.
+            var stretch = shown.Cast.Chroma / linear.Cast.Chroma;
+            var cast = look.Cast ?? reference.Cast;
+            if (double.IsFinite(stretch) && stretch > 0)
+            {
+                cast = cast with { A = cast.A + (da / stretch), B = cast.B + (db / stretch) };
+            }
+            look = look with { Cast = cast, TargetChroma = target.MoveToImmutable() };
+        }
+    }
+
     /// <summary>
     /// <paramref name="master"/> made ready for a look, ONE routine for the viewer's colour control and <c>planetary look</c> (#1277): the
     /// planet's limb fitted at <paramref name="instant"/> for the disk the look reads its colour over, and a master left in the camera's colours

@@ -230,6 +230,35 @@ public class PlanetaryColourReadingTests
     }
 
     [Fact]
+    public void ALookFittedToAPostAsShownLandsOnItAsShownWhereTheFitInThePlanesOvershoots()
+    {
+        // A post is read as it is shown; a look is shown through the preview's stretch. Fitted in the planes, the look's targets are the
+        // post's shown chroma and the stretch raises them again (#1653); fitted as shown, it lands on the post on screen.
+        const int size = 128;
+        var disk = new MetricDisk(63.5, 63.5, 50);
+        var (master, _, _, _) = BandedPlanet(size, disk);
+        var (post, _) = PlanetaryColourLook.Apply(master, disk, ColourLook.Uniform(1.5));
+        var reference = PlanetaryReferenceJudge.ReadShown(post, disk);
+
+        var (inPlanes, _) = PlanetaryColourLook.Apply(master, disk, ColourLook.FittedTo(reference));
+        var fittedLook = PlanetaryColourLook.FittedAsShown(master, disk, reference, out var miss);
+        var (asShown, _) = PlanetaryColourLook.Apply(master, disk, fittedLook);
+        var (overshot, landed) = (PlanetaryReferenceJudge.ReadShown(inPlanes, disk), PlanetaryReferenceJudge.ReadShown(asShown, disk));
+
+        (overshot.ChromaAt(0.50) / reference.ChromaAt(0.50)).ShouldBeGreaterThan(1.2, "fitted in the planes, the stretch raises the post's chroma again");
+        miss.ShouldBeLessThan(0.03, "what the fit as shown leaves, at every quantile and the cast");
+        foreach (var q in (ReadOnlySpan<double>)[0.10, 0.50, 0.90])
+        {
+            (landed.ChromaAt(q) / reference.ChromaAt(q)).ShouldBe(1, 0.03, $"the chroma's {q:0.00} quantile as shown");
+        }
+        OkLab.HueDistanceDeg(landed.Cast.HueDeg, reference.Cast.HueDeg).ShouldBeLessThan(2, "the post's tint as shown");
+        foreach (var image in (ReadOnlySpan<Image>)[master, post, inPlanes, asShown])
+        {
+            image.Release();
+        }
+    }
+
+    [Fact]
     [Trait("Category", "Heavy")]
     public void AMasterIsMadeReadyForALookByTheRoutineTheViewerAndPlanetaryLookShare()
     {

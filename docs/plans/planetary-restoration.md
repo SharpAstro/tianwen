@@ -5665,6 +5665,13 @@ Jupiter too, to see what generalises. Rules were written on the issue before eac
   `--fits`, marked `CLOOK` and no longer scene-linear. The linear masters stay what is processed further, as the deep-sky chroma editing's
   ADR-4 has it (`narrowband-colour.md`: a render stage that never touches a linear master). In the viewer it is a control
   over the linear master, as the stretch and tone are: [the look in the viewer](#the-look-in-the-viewer).
+- **A look fitted to a post lands on it AS SHOWN** (#1653, `PlanetaryColourLook.FittedAsShown`, `planetary look --reference`). The fit
+  used to set the post's shown chroma and cast as targets in the master's planes, which the preview then showed 1.7 to 2 times stronger:
+  on the EdgeHD Jupiter the look as shown read 0.0407 at the median against the post's 0.0245 and a cast of 0.0394 against 0.0124, on the
+  EdgeHD Saturn 0.0973 against 0.0571 and 0.1006 against 0.0615. The fit in the planes now comes first, then four rounds correct each
+  quantile's target by the post's chroma over the look's as shown and the cast by their difference over the stretch's gain on it: the
+  look as shown reads 0.0247 and 0.0116 on the Jupiter, 0.0570 and 0.0593 on the Saturn, and the verb says what is left (10.4 % and
+  3.6 %, all of it the cast's on the Jupiter, whose post's cast is a tiny 0.0124).
 
 **What the study found:**
 - **A post is compared with the master AS SHOWN, never with its linear planes.** The planetary preview's mid-tone lift (gamma 0.75 per

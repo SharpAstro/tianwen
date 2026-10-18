@@ -97,6 +97,16 @@ public static class PlanetaryColourReading
     /// </summary>
     public const double LitLuminance = 0.2;
 
+    /// <summary>The reading of a three-channel linear <paramref name="image"/>, its sky read and taken off (<see cref="PlanetaryColour.SkyOrBlack"/>).</summary>
+    public static ColourReading Read(Image image, in MetricDisk disk)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        var r = image.GetChannelSpan(0);
+        var g = image.GetChannelSpan(1);
+        var b = image.GetChannelSpan(2);
+        return Read(r, g, b, image.Width, image.Height, disk, PlanetaryColour.SkyOrBlack(r, g, b, image.Width, image.Height, disk));
+    }
+
     /// <summary>The reading of a linear RGB picture of the planet <paramref name="disk"/> describes, each channel's <paramref name="sky"/> taken off.</summary>
     public static ColourReading Read(ReadOnlySpan<float> red, ReadOnlySpan<float> green, ReadOnlySpan<float> blue, int width, int height,
         in MetricDisk disk, in LinearRgb sky)

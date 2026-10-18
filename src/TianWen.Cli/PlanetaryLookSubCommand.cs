@@ -106,7 +106,10 @@ internal sealed class PlanetaryLookSubCommand(IConsoleHost consoleHost, MasterPr
                         PlanetaryLimbFit.Luminance(read), read.Width, read.Height, referenceDisk), ct);
                     placed = (referenceDisk, placement);
                     var (_, theirs) = PlanetaryReferenceJudge.ReadColours(master, disk, read, referenceDisk, placement);
-                    look = ColourLook.FittedTo(theirs);
+                    // Fitted as the look is shown, which the preview shows at 1.7 to 2 times its planes' chroma (#1653).
+                    (look, var fitMiss) = await Task.Run(() => (PlanetaryColourLook.FittedAsShown(master, disk, theirs, out var miss), miss), ct);
+                    consoleHost.WriteScrollable(string.Create(inv,
+                        $"the look fitted as shown in {PlanetaryColourLook.ShownFitRounds} rounds after its fit in the planes: what is left, the largest of every quantile's chroma and the cast's, {fitMiss:P1} of the post's"));
                     consoleHost.WriteScrollable(string.Create(inv,
                         $"the reference placed at {placement.Scale:0.0000} master pixels a pixel, turned {placement.RotationDeg:0.0} deg{(placement.Mirrored ? ", mirrored" : "")}; detail correlation {placement.Correlation:0.000}{(placement.Correlation < 0.5 ? " (doubtful)" : "")}"));
                 }
@@ -195,9 +198,9 @@ internal sealed class PlanetaryLookSubCommand(IConsoleHost consoleHost, MasterPr
 
                 // Read back: the master's own colour, the look's, and, fitted, the reference's on the look; each linear and as its preview
                 // shows it (the preview's stretch shows a master at 1.7 to 2 times its linear chroma).
-                Line("the master's colour, linear", Read(master, disk));
+                Line("the master's colour, linear", PlanetaryColourReading.Read(master, disk));
                 Line("the master's colour as shown", PlanetaryReferenceJudge.ReadShown(master, disk));
-                Line("the look's colour, linear", Read(looked, disk));
+                Line("the look's colour, linear", PlanetaryColourReading.Read(looked, disk));
                 Line("the look's colour as shown", PlanetaryReferenceJudge.ReadShown(looked, disk));
                 if (reference is not null && placed is { } p)
                 {
@@ -230,14 +233,6 @@ internal sealed class PlanetaryLookSubCommand(IConsoleHost consoleHost, MasterPr
             }
         }
         return values.Length > 0 ? values : null;
-    }
-
-    private static ColourReading Read(Image image, in MetricDisk disk)
-    {
-        var r = image.GetChannelSpan(0);
-        var g = image.GetChannelSpan(1);
-        var b = image.GetChannelSpan(2);
-        return PlanetaryColourReading.Read(r, g, b, image.Width, image.Height, disk, PlanetaryColour.SkyOrBlack(r, g, b, image.Width, image.Height, disk));
     }
 
     private void Line(string title, in ColourReading reading) => consoleHost.WriteScrollable($"{title} {reading.Describe()}");
