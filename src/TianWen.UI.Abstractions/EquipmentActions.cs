@@ -497,7 +497,7 @@ public static class EquipmentActions
     }
 
     /// <summary>
-    /// Reads filter config from a filter wheel URI's query params.
+    /// Reads filter config from a filter wheel URI's query params (<see cref="FilterWheelSlots.Read"/>).
     /// Returns the list of installed filters (may be empty if no filter{N} params present).
     /// </summary>
     public static IReadOnlyList<InstalledFilter> GetFilterConfig(ProfileData data, int otaIndex)
@@ -508,27 +508,7 @@ public static class EquipmentActions
         }
 
         var fwUri = data.OTAs[otaIndex].FilterWheel;
-        if (fwUri is null || fwUri == NoneDevice.Instance.DeviceUri)
-        {
-            return [];
-        }
-
-        var query = HttpUtility.ParseQueryString(fwUri.Query);
-        var filters = new List<InstalledFilter>();
-
-        for (var i = 1; ; i++)
-        {
-            var name = query[DeviceQueryKeyExtensions.FilterKey(i)];
-            if (name is null)
-            {
-                break;
-            }
-
-            var offset = int.TryParse(query[DeviceQueryKeyExtensions.FilterOffsetKey(i)], out var o) ? o : 0;
-            filters.Add(new InstalledFilter(name, offset));
-        }
-
-        return filters;
+        return fwUri is null || fwUri == NoneDevice.Instance.DeviceUri ? [] : FilterWheelSlots.Read(fwUri);
     }
 
     /// <summary>
@@ -549,29 +529,7 @@ public static class EquipmentActions
             return data;
         }
 
-        var query = HttpUtility.ParseQueryString(fwUri.Query);
-
-        // Remove existing filter/offset params
-        for (var i = 1; ; i++)
-        {
-            var key = DeviceQueryKeyExtensions.FilterKey(i);
-            if (query[key] is null)
-            {
-                break;
-            }
-            query.Remove(key);
-            query.Remove(DeviceQueryKeyExtensions.FilterOffsetKey(i));
-        }
-
-        // Write new filter/offset params
-        for (var i = 0; i < filters.Count; i++)
-        {
-            query[DeviceQueryKeyExtensions.FilterKey(i + 1)] = filters[i].DisplayName;
-            query[DeviceQueryKeyExtensions.FilterOffsetKey(i + 1)] = filters[i].Position.ToString(CultureInfo.InvariantCulture);
-        }
-
-        var builder = new UriBuilder(fwUri) { Query = query.ToString() };
-        var updatedOta = ota with { FilterWheel = builder.Uri };
+        var updatedOta = ota with { FilterWheel = FilterWheelSlots.WithSlots(fwUri, filters) };
         return data with { OTAs = data.OTAs.SetItem(otaIndex, updatedOta) };
     }
 
