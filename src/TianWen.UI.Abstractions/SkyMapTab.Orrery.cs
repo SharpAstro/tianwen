@@ -1159,13 +1159,7 @@ namespace TianWen.UI.Abstractions
                 }
                 items.Add(new DropdownItem<OrreryCometFilter>($"{step.Name}: {CometFilterReach(step)}", step));
             }
-            // As wide as the widest row measures, as the speeds' drop-up is (OpenSpeedMenu).
-            var width = anchor.Width;
-            foreach (var item in items)
-            {
-                width = MathF.Max(width, StripContentWidth(Layout.Builder.Text(item.Label, fontSize).PadX(fontSize * 0.5f)));
-            }
-            CometFilterMenu.Open(anchor.X, anchor.Y, width, items.MoveToImmutable(), item =>
+            CometFilterMenu.Open(anchor.X, anchor.Y, DropUpWidth(anchor, items, fontSize), items.MoveToImmutable(), item =>
             {
                 orrery.CometFilter = item.Value;
                 State.NeedsRedraw = true;
@@ -1200,6 +1194,22 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// How wide a strip drop-up opens (the speeds', the comet filter's): as wide as its widest row MEASURES, a row being its label
+        /// padded half an em each side as the dropdown builds it, and never narrower than the button it opened from.
+        /// </summary>
+        /// <remarks>The half em mirrors DIR.Lib's Layout.Builder.Dropdown rowPadding: a stopgap until Dropdown can size its list to
+        /// its rows itself (which would also retire OpenTimeMenu's eight ems).</remarks>
+        private float DropUpWidth<T>(RectF32 anchor, ImmutableArray<DropdownItem<T>>.Builder items, float fontSize)
+        {
+            var width = anchor.Width;
+            foreach (var item in items)
+            {
+                width = MathF.Max(width, StripContentWidth(Layout.Builder.Text(item.Label, fontSize).PadX(fontSize * 0.5f)));
+            }
+            return width;
+        }
+
+        /// <summary>
         /// Opens the speeds above <paramref name="anchor"/> (the speed button's arranged rect, device pixels), the one in force
         /// highlighted. A pick sets the rate and nothing else: Play keeps running if it was.
         /// </summary>
@@ -1216,15 +1226,7 @@ namespace TianWen.UI.Abstractions
                 }
                 items.Add(new DropdownItem<double>($"1 second = {speed.Name}", speed.DaysPerSecond));
             }
-            // As wide as the widest row MEASURES, a row being its label padded half an em each side as the dropdown builds it, and
-            // never narrower than the button it opened from. The half em mirrors DIR.Lib's Layout.Builder.Dropdown rowPadding: a
-            // stopgap until Dropdown can size its list to its rows itself (which would also retire OpenTimeMenu's eight ems).
-            var width = anchor.Width;
-            foreach (var item in items)
-            {
-                width = MathF.Max(width, StripContentWidth(Layout.Builder.Text(item.Label, fontSize).PadX(fontSize * 0.5f)));
-            }
-            SpeedMenu.Open(anchor.X, anchor.Y, width, items.MoveToImmutable(), item =>
+            SpeedMenu.Open(anchor.X, anchor.Y, DropUpWidth(anchor, items, fontSize), items.MoveToImmutable(), item =>
             {
                 orrery.DaysPerSecond = item.Value;
                 State.NeedsRedraw = true;
