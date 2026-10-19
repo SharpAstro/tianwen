@@ -370,6 +370,13 @@ public class StarReferenceTable
     /// </summary>
     public Matrix3x2? FitAffineTransform() => Matrix3x2.FitAffineTransform(CollectionsMarshal.AsSpan(_dest), CollectionsMarshal.AsSpan(_source));
 
+    /// <summary>
+    /// Fits a least-squares similarity (rotation + uniform scale + translation) from dest to source positions: what
+    /// two frames of one camera can differ by, with no room to shear onto a few mismatched quad centres.
+    /// Returns <c>null</c> if fewer than 2 pairs or the points coincide.
+    /// </summary>
+    public Matrix3x2? FitSimilarityTransform() => Matrix3x2.FitSimilarityTransform(CollectionsMarshal.AsSpan(_dest), CollectionsMarshal.AsSpan(_source));
+
     /// <summary>Registration RMS in source-frame pixels: <c>sqrt(mean(‖transform·d − s‖²))</c>
     /// over the matched-pair set held by this table. Matches the "RMS" column in
     /// Astro Pixel Processor; comparable across frames stacked against the same
