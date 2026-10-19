@@ -57,7 +57,11 @@ a second one onto the same hardware (P1 of [../plans/hardware-in-the-server.md](
   takes write permission and the umask would decide it), the AppData folder's ACL on Windows. Nothing else
   authenticates a client on it.
 - **A path is refused, never truncated**: `sun_path` holds 107 bytes on Linux and Windows and 103 on macOS
-  (`NodeSocket.TryValidate`, in bytes, so an accented user name costs two per letter).
+  (`NodeSocket.TryValidate`, in bytes, so an accented user name costs two per letter). **A data root too deep for
+  one keeps its socket elsewhere** (#1683, `NodeSocket.DefaultPathFor`): where `node.sock` beside the data does not
+  fit (a scratch root reached 183 bytes), the socket goes into `s/` under the user's own TianWen data folder, behind
+  the same ACL, named for the root by a hash, so a node and its clients agree and two roots never share one; its
+  lock and crash journal follow it. There is no long-path escape for a socket address.
 - **`GET /api/v1/node`** (`NodeInfoDto`) answers the node's stable id (the one the LAN announcement carries,
   `NodeIdentity`, minted once into `lan-node-id.txt`), its build, its wire version (`NodeWire.Version`, the only
   compatibility check), its pid, whether it is shared, and how many TianWen clients are attached. A client asks
