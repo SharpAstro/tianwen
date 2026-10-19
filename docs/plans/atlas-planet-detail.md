@@ -731,7 +731,11 @@ one frame late, and the GUI logged a slow frame every 250 to 330 ms.
   while the atlas loads.
 - **The seam:** `SkyMapTab.TracesPlanetBodies` / `DrawPlanetBody` (`VkSkyMapTab` through `VkPlanetBodies`, `WebSkyMapTab`
   through `WebGlPlanetBodies`). A tracing host never falls back to a sprite: while a map uploads the body is its flat
-  dot. The CPU surface (the tests, the TUI, the PNGs) keeps the sprite of the same view, `PlanetaryRender.RenderRgba`,
+  dot, and in the browser while its program links too. The pipeline is registered on the first draw and the driver links
+  it beside the map's load (`WebGlRenderer.WhenPipelineReadyAsync`, WebGl.Renderer 1.37, `KHR_parallel_shader_compile`);
+  before that the first frame waited on `getProgramParameter`, 129 ms of the frame that opened the orrery on the deployed
+  showcase (`FrameHitchProbe`, 2026-10-19, an Adreno X1-85 through ANGLE D3D11). The rest of opening it is .NET's: a
+  timer task of about 280 ms and 130 ms in the keydown, the same probe. The CPU surface (the tests, the TUI, the PNGs) keeps the sprite of the same view, `PlanetaryRender.RenderRgba`,
   the reference the GPU is held to.
 - **What is left on sprites:** the sky map's planet discs and the info panel's disc. They are A4's sky-frame chain (the
   view's north at the planet, mirrored views) and are rebuilt only on a size bucket or a time scrub, not per frame;
