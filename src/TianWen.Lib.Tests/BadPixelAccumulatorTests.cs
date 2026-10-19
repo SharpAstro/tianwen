@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using Shouldly;
 using TianWen.Lib.Imaging;
@@ -216,6 +217,21 @@ namespace TianWen.Lib.Tests
                     mask[0][y, x].ShouldBeFalse($"({x}, {y}) is the star's, which sits there in two frames of three");
                 }
             }
+        }
+
+        /// <summary>Nights are runs of subs no gap over six hours separates: a pause for focus or cloud stays in its night,
+        /// the next session is another (the SV605CC Sculptor of 2026-09-12 and 2026-10-17, stacked together).</summary>
+        [Fact]
+        public void NightsSplitOnlyAtALongGap()
+        {
+            var t0 = new DateTimeOffset(2026, 9, 12, 11, 19, 0, TimeSpan.Zero);
+            DateTimeOffset[] starts =
+            [
+                t0, t0.AddMinutes(2), t0.AddHours(2), t0.AddHours(7),                 // one night, a two-hour pause in it
+                t0.AddDays(35), t0.AddDays(35).AddMinutes(2),                           // the next session
+            ];
+            var nights = BadPixelAccumulator.Nights(starts, static s => s);
+            starts.Select(s => nights[s]).ShouldBe([0, 0, 0, 0, 1, 1]);
         }
 
         [Theory]
