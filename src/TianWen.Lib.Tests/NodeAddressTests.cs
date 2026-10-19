@@ -56,6 +56,58 @@ public class NodeAddressTests(ITestOutputHelper outputHelper) : IDisposable
     }
 
     [Fact]
+    public void ADataRootThatFitsKeepsItsSocketBesideItsData()
+    {
+        var root = _folders.Create("twsock").FullName;
+        var shortFolder = Path.Combine(_folders.Create("twshort").FullName, NodeSocket.ShortFolderName);
+
+        NodeSocket.DefaultPathFor(root, shortFolder).ShouldBe(Path.Combine(root, NodeSocket.DefaultFileName));
+        Directory.Exists(shortFolder).ShouldBeFalse("no short folder is made for a root that needs none");
+    }
+
+    /// <summary>
+    /// A data root kept apart for a screenshot's node, under the session's scratch folder, put the socket at 183 bytes against
+    /// the 107 a socket address holds, and the node refused to start (2026-10-19).
+    /// </summary>
+    [Fact]
+    public void ADataRootTooDeepForASocketGetsAShortSocketOfItsOwnThatEveryoneComputesAlike()
+    {
+        var parent = _folders.Create("twsock").FullName;
+        var deep = Path.Combine(parent, new string('d', 60), new string('e', 60));
+        var other = Path.Combine(parent, new string('d', 60), new string('f', 60));
+        var shortFolder = Path.Combine(_folders.Create("twshort").FullName, NodeSocket.ShortFolderName);
+        NodeSocket.TryValidate(Path.Combine(deep, NodeSocket.DefaultFileName), out _).ShouldBeFalse("premise: beside its data it does not fit");
+
+        var socket = NodeSocket.DefaultPathFor(deep, shortFolder);
+        outputHelper.WriteLine(socket);
+
+        NodeSocket.TryValidate(socket, out var error).ShouldBeTrue(error);
+        Path.GetDirectoryName(socket).ShouldBe(shortFolder);
+        Directory.Exists(shortFolder).ShouldBeTrue("the node can bind there");
+        NodeSocket.DefaultPathFor(deep + Path.DirectorySeparatorChar, shortFolder).ShouldBe(socket, "the same root, written with a separator at its end");
+        if (OperatingSystem.IsWindows())
+        {
+            NodeSocket.DefaultPathFor(deep.ToUpperInvariant(), shortFolder).ShouldBe(socket, "Windows names a folder case-blind");
+        }
+        NodeSocket.DefaultPathFor(other, shortFolder).ShouldNotBe(socket, "two roots never share a socket");
+        NodeSocket.LockPathFor(socket).ShouldBe(Path.ChangeExtension(socket, ".lock"), "its lock follows it");
+    }
+
+    [Fact]
+    public void ASocketThatFitsNowhereIsLeftForTheValidationToRefuseByName()
+    {
+        var parent = _folders.Create("twsock").FullName;
+        var deep = Path.Combine(parent, new string('d', 60), new string('e', 60));
+        var tooDeep = Path.Combine(parent, new string('s', 120));
+
+        var socket = NodeSocket.DefaultPathFor(deep, tooDeep);
+
+        socket.ShouldBe(Path.Combine(deep, NodeSocket.DefaultFileName));
+        NodeSocket.TryValidate(socket, out var error).ShouldBeFalse();
+        error.ShouldNotBeNull().ShouldContain(socket);
+    }
+
+    [Fact]
     public void ASocketsLockIsNamedAfterItSoAnIsolatedNodeTakesItsOwn()
     {
         var directory = Path.GetTempPath();
