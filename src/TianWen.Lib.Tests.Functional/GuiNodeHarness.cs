@@ -112,7 +112,9 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
     /// <summary>What the tracker held before the test posted anything: the handler's own start-up work.</summary>
     public int PendingBefore { get; private set; }
 
-    public static async Task<GuiNodeHarness> StartAsync(ITestOutputHelper output, CancellationToken ct, bool remoteOnScreen = false)
+    /// <param name="withFilterWheel">Gives the rig's OTA the fake wheel (L, R, G, B; focus offsets 0, +20, 0, -15), as a mono camera's.</param>
+    public static async Task<GuiNodeHarness> StartAsync(ITestOutputHelper output, CancellationToken ct, bool remoteOnScreen = false,
+        bool withFilterWheel = false)
     {
         var node = await NodeHarness.StartAsync(output, ct, onItsSocket: true);
         var socketPath = node.SocketPath ?? throw new InvalidOperationException("A node started on its own socket has one.");
@@ -123,10 +125,11 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
             var mount = new FakeDevice(DeviceType.Mount, 1);
             var camera = new FakeDevice(DeviceType.Camera, 1);
             var focuser = new FakeDevice(DeviceType.Focuser, 1);
+            var wheel = withFilterWheel ? new FakeDevice(DeviceType.FilterWheel, 1) : null;
             var profile = new Profile(Guid.NewGuid(), "This computer's rig", new ProfileData(
                 Mount: mount.DeviceUri,
                 Guider: new FakeDevice(DeviceType.Guider, 1).DeviceUri,
-                OTAs: [new OTAData("Scope", 500, camera.DeviceUri, null, focuser.DeviceUri, null, null, null)],
+                OTAs: [new OTAData("Scope", 500, camera.DeviceUri, null, focuser.DeviceUri, wheel?.DeviceUri, null, null)],
                 SiteLatitude: 48.2,
                 SiteLongitude: 16.3));
             await profile.SaveAsync(node.External, ct);
@@ -136,6 +139,10 @@ internal sealed class GuiNodeHarness : IAsyncDisposable
             await hub.ConnectAsync(mount, ct);
             await hub.ConnectAsync(camera, ct);
             await hub.ConnectAsync(focuser, ct);
+            if (wheel is not null)
+            {
+                await hub.ConnectAsync(wheel, ct);
+            }
 
             var gui = ComposeClient(output);
             var (services, cts, appState, contexts, skyMap, bus, tracker, equipment, planner, session, handler) = gui;

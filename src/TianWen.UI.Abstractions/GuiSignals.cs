@@ -19,6 +19,9 @@ public readonly record struct EditSiteSignal;
 /// <summary>Opens the editor of the user's key for the blind solve of last resort (nova.astrometry.net).</summary>
 public readonly record struct EditBlindSolveKeySignal;
 
+/// <summary>Turns OTA <paramref name="OtaIndex"/>'s filter wheel to slot <paramref name="Position"/> (counted from 0), on the node on show (#1618).</summary>
+public readonly record struct ChangeFilterSignal(int OtaIndex, int Position);
+
 /// <summary>Start editing the profile's mount safety limits (the numeric fields; the on/off and response choices save at once).</summary>
 public readonly record struct EditMountLimitsSignal;
 

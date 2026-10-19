@@ -38,7 +38,11 @@ namespace TianWen.UI.Abstractions
         // What the planetary panel may switch: the depths the camera streams in (empty: no choice) and its high-speed
         // readout.
         ImmutableArray<BitDepth> VideoBitDepths = default,
-        bool CanFastReadout = false)
+        bool CanFastReadout = false,
+        // The wheel's slot in the beam (-1 while it turns or when there is no wheel) and every slot's filter as the wheel's
+        // driver names them, which a filter change goes by, for the planetary panel's FILTER section (#1618).
+        int FilterPosition = -1,
+        ImmutableArray<string> FilterSlots = default)
     {
         /// <summary>Default instance with NaN temperatures and no connections.</summary>
         public static readonly PreviewOTATelemetry Unknown = new PreviewOTATelemetry(
@@ -77,6 +81,8 @@ namespace TianWen.UI.Abstractions
                 SensorHeight: camera?.SensorHeight ?? 0,
                 RoiConstraints: camera?.RoiConstraints ?? default,
                 VideoBitDepths: camera?.VideoBitDepths ?? [],
-                CanFastReadout: camera?.CanFastReadout ?? false);
+                CanFastReadout: camera?.CanFastReadout ?? false,
+                FilterPosition: filterWheel?.Position ?? -1,
+                FilterSlots: filterWheel?.Slots is { IsDefault: false } slots ? slots : []);
     }
 }
