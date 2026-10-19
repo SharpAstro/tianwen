@@ -305,6 +305,12 @@ namespace TianWen.UI.Abstractions
             // computer's or a rig's this client controls, and the shared PlanetaryCaptureController shows it and sends the
             // panel's controls.
             var planetaryCapture = sp.GetRequiredService<PlanetaryCaptureController>();
+            // The status line follows what the node applied (#1619): the start's notice said the start's settings, for ever.
+            planetaryCapture.SettingsApplied += words =>
+            {
+                Notify(NotificationSeverity.Info, $"Planetary capture at {words}");
+                appState.NeedsRedraw = true;
+            };
 
             bus.Subscribe<StartVideoCaptureSignal>(sig =>
             {

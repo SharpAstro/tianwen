@@ -314,6 +314,25 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         }
     }
 
+    // The current rate, the capture loop's (FrameRateWindow), published as one value a frame.
+    private readonly FrameRateWindow _rateWindow = new FrameRateWindow();
+    private long _currentFpsBits;
+
+    /// <summary>
+    /// The CURRENT frame rate (#1619): frames over the last second, or over the last five where those span longer; 0 before two
+    /// frames. What a readout shows, where <see cref="MeasuredFps"/> is the run's average and blends every exposure it had.
+    /// </summary>
+    public double CurrentFps => BitConverter.Int64BitsToDouble(Interlocked.Read(ref _currentFpsBits));
+
+    // The stream's settings as last applied, published whole each time they change (start, a live control, an interlude).
+    private VideoCaptureOptions? _appliedOptions;
+
+    /// <summary>
+    /// What the stream runs at now: its exposure, gain, depth and readout as started, with every live control and interlude since
+    /// applied; null before the capture's loop starts. What a status line says, never what a host staged.
+    /// </summary>
+    public VideoCaptureOptions? AppliedOptions => Volatile.Read(ref _appliedOptions);
+
     /// <summary>Last measured disk centre-of-mass offset from the frame centre (px), for the recenter readout.</summary>
     public (double X, double Y) LastComOffset
         => (BitConverter.Int64BitsToDouble(Volatile.Read(ref _lastOffsetXBits)),
@@ -526,6 +545,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         Interlocked.Exchange(ref _framesDroppedAfterInterludes, 0);
         Interlocked.Exchange(ref _droppedBeforeInterludes, 0);
         Interlocked.Exchange(ref _interludeTicks, 0);
+        Interlocked.Exchange(ref _currentFpsBits, 0);
+        Volatile.Write(ref _appliedOptions, null);
         _captureStartTimestamp = timeProvider.GetTimestamp();
 
         _cts = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -543,6 +564,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     private async Task CaptureLoopAsync(ICameraDriver camera, VideoCaptureOptions options, DeviceLeaseSet? claim, CancellationToken token)
     {
         _streamOptions = options;
+        Volatile.Write(ref _appliedOptions, options);
+        _rateWindow.Reset();
         LiveCameraFrameStream? stream = null;
         // The process's collections over the capture, and how long they held every managed thread, the reader's and the
         // driver's included: said as the loop ends, beside its frames.
@@ -612,6 +635,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 var arrived = streams && frame.ImageMeta.ExposureStartTime is var stamped && stamped != default ? stamped : timeProvider.GetUtcNow();
                 stream?.Push(frame, arrived);
                 var received = Interlocked.Increment(ref _framesReceived);
+                Interlocked.Exchange(ref _currentFpsBits,
+                    BitConverter.DoubleToInt64Bits(_rateWindow.Note(timeProvider.GetElapsedTime(_captureStartTimestamp).Ticks)));
                 Volatile.Write(ref _lastFrameBitDepth, (int)frame.BitDepth);
                 if (received == 1 && stream is null)
                 {
@@ -974,6 +999,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         }
 
         _streamOptions = restartAt.Options;
+        Volatile.Write(ref _appliedOptions, restartAt.Options);
         Volatile.Write(ref _rapidExposureTicks, restartAt.Options.Exposure.Ticks);
         logger.LogInformation("Capture ({Capture}): streaming again after {What} at {Width}x{Height} bin {Bin}, {Exposure} ms, dropping {Drop} frames.",
             Name, interlude.What, camera.NumX, camera.NumY, camera.BinX, restartAt.Options.Exposure.TotalMilliseconds, interlude.DropFrames);
@@ -1478,6 +1504,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                     HighSpeedMode = highSpeed >= 0 ? highSpeed == 1 : had.HighSpeedMode,
                     BitDepth = depth != 0 ? (BitDepth)depth : had.BitDepth,
                 };
+                Volatile.Write(ref _appliedOptions, _streamOptions);
             }
 
             if (video is { CanJogRoi: true } && (jx != 0 || jy != 0))

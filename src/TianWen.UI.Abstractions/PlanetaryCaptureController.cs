@@ -114,6 +114,7 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
 
         _state.IsSequence = true;
         _state.SourceFps = (float)(1000.0 / Math.Max(request.ExposureMs, 1e-3));
+        Volatile.Write(ref _settingsSaid, null);
         _state.NeedsTextureUpdate = true;
 
         var runCts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
@@ -154,6 +155,12 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
                 if (now is { IsSuccess: true, Value: { } state })
                 {
                     Capture.UpdateFromPoll(state, stamp);
+                    // The transport bar's rate is the current one, never the start's exposure turned into a rate.
+                    if (state.CurrentFramesPerSecond is > 0 and var current)
+                    {
+                        _state.SourceFps = (float)current;
+                    }
+                    SayIfTheSettingsChanged(state);
                     _state.NeedsRedraw = true;
                     if (!state.Running)
                     {
@@ -198,6 +205,36 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
             Capture.Ended();
             _state.IsSequence = false;
             _state.NeedsRedraw = true;
+        }
+    }
+
+    // The settings last said, in words: the first the node applies is the start's, which its notice said already.
+    private string? _settingsSaid;
+
+    /// <summary>
+    /// Raised with the settings in words (<see cref="SettingsInWords"/>) each time the node applies others than it ran at: a
+    /// live change of exposure, gain or window, said from what the NODE applied, never from what a click staged (#1619). On the
+    /// watching's thread.
+    /// </summary>
+    public event Action<string>? SettingsApplied;
+
+    /// <summary>"640x360, 5 ms, gain 110": what a capture runs at, as its state says; null before the node has applied any.</summary>
+    public static string? SettingsInWords(PlanetaryStateDto state)
+        => state.ExposureMs is { } exposureMs
+            ? string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"{state.RoiWidth}x{state.RoiHeight}, {exposureMs:0.##} ms{(state.Gain is { } gain ? $", gain {gain}" : "")}")
+            : null;
+
+    private void SayIfTheSettingsChanged(PlanetaryStateDto state)
+    {
+        if (SettingsInWords(state) is not { } words)
+        {
+            return;
+        }
+        var said = Interlocked.Exchange(ref _settingsSaid, words);
+        if (said is not null && said != words)
+        {
+            SettingsApplied?.Invoke(words);
         }
     }
 
@@ -304,8 +341,9 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
         var published = live.TryPublishMaster();
         live.RequestFollowLatest();
 
+        // Both in the camera's frames (#1619): the index was the master's over the ring, beside a count of camera frames.
         _state.FrameCount = Capture.FramesReceived;
-        _state.FrameIndex = live.FrameIndex;
+        _state.FrameIndex = Math.Max(0, Capture.FramesReceived - 1);
         if (published)
         {
             _state.NeedsTextureUpdate = true;
