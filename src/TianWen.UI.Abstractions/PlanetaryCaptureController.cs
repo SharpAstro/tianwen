@@ -77,7 +77,40 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
     /// 92 a second) and by however long a master takes to build. Until 2026-09-28 the view had only the stack: this
     /// computer read planetary/master alone, so RAW showed the stack too and a live view for focusing lagged by seconds.
     /// </remarks>
-    public IPreviewSource? Source => !_state.ShowStacked && _hasLiveFrame ? _liveFrame : _source;
+    public IPreviewSource? Source => Reframe is not null && _hasStill ? _still
+        : !_state.ShowStacked && _hasLiveFrame ? _liveFrame : _source;
+
+    // The full-sensor still a reframe shows (#1033): handed from the request's thread, copied into _still on the render thread.
+    private readonly LiveFramePreviewSource _still = new LiveFramePreviewSource();
+    private Image? _pendingStill;
+    private bool _hasStill;
+    private PlanetaryReframe? _reframe;
+
+    /// <summary>The node the capture on show runs on; null when none runs.</summary>
+    internal NodeConnection? Node => Volatile.Read(ref _node);
+
+    /// <summary>The reframe going on (#1033): the still, the live window and the proposal; null when none is.</summary>
+    public PlanetaryReframe? Reframe => Volatile.Read(ref _reframe);
+
+    /// <summary>
+    /// Shows <paramref name="still"/>, CONSUMED, in place of the stream, with the window the stream ran at and a proposal to move
+    /// on it (#1033). Any thread: the still is copied in on the render thread's next tick.
+    /// </summary>
+    public void BeginReframe(Image still, RoiRect liveWindow, RoiConstraints rules)
+    {
+        Interlocked.Exchange(ref _pendingStill, still)?.Release();
+        Volatile.Write(ref _reframe, new PlanetaryReframe(still.Width, still.Height, liveWindow, rules));
+        _state.NeedsTextureUpdate = true;
+        _state.NeedsRedraw = true;
+    }
+
+    /// <summary>Back to the stream, the still let go: once the node has moved the window, or the operator cancelled.</summary>
+    public void EndReframe()
+    {
+        Volatile.Write(ref _reframe, null);
+        _state.NeedsTextureUpdate = true;
+        _state.NeedsRedraw = true;
+    }
 
     /// <summary>The latest display-ready ([0,1]) master, or null before the first. Render-thread only.</summary>
     public Image? CurrentMaster => _source?.DisplayMaster;
@@ -304,6 +337,24 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
             // The limb a derivation fitted belongs to the capture it was fitted on (#1201).
             _state.ForgetDerivation(switchOff: false);
             _hasLiveFrame = false; // the last capture's frame is not this one's
+        }
+
+        // A reframe's still, copied into its own source and given back at once.
+        if (Interlocked.Exchange(ref _pendingStill, null) is { } still)
+        {
+            try
+            {
+                _hasStill = _still.AcceptFrame(still, freezeStats: true);
+                _state.NeedsTextureUpdate = true;
+            }
+            finally
+            {
+                still.Release();
+            }
+        }
+        if (Reframe is null)
+        {
+            _hasStill = false;
         }
 
         // The newest live frame, copied into the RAW source and given back at once (AcceptFrame leases it for the copy).

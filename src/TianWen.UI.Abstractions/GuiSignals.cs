@@ -19,6 +19,15 @@ public readonly record struct EditSiteSignal;
 /// <summary>Opens the editor of the user's key for the blind solve of last resort (nova.astrometry.net).</summary>
 public readonly record struct EditBlindSolveKeySignal;
 
+/// <summary>Takes one full-sensor still of the planetary capture on show and shows it to reframe on (#1033).</summary>
+public readonly record struct TakeFullFrameSignal;
+
+/// <summary>Moves the planetary capture's window to the reframe's proposal (#1033).</summary>
+public readonly record struct CommitReframeSignal;
+
+/// <summary>Leaves a reframe, the window where it is (#1033).</summary>
+public readonly record struct CancelReframeSignal;
+
 /// <summary>Turns OTA <paramref name="OtaIndex"/>'s filter wheel to slot <paramref name="Position"/> (counted from 0), on the node on show (#1618).</summary>
 public readonly record struct ChangeFilterSignal(int OtaIndex, int Position);
 

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Immutable;
 using System.Threading;
 using TianWen.Hosting.Dto;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 
@@ -52,6 +53,9 @@ public sealed class NodePlanetaryCapture
     public (int Width, int Height) Roi => State is { } state ? (state.RoiWidth, state.RoiHeight) : (0, 0);
 
     public int FramesReceived => State?.FramesReceived ?? 0;
+
+    /// <summary>Where the node's readout window stands on the sensor (#1033); null for a camera that cannot place it.</summary>
+    public RoiRect? Window => State is { RoiX: { } x, RoiY: { } y } state ? new RoiRect(x, y, state.RoiWidth, state.RoiHeight) : null;
 
     public int DroppedFrames => State?.DroppedFrames ?? 0;
 

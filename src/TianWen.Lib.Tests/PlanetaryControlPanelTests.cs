@@ -38,11 +38,11 @@ public class PlanetaryControlPanelTests
     internal sealed class Host(RgbaImageRenderer renderer) : PixelWidgetBase<RgbaImage>(renderer)
     {
         public void Paint(PlanetaryControlPanel panel, NodePlanetaryCapture capture, PreviewOTATelemetry telemetry, SignalBus? bus,
-            RectF32 rect, TimeSpan timeLeft = default, Func<PointerPress, DragCapture?>? pipPress = null)
+            RectF32 rect, TimeSpan timeLeft = default, Func<PointerPress, DragCapture?>? pipPress = null, PlanetaryReframe? reframe = null)
         {
             BeginFrame();
             panel.FollowCamera(telemetry);
-            RenderLayout(panel.Build(capture, telemetry, timeLeft, bus, pipPress), rect);
+            RenderLayout(panel.Build(capture, telemetry, timeLeft, bus, pipPress, reframe), rect);
         }
 
         /// <summary>Presses the control <paramref name="action"/> names the way a click arrives, through the router, where it was painted.</summary>
@@ -77,6 +77,9 @@ public class PlanetaryControlPanelTests
             _bus.Subscribe<StartPlanetaryRecordingSignal>(s => Posted.Add(s));
             _bus.Subscribe<StopPlanetaryRecordingSignal>(s => Posted.Add(s));
             _bus.Subscribe<ChangeFilterSignal>(s => Posted.Add(s));
+            _bus.Subscribe<TakeFullFrameSignal>(s => Posted.Add(s));
+            _bus.Subscribe<CommitReframeSignal>(s => Posted.Add(s));
+            _bus.Subscribe<CancelReframeSignal>(s => Posted.Add(s));
             if (capturing)
             {
                 Capture.Began();
@@ -93,13 +96,16 @@ public class PlanetaryControlPanelTests
 
         public PreviewOTATelemetry Telemetry { get; }
 
+        /// <summary>The reframe on show (#1033), which the next paint builds the panel with; null for none.</summary>
+        public PlanetaryReframe? Reframe { get; set; }
+
         public Host Host { get; }
 
         public List<object> Posted { get; } = [];
 
         /// <summary>A frame of the panel, in its design width and a height it never needs.</summary>
         public void Paint() => Host.Paint(Panel, Capture, Telemetry, _bus,
-            new RectF32(0f, 0f, PlanetaryControlPanel.BaseWidth * _scale, 1100 * _scale));
+            new RectF32(0f, 0f, PlanetaryControlPanel.BaseWidth * _scale, 1100 * _scale), reframe: Reframe);
 
         /// <summary>Presses the control <paramref name="action"/> names through the router, then paints the next frame.</summary>
         public void Press(string action)
@@ -389,15 +395,44 @@ public class PlanetaryControlPanelTests
         rig.Posted.ShouldBe([new StartPlanetaryRecordingSignal(TimeSpan.FromSeconds(90))]);
     }
 
+    /// <summary>
+    /// "Show ROI on image" outlined a stream that IS the window, so the whole image (#1033): a running capture offers its full
+    /// sensor instead, and an idle panel offers neither.
+    /// </summary>
+    [Theory]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public void ARunningCaptureOffersItsFullFrameToReframeOnAndAnIdleOneDoesNot(float scale)
+    {
+        using (var idle = new Rigged(scale, capturing: false))
+        {
+            idle.Host.GetRegisteredRegions().Any(static r => r.Result is HitResult.ButtonHit { Action: "TakeFullFrame" or "RoiOverlayToggle" })
+                .ShouldBeFalse("an idle panel has no stream to take a full frame of");
+        }
+        using var rig = new Rigged(scale, capturing: true);
+
+        rig.Press("TakeFullFrame");
+
+        rig.Posted.ShouldBe([new TakeFullFrameSignal()]);
+    }
+
     [Fact]
-    public void ShowRoiOnImageTogglesTheOverlay()
+    public void AReframesConfirmCardMovesTheWindowOrLetsItGoAndItsSizeIsTheProposals()
     {
         using var rig = new Rigged(1f, capturing: true);
-        rig.Panel.ShowRoiOnImage.ShouldBeTrue("the ROI is outlined on the stream until the user says otherwise");
+        var reframe = new PlanetaryReframe(1936, 1096, new RoiRect(648, 368, 640, 360), RoiConstraints.ForSensor(1936, 1096));
+        rig.Reframe = reframe;
+        rig.Paint();
+        rig.Host.GetRegisteredRegions().Any(static r => r.Result is HitResult.ButtonHit { Action: "TakeFullFrame" or "RoiPanLeft" })
+            .ShouldBeFalse("the card stands in for the pan and the full frame while it is on show");
 
-        rig.Press("RoiOverlayToggle");
+        rig.Press("RoiSizeInc");                 // 640x360 to 640x480, the proposal's alone
+        rig.Capture.TakeChanges().ShouldBeNull("a proposal is nothing the capture takes until it is committed");
+        (reframe.Proposal.Width, reframe.Proposal.Height).ShouldBe((640, 480));
+        rig.Press("ReframeCommit");
+        rig.Press("ReframeCancel");
 
-        rig.Panel.ShowRoiOnImage.ShouldBeFalse();
+        rig.Posted.ShouldBe([new CommitReframeSignal(), new CancelReframeSignal()]);
     }
 
     /// <summary>

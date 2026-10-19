@@ -349,6 +349,62 @@ namespace TianWen.UI.Abstractions
                 }, onFinally: () => appState.NeedsRedraw = true);
             });
 
+            // Reframing on the full sensor (#1033): the node takes the still as a job, the view shows it with the live window and a
+            // proposal; a commit is the node's reframe job, a cancel only leaves the view.
+            bus.Subscribe<TakeFullFrameSignal>(_ =>
+            {
+                if (!planetaryCapture.IsCapturing || planetaryCapture.Node is not { } node)
+                {
+                    return;
+                }
+                RunTracked("Planetary full frame", "Full frame failed", async ct =>
+                {
+                    if (await RunNodeJobAsync(node, node.Client.TakePlanetaryFullFrameAsync(ct), "Full frame", ct) is null)
+                    {
+                        return;
+                    }
+                    var frame = await node.Client.GetLatestFrameAsync(FrameSources.PlanetaryFullFrame, after: null, new FrameReader(), ct);
+                    if (frame.Image is not { } still)
+                    {
+                        Notify(NotificationSeverity.Warning, $"The full frame could not be read: {frame.Error}");
+                        return;
+                    }
+                    var (width, height) = planetaryCapture.Capture.Roi;
+                    var live = planetaryCapture.Capture.Window is { } at ? at with { Width = width, Height = height }
+                        : new RoiRect((still.Width - width) / 2, (still.Height - height) / 2, width, height);
+                    planetaryCapture.BeginReframe(still, live, RoiConstraints.ForSensor(still.Width, still.Height));
+                    Notify(NotificationSeverity.Info, "Drag the window on the full frame, then move it there or cancel");
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
+            bus.Subscribe<CommitReframeSignal>(_ =>
+            {
+                if (planetaryCapture.Reframe is not { } reframe || planetaryCapture.Node is not { } node)
+                {
+                    return;
+                }
+                var target = reframe.Proposal;
+                planetaryCapture.EndReframe();
+                if (!reframe.Moves)
+                {
+                    return;
+                }
+                RunTracked("Planetary reframe", "Reframe failed", async ct =>
+                {
+                    var request = new PlanetaryReframeRequestDto { X = target.X, Y = target.Y, Width = target.Width, Height = target.Height };
+                    if (await RunNodeJobAsync(node, node.Client.ReframePlanetaryAsync(request, ct), "Reframe", ct) is { } done)
+                    {
+                        Notify(NotificationSeverity.Info, done.Step ?? "The window moved");
+                    }
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
+            bus.Subscribe<CancelReframeSignal>(_ =>
+            {
+                planetaryCapture.EndReframe();
+                appState.NeedsRedraw = true;
+            });
+
             bus.Subscribe<StopVideoCaptureSignal>(_ =>
             {
                 if (!planetaryCapture.IsCapturing) return;

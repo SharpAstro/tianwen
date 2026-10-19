@@ -85,7 +85,6 @@ public sealed class PlanetaryControlPanel
     private int _sensorW = FallbackSensorW;
     private int _sensorH = FallbackSensorH;
     private bool _roiInitialised;
-    private bool _roiOverlay = true;              // draw the ROI extent on the live stream
 
     // The stream's depth and high-speed readout, offered only where the camera has a choice (its telemetry's VideoBitDepths and
     // CanFastReadout). A null depth is the camera's own, shown as its deepest.
@@ -123,7 +122,6 @@ public sealed class PlanetaryControlPanel
     public int SensorHeight => _sensorH;
 
     /// <summary>Whether the ROI is outlined on the live stream ("Show ROI on image").</summary>
-    public bool ShowRoiOnImage => _roiOverlay;
 
     /// <summary>
     /// Takes the sensor and its ROI rule from <paramref name="telemetry"/> (populated off-thread from the connected camera), so
@@ -184,8 +182,9 @@ public sealed class PlanetaryControlPanel
     /// picture-in-picture does, the view's, since only the view knows where it drew the sensor inside the fill: a press the
     /// scrolled panel's own region would otherwise swallow.
     /// </summary>
+    /// <param name="reframe">The reframe going on (#1033), which turns the region section into its confirm card; null for none.</param>
     public Layout.Node Build(NodePlanetaryCapture capture, PreviewOTATelemetry telemetry, TimeSpan recordingTimeLeft, SignalBus? bus,
-        Func<PointerPress, DragCapture?>? pipPress = null)
+        Func<PointerPress, DragCapture?>? pipPress = null, PlanetaryReframe? reframe = null)
     {
         var capturing = capture.IsCapturing;
 
@@ -276,18 +275,48 @@ public sealed class PlanetaryControlPanel
             var pip = Layout.Builder.Fill(key: PipKey).RowH(BaseRowHeight * 3f);
             rows.Add(pipPress is null ? pip : pip.Pressable(new HitResult.ButtonHit(PipKey), pipPress));
         }
-        rows.Add(Stepper("Size", $"{_roi.Width}x{_roi.Height}", "RoiSize",
-            () => { SetRoiSize(_roiSizeIdx - 1); if (capturing) capture.SetRoiSize(_roi.Width, _roi.Height); },
-            () => { SetRoiSize(_roiSizeIdx + 1); if (capturing) capture.SetRoiSize(_roi.Width, _roi.Height); }));
-        rows.Add(Layout.Builder.HStack(
-                Layout.Builder.Text("Pan", PanelFontSize, DimText, TextAlign.Near, TextAlign.Center).WFixed(40f).HStar(),
-                RoiPanButton("◀", "RoiPanLeft", -1, 0, capture, capturing),
-                RoiPanButton("▶", "RoiPanRight", 1, 0, capture, capturing),
-                RoiPanButton("▲", "RoiPanUp", 0, -1, capture, capturing),
-                RoiPanButton("▼", "RoiPanDown", 0, 1, capture, capturing))
-            .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f));
-        // A display toggle, not a capture setting, so it is offered whether or not a capture runs.
-        rows.Add(CheckRow("Show ROI on image", _roiOverlay, "RoiOverlayToggle", () => _roiOverlay = !_roiOverlay));
+        // While a reframe is on show the size is the PROPOSAL's, which nothing applies until it is committed.
+        void Resize(int index)
+        {
+            SetRoiSize(index);
+            if (reframe is not null)
+            {
+                reframe.ResizeProposal(_roi.Width, _roi.Height);
+            }
+            else if (capturing)
+            {
+                capture.SetRoiSize(_roi.Width, _roi.Height);
+            }
+        }
+        rows.Add(Stepper("Size", reframe is { } sized ? $"{sized.Proposal.Width}x{sized.Proposal.Height}" : $"{_roi.Width}x{_roi.Height}",
+            "RoiSize", () => Resize(_roiSizeIdx - 1), () => Resize(_roiSizeIdx + 1)));
+        if (reframe is { } proposing)
+        {
+            // The confirm card (#1033): the proposal is dragged on the full frame; it moves the window, or is let go.
+            var p = proposing.Proposal;
+            rows.Add(Layout.Builder.Text($"Drag the window on the frame: {p.Width}x{p.Height} at ({p.X}, {p.Y})", PanelFontSize * 0.8f,
+                DimText, TextAlign.Near, TextAlign.Center).RowH(BaseRowHeight));
+            rows.Add(Layout.Builder.HStack(
+                    PanelButton("Move window", "ReframeCommit", StartBg, () => bus?.Post(new CommitReframeSignal())).WStar().HStar(),
+                    PanelButton("Cancel", "ReframeCancel", StepBtnBg, () => bus?.Post(new CancelReframeSignal())).WStar().HStar())
+                .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f));
+        }
+        else
+        {
+            rows.Add(Layout.Builder.HStack(
+                    Layout.Builder.Text("Pan", PanelFontSize, DimText, TextAlign.Near, TextAlign.Center).WFixed(40f).HStar(),
+                    RoiPanButton("◀", "RoiPanLeft", -1, 0, capture, capturing),
+                    RoiPanButton("▶", "RoiPanRight", 1, 0, capture, capturing),
+                    RoiPanButton("▲", "RoiPanUp", 0, -1, capture, capturing),
+                    RoiPanButton("▼", "RoiPanDown", 0, 1, capture, capturing))
+                .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f));
+            // The whole sensor while a capture runs, to reframe on (#1033): it replaced "Show ROI on image", whose outline on a
+            // stream that IS the window was the whole image and said nothing.
+            if (capturing)
+            {
+                rows.Add(PanelButton("Full frame", "TakeFullFrame", StepBtnBg, () => bus?.Post(new TakeFullFrameSignal())).RowH(BaseRowHeight));
+            }
+        }
 
         // --- Recenter section (Phase C): keep the planet centred. Auto-recenter jogs the readout window (fast, mount-free) to
         // null the disk's COM drift; the opt-in Mount jog is the coarse fallback when the ROI reaches the sensor edge.
@@ -415,6 +444,12 @@ public sealed class PlanetaryControlPanel
         { Filter.ShortName: { Length: > 0 } shortName } => shortName,
         var filter => filter.DisplayName,
     };
+
+    // A labelled button of the panel's: its fill lit under the pointer, a press runs the action.
+    private static Layout.Node PanelButton(string label, string id, RGBAColor32 fill, Action onClick)
+        => Layout.Builder.Text(label, PanelFontSize, ButtonText, TextAlign.Center, TextAlign.Center)
+            .Bg(fill).BgHover(GuiTheme.Hover(fill))
+            .Clickable(new HitResult.ButtonHit(id), _ => onClick());
 
     private static Layout.Node SectionHeader(string text)
         => Layout.Builder.Text(text, PanelFontSize, SectionText, TextAlign.Near, TextAlign.Center).RowH(BaseRowHeight);
