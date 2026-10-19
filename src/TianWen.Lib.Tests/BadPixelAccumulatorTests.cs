@@ -174,6 +174,50 @@ namespace TianWen.Lib.Tests
             CountFlagged(mask[0]).ShouldBe(1, "noise alone never reaches the weak vote's count");
         }
 
+        /// <summary>
+        /// A faint STAR that barely moves sits on the same photosite in most frames, as on the SV605CC Tarantula of
+        /// 2026-10-17 (3 px dithers, 5,000 stars), where the weak vote took such stars for defects. On a mosaic its
+        /// same-colour neighbours, 2 px away, see little of a 2.4 px star; the photosites BESIDE its core, the other
+        /// colours, see half of it, and that is what tells it from a lone warm photosite.
+        /// </summary>
+        [Fact]
+        public void AFaintStarThatBarelyMovesIsNotADefect_ButALonePixelBesideItIs()
+        {
+            const int Frames = 30;
+            var transforms = new List<Matrix3x2>(Frames);
+            var acc = new BadPixelAccumulator();
+            for (var i = 0; i < Frames; i++)
+            {
+                // Two frames in three at the same place, the rest dithered far: the session moved, the star mostly did not.
+                var (dx, dy) = i % 3 == 2 ? Dither[1 + ((i / 3) % (Dither.Length - 1))] : (0, 0);
+                transforms.Add(Matrix3x2.CreateTranslation(dx * 2.5f, dy * 2.5f));
+                acc.Accumulate(RggbFrame(500 + i, arr =>
+                {
+                    var cx = 80.3f + (dx * 2.5f);
+                    var cy = 60.4f + (dy * 2.5f);
+                    for (var y = (int)cy - 4; y <= (int)cy + 4; y++)
+                    {
+                        for (var x = (int)cx - 4; x <= (int)cx + 4; x++)
+                        {
+                            var r2 = ((x - cx) * (x - cx)) + ((y - cy) * (y - cy));
+                            arr[y, x] += 14f * MathF.Exp(-r2 / (2f * 1.02f * 1.02f));   // FWHM 2.4 px, as the Tarantula's
+                        }
+                    }
+                    arr[40, 40] += 12f;   // a lone warm photosite, a few sigma
+                }));
+            }
+
+            var mask = acc.BuildMask(transforms).ShouldNotBeNull();
+            mask[0][40, 40].ShouldBeTrue("a lone photosite warm in every frame is a defect");
+            for (var y = 56; y <= 65; y++)
+            {
+                for (var x = 76; x <= 85; x++)
+                {
+                    mask[0][y, x].ShouldBeFalse($"({x}, {y}) is the star's, which sits there in two frames of three");
+                }
+            }
+        }
+
         [Theory]
         [InlineData(10, 10)]
         [InlineData(12, 11)]

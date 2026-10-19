@@ -145,6 +145,7 @@ namespace TianWen.Lib.Imaging.Calibration
         private readonly float _outlierSigma = outlierSigma;
         private ushort[]? _counts;
         private ushort[]? _weakCounts;
+        private float[]? _weakResidual;
         private int _width;
         private int _height;
         private int _step;
@@ -217,6 +218,10 @@ namespace TianWen.Lib.Imaging.Calibration
 
             var counts = _counts;
             var weakCounts = _weakCounts ?? throw new InvalidOperationException("the weak counts are allocated with the strong ones");
+            // Each pixel's residual from its same-subplane neighbours' median, in units of its subplane's weak delta
+            // (so past 1 is a weak outlier), kept for the second pass, which reads a pixel's IMMEDIATE neighbours.
+            var z = _weakResidual is { Length: var len } existing && len == w * h ? existing : (_weakResidual = new float[w * h]);
+            Array.Fill(z, float.NaN);
             // Rows partition the counts array, so the per-row increments never race. The border of
             // `step` px has no full neighbourhood and never accumulates (and so is never flagged).
             Parallel.For(step, h - step, y =>
@@ -251,12 +256,28 @@ namespace TianWen.Lib.Imaging.Calibration
                     // non-finite NEIGHBOUR makes the median NaN and every comparison false, so
                     // pixels bordering a NaN region simply never accumulate.
                     var finite = float.IsFinite(v);
-                    var residual = MathF.Abs(v - median);
-                    if (!finite || residual > deltas[rowSub + x % step])
+                    if (!finite || MathF.Abs(v - median) > deltas[rowSub + x % step])
                     {
                         counts[rowBase + x]++;
                     }
-                    if (!finite || residual > weakDeltas[rowSub + x % step])
+                    if (!finite)
+                    {
+                        weakCounts[rowBase + x]++;
+                    }
+                    else
+                    {
+                        z[rowBase + x] = (v - median) / weakDeltas[rowSub + x % step];
+                    }
+                }
+            });
+            // Second pass: a weak outlier votes only where it stands ALONE in this frame (see BlobShare).
+            Parallel.For(step, h - step, y =>
+            {
+                var rowBase = y * w;
+                Span<float> n = stackalloc float[8];
+                for (var x = step; x < w - step; x++)
+                {
+                    if (MathF.Abs(z[rowBase + x]) > 1f && StandsAlone(z, rowBase + x, w, n))
                     {
                         weakCounts[rowBase + x]++;
                     }
@@ -264,6 +285,53 @@ namespace TianWen.Lib.Imaging.Calibration
             });
             FramesAccumulated++;
         }
+
+        /// <summary>
+        /// Whether a weak outlier stands ALONE: the median of its 8 IMMEDIATE neighbours' residuals (each from its own
+        /// subplane's neighbours, in its own subplane's weak delta, so the colours' levels cancel) stays under
+        /// <see cref="BlobShare"/>. A defect is one photosite and its neighbours read noise; a star lights the photosites
+        /// beside its core, which on a mosaic are the other colours one pixel away, each the brightest of its own
+        /// lattice there. A neighbour with no residual (the border, a non-finite pixel) reads as not alone.
+        /// </summary>
+        /// <remarks>
+        /// Measured on the SV605CC Tarantula of 2026-10-17 (dithers of 3 px, the night within 13 x 17 px, a field of
+        /// 5,000 stars), before this guard: of the photosites the weak vote added, 42 to 56 % per colour sat on a blob
+        /// in the subs' median and 1 % were lone pixels, against 1.6 % on a blob for the masks before it. A faint star
+        /// that barely moves all night is at the same photosite in most frames, and a vote alone cannot tell it from a
+        /// defect. Its SAME-colour neighbours cannot either: they are 2 px away on a mosaic, where a 2.4 px star leaves
+        /// a twelfth of its peak, so the test reads the photosites beside it. With the guard, the photosites added on
+        /// a blob fell to 1 to 3 % (the old masks' own 1.6 %), the Tarantula master's pixels under half coverage from
+        /// 5,572 to 127 (651 before the weak vote), its stars' median SNR back to 73.9; on the October Sculptor the
+        /// weak vote then cuts the blotches' single-channel outliers by 35 to 39 % rather than 60 to 79 % unguarded,
+        /// the rest being photosites that read as a blob in their own frames, which is what a faint star does.
+        /// Counting a frame's blob verdict apart and disqualifying only a mostly-blob pixel was worse on both: 27 to
+        /// 44 % of the added on a blob, the same Sculptor cut.
+        /// </remarks>
+        private static bool StandsAlone(float[] z, int index, int w, Span<float> n)
+        {
+            n[0] = z[index - w - 1];
+            n[1] = z[index - w];
+            n[2] = z[index - w + 1];
+            n[3] = z[index - 1];
+            n[4] = z[index + 1];
+            n[5] = z[index + w - 1];
+            n[6] = z[index + w];
+            n[7] = z[index + w + 1];
+            foreach (var v in n)
+            {
+                if (!float.IsFinite(v))
+                {
+                    return false;
+                }
+            }
+            n.Sort();
+            return 0.5f * (n[3] + n[4]) <= BlobShare;
+        }
+
+        /// <summary>The median of a weak outlier's immediate neighbours' residuals, in their weak deltas, above which it
+        /// sits in a blob (a star) rather than alone (a defect). A star's neighbours read about half its core; noise's
+        /// median of 8 rarely passes half a weak delta.</summary>
+        internal const float BlobShare = 0.5f;
 
         /// <summary>
         /// RMS radial spread of the transforms' translation components about their mean -- the
