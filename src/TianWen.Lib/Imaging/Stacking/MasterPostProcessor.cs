@@ -401,24 +401,27 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
     }
 
     /// <summary>
-    /// The autocrop clipped to the master's own coverage plane, the viewer's rule
-    /// (<see cref="Image.CoverageCropRectangle"/>). The geometric rectangle is where every frame's
-    /// OUTLINE reaches, not where its pixels did: a photosite the bad-pixel mask drops from every frame
-    /// leaves a hole the outlines cannot see. Measured on the SV605CC Tarantula of 2026-10-17: the dark
-    /// mask flagged the sensor's warm corner whole, the subs moved only +-9 px all night, and the
-    /// autocrop kept a 22 px wedge with 197 pixels no frame reached. Where the geometry already lies
-    /// inside full coverage, which is the usual case, the rectangle comes back unchanged. The hole arises
-    /// in drizzle, which skips a masked photosite rather than repairing it, and a drizzle weight plane is
-    /// read by block MEAN, so a block the wedge takes a share of fails; a count plane's block MEDIAN keeps
-    /// such a block, which is right for the scattered single-pixel dips it was made for.
+    /// The autocrop clipped where the master's own coverage plane shows ABSENCE. The geometric rectangle
+    /// is where every frame's OUTLINE reaches, not where its pixels did: a photosite the bad-pixel mask
+    /// drops from every frame leaves a hole the outlines cannot see. Measured on the SV605CC Tarantula of
+    /// 2026-10-17: the dark mask flagged the sensor's warm corner whole, the subs moved only +-9 px all
+    /// night, and the autocrop kept a 22 px wedge with 197 pixels no frame reached.
     /// </summary>
+    /// <remarks>
+    /// <para><b>Absence, not the viewer's 0.95.</b> The outline crop already answers the rim; what this adds
+    /// is a hole. Clipped by the viewer's rule (<see cref="Image.CoverageCropRectangle"/>) the same Tarantula,
+    /// its corner no longer masked, lost 34 good columns: one 16 px block beside the rim held 0.927 of full
+    /// weight (masked warm pixels cluster there), the flood took it as rim, and a rectangle can remove a block
+    /// only as a stripe. A block counts as absent here under <see cref="AbsenceFraction"/> of full, read on
+    /// <see cref="AbsenceBlockPx"/> px blocks so a wedge costs little more than itself.</para>
+    /// </remarks>
     internal PixelRect ClipToCoverage(PixelRect autocropRect, Image master, Image? coverage)
     {
         if (autocropRect.IsEmpty || coverage is null || coverage.Width != master.Width || coverage.Height != master.Height)
         {
             return autocropRect;
         }
-        var covered = master.CoverageCropRectangle(coverage);
+        var covered = master.LargestCoveredRectangle(coverage, AbsenceFraction, AbsenceBlockPx);
         if (covered.IsEmpty)
         {
             return autocropRect;
@@ -428,9 +431,16 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         {
             return autocropRect;
         }
-        logger.LogInformation("  [autocrop] {Geometric} clipped to {Clipped} by the coverage plane", autocropRect, clipped);
+        logger.LogInformation("  [autocrop] {Geometric} clipped to {Clipped} where the coverage plane shows absence", autocropRect, clipped);
         return clipped;
     }
+
+    /// <summary>A block holding under this share of full coverage is absence to <see cref="ClipToCoverage"/>.</summary>
+    internal const double AbsenceFraction = 0.5;
+
+    /// <summary>The block side <see cref="ClipToCoverage"/> reads coverage over: fine enough that a corner wedge costs
+    /// little more than itself, coarse enough (64 drizzle cells) that a cell's own 10 % scatter averages out.</summary>
+    internal const int AbsenceBlockPx = 8;
 
     /// <summary>
     /// Gate for routing the plate-solve through the autocrop instead of
