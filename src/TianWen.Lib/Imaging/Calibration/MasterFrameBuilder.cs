@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace TianWen.Lib.Imaging.Calibration;
 
@@ -109,6 +110,11 @@ public static class MasterFrameBuilder
             .Select(f => $"{Path.GetFileName(f.Path)}|{f.Meta.ExposureStartTime.UtcDateTime:O}")
             .OrderBy(s => s, StringComparer.Ordinal);
         var sb = new StringBuilder();
+        // A flat's recipe changes what is built from the same frames (FlatRecipe); a bias or a dark has had one recipe.
+        if (inputs.Count > 0 && inputs[0].Meta.FrameType is FrameType.Flat)
+        {
+            sb.Append(FlatRecipe).Append('\n');
+        }
         foreach (var id in ids)
         {
             sb.Append(id).Append('\n');
@@ -202,13 +208,25 @@ public static class MasterFrameBuilder
     /// <param name="frames">Raw flat frames to combine.</param>
     /// <param name="pedestal">Master bias or master dark-flat to remove from each flat BEFORE
     /// normalising, or null to combine the flats raw (the historical behaviour).</param>
+    /// <param name="logger">Told what <see cref="FlatDefects"/> repaired, a warning past
+    /// <see cref="FlatRepairWarningPhotosites"/> photosites.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     public static async Task<Image> BuildFlatMasterAsync(
-        IReadOnlyList<FrameInfo> frames, Image? pedestal = null, CancellationToken cancellationToken = default)
+        IReadOnlyList<FrameInfo> frames, Image? pedestal = null, ILogger? logger = null, CancellationToken cancellationToken = default)
     {
         ValidateInput(frames);
-        return await CombinePooledAsync(frames, images => BuildFlatMaster(images, pedestal), cancellationToken);
+        return await CombinePooledAsync(frames, images => BuildFlatMaster(images, pedestal, logger), cancellationToken);
     }
+
+    /// <summary>Repaired photosites past which the build warns: a few are a stray defect, this many is something
+    /// that was on the sensor while the flats were taken (499 condensation droplets, 8,204 photosites, on the SV605CC
+    /// flats of 2026-10-17).</summary>
+    public const int FlatRepairWarningPhotosites = 100;
+
+    /// <summary>What a flat master's recipe is called inside its fingerprint (<see cref="InputSetFingerprint"/>), so a
+    /// flat cached by an earlier recipe is rebuilt rather than served: <c>flat-defects-1</c> repairs the flat's own
+    /// defects (<see cref="FlatDefects"/>). Change it whenever a change to the flat recipe must reach cached masters.</summary>
+    public const string FlatRecipe = "flat-defects-1";
 
     // ---------- Pure-math overloads (testable without FITS I/O) ----------
 
@@ -224,7 +242,7 @@ public static class MasterFrameBuilder
         return CombineMedian(images, FrameType.Dark);
     }
 
-    internal static Image BuildFlatMaster(IReadOnlyList<Image> images, Image? pedestal = null)
+    internal static Image BuildFlatMaster(IReadOnlyList<Image> images, Image? pedestal = null, ILogger? logger = null)
     {
         ValidateShapes(images);
         // Normalize each input to mean=1 in place. Inputs are throwaway; 
@@ -240,7 +258,19 @@ public static class MasterFrameBuilder
             }
             NormalizeFlatInPlace(image);
         }
-        return CombineMedian(images, FrameType.Flat);
+        var master = CombineMedian(images, FrameType.Flat);
+        // While the frames are still in hand: what was on the sensor during the run but is not the light path
+        // (condensation as it cooled) is repaired from its neighbours, judged by whether it changed across the frames or
+        // moves light like a lens.
+        var repair = FlatDefects.RepairInPlace(master, images);
+        if (repair.RepairedPhotosites > 0)
+        {
+            logger?.Log(repair.RepairedPhotosites > FlatRepairWarningPhotosites ? LogLevel.Warning : LogLevel.Information,
+                "  flat: {Photosites} photosites in {Groups} groups repaired from their neighbours, as they changed during the run or "
+                + "moved light like a lens (condensation on the sensor while it cooled?); {Kept} steady groups kept as the light path's",
+                repair.RepairedPhotosites, repair.RepairedGroups, repair.KeptGroups);
+        }
+        return master;
     }
 
     /// <summary>Subtracts <paramref name="pedestal"/> from <paramref name="image"/> in place,

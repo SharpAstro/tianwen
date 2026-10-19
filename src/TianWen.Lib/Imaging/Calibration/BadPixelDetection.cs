@@ -296,7 +296,7 @@ public static class BadPixelDetection
     public static BitMatrix[] BuildMaskFromFlat(Image flatMaster, float maxDeviation = DefaultMaxFlatDeviation, ILogger? logger = null)
     {
         var channelCount = flatMaster.ChannelCount;
-        var step = channelCount == 1 && flatMaster.ImageMeta.SensorType is SensorType.RGGB ? 2 : 1;
+        var step = FlatLatticeStep(flatMaster);
         var masks = new BitMatrix[channelCount];
         var flagged = 0L;
         for (var c = 0; c < channelCount; c++)
@@ -305,60 +305,21 @@ public static class BadPixelDetection
             var (h, w) = (data.GetLength(0), data.GetLength(1));
             var mask = new BitMatrix(h, w);
             masks[c] = mask;
-            for (var yStart = 0; yStart < step; yStart++)
+            // A band writes only its own rows of the mask, and a row is whole words, so the bands share none.
+            ParallelFor.RunBands(h, (from, to) =>
             {
-                for (var xStart = 0; xStart < step; xStart++)
+                Span<float> scratch = stackalloc float[FlatNeighbourhoodSize];
+                for (var y = from; y < to; y++)
                 {
-                    var latH = (h - yStart + step - 1) / step;
-                    var latW = (w - xStart + step - 1) / step;
-                    var (y0, x0) = (yStart, xStart);
-                    // A band writes only its own rows of the mask, and a row is whole words, so the bands share none.
-                    ParallelFor.RunBands(latH, (from, to) =>
+                    for (var x = 0; x < w; x++)
                     {
-                        Span<float> n = stackalloc float[(2 * FlatNeighbourhoodRadius + 1) * (2 * FlatNeighbourhoodRadius + 1)];
-                        for (var ly = from; ly < to; ly++)
+                        if (FlatRatio(data, y, x, step, scratch) is var ratio && MathF.Abs(ratio - 1f) > maxDeviation)
                         {
-                            for (var lx = 0; lx < latW; lx++)
-                            {
-                                var v = data[y0 + ly * step, x0 + lx * step];
-                                if (!float.IsFinite(v))
-                                {
-                                    continue;
-                                }
-                                var count = 0;
-                                for (var dy = -FlatNeighbourhoodRadius; dy <= FlatNeighbourhoodRadius; dy++)
-                                {
-                                    var ny = Mirror(ly + dy, latH);
-                                    for (var dx = -FlatNeighbourhoodRadius; dx <= FlatNeighbourhoodRadius; dx++)
-                                    {
-                                        var nx = Mirror(lx + dx, latW);
-                                        if (ny == ly && nx == lx)
-                                        {
-                                            continue;
-                                        }
-                                        var u = data[y0 + ny * step, x0 + nx * step];
-                                        if (float.IsFinite(u))
-                                        {
-                                            n[count++] = u;
-                                        }
-                                    }
-                                }
-                                if (count == 0)
-                                {
-                                    continue;
-                                }
-                                var some = n[..count];
-                                some.Sort();
-                                var median = (count & 1) == 1 ? some[count / 2] : 0.5f * (some[(count / 2) - 1] + some[count / 2]);
-                                if (median > 0f && MathF.Abs((v / median) - 1f) > maxDeviation)
-                                {
-                                    mask[y0 + ly * step, x0 + lx * step] = true;
-                                }
-                            }
+                            mask[y, x] = true;
                         }
-                    });
+                    }
                 }
-            }
+            });
             flagged += mask.PopCount();
         }
         logger?.LogInformation(
@@ -366,6 +327,68 @@ public static class BadPixelDetection
             flagged, maxDeviation,
             flagged > 1000 ? " (that many is something on the sensor while the flats were taken: condensation or dust)" : "");
         return masks;
+    }
+
+    /// <summary>The lattice a flat's photosite is judged on: 2 on a one-channel mosaic, whose four colours are four
+    /// populations, else 1.</summary>
+    internal static int FlatLatticeStep(Image flat) => flat.ChannelCount == 1 && flat.ImageMeta.SensorType is SensorType.RGGB ? 2 : 1;
+
+    /// <summary>The scratch <see cref="FlatNeighbourMedian"/> needs: the 7x7 neighbourhood of one colour.</summary>
+    internal const int FlatNeighbourhoodSize = (2 * FlatNeighbourhoodRadius + 1) * (2 * FlatNeighbourhoodRadius + 1);
+
+    /// <summary>A flat photosite over the median of its own colour's 7x7 neighbourhood
+    /// (<see cref="FlatNeighbourMedian"/>); NaN where either is not a positive finite number.</summary>
+    internal static float FlatRatio(float[,] data, int y, int x, int step, Span<float> scratch)
+    {
+        var v = data[y, x];
+        var median = FlatNeighbourMedian(data, y, x, step, null, scratch);
+        return float.IsFinite(v) && median > 0f ? v / median : float.NaN;
+    }
+
+    /// <summary>
+    /// The median of the photosites of (<paramref name="y"/>, <paramref name="x"/>)'s own colour within
+    /// <see cref="FlatNeighbourhoodRadius"/> lattice steps: itself left out, as is any set in
+    /// <paramref name="exclude"/> or not finite, and a neighbour past the edge mirrored about the edge photosite. NaN
+    /// when none is left. The ONE neighbourhood a flat's photosite is judged against (<see cref="BuildMaskFromFlat"/>)
+    /// and repaired from (<see cref="FlatDefects"/>), so the two cannot disagree about what "its neighbours" are.
+    /// </summary>
+    internal static float FlatNeighbourMedian(float[,] data, int y, int x, int step, BitMatrix? exclude, Span<float> scratch)
+    {
+        var (h, w) = (data.GetLength(0), data.GetLength(1));
+        var (y0, x0) = (y % step, x % step);
+        var (ly, lx) = (y / step, x / step);
+        var latH = (h - y0 + step - 1) / step;
+        var latW = (w - x0 + step - 1) / step;
+        var count = 0;
+        for (var dy = -FlatNeighbourhoodRadius; dy <= FlatNeighbourhoodRadius; dy++)
+        {
+            var ny = Mirror(ly + dy, latH);
+            for (var dx = -FlatNeighbourhoodRadius; dx <= FlatNeighbourhoodRadius; dx++)
+            {
+                var nx = Mirror(lx + dx, latW);
+                if (ny == ly && nx == lx)
+                {
+                    continue;
+                }
+                var (py, px) = (y0 + ny * step, x0 + nx * step);
+                if (exclude is { } skip && skip[py, px])
+                {
+                    continue;
+                }
+                var u = data[py, px];
+                if (float.IsFinite(u))
+                {
+                    scratch[count++] = u;
+                }
+            }
+        }
+        if (count == 0)
+        {
+            return float.NaN;
+        }
+        var some = scratch[..count];
+        some.Sort();
+        return (count & 1) == 1 ? some[count / 2] : 0.5f * (some[(count / 2) - 1] + some[count / 2]);
 
         static int Mirror(int i, int length)
             => i < 0 ? Math.Min(-i, length - 1) : i >= length ? Math.Max((2 * (length - 1)) - i, 0) : i;
