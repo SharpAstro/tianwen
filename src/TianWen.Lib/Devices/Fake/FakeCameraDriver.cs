@@ -1624,6 +1624,9 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     /// <inheritdoc/>
     public int DroppedFrames => Volatile.Read(ref _droppedFrames);
 
+    /// <summary>Has the running stream report <paramref name="frames"/> more dropped, as a starved SDK buffer does; counted per stream like a real driver's. Test seam.</summary>
+    internal void ReportDroppedFrames(int frames) => Interlocked.Add(ref _droppedFrames, frames);
+
     /// <inheritdoc/>
     public RoiRect VideoRoi =>
         // The ROI-window fields are owned by the capture loop (where the recenter loop reads this); when not
