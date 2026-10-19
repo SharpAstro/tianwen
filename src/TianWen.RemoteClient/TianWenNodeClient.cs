@@ -551,6 +551,16 @@ namespace TianWen.RemoteClient
             SendJsonAsync(HttpMethod.Post, "api/v1/planetary/reframe", request, HostingJsonContext.Default.PlanetaryReframeRequestDto,
                 HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
 
+        /// <summary><c>POST /planetary/find</c>: a full-sensor still of the capture going on, solved (#1684), as a job.</summary>
+        public Task<NodeResult<JobDto>> FindPlanetAsync(PlanetaryFindRequestDto request, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/planetary/find", request, HostingJsonContext.Default.PlanetaryFindRequestDto,
+                HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>POST /planetary/find/go</c>: syncs the mount to the last find and goes to the planet (#1684), as a job.</summary>
+        public Task<NodeResult<JobDto>> FindPlanetGoAsync(PlanetaryFindGoRequestDto request, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/planetary/find/go", request, HostingJsonContext.Default.PlanetaryFindGoRequestDto,
+                HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
         /// <summary><c>DELETE /planetary</c> -- ends the planetary capture going on, answered once it has.</summary>
         public Task<NodeResult<PlanetaryStateDto>> StopPlanetaryAsync(CancellationToken cancellationToken) =>
             SendAsync(HttpMethod.Delete, "api/v1/planetary", null, HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto, _timeouts.Control, cancellationToken);

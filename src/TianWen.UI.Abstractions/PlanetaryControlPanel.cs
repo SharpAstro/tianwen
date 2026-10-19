@@ -352,6 +352,14 @@ public sealed class PlanetaryControlPanel
                 MountNudgeButton("W", "MountNudgeW", GuideDirection.West, bus))
             .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f));
 
+        // --- Find section (#1684): the planet the capture is for, and where the mount really points, from a full-sensor still the
+        // node solves, blind where nothing local can. A focal length off the profile's is offered, never written unasked; the sync
+        // and the goto wait for a press, and a planet already in the field is left where it is. ---
+        rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
+        rows.Add(Layout.Builder.Box(0f, 1f, Divider).RowH(1f));
+        rows.Add(SectionHeader("FIND"));
+        AddFindRows(rows, capture, capturing, bus);
+
         // --- Filter section (#1618): the filter in the beam, and the wheel's filters to turn to. The node changes it, through its
         // one filter change and the focus offset, stopping a running stream for it and starting it again (#1639); a recording
         // going on refuses it in words. Shown only with a wheel connected, so a colour camera's panel does not grow. ---
@@ -462,17 +470,8 @@ public sealed class PlanetaryControlPanel
         var running = capture.Sequence is { } progress && progress.Phase is not (PlanetarySequencePhase.Done or PlanetarySequencePhase.Stopped
             or PlanetarySequencePhase.Failed);
 
-        // The planet the light speaks for: the one named, else the one the node found the mount pointing at.
+        // The planet the light speaks for: the one the FIND section names, else the one the node found the mount pointing at.
         var planet = draft.Planet ?? capture.Planet;
-        var planetStyle = new Layout.ButtonGroupStyle(CheckOnBg, StepBtnBg, HeaderText, DimText, GuiTheme.Hover(StepBtnBg));
-        ReadOnlySpan<Layout.ButtonGroupOption<CatalogIndex>> planets =
-        [
-            new(TurningPlanets[0], "Mars") { Hit = new HitResult.ButtonHit("SeqPlanetMars") },
-            new(TurningPlanets[1], "Jupiter") { Hit = new HitResult.ButtonHit("SeqPlanetJupiter") },
-            new(TurningPlanets[2], "Saturn") { Hit = new HitResult.ButtonHit("SeqPlanetSaturn") },
-        ];
-        rows.Add(Layout.Builder.ButtonGroup(planets, planet ?? default, chosen => draft.Planet = chosen, planetStyle, PanelFontSize * 0.9f)
-            .RowH(BaseRowHeight));
 
         for (var i = 0; i < draft.Steps.Length; i++)
         {
@@ -516,6 +515,77 @@ public sealed class PlanetaryControlPanel
             rows.Add(Layout.Builder.Text(SequenceInWords(shown), PanelFontSize * 0.8f, shown.FailureReason is null ? DimText : GuiTheme.Palette.Error,
                 TextAlign.Near, TextAlign.Center).RowH(BaseRowHeight));
         }
+    }
+
+    /// <summary>A find's exposure choices, in seconds: a star field through a planetary focal length wants seconds, not milliseconds.</summary>
+    internal static readonly double[] FindExposurePresetsS = [1, 2, 5, 10, 20, 30];
+
+    private int _findExposureIdx = 2;
+
+    private void AddFindRows(ImmutableArray<Layout.Node>.Builder rows, NodePlanetaryCapture capture, bool capturing, SignalBus? bus)
+    {
+        var draft = Sequence;
+        var planet = draft.Planet ?? capture.Planet;
+        var planetStyle = new Layout.ButtonGroupStyle(CheckOnBg, StepBtnBg, HeaderText, DimText, GuiTheme.Hover(StepBtnBg));
+        ReadOnlySpan<Layout.ButtonGroupOption<CatalogIndex>> planets =
+        [
+            new(TurningPlanets[0], "Mars") { Hit = new HitResult.ButtonHit("PlanetMars") },
+            new(TurningPlanets[1], "Jupiter") { Hit = new HitResult.ButtonHit("PlanetJupiter") },
+            new(TurningPlanets[2], "Saturn") { Hit = new HitResult.ButtonHit("PlanetSaturn") },
+        ];
+        rows.Add(Layout.Builder.ButtonGroup(planets, planet ?? default, chosen => draft.Planet = chosen, planetStyle, PanelFontSize * 0.9f)
+            .RowH(BaseRowHeight));
+        if (!capturing)
+        {
+            return;
+        }
+
+        var exposure = FindExposurePresetsS[_findExposureIdx];
+        rows.Add(Layout.Builder.HStack(
+                Stepper("Exp", $"{exposure:0.#} s", "FindExposure",
+                    () => _findExposureIdx = Math.Max(0, _findExposureIdx - 1),
+                    () => _findExposureIdx = Math.Min(FindExposurePresetsS.Length - 1, _findExposureIdx + 1)).WStar().HStar(),
+                PanelButton("Find", "FindPlanet", StepBtnBg, () => bus?.Post(new FindPlanetSignal(exposure, planet))).WFixed(52f).HStar())
+            .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f));
+
+        if (capture.Find is not { } found)
+        {
+            return;
+        }
+        foreach (var line in FindInLines(found))
+        {
+            rows.Add(Layout.Builder.Text(line, PanelFontSize * 0.8f, DimText, TextAlign.Near, TextAlign.Center).RowH(BaseRowHeight * 0.8f));
+        }
+        if (found.FocalLengthToOffer is { } offer)
+        {
+            rows.Add(PanelButton($"Use {offer} mm in the profile", "FindUseFocalLength", StepBtnBg,
+                () => bus?.Post(new UseMeasuredFocalLengthSignal(PlanetaryOtaIndex, offer))).RowH(BaseRowHeight));
+        }
+        var target = planet ?? found.Planet;
+        rows.Add(found.PlanetInField || target is null
+            ? PanelButton("Sync the mount here", "FindSync", StartBg, () => bus?.Post(new FindPlanetGoSignal(target, SyncOnly: true))).RowH(BaseRowHeight)
+            : PanelButton($"Sync, go to {target}", "FindGo", StartBg, () => bus?.Post(new FindPlanetGoSignal(target, SyncOnly: false))).RowH(BaseRowHeight));
+    }
+
+    /// <summary>A find's result as the panel's short lines: where it solved, how far the mount was off, where the planet is.</summary>
+    internal static string[] FindInLines(PlanetaryFindDto found)
+    {
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        var lines = new System.Collections.Generic.List<string>(3)
+        {
+            string.Create(culture, $"RA {found.RaJ2000:0.000} h  Dec {found.DecJ2000:+0.00;-0.00}  {found.ScaleArcsec:0.000}\"/px"),
+        };
+        if (found.MountOffsetDeg is { } off)
+        {
+            lines.Add(string.Create(culture, $"The mount was {off:0.00} deg off"));
+        }
+        if (found.Planet is { } body && found.PlanetSeparationDeg is { } sep)
+        {
+            lines.Add(found.PlanetInField
+                ? $"{body} is in the field"
+                : string.Create(culture, $"{body} is {sep:0.00} deg away"));
+        }
+        return [.. lines];
     }
 
     /// <summary>Where the node's sequence is, in a line: "Set 2/10, step 1/3 (Red), 4 files", or how it ended.</summary>
