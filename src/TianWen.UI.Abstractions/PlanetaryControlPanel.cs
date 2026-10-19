@@ -107,6 +107,9 @@ public sealed class PlanetaryControlPanel
     // and a wheel over the panel moves it (the router asks the region the scrolled stack registers); a bar shows that it does.
     private readonly ListScrollController _scroll = new ListScrollController { Mode = ScrollBarMode.Decorative };
 
+    /// <summary>The panel's scroll, as the last <see cref="Build"/> left it: for a test to read its bar's colours.</summary>
+    internal ListScrollController Scroll => _scroll;
+
     /// <summary>The Record control (#1344): its duration field and its rows.</summary>
     public PlanetaryRecordControl Record { get; } = new PlanetaryRecordControl();
 
@@ -189,6 +192,11 @@ public sealed class PlanetaryControlPanel
         // Keep the capture's recenter config in lock-step with the toggles and steppers (staged only when it changed; one sync
         // point picks up the initial default and any change, no per-click plumbing).
         PushRecenter(capture);
+
+        // The bar in the palette's own colours, read each frame so a theme switch reaches it: DIR.Lib's default is a
+        // blue-grey, which Night, holding blue at zero, cannot show.
+        _scroll.TrackColor = GuiTheme.Palette.Separator;
+        _scroll.ThumbColor = GuiTheme.Palette.SeparatorStrong;
 
         // --- Capture section ---
         var captureFill = capturing ? StopBg : StartBg;

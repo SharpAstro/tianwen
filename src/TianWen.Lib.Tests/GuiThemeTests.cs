@@ -360,6 +360,29 @@ namespace TianWen.Lib.Tests
             }
         }
 
+        // The planetary capture panel's scroll bar is drawn by DIR.Lib in colours the panel states, since 11.25; left
+        // to DIR.Lib's defaults it was blue-grey on every theme, Night included (#1635 review round 1, B1).
+        [Fact]
+        public void ThePlanetaryPanelsScrollBarSpendsNoBlueAtNight()
+        {
+            try
+            {
+                GuiTheme.Apply(UiThemeState.Night, desktopIsDark: true);
+                var panel = new PlanetaryControlPanel();
+
+                panel.Build(new NodePlanetaryCapture(), PreviewOTATelemetry.Unknown, default, bus: null);
+
+                panel.Scroll.TrackColor.ShouldBe(GuiTheme.Palette.Separator);
+                panel.Scroll.ThumbColor.ShouldBe(GuiTheme.Palette.SeparatorStrong);
+                panel.Scroll.TrackColor.Blue.ShouldBe((byte)0);
+                panel.Scroll.ThumbColor.Blue.ShouldBe((byte)0);
+            }
+            finally
+            {
+                GuiTheme.Apply(UiThemeState.Dark, desktopIsDark: true);
+            }
+        }
+
         // The rule Night exists to keep: blue is the most rod-stimulating channel per unit radiance
         // (V' ~0.61 at the sRGB blue primary against ~0.0155 at red), so it is zero everywhere. A
         // single stray blue component would undo the mode's whole purpose while still looking red.

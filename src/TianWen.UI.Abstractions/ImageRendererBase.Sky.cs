@@ -89,23 +89,17 @@ namespace TianWen.UI.Abstractions
         protected override IReadOnlyList<PixelWidgetBase<TSurface>> Children
             => SkyBackdropActive ? _children : [];
 
-        // The sky map paints UNDER everything this widget draws -- except its palette, which paints
-        // over all of it. So the composite's default z-order (this widget's own regions first, then
-        // children) is the wrong one here, and these three ask the map FIRST. Each then falls through
-        // to the base, which asks it again and gets the same no: one extra walk of a list that just
-        // answered, in exchange for not restating the composition. A dispatch cannot double-fire on
-        // that second ask, because reaching it means nothing on the map was hit.
+        /// <inheritdoc/>
+        /// <remarks>
+        /// None: the sky map paints UNDER everything this widget draws, but its palette paints over all of it, and a
+        /// child drawn in two passes cannot be split, so the map is kept wholly over and asked first by every query (a
+        /// routed press, the hover highlight, a shortcut, <c>HitTest</c>, the cursor). Its regions are the palette's
+        /// rows and the labels, which the host turns back into a selection here (<see cref="SkyBackdrop"/>).
+        /// </remarks>
+        protected override int ChildrenUnderOwn => 0;
 
         /// <summary>The map, but only while it is on screen -- see the note on <see cref="Children"/>.</summary>
         private SkyMapTab<TSurface>? PaintedSkyBackdrop => SkyBackdropActive ? _skyBackdrop : null;
-
-        /// <inheritdoc/>
-        public override HitResult? HitTest(float x, float y)
-            => PaintedSkyBackdrop?.HitTest(x, y) ?? base.HitTest(x, y);
-
-        /// <inheritdoc/>
-        public override CursorKind? HitTestCursor(float x, float y)
-            => PaintedSkyBackdrop?.HitTestCursor(x, y) ?? base.HitTestCursor(x, y);
 
         /// <summary>
         /// What the sky map reads its catalog, site and instant from, supplied by the host. The viewer
