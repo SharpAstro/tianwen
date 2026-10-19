@@ -41,8 +41,11 @@ namespace TianWen.Lib.Tests
                 for (var x = 0; x < Size; x++)
                 {
                     // Two-level floor: the quantization that makes a real cooled-CMOS dark's MAD
-                    // collapse to 0 and take the non-zero-tail fallback.
-                    data[y, x] = ((x + y) % 5) < 3 ? BiasLow : BiasHigh;
+                    // collapse to 0 and take the non-zero-tail fallback. SCATTERED as a real floor's
+                    // levels are (a hash, still deterministic), never a stripe: the mask judges a pixel
+                    // against its neighbours, and a diagonal stripe gives every border pixel of one
+                    // phase a lopsided neighbourhood, a ring of false defects no real dark has.
+                    data[y, x] = Hash(x, y) % 5 < 3 ? BiasLow : BiasHigh;
                 }
             }
 
@@ -75,6 +78,14 @@ namespace TianWen.Lib.Tests
 
         private static int Count(BitMatrix[]? mask)
             => BadPixelDetection.CountMaskedPixels(mask);
+
+        private static uint Hash(int x, int y)
+        {
+            var h = ((uint)x * 73856093u) ^ ((uint)y * 19349663u);
+            h ^= h >> 13;
+            h *= 0x5bd1e995u;
+            return h ^ (h >> 15);
+        }
 
         /// <summary>The regression the budget exists for: a caller passing a conservative sigma
         /// still gets the warm population, because the threshold descends until the count reaches

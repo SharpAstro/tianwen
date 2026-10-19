@@ -117,9 +117,10 @@ public static class BadPixelDetection
     private const float MinSigma = 0.25f;
 
     /// <summary>
-    /// Per-channel hot-pixel mask: <c>true</c> bit = pixel exceeds the
-    /// converged threshold (median + sigma * 1.4826 * MAD), masked from
-    /// downstream integration. One <see cref="BitMatrix"/> per channel keeps
+    /// Per-channel hot-pixel mask: <c>true</c> bit = pixel stands above the
+    /// median of its same-lattice neighbours by more than sigma * 1.4826 * the
+    /// converged MAD, masked from downstream integration (a smooth warm region of
+    /// the sensor is dark current the dark subtracts, never a defect). One <see cref="BitMatrix"/> per channel keeps
     /// the memory footprint at 1 bit/pixel (8x denser than <c>bool[,]</c>
     /// -- ~3 MB per 6k frame channel vs 26 MB).
     ///
@@ -474,9 +475,18 @@ public static class BadPixelDetection
         // the threshold and can only raise the count -- monotone, with no path
         // back into the estimate. That is what makes walking down safe here
         // when it was catastrophic inside the old combined loop.
+        //
+        // A photosite is judged by how far it stands above its OWN NEIGHBOURS (the median of the up to 8
+        // around it on this lattice), not above the lattice's median. A defect is a delta; a sensor's warm
+        // corner is a smooth rise the dark subtracts like any other dark current. Against the lattice's
+        // median the SV605CC's warm corner (916 against 804 ADU, falling off over 20 px) was flagged whole,
+        // about 820 photosites, and as the subs of the Tarantula of 2026-10-17 moved only +-9 px no frame
+        // filled that corner of the drizzled master, which kept a hole with 197 pixels at zero weight. On a
+        // flat dark the two references agree to the neighbours' own noise, so a defect is found as before.
+        var excess = ExcessOverNeighbours(data, yStart, xStart, step, latH, latW);
         var chosenSigma = sigmaThreshold;
-        var chosenThreshold = acceptedMedian + chosenSigma * GaussianFactor * acceptedMad;
-        var chosenCount = CountAbove(data, chosenThreshold, yStart, xStart, step, latH, latW);
+        var chosenThreshold = chosenSigma * GaussianFactor * acceptedMad;
+        var chosenCount = CountAbove(excess, chosenThreshold);
 
         if (targetMaskedFraction > 0f)
         {
@@ -496,8 +506,8 @@ public static class BadPixelDetection
                 while (chosenSigma * SigmaStepDown >= MinSigma)
                 {
                     var nextSigma = chosenSigma * SigmaStepDown;
-                    var nextThreshold = acceptedMedian + nextSigma * GaussianFactor * acceptedMad;
-                    var nextCount = CountAbove(data, nextThreshold, yStart, xStart, step, latH, latW);
+                    var nextThreshold = nextSigma * GaussianFactor * acceptedMad;
+                    var nextCount = CountAbove(excess, nextThreshold);
                     if (nextCount > budget)
                     {
                         break;
@@ -521,7 +531,7 @@ public static class BadPixelDetection
         if (chosenCount > runawayCeiling)
         {
             logger?.LogError(
-                "  hot-pixel {Lattice}: the chosen threshold {T:F4} flags {Count} px, {Pct:F2}% of the lattice and past the {Ceiling} px guard. "
+                "  hot-pixel {Lattice}: the chosen threshold, {T:F4} over the neighbours, flags {Count} px, {Pct:F2}% of the lattice and past the {Ceiling} px guard. "
                 + "That is not a defect population, so the noise scale (median={Med:F4} mad={Mad:F4}) is degenerate and NOTHING is masked here. "
                 + "Check this dark: a lattice whose own level sits above the threshold reads as entirely hot.",
                 label, chosenThreshold, chosenCount, chosenCount * 100.0 / totalPx, runawayCeiling,
@@ -534,36 +544,82 @@ public static class BadPixelDetection
             var y = yStart + ly * step;
             for (var lx = 0; lx < latW; lx++)
             {
-                var x = xStart + lx * step;
-                if (data[y, x] > chosenThreshold)
+                if (excess[ly, lx] > chosenThreshold)
                 {
-                    mask[y, x] = true;
+                    mask[y, xStart + lx * step] = true;
                 }
             }
         }
 
         logger?.LogInformation(
-            "  hot-pixel {Lattice}: {Count} px ({Pct:F3}% of lattice) at sigma={Sigma:F2} threshold={T:F4} (median={Med:F4} mad={Mad:F4}, {Iters} estimation iter(s))",
+            "  hot-pixel {Lattice}: {Count} px ({Pct:F3}% of lattice) at sigma={Sigma:F2}, {T:F4} over the neighbours (median={Med:F4} mad={Mad:F4}, {Iters} estimation iter(s))",
             label, chosenCount, chosenCount * 100.0 / totalPx, chosenSigma, chosenThreshold,
             acceptedMedian, acceptedMad, iterRan);
     }
 
-    /// <summary>Pixels strictly above <paramref name="threshold"/>. Kept separate
-    /// so the budget walk reads as "how many would this threshold flag" without
-    /// allocating or mutating a mask per candidate.</summary>
-    private static long CountAbove(
-        float[,] data, float threshold, int yStart, int xStart, int step, int latH, int latW)
+    /// <summary>
+    /// Each lattice pixel's value minus the median of its 8 neighbours ON THE SAME LATTICE (a mosaic's
+    /// neighbours of one colour, <paramref name="step"/> 2 apart), NaN where the pixel is not finite or has no
+    /// finite neighbour. An even count takes the mean of the two middle values. A neighbour past the edge
+    /// MIRRORS about the edge pixel, so a border pixel is judged by 8 neighbours as an interior one is: with
+    /// only the 5 on its side, a dark with any structure across the edge read a ring of false defects.
+    /// </summary>
+    internal static float[,] ExcessOverNeighbours(float[,] data, int yStart, int xStart, int step, int latH, int latW)
     {
-        long count = 0;
+        var excess = new float[latH, latW];
+        Span<float> n = stackalloc float[8];
         for (var ly = 0; ly < latH; ly++)
         {
-            var y = yStart + ly * step;
             for (var lx = 0; lx < latW; lx++)
             {
-                if (data[y, xStart + lx * step] > threshold)
+                var v = data[yStart + ly * step, xStart + lx * step];
+                var count = 0;
+                for (var dy = -1; dy <= 1; dy++)
                 {
-                    count++;
+                    var ny = Mirror(ly + dy, latH);
+                    for (var dx = -1; dx <= 1; dx++)
+                    {
+                        var nx = Mirror(lx + dx, latW);
+                        if ((dy == 0 && dx == 0) || (ny == ly && nx == lx))
+                        {
+                            continue;
+                        }
+                        var u = data[yStart + ny * step, xStart + nx * step];
+                        if (float.IsFinite(u))
+                        {
+                            n[count++] = u;
+                        }
+                    }
                 }
+                if (!float.IsFinite(v) || count == 0)
+                {
+                    excess[ly, lx] = float.NaN;
+                    continue;
+                }
+                var some = n[..count];
+                some.Sort();
+                var median = (count & 1) == 1 ? some[count / 2] : 0.5f * (some[(count / 2) - 1] + some[count / 2]);
+                excess[ly, lx] = v - median;
+            }
+        }
+        return excess;
+
+        // About the edge sample, never repeating it; a lattice one pixel wide has nothing to mirror to.
+        static int Mirror(int i, int length)
+            => i < 0 ? Math.Min(-i, length - 1) : i >= length ? Math.Max((2 * (length - 1)) - i, 0) : i;
+    }
+
+    /// <summary>Lattice pixels whose excess is strictly above <paramref name="threshold"/>. Kept separate
+    /// so the budget walk reads as "how many would this threshold flag" without
+    /// allocating or mutating a mask per candidate.</summary>
+    private static long CountAbove(float[,] excess, float threshold)
+    {
+        long count = 0;
+        foreach (var e in excess)
+        {
+            if (e > threshold)
+            {
+                count++;
             }
         }
         return count;
