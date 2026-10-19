@@ -55,6 +55,24 @@ public class RigDevicesTests
         device.Mount.ShouldNotBeNull().ToState().ShouldBe(mount);
     }
 
+    /// <summary>A wheel's slots cross with it, as its driver names them: the planetary panel offers them and a filter change goes by them (#1618).</summary>
+    [Fact]
+    public void AFilterWheelsSlotsReadBackInOrder()
+    {
+        var reading = new FilterWheelReading(1, "Red", ["Luminance", "Red", "Green", "Blue"]);
+
+        var back = AcrossTheWire(new DeviceStateDto
+        {
+            DeviceUri = "FilterWheel://FakeDevice/fw1",
+            DeviceType = DeviceType.FilterWheel,
+            Connected = true,
+            FilterWheel = FilterWheelDeviceStateDto.FromReading(reading),
+        }, HostingJsonContext.Default.DeviceStateDto).FilterWheel.ShouldNotBeNull().ToReading();
+
+        (back.Position, back.FilterName).ShouldBe((1, "Red"));
+        back.Slots.ShouldBe(["Luminance", "Red", "Green", "Blue"]);
+    }
+
     [Fact]
     public void ACameraWithNoRulesReadsBackWithNone()
     {
