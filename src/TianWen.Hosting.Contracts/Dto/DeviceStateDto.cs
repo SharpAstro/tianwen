@@ -223,7 +223,7 @@ public sealed record FilterWheelDeviceStateDto
     };
 
     /// <summary>The reading this state was made from.</summary>
-    public FilterWheelReading ToReading() => new FilterWheelReading(Position, FilterName, Slots is { } slots ? [.. slots] : []);
+    public FilterWheelReading ToReading() => new FilterWheelReading(Position, FilterName, Slots is { } slots ? [.. slots] : default);
 }
 
 /// <summary>
