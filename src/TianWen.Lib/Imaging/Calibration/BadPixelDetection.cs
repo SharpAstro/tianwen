@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Numerics;
 using Microsoft.Extensions.Logging;
 
@@ -259,6 +260,212 @@ public static class BadPixelDetection
             }
         }
         return total;
+    }
+
+    /// <summary>
+    /// How far a master flat photosite may sit from the median of its own colour's neighbourhood before it is a
+    /// defect of the FLAT rather than the sensor's response: 10%.
+    ///
+    /// <para>A flat's photosite-to-photosite scatter is the sensor's response non-uniformity plus the master's own
+    /// noise, under a percent, while everything a flat exists to correct (vignetting, a dust shadow cast from the
+    /// window or the filter) is smooth over the 14 px a 7x7 neighbourhood of one colour spans. Measured on the SVBONY
+    /// SV605CC master flat of 2026-10-17: a robust scatter of 0.44%, a 99.99th percentile of 1.97%, and 24 photosites
+    /// past 10% anywhere but where condensation had formed on the sensor while it cooled for the flats. There, 499
+    /// droplets of about 15 photosites each read 15 to 75% off, each a small lens: a bright core in a dark ring.</para>
+    /// </summary>
+    public const float DefaultMaxFlatDeviation = 0.10f;
+
+    /// <summary>Half-width, in steps of one colour's lattice, of the neighbourhood <see cref="BuildMaskFromFlat"/>
+    /// judges a photosite against: 7x7 of its own colour, so a droplet covering a few of them is outvoted.</summary>
+    private const int FlatNeighbourhoodRadius = 3;
+
+    /// <summary>
+    /// The photosites of a master flat that sit more than <paramref name="maxDeviation"/> off the median of their own
+    /// colour's 7x7 neighbourhood: a defect of the flat, never the sensor's response (see
+    /// <see cref="DefaultMaxFlatDeviation"/>).
+    ///
+    /// <para><b>Why the stack needs it.</b> Condensation on the sensor during a flat run is in the flat and not in the
+    /// lights, so dividing a light by that flat writes its inverse into every sub at the same sensor positions: a dark
+    /// core in a bright ring, hundreds of times. On the SV605CC Sculptor nights the rings were 15 to 42 of the 100
+    /// brightest detections of every calibrated sub, and since they sit where they sit in the reference too, 52 of 154
+    /// September subs registered on them at the identity, 50 to 67 px from where their stars were. Masking them keeps
+    /// them out of drizzle, and <see cref="Stacking.FrameRegistration.DetectAsync"/> reads them as their neighbours, so they are
+    /// no stars. A defect that is real (in the lights as in the flat) is masked as well, which costs it the coverage
+    /// the dither brings back and nothing else.</para>
+    /// </summary>
+    public static BitMatrix[] BuildMaskFromFlat(Image flatMaster, float maxDeviation = DefaultMaxFlatDeviation, ILogger? logger = null)
+    {
+        var channelCount = flatMaster.ChannelCount;
+        var step = channelCount == 1 && flatMaster.ImageMeta.SensorType is SensorType.RGGB ? 2 : 1;
+        var masks = new BitMatrix[channelCount];
+        var flagged = 0L;
+        for (var c = 0; c < channelCount; c++)
+        {
+            var data = flatMaster.GetChannelArray(c);
+            var (h, w) = (data.GetLength(0), data.GetLength(1));
+            var mask = new BitMatrix(h, w);
+            masks[c] = mask;
+            for (var yStart = 0; yStart < step; yStart++)
+            {
+                for (var xStart = 0; xStart < step; xStart++)
+                {
+                    var latH = (h - yStart + step - 1) / step;
+                    var latW = (w - xStart + step - 1) / step;
+                    var (y0, x0) = (yStart, xStart);
+                    // A band writes only its own rows of the mask, and a row is whole words, so the bands share none.
+                    ParallelFor.RunBands(latH, (from, to) =>
+                    {
+                        Span<float> n = stackalloc float[(2 * FlatNeighbourhoodRadius + 1) * (2 * FlatNeighbourhoodRadius + 1)];
+                        for (var ly = from; ly < to; ly++)
+                        {
+                            for (var lx = 0; lx < latW; lx++)
+                            {
+                                var v = data[y0 + ly * step, x0 + lx * step];
+                                if (!float.IsFinite(v))
+                                {
+                                    continue;
+                                }
+                                var count = 0;
+                                for (var dy = -FlatNeighbourhoodRadius; dy <= FlatNeighbourhoodRadius; dy++)
+                                {
+                                    var ny = Mirror(ly + dy, latH);
+                                    for (var dx = -FlatNeighbourhoodRadius; dx <= FlatNeighbourhoodRadius; dx++)
+                                    {
+                                        var nx = Mirror(lx + dx, latW);
+                                        if (ny == ly && nx == lx)
+                                        {
+                                            continue;
+                                        }
+                                        var u = data[y0 + ny * step, x0 + nx * step];
+                                        if (float.IsFinite(u))
+                                        {
+                                            n[count++] = u;
+                                        }
+                                    }
+                                }
+                                if (count == 0)
+                                {
+                                    continue;
+                                }
+                                var some = n[..count];
+                                some.Sort();
+                                var median = (count & 1) == 1 ? some[count / 2] : 0.5f * (some[(count / 2) - 1] + some[count / 2]);
+                                if (median > 0f && MathF.Abs((v / median) - 1f) > maxDeviation)
+                                {
+                                    mask[y0 + ly * step, x0 + lx * step] = true;
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+            flagged += mask.PopCount();
+        }
+        logger?.LogInformation(
+            "  flat defects: {Count} photosites more than {Deviation:P0} off their own colour's neighbours, masked and kept out of star detection{Hint}",
+            flagged, maxDeviation,
+            flagged > 1000 ? " (that many is something on the sensor while the flats were taken: condensation or dust)" : "");
+        return masks;
+
+        static int Mirror(int i, int length)
+            => i < 0 ? Math.Min(-i, length - 1) : i >= length ? Math.Max((2 * (length - 1)) - i, 0) : i;
+    }
+
+    /// <summary>
+    /// The bad-pixel mask the calibration masters give before a single light is read: the dark's
+    /// (<see cref="BuildMaskFromDark"/>) and the flat's (<see cref="BuildMaskFromFlat"/>), as their union. The ONE
+    /// call the stacker and the dataset registrar both make, so neither can have one without the other.
+    /// <paramref name="sigmaThreshold"/> 0 disables both, as it always disabled the dark's; null when neither master
+    /// is given, or the flat's geometry is not the dark's (then the dark's alone, said in the log).
+    /// </summary>
+    public static BitMatrix[]? BuildMaskFromMasters(Image? darkMaster, Image? flatMaster, float sigmaThreshold, ILogger? logger = null)
+    {
+        if (sigmaThreshold <= 0f)
+        {
+            return null;
+        }
+        var mask = darkMaster is null ? null : BuildMaskFromDark(darkMaster, sigmaThreshold, logger);
+        if (flatMaster is null)
+        {
+            return mask;
+        }
+        var flatMask = BuildMaskFromFlat(flatMaster, logger: logger);
+        if (mask is null)
+        {
+            return flatMask;
+        }
+        if (mask.Length != flatMask.Length || darkMaster is not { } dark || dark.Width != flatMaster.Width || dark.Height != flatMaster.Height)
+        {
+            logger?.LogWarning("  the flat ({FlatW}x{FlatH}x{FlatC}) is not the dark's shape, so its defects are not masked",
+                flatMaster.Width, flatMaster.Height, flatMaster.ChannelCount);
+            return mask;
+        }
+        for (var c = 0; c < mask.Length; c++)
+        {
+            BadPixelAccumulator.UnionInto(mask[c], flatMask[c], dark.Width, dark.Height);
+        }
+        return mask;
+    }
+
+    /// <summary>
+    /// <paramref name="image"/> with every photosite set in <paramref name="mask"/> replaced by the median of the
+    /// unmasked photosites of its own colour around it (the 8 nearest, or the 24 nearest when fewer than 3 of those are
+    /// usable), in new planes; the same instance when the mask holds nothing. What star detection reads, so a defect the
+    /// masks already know is never a star: a NaN would not do, since the detector's debayer spreads it into holes it
+    /// then reads as geometry.
+    /// </summary>
+    public static Image WithMaskedFromNeighbours(Image image, BitMatrix[] mask)
+    {
+        var (channels, width, height) = image.Shape;
+        if (mask.Length != channels || !mask.Any(static m => m.Any()))
+        {
+            return image;
+        }
+        var step = channels == 1 && image.ImageMeta.SensorType is SensorType.RGGB ? 2 : 1;
+        var planes = new float[channels][,];
+        Span<float> n = stackalloc float[24];
+        for (var c = 0; c < channels; c++)
+        {
+            var src = image.GetChannelArray(c);
+            var plane = src.Copy();
+            var m = mask[c];
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = m.NextSetBit(y, 0); x >= 0; x = m.NextSetBit(y, x + 1))
+                {
+                    var count = 0;
+                    for (var ring = 1; ring <= 2 && count < 3; ring++)
+                    {
+                        count = 0;
+                        for (var dy = -ring; dy <= ring; dy++)
+                        {
+                            var ny = y + dy * step;
+                            if (ny < 0 || ny >= height)
+                            {
+                                continue;
+                            }
+                            for (var dx = -ring; dx <= ring; dx++)
+                            {
+                                var nx = x + dx * step;
+                                if ((dy == 0 && dx == 0) || nx < 0 || nx >= width || m[ny, nx] || !float.IsFinite(src[ny, nx]))
+                                {
+                                    continue;
+                                }
+                                n[count++] = src[ny, nx];
+                            }
+                        }
+                    }
+                    if (count > 0)
+                    {
+                        var some = n[..count];
+                        some.Sort();
+                        plane[y, x] = (count & 1) == 1 ? some[count / 2] : 0.5f * (some[(count / 2) - 1] + some[count / 2]);
+                    }
+                }
+            }
+            planes[c] = plane;
+        }
+        return new Image(planes, image.BitDepth, image.MaxValue, image.MinValue, image.Pedestal, image.ImageMeta);
     }
 
     /// <summary>

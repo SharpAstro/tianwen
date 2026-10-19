@@ -742,14 +742,20 @@ public sealed class StackingPipeline(
         // MeanCombiner sigma-clip handles outliers across N frames -- so
         // unconditional construction costs ~tens of ms and is free for
         // them.
-        BitMatrix[]? badPixelMask = null;
-        if (dark is not null && options.HotPixelSigma > 0f)
+        //
+        // The FLAT's defects join it (BadPixelDetection.BuildMaskFromMasters, the one call the dataset registrar
+        // makes too): a photosite far off its own colour's neighbours in the flat is something that was on the
+        // sensor while the flats were taken, and dividing by it writes its inverse into every light.
+        var badPixelMask = BadPixelDetection.BuildMaskFromMasters(dark, flat, options.HotPixelSigma, logger);
+        if (badPixelMask is not null)
         {
-            badPixelMask = BadPixelDetection.BuildMaskFromDark(dark, options.HotPixelSigma, logger);
-            var maskedCount = BadPixelDetection.CountMaskedPixels(badPixelMask);
-            logger.LogInformation("  hot-pixel mask: {Count} px flagged at sigma={Sigma:F1}",
-                maskedCount, options.HotPixelSigma);
+            logger.LogInformation("  calibration bad-pixel mask (dark + flat): {Count} px flagged at sigma={Sigma:F1}",
+                BadPixelDetection.CountMaskedPixels(badPixelMask), options.HotPixelSigma);
         }
+        // Read as their neighbours by star detection: a known defect sits at the same sensor position in every sub
+        // and in the reference, so as a "star" it registers a sub at the identity (52 of 154 subs did, on the
+        // SV605CC Sculptor flats' condensation rings).
+        var knownBad = badPixelMask;
         // The session-derived bad-pixel accumulator (task #22): counts per-sensor-pixel outlier
         // persistence across the lights during the measure pass, so BuildMask (after registration,
         // when the transforms can prove the session moved) can flag the defects the dark never
@@ -807,7 +813,7 @@ public sealed class StackingPipeline(
             // produce even 20 mutual matches between consecutive subs where the mono route
             // reproduced at 92%.
             var (stars, _) = await FrameRegistration.DetectAsync(
-                calibrated, options.CentroidDebayerAlg, options.SnrMin, options.MinStars, cancellationToken: ct);
+                calibrated, options.CentroidDebayerAlg, options.SnrMin, options.MinStars, knownBad: knownBad, cancellationToken: ct);
             var metrics = FrameRegistration.MetricsFrom(stars);
             // The star list is RETAINED (the dataset registrar's model): registration is centroid
             // work, so keeping it makes the register pass below pixel-free instead of reloading,
@@ -1487,7 +1493,7 @@ public sealed class StackingPipeline(
         if (nightsMask is { } registrationMask)
         {
             if (badPixelMask is { Length: > 0 } darkMask
-                && dark is not null && dark.Width == referenceRaw.Width && dark.Height == referenceRaw.Height)
+                && (dark ?? flat) is { } master && master.Width == referenceRaw.Width && master.Height == referenceRaw.Height)
             {
                 var (shared, regOnly, darkOnly) = BadPixelAccumulator.Overlap(
                     registrationMask[0], darkMask[0], referenceRaw.Width, referenceRaw.Height);

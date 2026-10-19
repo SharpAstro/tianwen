@@ -518,13 +518,17 @@ public static class SessionRegistrar
         //    gate-rejected frames included, since a sensor defect does not care about clouds.
         var measureStart = StageTimings.Start();
         var badPixelAccumulator = hotPixelSigma > 0f ? new BadPixelAccumulator(hotPixelSigma) : null;
+        // The masters' own defects (the dark's hot photosites, the flat's: BadPixelDetection.BuildMaskFromMasters)
+        // are known before a light is read, and detection reads them as their neighbours: a defect sits where it sits
+        // in every sub, so as a star it registers a sub at the identity.
+        var calibrationMask = BadPixelDetection.BuildMaskFromMasters(calibrator?.Dark, calibrator?.Flat, hotPixelSigma, logger);
         var analyzed = new List<SessionFrameAnalyzer.AnalyzedFrame>(session.Lights.Length);
         var measuredPixels = 0L;
         foreach (var light in session.Lights)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var frame = await SessionFrameAnalyzer.MeasureAsync(
-                light, calibrator, debayerAlgorithm, badPixels: badPixelAccumulator, cancellationToken: cancellationToken);
+                light, calibrator, debayerAlgorithm, badPixels: badPixelAccumulator, knownBad: calibrationMask, cancellationToken: cancellationToken);
             analyzed.Add(frame);
             measuredPixels += (long)frame.Frame.Width * frame.Frame.Height;
         }
@@ -890,19 +894,19 @@ public static class SessionRegistrar
         // the drizzle strategies read IntegrationJob.BadPixelMask (the staged path's sigma-clip
         // handles outliers across N frames), so an unused mask costs tens of ms, while a mask
         // gated on a strategy decision is precisely the bug the stacking side already had.
-        BitMatrix[]? badPixelMask = null;
-        if (calibrator?.Dark is { } darkMaster && hotPixelSigma > 0f)
+        // The masters' mask, built before the measure pass (the dark's hot photosites and the flat's defects).
+        var badPixelMask = calibrationMask;
+        if (badPixelMask is not null && (calibrator?.Dark ?? calibrator?.Flat) is { } masterShape)
         {
-            badPixelMask = BadPixelDetection.BuildMaskFromDark(darkMaster, hotPixelSigma, logger);
             // The sigma passed in is a STARTING CEILING, not the threshold that ends up being used
             // (BadPixelDetection walks it down to the defect budget), so this line reports the
             // resulting count and the fraction it represents. The per-channel line from the
             // detector itself carries the sigma and threshold actually chosen.
             var flagged = BadPixelDetection.CountMaskedPixels(badPixelMask);
-            logger?.LogInformation("  [{Session}] hot-pixel mask: {Count} px ({Pct:F3}% of frame), from sigma<={Sigma:F1}",
+            logger?.LogInformation("  [{Session}] calibration bad-pixel mask (dark + flat): {Count} px ({Pct:F3}% of frame), from sigma<={Sigma:F1}",
                 session.Id,
                 flagged,
-                flagged * 100.0 / (darkMaster.Width * (double)darkMaster.Height * darkMaster.ChannelCount),
+                flagged * 100.0 / (masterShape.Width * (double)masterShape.Height * masterShape.ChannelCount),
                 hotPixelSigma);
         }
         // The session-derived map (task #22) joins the dark-derived one as a UNION when it can be
@@ -916,7 +920,7 @@ public static class SessionRegistrar
         if (badPixelAccumulator?.BuildMask(transforms, logger, session.Id) is { } registrationMask)
         {
             if (badPixelMask is { Length: > 0 } darkMask
-                && calibrator?.Dark is { } dm && dm.Width == refW && dm.Height == refH)
+                && (calibrator?.Dark ?? calibrator?.Flat) is { } dm && dm.Width == refW && dm.Height == refH)
             {
                 var (shared, regOnly, darkOnly) = BadPixelAccumulator.Overlap(
                     registrationMask[0], darkMask[0], refW, refH);

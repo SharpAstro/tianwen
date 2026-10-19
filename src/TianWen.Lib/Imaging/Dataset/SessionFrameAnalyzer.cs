@@ -78,6 +78,7 @@ public static class SessionFrameAnalyzer
         float snrMin = 5f,
         int minStars = 2000,
         BadPixelAccumulator? badPixels = null,
+        BitMatrix[]? knownBad = null,
         CancellationToken cancellationToken = default)
     {
         var raw = await frame.LoadFullAsync(cancellationToken);
@@ -89,9 +90,10 @@ public static class SessionFrameAnalyzer
         // passes' own Apply emits.
         badPixels?.Accumulate(calibrated);
         // The shared detect site. The debayer inside it is retained deliberately (DebayerAsync can
-        // rescale its input in place, so it participates in what detection sees).
+        // rescale its input in place, so it participates in what detection sees). The masters' known defects
+        // (knownBad, BadPixelDetection.BuildMaskFromMasters) are read as their neighbours there, so none is a star.
         var (stars, debayered) = await FrameRegistration.DetectAsync(
-            calibrated, debayerAlgorithm, snrMin, minStars, cancellationToken: cancellationToken);
+            calibrated, debayerAlgorithm, snrMin, minStars, knownBad: knownBad, cancellationToken: cancellationToken);
         var metrics = FrameRegistration.MetricsFrom(stars);
 
         // The detector's width is a registration statistic: on an OSC frame the mosaic mono path

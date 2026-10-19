@@ -4,6 +4,7 @@ using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Stacking;
@@ -103,6 +104,12 @@ public static class FrameRegistration
     /// tidiness: <see cref="Image.DebayerAsync"/> can rescale its input in place, so it participates
     /// in what the subsequent pre-debayer detection sees. The measured 314/314 result was obtained
     /// with it in this order; do not reorder without re-measuring.</para>
+    ///
+    /// <para><b>A photosite the masks already call bad is read as its neighbours</b>
+    /// (<paramref name="knownBad"/>, <see cref="BadPixelDetection.WithMaskedFromNeighbours"/>), on a copy, after
+    /// that debayer, so the debayered frame returned is untouched. A defect sits at the same sensor position in every
+    /// sub and in the reference, so as a "star" it registers a sub at the identity wherever it is: the SV605CC
+    /// Sculptor flats' condensation rings did exactly that to 52 of 154 subs.</para>
     /// </summary>
     public static async Task<(StarList Stars, Image Debayered)> DetectAsync(
         Image calibrated,
@@ -110,10 +117,12 @@ public static class FrameRegistration
         float snrMin,
         int minStars,
         SpikeGuard spikeGuard = SpikeGuard.PeakShare,
+        BitMatrix[]? knownBad = null,
         CancellationToken cancellationToken = default)
     {
         var debayered = await calibrated.DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
-        var stars = await calibrated.FindStarsAsync(
+        var detectOn = knownBad is null ? calibrated : BadPixelDetection.WithMaskedFromNeighbours(calibrated, knownBad);
+        var stars = await detectOn.FindStarsAsync(
             channel: 0, snrMin: snrMin, minStars: minStars, spikeGuard: spikeGuard, cancellationToken: cancellationToken);
         return (stars, debayered);
     }
