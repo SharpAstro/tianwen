@@ -161,6 +161,9 @@ public sealed class PlanetaryStateDto
     /// <summary>The last find's result on this capture (#1684), until it is gone to or another replaces it; null for none.</summary>
     public PlanetaryFindDto? Find { get; init; }
 
+    /// <summary>Whether the profile's mount is connected, which a find's sync and goto need (#1684).</summary>
+    public bool MountConnected { get; init; }
+
     /// <summary>The depth the newest frame came in; null before the first.</summary>
     public BitDepth? BitDepth { get; init; }
 

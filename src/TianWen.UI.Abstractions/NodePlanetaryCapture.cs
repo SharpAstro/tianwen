@@ -73,6 +73,9 @@ public sealed class NodePlanetaryCapture
     /// <summary>The last find's result on the node's capture (#1684); null for none.</summary>
     public PlanetaryFindDto? Find => State?.Find;
 
+    /// <summary>Whether the node's capture has its profile's mount connected, which the FIND section needs (#1684).</summary>
+    public bool MountConnected => State?.MountConnected ?? false;
+
     /// <summary>The exposure the node's stream runs at now, as applied (#1619); null before it has applied one.</summary>
     public double? AppliedExposureMs => State?.ExposureMs;
 

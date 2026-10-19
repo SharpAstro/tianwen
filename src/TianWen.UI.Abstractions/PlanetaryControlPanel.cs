@@ -354,11 +354,16 @@ public sealed class PlanetaryControlPanel
 
         // --- Find section (#1684): the planet the capture is for, and where the mount really points, from a full-sensor still the
         // node solves, blind where nothing local can. A focal length off the profile's is offered, never written unasked; the sync
-        // and the goto wait for a press, and a planet already in the field is left where it is. ---
-        rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
-        rows.Add(Layout.Builder.Box(0f, 1f, Divider).RowH(1f));
-        rows.Add(SectionHeader("FIND"));
-        AddFindRows(rows, capture, capturing, bus);
+        // and the goto wait for a press, and a planet already in the field is left where it is. Shown with the capture's mount
+        // connected, or with a wheel for the sequence's planet, as FILTER is shown only with a wheel, so a colour camera on a rig
+        // with neither keeps its panel. ---
+        if (capture.MountConnected || telemetry.FilterWheelConnected)
+        {
+            rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
+            rows.Add(Layout.Builder.Box(0f, 1f, Divider).RowH(1f));
+            rows.Add(SectionHeader("FIND"));
+            AddFindRows(rows, capture, capturing, bus);
+        }
 
         // --- Filter section (#1618): the filter in the beam, and the wheel's filters to turn to. The node changes it, through its
         // one filter change and the focus offset, stopping a running stream for it and starting it again (#1639); a recording
@@ -535,7 +540,7 @@ public sealed class PlanetaryControlPanel
         ];
         rows.Add(Layout.Builder.ButtonGroup(planets, planet ?? default, chosen => draft.Planet = chosen, planetStyle, PanelFontSize * 0.9f)
             .RowH(BaseRowHeight));
-        if (!capturing)
+        if (!capturing || !capture.MountConnected)
         {
             return;
         }
