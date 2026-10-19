@@ -106,8 +106,8 @@ public class PlanetaryReadoutTests(ITestOutputHelper output)
             await StepAsync(1);
         }
         (await interlude).ShouldBeNull();
+        // The rate itself is FrameRateWindow's tests' and the node's (a real clock): this capture's fake clock stands still between frames.
         capture.AppliedOptions.ShouldNotBeNull().Exposure.ShouldBe(TimeSpan.FromMilliseconds(4), "a step's interlude restarts the stream at its own");
-        capture.CurrentFps.ShouldBeGreaterThan(0);
     }
 
     [Fact]
