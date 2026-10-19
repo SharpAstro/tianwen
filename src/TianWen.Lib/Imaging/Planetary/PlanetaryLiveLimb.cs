@@ -10,9 +10,10 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// <summary>
 /// The limb a live view keeps (#1201, docs/plans/planetary-restoration.md, "The feathered limb on the live view"): Derive's limb fit and the
 /// planet's sharp model through the pupil's diffraction for each channel, so that every later master, sharpened by the wavelet dials, is
-/// drawn outside the limb as the batch's derived sharpening draws it (<see cref="PlanetaryLimbFix.ModelFeathered"/>): no sharpening there,
-/// the model's clean limb feathered back to the stack by the window's inscribed circle, the moons free, the stack as it is beyond the window
-/// but for its moons (#1211), and the colour balance the derivation read last, as the batch balances its masters (#1212). A colour
+/// drawn outside the limb as the batch's derived sharpening draws it, by the batch's own limb fix (<see cref="PlanetaryLimbFix.ModelToFrame"/>
+/// by default, #1681; <see cref="PlanetaryLimbFix.ModelFeathered"/> where the batch drew with it): no sharpening there, the model's clean
+/// limb to the frame's edge with the faint sources the master shows, the moons free, the stack as it is beyond the window but for its moons
+/// (#1211), and the colour balance the derivation read last, as the batch balances its masters (#1212). A colour
 /// master's red and blue planes are moved onto green first by what the derivation read on its master (<see cref="TryAlign"/>, #1202).
 /// Made by <see cref="PlanetarySharpening.Sharpen"/>, from the fit and the models it drew with (<see cref="PlanetarySharpenResult.Limb"/>).
 /// Immutable: a disk that moved gives a new one (<see cref="FollowedTo"/>).
@@ -37,12 +38,15 @@ public sealed class PlanetaryLiveLimb
     // What the batch floored the sharpening at inside the outline (PlanetarySharpenOptions.LimbBand, #1329; UnderSky, #1471), so every master
     // this limb draws is floored as the batch's was.
     private readonly (PlanetaryLimbBand LimbBand, PlanetaryUnderSky UnderSky) _floors;
+    // What the batch drew outside the limb (#1681): the model to the frame's edge, or feathered back by the window's inscribed circle.
+    private readonly PlanetaryDering.OutsideLimb _outside;
 
     private PlanetaryLiveLimb(LimbFit fit, LimbFitOptions limbOptions, PlanetAspect aspect, PlanetaryLimbWindow window, Pupil pupil,
         ImmutableArray<double> wavelengthsNm, ImmutableArray<float[]> models, ImmutableArray<RadialTransfer> diffractions,
-        (double X, double Y, double Radius) start, (int Width, int Height) frame, (PlanetaryLimbBand, PlanetaryUnderSky) floors, ColourBalance? balance,
-        PlanetaryChannelAlignmentResult? channels)
+        (double X, double Y, double Radius) start, (int Width, int Height) frame, (PlanetaryLimbBand, PlanetaryUnderSky) floors,
+        PlanetaryDering.OutsideLimb outside, ColourBalance? balance, PlanetaryChannelAlignmentResult? channels)
     {
+        _outside = outside;
         Balance = balance;
         Channels = channels;
         Fit = fit;
@@ -82,19 +86,22 @@ public sealed class PlanetaryLiveLimb
 
     /// <summary>
     /// The limb <see cref="PlanetarySharpening.Sharpen"/> drew on <paramref name="master"/>, kept: its fit and window, the models and the
-    /// diffraction each channel was drawn through, what the sharpening was floored at inside the outline (<paramref name="floors"/>), and the
-    /// fit's own start on the master, which a later master's disk is followed from.
+    /// diffraction each channel was drawn through, what the sharpening was floored at inside the outline (<paramref name="floors"/>), what it
+    /// drew outside the limb (<paramref name="fix"/>: <see cref="PlanetaryLimbFix.ModelFeathered"/> as itself, any other as
+    /// <see cref="PlanetaryLimbFix.ModelToFrame"/>, the default), and the fit's own start on the master, which a later master's disk is
+    /// followed from.
     /// </summary>
     internal static PlanetaryLiveLimb Kept(Image master, in LimbFit fit, LimbFitOptions limbOptions, in PlanetAspect aspect, PlanetaryLimbWindow window,
         Pupil pupil, ImmutableArray<double> wavelengthsNm, ImmutableArray<float[]> models, ImmutableArray<RadialTransfer> diffractions,
-        (PlanetaryLimbBand LimbBand, PlanetaryUnderSky UnderSky) floors)
+        (PlanetaryLimbBand LimbBand, PlanetaryUnderSky UnderSky) floors, PlanetaryLimbFix fix)
     {
         // Where the start places the disk the fit was made on, which a later master's start is set against. The fit itself where the start
         // finds nothing, which cannot happen on the master the fit started from.
         var start = PlanetaryLimbFit.Start(PlanetaryLimbFit.Luminance(master), master.Width, master.Height, limbOptions.AxisRatio)
             ?? (fit.CenterX, fit.CenterY, fit.EquatorialRadius);
+        var outside = fix == PlanetaryLimbFix.ModelFeathered ? PlanetaryDering.OutsideLimb.ModelFeathered : PlanetaryDering.OutsideLimb.ModelToFrame;
         return new PlanetaryLiveLimb(fit, limbOptions, aspect, window, pupil, wavelengthsNm, models, diffractions, start, (master.Width, master.Height),
-            floors, balance: null, channels: null);
+            floors, outside, balance: null, channels: null);
     }
 
     /// <summary>
@@ -102,7 +109,7 @@ public sealed class PlanetaryLiveLimb
     /// master by first (<see cref="Channels"/>, kept only where it was applied).
     /// </summary>
     internal PlanetaryLiveLimb WithColour(ColourBalance? balance, PlanetaryChannelAlignmentResult? channels)
-        => new PlanetaryLiveLimb(Fit, _limbOptions, _aspect, _window, _pupil, _wavelengthsNm, _models, _diffractions, _start, _frame, _floors,
+        => new PlanetaryLiveLimb(Fit, _limbOptions, _aspect, _window, _pupil, _wavelengthsNm, _models, _diffractions, _start, _frame, _floors, _outside,
             balance, channels is { Applied: true } ? channels : null);
 
     /// <summary>
@@ -164,18 +171,18 @@ public sealed class PlanetaryLiveLimb
             models[c] = window.Through(diffractions[c]);
         }
         return new PlanetaryLiveLimb(fit, _limbOptions, _aspect, window, _pupil, _wavelengthsNm, [.. models], [.. diffractions], start, frame, _floors,
-            Balance, Channels);
+            _outside, Balance, Channels);
     }
 
     /// <summary>
     /// <paramref name="sharpened"/>, <paramref name="stacked"/> as the dials sharpened it, drawn outside the limb as the batch's derived
     /// sharpening draws it: inside the limb the sharpening floored as the batch's was (at the model where it falls below the sky, by
-    /// default, #1471), outside it the planet's model through the pupil out to 1.5
-    /// radii, feathered back to the stack by the window's inscribed circle, the moons sharpened, and the stack as it is beyond the window
-    /// but for its moons, as the dials sharpened them (<see cref="PlanetaryDering.Outside"/> with <see cref="PlanetaryDering.OutsideLimb.ModelFeathered"/>
-    /// and <see cref="PlanetaryLimbWindow.PasteMoonsBeyond"/>, in the window and the units the batch uses, #1211), then given the derivation's
-    /// colour balance where it read one (<see cref="Balance"/>, #1212). A new image the caller owns; <paramref name="stacked"/> must be the
-    /// master this limb was followed to.
+    /// default, #1471), outside it the planet's model through the pupil to the frame's edge with the faint sources this master shows
+    /// (<see cref="PlanetaryDering.OutsideLimb.ModelToFrame"/>, #1681; or feathered back by the window's inscribed circle where the batch drew
+    /// with <see cref="PlanetaryLimbFix.ModelFeathered"/>), the moons sharpened, and the stack as it is beyond the window but for its moons,
+    /// as the dials sharpened them (<see cref="PlanetaryDering.Outside"/> and <see cref="PlanetaryLimbWindow.PasteMoonsBeyond"/>, in the
+    /// window and the units the batch uses, #1211), then given the derivation's colour balance where it read one (<see cref="Balance"/>,
+    /// #1212). A new image the caller owns; <paramref name="stacked"/> must be the master this limb was followed to.
     /// </summary>
     public Image Draw(Image stacked, Image sharpened)
     {
@@ -186,16 +193,27 @@ public sealed class PlanetaryLiveLimb
         {
             throw new ArgumentException($"a {width}x{height} master drawn with a limb kept for {_frame.Width}x{_frame.Height}, or sharpened to another shape");
         }
+        // Each channel's stack in the window, and under ModelToFrame the faint sources found once on their mean, as the batch finds them.
+        var levels = new (double Level, double Scale)[channels];
+        var stacks = new float[channels][];
+        for (var c = 0; c < channels; c++)
+        {
+            levels[c] = PlanetaryMetrics.NormalisationLevels(stacked.GetChannelSpan(c), width, height, _window.Own);
+            stacks[c] = _window.Cut(stacked.GetChannelSpan(c), width, height, levels[c]);
+        }
+        var faintSources = _outside == PlanetaryDering.OutsideLimb.ModelToFrame
+            ? PlanetaryDering.FaintSources(Mean(stacks), _window.Size, _window.Size, _window.Disk)
+            : [];
+        var frame = (-_window.X0, -_window.Y0, width - _window.X0, height - _window.Y0);
         var planes = Image.CreateChannelData(channels, height, width);
         for (var c = 0; c < channels; c++)
         {
             var plane = stacked.GetChannelSpan(c);
-            var (level, scale) = PlanetaryMetrics.NormalisationLevels(plane, width, height, _window.Own);
-            var stack = _window.Cut(plane, width, height, level, scale);
+            var (level, scale) = levels[c];
             var slid = _window.Cut(sharpened.GetChannelSpan(c), width, height, level, scale);
-            var drawn = PlanetaryDering.Outside(slid, stack, _window.Size, _window.Size, _window.Disk, PlanetaryDering.OutsideLimb.ModelFeathered,
+            var drawn = PlanetaryDering.Outside(slid, stacks[c], _window.Size, _window.Size, _window.Disk, _outside,
                 model: _models[Math.Min(c, _models.Length - 1)], modelInLimbBand: _floors.LimbBand == PlanetaryLimbBand.Model,
-                modelUnderSky: _floors.UnderSky == PlanetaryUnderSky.Model);
+                modelUnderSky: _floors.UnderSky == PlanetaryUnderSky.Model, frame: frame, faintSources: faintSources);
             _window.Paste(plane, drawn, planes[c], width, height, level, scale);
             // A moon beyond the window as the dials sharpened it, held at the sky, as the batch sharpens it (#1211).
             var channel = c;
@@ -211,6 +229,20 @@ public sealed class PlanetaryLiveLimb
         var balanced = (balance with { Disk = Disk }).Apply(image);
         image.Release();
         return balanced;
+    }
+
+    // The channels' windows averaged, as PlanetarySharpening's luminance window is.
+    private static float[] Mean(float[][] windows)
+    {
+        var sum = new float[windows[0].Length];
+        foreach (var window in windows)
+        {
+            for (var i = 0; i < sum.Length; i++)
+            {
+                sum[i] += window[i] / windows.Length;
+            }
+        }
+        return sum;
     }
 }
 

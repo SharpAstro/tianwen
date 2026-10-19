@@ -394,6 +394,123 @@ public class PlanetaryDeringTests
     }
 
     [Fact]
+    public void TheModelRunsToTheFrameAndHandsBackOnlyNearAWindowEdgeTheFrameRunsPast()
+    {
+        // #1681: where the planet fills its window, ModelFeathered handed back to the stack by the window's inscribed circle, where a lopsided
+        // glow and a sky gradient were still in it. ModelToFrame draws the model to the window's edge and hands back only within the
+        // window's margin of an edge the frame runs on past (here its left), so a paste leaves no seam; inside the outline it is the same.
+        var blurred = PlanetaryInverse.Apply(SharpDisk(), Size, Size, f => Gaussian(1.6, f));
+        var stacked = new float[Size * Size];
+        for (var i = 0; i < stacked.Length; i++)
+        {
+            stacked[i] = blurred[i] + (0.004f * (i % Size) / Size); // the sky's gradient, as the 12-inch SCT Jupiter's
+        }
+        var sharpened = PlanetaryDering.Sharpen(stacked, Size, Size, Strong);
+        var model = PlanetaryInverse.Apply(SharpDisk(), Size, Size, f => Gaussian(0.5, f));
+        var frame = (Left: -30, Top: 0, Right: Size, Bottom: Size);
+        var toFrame = PlanetaryDering.Outside(sharpened, stacked, Size, Size, Disk, PlanetaryDering.OutsideLimb.ModelToFrame, model: model, frame: frame);
+        var feathered = PlanetaryDering.Outside(sharpened, stacked, Size, Size, Disk, PlanetaryDering.OutsideLimb.ModelFeathered, model: model);
+
+        var (toFrameLeft, featheredLeft) = (0.0, 0.0);
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                var (i, r) = ((y * Size) + x, Disk.RadiiAt(x, y));
+                if (r <= 1)
+                {
+                    BitConverter.SingleToInt32Bits(toFrame[i]).ShouldBe(BitConverter.SingleToInt32Bits(feathered[i]), "inside the outline, to the bit");
+                    continue;
+                }
+                if (x <= 4)
+                {
+                    toFrame[i].ShouldBe(stacked[i], "the stack at a window edge the frame runs past");
+                }
+                else if (x >= 4 + PlanetaryDering.FrameEdgeReachPx)
+                {
+                    toFrame[i].ShouldBe(Math.Max(model[i], 0f), "the model to the window's edge where the frame ends with it");
+                }
+                if (r >= 2.5 && x >= 4 + PlanetaryDering.FrameEdgeReachPx)
+                {
+                    var drawnModel = Math.Max(model[i], 0f); // the model as both draw it, its FFT's ripple below the sky held at it
+                    (toFrameLeft, featheredLeft) = (Math.Max(toFrameLeft, Math.Abs(toFrame[i] - drawnModel)), Math.Max(featheredLeft, Math.Abs(feathered[i] - drawnModel)));
+                }
+            }
+        }
+        TestContext.Current.TestOutputHelper?.WriteLine($"past 2.5 radii, off the model: ModelToFrame {toFrameLeft:0.0000}, ModelFeathered {featheredLeft:0.0000}");
+        toFrameLeft.ShouldBe(0, 1e-7);
+        featheredLeft.ShouldBeGreaterThan(0.002, "ModelFeathered hands the stack's gradient back there");
+    }
+
+    [Fact]
+    public void AFaintMoonIsKeptAsStackedInEveryChannelAndOneColoursNoiseIsNot()
+    {
+        // #1681: the model to the frame's edge erased the faint moons the moon finder's floor (0.01 of the disk) is above, 0.0034 and 0.0011
+        // of the peak on two Saturns. ModelToFrame lays every faint source the stack's LUMINANCE shows on the model as stacked; found a
+        // channel at a time, a peak of one colour's noise was carried in that colour, a coloured speck on the model's sky.
+        var random = new Random(7);
+        double Noise() => Math.Sqrt(-2 * Math.Log(1 - random.NextDouble())) * Math.Cos(2 * Math.PI * random.NextDouble());
+        var blurred = PlanetaryInverse.Apply(SharpDisk(), Size, Size, f => Gaussian(1.6, f));
+        var model = PlanetaryInverse.Apply(SharpDisk(), Size, Size, f => Gaussian(0.5, f));
+        (int X, int Y) moon = (100, 30), speck = (25, 100);
+        float Blob((int X, int Y) at, int x, int y, double peak) => (float)(peak * Math.Exp(-(((x - at.X) * (x - at.X)) + ((y - at.Y) * (y - at.Y))) / (2 * 1.2 * 1.2)));
+        var stacks = new float[3][];
+        for (var c = 0; c < 3; c++)
+        {
+            stacks[c] = new float[Size * Size];
+            for (var y = 0; y < Size; y++)
+            {
+                for (var x = 0; x < Size; x++)
+                {
+                    // A moon of 0.006 in every colour, a peak of 0.004 in red alone, on a sky whose noise is 2e-4 a channel.
+                    stacks[c][(y * Size) + x] = blurred[(y * Size) + x] + (float)(2e-4 * Noise()) + Blob(moon, x, y, 0.006) + (c == 0 ? Blob(speck, x, y, 0.004) : 0f);
+                }
+            }
+        }
+        var luminance = new float[Size * Size];
+        for (var i = 0; i < luminance.Length; i++)
+        {
+            luminance[i] = (stacks[0][i] + stacks[1][i] + stacks[2][i]) / 3;
+        }
+
+        var faint = PlanetaryDering.FaintSources(luminance, Size, Size, Disk);
+        PlanetaryMetrics.CompactSources(stacks[1], Size, Size, Disk, count: PlanetaryDering.MaxMoons).ShouldBeEmpty("the moon finder's floor is above it");
+        PlanetaryMetrics.CompactSources(stacks[0], Size, Size, Disk, count: PlanetaryDering.MaxMoons, sigmas: 5, minimumPeak: PlanetaryDering.FaintSourceFloor)
+            .ShouldContain(s => Math.Abs(s.X - speck.X) <= 1 && Math.Abs(s.Y - speck.Y) <= 1, "red alone, at 5 sigma, finds its own noise peak");
+        var found = faint.ShouldHaveSingleItem();
+        Math.Max(Math.Abs(found.X - moon.X), Math.Abs(found.Y - moon.Y)).ShouldBeLessThanOrEqualTo(1);
+
+        double Height(float[] plane, (int X, int Y) at)
+        {
+            var box = new float[PlanetaryMetrics.SourceBox * PlanetaryMetrics.SourceBox];
+            const int half = PlanetaryMetrics.SourceBox / 2;
+            for (var dy = -half; dy <= half; dy++)
+            {
+                for (var dx = -half; dx <= half; dx++)
+                {
+                    box[((dy + half) * PlanetaryMetrics.SourceBox) + dx + half] = plane[((at.Y + dy) * Size) + at.X + dx];
+                }
+            }
+            Array.Sort(box);
+            return plane[(at.Y * Size) + at.X] - box[box.Length / 2];
+        }
+        for (var c = 0; c < 3; c++)
+        {
+            var carried = -1;
+            var kept = PlanetaryDering.Outside(stacks[c], stacks[c], Size, Size, Disk, PlanetaryDering.OutsideLimb.ModelToFrame, model: model,
+                faintSources: faint, carried: n => carried = n);
+            var erased = PlanetaryDering.Outside(stacks[c], stacks[c], Size, Size, Disk, PlanetaryDering.OutsideLimb.ModelToFrame, model: model);
+            var (stackHeight, keptHeight, erasedHeight) = (Height(stacks[c], moon), Height(kept, moon), Height(erased, moon));
+            TestContext.Current.TestOutputHelper?.WriteLine($"channel {c}: the moon stands {stackHeight:0.0000} stacked, {keptHeight:0.0000} kept, {erasedHeight:0.0000} on the model alone");
+
+            carried.ShouldBe(1);
+            keptHeight.ShouldBe(stackHeight, 0.1 * stackHeight, "the moon as stacked");
+            erasedHeight.ShouldBeLessThan(0.1 * stackHeight, "the model alone erases it");
+            kept[(speck.Y * Size) + speck.X].ShouldBe(Math.Max(model[(speck.Y * Size) + speck.X], 0f), "one colour's noise stays off the model's sky");
+        }
+    }
+
+    [Fact]
     public void SmoothingAveragesTheRingsThatHoldAReading()
     {
         var noisy = new RadialTransfer([1.0, 0.9, 1.1, 0.7, 0.9, 0.5, 0.7, 0, 0], 16);

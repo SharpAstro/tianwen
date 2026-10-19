@@ -31,7 +31,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
         var planetOpt = new Option<string?>("--planet") { Description = "mars, jupiter or saturn; read off the file's name when not given." };
         var utcOpt = new Option<string?>("--utc") { Description = "The instant the master shows the planet at (ISO 8601, UTC); its own DATE-OBS and EXPTIME's middle when not given, else the truth's." };
         var wavelengthOpt = new Option<string?>("--wavelength") { Description = "The filter's effective wavelength, nm, a comma list for a colour master's channels (550 when not given)." };
-        var fixOpt = new Option<string>("--limb-fix") { Description = "How the limb is kept from ringing (#1479: was --fix): modelfeathered (the default: outside the limb the planet's model through the pupil, feathered to the stack far out, #1171), bounded (never brighter than the stack outside the limb but for its moons), floored, limb (the limb as its own channel), feathered, plain, heldoutside, modelfloor, blended, modelglow, modeloutside, glowswapped or modelfeathered (#1171's candidates against bounded's trough), all to compare the first five, or outside to compare bounded with #1171's.", DefaultValueFactory = _ => "modelfeathered" };
+        var fixOpt = new Option<string>("--limb-fix") { Description = "How the limb is kept from ringing (#1479: was --fix): modeltoframe (the default: outside the limb the planet's model through the pupil to the frame's edge, its faint moons as stacked, #1681), modelfeathered (the model feathered to the stack far out, the default before, #1171), bounded (never brighter than the stack outside the limb but for its moons), floored, limb (the limb as its own channel), feathered, plain, heldoutside, modelfloor, blended, modelglow, modeloutside or glowswapped (#1171's candidates against bounded's trough), all to compare the first five, or outside to compare bounded with #1171's.", DefaultValueFactory = _ => "modeltoframe" };
         var truthOpt = new Option<string?>("--truth") { Description = "A synthetic capture's truth (planetary degrade's .truth.fits): every sharpening scored against it." };
         var outputOpt = new Option<string?>("--output", "-o") { Description = "Where the sharpened masters go (master_*_sharpened[_fix].fits); the master's folder when not given." };
         var noWriteOpt = new Option<bool>("--no-write") { Description = "Score only, write nothing." };
@@ -232,7 +232,7 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                 {
                     return 1;
                 }
-                var fixName = (parseResult.GetValue(fixOpt) ?? "modelfeathered").ToLowerInvariant();
+                var fixName = (parseResult.GetValue(fixOpt) ?? "modeltoframe").ToLowerInvariant();
                 PlanetaryLimbFix[] fixes = fixName switch
                 {
                     "all" => [PlanetaryLimbFix.Plain, PlanetaryLimbFix.Floored, PlanetaryLimbFix.LimbChannel, PlanetaryLimbFix.Feathered, PlanetaryLimbFix.Bounded],
@@ -248,13 +248,14 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                     "modeloutside" => [PlanetaryLimbFix.ModelOutside],
                     "glowswapped" => [PlanetaryLimbFix.GlowSwapped],
                     "modelfeathered" => [PlanetaryLimbFix.ModelFeathered],
+                    "modeltoframe" => [PlanetaryLimbFix.ModelToFrame],
                     // #1171's candidates against the trough bounded leaves at the limb.
                     "outside" => [PlanetaryLimbFix.Bounded, PlanetaryLimbFix.HeldOutside, PlanetaryLimbFix.ModelFloor, PlanetaryLimbFix.Blended, PlanetaryLimbFix.ModelGlow, PlanetaryLimbFix.ModelOutside, PlanetaryLimbFix.GlowSwapped, PlanetaryLimbFix.ModelFeathered],
                     _ => [],
                 };
                 if (fixes.Length == 0)
                 {
-                    consoleHost.WriteError($"--limb-fix {fixName}: floored, bounded, limb, feathered, plain or all");
+                    consoleHost.WriteError($"--limb-fix {fixName}: modeltoframe, modelfeathered, floored, bounded, limb, feathered, plain or all");
                     return 1;
                 }
                 var options = new PlanetarySharpenOptions(body, instant, identity is not null ? identity.Telescope : PlanetaryMasterScore.PupilFrom(parseResult, pupil))
@@ -583,6 +584,11 @@ internal sealed class PlanetarySharpenSubCommand(IConsoleHost consoleHost, Maste
                             // The stack's own noise as the Wiener reads it, which sets how far a deconvolution's steps pay (L-DECONV, #1552).
                             consoleHost.WriteScrollable(string.Create(inv,
                                 $"[planetary] {what}: the white level past 0.4 cycles a pixel, each channel: {string.Join(", ", result.WhiteLevels.Select(w => w.Stack.ToString("0.000e0", inv)))}"));
+                        }
+                        if (!result.FaintSourcesKept.IsDefaultOrEmpty)
+                        {
+                            consoleHost.WriteScrollable(string.Create(inv,
+                                $"[planetary] {what}: faint sources kept past the limb as stacked, each channel {string.Join(", ", result.FaintSourcesKept)}"));
                         }
                         if (!result.WienerCuts.IsDefaultOrEmpty)
                         {

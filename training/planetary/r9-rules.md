@@ -968,3 +968,159 @@ them against the post or any truth was read.
   Saturns' strips (today's telescope target against HN, as written and lifted) and the read above, the owner chose to adopt HN despite
   verdict 2's failure on sat-p5s2. Recorded here and in the PR that ships it: the gate goes, and Hann ends at the lesser of the cutoff and
   Nyquist.
+
+## L-SKY: the planet's model past the limb out to the frame, handed back to the stack only at a window edge inside the frame (set 2026-10-19 11:40 +11, after the owner saw residue past the 12-inch SCT Jupiter's lower-left limb; before any arm below was built or run)
+
+- **The question:** today's limb fix (F, `ModelFeathered`, #1171) draws the planet's model past the limb and hands it back to the stack by
+  the sharpening window's inscribed circle (at most 2.5 radii, from 0.5 radii inside it). Where the planet fills its window (the 12-inch
+  SCT Jupiter: window 512 px, its inscribed circle 1.35 radii) the stack comes back while its own glow is still bright, and that glow is
+  lopsided there (three times as bright to the lower left at 1.1 to 1.3 radii, a sky gradient under it): the owner saw it as residue.
+  The hand-back exists only to leave no seam where the window's square edge lies inside the frame (`ModelOutside` left one, #1171). Does
+  handing back only near such an edge remove the residue and leave everything else as it was?
+- **The arms**, the default sharpening otherwise (aperture target, Hann, strength 1, no finish), one build (`i1056/bin-sky`, main plus a
+  `--limb-fix modeltoframe` value): F (today) and E (`ModelToFrame`: past the limb the model through the target, and the stack only within
+  48 px, the window's own margin, of a window edge that lies inside the frame, by a smoothstep; moons kept as today).
+- **Inputs:** the four captures with a post and the owner's Saturn of 7 October (their fresh matrix masters, as L-TAPER), the 14 held
+  EdgeHD twins and the four colour twins (each scored against its truth carried to the aperture, as L-NYQ).
+- **Verdicts, for E:**
+  1. The residue: on every real capture, each 45-degree octant's mean light at 1.1 to 1.3 of the clear radius (the channels' mean, over
+     the 99.5th percentile) at most 0.001.
+  2. No harm on the twins: the 18 twins' mean detail error (bands 1 to 4) and limb error (inside plus outside) each within 1 % of F's.
+  3. No harm on the posts: every capture's C24 (`planetary judge`, bands 2 to 4) at least F's less 0.002.
+  All three: E replaces F as the default limb fix (the owner to decide). Otherwise F stays and which failed is recorded.
+- **Read beside, not a verdict:** F's octants on the same captures; lifted crops of every capture's sky by eye, for a seam or a square.
+
+### L-SKY read (2026-10-19 13:40 +11): verdict 2 holds, verdicts 1 and 3 FAIL as set, so by the rule F stays
+
+- **Verdict 1, the residue (each octant's mean at 1.1 to 1.3 of the outline, at most 0.001):** **FAILS**, worst octant 0.0158 (the
+  owner's Saturn) and 0.0141 (EdgeHD Saturn). Disclosed, the measure's flaw: the harness found the outline by a brightness threshold, so
+  on Saturn faint ring light lies "past the outline", and E and F read the same there to the fourth decimal (own Saturn 0.0105 to 0.0158
+  both, EdgeHD Saturn 0.0048 to 0.0141 both). On the 12-inch SCT Jupiter, the capture the residue was seen on, E's worst octant is 0.0007
+  against F's 0.0041 (the lower-left octants 0.0041 and 0.0036 go to 0 and 0.0007); the EdgeHD Jupiter and the Meade Saturn read 0 under both.
+- **Verdict 2, the 18 twins:** detail E 2.3629, F 2.3629; limb E 0.0338, F 0.0338: **holds** (identical; no twin's window meets its frame).
+- **Verdict 3, the posts' C24 at least F's less 0.002:** **FAILS** on the Meade Saturn (E 0.9567, F 0.9590, 0.0023 down); the 12-inch SCT
+  0.0003 down, the EdgeHD Jupiter and Saturn unchanged. Read beside: no pixel of the Meade's or the 12-inch's preview as written differs
+  between E and F by more than 2 of 255; the change is in the faint sky, which the judge's placement of the post reads.
+- **By the rule: F stays.** By eye, lifted, E takes the 12-inch SCT Jupiter's lower-left band and residue away and leaves no seam on any
+  capture; the Meade is indistinguishable. Whether to adopt it is the owner's.
+
+## L-SKY2: L-SKY again with a corrected measure and fresh captures (the owner's choice after L-SKY's read, "Re-run with a corrected measure"; set 2026-10-19 13:42 +11, before any capture below was stacked or any arm run)
+
+- **Why again:** L-SKY's residue measure found the outline by a brightness threshold, so on Saturn it read ring light as residue (E and F
+  identical there), and its post verdict read the judge's placement of the post, which the sky moves (Meade 0.0023 down with no preview
+  pixel changing by more than 2 of 255). Both measures are replaced, and captures that played no part in the first read are added.
+- **The arms**, the default sharpening otherwise (main as of #1675: the aperture target everywhere, Hann to Nyquist), one build
+  (`i1056/bin-sky2`, which prints the measures below): F (`modelfeathered`) and E (`modeltoframe`).
+- **The measures, printed by our own code from the limb fit's disk and rings (`ClearRadiiAt`):** each 45-degree octant's mean light at 1.1
+  to 1.3 of the clear radius on the normalised master (sky 0, disk 1), the worst channel; and a digest (sum and sum of squares) of every
+  pixel inside the outline.
+- **Inputs:** the five real captures of L-SKY, and five of the owner's own that played no part in it, stacked fresh from their SERs by
+  `planetary stack --auto` and sharpened with `--telescope newtonian`: 2021-08-19 Saturn (21_54_54), 2021-08-19 Jupiter (21_41_21),
+  2021-08-14 Jupiter (23_20_01), 2024-12-15 Jupiter (12_33_50Z), 2025-01-02 Jupiter (its first SER). A capture whose stack or limb fit
+  fails is dropped and said so. The 18 twins as before.
+- **Verdicts, for E:**
+  1. The residue: on every real capture, E's worst octant at most 0.002 of the disk.
+  2. The planet untouched: on every real capture, E's digest inside the outline equals F's.
+  3. No harm on the twins: the 18 twins' mean detail and limb error each within 1 % of F's.
+  All three: E replaces F as the default limb fix (the owner to decide). Otherwise F stays, the failure recorded.
+- **Read beside, not a verdict:** F's octants; the posts' C24 (the judge places the post off the whole frame, so it moves with the sky);
+  lifted crops of every capture by eye.
+
+### L-SKY2 read (2026-10-19 16:35 +11, the stamp corrected from a guessed 17:00; run 13:45 to 16:25, all ten captures stacked and limb-fitted, nothing dropped)
+
+- **Peek, disclosed:** while checking the measure line's format at 16:15, before the run finished, I read the 12-inch SCT Jupiter's E line
+  (worst octant 0.0010). No other capture's reading was looked at before the report.
+- **Verdict 1 FAILS as measured, on one capture:** E's worst octant is at most 0.0010 on nine captures (the 12-inch SCT 0.0060 under F to
+  0.0010 under E), but 0.0021 on the owner's own Saturn, where F reads the same 0.0021: the light there is the model's, both arms keep it,
+  and it is not the residue the verdict was written for. By the rule as set it fails.
+- **Verdict 2 FAILS as measured, and the measure is at fault again:** the digest differs on 8 of 10 (relative 6e-8 to 1.2e-3). The digest is
+  taken on planes NORMALISED by the sky level (`PlanetaryMetrics.Normalise`, the farthest sky, which E changes) and on a limb fit of each
+  master (`PlanetaryMasterScore.Disk`), so it moves when only the sky moves. Read afterwards from the FITS, a post-hoc check, not a
+  verdict: every pixel above half the peak is bit-identical on all ten; above 0.2 of the peak only 12 pixels at one limb (2024-12-15
+  Jupiter, by the frame's edge) differ, by at most 1.1e-4 of the peak; above 0.05, 7 more on the EdgeHD Saturn up to 1.5e-3.
+- **Verdict 3 holds:** the 18 twins' detail 2.3246 and limb 0.0293 under both arms, to four places.
+- **Beside:** posts' C24 jup-edgehd E 0.9527 F 0.9527; jup-sct12 0.9710 / 0.9713; sat-edgehd 0.9727 / 0.9727; sat-meade 0.9567 / 0.9590.
+- **By eye (view/, hard about the sky, +-2 % of the peak), a finding the verdicts do not cover:** E is flat sky out to the window edge, and
+  so it ERASES faint compact sources past F's hand-back radius that the moon finder does not keep: on the owner's own Saturn one 0.0034 of
+  the peak above its surroundings (F keeps it, E reads 0.0000), on the EdgeHD Saturn one 0.0011 (likewise). Likely faint moons. On the
+  12-inch SCT E takes F's lopsided glow ring away and leaves two faint vertical bands where it hands back at the window's left and right
+  edges.
+- **Outcome by the rules: F stays.** E's residue gain is real on the 12-inch SCT, but it erases faint sources F keeps; the owner decides.
+
+## L-SKY3: ModelToFrame keeping the stack's faint sources (K), against F (set 2026-10-19 16:42 +11, before K was written or run; the owner has not yet chosen between this, adopting E, and keeping F, and nothing is adopted without them)
+
+- **Why:** L-SKY2 found E clears the 12-inch SCT's residue but erases faint compact sources F keeps (own Saturn 0.0034 of the peak above
+  its surroundings, EdgeHD Saturn 0.0011), since the moon finder's bar (20 sigma and 0.01 of the disk) is far above them.
+- **The arm K** (`--limb-fix modeltoframekept`): E as it is, and then every compact source the STACKED window shows past the outline at the
+  astronomers' detection bar, 5 sigma of the sky's robust noise (`PlanetaryMetrics.CompactSources` with sigmas 5 and a floor of 1e-4 of
+  the disk, which only a noiseless sky reaches), up to `MaxMoons`, laid on what is drawn there AS STACKED (`KeepMoon` with the stack's
+  patch: its light above the plane its own surroundings make), never sharpened. The moons the existing bar finds keep their sharpening as
+  before. Nothing else changes.
+- **The measures, printed by our own code:** the octants as in L-SKY2; the digest now of the RAW planes (not normalised) inside 0.98 of the
+  clear radius of the disk fitted to the master AS STACKED (one disk for both arms); and the number of faint sources K carried.
+- **Inputs:** the ten real captures of L-SKY2 (its stacks reused) and its 18 twins. F re-run on the ten real captures with the new build
+  (for the digest); F's twin numbers taken from L-SKY2, whose code path for F this build does not change (one twin re-run under F with the
+  new build as a check, its numbers required identical to four places).
+- **Verdicts, for K:**
+  1. Residue: on every real capture K's worst octant is at most the larger of 0.002 and F's own (L-SKY2 read the model's light at 0.0021
+     under both arms on the owner's Saturn; this clause is set knowing that), and on the 12-inch SCT at most 0.002.
+  2. The planet untouched: on every real capture K's raw digest equals F's.
+  3. The faint sources kept: the two L-SKY2 found by eye (own Saturn near x 289, y 373; EdgeHD Saturn near x 351, y 416), K's height above
+     the median of the 25 px box about them at least 0.8 of F's, read from the written FITS.
+  4. Nothing invented: K carries no source on any twin (none has a moon).
+  5. No harm on the twins: mean detail and limb error each within 1 % of F's.
+  All five: K is put to the owner as the candidate default limb fix. Otherwise F stays, the failure recorded.
+- **Read beside, not a verdict:** the posts' C24; the hard-stretched views of every real capture by eye (`sky3/view`), the count of
+  sources carried per capture.
+- **The owner's word, after the run started (17:19):** "E2 sounds good", the direction confirmed; the rules above stand as set.
+
+### L-SKY3 read (2026-10-19 18:14 +11; run 16:50 to 18:10, 39 runs, no error)
+
+- **Verdict 1 holds:** K's worst octant within its bar on all ten (the 12-inch SCT 0.0010 against F's 0.0060; the owner's Saturn 0.0021
+  against F's 0.0021).
+- **Verdict 2 holds:** the raw digest inside 0.98 of the stacked master's outline equal to F's on all ten.
+- **Verdict 3 holds:** the named sources K 0.0078 against F 0.0035 (own Saturn), K 0.0043 against F 0.0011 (EdgeHD Saturn): K keeps them
+  as stacked, where F's feather toward the model had dimmed them.
+- **Verdict 4 FAILS as measured:** K counted 2 to 14 sources a channel on every twin. Looked at afterwards (d025's E and K masters written,
+  a diagnosis, not a verdict): K - E is zero at every pixel of the frame, so the twins' detections lie where they reach nothing (the
+  window's mirrored margin past the frame, or where K already hands back to the stack); the count counted detections, not changes.
+- **Verdict 5 holds:** twins' detail 2.3246 and limb 0.0293 under both; the twin re-run under F identical to L-SKY2's.
+- **Beside:** posts' C24 as L-SKY2's (sat-meade K 0.9567 F 0.9590, the judge's placement). Carried on the real captures: own Saturn 1 a
+  channel, EdgeHD Saturn 3/2/1, 2021-08-19 Saturn 0/1/2, 2025-01-02 Jupiter 0/1/0, EdgeHD Jupiter 8/6/9, 2024-12-15 Jupiter 8/11/14.
+- **By eye, a defect the verdicts miss:** on the 2024-12-15 Jupiter (sky noise 1.3e-3 of the peak, the noisiest of the ten) K lays
+  single-channel noise peaks on the model's sky as coloured specks: each channel finds its own maxima at 5 sigma, so a peak of one
+  colour's noise is carried in that colour alone.
+- **Diagnosis read afterwards (python, luminance of each stack, far-sky robust noise):** the two named sources stand 48.7 and 39.4 sigma;
+  no other compact peak past the planet on any real capture stands above 6.2 sigma (the 2024-12-15 Jupiter's), excluding the bright
+  moons, and none on any twin above 1.7.
+- **Outcome by the rules: F stays; K is not put forward.** A K2 follows (below), on the owner's "E2 sounds good".
+
+## L-SKY4: K2, the faint sources found once on the luminance at the moon finder's own bar and carried in every channel (set 2026-10-19 18:16 +11, before K2 was written or run)
+
+- **Why:** K's per-channel 5-sigma detection carried single-colour noise as coloured specks (L-SKY3, by eye); its count counted
+  detections that reach no pixel.
+- **The arm K2** (`--limb-fix modeltoframekept`, rewritten): E as it is; then the compact sources of the stack's LUMINANCE window (every
+  channel normalised on the disk and averaged, as the adaptive finish reads it) found once by `PlanetaryMetrics.CompactSources` at the moon
+  finder's own bar, 20 sigma of the far sky's robust noise (its default since #1181, not a value chosen here), with its absolute floor of
+  0.01 of the disk lowered to 1e-4 (the floor is what hid the faint moons); only those inside the frame, none within two moon reaches of
+  a moon a channel's own finder keeps; each laid in EVERY channel as that channel stacked (`KeepMoon` with the stack's patch). Known
+  before setting this (L-SKY3's diagnosis, disclosed above): the named sources stand about 40 and 49 sigma, every other compact peak at
+  most 6.2.
+- **Measures:** as L-SKY3; the count is now of sources inside the frame, the ones that can reach a pixel.
+- **Inputs:** L-SKY3's. K2 on the ten real captures and 18 twins; F's logs reused from L-SKY3, with F re-run on the 12-inch SCT under the
+  new build as a check (its raw digest and octants required identical).
+- **Verdicts, for K2:** 1, 2, 3 and 5 as L-SKY3; 4. Nothing invented: K2 carries no source on any twin; 6. No specks: on the 2024-12-15
+  Jupiter, K2 carries no source at all. All six: K2 is put to the owner as the default limb fix, in a PR. Otherwise F stays.
+- **Read beside:** the posts' C24, the views by eye, the counts on every real capture.
+
+### L-SKY4 read (2026-10-19 19:38 +11; run 18:22 to 19:36, 29 runs, no error)
+
+- **All six verdicts hold.** 1: K2's worst octant within its bar on all ten (12-inch SCT 0.0010 against F's 0.0060). 2: the raw digest
+  inside the stacked outline equal to F's on all ten. 3: the named sources K2 0.0078 / F 0.0035 and K2 0.0043 / F 0.0011, kept. 4: no
+  source carried on any twin. 5: twins' detail 2.3246 and limb 0.0293 under both. 6: nothing carried on the 2024-12-15 Jupiter.
+- **The check:** F re-run on the 12-inch SCT under this build, identical to L-SKY3's (digest and octants).
+- **Carried:** exactly the two faint moons (own Saturn and EdgeHD Saturn, one each, in every channel); nothing else on any real capture.
+- **Beside:** posts' C24 as before (sat-meade 0.9567 against 0.9590, the judge's placement of the post, which the sky moves).
+- **By eye (sky4/view):** no specks; the faint moons kept; the 12-inch SCT's glow ring gone, two faint vertical bands left where the model
+  hands back to the stack at the window's left and right edges, seen only at +2 % of the peak.
+- **Outcome: K2 is put to the owner as the default limb fix, in a PR.**

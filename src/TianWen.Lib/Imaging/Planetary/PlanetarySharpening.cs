@@ -57,8 +57,19 @@ public enum PlanetaryLimbFix
     /// <summary>
     /// <see cref="ModelOutside"/> out to 1.5 radii, blended to the stack as it is by the sharpening window's inscribed circle (at most
     /// 2.5 radii), but for its moons (#1171): the model's clean limb without the square seam the window's edge left at a deep stretch.
+    /// The default until #1681, now an option.
     /// </summary>
     ModelFeathered,
+
+    /// <summary>
+    /// <see cref="ModelOutside"/> out to the frame's edge, handed back to the stack only within 48 px of a window edge that lies inside the
+    /// frame, but for its moons, and with every faint compact source the stack's luminance shows there laid on it in every channel as
+    /// stacked (<see cref="PlanetaryDering.FaintSources"/>, #1681). Where the planet fills its window, <see cref="ModelFeathered"/>'s
+    /// inscribed circle handed back where the stack's own glow was still bright: 0.0060 of the disk past the 12-inch SCT Jupiter's limb,
+    /// 0.0010 here, every pixel inside the outline the same, the twins' detail and limb the same, and the faint moons the model alone erased
+    /// kept (docs/plans/planetary-restoration.md, "The model to the frame's edge, and the faint sources it keeps").
+    /// </summary>
+    ModelToFrame,
 }
 
 /// <summary>
@@ -214,9 +225,11 @@ public sealed record PlanetarySharpenOptions(CatalogIndex Planet, DateTimeOffset
     /// limb were the cause of the dark limb: bounded (#1168) held the negative one at the sky, a black band, and let the positive ones
     /// through up to the stack's seeing glow, faint arcs, strongest on the lit side. Drawing no sharpening there and the truth's smooth
     /// diffraction glow instead took the twins' limb profile error from 0.0252 to 0.0159 at a band error of 1.929 against 1.939, with no
-    /// band, no ring and no seam by eye on the twins, 2022-09-03 Red and both colour captures.
+    /// band, no ring and no seam by eye on the twins, 2022-09-03 Red and both colour captures. The model runs to the frame's edge
+    /// (<see cref="PlanetaryLimbFix.ModelToFrame"/>, #1681), its faint moons kept, rather than feathering back by the window's inscribed
+    /// circle, where a planet that fills its window left the stack's glow.
     /// </summary>
-    public PlanetaryLimbFix Fix { get; init; } = PlanetaryLimbFix.ModelFeathered;
+    public PlanetaryLimbFix Fix { get; init; } = PlanetaryLimbFix.ModelToFrame;
 
     /// <summary>
     /// Fit the gains with their composite through the kernel held non-negative (<see cref="PlanetaryWaveletGains.FitNonNegative"/>, R8
@@ -437,6 +450,12 @@ public sealed record PlanetarySharpenResult(Image Sharpened, bool Derived, Plane
     public ImmutableArray<(double From, double To)> WienerCuts { get; init; } = [];
 
     /// <summary>
+    /// Each channel's faint sources <see cref="PlanetaryLimbFix.ModelToFrame"/> laid on the model as stacked (#1681), the moons the moon
+    /// finder's own floor is above. Empty under any other fix.
+    /// </summary>
+    public ImmutableArray<int> FaintSourcesKept { get; init; } = [];
+
+    /// <summary>
     /// What the derived gains restored toward, <see cref="PlanetarySharpenOptions.Target"/> resolved by
     /// <see cref="PlanetarySharpening.TargetFor"/> (#1632): <see cref="PlanetarySharpenTarget.Telescope"/> or
     /// <see cref="PlanetarySharpenTarget.Aperture"/>, never <see cref="PlanetarySharpenTarget.Auto"/>; the telescope where nothing was
@@ -623,6 +642,10 @@ public static class PlanetarySharpening
         var stopGains = new ImmutableArray<double>[options.FitStops.Length, master.ChannelCount];
         // The contrast-adaptive finish reads the STACK's luminance: the mean of every channel's window, each normalised on the disk.
         var contrastFrom = options.Pupil is not null && options.Finish.HasFlag(PlanetaryFinish.Adaptive) ? LuminanceWindow(master, limbWindow, own) : null;
+        // ModelToFrame's faint sources, found once on the same luminance and laid in every channel (#1681).
+        var faintSources = options.Pupil is not null && options.Fix == PlanetaryLimbFix.ModelToFrame
+            ? PlanetaryDering.FaintSources(contrastFrom ?? LuminanceWindow(master, limbWindow, own), limbWindow.Size, limbWindow.Size, limbWindow.Disk)
+            : [];
         var cutoffs = new double[options.Pupil is null ? 0 : master.ChannelCount];
         if (options.Pupil is { } cutoffPupil)
         {
@@ -641,6 +664,7 @@ public static class PlanetarySharpening
         var channelLearned = new string?[options.Pupil is not null && options.GainsModel is not null ? master.ChannelCount : 0];
         var wienerCuts = new (double From, double To)[options.Pupil is not null && options.Finish.HasFlag(PlanetaryFinish.Wiener) ? master.ChannelCount : 0];
         var shrinks = new ImmutableArray<BandShrinkReading>[options.ShrinkHalves is null ? 0 : master.ChannelCount];
+        var faintKept = new int[options.Pupil is not null && options.Fix == PlanetaryLimbFix.ModelToFrame ? master.ChannelCount : 0];
         for (var c = 0; c < master.ChannelCount; c++)
         {
             var plane = master.GetChannelSpan(c);
@@ -747,7 +771,8 @@ public static class PlanetarySharpening
                     }
                 }
                 sharpened = Apply(window, size, channelDisk, channelSharp, f => kernel(f) * diffraction.At(f), target.At, gains.AsSpan(), [], options.Fix, diskTarget, blurredDisk,
-                    options.LimbBand, options.UnderSky);
+                    options.LimbBand, options.UnderSky, (-limbWindow.X0, -limbWindow.Y0, width - limbWindow.X0, height - limbWindow.Y0), faintSources,
+                    n => faintKept[c] = n);
                 var sharpening = gains;
                 (sharpened, var wienerCut) = Finished(window, sharpened, contrastFrom ?? window, size, channelDisk, options, cutoffs[c], white,
                     f => PlanetaryWaveletGains.Transfer(sharpening.AsSpan(), f), diffraction);
@@ -798,7 +823,7 @@ public static class PlanetarySharpening
             // A live view keeps the shared limb (PlanetaryLiveLimb draws every channel on one window): none is kept for a per-channel read
             // while it is measured (#1498), so a live view cannot draw another limb than the batch read.
             Limb = options.Pupil is { } kept && channelLimbs is null ? PlanetaryLiveLimb.Kept(master, fit, limbOptions, aspect, limbWindow, kept, options.WavelengthsNm, [.. models], [.. diffractions],
-                (options.LimbBand, options.UnderSky)) : null,
+                (options.LimbBand, options.UnderSky), options.Fix) : null,
             Cutoffs = [.. cutoffs],
             Target = options.Pupil is null ? PlanetarySharpenTarget.Telescope : restoreToward,
             WhiteLevels = [.. whiteLevels],
@@ -807,6 +832,7 @@ public static class PlanetarySharpening
             WienerCuts = [.. wienerCuts],
             Stops = stops,
             Shrinks = [.. shrinks],
+            FaintSourcesKept = [.. faintKept],
         };
     }
 
@@ -1045,10 +1071,11 @@ public static class PlanetarySharpening
         _ => false,
     };
 
-    // The window sharpened by the gains, the limb kept from ringing as asked.
+    // The window sharpened by the gains, the limb kept from ringing as asked. `frame` is the frame's extent in the window's coordinates and
+    // `faintSources` the faint sources ModelToFrame keeps (#1681), `kept` told how many it laid.
     private static float[] Apply(float[] window, int size, MetricDisk disk, float[] sharp, Func<double, double> total, Func<double, double> diffraction,
         ReadOnlySpan<double> gains, ReadOnlySpan<double> thresholds, PlanetaryLimbFix fix, float[] diskTarget, float[] blurredDisk, PlanetaryLimbBand limbBand,
-        PlanetaryUnderSky underSky)
+        PlanetaryUnderSky underSky, (int Left, int Top, int Right, int Bottom) frame, ImmutableArray<(int X, int Y)> faintSources, Action<int> kept)
     {
         var (g, t) = (gains.ToArray(), thresholds.ToArray());
         return fix switch
@@ -1069,6 +1096,9 @@ public static class PlanetarySharpening
                 model: diskTarget, blurredModel: blurredDisk),
             PlanetaryLimbFix.ModelFeathered => PlanetaryDering.Outside(PlanetaryDering.Sharpen(window, size, size, g, t), window, size, size, disk, PlanetaryDering.OutsideLimb.ModelFeathered,
                 model: diskTarget, modelInLimbBand: limbBand == PlanetaryLimbBand.Model, modelUnderSky: underSky == PlanetaryUnderSky.Model),
+            PlanetaryLimbFix.ModelToFrame => PlanetaryDering.Outside(PlanetaryDering.Sharpen(window, size, size, g, t), window, size, size, disk, PlanetaryDering.OutsideLimb.ModelToFrame,
+                model: diskTarget, modelInLimbBand: limbBand == PlanetaryLimbBand.Model, modelUnderSky: underSky == PlanetaryUnderSky.Model, frame: frame,
+                faintSources: faintSources, carried: kept),
             _ => PlanetaryDering.Sharpen(window, size, size, g, t),
         };
     }
