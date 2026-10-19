@@ -143,6 +143,46 @@ namespace TianWen.Lib.Tests
             CountFlagged(mask[0]).ShouldBe(1, "noise cannot persist at one pixel across 80% of frames");
         }
 
+        /// <summary>
+        /// The weak vote: a photosite only a few sigma warm in every frame is never an outlier at the caller's sigma in
+        /// any one of them, so the strong vote never counts it (here +12 ADU against a strong delta of about 8 * 1.48 *
+        /// 2.5 = 30 ADU), yet it is the same pixel in every frame. A star as faint, moving with the dither, is not.
+        /// Found on the SV605CC nights of 2026-09-12 and 2026-10-17, whose masters kept dither-shaped blotches.
+        /// </summary>
+        [Fact]
+        public void AFaintlyWarmPixelInEveryFrameIsFlagged_AndAFaintDitheredStarIsNot()
+        {
+            // A session's length, the dither cycled: each star position holds 2 or 3 of the 30 frames.
+            const int Frames = 30;
+            var acc = new BadPixelAccumulator();
+            for (var i = 0; i < Frames; i++)
+            {
+                var (dx, dy) = Dither[i % Dither.Length];
+                acc.Accumulate(MonoFrame(300 + i, arr =>
+                {
+                    arr[40, 40] += 12f;               // warm: a few sigma, fixed in sensor space
+                    arr[80 + dy, 80 + dx] += 12f;     // as faint a star, moving with the dither
+                }));
+            }
+
+            var mask = acc.BuildMask(DitherTransforms()).ShouldNotBeNull();
+            mask[0][40, 40].ShouldBeTrue("a pixel warm in every frame is a defect however faint");
+            foreach (var (dx, dy) in Dither)
+            {
+                mask[0][80 + dy, 80 + dx].ShouldBeFalse($"the star at ({80 + dx}, {80 + dy}) sits there in 3 frames of {Frames} at most");
+            }
+            CountFlagged(mask[0]).ShouldBe(1, "noise alone never reaches the weak vote's count");
+        }
+
+        [Theory]
+        [InlineData(10, 10)]
+        [InlineData(12, 11)]
+        [InlineData(30, 18)]
+        [InlineData(90, 54)]
+        [InlineData(166, 100)]
+        public void TheWeakVoteNeedsSixtyPercentOrMoreWhereNoiseCouldReachThat(int frames, int required)
+            => BadPixelAccumulator.WeakRequiredCount(frames).ShouldBe(required);
+
         [Fact]
         public void AnUnmovedSessionRefusesTheMask()
         {
