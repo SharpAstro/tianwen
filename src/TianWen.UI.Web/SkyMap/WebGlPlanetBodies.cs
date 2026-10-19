@@ -21,7 +21,8 @@ namespace TianWen.UI.Web.SkyMap
     /// The fragment shader is <c>planet_body.frag</c>'s trace, the SAME TEXT between its two "The trace" markers (PlanetBodyGpuTests checks
     /// it): only the declarations above it differ. The renderer takes a texture only from a URL, so a map goes over once as an 8-bit PNG
     /// data URL (<see cref="PlanetBodyMap.Rgba8"/>, within half a level of the desktop's float texels); until it has loaded the draw answers
-    /// false and the caller draws the flat dot, and its landing asks the page for a frame.
+    /// false and the caller draws the flat dot, and its landing asks the page for a frame. The program is the same: registered on the first
+    /// draw and linked by the driver beside the map's load (<see cref="WebGlRenderer.WhenPipelineReadyAsync"/>), never waited for.
     /// </remarks>
     internal sealed class WebGlPlanetBodies(WebGlRenderer renderer, Action requestRedraw, ILogger? logger) : IDisposable
     {
@@ -276,6 +277,8 @@ namespace TianWen.UI.Web.SkyMap
         // Each body's block in a buffer of its own: the draws are replayed at Present, after every body's upload.
         private readonly PlanetBodyInstances<GpuBufferHandle> _instances = new(data => renderer.CreateBuffer(data), (buffer, data) => renderer.UpdateBuffer(buffer, data));
         private PipelineHandle? _pipeline;
+        // The program has linked: until then a draw would hold the main thread for the rest of its link, so the body stays its flat dot.
+        private bool _linked;
         private GpuBufferHandle? _corners;
 
         /// <summary>How many colour maps have been sent: one a body and texture version, never one a frame.</summary>
@@ -299,7 +302,29 @@ namespace TianWen.UI.Web.SkyMap
                 Uploads++;
                 _ = LoadAsync(view.Body, slot, key, map, flat);
             }
-            if (slot.Shown is not { } texture)
+            // Registered on the first draw, beside the first map's load, and linked by the driver while the map uploads: the first frame
+            // never waits for the compiler (129 ms on the Adreno X1-85 in the browser, the whole of the frame that opened the orrery).
+            if (_pipeline is null)
+            {
+                var pipeline = renderer.RegisterPipeline(new CustomPipelineDescriptor(
+                    VertexSource, FragmentSource,
+                    // The quad's corner per vertex, then the Body block's seven vec4s per instance (interleaved, 28 floats).
+                    Attribs:
+                    [
+                        new VertexAttrib(0, 2),
+                        new VertexAttrib(1, 4, PerInstance: true),
+                        new VertexAttrib(2, 4, PerInstance: true),
+                        new VertexAttrib(3, 4, PerInstance: true),
+                        new VertexAttrib(4, 4, PerInstance: true),
+                        new VertexAttrib(5, 4, PerInstance: true),
+                        new VertexAttrib(6, 4, PerInstance: true),
+                        new VertexAttrib(7, 4, PerInstance: true),
+                    ],
+                    Blend: PipelineBlend.AlphaOver));
+                _pipeline = pipeline;
+                _ = LinkAsync(pipeline);
+            }
+            if (slot.Shown is not { } texture || !_linked)
             {
                 return false;
             }
@@ -310,21 +335,6 @@ namespace TianWen.UI.Web.SkyMap
                 return false;
             }
 
-            _pipeline ??= renderer.RegisterPipeline(new CustomPipelineDescriptor(
-                VertexSource, FragmentSource,
-                // The quad's corner per vertex, then the Body block's seven vec4s per instance (interleaved, 28 floats).
-                Attribs:
-                [
-                    new VertexAttrib(0, 2),
-                    new VertexAttrib(1, 4, PerInstance: true),
-                    new VertexAttrib(2, 4, PerInstance: true),
-                    new VertexAttrib(3, 4, PerInstance: true),
-                    new VertexAttrib(4, 4, PerInstance: true),
-                    new VertexAttrib(5, 4, PerInstance: true),
-                    new VertexAttrib(6, 4, PerInstance: true),
-                    new VertexAttrib(7, 4, PerInstance: true),
-                ],
-                Blend: PipelineBlend.AlphaOver));
             // Corners of the two triangles: (0,0) (1,0) (1,1) / (0,0) (1,1) (0,1).
             _corners ??= renderer.CreateBuffer([0f, 0f, 1f, 0f, 1f, 1f, 0f, 0f, 1f, 1f, 0f, 1f]);
             var block = _instances.Write(view, x, y, radiusPx, width, height, slot.ShownAlbedo, nightTint, opacity);
@@ -332,6 +342,20 @@ namespace TianWen.UI.Web.SkyMap
             renderer.BindTexture(texture);
             renderer.DrawInstanced(_corners.Value, 6, block, 1);
             return true;
+        }
+
+        private async Task LinkAsync(PipelineHandle pipeline)
+        {
+            try
+            {
+                await renderer.WhenPipelineReadyAsync(pipeline);
+                _linked = true;
+                requestRedraw();
+            }
+            catch (Exception ex)
+            {
+                logger?.LogWarning(ex, "The planet body program did not link; the bodies stay flat dots");
+            }
         }
 
         private async Task LoadAsync(CatalogIndex body, Slot slot, (int Version, RGBAColor32 Flat) key, PlanetColourMap? map, RGBAColor32 flat)
