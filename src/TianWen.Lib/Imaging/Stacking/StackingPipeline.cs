@@ -763,9 +763,12 @@ public sealed class StackingPipeline(
         var drizzlePlausible = key.CalibrationKey.SensorType == SensorType.RGGB
             && (options.ForcedStrategy is IntegrationStrategyKind.BayerDrizzle or IntegrationStrategyKind.TilePipelinedDrizzle
                 || (!options.DisableBayerDrizzle && lightList.Count >= drizzleMinFrames));
-        var badPixelAccumulator = drizzlePlausible && options.HotPixelSigma > 0f
-            ? new BadPixelAccumulator(options.HotPixelSigma)
+        // One map per NIGHT, their union taken below: persistence is a share of the frames voting, so over several
+        // nights a photosite warm on one of them only would fall under both votes (BadPixelAccumulator.Nights).
+        var nightOf = drizzlePlausible && options.HotPixelSigma > 0f
+            ? BadPixelAccumulator.Nights(lightList, static f => f.Meta.ExposureStartTime)
             : null;
+        var badPixelAccumulators = nightOf?.Values.Distinct().ToDictionary(static n => n, _ => new BadPixelAccumulator(options.HotPixelSigma));
 
         // 3a. Pick reference by composite PSF quality.
         //
@@ -794,7 +797,10 @@ public sealed class StackingPipeline(
             // place: the accumulator must see the same values the integration producers' own
             // Apply emits. (The outlier test is scale-invariant per frame, but seeing the
             // producer's values is the invariant worth stating.)
-            badPixelAccumulator?.Accumulate(calibrated);
+            if (badPixelAccumulators is { } accumulators && nightOf is { } nights)
+            {
+                accumulators[nights[lf]].Accumulate(calibrated);
+            }
             // Shared detect site (FrameRegistration.DetectAsync): pre-debayer luminance, which this
             // path used to reach by detecting on channel 0 of the VNG-debayered frame. That is the
             // interpolated RED plane, and measured on a real session its top-K detections could not
@@ -1457,7 +1463,28 @@ public sealed class StackingPipeline(
         // flag nearly DISJOINT real populations (see BadPixelAccumulator.UnionInto), so preferring
         // either alone discards a measured good. BuildMask refuses with a logged reason otherwise
         // and the dark mask stands alone.
-        if (badPixelAccumulator?.BuildMask(transforms, logger) is { } registrationMask)
+        BitMatrix[]? nightsMask = null;
+        if (badPixelAccumulators is { } builtAccumulators && nightOf is { } frameNights)
+        {
+            foreach (var (night, accumulator) in builtAccumulators.OrderBy(static kv => kv.Key))
+            {
+                var nightTransforms = matched.Where(m => frameNights.TryGetValue(m.Light, out var n) && n == night).Select(static m => m.Transform).ToList();
+                var context = builtAccumulators.Count > 1 ? $"night {night + 1} of {builtAccumulators.Count}" : null;
+                if (accumulator.BuildMask(nightTransforms, logger, context) is not { } nightMask)
+                {
+                    continue;
+                }
+                if (nightsMask is null)
+                {
+                    nightsMask = nightMask;
+                }
+                else
+                {
+                    BadPixelAccumulator.UnionInto(nightsMask[0], nightMask[0], referenceRaw.Width, referenceRaw.Height);
+                }
+            }
+        }
+        if (nightsMask is { } registrationMask)
         {
             if (badPixelMask is { Length: > 0 } darkMask
                 && dark is not null && dark.Width == referenceRaw.Width && dark.Height == referenceRaw.Height)

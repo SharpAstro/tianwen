@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -332,6 +333,37 @@ namespace TianWen.Lib.Imaging.Calibration
         /// sits in a blob (a star) rather than alone (a defect). A star's neighbours read about half its core; noise's
         /// median of 8 rarely passes half a weak delta.</summary>
         internal const float BlobShare = 0.5f;
+
+        /// <summary>A gap between two subs longer than this starts another night (<see cref="Nights{T}"/>).</summary>
+        public static readonly TimeSpan NightGap = TimeSpan.FromHours(6);
+
+        /// <summary>
+        /// Numbers the nights of a frame set, 0 upward in time: runs of subs no gap longer than <see cref="NightGap"/>
+        /// separates. A stack of several nights builds one map per night and takes their union.
+        /// </summary>
+        /// <remarks>
+        /// Persistence is a fraction of the frames voting, so over two nights a photosite warm on only one of them
+        /// stands out in that night's share of the frames and falls under both votes: the SV605CC Sculptor of
+        /// 2026-09-12 and 2026-10-17 stacked together left 96 photosites unmasked that one night's own map had caught
+        /// (65 of October's, 31 of September's), and each drew a trail of dots, its night's dither path.
+        /// </remarks>
+        public static Dictionary<T, int> Nights<T>(IEnumerable<T> frames, Func<T, DateTimeOffset> start) where T : notnull
+        {
+            var nights = new Dictionary<T, int>();
+            var night = -1;
+            DateTimeOffset? last = null;
+            foreach (var frame in frames.OrderBy(start))
+            {
+                var at = start(frame);
+                if (last is not { } previous || at - previous > NightGap)
+                {
+                    night++;
+                }
+                nights[frame] = night;
+                last = at;
+            }
+            return nights;
+        }
 
         /// <summary>
         /// RMS radial spread of the transforms' translation components about their mean -- the
