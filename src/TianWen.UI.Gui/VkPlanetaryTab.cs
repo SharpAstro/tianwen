@@ -232,9 +232,10 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
             Outline(reframe.LiveWindow, PipSensorBorder);
             var p = reframe.Proposal;
             Outline(p, RoiColor);
-            DrawText($"{p.Width}x{p.Height}", FontPath, ir.X + p.X * scale + 4f * dpiScale, ir.Y + p.Y * scale + 3f * dpiScale,
-                MathF.Max(1f, p.Width * scale), BaseRowHeight * dpiScale, PanelFontSize * 0.8f * dpiScale, RoiColor,
-                TextAlign.Near, TextAlign.Near);
+            // The proposal's size, placed by the engine in the proposal's own rect on screen.
+            var proposalOnScreen = new RectF32(ir.X + p.X * scale, ir.Y + p.Y * scale, MathF.Max(1f, p.Width * scale), MathF.Max(1f, p.Height * scale));
+            RenderLayout(Layout.Builder.Text($"{p.Width}x{p.Height}", PanelFontSize * 0.8f, RoiColor, TextAlign.Near, TextAlign.Near)
+                .PadX(4f).RowH(BaseRowHeight), proposalOnScreen, scale: Scale);
         }
         finally
         {

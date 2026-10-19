@@ -433,4 +433,45 @@ public class NodePlanetaryTests(ITestOutputHelper outputHelper) : IDisposable
         (await client.StopPlanetarySequenceAsync(ct)).StatusCode.ShouldBe(404, "nothing is running to stop");
         (await client.StopPlanetaryAsync(ct)).IsSuccess.ShouldBeTrue();
     }
+
+    /// <summary>
+    /// Reframing on the full sensor through the node (#1033): a full-sensor still taken as a job and served as
+    /// planetary/fullframe while the capture streams on at its window; a reframe at another size placed where it was asked.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task AFullFrameIsServedWhileTheCaptureStreamsOnAndAReframePlacesTheWindowWhereAsked()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var node = await PlanetaryNodeAsync(NodeRunWatchOptions.Default.DetachGrace, ct);
+        await node.ActivateRigAsync(Camera, mount: null, ct);
+        var client = ClientOf(node);
+        await using var window = await NodeWindow.OpenAsync(node, outputHelper, ct);
+        (await client.StartPlanetaryAsync(new PlanetaryRequestDto { RoiWidth = 320, RoiHeight = 200 }, ct)).IsSuccess.ShouldBeTrue();
+        var before = await UntilStateAsync(client, "frames and a window", static s => s is { FramesReceived: > 0, RoiX: not null }, ct);
+        var camera = node.App.Services.GetRequiredService<IDeviceHub>().TryGetConnectedDriver<ICameraDriver>(Camera.DeviceUri, out var driver)
+            ? driver : throw new InvalidOperationException("The fake camera is not connected");
+
+        await UntilTheJobSucceedsAsync(client, await client.TakePlanetaryFullFrameAsync(ct), ct);
+
+        var still = await FrameAsync(client, FrameSources.PlanetaryFullFrame, ct);
+        try
+        {
+            (still.Width, still.Height).ShouldBe((camera.CameraXSize, camera.CameraYSize), "the whole sensor, unbinned");
+        }
+        finally
+        {
+            still.Release();
+        }
+        var after = await UntilStateAsync(client, "frames after the still", s => s.FramesReceived > before.FramesReceived + 2, ct);
+        (after.RoiX, after.RoiY, after.RoiWidth, after.RoiHeight).ShouldBe((before.RoiX, before.RoiY, before.RoiWidth, before.RoiHeight),
+            "the stream is back at its window");
+
+        var target = camera.RoiConstraints.Snap(new RoiRect(800, 600, 480, 320));
+        await UntilTheJobSucceedsAsync(client, await client.ReframePlanetaryAsync(
+            new PlanetaryReframeRequestDto { X = target.X, Y = target.Y, Width = target.Width, Height = target.Height }, ct), ct);
+        var moved = await UntilStateAsync(client, "the window at the proposal", s => (s.RoiX, s.RoiY, s.RoiWidth, s.RoiHeight) == (target.X, target.Y, target.Width, target.Height), ct);
+        moved.Running.ShouldBeTrue();
+
+        (await client.StopPlanetaryAsync(ct)).IsSuccess.ShouldBeTrue();
+    }
 }
