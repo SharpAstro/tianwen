@@ -1229,7 +1229,7 @@ planet named or taken from the pointing, and a night on the bench.
 #### The filter change and the interlude (#1618, done 2026-10-17)
 
 **Issues:** #1618 (its node side: the change through the device plane, the stream stopped and started again, the refusal while
-recording; the panel's FILTER section is still open there), #1340 (whose sequence calls both). Flight TIA4, leg filter-core.
+recording; the panel's FILTER section, below), #1340 (whose sequence calls both). Flight TIA4, legs filter-core and filter-panel.
 
 - **`FilterChange.ChangeAsync` (Lib, `Devices/FilterChange.cs`) is the one filter change.** The wheel is turned unless it holds the
   slot already, its arrival awaited for at most `ArrivalTimeout` (2 minutes; the session's wait had no bound), and the focuser,
@@ -1276,6 +1276,13 @@ recording; the panel's FILTER section is still open there), #1340 (whose sequenc
   moves them, and while a planetary capture streams through the wheel (`NodePlanetaryRun.StreamsThrough`, the node's run) runs as
   that capture's interlude; during a recording it answers 409 in the words above and the wheel does not move. Pinned through a node
   by `PlanetaryFilterChangeTests`, the interlude by `PlanetaryCaptureInterludeTests`.
+- **The Planetary mode's FILTER section** (#1618, 2026-10-20), shown with a wheel connected, says the filter in the beam and
+  offers the wheel's filters by their short names (L, R, Hα; a name it does not know as given) in rows of four, each row a
+  declared choice; a press is `ChangeFilterSignal`, the node's per-OTA filter change above. **The names are the wheel's
+  DRIVER's**, the list a filter change goes by, carried in its reading and device state (`FilterWheelReading.Slots`), never
+  the profile's URI, which can name none (a fake wheel's URI named no filters, so the Equipment tab showed 0). Pinned by
+  `PlanetaryControlPanelTests` (the presses) and `PlanetaryFilterThroughTheNodeTests` (the GUI's handler over a node: the
+  wheel turned, the stream restarted, the next recording named for the new filter).
 
 ### Phase H: focusing on the planet
 
