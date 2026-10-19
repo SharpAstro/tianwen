@@ -30,11 +30,14 @@ public class PlanetaryControlPanelFitTests
     private static readonly string[] Controls =
     [
         "PlanetaryCaptureToggle", "ExposureDec", "ExposureInc", "GainDec", "GainInc", "Depth8", "Depth16", "HighSpeed",
-        "RoiSizeDec", "RoiSizeInc", "RoiPanLeft", "RoiPanRight", "RoiPanUp", "RoiPanDown", "RoiOverlayToggle",
+        "RoiSizeDec", "RoiSizeInc", "RoiPanLeft", "RoiPanRight", "RoiPanUp", "RoiPanDown",
         "RecenterAuto", "RecenterDeadbandDec", "RecenterDeadbandInc", "RecenterGainDec", "RecenterGainInc", "RecenterMount",
         "MountNudgeN", "MountNudgeS", "MountNudgeE", "MountNudgeW",
         "FocCoarseIn", "FocFineIn", "FocFineOut", "FocCoarseOut",
     ];
+
+    // What only a running capture offers: the full-sensor still to reframe on (#1033).
+    private static readonly string[] CapturingControls = [.. Controls, "TakeFullFrame"];
 
     private static readonly PlanetaryRecordingDto Ended = new PlanetaryRecordingDto
     {
@@ -195,7 +198,7 @@ public class PlanetaryControlPanelFitTests
         painted.Paint(painted.LeftHalf);
         var inside = painted.WholeInside(painted.LeftHalf);
 
-        Controls.Except(inside.Controls).ToArray().ShouldBeEmpty($"every live control lies inside {LeftHalfHeight} design units while capturing");
+        CapturingControls.Except(inside.Controls).ToArray().ShouldBeEmpty($"every live control lies inside {LeftHalfHeight} design units while capturing");
         inside.Field.ShouldBeTrue("so does the recording's duration");
         texts.Except(inside.Texts).ToArray().ShouldBeEmpty("and every row, the focuser's hint the last of them");
     }
@@ -259,7 +262,7 @@ public class PlanetaryControlPanelFitTests
             field |= seen.Field;
         }
 
-        Controls.Except(controls).ToArray().ShouldBeEmpty("the wheel brings every live control whole into the 150 % screen's room");
+        CapturingControls.Except(controls).ToArray().ShouldBeEmpty("the wheel brings every live control whole into the 150 % screen's room");
         field.ShouldBeTrue("and the recording's duration");
         texts.Except(shown).ToArray().ShouldBeEmpty("and every row");
     }

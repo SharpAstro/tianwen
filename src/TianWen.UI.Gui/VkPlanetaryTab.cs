@@ -1,6 +1,7 @@
 using System;
 using DIR.Lib;
 using SdlVulkan.Renderer;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Shared;
@@ -135,12 +136,11 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
         // chrome, so the panel's clickables MUST be registered AFTER this call to survive.
         Render(source, state);
 
-        // The ROI overlay + panel both draw on top of the rendered viewer via FillRect (same as the panel),
-        // so they survive Render. The overlay outlines the displayed frame: the live stream IS the ROI crop,
-        // so the ROI rect maps to the whole displayed image (clamped to the viewer area when zoomed in).
-        if (_panel.ShowRoiOnImage && source is not null)
+        // A reframe (#1033) draws the live window and the proposal on the full-sensor still, and takes a drag on the image to
+        // move the proposal: a press region of its own over the image, painted after the viewer so its press is this one's.
+        if (controller.Reframe is { } reframe && source is not null)
         {
-            DrawRoiOnStream(dpiScale);
+            DrawReframe(reframe, dpiScale);
         }
 
         RenderControlPanel(controller, panelRect, dpiScale);
@@ -163,7 +163,7 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
     {
         // A PiP not drawn this frame (folded while capturing, or scrolled out of the panel) has no sensor to press on.
         _pipScale = 0f;
-        var panelTree = _panel.Build(controller.Capture, _focuser, controller.RecordingTimeLeft, Bus, PressPip);
+        var panelTree = _panel.Build(controller.Capture, _focuser, controller.RecordingTimeLeft, Bus, PressPip, controller.Reframe);
         // The panel's only Fill leaf is the ROI PiP.
         RenderLayout(panelTree, panel, scale: Scale,
             drawFill: (fill, r) =>
@@ -209,34 +209,48 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
         StrokeRect(rx, ry, rw, rh, MathF.Max(1.5f, 1.5f * dpiScale), RoiColor);
     }
 
-    // The on-stream overlay: outline the displayed frame (= the ROI crop) + a "ROI WxH" tag, clamped to the
-    // IMAGE AREA (between the toolbar and the right info panel), so a zoomed-in image's overflow -- or a
-    // letterboxed fit -- never paints over the WB / wavelet / controls panel or the chrome.
-    private void DrawRoiOnStream(float dpiScale)
+    // A reframe's overlay on the full-sensor still: the window the stream runs at (dim) and the proposal (the ROI colour, tagged),
+    // mapped from sensor pixels to the image as the viewer drew it and clipped to the image area, so a zoomed-in still never
+    // paints over the chrome; and the image area's press, which moves the proposal under the cursor while the button is held.
+    private void DrawReframe(PlanetaryReframe reframe, float dpiScale)
     {
-        var fontPath = FontPath;
         var ir = CurrentImageRect;
-        if (ir.Width <= 1f || ir.Height <= 1f)
-        {
-            return;
-        }
-
         var area = ImageAreaRect;
-        var l = MathF.Max(ir.X, area.X);
-        var t = MathF.Max(ir.Y, area.Y);
-        var r = MathF.Min(ir.X + ir.Width, area.X + area.Width);
-        var b = MathF.Min(ir.Y + ir.Height, area.Y + area.Height);
-        if (r <= l || b <= t)
+        if (ir.Width <= 1f || ir.Height <= 1f || area.Width <= 1f || area.Height <= 1f || reframe.SensorWidth <= 0)
         {
             return;
         }
+        var scale = ir.Width / reframe.SensorWidth;
 
-        var roi = _panel.Roi;
-        StrokeRect(l, t, r - l, b - t, MathF.Max(2f, 2f * dpiScale), RoiColor);
-        DrawText($"ROI {roi.Width}x{roi.Height}", fontPath,
-            l + 4f * dpiScale, t + 3f * dpiScale, r - l, BaseRowHeight * dpiScale,
-            PanelFontSize * 0.8f * dpiScale, RoiColor, TextAlign.Near, TextAlign.Near);
+        PushClip(area.X, area.Y, area.Width, area.Height);
+        try
+        {
+            void Outline(RoiRect window, RGBAColor32 color)
+                => StrokeRect(ir.X + window.X * scale, ir.Y + window.Y * scale, MathF.Max(1f, window.Width * scale),
+                    MathF.Max(1f, window.Height * scale), MathF.Max(2f, 2f * dpiScale), color);
+
+            Outline(reframe.LiveWindow, PipSensorBorder);
+            var p = reframe.Proposal;
+            Outline(p, RoiColor);
+            DrawText($"{p.Width}x{p.Height}", FontPath, ir.X + p.X * scale + 4f * dpiScale, ir.Y + p.Y * scale + 3f * dpiScale,
+                MathF.Max(1f, p.Width * scale), BaseRowHeight * dpiScale, PanelFontSize * 0.8f * dpiScale, RoiColor,
+                TextAlign.Near, TextAlign.Near);
+        }
+        finally
+        {
+            PopClip();
+        }
+
+        void MoveTo(float x, float y) => reframe.CentreProposalOn((x - ir.X) / scale, (y - ir.Y) / scale);
+        RenderLayout(Layout.Builder.Fill(key: ReframeKey).Pressable(new HitResult.ButtonHit(ReframeKey), press =>
+            {
+                MoveTo(press.X, press.Y);
+                return new DragCapture(move => MoveTo(move.X, move.Y), static _ => { });
+            }), area, scale: Scale, drawFill: static (_, _) => { });
     }
+
+    /// <summary>The image area's press while a reframe is on show (#1033).</summary>
+    internal const string ReframeKey = "PlanetaryReframe";
 
     // A rectangle outline drawn as four thin FillRects (so it composites on top of the rendered viewer, like
     // the panel -- DrawLineOverlay is for the in-Render overlay layer, which is already closed by this point).
