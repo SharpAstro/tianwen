@@ -559,6 +559,18 @@ public class PlanetarySharpeningTests
         toward.Skip(16).ShouldAllBe(w => w == 0);
     }
 
+    [Fact]
+    public void TheHannTaperEndsAtTheGridsNyquistWhereTheCutoffLiesPastIt()
+    {
+        // L-NYQ, #1668: below the grid's Nyquist the taper ends at the cutoff; past it, at Nyquist, so the grid's edge never cuts the target.
+        PlanetaryFinishing.ApertureTaper(0.2, 0.4, PlanetaryApertureTaper.Hann).ShouldBe(0.5, 1e-12, "half way to a cutoff below Nyquist");
+        PlanetaryFinishing.ApertureTaper(0.4, 0.4, PlanetaryApertureTaper.Hann).ShouldBe(0, 1e-12);
+        PlanetaryFinishing.ApertureTaper(0.25, 1.1, PlanetaryApertureTaper.Hann).ShouldBe(0.5, 1e-12, "half way to Nyquist, not to a cutoff past it");
+        PlanetaryFinishing.ApertureTaper(PlanetaryFinishing.GridNyquist, 1.1, PlanetaryApertureTaper.Hann).ShouldBe(0, 1e-12, "nothing at Nyquist");
+        PlanetaryFinishing.ApertureTaper(0.6, 1.1, PlanetaryApertureTaper.Hann).ShouldBe(0, 1e-12, "nor past it");
+        PlanetaryFinishing.ApertureTaper(0.6, 1.1, PlanetaryApertureTaper.Tukey).ShouldBeGreaterThan(0, "Tukey, an option, still ends at the cutoff");
+    }
+
     [Theory]
     [InlineData(PlanetaryApertureTaper.Hann, 0.005, 0.008)]
     [InlineData(PlanetaryApertureTaper.Tukey, 0.075, 0.085)]
@@ -625,14 +637,15 @@ public class PlanetarySharpeningTests
     [Theory]
     [InlineData(new[] { 0.23, 0.26, 0.31 }, PlanetarySharpenTarget.Aperture)]
     [InlineData(new[] { 0.49 }, PlanetarySharpenTarget.Aperture)]
-    [InlineData(new[] { 0.23, 0.26, 0.5 }, PlanetarySharpenTarget.Telescope)]
-    [InlineData(new[] { 1.0, 1.13, 1.34 }, PlanetarySharpenTarget.Telescope)]
+    [InlineData(new[] { 0.23, 0.26, 0.5 }, PlanetarySharpenTarget.Aperture)]
+    [InlineData(new[] { 1.0, 1.13, 1.34 }, PlanetarySharpenTarget.Aperture)]
     [InlineData(new[] { 0.3, double.NaN }, PlanetarySharpenTarget.Telescope)]
+    [InlineData(new[] { 0.3, 0.0 }, PlanetarySharpenTarget.Telescope)]
     [InlineData(new double[0], PlanetarySharpenTarget.Telescope)]
-    public void TheAutomaticTargetIsTheApertureOnlyWhereEveryChannelResolvesTheTelescope(double[] cutoffs, PlanetarySharpenTarget expected)
+    public void TheAutomaticTargetIsTheApertureWhereverEveryCutoffIsKnown(double[] cutoffs, PlanetarySharpenTarget expected)
     {
-        // #1632: the aperture where every channel's pupil cutoff lies below 0.5 cycles a pixel (the EdgeHD twins it won on lie at 0.23 to
-        // 0.31), the telescope where any channel is sampled coarser (the colour twins it rang on lie at 1.0 to 1.3) or a cutoff is unknown.
+        // #1632, #1668: the aperture wherever every channel's pupil cutoff is known, sampled finely (the EdgeHD twins, 0.23 to 0.31) or
+        // coarsely (the colour twins, 1.0 to 1.3, where its taper ends at the grid's Nyquist, L-NYQ); the telescope where one is unknown.
         PlanetarySharpening.TargetFor(PlanetarySharpenTarget.Auto, cutoffs).ShouldBe(expected);
         new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope).Target.ShouldBe(PlanetarySharpenTarget.Auto, "the automatic target is the default");
         PlanetarySharpening.TargetFor(PlanetarySharpenTarget.Telescope, cutoffs).ShouldBe(PlanetarySharpenTarget.Telescope, "a target asked for by name is taken");
@@ -640,14 +653,14 @@ public class PlanetarySharpeningTests
     }
 
     [Fact(Timeout = 300_000)]
-    public async Task TheDefaultTargetUndoesTheTelescopeOnlyWhereThePixelsResolveIt()
+    public async Task TheDefaultTargetUndoesTheTelescopeHoweverFineThePixels()
     {
-        // #1632: the default resolves once, by every channel's cutoff, to one of the two named targets and sharpens exactly as that target
-        // asked by name would. The fixture's Jupiter is about 0.6" a pixel: through a 254 mm pupil at 650 nm its cutoff is about 1.1 cycles a
-        // pixel (coarser than the optics resolve, the telescope), through a 100 mm pupil about 0.45 (the aperture).
+        // #1632, #1668: the default resolves once, by every channel's cutoff, to a named target and sharpens exactly as that target asked by
+        // name would. The fixture's Jupiter is about 0.6" a pixel: through a 254 mm pupil at 650 nm its cutoff is about 1.1 cycles a pixel
+        // (coarser than the grid holds, so the taper ends at Nyquist), through a 100 mm pupil about 0.45; both take the aperture.
         var ct = TestContext.Current.CancellationToken;
         var (_, stack) = NoisyStack();
-        foreach (var (pupil, expected) in new[] { (Telescope, PlanetarySharpenTarget.Telescope), (new Pupil(0.1, ObstructionRatio: 0.23), PlanetarySharpenTarget.Aperture) })
+        foreach (var (pupil, expected) in new[] { (Telescope, PlanetarySharpenTarget.Aperture), (new Pupil(0.1, ObstructionRatio: 0.23), PlanetarySharpenTarget.Aperture) })
         {
             var options = new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, pupil) { WavelengthsNm = [650] };
             var automatic = (await Task.Run(() => PlanetarySharpening.Sharpen(stack, options), ct)).ShouldNotBeNull();
@@ -663,15 +676,20 @@ public class PlanetarySharpeningTests
         }
     }
 
-    [Fact(Timeout = 300_000)]
-    public async Task TheApertureTargetTakesTheMidBandsPastTheTelescopesOwnTruth()
+    [Theory(Timeout = 300_000)]
+    [InlineData(100)]
+    [InlineData(254)]
+    public async Task TheApertureTargetTakesTheMidBandsPastTheTelescopesOwnTruth(int apertureMm)
     {
         // #1366: toward the telescope (the planet through the pupil's diffraction) the gains undo the air and the stack and never the
         // telescope. Toward the aperture (the planet itself band-limited to the cutoff) the Wiener target divides the pupil's transfer out
-        // too, so the mid bands go past where the telescope target leaves them, and the limb is still kept from ringing.
+        // too, so the mid bands go past where the telescope target leaves them, and the limb is still kept from ringing. The fixture is about
+        // 0.6" a pixel: through 100 mm the cutoff (about 0.45 cycles a pixel) lies inside the grid; through 254 mm (about 1.1) past its
+        // Nyquist, where the taper ends at Nyquist (#1668, L-NYQ) and asks nothing of the grid's last octave, so band 1 is given up there.
         var ct = TestContext.Current.CancellationToken;
         var (truth, stack) = NoisyStack();
-        var options = new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650], Target = PlanetarySharpenTarget.Telescope };
+        var pupil = apertureMm == 254 ? Telescope : new Pupil(apertureMm / 1000.0, ObstructionRatio: 0.23);
+        var options = new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, pupil) { WavelengthsNm = [650], Target = PlanetarySharpenTarget.Telescope };
 
         var telescope = (await Task.Run(() => PlanetarySharpening.Sharpen(stack, options), ct)).ShouldNotBeNull();
         var aperture = (await Task.Run(() => PlanetarySharpening.Sharpen(stack, options with { Target = PlanetarySharpenTarget.Aperture }), ct)).ShouldNotBeNull();
@@ -686,11 +704,20 @@ public class PlanetarySharpeningTests
         TestContext.Current.TestOutputHelper?.WriteLine($"gains {string.Join(", ", telescope.Gains.Select(g => g.ToString("0.00")))} -> {string.Join(", ", aperture.Gains.Select(g => g.ToString("0.00")))}; " +
             $"transfer, bands 1 to {kept.Length}: {string.Join(", ", kept.Select(t => t.ToString("0.000")))} toward the telescope, {string.Join(", ", undone.Select(t => t.ToString("0.000")))} toward the aperture; undershoot {undershoot:0.0000}");
 
-        // The pupil's transfer falls with frequency, so undoing it lifts the finest bands most: 1.40, 1.11 and 1.05 times bands 1 to 3 here
-        // when it was written.
-        (undone[0] / kept[0]).ShouldBeGreaterThan(1.2, "band 1 goes past the telescope's own truth");
-        (undone[1] / kept[1]).ShouldBeGreaterThan(1.05, "and band 2");
-        undone.Zip(kept).ShouldAllBe(pair => pair.First >= pair.Second - 0.005, "no band falls");
+        // The pupil's transfer falls with frequency, so undoing it lifts the finest bands most where the grid holds the cutoff. Past Nyquist
+        // the target stops at Nyquist: bands 2 to 4 still go past (0.862, 0.936, 0.978 against 0.842, 0.906, 0.961 through 254 mm when
+        // #1668 was written) and band 1 is given up (0.365 against 0.419).
+        if (apertureMm == 254)
+        {
+            undone.Skip(1).Zip(kept.Skip(1)).ShouldAllBe(pair => pair.First >= pair.Second, "past Nyquist, bands 2 on still go past the telescope's");
+            undone[0].ShouldBeLessThan(kept[0], "and band 1, past what the grid holds once the target ends at Nyquist, is not asked for");
+        }
+        else
+        {
+            (undone[0] / kept[0]).ShouldBeGreaterThan(1.2, "band 1 goes past the telescope's own truth");
+            (undone[1] / kept[1]).ShouldBeGreaterThan(1.05, "and band 2");
+            undone.Zip(kept).ShouldAllBe(pair => pair.First >= pair.Second - 0.005, "no band falls");
+        }
         undershoot.ShouldBeLessThan(0.02, "the limb is still kept from ringing below the sky");
         telescope.Sharpened.Release();
         aperture.Sharpened.Release();
@@ -805,7 +832,9 @@ public class PlanetarySharpeningTests
         {
             var (stacked, byDials, byBatch, byLive) = (Peak(stack, moon), Peak(dials, moon), Peak(batch.Sharpened, moon), Peak(live, moon));
             TestContext.Current.TestOutputHelper?.WriteLine($"the moon at {moon}: peak {stacked:0.0000} stacked, {byDials:0.0000} by the dials, {byBatch:0.0000} batch, {byLive:0.0000} live");
-            byBatch.ShouldBeGreaterThan(1.5 * stacked, $"the moon at {moon} is sharpened, not left as stacked");
+            // 1.46 times since the default takes the aperture here too, its taper ending at Nyquist (#1668), against more than 1.5 toward the
+            // telescope: the window's rule is what this pins, not how far a target lifts the moon.
+            byBatch.ShouldBeGreaterThan(1.3 * stacked, $"the moon at {moon} is sharpened, not left as stacked");
             byBatch.ShouldBe(byDials, 0.1 * byDials, $"the moon at {moon} as the dials sharpen it");
             byLive.ShouldBe(byBatch, 0.02 * byBatch, $"the moon at {moon} drawn live as the batch sharpens it");
         }

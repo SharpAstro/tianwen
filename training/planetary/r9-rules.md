@@ -923,3 +923,48 @@ them against the post or any truth was read.
 - **By eye, lifted** (`taper/crops/`): T draws a dark line round Saturn's globe and rings and magenta specks in the ring shadow; H a trace
   of the line, fewer specks; C no line but a soft glow past the limb (the Airy wing its own truth keeps), like N's but fainter, and a
   softer Jupiter. Both T and H show faint lobes off Saturn's ring tips far out (both, so not the taper's).
+
+## L-NYQ: the aperture target everywhere, its Hann taper ending at the grid's Nyquist where the pupil's cutoff lies past it (set 2026-10-19 09:40 +11, after the full chain's re-judge left the EdgeHD Saturn at the telescope target; before any arm below was built or run)
+
+- **The question:** the aperture target is the default only where every channel's cutoff lies below 0.5 cycles a pixel (#1632), because
+  on the colour twins (cutoffs 1.0 to 1.3) it rang (rebound up to 0.035, L-ORDER, Tukey). Where the cutoff lies past Nyquist, the taper
+  never reaches nothing on the grid, so the target is cut by the grid's edge: a step in frequency, which rings. Ending the Hann taper at
+  the lesser of the cutoff and 0.5 (the grid's Nyquist) removes that step. Does the aperture target then serve the captures the gate
+  sends to the telescope today, so the gate can go?
+- **The arms**, derived gains at strength 1, no finish, one build (`i1056/bin-nyq`, main plus an `--aperture-band cutoff|nyquist`
+  option that shapes the target and the truth `--score-against aperture` reads alike): N (the telescope target), H (the aperture
+  target, Hann to the cutoff, as main forces it), HN (the aperture target, Hann to min(cutoff, 0.5)). Every run is `--target both`, so N
+  is scored beside each against the same truth.
+- **Inputs, the coarse ones only:** the four colour twins (uc-g4, uc-g4s2, sat-p5, sat-p5s2; cutoffs 1.0 to 1.3), and the two real
+  captures the gate sends to the telescope (the EdgeHD Saturn, cutoffs 0.393/0.453/0.521; the owner's Saturn of 7 October,
+  0.431/0.529/0.609). Where every cutoff lies below 0.5, HN is H by construction (min(cutoff, 0.5) = cutoff): the EdgeHD Jupiter twins and
+  the three other captures are not re-run.
+- **Verdicts, for HN:**
+  1. Not overdone on the two real captures: rebound past the limb at most 0.005 of the disk and undershoot at most 0.002, every channel.
+  2. The colour twins: against HN's own truth (Hann to min(cutoff, 0.5)), the detail error (bands 1 to 4) and the limb error (inside plus
+     outside) on the four twins' means below N's against the same truth, and every twin's rebound at most 0.005 and undershoot at most
+     0.002.
+  3. The EdgeHD Saturn's post: HN's C24 (`planetary judge`, mean over bands 2 to 4) at least N's. One capture, so a check, not a trend.
+  All three: the gate goes, `PlanetarySharpenTarget.Auto` takes the aperture everywhere with the Nyquist-ended Hann (the owner to decide).
+  Otherwise the gate stays, and which verdict failed is recorded.
+- **Read beside, not a verdict:** H's row on the same inputs (how much the Nyquist end changes); lifted crops of the two real limbs by eye.
+
+### L-NYQ read (2026-10-19 10:31 +11): verdicts 1 and 3 hold, verdict 2 FAILS on one twin's edge, so by the rule the gate stays
+
+- **Verdict 1, real edges (worst undershoot, rebound over every channel), HN:** EdgeHD Saturn 0, 0.0013; the owner's Saturn 0, 0.0035:
+  **holds**. (H: 0, 0.0012 and 0, 0.0039.)
+- **Verdict 2, the four colour twins against HN's own truth:** detail 1.2881 against N 1.2963 and limb 0.0330 against N 0.0433, both
+  below N; but sat-p5s2's rebound is 0.0101 (red; green 0.0055, blue 0.0059) and its red undershoot 0.0022, past 0.005 and 0.002:
+  **FAILS**. Every other twin is inside (uc-g4 0.0016, 0.0029; uc-g4s2 0.0003, 0.0005; sat-p5 0.0011, 0.0023).
+- **Verdict 3, the EdgeHD Saturn's post:** HN 0.9727 against N 0.9663: **holds** (H 0.9727 as well).
+- **By the rule: the gate stays.**
+- **Read beside, not a verdict, and it qualifies the failure:** N, today's default on these inputs, is outside the same bounds on three of
+  the four twins, by more: its worst rebound is uc-g4 0.0067, sat-p5 0.0084, sat-p5s2 0.0150 (blue), uc-g4s2 0. HN's rebound is below
+  N's on uc-g4, sat-p5 and sat-p5s2 (0.0029, 0.0023, 0.0101), level on uc-g4s2. HN's one edge worse than N's is sat-p5s2's red undershoot
+  (0.0022 against 0). The Nyquist end does what it was for: H, the plain Hann on the same twins, rebounds up to 0.0206 (sat-p5s2) and
+  0.0122 (uc-g4). So the bound as set was one the default itself does not meet on coarse twins; whether to adopt HN anyway is the owner's,
+  as an amendment made after the read, disclosed as such.
+- **Amended after the read, the owner's decision (2026-10-19 10:40 +11, "Adopt HN everywhere"), disclosed as such:** shown the two real
+  Saturns' strips (today's telescope target against HN, as written and lifted) and the read above, the owner chose to adopt HN despite
+  verdict 2's failure on sat-p5s2. Recorded here and in the PR that ships it: the gate goes, and Hann ends at the lesser of the cutoff and
+  Nyquist.
