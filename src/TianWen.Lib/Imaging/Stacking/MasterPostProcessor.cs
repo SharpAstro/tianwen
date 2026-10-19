@@ -102,6 +102,8 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             };
         }
 
+        autocropRect = ClipToCoverage(autocropRect, master, result.Coverage);
+
         // Pre-compute the cropped master once -- reused for the autocrop
         // FITS at the end.
         IntegrationResult? croppedResult = null;
@@ -396,6 +398,38 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
 
         logger.LogInformation("  [colourCal] {Source} WB ({R:F3}, {G:F3}, {B:F3}) stamped onto {Count} master(s)",
             source, wb.R, wb.G, wb.B, stamped);
+    }
+
+    /// <summary>
+    /// The autocrop clipped to the master's own coverage plane, the viewer's rule
+    /// (<see cref="Image.CoverageCropRectangle"/>). The geometric rectangle is where every frame's
+    /// OUTLINE reaches, not where its pixels did: a photosite the bad-pixel mask drops from every frame
+    /// leaves a hole the outlines cannot see. Measured on the SV605CC Tarantula of 2026-10-17: the dark
+    /// mask flagged the sensor's warm corner whole, the subs moved only +-9 px all night, and the
+    /// autocrop kept a 22 px wedge with 197 pixels no frame reached. Where the geometry already lies
+    /// inside full coverage, which is the usual case, the rectangle comes back unchanged. The hole arises
+    /// in drizzle, which skips a masked photosite rather than repairing it, and a drizzle weight plane is
+    /// read by block MEAN, so a block the wedge takes a share of fails; a count plane's block MEDIAN keeps
+    /// such a block, which is right for the scattered single-pixel dips it was made for.
+    /// </summary>
+    internal PixelRect ClipToCoverage(PixelRect autocropRect, Image master, Image? coverage)
+    {
+        if (autocropRect.IsEmpty || coverage is null || coverage.Width != master.Width || coverage.Height != master.Height)
+        {
+            return autocropRect;
+        }
+        var covered = master.CoverageCropRectangle(coverage);
+        if (covered.IsEmpty)
+        {
+            return autocropRect;
+        }
+        var clipped = PixelRect.Intersect(autocropRect, covered);
+        if (clipped.IsEmpty || clipped == autocropRect)
+        {
+            return autocropRect;
+        }
+        logger.LogInformation("  [autocrop] {Geometric} clipped to {Clipped} by the coverage plane", autocropRect, clipped);
+        return clipped;
     }
 
     /// <summary>
