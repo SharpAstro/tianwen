@@ -73,6 +73,68 @@ namespace TianWen.Lib.Imaging.Calibration
         /// </summary>
         public const float MinTranslationSpreadPx = 3f;
 
+        /// <summary>
+        /// The WEAK vote's per-frame threshold, in sigmas of the frame's own LOCAL residual (a pixel against the
+        /// median of its 8 same-subplane neighbours), with <see cref="MinWeakOutlierFraction"/> its persistence.
+        ///
+        /// <para><b>What the strong vote cannot see.</b> A photosite 2 to 3 sigma warm in every sub is never an
+        /// outlier at the caller's sigma (4 to 8) in any one of them, so it never votes, while across 90 subs the
+        /// same pixel stands about 20 sigma out. Under small dithers it then lands on the same few output cells
+        /// for frames at a time and wins rejection there: on the SV605CC nights of 2026-09-12 and 2026-10-17
+        /// (dithers of 3 to 5 px every third sub, the whole night within 13 x 17 px) the masters carried coloured
+        /// blotches the shape of the dither path, after both masks had run.</para>
+        ///
+        /// <para><b>Why a second vote and not a mean.</b> A star crossing a pixel in a third of the frames moves
+        /// a mean by a third of its core, so a mean flags stars; a vote counts it as a third of the frames
+        /// whatever its brightness. At 1.5 sigma pure noise votes in about 7 % of frames and a pixel 2 sigma warm
+        /// in about 69 %; <see cref="MinWeakOutlierFraction"/> sits between them with room on both sides, and
+        /// above the third of the frames a dithered star can occupy (see <see cref="MinTranslationSpreadPx"/>).</para>
+        ///
+        /// <para><b>Why the LOCAL residual's spread.</b> The strong vote scales by the MAD of the frame's values,
+        /// which a nebula or a gradient inflates several-fold (deliberately: it errs safe). A weak vote on that
+        /// scale would miss exactly the faint warm pixels it is for, so it reads the spread of the residuals
+        /// themselves, which is the pixel noise.</para>
+        /// </summary>
+        public const float WeakOutlierSigma = 1.5f;
+
+        /// <summary>Fraction of accumulated frames a pixel must be a WEAK outlier in (<see cref="WeakOutlierSigma"/>),
+        /// raised for a short session by <see cref="WeakRequiredCount"/>.</summary>
+        public const double MinWeakOutlierFraction = 0.6;   // double: 0.6f * 90 rounds up to 55
+
+        /// <summary>How often pure noise casts a weak vote: a residual past <see cref="WeakOutlierSigma"/> either way,
+        /// 2 * (1 - Phi(1.5)) for Gaussian noise.</summary>
+        internal const double NoiseWeakVoteRate = 0.1336;
+
+        /// <summary>The chance a pure-noise pixel may have of reaching the weak vote's count: under one false flag on
+        /// a ten-megapixel sensor.</summary>
+        internal const double WeakVoteFalseFlagRate = 1e-8;
+
+        /// <summary>
+        /// The weak vote's required count: <see cref="MinWeakOutlierFraction"/> of the frames, or more where that many
+        /// is within noise's reach. On 90 frames 60 % is 54 and noise reaches about 35 at the
+        /// <see cref="WeakVoteFalseFlagRate"/>; on 12 frames 60 % is 8 and noise reaches 8 often enough to flag a pixel of
+        /// a few thousand, so it takes 11.
+        /// </summary>
+        internal static int WeakRequiredCount(int frames)
+        {
+            var byFraction = (int)Math.Ceiling(MinWeakOutlierFraction * frames);
+            // P(Binomial(frames, NoiseWeakVoteRate) >= k), summed from k = frames down, in log space for the binomial.
+            var logP = Math.Log(NoiseWeakVoteRate);
+            var logQ = Math.Log(1 - NoiseWeakVoteRate);
+            var logChoose = 0.0;   // log C(frames, frames)
+            var tail = 0.0;
+            for (var k = frames; k >= 0; k--)
+            {
+                tail += Math.Exp(logChoose + (k * logP) + ((frames - k) * logQ));
+                if (tail >= WeakVoteFalseFlagRate)
+                {
+                    return Math.Max(byFraction, k + 1);
+                }
+                logChoose += Math.Log((double)k / (frames - k + 1));   // C(n, k-1) = C(n, k) * k / (n - k + 1)
+            }
+            return byFraction;
+        }
+
         /// <summary>Stride (in subplane units) of the sample the per-subplane MAD is estimated
         /// from, mirroring <see cref="BadPixelDetection"/>'s strided estimation.</summary>
         private const int StatStride = 8;
@@ -82,6 +144,7 @@ namespace TianWen.Lib.Imaging.Calibration
 
         private readonly float _outlierSigma = outlierSigma;
         private ushort[]? _counts;
+        private ushort[]? _weakCounts;
         private int _width;
         private int _height;
         private int _step;
@@ -120,6 +183,7 @@ namespace TianWen.Lib.Imaging.Calibration
                 // single plane. (SensorType.Color frames are 3-channel and never reach here.)
                 _step = calibrated.ImageMeta.SensorType == SensorType.RGGB ? 2 : 1;
                 _counts = new ushort[w * h];
+                _weakCounts = new ushort[w * h];
             }
             else if (w != _width || h != _height)
             {
@@ -132,12 +196,14 @@ namespace TianWen.Lib.Imaging.Calibration
             // of the scene) and share nothing but the sensor.
             var step = _step;
             var deltas = new float[step * step];
+            var weakDeltas = new float[step * step];
             for (var sy = 0; sy < step; sy++)
             {
                 for (var sx = 0; sx < step; sx++)
                 {
                     var mad = SubplaneStridedMad(data, sx, sy, step, w, h);
-                    if (!(mad > 0f))
+                    var residualMad = SubplaneStridedResidualMad(data, sx, sy, step, w, h);
+                    if (!(mad > 0f) || !(residualMad > 0f))
                     {
                         // No usable noise scale on some subplane (uniform synthetic input); a
                         // frame we cannot judge must not vote.
@@ -145,10 +211,12 @@ namespace TianWen.Lib.Imaging.Calibration
                         return;
                     }
                     deltas[sy * step + sx] = _outlierSigma * GaussianFactor * mad;
+                    weakDeltas[sy * step + sx] = WeakOutlierSigma * GaussianFactor * residualMad;
                 }
             }
 
             var counts = _counts;
+            var weakCounts = _weakCounts ?? throw new InvalidOperationException("the weak counts are allocated with the strong ones");
             // Rows partition the counts array, so the per-row increments never race. The border of
             // `step` px has no full neighbourhood and never accumulates (and so is never flagged).
             Parallel.For(step, h - step, y =>
@@ -182,9 +250,15 @@ namespace TianWen.Lib.Imaging.Calibration
                     // A non-finite pixel is unusable by definition and counts as an outlier; a
                     // non-finite NEIGHBOUR makes the median NaN and every comparison false, so
                     // pixels bordering a NaN region simply never accumulate.
-                    if (!float.IsFinite(v) || MathF.Abs(v - median) > deltas[rowSub + x % step])
+                    var finite = float.IsFinite(v);
+                    var residual = MathF.Abs(v - median);
+                    if (!finite || residual > deltas[rowSub + x % step])
                     {
                         counts[rowBase + x]++;
+                    }
+                    if (!finite || residual > weakDeltas[rowSub + x % step])
+                    {
+                        weakCounts[rowBase + x]++;
                     }
                 }
             });
@@ -257,18 +331,23 @@ namespace TianWen.Lib.Imaging.Calibration
             }
 
             var required = (int)MathF.Ceiling(MinOutlierFraction * FramesAccumulated);
+            var weakRequired = WeakRequiredCount(FramesAccumulated);
             var counts = _counts;
+            var weakCounts = _weakCounts ?? throw new InvalidOperationException("the weak counts are allocated with the strong ones");
             var mask = new BitMatrix(_height, _width);
             var flagged = 0L;
+            var weakOnly = 0L;
             for (var y = 0; y < _height; y++)
             {
                 var rowBase = y * _width;
                 for (var x = 0; x < _width; x++)
                 {
-                    if (counts[rowBase + x] >= required)
+                    var strong = counts[rowBase + x] >= required;
+                    if (strong || weakCounts[rowBase + x] >= weakRequired)
                     {
                         mask[y, x] = true;
                         flagged++;
+                        weakOnly += strong ? 0 : 1;
                     }
                 }
             }
@@ -283,9 +362,9 @@ namespace TianWen.Lib.Imaging.Calibration
             }
 
             logger?.LogInformation(
-                "  {Tag}registration bad-pixel map: {Count} px ({Pct:F4}% of frame) outliers in >= {Required}/{Frames} frames (sigma={Sigma:F1}, spread {Spread:F1} px{Skipped})",
-                tag, flagged, flagged * 100.0 / totalPx, required, FramesAccumulated, _outlierSigma, spread,
-                _skippedFrames > 0 ? $", {_skippedFrames} frame(s) skipped" : "");
+                "  {Tag}registration bad-pixel map: {Count} px ({Pct:F4}% of frame): outliers in >= {Required}/{Frames} frames at sigma={Sigma:F1}, plus {Weak} only in >= {WeakRequired}/{Frames} at the weak {WeakSigma:F1} sigma of their local noise (spread {Spread:F1} px{Skipped})",
+                tag, flagged, flagged * 100.0 / totalPx, required, FramesAccumulated, _outlierSigma, weakOnly, weakRequired,
+                FramesAccumulated, WeakOutlierSigma, spread, _skippedFrames > 0 ? $", {_skippedFrames} frame(s) skipped" : "");
             return [mask];
         }
 
@@ -391,6 +470,70 @@ namespace TianWen.Lib.Imaging.Calibration
                 firstNonZero++;
             }
             return firstNonZero >= n ? 0f : sample[firstNonZero + (n - firstNonZero) / 2];
+        }
+
+        /// <summary>
+        /// MAD of a strided sample of one CFA subplane's LOCAL residuals (a pixel minus the median of its 8
+        /// same-subplane neighbours): the pixel noise, which a nebula or a gradient does not inflate. The same
+        /// non-zero-tail fallback as <see cref="SubplaneStridedMad"/> for quantized data; 0 when no scale is recoverable.
+        /// </summary>
+        private static float SubplaneStridedResidualMad(float[,] data, int sx, int sy, int step, int w, int h)
+        {
+            var strideY = step * StatStride;
+            var strideX = step * StatStride;
+            var y0 = sy + step;
+            var x0 = sx + step;
+            if (y0 >= h - step || x0 >= w - step)
+            {
+                return 0f;
+            }
+            var capacity = ((h - step - y0 + strideY - 1) / strideY) * ((w - step - x0 + strideX - 1) / strideX);
+            var sample = new float[capacity];
+            var count = 0;
+            Span<float> n = stackalloc float[8];
+            for (var y = y0; y < h - step; y += strideY)
+            {
+                for (var x = x0; x < w - step; x += strideX)
+                {
+                    var v = data[y, x];
+                    n[0] = data[y - step, x - step];
+                    n[1] = data[y - step, x];
+                    n[2] = data[y - step, x + step];
+                    n[3] = data[y, x - step];
+                    n[4] = data[y, x + step];
+                    n[5] = data[y + step, x - step];
+                    n[6] = data[y + step, x];
+                    n[7] = data[y + step, x + step];
+                    n.Sort();
+                    var r = v - (0.5f * (n[3] + n[4]));
+                    if (float.IsFinite(r))
+                    {
+                        sample[count++] = r;
+                    }
+                }
+            }
+            if (count == 0)
+            {
+                return 0f;
+            }
+            Array.Sort(sample, 0, count);
+            var median = sample[count / 2];
+            for (var i = 0; i < count; i++)
+            {
+                sample[i] = MathF.Abs(sample[i] - median);
+            }
+            Array.Sort(sample, 0, count);
+            var mad = sample[count / 2];
+            if (mad > 0f)
+            {
+                return mad;
+            }
+            var firstNonZero = 0;
+            while (firstNonZero < count && sample[firstNonZero] <= 0f)
+            {
+                firstNonZero++;
+            }
+            return firstNonZero >= count ? 0f : sample[firstNonZero + (count - firstNonZero) / 2];
         }
     }
 }
