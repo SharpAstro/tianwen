@@ -462,13 +462,21 @@ limit at every setting.
 
 ### Reframing on the full sensor
 
-**Open, #1033.** "Show ROI on image" outlines the frame on show, and during a capture that frame IS the ROI crop, so
-the outline is the whole image and says nothing (the ZWO ASI462MC live check, 2026-09-28). What the user wants
-instead: while an ROI capture runs, an option to take one full-sensor frame, show it with the current ROI and a
-proposed one moved and resized on the image, and a confirm card that commits the proposal (a pan of the running
-window when the size is unchanged, else a restart at the new size) or cancels. It replaces the checkbox, and the
-drag deferred above stops conflicting with the viewer's pan and zoom once it happens on a still frame in a mode of
-its own.
+**#1033, done 2026-10-20.** "Show ROI on image" outlined the frame on show, and during a capture that frame IS the ROI crop,
+so the outline was the whole image and said nothing (the ZWO ASI462MC live check, 2026-09-28). It is gone; a running
+capture's REGION section offers **Full frame** instead:
+
+- **The still is one interlude** (`PlanetaryCapture.TakeFullFrameAsync`): the whole sensor, unbinned, one exposure at the
+  stream's own, the window put back and the stream started again where it was panned. The node takes it as a job
+  (`POST /api/v1/planetary/fullframe`) and serves it as `planetary/fullframe`.
+- **The view shows it in place of the stream**, the live window outlined dim and a proposal in the ROI colour, which a press
+  and drag on the image moves (a press region of its own over the image, so it never fights the viewer's pan) and the Size
+  stepper sizes; a confirm card commits it or lets it go (`PlanetaryReframe`).
+- **The commit is `ReframeAsync`**, the node's job (`POST /api/v1/planetary/reframe`): a pan of the running window at the same
+  size, else the stream started again at the new size with the window placed exactly there (`PlanetaryInterlude.WindowAt`).
+  The capture publishes where its window stands as it moves, which the state carries (`RoiX`, `RoiY`) beside its size.
+- Pinned by `PlanetaryReframeTests`, `NodePlanetaryTests.AFullFrameIsServedWhileTheCaptureStreamsOnAndAReframePlacesTheWindowWhereAsked`
+  and the panel's press tests.
 
 ### Image-based Jupiter simulation (started 2026-06-25)
 
@@ -1211,8 +1219,8 @@ then a night on the bench.
 
 #### The sequence's core (#1340, 2026-10-19)
 
-**Issue:** #1340; what is left of it is the panel (editing and starting a sequence in the Planetary mode), the rotation light, the
-planet named or taken from the pointing, and a night on the bench.
+**Issue:** #1340; what is left of it is a night on the bench, the red limit's measurement (below), and the goto when the planet is
+elsewhere (#1684 builds the find and the re-slew).
 
 - **`PlanetarySequenceRunner` (Lib) runs a `PlanetarySequence` on a capture that streams.** For each step, ONE interlude stops the
   stream, turns the wheel through `FilterChange.ChangeAsync` and starts the stream again at the step's exposure, gain and depth
@@ -1237,7 +1245,17 @@ planet named or taken from the pointing, and a night on the bench.
 - **One folder per run.** Every file goes under the date the sequence STARTED (`PlanetaryCapture.RecordingPath`'s `folderDate`), so a
   run past midnight UTC is one folder, named for the planet the mount points at as it starts.
 - **The node**: `POST /api/v1/planetary/sequence` (`PlanetarySequenceRequestDto`) on the capture going on, `DELETE` to stop it, its
-  progress on the capture's state (`PlanetaryStateDto.Sequence`). Pinned by `PlanetarySequenceTests` (the runner, stepped a frame at a
+  progress on the capture's state (`PlanetaryStateDto.Sequence`).
+- **The panel's SEQUENCE section** (2026-10-20), under FILTER with a wheel connected: steps of a filter (cycled through the
+  wheel's slots), the panel's exposure and gain as each was added, and a length in frames or seconds, a toggle per step; the
+  sets; Start and Stop; the node's progress. `PlanetarySequenceDraft` holds it until Start sends it.
+- **The rotation light** beside each step is the planet's turn over it at the disk's middle in pixels (`PlanetaryTurn`), worked
+  out from the ephemeris before any frame: the same quantity the stack measures after (`FrameDerotator.TurnAtCentrePx`). Green
+  under a pixel (`TurnWorthDerotatingPx`), yellow and orange while the de-rotation carries it, red from `RedFromPx`, which is
+  **PROVISIONAL at 10 px**: the twins' de-rotation error that should set it is not measured, and the owner confirms it. On the
+  owner's 2026-10-07 Saturn at 1780 mm a 10,000-frame file at 63 fps turns 1.1 px, and 145 s is the longest green step.
+- **The planet is the one the node found the mount pointing at** as the capture started (`PlanetaryStateDto.Planet`, a read,
+  never a claim), unless the operator names Mars, Jupiter or Saturn; the sequence never slews. Pinned by `PlanetarySequenceTests` (the runner, stepped a frame at a
   time) and `NodePlanetaryTests.TwoSetsOfRedGreenAndBlueThroughTheNodeGiveSixFilesEachNamedForItsFilter` (the issue's own check,
   through the node).
 
