@@ -63,6 +63,12 @@ public sealed record PlanetaryInterlude(string What, Func<CancellationToken, Val
     /// what a body reads as its stream starts, and what the optics show while they settle from what the action moved.
     /// </summary>
     public int DropFrames { get; init; } = DefaultDropFrames;
+
+    /// <summary>
+    /// Where the window goes once the stream is back: null for where it stood as the stream stopped (the pans and the recenter's
+    /// jogs given back), or a window of the size <see cref="RestartAt"/> gives, put exactly there: a reframe (#1033).
+    /// </summary>
+    public RoiRect? WindowAt { get; init; }
 }
 
 /// <summary>What a <see cref="PlanetaryCapture"/> is for, which decides whether it keeps the frames it streams.</summary>
@@ -323,6 +329,17 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     /// frames. What a readout shows, where <see cref="MeasuredFps"/> is the run's average and blends every exposure it had.
     /// </summary>
     public double CurrentFps => BitConverter.Int64BitsToDouble(Interlocked.Read(ref _currentFpsBits));
+
+    // The readout window as the stream last ran at it, published only when it moves (one box a change, never one a frame).
+    private RoiRect? _window;
+
+    /// <summary>
+    /// Where the readout window stands on the sensor now, origin included (#1033), for a stream that reports it; null for one
+    /// that does not, or before the first frame. What a full frame's overlay draws as the live window.
+    /// </summary>
+    public RoiRect? Window => Volatile.Read(ref _windowBox)?.Value;
+
+    private System.Runtime.CompilerServices.StrongBox<RoiRect>? _windowBox;
 
     // The stream's settings as last applied, published whole each time they change (start, a live control, an interlude).
     private VideoCaptureOptions? _appliedOptions;
@@ -635,6 +652,11 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 var arrived = streams && frame.ImageMeta.ExposureStartTime is var stamped && stamped != default ? stamped : timeProvider.GetUtcNow();
                 stream?.Push(frame, arrived);
                 var received = Interlocked.Increment(ref _framesReceived);
+                if (camera is IVideoCameraDriver { CanJogRoi: true } windowed && windowed.VideoRoi is var roi && roi != _window)
+                {
+                    _window = roi;
+                    Volatile.Write(ref _windowBox, new System.Runtime.CompilerServices.StrongBox<RoiRect>(roi));
+                }
                 Interlocked.Exchange(ref _currentFpsBits,
                     BitConverter.DoubleToInt64Bits(_rateWindow.Note(timeProvider.GetElapsedTime(_captureStartTimestamp).Ticks)));
                 Volatile.Write(ref _lastFrameBitDepth, (int)frame.BitDepth);
@@ -917,7 +939,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                     // it counts the frames it dropped per stream, so the leaving stream's count is kept here.
                     if (camera is IVideoCameraDriver video)
                     {
-                        returnTo = video.CanJogRoi ? video.VideoRoi : null;
+                        returnTo = video.CanJogRoi ? asked.Interlude.WindowAt ?? video.VideoRoi : null;
                         Interlocked.Add(ref _droppedBeforeInterludes, video.DroppedFrames);
                     }
                     break;
@@ -1186,6 +1208,80 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
     /// <summary>Ends the recording going on, if one is: the frames it queued are still written.</summary>
     public void StopRecording() => _recording?.End("it was stopped");
+
+    // ── Reframing on the full sensor (#1033) ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>What a full-frame still's interlude is called, which a refusal names.</summary>
+    public const string FullFrameOwner = "a full-frame still";
+
+    /// <summary>What a reframe's interlude is called.</summary>
+    public const string ReframeOwner = "a reframe";
+
+    /// <summary>
+    /// One exposure of the WHOLE sensor, unbinned, at the stream's exposure, taken with the stream stopped (an interlude), the
+    /// window put back as it was and the stream started again where it was panned: what the operator reframes on (#1033).
+    /// Answers the still, OWNED by the caller to release, or why none could be had, in words.
+    /// </summary>
+    public async Task<(Image? Frame, string? Refusal)> TakeFullFrameAsync(CancellationToken cancellationToken)
+    {
+        Image? still = null;
+        var refusal = await InterludeAsync(new PlanetaryInterlude(FullFrameOwner, async token =>
+        {
+            var camera = Camera ?? throw new InvalidOperationException($"The {Name} has no camera");
+            var (width, height, bin) = (camera.NumX, camera.NumY, (short)camera.BinX);
+            ConfigureRoi(camera, 0, 0, bin: 1);
+            try
+            {
+                still = await ExposeOnceAsync(camera, _streamOptions.Exposure, token);
+            }
+            finally
+            {
+                // The window the stream ran at, its size and binning; its origin is given back by the restart's jog.
+                ConfigureRoi(camera, width, height, bin);
+            }
+        }), cancellationToken);
+        return (still, refusal ?? (still is null ? "The camera gave no full frame" : null));
+    }
+
+    /// <summary>
+    /// Moves the readout window to <paramref name="target"/>, snapped to the camera's rule (#1033): a pan of the running window
+    /// when its size is the window's now, taken after the next frame; else the stream started again at the new size, the
+    /// window put exactly there. Answers null once it is staged or done, else why not, in words.
+    /// </summary>
+    public async Task<string?> ReframeAsync(RoiRect target, CancellationToken cancellationToken)
+    {
+        if (Camera is not IVideoCameraDriver { CanJogRoi: true } video)
+        {
+            return $"The {Name}'s camera cannot place its window";
+        }
+        var snapped = video.RoiConstraints.Snap(target);
+        if (Window is { } now && (now.Width, now.Height) == (snapped.Width, snapped.Height))
+        {
+            JogRoi(snapped.X - now.X, snapped.Y - now.Y);
+            return null;
+        }
+        return await InterludeAsync(new PlanetaryInterlude(ReframeOwner, static _ => ValueTask.CompletedTask)
+        {
+            RestartAt = had => had with { RoiWidth = snapped.Width, RoiHeight = snapped.Height, Bin = 1 },
+            WindowAt = snapped,
+        }, cancellationToken);
+    }
+
+    // One exposure on a camera whose stream is stopped: started, waited for within the exposure and a bound, read.
+    private async Task<Image?> ExposeOnceAsync(ICameraDriver camera, TimeSpan exposure, CancellationToken token)
+    {
+        await camera.StartExposureAsync(exposure < MinExposure ? MinExposure : exposure, FrameType.Light, token);
+        var deadline = timeProvider.GetUtcNow() + exposure + TimeSpan.FromSeconds(30);
+        while (!await camera.GetImageReadyAsync(token))
+        {
+            if (timeProvider.GetUtcNow() > deadline)
+            {
+                throw new TimeoutException($"{camera.Name} gave no full frame within {exposure.TotalSeconds + 30:F0} s");
+            }
+            await timeProvider.SleepAsync(_readyPollInterval, token);
+        }
+        return await camera.GetImageAsync(token);
+    }
 
     /// <summary>
     /// Where a recording of OTA <paramref name="otaIndex"/>'s capture starting at <paramref name="utcNow"/> goes, beside the

@@ -60,6 +60,10 @@ internal static class FrameEndpoints
         group.MapGet("/planetary/master/latest", (int? after, NodeFrames frames, HttpContext context) =>
             Serve(frames.Named(FrameSources.PlanetaryMaster), after, "The planetary stack", FrameSources.PlanetaryMaster, context));
 
+        // A planetary capture's full-sensor still (#1033), taken on asking, which the operator reframes on.
+        group.MapGet("/planetary/fullframe/latest", (int? after, NodeFrames frames, HttpContext context) =>
+            Serve(frames.Named(FrameSources.PlanetaryFullFrame), after, "The planetary full frame", FrameSources.PlanetaryFullFrame, context));
+
         // A live view's (#1111): the camera's frame as it gave it.
         group.MapGet("/live/latest", (int? after, NodeFrames frames, HttpContext context) =>
             Serve(frames.Named(FrameSources.LiveView), after, "The live view", FrameSources.LiveView, context));

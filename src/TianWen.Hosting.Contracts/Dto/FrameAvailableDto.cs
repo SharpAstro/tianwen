@@ -22,6 +22,9 @@ public static class FrameSources
     /// <summary>A live view's frame (#1111), as the camera gave it, at up to display rate.</summary>
     public const string LiveView = "live";
 
+    /// <summary>A planetary capture's full-sensor still (#1033), taken on asking, which the operator reframes the window on.</summary>
+    public const string PlanetaryFullFrame = "planetary/fullframe";
+
     /// <summary>The frame OTA <paramref name="index"/> shows: a session's sub, focus rung or flat, or a preview the node took.</summary>
     public static string Ota(int index) => $"ota/{index}";
 }
