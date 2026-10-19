@@ -1122,7 +1122,7 @@ public class SeeingSplitDiagnosticProbe(ITestOutputHelper output)
             }
 
             var frame = calibrator?.Apply(raw) ?? raw;
-            var (stars, debayered) = await FrameRegistration.DetectAsync(frame, DebayerAlgorithm.VNG, 5f, 2000, guard, ct);
+            var (stars, debayered) = await FrameRegistration.DetectAsync(frame, DebayerAlgorithm.VNG, 5f, 2000, guard, cancellationToken: ct);
             var metrics = FrameRegistration.MetricsFrom(stars);
             var green = Math.Min(1, debayered.ChannelCount - 1);
             var fit = PsfProfileFit.Measure(debayered, green, stars, out var diag, selection: PsfProfileFit.StarSelection.SignalFloor, ranking: ranking);

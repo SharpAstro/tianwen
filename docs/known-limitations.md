@@ -1155,6 +1155,31 @@ test was chance: the same sub matched with the top 50 or 300 stars and not with 
 failed, and takes it at 2 px RMS or less (`SimilarityFallbackMaxRmsPx`); the rigid refinement over every star
 sets the transform. Whether this rescues the four sessions above is not yet measured.
 
+### FIXED (2026-10-19): condensation in the flats registered subs on their own defects, at the identity
+
+The owner's SV605CC flats of 2026-10-17 were taken while the camera cooled from +4 to -5 C, and condensation
+formed ON the sensor (4 photosites across, so not the window, whose shadow at f/4.4 is tens of photosites wide).
+Followed through the 46 raw flats in capture order, the droplet photosites read 1.5% off their neighbours at +4 C,
+75% at -5.3 C, and 58% four minutes later; random photosites stay at 0.9%, and the lights an hour later read 0.7%.
+The master flat kept 499 droplets of about 15 photosites, each a small lens: a 2x2 core at 1.5 to 1.8 in a ring
+of 8 at 0.35 to 0.44.
+
+Dividing a light by that flat wrote the inverse into every sub at the same sensor positions, and the bright rings
+were 15 to 42 of the 100 brightest detections. Since they sit where they sit in the reference too, the quad
+matcher registered subs on them at the identity: 52 of 154 September subs in the two-night Sculptor stack (3 to 5
+of 300 stars on a reference star under that transform, about 270 under the neighbouring sub's), 3 in September
+alone and 2 in October alone, all on the far side of the flip. The master showed it twice. Every bright star had a
+ghost dash at +48..+61, +3..+19 px, the spread of those subs' true offsets, and its point-mirrored copy from the
+flipped ones. And every droplet's dark core, which the bad-pixel map did not flag, piled up at one spot: -3.5 to
+-4.2 sigma, read as dew in the lights.
+
+`BadPixelDetection.BuildMaskFromFlat` now flags a flat photosite over 10% off its own colour's 7x7 neighbourhood
+(this flat's scatter is 0.44%, its 99.99th percentile 1.97%), `BuildMaskFromMasters` unions it with the dark's
+for the stacker and the bake alike, and `FrameRegistration.DetectAsync` reads every masked photosite as its
+neighbours, so no known defect is a star. A refine pair share does NOT separate such a match on its own: with the
+rings a third of the detections, the false matches still paired 28 to 40% of the stars against 57 to 98% for the
+true ones.
+
 ### A `--manifest` stack's output manifest re-listed the whole group, not the frames it stacked (FIXED 2026-09-13)
 
 `tianwen stack --manifest <third>` integrates only the manifest's frames (`STACK_N` 79 and 80 on
