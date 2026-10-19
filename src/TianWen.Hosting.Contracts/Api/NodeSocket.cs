@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Net.Http;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,9 +35,52 @@ public static class NodeSocket
 
     /// <summary>
     /// The socket every node binds unless <c>--socket</c> names another, and where every client looks. A GUI
-    /// restarted after a crash finds the node that outlived it here.
+    /// restarted after a crash finds the node that outlived it here: <c>node.sock</c> under the data root, or, where that
+    /// path is too long for a socket address, the short one <see cref="DefaultPathFor"/> gives.
     /// </summary>
-    public static string DefaultPath { get; } = Path.Combine(TianWenDataRoot.Directory.FullName, DefaultFileName);
+    public static string DefaultPath { get; } = DefaultPathFor(TianWenDataRoot.Directory.FullName,
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify),
+            "TianWen", ShortFolderName));
+
+    /// <summary>The folder under the user's own TianWen data folder that holds a socket whose data root is too deep for one.</summary>
+    internal const string ShortFolderName = "s";
+
+    /// <summary>
+    /// The socket for the data root <paramref name="dataRoot"/>: <c>node.sock</c> beside its data when that path fits a socket
+    /// address (<see cref="MaxPathBytes"/>), which the user's own data root does. A root kept apart for a test or a screenshot
+    /// can be too deep for one (a scratch folder under %TEMP% was 183 bytes against 107), so its socket goes into
+    /// <paramref name="shortFolder"/>, under the user's own data folder and so behind the same ACL, named for the root by a
+    /// hash: a node and its clients, given the same root, compute the same path, and two roots never share a socket. The
+    /// lock and the crash journal are named after the socket and follow it there. A path that fits nowhere is returned as it
+    /// is, and <see cref="TryValidate"/> refuses it by name.
+    /// </summary>
+    internal static string DefaultPathFor(string dataRoot, string shortFolder)
+    {
+        var beside = Path.Combine(dataRoot, DefaultFileName);
+        if (Encoding.UTF8.GetByteCount(beside) <= MaxPathBytes)
+        {
+            return beside;
+        }
+
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(dataRoot));
+        // Windows names a folder case-blind, so one root written two ways is one socket.
+        var key = OperatingSystem.IsWindows() ? root.ToUpperInvariant() : root;
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)), 0, 6).ToLowerInvariant();
+        var shortPath = Path.Combine(shortFolder, $"{hash}.sock");
+        if (Encoding.UTF8.GetByteCount(shortPath) > MaxPathBytes)
+        {
+            return beside;
+        }
+        if (OperatingSystem.IsWindows())
+        {
+            Directory.CreateDirectory(shortFolder);
+        }
+        else
+        {
+            Directory.CreateDirectory(shortFolder, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        return shortPath;
+    }
 
     /// <summary>
     /// The address a request over the socket carries. Only its host reaches the node, as the <c>Host</c> header;
