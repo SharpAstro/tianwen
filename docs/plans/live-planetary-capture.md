@@ -1235,6 +1235,23 @@ settings beside the file are #1342's (Phase I); the sequence below records one f
   one filter. So the editor offers, for the planet and the pixel scale, the duration at which the turn reaches a pixel, computed from
   the ephemeris before any frame is taken.
 - **The live view runs through every step**: the rolling stack shows each filter as it records.
+- **A step's length is a FRAME target or a TIME target, the owner's choice per step** (the owner, 2026-10-19), as SharpCap's
+  sequencer offers it (the 2026-10-07 night: 10,000 frames a file). A frame target ends the file at its count whatever the rate; a
+  time target at its seconds. Whichever is chosen, the editor shows the other as it will come out, a frame target converted at the
+  capture's CURRENT rate (#1619), never the run's average.
+- **The planet's rotation, as a light beside the length** (the owner, 2026-10-19). For the planet, its distance and the camera's
+  pixel scale, the editor computes from the ephemeris how far the turn moves the disk's middle over the step, and colours the step:
+  GREEN while the turn stays under a pixel (no de-rotation, no north needed); YELLOW to ORANGE while the stack's de-rotation carries
+  it (`PlanetaryDerotationOptions.MinimumTurnPx` up to a limit, north read from the file's own quarters); RED past that limit, where
+  the turn smears what the de-rotation cannot be trusted to restore, and where a bland globe (Saturn: 0.01585 against 0.01589 on
+  11:34 Red) gives no north at all. The pixel turn is shown with the colour, and the limit is a measured number, not a guess: the
+  first leg sets it from the twins' de-rotation error against the turn, and the owner confirms it.
+- **The planet is named, or taken from where the telescope already points** (the owner, 2026-10-19). With a mount connected, the
+  editor reads its pointing and names the planet through `PlanetaryCaptureName.BodiesPointedAt`, the one pointing-to-body rule the
+  identification already uses (a pointing near two bodies names neither). A planet already in the field is RESPECTED: the run does
+  not slew. A planet named that is not where the mount points is offered as a goto, asked of `DeviceOwnershipGate` like every mount
+  command and confirmed by the operator, never made unasked; a mount that cannot goto (`MountPointsWithoutGoto`) is pointed as the
+  session points it (`PointWithoutGotoAsync`). The rotation's light, the file name and the record all take the planet so named.
 - **A settle time after the wheel arrives**, a setting of the run (default a second), before the frames after the change are
   dropped: a wheel reports its slot before it has stopped ringing. And **an option to return the wheel to the first slot** when
   the run ends. Both from Laminar 1.9.0, whose step is the same order as ours: the wheel, the settle, the offset, that filter's own
