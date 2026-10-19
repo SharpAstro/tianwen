@@ -1142,7 +1142,18 @@ share, from the same scratch bakes:
   the E frame of the same night matches at 179.8 degrees.
 - **Pleiades 2025-10-28**: the first six frames (00:10 to 00:19) fail; every later frame matches within 18 px.
 
-Why the quads do not meet is not yet measured: #1543.
+Why the quads do not meet is not yet measured for these four: #1543.
+
+**One cause is measured, and fixed (2026-10-19): the quads met and the affine's shape test threw them out.**
+On the owner's SV605CC Sculptor of 2026-09-12, seven subs that plate-solve at their neighbours' pointing found
+13 to 39 consistent quad pairs against the reference (`SubMatchProbe`, calibrated as the stack does), and the
+affine fitted to those quad centres failed `StarReferenceTable.FindOffsetAndRotationAsync`'s demand of scale
+ratio and skew within 1e-3, at +0.0012 to +0.0020; one of them against its own neighbour, two minutes apart,
+read +0.0023. The centres agree to about a pixel, which over a 3000 px field is already 1e-3 of shape, so the
+test was chance: the same sub matched with the top 50 or 300 stars and not with 100 to 200.
+`FrameRegistration.TryMatchAsync` now fits a similarity to the same inliers once every rung's affine has
+failed, and takes it at 2 px RMS or less (`SimilarityFallbackMaxRmsPx`); the rigid refinement over every star
+sets the transform. Whether this rescues the four sessions above is not yet measured.
 
 ### A `--manifest` stack's output manifest re-listed the whole group, not the frames it stacked (FIXED 2026-09-13)
 
