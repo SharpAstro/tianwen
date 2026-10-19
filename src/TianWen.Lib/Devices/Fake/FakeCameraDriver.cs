@@ -1563,7 +1563,10 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     private int _videoRoiStartY;
     private int _videoRoiWidth;           // ROI (frame) size; re-read from NumX/NumY each frame (live-resizable)
     private int _videoRoiHeight;
-    private long _videoStartTimestamp;    // capture start, for deterministic drift phase
+    // When the planet started drifting: this driver's FIRST stream, never each stream's start. A real sky keeps the planet
+    // where it is on the sensor when a stream is stopped and started again (a filter change's interlude), while the window
+    // starts centred; resetting the planet with each stream hid that the window lost its pan (#1639 review round 1, B1).
+    private long _planetEpochTimestamp;
     private long _videoExposureTicks;     // current per-frame exposure; live-tunable via ApplyVideoControlsAsync
     private int _videoBitDepth = (int)Imaging.BitDepth.Int16; // the stream's depth, re-read each frame; live-tunable too
 
@@ -1669,10 +1672,14 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
             Interlocked.Exchange(ref _droppedFrames, 0);
             Volatile.Write(ref _videoExposureTicks, options.Exposure.Ticks);
             Volatile.Write(ref _videoBitDepth, (int)VideoDepth(options.BitDepth));
-            _videoStartTimestamp = TimeProvider.GetTimestamp();
+            if (_planetEpochTimestamp == 0)
+            {
+                _planetEpochTimestamp = TimeProvider.GetTimestamp();
+            }
 
-            // Initial ROI window = the configured sub-frame (NumX/NumY), centred on the virtual sensor; the
-            // disk starts centred within it. The size is re-read from NumX/NumY every frame below, so a live
+            // Initial ROI window = the configured sub-frame (NumX/NumY), centred on the virtual sensor, as a real
+            // driver starts it; the disk starts centred within it on the first stream only, and later streams find it
+            // where its drift has taken it. The size is re-read from NumX/NumY every frame below, so a live
             // resize (the panel's Size stepper mid-capture) takes effect on the next frame. All ROI-window
             // state below is owned by this capture loop thread, so no lock is taken.
             var (initW, initH) = ClampRoiSize();
@@ -1798,9 +1805,10 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
 
     private Image RenderVideoFrame(int roiW, int roiH, int frameIndex, TimeSpan exposure)
     {
-        var elapsedSec = TimeProvider.GetElapsedTime(_videoStartTimestamp).TotalSeconds;
+        var elapsedSec = TimeProvider.GetElapsedTime(_planetEpochTimestamp).TotalSeconds;
 
-        // Planet true position on the virtual sensor: starts centred, drifts deterministically.
+        // Planet true position on the virtual sensor: centred at the first stream, drifting deterministically since,
+        // across every stream after it.
         var planetVirtualX = (CameraXSize / 2.0) + (PlanetDriftPixelsPerSecX * elapsedSec);
         var planetVirtualY = (CameraYSize / 2.0) + (PlanetDriftPixelsPerSecY * elapsedSec);
 
