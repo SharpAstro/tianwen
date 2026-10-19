@@ -30,8 +30,9 @@ public readonly record struct PlanetaryCaptureRequest(int OtaIndex, TimeSpan Exp
 /// <summary>
 /// What a capture's stream runs at, as an interlude starts it again (<see cref="PlanetaryCapture.InterludeAsync"/>): the
 /// stream's own controls, as started and with every live control since folded in, and the readout window's size and binning,
-/// zero by zero for the whole sensor (<see cref="PlanetaryCapture.ConfigureRoi"/>). The window's origin is the driver's: a
-/// stream starts centred, and a pan is a jog once it runs.
+/// zero by zero for the whole sensor (<see cref="PlanetaryCapture.ConfigureRoi"/>). The window's origin is not among them: a
+/// stream starts its window centred, and the capture jogs it back on the first frame after the restart to where it stood as
+/// the stream stopped (to its centre, when the size changed), so neither a pan nor the recenter's jogs are lost.
 /// </summary>
 public readonly record struct PlanetaryStreamSettings(VideoCaptureOptions Options, int RoiWidth, int RoiHeight, short Bin);
 
@@ -285,8 +286,14 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     /// <summary>The depth the newest frame came in; null before the first.</summary>
     public BitDepth? FrameBitDepth => Volatile.Read(ref _lastFrameBitDepth) is not 0 and var depth ? (BitDepth)depth : null;
 
-    /// <summary>Frames the camera/SDK reported dropped (buffer starvation), 0 for cameras that can't report it.</summary>
-    public int DroppedFrames => (_camera as IVideoCameraDriver)?.DroppedFrames ?? 0;
+    /// <summary>
+    /// Frames the camera/SDK reported dropped (buffer starvation) over the whole capture, 0 for cameras that can't report it: the
+    /// streams before its interludes, which a driver counts one stream at a time, and the one running.
+    /// </summary>
+    public int DroppedFrames => Volatile.Read(ref _droppedBeforeInterludes) + ((_camera as IVideoCameraDriver)?.DroppedFrames ?? 0);
+
+    // The frames the streams before this capture's interludes dropped, kept as each stream stopped (StreamSegmentsAsync).
+    private int _droppedBeforeInterludes;
 
     /// <summary>
     /// Measured delivered frame rate (frames / elapsed capture time, less the time its stream stood stopped for interludes),
@@ -517,6 +524,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         Volatile.Write(ref _rapidExposureTicks, capture.Exposure.Ticks);
         Interlocked.Exchange(ref _framesReceived, 0);
         Interlocked.Exchange(ref _framesDroppedAfterInterludes, 0);
+        Interlocked.Exchange(ref _droppedBeforeInterludes, 0);
         Interlocked.Exchange(ref _interludeTicks, 0);
         _captureStartTimestamp = timeProvider.GetTimestamp();
 
@@ -821,11 +829,20 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         InterludeRequest? restarted = null;
         var dropping = 0;
         var stoppedAt = 0L;
+        // Where the window stood as the stream stopped: a new stream starts its window centred, so the pans and the recenter's
+        // jogs are given back as one jog on its first frame, while the frames after the change are still being dropped.
+        RoiRect? returnTo = null;
         while (true)
         {
             InterludeRequest? interlude = null;
             await foreach (var frame in Frames(camera, _streamOptions, token))
             {
+                if (returnTo is { } was)
+                {
+                    returnTo = null;
+                    JogBackTo(camera, was);
+                }
+
                 if (dropping > 0)
                 {
                     dropping--;
@@ -855,6 +872,13 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 {
                     interlude = asked;
                     stoppedAt = timeProvider.GetTimestamp();
+                    // Read while this stream still runs: once stopped, a driver reports its window as the whole sensor, and
+                    // it counts the frames it dropped per stream, so the leaving stream's count is kept here.
+                    if (camera is IVideoCameraDriver video)
+                    {
+                        returnTo = video.CanJogRoi ? video.VideoRoi : null;
+                        Interlocked.Add(ref _droppedBeforeInterludes, video.DroppedFrames);
+                    }
                     break;
                 }
             }
@@ -864,6 +888,24 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 yield break;
             }
             (restarted, dropping) = (interlude, Math.Max(0, interlude.Interlude.DropFrames));
+        }
+    }
+
+    // Stages the one jog that takes the new stream's window back to `was`: to its origin when the size is the same, to its
+    // centre when the interlude restarted at another size. The driver snaps it as it snaps every pan.
+    private void JogBackTo(ICameraDriver camera, RoiRect was)
+    {
+        if (camera is not IVideoCameraDriver { CanJogRoi: true } video)
+        {
+            return;
+        }
+        var now = video.VideoRoi;
+        var (x, y) = (now.Width, now.Height) == (was.Width, was.Height)
+            ? (was.X, was.Y)
+            : (was.X + (was.Width - now.Width) / 2, was.Y + (was.Height - now.Height) / 2);
+        if ((x, y) != (now.X, now.Y))
+        {
+            JogRoi(x - now.X, y - now.Y);
         }
     }
 

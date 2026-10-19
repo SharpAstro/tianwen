@@ -136,6 +136,55 @@ public class PlanetaryCaptureInterludeTests(ITestOutputHelper output) : IDisposa
         lease.Disposals.ShouldBe(1, "once");
     }
 
+    /// <summary>
+    /// A new stream starts its window centred, so every pan and recenter jog was lost at each filter change, and on the owner's
+    /// ToupTek the planet could leave the frame (#1639 review round 1, B1). The fake re-centres window and planet together on every
+    /// start, which hid it; the window's own origin is what is checked here.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task AnInterludeTakesTheWindowBackToWhereItWasPanned()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var camera = await CameraAsync(ct);
+        await using var capture = NewCapture();
+        capture.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(2)), ct).ShouldBeTrue();
+        await StepAsync(capture, 2, ct);
+        capture.JogRoi(40, 20);
+        await StepAsync(capture, 3, ct);
+        var panned = ((IVideoCameraDriver)camera).VideoRoi;
+        output.WriteLine($"panned to {panned}");
+
+        var interlude = capture.InterludeAsync(Nothing() with { DropFrames = 3 }, ct);
+        await StepUntilAsync(capture, interlude, ct);
+        (await interlude).ShouldBeNull();
+        await StepAsync(capture, 4, ct);
+
+        var after = ((IVideoCameraDriver)camera).VideoRoi;
+        output.WriteLine($"after the interlude {after}");
+        (after.X, after.Y).ShouldBe((panned.X, panned.Y), "the window is where it was panned to before the stream stopped");
+    }
+
+    /// <summary>A driver counts the frames it dropped per stream, so the count restarted near zero at each interlude (#1639 review round 1, B3).</summary>
+    [Fact(Timeout = 30_000)]
+    public async Task TheDroppedFramesOfAStreamBeforeAnInterludeStillCountAfterIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var camera = await CameraAsync(ct);
+        await using var capture = NewCapture();
+        capture.Start(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(2)), ct).ShouldBeTrue();
+        await StepAsync(capture, 2, ct);
+        camera.ReportDroppedFrames(7);
+        capture.DroppedFrames.ShouldBe(7);
+
+        var interlude = capture.InterludeAsync(Nothing(), ct);
+        await StepUntilAsync(capture, interlude, ct);
+        (await interlude).ShouldBeNull();
+        await StepAsync(capture, 2, ct);
+        camera.ReportDroppedFrames(2);
+
+        capture.DroppedFrames.ShouldBe(9, "the stream before the interlude dropped 7, the one after it 2");
+    }
+
     [Fact(Timeout = 30_000)]
     public async Task AnInterludeStartsTheStreamAgainAtTheSettingsItHadItsLiveControlsIncluded()
     {
