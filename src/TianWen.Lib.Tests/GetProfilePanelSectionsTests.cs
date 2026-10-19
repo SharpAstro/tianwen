@@ -50,6 +50,17 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public void TheBlindSolveKeyFollowsTheLimitsOnceWhateverTheOtas()
+        {
+            // Per user, not per profile, but it serves finding where the mount really points, so it sits with the mount's facts.
+            var sections = _content.GetProfilePanelSections(Data(Ota("A"), Ota("B")));
+
+            var limits = sections.ToList().FindIndex(s => s is PanelSection.MountLimits);
+            sections[limits + 1].ShouldBeOfType<PanelSection.BlindSolveKey>();
+            sections.OfType<PanelSection.BlindSolveKey>().Count().ShouldBe(1);
+        }
+
+        [Fact]
         public void OtaHeaderCount_TracksTheNumberOfOtas()
         {
             _content.GetProfilePanelSections(Data(Ota("A")))

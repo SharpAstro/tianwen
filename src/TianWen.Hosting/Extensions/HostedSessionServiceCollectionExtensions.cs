@@ -168,6 +168,7 @@ public static class HostedSessionServiceCollectionExtensions
         native.MapMountApi();
         native.MapGuiderApi();
         native.MapDeviceApi();
+        native.MapBlindSolveApi();
         native.MapJobApi();
         native.MapImageApi();
         native.MapPreviewApi();

@@ -174,6 +174,15 @@ public class EquipmentTabState
     // Guider focal length editing
     public TextInputState GuiderFocalLengthInput { get; } = new() { Placeholder = "Guide scope FL (mm)" };
 
+    // The blind solve's key (nova.astrometry.net): per user and kept by the node, so this field is only ever written, never
+    // filled from the store; it shows a mask as it is typed.
+    public TextInputState BlindSolveKeyInput { get; } = new() { Placeholder = "nova.astrometry.net API key", IsMasked = true };
+
+    public bool IsEditingBlindSolveKey { get; set; }
+
+    /// <summary>Whether the node holds a blind-solve key; null until it has been asked (as the editor opens, and after a save).</summary>
+    public bool? BlindSolveKeyIsSet { get; set; }
+
     // Generic device settings editing
     /// <summary>URI path of the device whose settings pane is currently expanded, or null.</summary>
     public string? ExpandedDeviceSettingsUri { get; set; }

@@ -41,3 +41,12 @@ public sealed class DeviceSecretDto
 {
     public required bool IsSet { get; init; }
 }
+
+/// <summary>
+/// The user's key for the blind solve of last resort (nova.astrometry.net): <c>PUT /api/v1/platesolve/blind/key</c>, over the
+/// node socket only, into the credential store. A null or empty key removes it. Answered with whether one is set, never the key.
+/// </summary>
+public sealed class BlindSolveKeyRequestDto
+{
+    public string? Key { get; init; }
+}

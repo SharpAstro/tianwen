@@ -190,6 +190,34 @@ namespace TianWen.UI.Abstractions
                 limitInput.OnCancel = cancelLimits;
             }
 
+            // The blind solve's key: Enter saves it on the node (an empty Enter removes the stored one), Esc leaves it. The field is
+            // emptied either way, so the key stays in memory no longer than it is typed.
+            eqState.BlindSolveKeyInput.OnCommit = async text =>
+            {
+                eqState.IsEditingBlindSolveKey = false;
+                eqState.BlindSolveKeyInput.Text = "";
+                bus.Post(new DeactivateTextInputSignal());
+                if (LocalNodeOrSay() is not { } node)
+                {
+                    return;
+                }
+                var saved = await node.Client.SetBlindSolveKeyAsync(text.Trim(), cts.Token);
+                if (saved is not { IsSuccess: true, Value: { } state })
+                {
+                    Notify(NotificationSeverity.Error, $"Could not save the {BlindSolveService.Name} key: {saved.Error}");
+                    return;
+                }
+                eqState.BlindSolveKeyIsSet = state.IsSet;
+                Notify(NotificationSeverity.Info, state.IsSet ? $"{BlindSolveService.Name} key saved" : $"{BlindSolveService.Name} key removed");
+                appState.NeedsRedraw = true;
+            };
+            eqState.BlindSolveKeyInput.OnCancel = () =>
+            {
+                eqState.IsEditingBlindSolveKey = false;
+                eqState.BlindSolveKeyInput.Text = "";
+                bus.Post(new DeactivateTextInputSignal());
+            };
+
             // Guide scope focal length: commit on Enter
             eqState.GuiderFocalLengthInput.OnCommit = async text =>
             {
@@ -345,6 +373,19 @@ namespace TianWen.UI.Abstractions
                 eqState.LimitEnabledPending = l.Enabled;
                 eqState.LimitMeridianResponsePending = l.MeridianResponse;
                 eqState.LimitHorizonResponsePending = l.HorizonResponse;
+                appState.NeedsRedraw = true;
+            });
+
+            // The blind solve's key: the editor opens empty (the key is never read back) and asks the node whether one is stored.
+            bus.Subscribe<EditBlindSolveKeySignal>(async _ =>
+            {
+                eqState.IsEditingBlindSolveKey = true;
+                eqState.BlindSolveKeyInput.Text = "";
+                eqState.BlindSolveKeyInput.CursorPos = 0;
+                if (LocalNodeOrSay() is { } node && await node.Client.GetBlindSolveKeyAsync(cts.Token) is { IsSuccess: true, Value: { } state })
+                {
+                    eqState.BlindSolveKeyIsSet = state.IsSet;
+                }
                 appState.NeedsRedraw = true;
             });
 
