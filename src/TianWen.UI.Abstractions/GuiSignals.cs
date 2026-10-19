@@ -16,6 +16,9 @@ public readonly record struct AddOtaSignal;
 /// <summary>Start editing site coordinates.</summary>
 public readonly record struct EditSiteSignal;
 
+/// <summary>Opens the editor of the user's key for the blind solve of last resort (nova.astrometry.net).</summary>
+public readonly record struct EditBlindSolveKeySignal;
+
 /// <summary>Start editing the profile's mount safety limits (the numeric fields; the on/off and response choices save at once).</summary>
 public readonly record struct EditMountLimitsSignal;
 

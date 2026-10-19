@@ -97,4 +97,37 @@ public class NodeDeviceSettingTests(ITestOutputHelper output) : IAsyncLifetime
         refused.StatusCode.ShouldBe(403);
         lan.App.Services.GetRequiredService<ICredentialStore>().Get(Weather.CredentialKey).ShouldBeNull();
     }
+
+    /// <summary>
+    /// The user's key for the blind solve of last resort (nova.astrometry.net), which the Equipment tab sets: into the node's
+    /// credential store, where the solver reads it, removed by an empty one, answered only with whether one is set.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task TheBlindSolveKeyGoesIntoTheStoreAndOnlyWhetherOneIsSetComesBack()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        (await Client.GetBlindSolveKeyAsync(ct)).Value.ShouldNotBeNull().IsSet.ShouldBeFalse("premise: none stored");
+
+        using var response = await _node.Client.PutAsJsonAsync("/api/v1/platesolve/blind/key", new BlindSolveKeyRequestDto { Key = " nova-123 " }, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+
+        body.ShouldNotContain("nova-123", customMessage: "the key crossed back over the wire");
+        Store.Get(Lib.Astrometry.PlateSolve.BlindSolveService.CredentialKey).ShouldBe("nova-123", "stored without the spaces a paste carries");
+        (await Client.GetBlindSolveKeyAsync(ct)).Value.ShouldNotBeNull().IsSet.ShouldBeTrue();
+
+        (await Client.SetBlindSolveKeyAsync("", ct)).Value.ShouldNotBeNull().IsSet.ShouldBeFalse("an empty key removes it");
+        Store.Get(Lib.Astrometry.PlateSolve.BlindSolveService.CredentialKey).ShouldBeNull();
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task ALanClientCannotSetTheBlindSolveKey()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var lan = await NodeHarness.StartAsync(output, ct);
+
+        var refused = await new TianWenNodeClient(lan.Client).SetBlindSolveKeyAsync("nova-lan", ct);
+
+        refused.StatusCode.ShouldBe(403);
+        lan.App.Services.GetRequiredService<ICredentialStore>().Get(Lib.Astrometry.PlateSolve.BlindSolveService.CredentialKey).ShouldBeNull();
+    }
 }

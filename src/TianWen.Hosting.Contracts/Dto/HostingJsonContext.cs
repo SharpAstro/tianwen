@@ -73,6 +73,7 @@ namespace TianWen.Hosting.Dto;
 [JsonSerializable(typeof(MoveAxisRequestDto))]
 [JsonSerializable(typeof(MountNudgeRequestDto))]
 [JsonSerializable(typeof(DeviceSettingRequestDto))]
+[JsonSerializable(typeof(BlindSolveKeyRequestDto))]
 [JsonSerializable(typeof(ResponseEnvelope<DeviceSettingDto>))]
 [JsonSerializable(typeof(ResponseEnvelope<DeviceSecretDto>))]
 [JsonSerializable(typeof(ScheduledObservationDto))]

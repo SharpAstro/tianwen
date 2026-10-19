@@ -36,8 +36,8 @@ namespace TianWen.Lib.Astrometry.PlateSolve;
 internal sealed class NovaAstrometryPlateSolver(ICredentialStore? credentials, ITimeProvider timeProvider, ILogger<NovaAstrometryPlateSolver> logger)
     : IPlateSolver
 {
-    /// <summary>The credential store's key for the user's nova.astrometry.net API key.</summary>
-    public static readonly string CredentialKey = ICredentialStore.KeyFor("nova.astrometry.net", "apiKey");
+    /// <inheritdoc cref="BlindSolveService.CredentialKey"/>
+    public static string CredentialKey => BlindSolveService.CredentialKey;
 
     private static readonly Uri Api = new Uri("https://nova.astrometry.net/api/");
     private static readonly Uri Site = new Uri("https://nova.astrometry.net/");

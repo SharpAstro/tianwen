@@ -1331,6 +1331,23 @@ SER header (camera, telescope) and the name (planet, filter, #1179), and nothing
   (#1337).
 - **Done when** a recording on the fake camera round-trips its settings through the survey.
 
+### Phase J: finding the planet
+
+**Issue:** #1684. The plate-solving half, the blind solve and the measurements behind it: `docs/plans/plate-solver-performance.md`, "F.
+A blind solve of last resort".
+
+At 1780 mm the field is 15' x 8.5' and a planet is easy to miss: on 2026-10-07 the mount pointed 8.7 degrees from where it said,
+and the owner found Saturn by solving a 14 s frame on nova.astrometry.net and re-slewing. The flow this phase builds, on the
+capture's own camera:
+
+1. **A blind solve first** (the owner: "we have to blind solve it first"): a frame long enough for its stars, solved with no
+   position hint through the solver factory, so nova's blind solve answers when nothing local can. A guide or finder camera on
+   another rig gives a rough direction at most: its offset from the main scope is not known, so it is a hint, never the answer.
+2. **The measured focal length is OFFERED, never written unasked** (the owner, 2026-10-19): where the solve's scale gives a
+   focal length off the profile's (1780 mm against 2400), the operator is asked whether to update the OTA's.
+3. **Sync, then the goto**, through `DeviceOwnershipGate` and confirmed by the operator, as every goto the planetary mode offers.
+4. **A second frame confirms the planet is in the field**, or the loop goes round again.
+
 ## Rules in full (moved from CLAUDE.md, 2026-10-09)
 
 CLAUDE.md keeps one line per rule; this is the full text of its live-capture rules, moved verbatim

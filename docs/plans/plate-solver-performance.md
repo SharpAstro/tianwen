@@ -1226,6 +1226,33 @@ loser mid-seed. **Shipped, and it came in at 1.6x rather than the 2x this predic
 half is capped, not skipped, and the retry after a relocation runs a race of its own): see the cache
 subsection under phase A.
 
+### F. A blind solve of last resort: nova.astrometry.net (2026-10-19)
+
+**Issue:** #1684 (finding a planet at the planetary focal length, whose first step this is).
+
+The owner's planetary rig, a 1780 mm Newtonian with a 2 um G3M678M, could not be solved by any local solver on 2026-10-07, and
+that night it was solved on nova.astrometry.net by hand. Measured on two of its frames (2 s and 4 s, 3840x2160):
+
+- **There are only 8 or 9 real stars in each.** The detector reported 246 and 404: hot pixels and noise. A 3x3 median and a
+  4x4 bin (0.93"/px) with a minimum blob size finds the real ones.
+- **The brightest are G 10.9 to 12.2**, the faintest about G 15. Tycho-2 holds 1 to 3 stars in a 15' x 8.5' field, so no
+  shipped catalogue can solve it; Gaia to about G 15 can.
+- **The field was 8.71 degrees from the mount's position on BOTH frames**, RA -30.8 minutes of time and Dec -4.08 degrees: a
+  constant setup error (an RA error of half an hour of time is a clock, time zone or longitude off by about that), outside
+  every solver's search radius. Saturn, which the mount believed centred, was 9 degrees away.
+- **Ground truth from two independent methods agrees to the arcsecond**: a pair search against Gaia DR3 over a 16-degree box in
+  3-degree tangent tiles (self-tested on frames made from Gaia at a known solution) and nova.astrometry.net, blind. Both
+  frames: 0.2316"/px = **1780 mm** (the header said 2400), rotation 97.3 degrees, flipped, centres 0h12m49.8s -2d24'55" and
+  0h22m18.4s -1d40'42" (J2000).
+
+**`NovaAstrometryPlateSolver`** is the blind solve of last resort: tried after every local solver (priority 0.05), offered only
+once the user has stored a key (`BlindSolveService.CredentialKey`, set through the node's socket-only
+`PUT /api/v1/platesolve/blind/key` from the Equipment tab's profile panel). It uploads the frame binned by the MEDIAN of each
+block to about 1000 px, never the frame: a hot pixel at full scale lifts a block's MEAN by thousands of counts, which reads as a
+star, while a block's median drops it. Not public, a linear fit, scale bounds half to twice the nominal where the frame has one,
+no position unless the caller gives one. On frame 1 it solves blind in 23 s to the ground truth. **A shipped or downloaded
+Gaia band is the offline answer and a later option** (the owner, 2026-10-19: #1685); the pair search above is its prototype.
+
 ## Correctness gates
 
 Speed that costs accuracy is a regression, so every phase is measured against the same oracles.

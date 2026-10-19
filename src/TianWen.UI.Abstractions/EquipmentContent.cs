@@ -71,6 +71,12 @@ public abstract record PanelSection
     /// <summary>Mount safety limits (docs/plans/mount-safety-limits.md, P1): a fact about the rig, so it lives beside the site.</summary>
     public sealed record MountLimits : PanelSection;
 
+    /// <summary>
+    /// The user's key for the blind solve of last resort (nova.astrometry.net): per user, not per profile, but it serves finding
+    /// where the mount really points, so it lives beside the site and the limits.
+    /// </summary>
+    public sealed record BlindSolveKey : PanelSection;
+
     /// <summary>The guide-scope focal-length input row.</summary>
     public sealed record GuideFocalLength : PanelSection;
 
@@ -229,6 +235,7 @@ public class EquipmentContent
         b.Add(new PanelSection.DeviceSettings(data.Mount, "Mount Settings"));
         b.Add(new PanelSection.Site());
         b.Add(new PanelSection.MountLimits());
+        b.Add(new PanelSection.BlindSolveKey());
         b.Add(new PanelSection.Spacer(PanelGap.Half));
 
         // Guider group: guider, guide camera, guide focuser, guide-scope focal length, guider settings.

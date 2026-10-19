@@ -1013,6 +1013,20 @@ namespace TianWen.RemoteClient
                 HostingJsonContext.Default.ResponseEnvelopeDeviceSettingDto,
                 _timeouts.Control, cancellationToken);
 
+        /// <summary>
+        /// <c>PUT /platesolve/blind/key</c>: sets the user's key for the blind solve of last resort (nova.astrometry.net) in the
+        /// node's credential store, or removes it when <paramref name="key"/> is null or empty. Only over the node's socket;
+        /// answered with whether one is set, never the key.
+        /// </summary>
+        public Task<NodeResult<DeviceSecretDto>> SetBlindSolveKeyAsync(string? key, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Put, "api/v1/platesolve/blind/key", new BlindSolveKeyRequestDto { Key = key },
+                HostingJsonContext.Default.BlindSolveKeyRequestDto, HostingJsonContext.Default.ResponseEnvelopeDeviceSecretDto,
+                _timeouts.Control, cancellationToken);
+
+        /// <summary><c>GET /platesolve/blind/key</c>: whether the node holds a key for the blind solve. Never the key.</summary>
+        public Task<NodeResult<DeviceSecretDto>> GetBlindSolveKeyAsync(CancellationToken cancellationToken) =>
+            GetAsync("api/v1/platesolve/blind/key", HostingJsonContext.Default.ResponseEnvelopeDeviceSecretDto, _timeouts.Control, cancellationToken);
+
         /// <summary><c>GET /devices/setting/secret</c>: whether a device's masked setting has a value on the node. Never the value.</summary>
         public Task<NodeResult<DeviceSecretDto>> GetDeviceSecretAsync(Uri deviceUri, string key, CancellationToken cancellationToken) =>
             GetAsync($"api/v1/devices/setting/secret?deviceUri={Uri.EscapeDataString(deviceUri.ToString())}&key={Uri.EscapeDataString(key)}",

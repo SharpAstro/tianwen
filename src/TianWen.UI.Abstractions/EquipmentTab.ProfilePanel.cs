@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using DIR.Lib;
 using LAN.Lib;
+using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 
@@ -265,6 +266,8 @@ namespace TianWen.UI.Abstractions
                     return BuildSite(pd);
                 case PanelSection.MountLimits:
                     return BuildMountLimits(pd);
+                case PanelSection.BlindSolveKey:
+                    return BuildBlindSolveKey();
 
                 case PanelSection.GuideFocalLength:
                     return BuildGuideFocalLength(pd, innerW);
@@ -446,6 +449,41 @@ namespace TianWen.UI.Abstractions
                     Layout.Builder.Text("[>]", BaseFontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center).WFixed(BaseArrowWidth).HStar())
                 .RowH(BaseItemHeight).Bg(SlotNormal).BgHover(GuiTheme.Hover(SlotNormal))
                 .Clickable(new HitResult.ButtonHit("EditMountLimits"), _ => PostSignal(new EditMountLimitsSignal()));
+        }
+
+        /// <summary>
+        /// The user's key for the blind solve of last resort (nova.astrometry.net), modelled on <see cref="BuildSite"/>: a
+        /// masked field while it is edited (Enter saves it on the node, an empty Enter removes the stored one, Esc leaves it),
+        /// else one row saying whether the node holds a key. The key itself is never shown or read back.
+        /// </summary>
+        private Layout.Node BuildBlindSolveKey()
+        {
+            if (State.IsEditingBlindSolveKey)
+            {
+                var stored = State.BlindSolveKeyIsSet switch
+                {
+                    true => "a key is stored: Enter replaces it, an empty Enter removes it",
+                    false => "no key is stored yet",
+                    null => "asking the node",
+                };
+                return Layout.Builder.VStack(
+                        FormRowLayout.LabeledInputRow("  Key:", 50f, BaseItemHeight * 1.2f, 0f, BaseFontSize * 0.85f, DimText,
+                            State.BlindSolveKeyInput, inputFontSize: BaseFontSize * 0.9f, focusOnOpen: true),
+                        Layout.Builder.Text($"  {BlindSolveService.Name}: {stored}", BaseFontSize * 0.8f, DimText).RowH(BaseItemHeight * 0.8f))
+                    .WithGap(2f).WStar();
+            }
+
+            var status = State.BlindSolveKeyIsSet switch
+            {
+                true => "key set",
+                false => "no key",
+                null => "set key",
+            };
+            return Layout.Builder.HStack(
+                    Layout.Builder.Text($"  Blind solve ({BlindSolveService.Name}): {status}", BaseFontSize * 0.9f, SiteText).Stretch(),
+                    Layout.Builder.Text("[>]", BaseFontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center).WFixed(BaseArrowWidth).HStar())
+                .RowH(BaseItemHeight).Bg(SlotNormal).BgHover(GuiTheme.Hover(SlotNormal))
+                .Clickable(new HitResult.ButtonHit("EditBlindSolveKey"), _ => PostSignal(new EditBlindSolveKeySignal()));
         }
 
         /// <summary>Guide-scope focal-length input row.</summary>
