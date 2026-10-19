@@ -1388,6 +1388,31 @@ capture's own camera:
 3. **Sync, then the goto**, through `DeviceOwnershipGate` and confirmed by the operator, as every goto the planetary mode offers.
 4. **A second frame confirms the planet is in the field**, or the loop goes round again.
 
+#### The find through the node and the panel (#1684, 2026-10-20)
+
+**Issue:** #1684; what is left of it is a night on the bench (the 14 s frame of 2026-10-07 solved by nova through the node).
+
+- **A find is a job on the capture going on** (`POST /api/v1/planetary/find`, `NodePlanetary.FindAsync`): one full-sensor still
+  through the capture's interlude at the request's own exposure (`PlanetaryCapture.TakeFullFrameAsync(exposure)`: a star field wants
+  seconds where the stream runs at milliseconds), solved BLIND through `IPlateSolverFactory`, with neither the mount's position nor
+  the profile's scale handed to the solver. On 2026-10-07 the mount was 8.7 degrees off and the profile's focal length 35 % long,
+  both past any search a hint would bound; what the mount said is only the baseline its error is measured from. The still is
+  served as `planetary/fullframe`, as a reframe's is.
+- **What it learned is `PlanetaryFindResult` (Lib)**, carried in the capture's state as `PlanetaryStateDto.Find` until it is gone to
+  or another find replaces it: where it solved, how far the mount was off, the focal length the scale and the photosite give, and how
+  far the planet is. **A focal length is offered only past `FocalLengthTolerance` (3 %) off the profile's** (`FocalLengthToOffer`):
+  a barlow or a focuser's travel moves it by more, a solve's scale by far less. "Use N mm in the profile" writes it through the
+  Equipment tab's own `EquipmentActions.UpdateOTA`, only when pressed.
+- **Sync, then the goto, is a second job holding the mount** (`POST /api/v1/planetary/find/go`, `NodePlanetary.FindGoAsync`):
+  refused in words with no find, a mount a run holds (`DeviceOwnershipGate`) or a job on it; it claims the mount
+  (`DeviceLeaseSet.TryAcquire`, "a planetary find"), syncs through `MountSolveSync.SyncToAsync` (the one sync, split out of solve
+  and sync) and slews through `MountGoto.SlewToJ2000Async` to the planet's position now. **A planet already in the field is only
+  synced, never slewed to** (`SyncOnly`, the owner: respect it if the scope is already there): the panel offers "Sync the mount
+  here" then, and "Sync, go to Saturn" otherwise.
+- **The FIND section** of the Planetary mode's panel holds the planet chooser the SEQUENCE section's light reads, the find's
+  exposure (1 to 30 s), Find, and the result's lines. Pinned by `NodePlanetaryFindTests` (a find through the node, its sync, and a
+  second find that finds the mount on target), `PlanetaryFindResultTests` and the panel's presses.
+
 ## Rules in full (moved from CLAUDE.md, 2026-10-09)
 
 CLAUDE.md keeps one line per rule; this is the full text of its live-capture rules, moved verbatim
