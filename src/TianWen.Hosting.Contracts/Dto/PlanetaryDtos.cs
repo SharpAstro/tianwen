@@ -143,6 +143,15 @@ public sealed class PlanetaryStateDto
     /// <summary>The gain the stream runs at now, as applied; null for the camera's own.</summary>
     public short? Gain { get; init; }
 
+    /// <summary>
+    /// The readout window's origin on the sensor now (#1033), beside its size (<see cref="RoiWidth"/>, <see cref="RoiHeight"/>);
+    /// null for a camera that cannot place its window. What a full frame's overlay draws as the live window.
+    /// </summary>
+    public int? RoiX { get; init; }
+
+    /// <inheritdoc cref="RoiX"/>
+    public int? RoiY { get; init; }
+
     /// <summary>The depth the newest frame came in; null before the first.</summary>
     public BitDepth? BitDepth { get; init; }
 
@@ -346,4 +355,19 @@ public sealed class PlanetaryRecordingDto
         EndReason = recording.EndReason,
         FailureReason = recording.FailureReason,
     };
+}
+
+/// <summary>
+/// A window for the capture going on to move to (#1033): <c>POST /api/v1/planetary/reframe</c>, snapped to the camera's rule. A
+/// pan of the running window when its size is the window's now, else the stream started again at the new size, placed here.
+/// </summary>
+public sealed class PlanetaryReframeRequestDto
+{
+    public int X { get; init; }
+
+    public int Y { get; init; }
+
+    public int Width { get; init; }
+
+    public int Height { get; init; }
 }

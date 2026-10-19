@@ -539,6 +539,18 @@ namespace TianWen.RemoteClient
         public Task<NodeResult<PlanetaryStateDto>> StopPlanetarySequenceAsync(CancellationToken cancellationToken) =>
             SendAsync(HttpMethod.Delete, "api/v1/planetary/sequence", null, HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto, _timeouts.Control, cancellationToken);
 
+        /// <summary>
+        /// <c>POST /planetary/fullframe</c>: one full-sensor still of the capture going on (#1033), as a job; once it has ended, the
+        /// still is <see cref="FrameSources.PlanetaryFullFrame"/> (<see cref="GetLatestFrameAsync"/>).
+        /// </summary>
+        public Task<NodeResult<JobDto>> TakePlanetaryFullFrameAsync(CancellationToken cancellationToken) =>
+            PostAsync("api/v1/planetary/fullframe", null, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>POST /planetary/reframe</c>: moves the capture's window to <paramref name="request"/>'s (#1033), as a job.</summary>
+        public Task<NodeResult<JobDto>> ReframePlanetaryAsync(PlanetaryReframeRequestDto request, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/planetary/reframe", request, HostingJsonContext.Default.PlanetaryReframeRequestDto,
+                HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
+
         /// <summary><c>DELETE /planetary</c> -- ends the planetary capture going on, answered once it has.</summary>
         public Task<NodeResult<PlanetaryStateDto>> StopPlanetaryAsync(CancellationToken cancellationToken) =>
             SendAsync(HttpMethod.Delete, "api/v1/planetary", null, HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto, _timeouts.Control, cancellationToken);

@@ -268,6 +268,74 @@ internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSessio
         return ResponseEnvelope<PlanetaryStateDto>.Ok(run.State);
     }
 
+    /// <summary>What a full-frame still's job is called.</summary>
+    internal const string FullFrameJob = "planetary full frame";
+
+    /// <summary>What a reframe's job is called.</summary>
+    internal const string ReframeJob = "planetary reframe";
+
+    /// <summary>
+    /// Takes one full-sensor still on the capture going on (#1033), as a job: the stream stopped for it and started again at its
+    /// window, and the still served as <see cref="FrameSources.PlanetaryFullFrame"/>. A recording going on refuses it in words.
+    /// </summary>
+    public ResponseEnvelope<JobDto> TakeFullFrame()
+    {
+        if (hosted.CurrentRun is not NodePlanetaryRun { IsRunning: true } run)
+        {
+            return ResponseEnvelope<JobDto>.NotFound("No planetary capture is running to take a full frame of");
+        }
+        if (run.Capture.InterludeRefusal(PlanetaryCapture.FullFrameOwner) is { } refusal)
+        {
+            return ResponseEnvelope<JobDto>.Fail(refusal, 409);
+        }
+        return ResponseEnvelope<JobDto>.Accepted(jobs.StartOrJoin(FullFrameJob, async (step, ct) =>
+        {
+            step.Report("Stopping the stream for a full-sensor frame");
+            var (frame, refused) = await run.Capture.TakeFullFrameAsync(ct);
+            if (frame is null)
+            {
+                throw new InvalidOperationException(refused ?? "The camera gave no full frame");
+            }
+            var (width, height) = (frame.Width, frame.Height);
+            frames.Publish(FrameSources.PlanetaryFullFrame, frame);
+            return $"A full frame of {width}x{height}; the stream is back at its window";
+        }));
+    }
+
+    /// <summary>
+    /// Moves the capture's window to the one asked for (#1033), as a job: a pan of the running window at the same size, else the
+    /// stream started again at the new size with the window placed there.
+    /// </summary>
+    public ResponseEnvelope<JobDto> Reframe(PlanetaryReframeRequestDto request)
+    {
+        if (request.Width < 1 || request.Height < 1 || request.X < 0 || request.Y < 0)
+        {
+            return ResponseEnvelope<JobDto>.Fail("A window is at least one pixel each way, from a corner on the sensor");
+        }
+        if (hosted.CurrentRun is not NodePlanetaryRun { IsRunning: true } run)
+        {
+            return ResponseEnvelope<JobDto>.NotFound("No planetary capture is running to reframe");
+        }
+        if (run.IsSequencing)
+        {
+            return ResponseEnvelope<JobDto>.Fail(SequenceSetsTheStream, 409);
+        }
+        if (run.Capture.InterludeRefusal(PlanetaryCapture.ReframeOwner) is { } refusal)
+        {
+            return ResponseEnvelope<JobDto>.Fail(refusal, 409);
+        }
+        var target = new RoiRect(request.X, request.Y, request.Width, request.Height);
+        return ResponseEnvelope<JobDto>.Accepted(jobs.StartOrJoin(ReframeJob, async (step, ct) =>
+        {
+            step.Report($"Moving the window to {target.Width}x{target.Height} at ({target.X}, {target.Y})");
+            if (await run.Capture.ReframeAsync(target, ct) is { } refused)
+            {
+                throw new InvalidOperationException(refused);
+            }
+            return $"The window is {target.Width}x{target.Height} at ({target.X}, {target.Y})";
+        }));
+    }
+
     /// <summary>Ends the recording going on sooner than its duration; the capture goes on.</summary>
     public ResponseEnvelope<PlanetaryStateDto> StopRecording()
     {
@@ -479,6 +547,8 @@ internal sealed class NodePlanetaryRun : INodeStreamingRun
                 CurrentFramesPerSecond = Capture.CurrentFps is > 0 and var current ? current : null,
                 ExposureMs = Capture.AppliedOptions?.Exposure.TotalMilliseconds,
                 Gain = Capture.AppliedOptions?.Gain,
+                RoiX = Capture.Window?.X,
+                RoiY = Capture.Window?.Y,
                 BitDepth = Capture.FrameBitDepth,
                 Masters = Volatile.Read(ref _masters),
                 StackedFrames = Volatile.Read(ref _stackedFrames),

@@ -39,6 +39,14 @@ internal static class PlanetaryEndpoints
         routes.MapPost("/api/v1/planetary/sequence", async (PlanetarySequenceRequestDto request, NodePlanetary planetary, CancellationToken ct) =>
             EnvelopeResults.Json(await planetary.SequenceAsync(request, ct), HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto));
 
+        // Reframing on the full sensor (#1033): one full-sensor still, served as planetary/fullframe, and the window moved to a
+        // proposal on it. Both are jobs: a still is an exposure and a whole sensor's download with the stream stopped.
+        routes.MapPost("/api/v1/planetary/fullframe", (NodePlanetary planetary) =>
+            EnvelopeResults.Json(planetary.TakeFullFrame(), HostingJsonContext.Default.ResponseEnvelopeJobDto));
+
+        routes.MapPost("/api/v1/planetary/reframe", (PlanetaryReframeRequestDto request, NodePlanetary planetary) =>
+            EnvelopeResults.Json(planetary.Reframe(request), HostingJsonContext.Default.ResponseEnvelopeJobDto));
+
         routes.MapDelete("/api/v1/planetary/sequence", async (NodePlanetary planetary, CancellationToken ct) =>
             EnvelopeResults.Json(await planetary.StopSequenceAsync(ct), HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto));
     }
