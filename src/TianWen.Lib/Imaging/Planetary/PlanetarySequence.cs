@@ -194,9 +194,8 @@ public sealed class PlanetarySequenceRunner(PlanetaryCapture capture, IFilterWhe
                     Note(PlanetarySequencePhase.ChangingFilter);
                     await ChangeAsync(step, cancellationToken);
 
-                    Note(PlanetarySequencePhase.Recording);
                     var path = pathFor(filter, timeProvider.GetUtcNow());
-                    var recording = await RecordAsync(path, step, cancellationToken);
+                    var recording = await RecordAsync(path, step, () => Note(PlanetarySequencePhase.Recording), cancellationToken);
                     files = files.Add(recording.Path);
                     logger.LogInformation("Planetary sequence: set {Set} of {Sets}, step {Step} of {Steps} ({Filter}): {Frames} frames in {Path} ({Reason}).",
                         set, sequence.Sets, index, steps.Length, filter ?? "no filter change", recording.FramesWritten, recording.Path, recording.EndReason);
@@ -249,14 +248,16 @@ public sealed class PlanetarySequenceRunner(PlanetaryCapture capture, IFilterWhe
         }
     }
 
-    // The step's recording, from the first frame after the change to its time or frames. A stop ends it and waits for its file
+    // The step's recording, from the first frame after the change to its time or frames; `started` is told once it is armed,
+    // never before, so whoever reads Recording finds the frames from then on in its file. A stop ends it and waits for its file
     // to close, so the frames taken are kept and the file is whole before the stop is heard.
-    private async Task<SerRecording> RecordAsync(string path, PlanetarySequenceStep step, CancellationToken cancellationToken)
+    private async Task<SerRecording> RecordAsync(string path, PlanetarySequenceStep step, Action started, CancellationToken cancellationToken)
     {
         if (!capture.TryStartRecording(path, step.Length, out var recording, out var refusal))
         {
             throw new InvalidOperationException(refusal);
         }
+        started();
         try
         {
             await recording.Completion.WaitAsync(cancellationToken);
