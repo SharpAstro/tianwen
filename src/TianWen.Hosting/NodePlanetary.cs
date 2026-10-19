@@ -723,6 +723,7 @@ internal sealed class NodePlanetaryRun : INodeStreamingRun
                 Gain = Capture.AppliedOptions?.Gain,
                 Planet = _planet,
                 Find = Found,
+                MountConnected = _mountUri is { } connected && _hub is { } devices && devices.TryGetConnectedDriver<IMountDriver>(connected, out _),
                 RoiX = Capture.Window?.X,
                 RoiY = Capture.Window?.Y,
                 BitDepth = Capture.FrameBitDepth,

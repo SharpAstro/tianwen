@@ -94,6 +94,9 @@ public class PlanetaryControlPanelTests
             _bus.Subscribe<CancelReframeSignal>(s => Posted.Add(s));
             _bus.Subscribe<StartPlanetarySequenceSignal>(s => Posted.Add(s));
             _bus.Subscribe<StopPlanetarySequenceSignal>(s => Posted.Add(s));
+            _bus.Subscribe<FindPlanetSignal>(s => Posted.Add(s));
+            _bus.Subscribe<FindPlanetGoSignal>(s => Posted.Add(s));
+            _bus.Subscribe<UseMeasuredFocalLengthSignal>(s => Posted.Add(s));
             if (capturing)
             {
                 Capture.Began();
@@ -251,6 +254,7 @@ public class PlanetaryControlPanelTests
     public void FindTakesAStillAtItsOwnExposureForThePlanetChosen()
     {
         using var rig = new Rigged(1f, capturing: true, Saturn1780, height: 2400);
+        Found(rig, find: null);
         rig.Press("PlanetSaturn");
         rig.Press("FindExposureInc");   // 5 s to 10 s
         rig.Press("FindPlanet");
@@ -294,10 +298,25 @@ public class PlanetaryControlPanelTests
         rig.Posted.ShouldBe([new FindPlanetGoSignal(CatalogIndex.Saturn, SyncOnly: true)]);
     }
 
-    private static void Found(Rigged rig, PlanetaryFindDto find)
+    // The node's capture with its mount connected, and what its last find learned (null for none).
+    private static void Found(Rigged rig, PlanetaryFindDto? find)
     {
-        rig.Capture.UpdateFromAnswer(new PlanetaryStateDto { Camera = "G3M678M", Running = true, RoiWidth = 640, RoiHeight = 360, Find = find });
+        rig.Capture.UpdateFromAnswer(new PlanetaryStateDto
+        {
+            Camera = "G3M678M", Running = true, RoiWidth = 640, RoiHeight = 360, MountConnected = true, Find = find,
+        });
         rig.Paint();
+    }
+
+    [Fact]
+    public void ACaptureWithNoMountOffersNoFind()
+    {
+        using var rig = new Rigged(1f, capturing: true, Saturn1780, height: 2400);
+
+        rig.Host.GetRegisteredRegions().Any(static r => r.Result is HitResult.ButtonHit { Action: "FindPlanet" })
+            .ShouldBeFalse("a find's sync and goto need the mount");
+        rig.Host.GetRegisteredRegions().Any(static r => r.Result is HitResult.ButtonHit { Action: "PlanetSaturn" })
+            .ShouldBeTrue("the wheel's sequence still names its planet");
     }
 
     [Fact]
