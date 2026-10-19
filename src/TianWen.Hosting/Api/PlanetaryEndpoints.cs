@@ -33,5 +33,13 @@ internal static class PlanetaryEndpoints
 
         routes.MapDelete("/api/v1/planetary/record", (NodePlanetary planetary) =>
             EnvelopeResults.Json(planetary.StopRecording(), HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto));
+
+        // A mono filter-wheel sequence on the capture going on (#1340): one file per step, the wheel and the focuser claimed
+        // until it ends, which it does by itself once its sets are taken or on a stop.
+        routes.MapPost("/api/v1/planetary/sequence", async (PlanetarySequenceRequestDto request, NodePlanetary planetary, CancellationToken ct) =>
+            EnvelopeResults.Json(await planetary.SequenceAsync(request, ct), HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto));
+
+        routes.MapDelete("/api/v1/planetary/sequence", async (NodePlanetary planetary, CancellationToken ct) =>
+            EnvelopeResults.Json(await planetary.StopSequenceAsync(ct), HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto));
     }
 }

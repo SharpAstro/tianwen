@@ -1170,9 +1170,9 @@ recording; with no capture on show the controller says the same. The panel reads
 with no capture on show: Record while the field states a duration, Stop while a recording goes on. Pinned by `PlanetaryRecordingThroughTheNodeTests` (through the node) and `PlanetaryRecordControlTests` (the presses). Its
 settings beside the file are #1342's (Phase I); the sequence below records one file a step through the same route.
 
-- **A run of the node** (`INodeRun`, as the planetary capture is), claiming the camera, the filter wheel and the focuser (the
-  per-filter offset moves it). The mount is touched only by the recentre's nudges, which ask `DeviceOwnershipGate` as they do now.
-  A refused start names the run going on.
+- **On the planetary capture going on, not a run beside it** (decided 2026-10-19, below): the capture is the node's run and keeps
+  the camera; the sequence claims the filter wheel and the focuser (the per-filter offset moves it) for as long as it runs. The
+  mount is touched only by the recentre's nudges, which ask `DeviceOwnershipGate` as they do now.
 - **Steps and sets.** A step is a filter, an exposure, a gain, an offset, a bit depth, and a frame count or a duration; a set is the
   steps in order. The run repeats the set N times, until a time, or until the planet sinks below an altitude, with an optional pause
   between sets and an optional refocus every K sets (Phase H).
@@ -1193,6 +1193,38 @@ settings beside the file are #1342's (Phase I); the sequence below records one f
 **Needs** native video on the camera (#813). **Done when** a functional test on the fake camera, wheel and focuser runs two sets of
 R, G and B into six SERs named per filter, the wheel moved five times and each offset applied, and the survey reads three sessions;
 then a night on the bench.
+
+#### The sequence's core (#1340, 2026-10-19)
+
+**Issue:** #1340; what is left of it is the panel (editing and starting a sequence in the Planetary mode), the rotation light, the
+planet named or taken from the pointing, and a night on the bench.
+
+- **`PlanetarySequenceRunner` (Lib) runs a `PlanetarySequence` on a capture that streams.** For each step, ONE interlude stops the
+  stream, turns the wheel through `FilterChange.ChangeAsync` and starts the stream again at the step's exposure, gain and depth
+  (`RestartAt`); then ONE recording takes the step's time or frames into a file named for its filter, and the next step begins once
+  that file has closed. A set is the steps in order; it is repeated `Sets` times with `PauseBetweenSets` between two, and no set
+  begins past `Until`. Its `Progress` (phase, set, step, filter, the files written whole) is one reference, replaced whole.
+- **Why on the capture and not a run of its own.** The node runs one run at a time, and a planetary capture is already the run that
+  holds the camera, recentres and stacks. A sequence as a second run would have to stop that capture and start its own, losing the
+  window, the recentre and the live stack at its start and its end; on the capture, the live view and the rolling stack carry on
+  through every step (the last bullet above) and the operator pans and recentres as it runs. What the run needs beyond the camera,
+  the wheel and the focuser, it claims for itself (`NodePlanetary.SequenceOwner`, "a planetary sequence"), so the device plane's
+  filter change and a job on the focuser are refused in words while it runs, and both are given back as it ends.
+- **A step's length is a time OR a frame count** (`RecordingLength`, the owner, 2026-10-19). A frame target is a recording's own end
+  (`SerRecording.FrameTarget`, "its frames are taken"), so it holds on any night whatever the rate; such a recording has no end time
+  (`EndsAt` null), and the GUI's time left says nothing for it.
+- **What it refuses beside it.** While it runs, the node refuses the operator's own Record and Stop recording (a step's file is the
+  sequence's), and any control that would change a step's stream: exposure, gain, depth, readout and window size. A pan, a jog and
+  the recentre are taken as before.
+- **A stop keeps the frames.** `DELETE /api/v1/planetary/sequence` ends the step's recording, waits for its file to close, and answers
+  once it has; the file is on disk but not among the sequence's files, since its step did not finish. A capture that ends stops its
+  sequence first, so the wheel is never left claimed.
+- **One folder per run.** Every file goes under the date the sequence STARTED (`PlanetaryCapture.RecordingPath`'s `folderDate`), so a
+  run past midnight UTC is one folder, named for the planet the mount points at as it starts.
+- **The node**: `POST /api/v1/planetary/sequence` (`PlanetarySequenceRequestDto`) on the capture going on, `DELETE` to stop it, its
+  progress on the capture's state (`PlanetaryStateDto.Sequence`). Pinned by `PlanetarySequenceTests` (the runner, stepped a frame at a
+  time) and `NodePlanetaryTests.TwoSetsOfRedGreenAndBlueThroughTheNodeGiveSixFilesEachNamedForItsFilter` (the issue's own check,
+  through the node).
 
 #### The filter change and the interlude (#1618, done 2026-10-17)
 

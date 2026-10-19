@@ -154,6 +154,128 @@ public sealed class PlanetaryStateDto
 
     /// <summary>The recording to disk going on, or the last one to end; null before any.</summary>
     public PlanetaryRecordingDto? Recording { get; init; }
+
+    /// <summary>The sequence going on, or the last one to end on this capture; null before any (#1340).</summary>
+    public PlanetarySequenceDto? Sequence { get; init; }
+}
+
+/// <summary>
+/// One step of a sequence (<see cref="PlanetarySequenceStep"/>): the filter, the stream's settings, and how long it records, a
+/// time (<see cref="DurationSeconds"/>) or a number of frames (<see cref="Frames"/>), exactly one of the two.
+/// </summary>
+public sealed class PlanetarySequenceStepDto
+{
+    // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is
+    // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).
+    /// <summary>The wheel's slot, counted from 0; -1 leaves the wheel where it is.</summary>
+    public int FilterPosition { get; set; } = PlanetarySequenceStep.NoFilterChange;
+
+    /// <summary>Exposure per frame, in milliseconds.</summary>
+    public double ExposureMs { get; init; }
+
+    /// <summary>Gain, or null to keep the gain the capture streams at.</summary>
+    public short? Gain { get; init; }
+
+    /// <summary>The depth to stream in, or null to keep the capture's.</summary>
+    public BitDepth? BitDepth { get; init; }
+
+    /// <summary>How long it records, in seconds; null when it records a number of <see cref="Frames"/>.</summary>
+    public double? DurationSeconds { get; init; }
+
+    /// <summary>How many frames it records; null when it records for <see cref="DurationSeconds"/>.</summary>
+    public int? Frames { get; init; }
+
+    /// <summary>The step, or why it is not one, in words.</summary>
+    public bool TryToStep([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out PlanetarySequenceStep? step,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(false)] out string? invalid)
+    {
+        step = null;
+        RecordingLength length;
+        switch (DurationSeconds, Frames)
+        {
+            case ({ } seconds, null) when double.IsFinite(seconds):
+                length = RecordingLength.For(TimeSpan.FromSeconds(seconds));
+                break;
+            case (null, { } frames):
+                length = RecordingLength.OfFrames(frames);
+                break;
+            case (null, null):
+                invalid = "records for a time or a number of frames, and names neither";
+                return false;
+            case (not null, not null):
+                invalid = "records for a time or a number of frames, and names both";
+                return false;
+            default:
+                invalid = "needs a finite duration";
+                return false;
+        }
+        if (!double.IsFinite(ExposureMs))
+        {
+            invalid = "needs a finite exposure";
+            return false;
+        }
+        step = new PlanetarySequenceStep(FilterPosition, TimeSpan.FromMilliseconds(ExposureMs), Gain, length, BitDepth);
+        invalid = null;
+        return true;
+    }
+}
+
+/// <summary>
+/// A mono filter-wheel sequence on the planetary capture going on: <c>POST /api/v1/planetary/sequence</c> (#1340). Its steps
+/// taken in order as one set, the set repeated <see cref="Sets"/> times; it claims the OTA's filter wheel and focuser until it
+/// ends, and <c>DELETE /api/v1/planetary/sequence</c> stops it, the step's frames so far kept.
+/// </summary>
+public sealed class PlanetarySequenceRequestDto
+{
+    public PlanetarySequenceStepDto[] Steps { get; init; } = [];
+
+    // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is
+    // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).
+    /// <summary>How many times the steps are taken.</summary>
+    public int Sets { get; set; } = 1;
+
+    /// <summary>Seconds to wait between two sets.</summary>
+    public double PauseSeconds { get; init; }
+
+    /// <summary>No set is begun from this instant on; null for none.</summary>
+    public DateTimeOffset? UntilUtc { get; init; }
+}
+
+/// <summary>Where a sequence is (<see cref="PlanetarySequenceProgress"/>).</summary>
+public sealed class PlanetarySequenceDto
+{
+    public PlanetarySequencePhase Phase { get; init; }
+
+    /// <summary>The set it takes, counted from 1; 0 before the first.</summary>
+    public int Set { get; init; }
+
+    public int Sets { get; init; }
+
+    /// <summary>The step of the set it takes, counted from 1; 0 before the first and while it pauses.</summary>
+    public int Step { get; init; }
+
+    public int Steps { get; init; }
+
+    /// <summary>The filter of the step; null for one that leaves the wheel.</summary>
+    public string? Filter { get; init; }
+
+    /// <summary>The files written whole so far, in order, on the node's disk.</summary>
+    public string[] Files { get; init; } = [];
+
+    /// <summary>Why it failed, in words; null unless it did.</summary>
+    public string? FailureReason { get; init; }
+
+    public static PlanetarySequenceDto From(PlanetarySequenceProgress progress) => new PlanetarySequenceDto
+    {
+        Phase = progress.Phase,
+        Set = progress.Set,
+        Sets = progress.Sets,
+        Step = progress.Step,
+        Steps = progress.Steps,
+        Filter = progress.Filter,
+        Files = [.. progress.Files],
+        FailureReason = progress.FailureReason,
+    };
 }
 
 /// <summary>
@@ -177,8 +299,11 @@ public sealed class PlanetaryRecordingDto
 
     public DateTimeOffset StartedUtc { get; init; }
 
-    /// <summary>When it ends by itself.</summary>
-    public DateTimeOffset EndsUtc { get; init; }
+    /// <summary>When it ends by itself; null for one that ends at its <see cref="FrameTarget"/>.</summary>
+    public DateTimeOffset? EndsUtc { get; init; }
+
+    /// <summary>The frames it ends at; null for one that ends at <see cref="EndsUtc"/>.</summary>
+    public int? FrameTarget { get; init; }
 
     public bool Recording { get; init; }
 
@@ -201,6 +326,7 @@ public sealed class PlanetaryRecordingDto
         Path = recording.Path,
         StartedUtc = recording.StartedAt,
         EndsUtc = recording.EndsAt,
+        FrameTarget = recording.FrameTarget,
         Recording = recording.IsRecording,
         Written = recording.Completion.IsCompleted,
         FramesWritten = recording.FramesWritten,

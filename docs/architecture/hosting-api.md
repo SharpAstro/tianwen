@@ -456,7 +456,13 @@ Alpaca and ninaAPI refusals, Allow and Always allow, the counts), `NodeShareTest
      the live view left after it gets a whole grace of its own. The capture loop only converts a frame into a
      pooled buffer and queues it, and a writer task of the recording's own does the disk, so a slow disk costs
      recorded frames, counted, never the capture's rate. A frame of another size (a window resized) ends it, as
-     does the capture ending; the file is whole once its writer has closed it (`Written` in the state).
+     does the capture ending; the file is whole once its writer has closed it (`Written` in the state). **A
+     sequence** (#1340, `POST` and `DELETE /api/v1/planetary/sequence`, `PlanetarySequenceRunner` in Lib) runs ON
+     the capture going on: each step an interlude (the wheel turned and the focus offset taken, the stream started
+     again at the step's settings) and one recording of its time or frames, all of a run in one folder. It claims
+     the OTA's wheel and focuser until it ends, the run is not interactive while it runs, and beside it the node
+     refuses the operator's own recording and any control that would change a step's stream; its progress is the
+     state's `Sequence`. `docs/plans/live-planetary-capture.md`, "The sequence's core".
    - **A live view is the fourth** (`POST`, `GET` and `DELETE /api/v1/live`, `PUT /api/v1/live/controls`, `NodeLiveView`,
      #1111): the Preview mode's [Live], the same capture loop as `LiveCaptureKind.LiveView`, which keeps no frames (no
      stack, no recenter, no recording), over the whole sensor at the Preview's binning. It claims only the camera, so the
