@@ -91,6 +91,7 @@ public static class FilterChange
     /// <param name="focuser">The OTA's connected focuser, or null when it has none or none is connected: then only the wheel moves.</param>
     /// <param name="label">Who changes the filter, for the log: "Telescope #1", or the wheel's name.</param>
     /// <exception cref="TimeoutException">The wheel did not report the slot within <see cref="ArrivalTimeout"/>.</exception>
+    /// <exception cref="InvalidOperationException">The focus offset would take the focuser past its travel; nothing was moved.</exception>
     public static async ValueTask<FilterChangeOutcome> ChangeAsync(
         IFilterWheelDriver wheel,
         FilterWheelMotion motion,
@@ -109,13 +110,27 @@ public static class FilterChange
             return new FilterChangeOutcome(from, targetPosition, 0, null);
         }
 
+        // A focuser the offset would take past its travel is refused before the wheel turns, in the words the focuser's own move
+        // route uses: turned first, the wheel would leave the new filter out of focus behind a failed move.
+        var offset = FocusOffsetSteps(filters, from, targetPosition);
+        if (focuser is { } checking && offset != 0)
+        {
+            var reach = await checking.GetPositionAsync(cancellationToken) + offset;
+            var max = checking.Focuser.MaxStep;
+            if (reach < 0 || max > 0 && reach > max)
+            {
+                throw new InvalidOperationException(
+                    $"{checking.Focuser.Name} moves between 0 and {max}: the focus offset from {NameOf(filters, from)} to "
+                    + $"{NameOf(filters, targetPosition)} ({offset:+0;-0} steps) would take it to {reach}, so the wheel was not turned");
+            }
+        }
+
         logger.LogInformation("{Label}: switching filter from {From} to {To} (position {FromPosition} to {ToPosition}).",
             label, NameOf(filters, from), NameOf(filters, targetPosition), from, targetPosition);
         await motion.BeginMoveAsync(targetPosition, cancellationToken);
         await WaitForSlotAsync(motion, targetPosition, timeProvider,
             () => $"{wheel.Name} did not reach {NameOf(filters, targetPosition)} within {ArrivalTimeout.TotalMinutes:F0} minutes", cancellationToken);
 
-        var offset = FocusOffsetSteps(filters, from, targetPosition);
         if (focuser is not { } focusing || offset == 0)
         {
             return new FilterChangeOutcome(from, targetPosition, 0, null);

@@ -88,6 +88,30 @@ public class FilterChangeTests(ITestOutputHelper output)
         (await focuser.GetPositionAsync(ct)).ShouldBe(before);
     }
 
+    /// <summary>
+    /// A focus offset that would take the focuser past its travel is refused in words BEFORE the wheel turns, as the focuser's own
+    /// move route refuses it; it used to turn the wheel and then fail on the focuser, leaving the new filter out of focus (#1639
+    /// review round 1, N3).
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public async Task AnOffsetPastTheFocusersTravelIsRefusedBeforeTheWheelTurns()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (wheel, _, time) = await RigAsync(ct);
+        var services = new FakeExternal(output, time).BuildServiceProvider();
+        var focuser = new FakeFocuserDriver(new FakeDevice(DeviceType.Focuser, 2,
+            new System.Collections.Specialized.NameValueCollection { ["focuserInitialPosition"] = "1995" }), services);
+        await focuser.ConnectAsync(ct);
+
+        var refusal = await Should.ThrowAsync<InvalidOperationException>(FilterChange.ChangeAsync(wheel, FilterWheelMotion.Direct(wheel), R,
+            FilterFocuser.Direct(focuser, new FocusDirection(true, true)), time, FakeExternal.CreateLogger(output), "the test", ct).AsTask());
+
+        output.WriteLine(refusal.Message);
+        refusal.Message.ShouldContain("between 0 and 2000");
+        (await wheel.GetPositionAsync(ct)).ShouldBe(L, "the wheel did not turn");
+        (await focuser.GetPositionAsync(ct)).ShouldBe(1995, "nor did the focuser move");
+    }
+
     [Fact(Timeout = 30_000)]
     public async Task WithNoFocuserOnlyTheWheelTurns()
     {
