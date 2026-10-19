@@ -1100,8 +1100,22 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     /// </remarks>
     public bool TryStartRecording(string path, TimeSpan duration, [NotNullWhen(true)] out SerRecording? recording,
         [NotNullWhen(false)] out string? refusal)
+        => TryStartRecording(path, RecordingLength.For(duration), out recording, out refusal);
+
+    /// <summary>
+    /// Starts recording every frame the capture takes, for <paramref name="length"/>'s time or its frames (#1340), into the SER
+    /// file at <paramref name="path"/>; refused in words as <see cref="TryStartRecording(string, TimeSpan, out SerRecording?, out string?)"/>
+    /// is, and for a length that is not positive.
+    /// </summary>
+    public bool TryStartRecording(string path, RecordingLength length, [NotNullWhen(true)] out SerRecording? recording,
+        [NotNullWhen(false)] out string? refusal)
     {
         recording = null;
+        if (length.Invalid is { } invalid)
+        {
+            refusal = invalid;
+            return false;
+        }
         if (!IsCapturing && Volatile.Read(ref _prepared) is null)
         {
             refusal = "No planetary capture is running to record";
@@ -1128,8 +1142,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         {
             var now = timeProvider.GetUtcNow();
             // The header names the camera and the telescope, so the recording's best stack knows the optics (#1179).
-            made = new SerRecording(path, now, now + duration, logger, Camera?.Name, Volatile.Read(ref _telescopeField),
-                streamed: Camera is { } camera && Streams(camera));
+            made = new SerRecording(path, now, now + length.Time, logger, Camera?.Name, Volatile.Read(ref _telescopeField),
+                streamed: Camera is { } camera && Streams(camera), frameTarget: length.Frames);
         }
         catch
         {
@@ -1140,7 +1154,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
         Interlocked.CompareExchange(ref _streamUse, new StreamUse.Recording(made), starting);
         _recording = made;
         recording = made;
-        logger.LogInformation("Planetary capture recording to {Path} for {Duration}", path, duration);
+        logger.LogInformation("Planetary capture recording to {Path} for {Length}", path, length);
         return true;
     }
 
@@ -1151,11 +1165,13 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     /// Where a recording of OTA <paramref name="otaIndex"/>'s capture starting at <paramref name="utcNow"/> goes, beside the
     /// snapshots (<c>PreviewCapture.SaveSnapshotAsync</c>): <c>Planetary/&lt;date&gt;/</c> under the image folder, named for the
     /// <paramref name="planet"/> the mount points at and the <paramref name="filterName"/> it is taken through, where known
-    /// (<see cref="PlanetaryCaptureName.RecordingFileName"/>, #1179).
+    /// (<see cref="PlanetaryCaptureName.RecordingFileName"/>, #1179). A sequence keeps all its files in one folder, the date of its
+    /// start (<paramref name="folderDate"/>), so a run past midnight is not split in two (#1340).
     /// </summary>
-    public static string RecordingPath(IExternal external, int otaIndex, DateTimeOffset utcNow, CatalogIndex? planet = null, string? filterName = null)
+    public static string RecordingPath(IExternal external, int otaIndex, DateTimeOffset utcNow, CatalogIndex? planet = null, string? filterName = null,
+        DateTimeOffset? folderDate = null)
         => System.IO.Path.Combine(external.ImageOutputFolder.FullName, "Planetary",
-            utcNow.ToString("yyyy-MM-dd", System.Globalization.DateTimeFormatInfo.InvariantInfo),
+            (folderDate ?? utcNow).ToString("yyyy-MM-dd", System.Globalization.DateTimeFormatInfo.InvariantInfo),
             external.GetSafeFileName(PlanetaryCaptureName.RecordingFileName(planet, filterName, utcNow, otaIndex)));
 
     // ── Live capture controls (a host stages; the capture loop drains + applies) ─────────────────────────────────
