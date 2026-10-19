@@ -57,6 +57,9 @@ public sealed class NodePlanetaryCapture
 
     public double MeasuredFps => State?.FramesPerSecond ?? 0;
 
+    /// <summary>The CURRENT rate (#1619), which the readouts show; 0 before the node can say.</summary>
+    public double CurrentFps => State?.CurrentFramesPerSecond ?? 0;
+
     /// <summary>The recenter's last measured offset of the disk from the ROI's centre, in pixels.</summary>
     public (double X, double Y) LastComOffset => State is { } state ? (state.OffsetX ?? 0, state.OffsetY ?? 0) : (0, 0);
 

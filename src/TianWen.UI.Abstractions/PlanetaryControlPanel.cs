@@ -252,7 +252,8 @@ public sealed class PlanetaryControlPanel
         if (capturing)
         {
             var depth = capture.FrameBitDepth is { } streamed ? $"   {streamed.BitSize} bit" : "";
-            var readout = $"{capture.MeasuredFps:F0} fps   {capture.FramesReceived} frm   {capture.DroppedFrames} drop{depth}";
+            // The current rate (#1619): the run's average blends every exposure the run has had.
+            var readout = $"{capture.CurrentFps:F0} fps   {capture.FramesReceived} frm   {capture.DroppedFrames} drop{depth}";
             rows.Add(Layout.Builder.Text(readout, PanelFontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center).RowH(BaseRowHeight));
         }
 

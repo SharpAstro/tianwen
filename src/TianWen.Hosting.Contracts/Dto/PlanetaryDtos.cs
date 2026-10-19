@@ -128,8 +128,20 @@ public sealed class PlanetaryStateDto
     /// <summary>Frames the camera reported dropped; 0 for one that cannot report it.</summary>
     public int DroppedFrames { get; init; }
 
-    /// <summary>The camera's measured rate; null until it can be measured.</summary>
+    /// <summary>The camera's measured rate over the whole run; null until it can be measured.</summary>
     public double? FramesPerSecond { get; init; }
+
+    /// <summary>
+    /// The CURRENT rate (#1619): frames over the last second, or the last five where those span longer; null before two frames.
+    /// What a readout shows, since the run's average blends every exposure the run has had.
+    /// </summary>
+    public double? CurrentFramesPerSecond { get; init; }
+
+    /// <summary>The exposure the stream runs at now, as applied, live changes included; null before the stream starts.</summary>
+    public double? ExposureMs { get; init; }
+
+    /// <summary>The gain the stream runs at now, as applied; null for the camera's own.</summary>
+    public short? Gain { get; init; }
 
     /// <summary>The depth the newest frame came in; null before the first.</summary>
     public BitDepth? BitDepth { get; init; }
