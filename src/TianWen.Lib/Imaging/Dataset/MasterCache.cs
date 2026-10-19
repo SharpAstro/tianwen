@@ -126,7 +126,7 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
         {
             FrameType.Bias => await MasterFrameBuilder.BuildBiasMasterAsync(inputs, ct),
             FrameType.Dark or FrameType.DarkFlat => await MasterFrameBuilder.BuildDarkMasterAsync(inputs, ct),
-            FrameType.Flat => await MasterFrameBuilder.BuildFlatMasterAsync(inputs, pedestalMaster, ct),
+            FrameType.Flat => await MasterFrameBuilder.BuildFlatMasterAsync(inputs, pedestalMaster, logger, ct),
             _ => throw new ArgumentException($"Not a calibration frame type: {key.Type}", nameof(key)),
         };
         // The shared provenance cards (SWCREATE declaring the builder + the input capture-date

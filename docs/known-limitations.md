@@ -1180,6 +1180,21 @@ neighbours, so no known defect is a star. A refine pair share does NOT separate 
 rings a third of the detections, the false matches still paired 28 to 40% of the stars against 57 to 98% for the
 true ones.
 
+**The master flat now repairs them itself** (`FlatDefects`, run inside `MasterFrameBuilder.BuildFlatMaster` while the
+46 normalised frames are still in hand), which beats masking: the photosites keep their data. Of the 565 flagged
+groups, 554 changed across the run (their deviation's 5th-to-95th percentile span over 20%; the droplets' median span
+was 139%), and the 473 with a photosite over +10% beside one under -10% (a lens; an absorber only darkens) were all
+among them. The 11 steady groups spanned 2 to 4%, the frames' own noise: dead or low-response photosites at 0.13 to 0.9
+of their neighbours, which a flat must keep correcting. They keep the flat's value. Lights calibrated by the repaired
+master read 0.69% off their neighbours at the repaired photosites, against 0.66% at random photosites and 75% before.
+The stack-time mask stays as the net under a master built elsewhere. Re-stacked with the repaired master (all three
+sets, 2026-10-19), it flags 13 photosites where it flagged 8,215; no sub registers at a false identity in any of the
+four stacks; no droplet core in the two-night master sits below -5 sigma (36% did before either fix); and the
+single-colour outliers in the droplet region are the masked build's (two-night: 169 / 69 / 14 per million pixels in R /
+G / B, against 165 / 69 / 15 masked and 1,858 / 1,696 / 1,283 before). Coverage there gains only what 0.6% of the
+region's photosites can give, so on these stacks the repair and the mask come out alike. The repair's worth is that the
+master itself is right, for every consumer of it.
+
 ### A `--manifest` stack's output manifest re-listed the whole group, not the frames it stacked (FIXED 2026-09-13)
 
 `tianwen stack --manifest <third>` integrates only the manifest's frames (`STACK_N` 79 and 80 on

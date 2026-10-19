@@ -821,11 +821,15 @@ Planetary stacker below.
   sees, but a frame votes only where the photosite stands ALONE (`StandsAlone`, its immediate neighbours of every
   colour), or a faint star that barely moves is masked. **The autocrop is clipped where the coverage plane shows
   absence** (`MasterPostProcessor.ClipToCoverage`).
-- **The FLAT's defects are masked too, and no known defect is a star** (`BadPixelDetection.BuildMaskFromMasters`, ONE
-  call for the stacker and the dataset registrar): a flat photosite over 10% off its own colour's 7x7 neighbourhood
-  (`BuildMaskFromFlat`) was on the sensor while the flats were taken, and `FrameRegistration.DetectAsync(knownBad:)`
-  reads every masked photosite as its neighbours. A defect sits where it sits in every sub AND the reference, so as a
-  "star" it registers a sub at the identity: condensation in the SV605CC flats of 2026-10-17 did it to 52 of 154 subs.
+- **A master flat repairs what is not the light path, while its frames are in hand** (`FlatDefects`, inside
+  `MasterFrameBuilder.BuildFlatMaster`): a group of photosites over 10% off its own colour's 7x7 neighbourhood takes its
+  neighbours' median when it CHANGED across the run (`TransientSwing`, from `MinFramesForTime` frames) or MOVES light (a
+  photosite brighter than its neighbours beside one darker: a lens; dust only darkens, a responsive photosite is bright
+  alone). A steady defect keeps the flat's value. **The flat recipe is in `InputSetFingerprint` (`FlatRecipe`)**, so a
+  change to it rebuilds cached flats. **Behind it, the master's remaining defects are masked and no known defect is a
+  star** (`BadPixelDetection.BuildMaskFromMasters`, ONE call for the stacker and the dataset registrar;
+  `FrameRegistration.DetectAsync(knownBad:)`): a defect sits where it sits in every sub AND the reference, so as a "star"
+  it registers a sub at the identity. Condensation in the SV605CC flats of 2026-10-17 did that to 52 of 154 subs.
 - **Drizzle rejects per deposited sample** (#93, `DrizzleClip.SlopeScale`); a rejecting drizzle streams
   `RawBayerFrames` twice; its parallel strips are BIT-IDENTICAL to serial (`DrizzleParallelBitIdentityTests`).
 - **Never re-ingest our own outputs** (`STACK_N > 0` or `SWCREATE`, unless `--include-integrations`).

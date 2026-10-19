@@ -469,7 +469,7 @@ public sealed class StackingPipeline(
                 var (pedestal, pedestalKey) = MatchMaster(
                     candidates, flatKey, MasterMatchKind.FlatPedestal, list[0].Meta.ExposureStartTime);
                 logger.LogInformation("  flat pedestal: {Pedestal}", pedestalKey?.Slug() ?? "NONE");
-                return await MasterFrameBuilder.BuildFlatMasterAsync(list, pedestal, token);
+                return await MasterFrameBuilder.BuildFlatMasterAsync(list, pedestal, logger, token);
             },
             mastersDir, ct, pathSuffix: (biasMasters.Count > 0, darkFlatMasters.Count > 0 || pedestalDarkMasters.Count > 0) switch
             {
