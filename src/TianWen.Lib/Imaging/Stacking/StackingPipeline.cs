@@ -206,6 +206,67 @@ public sealed class StackingPipeline(
 
 
     /// <summary>
+    /// Deletes the masters a previous run left in <paramref name="outputDir"/> that this run replaces, and
+    /// only those: files this writer produced (SWCREATE header check), never the <c>masters/</c> calibration
+    /// cache, never a FITS someone parked there.
+    /// </summary>
+    /// <remarks>
+    /// A run with <c>--group-filter</c> or <c>--group-exclude</c> stacks some of the data root's groups and
+    /// must leave the others' masters alone. Restacking one target of a night into the folder that held
+    /// both used to delete the other target's FITS, PNG kept, so the folder read as complete until a
+    /// file was opened (2026-10-19, Sculptor's master gone after a Tarantula restack).
+    /// </remarks>
+    private void WipeStaleMasters(string outputDir, IReadOnlyCollection<string> everySlug, IReadOnlySet<string> selectedSlugs, bool filtered)
+    {
+        var wipedCount = 0;
+        var keptCount = 0;
+        foreach (var f in FileEnumeration.EnumerateFiles(outputDir, ".fits", recursive: false))
+        {
+            if (!IntegrationFitsWriter.IsTianWenMaster(f)
+                || !IsStaleMaster(Path.GetFileName(f), everySlug, selectedSlugs, filtered))
+            {
+                keptCount++;
+                continue;
+            }
+            try { File.Delete(f); wipedCount++; }
+            catch (IOException ex) { logger.LogWarning("  [wipe] failed to delete {Path}: {Msg}", f, ex.Message); }
+        }
+        if (wipedCount > 0 || keptCount > 0)
+        {
+            logger.LogInformation("[wipe] removed {Wiped} stale master(s); kept {Kept} other FITS in {Dir}",
+                wipedCount, keptCount, outputDir);
+        }
+    }
+
+    /// <summary>
+    /// Whether a master file named <paramref name="fileName"/> is replaced by this run. Its group is the
+    /// LONGEST slug it is named after (<c>master_&lt;slug&gt;</c> then '.' or '_'), so one slug that
+    /// prefixes another cannot claim the other's files. A group this run stacks: replaced. A group the
+    /// data root has but the filter left out: kept. A file of no group here: replaced only by an
+    /// unfiltered run, which owns the whole folder.
+    /// </summary>
+    internal static bool IsStaleMaster(string fileName, IReadOnlyCollection<string> everySlug, IReadOnlySet<string> selectedSlugs, bool filtered)
+    {
+        const string Prefix = "master_";
+        string? owner = null;
+        if (fileName.StartsWith(Prefix, StringComparison.Ordinal))
+        {
+            var rest = fileName.AsSpan(Prefix.Length);
+            foreach (var slug in everySlug)
+            {
+                if (rest.Length > slug.Length
+                    && rest.StartsWith(slug, StringComparison.Ordinal)
+                    && rest[slug.Length] is '.' or '_'
+                    && (owner is null || slug.Length > owner.Length))
+                {
+                    owner = slug;
+                }
+            }
+        }
+        return owner is null ? !filtered : selectedSlugs.Contains(owner);
+    }
+
+    /// <summary>
     /// Run the pipeline, yielding one <see cref="GroupResult"/> per
     /// light group as it finishes. Groups stream in
     /// <see cref="LightGroupKey"/> order; an empty enumerable means no
@@ -221,31 +282,8 @@ public sealed class StackingPipeline(
         var mastersDir = Path.Combine(outputDir, "masters");
         Directory.CreateDirectory(outputDir);
         Directory.CreateDirectory(mastersDir);
-        // Wipe stale per-group output FITS from a previous run, but ONLY
-        // files this writer produced (SWCREATE header check). Leaves
-        // unrelated FITS a user may have parked in outputDir untouched.
-        // The masters/ calibration cache is preserved here too -- cal
-        // masters are pure functions of their inputs and expensive to
-        // rebuild, so we keep them across runs.
-        var wipedCount = 0;
-        var skippedCount = 0;
-        foreach (var f in FileEnumeration.EnumerateFiles(outputDir, ".fits", recursive: false))
-        {
-            if (IntegrationFitsWriter.IsTianWenMaster(f))
-            {
-                try { File.Delete(f); wipedCount++; }
-                catch (IOException ex) { logger.LogWarning("  [wipe] failed to delete {Path}: {Msg}", f, ex.Message); }
-            }
-            else
-            {
-                skippedCount++;
-            }
-        }
-        if (wipedCount > 0 || skippedCount > 0)
-        {
-            logger.LogInformation("[wipe] removed {Wiped} stale master(s); kept {Skipped} unrelated FITS in {Dir}",
-                wipedCount, skippedCount, outputDir);
-        }
+        // Stale masters from a previous run are wiped once the groups are known (WipeStaleMasters), so
+        // a run that stacks some of the groups leaves the others' masters alone.
         // Stale _staging from a previous run that died mid-group can
         // balloon to multiple GB per group and fill the disk on re-run.
         var stagingRoot = Path.Combine(outputDir, "_staging");
@@ -465,6 +503,7 @@ public sealed class StackingPipeline(
         var lightGroups = lights.GroupBy(f => groupKeys[f]).ToList();
         logger.LogInformation("[lights] {Count} lights in {Groups} group(s){Tolerance}", lights.Count, lightGroups.Count,
             options.LightGroupTemperatureToleranceC > 0 ? $" (temperature tolerance {options.LightGroupTemperatureToleranceC:0.#} C)" : "");
+        var everySlug = lightGroups.Select(g => g.Key.Slug()).ToList();
 
         if (options.GroupExclude.Length > 0)
         {
@@ -480,6 +519,8 @@ public sealed class StackingPipeline(
             logger.LogInformation("[filter] {Before} group(s) -> {After} after filter '{Filter}'",
                 beforeCount, lightGroups.Count, options.GroupFilter);
         }
+        WipeStaleMasters(outputDir, everySlug, lightGroups.Select(g => g.Key.Slug()).ToHashSet(StringComparer.Ordinal),
+            filtered: options.GroupFilter.Length > 0 || options.GroupExclude.Length > 0);
 
         // Expand each LightGroupKey-keyed group into one or more
         // (key, slug, frames) sub-groups. The default path (no pier-side
