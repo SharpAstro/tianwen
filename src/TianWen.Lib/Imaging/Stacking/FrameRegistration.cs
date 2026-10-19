@@ -137,8 +137,32 @@ public static class FrameRegistration
                 return (solution, tolerance, rmsPx);
             }
         }
+
+        // No rung's AFFINE passed. Its acceptance demands scale ratio and skew within 1e-3, a shape test the quad
+        // stage cannot pass reliably: its inliers are quad centres agreeing to about a pixel, and over a 3000 px
+        // field a pixel is already 1e-3 of shape. Measured on the SV605CC Sculptor of 2026-09-12: subs that
+        // plate-solve at their neighbours' pointing found 13 to 39 consistent quad pairs against the reference and
+        // were thrown out at a scale ratio of +0.0012 to +0.0020 and skew to -0.0018; 0039 against its own
+        // neighbour, two minutes apart, read +0.0023. Two frames of one camera differ by a SIMILARITY, which cannot
+        // shear, so it is fitted to the same inliers and taken where it holds; the rigid refinement over every star
+        // then sets the transform as for any other sub. Only after the affine failed on every rung, so a sub
+        // registered today keeps exactly its transform.
+        foreach (var tolerance in QuadTolerances)
+        {
+            if (await light.FindFitAsync(reference, minimumCount: 6, quadTolerance: tolerance, maxStars: quadStars) is { } table
+                && table.FitSimilarityTransform() is { } similarity
+                && table.ComputeRmsResidualPx(similarity) is var rmsPx and <= SimilarityFallbackMaxRmsPx)
+            {
+                return (similarity, tolerance, rmsPx);
+            }
+        }
         return (null, float.NaN, float.NaN);
     }
+
+    /// <summary>The largest RMS over the quad-centre inliers at which <see cref="TryMatchAsync"/> takes a similarity
+    /// after every affine failed its shape test. The Sculptor subs it was measured on read 1.1 to 1.7 px; the
+    /// refinement that follows pairs stars within 5 px.</summary>
+    public const float SimilarityFallbackMaxRmsPx = 2f;
 
     /// <summary>
     /// Debayers a calibrated frame and warps it onto the union canvas, returning the warped frame
