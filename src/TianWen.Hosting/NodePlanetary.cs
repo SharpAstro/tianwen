@@ -384,6 +384,8 @@ internal sealed class NodePlanetaryRun : INodeStreamingRun
     private Uri? _mountUri;
     private Uri? _filterWheelUri;
     private (double Latitude, double Longitude) _site;
+    private IDeviceHub? _hub;
+    private CatalogIndex? _planet;
     private int _roiWidth;
     private int _roiHeight;
     private int _masters;
@@ -547,6 +549,7 @@ internal sealed class NodePlanetaryRun : INodeStreamingRun
                 CurrentFramesPerSecond = Capture.CurrentFps is > 0 and var current ? current : null,
                 ExposureMs = Capture.AppliedOptions?.Exposure.TotalMilliseconds,
                 Gain = Capture.AppliedOptions?.Gain,
+                Planet = _planet,
                 RoiX = Capture.Window?.X,
                 RoiY = Capture.Window?.Y,
                 BitDepth = Capture.FrameBitDepth,
@@ -575,6 +578,7 @@ internal sealed class NodePlanetaryRun : INodeStreamingRun
         _mountUri = profile.Mount is { Scheme: not "none" } mount ? mount : null;
         _filterWheelUri = ota.FilterWheel is { Scheme: not "none" } wheel ? wheel : null;
         _site = (profile.SiteLatitude ?? 0, profile.SiteLongitude ?? 0);
+        _hub = hub;
         (_roiWidth, _roiHeight) = roi;
         return true;
     }
@@ -624,6 +628,19 @@ internal sealed class NodePlanetaryRun : INodeStreamingRun
             if (!Capture.StartPrepared(cancellationToken))
             {
                 throw new InvalidOperationException("The planetary capture was not made ready before its run");
+            }
+            // Where the mount points as the capture starts, for a sequence's light (#1340): a read, never a claim.
+            if (_hub is { } hub)
+            {
+                try
+                {
+                    _planet = (await IdentifyAsync(hub, _logger, _timeProvider.GetUtcNow(), cancellationToken)).Planet;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // Best effort: a mount that does not answer leaves the light to the planet the operator names.
+                    _logger.LogInformation(ex, "Could not read where the mount points as the planetary capture started");
+                }
             }
             await StackAsync(cancellationToken);
         }

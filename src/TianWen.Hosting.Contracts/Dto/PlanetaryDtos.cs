@@ -152,6 +152,12 @@ public sealed class PlanetaryStateDto
     /// <inheritdoc cref="RoiX"/>
     public int? RoiY { get; init; }
 
+    /// <summary>
+    /// The planet the profile's mount pointed at as the capture started (#1340), what a sequence's rotation light speaks for
+    /// unless the operator names another; null when there is no mount, it does not answer, or it points at none.
+    /// </summary>
+    public TianWen.Lib.Astrometry.Catalogs.CatalogIndex? Planet { get; init; }
+
     /// <summary>The depth the newest frame came in; null before the first.</summary>
     public BitDepth? BitDepth { get; init; }
 

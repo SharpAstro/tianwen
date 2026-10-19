@@ -42,7 +42,10 @@ namespace TianWen.UI.Abstractions
         // The wheel's slot in the beam (-1 while it turns or when there is no wheel) and every slot's filter as the wheel's
         // driver names them, which a filter change goes by, for the planetary panel's FILTER section (#1618).
         int FilterPosition = -1,
-        ImmutableArray<string> FilterSlots = default)
+        ImmutableArray<string> FilterSlots = default,
+        // Arcseconds a pixel, unbinned, from the profile's focal length and the camera's photosite; NaN when either is unknown.
+        // What a sequence's rotation light reads a planet's turn in (#1340).
+        double PixelScaleArcsec = double.NaN)
     {
         /// <summary>Default instance with NaN temperatures and no connections.</summary>
         public static readonly PreviewOTATelemetry Unknown = new PreviewOTATelemetry(
@@ -83,6 +86,7 @@ namespace TianWen.UI.Abstractions
                 VideoBitDepths: camera?.VideoBitDepths ?? [],
                 CanFastReadout: camera?.CanFastReadout ?? false,
                 FilterPosition: filterWheel?.Position ?? -1,
-                FilterSlots: filterWheel?.Slots is { IsDefault: false } slots ? slots : []);
+                FilterSlots: filterWheel?.Slots is { IsDefault: false } slots ? slots : [],
+                PixelScaleArcsec: ota is { FocalLength: > 0, CameraPixelSizeUm: > 0 and var pixelUm } ? 206.264806 * pixelUm / ota.FocalLength : double.NaN);
     }
 }

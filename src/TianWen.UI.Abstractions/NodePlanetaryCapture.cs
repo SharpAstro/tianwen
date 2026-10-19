@@ -64,6 +64,12 @@ public sealed class NodePlanetaryCapture
     /// <summary>The CURRENT rate (#1619), which the readouts show; 0 before the node can say.</summary>
     public double CurrentFps => State?.CurrentFramesPerSecond ?? 0;
 
+    /// <summary>The node's sequence on this capture (#1340), going on or the last to end; null before any.</summary>
+    public PlanetarySequenceDto? Sequence => State?.Sequence;
+
+    /// <summary>The planet the node found the mount pointing at as the capture started (#1340); null when it found none.</summary>
+    public TianWen.Lib.Astrometry.Catalogs.CatalogIndex? Planet => State?.Planet;
+
     /// <summary>The exposure the node's stream runs at now, as applied (#1619); null before it has applied one.</summary>
     public double? AppliedExposureMs => State?.ExposureMs;
 

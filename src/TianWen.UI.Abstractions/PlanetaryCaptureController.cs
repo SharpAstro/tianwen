@@ -86,6 +86,9 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
     private bool _hasStill;
     private PlanetaryReframe? _reframe;
 
+    /// <summary>The app's clock now, <c>TIANWEN_NOW</c> included: the instant the panel's rotation light reads a planet at (#1340).</summary>
+    public DateTimeOffset UtcNow => _timeProvider.GetUtcNow();
+
     /// <summary>The node the capture on show runs on; null when none runs.</summary>
     internal NodeConnection? Node => Volatile.Read(ref _node);
 

@@ -18,17 +18,19 @@ namespace TianWen.Lib.Tests;
 [Collection("Session")]
 public class PlanetaryReframeTests(ITestOutputHelper output)
 {
+    // One clock for the camera and the capture: a still's exposure ends on the camera's clock, which the capture's waits advance.
+    private readonly FakeTimeProviderWrapper _clock = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 10, 7, 11, 30, 0, TimeSpan.Zero));
+
     private async Task<FakeCameraDriver> CameraAsync(CancellationToken ct)
     {
-        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 10, 7, 11, 30, 0, TimeSpan.Zero));
-        var camera = new FakeCameraDriver(new FakeDevice(DeviceType.Camera, 8), new FakeExternal(output, timeProvider).BuildServiceProvider());
+        var camera = new FakeCameraDriver(new FakeDevice(DeviceType.Camera, 8), new FakeExternal(output, _clock).BuildServiceProvider());
         await camera.ConnectAsync(ct);
         return camera;
     }
 
-    private static PlanetaryCapture NewCapture()
+    private PlanetaryCapture NewCapture()
     {
-        var capture = new PlanetaryCapture(new FakeTimeProviderWrapper(), NullLogger.Instance,
+        var capture = new PlanetaryCapture(_clock, NullLogger.Instance,
             new RollingWindowOptions { FallbackWindowFrames = 10, MaxWindowFrames = 16 });
         capture.ArmFrameGate();
         return capture;
@@ -52,7 +54,7 @@ public class PlanetaryReframeTests(ITestOutputHelper output)
         }
     }
 
-    private static async Task<PlanetaryCapture> StreamingAsync(FakeCameraDriver camera, CancellationToken ct)
+    private async Task<PlanetaryCapture> StreamingAsync(FakeCameraDriver camera, CancellationToken ct)
     {
         PlanetaryCapture.ConfigureRoi(camera, 640, 360);
         var capture = NewCapture();

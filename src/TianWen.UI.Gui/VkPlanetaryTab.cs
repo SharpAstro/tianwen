@@ -163,7 +163,7 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget<Vulka
     {
         // A PiP not drawn this frame (folded while capturing, or scrolled out of the panel) has no sensor to press on.
         _pipScale = 0f;
-        var panelTree = _panel.Build(controller.Capture, _focuser, controller.RecordingTimeLeft, Bus, PressPip, controller.Reframe);
+        var panelTree = _panel.Build(controller.Capture, _focuser, controller.RecordingTimeLeft, Bus, PressPip, controller.Reframe, controller.UtcNow);
         // The panel's only Fill leaf is the ROI PiP.
         RenderLayout(panelTree, panel, scale: Scale,
             drawFill: (fill, r) =>
