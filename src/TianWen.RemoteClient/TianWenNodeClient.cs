@@ -617,7 +617,7 @@ namespace TianWen.RemoteClient
                 HostingJsonContext.Default.DeviceRequestDto, HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
 
         /// <summary>
-        /// <c>POST /devices/filterwheel/change</c> -- turns the wheel to a position counted from 0 through the session's one filter
+        /// <c>POST /devices/filterwheel/change</c>: turns the wheel to a position counted from 0 through the session's one filter
         /// change, as a job that ends when it is there and its OTA's focuser has taken the focus offset. While a planetary capture
         /// streams through the wheel it is the capture's interlude (its stream stopped and started again); refused (409) in words
         /// while that capture records.
@@ -627,7 +627,7 @@ namespace TianWen.RemoteClient
                 HostingJsonContext.Default.FilterChangeRequestDto, HostingJsonContext.Default.ResponseEnvelopeJobDto, _timeouts.Control, cancellationToken);
 
         /// <summary>
-        /// <c>POST /ota/{index}/filterwheel/change</c> -- <see cref="ChangeFilterAsync"/> for the wheel of OTA <paramref name="otaIndex"/>
+        /// <c>POST /ota/{index}/filterwheel/change</c>: <see cref="ChangeFilterAsync"/> for the wheel of OTA <paramref name="otaIndex"/>
         /// (the running session's, else the active profile's), so a client need not know the wheel's URI.
         /// </summary>
         public Task<NodeResult<JobDto>> ChangeOtaFilterAsync(int otaIndex, int position, CancellationToken cancellationToken) =>
