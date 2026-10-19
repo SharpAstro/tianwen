@@ -815,6 +815,10 @@ Planetary stacker below.
   every rejector** (`PixelRejection.MarkAbsent`).
 - **Per-pixel sidecars are QUANTISED, then gzipped** (`IntegrationFitsWriter.MapStorage`, `ExistingSidecarPath`,
   `IsMapSidecarPath`); the bad pixel map is APP's format, on SENSOR geometry.
+- **A bad-pixel mask judges a photosite against its same-colour NEIGHBOURS, never a frame-wide level** (a warm sensor
+  corner is dark current, `BadPixelDetection.ExcessOverNeighbours`), and **the lights' map also takes a weak, persistent
+  vote** (`BadPixelAccumulator.WeakOutlierSigma`): a pixel 2 sigma warm in every sub is a defect a per-sub test never
+  sees. **The autocrop is clipped where the coverage plane shows absence** (`MasterPostProcessor.ClipToCoverage`).
 - **Drizzle rejects per deposited sample** (#93, `DrizzleClip.SlopeScale`); a rejecting drizzle streams
   `RawBayerFrames` twice; its parallel strips are BIT-IDENTICAL to serial (`DrizzleParallelBitIdentityTests`).
 - **Never re-ingest our own outputs** (`STACK_N > 0` or `SWCREATE`, unless `--include-integrations`).
