@@ -66,6 +66,7 @@ public class PlanetarySharpeningTests
     }
 
     [Theory(Timeout = 300_000)]
+    [InlineData(PlanetaryLimbFix.ModelToFrame)]
     [InlineData(PlanetaryLimbFix.ModelFeathered)]
     [InlineData(PlanetaryLimbFix.Bounded)]
     [InlineData(PlanetaryLimbFix.Floored)]
@@ -171,7 +172,8 @@ public class PlanetarySharpeningTests
     public async Task TheLiveDialsAreDrawnOutsideTheLimbAsTheBatchDrawsIt()
     {
         // #1201: Derive keeps the limb it fitted, and every later master, sharpened by the dials, is drawn outside the limb as the batch's
-        // derived sharpening draws it (the planet's model through the pupil, feathered back to the stack, no sharpening). On the master the
+        // derived sharpening draws it (the planet's model through the pupil to the frame's edge, its faint sources as stacked, #1681, no
+        // sharpening). On the master the
         // limb was fitted on, the two must agree outside the limb to within 1e-4 of the disk's level, and inside it within a hundredth of
         // band error, as the dials alone did (docs/plans/planetary-restoration.md, "The feathered limb on the live view", rule 1).
         var ct = TestContext.Current.CancellationToken;
@@ -181,7 +183,7 @@ public class PlanetarySharpeningTests
         var limb = kept.ShouldNotBeNull(how);
         var batch = (await Task.Run(() => PlanetarySharpening.Sharpen(stack, new PlanetarySharpenOptions(CatalogIndex.Jupiter, Night, Telescope) { WavelengthsNm = [650] }), ct))
             .ShouldNotBeNull();
-        batch.Fix.ShouldBe(PlanetaryLimbFix.ModelFeathered);
+        batch.Fix.ShouldBe(PlanetaryLimbFix.ModelToFrame, "the default limb fix (#1681)");
         var dials = WaveletSharpen.Sharpen(stack, PlanetaryBestStack.SliderOptions(gains));
         limb.FollowedTo(stack).ShouldBeSameAs(limb, "the disk has not moved");
         var live = limb.Draw(stack, dials);

@@ -418,6 +418,7 @@ public static class PlanetaryBestStack
         PlanetaryLimbFix.ModelOutside => "outside the limb the planet's model through the pupil",
         PlanetaryLimbFix.GlowSwapped => "outside the limb the stack with the seeing glow swapped for the pupil's",
         PlanetaryLimbFix.ModelFeathered => "outside the limb the planet's model through the pupil, feathered to the stack far out",
+        PlanetaryLimbFix.ModelToFrame => "outside the limb the planet's model through the pupil to the frame's edge, its faint moons as stacked",
         _ => "plain",
     };
 

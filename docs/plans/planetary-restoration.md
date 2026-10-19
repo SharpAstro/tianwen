@@ -3907,7 +3907,8 @@ An earlier reading here, that the crescent ran along Red's elongated blur from a
 | glow swapped: the stack less the model through its blur, plus the model through the pupil | 1.935 | 0.0244 | no seam, but a halo with rings: the stack's glow has wider wings than the kernel's |
 | **model feathered: the model out to 1.5 radii, the stack by the window's inscribed circle** | **1.929** | **0.0159** | **a clean limb, no ring, no seam** |
 
-- **Model feathered is the default** (`PlanetaryLimbFix.ModelFeathered`). It has the least limb profile error within the band error's
+- **Model feathered was the default** (`PlanetaryLimbFix.ModelFeathered`) until #1681 drew the model to the frame's edge
+  ("The model to the frame's edge, and the faint sources it keeps", below). It has the least limb profile error within the band error's
   2 %, 37 % under bounded's, and passes the eye check:
   - on the twins it looks like the truth;
   - on Red, the crescent is gone and the moon kept;
@@ -3918,6 +3919,38 @@ An earlier reading here, that the crescent ran along Red's elongated blur from a
   further out: the eye check out to 1.6 radii and over the whole frame is what caught both.
 - **The owner had chosen bounded against the rule (#1168).** This takes it back by the rule and the eye together, for the cause the
   owner asked to be found.
+
+### The model to the frame's edge, and the faint sources it keeps
+
+#1681. The owner saw light left past the lower-left limb of the 12-inch SCT Jupiter (2022-09-10) after the derived sharpening
+(2026-10-19). The capture's own glow is lopsided and its sky has a gradient, and the planet fills its 512 px window, so
+`ModelFeathered`'s inscribed circle handed back to the stack at 1.35 radii, where that glow is still bright: 0.0060 of the disk in the
+worst 45-degree octant at 1.1 to 1.3 of the clear radius. Four arms were run against it, each pre-registered (`i1056/RULES.md`, L-SKY
+to L-SKY4) on ten real captures (the five with a post and five of the owner's own never used before, stacked fresh) and the 18 twins:
+
+| Arm | What it draws past the limb | Residue on the SCT | Faint moons | What failed |
+|---|---|---|---|---|
+| F (`ModelFeathered`) | the model to 1.5 radii, the stack from the window's inscribed circle | 0.0060 | kept, dimmed by the feather | the residue |
+| E | the model to the frame's edge, the stack only within 48 px of a window edge the frame runs past | 0.0010 | **erased** (0.0034 and 0.0011 of the peak on two Saturns) | the moons |
+| K | E, and every faint source found a channel at a time at 5 sigma laid on it as stacked | 0.0010 | kept | one colour's noise laid in that colour: coloured specks on the 2024-12-15 Jupiter's sky |
+| **K2 (`ModelToFrame`)** | **E, and every faint source found ONCE on the luminance at the moon finder's own bar (20 sigma, its floor 1e-4 of the disk) laid in every channel as stacked** | **0.0010** | **kept as stacked** | **nothing** |
+
+- **K2 holds all six of its verdicts:** the residue at most the larger of 0.002 and F's own on every capture (0.0010 on the SCT); every
+  pixel inside 0.98 of the stacked master's outline bit-identical to F's, raw; both faint moons kept (0.0078 against F's 0.0035, 0.0043
+  against 0.0011); nothing carried on any twin, nor on the 2024-12-15 Jupiter, the noisiest sky; the twins' detail (2.3246) and limb
+  (0.0293) unchanged. It carried exactly the two faint moons and nothing else on the ten captures.
+- **Why the luminance, once:** a moon is in every colour. The two moons stand about 40 and 49 sigma in the luminance, every other compact
+  peak past the planet on the ten at most 6.2, so the moon finder's own bar parts them. Its floor of 0.01 of the disk, which a noiseless
+  sky needs, is what hid them; 1e-4 still guards that sky.
+- **The posts' C24 does not move** but on the Meade Saturn (0.9567 against 0.9590): the judge places the post off the whole frame, and
+  the sky moved it with no preview pixel more than 2 of 255 apart (L-SKY's read).
+- **What it leaves:** two faint vertical bands at a window edge the frame runs past, where the model hands back to the stack, seen only at
+  +2 % of the peak; the measures read inside the window, so a capture's sky beyond it is the stack's, as before.
+- **The live view draws as the batch does:** `PlanetaryLiveLimb` keeps the batch's fix and finds the faint sources on each master it
+  draws (`TheLiveDialsAreDrawnOutsideTheLimbAsTheBatchDrawsIt`: equal outside the limb). `--limb-fix modelfeathered` is the one before.
+- **L-SKY's two earlier measures were the yardstick's faults, recorded so they are not used again:** an outline found by a brightness
+  threshold read Saturn's ring light as residue, and a digest of planes normalised by the sky moved when only the sky did; the limb fit's
+  clear radius and the raw planes on the stacked master's outline replace them.
 
 ### A colour master's planes aligned onto each other
 
@@ -6542,9 +6575,10 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. R
   the GUI's capture, and keeps the limb it fitted, `PlanetaryLiveLimb`, so every later master, whatever the dials, is drawn outside the
   limb as the batch draws it, through the batch's own window, `PlanetaryLimbWindow`: equal to it outside the limb on every twin and the real
   Red, #1201; the limb belongs to the capture, so Reset keeps it and another file or capture start clears it) (#1159): a trous gains derived through the limb's edge against the limb fit's sharp model through the pupil's diffraction, the stack's
-  white noise floor and the planet's disk, with **no sharpening drawn outside the limb** (#1171, `PlanetaryLimbFix.ModelFeathered`):
-  there the planet's own model through the pupil, the truth's smooth diffraction glow, feathered back to the stack from 1.5 radii to
-  the window's inscribed circle, but for a moon (a local maximum of the stack keeps its sharpening, `PlanetaryMetrics.CompactSources`,
+  white noise floor and the planet's disk, with **no sharpening drawn outside the limb** (#1171, `PlanetaryLimbFix.ModelToFrame` since
+  #1681): there the planet's own model through the pupil, the truth's smooth diffraction glow, to the frame's edge, handed back to the
+  stack only near a window edge the frame runs past, its faint sources laid on it as stacked (feathered back from 1.5 radii to the
+  window's inscribed circle before, `ModelFeathered`, an option), but for a moon (a local maximum of the stack keeps its sharpening, `PlanetaryMetrics.CompactSources`,
   #1181, wherever it lies: one beyond the window is sharpened by the same gains in a window of its own, the live view's by its dials,
   `PlanetaryLimbWindow.PasteMoonsBeyond`, #1211). **A moon is a source above the PLANE its surroundings make, never only above its box's
   median, and is kept as its own light on what is drawn about it** (#1301, `PlanetaryMetrics.PeakAbovePlane`, `PlanetaryDering.KeepMoon`): on a

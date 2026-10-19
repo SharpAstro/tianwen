@@ -913,8 +913,11 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
 - **A planetary master is sharpened by `PlanetarySharpening`, ONE routine for `planetary stack`, `planetary
   sharpen` and the live view's Derive** (`PlanetaryBestStack.DeriveGains`, `WaveletDerivation`,
   `PlanetaryLiveLimb`, `PlanetaryLimbWindow`, #1201: the limb belongs to the capture, so Reset keeps it):
-  - **No sharpening is drawn outside the limb** (#1171, `PlanetaryLimbFix.ModelFeathered`) but for a moon
-    (`PlanetaryMetrics.CompactSources`, #1181; `PlanetaryLimbWindow.PasteMoonsBeyond`, #1211), and **a pixel inside the
+  - **No sharpening is drawn outside the limb** (#1171): the planet's model to the frame's edge (`PlanetaryLimbFix.ModelToFrame`,
+    #1681; `ModelFeathered` an option), handed back to the stack only near a window edge the frame runs past, but for a moon
+    (`PlanetaryMetrics.CompactSources`, #1181; `PlanetaryLimbWindow.PasteMoonsBeyond`, #1211) and **a faint source found ONCE on the
+    luminance and laid as stacked in every channel** (`PlanetaryDering.FaintSources`; found a channel at a time, one colour's noise was
+    carried as a speck), and **a pixel inside the
     outline the sharpening drives below the sky takes that model** (#1471, `PlanetaryUnderSky`). **A moon is a
     source above the PLANE its surroundings make, never only above its box's median** (#1301,
     `PlanetaryMetrics.PeakAbovePlane`, `PlanetaryDering.KeepMoon`); read every CHANNEL's moons.

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Numerics;
 using TianWen.Lib.Stat;
 
@@ -72,7 +73,35 @@ public static class PlanetaryDering
 
         /// <summary>The model out to 1.5 radii, blended to the stack by the plane's inscribed circle (at most 2.5 radii).</summary>
         ModelFeathered,
+
+        /// <summary>
+        /// The model to the frame's edge, blended to the stack only within <see cref="FrameEdgeReachPx"/> of a window edge inside the
+        /// frame, and the faint sources the stack shows there laid on it as stacked (<see cref="FaintSources"/>, #1681).
+        /// </summary>
+        ModelToFrame,
     }
+
+    /// <summary>
+    /// How near a window edge that lies inside the frame <see cref="OutsideLimb.ModelToFrame"/> hands the model back to the stack, px: the
+    /// window's own margin past the limb. An edge the frame ends at is never pasted into it, so it needs no hand-back and leaves no seam.
+    /// </summary>
+    public const int FrameEdgeReachPx = 48;
+
+    /// <summary>
+    /// The least height, in the disk's units, a faint source <see cref="OutsideLimb.ModelToFrame"/> lays on the model must have beside the
+    /// moon finder's own bar in the sky's noise: a floor only a noiseless sky reaches. The finder's own floor, 0.01, is above every faint
+    /// moon the model would otherwise erase (0.0034 and 0.0011 of the peak on two Saturns, #1681).
+    /// </summary>
+    public const double FaintSourceFloor = 1e-4;
+
+    /// <summary>
+    /// The faint compact sources <see cref="OutsideLimb.ModelToFrame"/> lays on the model, found ONCE on <paramref name="luminance"/>, the
+    /// stack's window with every channel normalised on the disk and averaged (<see cref="PlanetaryMetrics.CompactSources"/> at its own bar
+    /// and <see cref="FaintSourceFloor"/>): a moon is in every colour, and found a channel at a time, a peak of one colour's noise was laid in
+    /// that colour alone, a coloured speck on the model's sky (#1681).
+    /// </summary>
+    public static ImmutableArray<(int X, int Y)> FaintSources(ReadOnlySpan<float> luminance, int width, int height, MetricDisk disk)
+        => PlanetaryMetrics.CompactSources(luminance, width, height, disk, count: MaxMoons, minimumPeak: FaintSourceFloor);
 
     /// <summary>Where the planet's last band inside its outline starts, in the globe's radii (#1329).</summary>
     public const double LimbBandInner = 0.95;
@@ -85,12 +114,18 @@ public static class PlanetaryDering
     /// With <paramref name="modelInLimbBand"/> and a <paramref name="model"/>, the planet's last band inside its outline (from
     /// <see cref="LimbBandInner"/> of the globe's, clear of any ring) is floored at the model rather than at the sky (#1329). With
     /// <paramref name="modelUnderSky"/> and a <paramref name="model"/>, a pixel inside the outline the sharpening drives to or below the sky
-    /// takes the model instead, and nothing the sharpening leaves above the sky moves (#1471).
+    /// takes the model instead, and nothing the sharpening leaves above the sky moves (#1471). <see cref="OutsideLimb.ModelToFrame"/> reads
+    /// <paramref name="frame"/>, the frame's extent in the window's coordinates (the whole window when not given), and lays
+    /// <paramref name="faintSources"/> (<see cref="FaintSources"/>) inside it on the model as stacked; <paramref name="carried"/> is told how many.
     /// </summary>
     public static float[] Outside(ReadOnlySpan<float> sharpened, ReadOnlySpan<float> stacked, int width, int height, MetricDisk disk, OutsideLimb outside,
         ReadOnlySpan<float> glowShare = default, ReadOnlySpan<float> model = default, ReadOnlySpan<float> blurredModel = default, bool modelInLimbBand = false,
-        bool modelUnderSky = false)
+        bool modelUnderSky = false, (int Left, int Top, int Right, int Bottom)? frame = null, ImmutableArray<(int X, int Y)> faintSources = default,
+        Action<int>? carried = null)
     {
+        // ModelToFrame hands back only near a window edge the frame runs on past: the frame's extent in window coordinates.
+        var (frameLeft, frameTop, frameRight, frameBottom) = frame ?? (0, 0, width, height);
+        var (edgeLeft, edgeTop, edgeRight, edgeBottom) = (frameLeft < 0, frameTop < 0, frameRight > width, frameBottom > height);
         var moons = PlanetaryMetrics.CompactSources(stacked, width, height, disk, count: MaxMoons);
         // Where ModelFeathered hands the model back to the stack: by the plane's inscribed circle, at most 2.5 radii, from 0.5 radii inside it.
         // Saturn's are counted past its rings (MetricDisk.ClearRadiiAt, S4), whose outer edge is a radius along the equator.
@@ -135,11 +170,26 @@ public static class PlanetaryDering
                     OutsideLimb.Model => model.IsEmpty ? bounded : Math.Max(model[i], 0f),
                     OutsideLimb.GlowSwapped => model.IsEmpty || blurredModel.IsEmpty ? bounded : stacked[i] - blurredModel[i] + model[i],
                     OutsideLimb.ModelFeathered => model.IsEmpty ? bounded : Feather(Math.Max(model[i], 0f), stacked[i], r, featherStart, featherEnd),
+                    // The stack within 4 px of a window edge inside the frame, the model from FrameEdgeReachPx further in: where the planet
+                    // fills its window, the inscribed circle ModelFeathered hands back by lies where the stack's own glow is still bright
+                    // (1.35 radii on the 12-inch SCT Jupiter, 0.0060 of the disk left past its limb, #1681).
+                    OutsideLimb.ModelToFrame => model.IsEmpty ? bounded : Feather(stacked[i], Math.Max(model[i], 0f),
+                        Math.Min(Math.Min(edgeLeft ? x : int.MaxValue, edgeRight ? width - 1 - x : int.MaxValue),
+                            Math.Min(edgeTop ? y : int.MaxValue, edgeBottom ? height - 1 - y : int.MaxValue)), 4, 4 + FrameEdgeReachPx),
                     _ => Blend(bounded, stack, r),
                 };
             }
         }
         KeepMoons(result, Floor(sharpened), width, height, disk, moons);
+        if (outside == OutsideLimb.ModelToFrame && !model.IsEmpty && !faintSources.IsDefaultOrEmpty)
+        {
+            // The faint sources inside the frame, as this channel stacked: never sharpened, and none within two moon reaches of a moon this
+            // channel's finder kept, which keeps its sharpening.
+            ImmutableArray<(int X, int Y)> faint = [.. faintSources.Where(f => f.X >= frameLeft && f.X < frameRight && f.Y >= frameTop && f.Y < frameBottom
+                && moons.All(m => Math.Max(Math.Abs(m.X - f.X), Math.Abs(m.Y - f.Y)) > 2 * MoonReachPx))];
+            KeepMoons(result, stacked, width, height, disk, faint);
+            carried?.Invoke(faint.Length);
+        }
         return result;
     }
 
