@@ -174,7 +174,7 @@ internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSessio
 /// frames a client watches. The stack runs on the run's own task, one master at a time, so the stacker has its single
 /// writer and nothing reads the capture's stream once the run is done.
 /// </summary>
-internal sealed class NodePlanetaryRun : INodeRun
+internal sealed class NodePlanetaryRun : INodeStreamingRun
 {
     /// <summary>
     /// How often the live frame is shown at most: a display's rate, not the camera's. A client streaming it asks for each
@@ -215,7 +215,10 @@ internal sealed class NodePlanetaryRun : INodeRun
     }
 
     /// <summary>The capture loop, which the tests step frame by frame.</summary>
-    internal PlanetaryCapture Capture { get; }
+    public PlanetaryCapture Capture { get; }
+
+    /// <inheritdoc/>
+    public Uri? FilterWheel => _filterWheelUri;
 
     public NodeRunKind Kind => NodeRunKind.Planetary;
 
@@ -235,14 +238,6 @@ internal sealed class NodePlanetaryRun : INodeRun
     /// <summary>The ring indices of the newest master's window, first and last; null before any master. Test seam.</summary>
     internal (int Start, int End)? LastWindow
         => Interlocked.Read(ref _lastWindow) is >= 0 and var packed ? ((int)(packed >> 32), (int)packed) : null;
-
-    /// <summary>
-    /// Whether this capture streams through <paramref name="filterWheel"/>, the wheel its OTA's profile named as it was prepared:
-    /// a filter change of that wheel is then the capture's interlude (<see cref="PlanetaryCapture.InterludeAsync"/>).
-    /// </summary>
-    internal bool StreamsThrough(Uri filterWheel)
-        => IsRunning && Capture.IsCapturing && _filterWheelUri is { } wheel
-           && DeviceUriExtensions.DeviceKeyComparer.Equals(wheel.DeviceKey, filterWheel.DeviceKey);
 
     /// <summary>
     /// What a recording made at <paramref name="utc"/> is named for (#1179): the body the profile's mount points at

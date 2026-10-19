@@ -123,6 +123,40 @@ public class NodeLiveViewTests(ITestOutputHelper outputHelper) : IDisposable
         (await client.StopLiveViewAsync(ct)).StatusCode.ShouldBe(404, "nothing is running to stop");
     }
 
+    /// <summary>
+    /// A Preview live view streams through its OTA's wheel as a planetary capture does, so a filter change of that wheel is its
+    /// interlude too: the stream stopped, the wheel turned, the stream started again (#1639 review round 1, N2). The capture is
+    /// found through the node's run, whichever kind it is.
+    /// </summary>
+    [Fact(Timeout = 90_000)]
+    public async Task AFilterChangeDuringALiveViewIsItsInterlude()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var wheel = new FakeDevice(DeviceType.FilterWheel, 1);
+        await using var node = await LiveViewNodeAsync(NodeRunWatchOptions.Default.DetachGrace, ct);
+        await node.ActivateRigAsync(Camera, mount: null, ct, filterWheel: wheel);
+        var client = ClientOf(node);
+        await using var window = await NodeWindow.OpenAsync(node, outputHelper, ct);
+        var camera = (FakeCameraDriver)CameraOf(node);
+
+        (await client.StartLiveViewAsync(Default, ct)).IsSuccess.ShouldBeTrue();
+        await UntilStateAsync(client, "frames to arrive", s => s.FramesReceived > 0, ct);
+        camera.VideoStarts.Length.ShouldBe(1);
+
+        var change = await client.ChangeFilterAsync(wheel.DeviceUri, 1, ct);
+        change.IsSuccess.ShouldBeTrue(change.Error);
+        var turned = node.App.Services.GetRequiredService<IDeviceHub>().TryGetConnectedDriver<IFilterWheelDriver>(wheel.DeviceUri, out var driver)
+            ? driver : throw new InvalidOperationException("The fake wheel is not connected");
+        await UntilAsync("the wheel to reach slot 1 and the stream to start again", async token =>
+        {
+            var at = await turned.GetPositionAsync(token);
+            return (at == 1 && camera.VideoStarts.Length == 2, $"slot {at}, {camera.VideoStarts.Length} stream starts");
+        }, ct);
+        await UntilStateAsync(client, "frames after the change", s => s.Running && s.FramesReceived > 0, ct);
+
+        (await client.StopLiveViewAsync(ct)).IsSuccess.ShouldBeTrue();
+    }
+
     [Fact(Timeout = 90_000)]
     public async Task AGainReachesTheCameraAfterTheNextFrame()
     {

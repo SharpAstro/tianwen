@@ -100,7 +100,8 @@ internal sealed partial class DeviceOperations
     /// (<see cref="FilterChange.ChangeAsync"/>), as a job that ends when the wheel is there and the focuser of the OTA the active
     /// profile puts the wheel on, when one is connected, has moved by the focus offset of the filter arrived at less the one
     /// left. The job claims the wheel and that focuser while it moves them.
-    /// <para>While a planetary capture streams through the wheel (the node's run, never a UI flag) the change is that capture's
+    /// <para>While a capture streams through the wheel, a planetary capture's or a Preview live view's (the node's run, whichever
+    /// kind, <see cref="INodeStreamingRun"/>, never a UI flag), the change is that capture's
     /// interlude (<see cref="PlanetaryCapture.InterludeAsync"/>): its stream stops, the wheel and the focuser move, and it
     /// streams again at the settings it had, the first frames after dropped; the capture keeps claiming only the camera.
     /// A recording going on refuses it in words (409) and the wheel does not move, rather than one file holding two filters.</para>
@@ -139,8 +140,9 @@ internal sealed partial class DeviceOperations
             focuserUri = focusing;
         }
 
-        // A planetary capture streaming through the wheel has its stream stopped for the change; a recording refuses it now.
-        var capture = hosted.CurrentRun is NodePlanetaryRun run && run.StreamsThrough(uri) ? run.Capture : null;
+        // A capture streaming through the wheel (a planetary capture's or a Preview live view's) has its stream stopped for the
+        // change; a recording refuses it now.
+        var capture = hosted.CurrentRun is INodeStreamingRun run && run.StreamsThrough(uri) ? run.Capture : null;
         if (capture?.InterludeRefusal(FilterChangeOwner) is { } streaming)
         {
             return ResponseEnvelope<JobDto>.Fail(streaming, 409);

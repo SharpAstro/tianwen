@@ -137,7 +137,7 @@ internal sealed class NodeLiveView(IDeviceHub hub, NodeJobs jobs, IHostedSession
 /// One live view, as the node runs it: the capture loop, keeping no frames, and the newest frame shown at display rate
 /// (<see cref="FrameSources.LiveView"/>).
 /// </summary>
-internal sealed class NodeLiveViewRun : INodeRun
+internal sealed class NodeLiveViewRun : INodeStreamingRun
 {
     private readonly NodeFrames _frames;
     private readonly ITimeProvider _timeProvider;
@@ -163,7 +163,10 @@ internal sealed class NodeLiveViewRun : INodeRun
     }
 
     /// <summary>The capture loop, which the tests step frame by frame.</summary>
-    internal PlanetaryCapture Capture { get; }
+    public PlanetaryCapture Capture { get; }
+
+    /// <inheritdoc/>
+    public Uri? FilterWheel { get; private set; }
 
     public NodeRunKind Kind => NodeRunKind.LiveView;
 
@@ -208,6 +211,8 @@ internal sealed class NodeLiveViewRun : INodeRun
         }
         _otaIndex = request.OtaIndex;
         _camera = Capture.Camera?.Name ?? "";
+        // The wheel its stream goes through: a filter change of it is this live view's interlude (INodeStreamingRun).
+        FilterWheel = profile.OTAs[request.OtaIndex].FilterWheel is { Scheme: not "none" } wheel ? wheel : null;
         return true;
     }
 
