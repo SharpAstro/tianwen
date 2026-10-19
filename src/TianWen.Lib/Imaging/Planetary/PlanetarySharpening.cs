@@ -87,11 +87,12 @@ public enum PlanetaryColourFinestBand
 public enum PlanetarySharpenTarget
 {
     /// <summary>
-    /// <see cref="Aperture"/> where every channel's pupil cutoff lies below <see cref="PlanetarySharpening.ApertureTargetCutoffBelow"/>
-    /// cycles a pixel (the master resolves the telescope's diffraction), else <see cref="Telescope"/> (#1632). On the 40 EdgeHD training
-    /// twins (cutoffs 0.23 to 0.31) the aperture target's limb was 2 to 4 times truer than the telescope's on every twin and its detail no
-    /// worse on the mean (L-TARGET); on twins sampled coarser than their optics (cutoffs 1.0 to 1.3) it rang and lost detail (L-ORDER).
-    /// Resolved by <see cref="PlanetarySharpening.TargetFor"/>; the target taken is <see cref="PlanetarySharpenResult.Target"/>. Gains
+    /// <see cref="Aperture"/> wherever every channel's pupil cutoff is known, else <see cref="Telescope"/> (#1632, #1668). On the 40
+    /// EdgeHD training twins (cutoffs 0.23 to 0.31) the aperture target's limb was 2 to 4 times truer than the telescope's on every twin and
+    /// its detail no worse on the mean (L-TARGET). Where the cutoff lies past the grid's Nyquist its taper ends there
+    /// (<see cref="PlanetaryFinishing.GridNyquist"/>): it then beat the telescope target on the colour twins' detail and limb and rang less
+    /// on three of four, though one (sat-p5s2) still rebounds 0.010 against the telescope target's 0.015 (L-NYQ, adopted by the owner after
+    /// the read). Resolved by <see cref="PlanetarySharpening.TargetFor"/>; the target taken is <see cref="PlanetarySharpenResult.Target"/>. Gains
     /// given (<see cref="PlanetarySharpenOptions.FixedGains"/>) or learned (<see cref="PlanetarySharpenOptions.GainsModel"/>) were fitted
     /// toward the telescope, so with them it takes the telescope.
     /// </summary>
@@ -531,16 +532,10 @@ public static class PlanetarySharpening
     public const double SplitCfaPlaneNyquist = 0.25;
 
     /// <summary>
-    /// The pupil cutoff, cycles a pixel, below which every channel must lie for <see cref="PlanetarySharpenTarget.Auto"/> to take the
-    /// aperture (#1632): a master sampled at least twice as fine as its optics resolve, so the telescope's diffraction is in its pixels to be
-    /// undone. The twins that confirmed the aperture target lie at 0.23 to 0.31; those it rang on, at 1.0 to 1.3.
-    /// </summary>
-    public const double ApertureTargetCutoffBelow = 0.5;
-
-    /// <summary>
-    /// The target the gains restore toward (#1632): <paramref name="asked"/> as it is when it names one, else, for
-    /// <see cref="PlanetarySharpenTarget.Auto"/>, the aperture where every one of the channels' <paramref name="cutoffs"/> (cycles a pixel,
-    /// <see cref="PlanetaryFinishing.CutoffCyclesPerPixel"/>) lies below <see cref="ApertureTargetCutoffBelow"/>, the telescope otherwise.
+    /// The target the gains restore toward (#1632, #1668): <paramref name="asked"/> as it is when it names one, else, for
+    /// <see cref="PlanetarySharpenTarget.Auto"/>, the aperture wherever every one of the channels' <paramref name="cutoffs"/> (cycles a pixel,
+    /// <see cref="PlanetaryFinishing.CutoffCyclesPerPixel"/>) is known, the telescope otherwise. A cutoff past the grid's Nyquist no longer
+    /// sends a master to the telescope: the aperture target's taper ends at Nyquist there (L-NYQ).
     /// </summary>
     public static PlanetarySharpenTarget TargetFor(PlanetarySharpenTarget asked, ReadOnlySpan<double> cutoffs)
     {
@@ -554,7 +549,7 @@ public static class PlanetarySharpening
         }
         foreach (var cutoff in cutoffs)
         {
-            if (!(cutoff < ApertureTargetCutoffBelow))
+            if (!(double.IsFinite(cutoff) && cutoff > 0))
             {
                 return PlanetarySharpenTarget.Telescope;
             }

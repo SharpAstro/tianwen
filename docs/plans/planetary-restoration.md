@@ -3484,9 +3484,9 @@ The deconvolution's headroom is the kernel: each Red twin's own best gains, appl
 `planetary sharpen --gains`, leave 22 to 30 % less error than the derived ones, but they do not carry across twins with different air.
 Whether a night's own twin can supply them is #1369 (the AUTO mode's step 0, `planetary-stacking.md`).
 
-**The default where the pixels resolve the telescope (#1632, the owner, 2026-10-17).** `PlanetarySharpenTarget.Auto`, the default,
-takes the aperture where every channel's pupil cutoff lies below 0.5 cycles a pixel (`PlanetarySharpening.ApertureTargetCutoffBelow`,
-resolved once by `PlanetarySharpening.TargetFor`, the target taken in `PlanetarySharpenResult.Target`) and the telescope elsewhere, so
+**The default where the pixels resolve the telescope (#1632, the owner, 2026-10-17; everywhere since #1668, below).**
+`PlanetarySharpenTarget.Auto`, the default, took the aperture where every channel's pupil cutoff lies below 0.5 cycles a pixel, and since
+L-NYQ wherever every cutoff is known (resolved once by `PlanetarySharpening.TargetFor`, the target taken in `PlanetarySharpenResult.Target`), so
 `planetary stack`, `planetary sharpen` (`--target auto`), the viewer's Auto view and the live view's Derive all take it. Gains given or
 learned (#817, #1552) were fitted toward the telescope and keep it. Two experiments, rules set before each ran
 (`training/planetary/r9-rules.md`), found the aperture target the best arm wherever the sampling resolves the optics:
@@ -3536,6 +3536,27 @@ taper:
   Lifted, H keeps a trace of T's line; C keeps no line but a faint glow past the limb, its Airy wing, and a softer Jupiter.
 - **Tukey stays where L-TAPER did not look**: the cut of a colour master's Wiener target at its planes' Nyquist (`PlanetaryFinishing.TukeyTaper`,
   #1398).
+
+**The aperture everywhere, its taper ending at the grid's Nyquist (#1668, L-NYQ, the owner, 2026-10-19).** The 0.5 rule sent a master to
+the telescope where any channel's cutoff lies past Nyquist, because there the aperture target rang on the colour twins. The reason was the
+taper: past Nyquist it never reaches nothing on the grid, so the grid's edge cuts the target off, a step in frequency that rings. Hann now
+ends at the lesser of the cutoff and 0.5 (`PlanetaryFinishing.GridNyquist`), which changes nothing below 0.5, and `Auto` takes the aperture
+wherever every cutoff is known. L-NYQ (rules set before any arm was built) compared HN (Hann to the lesser), H (Hann to the cutoff) and N
+(the telescope target) on the four colour twins (cutoffs 1.0 to 1.3) and the two captures the rule sent to the telescope, the EdgeHD
+Saturn (0.39 / 0.45 / 0.52) and the owner's Saturn of 7 October (0.43 / 0.53 / 0.61):
+
+| | HN | N, the telescope target |
+|---|---|---|
+| Real edges, worst rebound past the limb (at most 0.005) | 0.0013 and 0.0035: holds | |
+| Colour twins, detail / limb against HN's truth | 1.288 / 0.0330 | 1.296 / 0.0433 |
+| Colour twins, worst rebound: uc-g4, uc-g4s2, sat-p5, sat-p5s2 | 0.0029, 0.0005, 0.0023, **0.0101** | 0.0067, 0, 0.0084, **0.0150** |
+| EdgeHD Saturn's post, C24 | 0.9727: holds | 0.9663 |
+
+- **By the rule as set the gate should have stayed**: sat-p5s2's rebound (0.0101) and red undershoot (0.0022) are past the bounds.
+- **The owner adopted HN anyway, after the read** (disclosed as an amendment): the telescope target it replaces is outside the same bounds
+  on three of the four twins and by more, HN's rebound is lower than N's on every twin but uc-g4s2 (both near nothing), and on the two
+  real Saturns, as written and lifted, HN drops the halo past the limb that the telescope target keeps ("the HN on my Saturn 7-Oct looks
+  quite good"). The plain Hann on the same twins rebounds up to 0.0206: the Nyquist end is what makes the coarse captures safe.
 
 ### The noise read off the halves (#1373)
 

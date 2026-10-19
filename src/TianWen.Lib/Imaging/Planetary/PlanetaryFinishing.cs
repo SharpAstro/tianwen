@@ -53,7 +53,9 @@ public enum PlanetaryApertureTaper
 {
     /// <summary>
     /// A raised cosine from one at nothing to nothing at the cutoff, the default (L-TAPER): an edge response 0.6 % past a step. On the
-    /// captures with a post it rebounds at most 0.004 past the limb, where Tukey rebounded 0.008 on Saturn, and lands as near the posts.
+    /// captures with a post it rebounds at most 0.004 past the limb, where Tukey rebounded 0.008 on Saturn, and lands as near the posts. It
+    /// ends at the lesser of the cutoff and the grid's Nyquist (<see cref="PlanetaryFinishing.GridNyquist"/>, L-NYQ, #1668): past Nyquist
+    /// the taper never reached nothing on the grid, whose edge then cut the target, and the cut rang (rebound up to 0.021 on the colour twins).
     /// </summary>
     Hann,
 
@@ -116,6 +118,12 @@ public static class PlanetaryFinishing
     public const double TukeyTaperStart = 0.5;
 
     /// <summary>
+    /// The grid's Nyquist, cycles a pixel, where the default Hann taper ends when the pupil's cutoff lies past it (L-NYQ, #1668): a
+    /// frequency the grid cannot hold is not asked for, so the target falls to nothing on the grid rather than being cut off by its edge.
+    /// </summary>
+    public const double GridNyquist = 0.5;
+
+    /// <summary>
     /// A Tukey taper at <paramref name="cyclesPerPixel"/>: one to <see cref="TukeyTaperStart"/> of the <paramref name="cutoff"/>, a raised
     /// cosine from there to nothing at it. Its line spread dips to a tenth below zero, so an edge through it overshoots by 7.9 %: the aperture
     /// target's shape until L-TAPER (<see cref="PlanetaryApertureTaper.Tukey"/>), and still the cut of a colour master's Wiener target at its
@@ -137,7 +145,7 @@ public static class PlanetaryFinishing
         var u = cyclesPerPixel / cutoff;
         return shape switch
         {
-            PlanetaryApertureTaper.Hann => u >= 1 ? 0 : 0.5 * (1 + Math.Cos(Math.PI * u)),
+            PlanetaryApertureTaper.Hann => cyclesPerPixel / Math.Min(cutoff, GridNyquist) is var v && v < 1 ? 0.5 * (1 + Math.Cos(Math.PI * v)) : 0,
             PlanetaryApertureTaper.Tukey => TukeyTaper(cyclesPerPixel, cutoff),
             PlanetaryApertureTaper.Clear => u >= 1 ? 0 : 2 / Math.PI * (Math.Acos(u) - (u * Math.Sqrt(1 - (u * u)))),
             _ => throw new ArgumentOutOfRangeException(nameof(shape), shape, "no such aperture taper"),
