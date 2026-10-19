@@ -68,13 +68,16 @@ public sealed class SerRecording
     private volatile string? _failure;
 
     /// <summary>
-    /// A recording to <paramref name="path"/> of every frame that arrives before <paramref name="endsAt"/>, its header naming the camera
+    /// A recording to <paramref name="path"/> of every frame that arrives before <paramref name="endsAt"/>, or of the first
+    /// <paramref name="frameTarget"/> frames, its header naming the camera
     /// (<paramref name="instrument"/>) and the telescope (<paramref name="telescope"/>, <see cref="PlanetaryCaptureName.TelescopeField"/>)
     /// it was taken with, so its best stack knows the optics (#1179). <paramref name="streamed"/> says the frames come from a camera's
     /// stream, the only frames whose spacing can show a stall (<see cref="Gaps"/>).
     /// </summary>
-    public SerRecording(string path, DateTimeOffset startedAt, DateTimeOffset endsAt, ILogger logger, string? instrument = null, string? telescope = null,
-        bool streamed = false)
+    /// <param name="endsAt">When it ends by itself; null for a recording that ends at its <paramref name="frameTarget"/> alone.</param>
+    /// <param name="frameTarget">The frames it ends at (#1340, a sequence step's frame target); null for one that ends at <paramref name="endsAt"/>.</param>
+    public SerRecording(string path, DateTimeOffset startedAt, DateTimeOffset? endsAt, ILogger logger, string? instrument = null, string? telescope = null,
+        bool streamed = false, int? frameTarget = null)
     {
         Path = path;
         _instrument = string.IsNullOrEmpty(instrument) ? "TianWen" : instrument;
@@ -82,6 +85,7 @@ public sealed class SerRecording
         _streamed = streamed;
         StartedAt = startedAt;
         EndsAt = endsAt;
+        FrameTarget = frameTarget;
         _logger = logger;
         Completion = CaptureReaderThread.Run("planetary recording writer", WriteAsync);
     }
@@ -91,10 +95,13 @@ public sealed class SerRecording
 
     public DateTimeOffset StartedAt { get; }
 
-    /// <summary>When it ends by itself: a frame arriving from then on is not recorded.</summary>
-    public DateTimeOffset EndsAt { get; }
+    /// <summary>When it ends by itself: a frame arriving from then on is not recorded. Null for one that ends at its <see cref="FrameTarget"/>.</summary>
+    public DateTimeOffset? EndsAt { get; }
 
-    /// <summary>True until it has ended, however: its duration, a stop, a frame of another size, the capture ending.</summary>
+    /// <summary>The frames it ends at once it has queued them; null for one that ends at <see cref="EndsAt"/>.</summary>
+    public int? FrameTarget { get; }
+
+    /// <summary>True until it has ended, however: its duration or its frames, a stop, a frame of another size, the capture ending.</summary>
     public bool IsRecording => Volatile.Read(ref _ended) == 0;
 
     /// <summary>Frames on disk.</summary>
@@ -131,7 +138,8 @@ public sealed class SerRecording
     /// <summary>
     /// Queues <paramref name="frame"/>, BORROWED (it is read here, never kept), to be written with the time it
     /// <paramref name="arrived"/>. False once the recording has ended, which this call does when the frame arrived at or
-    /// after <see cref="EndsAt"/> or is of another size than the first. Called on the capture loop, one frame at a time.
+    /// after <see cref="EndsAt"/> or is of another size than the first, and once it has queued its <see cref="FrameTarget"/>.
+    /// Called on the capture loop, one frame at a time.
     /// </summary>
     public bool TryAppend(Image frame, DateTimeOffset arrived)
     {
@@ -180,6 +188,11 @@ public sealed class SerRecording
             _gaps = _gaps.Add(new SerRecordingGap(_queued - 2, step));
         }
         _lastArrived = arrived;
+        // A frame the disk could not keep up with is not one of the target's: the file holds the frames asked for.
+        if (_queued >= FrameTarget)
+        {
+            End("its frames are taken");
+        }
         return true;
     }
 
