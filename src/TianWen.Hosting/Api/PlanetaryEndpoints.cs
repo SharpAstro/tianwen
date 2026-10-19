@@ -47,6 +47,14 @@ internal static class PlanetaryEndpoints
         routes.MapPost("/api/v1/planetary/reframe", (PlanetaryReframeRequestDto request, NodePlanetary planetary) =>
             EnvelopeResults.Json(planetary.Reframe(request), HostingJsonContext.Default.ResponseEnvelopeJobDto));
 
+        // Finding the planet (#1684): a full-sensor still solved, blind where nothing local can, and then, once the operator says so,
+        // the mount synced to it and sent to the planet. Both are jobs.
+        routes.MapPost("/api/v1/planetary/find", async (PlanetaryFindRequestDto request, NodePlanetary planetary, CancellationToken ct) =>
+            EnvelopeResults.Json(await planetary.FindAsync(request, ct), HostingJsonContext.Default.ResponseEnvelopeJobDto));
+
+        routes.MapPost("/api/v1/planetary/find/go", async (PlanetaryFindGoRequestDto request, NodePlanetary planetary, CancellationToken ct) =>
+            EnvelopeResults.Json(await planetary.FindGoAsync(request, ct), HostingJsonContext.Default.ResponseEnvelopeJobDto));
+
         routes.MapDelete("/api/v1/planetary/sequence", async (NodePlanetary planetary, CancellationToken ct) =>
             EnvelopeResults.Json(await planetary.StopSequenceAsync(ct), HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto));
     }

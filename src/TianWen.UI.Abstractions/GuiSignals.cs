@@ -32,6 +32,18 @@ public readonly record struct CancelReframeSignal;
 /// <summary>Starts the sequence the SEQUENCE section edits on the planetary capture on show (#1340).</summary>
 public sealed record StartPlanetarySequenceSignal(PlanetarySequenceRequestDto Request);
 
+/// <summary>
+/// Finds where the mount really points (#1684): one full-sensor still of the planetary capture on show at
+/// <paramref name="ExposureSeconds"/>, solved by the node, for <paramref name="Planet"/> (null for the one the capture found).
+/// </summary>
+public readonly record struct FindPlanetSignal(double ExposureSeconds, TianWen.Lib.Astrometry.Catalogs.CatalogIndex? Planet);
+
+/// <summary>Syncs the mount to the last find and, unless <paramref name="SyncOnly"/>, goes to <paramref name="Planet"/> (#1684).</summary>
+public readonly record struct FindPlanetGoSignal(TianWen.Lib.Astrometry.Catalogs.CatalogIndex? Planet, bool SyncOnly);
+
+/// <summary>Writes the focal length a find measured into OTA <paramref name="OtaIndex"/> of the active profile, which the operator asked for (#1684).</summary>
+public readonly record struct UseMeasuredFocalLengthSignal(int OtaIndex, int FocalLengthMm);
+
 /// <summary>Stops the sequence going on, its step's frames kept (#1340).</summary>
 public readonly record struct StopPlanetarySequenceSignal;
 

@@ -5,6 +5,7 @@ using DIR.Lib;
 using Shouldly;
 using TianWen.DAL;
 using TianWen.Hosting.Dto;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
@@ -220,7 +221,7 @@ public class PlanetaryControlPanelTests
         // 10,000 frames at 63 fps is 158 s, which turns Saturn's middle 1.1 px at 0.2316"/px: just past the green.
         using var rig = new Rigged(1f, capturing: true, Saturn1780, height: 2400);
         Streaming(rig.Capture, 63.3);
-        rig.Press("SeqPlanetSaturn");
+        rig.Press("PlanetSaturn");
         rig.Press("SeqAdd");
 
         rig.Host.Texts().ShouldContain("1.1 px");
@@ -244,6 +245,59 @@ public class PlanetaryControlPanelTests
         rig.Posted.ShouldBe([new StopPlanetarySequenceSignal()]);
         rig.Host.GetRegisteredRegions().Any(static r => r.Result is HitResult.ButtonHit { Action: "SeqStart" })
             .ShouldBeFalse("one sequence at a time");
+    }
+
+    [Fact]
+    public void FindTakesAStillAtItsOwnExposureForThePlanetChosen()
+    {
+        using var rig = new Rigged(1f, capturing: true, Saturn1780, height: 2400);
+        rig.Press("PlanetSaturn");
+        rig.Press("FindExposureInc");   // 5 s to 10 s
+        rig.Press("FindPlanet");
+
+        rig.Posted.OfType<FindPlanetSignal>().ShouldHaveSingleItem().ShouldBe(new FindPlanetSignal(10, CatalogIndex.Saturn));
+        rig.Host.GetRegisteredRegions().Any(static r => r.Result is HitResult.ButtonHit { Action: "FindGo" or "FindSync" })
+            .ShouldBeFalse("nothing to go to before a find");
+    }
+
+    [Fact]
+    public void AFindsResultOffersTheMeasuredFocalLengthAndTheGoToThePlanet()
+    {
+        using var rig = new Rigged(1f, capturing: true, Saturn1780, height: 2400);
+        Found(rig, new PlanetaryFindDto
+        {
+            Summary = "", RaJ2000 = 22.6, DecJ2000 = -10.9, ScaleArcsec = 0.2316, MountOffsetDeg = 8.71, FocalLengthToOffer = 1780,
+            Planet = CatalogIndex.Saturn, PlanetSeparationDeg = 8.7, PlanetInField = false,
+        });
+
+        rig.Host.Texts().ShouldContain("The mount was 8.71 deg off");
+        rig.Host.Texts().ShouldContain("Saturn is 8.70 deg away");
+        rig.Press("FindUseFocalLength");
+        rig.Press("FindGo");
+        rig.Posted.ShouldBe([new UseMeasuredFocalLengthSignal(0, 1780), new FindPlanetGoSignal(CatalogIndex.Saturn, SyncOnly: false)]);
+    }
+
+    [Fact]
+    public void APlanetAlreadyInTheFieldIsOnlySyncedNeverSlewedTo()
+    {
+        using var rig = new Rigged(1f, capturing: true, Saturn1780, height: 2400);
+        Found(rig, new PlanetaryFindDto
+        {
+            Summary = "", RaJ2000 = 22.6, DecJ2000 = -10.9, ScaleArcsec = 0.2316, Planet = CatalogIndex.Saturn,
+            PlanetSeparationDeg = 0.01, PlanetInField = true,
+        });
+
+        rig.Host.Texts().ShouldContain("Saturn is in the field");
+        rig.Host.GetRegisteredRegions().Any(static r => r.Result is HitResult.ButtonHit { Action: "FindUseFocalLength" or "FindGo" })
+            .ShouldBeFalse("no focal length to offer, and no slew to a planet already there");
+        rig.Press("FindSync");
+        rig.Posted.ShouldBe([new FindPlanetGoSignal(CatalogIndex.Saturn, SyncOnly: true)]);
+    }
+
+    private static void Found(Rigged rig, PlanetaryFindDto find)
+    {
+        rig.Capture.UpdateFromAnswer(new PlanetaryStateDto { Camera = "G3M678M", Running = true, RoiWidth = 640, RoiHeight = 360, Find = find });
+        rig.Paint();
     }
 
     [Fact]

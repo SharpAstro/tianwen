@@ -70,6 +70,9 @@ public sealed class NodePlanetaryCapture
     /// <summary>The planet the node found the mount pointing at as the capture started (#1340); null when it found none.</summary>
     public TianWen.Lib.Astrometry.Catalogs.CatalogIndex? Planet => State?.Planet;
 
+    /// <summary>The last find's result on the node's capture (#1684); null for none.</summary>
+    public PlanetaryFindDto? Find => State?.Find;
+
     /// <summary>The exposure the node's stream runs at now, as applied (#1619); null before it has applied one.</summary>
     public double? AppliedExposureMs => State?.ExposureMs;
 

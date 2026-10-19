@@ -29,7 +29,7 @@ namespace TianWen.Hosting;
 /// nobody sees holds a camera for nobody.</para>
 /// </remarks>
 internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSession hosted, NodeFrames frames, IExternal external,
-    ITimeProvider timeProvider, ILogger<NodePlanetary> logger)
+    ITimeProvider timeProvider, ILogger<NodePlanetary> logger, TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory? solvers = null)
 {
     [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = NodeRuns.HandedToTheNode)]
     public async Task<ResponseEnvelope<PlanetaryStateDto>> StartAsync(PlanetaryRequestDto request, CancellationToken cancellationToken)
@@ -336,6 +336,167 @@ internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSessio
         }));
     }
 
+    /// <summary>What a find's job is called.</summary>
+    internal const string FindJob = "planetary find";
+
+    /// <summary>What a find's go is called, which its claim on the mount names.</summary>
+    internal const string FindGoOwner = "a planetary find";
+
+    /// <summary>
+    /// Finds where the mount really points (#1684), as a job: one full-sensor still at the request's exposure (a star field wants
+    /// seconds), solved BLIND through the solver factory, so the blind solve of last resort
+    /// answers where nothing local can; the still is served as planetary/fullframe and the result is the capture's state's.
+    /// It moves nothing: the sync and the goto wait for the operator (<see cref="FindGoAsync"/>), and a focal length off the profile's
+    /// is OFFERED, never written.
+    /// </summary>
+    public async Task<ResponseEnvelope<JobDto>> FindAsync(PlanetaryFindRequestDto request, CancellationToken cancellationToken)
+    {
+        if (!double.IsFinite(request.ExposureSeconds) || request.ExposureSeconds <= 0)
+        {
+            return ResponseEnvelope<JobDto>.Fail("A find needs a positive exposure");
+        }
+        if (hosted.CurrentRun is not NodePlanetaryRun { IsRunning: true } run)
+        {
+            return ResponseEnvelope<JobDto>.NotFound("No planetary capture is running to find the planet with");
+        }
+        if (solvers is null)
+        {
+            return ResponseEnvelope<JobDto>.Fail("The node has no plate solver", 409);
+        }
+        if (run.Capture.InterludeRefusal(PlanetaryCapture.FullFrameOwner) is { } refusal)
+        {
+            return ResponseEnvelope<JobDto>.Fail(refusal, 409);
+        }
+        if (hosted.ActiveProfileId is not { } profileId || await Profile.TryReadDataAsync(external, profileId, cancellationToken) is not { } data
+            || run.OtaIndex >= data.OTAs.Length)
+        {
+            return ResponseEnvelope<JobDto>.Fail("The node has no active profile naming the capture's telescope", 409);
+        }
+        var profile = new Profile(profileId, "", data);
+        var ota = data.OTAs[run.OtaIndex];
+        var exposure = TimeSpan.FromSeconds(request.ExposureSeconds);
+
+        return ResponseEnvelope<JobDto>.Accepted(jobs.StartOrJoin(FindJob, async (step, ct) =>
+        {
+            // Where the mount believes it points: the baseline its error is measured from, never a hint. A read only.
+            var (believedRa, believedDec) = (double.NaN, double.NaN);
+            if (data.Mount is { Scheme: not "none" } mountUri && hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount)
+                && TransformFactory.FromProfile(profile, timeProvider, out _) is { } transform
+                && await mount.GetRaDecJ2000Async(transform, updateTime: false, ct) is { } believed)
+            {
+                (believedRa, believedDec) = believed;
+            }
+
+            step.Report($"Taking a {exposure.TotalSeconds:0.#} s full frame");
+            var (still, refused) = await run.Capture.TakeFullFrameAsync(exposure, ct);
+            if (still is null)
+            {
+                throw new InvalidOperationException(refused ?? "The camera gave no full frame");
+            }
+            var (width, height) = (still.Width, still.Height);
+            var pixelUm = ota.CameraPixelSizeUm ?? still.ImageMeta.PixelSizeX;
+
+            // Blind (the owner: "we have to blind solve it first"): neither the mount's position nor the profile's scale is handed
+            // to the solver. On 2026-10-07 the mount was 8.7 degrees off and the profile's focal length 35 % long, both past any
+            // search a hint would bound; what the mount said is only the baseline its error is measured from.
+            step.Report("Solving the frame blind");
+            TianWen.Lib.Astrometry.PlateSolve.PlateSolveResult solved;
+            try
+            {
+                solved = await solvers.SolveImageAsync(still, imageDim: null, searchOrigin: null, cancellationToken: ct);
+            }
+            finally
+            {
+                frames.Publish(FrameSources.PlanetaryFullFrame, still);
+            }
+            if (solved.Solution is not { } solution)
+            {
+                run.Found = null;
+                throw new InvalidOperationException("No solver could solve the frame: a longer exposure shows more stars");
+            }
+
+            var found = PlanetaryFindResult.From(solution, believedRa, believedDec, pixelUm, ota.FocalLength > 0 ? ota.FocalLength : null,
+                request.Planet ?? run.PlanetAtStart, timeProvider.GetUtcNow());
+            run.Found = PlanetaryFindDto.From(found, width, height);
+            return found.InWords();
+        }));
+    }
+
+    /// <summary>
+    /// Syncs the mount to the last find and goes to the planet (#1684), as a job, the mount claimed while it does: what the operator
+    /// confirmed on the find's card. Refused in words with no find, no planet, or a mount a run or a job holds.
+    /// </summary>
+    public async Task<ResponseEnvelope<JobDto>> FindGoAsync(PlanetaryFindGoRequestDto request, CancellationToken cancellationToken)
+    {
+        if (hosted.CurrentRun is not NodePlanetaryRun { IsRunning: true, Found: { } found } run)
+        {
+            return ResponseEnvelope<JobDto>.NotFound("No find to go from: find the planet first");
+        }
+        var planet = request.Planet ?? found.Planet;
+        if (planet is null && !request.SyncOnly)
+        {
+            return ResponseEnvelope<JobDto>.Fail("Name the planet to go to", 409);
+        }
+        if (hosted.ActiveProfileId is not { } profileId || await Profile.TryReadDataAsync(external, profileId, cancellationToken) is not { } data
+            || data.Mount is not { Scheme: not "none" } mountUri || !hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount))
+        {
+            return ResponseEnvelope<JobDto>.Fail("The profile's mount is not connected", 409);
+        }
+        if (DeviceOwnershipGate.Evaluate(hub, mountUri, DeviceAction.Actuate) is { Allowed: false } held)
+        {
+            return ResponseEnvelope<JobDto>.Fail($"The mount cannot be synced: {held.Describe()}", 409);
+        }
+        if (jobs.TryGetRunningOn(mountUri, out var moving))
+        {
+            return ResponseEnvelope<JobDto>.Fail($"The mount is busy: a {moving.Kind} of it is running (job {moving.Id})", 409);
+        }
+        var profile = new Profile(profileId, "", data);
+        var solution = new TianWen.Lib.Astrometry.WCS(found.RaJ2000, found.DecJ2000);
+
+        return ResponseEnvelope<JobDto>.Accepted(jobs.StartOrJoin(FindGoJob, async (step, ct) =>
+        {
+            if (!DeviceLeaseSet.TryAcquire(hub, [mountUri], FindGoOwner, out var claim, out var verdict))
+            {
+                throw new InvalidOperationException(verdict.Describe());
+            }
+            using (claim)
+            {
+                var transform = TransformFactory.FromProfile(profile, timeProvider, out var noTransform)
+                    ?? throw new InvalidOperationException(noTransform ?? "The profile has no site to sync and slew by");
+                step.Report("Syncing the mount to where the frame was solved");
+                if (await MountSolveSync.SyncToAsync(mount, transform, solution, logger, ct) is { } failed)
+                {
+                    throw new InvalidOperationException(failed);
+                }
+                if (request.SyncOnly || planet is not { } body)
+                {
+                    run.Found = null;
+                    return "Synced; the mount was left where it points";
+                }
+                if (!TianWen.Lib.Astrometry.VSOP87.VSOP87a.ReduceJ2000(body, timeProvider.GetUtcNow(), out var ra, out var dec, out _))
+                {
+                    throw new InvalidOperationException($"{body}'s position could not be worked out");
+                }
+                step.Report($"Slewing to {body}");
+                var (post, message) = await MountGoto.SlewToJ2000Async(mount, body.ToString(), ra, dec, body, profile, timeProvider, 10, logger, ct);
+                if (post is not SlewPostCondition.Slewing)
+                {
+                    throw new InvalidOperationException(message);
+                }
+                var (landed, how) = await MountGoto.AwaitSlewCompletionAsync(mount, body.ToString(), timeProvider, logger: logger, cancellationToken: ct);
+                if (landed is not MountGoto.SlewCompletion.Reached)
+                {
+                    throw new InvalidOperationException(how);
+                }
+                run.Found = null;
+                return $"Synced, and at {body}: {how}";
+            }
+        }));
+    }
+
+    /// <summary>What a find's go is called as a job.</summary>
+    internal const string FindGoJob = "planetary find go";
+
     /// <summary>Ends the recording going on sooner than its duration; the capture goes on.</summary>
     public ResponseEnvelope<PlanetaryStateDto> StopRecording()
     {
@@ -386,6 +547,17 @@ internal sealed class NodePlanetaryRun : INodeStreamingRun
     private (double Latitude, double Longitude) _site;
     private IDeviceHub? _hub;
     private CatalogIndex? _planet;
+    private PlanetaryFindDto? _found;
+
+    /// <summary>The planet the mount pointed at as the capture started, which a find is for unless another is named.</summary>
+    internal CatalogIndex? PlanetAtStart => _planet;
+
+    /// <summary>The last find's result, until it is gone to or another replaces it (#1684); one reference, replaced whole.</summary>
+    internal PlanetaryFindDto? Found
+    {
+        get => Volatile.Read(ref _found);
+        set => Volatile.Write(ref _found, value);
+    }
     private int _roiWidth;
     private int _roiHeight;
     private int _masters;
@@ -550,6 +722,7 @@ internal sealed class NodePlanetaryRun : INodeStreamingRun
                 ExposureMs = Capture.AppliedOptions?.Exposure.TotalMilliseconds,
                 Gain = Capture.AppliedOptions?.Gain,
                 Planet = _planet,
+                Find = Found,
                 RoiX = Capture.Window?.X,
                 RoiY = Capture.Window?.Y,
                 BitDepth = Capture.FrameBitDepth,

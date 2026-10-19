@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 
@@ -17,6 +18,37 @@ namespace TianWen.Lib.Devices;
 /// </summary>
 public static class MountSolveSync
 {
+    /// <summary>
+    /// Syncs <paramref name="mount"/> to where <paramref name="solution"/> says it points: the solved J2000 centre to the mount's
+    /// native frame through the profile's transform (the slew path's), then <see cref="IMountDriver.SyncRaDecAsync"/>. The one
+    /// sync for a solve and sync and for a planetary find's commit (#1684). Null once synced, else why not, in words.
+    /// </summary>
+    public static async Task<string?> SyncToAsync(IMountDriver mount, Transform transform, WCS solution, ILogger? logger,
+        CancellationToken cancellationToken)
+    {
+        if (!mount.CanSync)
+        {
+            return $"{mount.Name} does not support sync";
+        }
+        if (await mount.TryTransformJ2000ToMountNativeAsync(
+                transform, solution.CenterRA, solution.CenterDec, updateTime: false, cancellationToken) is not { } native)
+        {
+            logger?.LogWarning("Sync: the coordinate transform produced NaN. Mount={Mount} EquatorialSystem={System}",
+                mount.Name, mount.EquatorialSystem);
+            return $"Coordinate transform failed (EquatorialSystem={mount.EquatorialSystem})";
+        }
+        try
+        {
+            await mount.SyncRaDecAsync(native.RaMount, native.DecMount, cancellationToken);
+            return null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger?.LogWarning(ex, "Sync: SyncRaDec failed on {Mount}", mount.Name);
+            return $"Mount sync failed: {ex.Message}";
+        }
+    }
+
     /// <summary>Outcome category of <see cref="SolveAndSyncAsync"/>.</summary>
     public enum SolveSyncResult { Synced, NotPossible, CaptureFailed, SolveFailed, SyncFailed }
 
@@ -168,20 +200,10 @@ public static class MountSolveSync
         var decErrArcmin = (wcs.CenterDec - believed.DecJ2000) * 60.0;
         var offsetArcmin = Math.Sqrt(raErrArcmin * raErrArcmin + decErrArcmin * decErrArcmin);
 
-        // Solved J2000 -> mount native, same profile-transform route as the slew path.
-        if (await mount.TryTransformJ2000ToMountNativeAsync(
-                transform, wcs.CenterRA, wcs.CenterDec, updateTime: false, cancellationToken) is not { } native)
-        {
-            logger?.LogWarning(
-                "Solve & sync: coordinate transform produced NaN. Mount={Mount} EquatorialSystem={System}",
-                mount.Name, mount.EquatorialSystem);
-            return new SolveSyncOutcome(SolveSyncResult.SyncFailed,
-                $"Coordinate transform failed (EquatorialSystem={mount.EquatorialSystem})", image, solveResult);
-        }
-
+        string? failed;
         try
         {
-            await mount.SyncRaDecAsync(native.RaMount, native.DecMount, cancellationToken);
+            failed = await SyncToAsync(mount, transform, wcs, logger, cancellationToken);
         }
         catch (OperationCanceledException oce)
         {
@@ -189,10 +211,9 @@ public static class MountSolveSync
             image.Release();
             throw;
         }
-        catch (Exception ex)
+        if (failed is not null)
         {
-            logger?.LogWarning(ex, "Solve & sync: SyncRaDec failed on {Mount}", mount.Name);
-            return new SolveSyncOutcome(SolveSyncResult.SyncFailed, $"Mount sync failed: {ex.Message}", image, solveResult);
+            return new SolveSyncOutcome(SolveSyncResult.SyncFailed, failed, image, solveResult);
         }
 
         return new SolveSyncOutcome(SolveSyncResult.Synced,

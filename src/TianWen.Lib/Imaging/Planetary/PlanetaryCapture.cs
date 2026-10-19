@@ -1222,7 +1222,14 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     /// window put back as it was and the stream started again where it was panned: what the operator reframes on (#1033).
     /// Answers the still, OWNED by the caller to release, or why none could be had, in words.
     /// </summary>
-    public async Task<(Image? Frame, string? Refusal)> TakeFullFrameAsync(CancellationToken cancellationToken)
+    public Task<(Image? Frame, string? Refusal)> TakeFullFrameAsync(CancellationToken cancellationToken)
+        => TakeFullFrameAsync(exposure: null, cancellationToken);
+
+    /// <summary>
+    /// <see cref="TakeFullFrameAsync(CancellationToken)"/> at <paramref name="exposure"/> rather than the stream's: a star field to
+    /// solve (#1684) wants seconds where a planet's stream runs at milliseconds. Null is the stream's.
+    /// </summary>
+    public async Task<(Image? Frame, string? Refusal)> TakeFullFrameAsync(TimeSpan? exposure, CancellationToken cancellationToken)
     {
         Image? still = null;
         var refusal = await InterludeAsync(new PlanetaryInterlude(FullFrameOwner, async token =>
@@ -1232,7 +1239,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             ConfigureRoi(camera, 0, 0, bin: 1);
             try
             {
-                still = await ExposeOnceAsync(camera, _streamOptions.Exposure, token);
+                still = await ExposeOnceAsync(camera, exposure ?? _streamOptions.Exposure, token);
             }
             finally
             {

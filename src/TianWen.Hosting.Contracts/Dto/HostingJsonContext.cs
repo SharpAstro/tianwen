@@ -43,6 +43,8 @@ namespace TianWen.Hosting.Dto;
 [JsonSerializable(typeof(PlanetaryControlsDto))]
 [JsonSerializable(typeof(PlanetaryRecordRequestDto))]
 [JsonSerializable(typeof(PlanetaryReframeRequestDto))]
+[JsonSerializable(typeof(PlanetaryFindRequestDto))]
+[JsonSerializable(typeof(PlanetaryFindGoRequestDto))]
 [JsonSerializable(typeof(PlanetarySequenceRequestDto))]
 [JsonSerializable(typeof(ResponseEnvelope<PlanetaryStateDto>))]
 [JsonSerializable(typeof(LiveViewRequestDto))]

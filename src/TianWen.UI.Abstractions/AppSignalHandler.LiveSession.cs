@@ -399,6 +399,50 @@ namespace TianWen.UI.Abstractions
                 }, onFinally: () => appState.NeedsRedraw = true);
             });
 
+            // Finding the planet (#1684): the node takes a full-sensor still and solves it as a job, and its result is the capture
+            // state's, which the FIND section shows; the sync and the goto are a second job, asked for on the result.
+            bus.Subscribe<FindPlanetSignal>(sig =>
+            {
+                if (!planetaryCapture.IsCapturing || planetaryCapture.Node is not { } node)
+                {
+                    return;
+                }
+                RunTracked("Planetary find", "The find failed", async ct =>
+                {
+                    var request = new PlanetaryFindRequestDto { ExposureSeconds = sig.ExposureSeconds, Planet = sig.Planet };
+                    if (await RunNodeJobAsync(node, node.Client.FindPlanetAsync(request, ct), "Find", ct) is { } done)
+                    {
+                        Notify(NotificationSeverity.Info, done.Step ?? "Solved");
+                    }
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
+            bus.Subscribe<FindPlanetGoSignal>(sig =>
+            {
+                if (planetaryCapture.Node is not { } node)
+                {
+                    return;
+                }
+                RunTracked("Planetary find go", "The sync failed", async ct =>
+                {
+                    var request = new PlanetaryFindGoRequestDto { Planet = sig.Planet, SyncOnly = sig.SyncOnly };
+                    if (await RunNodeJobAsync(node, node.Client.FindPlanetGoAsync(request, ct), sig.SyncOnly ? "Sync" : "Go to the planet", ct) is { } done)
+                    {
+                        Notify(NotificationSeverity.Info, done.Step ?? "Synced");
+                    }
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
+            // The operator took the focal length a find measured: written into the profile as the Equipment tab's edit writes it.
+            bus.Subscribe<UseMeasuredFocalLengthSignal>(sig =>
+            {
+                if (appState.ActiveProfile is { Data: { } data })
+                {
+                    bus.Post(new UpdateProfileSignal(EquipmentActions.UpdateOTA(data, sig.OtaIndex, focalLength: sig.FocalLengthMm)));
+                    Notify(NotificationSeverity.Info, $"The profile's focal length is now {sig.FocalLengthMm} mm");
+                }
+            });
+
             // A sequence on the capture on show (#1340): the node runs it and its state carries the progress the panel shows.
             bus.Subscribe<StartPlanetarySequenceSignal>(sig =>
             {

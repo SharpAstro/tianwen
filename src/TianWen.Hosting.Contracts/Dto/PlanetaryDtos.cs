@@ -158,6 +158,9 @@ public sealed class PlanetaryStateDto
     /// </summary>
     public TianWen.Lib.Astrometry.Catalogs.CatalogIndex? Planet { get; init; }
 
+    /// <summary>The last find's result on this capture (#1684), until it is gone to or another replaces it; null for none.</summary>
+    public PlanetaryFindDto? Find { get; init; }
+
     /// <summary>The depth the newest frame came in; null before the first.</summary>
     public BitDepth? BitDepth { get; init; }
 
@@ -376,4 +379,67 @@ public sealed class PlanetaryReframeRequestDto
     public int Width { get; init; }
 
     public int Height { get; init; }
+}
+
+/// <summary>
+/// A planetary find (#1684): <c>POST /api/v1/planetary/find</c>, one full-sensor still at <see cref="ExposureSeconds"/> solved
+/// blind where nothing local can, with the planet the find is for (null for the one the mount pointed at as the capture started).
+/// </summary>
+public sealed class PlanetaryFindRequestDto
+{
+    // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is
+    // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).
+    public double ExposureSeconds { get; set; } = 5;
+
+    public TianWen.Lib.Astrometry.Catalogs.CatalogIndex? Planet { get; init; }
+}
+
+/// <summary>What a find learned (<see cref="TianWen.Lib.Imaging.Planetary.PlanetaryFindResult"/>), as the panel's card shows it.</summary>
+public sealed class PlanetaryFindDto
+{
+    public required string Summary { get; init; }
+
+    /// <summary>The solved centre, J2000.</summary>
+    public double RaJ2000 { get; init; }
+
+    public double DecJ2000 { get; init; }
+
+    public double ScaleArcsec { get; init; }
+
+    /// <summary>How far the solved centre is from where the mount said it pointed, in degrees; null with no mount position.</summary>
+    public double? MountOffsetDeg { get; init; }
+
+    /// <summary>How far the planet is from the solved centre, in degrees; null with no planet.</summary>
+    public double? PlanetSeparationDeg { get; init; }
+
+    /// <summary>The measured focal length to offer, when it is off the profile's; null when there is nothing to offer.</summary>
+    public int? FocalLengthToOffer { get; init; }
+
+    public TianWen.Lib.Astrometry.Catalogs.CatalogIndex? Planet { get; init; }
+
+    /// <summary>Whether the planet is in the field already, so going to it is no slew at all.</summary>
+    public bool PlanetInField { get; init; }
+
+    public static PlanetaryFindDto From(TianWen.Lib.Imaging.Planetary.PlanetaryFindResult result, int width, int height) => new PlanetaryFindDto
+    {
+        Summary = result.InWords(),
+        RaJ2000 = result.Solution.CenterRA,
+        DecJ2000 = result.Solution.CenterDec,
+        ScaleArcsec = result.Solution.PixelScaleArcsec,
+        MountOffsetDeg = result.MountOffsetDeg,
+        PlanetSeparationDeg = result.PlanetSeparationDeg,
+        FocalLengthToOffer = result.FocalLengthToOffer,
+        Planet = result.Planet,
+        PlanetInField = result.PlanetInField(width, height),
+    };
+}
+
+/// <summary>Syncs the mount to the last find and goes to the planet (#1684): <c>POST /api/v1/planetary/find/go</c>.</summary>
+public sealed class PlanetaryFindGoRequestDto
+{
+    /// <summary>The planet to go to; null for the find's.</summary>
+    public TianWen.Lib.Astrometry.Catalogs.CatalogIndex? Planet { get; init; }
+
+    /// <summary>Sync only, no slew: the planet is in the field already, and the mount is left where it is (the owner, 2026-10-19).</summary>
+    public bool SyncOnly { get; init; }
 }
