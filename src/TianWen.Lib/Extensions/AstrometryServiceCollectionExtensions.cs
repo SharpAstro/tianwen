@@ -3,6 +3,7 @@ using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging.Planetary;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -42,6 +43,12 @@ public static class AstrometryServiceCollectionExtensions
         .AddSingleton<IPlateSolver, AstapPlateSolver>()
         .AddSingleton<IPlateSolver, AstrometryNetPlateSolverMultiPlatform>()
         .AddSingleton<IPlateSolver, AstrometryNetPlateSolverUnix>()
+        // The blind solve of last resort, offered only where the user has stored a key; a host with no credential store
+        // (or no clock of its own) still composes, with the solver never offered.
+        .AddSingleton<IPlateSolver>(sp => new NovaAstrometryPlateSolver(
+            sp.GetService<ICredentialStore>(),
+            sp.GetService<ITimeProvider>() ?? SystemTimeProvider.Instance,
+            sp.GetRequiredService<ILogger<NovaAstrometryPlateSolver>>()))
         .AddSingleton<IPlateSolverFactory, PlateSolverFactory>()
         .AddSingleton<ICelestialObjectDB, CelestialObjectDB>()
         // Comet elements: a keyless SBDB fetch cached weekly; the source uses a shared static HttpClient
