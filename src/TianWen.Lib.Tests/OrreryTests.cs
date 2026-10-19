@@ -967,6 +967,12 @@ public sealed class OrreryTests(ITestOutputHelper output)
     /// <summary>The most the backdrop may add to a channel under a label: under two fifths of full scale, against labels drawn near 224.</summary>
     private const int MaxBackdropUnderLabel = 96;
 
+    /// <summary>
+    /// Renders until nothing the frame draws is still building, so two renders after it draw the same picture but for what a test
+    /// changes between them. That includes the info panel the view opens with (#1656): its disc is a sprite of the panel's own cache,
+    /// and while it builds the panel shows the flat stand-in, which is what turned <see cref="TheBackdropDrawsOnlyCatalogueStars"/>
+    /// red at random (#1667): the panel's Jupiter landing between its two renders changed the disc's pixels, on no star.
+    /// </summary>
     internal static async Task SettleAsync(Rig rig)
     {
         for (var pass = 0; pass < 3; pass++)
@@ -979,6 +985,7 @@ public sealed class OrreryTests(ITestOutputHelper output)
             await rig.Tab.OrreryScene.WhenOrbitsBuiltAsync();
             await rig.Tab.OrreryScene.WhenCometsRankedAsync();
             await rig.Tab.OrrerySprites.WhenBuiltAsync();
+            await rig.Tab.PanelSprites.WhenBuiltAsync();
         }
         rig.Render();
     }
