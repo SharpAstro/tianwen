@@ -478,6 +478,14 @@ capture's REGION section offers **Full frame** instead:
 - Pinned by `PlanetaryReframeTests`, `NodePlanetaryTests.AFullFrameIsServedWhileTheCaptureStreamsOnAndAReframePlacesTheWindowWhereAsked`
   and the panel's press tests.
 
+What Laminar 1.2.3 does here (macobservatory.com, read 2026-10-19), and what is worth taking. Its "Custom..." size switches the
+camera to the full sensor, the region is dragged on that frame, and it stays a DRAFT (moved, resized by eight handles, or typed as
+X / Y / W / H) until Apply, each value snapped to the camera's alignment; a managed preset library sits in its settings. Its
+full-sensor picture beside a running capture is a dark rectangle with the region drawn in it, which is what our picture-in-picture
+already shows, so nothing there is new. Two things are: **the region typed exactly** (X, Y, W, H fields under the proposal, snapped
+by `RoiConstraints.Snap` as a drag is), and **nothing reaches the camera until the confirm card commits it**, which the design above
+already has.
+
 ### Image-based Jupiter simulation (started 2026-06-25)
 
 P2 to P4 are **tracked by #818**. Pointed at a star, with a coma term added, the same PSF chain is the test rig for
@@ -1227,6 +1235,17 @@ settings beside the file are #1342's (Phase I); the sequence below records one f
   one filter. So the editor offers, for the planet and the pixel scale, the duration at which the turn reaches a pixel, computed from
   the ephemeris before any frame is taken.
 - **The live view runs through every step**: the rolling stack shows each filter as it records.
+- **A settle time after the wheel arrives**, a setting of the run (default a second), before the frames after the change are
+  dropped: a wheel reports its slot before it has stopped ringing. And **an option to return the wheel to the first slot** when
+  the run ends. Both from Laminar 1.9.0, whose step is the same order as ours: the wheel, the settle, the offset, that filter's own
+  gain and exposure, then the recording.
+- **A filter carries its own exposure and gain** (#1618), kept in the profile beside its focus offset (`InstalledFilter`), so the
+  panel's FILTER section restores them on a change by hand, a step taken from it starts from them, and a template (Jupiter, Saturn
+  and Mars LRGB sets, as Laminar ships) only has to say the filters and the durations. The FILTER section also takes a slot from
+  the keys 1 to 9 while the Planetary mode is on show (declared shortcuts), and a manual wheel asks the operator to confirm the slot.
+- **A run resumes after a restart**: the node's crash journal records the run's set and step, and the run picks up at the next
+  step rather than losing the night (Laminar's sequences do; a run of ours is never resumed today, `NodeKeeper` acting on the
+  journal only to make the rig safe, so this is a decision for the owner before it is built).
 
 **Needs** native video on the camera (#813). **Done when** a functional test on the fake camera, wheel and focuser runs two sets of
 R, G and B into six SERs named per filter, the wheel moved five times and each offset applied, and the survey reads three sessions;
@@ -1362,7 +1381,8 @@ contrast the planet shows that night.
     today, and one lucky frame is no reading). Both may stay: the power for the live readout, the blur for the autofocus.
 - **A live readout** in the FOCUSER section, with the best so far marked: a V by hand.
 - **An autofocus**: the focuser stepped across a range, a burst at each position, a peak fitted through the top readings, the focuser
-  moved to it through its backlash rule (`BacklashEstimator`'s overshoot), and a last burst to verify.
+  moved to it through its backlash rule (`BacklashEstimator`'s overshoot), and a last burst to verify. How it sweeps and when it
+  answers are in [The autofocus's sweep](#the-autofocuss-sweep) below.
 - **Per-filter offsets** measured by the same routine and written to the filter wheel's profile (`InstalledFilter`), which the
   sequence's filter change then applies.
 - **A refocus step** in the sequence: every K sets, or when the readout's trend falls below the set's start.
@@ -1371,6 +1391,32 @@ contrast the planet shows that night.
 fake camera's defocus (#818), the fitted peak lies within one step's depth of focus of zero defocus, and the reading falls
 monotonically with defocus across the range swept. The same rule picks between the gradient and the FFT band score, and the band.
 **Needs** native video (#813): at a single-exposure loop's rate one burst takes minutes.
+
+#### The autofocus's sweep
+
+Laminar 1.9.1 shipped a planetary autofocus (macobservatory.com, read 2026-10-19), and its design answers the questions this phase
+had left open. Taken, each to be held to the validation rule above:
+
+- **The measuring box is fixed for the whole run**, from the limb fit at the start. Laminar's grew as the planet defocused, and took
+  in the sky's noise as it did.
+- **No range is asked for.** The run starts where the focuser is and steps outward, DOUBLING the step until the reading falls to
+  half its start: that learns how many steps matter on this telescope, which a range typed in by hand gets wrong on every other one.
+- **Two passes, always finishing from one side.** A wide pass from outside focus to inside, then a dense pass around the first
+  pass's peak, the last move approaching best focus from the inside, so the backlash cannot shift the result.
+- **Backlash read for free**: the gap between the two passes' peaks, reported as backlash, and on a focuser that moves an SCT's
+  primary as MIRROR SHIFT, which is that telescope's real problem. It feeds `BacklashEstimator` as the star autofocus's verification
+  frame does.
+- **A per-run acceptance test**: a result is taken only when the peak is BRACKETED (readings fall on both sides) and stands clear of
+  the scatter of the readings near it; else the run says so. The validation rule above judges the method, this judges a night.
+- **A noise floor refused up front.** At a high gain the reading levels off away from focus; where that floor is too close to the
+  in-focus reading the run stops and says to lower the gain or lengthen the exposure (Laminar found gain 749 never gave a usable
+  peak on its camera where 500 did).
+- **How it ends.** A failure moves the focuser back to where it started, and says what to change; Stop leaves it where it is. The run
+  also stops when the tracking it relies on loses confidence (here the limb fit's, or the recenter's lock).
+- **The burst.** Laminar watches each position for five seconds by default (three to fifteen) and averages the sharpest QUARTER;
+  this plan's best tenth over one to two seconds is the same kind of reading, and the validation picks the length and the share.
+  Its score blurs a working copy of the frame first so the sensor's noise does not read as detail, the conclusion R4 reached by
+  measurement (score in the mid bands, never the finest).
 
 ### Phase I: a recording says how it was taken
 
@@ -1384,6 +1430,8 @@ SER header (camera, telescope) and the name (planet, filter, #1179), and nothing
 - Write the settings beside each recording in a key=value form the survey's reader already takes.
 - `planetary stack` carries the exposure and gain into the master's header, so a compose can say why two stacks' levels differ
   (#1337).
+- The filter's own figures go in too, as Laminar 1.9.0 writes them: its centre wavelength, bandwidth or cut-on, read from the
+  filter-curve database by the filter's name where it resolves one, and a manual wheel's slot as the operator confirmed it.
 - **Done when** a recording on the fake camera round-trips its settings through the survey.
 
 ### Phase J: finding the planet
@@ -1427,6 +1475,64 @@ capture's own camera:
 - **The FIND section** of the Planetary mode's panel holds the planet chooser the SEQUENCE section's light reads, the find's
   exposure (1 to 30 s), Find, and the result's lines. Pinned by `NodePlanetaryFindTests` (a find through the node, its sync, and a
   second find that finds the mount on target), `PlanetaryFindResultTests` and the panel's presses.
+
+## What the night needs on screen (from Laminar, 2026-10-19)
+
+Laminar (macobservatory.com, Mac planetary capture, release notes 1.2.3, 1.9.0 and 1.9.1, read 2026-10-19) does five things
+nothing in this plan covered. Each is its own issue; the parts of its design that answer an open question of Phases G to I are
+folded into those phases above.
+
+### A live quality graph
+
+**Issue:** #1670.
+
+Laminar draws every analysed frame's sharpness live (each frame, a three-second average, the session's best as a dashed line;
+peak, average and current as percentages), and a **"recent above average"** figure: the share of the last 90 seconds that beat the
+running average, a plain answer to "is the seeing getting better, should I record now". We already GRADE every frame in the rolling
+stack (`FrameGrader`, the gradient in the mid bands, R4) and show none of it. The graph reads those grades, at the node, and crosses
+the wire as the capture's state; it is also the live readout Phase H's focus wants, one graph for both.
+
+### RGB clipping on the histogram
+
+**Issue:** #1671.
+
+A colour camera shows R, G and B clipping marks above the histogram, and a "reduce exposure" hint when any ONE channel saturates
+though the frame does not look bright (Laminar 1.2.3). A planet's red channel clips first and a luminance histogram hides it. The
+counts come from the frame the viewer already histograms (`Image.Traverse`), per channel, against the depth it was READ OUT in
+(`DALCameraDriver.MaxAduFor`), never the observed peak. **Both ends, and mono frames too** (the owner, 2026-10-20): a sky clipped
+at zero gets its own mark and a "raise the offset" hint. The 2026-10-07 Saturn had none: in all 30 files the sky peak sat at the
+black level (11 at gain 1620, 17 at gain 2252) and the lowest pixel 3 to 8 levels above zero, so the hint must fire on a real clip
+only. The offset follows the gain, not the filter, so a sequence step carries none of its own (#1340).
+
+### ADC Assist: the colours' split read off the limbs
+
+**Issue:** #1672.
+
+An atmospheric dispersion corrector is set by eye today. Laminar 1.9.1 finds the planet's edge separately in red and blue, reads
+their split in arcseconds, draws it on the planet with the zenith's direction (an arrow magnified 40 times), compares it with the
+dispersion expected at the planet's altitude from the temperature and pressure (1.14 arcseconds for Saturn at 32.6 degrees; 0.57
+measured before correcting, 0.07 after), and says which lever to move, after a one-time levelling on the target. We have every
+measurement already: each colour placed by its own limb fit (`PlanetaryChannelAlignment`, #1202), the altitude and the parallactic
+angle from the ephemeris and the site, the temperature and pressure from the weather drivers. What is missing is the readout, the
+expected dispersion's model, and the guidance. Colour cameras only, as the split is read inside one frame.
+
+### A recording the machine cannot lose
+
+**Issue:** #1673.
+
+Laminar learns each drive's real write speed from past captures and warns before recording ("will buffer about 2 GB", "exceeds free
+space") with a one-click fix, writes at the disk's pace counting every frame it skips, keeps the display awake while recording so the
+USB link is not renegotiated, and validates every frame before the SER writer, each either written or refused with a reason. We count
+the frames the disk drops (`SerRecording.FramesDropped`) and grade a corrupt readout zero, and nothing else: no free-space check
+against the duration asked, nothing keeping the machine awake, and a corrupt frame reaches the file.
+
+### The planet near the window's edge
+
+**Issue:** #1674.
+
+Laminar's Follow colours the preview's border yellow, then red, as the planet nears the sensor's edge. Our recenter already knows the
+disk's offset (`LastComOffset`) and when the window is at the sensor's edge (the mount fallback); the panel and the stream's outline
+say neither until the planet is cut. A colour on the ROI outline and the recenter's readout, from the same offset, warns in time.
 
 ## Rules in full (moved from CLAUDE.md, 2026-10-09)
 
