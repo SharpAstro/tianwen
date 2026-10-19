@@ -130,6 +130,64 @@ public class LiveSessionTabCompositionTests
         (planetary.ZoomToFit, planetary.Zoom).ShouldBe((false, 1f), "R shows it at 1:1");
     }
 
+    /// <summary>The planetary view as the GUI's paints its left side: the capture panel's own tree, in its 280 units.</summary>
+    private sealed class PanelView(RgbaImageRenderer renderer) : PixelWidgetBase<RgbaImage>(renderer), IPlanetaryViewWidget<RgbaImage>
+    {
+        private readonly PlanetaryControlPanel _panel = new PlanetaryControlPanel();
+
+        public PixelWidgetBase<RgbaImage> Widget => this;
+
+        public void RenderPlanetary(PlanetaryCaptureController? controller, PreviewOTATelemetry focuser, RectF32 contentRect)
+        {
+            BeginFrame();
+            _panel.FollowCamera(focuser);
+            RenderLayout(_panel.Build(new NodePlanetaryCapture(), focuser, default, bus: null),
+                new RectF32(contentRect.X, contentRect.Y, PlanetaryControlPanel.BaseWidth, contentRect.Height));
+        }
+    }
+
+    /// <summary>
+    /// The mode menu hangs over the capture panel, which scrolls and so registers a region over its whole column: a press
+    /// on a menu row there used to reach the panel, and the mode never changed (#1635 review round 1, B1). The tab's own
+    /// regions are asked first, as everything it paints over its view is its own (DIR.Lib 11.25).
+    /// </summary>
+    [Fact]
+    public void AModeChosenFromTheMenuOverTheCapturePanelIsTaken()
+    {
+        using var renderer = new RgbaImageRenderer(SurfaceW, SurfaceH);
+        var state = new LiveSessionState { Mode = LiveSessionMode.Planetary };
+        var tab = new LiveSessionTab<RgbaImage>(renderer)
+        {
+            DpiScale = 1f,
+            FontPath = FontResolver.ResolveSystemFont(),
+            PlanetaryView = new PanelView(renderer) { FontPath = FontResolver.ResolveSystemFont() },
+        };
+        var router = new InputRouter(tab.Ui, new BackgroundTaskTracker(), static () => { }) { Widgets = () => [tab] };
+        void Paint() => tab.Render(state, new RectF32(0f, 0f, SurfaceW, SurfaceH), new SystemTimeProvider());
+        void Press(ClickableRegion region)
+        {
+            var (x, y) = (region.X + region.Width / 2f, region.Y + region.Height / 2f);
+            router.Handle(new InputEvent.MouseDown(x, y));
+            router.Handle(new InputEvent.MouseUp(x, y));
+        }
+        List<ClickableRegion> Regions()
+        {
+            var regions = new List<ClickableRegion>();
+            tab.CollectPaintedRegions(regions);
+            return regions;
+        }
+
+        Paint();
+        Press(Regions().Single(static r => r.Result is HitResult.ButtonHit { Action: "ModePill" }));
+        Paint();
+        state.ModeDropdown.IsOpen.ShouldBeTrue("the pill opens the menu");
+        var preview = Regions().Single(static r => r.Result is HitResult.ListItemHit { Index: 0 });
+        preview.X.ShouldBeLessThan(PlanetaryControlPanel.BaseWidth, "the row lies over the capture panel, which is the case at stake");
+        Press(preview);
+
+        state.Mode.ShouldBe(LiveSessionMode.Preview);
+    }
+
     [Theory]
     [InlineData(1f)]
     [InlineData(1.5f)]

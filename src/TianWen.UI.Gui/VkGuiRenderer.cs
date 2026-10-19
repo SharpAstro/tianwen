@@ -117,6 +117,14 @@ namespace TianWen.UI.Gui
         /// <inheritdoc/>
         protected override IReadOnlyList<PixelWidgetBase<VulkanContext>> Children => _children;
 
+        /// <inheritdoc/>
+        /// <remarks>
+        /// All but the last: the active tab and the rail are painted under this chrome's own status bar, and the night
+        /// calendar, always listed last, hangs OVER the bar it opens from (the composition stated beside the painting).
+        /// Nothing before the first frame.
+        /// </remarks>
+        protected override int ChildrenUnderOwn => Math.Max(0, _children.Count - 1);
+
         /// <summary>The currently active tab as an <see cref="IPixelWidget"/> for tab-specific hit testing.</summary>
         public IPixelWidget? ActiveTab => _activeTab;
 
