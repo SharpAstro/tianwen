@@ -1154,6 +1154,21 @@ built inside `VkPlanetaryTab` from its private fields.
   935 device pixels at scale 1.5, where the wheel reaches every control a notch at a time. Its output says where the last row
   ends, so the FILTER section and the sequence editor below can see how much room is left.
 
+### The readouts say the current rate and the settings applied
+
+**Issue:** #1619 (2026-10-20). The CAPTURE readout showed the run's average rate (`MeasuredFps`), which blended every exposure
+the run had (a capture started at 10 ms and set to 5 ms read a blend for the rest of the night), the transport bar a rate
+made from the START's exposure and a count in two units (the master's index over the camera's frames), and the status line
+the start's settings for ever. Now:
+
+- **The current rate is `PlanetaryCapture.CurrentFps`** (`FrameRateWindow`: frames over the last second, or the last five
+  where those span longer, O(1) a frame on the capture loop), carried as `PlanetaryStateDto.CurrentFramesPerSecond` beside the
+  run's average; the panel's readout and the transport bar show it, and the bar counts camera frames in both its numbers.
+- **The settings are the ones APPLIED**: the capture publishes its stream's options each time they change (the start, a live
+  control, an interlude, `AppliedOptions`), the state carries the exposure and gain, and the status line follows them
+  (`PlanetaryCaptureController.SettingsApplied`, "Planetary capture at 640x360, 5 ms, gain 810"), never what a click staged.
+- Pinned by `PlanetaryReadoutTests` and `PlanetaryReadoutsThroughTheNodeTests` (10 to 5 ms through the GUI and the node).
+
 ### Phase G: a mono filter-wheel sequence
 
 **Issues:** #1344 (the Record control, first), #1340 (the sequence).
