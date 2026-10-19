@@ -7,6 +7,7 @@ using TianWen.DAL;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Planetary;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -21,6 +22,9 @@ namespace TianWen.Lib.Tests;
 public class PlanetaryControlPanelTests
 {
     /// <summary>A camera with a choice of depth and a high-speed readout, a focuser, and the fallback sensor's size.</summary>
+    /// <summary>The owner's Saturn night (2026-10-07), the instant every panel here is painted at.</summary>
+    internal static readonly DateTimeOffset Night = new DateTimeOffset(2026, 10, 7, 11, 30, 0, TimeSpan.Zero);
+
     internal static readonly PreviewOTATelemetry Rig = PreviewOTATelemetry.Unknown with
     {
         CameraConnected = true,
@@ -42,8 +46,13 @@ public class PlanetaryControlPanelTests
         {
             BeginFrame();
             panel.FollowCamera(telemetry);
-            RenderLayout(panel.Build(capture, telemetry, timeLeft, bus, pipPress, reframe), rect);
+            RenderLayout(panel.Build(capture, telemetry, timeLeft, bus, pipPress, reframe, Night), rect);
         }
+
+        /// <summary>Every text leaf the last paint arranged, for a test that reads what the panel says.</summary>
+        public IReadOnlyList<string> Texts()
+            => [.. GetCapturedLayout().Select(static arranged => arranged.Node).OfType<Layout.Node.Leaf>()
+                .Select(static leaf => leaf.Content).OfType<Layout.Content.Text>().Select(static text => text.Value)];
 
         /// <summary>Presses the control <paramref name="action"/> names the way a click arrives, through the router, where it was painted.</summary>
         public void Press(string action)
@@ -63,12 +72,14 @@ public class PlanetaryControlPanelTests
         private readonly RgbaImageRenderer _renderer;
         private readonly SignalBus _bus = new SignalBus();
         private readonly float _scale;
+        private readonly float _height;
 
-        public Rigged(float scale, bool capturing, PreviewOTATelemetry? telemetry = null)
+        public Rigged(float scale, bool capturing, PreviewOTATelemetry? telemetry = null, float height = 1100)
         {
             _scale = scale;
+            _height = height;
             Telemetry = telemetry ?? Rig;
-            _renderer = new RgbaImageRenderer((uint)(PlanetaryControlPanel.BaseWidth * scale), (uint)(1100 * scale));
+            _renderer = new RgbaImageRenderer((uint)(PlanetaryControlPanel.BaseWidth * scale), (uint)(height * scale));
             Host = new Host(_renderer) { DpiScale = scale, FontPath = FontResolver.ResolveSystemFont() };
             _bus.Subscribe<StartVideoCaptureSignal>(s => Posted.Add(s));
             _bus.Subscribe<StopVideoCaptureSignal>(s => Posted.Add(s));
@@ -80,6 +91,8 @@ public class PlanetaryControlPanelTests
             _bus.Subscribe<TakeFullFrameSignal>(s => Posted.Add(s));
             _bus.Subscribe<CommitReframeSignal>(s => Posted.Add(s));
             _bus.Subscribe<CancelReframeSignal>(s => Posted.Add(s));
+            _bus.Subscribe<StartPlanetarySequenceSignal>(s => Posted.Add(s));
+            _bus.Subscribe<StopPlanetarySequenceSignal>(s => Posted.Add(s));
             if (capturing)
             {
                 Capture.Began();
@@ -105,7 +118,7 @@ public class PlanetaryControlPanelTests
 
         /// <summary>A frame of the panel, in its design width and a height it never needs.</summary>
         public void Paint() => Host.Paint(Panel, Capture, Telemetry, _bus,
-            new RectF32(0f, 0f, PlanetaryControlPanel.BaseWidth * _scale, 1100 * _scale), reframe: Reframe);
+            new RectF32(0f, 0f, PlanetaryControlPanel.BaseWidth * _scale, _height * _scale), reframe: Reframe);
 
         /// <summary>Presses the control <paramref name="action"/> names through the router, then paints the next frame.</summary>
         public void Press(string action)
@@ -172,6 +185,65 @@ public class PlanetaryControlPanelTests
         PlanetaryControlPanel.ShortLabel("Luminance").ShouldBe("L");
         PlanetaryControlPanel.ShortLabel("H-Alpha").ShouldBe("Hα");
         PlanetaryControlPanel.ShortLabel("IR 685").ShouldBe("IR 685", "a filter it does not know keeps the name it was given");
+    }
+
+    /// <summary>The owner's rig of 2026-10-07: a mono camera on a wheel at 1780 mm (0.2316"/px), streaming Saturn at 63 fps.</summary>
+    private static readonly PreviewOTATelemetry Saturn1780 = WithWheel with { PixelScaleArcsec = 0.2316 };
+
+    private static void Streaming(NodePlanetaryCapture capture, double fps, PlanetarySequenceDto? sequence = null)
+        => capture.UpdateFromAnswer(new PlanetaryStateDto
+        {
+            Camera = "G3M678M", Running = true, RoiWidth = 640, RoiHeight = 360, CurrentFramesPerSecond = fps, Sequence = sequence,
+        });
+
+    [Fact]
+    public void TheSequenceSectionBuildsStepsAndStartsThemOnTheNodeAsItsRequest()
+    {
+        using var rig = new Rigged(1f, capturing: true, Saturn1780, height: 2400);
+
+        rig.Press("SeqAdd");            // L at the panel's 10 ms and gain 100, 10,000 frames
+        rig.Press("SeqAdd");            // the next slot, R
+        rig.Press("SeqUnit1");          // R by time
+        rig.Press("SeqLen1Inc");        // 60 s to 90 s
+        rig.Press("SeqSetsInc");        // 2 sets
+        rig.Press("SeqStart");
+
+        var start = rig.Posted.OfType<StartPlanetarySequenceSignal>().ShouldHaveSingleItem().Request;
+        start.Sets.ShouldBe(2);
+        start.Steps.Select(static s => (s.FilterPosition, s.ExposureMs, s.Gain, s.Frames, s.DurationSeconds))
+            .ShouldBe([(0, 10.0, (short?)100, (int?)10000, (double?)null), (1, 10.0, (short?)100, (int?)null, (double?)90)]);
+    }
+
+    [Fact]
+    public void EachStepsLightSaysHowFarThePlanetTurnsOverIt()
+    {
+        // 10,000 frames at 63 fps is 158 s, which turns Saturn's middle 1.1 px at 0.2316"/px: just past the green.
+        using var rig = new Rigged(1f, capturing: true, Saturn1780, height: 2400);
+        Streaming(rig.Capture, 63.3);
+        rig.Press("SeqPlanetSaturn");
+        rig.Press("SeqAdd");
+
+        rig.Host.Texts().ShouldContain("1.1 px");
+        rig.Press("SeqLen0Dec");        // 10,000 to 5,000 frames: 79 s
+        rig.Host.Texts().ShouldContain("0.5 px");
+    }
+
+    [Fact]
+    public void WhileTheNodeRunsTheSequenceThePanelSaysWhereItIsAndOffersAStop()
+    {
+        using var rig = new Rigged(1f, capturing: true, Saturn1780, height: 2400);
+        rig.Press("SeqAdd");
+        Streaming(rig.Capture, 63.3, new PlanetarySequenceDto
+        {
+            Phase = PlanetarySequencePhase.Recording, Set = 2, Sets = 10, Step = 1, Steps = 3, Filter = "Red", Files = ["a.ser", "b.ser", "c.ser", "d.ser"],
+        });
+        rig.Paint();
+
+        rig.Host.Texts().ShouldContain("Set 2/10, step 1/3 (Red), 4 files");
+        rig.Press("SeqStop");
+        rig.Posted.ShouldBe([new StopPlanetarySequenceSignal()]);
+        rig.Host.GetRegisteredRegions().Any(static r => r.Result is HitResult.ButtonHit { Action: "SeqStart" })
+            .ShouldBeFalse("one sequence at a time");
     }
 
     [Fact]

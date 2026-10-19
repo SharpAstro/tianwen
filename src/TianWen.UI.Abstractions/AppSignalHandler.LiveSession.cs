@@ -399,6 +399,40 @@ namespace TianWen.UI.Abstractions
                 }, onFinally: () => appState.NeedsRedraw = true);
             });
 
+            // A sequence on the capture on show (#1340): the node runs it and its state carries the progress the panel shows.
+            bus.Subscribe<StartPlanetarySequenceSignal>(sig =>
+            {
+                if (!planetaryCapture.IsCapturing || planetaryCapture.Node is not { } node)
+                {
+                    Notify(NotificationSeverity.Warning, "A sequence runs on a planetary capture: start the capture first");
+                    return;
+                }
+                RunTracked("Planetary sequence", "The sequence could not start", async ct =>
+                {
+                    var started = await node.Client.StartPlanetarySequenceAsync(sig.Request, ct);
+                    if (!started.IsSuccess)
+                    {
+                        Notify(NotificationSeverity.Warning, started.Error ?? "The node did not start the sequence");
+                        return;
+                    }
+                    Notify(NotificationSeverity.Info, $"Sequence started: {sig.Request.Sets} set{(sig.Request.Sets == 1 ? "" : "s")} of {sig.Request.Steps.Length} steps");
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
+            bus.Subscribe<StopPlanetarySequenceSignal>(_ =>
+            {
+                if (planetaryCapture.Node is not { } node)
+                {
+                    return;
+                }
+                RunTracked("Planetary sequence stop", "The sequence could not be stopped", async ct =>
+                {
+                    var stopped = await node.Client.StopPlanetarySequenceAsync(ct);
+                    Notify(stopped.IsSuccess ? NotificationSeverity.Info : NotificationSeverity.Warning,
+                        stopped.IsSuccess ? "Sequence stopped; the step's frames are kept" : stopped.Error ?? "The node did not stop the sequence");
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
             bus.Subscribe<CancelReframeSignal>(_ =>
             {
                 planetaryCapture.EndReframe();

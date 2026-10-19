@@ -1,6 +1,7 @@
 using DIR.Lib;
 using System;
 using TianWen.DAL;
+using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing.PolarAlignment;
@@ -27,6 +28,12 @@ public readonly record struct CommitReframeSignal;
 
 /// <summary>Leaves a reframe, the window where it is (#1033).</summary>
 public readonly record struct CancelReframeSignal;
+
+/// <summary>Starts the sequence the SEQUENCE section edits on the planetary capture on show (#1340).</summary>
+public sealed record StartPlanetarySequenceSignal(PlanetarySequenceRequestDto Request);
+
+/// <summary>Stops the sequence going on, its step's frames kept (#1340).</summary>
+public readonly record struct StopPlanetarySequenceSignal;
 
 /// <summary>Turns OTA <paramref name="OtaIndex"/>'s filter wheel to slot <paramref name="Position"/> (counted from 0), on the node on show (#1618).</summary>
 public readonly record struct ChangeFilterSignal(int OtaIndex, int Position);

@@ -2,8 +2,11 @@ using System;
 using System.Collections.Immutable;
 using DIR.Lib;
 using TianWen.DAL;
+using TianWen.Hosting.Dto;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Planetary;
 
 namespace TianWen.UI.Abstractions;
 
@@ -183,8 +186,9 @@ public sealed class PlanetaryControlPanel
     /// scrolled panel's own region would otherwise swallow.
     /// </summary>
     /// <param name="reframe">The reframe going on (#1033), which turns the region section into its confirm card; null for none.</param>
+    /// <param name="utcNow">The instant a sequence's rotation light reads the planet at, the app's clock (<c>TIANWEN_NOW</c> included).</param>
     public Layout.Node Build(NodePlanetaryCapture capture, PreviewOTATelemetry telemetry, TimeSpan recordingTimeLeft, SignalBus? bus,
-        Func<PointerPress, DragCapture?>? pipPress = null, PlanetaryReframe? reframe = null)
+        Func<PointerPress, DragCapture?>? pipPress = null, PlanetaryReframe? reframe = null, DateTimeOffset utcNow = default)
     {
         var capturing = capture.IsCapturing;
 
@@ -357,6 +361,13 @@ public sealed class PlanetaryControlPanel
             rows.Add(Layout.Builder.Box(0f, 1f, Divider).RowH(1f));
             rows.Add(SectionHeader("FILTER"));
             AddFilterRows(rows, telemetry, bus);
+
+            // --- Sequence section (#1340): steps of a filter, the stream's settings and a length, taken as sets, one file a step;
+            // the node runs it on the capture, and each step's light says how far the planet turns over it. ---
+            rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
+            rows.Add(Layout.Builder.Box(0f, 1f, Divider).RowH(1f));
+            rows.Add(SectionHeader("SEQUENCE"));
+            AddSequenceRows(rows, capture, telemetry, capturing, bus, utcNow);
         }
 
         // --- Focuser section (reuses JogFocuserSignal: the same path the Live Session OTA panel posts) ---
@@ -436,6 +447,96 @@ public sealed class PlanetaryControlPanel
                 .RowH(BaseRowHeight));
         }
     }
+
+    /// <summary>The sequence the SEQUENCE section edits (#1340), kept with the panel between frames.</summary>
+    internal PlanetarySequenceDraft Sequence { get; } = new PlanetarySequenceDraft();
+
+    /// <summary>The planets a sequence's light can speak for, as the planet choice offers them.</summary>
+    private static readonly CatalogIndex[] TurningPlanets = [CatalogIndex.Mars, CatalogIndex.Jupiter, CatalogIndex.Saturn];
+
+    private void AddSequenceRows(ImmutableArray<Layout.Node>.Builder rows, NodePlanetaryCapture capture, PreviewOTATelemetry telemetry,
+        bool capturing, SignalBus? bus, DateTimeOffset now)
+    {
+        var draft = Sequence;
+        var slots = telemetry.FilterSlots.IsDefault ? [] : telemetry.FilterSlots;
+        var running = capture.Sequence is { } progress && progress.Phase is not (PlanetarySequencePhase.Done or PlanetarySequencePhase.Stopped
+            or PlanetarySequencePhase.Failed);
+
+        // The planet the light speaks for: the one named, else the one the node found the mount pointing at.
+        var planet = draft.Planet ?? capture.Planet;
+        var planetStyle = new Layout.ButtonGroupStyle(CheckOnBg, StepBtnBg, HeaderText, DimText, GuiTheme.Hover(StepBtnBg));
+        ReadOnlySpan<Layout.ButtonGroupOption<CatalogIndex>> planets =
+        [
+            new(TurningPlanets[0], "Mars") { Hit = new HitResult.ButtonHit("SeqPlanetMars") },
+            new(TurningPlanets[1], "Jupiter") { Hit = new HitResult.ButtonHit("SeqPlanetJupiter") },
+            new(TurningPlanets[2], "Saturn") { Hit = new HitResult.ButtonHit("SeqPlanetSaturn") },
+        ];
+        rows.Add(Layout.Builder.ButtonGroup(planets, planet ?? default, chosen => draft.Planet = chosen, planetStyle, PanelFontSize * 0.9f)
+            .RowH(BaseRowHeight));
+
+        for (var i = 0; i < draft.Steps.Length; i++)
+        {
+            var index = i;
+            var step = draft.Steps[i];
+            var filter = step.FilterSlot < slots.Length ? ShortLabel(slots[step.FilterSlot]) : $"#{step.FilterSlot + 1}";
+            var duration = PlanetarySequenceDraft.DurationOf(step, capture.CurrentFps);
+            var turn = planet is { } turning && duration is { } span ? PlanetaryTurn.TurnPx(turning, now, span, telemetry.PixelScaleArcsec) : double.NaN;
+            var light = PlanetaryTurn.LightFor(turn);
+            var turnText = double.IsFinite(turn) ? $"{turn:0.0} px" : "turn ?";
+            rows.Add(Layout.Builder.HStack(
+                    PanelButton($"{index + 1}. {filter}", $"SeqFilter{index}", StepBtnBg, () => draft.NextFilter(index, slots.Length)).WFixed(64f).HStar(),
+                    Layout.Builder.Text($"{step.ExposureMs:0.##} ms g{step.Gain}", PanelFontSize * 0.8f, DimText, TextAlign.Near, TextAlign.Center).WStar().HStar(),
+                    Layout.Builder.Text(turnText, PanelFontSize * 0.8f, LightColour(light), TextAlign.Far, TextAlign.Center).WFixed(52f).HStar(),
+                    PanelButton("Drop", $"SeqDrop{index}", StepBtnBg, () => draft.Remove(index)).WFixed(40f).HStar())
+                .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f));
+            rows.Add(Layout.Builder.HStack(
+                    Stepper("  Len", step.ByFrames ? $"{step.Frames} fr" : $"{step.Seconds} s", $"SeqLen{index}",
+                        () => draft.StepLength(index, -1), () => draft.StepLength(index, 1)).WStar().HStar(),
+                    PanelButton(step.ByFrames ? "frames" : "time", $"SeqUnit{index}", StepBtnBg, () => draft.ToggleLength(index)).WFixed(52f).HStar())
+                .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f));
+        }
+
+        rows.Add(Layout.Builder.HStack(
+                PanelButton("Add step", "SeqAdd", StepBtnBg, () => draft.Add(slots.Length, ExposurePresetsMs[_exposureIdx], (short)_gain)).WStar().HStar(),
+                Stepper("Sets", draft.Sets.ToString(System.Globalization.CultureInfo.InvariantCulture), "SeqSets",
+                    () => draft.StepSets(-1), () => draft.StepSets(1)).WStar().HStar())
+            .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f));
+
+        if (running)
+        {
+            rows.Add(PanelButton("Stop sequence", "SeqStop", StopBg, () => bus?.Post(new StopPlanetarySequenceSignal())).RowH(BaseRowHeight));
+        }
+        else if (capturing && !draft.Steps.IsEmpty)
+        {
+            rows.Add(PanelButton("Start sequence", "SeqStart", StartBg, () => bus?.Post(new StartPlanetarySequenceSignal(draft.ToRequest())))
+                .RowH(BaseRowHeight));
+        }
+        if (capture.Sequence is { } shown)
+        {
+            rows.Add(Layout.Builder.Text(SequenceInWords(shown), PanelFontSize * 0.8f, shown.FailureReason is null ? DimText : GuiTheme.Palette.Error,
+                TextAlign.Near, TextAlign.Center).RowH(BaseRowHeight));
+        }
+    }
+
+    /// <summary>Where the node's sequence is, in a line: "Set 2/10, step 1/3 (Red), 4 files", or how it ended.</summary>
+    internal static string SequenceInWords(PlanetarySequenceDto sequence) => sequence.Phase switch
+    {
+        PlanetarySequencePhase.Done => $"Done: {sequence.Files.Length} files",
+        PlanetarySequencePhase.Stopped => $"Stopped: {sequence.Files.Length} files kept",
+        PlanetarySequencePhase.Failed => $"Failed: {sequence.FailureReason}",
+        PlanetarySequencePhase.Pausing => $"Set {sequence.Set}/{sequence.Sets} done, pausing; {sequence.Files.Length} files",
+        _ => $"Set {sequence.Set}/{sequence.Sets}, step {sequence.Step}/{sequence.Steps}{(sequence.Filter is { } f ? $" ({f})" : "")}, {sequence.Files.Length} files",
+    };
+
+    // The light's colour: green under a pixel, yellow and orange while the de-rotation carries it, red past the limit.
+    private static RGBAColor32 LightColour(PlanetaryTurnLight light) => light switch
+    {
+        PlanetaryTurnLight.Green => GuiTheme.Palette.Success,
+        PlanetaryTurnLight.Yellow => GuiTheme.Palette.Warn,
+        PlanetaryTurnLight.Orange => GuiTheme.Mix(GuiTheme.Palette.Warn, GuiTheme.Palette.Error, 0.5f),
+        PlanetaryTurnLight.Red => GuiTheme.Palette.Error,
+        _ => DimText,
+    };
 
     // What fits a quarter of the panel: a known filter's short name (L, R, Ha), else the name it was given.
     internal static string ShortLabel(string name) => new InstalledFilter(name) switch
