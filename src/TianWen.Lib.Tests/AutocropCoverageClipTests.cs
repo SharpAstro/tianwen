@@ -29,13 +29,34 @@ public class AutocropCoverageClipTests
 
         clipped.ShouldNotBe(Geometric);
         Geometric.Contains(clipped).ShouldBeTrue("the coverage clip only ever shrinks the outline crop");
-        for (var y = clipped.Top; y < clipped.Bottom; y++)
+        ZerosIn(Geometric, coverage).ShouldBe(210, "the wedge is inside the outline crop");
+        // The clip works on 8 px blocks, so at most the tip of one block's share of the wedge may stay.
+        ZerosIn(clipped, coverage).ShouldBeLessThanOrEqualTo(10, $"the crop {clipped} keeps the wedge out");
+    }
+
+    private static int ZerosIn(PixelRect rect, Image coverage)
+    {
+        var zeros = 0;
+        for (var y = rect.Top; y < rect.Bottom; y++)
         {
-            for (var x = clipped.Left; x < clipped.Right; x++)
+            for (var x = rect.Left; x < rect.Right; x++)
             {
-                coverage.GetChannelSpan(0)[(y * Size) + x].ShouldBeGreaterThan(0f, $"({x}, {y}) is inside the crop");
+                zeros += coverage.GetChannelSpan(0)[(y * Size) + x] > 0f ? 0 : 1;
             }
         }
+        return zeros;
+    }
+
+    /// <summary>
+    /// The clip removes absence, not a few percent of noise. Clipped by the viewer's 0.95 rule the Tarantula, its corner
+    /// no longer masked, lost 34 good columns to one 16 px block beside the rim at 0.927 of full weight.
+    /// </summary>
+    [Fact]
+    public void AMildDeficitBesideTheRimCostsNothing()
+    {
+        var coverage = Plane(static (x, y) => x >= Size - 20 && y >= 96 && y < 112 ? 40f * 0.927f : 40f);
+
+        Processor.ClipToCoverage(Geometric, Plane(static (_, _) => 0.25f), coverage).ShouldBe(Geometric);
     }
 
     [Fact]
