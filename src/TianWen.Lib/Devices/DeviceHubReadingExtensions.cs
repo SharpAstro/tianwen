@@ -76,7 +76,12 @@ public static class DeviceHubReadingExtensions
             // slot until the device plane's end-to-end test turned a wheel to slot 1 and read back Red's +20.
             var slot = await logger.CatchAsync(filterWheel.GetPositionAsync, cancellationToken, -1);
             var filters = filterWheel.Filters;
-            return new FilterWheelReading(slot, slot >= 0 && slot < filters.Count ? filters[slot].DisplayName : null);
+            var slots = new string[filters.Count];
+            for (var i = 0; i < slots.Length; i++)
+            {
+                slots[i] = filters[i].DisplayName;
+            }
+            return new FilterWheelReading(slot, slot >= 0 && slot < filters.Count ? filters[slot].DisplayName : null, [.. slots]);
         }
 
         /// <summary>

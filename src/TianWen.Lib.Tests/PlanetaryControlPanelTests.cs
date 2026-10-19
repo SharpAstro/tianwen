@@ -76,6 +76,7 @@ public class PlanetaryControlPanelTests
             _bus.Subscribe<JogMountSignal>(s => Posted.Add(s));
             _bus.Subscribe<StartPlanetaryRecordingSignal>(s => Posted.Add(s));
             _bus.Subscribe<StopPlanetaryRecordingSignal>(s => Posted.Add(s));
+            _bus.Subscribe<ChangeFilterSignal>(s => Posted.Add(s));
             if (capturing)
             {
                 Capture.Began();
@@ -128,6 +129,52 @@ public class PlanetaryControlPanelTests
 
         rig.Posted.ShouldBe([new StartVideoCaptureSignal(ExposureMs: 20, Gain: 110, RoiWidth: 640, RoiHeight: 480,
             BitDepth: BitDepth.Int8, HighSpeed: false)]);
+    }
+
+    /// <summary>A mono camera's wheel: the filter in the beam is said and lit, and a press on another asks the node to turn to it (#1618).</summary>
+    private static readonly PreviewOTATelemetry WithWheel = Rig with
+    {
+        FilterWheelConnected = true,
+        FilterName = "Green",
+        FilterPosition = 2,
+        FilterSlots = ["Luminance", "Red", "Green", "Blue", "H-Alpha", "OIII", "IR 685", "Dark"],
+    };
+
+    [Theory]
+    [InlineData(1f, false)]
+    [InlineData(1.5f, true)]
+    public void APressOnAFilterAsksForItAndOneOnTheFilterInTheBeamAsksNothing(float scale, bool capturing)
+    {
+        using var rig = new Rigged(scale, capturing, WithWheel);
+
+        rig.Press("Filter2");
+        rig.Posted.ShouldBeEmpty("Green is in the beam already");
+        rig.Press("Filter6");
+        rig.Press("Filter0");
+
+        rig.Posted.ShouldBe([new ChangeFilterSignal(0, 6), new ChangeFilterSignal(0, 0)]);
+    }
+
+    [Fact]
+    public void EveryFilterOfTheWheelIsOfferedByItsShortName()
+    {
+        using var rig = new Rigged(1f, capturing: false, WithWheel);
+
+        var filters = rig.Host.GetRegisteredRegions().Select(static r => r.Result).OfType<HitResult.ButtonHit>()
+            .Where(static hit => hit.Action.StartsWith("Filter", StringComparison.Ordinal)).Select(static hit => hit.Action);
+        filters.ShouldBe(["Filter0", "Filter1", "Filter2", "Filter3", "Filter4", "Filter5", "Filter6", "Filter7"]);
+        PlanetaryControlPanel.ShortLabel("Luminance").ShouldBe("L");
+        PlanetaryControlPanel.ShortLabel("H-Alpha").ShouldBe("Hα");
+        PlanetaryControlPanel.ShortLabel("IR 685").ShouldBe("IR 685", "a filter it does not know keeps the name it was given");
+    }
+
+    [Fact]
+    public void ACameraWithNoWheelHasNoFilterSection()
+    {
+        using var rig = new Rigged(1f, capturing: false);
+
+        rig.Host.GetRegisteredRegions().Any(static r => r.Result is HitResult.ButtonHit hit && hit.Action.StartsWith("Filter", StringComparison.Ordinal))
+            .ShouldBeFalse("a colour camera's panel does not grow a section it cannot use");
     }
 
     [Fact]

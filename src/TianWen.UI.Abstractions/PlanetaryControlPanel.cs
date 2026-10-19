@@ -318,6 +318,17 @@ public sealed class PlanetaryControlPanel
                 MountNudgeButton("W", "MountNudgeW", GuideDirection.West, bus))
             .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f));
 
+        // --- Filter section (#1618): the filter in the beam, and the wheel's filters to turn to. The node changes it, through its
+        // one filter change and the focus offset, stopping a running stream for it and starting it again (#1639); a recording
+        // going on refuses it in words. Shown only with a wheel connected, so a colour camera's panel does not grow. ---
+        if (telemetry.FilterWheelConnected)
+        {
+            rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
+            rows.Add(Layout.Builder.Box(0f, 1f, Divider).RowH(1f));
+            rows.Add(SectionHeader("FILTER"));
+            AddFilterRows(rows, telemetry, bus);
+        }
+
         // --- Focuser section (reuses JogFocuserSignal: the same path the Live Session OTA panel posts) ---
         rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
         rows.Add(Layout.Builder.Box(0f, 1f, Divider).RowH(1f));
@@ -358,6 +369,51 @@ public sealed class PlanetaryControlPanel
 
         return Layout.Builder.VStack(rows.ToArray()).Pad(BasePanelPad).WithGap(BaseGap).Bg(PanelBg).WithScroll(_scroll);
     }
+
+    /// <summary>The wheel's filters a row at a time, as a choice each row declares, the one in the beam lit.</summary>
+    internal const int FiltersPerRow = 4;
+
+    private static void AddFilterRows(ImmutableArray<Layout.Node>.Builder rows, PreviewOTATelemetry telemetry, SignalBus? bus)
+    {
+        var filters = telemetry.FilterSlots.IsDefault ? [] : telemetry.FilterSlots;
+        if (filters.Length == 0)
+        {
+            rows.Add(Layout.Builder.Text("The wheel names no filters", PanelFontSize * 0.8f, DimText,
+                TextAlign.Near, TextAlign.Center).RowH(BaseRowHeight));
+            return;
+        }
+
+        var inBeam = telemetry.FilterPosition;
+        rows.Add(Layout.Builder.Text(inBeam >= 0 && inBeam < filters.Length ? $"In the beam: {filters[inBeam]}" : "The wheel is turning",
+            PanelFontSize, HeaderText, TextAlign.Near, TextAlign.Center).RowH(BaseRowHeight));
+        var style = new Layout.ButtonGroupStyle(CheckOnBg, StepBtnBg, HeaderText, DimText, GuiTheme.Hover(StepBtnBg));
+        for (var start = 0; start < filters.Length; start += FiltersPerRow)
+        {
+            var count = Math.Min(FiltersPerRow, filters.Length - start);
+            var options = new Layout.ButtonGroupOption<int>[count];
+            for (var i = 0; i < count; i++)
+            {
+                var slot = start + i;
+                options[i] = new Layout.ButtonGroupOption<int>(slot, ShortLabel(filters[slot])) { Hit = new HitResult.ButtonHit($"Filter{slot}") };
+            }
+            rows.Add(Layout.Builder.ButtonGroup<int>(options, inBeam, slot =>
+                {
+                    if (slot != inBeam)
+                    {
+                        bus?.Post(new ChangeFilterSignal(PlanetaryOtaIndex, slot));
+                    }
+                }, style, PanelFontSize * 0.9f)
+                .RowH(BaseRowHeight));
+        }
+    }
+
+    // What fits a quarter of the panel: a known filter's short name (L, R, Ha), else the name it was given.
+    internal static string ShortLabel(string name) => new InstalledFilter(name) switch
+    {
+        { CustomName: { } custom } => custom,
+        { Filter.ShortName: { Length: > 0 } shortName } => shortName,
+        var filter => filter.DisplayName,
+    };
 
     private static Layout.Node SectionHeader(string text)
         => Layout.Builder.Text(text, PanelFontSize, SectionText, TextAlign.Near, TextAlign.Center).RowH(BaseRowHeight);

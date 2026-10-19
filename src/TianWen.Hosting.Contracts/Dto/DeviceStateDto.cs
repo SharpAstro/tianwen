@@ -212,14 +212,18 @@ public sealed record FilterWheelDeviceStateDto
     public required int Position { get; init; }
     public string? FilterName { get; init; }
 
+    /// <summary>Every slot's filter, by name, in slot order; null for a wheel that names none.</summary>
+    public string[]? Slots { get; init; }
+
     public static FilterWheelDeviceStateDto FromReading(FilterWheelReading reading) => new FilterWheelDeviceStateDto
     {
         Position = reading.Position,
         FilterName = reading.FilterName,
+        Slots = reading.Slots.IsDefaultOrEmpty ? null : [.. reading.Slots],
     };
 
     /// <summary>The reading this state was made from.</summary>
-    public FilterWheelReading ToReading() => new FilterWheelReading(Position, FilterName);
+    public FilterWheelReading ToReading() => new FilterWheelReading(Position, FilterName, Slots is { } slots ? [.. slots] : []);
 }
 
 /// <summary>

@@ -284,6 +284,23 @@ namespace TianWen.UI.Abstractions
                 }, onFinally: () => appState.NeedsRedraw = true);
             });
 
+            // A filter change from the planetary panel (#1618): the node's one filter change, which, while its capture streams
+            // through the wheel, stops the stream for it and starts it again (#1639), and refuses in words during a recording.
+            bus.Subscribe<ChangeFilterSignal>(sig =>
+            {
+                if (CommandTargetOrSay("A filter change") is not { Node: var node })
+                {
+                    return;
+                }
+                RunTracked($"ChangeFilter OTA{sig.OtaIndex}", "Filter change failed", async ct =>
+                {
+                    if (await RunNodeJobAsync(node, node.Client.ChangeOtaFilterAsync(sig.OtaIndex, sig.Position, ct), "Filter change", ct) is { } done)
+                    {
+                        Notify(NotificationSeverity.Info, done.Step ?? "Filter changed");
+                    }
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
             // Live planetary capture: the node on show runs it (its camera, its claim, the ROI, the stack, the recenter), this
             // computer's or a rig's this client controls, and the shared PlanetaryCaptureController shows it and sends the
             // panel's controls.

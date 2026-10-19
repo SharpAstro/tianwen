@@ -66,9 +66,10 @@ public readonly record struct FocuserReading(int Position, double TemperatureC, 
 
 /// <summary>
 /// What a connected filter wheel reads now: the slot it is at, counted from 0 (-1 while it turns, or when it cannot say,
-/// as ASCOM's wheels report it), and the name of the filter in that slot, null when there is none to name.
+/// as ASCOM's wheels report it), and the name of the filter in that slot, null when there is none to name; and the name of
+/// every slot's filter, as the wheel's driver names them, which a filter change goes by (<see cref="FilterChange.ChangeAsync"/>).
 /// </summary>
-public readonly record struct FilterWheelReading(int Position, string? FilterName);
+public readonly record struct FilterWheelReading(int Position, string? FilterName, System.Collections.Immutable.ImmutableArray<string> Slots = default);
 
 /// <summary>
 /// What a connected cover or flat panel reads now: the flap, the light, and the light's brightness. A brightness it does
