@@ -161,11 +161,11 @@ internal sealed class NodeHarness : IAsyncDisposable
 
     /// <summary>
     /// An active profile whose one OTA has <paramref name="camera"/>, with <paramref name="mount"/> (none when null) at a
-    /// site, and both connected to the node's hub.
+    /// site, and its filter wheel and focuser where given, all connected to the node's hub.
     /// </summary>
-    public async Task ActivateRigAsync(FakeDevice camera, FakeDevice? mount, CancellationToken ct, FakeDevice? filterWheel = null)
+    public async Task ActivateRigAsync(FakeDevice camera, FakeDevice? mount, CancellationToken ct, FakeDevice? filterWheel = null, FakeDevice? focuser = null)
     {
-        var ota = new OTAData("Test OTA", 400, camera.DeviceUri, null, null, filterWheel?.DeviceUri, null, null);
+        var ota = new OTAData("Test OTA", 400, camera.DeviceUri, null, focuser?.DeviceUri, filterWheel?.DeviceUri, null, null);
         var profile = new Profile(Guid.NewGuid(), "Test rig",
             new ProfileData(mount?.DeviceUri ?? NoneDevice.Instance.DeviceUri, NoneDevice.Instance.DeviceUri, [ota], SiteLatitude: 48.2, SiteLongitude: 16.3));
         await profile.SaveAsync(External, ct);
@@ -179,6 +179,10 @@ internal sealed class NodeHarness : IAsyncDisposable
         if (filterWheel is not null)
         {
             await hub.ConnectAsync(filterWheel, ct);
+        }
+        if (focuser is not null)
+        {
+            await hub.ConnectAsync(focuser, ct);
         }
     }
 

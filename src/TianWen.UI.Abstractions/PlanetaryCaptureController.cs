@@ -366,10 +366,10 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
 
     /// <summary>
     /// How long the recording going on has left by this computer's clock, which <c>TIANWEN_NOW</c> anchors as it anchors the
-    /// node's; zero when none is being made.
+    /// node's; zero when none is being made, and for one that ends at a number of frames (a sequence's step, #1340).
     /// </summary>
-    public TimeSpan RecordingTimeLeft => Capture.Recording is { Recording: true } recording
-        ? TimeSpan.FromTicks(Math.Max(0, (recording.EndsUtc - _timeProvider.GetUtcNow()).Ticks))
+    public TimeSpan RecordingTimeLeft => Capture.Recording is { Recording: true, EndsUtc: { } ends }
+        ? TimeSpan.FromTicks(Math.Max(0, (ends - _timeProvider.GetUtcNow()).Ticks))
         : TimeSpan.Zero;
 
     /// <summary>Asks the node to stop the capture; the view follows it until the node says it has ended.</summary>

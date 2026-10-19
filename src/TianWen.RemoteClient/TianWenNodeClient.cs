@@ -527,6 +527,18 @@ namespace TianWen.RemoteClient
         public Task<NodeResult<PlanetaryStateDto>> StopPlanetaryRecordingAsync(CancellationToken cancellationToken) =>
             SendAsync(HttpMethod.Delete, "api/v1/planetary/record", null, HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto, _timeouts.Control, cancellationToken);
 
+        /// <summary>
+        /// <c>POST /planetary/sequence</c>: a mono filter-wheel sequence on the capture going on (#1340), one SER a step, each
+        /// through its filter at its settings. It runs its sets whether or not anyone watches; the state's <c>Sequence</c> follows it.
+        /// </summary>
+        public Task<NodeResult<PlanetaryStateDto>> StartPlanetarySequenceAsync(PlanetarySequenceRequestDto request, CancellationToken cancellationToken) =>
+            SendJsonAsync(HttpMethod.Post, "api/v1/planetary/sequence", request, HostingJsonContext.Default.PlanetarySequenceRequestDto,
+                HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto, _timeouts.Control, cancellationToken);
+
+        /// <summary><c>DELETE /planetary/sequence</c>: stops the sequence going on, its step's frames kept; answered once it has.</summary>
+        public Task<NodeResult<PlanetaryStateDto>> StopPlanetarySequenceAsync(CancellationToken cancellationToken) =>
+            SendAsync(HttpMethod.Delete, "api/v1/planetary/sequence", null, HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto, _timeouts.Control, cancellationToken);
+
         /// <summary><c>DELETE /planetary</c> -- ends the planetary capture going on, answered once it has.</summary>
         public Task<NodeResult<PlanetaryStateDto>> StopPlanetaryAsync(CancellationToken cancellationToken) =>
             SendAsync(HttpMethod.Delete, "api/v1/planetary", null, HostingJsonContext.Default.ResponseEnvelopePlanetaryStateDto, _timeouts.Control, cancellationToken);

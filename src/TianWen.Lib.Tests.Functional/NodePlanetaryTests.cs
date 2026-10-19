@@ -369,4 +369,68 @@ public class NodePlanetaryTests(ITestOutputHelper outputHelper) : IDisposable
 
         (await client.StopPlanetaryAsync(ct)).IsSuccess.ShouldBeTrue();
     }
+
+    /// <summary>
+    /// The issue's own check (#1340): two sets of Red, Green and Blue on the fakes give six SERs in one folder, each named for its
+    /// filter and holding its frames, the focus offsets applied; the wheel is the sequence's while it runs, a recording of the
+    /// operator's is refused beside it, and both are given back as it ends.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TwoSetsOfRedGreenAndBlueThroughTheNodeGiveSixFilesEachNamedForItsFilter()
+    {
+        const int L = 0, R = 1, G = 2, B = 3;
+        var ct = TestContext.Current.CancellationToken;
+        var wheel = new FakeDevice(DeviceType.FilterWheel, 1);
+        var focuser = new FakeDevice(DeviceType.Focuser, 1);
+        await using var node = await PlanetaryNodeAsync(NodeRunWatchOptions.Default.DetachGrace, ct);
+        await node.ActivateRigAsync(Camera, mount: null, ct, filterWheel: wheel, focuser: focuser);
+        var client = ClientOf(node);
+        await using var window = await NodeWindow.OpenAsync(node, outputHelper, ct);
+        var hub = node.App.Services.GetRequiredService<IDeviceHub>();
+        hub.TryGetConnectedDriver<IFilterWheelDriver>(wheel.DeviceUri, out var wheelDriver).ShouldBeTrue();
+        hub.TryGetConnectedDriver<IFocuserDriver>(focuser.DeviceUri, out var focuserDriver).ShouldBeTrue();
+        var luminanceFocus = await focuserDriver.GetPositionAsync(ct);
+
+        (await client.StartPlanetaryAsync(new PlanetaryRequestDto { RoiWidth = 320, RoiHeight = 200 }, ct)).IsSuccess.ShouldBeTrue();
+        await UntilStateAsync(client, "frames to arrive", s => s.FramesReceived > 0, ct);
+
+        static PlanetarySequenceStepDto Step(int filter, double exposureMs, short gain)
+            => new PlanetarySequenceStepDto { FilterPosition = filter, ExposureMs = exposureMs, Gain = gain, Frames = 5 };
+        var started = await client.StartPlanetarySequenceAsync(
+            new PlanetarySequenceRequestDto { Steps = [Step(R, 5, 100), Step(G, 6, 110), Step(B, 7, 120)], Sets = 2 }, ct);
+        started.IsSuccess.ShouldBeTrue(started.Error);
+
+        // While it runs, the wheel is the sequence's and so is the recording.
+        var change = await client.ChangeFilterAsync(wheel.DeviceUri, L, ct);
+        change.StatusCode.ShouldBe(409);
+        change.Error.ShouldNotBeNull().ShouldContain("a planetary sequence");
+        var record = await client.StartPlanetaryRecordingAsync(new PlanetaryRecordRequestDto { DurationSeconds = 5 }, ct);
+        (record.StatusCode, record.Error).ShouldBe((409, "A sequence is running: it records each of its steps itself"));
+
+        var ended = await UntilStateAsync(client, "the sequence to end", static s => s.Sequence is
+        {
+            Phase: PlanetarySequencePhase.Done or PlanetarySequencePhase.Failed or PlanetarySequencePhase.Stopped,
+        }, ct);
+        var done = ended.Sequence.ShouldNotBeNull();
+        (done.Phase, done.FailureReason, done.Set, done.Step).ShouldBe((PlanetarySequencePhase.Done, (string?)null, 2, 3));
+        done.Files.Length.ShouldBe(6);
+        done.Files.Select(Path.GetDirectoryName).Distinct().Count().ShouldBe(1, "a sequence's files are in one folder");
+        int[] filters = [R, G, B, R, G, B];
+        for (var i = 0; i < filters.Length; i++)
+        {
+            var file = done.Files[i];
+            Path.GetFileName(file).ShouldContain(FilterChange.NameOf(wheelDriver.Filters, filters[i]), Case.Sensitive, $"file {i + 1}");
+            using var ser = SerReader.Open(file);
+            ser.FrameCount.ShouldBe(5, Path.GetFileName(file));
+        }
+        (await wheelDriver.GetPositionAsync(ct)).ShouldBe(B, "the last step's filter");
+        (await focuserDriver.GetPositionAsync(ct) - luminanceFocus).ShouldBe(-15, "the focuser at blue's focus");
+        ended.Running.ShouldBeTrue("the capture streams on after its sequence");
+
+        // Given back as it ended.
+        var back = await client.ChangeFilterAsync(wheel.DeviceUri, L, ct);
+        back.IsSuccess.ShouldBeTrue(back.Error);
+        (await client.StopPlanetarySequenceAsync(ct)).StatusCode.ShouldBe(404, "nothing is running to stop");
+        (await client.StopPlanetaryAsync(ct)).IsSuccess.ShouldBeTrue();
+    }
 }

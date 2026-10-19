@@ -489,7 +489,7 @@ public class NodePlanetaryRateProbe(ITestOutputHelper output)
                 await SystemTimeProvider.Instance.SleepAsync(TimeSpan.FromMilliseconds(250), ct);
             }
             var cpu = HostCpuLoad.Start();
-            recorded = started.EndsUtc - started.StartedUtc;
+            recorded = started.EndsUtc.ShouldNotBeNull("the GUI's Record is for a time") - started.StartedUtc;
             output.WriteLine($"the GUI's Record started {recorded.TotalSeconds:F0} s to {started.Path}");
             png = Path.Combine(evidence, $"gui-planetary-live-{DateTime.Now:yyyyMMdd-HHmmss}.png");
             var shot = (Width: 0, Height: 0);

@@ -1,11 +1,13 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
@@ -105,8 +107,121 @@ internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSessio
         {
             return ResponseEnvelope<PlanetaryStateDto>.NotFound("No planetary capture is running");
         }
+        // A step's settings hold for its whole file; a pan and the recenter move no setting a file records.
+        if (run.IsSequencing && controls is { ExposureMs: not null } or { Gain: not null } or { BitDepth: not null } or { HighSpeed: not null }
+            or { RoiWidth: not null })
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.Fail(SequenceSetsTheStream, 409);
+        }
 
         run.Apply(controls);
+        return ResponseEnvelope<PlanetaryStateDto>.Ok(run.State);
+    }
+
+    /// <summary>What a control that would change a sequence's stream is told.</summary>
+    internal const string SequenceSetsTheStream = "A sequence is running: each step sets the exposure, gain, depth and window it records at. "
+        + "Pan and recenter as it runs, or stop the sequence first";
+
+    /// <summary>What a sequence's claim on the filter wheel and the focuser is called, which a refusal names.</summary>
+    internal const string SequenceOwner = "a planetary sequence";
+
+    /// <summary>
+    /// Starts a mono filter-wheel sequence on the capture going on (#1340, <see cref="PlanetarySequenceRunner"/>): each step's filter
+    /// turned in by the one filter change, its exposure, gain and depth set as the stream starts again, and one file recorded per
+    /// step, all of a run in one folder, named for the planet the mount points at and the step's filter. It claims the OTA's
+    /// wheel and connected focuser until it ends; the capture goes on streaming after it.
+    /// </summary>
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The claim is the sequence's, given back as it ends")]
+    public async Task<ResponseEnvelope<PlanetaryStateDto>> SequenceAsync(PlanetarySequenceRequestDto request, CancellationToken cancellationToken)
+    {
+        var steps = System.Collections.Immutable.ImmutableArray.CreateBuilder<PlanetarySequenceStep>(request.Steps.Length);
+        for (var i = 0; i < request.Steps.Length; i++)
+        {
+            if (!request.Steps[i].TryToStep(out var step, out var why))
+            {
+                return ResponseEnvelope<PlanetaryStateDto>.Fail($"Step {i + 1} {why}");
+            }
+            steps.Add(step);
+        }
+        if (!double.IsFinite(request.PauseSeconds))
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.Fail("A pause between sets needs a finite length");
+        }
+        var sequence = new PlanetarySequence(steps.MoveToImmutable(), request.Sets, TimeSpan.FromSeconds(request.PauseSeconds), request.UntilUtc);
+
+        if (hosted.CurrentRun is not NodePlanetaryRun { IsRunning: true } run)
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.NotFound("No planetary capture is running to take a sequence");
+        }
+        if (run.IsSequencing)
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.Fail("A sequence is already running on the planetary capture", 409);
+        }
+        if (hosted.ActiveProfileId is not { } profileId || await Profile.TryReadDataAsync(external, profileId, cancellationToken) is not { } data
+            || run.OtaIndex >= data.OTAs.Length)
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.Fail("The node has no active profile naming the capture's telescope", 409);
+        }
+
+        // The OTA's wheel and focuser, each only when connected, as a filter change takes them.
+        var ota = data.OTAs[run.OtaIndex];
+        IFilterWheelDriver? wheel = null;
+        Uri? wheelUri = null;
+        if (ota.FilterWheel is { Scheme: not "none" } named && hub.TryGetConnectedDriver<IFilterWheelDriver>(named, out var wheelDriver))
+        {
+            (wheel, wheelUri) = (wheelDriver, named);
+        }
+        if (sequence.Invalid(wheel?.Filters) is { } invalid)
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.Fail(ota.FilterWheel is { Scheme: not "none" } && wheel is null
+                ? $"{invalid}: its wheel is not connected"
+                : invalid);
+        }
+        FilterFocuser? focuser = null;
+        Uri? focuserUri = null;
+        if (wheel is not null && ota.Focuser is { Scheme: not "none" } focusing && hub.TryGetConnectedDriver<IFocuserDriver>(focusing, out var focuserDriver))
+        {
+            (focuser, focuserUri) = (FilterFocuser.Direct(focuserDriver, FocusDirection.Of(ota)), focusing);
+        }
+
+        // The wheel and the focuser are the sequence's until it ends: a job moving one, or a run holding it, refuses it now.
+        Uri[] claimed = [.. new[] { wheelUri, focuserUri }.OfType<Uri>()];
+        foreach (var device in claimed)
+        {
+            if (jobs.TryGetRunningOn(device, out var job))
+            {
+                return ResponseEnvelope<PlanetaryStateDto>.Fail($"The sequence needs {device.DeviceKey}: a {job.Kind} of it is running (job {job.Id})", 409);
+            }
+        }
+        DeviceLeaseSet? claim = null;
+        if (claimed.Length > 0 && !DeviceLeaseSet.TryAcquire(hub, claimed, SequenceOwner, out claim, out var verdict))
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.Fail($"The sequence cannot have its devices: {verdict.Describe()}", 409);
+        }
+
+        // Named for the planet the mount points at as it starts, and kept in the folder of the day it starts.
+        var started = timeProvider.GetUtcNow();
+        var (planet, _) = await run.IdentifyAsync(hub, logger, started, cancellationToken);
+        string PathFor(string? filter, DateTimeOffset utcNow)
+            => PlanetaryCapture.RecordingPath(external, run.OtaIndex, utcNow, planet, filter, folderDate: started);
+
+        if (!run.TryStartSequence(sequence, wheel, focuser, claim, PathFor, out var refusal))
+        {
+            claim?.Dispose();
+            return ResponseEnvelope<PlanetaryStateDto>.Fail(refusal, 409);
+        }
+        logger.LogInformation("Planetary sequence: {Sets} sets of {Steps} steps on {Camera}", sequence.Sets, sequence.Steps.Length, run.State.Camera);
+        return ResponseEnvelope<PlanetaryStateDto>.Accepted(run.State);
+    }
+
+    /// <summary>Stops the sequence going on, and answers once it has: the step's recording ends with the frames it has.</summary>
+    public async Task<ResponseEnvelope<PlanetaryStateDto>> StopSequenceAsync(CancellationToken cancellationToken)
+    {
+        if (hosted.CurrentRun is not NodePlanetaryRun run || !run.IsSequencing)
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.NotFound("No sequence is running");
+        }
+        await run.StopSequenceAsync(cancellationToken);
         return ResponseEnvelope<PlanetaryStateDto>.Ok(run.State);
     }
 
@@ -138,6 +253,10 @@ internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSessio
         {
             return ResponseEnvelope<PlanetaryStateDto>.NotFound("No planetary capture is running to record");
         }
+        if (run.IsSequencing)
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.Fail("A sequence is running: it records each of its steps itself", 409);
+        }
 
         var now = timeProvider.GetUtcNow();
         var (planet, filter) = await run.IdentifyAsync(hub, logger, now, cancellationToken);
@@ -155,6 +274,10 @@ internal sealed class NodePlanetary(IDeviceHub hub, NodeJobs jobs, IHostedSessio
         if (hosted.CurrentRun is not NodePlanetaryRun { IsRunning: true } run || run.Capture.Recording is not { IsRecording: true })
         {
             return ResponseEnvelope<PlanetaryStateDto>.NotFound("No recording is being made");
+        }
+        if (run.IsSequencing)
+        {
+            return ResponseEnvelope<PlanetaryStateDto>.Fail("The recording is a sequence's step: stop the sequence, which keeps the step's frames", 409);
         }
 
         run.Capture.StopRecording();
@@ -223,11 +346,83 @@ internal sealed class NodePlanetaryRun : INodeStreamingRun
     public NodeRunKind Kind => NodeRunKind.Planetary;
 
     /// <summary>
-    /// A live view: nobody watching is a camera held for nobody. Not while it RECORDS (P5 part 5d): a recording finishes
-    /// its duration unwatched, and the live view left after it has a whole grace of its own (<see cref="NodeRunWatch"/>
-    /// starts one when the run becomes interactive again).
+    /// A live view: nobody watching is a camera held for nobody. Not while it RECORDS (P5 part 5d) or runs a sequence (#1340):
+    /// a recording finishes its duration unwatched, a sequence its sets, and the live view left after either has a whole grace
+    /// of its own (<see cref="NodeRunWatch"/> starts one when the run becomes interactive again).
     /// </summary>
-    public bool EndsUnwatched => Capture.Recording is not { IsRecording: true };
+    public bool EndsUnwatched => Capture.Recording is not { IsRecording: true } && !IsSequencing;
+
+    // The sequence going on, or the last to end; one reference, replaced whole as the next starts.
+    private sealed record SequenceRun(PlanetarySequenceRunner Runner, CancellationTokenSource Stop, Task Done);
+
+    private SequenceRun? _sequence;
+    private int _sequencing;                       // 0/1: one sequence at a time, taken before one is made
+    private CancellationToken _runToken;
+
+    /// <summary>Whether a sequence runs on the capture now.</summary>
+    public bool IsSequencing => Volatile.Read(ref _sequencing) != 0;
+
+    /// <summary>
+    /// Starts <paramref name="sequence"/> on the capture (<see cref="PlanetarySequenceRunner"/>), its files where
+    /// <paramref name="pathFor"/> puts them; <paramref name="claim"/>, on the wheel and the focuser, is given back as it ends. Refused
+    /// in words while another runs or the capture does not.
+    /// </summary>
+    [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The token source lives with the sequence it stops")]
+    public bool TryStartSequence(PlanetarySequence sequence, IFilterWheelDriver? wheel, FilterFocuser? focuser, DeviceLeaseSet? claim,
+        Func<string?, DateTimeOffset, string> pathFor, [NotNullWhen(false)] out string? refusal)
+    {
+        if (!IsRunning || !Capture.IsCapturing)
+        {
+            refusal = "No planetary capture is streaming to take a sequence";
+            return false;
+        }
+        if (Interlocked.CompareExchange(ref _sequencing, 1, 0) != 0)
+        {
+            refusal = "A sequence is already running on the planetary capture";
+            return false;
+        }
+
+        // Linked to the run, so a run that ends stops its sequence. Never disposed: a later stop may still cancel it, and the
+        // link it holds goes with the run.
+        var stop = CancellationTokenSource.CreateLinkedTokenSource(_runToken);
+        var runner = new PlanetarySequenceRunner(Capture, wheel, focuser, _timeProvider, _logger);
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Volatile.Write(ref _sequence, new SequenceRun(runner, stop, done.Task));
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await runner.RunAsync(sequence, pathFor, stop.Token);
+            }
+            catch (OperationCanceledException ex) when (stop.IsCancellationRequested)
+            {
+                _logger.LogInformation(ex, "The planetary sequence was stopped");
+            }
+            catch (Exception ex)
+            {
+                // Its progress says why; the capture goes on.
+                _logger.LogWarning(ex, "The planetary sequence failed");
+            }
+            finally
+            {
+                claim?.Dispose();
+                Volatile.Write(ref _sequencing, 0);
+                done.TrySetResult();
+            }
+        }, CancellationToken.None);
+        refusal = null;
+        return true;
+    }
+
+    /// <summary>Stops the sequence going on and waits for it to have ended, its step's file closed.</summary>
+    public async Task StopSequenceAsync(CancellationToken cancellationToken)
+    {
+        if (Volatile.Read(ref _sequence) is { } sequence)
+        {
+            await sequence.Stop.CancelAsync();
+            await sequence.Done.WaitAsync(cancellationToken);
+        }
+    }
 
     /// <summary>The OTA whose camera streams.</summary>
     internal int OtaIndex => _otaIndex;
@@ -259,7 +454,7 @@ internal sealed class NodePlanetaryRun : INodeStreamingRun
         return (planet, filter);
     }
 
-    /// <summary>Starts recording what the capture streams (<see cref="PlanetaryCapture.TryStartRecording"/>).</summary>
+    /// <summary>Starts recording what the capture streams (<see cref="PlanetaryCapture.TryStartRecording(string, TimeSpan, out SerRecording?, out string?)"/>).</summary>
     public bool TryStartRecording(string path, TimeSpan duration, [NotNullWhen(false)] out string? refusal)
         => Capture.TryStartRecording(path, duration, out _, out refusal);
 
@@ -289,6 +484,7 @@ internal sealed class NodePlanetaryRun : INodeStreamingRun
                 RecenterActuator = Capture.LastRecenterActuator,
                 FailureReason = Capture.FailureReason,
                 Recording = Capture.Recording is { } recording ? PlanetaryRecordingDto.From(recording) : null,
+                Sequence = Volatile.Read(ref _sequence) is { } sequence ? PlanetarySequenceDto.From(sequence.Runner.Progress) : null,
             };
         }
     }
@@ -349,6 +545,7 @@ internal sealed class NodePlanetaryRun : INodeStreamingRun
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
+        _runToken = cancellationToken;
         try
         {
             if (!Capture.StartPrepared(cancellationToken))
@@ -359,6 +556,12 @@ internal sealed class NodePlanetaryRun : INodeStreamingRun
         }
         finally
         {
+            // A sequence ends before the capture under it, its step's file closed and its claim on the wheel given back.
+            if (Volatile.Read(ref _sequence) is { } sequence)
+            {
+                await sequence.Stop.CancelAsync();
+                await sequence.Done;
+            }
             // The stack has stopped reading the stream, so the capture may stop and let it go: the camera and its claim
             // are given back as the body ends.
             await Capture.DisposeAsync();
