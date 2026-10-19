@@ -710,11 +710,27 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     // an interlude starts it again where it was. The loop's own, written and read only on its thread.
     private VideoCaptureOptions _streamOptions = new(MinExposure);
 
-    // The stream's one claim: the recording armed on it (a SerRecording, free again once it has ended), or the interlude asked
-    // for and not yet finished (an InterludeRequest, taken between two frames by the loop, cleared by whoever finishes it), or
-    // null. A recording and an interlude each take it through TryClaimStream, one compare-and-swap, so of two asked for at
-    // once exactly one has the stream and the other is told why; a recording is the loop's to append to only once it holds it.
-    private object? _streamUse;
+    // The stream's one claim (StreamUse), or null. A recording and an interlude each take it through TryClaimStream, one
+    // compare-and-swap, so of two asked for at once exactly one has the stream and the other is told why; a recording is the
+    // loop's to append to only once it holds it.
+    private StreamUse? _streamUse;
+
+    // What holds the stream's claim: a recording being made (its writer not started yet, so one that loses the claim starts
+    // nothing), the recording armed on it (free again once it has ended), or the interlude asked for and not yet finished (taken
+    // between two frames by the loop, cleared by whoever finishes it). Closed: these three and nothing else.
+    private abstract class StreamUse
+    {
+        private protected StreamUse() { }
+
+        /// <summary>A recording being made: the claim is held while its file and writer are set up.</summary>
+        public sealed class RecordingStarting : StreamUse;
+
+        /// <summary>The recording armed on the stream.</summary>
+        public sealed class Recording(SerRecording recording) : StreamUse
+        {
+            public SerRecording Value => recording;
+        }
+    }
     private int _framesDroppedAfterInterludes;
     private long _interludeTicks;                  // the time the current capture's stream stood stopped for interludes
 
@@ -732,25 +748,25 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     private string NotStreaming(string what) => $"No {Name} is streaming, so {what} has no stream to stop";
 
     // Why the stream's claim, as `use` holds it, refuses an interlude for `what`; null when it is free.
-    private string? InterludeRefusalFor(object? use, string what) => use switch
+    private string? InterludeRefusalFor(StreamUse? use, string what) => use switch
     {
-        SerRecording { IsRecording: true } => $"A recording is being made: {what} would stop the stream it is made from, and put frames "
-            + "from before and after it in one file. Stop the recording, or let it end, first",
+        StreamUse.RecordingStarting or StreamUse.Recording { Value.IsRecording: true } => $"A recording is being made: {what} would stop "
+            + "the stream it is made from, and put frames from before and after it in one file. Stop the recording, or let it end, first",
         InterludeRequest other => $"The {Name} stops its stream for {other.Interlude.What}; {what} waits until that is done",
         _ => null,
     };
 
     // Why the stream's claim, as `use` holds it, refuses a recording; null when it is free.
-    private string? RecordingRefusalFor(object? use) => use switch
+    private string? RecordingRefusalFor(StreamUse? use) => use switch
     {
-        SerRecording { IsRecording: true } => "A recording is already being made",
+        StreamUse.RecordingStarting or StreamUse.Recording { Value.IsRecording: true } => "A recording is already being made",
         InterludeRequest interlude => $"The {Name} stops its stream for {interlude.Interlude.What}; record once it streams again",
         _ => null,
     };
 
-    // Takes the stream's one claim for `claimant`, an armed recording or an interlude, unless what holds it refuses (`refusalFor`):
-    // the one place the two are put in order. Retried only when the claim changed between its read and the swap.
-    private bool TryClaimStream(object claimant, Func<object?, string?> refusalFor, [NotNullWhen(false)] out string? refusal)
+    // Takes the stream's one claim for `claimant`, a recording being made or an interlude, unless what holds it refuses
+    // (`refusalFor`): the one place the two are put in order. Retried only when the claim changed between its read and the swap.
+    private bool TryClaimStream(StreamUse claimant, Func<StreamUse?, string?> refusalFor, [NotNullWhen(false)] out string? refusal)
     {
         while (true)
         {
@@ -966,7 +982,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
 
     // One interlude from its asking to its end. Done answers null once the stream is back, a refusal in words, or the
     // action's failure; Done's continuations never run on the reader.
-    private sealed class InterludeRequest(PlanetaryInterlude interlude, CancellationToken callerToken)
+    private sealed class InterludeRequest(PlanetaryInterlude interlude, CancellationToken callerToken) : StreamUse
     {
         private const int Pending = 0, Taken = 1, Withdrawn = 2;
         private int _state;
@@ -1098,18 +1114,30 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
             return false;
         }
 
-        var now = timeProvider.GetUtcNow();
-        // The header names the camera and the telescope, so the recording's best stack knows the optics (#1179).
-        var made = new SerRecording(path, now, now + duration, logger, Camera?.Name, Volatile.Read(ref _telescopeField),
-            streamed: Camera is { } camera && Streams(camera));
-        // Armed only once it holds the stream's one claim, the claim an interlude takes too: the loop never appends to a
-        // recording that lost it, so a refused one ends with no frame and no file, and the last one to end stays the one a
-        // host reads.
-        if (!TryClaimStream(made, RecordingRefusalFor, out refusal))
+        // The stream's one claim, the claim an interlude takes too, is taken BEFORE the recording is made: a recording starts
+        // its writer as it is made, so one that lost the claim would start a writer thread and log an empty file. Held as
+        // "starting" while it is made, which refuses an interlude and a second recording alike, then handed to the recording.
+        var starting = new StreamUse.RecordingStarting();
+        if (!TryClaimStream(starting, RecordingRefusalFor, out refusal))
         {
-            made.End("another took the stream first");
             return false;
         }
+
+        SerRecording made;
+        try
+        {
+            var now = timeProvider.GetUtcNow();
+            // The header names the camera and the telescope, so the recording's best stack knows the optics (#1179).
+            made = new SerRecording(path, now, now + duration, logger, Camera?.Name, Volatile.Read(ref _telescopeField),
+                streamed: Camera is { } camera && Streams(camera));
+        }
+        catch
+        {
+            Interlocked.CompareExchange(ref _streamUse, null, starting);
+            throw;
+        }
+        // Nothing else can take a claim held as starting, so this swap is the recording's.
+        Interlocked.CompareExchange(ref _streamUse, new StreamUse.Recording(made), starting);
         _recording = made;
         recording = made;
         logger.LogInformation("Planetary capture recording to {Path} for {Duration}", path, duration);
