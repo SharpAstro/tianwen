@@ -343,30 +343,44 @@ public sealed class InjectionPopulation
                 : RandomPosition(x0, y0, x1, y1, rng);
             if (at is { } p)
             {
-                ImmutableArray<double> amplitudes;
-                ImmutableArray<double> clips;
-                ImmutableArray<Lobe> lobes = [];
-                if (_saturated.Length > 0)
-                {
-                    var drawn = _saturated[rng.Next(_saturated.Length)];
-                    (amplitudes, clips, lobes) = (drawn.Amplitudes, drawn.Clips, drawn.Lobes);
-                }
-                else
-                {
-                    // No saturated star of its own to copy: clip at the fallback level, a real star's colour taken past it.
-                    fallback = true;
-                    clips = _fallbackClips;
-                    var colour = _amplitudes[rng.Next(_amplitudes.Length)].Amplitudes;
-                    var peak = colour.Max();
-                    var over = 2.0 + rng.NextDouble() * 18.0;
-                    var target = clips.Max() * over;
-                    amplitudes = colour.Select(a => peak > 0 ? a / peak * target : target).ToImmutableArray();
-                }
-                stars.Add(new InjectedStar(p.X, p.Y, amplitudes, ProfilesAt(p.X, p.Y, family), Saturated: true, clips));
-                AddLobes(stars, p, lobes, family);
+                var drawn = DrawSaturated(rng, out fallback);
+                stars.Add(new InjectedStar(p.X, p.Y, drawn.Amplitudes, ProfilesAt(p.X, p.Y, family), Saturated: true, drawn.Clips));
+                AddLobes(stars, p, drawn.Lobes, family);
             }
         }
         return new InjectionPlan(stars.ToImmutable(), requested, placed, fallback);
+    }
+
+    /// <summary>
+    /// One star's brightness and colour drawn from the master's own pools, as <see cref="Plan"/> draws them, for a caller that
+    /// places its stars itself (a synthetic cluster, <see cref="SyntheticClusterScene"/>): an unsaturated star's amplitudes per
+    /// channel with no clip levels, or with <paramref name="saturated"/> a saturated star's amplitudes and clip levels.
+    /// </summary>
+    public (ImmutableArray<double> Amplitudes, ImmutableArray<double> Clips) DrawBrightness(Random rng, bool saturated)
+    {
+        if (saturated)
+        {
+            var drawn = DrawSaturated(rng, out _);
+            return (drawn.Amplitudes, drawn.Clips);
+        }
+        return (_amplitudes[rng.Next(_amplitudes.Length)].Amplitudes, ImmutableArray<double>.Empty);
+    }
+
+    // A saturated star from the pool, or with no saturated star of its own to copy a real star's colour taken past the
+    // fallback clip level (fallback true).
+    private PoolStar DrawSaturated(Random rng, out bool fallback)
+    {
+        if (_saturated.Length > 0)
+        {
+            fallback = false;
+            return _saturated[rng.Next(_saturated.Length)];
+        }
+        fallback = true;
+        var colour = _amplitudes[rng.Next(_amplitudes.Length)].Amplitudes;
+        var peak = colour.Max();
+        var over = 2.0 + rng.NextDouble() * 18.0;
+        var target = _fallbackClips.Max() * over;
+        return new PoolStar(colour.Select(a => peak > 0 ? a / peak * target : target).ToImmutableArray(), _fallbackClips, []);
     }
 
     // A drawn star's lobes beside it, at their own offsets, each with the profile of where it lands; one that would land off
