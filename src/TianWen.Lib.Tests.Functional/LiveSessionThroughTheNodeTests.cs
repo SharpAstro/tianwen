@@ -91,6 +91,23 @@ public class LiveSessionThroughTheNodeTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task AHeldMoveIsTheNodesLeasedMoveAxisAndTheReleaseStopsIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var h = await GuiNodeHarness.StartAsync(output, ct);
+        h.Hub.TryGetConnectedDriver<IMountDriver>(h.MountUri, out var mount).ShouldBeTrue();
+        var mountDriver = mount.ShouldNotBeNull();
+
+        h.Post(new StartMountMoveSignal(GuideDirection.West, 1));
+        await NodeWait.UntilAsync<string>("the mount moving", async token => (await mountDriver.IsSlewingAsync(token) ? "moving" : null, "still"), ct);
+
+        h.Post(new StopMountMoveSignal());
+        await NodeWait.UntilAsync<string>("the mount stopped", async token => (await mountDriver.IsSlewingAsync(token) ? null : "stopped", "moving"), ct);
+        await h.UntilSettledAsync(ct);
+        h.AppState.Notifications.ShouldNotContain(n => n.Severity >= NotificationSeverity.Warning);
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task ASolveOfAnOtaWithNoFrameIsRefusedByTheNodeAndTheButtonComesBack()
     {
         var ct = TestContext.Current.CancellationToken;

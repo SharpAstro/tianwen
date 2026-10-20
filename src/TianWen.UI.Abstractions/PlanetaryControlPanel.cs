@@ -102,7 +102,8 @@ public sealed class PlanetaryControlPanel
     private int _deadbandIdx = 1;                 // 4 px
     private static readonly int[] RecenterGainPresetsPct = [10, 25, 50, 75, 100];
     private int _gainIdx = 2;                      // 50%
-    private const double MountNudgeArcsec = 30.0;  // manual N/S/E/W nudge step
+    // The held move's speed, an index into MountJog.SiderealMultiples: 1x, the handset's speed 1.
+    private int _moveSpeedIdx = 1;
 
     // The panel's scroll, for where its rows outgrow the room it is given. The engine states what it scrolls over each frame,
     // and a wheel over the panel moves it (the router asks the region the scrolled stack registers); a bar shows that it does.
@@ -351,12 +352,23 @@ public sealed class PlanetaryControlPanel
                     PanelFontSize * 0.8f, DimText, TextAlign.Near, TextAlign.Center)
                 .RowH(BaseRowHeight * 0.8f));
         }
+        // The mount moved while a button is held (the owner, 2026-10-20), at a speed in multiples of sidereal: the slow ones ride
+        // on tracking as a guide pulse does, so a held button never leaves the mount untracked.
+        var speedStyle = new Layout.ButtonGroupStyle(CheckOnBg, StepBtnBg, HeaderText, DimText, GuiTheme.Hover(StepBtnBg));
+        var speeds = new Layout.ButtonGroupOption<int>[MountJog.SiderealMultiples.Length];
+        for (var i = 0; i < speeds.Length; i++)
+        {
+            speeds[i] = new Layout.ButtonGroupOption<int>(i, SpeedLabel(MountJog.SiderealMultiples[i])) { Hit = new HitResult.ButtonHit($"MoveSpeed{i}") };
+        }
+        rows.Add(Layout.Builder.ButtonGroup<int>(speeds, _moveSpeedIdx, chosen => _moveSpeedIdx = chosen, speedStyle, PanelFontSize * 0.9f)
+            .RowH(BaseRowHeight));
+        var speed = MountJog.SiderealMultiples[_moveSpeedIdx];
         rows.Add(Layout.Builder.HStack(
-                RowLabel("Nudge"),
-                MountNudgeButton("N", "MountNudgeN", GuideDirection.North, bus),
-                MountNudgeButton("S", "MountNudgeS", GuideDirection.South, bus),
-                MountNudgeButton("E", "MountNudgeE", GuideDirection.East, bus),
-                MountNudgeButton("W", "MountNudgeW", GuideDirection.West, bus))
+                RowLabel("Move"),
+                MountMoveButton("N", "MountMoveN", GuideDirection.North, speed, bus),
+                MountMoveButton("S", "MountMoveS", GuideDirection.South, speed, bus),
+                MountMoveButton("E", "MountMoveE", GuideDirection.East, speed, bus),
+                MountMoveButton("W", "MountMoveW", GuideDirection.West, speed, bus))
             .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f));
 
         // --- Find section (#1684): the planet the capture is for, and where the mount really points, from a full-sensor still the
@@ -758,12 +770,19 @@ public sealed class PlanetaryControlPanel
             .RowH(BaseRowHeight);
     }
 
-    // A single-glyph mount-nudge button (manual coarse recenter / framing): posts the same JogMountSignal / pulse-guide actuator
-    // the COM recenter loop uses for its edge-blocked fallback.
-    private static Layout.Node MountNudgeButton(string glyph, string id, GuideDirection direction, SignalBus? bus)
+    // A mount move button: the press starts the move and holds it, the release (wherever the pointer is let go) stops it.
+    private static Layout.Node MountMoveButton(string glyph, string id, GuideDirection direction, double speed, SignalBus? bus)
         => Layout.Builder.Text(glyph, PanelFontSize, ButtonText, TextAlign.Center, TextAlign.Center)
             .WStar().HStar().Bg(JogBg).BgHover(GuiTheme.Hover(JogBg))
-            .Clickable(new HitResult.ButtonHit(id), _ => bus?.Post(new JogMountSignal(direction, MountNudgeArcsec)));
+            .Pressable(new HitResult.ButtonHit(id), _ =>
+            {
+                bus?.Post(new StartMountMoveSignal(direction, speed));
+                return new DragCapture(static _ => { }, _ => bus?.Post(new StopMountMoveSignal()));
+            });
+
+    // "0.5x", "1x", "32x": a speed as the choice shows it.
+    internal static string SpeedLabel(double multiple)
+        => multiple.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + "x";
 
     // The recenter the panel shows, handed to the capture (staged only when it changed).
     private void PushRecenter(NodePlanetaryCapture capture)

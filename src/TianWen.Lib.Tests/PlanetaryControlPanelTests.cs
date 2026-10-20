@@ -115,6 +115,8 @@ public class PlanetaryControlPanelTests
             _bus.Subscribe<StartPlanetarySequenceSignal>(s => Posted.Add(s));
             _bus.Subscribe<StopPlanetarySequenceSignal>(s => Posted.Add(s));
             _bus.Subscribe<FindPlanetSignal>(s => Posted.Add(s));
+            _bus.Subscribe<StartMountMoveSignal>(s => Posted.Add(s));
+            _bus.Subscribe<StopMountMoveSignal>(s => Posted.Add(s));
             _bus.Subscribe<FindPlanetGoSignal>(s => Posted.Add(s));
             _bus.Subscribe<UseMeasuredFocalLengthSignal>(s => Posted.Add(s));
             if (capturing)
@@ -348,7 +350,7 @@ public class PlanetaryControlPanelTests
         using var rig = new Rigged(scale, capturing: true, Saturn1780, height: 2400);
         var column = rig.Host.WidthsOf(PlanetaryControlPanel.LabelWidthSample).ShouldHaveSingleItem();
 
-        foreach (var label in new[] { "Exp", "Gain", "Depth", "Size", "Pan", "Deadband", "Nudge", "Sets" })
+        foreach (var label in new[] { "Exp", "Gain", "Depth", "Size", "Pan", "Deadband", "Move", "Sets" })
         {
             var widths = rig.Host.WidthsOf(label);
             widths.ShouldNotBeEmpty($"the panel labels a row {label}");
@@ -560,17 +562,28 @@ public class PlanetaryControlPanelTests
     }
 
     [Theory]
-    [InlineData("MountNudgeN", GuideDirection.North)]
-    [InlineData("MountNudgeS", GuideDirection.South)]
-    [InlineData("MountNudgeE", GuideDirection.East)]
-    [InlineData("MountNudgeW", GuideDirection.West)]
-    public void AMountNudgePostsItsDirection(string action, GuideDirection direction)
+    [InlineData("MountMoveN", GuideDirection.North)]
+    [InlineData("MountMoveS", GuideDirection.South)]
+    [InlineData("MountMoveE", GuideDirection.East)]
+    [InlineData("MountMoveW", GuideDirection.West)]
+    public void AMountMoveButtonStartsOnPressAndStopsOnRelease(string action, GuideDirection direction)
     {
         using var rig = new Rigged(1f, capturing: false);
 
-        rig.Press(action);
+        rig.Press(action);   // a press and its release, through the router
 
-        rig.Posted.ShouldBe([new JogMountSignal(direction, 30.0)]);
+        rig.Posted.ShouldBe([new StartMountMoveSignal(direction, 1), new StopMountMoveSignal()], "1x, the handset's speed 1, until chosen");
+    }
+
+    [Fact]
+    public void TheMoveIsAtTheSpeedChosen()
+    {
+        using var rig = new Rigged(1f, capturing: false);
+
+        rig.Press("MoveSpeed2");   // 2x
+        rig.Press("MountMoveW");
+
+        rig.Posted.ShouldBe([new StartMountMoveSignal(GuideDirection.West, 2), new StopMountMoveSignal()]);
     }
 
     /// <summary>A moving focuser is marked by drawn carets, never a symbol character in the text run, which Night cannot tint.</summary>

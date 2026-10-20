@@ -458,6 +458,13 @@ public readonly record struct StopPlanetaryRecordingSignal;
 /// </summary>
 public readonly record struct JogMountSignal(GuideDirection Direction, double Arcsec);
 
+/// <summary>Moves the mount in <paramref name="Direction"/> at <paramref name="SiderealMultiple"/> times sidereal until a
+/// <see cref="StopMountMoveSignal"/> (a held button, 2026-10-20), riding on tracking where the mount tracks.</summary>
+public readonly record struct StartMountMoveSignal(GuideDirection Direction, double SiderealMultiple);
+
+/// <summary>Ends the held move going on: the button was let go of.</summary>
+public readonly record struct StopMountMoveSignal;
+
 /// <summary>
 /// Open the F3 sky-map search modal. Posted from the sky-map tab's key handler;
 /// subscriber wires up callbacks and lazy-builds the catalog index.

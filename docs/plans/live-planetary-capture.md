@@ -1177,6 +1177,19 @@ the start's settings for ever. Now:
   (`PlanetaryCaptureController.SettingsApplied`, "Planetary capture at 640x360, 5 ms, gain 810"), never what a click staged.
 - Pinned by `PlanetaryReadoutTests` and `PlanetaryReadoutsThroughTheNodeTests` (10 to 5 ms through the GUI and the node).
 
+### The mount moved while a button is held (2026-10-20)
+
+The owner, at the panel: "Hold to move. Works great with slew speed 1 and 2 on the Skywatcher (they should behave more
+like guide pulses, i.e. not stop tracking when moving)". The RECENTER section's Nudge row (one 30 arcsec guide pulse a
+press) became a speed choice (0.5x, 1x, 2x, 8x, 32x sidereal, `MountJog.SiderealMultiples`; 1x first, the handset's
+speed 1) and four buttons that move while held: the press starts the node's LEASED move-axis (`MountMover`, renewed
+every 500 ms inside its 2 s lease, so a client that dies mid-hold leaves nothing running), the release stops it. The
+directions are the pulse's (`MountJog.AxisRateFor`: West faster than tracking, North the Dec motor forward), East and
+West flipped below the equator as tracking is. On a tracking Skywatcher the RA move rides on tracking and its stop
+restores it: `docs/architecture/skywatcher-protocol.md`, "An RA move on a tracking mount rides on tracking". Pinned by
+`SkywatcherMoveAxisOverTrackingTests`, `AHeldMoveIsTheNodesLeasedMoveAxisAndTheReleaseStopsIt` and the panel's presses;
+a night at the bench is owed (the handset comparison at speeds 1 and 2).
+
 ### Phase G: a mono filter-wheel sequence
 
 **Issues:** #1344 (the Record control, first), #1340 (the sequence).
