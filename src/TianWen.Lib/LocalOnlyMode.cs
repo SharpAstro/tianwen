@@ -26,35 +26,30 @@ namespace TianWen.Lib;
 /// </list>
 /// The DEBUG inspectors are left alone: from DIR.Lib 11.21 their default discovery is a socket-free file registry, and
 /// turning it off would take the app out of that registry as well.
+/// <para>
+/// The type is Node.Lib's <see cref="LocalOnlyMode"/>, shared with pilot's node (it was lifted from here). What is tianwen's
+/// own lives on it as static extension members: <c>TIANWEN_LOCAL_ONLY</c>, and the per-process decision read once.
+/// </para>
 /// </summary>
-public sealed record LocalOnlyMode(bool IsOn)
+public static class TianWenLocalOnly
 {
-    /// <summary>Set to <c>1</c> (or <c>true</c>) to make a process, and any node it starts, local-only.</summary>
-    public const string EnvironmentVariable = "TIANWEN_LOCAL_ONLY";
-
-    /// <summary>The server's command-line switch for the same mode, which a client passes to a node it starts.</summary>
-    public const string Argument = "--local-only";
-
-    public static LocalOnlyMode Off { get; } = new LocalOnlyMode(false);
-
-    public static LocalOnlyMode On { get; } = new LocalOnlyMode(true);
+    private const string Variable = "TIANWEN_LOCAL_ONLY";
 
     // Frozen on first access, like the data root: a process is in the mode for its whole life or not at all.
-    private static readonly LocalOnlyMode _fromEnvironment = FromEnvironmentValue(Environment.GetEnvironmentVariable(EnvironmentVariable));
+    private static readonly LocalOnlyMode _fromEnvironment = LocalOnlyMode.FromValue(Environment.GetEnvironmentVariable(Variable));
 
-    /// <summary>
-    /// This process's mode: its environment's, or on when <paramref name="toldOnTheCommandLine"/> (the server's
-    /// <see cref="Argument"/>). A client has no command line for it and asks with none.
-    /// </summary>
-    public static LocalOnlyMode OfThisProcess(bool toldOnTheCommandLine = false) => toldOnTheCommandLine ? On : _fromEnvironment;
+    extension(LocalOnlyMode)
+    {
+        /// <summary>Set to <c>1</c> (or <c>true</c>) to make a process, and any node it starts, local-only.</summary>
+        public static string EnvironmentVariable => Variable;
 
-    /// <summary>The mode <see cref="EnvironmentVariable"/>'s value asks for: on for <c>1</c> or <c>true</c>, off for anything else.</summary>
-    internal static LocalOnlyMode FromEnvironmentValue(string? value) =>
-        value?.Trim() is { } set && (set == "1" || set.Equals("true", StringComparison.OrdinalIgnoreCase)) ? On : Off;
+        /// <summary>
+        /// This process's mode: its environment's, or on when <paramref name="toldOnTheCommandLine"/> (the server's
+        /// <see cref="LocalOnlyMode.Argument"/>). A client has no command line for it and asks with none.
+        /// </summary>
+        public static LocalOnlyMode OfThisProcess(bool toldOnTheCommandLine = false) => toldOnTheCommandLine ? LocalOnlyMode.On : _fromEnvironment;
 
-    /// <summary>
-    /// Whether this process may bind a network address that is not loopback: listen on the LAN, join a multicast group,
-    /// or broadcast. The one question every such site asks.
-    /// </summary>
-    public bool MayBindTheNetwork => !IsOn;
+        /// <summary>The mode <see cref="EnvironmentVariable"/>'s value asks for: on for <c>1</c> or <c>true</c>, off for anything else.</summary>
+        internal static LocalOnlyMode FromEnvironmentValue(string? value) => LocalOnlyMode.FromValue(value);
+    }
 }

@@ -15,7 +15,7 @@ namespace TianWen.Hosting;
 /// <param name="SocketPath">The socket to listen on, as a full path: <c>--socket</c>, else <see cref="NodeSocket.DefaultPath"/>.</param>
 /// <param name="Port">The TCP port for the LAN, <c>--port</c> (1888).</param>
 /// <param name="LocalOnly"><c>--local-only</c>, or <c>TIANWEN_LOCAL_ONLY=1</c> folded in by the server
-/// (<see cref="TianWen.Lib.LocalOnlyMode"/>): the socket and nothing else, so no other machine can reach the node and it
+/// (<see cref="Node.Lib.LocalOnlyMode"/>): the socket and nothing else, so no other machine can reach the node and it
 /// announces nothing; its device sources skip their WiFi discovery (Alpaca asks loopback alone), and it does not connect a
 /// WiFi Skywatcher mount, the one device reached over UDP.</param>
 /// <param name="Keeper"><c>--keeper</c>: this process is the node's KEEPER, not the node. It starts the node, waits
