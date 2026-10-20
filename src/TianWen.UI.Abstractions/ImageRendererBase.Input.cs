@@ -302,8 +302,9 @@ namespace TianWen.UI.Abstractions
 
             // SER transport keys take priority while a sequence is loaded -- they deliberately claim
             // Space / arrows / Home / End / Up / Down (Up/Down would otherwise step the file list) for
-            // playback. Seeks route through state.RequestedFrame so decode stays off the render thread.
-            if (state.IsSequence && !ctrl && HandleTransportKey(key, state))
+            // playback. Seeks route through state.RequestedFrame so decode stays off the render thread. A live capture
+            // has nothing to play or seek (#1716), so it claims none of them.
+            if (state.IsSequence && !state.IsLiveCapture && !ctrl && HandleTransportKey(key, state))
             {
                 state.NeedsRedraw = true;
                 return true;
