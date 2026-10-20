@@ -13,7 +13,7 @@ public class CircularBufferTests
     [Fact]
     public void Keeps_the_most_recent_items_oldest_first()
     {
-        var buffer = new CircularBuffer<int>(3);
+        var buffer = new TianWen.Lib.Sequencing.CircularBuffer<int>(3);
         for (var i = 1; i <= 5; i++)
         {
             buffer.Add(i);
@@ -30,7 +30,7 @@ public class CircularBufferTests
     [Fact]
     public void The_window_counts_every_item_ever_added_and_Clear_keeps_the_count()
     {
-        var buffer = new CircularBuffer<int>(3);
+        var buffer = new TianWen.Lib.Sequencing.CircularBuffer<int>(3);
         for (var i = 1; i <= 5; i++)
         {
             buffer.Add(i);
@@ -50,7 +50,7 @@ public class CircularBufferTests
     [Fact]
     public void Snapshot_is_stable_across_later_adds()
     {
-        var buffer = new CircularBuffer<int>(3);
+        var buffer = new TianWen.Lib.Sequencing.CircularBuffer<int>(3);
         buffer.Add(1);
         buffer.Add(2);
 
@@ -67,7 +67,7 @@ public class CircularBufferTests
     [Fact]
     public void Clear_empties_and_the_ring_refills()
     {
-        var buffer = new CircularBuffer<int>(3);
+        var buffer = new TianWen.Lib.Sequencing.CircularBuffer<int>(3);
         buffer.Add(1);
         buffer.Add(2);
         buffer.Add(3);

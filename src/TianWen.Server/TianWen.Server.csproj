@@ -39,6 +39,8 @@
   <!-- Node.Lib's NodeLock and Kestrel hosting (through TianWen.Hosting), written global::. -->
   <ItemGroup>
     <Using Include="Node.Lib" />
+    <!-- Node.Lib 1.1 has a LocalOnlyMode too (lifted from this one); the bare name means tianwen's, as before. -->
+    <Using Include="TianWen.Lib.LocalOnlyMode" Alias="LocalOnlyMode" />
     <Using Include="Node.Lib.Hosting" />
   </ItemGroup>
 
