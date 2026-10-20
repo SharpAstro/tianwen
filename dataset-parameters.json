@@ -55,6 +55,14 @@
     {
       "session": "ZWO-ASI294MM/Luminance/Large-Magellanic-Cloud/2021-12-11|ZWO ASI294MM|LMC 4min LUM|Luminance",
       "reason": "No flat on disk fits it. Its only flat is the Orion 2021-11-28 APP master, borrowed from 13 days earlier, and it over-corrects this night's corners by about 2 % (corner against edge +1.7 to +2.5 %). The train's vignette changed between 2021-11-28 and 2021-12-29: the 12-29 and 2022-01-01 flats agree to 0.1 % with each other and are 6 to 7 % shallower than 11-28's at the corners and the left and right edges. Its dark is borrowed too (the 12-29 set, 18 days later, a pairing never measured). The RGB scope of the same dual-scope night has its own flat and stays in. Held out of training. The owner's call, 2026-10-12."
+    },
+    {
+      "session": "SVBONY-SV605CC/Optolong-L-Quad-Enhance/Sculptor-Galaxy/2026-09-12|SVBONY SV605CC|Sculptor Galaxy|Optolong L-Quad Enhance",
+      "reason": "The owner's call (2026-10-20): October's Sculptor trains and September's is held out, so the models are scored on a galaxy field they never saw: NGC 253's disk and nucleus on a dark sky, the field the star-remover checks of 2026-10-20 were built on (flux taken, field light kept, Gaia completeness and purity). Its hash bucket would have put it in training. It also carries the owner's 34 BAD_ cloud labels, kept for the cloud detectors."
+    },
+    {
+      "session": "SVBONY-SV605CC/Optolong-L-Quad-Enhance/Tarantula-Nebula/2026-10-17|SVBONY SV605CC|Tarantula Nebula|Optolong L-Quad Enhance",
+      "reason": "The star remover's crowded-field test: the LMC around 30 Doradus, a dense cluster on unresolved galaxy light, where the checks of 2026-10-20 measured StarXTerminator and our models (holes and leftovers, flux taken, field light kept, Gaia completeness and purity). Training on it would void that measurement, and the 2025-10-18 night of the same field through the same camera and filter is already a test session by its bucket, so this keeps the field on one side of the split. Its own bucket would have put it in training. The owner's call, 2026-10-20 (\"We can hold it out, good call\")."
     }
   ],
   "excludedSessions": [
