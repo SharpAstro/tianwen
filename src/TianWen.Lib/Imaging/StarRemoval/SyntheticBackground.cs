@@ -57,6 +57,10 @@ public sealed class SyntheticBackground
     /// <summary>The knots a cell holds, on average (Poisson).</summary>
     public const double KnotsPerCell = 3.0;
 
+    /// <summary>The cell <see cref="KnotsPerCell"/> is a mean over, its side in pixels: the exporter's. A cut of another size
+    /// asked for knots by area (<see cref="Cell"/>'s <c>knotsByArea</c>) holds <see cref="KnotsPerCell"/> per such cell.</summary>
+    public const int KnotCellPx = 256;
+
     /// <summary>The faintest and brightest knot's peak, in the cell's noise sigma.</summary>
     public const double KnotMinSigma = 5.0, KnotMaxSigma = 200.0;
 
@@ -797,10 +801,14 @@ public sealed class SyntheticBackground
     /// none are drawn. With an <paramref name="energyInset"/> the texture's energy is matched to the amplitude maps over the
     /// cell less a border that wide only: the part of a wider cut a caller shows (a synthetic cluster scene's tile, drawn
     /// wider for its rotation and matched over the whole cut, put 0.64 of the energy asked into the scene's own 16 px band).
+    /// With <paramref name="knotsByArea"/> the knot count is <see cref="KnotsPerCell"/> per <see cref="KnotCellPx"/> px cell of
+    /// the cut's area, not per cut: a 1,453 px tile asked per cut held three knots where the exporter's cells put about a
+    /// hundred.
     /// </summary>
     public float[][] Cell(int x0, int y0, int size, ReadOnlySpan<double> noiseSigma, Random random, out ImmutableArray<Knot> knots,
-        bool withKnots = true, int energyInset = 0)
+        bool withKnots = true, int energyInset = 0, bool knotsByArea = false)
     {
+        var knotCells = knotsByArea ? (double)size * size / (KnotCellPx * KnotCellPx) : 1.0;
         var texture = TextureScales(x0, y0, size, random);
         var planes = new float[Channels][];
         for (var c = 0; c < Channels; c++)
@@ -816,7 +824,9 @@ public sealed class SyntheticBackground
             }
             planes[c] = plane;
         }
-        knots = !withKnots ? [] : NebulaKnots ? AddNebulaKnots(planes, x0, y0, size, noiseSigma, random) : AddKnots(planes, size, noiseSigma, random);
+        knots = !withKnots ? []
+            : NebulaKnots ? AddNebulaKnots(planes, x0, y0, size, noiseSigma, random, knotCells)
+            : AddKnots(planes, size, noiseSigma, random, knotCells);
         return planes;
     }
 
@@ -1231,10 +1241,10 @@ public sealed class SyntheticBackground
     // The knots: a Poisson count, each round and wider than the PSF or elongated, inside the cell's 16 px rim, its peak per
     // channel a log-uniform draw in noise sigma: up to KnotMaxSigma, or with BrightKnotsWide up to BrightKnotSigma where the
     // knot is narrower than BrightKnotMinWidths PSF widths (the same draws either way, so the option moves no other knot).
-    private ImmutableArray<Knot> AddKnots(float[][] planes, int size, ReadOnlySpan<double> noiseSigma, Random random)
+    private ImmutableArray<Knot> AddKnots(float[][] planes, int size, ReadOnlySpan<double> noiseSigma, Random random, double knotCells = 1.0)
     {
         var psfSigma = Fwhm / 2.3548;
-        var count = Poisson(KnotsPerCell, random);
+        var count = Poisson(KnotsPerCell * knotCells, random);
         var knots = ImmutableArray.CreateBuilder<Knot>(count);
         for (var k = 0; k < count; k++)
         {
@@ -1292,7 +1302,8 @@ public sealed class SyntheticBackground
     // rejection on rho (none where it is zero); its peak a log-uniform NebulaKnotMin to NebulaKnotMax times T_c, channel
     // by channel, so its colour is the nebula's there; its shapes D3's, an elongated one laid along the local contour where
     // a steer gives an orientation, at a random angle otherwise. BrightKnotsWide still caps a compact one.
-    private ImmutableArray<Knot> AddNebulaKnots(float[][] planes, int x0, int y0, int size, ReadOnlySpan<double> noiseSigma, Random random)
+    private ImmutableArray<Knot> AddNebulaKnots(float[][] planes, int x0, int y0, int size, ReadOnlySpan<double> noiseSigma, Random random,
+        double knotCells = 1.0)
     {
         var psfSigma = Fwhm / 2.3548;
         var channels = planes.Length;
@@ -1332,7 +1343,7 @@ public sealed class SyntheticBackground
                 samples++;
             }
         }
-        var count = Poisson(KnotsPerCell * (samples > 0 ? rhoSum / samples : 0), random);
+        var count = Poisson(KnotsPerCell * knotCells * (samples > 0 ? rhoSum / samples : 0), random);
         var knots = ImmutableArray.CreateBuilder<Knot>(count);
         for (var k = 0; k < count; k++)
         {

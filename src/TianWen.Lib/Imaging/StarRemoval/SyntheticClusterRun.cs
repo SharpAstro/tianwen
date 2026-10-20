@@ -81,7 +81,9 @@ public sealed record SyntheticClusterRun(
         var (sky, noise, resample, ratio) = SyntheticClusterSource.MeasureSkyAndNoise(plate, absent);
         var noiseBands = SyntheticClusterSource.NoiseBandRms(noise, resample, SyntheticClusterScene.NebulaKeepFromScale);
         var region = SyntheticClusterScene.NebulaRegion(Base, master.Width, master.Height);
-        var background = SyntheticBackground.Build(nebulaPlate, nebulaAbsent, field.Luminance.Fwhm, steering: SyntheticClusterScene.NebulaSteer,
+        // Its knots, when the spec asks for them, are the generator's own: nebula knots, a compact one held faint.
+        var background = SyntheticBackground.Build(nebulaPlate, nebulaAbsent, field.Luminance.Fwhm, brightKnotsWide: true,
+            steering: SyntheticClusterScene.NebulaSteer, nebulaKnots: true,
             largeScale: new SyntheticBackground.LargeScale(SyntheticClusterScene.NebulaKeepFromScale, NebulaTextureFromScale,
                 region.X0, region.Y0, region.Size, noiseBands, NebulaLogNormalWidth));
         var nebulaSky = NebulaPlatePath is null ? null : SyntheticClusterSource.MeasureSkyAndNoise(nebulaPlate, nebulaAbsent).Sky;
@@ -116,13 +118,18 @@ public sealed record SyntheticClusterRun(
                     Write(render.StarlessNoisy, spec.Size, master, Path.Combine(OutDir, name + "_starless_noisy.fits"));
                     Write(render.Unresolved, spec.Size, master, Path.Combine(OutDir, name + "_unresolved.fits"));
                     await File.WriteAllTextAsync(Path.Combine(OutDir, name + "_truth.csv"), TruthCsv(render.Truth), cancellationToken);
+                    if (spec.NebulaKnots && nebula > 0)
+                    {
+                        await File.WriteAllTextAsync(Path.Combine(OutDir, name + "_knots.csv"), KnotsCsv(render.Knots), cancellationToken);
+                    }
                     var w = new Written(name, composite, render.Truth.Length, render.GlowStars, render.StarFlux, render.GlowFlux, render.SurfaceFlux);
                     written.Add(w);
                     var groups = string.Join(", ", render.Groups.Select(static gr => string.Create(CultureInfo.InvariantCulture,
                         $"({gr.X:F0}, {gr.Y:F0}, {gr.HalfLightPx:F1}, {gr.ResolvedStars}, {gr.UnresolvedLight:F3}, {(gr.Smooth ? "smooth" : "stars")})")));
+                    var knotsShown = spec.NebulaKnots && nebula > 0 ? $", {render.Knots.Length} of its knots in the scene" : "";
                     progress?.Report(string.Create(CultureInfo.InvariantCulture,
                         $"{name}: {w.Stars} resolved stars, {w.GlowStars} unresolved; star light {Join(w.StarFlux, "G4")}, unresolved stars {Join(w.GlowFlux, "G4")}, " +
-                        $"their smooth surface {Join(w.SurfaceFlux, "G4")}; nebula from ({render.NebulaAt.X}, {render.NebulaAt.Y}); " +
+                        $"their smooth surface {Join(w.SurfaceFlux, "G4")}; nebula from ({render.NebulaAt.X}, {render.NebulaAt.Y}){knotsShown}; " +
                         $"groups (x, y, half-light px, resolved stars, unresolved light, where that light is) {groups}"));
                 }
             }
@@ -131,6 +138,19 @@ public sealed record SyntheticClusterRun(
     }
 
     private static string Join(double[] values, string format) => string.Join(" / ", values.Select(v => v.ToString(format, CultureInfo.InvariantCulture)));
+
+    /// <summary>A scene's knots, one row each: the centre in scene pixels, the Gaussian's major and minor sigma (pixels), the
+    /// major axis's angle (degrees) and the peak per channel.</summary>
+    internal static string KnotsCsv(ImmutableArray<SyntheticBackground.Knot> knots)
+    {
+        var sb = new StringBuilder("x,y,sigma_major,sigma_minor,angle_deg,peak_r,peak_g,peak_b\n");
+        foreach (var k in knots)
+        {
+            sb.Append(CultureInfo.InvariantCulture,
+                $"{k.X:F3},{k.Y:F3},{k.SigmaMajorPx:F4},{k.SigmaMinorPx:F4},{k.AngleRad * 180.0 / Math.PI:F2},{string.Join(",", k.Peak.Select(p => p.ToString("G6", CultureInfo.InvariantCulture)))}\n");
+        }
+        return sb.ToString();
+    }
 
     private static string TruthCsv(ImmutableArray<ClusterTruthStar> truth)
     {
