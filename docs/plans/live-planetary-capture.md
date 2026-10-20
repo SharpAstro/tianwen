@@ -1187,8 +1187,10 @@ every 500 ms inside its 2 s lease, so a client that dies mid-hold leaves nothing
 directions are the pulse's (`MountJog.AxisRateFor`: West faster than tracking, North the Dec motor forward), East and
 West flipped below the equator as tracking is. On a tracking Skywatcher the RA move rides on tracking and its stop
 restores it: `docs/architecture/skywatcher-protocol.md`, "An RA move on a tracking mount rides on tracking". Pinned by
-`SkywatcherMoveAxisOverTrackingTests`, `AHeldMoveIsTheNodesLeasedMoveAxisAndTheReleaseStopsIt` and the panel's presses;
-a night at the bench is owed (the handset comparison at speeds 1 and 2).
+`SkywatcherMoveAxisOverTrackingTests`, `AHeldMoveIsTheNodesLeasedMoveAxisAndTheReleaseStopsIt` and the panel's presses.
+
+**Issue:** #1711 (bench): the handset comparison at speeds 1 and 2 on the real mount, the release resuming tracking, and a
+client that dies mid-hold.
 
 ### Phase G: a mono filter-wheel sequence
 
