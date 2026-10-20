@@ -393,6 +393,27 @@ and replace the long master's pixels where they near clipping with the scaled sh
 edge shows. The long master's headroom is known from its subs (the camera's full scale less the bias), so "near clipping"
 is a level, not a guess. The output keeps the long master's linear scale and says what it merged in its header.
 
+### M. Drizzle at 1.5x and 2x
+
+Tracked by #1699. `DrizzleStrategy` is Bayer drizzle onto the reference frame's own grid: `DrizzleOptions.OutputScale`
+is a deci-int built for 15 and 20, and anything but 10 throws `NotSupportedException`. A finer output grid is what
+drizzle exists for on undersampled data: the Samyang 135 on an ASI533 samples its stars at 2.1 px FWHM (5.98 arcsec/px),
+the SV545 on a QHY294C at 2.5 px. It needs the canvas sized by the scale, each drop's centre and its `pixfrac` extent
+in output pixels (a source pixel spans 1.5 or 2 output pixels), the coverage and rejection maps at that size, the WCS
+written for the finer grid, and the frame-count floor revisited, since a finer grid needs more dithered drops per cell.
+
+### N. Drizzle onto a common target grid: the drop's footprint follows the transform
+
+Tracked by #1700. `DrizzleKernel` maps each source pixel's CENTRE through the frame's affine transform and deposits a
+fixed `pixfrac` square in output pixels. That is exact only while source and output pixels are one size, which holds
+today because a light group is one camera and filter and registers to its own reference. Real drizzle maps the pixel's
+footprint (its four corners) and deposits on the overlap, so a frame at another plate scale, or another rig's frame,
+lands with its true area and flux. With it, subs from rigs of different scales could drizzle onto one target grid (the
+owner's Samyang 135 at 5.98 arcsec/px and SH61 at 2.87, 2.09 apart) instead of being integrated apart and resampled as
+masters (`image align`). This is the push side of what [wcs-reprojection](wcs-reprojection.md) § "Relationship to
+drizzle" keeps separate from its pull-based reprojection of finished masters; a target grid shared by several rigs
+also needs registration across groups (each group registers to its own reference today).
+
 ## Phasing
 
 CLI-first: end-to-end pipeline shipped as `tianwen stack` before any GUI work.
