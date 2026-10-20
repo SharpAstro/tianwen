@@ -23,9 +23,12 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// <param name="Optics">The optics to render.</param>
 /// <param name="Nebulae">The nebula strengths to render.</param>
 /// <param name="Rotations">The sky rotations to render, degrees.</param>
+/// <param name="PoolMargin">With a margin of 0 or more, the stars are drawn from the catalogue's stars inside the scene's
+/// window in the frame grown by that many pixels, so the scene takes its own part of the field's brightness and colour (the
+/// LMC's young clusters are bluer than the frame's average); below 0, from the whole frame.</param>
 public sealed record SyntheticClusterRun(
     string MasterPath, string PlatePath, string OutDir, SyntheticClusterSpec Base,
-    ImmutableArray<ClusterOptics> Optics, ImmutableArray<double> Nebulae, ImmutableArray<double> Rotations)
+    ImmutableArray<ClusterOptics> Optics, ImmutableArray<double> Nebulae, ImmutableArray<double> Rotations, int PoolMargin = -1)
 {
     /// <summary>One written scene.</summary>
     public sealed record Written(string Name, string CompositePath, int Stars, int GlowStars, double[] StarFlux, double[] GlowFlux);
@@ -47,6 +50,12 @@ public sealed record SyntheticClusterRun(
         var catalogue = await StarlessCatalogue.ReadAsync(StarlessCatalogue.PathFor(platesDir, stem), cancellationToken);
         var field = await StarlessFieldProfile.ReadAsync(StarlessFieldProfile.PathFor(platesDir, stem), cancellationToken)
             ?? throw new InvalidOperationException($"no field profile beside {PlatePath}; run tianwen dataset starless-plates --profiles-only");
+        if (PoolMargin >= 0)
+        {
+            var (x0, y0) = (Base.FrameX - PoolMargin, Base.FrameY - PoolMargin);
+            var (x1, y1) = (Base.FrameX + Base.Size + PoolMargin, Base.FrameY + Base.Size + PoolMargin);
+            catalogue = [.. catalogue.Where(s => s.X >= x0 && s.X < x1 && s.Y >= y0 && s.Y < y1)];
+        }
         var absent = plate.AbsentPixels();
         var psf = field.Channels.Select(static c => (c.Fwhm, c.Beta)).ToArray();
         var population = InjectionPopulation.Build(catalogue, master, plate, 1.0, psf, absent, field);
