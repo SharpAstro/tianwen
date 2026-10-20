@@ -149,6 +149,46 @@ class ThreePartObjective(unittest.TestCase):
         self.assertAlmostEqual(fe.mean(), 0.125, delta=0.01)
 
 
+class CompactCache(unittest.TestCase):
+    """--prepare --compact writes only the slots the cells fill: a one-draw cluster export packs into two slots a cell, the
+    tiles and planes as the export wrote them."""
+
+    def test_a_one_draw_export_packs_into_two_slots(self):
+        import subprocess
+        import sys
+        rng = np.random.default_rng(4)
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as cache:
+            rows, written = [], {}
+            for session in ("synthetic-cluster|m|s0001|measured", "synthetic-cluster|m|s0010|measured"):
+                slug = session.replace("|", "_")
+                os.makedirs(os.path.join(root, "tiles", slug))
+                for frame in ("master", "deg000"):
+                    rel = f"tiles/{slug}/x0_y0_{frame}.f16"
+                    tile = rng.random((S.CH, S.TILE, S.TILE)).astype("<f2")
+                    tile.tofile(os.path.join(root, rel))
+                    rng.random((S.TILE, S.TILE)).astype("<f2").tofile(os.path.join(root, S.sigma_path_for(rel)))
+                    written[(session, frame)] = tile
+                    rows.append({"Tile": rel, "SessionId": session, "Frame": frame, "CellX": 0, "CellY": 0})
+            with open(os.path.join(root, "tiles-manifest.jsonl"), "w", encoding="utf-8") as fh:
+                fh.write("".join(json.dumps(r) + "\n" for r in rows))
+            for name, session in (("train.txt", "synthetic-cluster|m|s0001|measured"), ("val.txt", "synthetic-cluster|m|s0010|measured")):
+                with open(os.path.join(root, name), "w", encoding="utf-8") as fh:
+                    fh.write(session + "\n")
+            here = os.path.dirname(os.path.abspath(__file__))
+            done = subprocess.run([sys.executable, os.path.join(here, "n2n_smoke.py"), "--prepare", "--compact", "--root", root, "--cache", cache,
+                                   "--train-from-list", os.path.join(root, "train.txt"), "--val-from-list", os.path.join(root, "val.txt"),
+                                   "--cells-per-session", "16", "--val-cells-per-session", "16"], capture_output=True, text=True, cwd=here)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            meta = json.load(open(os.path.join(cache, "meta.json"), encoding="utf-8"))
+            self.assertEqual((meta["slots"], meta["draws"], meta["train_cells"], meta["val_cells"]), (2, 1, 1, 1))
+            self.assertEqual(os.path.getsize(os.path.join(cache, "tiles.f16")), 2 * 2 * S.CH * S.TILE * S.TILE * 2)
+            mm = S.open_tiles(cache, meta)
+            np.testing.assert_array_equal(mm[0, 0], written[("synthetic-cluster|m|s0001|measured", "master")])
+            np.testing.assert_array_equal(mm[0, 1], written[("synthetic-cluster|m|s0001|measured", "deg000")])
+            np.testing.assert_array_equal(mm[1, 1], written[("synthetic-cluster|m|s0010|measured", "deg000")])
+            del mm
+
+
 class Refusals(unittest.TestCase):
     def test_an_extra_cache_of_real_subs_is_refused(self):
         with tempfile.TemporaryDirectory() as cache:
