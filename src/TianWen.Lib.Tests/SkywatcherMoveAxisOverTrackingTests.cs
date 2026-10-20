@@ -78,8 +78,10 @@ public class SkywatcherMoveAxisOverTrackingTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 30_000)]
-    public async Task EastAtOneSiderealHoldsTheFieldStillWithoutStoppingTheAxis()
+    public async Task EastAtOneSiderealHaltsTheAxisAgainstTheGroundWithoutAStop()
     {
+        // Tracking cancelled: the mount stands still against the ground, so the sky drifts through the view at sidereal, which is
+        // the East move at 1x. The axis is not stopped (no :K, no transient): it creeps at a thousandth of sidereal.
         var ct = TestContext.Current.CancellationToken;
         var (driver, serial) = await ConnectAsync(48.2, tracking: true, ct);
         var stopsBefore = Stops(serial);
