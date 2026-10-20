@@ -3074,6 +3074,65 @@ the canonical program splits the stars instead of running whole-frame; its views
 the measured quality step); and CLAUDE.md's "none ship and none are registered" rewritten with it. Core protection
 (`--protect-cores`, #1658) applies to it as to any remover.
 
+#### R2q: R2p's recipe with synthetic crowded clusters beside synth4, pre-registered (2026-10-21)
+
+Written before it trains, on the owner's word of 2026-10-21 ("start the training both local and Azure"). Tracked by #1338.
+R2p was trained on synth4 alone: single injected stars on real plates, with no crowded cluster and no unresolved glow in
+any tile. On the held-out crowded field, the SV605CC Tarantula of 2026-10-17 (held out on 2026-10-20 for exactly this
+test), it takes the cores and leaves the halos: measured before this run by `remover-check2.py` and
+`gaia-remover-check.py`, the checks of 2026-10-20, at one view:
+
+| R2p on the held-out Tarantula 2026-10-17 | 20-100 sigma | 100-1000 sigma | over 1000 sigma |
+|---|---|---|---|
+| dark sky: flat / light left | 58.3 / 40.6 % | 29.6 / 68.3 % | 7.9 / 90.4 % |
+| crowded (3 or more within 15 px): flat | 70.2 % | | |
+| Gaia: removed over half, BP 13-15 / 15-17 / 17-19 | 97.3 / 96.4 / 79.5 % | | |
+| Gaia purity: stars-layer light away from every Gaia star | 0.7 % | | |
+
+**The data.** The synthetic crowded clusters (the section on them carries the generator, its gates and the owner's calls
+of 2026-10-20 and 21): 90 skies drawn from the training-side ZWO ASI585MC Tarantula of 2024-10-02, never the held-out
+masters, in measured and lateral optics, a nebula in 61 of them, 16 cells a scene. That is 2,880 input tiles, 14.9 % of
+synth4's 19,360: 2,592 for training and 288 held out, every tenth seed held out whole. The window sits on the crowded LMC
+field clear of R136 at every rotation (the first window, beside it, printed black holes into 61 skies' nebula).
+
+**The arm.** R2p's recipe exactly (R2i's, two levels, patience 24, cap 480,000, `--teacher` E5 on every synth4 draw, a
+resume checkpoint every 2,000 steps), with one switch:
+
+- `--extra-cache r2-clusters-cache`: the cluster tiles join the training draw by their share of the input tiles (12.5 %
+  beside synth4's 18,080 training tiles). A cluster tile regresses onto its own truth, the starless scene with the SAME noise
+  draw as its input (input less target is the stars' light and their own shot noise only, synth4's convention); its loss
+  mask is all ones, since its truth holds no star a plate kept and its knots must be kept. synth4 draws keep E5's answer.
+- The held-out objective reads the truth on both caches and is logged in three parts: synth4, clusters, and the two
+  combined by share (0.875 / 0.125). The schedule stops on the combined one.
+
+Seed 0 trains on the 1070; seed 1 on an Azure spot T4 under the owner's guards (its driver deletes the VM, disk and network
+once it has fetched and loaded the weights). Without `--extra-cache` the trainer is bit-identical to R2p's (40 steps, 30
+of 30 tensors).
+
+**The bars** are the line's same-store spread (1.3 / 0.8 / 4.3 points clean at 5-20 / 20-100 / 100-1000 sigma), with
+4.3 points for any brightness class of a real master, whose own seed spread is not measured.
+
+**Predictions**, seed 0 at one view:
+
+1. The crowded field improves: on the held-out Tarantula, crowded stars flat on at least 74.5 % (R2p's 70.2 plus 4.3), and
+   dark-sky stars at 100-1000 sigma flat on at least 33.9 % (29.6 plus 4.3).
+2. Nothing else is taken for it: Gaia purity at most 1.0 % of the stars layer, and BP 17-19 removed on at least 77.5 %.
+3. A's draws hold within the spread of R2p: at least 79.3 / 76.4 / 61.5 % clean.
+4. Real bright stars (`r2-real-val`, 100-1000 sigma) flat on at least R2i's 96.4 %.
+5. M31's nucleus stays: at most 5 % of the central 6 px in every channel.
+6. The owner's three regression masters (`C:/temp/startnet2`: Andromeda, the Sagittarius Triplet in OIII, and the third)
+   do not regress, read by `owner-regression-read.py` against R2p's baseline of 2026-10-21: dark-sky stars at 100-1000
+   sigma flat on at least 35.0 % on Andromeda (R2p 39.3) and 94.5 % on the Sagittarius Triplet (R2p 98.8), and the crops
+   no worse by the owner's eye.
+
+**Read, not predicted:** the blue dig at bright stars on colour masters (on Andromeda R2p's dug stars sit at -0.75 sigma
+in blue and above zero in red and green; on the mono Triplet it digs none), R2q's own eight views, the clusters' share of
+the held-out objective, and seed 1 against seed 0, which is this arm's own spread.
+
+**Kill:** prediction 1 missing means the cluster tiles do not carry to a real crowded field, and the line keeps R2p. Any of
+3 to 6 missing means R2q is not shippable whatever 1 says; which costs are acceptable is then the owner's call.
+**What it decides:** whether synthetic crowded fields with an exact truth teach a remover what real crowded fields need.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
