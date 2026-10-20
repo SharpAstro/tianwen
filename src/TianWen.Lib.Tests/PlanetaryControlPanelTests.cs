@@ -60,8 +60,20 @@ public class PlanetaryControlPanelTests
             => [.. GetCapturedLayout().Where(arranged => arranged.Node is Layout.Node.Leaf { Content: Layout.Content.Text { Value: var value } } && value == text)
                 .Select(static arranged => arranged.Bounds.Width)];
 
-        /// <summary>How wide <paramref name="text"/> draws at the panel's font size, measured as the paint measures it.</summary>
-        public float MeasuredWidth(string text) => MeasureContext().MeasureText(text, GuiTheme.Metrics.BaseFontSize).Width;
+        /// <summary>
+        /// What the paint drew for every text leaf reading <paramref name="text"/>: its run fitted to the box the engine arranged
+        /// for it, by the painter's own fit (<see cref="TextFit.ForWidth"/>, under the run's own trim), so a cut label reads
+        /// "Dead..." here as it did on screen.
+        /// </summary>
+        public IReadOnlyList<string> PaintedAs(string text)
+        {
+            var context = MeasureContext();
+            return [.. GetCapturedLayout()
+                .Where(arranged => arranged.Node is Layout.Node.Leaf { Content: Layout.Content.Text { Value: var value } } && value == text)
+                .Select(arranged => ((Layout.Content.Text)((Layout.Node.Leaf)arranged.Node).Content, arranged.Bounds.Width))
+                .Select(run => TextFit.ForWidth(Renderer, run.Item1.Value, context.FontPath, context.Fallback,
+                    run.Item1.FontSize * context.FontScale, run.Width, run.Item1.Trim).Text)];
+        }
 
         /// <summary>Presses the control <paramref name="action"/> names the way a click arrives, through the router, where it was painted.</summary>
         public void Press(string action)
@@ -334,13 +346,13 @@ public class PlanetaryControlPanelTests
     {
         // A fixed 52 design units cut "Deadband" to "Dead..." and the Nudge row's 40 cut "Nudge" to "Nu..." (2026-10-20).
         using var rig = new Rigged(scale, capturing: true, Saturn1780, height: 2400);
-        var column = rig.Host.MeasuredWidth(PlanetaryControlPanel.LabelWidthSample);
+        var column = rig.Host.WidthsOf(PlanetaryControlPanel.LabelWidthSample).ShouldHaveSingleItem();
 
         foreach (var label in new[] { "Exp", "Gain", "Depth", "Size", "Pan", "Deadband", "Nudge", "Sets" })
         {
             var widths = rig.Host.WidthsOf(label);
             widths.ShouldNotBeEmpty($"the panel labels a row {label}");
-            widths.ShouldAllBe(width => width >= rig.Host.MeasuredWidth(label) - 0.5f, $"{label} fits its column");
+            rig.Host.PaintedAs(label).ShouldAllBe(painted => painted == label, $"{label} is painted whole");
             if (label != "Sets")
             {
                 // Sets shares its row with Add step, so its label takes only its own width.
