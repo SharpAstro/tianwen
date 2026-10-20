@@ -67,7 +67,7 @@ selector can reference both the RC wrappers and the `Onnx*` fallbacks.
 | `RcAstroEnhancerBase` | FITS round-trip: `Image.WriteToFitsFile` -> `cli.RunAsync` -> `Image.TryReadFitsFile`; temp-file lifecycle; progress -> logger. |
 | `RcAstroStarRemover : IStarRemover` (sxt) | The product's default `-o` output IS the starless plate; the pipeline derives stars-only itself. sxt's `--stars` output is defined (per `sxt --help`) as "original minus starless" = the pipeline's additive split (both clamp negatives), and `--stars --unscreen` = the pipeline's Screen split -- so neither flag adds information, just a duplicate plate + file round-trip. sxt has NO star-mask output; derive one from the stars plate (`Binarize` + `GaussianBlur`). |
 | `RcAstroDenoiser : IDenoiseEnhancer` (nxt) | Noise-adaptive `--dn` (see below). |
-| `RcAstroNonStellarDeconvolver : INonStellarDeconvolver` (bxt) | Runs on the starless plate and passes `--sn` only. `--ansp` (auto nonstellar PSF) defaults true: the CLI estimates ONE PSF diameter in pixels from the stars (`--nsd` is the manual value, range 0 to 8); there is no kernel or shape input, the network learns shape. `--ss` and `--ash` are no-ops on a starless plate. |
+| `RcAstroNonStellarDeconvolver : INonStellarDeconvolver` (bxt) | Runs on the starless plate and passes `--sn` only. `--ansp` (auto nonstellar PSF) defaults true and estimates the PSF "from stars in the image", which a starless plate does not have: see [the starless BlurX pass](#the-starless-blurx-pass-has-no-stars-to-measure). `--nsd` is the manual value, one diameter in pixels (0 to 8); there is no kernel or shape input. `--ss` and `--ash` are no-ops on a starless plate. |
 | `DeferredEnhancer` (+ `DeferredStarRemover`/`DeferredDenoiser`/`DeferredNonStellarDeconvolver`) | Proxy that makes the RC-vs-SAS choice (and its blocking license probe) on the FIRST `EnhanceAsync`, not at DI registration/resolution. So composing/building a service collection -- even resolving `SharpenPipeline` -- spawns no `rc-astro` process; only the first actual enhancement does (cached). |
 | `AddRcAstroAi()` | Calls `AddTianWenAi()` for the SAS baseline, then `Replace`s each RC-servable role with its deferred proxy (RC when present+licensed -> else the concrete `Onnx*` singleton). |
 
@@ -88,6 +88,32 @@ result on its input's scale); the enhance pipeline's deblur step does not yet, w
 [#1270](https://github.com/SharpAstro/tianwen/issues/1270), since a headroom there hands the later steps a plate whose
 peak is above 1.
 
+## The starless BlurX pass has no stars to measure
+
+`RcAstroNonStellarDeconvolver` hands BlurX the STARLESS plate with the automatic PSF, which BlurX estimates "from
+stars in the image". It runs where it is the only deconvolution (`--ai-backend tianwen`, whose whole-frame deblur
+waits on a stated kernel) and where `--deconv-blend` asks for it after a whole-frame BlurX. BlurX reports no PSF
+(nothing in its `--json` events or the FITS header) and is deterministic, so what it used was read by comparing its
+automatic run with fixed diameters (`--no-ansp --nsd`, 0.5 to 6 px), per 300 px tile, as the share of its own change
+the closest fixed diameter still misses (Tarantula, SV605CC, 2026-10-17; CLI 2.6.9, `--sn 0.90`):
+
+| Plate | Diameters the tiles pick | Median miss, each tile its own diameter | Tiles within 0.10 |
+|---|---|---|---|
+| The master, with its stars | 2.0 to 3.5 px, median 2.5 | 0.17 | 12 % |
+| The starless plate | 0.5 to 6.0 px | 0.57 | none |
+
+- **With stars the automatic PSF is the image's**: about 2.5 px against a median FWHM of 2.36 px over 2,435 stars by
+  Tianwen's measurer. It is not one diameter, though, not even per tile, so it conditions on more than `--nsd` states.
+- **Without stars it is no PSF at all**: some regions act like no sharpening, others like 6 px or more, and nothing
+  fixed comes within 0.27 of it anywhere. It changed the plate 1.68 times as much as `--nsd 2.4` as the only
+  deconvolution, and 1.48 times as much as a second pass after a whole-frame BlurX, where it turned 30 Doradus's dust
+  lanes dark brown and crunchy.
+- **A second pass after a whole-frame BlurX deconvolves the nebula twice**, so even the right diameter double-counts;
+  the canonical program leaves it out when a deblur ran (`DeconvolveStarless` needs `!Deblur`).
+
+Open: measure the stars' median FWHM before star removal and pass it as `--nsd`, and decide what the step does when
+there are no stars: [#1704](https://github.com/SharpAstro/tianwen/issues/1704).
+
 ## Parameters
 
 CLI defaults move between versions. When this was written (`rc-astro <product> --json`) **every
@@ -98,7 +124,7 @@ own either way, and passes only what it sets:
 | Product | Wrapper default |
 |---------|-----------------|
 | sxt | CLI defaults (star removal is unconditional). |
-| bxt | `--sn 0.90` only; `--ansp` (auto nonstellar PSF) defaults true, and `--ss` / `--ash` are no-ops on the starless plate so are not passed. |
+| bxt | `--sn 0.90` only; `--ansp` (auto nonstellar PSF) defaults true, which on a starless plate reads no PSF ([#1704](https://github.com/SharpAstro/tianwen/issues/1704)), and `--ss` / `--ash` are no-ops on the starless plate so are not passed. |
 | nxt | `--it 2`, `--dn` auto from noise (0.7-0.95), heavier for noisier input. |
 
 **Noise-adaptive denoise** (matches the "heavier denoise on short integration"
