@@ -56,6 +56,11 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     // _pulseGuideInFlight, raised before the first write and lowered after the stop.
     private int _raPulseOnStoppedAxis;
 
+    // 1 while an RA move-axis runs ON TOP of tracking (a held button on a tracking mount), so its stop resumes tracking rather than
+    // stopping the axis: ASCOM's MoveAxis(0) returns the mount to the tracking it had. Raised before the move's first write, cleared
+    // by the stop, by tracking turned off, and by a slew.
+    private int _raMoveOverTracking;
+
     /// <summary>
     /// Most recent RA encoder reading (steps from home), refreshed by
     /// <see cref="GetRightAscensionAsync"/> via the protocol's <c>j 1</c>
@@ -212,13 +217,16 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     public bool CanMoveAxis(TelescopeAxis axis) => axis is TelescopeAxis.Primary or TelescopeAxis.Seconary;
 
+    // The held-button speeds come from MountJog, ONE list, so the node's rate check and the driver cannot disagree on a double.
     private static readonly AxisRate[] _axisRates =
     [
-        new AxisRate(SIDEREAL_RATE / 3600.0 * 0.125), // 0.125x sidereal (guide)
-        new AxisRate(SIDEREAL_RATE / 3600.0),           // 1x sidereal
-        new AxisRate(SIDEREAL_RATE / 3600.0 * 8),       // 8x
+        new AxisRate(SIDEREAL_RATE / 3600.0 * 0.125),   // 0.125x sidereal (guide)
+        new AxisRate(MountJog.RateDegPerSec(0.5)),      // 0.5x
+        new AxisRate(MountJog.RateDegPerSec(1)),        // 1x sidereal
+        new AxisRate(MountJog.RateDegPerSec(2)),        // 2x
+        new AxisRate(MountJog.RateDegPerSec(8)),        // 8x
         new AxisRate(SIDEREAL_RATE / 3600.0 * 16),      // 16x
-        new AxisRate(SIDEREAL_RATE / 3600.0 * 32),      // 32x (slew)
+        new AxisRate(MountJog.RateDegPerSec(32)),       // 32x (slew)
         new AxisRate(3.0),                               // ~720x (fast slew)
     ];
 
@@ -278,12 +286,15 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprRa, siderealDegPerSec, false, _highSpeedRatio);
 
             var status = await QueryAxisStatusAsync('1', cancellationToken);
-            if (status.IsRunning && status.IsTracking && status.IsForward == !south)
+            if (status.IsRunning && status.IsTracking && status.IsForward == !south && !status.IsHighSpeed)
             {
                 // Already running at a constant-speed rate in the tracking direction
                 // (e.g. firmware auto-resumed tracking after a GOTO): change only the
                 // step period: GSS AxisSlew's rateChangeOnly path. Re-sending :G here
-                // would be rejected by real firmware (!2 motor not stopped).
+                // would be rejected by real firmware (!2 motor not stopped). Only in the
+                // LOW-speed func: a high-speed run reads the same :I at the high-speed
+                // ratio, so a sidereal period there tracks 16x too fast while every status
+                // says tracking (found holding a button at the fast slew, 2026-10-20).
                 await SendCommandAsync('I', '1', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
             }
             else
@@ -299,6 +310,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         }
         else
         {
+            Volatile.Write(ref _raMoveOverTracking, 0);
             await SendCommandAsync('K', '1', null, cancellationToken); // decelerate stop RA
         }
     }
@@ -501,6 +513,8 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     public virtual async ValueTask BeginSlewRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
     {
         EnsureEquatorialAlignment("Slewing to RA/Dec");
+        // A slew ends any move riding on tracking: the goto resumes tracking itself.
+        Volatile.Write(ref _raMoveOverTracking, 0);
 
         if (_cprRa == 0 || _cprDec == 0)
         {
@@ -606,6 +620,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         // Disarm any pending iterative-goto refinement FIRST -- an abort must not be
         // followed by a refinement pass chasing the cancelled target.
         _gotoTargetRa = double.NaN;
+        Volatile.Write(ref _raMoveOverTracking, 0);
         // Instant stop both axes
         await SendCommandAsync('L', '1', null, cancellationToken);
         await SendCommandAsync('L', '2', null, cancellationToken);
@@ -644,6 +659,12 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             throw new InvalidOperationException($"Axis {axis} is not supported");
         }
 
+        if (axis is TelescopeAxis.Primary && (Volatile.Read(ref _raMoveOverTracking) == 1 || (rate != 0.0 && await IsTrackingAsync(cancellationToken))))
+        {
+            await MoveRaOverTrackingAsync(rate, cancellationToken);
+            return;
+        }
+
         if (rate == 0.0)
         {
             await SendCommandAsync('K', axisChar, null, cancellationToken);
@@ -673,6 +694,70 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, cpr, absRate, highSpeed, _highSpeedRatio);
         await SendCommandAsync('I', axisChar, SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
         await SendCommandAsync('J', axisChar, null, cancellationToken);
+    }
+
+    /// <summary>
+    /// The fastest an RA move riding on tracking runs in the low-speed slew func, in multiples of sidereal: GSServer's
+    /// <c>LowSpeedMargin</c> (<c>128 * SiderealRate</c>, GS.SkyWatcher/SkyWatcher.cs). Below it the move keeps the func tracking runs
+    /// in, so a held button changes only the step period, as a pulse does.
+    /// </summary>
+    internal const double OverTrackingLowSpeedMarginSidereal = 128;
+
+    /// <summary>
+    /// An RA move on a tracking mount, the rate ADDED to tracking (the owner, 2026-10-20: the handset's slow speeds behave like guide
+    /// pulses and tracking never stops). A combined rate that keeps the axis turning the tracking way at low speed changes only the
+    /// step period, live, as an RA pulse does: no stop, no :G, which real firmware refuses mid-motion. One that reverses the axis (East
+    /// faster than sidereal) or needs high speed stops it and starts it again, the way GSServer's unbounded pulse had to. Rate 0
+    /// returns the axis to sidereal tracking, the restore VERIFIED as a pulse's is, since a lost one tracks at the move's rate all night.
+    /// </summary>
+    private async ValueTask MoveRaOverTrackingAsync(double rate, CancellationToken cancellationToken)
+    {
+        var south = IsSouthernHemisphere;
+        var trackingForward = !south;
+        var siderealDegPerSec = SIDEREAL_RATE / 3600.0;
+
+        if (rate == 0.0)
+        {
+            var status = await QueryAxisStatusAsync('1', cancellationToken);
+            if (status.IsRunning && status.IsTracking && status.IsForward == trackingForward && !status.IsHighSpeed)
+            {
+                var t1Sidereal = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprRa, siderealDegPerSec, false, _highSpeedRatio);
+                await SendCommandVerifiedAsync('I', '1', SkywatcherProtocol.EncodeUInt24(t1Sidereal), CancellationToken.None);
+            }
+            else
+            {
+                await SetTrackingAsync(true, CancellationToken.None);
+            }
+            Volatile.Write(ref _raMoveOverTracking, 0);
+            return;
+        }
+
+        Volatile.Write(ref _raMoveOverTracking, 1);
+        // Along the tracking direction: a positive rate is the motor's forward, which is the tracking way in the north only.
+        var along = siderealDegPerSec + (south ? -rate : rate);
+        var forward = along >= 0 ? trackingForward : !trackingForward;
+        var speed = Math.Abs(along);
+        var highSpeed = speed > siderealDegPerSec * OverTrackingLowSpeedMarginSidereal;
+
+        var now = await QueryAxisStatusAsync('1', cancellationToken);
+        if (!highSpeed && now.IsRunning && now.IsTracking && now.IsForward == forward && !now.IsHighSpeed)
+        {
+            // East at exactly sidereal cancels tracking; the boards cannot encode a zero step period, so the axis creeps at a
+            // thousandth of sidereal and looks stopped with no stop/start transient, as an East pulse at 1x does.
+            var t1Live = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprRa, Math.Max(speed, siderealDegPerSec * 1e-3), false, _highSpeedRatio);
+            await SendCommandAsync('I', '1', SkywatcherProtocol.EncodeUInt24(t1Live), cancellationToken);
+            return;
+        }
+
+        if (now.IsRunning)
+        {
+            await StopAxisAndWaitAsync('1', cancellationToken);
+        }
+        var func = highSpeed ? SkywatcherMotionFunc.HighSpeedSlew : SkywatcherMotionFunc.LowSpeedSlew;
+        await SendCommandAsync('G', '1', SkywatcherProtocol.EncodeMotionMode(func, forward, south), cancellationToken);
+        var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprRa, Math.Max(speed, siderealDegPerSec * 1e-3), highSpeed, _highSpeedRatio);
+        await SendCommandAsync('I', '1', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
+        await SendCommandAsync('J', '1', null, cancellationToken);
     }
 
     #endregion
@@ -1540,7 +1625,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         throw new SkywatcherDriverException(cmd, axis, ack.Response, VerifiedCommandAttempts);
     }
 
-    private record struct AxisStatus(bool IsRunning, bool IsTracking, bool IsForward, bool IsInitDone);
+    private record struct AxisStatus(bool IsRunning, bool IsTracking, bool IsForward, bool IsInitDone, bool IsHighSpeed = false);
 
     /// <summary>
     /// Decelerate-stop an axis and wait until it reports FullStop. :K only STARTS a
@@ -1589,7 +1674,8 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             var isConstantSpeed = (n0 & 0x01) != 0; // tracking/MoveAxis rate, not a GOTO
             var isForward = (n0 & 0x02) == 0;
             var isInitDone = (n2 & 0x01) != 0;
-            return new AxisStatus(isRunning, isRunning && isConstantSpeed, isForward, isInitDone);
+            var isHighSpeed = (n0 & 0x04) != 0;
+            return new AxisStatus(isRunning, isRunning && isConstantSpeed, isForward, isInitDone, isHighSpeed);
         }
         return new AxisStatus(false, false, true, false);
     }

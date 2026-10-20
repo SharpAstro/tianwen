@@ -101,6 +101,18 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
     private const int COMMAND_LOG_CAP = 4096;
     private readonly Queue<string> _commandLog = new();
 
+    /// <summary>The RA motor as the board holds it, for tests: running, forward, high speed, and its constant-speed rate.</summary>
+    internal (bool Running, bool Forward, bool HighSpeed, double DegPerSec) RaMotion
+    {
+        get
+        {
+            lock (_lockObj)
+            {
+                return (_raRunning, _raDirection == 0, _raHighSpeed, _raSlewDegPerSec);
+            }
+        }
+    }
+
     /// <summary>Snapshot of the most recent wire commands (up to <see cref="COMMAND_LOG_CAP"/>),
     /// for wire-level protocol assertions in tests.</summary>
     internal string[] CommandLogSnapshot
