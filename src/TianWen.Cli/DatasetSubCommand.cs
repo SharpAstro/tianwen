@@ -1343,6 +1343,18 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         var groupsOpt = new Option<int>("--sub-clusters") { Description = "Compact groups inside the cluster (an OB association's knots).", DefaultValueFactory = _ => 0 };
         var groupShareOpt = new Option<double>("--sub-cluster-share") { Description = "The share of the cluster's stars in the groups.", DefaultValueFactory = _ => 0.3 };
         var groupCoreOpt = new Option<double>("--sub-cluster-core") { Description = "A group's King core radius, pixels (tidal six times it).", DefaultValueFactory = _ => 8.0 };
+        var minSeparationOpt = new Option<double>("--min-separation")
+        {
+            Description = "The least distance between two resolved stars, pixels: the catalogue is already de-blended, so stars placed closer " +
+                          "than its builder separates blend into one brighter star. 0 for none.",
+            DefaultValueFactory = _ => 0.0,
+        };
+        var poolMarginOpt = new Option<int>("--pool-margin")
+        {
+            Description = "Draw the stars from the catalogue inside the scene's window grown by this many pixels (its own part of the field's " +
+                          "brightness and colour); below 0, from the whole frame.",
+            DefaultValueFactory = _ => -1,
+        };
         var command = new Command("synthetic-cluster",
             "Render synthetic crowded-cluster scenes from one master's own stars (brightness and colour from its starless plate's catalogue), " +
             "profiles, noise and nebula: a King-profile cluster over a field, an unresolved glow, optionally the plate's nebula, in several optics " +
@@ -1350,7 +1362,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "<name>_starless.fits (the noise-free truth) and <name>_truth.csv.")
         {
             Options = { masterOpt, plateOpt, outOpt, atOpt, sizeOpt, seedOpt, rotationsOpt, opticsOpt, nebulaOpt, nebulaAtOpt, clusterStarsOpt, coreOpt, tidalOpt,
-                fieldDensityOpt, saturatedOpt, glowShareOpt, glowSlopeOpt, lateralOpt, groupsOpt, groupShareOpt, groupCoreOpt },
+                fieldDensityOpt, saturatedOpt, glowShareOpt, glowSlopeOpt, lateralOpt, groupsOpt, groupShareOpt, groupCoreOpt, poolMarginOpt, minSeparationOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
@@ -1411,9 +1423,9 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 parseResult.GetValue(clusterStarsOpt), parseResult.GetValue(coreOpt), parseResult.GetValue(tidalOpt), parseResult.GetValue(fieldDensityOpt),
                 parseResult.GetValue(saturatedOpt), parseResult.GetValue(glowShareOpt), parseResult.GetValue(glowSlopeOpt),
                 0.0, nebulaAt.Item1, nebulaAt.Item2, ClusterOptics.Plain, lateral, parseResult.GetValue(seedOpt),
-                parseResult.GetValue(groupsOpt), parseResult.GetValue(groupShareOpt), parseResult.GetValue(groupCoreOpt));
+                parseResult.GetValue(groupsOpt), parseResult.GetValue(groupShareOpt), parseResult.GetValue(groupCoreOpt), parseResult.GetValue(minSeparationOpt));
             var run = new SyntheticClusterRun(parseResult.Required(masterOpt), parseResult.Required(plateOpt), parseResult.Required(outOpt), spec,
-                optics.ToImmutable(), nebulae, rotations);
+                optics.ToImmutable(), nebulae, rotations, parseResult.GetValue(poolMarginOpt));
             var (scenes, _) = await run.RunAsync(new Progress<string>(line => consoleHost.WriteScrollable("[synthetic-cluster] " + line)), ct);
             consoleHost.WriteScrollable($"[synthetic-cluster] {scenes.Length} scene(s) in {parseResult.Required(outOpt)}");
             return 0;
