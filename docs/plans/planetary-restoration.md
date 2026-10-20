@@ -3944,13 +3944,42 @@ to L-SKY4) on ten real captures (the five with a post and five of the owner's ow
   sky needs, is what hid them; 1e-4 still guards that sky.
 - **The posts' C24 does not move** but on the Meade Saturn (0.9567 against 0.9590): the judge places the post off the whole frame, and
   the sky moved it with no preview pixel more than 2 of 255 apart (L-SKY's read).
-- **What it leaves:** two faint vertical bands at a window edge the frame runs past, where the model hands back to the stack, seen only at
-  +2 % of the peak; the measures read inside the window, so a capture's sky beyond it is the stack's, as before.
+- **What it left, taken out since (#1692, below):** two faint vertical bands at a window edge the frame runs past, where the model handed
+  back to the stack, and the stack's sky beyond the window.
 - **The live view draws as the batch does:** `PlanetaryLiveLimb` keeps the batch's fix and finds the faint sources on each master it
   draws (`TheLiveDialsAreDrawnOutsideTheLimbAsTheBatchDrawsIt`: equal outside the limb). `--limb-fix modelfeathered` is the one before.
 - **L-SKY's two earlier measures were the yardstick's faults, recorded so they are not used again:** an outline found by a brightness
   threshold read Saturn's ring light as residue, and a digest of planes normalised by the sky moved when only the sky did; the limb fit's
   clear radius and the raw planes on the stacked master's outline replace them.
+
+#### The model's sky past the window, with no hand-back (#1692)
+
+**Issue:** #1692. The full chain's re-judge of 2026-10-20 (L-CHAIN) showed the 12-inch SCT Jupiter's stacked glow as two vertical bands at
+1.15 to 1.5 radii, up to 0.0023 of the peak, apart from the limb by the model's clean sky. The sharpening window is the next power of two
+over twice the radius and its margin (`PlanetaryLimbWindow.Of`); this frame is 632 px wide, its window 512, so the frame ran past it at
+left and right, where ModelToFrame handed back to the stack over 4 to 52 px and left the stack beyond. **Six of the ten real captures have a
+frame that runs past its window** (the owner's Saturn, the 12-inch SCT Jupiter, the EdgeHD Saturn, the 2021-08-14, 2024-12-15 and
+2025-01-02 Jupiters). Measured as L-SEAM and L-SEAM2 (`i1056/RULES.md`, rules set before each arm was written), from one build against
+main, on the ten real captures and the 18 twins, with a new reading of the light past the outline out to the frame's edge (each octant's
+99th percentile, which a band a fifth of an octant wide cannot hide in):
+
+| Arm | Beyond the window | Worst octant, SCT / 2024-12-15 Jupiter | What failed |
+|---|---|---|---|
+| main | the stack, handed back to over the window's last 52 px | 0.0033 / 0.0091 | the seam |
+| S | the model's sky, no hand-back | 0 / 0 | **erased the 2021-08-14 Jupiter's moon the frame's bottom edge cuts** (0.131 of the peak, to 0) |
+| **S2 (`ModelToFrame` now)** | **S, its sources found on the frame mirrored about its edges and laid as stacked** | **0 / 0** | **nothing** |
+
+- **Why S erased a moon:** a source finder reads one pixel in from an edge (`PlanetaryMetrics.CompactSources`), so a moon whose peak lies
+  on the frame's last row is never found beyond the window; main kept it only by leaving the stack there. Inside the window the frame is
+  mirrored, so it is found. `PlanetaryLimbWindow.FaintSourcesBeyond` finds the sources beyond the window on the frame mirrored the same way,
+  and lays each as stacked (`KeepFaintBeyond`, the edge moon 0.99 of main's).
+- **S2 holds all five verdicts:** the seam gone (0 on all six); every pixel inside 0.98 of the stacked outline the same, raw; the four
+  captures whose window holds the frame equal at every pixel and every twin's scores equal to four places; the faint moons as before (0.0078,
+  0.0043); nothing main shows missing.
+- **A moon beyond the window keeps its peak (0.99) and loses the stack's wing past its 5 px reach**, at most 0.018 of the planet's peak on
+  the 2024-12-15 Jupiter's moon of 0.33, as every moon inside the window already was drawn; past 5 px a point's diffraction through these
+  apertures is under 1 %.
+- **The live view draws as the batch does**, its faint sources beyond the window found on each master it draws.
 
 ### A colour master's planes aligned onto each other
 

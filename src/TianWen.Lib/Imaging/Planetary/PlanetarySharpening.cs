@@ -62,12 +62,13 @@ public enum PlanetaryLimbFix
     ModelFeathered,
 
     /// <summary>
-    /// <see cref="ModelOutside"/> out to the frame's edge, handed back to the stack only within 48 px of a window edge that lies inside the
-    /// frame, but for its moons, and with every faint compact source the stack's luminance shows there laid on it in every channel as
-    /// stacked (<see cref="PlanetaryDering.FaintSources"/>, #1681). Where the planet fills its window, <see cref="ModelFeathered"/>'s
-    /// inscribed circle handed back where the stack's own glow was still bright: 0.0060 of the disk past the 12-inch SCT Jupiter's limb,
-    /// 0.0010 here, every pixel inside the outline the same, the twins' detail and limb the same, and the faint moons the model alone erased
-    /// kept (docs/plans/planetary-restoration.md, "The model to the frame's edge, and the faint sources it keeps").
+    /// <see cref="ModelOutside"/> out to the frame's edge, but for its moons, and with every faint compact source the stack's luminance
+    /// shows laid on it in every channel as stacked (<see cref="PlanetaryDering.FaintSources"/>, #1681): to the window's edge the model,
+    /// beyond it the model's sky with no hand-back to the stack, its sources there found on the frame mirrored about its edges
+    /// (<see cref="PlanetaryLimbWindow.FaintSourcesBeyond"/>, #1692). Where the planet fills its window, <see cref="ModelFeathered"/>'s
+    /// inscribed circle handed back where the stack's own glow was still bright: 0.0060 of the disk past the 12-inch SCT Jupiter's limb, 0
+    /// here, every pixel inside the outline the same, the twins' detail and limb the same, and the faint moons the model alone erased kept
+    /// (docs/plans/planetary-restoration.md, "The model to the frame's edge, and the faint sources it keeps").
     /// </summary>
     ModelToFrame,
 }
@@ -451,7 +452,7 @@ public sealed record PlanetarySharpenResult(Image Sharpened, bool Derived, Plane
 
     /// <summary>
     /// Each channel's faint sources <see cref="PlanetaryLimbFix.ModelToFrame"/> laid on the model as stacked (#1681), the moons the moon
-    /// finder's own floor is above. Empty under any other fix.
+    /// finder's own floor is above, in the window and beyond it (#1692). Empty under any other fix.
     /// </summary>
     public ImmutableArray<int> FaintSourcesKept { get; init; } = [];
 
@@ -642,10 +643,13 @@ public static class PlanetarySharpening
         var stopGains = new ImmutableArray<double>[options.FitStops.Length, master.ChannelCount];
         // The contrast-adaptive finish reads the STACK's luminance: the mean of every channel's window, each normalised on the disk.
         var contrastFrom = options.Pupil is not null && options.Finish.HasFlag(PlanetaryFinish.Adaptive) ? LuminanceWindow(master, limbWindow, own) : null;
-        // ModelToFrame's faint sources, found once on the same luminance and laid in every channel (#1681).
-        var faintSources = options.Pupil is not null && options.Fix == PlanetaryLimbFix.ModelToFrame
+        // ModelToFrame's faint sources, found once on the same luminance and laid in every channel (#1681), and beyond the window, where it
+        // draws the model's sky, found once on the whole frame (#1692).
+        var toFrame = options.Pupil is not null && options.Fix == PlanetaryLimbFix.ModelToFrame;
+        var faintSources = toFrame
             ? PlanetaryDering.FaintSources(contrastFrom ?? LuminanceWindow(master, limbWindow, own), limbWindow.Size, limbWindow.Size, limbWindow.Disk)
             : [];
+        var faintBeyond = toFrame ? limbWindow.FaintSourcesBeyond(master) : [];
         var cutoffs = new double[options.Pupil is null ? 0 : master.ChannelCount];
         if (options.Pupil is { } cutoffPupil)
         {
@@ -664,7 +668,7 @@ public static class PlanetarySharpening
         var channelLearned = new string?[options.Pupil is not null && options.GainsModel is not null ? master.ChannelCount : 0];
         var wienerCuts = new (double From, double To)[options.Pupil is not null && options.Finish.HasFlag(PlanetaryFinish.Wiener) ? master.ChannelCount : 0];
         var shrinks = new ImmutableArray<BandShrinkReading>[options.ShrinkHalves is null ? 0 : master.ChannelCount];
-        var faintKept = new int[options.Pupil is not null && options.Fix == PlanetaryLimbFix.ModelToFrame ? master.ChannelCount : 0];
+        var faintKept = new int[toFrame ? master.ChannelCount : 0];
         for (var c = 0; c < master.ChannelCount; c++)
         {
             var plane = master.GetChannelSpan(c);
@@ -808,10 +812,14 @@ public static class PlanetarySharpening
                     (firstGains, edgeAt01, edgeAt03) = ([.. gains], edge.TransferAt(0.1), edge.TransferAt(0.3));
                 }
             }
-            limbWindow.Paste(plane, sharpened, planes[c], width, height, level, scale);
+            limbWindow.Paste(plane, sharpened, planes[c], width, height, level, scale, skyBeyond: toFrame);
             var channel = c;
-            limbWindow.PasteMoonsBeyond(plane, planes[c], width, height, level, scale, (x0, y0) => sharpenMoon(PlanetaryLimbWindow.CutAt(
+            var moonsBeyond = limbWindow.PasteMoonsBeyond(plane, planes[c], width, height, level, scale, (x0, y0) => sharpenMoon(PlanetaryLimbWindow.CutAt(
                 master.GetChannelSpan(channel), width, height, x0, y0, PlanetaryLimbWindow.MoonWindowSize, level, scale)));
+            if (toFrame)
+            {
+                faintKept[c] += limbWindow.KeepFaintBeyond(plane, planes[c], width, height, faintBeyond, moonsBeyond);
+            }
         }
         var image = new Image(planes, BitDepth.Float32, master.MaxValue, master.MinValue, master.Pedestal, master.ImageMeta);
         ImmutableArray<GainStop> stops = derived && !options.NonNegative

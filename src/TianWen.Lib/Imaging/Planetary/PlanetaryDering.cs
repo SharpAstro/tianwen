@@ -75,17 +75,12 @@ public static class PlanetaryDering
         ModelFeathered,
 
         /// <summary>
-        /// The model to the frame's edge, blended to the stack only within <see cref="FrameEdgeReachPx"/> of a window edge inside the
-        /// frame, and the faint sources the stack shows there laid on it as stacked (<see cref="FaintSources"/>, #1681).
+        /// The model to the window's edge, and the faint sources the stack shows there laid on it as stacked (<see cref="FaintSources"/>,
+        /// #1681); beyond the window the model's sky (<see cref="PlanetaryLimbWindow.Paste"/>), so the model runs to the frame's edge with no
+        /// hand-back to the stack anywhere (#1692).
         /// </summary>
         ModelToFrame,
     }
-
-    /// <summary>
-    /// How near a window edge that lies inside the frame <see cref="OutsideLimb.ModelToFrame"/> hands the model back to the stack, px: the
-    /// window's own margin past the limb. An edge the frame ends at is never pasted into it, so it needs no hand-back and leaves no seam.
-    /// </summary>
-    public const int FrameEdgeReachPx = 48;
 
     /// <summary>
     /// The least height, in the disk's units, a faint source <see cref="OutsideLimb.ModelToFrame"/> lays on the model must have beside the
@@ -123,9 +118,8 @@ public static class PlanetaryDering
         bool modelUnderSky = false, (int Left, int Top, int Right, int Bottom)? frame = null, ImmutableArray<(int X, int Y)> faintSources = default,
         Action<int>? carried = null)
     {
-        // ModelToFrame hands back only near a window edge the frame runs on past: the frame's extent in window coordinates.
+        // The frame's extent in window coordinates: ModelToFrame lays only the faint sources inside it.
         var (frameLeft, frameTop, frameRight, frameBottom) = frame ?? (0, 0, width, height);
-        var (edgeLeft, edgeTop, edgeRight, edgeBottom) = (frameLeft < 0, frameTop < 0, frameRight > width, frameBottom > height);
         var moons = PlanetaryMetrics.CompactSources(stacked, width, height, disk, count: MaxMoons);
         // Where ModelFeathered hands the model back to the stack: by the plane's inscribed circle, at most 2.5 radii, from 0.5 radii inside it.
         // Saturn's are counted past its rings (MetricDisk.ClearRadiiAt, S4), whose outer edge is a radius along the equator.
@@ -170,12 +164,11 @@ public static class PlanetaryDering
                     OutsideLimb.Model => model.IsEmpty ? bounded : Math.Max(model[i], 0f),
                     OutsideLimb.GlowSwapped => model.IsEmpty || blurredModel.IsEmpty ? bounded : stacked[i] - blurredModel[i] + model[i],
                     OutsideLimb.ModelFeathered => model.IsEmpty ? bounded : Feather(Math.Max(model[i], 0f), stacked[i], r, featherStart, featherEnd),
-                    // The stack within 4 px of a window edge inside the frame, the model from FrameEdgeReachPx further in: where the planet
-                    // fills its window, the inscribed circle ModelFeathered hands back by lies where the stack's own glow is still bright
-                    // (1.35 radii on the 12-inch SCT Jupiter, 0.0060 of the disk left past its limb, #1681).
-                    OutsideLimb.ModelToFrame => model.IsEmpty ? bounded : Feather(stacked[i], Math.Max(model[i], 0f),
-                        Math.Min(Math.Min(edgeLeft ? x : int.MaxValue, edgeRight ? width - 1 - x : int.MaxValue),
-                            Math.Min(edgeTop ? y : int.MaxValue, edgeBottom ? height - 1 - y : int.MaxValue)), 4, 4 + FrameEdgeReachPx),
+                    // The model to the window's edge, the sky beyond it the model's too (#1692): where the planet fills its window, the
+                    // inscribed circle ModelFeathered hands back by lies where the stack's own glow is still bright (1.35 radii on the 12-inch
+                    // SCT Jupiter, 0.0060 of the disk left past its limb, #1681), and a hand-back at a window edge inside the frame showed
+                    // that glow as two bands past the window's margin (0.0023 of the peak at 1.15 to 1.5 radii there).
+                    OutsideLimb.ModelToFrame => model.IsEmpty ? bounded : Math.Max(model[i], 0f),
                     _ => Blend(bounded, stack, r),
                 };
             }
