@@ -215,15 +215,20 @@ public sealed record FilterWheelDeviceStateDto
     /// <summary>Every slot's filter, by name, in slot order; null for a wheel that names none.</summary>
     public string[]? Slots { get; init; }
 
+    /// <summary>Every slot's focus offset in focuser steps, in slot order beside <see cref="Slots"/>; null where the wheel names none.</summary>
+    public int[]? Offsets { get; init; }
+
     public static FilterWheelDeviceStateDto FromReading(FilterWheelReading reading) => new FilterWheelDeviceStateDto
     {
         Position = reading.Position,
         FilterName = reading.FilterName,
         Slots = reading.Slots.IsDefaultOrEmpty ? null : [.. reading.Slots],
+        Offsets = reading.Offsets.IsDefaultOrEmpty ? null : [.. reading.Offsets],
     };
 
     /// <summary>The reading this state was made from.</summary>
-    public FilterWheelReading ToReading() => new FilterWheelReading(Position, FilterName, Slots is { } slots ? [.. slots] : default);
+    public FilterWheelReading ToReading()
+        => new FilterWheelReading(Position, FilterName, Slots is { } slots ? [.. slots] : default, Offsets is { } offsets ? [.. offsets] : default);
 }
 
 /// <summary>

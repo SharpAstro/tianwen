@@ -7,9 +7,9 @@ namespace TianWen.Lib.Devices;
 
 /// <summary>
 /// A filter wheel's slots as its URI states them: <c>filter1..N</c> (the names) and <c>offset1..N</c> (each filter's focus
-/// offset), the profile being where a wheel's filters live. ONE reader and ONE writer for every place that reads or writes
-/// them: the Equipment tab's table and its Save, a fake wheel's discovery, and what a wheel's connect writes into the
-/// profile (<see cref="ProfileDataExtensions"/>, <c>CaptureFilterSlots</c>).
+/// offset). ONE reader and ONE writer for every place that reads or writes them. They are only ever the USER's slots, written
+/// by the Equipment tab's Save: nothing writes a driver's names here, since an ASCOM or Alpaca wheel reads a URI's names and
+/// offsets as overrides of its own (review round 1, 2026-10-20). Where a URI lists none, the tab shows the wheel's own.
 /// </summary>
 public static class FilterWheelSlots
 {

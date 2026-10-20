@@ -497,6 +497,29 @@ public static class EquipmentActions
     }
 
     /// <summary>
+    /// The slots the Equipment tab shows for OTA <paramref name="otaIndex"/>: the user's, as the wheel's URI lists them, else the
+    /// connected wheel's own, names and focus offsets as it reports them (<paramref name="wheel"/>, the node's reading), so an
+    /// Alpaca, ASCOM or fake wheel shows its slots without anything writing them onto the URI. A URI's slots are only ever the
+    /// user's: a Save of the table writes these as theirs, and a driver's are never written unasked (review round 1, 2026-10-20:
+    /// a driver's names on the URI read back as user overrides and froze them). <c>FromWheel</c> says which it is.
+    /// </summary>
+    public static (IReadOnlyList<InstalledFilter> Filters, bool FromWheel) FiltersOnShow(ProfileData data, int otaIndex, PreviewOTATelemetry? wheel)
+    {
+        var saved = GetFilterConfig(data, otaIndex);
+        if (saved.Count > 0 || wheel is not { FilterWheelConnected: true, FilterSlots: { IsDefaultOrEmpty: false } names } reading)
+        {
+            return (saved, false);
+        }
+        var offsets = reading.FilterOffsets;
+        var reported = new InstalledFilter[names.Length];
+        for (var i = 0; i < reported.Length; i++)
+        {
+            reported[i] = new InstalledFilter(names[i], !offsets.IsDefault && i < offsets.Length ? offsets[i] : 0);
+        }
+        return (reported, true);
+    }
+
+    /// <summary>
     /// Reads filter config from a filter wheel URI's query params (<see cref="FilterWheelSlots.Read"/>).
     /// Returns the list of installed filters (may be empty if no filter{N} params present).
     /// </summary>

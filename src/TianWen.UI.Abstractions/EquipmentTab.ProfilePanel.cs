@@ -287,7 +287,7 @@ namespace TianWen.UI.Abstractions
                 }
 
                 case PanelSection.FilterTable ft:
-                    return BuildFilterTable(appState, ft.OtaIndex, pd);
+                    return BuildFilterTable(appState, ft.OtaIndex, pd, liveSessionState);
 
                 case PanelSection.AddOta:
                     return BuildAddOtaSection();
