@@ -83,6 +83,15 @@ ellipse is about 108 h (30 panels) to 151 h (42) on the SV605CC and 180 to 260 h
 72 nights of Saturday's 3.6 h; at Sculptor's two-night depth (7.8 h a panel), 2.2 times that. The 585 may need less time
 per panel in Ha and SII (its response there), which only a 585 frame of the same field can say.
 
+**Stars are not what limits a 10 % overlap; its width is.** Saturday's Tarantula master holds 25,874 compact sources at
+5 sigma (`tianwen image sources`), 4,550 a square degree (one 120 s sub: 326). Laid over that field at 49 positions each,
+the ASI585's 10 % overlap strips (14.2 x 79.8 arcmin side by side, 141.6 x 8.0 arcmin above and below) hold 334 to 2,799
+stars in a stacked panel (284 or more at SNR 20) and 47 to 189 in one sub. The outer LMC is sparser, which this field
+cannot measure, but a tenth of the sparsest strip still matches. The 8 arcmin strip on the 585's short side is the tight
+one: a degree of camera rotation between nights moves the far end of a 2.36 deg edge 2.5 arcmin, recentring costs up to
+about one, and the stack's autocrop takes the dithered margin. 20 % on the short axis and 10 % on the long one is 60
+panels (12 x 5) against 72 at 20 % on both; `MosaicGenerator` takes one overlap for both axes today.
+
 ## E1: an Auto button that suggests a frame plan from what is in the frame
 
 Tracked by #1694. The owner's idea (2026-10-20): the session configuration offers **Auto**, which reads what the
