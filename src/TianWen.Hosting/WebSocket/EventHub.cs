@@ -4,10 +4,10 @@ using System.Collections.Generic;
 using System.Net.WebSockets;
 using System.Text.Json;
 using System.Threading;
-using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Node.Lib;
 using TianWen.Hosting.Api;
 using TianWen.Hosting.Dto;
 using TianWen.Lib.Devices;
@@ -29,6 +29,8 @@ namespace TianWen.Hosting.WebSocket;
 /// channel and the WebSocket a latency hint, so the client resyncs from <c>/session/state</c> and reconnects.</para>
 /// <para><b>Order holds per client.</b> One sender per socket, in the order its queue was written, so a source
 /// that raises its events in sequence (a session's phases) reaches every client in that sequence.</para>
+/// <para>The queue and its sender are Node.Lib's <see cref="WebSocketEventQueue"/>, shared with pilot's node; the
+/// pools, presence and who may command stay here.</para>
 /// </remarks>
 internal sealed class EventHub
 {
@@ -135,7 +137,7 @@ internal sealed class EventHub
     public string AddClient(System.Net.WebSockets.WebSocket socket, bool ninaV2 = false, Func<bool>? mayCommand = null)
     {
         var id = Guid.NewGuid().ToString("N");
-        var client = new EventClient(socket, ninaV2, _queueCapacity, mayCommand ?? (static () => true));
+        var client = new EventClient(new WebSocketEventQueue(socket, _queueCapacity, _sendTimeout), ninaV2, mayCommand ?? (static () => true));
         _clients[id] = client;
         _ = Task.Run(() => SendQueuedAsync(id, client), CancellationToken.None);
         return id;
@@ -185,7 +187,7 @@ internal sealed class EventHub
             {
                 Evict(id, client, "its socket is no longer open");
             }
-            else if (!client.Queue.Writer.TryWrite(message))
+            else if (!client.Queue.TryEnqueue(message))
             {
                 Evict(id, client, $"it fell {_queueCapacity} events behind");
             }
@@ -195,28 +197,12 @@ internal sealed class EventHub
     /// <summary>The one sender a client has: its queue, in order, each send bounded by the send timeout.</summary>
     private async Task SendQueuedAsync(string id, EventClient client)
     {
-        try
+        // Null once removed: its endpoint closes the socket. Else the send outlasted its timeout or the socket failed; a
+        // cancelled send aborts the socket, and the endpoint's receive loop then ends and removes it, so evicting here
+        // stops the queue filling in the meantime.
+        if (await client.Queue.SendAllAsync() is { } why)
         {
-            await foreach (var message in client.Queue.Reader.ReadAllAsync(client.Stopping))
-            {
-                using var send = CancellationTokenSource.CreateLinkedTokenSource(client.Stopping);
-                send.CancelAfter(_sendTimeout);
-                await client.Socket.SendAsync((ReadOnlyMemory<byte>)message, WebSocketMessageType.Text, endOfMessage: true, send.Token);
-            }
-        }
-        catch (OperationCanceledException) when (client.Stopping.IsCancellationRequested)
-        {
-            // Removed: its endpoint closes the socket.
-        }
-        catch (OperationCanceledException)
-        {
-            // The send outlasted its timeout. A cancelled send aborts the socket, and the endpoint's receive
-            // loop then ends and removes it; evicting here stops the queue filling in the meantime.
-            Evict(id, client, $"a send took longer than {_sendTimeout.TotalSeconds:0.#} s");
-        }
-        catch (Exception ex) when (ex is WebSocketException or InvalidOperationException or ObjectDisposedException)
-        {
-            Evict(id, client, ex.Message);
+            Evict(id, client, why);
         }
     }
 
@@ -231,20 +217,18 @@ internal sealed class EventHub
         }
 
         _logger.LogInformation("WebSocket client {ClientId} dropped because {Why}; it resyncs by polling", id, why);
-        client.Stop();
-        client.Socket.Abort();
+        client.Queue.Abort();
     }
 
-    private sealed class EventClient(System.Net.WebSockets.WebSocket socket, bool ninaV2, int queueCapacity, Func<bool> mayCommand)
+    private sealed class EventClient(WebSocketEventQueue queue, bool ninaV2, Func<bool> mayCommand)
     {
         /// <summary>Whether the client may command the node now: its grant, if it came with one, still held.</summary>
         public Func<bool> MayCommand { get; } = mayCommand;
 
-        // Never disposed: it has no timer, so there is nothing for Dispose to release, and a send that reads
-        // the token after a dispose would throw rather than end.
-        private readonly CancellationTokenSource _stopping = new CancellationTokenSource();
+        /// <summary>Its queue and the one sender that drains it.</summary>
+        public WebSocketEventQueue Queue { get; } = queue;
 
-        public System.Net.WebSockets.WebSocket Socket { get; } = socket;
+        public System.Net.WebSockets.WebSocket Socket => Queue.Socket;
 
         public bool NinaV2 { get; } = ninaV2;
 
@@ -257,20 +241,6 @@ internal sealed class EventHub
             set => Volatile.Write(ref _lastBeatTicks, value);
         }
 
-        public Channel<byte[]> Queue { get; } = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(queueCapacity)
-        {
-            SingleReader = true,
-            SingleWriter = false,
-            // TryWrite, never WriteAsync: a full queue answers false at once and the client is dropped.
-            FullMode = BoundedChannelFullMode.Wait,
-        });
-
-        public CancellationToken Stopping => _stopping.Token;
-
-        public void Stop()
-        {
-            Queue.Writer.TryComplete();
-            _stopping.Cancel();
-        }
+        public void Stop() => Queue.Stop();
     }
 }
