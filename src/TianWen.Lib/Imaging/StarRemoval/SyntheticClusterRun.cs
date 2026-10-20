@@ -26,9 +26,14 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// <param name="PoolMargin">With a margin of 0 or more, the stars are drawn from the catalogue's stars inside the scene's
 /// window in the frame grown by that many pixels, so the scene takes its own part of the field's brightness and colour (the
 /// LMC's young clusters are bluer than the frame's average); below 0, from the whole frame.</param>
+/// <param name="NebulaPlatePath">The plate the nebula's large scales are read from, when not <paramref name="PlatePath"/>: a
+/// plate cleaned more thoroughly (the R0 builder's brush) can drive it once it exists.</param>
+/// <param name="NebulaTextureFromScale">The finest starlet scale the nebula's texture is drawn at (2^j px).</param>
+/// <param name="NebulaLogNormalWidth">The nebula texture's log-normal width (0 a Gaussian field).</param>
 public sealed record SyntheticClusterRun(
     string MasterPath, string PlatePath, string OutDir, SyntheticClusterSpec Base,
-    ImmutableArray<ClusterOptics> Optics, ImmutableArray<double> Nebulae, ImmutableArray<double> Rotations, int PoolMargin = -1)
+    ImmutableArray<ClusterOptics> Optics, ImmutableArray<double> Nebulae, ImmutableArray<double> Rotations, int PoolMargin = -1,
+    string? NebulaPlatePath = null, int NebulaTextureFromScale = SyntheticClusterScene.NebulaTextureFromScale, double NebulaLogNormalWidth = 0.0)
 {
     /// <summary>One written scene.</summary>
     public sealed record Written(string Name, string CompositePath, int Stars, int GlowStars, double[] StarFlux, double[] GlowFlux, double[] SurfaceFlux);
@@ -59,19 +64,39 @@ public sealed record SyntheticClusterRun(
         var absent = plate.AbsentPixels();
         var psf = field.Channels.Select(static c => (c.Fwhm, c.Beta)).ToArray();
         var population = InjectionPopulation.Build(catalogue, master, plate, 1.0, psf, absent, field);
-        // The nebula is drawn from the plate with its compact sources out, so it carries none of the plate's residues.
-        Directory.CreateDirectory(OutDir);
-        var (clean, peaks, dips, filled) = SyntheticClusterSource.CleanCompactSources(plate, absent, field.Luminance.Fwhm, seed: 1, cancellationToken);
-        clean.WriteToFitsFile(Path.Combine(OutDir, stem + "_plate_clean.fits"));
-        var background = SyntheticBackground.Build(clean, absent, field.Luminance.Fwhm, nebulaKnots: true);
+        // The nebula is the background generator driven by its plate's large scales alone (SyntheticBackground.LargeScale),
+        // which no star's fill reaches; NebulaPlatePath gives it another plate (a cleaner one) to read them from.
+        var nebulaPlate = plate;
+        var nebulaAbsent = absent;
+        if (NebulaPlatePath is { } nebulaPath)
+        {
+            if (!Image.TryReadFitsFile(nebulaPath, out var other))
+            {
+                throw new InvalidDataException($"not a readable FITS image: {nebulaPath}");
+            }
+            (nebulaPlate, nebulaAbsent) = (other, other.AbsentPixels());
+        }
+        // Its texture's strength per scale is the plate's own at the place the scenes are drawn from, the master's noise in each
+        // band taken out in quadrature.
         var (sky, noise, resample, ratio) = SyntheticClusterSource.MeasureSkyAndNoise(plate, absent);
-        var source = new SyntheticClusterSource(population, background, sky, noise, resample, master.Width, master.Height);
+        var noiseBands = SyntheticClusterSource.NoiseBandRms(noise, resample, SyntheticClusterScene.NebulaKeepFromScale);
+        var region = SyntheticClusterScene.NebulaRegion(Base, master.Width, master.Height);
+        var background = SyntheticBackground.Build(nebulaPlate, nebulaAbsent, field.Luminance.Fwhm, steering: SyntheticClusterScene.NebulaSteer,
+            largeScale: new SyntheticBackground.LargeScale(SyntheticClusterScene.NebulaKeepFromScale, NebulaTextureFromScale,
+                region.X0, region.Y0, region.Size, noiseBands, NebulaLogNormalWidth));
+        var nebulaSky = NebulaPlatePath is null ? null : SyntheticClusterSource.MeasureSkyAndNoise(nebulaPlate, nebulaAbsent).Sky;
+        var source = new SyntheticClusterSource(population, background, sky, noise, resample, master.Width, master.Height, nebulaSky);
+        var g = Math.Min(1, sky.Length - 1);
+        var texture = string.Join(", ", Enumerable.Range(0, SyntheticClusterScene.NebulaKeepFromScale).Select(j => string.Create(CultureInfo.InvariantCulture,
+            $"{1 << j} px {(background.LargeScaleRegionRms.IsDefaultOrEmpty ? 0.0 : background.LargeScaleRegionRms[g][j]) / noise[g]:F3}")));
         var line = string.Create(CultureInfo.InvariantCulture,
             $"{population.AmplitudePool} stars to draw from ({population.SaturatedPool} saturated); sky {Join(sky, "G7")}, noise {Join(noise, "G4")}; " +
             $"noise band ratio {ratio:F3}, matched by a resampling width of {resample:F2} px; profiles {string.Join(" / ", field.Channels.Select(c => string.Create(CultureInfo.InvariantCulture, $"{c.Fwhm:F2} px b{c.Beta:F2}")))}; " +
-            $"nebula source: {peaks} peaks and {dips} dips taken out of the plate, {filled:P1} of it filled");
+            $"nebula from {Path.GetFileName(NebulaPlatePath ?? PlatePath)} at ({region.X0}, {region.Y0}) {region.Size} px, its scales from {1 << SyntheticClusterScene.NebulaKeepFromScale} px up kept, " +
+            $"texture (log-normal width {NebulaLogNormalWidth:0.##}) green RMS in the noise {texture}");
         progress?.Report(line);
 
+        Directory.CreateDirectory(OutDir);
         var written = ImmutableArray.CreateBuilder<Written>();
         foreach (var optics in Optics)
         {
@@ -88,16 +113,17 @@ public sealed record SyntheticClusterRun(
                     Write(render.Composite, spec.Size, master, composite);
                     Write(render.Stars, spec.Size, master, Path.Combine(OutDir, name + "_stars.fits"));
                     Write(render.Starless, spec.Size, master, Path.Combine(OutDir, name + "_starless.fits"));
+                    Write(render.StarlessNoisy, spec.Size, master, Path.Combine(OutDir, name + "_starless_noisy.fits"));
                     Write(render.Unresolved, spec.Size, master, Path.Combine(OutDir, name + "_unresolved.fits"));
                     await File.WriteAllTextAsync(Path.Combine(OutDir, name + "_truth.csv"), TruthCsv(render.Truth), cancellationToken);
                     var w = new Written(name, composite, render.Truth.Length, render.GlowStars, render.StarFlux, render.GlowFlux, render.SurfaceFlux);
                     written.Add(w);
                     var groups = string.Join(", ", render.Groups.Select(static gr => string.Create(CultureInfo.InvariantCulture,
-                        $"({gr.X:F0}, {gr.Y:F0}, {gr.HalfLightPx:F1}, {gr.ResolvedStars}, {gr.UnresolvedLight:F3})")));
+                        $"({gr.X:F0}, {gr.Y:F0}, {gr.HalfLightPx:F1}, {gr.ResolvedStars}, {gr.UnresolvedLight:F3}, {(gr.Smooth ? "smooth" : "stars")})")));
                     progress?.Report(string.Create(CultureInfo.InvariantCulture,
                         $"{name}: {w.Stars} resolved stars, {w.GlowStars} unresolved; star light {Join(w.StarFlux, "G4")}, unresolved stars {Join(w.GlowFlux, "G4")}, " +
                         $"their smooth surface {Join(w.SurfaceFlux, "G4")}; nebula from ({render.NebulaAt.X}, {render.NebulaAt.Y}); " +
-                        $"groups (x, y, half-light px, resolved stars, unresolved light) {groups}"));
+                        $"groups (x, y, half-light px, resolved stars, unresolved light, where that light is) {groups}"));
                 }
             }
         }

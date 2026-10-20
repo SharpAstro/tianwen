@@ -3074,6 +3074,31 @@ the canonical program splits the stars instead of running whole-frame; its views
 the measured quality step); and CLAUDE.md's "none ship and none are registered" rewritten with it. Core protection
 (`--protect-cores`, #1658) applies to it as to any remover.
 
+#### Synthetic crowded clusters: scenes drawn from one master (2026-10-20)
+
+`tianwen dataset synthetic-cluster` (`SyntheticClusterScene`, `SyntheticClusterRun`) composes a crowded-cluster scene from
+one real master's own measurements: a King-profile cluster and a field of resolved stars whose brightness and colour are
+drawn from its starless plate's catalogue, the LMC's own compact clusters as groups (their sizes, star counts and light
+measured on the master), the stars too faint to find, a nebula, and the master's noise in its shape, in three optics and
+any sky rotation of one sky. It writes the composite, the stars truth, the starless truth, the starless truth with the
+composite's own noise draw, the faint stars the starless light stands for, and the resolved stars' list.
+
+**The starless truth holds nothing the eye reads as a star** (the owner, 2026-10-20): the faint population's smooth
+expected light with its own grain from 16 px up, never its points; a compact cluster (half-light radius under 16 px) is
+all stars; the nebula is the background generator driven by the plate's scales from 64 px up, its texture's strength per
+scale read off the plate at the same place, with no floor. Every render is gated before any picture: no local maximum
+of 12 px or less over 0.25 noise above its 16 to 32 px surround, no excess structure at cell scale (a 16 px mean less a
+64 px median) over the plate's filled cells, and the starless light equal to the faint stars it stands for.
+
+**The source is the ASI585MC Tarantula of 2024-10-02** (broadband, ZS61, 2.07 arcsec a pixel), the owner's choice of
+2026-10-20. The first scenes were drawn from the SV605CC Tarantula of 2026-10-17, which `dataset-parameters.json` holds out
+as the crowded-field TEST session (and the same field, camera and filter's night of 2025-10-18 is a test session by
+bucket): a test session's stars, noise and nebula must never reach training, and releasing it would cost the LMC as a test
+field, the nearest crowded broadband one left being the SMC. So those scenes are development only and are never exported.
+The ASI585 night is on the training side, frames the same LMC field, and
+its brush-cleaned plate drives the nebula (`--nebula-plate`), which also removes the pits the first plate's saturated-star
+fills left at 64 px and up.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its

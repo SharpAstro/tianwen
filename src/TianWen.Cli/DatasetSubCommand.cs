@@ -1366,17 +1366,32 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "brightness and colour); below 0, from the whole frame.",
             DefaultValueFactory = _ => -1,
         };
+        var nebulaPlateOpt = new Option<string?>("--nebula-plate")
+        {
+            Description = "A plate to read the nebula's large scales from instead of --plate (a more thoroughly cleaned one).",
+        };
+        var nebulaTextureFromOpt = new Option<int>("--nebula-texture-from")
+        {
+            Description = "The finest scale the nebula's texture is drawn at, pixels (a power of two, 1 to 32): finer, its knots read as stars.",
+            DefaultValueFactory = _ => 1 << SyntheticClusterScene.NebulaTextureFromScale,
+        };
+        var nebulaLogNormalOpt = new Option<double>("--nebula-lognormal")
+        {
+            Description = "The nebula texture's log-normal width: 0 a Gaussian field, 0.8 the synthetic background's own.",
+            DefaultValueFactory = _ => 0.0,
+        };
         var command = new Command("synthetic-cluster",
             "Render synthetic crowded-cluster scenes from one master's own stars (brightness and colour from its starless plate's catalogue), " +
-            "profiles, noise and nebula: a King-profile cluster over a field, the stars too faint to find, optionally the plate's nebula (drawn " +
-            "from the plate with its compact sources out, written as <plate>_clean.fits), in several optics and sky rotations of one sky. Each " +
-            "scene is written as <name>.fits (with the master's noise), <name>_starless.fits (noise-free: sky, nebula and the faint stars' smooth " +
-            "expected light), <name>_stars.fits (the composite less that, noise-free and signed), <name>_unresolved.fits (the faint stars alone) " +
-            "and <name>_truth.csv.")
+            "profiles, noise and nebula: a King-profile cluster over a field, the stars too faint to find, optionally a nebula (the background " +
+            "generator driven by the plate's scales from 64 px up), in several optics and sky rotations of one sky. Each scene is written as " +
+            "<name>.fits (with the master's noise), <name>_starless.fits (noise-free: sky, nebula and the broad faint populations' light, " +
+            "their grain from 16 px up), <name>_starless_noisy.fits (the same with the composite's own noise draw), <name>_stars.fits (the " +
+            "composite less the starless, noise-free and signed: every star, a compact cluster's whole), <name>_unresolved.fits (the faint " +
+            "stars the starless light stands for) and <name>_truth.csv.")
         {
             Options = { masterOpt, plateOpt, outOpt, atOpt, sizeOpt, seedOpt, rotationsOpt, opticsOpt, nebulaOpt, nebulaAtOpt, clusterStarsOpt, coreOpt, tidalOpt,
                 fieldDensityOpt, saturatedOpt, glowShareOpt, glowSlopeOpt, lateralOpt, groupsOpt, groupHalfLightOpt, groupStarsOpt, groupGlowOpt,
-                poolMarginOpt, minSeparationOpt },
+                poolMarginOpt, minSeparationOpt, nebulaPlateOpt, nebulaTextureFromOpt, nebulaLogNormalOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
@@ -1447,7 +1462,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 parseResult.GetValue(groupsOpt), halfLightMin, halfLightMax, (int)groupStarsMin, (int)groupStarsMax, groupGlowMin, groupGlowMax,
                 parseResult.GetValue(minSeparationOpt));
             var run = new SyntheticClusterRun(parseResult.Required(masterOpt), parseResult.Required(plateOpt), parseResult.Required(outOpt), spec,
-                optics.ToImmutable(), nebulae, rotations, parseResult.GetValue(poolMarginOpt));
+                optics.ToImmutable(), nebulae, rotations, parseResult.GetValue(poolMarginOpt), parseResult.GetValue(nebulaPlateOpt),
+                (int)Math.Round(Math.Log2(Math.Clamp(parseResult.GetValue(nebulaTextureFromOpt), 1, 32))), parseResult.GetValue(nebulaLogNormalOpt));
             var (scenes, _) = await run.RunAsync(new Progress<string>(line => consoleHost.WriteScrollable("[synthetic-cluster] " + line)), ct);
             consoleHost.WriteScrollable($"[synthetic-cluster] {scenes.Length} scene(s) in {parseResult.Required(outOpt)}");
             return 0;
