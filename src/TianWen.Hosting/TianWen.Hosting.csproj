@@ -58,4 +58,27 @@
     <ProjectReference Include="..\TianWen.Hosting.Contracts\TianWen.Hosting.Contracts.csproj" />
   </ItemGroup>
 
+  <!--
+    Node.Lib from the sibling clone when it is there, else the package. Its own switch rather than UseLocalSiblings, with
+    the two probes pilot uses (a clone sits three folders under the org root, a Claude Code worktree six), so a worktree
+    builds against the sibling too.
+  -->
+  <PropertyGroup>
+    <NodeLibRoot Condition="'$(NodeLibRoot)' == '' AND Exists('$(MSBuildThisFileDirectory)..\..\..\Node.Lib\src\Node.Lib')">$(MSBuildThisFileDirectory)..\..\..\Node.Lib\</NodeLibRoot>
+    <NodeLibRoot Condition="'$(NodeLibRoot)' == '' AND Exists('$(MSBuildThisFileDirectory)..\..\..\..\..\..\Node.Lib\src\Node.Lib')">$(MSBuildThisFileDirectory)..\..\..\..\..\..\Node.Lib\</NodeLibRoot>
+    <UseLocalNodeLib Condition="'$(UseLocalNodeLib)' == '' AND '$(RuntimeIdentifier)' == '' AND '$(NodeLibRoot)' != ''">true</UseLocalNodeLib>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(UseLocalNodeLib)' == 'true'">
+    <ProjectReference Include="$(NodeLibRoot)src\Node.Lib.Hosting\Node.Lib.Hosting.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalNodeLib)' != 'true'">
+    <PackageReference Include="Node.Lib.Hosting" />
+  </ItemGroup>
+
+  <!-- Node.Lib's NodeLock and NodeSocketHosting, written global:: so nothing resolves Node as a namespace of ours. -->
+  <ItemGroup>
+    <Using Include="Node.Lib" />
+    <Using Include="Node.Lib.Hosting" />
+  </ItemGroup>
+
 </Project>

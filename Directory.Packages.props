@@ -21,6 +21,9 @@
     <PackageVersion Include="Serial.Lib" Version="1.2.*" />
 
     <PackageVersion Include="LAN.Lib" Version="2.2.*" />
+    <!-- The per-user node's socket location, lock and Kestrel hosting, lifted out of TianWen.Hosting (SharpAstro/Node.Lib). -->
+    <PackageVersion Include="Node.Lib" Version="1.0.*" />
+    <PackageVersion Include="Node.Lib.Hosting" Version="1.0.*" />
     <PackageVersion Include="SharpAstro.AppShell" Version="1.1.*" />
     <PackageVersion Include="GeoTimeZone" Version="6.1.0" />
 

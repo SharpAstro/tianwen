@@ -14,7 +14,9 @@ namespace TianWen.Hosting.Api;
 /// <summary>
 /// Where this machine's node listens: a Unix domain socket under the per-user AppData root, which is how every
 /// client on the machine reaches it (docs/plans/hardware-in-the-server.md, "Transport"). One helper, shared by
-/// the node and its clients, so the two can never look in different places.
+/// the node and its clients, so the two can never look in different places. tianwen's names and its own default path
+/// (beside the data root, or a short hashed one); the generic pieces (the address limit, the lock path, the socket's HTTP
+/// handler, the listening probe) are Node.Lib's <see cref="global::Node.Lib.NodeSocketLocation"/>, shared with pilot.
 /// </summary>
 /// <remarks>
 /// Under the AppData root rather than <c>$XDG_RUNTIME_DIR</c>, which logout removes: the lock and the crash
@@ -86,36 +88,26 @@ public static class NodeSocket
     /// The address a request over the socket carries. Only its host reaches the node, as the <c>Host</c> header;
     /// the connection itself goes to the socket (<see cref="CreateHandler"/>).
     /// </summary>
-    public static Uri BaseAddress { get; } = new Uri("http://localhost/");
+    public static Uri BaseAddress => global::Node.Lib.NodeSocketLocation.BaseAddress;
 
     /// <summary>
     /// The longest socket path this system can bind, in bytes: <c>sun_path</c> holds 108 on Linux and Windows and
     /// 104 on macOS and the BSDs, one of which is the terminator.
     /// </summary>
-    internal static int MaxPathBytes => OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD() ? 103 : 107;
+    internal static int MaxPathBytes => global::Node.Lib.NodeSocketLocation.MaxPathBytes;
 
     /// <summary>
     /// The lock beside a socket, which admits one node to it: <c>node.sock</c> is guarded by <c>node.lock</c>. Named
     /// after its socket, so a test's node on a socket of its own takes a lock of its own.
     /// </summary>
-    public static string LockPathFor(string socketPath) => Path.ChangeExtension(socketPath, ".lock");
+    public static string LockPathFor(string socketPath) => global::Node.Lib.NodeSocketLocation.LockPathFor(socketPath);
 
     /// <summary>
     /// Whether <paramref name="socketPath"/> fits in a socket address. A path that does not fit is refused with a
     /// message naming it, rather than bound truncated, which would put the node somewhere no client looks.
     /// </summary>
-    public static bool TryValidate(string socketPath, [NotNullWhen(false)] out string? error)
-    {
-        var bytes = Encoding.UTF8.GetByteCount(socketPath);
-        if (bytes > MaxPathBytes)
-        {
-            error = $"The node socket path is {bytes} bytes, longer than the {MaxPathBytes} a Unix domain socket can hold here: {socketPath}";
-            return false;
-        }
-
-        error = null;
-        return true;
-    }
+    public static bool TryValidate(string socketPath, [NotNullWhen(false)] out string? error) =>
+        global::Node.Lib.NodeSocketLocation.TryValidate(socketPath, out error);
 
     /// <summary>
     /// The socket a client uses: <paramref name="commandLineValue"/> (a <c>--node-socket</c> argument) first, then
@@ -144,23 +136,7 @@ public static class NodeSocket
     /// WebSocket. The protocol above it is the native v1 API unchanged, so a local node and a remote rig are one
     /// client and one test surface.
     /// </summary>
-    public static SocketsHttpHandler CreateHandler(string socketPath) => new SocketsHttpHandler
-    {
-        ConnectCallback = async (_, cancellationToken) =>
-        {
-            var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-            try
-            {
-                await socket.ConnectAsync(new UnixDomainSocketEndPoint(socketPath), cancellationToken).ConfigureAwait(false);
-                return new NetworkStream(socket, ownsSocket: true);
-            }
-            catch
-            {
-                socket.Dispose();
-                throw;
-            }
-        }
-    };
+    public static SocketsHttpHandler CreateHandler(string socketPath) => global::Node.Lib.NodeSocketLocation.CreateHandler(socketPath);
 
     /// <summary>
     /// Whether anything accepts a connection on <paramref name="socketPath"/>: a node that is up, however slow to answer a
@@ -168,17 +144,6 @@ public static class NodeSocket
     /// for a path too long to be a socket address at all, where <see cref="UnixDomainSocketEndPoint"/> throws
     /// <see cref="ArgumentOutOfRangeException"/> (nothing can listen on an address that cannot be formed).
     /// </summary>
-    public static async Task<bool> IsListeningAsync(string socketPath, CancellationToken cancellationToken)
-    {
-        using var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-        try
-        {
-            await socket.ConnectAsync(new UnixDomainSocketEndPoint(socketPath), cancellationToken).ConfigureAwait(false);
-            return true;
-        }
-        catch (Exception ex) when (ex is SocketException or ArgumentException)
-        {
-            return false;
-        }
-    }
+    public static Task<bool> IsListeningAsync(string socketPath, CancellationToken cancellationToken) =>
+        global::Node.Lib.NodeSocketLocation.IsListeningAsync(socketPath, cancellationToken);
 }
