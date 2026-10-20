@@ -236,6 +236,8 @@ def resume_fingerprint(args, meta):
         fp.update(clip_grad=args.clip_grad)
     if getattr(args, "teacher", None):
         fp.update(teacher=os.path.basename(os.path.normpath(args.teacher)))
+    if getattr(args, "extra_cache", None):
+        fp.update(extra_cache=os.path.basename(os.path.normpath(args.extra_cache)))
     fp.update(cells=meta["cells"], train_cells=meta["train_cells"])
     if args.schedule == "cosine":
         fp["steps"] = args.steps
@@ -265,6 +267,97 @@ def with_plane(x, plane, strength=1.0):
     import torch
     p = plane if torch.is_tensor(plane) else torch.from_numpy(np.ascontiguousarray(plane, dtype=np.float32))
     return torch.cat([x, p.to(x.device, dtype=x.dtype).unsqueeze(1) * strength], dim=1)
+
+
+# --------------------------------------------------------------------------- a second cache (R2q, the synthetic clusters)
+# --extra-cache joins a second synthetic cache's cells to the training draw (docs/plans/star-remover-training.md, "Synthetic
+# crowded clusters"). Its tiles train toward their OWN truth (slot 0) whatever the main cache's target is: the synthetic
+# clusters regress onto their noisy starless truth while synth4's draws keep R2p's teacher. So the target is per tile: a
+# main row reads what it always read, an extra row its own slot 0.
+class ExtraCache:
+    """A second synthetic cache's arrays: tiles, metadata, its training cells, its filled draws, and its planes and masks."""
+
+    def __init__(self, cache, mm, meta, sigma=None, has=None, keep=None):
+        self.cache, self.mm, self.meta = cache, mm, meta
+        self.n_train = int(meta["train_cells"])
+        self.draws = int(meta.get("draws", SUBS_PER_CELL))
+        self.sigma, self.has, self.keep = sigma, has, keep
+
+    @classmethod
+    def open(cls, cache, channels, need_sigma, need_keep):
+        """Opens `cache` as an extra cache for a main cache of `channels`, refusing one that cannot join: a cache of real subs,
+        another channel count, no draw, or a plane or mask the run needs and the cache lacks."""
+        meta = json.load(open(os.path.join(cache, "meta.json"), encoding="utf-8"))
+        if not meta.get("injected"):
+            raise SystemExit(f"--extra-cache {cache} holds real subs; only an injected (synthetic) cache has a truth to train toward")
+        if int(meta.get("channels", 3)) != channels:
+            raise SystemExit(f"--extra-cache {cache} holds {meta.get('channels', 3)} channels, the main cache {channels}")
+        mm = np.memmap(os.path.join(cache, "tiles.f16"), dtype=np.float16, mode="r",
+                       shape=(meta["cells"], meta.get("slots", SLOTS_SUBS_ONLY), channels, TILE, TILE))
+        out = cls(cache, mm, meta)
+        if out.draws < 1 or out.n_train < 1:
+            raise SystemExit(f"--extra-cache {cache} has {out.draws} draws and {out.n_train} training cells")
+        if need_sigma:
+            out.sigma, out.has = open_sigma(cache, meta)
+            if out.sigma is None or not out.has[:, :out.draws + 1].all():
+                raise SystemExit(f"--extra-cache {cache}: --cond-map needs every truth and draw slot's plane")
+        if need_keep:
+            out.keep = open_keep(cache, meta)
+            if out.keep is None:
+                raise SystemExit(f"--extra-cache {cache}: --loss-mask needs its keep.u8 (--prepare-keep)")
+        return out
+
+
+def extra_share(n_train_main, draws_main, n_train_extra, draws_extra):
+    """The extra cache's share of the training draw: its training input tiles over both caches' (a cell counts once per
+    filled draw, so a tile of either cache is drawn as often as any other)."""
+    main, extra = n_train_main * draws_main, n_train_extra * draws_extra
+    return extra / float(main + extra)
+
+
+def pick_extra(rng, batch, share, n_train_extra, draws_extra):
+    """Which rows of a batch the extra cache supplies, and their cells and draws. Drawn AFTER the main cache's own draws,
+    so every main row of a batch is the row a run without the extra cache would draw at that step."""
+    from_extra = rng.random(batch) < share
+    idx = rng.integers(0, n_train_extra, batch)
+    a = rng.integers(1, draws_extra + 1, batch)
+    return from_extra, idx, a
+
+
+def mixed_rows(main, main_idx, main_slot, extra, extra_idx, extra_slot, from_extra):
+    """[B, ...] rows of a per-row source: row i is main[main_idx[i], main_slot[i]] unless from_extra[i], then
+    extra[extra_idx[i], extra_slot[i]]. Only the rows each source supplies are read, and a main row is read exactly as a
+    run without the extra cache reads it."""
+    fe = np.asarray(from_extra, dtype=bool)
+    first = main[main_idx[:1], main_slot[:1]] if (~fe).any() else extra[extra_idx[:1], extra_slot[:1]]
+    out = np.empty((len(fe),) + first.shape[1:], dtype=first.dtype)
+    if (~fe).any():
+        out[~fe] = main[main_idx[~fe], main_slot[~fe]]
+    if fe.any():
+        out[fe] = extra[extra_idx[fe], extra_slot[fe]]
+    return out
+
+
+def synth_batch(mm, idx, a, target_of, extra=None, pick=None):
+    """One synthetic batch's (x, y) as numpy: the input is each row's draw and the target the row's own source's, a main row's
+    `target_of(idx, a)` (its clean slot, or with --teacher the teacher's output on that draw) and an extra row's own slot 0
+    (its truth). Without an extra cache it is exactly the batch the trainer always drew."""
+    if extra is None:
+        return np.ascontiguousarray(mm[idx, a]), np.ascontiguousarray(target_of(idx, a))
+    fe, ie, ae = pick
+    x = mixed_rows(mm, idx, a, extra.mm, ie, ae, fe)
+    y = np.empty_like(x)
+    if (~fe).any():
+        y[~fe] = target_of(idx[~fe], a[~fe])
+    if fe.any():
+        y[fe] = extra.mm[ie[fe], np.zeros(int(fe.sum()), dtype=np.int64)]
+    return x, y
+
+
+def combined_objective(main, extra, share):
+    """The held-out objective the schedule stops on with an extra cache: each cache's own held-out objective (every val tile
+    against its truth), weighed by its share of the training draw."""
+    return (1.0 - share) * main + share * extra
 
 
 # --------------------------------------------------------------------------- index
@@ -1391,6 +1484,20 @@ def train(args):
             raise SystemExit(f"--loss-mask: the cache's masks cover {meta['keep_draws']} draws, training draws {draws}")
         print(f"loss mask: the sky near the plate's own sources left out ({KEEP_FILE}, {meta['keep_planes']} draw masks)")
 
+    # R2q's --extra-cache: a second synthetic cache's training cells join the draw by their share of the input tiles, each
+    # regressing onto its own truth (slot 0) whatever --teacher says for the main cache's.
+    extra, share = None, 0.0
+    if args.extra_cache:
+        if regimes != [SYNTH] or synth_target != SLOT_MASTER or getattr(args, "scale_aug", None) or args.cond_psf01 \
+                or args.star_loss is not None or args.operator == "rl":
+            raise SystemExit("--extra-cache is for the plain synthetic regime against the clean tile (no --scale-aug, "
+                             "--cond-psf01, --star-loss or --operator)")
+        extra = ExtraCache.open(args.extra_cache, CH, sigma_planes is not None, keep_planes is not None)
+        share = extra_share(n_train, draws, extra.n_train, extra.draws)
+        print(f"extra cache ON: {extra.n_train} training cells x {extra.draws} draw(s) of {args.extra_cache}, "
+              f"{share:.1%} of the training draw, each regressing onto its own truth; "
+              f"{extra.meta['cells'] - extra.n_train} held-out cells", flush=True)
+
     # A DECONVOLUTION arm conditions on a stored psf01 label rather than on the input's measured
     # noise, and is selected on width and ringing rather than on noise: the denoiser's gate would
     # pick whichever checkpoint irons the frame flattest, which is selecting a deconvolver for
@@ -1620,50 +1727,71 @@ def train(args):
               f"every {args.val_every} steps, patience {args.patience}, min gain {args.min_improve:g}, "
               f"{args.max_decays} halvings from lr {args.lr:g}, cap {steps} steps")
 
+        # The extra cache's held-out cells (R2q): its val cells (whole held-out scenes), picked by the same rule.
+        evsel = None
+        if extra is not None:
+            evall = np.arange(extra.n_train, extra.meta["cells"])
+            if len(evall) == 0:
+                raise SystemExit(f"--schedule plateau with --extra-cache needs val cells in {args.extra_cache}")
+            evsel = evall[np.linspace(0, len(evall) - 1, min(args.val_loss_cells, len(evall))).round().astype(int)]
+            print(f"  and {len(evsel)} of the extra cache's held-out cells, each against its truth; the schedule stops on the two "
+                  f"objectives weighed by their share of the training draw ({1 - share:.3f} / {share:.3f})")
+        held_parts = {}
+
+        def score(mm_, sigma_, keep_, cells, draws_, target_slot):
+            """The training objective (pixel plus band terms, rim masked) over `cells`, two fixed draws each, every tile
+            against slot `target_slot` (the clean truth): the main cache as it always was, or the extra cache's."""
+            total = 0.0
+            for j0 in range(0, len(cells), 16):
+                vi = cells[j0:j0 + 16]
+                y = torch.from_numpy(np.ascontiguousarray(mm_[vi, target_slot])).to(dev).float()
+                yc = y[:, :, BORDER:-BORDER, BORDER:-BORDER]
+                for shift in (0, draws_ // 2):
+                    slots = 1 + (np.arange(j0, j0 + len(vi)) + shift) % draws_
+                    x = torch.from_numpy(np.ascontiguousarray(mm_[vi, slots])).to(dev).float()
+                    pred = model(with_plane(x, sigma_[vi, slots]) if sigma_ is not None
+                                 else with_sigma(x, planes=cond_planes) if cond_planes else x)
+                    pc = pred[:, :, BORDER:-BORDER, BORDER:-BORDER]
+                    mc = None
+                    if keep_ is not None:
+                        mc = torch.from_numpy(np.ascontiguousarray(keep_[vi, slots - 1])).to(dev).float() \
+                            .unsqueeze(1)[:, :, BORDER:-BORDER, BORDER:-BORDER]
+                    if args.bright_weight:
+                        bw = bright_weights(x, y, torch.from_numpy(np.ascontiguousarray(sigma_[vi, slots])).to(dev),
+                                            args.bright_sigma, args.bright_weight)[:, :, BORDER:-BORDER, BORDER:-BORDER]
+                        mc = bw if mc is None else mc * bw
+                    pw, yw = pc, yc
+                    if args.channel_noise:
+                        w = channel_weights(yc)
+                        pw, yw = pc / w, yc / w
+                    if mc is not None:
+                        obj = masked_mean((pw - yw).abs() if args.loss == "l1" else (pw - yw) ** 2, mc)
+                    else:
+                        obj = (nn.functional.l1_loss(pw, yw) if args.loss == "l1"
+                               else nn.functional.mse_loss(pw, yw))
+                    if args.band_loss > 0:
+                        band = 0.0
+                        for s1, s2 in band_scales:
+                            k1, k2 = kernels[s1], kernels[s2]
+                            dp, dy = _blur(pw, k1) - _blur(pw, k2), _blur(yw, k1) - _blur(yw, k2)
+                            band = band + (masked_mean((dp - dy) ** 2, mc) if mc is not None
+                                           else nn.functional.mse_loss(dp, dy))
+                        obj = obj + args.band_loss * band / len(band_scales)
+                    total += float(obj.item()) * len(vi)
+            return total / (2 * len(cells))
+
         def held_out():
             was = model.training
             model.eval()
-            total = 0.0
             with torch.no_grad():
-                for j0 in range(0, len(vsel), 16):
-                    vi = vsel[j0:j0 + 16]
-                    y = torch.from_numpy(np.ascontiguousarray(mm[vi, synth_target])).to(dev).float()
-                    yc = y[:, :, BORDER:-BORDER, BORDER:-BORDER]
-                    for shift in (0, draws // 2):
-                        slots = 1 + (np.arange(j0, j0 + len(vi)) + shift) % draws
-                        x = torch.from_numpy(np.ascontiguousarray(mm[vi, slots])).to(dev).float()
-                        pred = model(with_plane(x, sigma_planes[vi, slots]) if sigma_planes is not None
-                                     else with_sigma(x, planes=cond_planes) if cond_planes else x)
-                        pc = pred[:, :, BORDER:-BORDER, BORDER:-BORDER]
-                        mc = None
-                        if keep_planes is not None:
-                            mc = torch.from_numpy(np.ascontiguousarray(keep_planes[vi, slots - 1])).to(dev).float() \
-                                .unsqueeze(1)[:, :, BORDER:-BORDER, BORDER:-BORDER]
-                        if args.bright_weight:
-                            bw = bright_weights(x, y, torch.from_numpy(np.ascontiguousarray(sigma_planes[vi, slots])).to(dev),
-                                                args.bright_sigma, args.bright_weight)[:, :, BORDER:-BORDER, BORDER:-BORDER]
-                            mc = bw if mc is None else mc * bw
-                        pw, yw = pc, yc
-                        if args.channel_noise:
-                            w = channel_weights(yc)
-                            pw, yw = pc / w, yc / w
-                        if mc is not None:
-                            obj = masked_mean((pw - yw).abs() if args.loss == "l1" else (pw - yw) ** 2, mc)
-                        else:
-                            obj = (nn.functional.l1_loss(pw, yw) if args.loss == "l1"
-                                   else nn.functional.mse_loss(pw, yw))
-                        if args.band_loss > 0:
-                            band = 0.0
-                            for s1, s2 in band_scales:
-                                k1, k2 = kernels[s1], kernels[s2]
-                                dp, dy = _blur(pw, k1) - _blur(pw, k2), _blur(yw, k1) - _blur(yw, k2)
-                                band = band + (masked_mean((dp - dy) ** 2, mc) if mc is not None
-                                               else nn.functional.mse_loss(dp, dy))
-                            obj = obj + args.band_loss * band / len(band_scales)
-                        total += float(obj.item()) * len(vi)
+                main = score(mm, sigma_planes, keep_planes, vsel, draws, synth_target)
+                if extra is not None:
+                    other = score(extra.mm, extra.sigma, extra.keep, evsel, extra.draws, SLOT_MASTER)
+                    held_parts.update(main=main, extra=other)
+                    main = combined_objective(main, other, share)
             if was:
                 model.train()
-            return total / (2 * len(vsel))
+            return main
         held_out = held_out
     val_best, val_best_step, val_bad, val_decays = float("inf"), 0, 0, 0
     val_hist = []
@@ -1748,7 +1876,11 @@ def train(args):
         start = ck["step"] + 1
         print(f"resumed from {resume_path} after step {ck['step']} (best {val_best:.6e} at {val_best_step}, "
               f"{val_decays} halvings, lr {opt.param_groups[0]['lr']:.2e})", flush=True)
+    # The main cache's target: its clean tile, or with --teacher the teacher's output on the draw (R2p).
+    def target_of(i, slot):
+        return mm[i, synth_target] if teacher is None else teacher[i, slot - 1]
     for step in range(start, steps + 1):
+        pick = None
         idx = rng.integers(0, n_train, args.batch)
         # Two DIFFERENT subs of the same cell: independent noise, same scene. That is the
         # whole N2N premise, and it is why no clean target is needed.
@@ -1768,9 +1900,13 @@ def train(args):
         if k == SYNTH:
             # Input: one injected draw. Target: the undegraded tile every draw was made from, or on a
             # pair cache whichever night --synthetic-target names.
-            x = torch.from_numpy(np.ascontiguousarray(mm[idx, a])).to(dev).float()
-            y = torch.from_numpy(np.ascontiguousarray(mm[idx, synth_target] if teacher is None
-                                                      else teacher[idx, a - 1])).to(dev).float()
+            # A main row reads its draw and its target exactly as before (the clean tile, or the teacher's output on that
+            # draw); with --extra-cache the rows the extra cache supplies read its draw and its own truth (synth_batch).
+            if extra is not None:
+                pick = pick_extra(rng, args.batch, share, extra.n_train, extra.draws)
+            xs, ys = synth_batch(mm, idx, a, target_of, extra, pick)
+            x = torch.from_numpy(xs).to(dev).float()
+            y = torch.from_numpy(ys).to(dev).float()
             if scale_aug is not None:
                 # E3.2's scale augmentation: the whole batch resampled by one factor so its stars
                 # are narrower in pixels than the pool's masters offer (seed 0's prior carried its
@@ -1828,9 +1964,14 @@ def train(args):
             x = torch.from_numpy(np.ascontiguousarray(mm[idx, a])).to(dev).float()
             y = torch.from_numpy(np.ascontiguousarray(mm[idx, b])).to(dev).float()
 
-        # This step's per-pixel planes, picked once so a training view turns them with the tile.
-        plane_now = sigma_planes[idx, a] if sigma_planes is not None else None
-        keep_now = keep_planes[idx, a - 1] if keep_planes is not None else None
+        # This step's per-pixel planes, picked once so a training view turns them with the tile; an extra row's are its own.
+        if pick is None:
+            plane_now = sigma_planes[idx, a] if sigma_planes is not None else None
+            keep_now = keep_planes[idx, a - 1] if keep_planes is not None else None
+        else:
+            fe, ie, ae = pick
+            plane_now = mixed_rows(sigma_planes, idx, a, extra.sigma, ie, ae, fe) if sigma_planes is not None else None
+            keep_now = mixed_rows(keep_planes, idx, a - 1, extra.keep, ie, ae - 1, fe) if keep_planes is not None else None
         if args.dihedral and k == SYNTH:
             # R2o: the tile, its target and its planes in one random view per sample, so one model learns the answer
             # averaging its eight views gave (E2: +6.0 points on bright stars). Drawn only when on, so earlier runs keep
@@ -2000,6 +2141,9 @@ def train(args):
                     note = f"plateau: rate halved to {lr_now * 0.5:.2e} ({val_decays}/{args.max_decays})"
             print(f"  val  {step:6d}   held-out {val_hist[-1]:.6e}   window {v:.6e}   best {val_best:.6e} at "
                   f"{val_best_step}   lr {lr_now:.2e}   {note}", flush=True)
+            if held_parts:
+                print(f"  val  {step:6d}   held-out main {held_parts['main']:.6e}   extra {held_parts['extra']:.6e}   "
+                      f"combined {val_hist[-1]:.6e} ({1 - share:.3f} / {share:.3f})", flush=True)
             if args.clip_grad:
                 print(f"  clip {step:6d}   clipped {clipped} of the last {args.val_every} steps, median gradient norm "
                       f"{float(np.median(grad_hist)):.3e}, largest {grad_max:.3e}", flush=True)
@@ -2144,7 +2288,7 @@ def train(args):
         torch.save({"model": state, "base": args.base, "upsample": args.upsample, "channels": CH,
                     "levels": args.levels, "max_ch": args.max_ch, "dihedral": args.dihedral, "ema": args.ema,
                     "cond": cond_planes, "cond_map": sigma_planes is not None, "half_pairs": args.half_pairs,
-                    "loss_mask": keep_planes is not None,
+                    "loss_mask": keep_planes is not None, "extra_cache": args.extra_cache,
                     "regimes": [str(k) for k in regimes], "selected_at_step": selected_at,
                     "pair_time": args.pair_time, "star_loss_w": star_w,
                     "operator": args.operator, "rl_k": args.rl_k,
@@ -2424,6 +2568,11 @@ if __name__ == "__main__":
                    help="a cell list added AFTER the seeded pick, each cell to the split its session is "
                         "in and never twice; the pick itself is unchanged, so every earlier cell stays")
     p.add_argument("--base", type=int, default=32)
+    p.add_argument("--extra-cache", default=None,
+                   help="R2q: a second synthetic cache (the synthetic clusters) whose training cells join the draw by their share "
+                        "of the input tiles, each regressing onto its own truth (slot 0) whatever --teacher sets for this cache's; "
+                        "the plateau's held-out objective reads both caches' val cells against their truths and stops on the two "
+                        "weighed by that share, logging each")
     p.add_argument("--teacher", default=None,
                    help="R2p: a folder from n2n_teacher.py; each synthetic draw regresses onto the teacher's output on it "
                         "instead of the clean tile (distillation), while the held-out objective still reads the clean tile")

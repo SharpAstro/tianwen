@@ -213,10 +213,11 @@ public sealed class SyntheticBackground
     /// <paramref name="steering"/> draws the texture along the plate's coarse orientation (<see cref="Steering"/>);
     /// <paramref name="tailsFromPlate"/> sets its tails from the plate's own (<see cref="TailsFromPlate"/>);
     /// <paramref name="nebulaKnots"/> draws the knots as a nebula's (<see cref="NebulaKnots"/>); a
-    /// <paramref name="largeScale"/> drives it from the plate's large scales alone (<see cref="LargeScale"/>).
+    /// <paramref name="largeScale"/> drives it from the plate's large scales alone (<see cref="LargeScale"/>);
+    /// <paramref name="elongatedKnots"/> draws the knots mostly elongated (<see cref="ElongatedKnots"/>).
     /// </summary>
     public static SyntheticBackground Build(Image unitPlate, BitMatrix? absent, double fwhm, bool brightKnotsWide = false, Steering? steering = null,
-        bool tailsFromPlate = false, bool nebulaKnots = false, LargeScale? largeScale = null)
+        bool tailsFromPlate = false, bool nebulaKnots = false, LargeScale? largeScale = null, bool elongatedKnots = false)
     {
         var (channels, width, height) = unitPlate.Shape;
         var n = width * height;
@@ -372,6 +373,7 @@ public sealed class SyntheticBackground
         {
             LargeScaleRegionRms = largeScale is null ? [] : [.. regionRms.Select(static r => r.ToImmutableArray())],
             TextureWidth = largeScale is { } texture ? texture.LogNormalWidth : LogNormalSigma,
+            ElongatedKnots = elongatedKnots,
         };
     }
 
@@ -415,6 +417,21 @@ public sealed class SyntheticBackground
     /// <summary>The log-normal width the texture is drawn at where it does not follow the plate's tails: 0 for a Gaussian
     /// field.</summary>
     public double TextureWidth { get; private init; } = LogNormalSigma;
+
+    /// <summary>
+    /// Whether the knots are mostly elongated (the synthetic clusters' rule, the owner, 2026-10-21): a knot is elongated,
+    /// 2.5 to 5 to one, but for a <see cref="RoundKnotShare"/> drawn round, and a round one is at least
+    /// <see cref="RoundKnotMinWidths"/> PSF widths across and peaks under <see cref="BrightKnotSigma"/>. Half of D3's knots
+    /// were round from 1.6 PSF widths, which a remover cannot tell from a star by shape, and in a crowded cluster's starless
+    /// truth 13 of 15 read star-like by the gate's width test.
+    /// </summary>
+    public bool ElongatedKnots { get; private init; }
+
+    /// <summary>With <see cref="ElongatedKnots"/>, the share of the knots drawn round.</summary>
+    public const double RoundKnotShare = 0.2;
+
+    /// <summary>With <see cref="ElongatedKnots"/>, a round knot's least width, in PSF widths (it is drawn 4 to 6 across).</summary>
+    public const double RoundKnotMinWidths = 4.0;
 
     // S2b: the structure tensor of the luminance's replaced scales from 2 px up (1 px is the master's noise on every class,
     // S1), each scale's gradients over the clean pixels only (sources and the ring out, as the amplitude maps read them),
@@ -1359,17 +1376,7 @@ public sealed class SyntheticBackground
             {
                 continue;
             }
-            double major, minor;
-            var round = random.NextDouble() < 0.5;
-            if (round)
-            {
-                major = minor = psfSigma * (1.6 + (2.4 * random.NextDouble()));
-            }
-            else
-            {
-                minor = psfSigma * (1.0 + (0.5 * random.NextDouble()));
-                major = minor * (2.5 + (2.5 * random.NextDouble()));
-            }
+            var (major, minor, round) = KnotShape(psfSigma, random);
             var f = FrameIndex(cx, cy);
             var randomAngle = random.NextDouble() * Math.PI;
             // The major axis along the contour: a quarter turn from the gradient the orientation reads.
@@ -1379,7 +1386,7 @@ public sealed class SyntheticBackground
             for (var c = 0; c < channels; c++)
             {
                 peak[c] = level * SignalRms(c, f);
-                if (BrightKnotsWide && minor < BrightKnotMinWidths * psfSigma)
+                if ((BrightKnotsWide && minor < BrightKnotMinWidths * psfSigma) || (ElongatedKnots && round))
                 {
                     peak[c] = Math.Min(peak[c], BrightKnotSigma * noise[c]);
                 }
@@ -1388,6 +1395,21 @@ public sealed class SyntheticBackground
             knots.Add(new Knot(cx, cy, major, minor, angle, peak));
         }
         return knots.ToImmutable();
+    }
+
+    // A nebula knot's sigmas: D3's shapes (half round, 1.6 to 4 PSF widths across; half elongated, 2.5 to 5 to one, the minor
+    // 1 to 1.5 widths), or with ElongatedKnots a RoundKnotShare drawn round at RoundKnotMinWidths to 6 widths and the rest
+    // elongated as D3's are.
+    private (double Major, double Minor, bool Round) KnotShape(double psfSigma, Random random)
+    {
+        var round = random.NextDouble() < (ElongatedKnots ? RoundKnotShare : 0.5);
+        if (round)
+        {
+            var across = ElongatedKnots ? RoundKnotMinWidths + (2.0 * random.NextDouble()) : 1.6 + (2.4 * random.NextDouble());
+            return (psfSigma * across, psfSigma * across, true);
+        }
+        var minor = psfSigma * (1.0 + (0.5 * random.NextDouble()));
+        return (minor * (2.5 + (2.5 * random.NextDouble())), minor, false);
     }
 
     // The gradient's angle the texture is steered by at a frame pixel (the coarse orientation, blended toward the plate's own

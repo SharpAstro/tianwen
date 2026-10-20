@@ -3157,20 +3157,48 @@ scale read off the plate at the same place, with no floor. Both the grain and th
 round texture finer than 16 px makes quasi-stars, and knots carry the fine detail (the owner, 2026-10-20). With
 `--nebula-knots` the nebula carries the background generator's nebula knots (a compact one held faint), as many per 256 px
 square of the tile as the exporter's cells hold (three, times the share of the cell that is nebula), each listed per scene
-in `_knots.csv`. Every render is gated
-before any picture: no local maximum of 12 px or less over 0.25 noise above its 16 to 32 px surround on the knot-free
-pixels (the knots read on their own: how many, the brightest's peak against its own width, and how many the same width
-test would call a star), no excess structure at cell scale (a 16 px mean less a 64 px median) over the plate's filled
-cells, and the starless light equal to the faint stars it stands for.
+in `_knots.csv`. The knots are mostly elongated, 2.5 to 5 to one (`SyntheticBackground.ElongatedKnots`, the owner,
+2026-10-21): a fifth are round, and a round one is at least four PSF widths across and peaks under 20 noise sigma.
+Every render is gated before any picture: no local maximum of 12 px or less, with a second-moment axis ratio under 2,
+over 0.25 noise above its 16 to 32 px surround on the knot-free pixels (the knots read on their own: how many, the
+brightest's peak against its own width, and how many the same test would call a star); at cell scale (a 16 px mean less a
+64 px median) the ratio of the plate's filled cells to its least-filled half at most the nebula plate's own ratio at the
+same place and turn plus 0.05; and the starless light equal to the faint stars it stands for.
+
+**The noise keeps synth4's convention.** The noisy starless truth is the truth plus one draw of the master's noise at its
+own level (`SyntheticClusterSource.NoiseCalibration`, the exporter's own `NoiseCalibration` rule), and the composite is
+that noisy truth plus the stars plus the stars' own shot noise, a second, independent draw at
+sqrt(sigma(composite)^2 - sigma(starless)^2) (`SyntheticClusterScene.AddNoise`): an injected draw over its plate. So the
+composite less the noisy truth is the stars and their own noise only, and a net trained toward the noisy truth keeps the
+frame's noise, as on synth4.
 
 **The source is the ASI585MC Tarantula of 2024-10-02** (broadband, ZS61, 2.07 arcsec a pixel), the owner's choice of
 2026-10-20. The first scenes were drawn from the SV605CC Tarantula of 2026-10-17, which `dataset-parameters.json` holds out
 as the crowded-field TEST session (and the same field, camera and filter's night of 2025-10-18 is a test session by
 bucket): a test session's stars, noise and nebula must never reach training, and releasing it would cost the LMC as a test
 field, the nearest crowded broadband one left being the SMC. So those scenes are development only and are never exported.
-The ASI585 night is on the training side and frames the same LMC field.
-The nebula can come from a plate other than the scenes' own (`--nebula-plate`), so the pits the first plate's
-saturated-star fills left at 64 px and up need not reach it; which plate that is waits on the owner.
+The ASI585 night is on the training side and frames the same LMC field. Its scenes are drawn at the window x 790 to 1814,
+y 726 to 1750, the nebula from the same place on its R0 plate as it is (the owner, 2026-10-21: under its 184 saturated
+stars the large-scale level against a 60 to 120 px ring has a median of +0.06 noise and 4 % pits, as at random places).
+Its own numbers at 2.07 arcsec a pixel: field density 0.0060 a square pixel and faint slope 1.12, lateral colour R +97.9
+and B +115.0 ppm, the LMC clusters' half-light radii 5.8 to 21.0 px, resolved stars 2 to 15 and unresolved light 2.5 to 18.
+
+#### The synthetic clusters as training tiles (R2q, 2026-10-21)
+
+`tianwen dataset synthetic-cluster --export-skies N` (`SyntheticClusterExport`) draws N skies of the ASI585 master, each
+its own rotation, nebula (two in three) and cluster (1,500 to 3,000 resolved stars, a core of 20 to 90 px, a tidal radius
+of 250 to 500 px and at least three cores, up to eight groups), renders each in measured and lateral optics, and cuts
+every 1024 px scene into sixteen 256 px cells laid out as a Stars-mode export's, so `n2n_smoke.py --prepare` packs them
+unchanged (`C:\temp\e2\clusters-cache.sh`): per cell the target is the noisy starless truth (`master`), the one draw the
+composite (`deg000`), each with its noise plane, and the draw an all-ones loss mask (the truth holds no star a plate kept,
+and its knots must count). Both are stretched with the plate's own parameters. Every tenth seed is held out whole, in both
+optics and every cell, never a tile of a training sky (`clusters-train.txt`, `clusters-val.txt`).
+
+The trainer reads them beside synth4 with `n2n_smoke.py --extra-cache` (`run-r2.ps1 -ExtraCache`): the extra cache's
+training cells join the draw by their share of the input tiles, each regressing onto its own truth, while synth4's draws
+keep R2p's teacher; the plateau stops on both caches' held-out objectives, each against its truth, weighed by that share,
+and logs the three. Without the option a run is bit-identical to the trainer before it (40 steps of R2p's recipe, every
+tensor). Tested in `training/denoise/test_n2n_extra_cache.py` and `SyntheticClusterExportTests`.
 
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
