@@ -318,10 +318,15 @@ public static class SyntheticClusterScene
         var midX = spec.FrameX + centre;
         var midY = spec.FrameY + centre;
         var midProfiles = ProfilesFor(population, spec.Optics, midX, midY, channels);
+        // A star's light per channel is the master's: its amplitudes were fitted with each channel's own profile, so the
+        // measured profiles set the flux whatever the optics draw it with (plain optics, green's shape in every channel,
+        // must change the shape and never the colour).
+        var measuredFlux = ProfilesFor(population, ClusterOptics.Measured, midX, midY, channels).Select(MoffatFlux).ToArray();
+        var keepFlux = midProfiles.Select((p, c) => measuredFlux[c] / MoffatFlux(p)).ToArray();
         for (var c = 0; c < channels; c++)
         {
             var deposit = new float[n];
-            var channelFlux = MoffatFlux(midProfiles[c]);
+            var channelFlux = measuredFlux[c];
             foreach (var (x, y, peak, colour) in glow)
             {
                 var (px, py) = ChannelCentre(spec, source, ToScene(x, y), c);
@@ -380,7 +385,7 @@ public static class SyntheticClusterScene
                 var (s, at) = placed[k];
                 var (px, py) = ChannelCentre(spec, source, at, c);
                 var profile = ProfilesNear(at)[c];
-                injected[k] = new InjectedStar(px, py, [s.A[c]], [profile], s.Saturated, s.Saturated ? [s.Clips[c]] : ImmutableArray<double>.Empty);
+                injected[k] = new InjectedStar(px, py, [s.A[c] * keepFlux[c]], [profile], s.Saturated, s.Saturated ? [s.Clips[c]] : ImmutableArray<double>.Empty);
             }
             var floor = FloorSigma * source.Noise[c];
             var render = StarInjection.Render([starless[c]], size, size, null, injected, [floor], subs);
