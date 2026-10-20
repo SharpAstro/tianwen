@@ -3110,9 +3110,20 @@ frame's noise, as on synth4.
 as the crowded-field TEST session (and the same field, camera and filter's night of 2025-10-18 is a test session by
 bucket): a test session's stars, noise and nebula must never reach training, and releasing it would cost the LMC as a test
 field, the nearest crowded broadband one left being the SMC. So those scenes are development only and are never exported.
-The ASI585 night is on the training side and frames the same LMC field. Its scenes are drawn at the window x 790 to 1814,
-y 726 to 1750, the nebula from the same place on its R0 plate as it is (the owner, 2026-10-21: under its 184 saturated
-stars the large-scale level against a 60 to 120 px ring has a median of +0.06 noise and 4 % pits, as at random places).
+The ASI585 night is on the training side and frames the same LMC field. Its scenes are drawn at the window x 2553 to 3577,
+y 678 to 1702, the nebula from the same place on its R0 plate as it is (the owner, 2026-10-21: under the saturated stars
+the plate's large-scale level against a 60 to 120 px ring has a median of +0.06 noise and 4 % pits, as at random places).
+**The nebula tile (1,453 px, every rotation's source) must hold no bright compact nebula** (2026-10-21). The texture's
+strength follows the window's own fine-scale RMS, placed by the plate's 64 px power, and a Gaussian texture at a bright
+knot's strength dips 10 to 26 noise below its surroundings: black holes the gates do not see (their 4-16 px band 2.15 times
+the plate's beside R136 at the first window, x 790 to 1814, whose tile held R136). Left of 30 Doradus every window whose
+tile keeps R136 out holds the bright HII knots near frame x 810 to 1070, y 986 to 1066, which drew holes too, so the window
+is right of it: tile x 2339 to 3792, y 464 to 1917, R136 378 px outside it, 7,590 catalogued stars, and a faint nebula
+(about 2 noise over the sky against 11 on the left). There the drawn 4-16 px band is at most 0.84 times the plate's in
+any 256 px column and nothing dips more than 3.1 noise below its 64 px surround. The cell gate reads at its floor: the plate's
+own ratio is 0.94 to 1.03 and the bands 0.04 to 0.24 noise, and six of twelve truths pass it narrowly or not (1.00 to 1.30
+against limits of 0.99 to 1.08), from the compact cluster's own glow in the filled cells (a no-nebula truth, 1.19) and the
+drawn texture's placement (the nebula alone 1.11 to 1.14 against the plate's 0.94 and 0.95, +0.02 to +0.03 noise).
 Its own numbers at 2.07 arcsec a pixel: field density 0.0060 a square pixel and faint slope 1.12, lateral colour R +97.9
 and B +115.0 ppm, the LMC clusters' half-light radii 5.8 to 21.0 px, resolved stars 2 to 15 and unresolved light 2.5 to 18.
 
@@ -3126,8 +3137,8 @@ unchanged (`C:\temp\e2\clusters-cache.sh`; `--compact` keeps only the truth and 
 usual eleven would leave nine empty): per cell the target is the noisy starless truth (`master`), the one draw the
 composite (`deg000`), each with its noise plane, and the draw an all-ones loss mask (the truth holds no star a plate kept,
 and its knots must count). Both are stretched with the plate's own parameters. Every tenth seed is held out whole, in both
-optics and every cell, never a tile of a training sky (`clusters-train.txt`, `clusters-val.txt`). The first export, 90
-skies (61 with a nebula), is 2,592 training and 288 held-out input tiles, 14.9 % of synth4's 19,360 and 12.5 % of the
+optics and every cell, never a tile of a training sky (`clusters-train.txt`, `clusters-val.txt`). The export at the
+window right of 30 Doradus, 90 skies (61 with a nebula), is 2,592 training and 288 held-out input tiles, 14.9 % of synth4's 19,360 and 12.5 % of the
 training draw beside synth4's 18,080 training tiles (`C:\temp\tianwen-scratch\r2-clusters`, its cache `r2-clusters-cache`,
 3.2 and 3.0 GB).
 
