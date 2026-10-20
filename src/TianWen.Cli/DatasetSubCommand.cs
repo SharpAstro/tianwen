@@ -1354,6 +1354,11 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Description = "Each group's unresolved light, min,max in the master's units (green amplitude times pixels), drawn log-uniform.",
             DefaultValueFactory = _ => "0.1,0.8",
         };
+        var nebulaKnotsOpt = new Option<bool>("--nebula-knots")
+        {
+            Description = "Draw the background generator's own knots into the nebula (fine structure that is not the PSF, kept in the starless " +
+                          "truth), as many per area as the exporter's cells hold, and write each scene's list as <name>_knots.csv.",
+        };
         var minSeparationOpt = new Option<double>("--min-separation")
         {
             Description = "The least distance between two resolved stars, pixels: the catalogue is already de-blended, so stars placed closer " +
@@ -1391,7 +1396,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         {
             Options = { masterOpt, plateOpt, outOpt, atOpt, sizeOpt, seedOpt, rotationsOpt, opticsOpt, nebulaOpt, nebulaAtOpt, clusterStarsOpt, coreOpt, tidalOpt,
                 fieldDensityOpt, saturatedOpt, glowShareOpt, glowSlopeOpt, lateralOpt, groupsOpt, groupHalfLightOpt, groupStarsOpt, groupGlowOpt,
-                poolMarginOpt, minSeparationOpt, nebulaPlateOpt, nebulaTextureFromOpt, nebulaLogNormalOpt },
+                poolMarginOpt, minSeparationOpt, nebulaPlateOpt, nebulaTextureFromOpt, nebulaLogNormalOpt, nebulaKnotsOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
@@ -1460,7 +1465,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 parseResult.GetValue(saturatedOpt), parseResult.GetValue(glowShareOpt), parseResult.GetValue(glowSlopeOpt),
                 0.0, nebulaAt.Item1, nebulaAt.Item2, ClusterOptics.Plain, lateral, parseResult.GetValue(seedOpt),
                 parseResult.GetValue(groupsOpt), halfLightMin, halfLightMax, (int)groupStarsMin, (int)groupStarsMax, groupGlowMin, groupGlowMax,
-                parseResult.GetValue(minSeparationOpt));
+                parseResult.GetValue(minSeparationOpt), parseResult.GetValue(nebulaKnotsOpt));
             var run = new SyntheticClusterRun(parseResult.Required(masterOpt), parseResult.Required(plateOpt), parseResult.Required(outOpt), spec,
                 optics.ToImmutable(), nebulae, rotations, parseResult.GetValue(poolMarginOpt), parseResult.GetValue(nebulaPlateOpt),
                 (int)Math.Round(Math.Log2(Math.Clamp(parseResult.GetValue(nebulaTextureFromOpt), 1, 32))), parseResult.GetValue(nebulaLogNormalOpt));

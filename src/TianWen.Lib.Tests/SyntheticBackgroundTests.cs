@@ -194,6 +194,33 @@ public sealed class SyntheticBackgroundTests
         seen.ShouldBeGreaterThan(20, "about three knots a cell");
     }
 
+    /// <summary>
+    /// Asked by area, a cut holds <see cref="SyntheticBackground.KnotsPerCell"/> knots per
+    /// <see cref="SyntheticBackground.KnotCellPx"/> px cell of its area; asked per cut, as the exporter asks, every cut holds
+    /// the same number whatever its size (a synthetic cluster scene's 1,453 px tile held three).
+    /// </summary>
+    [Fact]
+    public void ByAreaACutHoldsKnotsPerExportCellOfItsArea()
+    {
+        var background = SyntheticBackground.Build(Plate(5), absent: null, Fwhm);
+        double MeanCount(int size, bool byArea)
+        {
+            var total = 0;
+            const int draws = 120;
+            for (var draw = 0; draw < draws; draw++)
+            {
+                background.Cell(0, 0, size, [Noise], new Random(500 + draw), out var knots, knotsByArea: byArea);
+                total += knots.Length;
+            }
+            return (double)total / draws;
+        }
+
+        var quarter = (double)(128 * 128) / (SyntheticBackground.KnotCellPx * SyntheticBackground.KnotCellPx);
+        MeanCount(128, byArea: true).ShouldBe(SyntheticBackground.KnotsPerCell * quarter, 0.3, "a quarter of a cell's area, a quarter of its knots");
+        MeanCount(256, byArea: true).ShouldBe(SyntheticBackground.KnotsPerCell, 0.5, "one cell's area, one cell's knots");
+        MeanCount(128, byArea: false).ShouldBe(SyntheticBackground.KnotsPerCell, 0.5, "asked per cut, a small cut holds a whole cell's");
+    }
+
     [Fact]
     public void WithBrightKnotsWideOnlyAWideKnotIsBrightAndNoKnotMoves()
     {

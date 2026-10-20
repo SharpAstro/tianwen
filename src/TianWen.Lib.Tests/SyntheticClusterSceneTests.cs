@@ -55,6 +55,61 @@ public sealed class SyntheticClusterSceneTests
         SyntheticClusterScene.KingLightWithin(rt, rc, rt).ShouldBe(1.0, 1e-12);
     }
 
+    /// <summary>A scene's knot list says where the turned tile draws each knot: a blob drawn in the tile at a knot's place is
+    /// found, after <see cref="SyntheticClusterScene.Rotate"/>, where <see cref="SyntheticClusterScene.KnotsInScene"/> puts the
+    /// knot, its axis turned with the sky and its peak at the nebula's strength.</summary>
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(37.0)]
+    [InlineData(90.0)]
+    public void TheKnotListSaysWhereTheTurnedTileDrawsEachKnot(double degrees)
+    {
+        const int wide = 301, size = 201;
+        const double kx = 190.0, ky = 118.0, sigma = 2.0;
+        var tile = new float[wide * wide];
+        for (var y = 0; y < wide; y++)
+        {
+            for (var x = 0; x < wide; x++)
+            {
+                tile[(y * wide) + x] = (float)Math.Exp(-0.5 * (((x - kx) * (x - kx)) + ((y - ky) * (y - ky))) / (sigma * sigma));
+            }
+        }
+        var knot = new SyntheticBackground.Knot(kx, ky, sigma * 2, sigma, 0.25, [1.0, 2.0, 3.0]);
+
+        var turned = SyntheticClusterScene.Rotate(tile, wide, size, degrees);
+        var listed = SyntheticClusterScene.KnotsInScene([knot], wide, size, degrees, strength: 0.5);
+
+        listed.Length.ShouldBe(1);
+        var (sum, sx, sy) = (0.0, 0.0, 0.0);
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var v = turned[(y * size) + x];
+                (sum, sx, sy) = (sum + v, sx + (v * x), sy + (v * y));
+            }
+        }
+        (sx / sum).ShouldBe(listed[0].X, 0.05, "the centroid of the turned blob is the listed centre");
+        (sy / sum).ShouldBe(listed[0].Y, 0.05);
+        listed[0].AngleRad.ShouldBe(0.25 + (degrees * Math.PI / 180.0), 1e-12);
+        listed[0].Peak.ShouldBe([0.5, 1.0, 1.5]);
+    }
+
+    [Fact]
+    public void AKnotTheSceneDoesNotShowIsNotListed()
+        => SyntheticClusterScene.KnotsInScene([new SyntheticBackground.Knot(5.0, 5.0, 2.0, 1.0, 0.0, [1.0])], 301, 201, 0.0, 1.0).ShouldBeEmpty();
+
+    [Fact]
+    public void TheKnotListIsOneRowPerKnot()
+    {
+        var csv = SyntheticClusterRun.KnotsCsv([new SyntheticBackground.Knot(12.5, 40.25, 3.0, 1.5, Math.PI / 4, [0.1, 0.2, 0.3])]);
+
+        csv.Split('\n', StringSplitOptions.RemoveEmptyEntries).ShouldBe([
+            "x,y,sigma_major,sigma_minor,angle_deg,peak_r,peak_g,peak_b",
+            "12.500,40.250,3.0000,1.5000,45.00,0.1,0.2,0.3",
+        ]);
+    }
+
     [Theory]
     [InlineData(2.0, 0.343)]
     [InlineData(3.0, 0.296)]

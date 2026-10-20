@@ -65,6 +65,9 @@ public enum ClusterOptics
 /// <param name="MinSeparationPx">The least distance between two resolved stars: the catalogue they are drawn from is already
 /// de-blended, so two placed closer than its builder separates become one brighter star and the brightness function runs
 /// bright (twice too many stars of significance 20 to 1,000 on the LMC field without it). 0 for none.</param>
+/// <param name="NebulaKnots">Whether the nebula carries the background generator's own knots (its nebula knots, a compact one
+/// held faint, <see cref="SyntheticBackground.KnotsPerCell"/> per <see cref="SyntheticBackground.KnotCellPx"/> px cell by
+/// area), listed per scene as <see cref="SyntheticClusterRender.Knots"/>.</param>
 public sealed record SyntheticClusterSpec(
     int Size, int FrameX, int FrameY, double RotationDeg,
     int ClusterStars, double CoreRadiusPx, double TidalRadiusPx, double FieldDensity, int SaturatedStars,
@@ -73,7 +76,7 @@ public sealed record SyntheticClusterSpec(
     ClusterOptics Optics, ImmutableArray<double> LateralPpm, int Seed,
     int SubClusters = 0, double SubClusterHalfLightMinPx = 4.1, double SubClusterHalfLightMaxPx = 11.8,
     int SubClusterStarsMin = 2, int SubClusterStarsMax = 12, double SubClusterGlowMin = 0.1, double SubClusterGlowMax = 0.8,
-    double MinSeparationPx = 0.0);
+    double MinSeparationPx = 0.0, bool NebulaKnots = false);
 
 /// <summary>One of a scene's compact groups, as rendered: its centre in scene pixels, its half-light radius, its resolved
 /// stars, its unresolved light (green, the master's units) and whether the starless truth holds that light as smooth light
@@ -108,10 +111,12 @@ public readonly record struct ClusterTruthStar(double X, double Y, ImmutableArra
 /// <param name="Groups">The compact groups.</param>
 /// <param name="StarlessNoisy">The starless truth with the composite's own noise draw at its own level: to set beside a real
 /// starless, which carries its master's noise (a noise-free truth hard-stretched to 8 bits draws terraces).</param>
+/// <param name="Knots">The nebula's knots where the scene shows them (scene pixels, their axes turned with the sky, their peaks
+/// per channel at the nebula's strength): fine structure in the starless truth that is not the PSF.</param>
 public sealed record SyntheticClusterRender(
     float[][] Stars, float[][] Starless, float[][] Composite, float[][] Unresolved, ImmutableArray<ClusterTruthStar> Truth, int GlowStars,
     double[] StarFlux, double[] GlowFlux, double[] SurfaceFlux, (int X, int Y) NebulaAt, ImmutableArray<ClusterGroup> Groups,
-    float[][] StarlessNoisy);
+    float[][] StarlessNoisy, ImmutableArray<SyntheticBackground.Knot> Knots);
 
 /// <summary>
 /// What a master gives every scene drawn from it: its brightness and colour pool and profiles
@@ -457,14 +462,19 @@ public static class SyntheticClusterScene
         // less its plate's own sky, with no floor: clipped at the draw's own 5th percentile, every low region became a flat black
         // patch with a hard edge, and a real dust lane has no flat floor (the owner, 2026-10-20). Below the plate's sky it dips
         // as the plate does.
+        // With NebulaKnots, the generator's own knots are drawn into it by its own rules (nebula knots, a compact one held
+        // faint, as many per area as the exporter's cells hold): fine structure that is not the PSF, which the starless truth
+        // keeps, where a round texture finer than 16 px made quasi-stars (the owner, 2026-10-20).
         float[][]? nebula = null;
+        var knots = ImmutableArray<SyntheticBackground.Knot>.Empty;
         var wide = NebulaTilePx(size);
         var nebulaAt = (X: InsideFrame(spec.NebulaX, wide, source.FrameWidth), Y: InsideFrame(spec.NebulaY, wide, source.FrameHeight));
         if (spec.NebulaStrength > 0 && source.Background is { } background)
         {
             // The texture's energy matched over the part of the tile the scene shows unturned, the region its strength was read on.
-            var drawn = background.Preview(nebulaAt.X, nebulaAt.Y, wide, source.Noise, noisy: false, new Random(spec.Seed ^ 0x5bd1e995), withKnots: false,
-                energyInset: (wide - size) / 2);
+            var drawn = background.Cell(nebulaAt.X - (wide / 2), nebulaAt.Y - (wide / 2), wide, source.Noise, new Random(spec.Seed ^ 0x5bd1e995),
+                out var tileKnots, withKnots: spec.NebulaKnots, energyInset: (wide - size) / 2, knotsByArea: true);
+            knots = KnotsInScene(tileKnots, wide, size, spec.RotationDeg, spec.NebulaStrength);
             var nebulaSky = source.NebulaSky ?? source.Sky;
             nebula = new float[channels][];
             for (var c = 0; c < channels; c++)
@@ -701,7 +711,7 @@ public static class SyntheticClusterScene
             starlessNoisy[c] = noisy;
         }
         return new SyntheticClusterRender(stars, starless, composite, unresolved, truth.ToImmutable(), glow.Count, starFlux, glowFlux, surfaceFlux,
-            nebulaAt, groupsRendered, starlessNoisy);
+            nebulaAt, groupsRendered, starlessNoisy, knots);
     }
 
     // A quantile of the pool's green amplitudes, read off ColourDraws draws.
@@ -937,8 +947,34 @@ public static class SyntheticClusterScene
         return any;
     }
 
+    /// <summary>
+    /// A tile's knots where the scene shows them: the tile turned by <paramref name="degrees"/> about both centres, as
+    /// <see cref="Rotate"/> turns its pixels (scene = c1 + M^T (tile - c0)), each knot's axis turned with it and its peak times
+    /// <paramref name="strength"/>; a knot whose centre falls more than its own reach outside the scene is left out.
+    /// </summary>
+    internal static ImmutableArray<SyntheticBackground.Knot> KnotsInScene(ImmutableArray<SyntheticBackground.Knot> tileKnots, int wideSize, int size,
+        double degrees, double strength)
+    {
+        var (sin, cos) = Math.SinCos(degrees * Math.PI / 180.0);
+        var c0 = (wideSize - 1) / 2.0;
+        var c1 = (size - 1) / 2.0;
+        var inScene = ImmutableArray.CreateBuilder<SyntheticBackground.Knot>();
+        foreach (var k in tileKnots)
+        {
+            var (u, v) = (k.X - c0, k.Y - c0);
+            var (x, y) = (c1 + (cos * u) - (sin * v), c1 + (sin * u) + (cos * v));
+            var reach = 4 * k.SigmaMajorPx;
+            if (x < -reach || y < -reach || x >= size + reach || y >= size + reach)
+            {
+                continue;
+            }
+            inScene.Add(k with { X = x, Y = y, AngleRad = k.AngleRad + (degrees * Math.PI / 180.0), Peak = [.. k.Peak.Select(p => p * strength)] });
+        }
+        return inScene.ToImmutable();
+    }
+
     // The centre `size` px of a `wide` px plane turned by `degrees` about its centre, bilinear.
-    private static float[] Rotate(float[] wide, int wideSize, int size, double degrees)
+    internal static float[] Rotate(float[] wide, int wideSize, int size, double degrees)
     {
         var (sin, cos) = Math.SinCos(degrees * Math.PI / 180.0);
         var c0 = (wideSize - 1) / 2.0;

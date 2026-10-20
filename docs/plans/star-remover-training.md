@@ -3153,18 +3153,24 @@ composite's own noise draw, the faint stars the starless light stands for, and t
 **The starless truth holds nothing the eye reads as a star** (the owner, 2026-10-20): the faint population's smooth
 expected light with its own grain from 16 px up, never its points; a compact cluster (half-light radius under 16 px) is
 all stars; the nebula is the background generator driven by the plate's scales from 64 px up, its texture's strength per
-scale read off the plate at the same place, with no floor. Every render is gated before any picture: no local maximum
-of 12 px or less over 0.25 noise above its 16 to 32 px surround, no excess structure at cell scale (a 16 px mean less a
-64 px median) over the plate's filled cells, and the starless light equal to the faint stars it stands for.
+scale read off the plate at the same place, with no floor. Both the grain and the nebula's drawn texture stop at 16 px:
+round texture finer than 16 px makes quasi-stars, and knots carry the fine detail (the owner, 2026-10-20). With
+`--nebula-knots` the nebula carries the background generator's nebula knots (a compact one held faint), as many per 256 px
+square of the tile as the exporter's cells hold (three, times the share of the cell that is nebula), each listed per scene
+in `_knots.csv`. Every render is gated
+before any picture: no local maximum of 12 px or less over 0.25 noise above its 16 to 32 px surround on the knot-free
+pixels (the knots read on their own: how many, the brightest's peak against its own width, and how many the same width
+test would call a star), no excess structure at cell scale (a 16 px mean less a 64 px median) over the plate's filled
+cells, and the starless light equal to the faint stars it stands for.
 
 **The source is the ASI585MC Tarantula of 2024-10-02** (broadband, ZS61, 2.07 arcsec a pixel), the owner's choice of
 2026-10-20. The first scenes were drawn from the SV605CC Tarantula of 2026-10-17, which `dataset-parameters.json` holds out
 as the crowded-field TEST session (and the same field, camera and filter's night of 2025-10-18 is a test session by
 bucket): a test session's stars, noise and nebula must never reach training, and releasing it would cost the LMC as a test
 field, the nearest crowded broadband one left being the SMC. So those scenes are development only and are never exported.
-The ASI585 night is on the training side, frames the same LMC field, and
-its brush-cleaned plate drives the nebula (`--nebula-plate`), which also removes the pits the first plate's saturated-star
-fills left at 64 px and up.
+The ASI585 night is on the training side and frames the same LMC field.
+The nebula can come from a plate other than the scenes' own (`--nebula-plate`), so the pits the first plate's
+saturated-star fills left at 64 px and up need not reach it; which plate that is waits on the owner.
 
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
