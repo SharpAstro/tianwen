@@ -162,7 +162,8 @@ internal class HostedSession(ISessionFactory sessionFactory, IDeviceHub hub, ITi
     // reads it serialises already copy out.
     private readonly Lock _targetLock = new Lock();
 
-    private readonly CircularBuffer<NotificationDto> _notifications = new CircularBuffer<NotificationDto>(NotificationCapacity);
+    // Node.Lib's ring, shared with pilot's node (TianWen.Lib keeps its own copy for the browser build).
+    private readonly Node.Lib.CircularBuffer<NotificationDto> _notifications = new Node.Lib.CircularBuffer<NotificationDto>(NotificationCapacity);
 
     public ISession? CurrentSession => Volatile.Read(ref _run)?.Session;
 
