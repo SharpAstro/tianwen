@@ -3189,10 +3189,14 @@ and B +115.0 ppm, the LMC clusters' half-light radii 5.8 to 21.0 px, resolved st
 its own rotation, nebula (two in three) and cluster (1,500 to 3,000 resolved stars, a core of 20 to 90 px, a tidal radius
 of 250 to 500 px and at least three cores, up to eight groups), renders each in measured and lateral optics, and cuts
 every 1024 px scene into sixteen 256 px cells laid out as a Stars-mode export's, so `n2n_smoke.py --prepare` packs them
-unchanged (`C:\temp\e2\clusters-cache.sh`): per cell the target is the noisy starless truth (`master`), the one draw the
+unchanged (`C:\temp\e2\clusters-cache.sh`; `--compact` keeps only the truth and its one draw, two slots a cell where the
+usual eleven would leave nine empty): per cell the target is the noisy starless truth (`master`), the one draw the
 composite (`deg000`), each with its noise plane, and the draw an all-ones loss mask (the truth holds no star a plate kept,
 and its knots must count). Both are stretched with the plate's own parameters. Every tenth seed is held out whole, in both
-optics and every cell, never a tile of a training sky (`clusters-train.txt`, `clusters-val.txt`).
+optics and every cell, never a tile of a training sky (`clusters-train.txt`, `clusters-val.txt`). The first export, 90
+skies (61 with a nebula), is 2,592 training and 288 held-out input tiles, 14.9 % of synth4's 19,360 and 12.5 % of the
+training draw beside synth4's 18,080 training tiles (`C:\temp\tianwen-scratch\r2-clusters`, its cache `r2-clusters-cache`,
+3.2 and 3.0 GB).
 
 The trainer reads them beside synth4 with `n2n_smoke.py --extra-cache` (`run-r2.ps1 -ExtraCache`): the extra cache's
 training cells join the draw by their share of the input tiles, each regressing onto its own truth, while synth4's draws
