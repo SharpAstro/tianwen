@@ -40,4 +40,26 @@ public sealed class SyntheticClusterSceneTests
         static double Density(double[] r, double a, double b) => r.Count(x => x >= a && x < b) / (Math.PI * ((b * b) - (a * a)));
         (Density(radii, 0, rc) / Density(radii, 4 * rc, 6 * rc)).ShouldBeGreaterThan(8.0);
     }
+
+    [Fact]
+    public void KingsClosedFormLightAgreesWithItsDraws()
+    {
+        var rng = new Random(13);
+        const double rc = 10, rt = 30;
+        var radii = Enumerable.Range(0, 100_000).Select(_ => SyntheticClusterScene.KingPosition(rng, rc, rt)).Select(p => Math.Sqrt((p.X * p.X) + (p.Y * p.Y))).ToArray();
+
+        foreach (var r in new[] { 5.0, 10.0, 20.0 })
+        {
+            ((double)radii.Count(x => x <= r) / radii.Length).ShouldBe(SyntheticClusterScene.KingLightWithin(r, rc, rt), 0.006);
+        }
+        SyntheticClusterScene.KingLightWithin(rt, rc, rt).ShouldBe(1.0, 1e-12);
+    }
+
+    [Theory]
+    [InlineData(2.0, 0.343)]
+    [InlineData(3.0, 0.296)]
+    [InlineData(10.0, 0.170)]
+    public void KingsHalfLightRadiusIsTheTidalShareTabulated(double concentration, double halfLightOverTidal)
+        // The shares a numerical integral of the profile gave when the groups' sizes were chosen.
+        => (SyntheticClusterScene.KingHalfLightOverCore(concentration) / concentration).ShouldBe(halfLightOverTidal, 0.002);
 }

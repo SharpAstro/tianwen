@@ -1340,9 +1340,20 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         var glowShareOpt = new Option<double>("--glow-share") { Description = "The unresolved stars' share of all starlight, in the starless truth.", DefaultValueFactory = _ => 0.25 };
         var glowSlopeOpt = new Option<double>("--glow-slope") { Description = "The unresolved stars' luminance function, N(>a) ~ a^-slope.", DefaultValueFactory = _ => 0.75 };
         var lateralOpt = new Option<string>("--lateral-ppm") { Description = "--optics lateral: each channel's radial scale, ppm, comma separated.", DefaultValueFactory = _ => "0,0,0" };
-        var groupsOpt = new Option<int>("--sub-clusters") { Description = "Compact groups inside the cluster (an OB association's knots).", DefaultValueFactory = _ => 0 };
-        var groupShareOpt = new Option<double>("--sub-cluster-share") { Description = "The share of the cluster's stars in the groups.", DefaultValueFactory = _ => 0.3 };
-        var groupCoreOpt = new Option<double>("--sub-cluster-core") { Description = "A group's King core radius, pixels (tidal six times it).", DefaultValueFactory = _ => 8.0 };
+        var groupsOpt = new Option<int>("--sub-clusters") { Description = "Compact star clusters inside the cluster (the LMC's own).", DefaultValueFactory = _ => 0 };
+        var groupHalfLightOpt = new Option<string>("--sub-cluster-half-light")
+        {
+            Description = "Each group's half-light radius, min,max pixels, drawn log-uniform between them (King, tidal three core radii). " +
+                          "The defaults of the three --sub-cluster ranges are the LMC's catalogued clusters measured in the Tarantula master at " +
+                          "2.87 arcsec a pixel.",
+            DefaultValueFactory = _ => "4.1,11.8",
+        };
+        var groupStarsOpt = new Option<string>("--sub-cluster-stars") { Description = "Each group's resolved stars, min,max, drawn uniform.", DefaultValueFactory = _ => "2,12" };
+        var groupGlowOpt = new Option<string>("--sub-cluster-glow")
+        {
+            Description = "Each group's unresolved light, min,max in the master's units (green amplitude times pixels), drawn log-uniform.",
+            DefaultValueFactory = _ => "0.1,0.8",
+        };
         var minSeparationOpt = new Option<double>("--min-separation")
         {
             Description = "The least distance between two resolved stars, pixels: the catalogue is already de-blended, so stars placed closer " +
@@ -1357,12 +1368,15 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         };
         var command = new Command("synthetic-cluster",
             "Render synthetic crowded-cluster scenes from one master's own stars (brightness and colour from its starless plate's catalogue), " +
-            "profiles, noise and nebula: a King-profile cluster over a field, an unresolved glow, optionally the plate's nebula, in several optics " +
-            "and sky rotations of one sky. Each scene is written as <name>.fits (with the master's noise), <name>_stars.fits and " +
-            "<name>_starless.fits (the noise-free truth) and <name>_truth.csv.")
+            "profiles, noise and nebula: a King-profile cluster over a field, the stars too faint to find, optionally the plate's nebula (drawn " +
+            "from the plate with its compact sources out, written as <plate>_clean.fits), in several optics and sky rotations of one sky. Each " +
+            "scene is written as <name>.fits (with the master's noise), <name>_starless.fits (noise-free: sky, nebula and the faint stars' smooth " +
+            "expected light), <name>_stars.fits (the composite less that, noise-free and signed), <name>_unresolved.fits (the faint stars alone) " +
+            "and <name>_truth.csv.")
         {
             Options = { masterOpt, plateOpt, outOpt, atOpt, sizeOpt, seedOpt, rotationsOpt, opticsOpt, nebulaOpt, nebulaAtOpt, clusterStarsOpt, coreOpt, tidalOpt,
-                fieldDensityOpt, saturatedOpt, glowShareOpt, glowSlopeOpt, lateralOpt, groupsOpt, groupShareOpt, groupCoreOpt, poolMarginOpt, minSeparationOpt },
+                fieldDensityOpt, saturatedOpt, glowShareOpt, glowSlopeOpt, lateralOpt, groupsOpt, groupHalfLightOpt, groupStarsOpt, groupGlowOpt,
+                poolMarginOpt, minSeparationOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
@@ -1409,6 +1423,13 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 consoleHost.WriteError("--rotations, --nebula and --lateral-ppm take comma separated numbers");
                 return 1;
             }
+            if (Doubles(parseResult.GetValue(groupHalfLightOpt) ?? "") is not [var halfLightMin, var halfLightMax] || !(halfLightMin > 0) || halfLightMax < halfLightMin
+                || Doubles(parseResult.GetValue(groupStarsOpt) ?? "") is not [var groupStarsMin, var groupStarsMax] || groupStarsMin < 0 || groupStarsMax < groupStarsMin
+                || Doubles(parseResult.GetValue(groupGlowOpt) ?? "") is not [var groupGlowMin, var groupGlowMax] || !(groupGlowMin > 0) || groupGlowMax < groupGlowMin)
+            {
+                consoleHost.WriteError("--sub-cluster-half-light, --sub-cluster-stars and --sub-cluster-glow take min,max with 0 <= min <= max (half-light and glow above 0)");
+                return 1;
+            }
             var optics = ImmutableArray.CreateBuilder<ClusterOptics>();
             foreach (var name in (parseResult.GetValue(opticsOpt) ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
@@ -1423,7 +1444,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 parseResult.GetValue(clusterStarsOpt), parseResult.GetValue(coreOpt), parseResult.GetValue(tidalOpt), parseResult.GetValue(fieldDensityOpt),
                 parseResult.GetValue(saturatedOpt), parseResult.GetValue(glowShareOpt), parseResult.GetValue(glowSlopeOpt),
                 0.0, nebulaAt.Item1, nebulaAt.Item2, ClusterOptics.Plain, lateral, parseResult.GetValue(seedOpt),
-                parseResult.GetValue(groupsOpt), parseResult.GetValue(groupShareOpt), parseResult.GetValue(groupCoreOpt), parseResult.GetValue(minSeparationOpt));
+                parseResult.GetValue(groupsOpt), halfLightMin, halfLightMax, (int)groupStarsMin, (int)groupStarsMax, groupGlowMin, groupGlowMax,
+                parseResult.GetValue(minSeparationOpt));
             var run = new SyntheticClusterRun(parseResult.Required(masterOpt), parseResult.Required(plateOpt), parseResult.Required(outOpt), spec,
                 optics.ToImmutable(), nebulae, rotations, parseResult.GetValue(poolMarginOpt));
             var (scenes, _) = await run.RunAsync(new Progress<string>(line => consoleHost.WriteScrollable("[synthetic-cluster] " + line)), ct);
