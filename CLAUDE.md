@@ -1180,7 +1180,9 @@ order and nothing between them** (`ColourCompositionTests`: to the bit). In full
 on a block-mean working grid, with an optional inpainted low-pass surface on its residual
 (`SurfaceRefinement`), applied in LINEAR with the model's median added back per plane. Both
 `IBackgroundExtractor` (headless) and `IGradientCorrector`; `AddTianWenAi()` prefers GraXpert when its
-weights resolve, falling back to this so a machine without GraXpert still flattens. Design, the
+weights resolve, falling back to this so a machine without GraXpert still flattens. **A run chooses with one option,
+`GradientBackend`** (`EnhanceOptions.Gradient`: `flatten --backend`, `sharpen --gradient`, `stack --gradient`, each
+`auto|classical|graxpert`): classical for a frame one galaxy fills, where GraXpert's model eats the halo. Design, the
 reference review, and every measurement: `docs/plans/background-extraction.md`. Rules that bite:
 
 - **Every threshold is in noise units of the WORKING grid** (a block mean of `Downsample^2` pixels),

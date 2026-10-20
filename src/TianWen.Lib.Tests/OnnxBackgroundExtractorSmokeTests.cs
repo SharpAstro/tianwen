@@ -298,6 +298,43 @@ public class OnnxBackgroundExtractorSmokeTests(ITestOutputHelper output)
         fallback.Name.ShouldContain("GraXpert");
     }
 
+    /// <summary>
+    /// A run chooses the extractor through <see cref="EnhanceOptions.Gradient"/> (<c>--gradient</c>): naming the classical
+    /// fit gets it even where GraXpert is installed, which is the frame a single galaxy fills (GraXpert's model took part of
+    /// NGC 253's halo as background). The enhance reaches the corrector through the options overload, so that is the path
+    /// asserted: it RUNS here, where GraXpert would fail, its pretend weights being only a file name.
+    /// </summary>
+    [Fact]
+    public async Task FallbackGradientCorrector_ARunNamingClassicalGetsItWhereGraXpertIsInstalled()
+    {
+        using var graXpert = new OnnxBackgroundExtractor(new PretendPresentModelResolver());
+        var classical = new ClassicalBackgroundExtractor();
+        var fallback = new FallbackGradientCorrector(new PretendPresentModelResolver(), graXpert, classical);
+
+        fallback.For(GradientBackend.Auto).ShouldBeSameAs(graXpert);
+        fallback.For(GradientBackend.Classical).ShouldBeSameAs(classical);
+        fallback.For(GradientBackend.Graxpert).ShouldBeSameAs(graXpert);
+
+        IGradientCorrector corrector = fallback;
+        var src = BuildSyntheticRgbWithGradient(128, 96);
+        var corrected = await corrector.EnhanceAsync(src, new EnhanceOptions(Gradient: GradientBackend.Classical), null, TestContext.Current.CancellationToken);
+        corrected.Shape.ShouldBe(src.Shape);
+        corrected.Release();
+    }
+
+    /// <summary>Naming GraXpert has to mean it: where its weights are not installed the run fails rather than quietly
+    /// getting the classical fit, or a script's output would depend on the machine it ran on.</summary>
+    [Fact]
+    public async Task FallbackGradientCorrector_ARunNamingGraXpertWithoutItsWeightsFails()
+    {
+        using var graXpert = new OnnxBackgroundExtractor(new AbsentModelResolver());
+        var classical = new ClassicalBackgroundExtractor();
+        IGradientCorrector corrector = new FallbackGradientCorrector(new AbsentModelResolver(), graXpert, classical);
+
+        var src = BuildSyntheticRgbWithGradient(128, 96);
+        await Should.ThrowAsync<Exception>(() => corrector.EnhanceAsync(src, new EnhanceOptions(Gradient: GradientBackend.Graxpert), null, TestContext.Current.CancellationToken));
+    }
+
     private sealed class AbsentModelResolver : IModelResolver
     {
         public string Resolve(string modelFileName) => throw new System.IO.FileNotFoundException(modelFileName);
