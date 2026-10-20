@@ -2,6 +2,7 @@ using System;
 using System.Collections.Immutable;
 using System.Linq;
 using Shouldly;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 using Xunit;
 
@@ -394,11 +395,12 @@ public class PlanetaryDeringTests
     }
 
     [Fact]
-    public void TheModelRunsToTheFrameAndHandsBackOnlyNearAWindowEdgeTheFrameRunsPast()
+    public void TheModelRunsToTheWindowsEdgeWithNoHandBackToTheStack()
     {
         // #1681: where the planet fills its window, ModelFeathered handed back to the stack by the window's inscribed circle, where a lopsided
-        // glow and a sky gradient were still in it. ModelToFrame draws the model to the window's edge and hands back only within the
-        // window's margin of an edge the frame runs on past (here its left), so a paste leaves no seam; inside the outline it is the same.
+        // glow and a sky gradient were still in it. ModelToFrame draws the model to the window's edge, even one the frame runs on past (here
+        // its left): a hand-back there showed the stack's glow as two bands past the window's margin (#1692), and the sky beyond the window is
+        // the model's (PlanetaryLimbWindow.Paste). Inside the outline it is the same.
         var blurred = PlanetaryInverse.Apply(SharpDisk(), Size, Size, f => Gaussian(1.6, f));
         var stacked = new float[Size * Size];
         for (var i = 0; i < stacked.Length; i++)
@@ -422,15 +424,8 @@ public class PlanetaryDeringTests
                     BitConverter.SingleToInt32Bits(toFrame[i]).ShouldBe(BitConverter.SingleToInt32Bits(feathered[i]), "inside the outline, to the bit");
                     continue;
                 }
-                if (x <= 4)
-                {
-                    toFrame[i].ShouldBe(stacked[i], "the stack at a window edge the frame runs past");
-                }
-                else if (x >= 4 + PlanetaryDering.FrameEdgeReachPx)
-                {
-                    toFrame[i].ShouldBe(Math.Max(model[i], 0f), "the model to the window's edge where the frame ends with it");
-                }
-                if (r >= 2.5 && x >= 4 + PlanetaryDering.FrameEdgeReachPx)
+                toFrame[i].ShouldBe(Math.Max(model[i], 0f), "the model to the window's edge, the one the frame runs past too");
+                if (r >= 2.5)
                 {
                     var drawnModel = Math.Max(model[i], 0f); // the model as both draw it, its FFT's ripple below the sky held at it
                     (toFrameLeft, featheredLeft) = (Math.Max(toFrameLeft, Math.Abs(toFrame[i] - drawnModel)), Math.Max(featheredLeft, Math.Abs(feathered[i] - drawnModel)));
@@ -508,6 +503,55 @@ public class PlanetaryDeringTests
             erasedHeight.ShouldBeLessThan(0.1 * stackHeight, "the model alone erases it");
             kept[(speck.Y * Size) + speck.X].ShouldBe(Math.Max(model[(speck.Y * Size) + speck.X], 0f), "one colour's noise stays off the model's sky");
         }
+    }
+
+    [Fact]
+    public void BeyondAWindowTheFrameRunsPastTheSkyIsTheModelsAndAMoonTheFramesEdgeCutsIsKept()
+    {
+        // #1692: a frame wider and taller than the window. Beyond the window ModelToFrame draws the model's sky, not the stack's glow, and
+        // keeps the faint sources there as stacked, found on the frame mirrored about its edges: a source finder reads one pixel in from an
+        // edge, so a moon the frame's bottom edge cuts, its peak on the last row, was never found, and the sky erased it (0.131 of the peak
+        // on the 2021-08-14 Jupiter).
+        const int width = 300, height = 200;
+        var own = new MetricDisk(150, 100, 30);
+        var window = new PlanetaryLimbWindow(128, 86, 36, own, own with { X = own.X - 86, Y = own.Y - 36 }, [], 1);
+        (int X, int Y) edgeMoon = (40, height - 1), farMoon = (260, 30);
+        var random = new Random(11);
+        double Noise() => Math.Sqrt(-2 * Math.Log(1 - random.NextDouble())) * Math.Cos(2 * Math.PI * random.NextDouble());
+        float Blob((int X, int Y) at, int x, int y, double peak) => (float)(peak * Math.Exp(-(((x - at.X) * (x - at.X)) + ((y - at.Y) * (y - at.Y))) / (2 * 1.2 * 1.2)));
+        const float sky = 0.01f;
+        var planes = new float[3][,];
+        for (var c = 0; c < 3; c++)
+        {
+            planes[c] = new float[height, width];
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    // The planet at 1, its seeing glow falling past the limb, a faint moon cut by the bottom edge and another in the open.
+                    var r = own.RadiiAt(x, y);
+                    var planet = r <= 1 ? 1f : (float)(0.02 * Math.Exp(-(r - 1) * 3));
+                    planes[c][y, x] = sky + planet + (float)(2e-4 * Noise()) + Blob(edgeMoon, x, y, 0.006) + Blob(farMoon, x, y, 0.006);
+                }
+            }
+        }
+        var stacked = new Image(planes, BitDepth.Float32, 1.03f, 0f, 0f, new ImageMeta());
+        window.RunsPast(width, height).ShouldBeTrue();
+
+        var faint = window.FaintSourcesBeyond(stacked);
+        faint.ShouldContain(s => Math.Abs(s.X - edgeMoon.X) <= 1 && Math.Abs(s.Y - edgeMoon.Y) <= 1, "the moon the frame's edge cuts");
+        faint.ShouldContain(s => Math.Abs(s.X - farMoon.X) <= 1 && Math.Abs(s.Y - farMoon.Y) <= 1, "the moon in the open");
+
+        var plane = stacked.GetChannelSpan(1);
+        var (level, scale) = PlanetaryMetrics.NormalisationLevels(plane, width, height, own);
+        var drawn = new float[height, width];
+        window.Paste(plane, new float[window.Size * window.Size], drawn, width, height, level, scale, skyBeyond: true);
+        window.KeepFaintBeyond(plane, drawn, width, height, faint, []).ShouldBe(faint.Length);
+
+        drawn[edgeMoon.Y, edgeMoon.X].ShouldBe(plane[(edgeMoon.Y * width) + edgeMoon.X], 0.15 * 0.006, "the edge moon as stacked");
+        drawn[farMoon.Y, farMoon.X].ShouldBe(plane[(farMoon.Y * width) + farMoon.X], 0.15 * 0.006, "the open moon as stacked");
+        drawn[100, 10].ShouldBe((float)level, "the model's sky beyond the window, the stack's glow gone");
+        drawn[5, 150].ShouldBe((float)level, "and above it");
     }
 
     [Fact]

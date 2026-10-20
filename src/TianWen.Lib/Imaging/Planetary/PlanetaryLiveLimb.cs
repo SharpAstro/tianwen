@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging.Optics;
@@ -12,8 +13,9 @@ namespace TianWen.Lib.Imaging.Planetary;
 /// planet's sharp model through the pupil's diffraction for each channel, so that every later master, sharpened by the wavelet dials, is
 /// drawn outside the limb as the batch's derived sharpening draws it, by the batch's own limb fix (<see cref="PlanetaryLimbFix.ModelToFrame"/>
 /// by default, #1681; <see cref="PlanetaryLimbFix.ModelFeathered"/> where the batch drew with it): no sharpening there, the model's clean
-/// limb to the frame's edge with the faint sources the master shows, the moons free, the stack as it is beyond the window but for its moons
-/// (#1211), and the colour balance the derivation read last, as the batch balances its masters (#1212). A colour
+/// limb to the frame's edge with the faint sources the master shows, the moons free, beyond the window the model's sky with its moons
+/// sharpened (#1211) and its faint sources as stacked (#1692; the stack as it is there under ModelFeathered), and the colour balance the
+/// derivation read last, as the batch balances its masters (#1212). A colour
 /// master's red and blue planes are moved onto green first by what the derivation read on its master (<see cref="TryAlign"/>, #1202).
 /// Made by <see cref="PlanetarySharpening.Sharpen"/>, from the fit and the models it drew with (<see cref="PlanetarySharpenResult.Limb"/>).
 /// Immutable: a disk that moved gives a new one (<see cref="FollowedTo"/>).
@@ -201,9 +203,10 @@ public sealed class PlanetaryLiveLimb
             levels[c] = PlanetaryMetrics.NormalisationLevels(stacked.GetChannelSpan(c), width, height, _window.Own);
             stacks[c] = _window.Cut(stacked.GetChannelSpan(c), width, height, levels[c]);
         }
-        var faintSources = _outside == PlanetaryDering.OutsideLimb.ModelToFrame
-            ? PlanetaryDering.FaintSources(Mean(stacks), _window.Size, _window.Size, _window.Disk)
-            : [];
+        var toFrame = _outside == PlanetaryDering.OutsideLimb.ModelToFrame;
+        var faintSources = toFrame ? PlanetaryDering.FaintSources(Mean(stacks), _window.Size, _window.Size, _window.Disk) : [];
+        // Beyond the window ModelToFrame draws the model's sky, its faint sources there found once on the whole frame, as the batch does (#1692).
+        var faintBeyond = toFrame ? _window.FaintSourcesBeyond(stacked) : [];
         var frame = (-_window.X0, -_window.Y0, width - _window.X0, height - _window.Y0);
         var planes = Image.CreateChannelData(channels, height, width);
         for (var c = 0; c < channels; c++)
@@ -214,11 +217,13 @@ public sealed class PlanetaryLiveLimb
             var drawn = PlanetaryDering.Outside(slid, stacks[c], _window.Size, _window.Size, _window.Disk, _outside,
                 model: _models[Math.Min(c, _models.Length - 1)], modelInLimbBand: _floors.LimbBand == PlanetaryLimbBand.Model,
                 modelUnderSky: _floors.UnderSky == PlanetaryUnderSky.Model, frame: frame, faintSources: faintSources);
-            _window.Paste(plane, drawn, planes[c], width, height, level, scale);
-            // A moon beyond the window as the dials sharpened it, held at the sky, as the batch sharpens it (#1211).
+            _window.Paste(plane, drawn, planes[c], width, height, level, scale, skyBeyond: toFrame);
+            // A moon beyond the window as the dials sharpened it, held at the sky, as the batch sharpens it (#1211), and under ModelToFrame
+            // each faint source there as stacked (#1692).
             var channel = c;
-            _window.PasteMoonsBeyond(plane, planes[c], width, height, level, scale, (x0, y0) => PlanetaryLimbWindow.CutAt(
+            var moonsBeyond = _window.PasteMoonsBeyond(plane, planes[c], width, height, level, scale, (x0, y0) => PlanetaryLimbWindow.CutAt(
                 sharpened.GetChannelSpan(channel), width, height, x0, y0, PlanetaryLimbWindow.MoonWindowSize, level, scale));
+            _window.KeepFaintBeyond(plane, planes[c], width, height, faintBeyond, moonsBeyond);
         }
         var image = new Image(planes, sharpened.BitDepth, sharpened.MaxValue, sharpened.MinValue, sharpened.Pedestal, sharpened.ImageMeta, sharpened.SamplesAreUnitReferred);
         if (Balance is not { } balance || channels != 3)
@@ -305,16 +310,103 @@ internal sealed record PlanetaryLimbWindow(int Size, int X0, int Y0, MetricDisk 
     public float[] Cut(ReadOnlySpan<float> plane, int width, int height, double level, double scale)
         => CutAt(plane, width, height, X0, Y0, Size, level, scale);
 
-    /// <summary><paramref name="plane"/> with <paramref name="window"/> put back in its units, written into <paramref name="into"/>.</summary>
-    public void Paste(ReadOnlySpan<float> plane, float[] window, float[,] into, int width, int height, double level, double scale)
+    /// <summary>
+    /// <paramref name="plane"/> with <paramref name="window"/> put back in its units, written into <paramref name="into"/>; beyond the window
+    /// the plane as it is, or with <paramref name="skyBeyond"/> the sky (<paramref name="level"/>): the model's light there is a millionth of
+    /// the disk or less, so <see cref="PlanetaryDering.OutsideLimb.ModelToFrame"/> runs to the frame's edge with no hand-back to the stack,
+    /// which showed the stack's glow as two bands past the window's margin where the frame ran past it (#1692).
+    /// </summary>
+    public void Paste(ReadOnlySpan<float> plane, float[] window, float[,] into, int width, int height, double level, double scale, bool skyBeyond = false)
     {
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
             {
-                into[y, x] = Holds(x, y) ? (float)(level + (window[((y - Y0) * Size) + (x - X0)] * scale)) : plane[(y * width) + x];
+                into[y, x] = Holds(x, y) ? (float)(level + (window[((y - Y0) * Size) + (x - X0)] * scale)) : skyBeyond ? (float)level : plane[(y * width) + x];
             }
         }
+    }
+
+    /// <summary>Whether a <paramref name="width"/> by <paramref name="height"/> frame runs past this window on any side.</summary>
+    public bool RunsPast(int width, int height) => X0 > 0 || Y0 > 0 || X0 + Size < width || Y0 + Size < height;
+
+    /// <summary>
+    /// The faint compact sources beyond this window (#1692), found ONCE on <paramref name="stacked"/>'s whole luminance (every channel
+    /// normalised on the disk as the window is, averaged) as <see cref="PlanetaryDering.FaintSources"/> finds them inside it, on the frame
+    /// mirrored about its edges as the window cuts it: a source finder reads one pixel in from an edge, so a moon the frame's edge cuts, its
+    /// peak on the last row, was never found, and the model's sky erased it (0.131 of the peak on the 2021-08-14 Jupiter). A source whose
+    /// moon's reach lies wholly inside the window is the window's own. Empty where the window holds the frame.
+    /// </summary>
+    public ImmutableArray<(int X, int Y)> FaintSourcesBeyond(Image stacked)
+    {
+        var (width, height, channels) = (stacked.Width, stacked.Height, stacked.ChannelCount);
+        if (!RunsPast(width, height))
+        {
+            return [];
+        }
+        const int pad = PlanetaryMetrics.SourceBox;
+        var (paddedWidth, paddedHeight) = (width + (2 * pad), height + (2 * pad));
+        var luminance = new float[paddedWidth * paddedHeight];
+        for (var c = 0; c < channels; c++)
+        {
+            var plane = stacked.GetChannelSpan(c);
+            var (level, scale) = PlanetaryMetrics.NormalisationLevels(plane, width, height, Own);
+            for (var y = 0; y < paddedHeight; y++)
+            {
+                var sy = Mirrored(y - pad, height);
+                for (var x = 0; x < paddedWidth; x++)
+                {
+                    luminance[(y * paddedWidth) + x] += (float)((plane[(sy * width) + Mirrored(x - pad, width)] - level) / scale / channels);
+                }
+            }
+        }
+        const int reach = PlanetaryDering.MoonReachPx;
+        return [.. PlanetaryDering.FaintSources(luminance, paddedWidth, paddedHeight, Own with { X = Own.X + pad, Y = Own.Y + pad })
+            .Select(s => (X: s.X - pad, Y: s.Y - pad))
+            .Where(s => s.X >= 0 && s.X < width && s.Y >= 0 && s.Y < height)
+            .Where(s => !(Holds(s.X - reach, s.Y - reach) && Holds(s.X + reach, s.Y + reach)))];
+    }
+
+    /// <summary>
+    /// Each of <paramref name="faint"/> (<see cref="FaintSourcesBeyond"/>) laid on <paramref name="into"/> beyond this window as
+    /// <paramref name="plane"/> stacked it (<see cref="PlanetaryDering.KeepMoon"/> with the stack's patch, both in the plane's units), but
+    /// one within two moon reaches of a moon <see cref="PasteMoonsBeyond"/> sharpened (<paramref name="moons"/>), which keeps its sharpening,
+    /// as inside the window. Returns how many it laid.
+    /// </summary>
+    public int KeepFaintBeyond(ReadOnlySpan<float> plane, float[,] into, int width, int height, ImmutableArray<(int X, int Y)> faint, ImmutableArray<(int X, int Y)> moons)
+    {
+        const int reach = PlanetaryDering.MoonReachPx;
+        const int half = PlanetaryMetrics.SourceBox / 2;
+        var laid = 0;
+        foreach (var (mx, my) in faint)
+        {
+            if (moons.Any(m => Math.Max(Math.Abs(m.X - mx), Math.Abs(m.Y - my)) <= 2 * reach))
+            {
+                continue;
+            }
+            var drawn = new float[PlanetaryMetrics.SourceBox * PlanetaryMetrics.SourceBox];
+            var stacked = new float[drawn.Length];
+            for (var dy = -half; dy <= half; dy++)
+            {
+                for (var dx = -half; dx <= half; dx++)
+                {
+                    var (x, y, i) = (mx + dx, my + dy, ((dy + half) * PlanetaryMetrics.SourceBox) + dx + half);
+                    var inFrame = x >= 0 && x < width && y >= 0 && y < height;
+                    drawn[i] = inFrame ? into[y, x] : float.NaN;
+                    stacked[i] = inFrame ? plane[(y * width) + x] : float.NaN;
+                }
+            }
+            PlanetaryDering.KeepMoon(drawn, stacked, (dx, dy) => !Holds(mx + dx, my + dy));
+            for (var y = Math.Max(0, my - reach); y <= Math.Min(height - 1, my + reach); y++)
+            {
+                for (var x = Math.Max(0, mx - reach); x <= Math.Min(width - 1, mx + reach); x++)
+                {
+                    into[y, x] = drawn[((y - my + half) * PlanetaryMetrics.SourceBox) + x - mx + half];
+                }
+            }
+            laid++;
+        }
+        return laid;
     }
 
     /// <summary>The side of a window a moon beyond the planet's is sharpened in: the finer bands' support about it twice over.</summary>
@@ -328,9 +420,9 @@ internal sealed record PlanetaryLimbWindow(int Size, int X0, int Y0, MetricDisk 
     /// leaves a moon inside. <paramref name="sharpenedAbout"/> gives that sharpening
     /// as a <see cref="MoonWindowSize"/> square window with its corner at the two coordinates, in the window's units (sky 0, disk 1): the
     /// batch sharpens a window cut about the moon (<see cref="CutAt"/>), the live view cuts its sliders' frame. Everything else is left as
-    /// <paramref name="into"/> holds it. Returns how many moons it sharpened.
+    /// <paramref name="into"/> holds it. Returns where the moons it sharpened are.
     /// </summary>
-    public int PasteMoonsBeyond(ReadOnlySpan<float> plane, float[,] into, int width, int height, double level, double scale, Func<int, int, float[]> sharpenedAbout)
+    public ImmutableArray<(int X, int Y)> PasteMoonsBeyond(ReadOnlySpan<float> plane, float[,] into, int width, int height, double level, double scale, Func<int, int, float[]> sharpenedAbout)
     {
         const int reach = PlanetaryDering.MoonReachPx;
         var normalised = new float[width * height];
@@ -338,7 +430,7 @@ internal sealed record PlanetaryLimbWindow(int Size, int X0, int Y0, MetricDisk 
         {
             normalised[i] = (float)((plane[i] - level) / scale);
         }
-        var sharpened = 0;
+        var sharpened = ImmutableArray.CreateBuilder<(int X, int Y)>();
         foreach (var (mx, my) in PlanetaryMetrics.CompactSources(normalised, width, height, Own, count: PlanetaryDering.MaxMoons))
         {
             if (Holds(mx - reach, my - reach) && Holds(mx + reach, my + reach))
@@ -369,9 +461,9 @@ internal sealed record PlanetaryLimbWindow(int Size, int X0, int Y0, MetricDisk 
                     into[y, x] = drawn[((y - my + half) * PlanetaryMetrics.SourceBox) + x - mx + half];
                 }
             }
-            sharpened++;
+            sharpened.Add((mx, my));
         }
-        return sharpened;
+        return sharpened.ToImmutable();
     }
 
     /// <summary>
