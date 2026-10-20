@@ -27,7 +27,7 @@ verbs `bxt` / `sxt` / `nxt`, driven through `RcAstroEnhancerBase`'s NDJSON proto
 |---|---|
 | lights | `C:/temp/10p_tempel/2026-08-16/LIGHT`, 135 x 60 s (was `C:/temp/astro/2026-08 SV545/...` on the other box) |
 | camera | QHY294C Pro, gain 1600, offset 20, -5 C, RGGB 4164x2795 |
-| optics | SV 545 (f/4.5 petzval), **203 mm**; the frames' `FOCALLEN` says 205, entered by mistake |
+| optics | SV 545 (f/4.5 petzval), **202.4 mm** (plate-solved 4.718 arcsec/px, 2026-10-20); the frames said `FOCALLEN = 205`, entered by mistake, until they were corrected that day |
 | filter | IDAS LPS-D3, **now stamped into the 135 lights and the 51 flats** (see "The headers were amended") |
 | target | 10P/Tempel 2 |
 | site | -37.876389, 145.178056 |
