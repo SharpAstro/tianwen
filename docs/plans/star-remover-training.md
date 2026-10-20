@@ -3039,6 +3039,41 @@ The colour of bright stars is the part that does not carry. A shipped single mod
 these draws, so R2p learned a target a little better than E5 would be on new data, and the real-star check, where E5
 never trained, is the one that says it held (97.8 against 97.8).
 
+#### R2m's read: jittered cores do not carry to real stars, and the nucleus goes (2026-10-20)
+
+Trained on the second Azure spot T4 overnight on 2026-10-19, evicted once (found deallocated at 03:41, resumed from its
+checkpoint) and stopped on its own at step 107,500, its held-out best 2.73e-6 at 59,500 (its own synth6 held-out set,
+not comparable to the synth4 runs'). The driver deleted the VM itself at 05:32 and scored the weights; the run's SAS and
+tasks were removed the same morning, leaving the group empty.
+
+| | R2i | R2m |
+|---|---|---|
+| A's draws: clean 5-20 / 20-100 / 100-1000 sigma | 79.2 / 74.5 / 60.2 | 80.1 / 74.4 / 57.7 |
+| A's draws: clean in colour 100-1000 / clean saturated | 21.3 / 46.6 | 14.6 / 44.3 |
+| real stars, 100-1000 sigma within a sigma / left bright / dug | 96.4 / 2.11 / 1.47 | 96.1 / 2.30 / 1.57 |
+| ring, 3-6 px: a channel dug past -1 / left past +1 | 43.1 / 12.4 % | 35.7 / 16.6 % |
+| M31, central 6 px taken (R / G / B) | 3.1 / 3.1 / 0.3 % | 37.3 / 43.5 / 40.9 % |
+
+1. **Real bright stars flat on at least 97.0 %: misses**, 96.1.
+2. **Real bright stars left bright on at most 1.5 %: misses**, 2.30.
+3. **A's draws hold within the spread: holds**, 80.1 / 74.4 / 57.7.
+4. **M31's nucleus at most 5 %: misses by far**, 37 to 44 % in every channel.
+
+**The kill fires** (96.1 below R2i's 96.4), so `--star-subs` is dropped and the line's export stays synth4. **What it
+decides.** Rendering every injected star as a stack of jittered subs does not make the net clean real stars better; it
+teaches it that a bright core with structure is a star, and it takes M31's nucleus as R2o and R2l did, more than either.
+
+#### Shipping R2p: Tianwen's own star remover (2026-10-20)
+
+Tracked by #1702. The owner's decision of 2026-10-20 ("R2p it is"), on the reads above: R2p is the line's first
+shipped star remover. It is one model at R2i's size (3.3 MB of ONNX, its contract beside it), so a tile costs one pass
+where E5 costs sixteen, and it matches E5 on real stars and keeps M31's nucleus (4.5 % at most). What shipping takes:
+the weights and their contract into `src/TianWen.AI.Imaging/models/` beside the denoiser and the deconvolver; the
+remover registered as Tianwen's own `IStarRemover`, served by `--ai-backend tianwen` and wherever RC-Astro is absent, so
+the canonical program splits the stars instead of running whole-frame; its views a setting (one pass by default, eight as
+the measured quality step); and CLAUDE.md's "none ship and none are registered" rewritten with it. Core protection
+(`--protect-cores`, #1658) applies to it as to any remover.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
