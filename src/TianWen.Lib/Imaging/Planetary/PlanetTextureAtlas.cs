@@ -78,8 +78,8 @@ public static class PlanetTextureAtlas
         {
             return ImmutableDictionary<CatalogIndex, PlanetColourMap>.Empty;
         }
-        var rgba = new byte[Width * Height * 4];
-        if (!PngImageDecoder.TryDecodeIntoRgba8(png, rgba))
+        // The header check above stays: a stale file of the wrong size is turned away without being decoded.
+        if (!PngImageDecoder.TryDecodeRgba8(png, out var rgba, out _, out _))
         {
             return ImmutableDictionary<CatalogIndex, PlanetColourMap>.Empty;
         }
