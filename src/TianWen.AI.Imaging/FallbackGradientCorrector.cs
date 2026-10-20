@@ -22,10 +22,11 @@ namespace TianWen.AI.Imaging
     /// resolves to. The two produce the same interop surface (a full-resolution background plate in the
     /// image's units, the correction a subtraction with the level added back), so a caller cannot tell
     /// which answered except by <see cref="Name"/>, and the log says so once.</para>
-    /// <para>This is a two-way pick on model presence, not a <c>DeferredEnhancer</c>: there is no
-    /// RC-Astro product for this role, no licence to probe, and <see cref="EnhanceBackend"/> has no
-    /// value for it. If a per-call selection is ever wanted, it goes through that enum like the other
-    /// roles.</para>
+    /// <para>This is a pick on model presence, not a <c>DeferredEnhancer</c>: there is no RC-Astro product
+    /// for this role and no licence to probe, so <see cref="EnhanceBackend"/> has no value for it. A run
+    /// chooses through <see cref="EnhanceOptions.Gradient"/> instead (<see cref="For"/>): <c>auto</c> is the
+    /// pick above, <c>classical</c> always the classical fit, <c>graxpert</c> always GraXpert, which fails
+    /// naming the paths it searched where the weights are not installed rather than falling back.</para>
     /// </remarks>
     public sealed class FallbackGradientCorrector(
         IModelResolver modelResolver,
@@ -52,10 +53,21 @@ namespace TianWen.AI.Imaging
             return classical;
         }
 
+        /// <summary>The corrector a run asking for <paramref name="backend"/> gets.</summary>
+        public IGradientCorrector For(GradientBackend backend) => backend switch
+        {
+            GradientBackend.Classical => classical,
+            GradientBackend.Graxpert => graXpert,
+            _ => Pick(),
+        };
+
         public string Name => Pick().Name;
 
         public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
             => Pick().EnhanceAsync(input, cancellationToken);
+
+        public Task<Image> EnhanceAsync(Image input, EnhanceOptions options, IProgress<float>? progress = null, CancellationToken cancellationToken = default)
+            => For(options.Gradient).EnhanceAsync(input, options, progress, cancellationToken);
 
         public Task<(Image Corrected, Image? Background)> EnhanceAndEstimateBackgroundAsync(Image input, CancellationToken cancellationToken = default)
             => Pick().EnhanceAndEstimateBackgroundAsync(input, cancellationToken);

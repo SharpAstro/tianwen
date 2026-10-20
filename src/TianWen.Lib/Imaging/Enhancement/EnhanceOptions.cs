@@ -5,7 +5,7 @@ namespace TianWen.Lib.Imaging.Enhancement;
 /// <summary>
 /// Which enhancer backend to use for the RC-servable roles (star removal, deblur,
 /// non-stellar deconvolution, denoise). Gradient correction ignores this: it has no RC-Astro
-/// equivalent (GraXpert, else the classical fit).
+/// equivalent and is chosen by <see cref="GradientBackend"/>.
 /// </summary>
 /// <remarks>
 /// The values are numeric on the wire (the hosting API sends enums as numbers), so they never
@@ -34,6 +34,27 @@ public enum EnhanceBackend
     /// <see cref="Auto"/> passes it over until it can find its own kernel and decline a frame with
     /// nothing to remove (#741).</summary>
     TianWen = 3,
+}
+
+/// <summary>
+/// Which background extractor the gradient step runs: one choice for <c>image flatten --backend</c>, <c>image sharpen
+/// --gradient</c> and <c>stack --enhance --gradient</c>. Numeric on the wire like <see cref="EnhanceBackend"/>, so the
+/// values never renumber.
+/// </summary>
+public enum GradientBackend
+{
+    /// <summary>GraXpert's BGE model when its weights are installed, the classical fit otherwise. The default.</summary>
+    Auto = 0,
+
+    /// <summary>The classical robust polynomial fit, whatever is installed. The one to use when a single extended
+    /// object fills the frame: GraXpert's model took part of NGC 253's outer halo as background on the two-night
+    /// Sculptor of 2026-10-17, and a dark ring was left round the galaxy, where the degree-2 fit is too stiff to follow
+    /// a galaxy-sized bump.</summary>
+    Classical = 1,
+
+    /// <summary>GraXpert's BGE model, and a refusal naming the paths searched when its weights are not installed:
+    /// naming a backend has to mean it, or a script's output depends on the machine it ran on.</summary>
+    Graxpert = 2,
 }
 
 /// <summary>
@@ -67,7 +88,11 @@ public sealed record EnhanceTuning(
 /// </summary>
 /// <param name="Backend">Backend selection for the RC-servable roles.</param>
 /// <param name="Tuning">Optional RC-Astro per-product strength overrides.</param>
-public sealed record EnhanceOptions(EnhanceBackend Backend = EnhanceBackend.Auto, EnhanceTuning? Tuning = null)
+/// <param name="Gradient">Which background extractor the gradient step runs.</param>
+public sealed record EnhanceOptions(
+    EnhanceBackend Backend = EnhanceBackend.Auto,
+    EnhanceTuning? Tuning = null,
+    GradientBackend Gradient = GradientBackend.Auto)
 {
     /// <summary>Auto backend, no tuning overrides -- identical to the pre-option behaviour.</summary>
     public static readonly EnhanceOptions Default = new();

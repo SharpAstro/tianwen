@@ -522,6 +522,13 @@ polygons, determinism, DI) and by the fallback tests in `OnnxBackgroundExtractor
    otherwise, decided per call by a file probe. Before this a machine without GraXpert had no gradient
    correction at all (`flatten` and the pipeline step failed on a missing model); now it gets the
    classical fit and a background plate for `--save-gradient`, and the log says which answered.
+8. **A run chooses the extractor** (2026-10-20, the owner's call): `GradientBackend` on `EnhanceOptions.Gradient`, one
+   choice for `image flatten --backend`, `image sharpen --gradient` and `stack --enhance --gradient`, each `auto`
+   (default: the probe above), `classical` or `graxpert` (fails naming the paths searched where the weights are not
+   installed). `FallbackGradientCorrector.For` picks it per call. Why: on the two-night Sculptor of 2026-10-17
+   GraXpert's model took part of NGC 253's outer halo as background and left a dark ring round the galaxy, where the
+   degree-2 fit is too stiff to follow a galaxy-sized bump, so a frame one galaxy fills wants `classical`. The sharpen
+   log line names the extractor that ran (`gradient=...`).
 
 ### Three findings, each of which changed the design
 

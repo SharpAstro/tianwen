@@ -281,7 +281,7 @@ internal sealed class StackSubCommand(
         // mirrored from `image sharpen` so `stack --enhance` honours the same knobs.
         var aiBackendOpt = new Option<string>("--ai-backend")
         {
-            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else TianWen's own model where the role has one - default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), or 'tianwen' (TianWen's own model wherever a role has one, both OSC-only and shipped with the app: the denoise step's, and the deblur's when --deconv-kernel states the blur; other roles behave as auto). 'n2n', the old name of 'tianwen', was removed on 2026-10-09 with no alias. A role nothing serves is left out: with no star remover the master is enhanced whole-frame. No effect on gradient correction (GraXpert, else the classical fit). 'sas' was removed on 2026-09-26. Implies --enhance unless 'auto'.",
+            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else TianWen's own model where the role has one - default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), or 'tianwen' (TianWen's own model wherever a role has one, both OSC-only and shipped with the app: the denoise step's, and the deblur's when --deconv-kernel states the blur; other roles behave as auto). 'n2n', the old name of 'tianwen', was removed on 2026-10-09 with no alias. A role nothing serves is left out: with no star remover the master is enhanced whole-frame. No effect on gradient correction, which --gradient chooses. 'sas' was removed on 2026-09-26. Implies --enhance unless 'auto'.",
             DefaultValueFactory = _ => "auto",
         };
         var deblurSharpenOpt = new Option<double>("--deblur-sharpen")
@@ -337,6 +337,8 @@ internal sealed class StackSubCommand(
         };
         var deconvKernelOpts = new DeconvolutionKernelOptions();
         deconvKernelOpts.AddTo(stackCommand);
+        var gradientOpt = GradientBackendOption.Create(" Implies --enhance unless 'auto'.");
+        stackCommand.Options.Add(gradientOpt);
         stackCommand.SetAction(async (parseResult, ct) =>
         {
             var dataRoot = parseResult.Required(dataRootArg);
@@ -463,6 +465,7 @@ internal sealed class StackSubCommand(
                 consoleHost.WriteError(enhanceError);
                 return 1;
             }
+            enhanceOptions = enhanceOptions with { Gradient = parseResult.GetValue(gradientOpt) };
 
             // Masked preview boost: identity values collapse to null so the render path
             // stays byte-identical to the pre-option behaviour when the flags are unused.
@@ -479,7 +482,8 @@ internal sealed class StackSubCommand(
                 : null;
 
             var enhanceArg = parseResult.GetValue(enhanceOpt) || enhanceBlendArg < 1.0f || splitPlatesArg
-                || enhanceOptions.Backend != EnhanceBackend.Auto || enhanceOptions.Tuning is not null;
+                || enhanceOptions.Backend != EnhanceBackend.Auto || enhanceOptions.Tuning is not null
+                || enhanceOptions.Gradient != GradientBackend.Auto;
             var options = new StackingOptions(
                 DataRoot: dataRoot,
                 OutputDir: outputDir,
@@ -566,7 +570,7 @@ internal sealed class StackSubCommand(
                       $"nxt-dn={tuning.DenoiseStrength?.ToString("0.00") ?? "auto"} " +
                       $"nxt-it={tuning.DenoiseIterations?.ToString() ?? "def"}";
                 consoleHost.WriteScrollable(
-                    $"[stack] enhance: backend={enhanceOptions.Backend} blend={enhanceBlendArg:0.00} " +
+                    $"[stack] enhance: backend={enhanceOptions.Backend} gradient={enhanceOptions.Gradient.ToString().ToLowerInvariant()} blend={enhanceBlendArg:0.00} " +
                     $"split-plates={(splitPlatesArg ? "on" : "off")} tuning={tuneSummary}");
             }
 

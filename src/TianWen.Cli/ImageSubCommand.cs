@@ -31,12 +31,6 @@ namespace TianWen.Cli;
 /// is preserved by construction. MTF and GHS on stars were considered
 /// but dropped: GHS is undocumented for stars-only plates (per gh-astro.co.uk)
 /// and MTF on stars doesn't beat StarStretch.</summary>
-/// <summary>Which background model <c>tianwen image flatten</c> fits. <see cref="Auto"/> takes the
-/// registered <c>IGradientCorrector</c>, which is GraXpert BGE where its weights are installed and the
-/// classical fit otherwise; <see cref="Classical"/> and <see cref="Graxpert"/> name one and refuse to
-/// fall back, so a script gets the model it asked for on every machine.</summary>
-public enum FlattenBackend { Auto, Classical, Graxpert }
-
 public enum StarStretchMode { StarStretch, Asinh }
 
 /// <summary>Stretch selector for the starless plate (under
@@ -943,7 +937,7 @@ internal sealed partial class ImageSubCommand(
         // backend-neutral when the n2n lane made them serve more than RC-Astro).
         var aiBackendOpt = new Option<string>("--ai-backend")
         {
-            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else TianWen's own model where the role has one - default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), or 'tianwen' (TianWen's own model wherever a role has one, both OSC-only and shipped with the app: the denoise step's, and the deblur's when --deconv-kernel states the blur; other roles behave as auto). 'n2n', the old name of 'tianwen', was removed on 2026-10-09 with no alias. A role nothing serves is left out: with no star remover the program runs whole-frame. No effect on gradient correction (GraXpert, else the classical fit). 'sas' was removed on 2026-09-26.",
+            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else TianWen's own model where the role has one - default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), or 'tianwen' (TianWen's own model wherever a role has one, both OSC-only and shipped with the app: the denoise step's, and the deblur's when --deconv-kernel states the blur; other roles behave as auto). 'n2n', the old name of 'tianwen', was removed on 2026-10-09 with no alias. A role nothing serves is left out: with no star remover the program runs whole-frame. No effect on gradient correction, which --gradient chooses. 'sas' was removed on 2026-09-26.",
             DefaultValueFactory = _ => "auto",
         };
         var deblurSharpenOpt = new Option<double>("--deblur-sharpen")
@@ -965,6 +959,7 @@ internal sealed partial class ImageSubCommand(
         // same file. It goes through the rule a stated one does (StatedToApplyAsync), so only a broadband fit enters the
         // pixels before the enhance, as `stack --enhance` puts its own in; a frame balanced first is the only colour
         // SCNR acts on.
+        var gradientOpt = GradientBackendOption.Create(" Has no effect with --no-gradient.");
         var sharpenWhiteBalanceOpt = new Option<string?>("--white-balance")
         {
             Description = "An SPCC white balance for this input, as 'R,G,B' (the triple `image render` prints with '(SPCC)'). Put into the linear data before the enhance when the filter is broadband, as `stack --enhance` does; ignored for a line-selective filter or when the input states its own.",
@@ -973,7 +968,7 @@ internal sealed partial class ImageSubCommand(
         var cmd = new Command("sharpen", "The canonical AI enhance: with a star remover (RC-Astro StarXTerminator), deblur, gradient, remove stars, denoise (and deconvolve) the starless plate, optional SCNR on stars, recombine; without one, whole-frame deblur, gradient correction and denoise. Every step runs only where a backend serves it; TianWen's own deblur (E3.4d) only with --ai-backend tianwen and --deconv-kernel.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, modeOpt, stellarSharpenOpt, noGradientOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, starStretchModeOpt, starlessStretchModeOpt, stretchModeOpt, ghsConvergeOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsStagesOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, asinhBetaOpt, asinhBlackPointOpt, asinhLumaOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt, aiBackendOpt, deblurSharpenOpt, denoiseStrengthOpt, denoiseIterationsOpt, sharpenWhiteBalanceOpt },
+            Options = { outputOpt, modeOpt, stellarSharpenOpt, noGradientOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, starStretchModeOpt, starlessStretchModeOpt, stretchModeOpt, ghsConvergeOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsStagesOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, asinhBetaOpt, asinhBlackPointOpt, asinhLumaOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt, aiBackendOpt, deblurSharpenOpt, denoiseStrengthOpt, denoiseIterationsOpt, gradientOpt, sharpenWhiteBalanceOpt },
         };
         var deconvKernelOpts = new DeconvolutionKernelOptions();
         deconvKernelOpts.AddTo(cmd);
@@ -1021,11 +1016,18 @@ internal sealed partial class ImageSubCommand(
                 consoleHost.WriteError(enhanceError);
                 return 1;
             }
+            var noGradient = parseResult.GetValue(noGradientOpt);
+            var gradient = parseResult.GetValue(gradientOpt);
+            if (noGradient && gradient != GradientBackend.Auto)
+            {
+                consoleHost.WriteError($"--gradient {gradient.ToString().ToLowerInvariant()} chooses the extractor of a gradient step that --no-gradient leaves out; pass one or the other.");
+                return 1;
+            }
+            enhanceOptions = enhanceOptions with { Gradient = gradient };
             var backend = enhanceOptions.Backend;
             var tuning = enhanceOptions.Tuning;
 
             var stellarOptIn = parseResult.GetValue(stellarSharpenOpt);
-            var noGradient = parseResult.GetValue(noGradientOpt);
             // Whether the caller ASKED for the starless deconvolution, as opposed to leaving it at its
             // default: with BlurX live the canonical program drops it, so only an explicit blend keeps it.
             var deconvExplicit = parseResult.GetResult(deconvBlendOpt)?.Tokens.Count > 0;
@@ -1472,7 +1474,8 @@ internal sealed partial class ImageSubCommand(
             consoleHost.WriteScrollable(
                 $"[sharpen] {input} {src.Width}x{src.Height}x{src.ChannelCount} mode={mode} " +
                 $"stellar={doStellar}({stellarBlend:F2}) deconv={!noDeconv}({deconvBlend:F2}) " +
-                $"denoise={!noDenoise}({denoiseBlend:F2},{denoiseVariant}) scnr={effectiveScnrMode}({scnrAmount:F2}){dualStretchDesc} recombine={!noRecombine} backend={backend}{(tuning is null ? "" : $" tuning(sn={tuning.DeblurSharpen?.ToString("F2") ?? "-"},dn={tuning.DenoiseStrength?.ToString("F2") ?? "-"},it={tuning.DenoiseIterations?.ToString() ?? "-"})")}");
+                $"denoise={!noDenoise}({denoiseBlend:F2},{denoiseVariant}) scnr={effectiveScnrMode}({scnrAmount:F2}){dualStretchDesc} recombine={!noRecombine} backend={backend} " +
+                $"gradient={(noGradient ? "off" : GradientBackendOption.NameFor(gradientCorrector, gradient))}{(tuning is null ? "" : $" tuning(sn={tuning.DeblurSharpen?.ToString("F2") ?? "-"},dn={tuning.DenoiseStrength?.ToString("F2") ?? "-"},it={tuning.DenoiseIterations?.ToString() ?? "-"})")}");
 
             SharpenResult result;
             try
@@ -1575,10 +1578,10 @@ internal sealed partial class ImageSubCommand(
         {
             Description = "Also write the estimated background surface as <output>_gradient.fits (+ .png if --png is set). Useful for sanity-checking the gradient model - you can see whether it picked up light pollution vs vignette vs sky-glow asymmetry. Skipped by default to avoid leaking a 120 MB plate per call on large drizzles.",
         };
-        var backendOpt = new Option<FlattenBackend>("--backend")
+        var backendOpt = new Option<GradientBackend>("--backend")
         {
             Description = "'auto' (default) uses the registered IGradientCorrector: GraXpert BGE when its weights are installed, the classical fit otherwise. 'classical' always uses the classical polynomial fit and is what the tuning options below apply to. 'graxpert' demands the AI model and fails if it is absent rather than falling back silently.",
-            DefaultValueFactory = _ => FlattenBackend.Auto,
+            DefaultValueFactory = _ => GradientBackend.Auto,
         };
         var degreeOpt = new Option<int?>("--degree")
         {
@@ -1645,14 +1648,14 @@ internal sealed partial class ImageSubCommand(
             var excludeSpecs = parseResult.GetValue(excludeOpt) ?? [];
             var tuned = degree.HasValue || downsample.HasValue || surface || divide || excludeSpecs.Length > 0;
             var backend = parseResult.GetValue(backendOpt);
-            if (tuned && backend == FlattenBackend.Auto)
+            if (tuned && backend == GradientBackend.Auto)
             {
                 // A tuning option under 'auto' would be SILENTLY ignored whenever the GraXpert weights
                 // happen to be installed, which is the machine-dependent half of a two-machine bug.
                 // Selecting the backend the options belong to is the only reading that cannot surprise.
-                backend = FlattenBackend.Classical;
+                backend = GradientBackend.Classical;
             }
-            else if (tuned && backend != FlattenBackend.Classical)
+            else if (tuned && backend != GradientBackend.Classical)
             {
                 consoleHost.WriteError("--degree/--downsample/--surface/--divide/--exclude tune the classical fit and have no meaning for --backend graxpert.");
                 src.Release();
@@ -1676,7 +1679,7 @@ internal sealed partial class ImageSubCommand(
                 exclusions = built.MoveToImmutable();
             }
 
-            if (backend == FlattenBackend.Graxpert && !gradientCorrector.Name.Contains("GraXpert", StringComparison.OrdinalIgnoreCase))
+            if (backend == GradientBackend.Graxpert && !gradientCorrector.Name.Contains("GraXpert", StringComparison.OrdinalIgnoreCase))
             {
                 // Naming a backend has to mean it. 'auto' is the mode that silently substitutes; asking
                 // for GraXpert on a machine without its weights and quietly getting the classical fit
@@ -1689,7 +1692,7 @@ internal sealed partial class ImageSubCommand(
             }
 
             BackgroundExtractionOptions? classicalOptions = null;
-            if (backend == FlattenBackend.Classical)
+            if (backend == GradientBackend.Classical)
             {
                 classicalOptions = BackgroundExtractionOptions.Default with
                 {
