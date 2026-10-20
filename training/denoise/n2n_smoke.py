@@ -698,9 +698,17 @@ def prepare(args):
     # [cell, 11, C, H, W]: slot 0 master, 1..8 subs, 9 half_a, 10 half_b. The half slots are
     # written for every cell that has them even when nothing will train on them, so one cache
     # serves the control run and the half-pair run and the two cannot diverge on their tiles.
+    # --compact (R2q): only the slots the cells fill, the master and its subs or draws, for a cache whose cells hold no
+    # half pair: the synthetic clusters fill one draw of eight, and eleven slots a cell would leave nine of them zeros.
+    slots = SLOTS_WITH_HALVES
+    if getattr(args, "compact", False):
+        if any(has_halves(cells[k]) for k in keys):
+            raise SystemExit("--compact leaves out the half slots, and some of these cells carry a half pair")
+        slots = 1 + max(min(len(cells[k]["subs"]), SUBS_PER_CELL) for k in keys)
+        print(f"  compact: {slots} slots a cell (the master and {slots - 1} sub or draw slot(s)), no half slots")
     path = os.path.join(args.cache, "tiles.f16")
     mm = np.memmap(path, dtype=np.float16, mode="w+",
-                   shape=(n, SLOTS_WITH_HALVES, CH, TILE, TILE))
+                   shape=(n, slots, CH, TILE, TILE))
     halves = []
     # The deconvolver's conditioning label, per (cell, sub slot). NaN means "no label", which is a
     # state the trainer has to see rather than a zero it would silently condition on.
@@ -740,8 +748,8 @@ def prepare(args):
     if any(has_sidecar(cells[k]["master"]) or has_sidecar(cells[k].get("half_a"))
            or (cells[k]["subs"] and has_sidecar(cells[k]["subs"][0])) for k in keys):
         sigma = np.memmap(os.path.join(args.cache, SIGMA_FILE), dtype=np.float16, mode="w+",
-                          shape=(n, SLOTS_WITH_HALVES, TILE, TILE))
-        sigma_has = np.zeros((n, SLOTS_WITH_HALVES), dtype=bool)
+                          shape=(n, slots, TILE, TILE))
+        sigma_has = np.zeros((n, slots), dtype=bool)
 
     def put_sigma(i, slot, rel):
         if sigma is None or not rel:
@@ -792,8 +800,10 @@ def prepare(args):
         np.save(os.path.join(args.cache, SIGMA_HAS_FILE), sigma_has)
         sigma_planes = int(sigma_has.sum())
         per_slot = sigma_has.sum(axis=0)
-        print(f"  per-pixel noise planes: {sigma_planes} (master {per_slot[0]}, draws/subs {int(per_slot[1:SUBS_PER_CELL + 1].sum())}, "
-              f"half A {per_slot[SLOT_HALF_A]}, half B {per_slot[SLOT_HALF_B]}) from {sigma_root}")
+        halves_note = (f", half A {per_slot[SLOT_HALF_A]}, half B {per_slot[SLOT_HALF_B]}" if slots > SLOT_HALF_B
+                       else ", no half slots")
+        print(f"  per-pixel noise planes: {sigma_planes} (master {per_slot[0]}, draws/subs {int(per_slot[1:SUBS_PER_CELL + 1].sum())}"
+              f"{halves_note}) from {sigma_root}")
     else:
         print("  per-pixel noise planes: NONE (no .sigma.f16 beside the tiles; an export from before E16)")
 
@@ -853,7 +863,7 @@ def prepare(args):
                        "bake": args.bake, "sessions": stretch_info}, fh, indent=1)
 
     meta = {
-        "cells": n, "slots": SLOTS_WITH_HALVES, "injected": bool(injected), "has_subs": bool(has_subs),
+        "cells": n, "slots": slots, "injected": bool(injected), "has_subs": bool(has_subs),
         "draws": draws, "channels": CH,
         "train_cells": len(train_keys), "val_cells": len(val_keys),
         "train_sessions": train_s, "val_sessions": val_s,
@@ -2653,6 +2663,9 @@ if __name__ == "__main__":
                    help="train on the half-master pair ALONE: the regime for a cross-night pair cache "
                         "(tianwen dataset pair), whose two nights sit in the half slots and whose sub "
                         "slots are empty. Implies --half-pairs")
+    p.add_argument("--compact", action="store_true",
+                   help="--prepare: write only the slots the cells fill (the master and its subs or draws), no half slots; "
+                        "refused if a cell carries a half pair (R2q's cluster cache: one draw a cell)")
     p.add_argument("--require-halves", action="store_true",
                    help="prepare only from sessions that carry a half-master pair")
     p.add_argument("--cond", action="store_true",
