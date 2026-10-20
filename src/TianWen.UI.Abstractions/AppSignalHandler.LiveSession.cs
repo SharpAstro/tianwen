@@ -521,6 +521,25 @@ namespace TianWen.UI.Abstractions
 
             // Manual mount nudge (planetary panel coarse-recenter buttons): one guide-rate pulse, as the node's job, which
             // ends when the mount reports the pulse done and is refused on a mount a run holds, in the run's name.
+            // A held button (2026-10-20): the node's leased move-axis, renewed while held and stopped on release; the direction is
+            // the pulse's, on the axis and with the sign the site's hemisphere gives it (MountJog).
+            var mover = new MountMover(_timeProvider);
+            bus.Subscribe<StartMountMoveSignal>(sig =>
+            {
+                if (CommandTargetOrSay("A mount move") is not { Node: var node, Profile.Data: { } pdata }) return;
+                if (pdata.Mount is not { Scheme: not "none" } mountUri) return;
+
+                var (axis, rate) = MountJog.AxisRateFor(sig.Direction, sig.SiderealMultiple, pdata.Site?.Latitude ?? 0);
+                RunTracked($"MoveMount {sig.Direction}", "Mount move failed", async ct =>
+                {
+                    if (await mover.HoldAsync(node.Client, mountUri, axis, rate, ct) is { } refused)
+                    {
+                        Notify(NotificationSeverity.Warning, refused);
+                    }
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+            bus.Subscribe<StopMountMoveSignal>(_ => mover.Release());
+
             bus.Subscribe<JogMountSignal>(sig =>
             {
                 if (CommandTargetOrSay("A mount nudge") is not { Node: var node, Profile.Data: { } pdata }) return;

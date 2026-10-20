@@ -153,6 +153,21 @@ already running constant-speed in the tracking direction gets `:I1` alone (a `:G
 otherwise stop-wait if running, `:G1` (func 1, forward in the north, reverse in the south), `:I1`, `:J1`.
 `SetTrackingAsync(false)` sends `:K1` without waiting. Only sidereal is native. `IsTrackingAsync` is `:f1`
 running and constant-speed, masked while an RA pulse runs on a stopped axis (`_raPulseOnStoppedAxis`).
+**The `:I1`-alone path is taken only in the LOW-speed func** (`:f1` nibble 0 bit 2, `AxisStatus.IsHighSpeed`): a
+high-speed run reads the same `:I` at the high-speed ratio, so a sidereal period there tracked 16x too fast while
+every status said tracking (found 2026-10-20, a held button at the fast slew).
+
+**An RA move on a tracking mount rides on tracking** (`MoveRaOverTrackingAsync`, the owner, 2026-10-20: the
+handset's slow speeds behave like guide pulses). The move's rate is ADDED to sidereal, positive along the motor's
+forward, so West (the held button's, `MountJog.AxisRateFor`) is faster than tracking in either hemisphere. A combined
+rate the tracking way below GSServer's `LowSpeedMargin` (128x, `OverTrackingLowSpeedMarginSidereal`) on an axis
+already running low-speed that way gets `:I1` alone, as an RA pulse does; East at exactly 1x creeps at a thousandth
+of sidereal, as an East pulse at 1x does. One that reverses the axis (East faster than sidereal) or passes the margin
+stop-waits and `:G1` `:I1` `:J1`. Rate 0 restores sidereal: `:I1` VERIFIED on a low-speed axis the tracking way,
+else `SetTrackingAsync(true)`. `_raMoveOverTracking` carries the state across the move's calls and is cleared by the
+stop, by tracking turned off, by a slew and by an abort. A mount NOT tracking moves at the rate as given, and its
+stop is `:K`, as before. The held-button speeds come from `MountJog.SiderealMultiples`, which the axis rates take
+too, so the node's exact rate check cannot disagree on a double.
 
 **A guide pulse is two methods** (the repo [`CLAUDE.md`](../../CLAUDE.md), "A guide pulse is TWO
 methods"). `StartPulseGuideAsync` returns once the board is COMMANDED; the hold runs in the background
@@ -225,7 +240,7 @@ read that returns a value where [`driver-resilience.md`](driver-resilience.md) r
 | `GetAxisAngleAsync` | `:j` | **Violation.** `null`, the "no axis model" answer, so the limit falls back to the hour-angle tier on stale positions. Fix: throw, keeping `null` for alt-az and CPR 0 |
 | `GetSideOfPierAsync` | `:j2` | **Violation.** `PointingState.Normal`, a definite and MEASURED answer the flip decision and the verified-pointing latch trust. Fix: throw instead |
 | `SetSideOfPierAsync` | `:j2`, `:j1`, `:j2`, one goto pass | inherits the `Normal` fallback: can skip a needed flip or flip the other way |
-| `BeginSlewRaDecAsync`, `ParkAsync`, `MoveAxisAsync` | stop-waits, `:j`, `:G` `:H` `:M` `:J`; `MoveAxisAsync` `:G` `:I` `:J` (rate 0: `:K`) | **Violation, via `:f`.** A lost `:f` ends a stop-wait early, the next `:G` is refused `!2` and only logged, and the move is lost silently |
+| `BeginSlewRaDecAsync`, `ParkAsync`, `MoveAxisAsync` | stop-waits, `:j`, `:G` `:H` `:M` `:J`; `MoveAxisAsync` `:G` `:I` `:J` (rate 0: `:K`; an RA move on a tracking mount `:I1` alone or the same, its rate 0 a verified `:I1`, above) | **Violation, via `:f`.** A lost `:f` ends a stop-wait early, the next `:G` is refused `!2` and only logged, and the move is lost silently |
 | `StartPulseGuideAsync` | as tabled above | start commands best-effort; restore and stop verified, then `SkywatcherDriverException`; its `:f1` inherits the `IsTrackingAsync` violation |
 | `IsPulseGuidingAsync` | none | the in-flight counter; re-throws a parked fault |
 | `DestinationSideOfPierAsync`, `GetSiderealTimeAsync`, `GetWormPeriodStepsAsync`, guide-rate getters, site, time, `AtParkAsync`, `AtHomeAsync` | none | host clock and cached values; `GetWormPeriodStepsAsync` is 0 when `:s` went unanswered at connect |
