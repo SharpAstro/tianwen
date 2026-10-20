@@ -3215,6 +3215,70 @@ keep R2p's teacher; the plateau stops on both caches' held-out objectives, each 
 and logs the three. Without the option a run is bit-identical to the trainer before it (40 steps of R2p's recipe, every
 tensor). Tested in `training/denoise/test_n2n_extra_cache.py` and `SyntheticClusterExportTests`.
 
+#### R2q's read: the clusters carry to the real crowded field, and the costs come on a schedule half R2p's (2026-10-21)
+
+Seed 0 trained on the 1070 from 03:02 to 08:44 on 2026-10-21 and stopped on its own at step 125,000, its combined
+held-out best 2.51e-6 at 101,000. Seed 1 trained on an Azure spot T4 from 03:20, was evicted twice and resumed both
+times, and stopped at step 121,500 (best 2.44e-6 at 97,500); its driver deleted the VM at 08:57 and listed the group
+empty, and the run's SAS and tasks were removed the same morning. Both were scored by the binaries that scored R2p. The
+local scoring stopped for an hour on a driver bug of its own (a helper named `Cli` is PowerShell's alias for
+`Clear-Item`, which wins over a function), and the first regression read compared R2q's mono Sagittarius Triplet plates
+with R2p's copies (the three-plane copy was named after the file alone); both were fixed and the reads below are re-run.
+
+| | R2p | R2q | R2q, 8 views | R2q seed 1 |
+|---|---|---|---|---|
+| A's draws: clean 5-20 / 20-100 / 100-1000 sigma | 80.6 / 77.2 / 65.8 | 78.7 / 74.8 / 54.5 | 79.6 / 77.2 / 63.8 | 79.8 / 75.3 / 58.2 |
+| A's draws: dug 100-1000 sigma / clean in colour 100-1000 | 25.9 / 25.3 | 31.4 / 15.7 | 25.2 / 23.5 | 29.8 / 21.3 |
+| plain / lobed twin: clean 100-1000 sigma | 66.6 / 65.9 | 56.8 / 55.2 | | 60.1 / 58.7 |
+| real stars, 5-20 / 20-100 / 100-1000 sigma within a sigma | 96.1 / 98.7 / 97.8 | 96.5 / 98.7 / 95.7 | | 97.1 / 98.8 / 95.5 |
+| real stars, 100-1000 sigma dug / left bright | 1.00 / 1.19 | 1.40 / 2.94 | | 1.78 / 2.73 |
+| ring, 3-6 px: a channel dug past -1 / left past +1 | 37.2 / 11.2 % | 51.2 / 13.3 % | 50.7 / 12.9 % | 47.0 / 13.3 % |
+| held-out Tarantula: crowded stars flat | 70.2 % | 79.9 % | 80.2 % | |
+| held-out Tarantula: dark sky flat at 20-100 / 100-1000 / over 1000 sigma | 58.3 / 29.6 / 7.9 % | 79.3 / 47.8 / 18.4 % | 79.4 / 48.5 / 18.4 % | |
+| Gaia removed, BP 13-15 / 15-17 / 17-19 | 97.3 / 96.4 / 79.5 % | 99.4 / 97.9 / 88.6 % | 99.3 / 97.9 / 88.2 % | |
+| Gaia purity (stars-layer light away from every Gaia star) | 0.7 % | 0.4 % | 0.4 % | |
+| owner's Andromeda: dark sky 100-1000 sigma flat / dug | 39.3 / 45.9 % | 44.1 / 37.3 % | 43.3 / 39.5 % | |
+| owner's Sagittarius Triplet (OIII): dark sky 100-1000 sigma flat | 98.8 % | 98.8 % | 98.7 % | |
+| M31 on the owner's Andromeda, central 6 px taken (R / G / B) | 1.2 / 4.4 / 1.7 % | 13.0 / 13.7 / 8.8 % | 12.6 / 13.7 / 8.8 % | 4.6 / 4.7 / 4.6 % |
+
+1. **The crowded field improves: holds**, crowded stars flat on 79.9 % (bar 74.5) and dark-sky stars at 100-1000 sigma
+   on 47.8 % (bar 33.9). Every brightness class on the dark sky gains, the brightest from 7.9 to 18.4 %, and the stars
+   left bright halve at 20-100 sigma (40.6 to 19.7 %).
+2. **Nothing else is taken for it: holds**, purity 0.4 % (bar 1.0) and BP 17-19 removed on 88.6 % (bar 77.5).
+3. **A's draws hold within R2p's spread: misses in all three bands**, 78.7 / 74.8 / 54.5 against 79.3 / 76.4 / 61.5; the
+   bright stars by 7.0 points, dug on 31.4 % against 25.9, and their colour falls from 25.3 to 15.7.
+4. **Real bright stars flat on at least 96.4 %: misses**, 95.7, with the stars left bright up from 1.19 to 2.94 %.
+5. **M31's nucleus at most 5 %: misses**, 13.0 / 13.7 / 8.8 %. Seed 1 keeps it on the same file (4.6 / 4.7 / 4.6 %).
+6. **The owner's masters do not regress: holds on the numbers**, Andromeda 44.1 % (bar 35.0, and dug on 37.3 % against
+   R2p's 45.9) and the Sagittarius Triplet 98.8 % (bar 94.5); the crops (`C:/temp/e2/owner-regression/read-r2q/`) are
+   the owner's to judge. By eye they sit with R2p's, and new-image's bright star leaves a fainter ghost.
+
+**Read, not predicted.** The blue dig at Andromeda's bright stars is still there and a little smaller (the dug ones at
++0.22 / +0.33 / -0.68 sigma against R2p's +0.16 / +0.30 / -0.75), on fewer stars. R2q's own eight views recover A's
+draws (79.6 / 77.2 / 63.8, inside all three bars) but move nothing on the crowded field, the real stars or the nucleus.
+The clusters' part of the held-out objective sat near 2.15e-6 and flat from step 100,000 on. Seed 1 against seed 0 is
+3.7 points on A's bright stars, inside the line's 4.3, and 8 to 9 points on the nucleus, the noisiest read here.
+
+**The schedule is not R2p's, and it confounds 3 to 5.** The plateau rule halved the learning rate on the combined
+objective far sooner than it did on synth4 alone:
+
+| halved at step | to 1e-4 | to 5e-5 | to 2.5e-5 | to 1.25e-5 | stopped |
+|---|---|---|---|---|---|
+| R2p | 50,000 | 81,500 | 161,000 | 213,000 | 224,500 |
+| R2q seed 0 | 33,000 | 63,500 | 79,000 | 113,500 | 125,000 |
+| R2q seed 1 | 48,000 | 72,500 | 91,000 | 110,000 | 121,500 |
+
+At step 100,000 synth4's part of the objective reads 2.52e-6 on R2q (seed 0) and 2.56e-6 on R2p at the same step; R2p's
+best, 2.30e-6, came in the 124,500 steps after it, which R2q did not train. So this run cannot say whether the clusters
+or the shorter schedule cost A's bright stars, the real bright stars and the nucleus.
+
+**The kill does not fire on 1** (the cluster tiles carry to a real crowded field), **and 3 to 5 miss, so R2q is not
+shippable and the line keeps R2p.** **What it decides.** Synthetic crowded fields with an exact truth teach a remover
+what the real crowded field needed: on the held-out Tarantula R2q leaves half as many stars bright at 20-100 sigma,
+takes nine more points of the faint Gaia stars, and puts less light where no star is. What it costs is not yet separated
+from the schedule. The arm that would separate them is R2q's data on R2p's schedule, the plateau read off synth4's part
+alone or the steps matched to R2p's; whether to run it is the owner's call.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
