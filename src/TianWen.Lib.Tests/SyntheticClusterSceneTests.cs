@@ -110,6 +110,38 @@ public sealed class SyntheticClusterSceneTests
         ]);
     }
 
+    /// <summary>The composite less the noisy truth is the stars and their own shot noise alone, as an injected draw less its
+    /// plate is: nothing where there is no star, and where there is one the stars plus an independent draw whose variance is
+    /// the composite's less the truth's.</summary>
+    [Fact]
+    public void TheCompositeLessTheNoisyTruthIsTheStarsAndTheirOwnNoise()
+    {
+        const int n = 200_000;
+        const float sky = 0.01f, star = 0.09f;
+        var calibration = new TianWen.Lib.Imaging.Degradation.LinearDegradation.NoiseCalibration(0.0, sky, 0.001, 1);
+        var rng = new Random(23);
+        float Gauss() => (float)(Math.Sqrt(-2 * Math.Log(1 - rng.NextDouble())) * Math.Cos(2 * Math.PI * rng.NextDouble()));
+        var field = Enumerable.Range(0, n).Select(_ => Gauss()).ToArray();
+        var starField = Enumerable.Range(0, n).Select(_ => Gauss()).ToArray();
+        var starless = Enumerable.Repeat(sky, n).ToArray();
+        // The first half holds no star, the second a star's light of nine skies.
+        var composite = Enumerable.Range(0, n).Select(i => i < n / 2 ? sky : sky + star).ToArray();
+
+        var noisy = SyntheticClusterScene.AddNoise(starless, composite, calibration, field, starField);
+
+        for (var i = 0; i < n / 2; i++)
+        {
+            composite[i].ShouldBe(noisy[i], "no star: the composite is the noisy truth");
+        }
+        noisy[0].ShouldBe(sky + (float)(field[0] * 0.001), 1e-9f, "the truth's noise is its own level's");
+        var residual = Enumerable.Range(n / 2, n / 2).Select(i => (double)(composite[i] - noisy[i] - star)).ToArray();
+        var (with, without) = (calibration.SigmaAt(sky + star, 1.0), calibration.SigmaAt(sky, 1.0));
+        var expected = Math.Sqrt((with * with) - (without * without));
+        Math.Sqrt(residual.Sum(static r => r * r) / residual.Length).ShouldBe(expected, expected * 0.01, "the stars' own shot noise");
+        var corr = Enumerable.Range(n / 2, n / 2).Sum(i => residual[i - (n / 2)] * field[i]) / residual.Length / expected;
+        corr.ShouldBe(0.0, 0.01, "drawn apart from the truth's own noise");
+    }
+
     [Theory]
     [InlineData(2.0, 0.343)]
     [InlineData(3.0, 0.296)]

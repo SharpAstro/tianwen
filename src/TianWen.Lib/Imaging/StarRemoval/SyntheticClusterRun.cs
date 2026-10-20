@@ -41,6 +41,61 @@ public sealed record SyntheticClusterRun(
     /// <summary>Builds the source once and writes every variant, reporting each as it lands.</summary>
     public async Task<(ImmutableArray<Written> Scenes, string SourceLine)> RunAsync(IProgress<string>? progress, CancellationToken cancellationToken)
     {
+        var (master, source, line) = await OpenSourceAsync(cancellationToken);
+        progress?.Report(line);
+
+        Directory.CreateDirectory(OutDir);
+        var written = ImmutableArray.CreateBuilder<Written>();
+        foreach (var optics in Optics)
+        {
+            foreach (var nebula in Nebulae)
+            {
+                foreach (var rotation in Rotations)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var spec = Base with { Optics = optics, NebulaStrength = nebula, RotationDeg = rotation };
+                    var name = string.Create(CultureInfo.InvariantCulture,
+                        $"cluster_s{spec.Seed}_{optics.ToString().ToLowerInvariant()}_neb{nebula:0.##}_rot{rotation:0.#}");
+                    var render = SyntheticClusterScene.Render(source, spec);
+                    var composite = Path.Combine(OutDir, name + ".fits");
+                    Write(render.Composite, spec.Size, master, composite);
+                    Write(render.Stars, spec.Size, master, Path.Combine(OutDir, name + "_stars.fits"));
+                    Write(render.Starless, spec.Size, master, Path.Combine(OutDir, name + "_starless.fits"));
+                    Write(render.StarlessNoisy, spec.Size, master, Path.Combine(OutDir, name + "_starless_noisy.fits"));
+                    Write(render.Unresolved, spec.Size, master, Path.Combine(OutDir, name + "_unresolved.fits"));
+                    await File.WriteAllTextAsync(Path.Combine(OutDir, name + "_truth.csv"), TruthCsv(render.Truth), cancellationToken);
+                    if (spec.NebulaKnots && nebula > 0)
+                    {
+                        await File.WriteAllTextAsync(Path.Combine(OutDir, name + "_knots.csv"), KnotsCsv(render.Knots), cancellationToken);
+                    }
+                    var w = new Written(name, composite, render.Truth.Length, render.GlowStars, render.StarFlux, render.GlowFlux, render.SurfaceFlux);
+                    written.Add(w);
+                    progress?.Report($"{name}: {Describe(render, spec)}");
+                }
+            }
+        }
+        return (written.ToImmutable(), line);
+    }
+
+    /// <summary>One rendered scene in a line: its stars, its light, where its nebula came from, its knots and its groups.</summary>
+    public static string Describe(SyntheticClusterRender render, SyntheticClusterSpec spec)
+    {
+        var groups = string.Join(", ", render.Groups.Select(static gr => string.Create(CultureInfo.InvariantCulture,
+            $"({gr.X:F0}, {gr.Y:F0}, {gr.HalfLightPx:F1}, {gr.ResolvedStars}, {gr.UnresolvedLight:F3}, {(gr.Smooth ? "smooth" : "stars")})")));
+        var knotsShown = spec.NebulaKnots && spec.NebulaStrength > 0 ? $", {render.Knots.Length} of its knots in the scene" : "";
+        return string.Create(CultureInfo.InvariantCulture,
+            $"{render.Truth.Length} resolved stars, {render.GlowStars} unresolved; star light {Join(render.StarFlux, "G4")}, unresolved stars {Join(render.GlowFlux, "G4")}, " +
+            $"their smooth surface {Join(render.SurfaceFlux, "G4")}; nebula from ({render.NebulaAt.X}, {render.NebulaAt.Y}){knotsShown}; " +
+            $"groups (x, y, half-light px, resolved stars, unresolved light, where that light is) {groups}");
+    }
+
+    /// <summary>
+    /// The master and the source every scene of this run is drawn from (<see cref="SyntheticClusterSource"/>: the catalogue's
+    /// stars in <see cref="PoolMargin"/> of the window, the plate's sky and noise, the nebula's generator), and a line saying
+    /// what was read.
+    /// </summary>
+    public async Task<(Image Master, SyntheticClusterSource Source, string Line)> OpenSourceAsync(CancellationToken cancellationToken)
+    {
         if (!Image.TryReadFitsFile(MasterPath, out var master))
         {
             throw new InvalidDataException($"not a readable FITS image: {MasterPath}");
@@ -81,9 +136,10 @@ public sealed record SyntheticClusterRun(
         var (sky, noise, resample, ratio) = SyntheticClusterSource.MeasureSkyAndNoise(plate, absent);
         var noiseBands = SyntheticClusterSource.NoiseBandRms(noise, resample, SyntheticClusterScene.NebulaKeepFromScale);
         var region = SyntheticClusterScene.NebulaRegion(Base, master.Width, master.Height);
-        // Its knots, when the spec asks for them, are the generator's own: nebula knots, a compact one held faint.
+        // Its knots, when the spec asks for them, are the generator's own nebula knots, mostly elongated: a round one at
+        // least four PSF widths across and faint (the owner, 2026-10-21), a compact one held faint.
         var background = SyntheticBackground.Build(nebulaPlate, nebulaAbsent, field.Luminance.Fwhm, brightKnotsWide: true,
-            steering: SyntheticClusterScene.NebulaSteer, nebulaKnots: true,
+            steering: SyntheticClusterScene.NebulaSteer, nebulaKnots: true, elongatedKnots: true,
             largeScale: new SyntheticBackground.LargeScale(SyntheticClusterScene.NebulaKeepFromScale, NebulaTextureFromScale,
                 region.X0, region.Y0, region.Size, noiseBands, NebulaLogNormalWidth));
         var nebulaSky = NebulaPlatePath is null ? null : SyntheticClusterSource.MeasureSkyAndNoise(nebulaPlate, nebulaAbsent).Sky;
@@ -96,45 +152,7 @@ public sealed record SyntheticClusterRun(
             $"noise band ratio {ratio:F3}, matched by a resampling width of {resample:F2} px; profiles {string.Join(" / ", field.Channels.Select(c => string.Create(CultureInfo.InvariantCulture, $"{c.Fwhm:F2} px b{c.Beta:F2}")))}; " +
             $"nebula from {Path.GetFileName(NebulaPlatePath ?? PlatePath)} at ({region.X0}, {region.Y0}) {region.Size} px, its scales from {1 << SyntheticClusterScene.NebulaKeepFromScale} px up kept, " +
             $"texture (log-normal width {NebulaLogNormalWidth:0.##}) green RMS in the noise {texture}");
-        progress?.Report(line);
-
-        Directory.CreateDirectory(OutDir);
-        var written = ImmutableArray.CreateBuilder<Written>();
-        foreach (var optics in Optics)
-        {
-            foreach (var nebula in Nebulae)
-            {
-                foreach (var rotation in Rotations)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var spec = Base with { Optics = optics, NebulaStrength = nebula, RotationDeg = rotation };
-                    var name = string.Create(CultureInfo.InvariantCulture,
-                        $"cluster_s{spec.Seed}_{optics.ToString().ToLowerInvariant()}_neb{nebula:0.##}_rot{rotation:0.#}");
-                    var render = SyntheticClusterScene.Render(source, spec);
-                    var composite = Path.Combine(OutDir, name + ".fits");
-                    Write(render.Composite, spec.Size, master, composite);
-                    Write(render.Stars, spec.Size, master, Path.Combine(OutDir, name + "_stars.fits"));
-                    Write(render.Starless, spec.Size, master, Path.Combine(OutDir, name + "_starless.fits"));
-                    Write(render.StarlessNoisy, spec.Size, master, Path.Combine(OutDir, name + "_starless_noisy.fits"));
-                    Write(render.Unresolved, spec.Size, master, Path.Combine(OutDir, name + "_unresolved.fits"));
-                    await File.WriteAllTextAsync(Path.Combine(OutDir, name + "_truth.csv"), TruthCsv(render.Truth), cancellationToken);
-                    if (spec.NebulaKnots && nebula > 0)
-                    {
-                        await File.WriteAllTextAsync(Path.Combine(OutDir, name + "_knots.csv"), KnotsCsv(render.Knots), cancellationToken);
-                    }
-                    var w = new Written(name, composite, render.Truth.Length, render.GlowStars, render.StarFlux, render.GlowFlux, render.SurfaceFlux);
-                    written.Add(w);
-                    var groups = string.Join(", ", render.Groups.Select(static gr => string.Create(CultureInfo.InvariantCulture,
-                        $"({gr.X:F0}, {gr.Y:F0}, {gr.HalfLightPx:F1}, {gr.ResolvedStars}, {gr.UnresolvedLight:F3}, {(gr.Smooth ? "smooth" : "stars")})")));
-                    var knotsShown = spec.NebulaKnots && nebula > 0 ? $", {render.Knots.Length} of its knots in the scene" : "";
-                    progress?.Report(string.Create(CultureInfo.InvariantCulture,
-                        $"{name}: {w.Stars} resolved stars, {w.GlowStars} unresolved; star light {Join(w.StarFlux, "G4")}, unresolved stars {Join(w.GlowFlux, "G4")}, " +
-                        $"their smooth surface {Join(w.SurfaceFlux, "G4")}; nebula from ({render.NebulaAt.X}, {render.NebulaAt.Y}){knotsShown}; " +
-                        $"groups (x, y, half-light px, resolved stars, unresolved light, where that light is) {groups}"));
-                }
-            }
-        }
-        return (written.ToImmutable(), line);
+        return (master, source, line);
     }
 
     private static string Join(double[] values, string format) => string.Join(" / ", values.Select(v => v.ToString(format, CultureInfo.InvariantCulture)));

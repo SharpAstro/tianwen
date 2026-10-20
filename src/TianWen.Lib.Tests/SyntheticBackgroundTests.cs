@@ -494,6 +494,54 @@ public sealed class SyntheticBackgroundTests
     }
 
     [Fact]
+    public void ElongatedKnotsAreMostlyElongatedAndARoundOneIsWideAndFaint()
+    {
+        // The synthetic clusters' rule (the owner, 2026-10-21): 2.5 to 5 to one, but for a fifth drawn round, and a round one
+        // at least four PSF widths across and under BrightKnotSigma in every channel.
+        var background = SyntheticBackground.Build(WavePlate(), absent: null, Fwhm, brightKnotsWide: true, nebulaKnots: true, elongatedKnots: true);
+        var psfSigma = Fwhm / 2.3548;
+        var (round, elongated) = (0, 0);
+        for (var draw = 0; draw < 60; draw++)
+        {
+            background.Cell(640, 384, 256, [Noise], new Random(700 + draw), out var knots);
+            foreach (var k in knots)
+            {
+                if (k.SigmaMajorPx == k.SigmaMinorPx)
+                {
+                    round++;
+                    (k.SigmaMajorPx / psfSigma).ShouldBeInRange(SyntheticBackground.RoundKnotMinWidths, SyntheticBackground.RoundKnotMinWidths + 2.0,
+                        "a round knot is four to six PSF widths across");
+                    k.Peak[0].ShouldBeLessThanOrEqualTo(SyntheticBackground.BrightKnotSigma * Noise * (1 + 1e-9), "and under 20 noise sigma");
+                }
+                else
+                {
+                    elongated++;
+                    (k.SigmaMajorPx / k.SigmaMinorPx).ShouldBeInRange(2.5, 5.0, "an elongated knot is 2.5 to 5 to one");
+                }
+            }
+        }
+        (round + elongated).ShouldBeGreaterThan(100);
+        ((double)round / (round + elongated)).ShouldBe(SyntheticBackground.RoundKnotShare, 0.08, "a fifth of them round");
+    }
+
+    [Fact]
+    public void WithoutElongatedKnotsTheKnotsAreDrawnAsBefore()
+    {
+        // The option is off by default and its absence moves no draw: the exporter's knots are D3's shapes, half round.
+        var plain = SyntheticBackground.Build(WavePlate(), absent: null, Fwhm, nebulaKnots: true);
+        var off = SyntheticBackground.Build(WavePlate(), absent: null, Fwhm, nebulaKnots: true, elongatedKnots: false);
+        var narrowRound = 0;
+        for (var draw = 0; draw < 20; draw++)
+        {
+            plain.Cell(640, 384, 256, [Noise], new Random(31 + draw), out var a);
+            off.Cell(640, 384, 256, [Noise], new Random(31 + draw), out var b);
+            b.Select(static k => (k.X, k.Y, k.SigmaMajorPx, k.SigmaMinorPx)).ShouldBe(a.Select(static k => (k.X, k.Y, k.SigmaMajorPx, k.SigmaMinorPx)));
+            narrowRound += a.Count(static k => k.SigmaMajorPx == k.SigmaMinorPx && k.SigmaMajorPx < 4 * Fwhm / 2.3548);
+        }
+        narrowRound.ShouldBeGreaterThan(0, "D3's round knots start at 1.6 PSF widths");
+    }
+
+    [Fact]
     public void APreviewCellsSeedIsTheSameInEveryProcess()
     {
         // HashCode.Combine is seeded afresh per process, so a cell seeded by it drew another texture on every run; a value
