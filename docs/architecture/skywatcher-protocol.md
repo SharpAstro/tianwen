@@ -162,7 +162,8 @@ handset's slow speeds behave like guide pulses). The move's rate is ADDED to sid
 forward, so West (the held button's, `MountJog.AxisRateFor`) is faster than tracking in either hemisphere. A combined
 rate the tracking way below GSServer's `LowSpeedMargin` (128x, `OverTrackingLowSpeedMarginSidereal`) on an axis
 already running low-speed that way gets `:I1` alone, as an RA pulse does; East at exactly 1x creeps at a thousandth
-of sidereal, as an East pulse at 1x does. One that reverses the axis (East faster than sidereal) or passes the margin
+of sidereal, as an East pulse at 1x does: the mount stands still against the ground, so the field drifts at sidereal,
+which IS the East move at 1x. One that reverses the axis (East faster than sidereal) or passes the margin
 stop-waits and `:G1` `:I1` `:J1`. Rate 0 restores sidereal: `:I1` VERIFIED on a low-speed axis the tracking way,
 else `SetTrackingAsync(true)`. `_raMoveOverTracking` carries the state across the move's calls and is cleared by the
 stop, by tracking turned off, by a slew and by an abort. A mount NOT tracking moves at the rate as given, and its
