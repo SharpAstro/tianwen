@@ -31,7 +31,7 @@ public sealed record SyntheticClusterRun(
     ImmutableArray<ClusterOptics> Optics, ImmutableArray<double> Nebulae, ImmutableArray<double> Rotations, int PoolMargin = -1)
 {
     /// <summary>One written scene.</summary>
-    public sealed record Written(string Name, string CompositePath, int Stars, int GlowStars, double[] StarFlux, double[] GlowFlux);
+    public sealed record Written(string Name, string CompositePath, int Stars, int GlowStars, double[] StarFlux, double[] GlowFlux, double[] SurfaceFlux);
 
     /// <summary>Builds the source once and writes every variant, reporting each as it lands.</summary>
     public async Task<(ImmutableArray<Written> Scenes, string SourceLine)> RunAsync(IProgress<string>? progress, CancellationToken cancellationToken)
@@ -59,15 +59,19 @@ public sealed record SyntheticClusterRun(
         var absent = plate.AbsentPixels();
         var psf = field.Channels.Select(static c => (c.Fwhm, c.Beta)).ToArray();
         var population = InjectionPopulation.Build(catalogue, master, plate, 1.0, psf, absent, field);
-        var background = SyntheticBackground.Build(plate, absent, field.Luminance.Fwhm, nebulaKnots: true);
+        // The nebula is drawn from the plate with its compact sources out, so it carries none of the plate's residues.
+        Directory.CreateDirectory(OutDir);
+        var (clean, peaks, dips, filled) = SyntheticClusterSource.CleanCompactSources(plate, absent, field.Luminance.Fwhm, seed: 1, cancellationToken);
+        clean.WriteToFitsFile(Path.Combine(OutDir, stem + "_plate_clean.fits"));
+        var background = SyntheticBackground.Build(clean, absent, field.Luminance.Fwhm, nebulaKnots: true);
         var (sky, noise, resample, ratio) = SyntheticClusterSource.MeasureSkyAndNoise(plate, absent);
         var source = new SyntheticClusterSource(population, background, sky, noise, resample, master.Width, master.Height);
         var line = string.Create(CultureInfo.InvariantCulture,
-            $"{population.AmplitudePool} stars to draw from ({population.SaturatedPool} saturated); sky {Join(sky, "G4")}, noise {Join(noise, "G3")}; " +
-            $"noise band ratio {ratio:F3}, matched by a resampling width of {resample:F2} px; profiles {string.Join(" / ", field.Channels.Select(c => string.Create(CultureInfo.InvariantCulture, $"{c.Fwhm:F2} px b{c.Beta:F2}")))}");
+            $"{population.AmplitudePool} stars to draw from ({population.SaturatedPool} saturated); sky {Join(sky, "G7")}, noise {Join(noise, "G4")}; " +
+            $"noise band ratio {ratio:F3}, matched by a resampling width of {resample:F2} px; profiles {string.Join(" / ", field.Channels.Select(c => string.Create(CultureInfo.InvariantCulture, $"{c.Fwhm:F2} px b{c.Beta:F2}")))}; " +
+            $"nebula source: {peaks} peaks and {dips} dips taken out of the plate, {filled:P1} of it filled");
         progress?.Report(line);
 
-        Directory.CreateDirectory(OutDir);
         var written = ImmutableArray.CreateBuilder<Written>();
         foreach (var optics in Optics)
         {
@@ -84,11 +88,16 @@ public sealed record SyntheticClusterRun(
                     Write(render.Composite, spec.Size, master, composite);
                     Write(render.Stars, spec.Size, master, Path.Combine(OutDir, name + "_stars.fits"));
                     Write(render.Starless, spec.Size, master, Path.Combine(OutDir, name + "_starless.fits"));
+                    Write(render.Unresolved, spec.Size, master, Path.Combine(OutDir, name + "_unresolved.fits"));
                     await File.WriteAllTextAsync(Path.Combine(OutDir, name + "_truth.csv"), TruthCsv(render.Truth), cancellationToken);
-                    var w = new Written(name, composite, render.Truth.Length, render.GlowStars, render.StarFlux, render.GlowFlux);
+                    var w = new Written(name, composite, render.Truth.Length, render.GlowStars, render.StarFlux, render.GlowFlux, render.SurfaceFlux);
                     written.Add(w);
+                    var groups = string.Join(", ", render.Groups.Select(static gr => string.Create(CultureInfo.InvariantCulture,
+                        $"({gr.X:F0}, {gr.Y:F0}, {gr.HalfLightPx:F1}, {gr.ResolvedStars}, {gr.UnresolvedLight:F3})")));
                     progress?.Report(string.Create(CultureInfo.InvariantCulture,
-                        $"{name}: {w.Stars} resolved stars, {w.GlowStars} unresolved; star light {Join(w.StarFlux, "G4")}, glow {Join(w.GlowFlux, "G4")}"));
+                        $"{name}: {w.Stars} resolved stars, {w.GlowStars} unresolved; star light {Join(w.StarFlux, "G4")}, unresolved stars {Join(w.GlowFlux, "G4")}, " +
+                        $"their smooth surface {Join(w.SurfaceFlux, "G4")}; nebula from ({render.NebulaAt.X}, {render.NebulaAt.Y}); " +
+                        $"groups (x, y, half-light px, resolved stars, unresolved light) {groups}"));
                 }
             }
         }

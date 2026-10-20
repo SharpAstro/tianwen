@@ -673,6 +673,32 @@ public sealed class SyntheticBackground
         return planes;
     }
 
+    /// <summary>
+    /// The plate's own coarse part alone (its scales from <see cref="FirstKept"/> up and the residual, nothing drawn) over the
+    /// <paramref name="size"/> px cell CENTRED on (<paramref name="centreX"/>, <paramref name="centreY"/>), per channel. Pixels
+    /// outside the frame take the nearest one's. What a synthetic cluster scene takes as its nebula
+    /// (<see cref="SyntheticClusterScene"/>): on a crowded field the plate's finer scales are its faint stars' confusion.
+    /// </summary>
+    public float[][] Coarse(int centreX, int centreY, int size)
+    {
+        var (x0, y0) = (centreX - (size / 2), centreY - (size / 2));
+        var planes = new float[Channels][];
+        for (var c = 0; c < Channels; c++)
+        {
+            var plane = new float[size * size];
+            for (var y = 0; y < size; y++)
+            {
+                var row = Math.Clamp(y0 + y, 0, Height - 1) * Width;
+                for (var x = 0; x < size; x++)
+                {
+                    plane[(y * size) + x] = _coarse[c][row + Math.Clamp(x0 + x, 0, Width - 1)];
+                }
+            }
+            planes[c] = plane;
+        }
+        return planes;
+    }
+
     /// <summary>One knot a cell holds, in the cell's coordinates, its peak per channel in the plate's units.</summary>
     public readonly record struct Knot(double X, double Y, double SigmaMajorPx, double SigmaMinorPx, double AngleRad, double[] Peak);
 
