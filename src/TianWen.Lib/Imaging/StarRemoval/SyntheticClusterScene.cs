@@ -52,13 +52,16 @@ public enum ClusterOptics
 /// <paramref name="SubClusterCorePx"/> and tidal radius six times it, centred where a cluster star would be.</param>
 /// <param name="SubClusterShare">The share of the cluster's stars that belong to the groups.</param>
 /// <param name="SubClusterCorePx">A group's core radius, pixels.</param>
+/// <param name="MinSeparationPx">The least distance between two resolved stars: the catalogue they are drawn from is already
+/// de-blended, so two placed closer than its builder separates become one brighter star and the brightness function runs
+/// bright (twice too many stars of significance 20 to 1,000 on the LMC field without it). 0 for none.</param>
 public sealed record SyntheticClusterSpec(
     int Size, int FrameX, int FrameY, double RotationDeg,
     int ClusterStars, double CoreRadiusPx, double TidalRadiusPx, double FieldDensity, int SaturatedStars,
     double GlowShare, double GlowSlope,
     double NebulaStrength, int NebulaX, int NebulaY,
     ClusterOptics Optics, ImmutableArray<double> LateralPpm, int Seed,
-    int SubClusters = 0, double SubClusterShare = 0.0, double SubClusterCorePx = 8.0);
+    int SubClusters = 0, double SubClusterShare = 0.0, double SubClusterCorePx = 8.0, double MinSeparationPx = 0.0);
 
 /// <summary>A resolved star of the scene's truth, at its green centre in scene pixels.</summary>
 public readonly record struct ClusterTruthStar(double X, double Y, ImmutableArray<double> Amplitudes, bool Saturated, bool InCluster);
@@ -192,10 +195,20 @@ public static class SyntheticClusterScene
     /// <summary>A star is rendered out to where its light falls below this many noise sigma.</summary>
     public const double FloorSigma = 0.02;
 
-    /// <summary>The faintest and brightest unresolved star's green peak, in green's noise sigma. With a slope near 1 the light
-    /// is spread evenly over each factor of brightness, so stars under a tenth of the noise would add almost nothing to the
-    /// glow but nearly all the count.</summary>
-    public const double GlowMinSigma = 0.1, GlowMaxSigma = 1.0;
+    /// <summary>The faintest unresolved star's green peak, in green's noise sigma. With a slope near 1 the light is spread evenly
+    /// over each factor of brightness, so stars under a tenth of the noise would add almost nothing to the glow but nearly all
+    /// the count. The brightest is the catalogue's own faint end (<see cref="PoolFaintQuantile"/>): in a crowded field every
+    /// star below it went uncatalogued, and without them the real field's local noise was twice the synthetic one's (the
+    /// plate builder's per-star sigma 1.7e-4 against 8.0e-5 on the LMC field), so every synthetic star read twice the
+    /// significance.</summary>
+    public const double GlowMinSigma = 0.1;
+
+    /// <summary>The quantile of the pool's green amplitudes taken as the catalogue's faint end.</summary>
+    public const double PoolFaintQuantile = 0.05;
+
+    /// <summary>An unresolved star at or above this green peak (noise sigma) is rendered as a point source through the optics;
+    /// below it, deposited and blurred to the channel's FWHM.</summary>
+    public const double GlowPointSigma = 1.0;
 
     /// <summary>Virtual subs averaged into the noise's shape (<see cref="NoiseField.Warped"/>).</summary>
     public const int NoiseRealisations = 8;
@@ -241,15 +254,55 @@ public static class SyntheticClusterScene
             }
             return KingPosition(rng, spec.CoreRadiusPx, spec.TidalRadiusPx);
         }
+        // Resolved stars keep MinSeparationPx apart (a hash of cells that wide): a draw too close to one already placed is
+        // drawn again, up to PlacementTries times, then placed where it fell.
+        var cell = Math.Max(1.0, spec.MinSeparationPx);
+        var placedCells = new Dictionary<(int, int), List<(double X, double Y)>>();
+        bool TooClose(double x, double y)
+        {
+            if (spec.MinSeparationPx <= 0)
+            {
+                return false;
+            }
+            var (cx, cy) = ((int)Math.Floor(x / cell), (int)Math.Floor(y / cell));
+            for (var dy = -1; dy <= 1; dy++)
+            {
+                for (var dx = -1; dx <= 1; dx++)
+                {
+                    if (placedCells.TryGetValue((cx + dx, cy + dy), out var list)
+                        && list.Any(p => ((p.X - x) * (p.X - x)) + ((p.Y - y) * (p.Y - y)) < spec.MinSeparationPx * spec.MinSeparationPx))
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        (double X, double Y) Spaced(Func<(double X, double Y)> draw)
+        {
+            var p = draw();
+            for (var t = 0; t < InjectionPopulation.PlacementTries && TooClose(p.X, p.Y); t++)
+            {
+                p = draw();
+            }
+            var key = ((int)Math.Floor(p.X / cell), (int)Math.Floor(p.Y / cell));
+            if (!placedCells.TryGetValue(key, out var list))
+            {
+                list = [];
+                placedCells[key] = list;
+            }
+            list.Add(p);
+            return p;
+        }
         for (var i = 0; i < spec.ClusterStars; i++)
         {
-            var (x, y) = ClusterPosition();
+            var (x, y) = Spaced(ClusterPosition);
             var (a, clips) = population.DrawBrightness(rng, saturated: false);
             resolved.Add((x, y, Recolour(a), clips, false, true));
         }
         for (var i = 0; i < fieldCount; i++)
         {
-            var (x, y) = DiscPosition(rng, reach);
+            var (x, y) = Spaced(() => DiscPosition(rng, reach));
             var (a, clips) = population.DrawBrightness(rng, saturated: false);
             resolved.Add((x, y, Recolour(a), clips, false, false));
         }
@@ -277,7 +330,7 @@ public static class SyntheticClusterScene
         var glowInCircle = 0.0;
         var noiseG = source.Noise[g];
         var lo = GlowMinSigma * noiseG;
-        var hi = GlowMaxSigma * noiseG;
+        var hi = Math.Max(2 * lo, PoolQuantile(population, g, PoolFaintQuantile, spec.Seed));
         while (glowInCircle < glowTarget && glow.Count < 40_000_000)
         {
             var inCluster = rng.NextDouble() < clusterShare;
@@ -323,16 +376,32 @@ public static class SyntheticClusterScene
         // must change the shape and never the colour).
         var measuredFlux = ProfilesFor(population, ClusterOptics.Measured, midX, midY, channels).Select(MoffatFlux).ToArray();
         var keepFlux = midProfiles.Select((p, c) => measuredFlux[c] / MoffatFlux(p)).ToArray();
+        var pointPeak = GlowPointSigma * noiseG;
+        var glowSubs = new Random(spec.Seed ^ 0x7f4a7c15);
         for (var c = 0; c < channels; c++)
         {
             var deposit = new float[n];
             var channelFlux = measuredFlux[c];
+            var points = new List<InjectedStar>();
             foreach (var (x, y, peak, colour) in glow)
             {
                 var (px, py) = ChannelCentre(spec, source, ToScene(x, y), c);
                 var cg = colour[g] > 0 ? colour[g] : colour.Max();
-                var flux = (cg > 0 ? peak * colour[c] / cg : peak) * channelFlux;
-                if (DepositBilinear(deposit, size, px, py, flux))
+                var amplitude = cg > 0 ? peak * colour[c] / cg : peak;
+                var flux = amplitude * channelFlux;
+                if (px < -Margin || py < -Margin || px >= size + Margin || py >= size + Margin)
+                {
+                    continue;
+                }
+                if (peak >= pointPeak)
+                {
+                    points.Add(new InjectedStar(px, py, [amplitude * keepFlux[c]], [midProfiles[c]], false, ImmutableArray<double>.Empty));
+                    if (px >= 0 && py >= 0 && px < size && py < size)
+                    {
+                        glowFlux[c] += flux;
+                    }
+                }
+                else if (DepositBilinear(deposit, size, px, py, flux))
                 {
                     glowFlux[c] += flux;
                 }
@@ -344,7 +413,9 @@ public static class SyntheticClusterScene
             {
                 plane[i] = (float)source.Sky[c] + blurred[i] + (nebula?[c][i] ?? 0f);
             }
-            starless[c] = plane;
+            starless[c] = points.Count > 0
+                ? StarInjection.Render([plane], size, size, null, points, [FloorSigma * source.Noise[c]], glowSubs).Planes[0]
+                : plane;
         }
 
         // The resolved stars, rendered onto the starless planes channel by channel (so a saturated star clips against the
@@ -414,6 +485,15 @@ public static class SyntheticClusterScene
             }
         }
         return new SyntheticClusterRender(stars, starless, composite, truth.ToImmutable(), glow.Count, starFlux, glowFlux);
+    }
+
+    // A quantile of the pool's green amplitudes, read off ColourDraws draws.
+    private static double PoolQuantile(InjectionPopulation population, int green, double quantile, int seed)
+    {
+        var rng = new Random(seed ^ 0x510e527f);
+        var amplitudes = Enumerable.Range(0, ColourDraws).Select(_ => population.DrawBrightness(rng, saturated: false).Amplitudes[green])
+            .Where(static a => a > 0).OrderBy(static a => a).ToArray();
+        return amplitudes.Length == 0 ? 0.0 : amplitudes[Math.Clamp((int)(quantile * (amplitudes.Length - 1)), 0, amplitudes.Length - 1)];
     }
 
     /// <summary>Stars the colours are drawn from: the brightest quarter (in green) of 4,000 pool draws, every channel above zero.</summary>
