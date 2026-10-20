@@ -789,7 +789,8 @@ public class PlanetarySharpeningTests
         // #1211: the sharpening works in a window about the planet, 256 px here, and left the frame beyond it as stacked, a moon there too,
         // while a moon inside it kept its sharpening (#1181). The same planet on a wider frame with a moon each side of the window's edge:
         // both must come out as the dials, the same gains over the whole master, sharpen them, in the batch and in the live view's drawing,
-        // and the frame beyond the window and every moon's reach stays the stack exactly.
+        // and the frame beyond the window and every moon's reach is the model's sky, the window's sky level (#1692: the stack there showed its
+        // glow as bands where a hand-back met it).
         const int width = 448, height = 320;
         var ct = TestContext.Current.CancellationToken;
         var aspect = PhysicalEphemeris.Compute(CatalogIndex.Jupiter, Night);
@@ -840,16 +841,19 @@ public class PlanetarySharpeningTests
             byBatch.ShouldBe(byDials, 0.1 * byDials, $"the moon at {moon} as the dials sharpen it");
             byLive.ShouldBe(byBatch, 0.02 * byBatch, $"the moon at {moon} drawn live as the batch sharpens it");
         }
-        // Beyond the window (x 223 on, or y 225 on) and every moon's reach, the batch is the stack itself.
+        // Beyond the window (x 223 on, or y 225 on) and every moon's reach, the batch and the live view are the model's sky: the window's sky
+        // level, the stack's noise and glow gone.
+        var (skyLevel, _) = PlanetaryMetrics.NormalisationLevels(stack.GetChannelSpan(0), width, height, disk);
         var sharpened = batch.Sharpened.GetChannelSpan(0);
-        var original = stack.GetChannelSpan(0);
+        var drawnLive = live.GetChannelSpan(0);
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
             {
                 if ((x >= 223 || y >= 225) && moons.All(m => ((x - m.X) * (x - m.X)) + ((y - m.Y) * (y - m.Y)) > PlanetaryDering.MoonReachPx * PlanetaryDering.MoonReachPx))
                 {
-                    sharpened[(y * width) + x].ShouldBe(original[(y * width) + x], $"({x}, {y}) beyond the window and the moons");
+                    sharpened[(y * width) + x].ShouldBe((float)skyLevel, $"({x}, {y}) beyond the window and the moons");
+                    drawnLive[(y * width) + x].ShouldBe((float)skyLevel, $"({x}, {y}) beyond the window and the moons, live");
                 }
             }
         }
