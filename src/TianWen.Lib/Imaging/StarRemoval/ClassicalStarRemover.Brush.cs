@@ -72,7 +72,13 @@ public static partial class ClassicalStarRemover
             {
                 for (var x = 0; x < _width; x++)
                 {
-                    known[y * _width + x] = footprints[y, x] || inpainted[y, x] || IsAbsent(x, y) ? 0f : 1f;
+                    var at = y * _width + x;
+                    var finite = true;
+                    for (var c = 0; c < _channels; c++)
+                    {
+                        finite &= float.IsFinite(plate[c][at]);
+                    }
+                    known[at] = !finite || footprints[y, x] || inpainted[y, x] || IsAbsent(x, y) ? 0f : 1f;
                 }
             }
             float[] weight = [.. known];
@@ -81,10 +87,13 @@ public static partial class ClassicalStarRemover
             var highPass = new float[_channels][];
             for (var c = 0; c < _channels; c++)
             {
+                // Never known times the value: a NaN canvas ring times zero is NaN, and a running box sum that takes one
+                // in stays NaN for the rest of its row and column. On the ASI585MC Tarantula that blanked every block, and
+                // the fill went out with no grain at all.
                 var sum = new float[n];
                 for (var i = 0; i < n; i++)
                 {
-                    sum[i] = known[i] * plate[c][i];
+                    sum[i] = known[i] > 0f ? plate[c][i] : 0f;
                 }
                 BackgroundExtraction.RobustBackgroundFit.BoxBlur3(sum, _width, _height, TextureHighPassPx, scratch);
                 var hp = new float[n];
@@ -398,36 +407,55 @@ public static partial class ClassicalStarRemover
                     case StarFitOutcome.Subtracted:
                         entries.Add(new BrushEntry(f.X, f.Y, FitFootprint(f, brush, halo, haloReach), Taken: true));
                         break;
-                    case StarFitOutcome.Knot or StarFitOutcome.TooNarrow when fitMoving[i]:
-                        var amplitude = Math.Max(f.Amplitude, double.IsFinite(zeroPoint) ? Math.Pow(10, zeroPoint - 0.4 * fitMagnitude[i]) : 0.0);
+                    case StarFitOutcome.Knot or StarFitOutcome.TooNarrow when fitMoving[i] && f.Amplitude > 0:
                         var width = f.Width > 0 ? f.Width : 1.0;
-                        entries.Add(new BrushEntry(f.X, f.Y, Footprint(amplitude, width, f.Beta, cx, cy, brush, halo, haloReach), Taken: false));
+                        entries.Add(new BrushEntry(f.X, f.Y, Footprint(f.Amplitude, width, f.Beta, cx, cy, brush, halo, haloReach), Taken: false));
                         break;
                 }
             }
-            var seen = 0;
-            if (double.IsFinite(zeroPoint))
-            {
-                for (var k = 0; k < catalogue.Length; k++)
-                {
-                    var c = catalogue[k];
-                    var (x, y) = positions[k];
-                    var (cx, cy) = Pixel(x, y);
-                    if (catFit[k] >= 0 || IsAbsent(cx, cy) || (Protected(cx, cy) && !c.Moving) || SeenSigma(x, y) < brush.SeenSigma)
-                    {
-                        continue;
-                    }
-                    seen++;
-                    var amplitude = Math.Pow(10, zeroPoint - 0.4 * c.Magnitude);
-                    entries.Add(new BrushEntry(x, y, Footprint(amplitude, 1.0, 0, cx, cy, brush, halo, haloReach), Taken: false));
-                }
-            }
+            // Only RESOLVED stars are painted, the detector's own detections, catalogued or not, each sized by its own fitted
+            // light. A catalogue star the detector did not find is the field's unresolved glow, which a starless plate keeps,
+            // and stays. Painted out one by one, the 1.1 million Gaia stars on the ASI585MC Tarantula's 30 Doradus covered
+            // 80 % of the frame and took 8 to 11 % more than each star's own light; let in where a forced fit at the catalogued
+            // place stood 3 sigma over the pixel noise, 134,872 of them still did, the glow and the neighbours raising the fit
+            // at almost every place, and the footprints would have covered 75 %. The catalogue's part is to say which
+            // detections are moving stars.
 
             var footprints = new BitMatrix(_height, _width);
             foreach (var e in entries)
             {
                 ForDisc(e.X, e.Y, e.Radius, (x, y) => footprints[y, x] = true);
             }
+
+            // A frame whose footprints would cover more than MaxCoverage of it is refused before anything is written: past
+            // that the fill has too little sky round it to come from, and an airbrushed plate is no truth.
+            var (present, covered) = (0, 0);
+            for (var y = 0; y < _height; y++)
+            {
+                for (var x = 0; x < _width; x++)
+                {
+                    if (!IsAbsent(x, y))
+                    {
+                        present++;
+                        covered += footprints[y, x] ? 1 : 0;
+                    }
+                }
+            }
+            var coverage = present > 0 ? (double)covered / present : 0.0;
+            if (coverage > brush.MaxCoverage)
+            {
+                logger?.LogWarning(
+                    "ClassicalStarRemover brush REFUSED: {Footprints} footprints would cover {Coverage:P1} of the frame, over {Max:P0}; the builder's plate stands as it was.",
+                    entries.Count, coverage, brush.MaxCoverage);
+                (_brushFootprints, _brushPlanes) = (footprints, new BitMatrix(_height, _width));
+                return new StarlessBrushStatistics(
+                    inFrame, matched, entries.Count, 0, protect is { } p0 ? (double)p0.PopCount() / n : 0.0, 0.0, haloReach, haloStars,
+                    zeroPoint, medianDx, medianDy, spread, double.NaN, double.NaN, double.NaN, Completeness(), 0, 0.0, 0.0, 0,
+                    Refused: true, Coverage: coverage);
+            }
+            logger?.LogInformation(
+                "ClassicalStarRemover brush: {Footprints} footprints cover {Coverage:P1} of the frame (limit {Max:P0}); painting.",
+                entries.Count, coverage, brush.MaxCoverage);
 
             // A source the builder took on a protected galaxy that no moving star explains is the galaxy's own (a cluster,
             // an HII region): the input goes back where the builder changed it. One inside a footprint is not: a bright
@@ -640,33 +668,16 @@ public static partial class ClassicalStarRemover
             }
             (_brushFootprints, _brushPlanes) = (footprints, planeMask);
 
-            // How complete the catalogue is against what the builder found, outside the protect mask.
-            ReadOnlySpan<(float Lo, float Hi)> bands = [(5f, 20f), (20f, 100f), (100f, 1000f), (1000f, float.PositiveInfinity)];
-            var completeness = ImmutableArray.CreateBuilder<CatalogueCompleteness>(bands.Length);
-            foreach (var (lo, hi) in bands)
-            {
-                int stars = 0, held = 0;
-                for (var i = 0; i < fits.Count; i++)
-                {
-                    var f = fits[i];
-                    var (cx, cy) = Pixel(f.X, f.Y);
-                    if (f.Outcome == StarFitOutcome.Subtracted && f.Significance >= lo && f.Significance < hi && !Protected(cx, cy))
-                    {
-                        stars++;
-                        held += fitMatched[i] ? 1 : 0;
-                    }
-                }
-                completeness.Add(new CatalogueCompleteness(lo, hi, stars, held));
-            }
             var protectedCount = protect is { } pm ? pm.PopCount() : 0;
             var statistics = new StarlessBrushStatistics(
-                inFrame, matched, seen, entries.Count, restores.Count,
+                inFrame, matched, entries.Count, restores.Count,
                 (double)protectedCount / n, (double)brushed / n, haloReach, haloStars, zeroPoint,
-                medianDx, medianDy, spread, resample, ratio, rho, completeness.MoveToImmutable(),
-                regionCount, brushed > 0 ? (double)planes / brushed : 0.0, brushed + kept > 0 ? (double)kept / (brushed + kept) : 0.0, pits);
+                medianDx, medianDy, spread, resample, ratio, rho, Completeness(),
+                regionCount, brushed > 0 ? (double)planes / brushed : 0.0, brushed + kept > 0 ? (double)kept / (brushed + kept) : 0.0, pits,
+                Refused: false, Coverage: coverage);
             logger?.LogInformation(
-                "ClassicalStarRemover brush: {Catalogue} catalogue stars on the frame, {Matched} matched, {Seen} more seen; {Brushed} footprints ({Fraction:P2} of the frame), {Restored} put back on protected sources ({Protect:P2} protected); halo to {Halo} px from {HaloStars} stars; grain resample {Resample:F2} px (band ratio {Ratio:F3}), channel correlation {Rho:F2}.",
-                inFrame, matched, seen, entries.Count, statistics.BrushedFraction, restores.Count, statistics.ProtectFraction, haloReach, haloStars, resample, ratio, rho);
+                "ClassicalStarRemover brush: {Catalogue} catalogue stars on the frame, {Matched} matched; {Brushed} footprints ({Fraction:P2} of the frame), {Restored} put back on protected sources ({Protect:P2} protected); halo to {Halo} px from {HaloStars} stars; grain resample {Resample:F2} px (band ratio {Ratio:F3}), channel correlation {Rho:F2}.",
+                inFrame, matched, entries.Count, statistics.BrushedFraction, restores.Count, statistics.ProtectFraction, haloReach, haloStars, resample, ratio, rho);
             return statistics;
 
             int[] Match((double X, double Y)[] at)
@@ -677,6 +688,29 @@ public static partial class ClassicalStarRemover
                     result[k] = grid.Nearest(at[k].X, at[k].Y, matchRadius);
                 }
                 return result;
+            }
+
+            // How complete the catalogue is against what the builder found, outside the protect mask.
+            ImmutableArray<CatalogueCompleteness> Completeness()
+            {
+                ReadOnlySpan<(float Lo, float Hi)> bands = [(5f, 20f), (20f, 100f), (100f, 1000f), (1000f, float.PositiveInfinity)];
+                var completeness = ImmutableArray.CreateBuilder<CatalogueCompleteness>(bands.Length);
+                foreach (var (lo, hi) in bands)
+                {
+                    int stars = 0, held = 0;
+                    for (var i = 0; i < fits.Count; i++)
+                    {
+                        var f = fits[i];
+                        var (cx, cy) = Pixel(f.X, f.Y);
+                        if (f.Outcome == StarFitOutcome.Subtracted && f.Significance >= lo && f.Significance < hi && !Protected(cx, cy))
+                        {
+                            stars++;
+                            held += fitMatched[i] ? 1 : 0;
+                        }
+                    }
+                    completeness.Add(new CatalogueCompleteness(lo, hi, stars, held));
+                }
+                return completeness.MoveToImmutable();
             }
         }
 
@@ -782,46 +816,6 @@ public static partial class ClassicalStarRemover
             return Math.Sqrt(rho) * fields[0][at] + Math.Sqrt(1.0 - rho) * fields[1 + channel][at];
         }
 
-        // How far the master shows a catalogue star the builder did not take: its 3x3 mean over the median of its own ring
-        // (2 to 3 FWHM out), in half the local noise (about a 3x3 mean's noise once the grain's correlation is allowed for).
-        private double SeenSigma(double x, double y)
-        {
-            var (cx, cy) = Pixel(x, y);
-            double sum = 0;
-            var count = 0;
-            for (var j = -1; j <= 1; j++)
-            {
-                for (var i = -1; i <= 1; i++)
-                {
-                    var (px, py) = (cx + i, cy + j);
-                    if (px >= 0 && py >= 0 && px < _width && py < _height && !IsAbsent(px, py))
-                    {
-                        sum += _lum[py * _width + px];
-                        count++;
-                    }
-                }
-            }
-            var fwhmPx = LumPsf(1.0).Fwhm;
-            var ring = new List<float>();
-            var (r0, r1) = (2.0 * fwhmPx, 3.0 * fwhmPx + 1.0);
-            for (var py = Math.Max(0, (int)(cy - r1)); py <= Math.Min(_height - 1, (int)(cy + r1)); py++)
-            {
-                for (var px = Math.Max(0, (int)(cx - r1)); px <= Math.Min(_width - 1, (int)(cx + r1)); px++)
-                {
-                    var d2 = (px - x) * (px - x) + (py - y) * (py - y);
-                    if (d2 >= r0 * r0 && d2 <= r1 * r1 && !IsAbsent(px, py))
-                    {
-                        ring.Add(_lum[py * _width + px]);
-                    }
-                }
-            }
-            if (count == 0 || ring.Count < 8)
-            {
-                return 0.0;
-            }
-            var sigma = Math.Max(_holeNoise[cy * _width + cx], 1e-12);
-            return (sum / count - StatisticsHelper.MedianFast(CollectionsMarshal.AsSpan(ring))) / (0.5 * sigma);
-        }
 
         // A subtracted star's footprint: its model and the field's halo down to the brush's fraction of the noise, its own
         // profile for a giant, its companion's offset for a blend.
@@ -1245,7 +1239,7 @@ public static partial class ClassicalStarRemover
                     {
                         for (var x = bx * block; x < (bx + 1) * block; x++)
                         {
-                            if (IsAbsent(x, y))
+                            if (IsAbsent(x, y) || !float.IsFinite(plate[0][y * _width + x]))
                             {
                                 absent = true;
                                 break;
@@ -1390,7 +1384,7 @@ public static partial class ClassicalStarRemover
         }
 
         // The noise against the level, per channel, as the synthetic cluster scenes draw it: the sky's own pixel noise, read in
-        // the darkest quarter of the LevelBlockPx blocks clear of every footprint and fill, growing as the root of the level
+        // the darkest quarter of the LevelBlockPx blocks mostly clear of every footprint and fill, growing as the root of the level
         // over the sky's, as shot noise does. Read off the data instead, the noise's rise with the level is the crowding's:
         // on Omega Cen's outskirts unresolved stars raise a block's spread with its level, a fit of variance against level
         // took that for noise, and the core's grain came out 350 against a sky of 8 (red), every channel its own, a core in
@@ -1409,27 +1403,26 @@ public static partial class ClassicalStarRemover
                 {
                     for (var bx = 0; bx < gw; bx++)
                     {
-                        var clear = true;
-                        for (var y = by * block; y < (by + 1) * block && clear; y++)
+                        // A block counts when three quarters of it is clear, read on its clear pixels: a block wholly clear
+                        // of footprints and fills is rare in a crowded field (none on the ASI585MC Tarantula), where the
+                        // model then had nothing to read.
+                        var m = 0;
+                        for (var y = by * block; y < (by + 1) * block; y++)
                         {
                             for (var x = bx * block; x < (bx + 1) * block; x++)
                             {
-                                if (IsAbsent(x, y) || footprints[y, x] || inpainted[y, x])
+                                var v = plate[c][y * _width + x];
+                                if (!IsAbsent(x, y) && !footprints[y, x] && !inpainted[y, x] && float.IsFinite(v))
                                 {
-                                    clear = false;
-                                    break;
+                                    values[m++] = v;
                                 }
                             }
                         }
-                        if (!clear)
+                        if (m < 3 * block * block / 4)
                         {
                             continue;
                         }
-                        for (var y = 0; y < block; y++)
-                        {
-                            plate[c].AsSpan((by * block + y) * _width + bx * block, block).CopyTo(values.AsSpan(y * block, block));
-                        }
-                        var (level, pixelMad) = StatisticsHelper.MedianAndMad(values.AsSpan());
+                        var (level, pixelMad) = StatisticsHelper.MedianAndMad(values.AsSpan(0, m));
                         if (float.IsFinite(level) && pixelMad > 0)
                         {
                             samples.Add((level, 1.4826 * pixelMad));

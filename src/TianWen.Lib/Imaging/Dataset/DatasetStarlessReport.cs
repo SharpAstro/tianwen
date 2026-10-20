@@ -170,7 +170,8 @@ public static class DatasetStarlessReport
                 if (plate.Brush is { } b)
                 {
                     progress?.Report(
-                        $"[starless] {name}: brush: {b.CatalogueInFrame} catalogue stars on the frame, {b.CatalogueMatched} matched, {b.CatalogueSeen} more seen, "
+                        $"[starless] {name}: brush{(b.Refused ? " REFUSED" : "")}: footprints cover {b.Coverage:P1}; "
+                        + $"{b.CatalogueInFrame} catalogue stars on the frame, {b.CatalogueMatched} matched to a detection, "
                         + $"{b.Brushed} footprints ({b.BrushedFraction:P2}), {b.Restored} put back on protected sources ({b.ProtectFraction:P2} protected: {string.Join(", ", protectedNames)}); "
                         + $"halo to {b.HaloReachPx} px from {b.HaloStars} stars, offset {b.MatchOffsetX:+0.00;-0.00}/{b.MatchOffsetY:+0.00;-0.00} px (spread {b.MatchSpreadPx:F2})");
                 }

@@ -15,9 +15,10 @@ public readonly record struct CatalogueStar(float X, float Y, float Magnitude, b
 
 /// <summary>
 /// R0's brush (docs/plans/star-remover-training.md, "The brush: clean plates by construction"): after the classical builder
-/// has taken its stars out, every star of a catalogue the master SHOWS is painted over out to where its light, halo included,
-/// falls under <see cref="NoiseFraction"/> of the local noise, with a surface fitted in a ring outside the footprint and grain
-/// of the master's own level and shape. Inside <see cref="Protect"/> (a distant galaxy) only a MOVING catalogue star is
+/// has taken its stars out, every RESOLVED star (one the builder detected) is painted over out to where its light, halo
+/// included, falls under <see cref="NoiseFraction"/> of the local noise, with a surface fitted in a ring outside the footprint
+/// and grain of the master's own level and shape. A catalogue star the builder did not detect is the unresolved glow, which a
+/// starless plate keeps; the catalogue says which detections are moving stars. Inside <see cref="Protect"/> (a distant galaxy) only a MOVING catalogue star is
 /// removed, and a source the builder took there that no moving star explains is put back: that is the galaxy's own cluster
 /// or HII region. A nebula is not protected that way, since a point source on it is a star; its structure is kept by the
 /// fill itself, which leaves the builder's plate where a footprint's ring is no plane and only raises its pits.
@@ -28,14 +29,14 @@ public readonly record struct CatalogueStar(float X, float Y, float Magnitude, b
 /// inherits over the whole disc, would stand under this fraction of the local pixel noise summed over that disc: the eye sums
 /// a disc, so +0.2 sigma over 30 px is a blob though no pixel shows it.</param>
 /// <param name="RingPx">The ring the surface is fitted in, pixels wide, outside every footprint.</param>
-/// <param name="SeenSigma">A catalogue star the builder did not take is brushed only where the master shows it: its 3x3 mean
-/// this many half-noises over its own ring.</param>
+/// <param name="MaxCoverage">A frame whose footprints would cover more than this share of it is refused, its plate left as the
+/// builder made it: past that the fill has too little sky round it to be fitted from.</param>
 public sealed record StarlessBrush(
     ImmutableArray<CatalogueStar> Catalogue,
     BitMatrix? Protect = null,
     float NoiseFraction = 1f,
     float RingPx = 6f,
-    float SeenSigma = 2f)
+    float MaxCoverage = 0.4f)
 {
     /// <summary>How much larger than its catalogued outline (the 25 B-mag isophote) a protected object is drawn.</summary>
     public const double DefaultOutlineScale = 1.3;
@@ -203,7 +204,6 @@ public sealed record StarlessBrush(
 /// <summary>What the brush did on one master.</summary>
 /// <param name="CatalogueInFrame">Catalogue stars on the frame.</param>
 /// <param name="CatalogueMatched">Of those, matched to a source the builder found (within 1.5 FWHM).</param>
-/// <param name="CatalogueSeen">Of the rest, shown by the master (<see cref="StarlessBrush.SeenSigma"/>) and brushed.</param>
 /// <param name="Brushed">Footprints painted.</param>
 /// <param name="Restored">Sources the builder took inside the protect mask that no moving catalogue star explains, put back.</param>
 /// <param name="ProtectFraction">The share of the frame protected.</param>
@@ -228,12 +228,16 @@ public sealed record StarlessBrush(
 /// is no plane, that the builder had already subtracted.</param>
 /// <param name="PitsRaised">Of those, the pixels the builder had dug more than three sigma under the smooth fill round them,
 /// which took that fill.</param>
+/// <param name="Refused">The footprints would have covered more than <see cref="StarlessBrush.MaxCoverage"/> of the frame, so
+/// nothing was painted and the plate is the builder's.</param>
+/// <param name="Coverage">The share of the frame's pixels the footprints cover (painted or not).</param>
 public sealed record StarlessBrushStatistics(
-    int CatalogueInFrame, int CatalogueMatched, int CatalogueSeen, int Brushed, int Restored,
+    int CatalogueInFrame, int CatalogueMatched, int Brushed, int Restored,
     double ProtectFraction, double BrushedFraction, float HaloReachPx, int HaloStars, double MagnitudeZeroPoint,
     double MatchOffsetX, double MatchOffsetY, double MatchSpreadPx,
     double NoiseResampleSigma, double NoiseBandRatio, double ChannelCorrelation,
-    ImmutableArray<CatalogueCompleteness> Completeness, int Regions, double PlaneShare, double KeptShare, int PitsRaised);
+    ImmutableArray<CatalogueCompleteness> Completeness, int Regions, double PlaneShare, double KeptShare, int PitsRaised,
+    bool Refused, double Coverage);
 
 /// <summary>Of the builder's subtracted stars in a significance band, how many a catalogue star matches.</summary>
 public readonly record struct CatalogueCompleteness(float MinSignificance, float MaxSignificance, int Stars, int Matched);

@@ -485,7 +485,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 300_000)]
-    public async Task TheBrushPaintsEveryCataloguedStarOverAndLeavesNoDiscOfItsOwnLevel()
+    public async Task TheBrushPaintsEveryDetectedStarOverAndLeavesNoDiscOfItsOwnLevel()
     {
         var field = MakeField(1);
         var options = StarlessPlateOptions.Default with { Brush = CatalogueOf(field) };
