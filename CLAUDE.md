@@ -973,7 +973,7 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
     what a limb pixel takes `--limb-fix` / `--limb-floor`. A new limb option joins its family's prefix.
   - **A master opened as a file gets the stacked view's own layer** (`LiveStackPreviewSource` on a
     `FixedMaster`), never a second sharpening path; **a Save writes what is on show** (`ShownDocument`); **a
-    SER's view is one switch, Frames / Live / Auto** (`ViewerState.ChoosePlanetaryView`,
+    SER's view is one switch, Raw / Stack / Auto** (`ViewerState.ChoosePlanetaryView`,
     `PlanetaryBestStackResult.Layer`); **the derived dials never clamp at a master's peak** (`SliderOptions`,
     `Clamp = false`).
   - **Saturn is sharpened as Jupiter is** (#1184, `ClearRadiiAt` at most 1); **its globe turns under rings that

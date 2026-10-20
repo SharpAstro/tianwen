@@ -666,7 +666,7 @@ the base model's master at once and the tuned one when its run finishes. One rou
 
 **Built (2026-10-10).** A2 found no tune that carries, so AUTO's settings are the measured defaults and what it adds is
 reading what the capture **is**, nothing asked. One routine, `PlanetaryAuto` (identify, then `PlanetaryBestStack` at the
-defaults, then one writer), runs behind `planetary stack --auto` and the viewer's **Auto** view (Frames, Live, Auto; the Best
+defaults, then one writer), runs behind `planetary stack --auto` and the viewer's **Auto** view (Raw, Stack, Auto; the Best
 view folded into it, below). The master says what it was read as (`OBJECT`,
 `TELESCOP`, `APTDIA`, `FILTER`, through `PlanetaryStackOptions.Optics`), which `planetary sharpen --auto` reads back.
 `PlanetaryIdentification` takes each fact from the first source that gives it, and says where in words:
@@ -704,7 +704,7 @@ Meade 16-inch Saturns, the EdgeHD 11 Mars), each read with nothing given:
 - Rule 3 has nothing to show (no tune carries, A2). Rule 4's screenshots are on the PR.
 
 **Best folded into Auto (the owner, 2026-10-11).** The two views ran one routine at one set of defaults and differed only in where
-the planet, filter and telescope came from, so the viewer keeps one, **Auto** (Frames, Live, Auto; Shift+K opens it):
+the planet, filter and telescope came from, so the viewer keeps one, **Auto** (Raw, Stack, Auto; Shift+K opens it):
 - **The panel's choices are given to the identification** (`PlanetaryIdentityGiven`), as `--planet`, `--wavelength` and
   `--aperture-mm` are on the CLI: the planet and filter when chosen (Auto until then), the telescope only once it is set on the
   capture on show (`ViewerState.PlanetaryTelescopeSetHere`, cleared when another opens).

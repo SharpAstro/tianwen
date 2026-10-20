@@ -79,17 +79,18 @@ namespace TianWen.UI.Abstractions
             var ink = RGBAColor32.FromFloat(0.92f, 0.92f, 0.95f, 1f);
 
             // The view switch (#1314 part 2): the frames, the live rolling stack about the playhead, or the whole capture's Auto stack
-            // (A4, #1391; the Best view folded into it, #817), one ButtonGroup where the RAW / STACK toggle was. "Live..." while the live
-            // stack's first master is still computing, and the Auto stack's progress on its own segment while it runs (the view under it
+            // (A4, #1391; the Best view folded into it, #817), one ButtonGroup labelled Raw / Stack / Auto: "Live" read as the camera's live
+            // video as much as the live stack (the owner, 2026-10-21), so the labels went back to the RAW / STACK toggle's words. "Stack..."
+            // while the live stack's first master is still computing, and the Auto stack's progress on its own segment while it runs (the view under it
             // stays on show until it ends). Arranged in device pixels at DesignScale.One, as the toolbar's run is, since the bar around it is.
-            var liveLabel = state.ShowStacked && !state.ShowAuto && _source is not LiveStackPreviewSource ? "Live..." : "Live";
+            var stackLabel = state.ShowStacked && !state.ShowAuto && _source is not LiveStackPreviewSource ? "Stack..." : "Stack";
             var autoLabel = state.AutoStackProgress is { } autoDone
                 ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Auto {autoDone * 100:0}%")
                 : "Auto";
             ReadOnlySpan<Layout.ButtonGroupOption<PlanetaryView>> views =
             [
-                new(PlanetaryView.Frames, "Frames") { Hit = new HitResult.ButtonHit("ViewFrames") },
-                new(PlanetaryView.Live, liveLabel) { Hit = new HitResult.ButtonHit("ViewLive") },
+                new(PlanetaryView.Frames, "Raw") { Hit = new HitResult.ButtonHit("ViewFrames") },
+                new(PlanetaryView.Live, stackLabel) { Hit = new HitResult.ButtonHit("ViewLive") },
                 new(PlanetaryView.Auto, autoLabel) { Hit = new HitResult.ButtonHit("ViewAuto") },
             ];
             // Every segment as wide as the widest label any of them takes, so a running Auto stack never moves the scrub track.
@@ -98,7 +99,7 @@ namespace TianWen.UI.Abstractions
                 Gap = pad,
                 SegmentWidth = MeasureText(ViewSwitchWidestLabel, fs) + pad * 2,
             };
-            // A live capture (no SER on screen, the GUI's planetary tab) has no recording to stack whole: Frames and Live only.
+            // A live capture (no SER on screen, the GUI's planetary tab) has no recording to stack whole: Raw and Stack only.
             var live = state.IsLiveCapture;
             var offered = live ? views[..2] : views;
             var viewSwitch = Layout.Builder.ButtonGroup(offered, state.PlanetaryView, state.ChoosePlanetaryView, viewStyle, fs);

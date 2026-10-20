@@ -377,7 +377,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// The style the Best stack panel's planet and telescope groups and the tone popover's colour look are drawn in, read per paint since
         /// the palette changes with the theme. Its text is the palette's but its fills are the toolbar's fixed greys, so in Light the text is
-        /// near black on dark grey: the transport's Frames / Live / Best switch keeps its literal light text until the fills come from the
+        /// near black on dark grey: the transport's Raw / Stack / Auto switch keeps its literal light text until the fills come from the
         /// palette too, which the Enhance popover that rehouses these controls owes (P36, #1345; found by the audit on #1343).
         /// </summary>
         private static Layout.ButtonGroupStyle PlanetaryChoiceStyle => new Layout.ButtonGroupStyle(TransportTrackFill, ToolbarButtonBg,
