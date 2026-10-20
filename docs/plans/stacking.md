@@ -382,6 +382,17 @@ needs: per-Bayer-quadrant flat normalization (have the math via the new
 demosaic of the integrated CFA. Reserve `Image.SplitBayerChannels()` as a future
 primitive but don't ship in v1.
 
+### L. HDR composition: a short master merged where the long one clips
+
+Tracked by #1696. A target with a bright core (the Tarantula, M42, M8) is captured as a long set and a short one
+([exposure-planning](exposure-planning.md) § "E2: a short set for bright cores"), and the stacker already integrates
+them as separate groups, since a light group is keyed on its exposure. Nothing combines them. The merge, as PixInsight's
+HDRComposition does it: register the short master onto the long one's grid (one transform, both are of one field), scale
+it to the long one by a linear fit over the pixels both measure well (above the long one's noise, below its clipping),
+and replace the long master's pixels where they near clipping with the scaled short ones, blended over a band so no
+edge shows. The long master's headroom is known from its subs (the camera's full scale less the bias), so "near clipping"
+is a level, not a guess. The output keeps the long master's linear scale and says what it merged in its header.
+
 ## Phasing
 
 CLI-first: end-to-end pipeline shipped as `tianwen stack` before any GUI work.
