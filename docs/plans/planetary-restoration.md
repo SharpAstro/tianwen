@@ -6358,6 +6358,22 @@ capture's 16-bit `_stack` and its `_post` are a teacher pair for it: a search ov
 amount and iterations, the gains' strength, a band 1 threshold, a tone curve) for the least loss against the post, read by `planetary
 judge`. Tracked as #1570 (an aesthetic mode learned from a capture's stack and post).
 
+**Closed 2026-10-20 without a learned mode, the owner's decision on this evidence.** Every chain learned from three posts and applied to
+the fourth failed its rules (L-CHAIN by detail strength, L-CHAIN-C by structure, both leave-one-capture-out): the four posts ask different
+things, both Jupiter posts strength and no deconvolution, both Saturn posts some deconvolution, so a taste fitted on three does not carry
+to the fourth, and no reading of a master (its glow, edge or cutoff) orders the captures by what their posts want. The deconvolution the
+posts favour moves AWAY from the twins' truth on the derived gains (L-DECONV-L: 11 of 14 held twins further off, +26 %), and Kolivas's
+fixed step fails on the posts and the twins alike (L-KOLIVAS). Meanwhile the defaults closed most of the gap the mode was for: against the
+same four posts, C24 under the 2026-10-20 defaults is 0.9553, 0.9677, 0.9717 and 0.9607 (EdgeHD Jupiter, 12-inch SCT Jupiter, EdgeHD
+Saturn, Meade Saturn), where the derived gains of 2026-10-14 read 0.9333, 0.9677, 0.9560 and 0.9343 and the recipe learned from the other
+three 0.9437, 0.9573, 0.9713 and 0.9760; nothing is overdone (L-CHAIN 2026-10-20), and the owner judged the EdgeHD Jupiter at the 10-19
+defaults "this now is good". The colour half was settled the same way: the chain keeps most of the truth's colour contrast and the truth
+asks about 1.1 more (L-COLOUR), the default since #1664, so the posts' 1.7 to 2.2 times is their authors' saturation. **What stays:** the
+defaults truth-calibrated; the posts' look served by options a person chooses, never learned and never a default: `--strength` (bands 2
+and 3 past the truth, 1.5 to 2 the posts' look, #1251), `--finish deconvolve` (Richardson-Lucy with the capture's own pupil, #1552),
+`--colour-saturation 1.4` (#1664) and `planetary look` (a rendering, never a master, #1305). **What would reopen it:** posts from one
+author over many captures, whose taste is one taste, or a truth that agrees with a post.
+
 #### L-DECONV: the learned chain with a real deconvolution (#1552)
 
 The owner's goal of 2026-10-14: a learned chain of deconvolution and wavelet sharpening that beats both the derived gains and every
