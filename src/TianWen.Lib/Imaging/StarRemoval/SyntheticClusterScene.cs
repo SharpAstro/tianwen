@@ -109,8 +109,10 @@ public readonly record struct ClusterTruthStar(double X, double Y, ImmutableArra
 /// <param name="NebulaAt">Where in the master's frame the nebula was drawn from, inside the frame by
 /// <see cref="SyntheticClusterScene.NebulaEdgeMarginPx"/>.</param>
 /// <param name="Groups">The compact groups.</param>
-/// <param name="StarlessNoisy">The starless truth with the composite's own noise draw at its own level: to set beside a real
-/// starless, which carries its master's noise (a noise-free truth hard-stretched to 8 bits draws terraces).</param>
+/// <param name="StarlessNoisy">The starless truth with the master's noise at its own level, the draw the composite is built on:
+/// the composite is it plus the stars plus the stars' own shot noise, so it is a remover's training target, as an injected
+/// draw's plate is, and what to set beside a real starless, which carries its master's noise (a noise-free truth
+/// hard-stretched to 8 bits draws terraces).</param>
 /// <param name="Knots">The nebula's knots where the scene shows them (scene pixels, their axes turned with the sky, their peaks
 /// per channel at the nebula's strength): fine structure in the starless truth that is not the PSF.</param>
 public sealed record SyntheticClusterRender(
@@ -137,6 +139,15 @@ public sealed record SyntheticClusterSource(
     InjectionPopulation Population, SyntheticBackground? Background, double[] Sky, double[] Noise, double ResampleSigma,
     int FrameWidth, int FrameHeight, double[]? NebulaSky = null)
 {
+    /// <summary>
+    /// Channel <paramref name="channel"/>'s noise as the exporter states one (<see cref="LinearDegradation.NoiseCalibration"/>):
+    /// <see cref="Noise"/> at <see cref="Sky"/>, its variance in proportion to the light above a zero pedestal, at the master's
+    /// own depth (one frame, <c>SigmaAt(level, 1.0)</c>). The scene draws its noise by it and a tile's conditioning plane is
+    /// computed from it, so the plane is the noise the tile holds.
+    /// </summary>
+    public LinearDegradation.NoiseCalibration NoiseCalibration(int channel)
+        => new(PedestalAdu: 0.0, BackgroundAdu: Math.Max(1e-12, Sky[channel]), OneSubSigmaAdu: Noise[channel], StackedFrames: 1);
+
     /// <summary>
     /// Reads the sky and the noise off a master's starless <paramref name="plate"/> (its own units): the darkest of its
     /// 128 px blocks by median, its median per channel the sky, its finest-band noise the level, and the
@@ -691,27 +702,47 @@ public static class SyntheticClusterScene
             stars[c] = only;
         }
 
-        // The master's noise: its shape (Warped at its resampling width, unit variance), its pixel level at the sky, growing
-        // with the light as shot noise does. The same draw, at the starless truth's own level, makes the noisy truth: what the
-        // truth looks like beside a real starless, which carries its master's noise.
+        // The master's noise, by the exporter's own rule (SyntheticClusterSource.NoiseCalibration: its shape, Warped at its
+        // resampling width, its pixel level at the sky, its variance growing with the light). The noisy truth is the starless
+        // truth plus one draw at its own level, and the composite is that noisy truth plus the stars plus the stars' own
+        // shot noise, a second draw of the same shape at sqrt(sigma(composite)^2 - sigma(starless)^2): an injected draw over
+        // its plate (synth4), so the composite less the noisy truth is the stars and their own noise, and a remover trained
+        // toward the noisy truth keeps the frame's noise as synth4's does.
         var noise = new Random(spec.Seed ^ 0x165667b1);
+        var starNoise = new Random(spec.Seed ^ 0x27d4eb2f);
         var starlessNoisy = new float[channels][];
         for (var c = 0; c < channels; c++)
         {
             var field = NoiseField.Warped(size, size, NoiseRealisations, noise, source.ResampleSigma);
-            var scale = source.Noise[c];
-            var sky = Math.Max(1e-12, source.Sky[c]);
-            var noisy = new float[n];
-            for (var i = 0; i < n; i++)
-            {
-                var level = Math.Max(sky, composite[c][i]);
-                composite[c][i] += (float)(field[i] * scale * Math.Sqrt(level / sky));
-                noisy[i] = starless[c][i] + (float)(field[i] * scale * Math.Sqrt(Math.Max(sky, starless[c][i]) / sky));
-            }
-            starlessNoisy[c] = noisy;
+            var starField = NoiseField.Warped(size, size, NoiseRealisations, starNoise, source.ResampleSigma);
+            starlessNoisy[c] = AddNoise(starless[c], composite[c], source.NoiseCalibration(c), field, starField);
         }
         return new SyntheticClusterRender(stars, starless, composite, unresolved, truth.ToImmutable(), glow.Count, starFlux, glowFlux, surfaceFlux,
             nebulaAt, groupsRendered, starlessNoisy, knots);
+    }
+
+    /// <summary>
+    /// One channel's noise: returns the noisy starless truth, <paramref name="starless"/> plus <paramref name="field"/> at its
+    /// own level, and turns <paramref name="composite"/> (noise-free, the starless truth plus the stars) into that noisy truth
+    /// plus the stars plus their own shot noise, <paramref name="starField"/> at
+    /// <c>sqrt(sigma(composite)^2 - sigma(starless)^2)</c>, in place. Where a pixel holds no star the composite IS the noisy
+    /// truth, and elsewhere it differs by the stars and their own noise alone, as an injected draw differs from its plate.
+    /// </summary>
+    internal static float[] AddNoise(float[] starless, float[] composite, LinearDegradation.NoiseCalibration calibration,
+        ReadOnlySpan<float> field, ReadOnlySpan<float> starField)
+    {
+        var noisy = new float[starless.Length];
+        for (var i = 0; i < noisy.Length; i++)
+        {
+            var without = starless[i];
+            var stars = composite[i] - without;
+            var sigmaWithout = calibration.SigmaAt(without, 1.0);
+            var sigmaWith = calibration.SigmaAt(composite[i], 1.0);
+            noisy[i] = without + (float)(field[i] * sigmaWithout);
+            var extra = Math.Sqrt(Math.Max(0.0, (sigmaWith * sigmaWith) - (sigmaWithout * sigmaWithout)));
+            composite[i] = noisy[i] + stars + (float)(starField[i] * extra);
+        }
+        return noisy;
     }
 
     // A quantile of the pool's green amplitudes, read off ColourDraws draws.

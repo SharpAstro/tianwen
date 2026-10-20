@@ -1385,6 +1385,16 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Description = "The nebula texture's log-normal width: 0 a Gaussian field, 0.8 the synthetic background's own.",
             DefaultValueFactory = _ => 0.0,
         };
+        var exportSkiesOpt = new Option<int>("--export-skies")
+        {
+            Description = "Write training tiles instead of scenes: this many skies from --seed on, each with its own rotation, nebula (on with " +
+                          "probability --nebula-share) and cluster, in every --optics, cut into 256 px cells as a Stars-mode export's (target the " +
+                          "noisy starless truth, input the composite, their noise planes, an all-ones loss mask); every tenth seed held out whole. " +
+                          "Resumable, and several runs over disjoint seeds may share one --out. 0 renders scenes.",
+            DefaultValueFactory = _ => 0,
+        };
+        var nebulaShareOpt = new Option<double>("--nebula-share") { Description = "--export-skies: the share of skies with a nebula.", DefaultValueFactory = _ => 2.0 / 3.0 };
+        var concurrencyOpt = new Option<int>("--concurrency") { Description = "--export-skies: skies rendered at once over the one shared source.", DefaultValueFactory = _ => 4 };
         var command = new Command("synthetic-cluster",
             "Render synthetic crowded-cluster scenes from one master's own stars (brightness and colour from its starless plate's catalogue), " +
             "profiles, noise and nebula: a King-profile cluster over a field, the stars too faint to find, optionally a nebula (the background " +
@@ -1396,7 +1406,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         {
             Options = { masterOpt, plateOpt, outOpt, atOpt, sizeOpt, seedOpt, rotationsOpt, opticsOpt, nebulaOpt, nebulaAtOpt, clusterStarsOpt, coreOpt, tidalOpt,
                 fieldDensityOpt, saturatedOpt, glowShareOpt, glowSlopeOpt, lateralOpt, groupsOpt, groupHalfLightOpt, groupStarsOpt, groupGlowOpt,
-                poolMarginOpt, minSeparationOpt, nebulaPlateOpt, nebulaTextureFromOpt, nebulaLogNormalOpt, nebulaKnotsOpt },
+                poolMarginOpt, minSeparationOpt, nebulaPlateOpt, nebulaTextureFromOpt, nebulaLogNormalOpt, nebulaKnotsOpt, exportSkiesOpt,
+                nebulaShareOpt, concurrencyOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
@@ -1469,6 +1480,15 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             var run = new SyntheticClusterRun(parseResult.Required(masterOpt), parseResult.Required(plateOpt), parseResult.Required(outOpt), spec,
                 optics.ToImmutable(), nebulae, rotations, parseResult.GetValue(poolMarginOpt), parseResult.GetValue(nebulaPlateOpt),
                 (int)Math.Round(Math.Log2(Math.Clamp(parseResult.GetValue(nebulaTextureFromOpt), 1, 32))), parseResult.GetValue(nebulaLogNormalOpt));
+            if (parseResult.GetValue(exportSkiesOpt) is > 0 and var skies)
+            {
+                var result = await SyntheticClusterExport.RunAsync(run, spec.Seed, skies, optics.ToImmutable(), parseResult.GetValue(nebulaShareOpt),
+                    parseResult.GetValue(concurrencyOpt), new Progress<string>(line => consoleHost.WriteScrollable("[synthetic-cluster] " + line)), ct);
+                consoleHost.WriteScrollable(
+                    $"[synthetic-cluster] {result.Skies} sk(ies) written, {result.Skipped} present; the manifest holds {result.TrainTiles} training and " +
+                    $"{result.ValTiles} held-out input tiles in {parseResult.Required(outOpt)}");
+                return 0;
+            }
             var (scenes, _) = await run.RunAsync(new Progress<string>(line => consoleHost.WriteScrollable("[synthetic-cluster] " + line)), ct);
             consoleHost.WriteScrollable($"[synthetic-cluster] {scenes.Length} scene(s) in {parseResult.Required(outOpt)}");
             return 0;
