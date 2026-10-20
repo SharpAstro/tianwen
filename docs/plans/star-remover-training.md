@@ -3092,8 +3092,16 @@ test), it takes the cores and leaves the halos: measured before this run by `rem
 **The data.** The synthetic crowded clusters (the section on them carries the generator, its gates and the owner's calls
 of 2026-10-20 and 21): 90 skies drawn from the training-side ZWO ASI585MC Tarantula of 2024-10-02, never the held-out
 masters, in measured and lateral optics, a nebula in 61 of them, 16 cells a scene. That is 2,880 input tiles, 14.9 % of
-synth4's 19,360: 2,592 for training and 288 held out, every tenth seed held out whole. The window sits on the crowded LMC
-field clear of R136 at every rotation (the first window, beside it, printed black holes into 61 skies' nebula).
+synth4's 19,360: 2,592 for training and 288 held out, every tenth seed held out whole. The window is x 2553-3577, y
+678-1702 of the ASI585 frame, on the crowded LMC field east of 30 Doradus (7,590 catalogued stars), its nebula tile 378 px
+clear of R136 at every rotation. Two windows west of it were rejected: the first, beside R136, printed black holes into 61
+skies' nebula (the texture placed at the 64 px structure's full strength where the plate's fine structure is weakest), and
+every tile west of 30 Doradus that keeps R136 out holds two bright compact HII knots that print the same holes. So the
+nebula here is faint (about 2 noise over the sky against 11 in the west), and the "nebula" skies carry little of it. The
+truths' gates: none star-like above 0.25 noise (largest 0.063), the light to 1.0001; the cell gate (the source plate's
+own ratio plus 0.05) fails 6 of 12 truths by 0.01 to 0.31 at its floor, where the cell bands are 0.04 to 0.24 noise and
+the excess is 0.02 to 0.03. Three of the six are no-nebula truths, which hold no plate content and so no fill, and the
+excess borders the cluster cores, so it is read as the gate's floor and the cluster glow's own grain, not fills.
 
 **The arm.** R2p's recipe exactly (R2i's, two levels, patience 24, cap 480,000, `--teacher` E5 on every synth4 draw, a
 resume checkpoint every 2,000 steps), with one switch:
