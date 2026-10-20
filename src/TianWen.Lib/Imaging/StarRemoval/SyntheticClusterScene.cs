@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
-using System.Threading;
 using TianWen.Lib.Imaging.Degradation;
 using TianWen.Lib.Stat;
 
@@ -77,8 +76,9 @@ public sealed record SyntheticClusterSpec(
     double MinSeparationPx = 0.0);
 
 /// <summary>One of a scene's compact groups, as rendered: its centre in scene pixels, its half-light radius, its resolved
-/// stars and its unresolved light (green, the master's units).</summary>
-public readonly record struct ClusterGroup(double X, double Y, double HalfLightPx, int ResolvedStars, double UnresolvedLight);
+/// stars, its unresolved light (green, the master's units) and whether the starless truth holds that light as smooth light
+/// (only at <see cref="SyntheticClusterScene.SmoothMinHalfLightPx"/> and up; else it is all in the stars truth).</summary>
+public readonly record struct ClusterGroup(double X, double Y, double HalfLightPx, int ResolvedStars, double UnresolvedLight, bool Smooth);
 
 /// <summary>A resolved star of the scene's truth, at its green centre in scene pixels.</summary>
 public readonly record struct ClusterTruthStar(double X, double Y, ImmutableArray<double> Amplitudes, bool Saturated, bool InCluster);
@@ -86,26 +86,32 @@ public readonly record struct ClusterTruthStar(double X, double Y, ImmutableArra
 /// <summary>
 /// A rendered scene. The composite is the sky, the nebula, every star (resolved and unresolved, each drawn as a star) and the
 /// master's noise, in its shape and at its level for the light there. The starless truth (noise-free) is the sky, the nebula
-/// and the unresolved population's SMOOTH expected light: its density times its light, through the PSF, never its points.
-/// The stars truth is the composite, noise-free, less the starless: every star, less that smooth light, so it is signed
-/// (below zero where the faint stars fall short of their expectation).
+/// and the broad unresolved populations' light (<see cref="SyntheticClusterScene.SmoothMinHalfLightPx"/>): their density
+/// times their light, through the PSF, never their points, with their own grain from
+/// <see cref="SyntheticClusterScene.GrainFromScale"/> up. The stars truth is the composite, noise-free, less the starless:
+/// every star, a compact cluster's unresolved ones whole, less that light, so it is signed (below zero where the faint stars
+/// fall short of their expectation).
 /// </summary>
 /// <param name="Stars">The stars truth.</param>
 /// <param name="Starless">The starless truth.</param>
 /// <param name="Composite">The composite.</param>
-/// <param name="Unresolved">The unresolved stars alone, drawn as stars, noise-free and with no sky.</param>
+/// <param name="Unresolved">The unresolved stars the starless truth's smooth light stands for, drawn as stars, noise-free and
+/// with no sky (a compact cluster's are not among them).</param>
 /// <param name="Truth">The resolved stars.</param>
 /// <param name="GlowStars">How many unresolved stars were drawn.</param>
 /// <param name="StarFlux">Per channel, the resolved stars' light in the scene.</param>
-/// <param name="GlowFlux">Per channel, the unresolved stars' light in the scene (<paramref name="Unresolved"/>'s sum).</param>
+/// <param name="GlowFlux">Per channel, those unresolved stars' light in the scene (<paramref name="Unresolved"/>'s sum).</param>
 /// <param name="SurfaceFlux">Per channel, the smooth expected light's sum in the scene: <paramref name="GlowFlux"/> but for the
 /// draw's own scatter.</param>
 /// <param name="NebulaAt">Where in the master's frame the nebula was drawn from, inside the frame by
 /// <see cref="SyntheticClusterScene.NebulaEdgeMarginPx"/>.</param>
 /// <param name="Groups">The compact groups.</param>
+/// <param name="StarlessNoisy">The starless truth with the composite's own noise draw at its own level: to set beside a real
+/// starless, which carries its master's noise (a noise-free truth hard-stretched to 8 bits draws terraces).</param>
 public sealed record SyntheticClusterRender(
     float[][] Stars, float[][] Starless, float[][] Composite, float[][] Unresolved, ImmutableArray<ClusterTruthStar> Truth, int GlowStars,
-    double[] StarFlux, double[] GlowFlux, double[] SurfaceFlux, (int X, int Y) NebulaAt, ImmutableArray<ClusterGroup> Groups);
+    double[] StarFlux, double[] GlowFlux, double[] SurfaceFlux, (int X, int Y) NebulaAt, ImmutableArray<ClusterGroup> Groups,
+    float[][] StarlessNoisy);
 
 /// <summary>
 /// What a master gives every scene drawn from it: its brightness and colour pool and profiles
@@ -120,9 +126,11 @@ public sealed record SyntheticClusterRender(
 /// band ratio.</param>
 /// <param name="FrameWidth">The master's width, for the optical centre.</param>
 /// <param name="FrameHeight">The master's height.</param>
+/// <param name="NebulaSky">Per channel, the darkest sky of the plate the nebula is read from, when not the source's own
+/// (<see cref="Sky"/>): the level the nebula is drawn above.</param>
 public sealed record SyntheticClusterSource(
     InjectionPopulation Population, SyntheticBackground? Background, double[] Sky, double[] Noise, double ResampleSigma,
-    int FrameWidth, int FrameHeight)
+    int FrameWidth, int FrameHeight, double[]? NebulaSky = null)
 {
     /// <summary>
     /// Reads the sky and the noise off a master's starless <paramref name="plate"/> (its own units): the darkest of its
@@ -213,83 +221,33 @@ public sealed record SyntheticClusterSource(
         return (sky, noise, resample, ratio);
     }
 
-    /// <summary>The faintest compact source, in the finder's own noise, that <see cref="CleanCompactSources"/> takes out.</summary>
-    public const float CleanThresholdSigma = PlateSources.DefaultThresholdSigma;
-
-    /// <summary>How many times <see cref="CleanCompactSources"/> looks: a crowded patch hides its fainter sources until the
-    /// brighter are out.</summary>
-    public const int CleanPasses = 2;
-
     /// <summary>
-    /// The plate with its compact sources taken out, for the nebula alone. A starless plate keeps what its builder could not
-    /// take (faint stars it never found, the residue of those it did, a peak or a pit), and the background's coarse scales
-    /// carry each into every nebula drawn from it as a soft spot. Every peak of the luminance and every dip (a peak of it
-    /// mirrored about its median) that <see cref="PointSourceFinder"/> finds at <see cref="CleanThresholdSigma"/> is cut out
-    /// to a radius growing with its significance (2 FWHM at the threshold, one more for each factor of ten, at most 6) and
-    /// filled as the plate builder fills (<see cref="HoleFill"/>), <see cref="CleanPasses"/> times.
+    /// The master's noise in each B3 starlet band, per channel: the RMS of a unit field of the noise's shape
+    /// (<see cref="NoiseField.Warped"/> at <paramref name="resampleSigma"/>, <see cref="SyntheticClusterScene.NoiseRealisations"/>
+    /// subs) per band, away from its edge, times each channel's pixel noise.
     /// </summary>
-    /// <returns>The cleaned plate, the peaks and dips taken, and the share of the frame filled.</returns>
-    public static (Image Clean, int Peaks, int Dips, double FilledShare) CleanCompactSources(Image plate, BitMatrix? absent, double fwhm, int seed,
-        CancellationToken cancellationToken)
+    public static double[][] NoiseBandRms(double[] noise, double resampleSigma, int scales)
     {
-        var (channels, width, height) = plate.Shape;
-        var n = width * height;
-        var planes = new float[channels][];
-        for (var c = 0; c < channels; c++)
+        const int Size = 512;
+        var field = NoiseField.Warped(Size, Size, SyntheticClusterScene.NoiseRealisations, new Random(0x2545f491), resampleSigma);
+        var decomposition = ATrousWaveletTransform.Decompose(field, Size, Size, scales);
+        var unit = new double[scales];
+        for (var j = 0; j < scales; j++)
         {
-            planes[c] = plate.GetChannelSpan(c).ToArray();
-        }
-        var filled = new BitMatrix(height, width);
-        var (peaks, dips) = (0, 0);
-        for (var pass = 0; pass < CleanPasses; pass++)
-        {
-            var lum = new float[n];
-            for (var c = 0; c < channels; c++)
+            var detail = decomposition.Detail(j);
+            var margin = Math.Min(Size / 4, 2 << j);
+            var (sum, count) = (0.0, 0);
+            for (var y = margin; y < Size - margin; y++)
             {
-                for (var i = 0; i < n; i++)
+                for (var x = margin; x < Size - margin; x++)
                 {
-                    lum[i] += planes[c][i] / channels;
+                    sum += (double)detail[(y * Size) + x] * detail[(y * Size) + x];
+                    count++;
                 }
             }
-            var finite = lum.Where(float.IsFinite).ToArray();
-            var median = finite.Length > 0 ? StatisticsHelper.NthSmallest(finite.AsSpan(), finite.Length / 2) : 0f;
-            var mirrored = new float[n];
-            for (var i = 0; i < n; i++)
-            {
-                mirrored[i] = (2 * median) - lum[i];
-            }
-            var (up, _) = PointSourceFinder.Find(lum, width, height, absent, fwhm, CleanThresholdSigma);
-            var (down, _) = PointSourceFinder.Find(mirrored, width, height, absent, fwhm, CleanThresholdSigma);
-            peaks += up.Length;
-            dips += down.Length;
-            var holes = new BitMatrix(height, width);
-            foreach (var s in up.Concat(down))
-            {
-                var radius = fwhm * Math.Min(6.0, 2.0 + Math.Log10(Math.Max(1.0, s.Significance / CleanThresholdSigma)));
-                var r = (int)Math.Ceiling(radius);
-                for (var y = Math.Max(0, (int)s.Y - r); y <= Math.Min(height - 1, (int)s.Y + r + 1); y++)
-                {
-                    for (var x = Math.Max(0, (int)s.X - r); x <= Math.Min(width - 1, (int)s.X + r + 1); x++)
-                    {
-                        if (((x - s.X) * (x - s.X)) + ((y - s.Y) * (y - s.Y)) <= radius * radius)
-                        {
-                            holes[y, x] = true;
-                            filled[y, x] = true;
-                        }
-                    }
-                }
-            }
-            HoleFill.Fill(planes, width, height, holes, absent, fwhm, seed + pass, ceiling: null, cancellationToken);
+            unit[j] = Math.Sqrt(sum / count);
         }
-        var data = new float[channels][,];
-        for (var c = 0; c < channels; c++)
-        {
-            var plane = new float[height, width];
-            Buffer.BlockCopy(planes[c], 0, plane, 0, n * sizeof(float));
-            data[c] = plane;
-        }
-        var clean = new Image(data, BitDepth.Float32, plate.MaxValue, plate.MinValue, plate.Pedestal, plate.ImageMeta);
-        return (clean, peaks, dips, (double)filled.PopCount() / n);
+        return [.. noise.Select(sigma => unit.Select(u => u * sigma).ToArray())];
     }
 }
 
@@ -465,7 +423,7 @@ public static class SyntheticClusterScene
         var resolvedFlux = resolved.Where(s => InCircle(s.X, s.Y)).Sum(s => s.A[g]) * unitFlux;
         var glowTarget = spec.GlowShare is > 0 and < 1 ? resolvedFlux * spec.GlowShare / (1 - spec.GlowShare) : 0.0;
         // Each unresolved star is its place, its green peak, the colour it was drawn with (a pool star's amplitudes, shared,
-        // not copied) and its population (0 the cluster and the field, k + 1 group k): tens of millions can be needed.
+        // not copied) and its population (0 the field, 1 the cluster, k + 2 group k): tens of millions can be needed.
         var glow = new List<(float X, float Y, float Peak, ImmutableArray<double> Colour, short Population)>();
         var glowInCircle = 0.0;
         var noiseG = source.Noise[g];
@@ -476,7 +434,7 @@ public static class SyntheticClusterScene
             var inCluster = rng.NextDouble() < clusterShare;
             var (x, y) = inCluster ? ClusterPosition() : DiscPosition(rng, reach);
             var peak = TruncatedPowerLaw(rng, lo, hi, spec.GlowSlope);
-            glow.Add(((float)x, (float)y, (float)peak, colours[rng.Next(colours.Length)], 0));
+            glow.Add(((float)x, (float)y, (float)peak, colours[rng.Next(colours.Length)], (short)(inCluster ? 1 : 0)));
             if (InCircle(x, y))
             {
                 glowInCircle += peak * unitFlux;
@@ -488,30 +446,33 @@ public static class SyntheticClusterScene
             {
                 var (x, y) = GroupPosition(k);
                 var peak = TruncatedPowerLaw(rng, lo, hi, spec.GlowSlope);
-                glow.Add(((float)x, (float)y, (float)peak, colours[rng.Next(colours.Length)], (short)(k + 1)));
+                glow.Add(((float)x, (float)y, (float)peak, colours[rng.Next(colours.Length)], (short)(k + 2)));
                 light += peak * unitFlux;
             }
         }
 
-        // The nebula: the cleaned plate's own coarse scales (SyntheticBackground.Coarse, no texture drawn: on a crowded field the
-        // plate's fine scales are its faint stars' confusion, and a texture drawn to their amplitude read as grain), wider than
-        // the scene and turned with the sky, from a place whose whole tile lies inside the frame: past the frame's edge the
-        // background repeats its edge pixels, which drew a straight seam down the nebula.
+        // The nebula: the source's own generator (built from the plate's large scales, SyntheticClusterSource.Background), its
+        // noise-free draw wider than the scene, turned with the sky, from a place whose whole tile lies inside the frame: past
+        // the frame's edge the background repeats its edge pixels, which drew a straight seam down the nebula. It is the draw
+        // less its plate's own sky, with no floor: clipped at the draw's own 5th percentile, every low region became a flat black
+        // patch with a hard edge, and a real dust lane has no flat floor (the owner, 2026-10-20). Below the plate's sky it dips
+        // as the plate does.
         float[][]? nebula = null;
-        var wide = (int)Math.Ceiling(size * Math.Sqrt(2.0)) + 4;
+        var wide = NebulaTilePx(size);
         var nebulaAt = (X: InsideFrame(spec.NebulaX, wide, source.FrameWidth), Y: InsideFrame(spec.NebulaY, wide, source.FrameHeight));
         if (spec.NebulaStrength > 0 && source.Background is { } background)
         {
-            var drawn = background.Coarse(nebulaAt.X, nebulaAt.Y, wide);
+            // The texture's energy matched over the part of the tile the scene shows unturned, the region its strength was read on.
+            var drawn = background.Preview(nebulaAt.X, nebulaAt.Y, wide, source.Noise, noisy: false, new Random(spec.Seed ^ 0x5bd1e995), withKnots: false,
+                energyInset: (wide - size) / 2);
+            var nebulaSky = source.NebulaSky ?? source.Sky;
             nebula = new float[channels][];
-            var filled = FillPits(drawn, wide, NebulaPitSigmaPx);
             for (var c = 0; c < channels; c++)
             {
-                var floor = Percentile(filled[c], 0.05);
-                var turned = Rotate(filled[c], wide, size, spec.RotationDeg);
+                var turned = Rotate(drawn[c], wide, size, spec.RotationDeg);
                 for (var i = 0; i < n; i++)
                 {
-                    turned[i] = (float)(Math.Max(0.0, turned[i] - floor) * spec.NebulaStrength);
+                    turned[i] = (float)((turned[i] - nebulaSky[c]) * spec.NebulaStrength);
                 }
                 nebula[c] = turned;
             }
@@ -526,27 +487,44 @@ public static class SyntheticClusterScene
         var measuredFlux = ProfilesFor(population, ClusterOptics.Measured, midX, midY, channels).Select(MoffatFlux).ToArray();
         var keepFlux = midProfiles.Select((p, c) => measuredFlux[c] / MoffatFlux(p)).ToArray();
 
+        // Which unresolved populations the starless truth holds as smooth light: those whose half-light radius reaches
+        // SmoothMinHalfLightPx (the cluster's King profile when it is that broad, and the field, which is uniform). A
+        // smaller one is a compact cluster: a disc a few PSF widths across that the eye reads as a star, so its whole light
+        // is drawn as stars and stays in the stars truth.
+        // Populations: 0 the field, 1 the cluster's King profile, k + 2 group k.
+        var populations = groups.Length + 2;
+        var mainKing = new KingDisc(0, 0, spec.CoreRadiusPx, spec.TidalRadiusPx);
+        var smooth = new bool[populations];
+        smooth[0] = true;
+        smooth[1] = KingHalfLightOverCore(spec.TidalRadiusPx / Math.Max(1e-9, spec.CoreRadiusPx)) * spec.CoreRadiusPx >= SmoothMinHalfLightPx;
+        for (var k = 0; k < groups.Length; k++)
+        {
+            smooth[k + 2] = groups[k].Rc * halfLightOverCore >= SmoothMinHalfLightPx;
+        }
+
         // The unresolved stars, each drawn as a star at its channel's centre: deposited and blurred to the channel's FWHM, or
         // from GlowPointSigma up rendered as the channel's Moffat (its halo far under the noise) out to GlowFloorSigma, so
-        // each carries its whole light. That light per population and channel, wherever it fell, is what the smooth surface
-        // spreads.
-        var populations = groups.Length + 1;
+        // each carries its whole light; those the starless holds as smooth light apart from the rest. That light per
+        // population and channel, wherever it fell, is what the smooth surface spreads.
         var unresolved = new float[channels][];
+        var compactUnresolved = new float[channels][];
         var glowFlux = new double[channels];
         var glowTotal = new double[populations, channels];
         var pointPeak = GlowPointSigma * noiseG;
         var pointProfiles = spec.Optics == ClusterOptics.Plain ? midProfiles : population.ProfilesAt(midX, midY, StarProfileFamily.Moffat);
         var pointKeep = pointProfiles.Select((p, c) => measuredFlux[c] / MoffatFlux(p)).ToArray();
         var glowSubs = new Random(spec.Seed ^ 0x7f4a7c15);
+        var sigmaBlur = midProfiles.Select(p => (float)(p.FwhmPx / 2.3548)).ToArray();
         for (var c = 0; c < channels; c++)
         {
-            var deposit = new float[n];
-            var points = new List<InjectedStar>();
+            var deposit = new[] { new float[n], new float[n] };
+            var points = new[] { new List<InjectedStar>(), new List<InjectedStar>() };
             foreach (var (x, y, peak, colour, which) in glow)
             {
                 var cg = colour[g] > 0 ? colour[g] : colour.Max();
                 var amplitude = cg > 0 ? peak * colour[c] / cg : peak;
                 glowTotal[which, c] += amplitude * measuredFlux[c];
+                var layer = smooth[which] ? 0 : 1;
                 var (px, py) = ChannelCentre(spec, source, ToScene(x, y), c);
                 if (px < -Margin || py < -Margin || px >= size + Margin || py >= size + Margin)
                 {
@@ -554,37 +532,43 @@ public static class SyntheticClusterScene
                 }
                 if (peak >= pointPeak)
                 {
-                    points.Add(new InjectedStar(px, py, [amplitude * pointKeep[c]], [pointProfiles[c]], false, ImmutableArray<double>.Empty));
+                    points[layer].Add(new InjectedStar(px, py, [amplitude * pointKeep[c]], [pointProfiles[c]], false, ImmutableArray<double>.Empty));
                 }
                 else
                 {
-                    DepositBilinear(deposit, size, px, py, amplitude * measuredFlux[c]);
+                    DepositBilinear(deposit[layer], size, px, py, amplitude * measuredFlux[c]);
                 }
             }
-            var plane = Image.SeparableGaussianBlur(deposit, size, size, (float)(midProfiles[c].FwhmPx / 2.3548));
-            if (points.Count > 0)
+            var planes = new float[2][];
+            for (var layer = 0; layer < 2; layer++)
             {
-                plane = StarInjection.Render([plane], size, size, null, points, [GlowFloorSigma * source.Noise[c]], glowSubs).Planes[0];
+                var plane = Image.SeparableGaussianBlur(deposit[layer], size, size, sigmaBlur[c]);
+                if (points[layer].Count > 0)
+                {
+                    plane = StarInjection.Render([plane], size, size, null, points[layer], [GlowFloorSigma * source.Noise[c]], glowSubs).Planes[0];
+                }
+                planes[layer] = plane;
             }
-            unresolved[c] = plane;
-            foreach (var v in plane)
+            unresolved[c] = planes[0];
+            compactUnresolved[c] = planes[1];
+            foreach (var v in planes[0])
             {
                 glowFlux[c] += v;
             }
         }
 
-        // The starless truth: the sky, the nebula and the unresolved stars' expected light, never their points: per population,
-        // its density (the cluster's King profile and the field's disc in the mixture they were drawn from; each group's King
-        // profile) times its whole light, blurred as its faint stars are, through each channel's Gaussian at its FWHM.
-        var main = new KingDisc(0, 0, spec.CoreRadiusPx, spec.TidalRadiusPx);
-        var (mainEdge, mainNorm) = (main.Edge, main.Norm);
-        var fieldDensity = reach > 0 ? (1 - clusterShare) / (Math.PI * reach * reach) : 0.0;
+        // The starless truth: the sky, the nebula and the smooth populations' expected light, never their points: per
+        // population, its density (the field's disc, the cluster's or a group's King profile, each one over the plane) times
+        // its whole light, blurred as its faint stars are, through each channel's Gaussian.
+        var (mainEdge, mainNorm) = (mainKing.Edge, mainKing.Norm);
+        var fieldDensity = reach > 0 ? 1.0 / (Math.PI * reach * reach) : 0.0;
         var densities = new Func<double, double, double>[populations];
-        densities[0] = (sx, sy) => ((sx * sx) + (sy * sy) <= reach * reach ? fieldDensity : 0.0) + (clusterShare * main.Density(sx, sy, mainEdge, mainNorm));
+        densities[0] = (sx, sy) => (sx * sx) + (sy * sy) <= reach * reach ? fieldDensity : 0.0;
+        densities[1] = (sx, sy) => mainKing.Density(sx, sy, mainEdge, mainNorm);
         for (var k = 0; k < groups.Length; k++)
         {
             var (disc, edge, norm) = (groups[k], groups[k].Edge, groups[k].Norm);
-            densities[k + 1] = (sx, sy) => disc.Density(sx, sy, edge, norm);
+            densities[k + 2] = (sx, sy) => disc.Density(sx, sy, edge, norm);
         }
         var opticalCentre = OpticalCentre(spec, source);
         var side = size + (2 * SurfacePadPx);
@@ -597,6 +581,10 @@ public static class SyntheticClusterScene
             var light = new float[side * side];
             for (var p = 0; p < populations; p++)
             {
+                if (!smooth[p])
+                {
+                    continue;
+                }
                 var grid = lateral == 0.0
                     ? sharedGrids[p] ??= DensityGrid(densities[p], size, centre, sin, cos, opticalCentre, 0.0)
                     : DensityGrid(densities[p], size, centre, sin, cos, opticalCentre, lateral);
@@ -606,24 +594,35 @@ public static class SyntheticClusterScene
                     light[i] += (float)(grid[i] * total);
                 }
             }
-            var blurred = Image.SeparableGaussianBlur(light, side, side, (float)(midProfiles[c].FwhmPx / 2.3548));
-            var plane = new float[n];
+            var blurred = Image.SeparableGaussianBlur(light, side, side, sigmaBlur[c]);
+            var surface = new float[n];
+            var deviation = new float[n];
             for (var y = 0; y < size; y++)
             {
                 for (var x = 0; x < size; x++)
                 {
                     var expected = blurred[((y + SurfacePadPx) * side) + x + SurfacePadPx];
                     var i = (y * size) + x;
-                    plane[i] = (float)(source.Sky[c] + expected + (nebula?[c][i] ?? 0f));
+                    surface[i] = expected;
+                    deviation[i] = unresolved[c][i] - expected;
                     surfaceFlux[c] += expected;
                 }
+            }
+            // The smooth populations' own grain at the scales no star is read at: their draw's departure from its
+            // expectation, smoothed through the starlet's first GrainFromScale scales (what is left varies over 2^GrainFromScale
+            // px and up). A mottled haze, as the real glow is; the finer grain stays in the stars truth.
+            var grain = ATrousWaveletTransform.Decompose(deviation, size, size, GrainFromScale).Residual;
+            var plane = new float[n];
+            for (var i = 0; i < n; i++)
+            {
+                plane[i] = (float)(source.Sky[c] + surface[i] + grain[i] + (nebula?[c][i] ?? 0f));
             }
             starless[c] = plane;
         }
         var groupsRendered = ImmutableArray.CreateRange(Enumerable.Range(0, groups.Length).Select(k =>
         {
             var (x, y) = ToScene(groups[k].X, groups[k].Y);
-            return new ClusterGroup(x, y, groups[k].Rc * halfLightOverCore, groupStars[k], glowTotal[k + 1, g]);
+            return new ClusterGroup(x, y, groups[k].Rc * halfLightOverCore, groupStars[k], glowTotal[k + 2, g], smooth[k + 2]);
         }));
 
         // The resolved stars, rendered channel by channel onto the sky, the nebula and the unresolved stars (so a saturated star
@@ -669,7 +668,7 @@ public static class SyntheticClusterScene
             var under = new float[n];
             for (var i = 0; i < n; i++)
             {
-                under[i] = (float)source.Sky[c] + (nebula?[c][i] ?? 0f) + unresolved[c][i];
+                under[i] = (float)source.Sky[c] + (nebula?[c][i] ?? 0f) + unresolved[c][i] + compactUnresolved[c][i];
             }
             var render = StarInjection.Render([under], size, size, null, injected, [FloorSigma * source.Noise[c]], subs);
             composite[c] = render.Planes[0];
@@ -683,21 +682,26 @@ public static class SyntheticClusterScene
         }
 
         // The master's noise: its shape (Warped at its resampling width, unit variance), its pixel level at the sky, growing
-        // with the light as shot noise does.
+        // with the light as shot noise does. The same draw, at the starless truth's own level, makes the noisy truth: what the
+        // truth looks like beside a real starless, which carries its master's noise.
         var noise = new Random(spec.Seed ^ 0x165667b1);
+        var starlessNoisy = new float[channels][];
         for (var c = 0; c < channels; c++)
         {
             var field = NoiseField.Warped(size, size, NoiseRealisations, noise, source.ResampleSigma);
             var scale = source.Noise[c];
             var sky = Math.Max(1e-12, source.Sky[c]);
+            var noisy = new float[n];
             for (var i = 0; i < n; i++)
             {
                 var level = Math.Max(sky, composite[c][i]);
                 composite[c][i] += (float)(field[i] * scale * Math.Sqrt(level / sky));
+                noisy[i] = starless[c][i] + (float)(field[i] * scale * Math.Sqrt(Math.Max(sky, starless[c][i]) / sky));
             }
+            starlessNoisy[c] = noisy;
         }
         return new SyntheticClusterRender(stars, starless, composite, unresolved, truth.ToImmutable(), glow.Count, starFlux, glowFlux, surfaceFlux,
-            nebulaAt, groupsRendered);
+            nebulaAt, groupsRendered, starlessNoisy);
     }
 
     // A quantile of the pool's green amplitudes, read off ColourDraws draws.
@@ -961,45 +965,48 @@ public static class SyntheticClusterScene
         return output;
     }
 
-    /// <summary>The smoothing the nebula's pits are filled to, sigma in pixels.</summary>
-    public const float NebulaPitSigmaPx = 6f;
+    /// <summary>
+    /// The least half-light radius, pixels, at which an unresolved population's light is the starless truth's smooth light (10
+    /// PSF widths on the LMC master). The owner's rule (2026-10-20): the starless truth holds nothing the eye reads as a star,
+    /// whatever its measured width, so a compact cluster (the LMC's own are 4.1 to 11.8 px) is drawn as stars and stays in
+    /// the stars truth whole; only the broad light, the field's and a cluster's tens to hundreds of pixels across, is
+    /// starless.
+    /// </summary>
+    public const double SmoothMinHalfLightPx = 16.0;
 
-    // The plate keeps pits where it was crowded (its builder's residue at subtracted stars, which the coarse scales carry):
-    // wherever the luminance falls below its own smoothing, the deficit is added back in every channel at the local colour,
-    // so the pits fill and nothing bright, and no channel on its own, is touched.
-    private static float[][] FillPits(float[][] planes, int size, float sigma)
+    /// <summary>
+    /// The starless truth keeps the smooth populations' own grain from 2^this px up (16 px): their draw's departure from its
+    /// expectation, smoothed past the scales a star is read at, so the glow is a mottled haze, as a real one is, and never an
+    /// airbrushed disc (the owner, 2026-10-20). The finer grain is in the stars truth.
+    /// </summary>
+    public const int GrainFromScale = 4;
+
+    /// <summary>The nebula generator's first kept starlet scale (2^6 = 64 px): the plate's structure from there up
+    /// (<see cref="SyntheticBackground.LargeScale"/>). The Tarantula plate's local RMS is flat at 0.3 noise from 8 to 32 px,
+    /// its faint stars' confusion and its builder's fills, the cells the owner saw at 20 to 40 px; the nebula's own spectrum
+    /// rises from 64 px (0.37 there, 1.08 at 128 px).</summary>
+    public const int NebulaKeepFromScale = 6;
+
+    /// <summary>The finest scale the nebula's texture is drawn at by default (2^4 = 16 px): finer, its knots are discs a few PSF
+    /// widths across, read as stars (gate 1 of the truth), and on the LMC field the plate's power there is its faint stars'
+    /// confusion and its builder's residue, not a nebula's.</summary>
+    public const int NebulaTextureFromScale = 4;
+
+    /// <summary>
+    /// Where in the master's frame a scene's nebula is drawn from: the <see cref="SyntheticClusterSpec.Size"/> px square the
+    /// scene shows of it (the middle of the wider tile drawn for its rotation), its tile inside the frame by
+    /// <see cref="NebulaEdgeMarginPx"/>.
+    /// </summary>
+    public static (int X0, int Y0, int Size) NebulaRegion(SyntheticClusterSpec spec, int frameWidth, int frameHeight)
     {
-        var channels = planes.Length;
-        var n = size * size;
-        var lum = new float[n];
-        foreach (var plane in planes)
-        {
-            for (var i = 0; i < n; i++)
-            {
-                lum[i] += plane[i] / channels;
-            }
-        }
-        var smoothLum = Image.SeparableGaussianBlur(lum, size, size, sigma);
-        var output = new float[channels][];
-        for (var c = 0; c < channels; c++)
-        {
-            var smooth = Image.SeparableGaussianBlur(planes[c], size, size, sigma);
-            var plane = new float[n];
-            for (var i = 0; i < n; i++)
-            {
-                var deficit = Math.Max(0f, smoothLum[i] - lum[i]);
-                plane[i] = planes[c][i] + (smoothLum[i] > 0 ? deficit * smooth[i] / smoothLum[i] : 0f);
-            }
-            output[c] = plane;
-        }
-        return output;
+        var wide = NebulaTilePx(spec.Size);
+        var (x, y) = (InsideFrame(spec.NebulaX, wide, frameWidth), InsideFrame(spec.NebulaY, wide, frameHeight));
+        return (x - (spec.Size / 2), y - (spec.Size / 2), spec.Size);
     }
 
-    private static double Percentile(float[] values, double q)
-    {
-        var copy = new float[values.Length];
-        values.AsSpan().CopyTo(copy);
-        Array.Sort(copy);
-        return copy[Math.Clamp((int)(q * (copy.Length - 1)), 0, copy.Length - 1)];
-    }
+    // The nebula tile drawn for a scene: wide enough that every rotation covers the scene.
+    private static int NebulaTilePx(int size) => (int)Math.Ceiling(size * Math.Sqrt(2.0)) + 4;
+
+    /// <summary>The nebula's steer: R2e's (0.5, 2, 0.8), read off the kept scales only.</summary>
+    public static SyntheticBackground.Steering NebulaSteer => new(0.5, 2.0, 0.8);
 }

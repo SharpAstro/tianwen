@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Numerics;
@@ -80,6 +81,20 @@ public sealed class SyntheticBackground
     /// serve both).
     /// </summary>
     public readonly record struct Steering(double Strength, double Exponent, double Wander = 0, double Fine = 0);
+
+    /// <summary>
+    /// A background whose plate is kept only from <see cref="KeepFromScale"/> (2^j px) up, where a star's fill does not
+    /// reach, with the texture drawn only at the replaced scales from <see cref="TextureFromScale"/> up. The texture's
+    /// strength at each of those scales is the plate's own over one REGION (the place a scene is drawn from): the RMS of
+    /// that starlet band over the region's pixels away from the plate's sources, with the master's noise in that band
+    /// (<see cref="NoiseBandRms"/>, per channel and scale) taken out in quadrature; over the region it follows the first kept
+    /// scale's local RMS, normalised to one there. The plate kept below <see cref="KeepFromScale"/>, or a texture drawn to its
+    /// LOCAL amplitude, carried the plate builder's fills as cells (the synthetic LMC clusters, 2026-10-20). The texture's
+    /// log-normal width is <see cref="LogNormalWidth"/> (0 a Gaussian field: the owner read 0.8's clumps as oversharpened). A
+    /// <see cref="Steering"/> is read off the kept scales only (its <see cref="Steering.Fine"/> is not used).
+    /// </summary>
+    public readonly record struct LargeScale(int KeepFromScale, int TextureFromScale, int RegionX0, int RegionY0, int RegionSize,
+        double[][] NoiseBandRms, double LogNormalWidth = 0.0);
 
     // The plate's coarse orientation (the structure tensor of its kept scales' luminance, SkyTexture's own), per frame pixel,
     // and with Steering.Fine its replaced scales' own.
@@ -193,14 +208,19 @@ public sealed class SyntheticBackground
     /// <paramref name="brightKnotsWide"/> keeps a compact knot faint (<see cref="BrightKnotsWide"/>); a
     /// <paramref name="steering"/> draws the texture along the plate's coarse orientation (<see cref="Steering"/>);
     /// <paramref name="tailsFromPlate"/> sets its tails from the plate's own (<see cref="TailsFromPlate"/>);
-    /// <paramref name="nebulaKnots"/> draws the knots as a nebula's (<see cref="NebulaKnots"/>).
+    /// <paramref name="nebulaKnots"/> draws the knots as a nebula's (<see cref="NebulaKnots"/>); a
+    /// <paramref name="largeScale"/> drives it from the plate's large scales alone (<see cref="LargeScale"/>).
     /// </summary>
     public static SyntheticBackground Build(Image unitPlate, BitMatrix? absent, double fwhm, bool brightKnotsWide = false, Steering? steering = null,
-        bool tailsFromPlate = false, bool nebulaKnots = false)
+        bool tailsFromPlate = false, bool nebulaKnots = false, LargeScale? largeScale = null)
     {
         var (channels, width, height) = unitPlate.Shape;
         var n = width * height;
-        var firstKept = FirstKeptScale(fwhm);
+        var firstKept = largeScale is { } large ? Math.Clamp(large.KeepFromScale, 1, ScaleCount) : FirstKeptScale(fwhm);
+        if (largeScale is not null && steering is { } steer)
+        {
+            steering = steer with { Fine = 0 };
+        }
 
         var luminance = new float[n];
         for (var c = 0; c < channels; c++)
@@ -246,6 +266,7 @@ public sealed class SyntheticBackground
 
         var coarse = new float[channels][];
         var amplitude = new float[channels][][];
+        var regionRms = new double[channels][];
         for (var c = 0; c < channels; c++)
         {
             var plane = unitPlate.GetChannelSpan(c).ToArray();
@@ -258,9 +279,11 @@ public sealed class SyntheticBackground
                     plane[i] = fill;
                 }
             }
-            var decomposition = ATrousWaveletTransform.Decompose(plane, width, height, ScaleCount);
+            // Driven by the large scales, the plate is read one scale past the first kept one.
+            var scales = largeScale is null ? ScaleCount : Math.Max(ScaleCount, firstKept + 1);
+            var decomposition = ATrousWaveletTransform.Decompose(plane, width, height, scales);
             var keep = decomposition.Residual.ToArray();
-            for (var j = firstKept; j < ScaleCount; j++)
+            for (var j = firstKept; j < scales; j++)
             {
                 var detail = decomposition.Detail(j);
                 for (var i = 0; i < n; i++)
@@ -271,6 +294,48 @@ public sealed class SyntheticBackground
             coarse[c] = keep;
 
             amplitude[c] = new float[firstKept][];
+            if (largeScale is { } driven)
+            {
+                // Per replaced scale from the texture's floor up, the region's own local RMS (noise out in quadrature) sets HOW
+                // MUCH texture there is, as a distribution over the region's pixels away from the plate's sources; the first
+                // kept scale's local RMS sets WHERE: each pixel takes the quantile of the first that its rank in the second
+                // is. The plate's fine scales give only a distribution, never a map, so its fills cannot print a pattern, and
+                // the texture spreads over the region as evenly as the plate's own does (followed directly, the 64 px
+                // structure's local RMS was far more uneven: on the Tarantula plate 0.17 / 0.27 / 0.98 noise at its 10th, 50th
+                // and 90th percentile against 0.22 / 0.34 / 0.69 at 16 px).
+                var (x0, y0) = (Math.Clamp(driven.RegionX0, 0, width - 1), Math.Clamp(driven.RegionY0, 0, height - 1));
+                var (x1, y1) = (Math.Min(width, x0 + driven.RegionSize), Math.Min(height, y0 + driven.RegionSize));
+                bool InRegion(int i) => i % width >= x0 && i % width < x1 && i / width >= y0 && i / width < y1 && clean[i] > 0f;
+                var kept = SignalAmplitude(decomposition.Detail(firstKept), clean, width, height, firstKept, subtractNoise: false);
+                var keptSorted = RegionSorted(kept, InRegion, n);
+                regionRms[c] = new double[firstKept];
+                for (var j = 0; j < firstKept; j++)
+                {
+                    var a = new float[n];
+                    if (j >= driven.TextureFromScale && keptSorted.Length > 0)
+                    {
+                        var noise = c < driven.NoiseBandRms.Length && j < driven.NoiseBandRms[c].Length ? driven.NoiseBandRms[c][j] : 0.0;
+                        var local = SignalAmplitude(decomposition.Detail(j), clean, width, height, j, subtractNoise: false);
+                        for (var i = 0; i < n; i++)
+                        {
+                            local[i] = (float)Math.Sqrt(Math.Max(0.0, ((double)local[i] * local[i]) - (noise * noise)));
+                        }
+                        var wanted = RegionSorted(local, InRegion, n);
+                        var square = 0.0;
+                        foreach (var v in wanted)
+                        {
+                            square += (double)v * v;
+                        }
+                        regionRms[c][j] = Math.Sqrt(square / wanted.Length);
+                        for (var i = 0; i < n; i++)
+                        {
+                            a[i] = QuantileAt(wanted, RankIn(keptSorted, kept[i]));
+                        }
+                    }
+                    amplitude[c][j] = a;
+                }
+                continue;
+            }
             for (var j = 0; j < firstKept; j++)
             {
                 amplitude[c][j] = SignalAmplitude(decomposition.Detail(j), clean, width, height, j);
@@ -299,8 +364,53 @@ public sealed class SyntheticBackground
         var logNormalWidth = tailsFromPlate
             ? LogNormalWidthFromTails(luminance, Clean(PlateSources.DefaultThresholdSigma), width, height, firstKept)
             : null;
-        return new SyntheticBackground(width, height, firstKept, fwhm, brightKnotsWide, nebulaKnots, steering, orientation, logNormalWidth, coarse, amplitude);
+        return new SyntheticBackground(width, height, firstKept, fwhm, brightKnotsWide, nebulaKnots, steering, orientation, logNormalWidth, coarse, amplitude)
+        {
+            LargeScaleRegionRms = largeScale is null ? [] : [.. regionRms.Select(static r => r.ToImmutableArray())],
+            TextureWidth = largeScale is { } texture ? texture.LogNormalWidth : LogNormalSigma,
+        };
     }
+
+    // A map's values over a region, sorted.
+    private static float[] RegionSorted(float[] map, Func<int, bool> inRegion, int n)
+    {
+        var values = new List<float>();
+        for (var i = 0; i < n; i++)
+        {
+            if (inRegion(i))
+            {
+                values.Add(map[i]);
+            }
+        }
+        var sorted = values.ToArray();
+        Array.Sort(sorted);
+        return sorted;
+    }
+
+    // A value's rank among sorted values, 0 to 1 (the share below it).
+    private static double RankIn(float[] sorted, float value)
+    {
+        var at = Array.BinarySearch(sorted, value);
+        var index = at >= 0 ? at : ~at;
+        return sorted.Length > 1 ? Math.Clamp((double)index / (sorted.Length - 1), 0.0, 1.0) : 0.5;
+    }
+
+    // The quantile of sorted values at a rank 0 to 1, linear between neighbours.
+    private static float QuantileAt(float[] sorted, double rank)
+    {
+        var at = rank * (sorted.Length - 1);
+        var lo = (int)Math.Floor(at);
+        var hi = Math.Min(sorted.Length - 1, lo + 1);
+        return (float)(sorted[lo] + ((sorted[hi] - sorted[lo]) * (at - lo)));
+    }
+
+    /// <summary>With a <see cref="LargeScale"/>, per channel and replaced scale the texture's RMS over its region (the plate's,
+    /// noise out in quadrature; 0 below the texture's floor). Empty otherwise.</summary>
+    public ImmutableArray<ImmutableArray<double>> LargeScaleRegionRms { get; private init; } = [];
+
+    /// <summary>The log-normal width the texture is drawn at where it does not follow the plate's tails: 0 for a Gaussian
+    /// field.</summary>
+    public double TextureWidth { get; private init; } = LogNormalSigma;
 
     // S2b: the structure tensor of the luminance's replaced scales from 2 px up (1 px is the master's noise on every class,
     // S1), each scale's gradients over the clean pixels only (sources and the ring out, as the amplitude maps read them),
@@ -578,8 +688,8 @@ public sealed class SyntheticBackground
 
     // The local RMS of a detail plane over the clean pixels, smoothed at twice the scale or AmplitudeWindowPx, less its noise
     // (the clean pixels' robust variance, which a smooth sky dominates, with NoiseMargin), floored at zero: the signal the
-    // plate has at that scale there.
-    private static float[] SignalAmplitude(ReadOnlySpan<float> detail, float[] clean, int width, int height, int scale)
+    // plate has at that scale there. Without subtractNoise the local RMS itself.
+    private static float[] SignalAmplitude(ReadOnlySpan<float> detail, float[] clean, int width, int height, int scale, bool subtractNoise = true)
     {
         var n = detail.Length;
         var energy = new float[n];
@@ -588,7 +698,7 @@ public sealed class SyntheticBackground
         for (var i = 0; i < n; i++)
         {
             energy[i] = clean[i] * detail[i] * detail[i];
-            if (clean[i] > 0f)
+            if (subtractNoise && clean[i] > 0f)
             {
                 sample[count++] = detail[i];
             }
@@ -638,11 +748,14 @@ public sealed class SyntheticBackground
     /// CENTRED on (<paramref name="centreX"/>, <paramref name="centreY"/>), and, when <paramref name="noisy"/>, white noise at
     /// <paramref name="noiseSigma"/> per channel on it. The exporter's noise is the master's own, in its shape; a preview's is
     /// white, so its grain is finer than a demosaiced master's. Without <paramref name="withKnots"/> the texture alone (S3's
-    /// read of its tails, which the knots' own would confound; the exporter always draws them).
+    /// read of its tails, which the knots' own would confound; the exporter always draws them). With an
+    /// <paramref name="energyInset"/> the texture's energy is matched over the cell less that border only (see
+    /// <see cref="Cell"/>).
     /// </summary>
-    public float[][] Preview(int centreX, int centreY, int size, ReadOnlySpan<double> noiseSigma, bool noisy, Random random, bool withKnots = true)
+    public float[][] Preview(int centreX, int centreY, int size, ReadOnlySpan<double> noiseSigma, bool noisy, Random random, bool withKnots = true,
+        int energyInset = 0)
     {
-        var planes = Cell(centreX - (size / 2), centreY - (size / 2), size, noiseSigma, random, out _, withKnots);
+        var planes = Cell(centreX - (size / 2), centreY - (size / 2), size, noiseSigma, random, out _, withKnots, energyInset);
         if (noisy)
         {
             for (var c = 0; c < planes.Length; c++)
@@ -673,32 +786,6 @@ public sealed class SyntheticBackground
         return planes;
     }
 
-    /// <summary>
-    /// The plate's own coarse part alone (its scales from <see cref="FirstKept"/> up and the residual, nothing drawn) over the
-    /// <paramref name="size"/> px cell CENTRED on (<paramref name="centreX"/>, <paramref name="centreY"/>), per channel. Pixels
-    /// outside the frame take the nearest one's. What a synthetic cluster scene takes as its nebula
-    /// (<see cref="SyntheticClusterScene"/>): on a crowded field the plate's finer scales are its faint stars' confusion.
-    /// </summary>
-    public float[][] Coarse(int centreX, int centreY, int size)
-    {
-        var (x0, y0) = (centreX - (size / 2), centreY - (size / 2));
-        var planes = new float[Channels][];
-        for (var c = 0; c < Channels; c++)
-        {
-            var plane = new float[size * size];
-            for (var y = 0; y < size; y++)
-            {
-                var row = Math.Clamp(y0 + y, 0, Height - 1) * Width;
-                for (var x = 0; x < size; x++)
-                {
-                    plane[(y * size) + x] = _coarse[c][row + Math.Clamp(x0 + x, 0, Width - 1)];
-                }
-            }
-            planes[c] = plane;
-        }
-        return planes;
-    }
-
     /// <summary>One knot a cell holds, in the cell's coordinates, its peak per channel in the plate's units.</summary>
     public readonly record struct Knot(double X, double Y, double SigmaMajorPx, double SigmaMinorPx, double AngleRad, double[] Peak);
 
@@ -707,16 +794,18 @@ public sealed class SyntheticBackground
     /// the plate's coarse part, the texture at the replaced scales, and the knots, each channel's knots peaking at a draw
     /// between <see cref="KnotMinSigma"/> and <see cref="KnotMaxSigma"/> times <paramref name="noiseSigma"/> (the cell's noise
     /// per channel, the plate's units). Pixels outside the frame take the nearest one's. Without <paramref name="withKnots"/>
-    /// none are drawn.
+    /// none are drawn. With an <paramref name="energyInset"/> the texture's energy is matched to the amplitude maps over the
+    /// cell less a border that wide only: the part of a wider cut a caller shows (a synthetic cluster scene's tile, drawn
+    /// wider for its rotation and matched over the whole cut, put 0.64 of the energy asked into the scene's own 16 px band).
     /// </summary>
     public float[][] Cell(int x0, int y0, int size, ReadOnlySpan<double> noiseSigma, Random random, out ImmutableArray<Knot> knots,
-        bool withKnots = true)
+        bool withKnots = true, int energyInset = 0)
     {
         var texture = TextureScales(x0, y0, size, random);
         var planes = new float[Channels][];
         for (var c = 0; c < Channels; c++)
         {
-            var plane = DrawnTexture(c, x0, y0, size, texture);
+            var plane = DrawnTexture(c, x0, y0, size, texture, energyInset);
             for (var y = 0; y < size; y++)
             {
                 var fy = Math.Clamp(y0 + y, 0, Height - 1);
@@ -734,6 +823,10 @@ public sealed class SyntheticBackground
     /// <summary>How many times <see cref="DrawnTexture"/> re-reads the drawn texture and corrects its gains.</summary>
     internal const int EnergyMatchPasses = 3;
 
+    /// <summary>With an energy inset, how many times <see cref="DrawnTexture"/> then corrects each scale's gain locally, over a
+    /// window four times the scale.</summary>
+    internal const int LocalEnergyPasses = 3;
+
     /// <summary>The narrowest interior, in pixels, a scale's energy is read over in <see cref="DrawnTexture"/>; a cut with
     /// less inside its kernel's reach leaves that scale's gain alone.</summary>
     internal const int MinEnergyReadPx = 16;
@@ -747,7 +840,7 @@ public sealed class SyntheticBackground
     /// cut's interior that scale's kernel reaches no edge from, and corrects that scale's gain by their ratio; the last
     /// pass's plane is the draw.
     /// </summary>
-    private float[] DrawnTexture(int c, int x0, int y0, int size, float[][] texture)
+    private float[] DrawnTexture(int c, int x0, int y0, int size, float[][] texture, int energyInset = 0)
     {
         var n = size * size;
         var amplitude = new float[FirstKept][];
@@ -766,6 +859,12 @@ public sealed class SyntheticBackground
         }
         var gains = new double[FirstKept];
         Array.Fill(gains, 1.0);
+        // With an inset (a caller that shows part of the cut and reads the texture there), the scale's gain is then corrected
+        // locally too: a band's read-back takes its neighbours' leakage where THEY are strong, so one gain per scale left the
+        // 16 px band at 0.75 of the plate's through the moderate part of a synthetic cluster scene and above it beside the
+        // bright nebula.
+        var local = energyInset > 0 ? new float[FirstKept][] : null;
+        var passes = EnergyMatchPasses + (local is null ? 0 : LocalEnergyPasses);
         var plane = new float[n];
         for (var pass = 0; ; pass++)
         {
@@ -774,21 +873,50 @@ public sealed class SyntheticBackground
                 var v = 0.0;
                 for (var j = 0; j < FirstKept; j++)
                 {
-                    v += gains[j] * amplitude[j][i] * texture[j][i];
+                    v += gains[j] * amplitude[j][i] * (local?[j]?[i] ?? 1f) * texture[j][i];
                 }
                 plane[i] = (float)v;
             }
-            if (pass == EnergyMatchPasses)
+            if (pass == passes)
             {
                 return plane;
             }
             var decomposition = ATrousWaveletTransform.Decompose(plane, size, size, FirstKept);
+            if (local is not null && pass >= EnergyMatchPasses)
+            {
+                for (var j = 0; j < FirstKept; j++)
+                {
+                    var detail = decomposition.Detail(j);
+                    var wanted = new float[n];
+                    var measured = new float[n];
+                    var any = false;
+                    for (var i = 0; i < n; i++)
+                    {
+                        wanted[i] = amplitude[j][i] * amplitude[j][i];
+                        measured[i] = detail[i] * detail[i];
+                        any |= wanted[i] > 0f;
+                    }
+                    if (!any)
+                    {
+                        continue;
+                    }
+                    var window = (float)(4 << j);
+                    wanted = Image.SeparableGaussianBlur(wanted, size, size, window);
+                    measured = Image.SeparableGaussianBlur(measured, size, size, window);
+                    var factor = local[j] ??= Enumerable.Repeat(1f, n).ToArray();
+                    for (var i = 0; i < n; i++)
+                    {
+                        factor[i] *= measured[i] > 0f ? (float)Math.Clamp(Math.Sqrt(wanted[i] / measured[i]), 0.5, 2.0) : 1f;
+                    }
+                }
+                continue;
+            }
             for (var j = 0; j < FirstKept; j++)
             {
                 // Read only where the scale's kernel stays inside the cut: at the cut's mirrored edge a band reads weak, and
                 // a small cut (a hole's fill) is mostly edge, so its gains were pumped up and the hole overshot (S4 at
                 // 24 px, 1.62 of the original's energy). A scale with no such interior keeps its gain.
-                var margin = 4 << j;
+                var margin = Math.Max(4 << j, Math.Clamp(energyInset, 0, size / 2));
                 if (size - (2 * margin) < MinEnergyReadPx)
                 {
                     continue;
@@ -837,9 +965,11 @@ public sealed class SyntheticBackground
         }
         else
         {
+            // At a width of 0 the Gaussian field itself (each band is scaled to unit RMS below, so only the shape matters).
+            var width = TextureWidth;
             for (var i = 0; i < field.Length; i++)
             {
-                logNormal[i] = (float)Math.Exp(LogNormalSigma * field[i]);
+                logNormal[i] = (float)(width > 0 ? Math.Exp(width * field[i]) : field[i]);
             }
         }
         var decomposition = ATrousWaveletTransform.Decompose(logNormal, n, n, ScaleCount);
