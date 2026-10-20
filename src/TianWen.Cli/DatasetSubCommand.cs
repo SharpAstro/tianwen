@@ -509,6 +509,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 BuildStarlessEvalCommand(),
                 BuildSkyTextureCommand(),
                 BuildSyntheticBackgroundCommand(),
+                BuildSyntheticClusterCommand(),
                 BuildFillProbeCommand(),
                 BuildPlateMasksCommand(),
                 BuildBrightCellsCommand(),
@@ -1301,6 +1302,120 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                         $"alignment {p.Scales[j].Alignment:+0.000;-0.000} / {s.Scales[j].Alignment:+0.000;-0.000}"))));
                 }
             }
+            return 0;
+        });
+        return command;
+    }
+
+    /// <summary>
+    /// <c>tianwen dataset synthetic-cluster</c>: synthetic crowded-cluster scenes drawn from one master's own stars, profiles,
+    /// noise and nebula (<see cref="SyntheticClusterRun"/>), each with its stars-only and starless truth.
+    /// </summary>
+    private Command BuildSyntheticClusterCommand()
+    {
+        var masterOpt = new Option<string>("--master") { Description = "The master the scenes copy (its units, header and optics).", Required = true };
+        var plateOpt = new Option<string>("--plate")
+        {
+            Description = "Its starless plate from tianwen dataset starless-plates, with <stem>_plate.stars.csv and <stem>_plate.profile.json beside it.",
+            Required = true,
+        };
+        var outOpt = new Option<string>("--out", "-o") { Description = "Output directory.", Required = true };
+        var atOpt = new Option<string>("--at") { Description = "The scene's top-left corner in the master's frame, x,y: the optics there are the scene's.", DefaultValueFactory = _ => "0,0" };
+        var sizeOpt = new Option<int>("--size") { Description = "The scene's side, pixels.", DefaultValueFactory = _ => 1024 };
+        var seedOpt = new Option<int>("--seed") { Description = "The sky's seed; every variant of one seed holds the same stars.", DefaultValueFactory = _ => 1 };
+        var rotationsOpt = new Option<string>("--rotations") { Description = "Sky rotations, degrees, comma separated; each a re-render.", DefaultValueFactory = _ => "0,90,37" };
+        var opticsOpt = new Option<string>("--optics")
+        {
+            Description = "Comma separated: plain (green's Moffat in every channel, no chromatic aberration), measured (the plate builder's own " +
+                          "profile per channel), lateral (measured plus each channel magnified by --lateral-ppm about the frame's centre).",
+            DefaultValueFactory = _ => "plain,measured,lateral",
+        };
+        var nebulaOpt = new Option<string>("--nebula") { Description = "Nebula strengths over the sky, comma separated (0 for none, 1 the plate's own).", DefaultValueFactory = _ => "0,0.5" };
+        var nebulaAtOpt = new Option<string>("--nebula-at") { Description = "Where in the master's frame the nebula is drawn from, x,y; default the scene's centre." };
+        var clusterStarsOpt = new Option<int>("--cluster-stars") { Description = "Resolved stars in the cluster (King profile).", DefaultValueFactory = _ => 3000 };
+        var coreOpt = new Option<double>("--core-radius") { Description = "The King core radius, pixels.", DefaultValueFactory = _ => 40.0 };
+        var tidalOpt = new Option<double>("--tidal-radius") { Description = "The King tidal radius, pixels.", DefaultValueFactory = _ => 400.0 };
+        var fieldDensityOpt = new Option<double>("--field-density") { Description = "Resolved field stars per square pixel.", DefaultValueFactory = _ => 0.005 };
+        var saturatedOpt = new Option<int>("--saturated") { Description = "Saturated stars, from the master's own saturated pool.", DefaultValueFactory = _ => 6 };
+        var glowShareOpt = new Option<double>("--glow-share") { Description = "The unresolved stars' share of all starlight, in the starless truth.", DefaultValueFactory = _ => 0.25 };
+        var glowSlopeOpt = new Option<double>("--glow-slope") { Description = "The unresolved stars' luminance function, N(>a) ~ a^-slope.", DefaultValueFactory = _ => 0.75 };
+        var lateralOpt = new Option<string>("--lateral-ppm") { Description = "--optics lateral: each channel's radial scale, ppm, comma separated.", DefaultValueFactory = _ => "0,0,0" };
+        var groupsOpt = new Option<int>("--sub-clusters") { Description = "Compact groups inside the cluster (an OB association's knots).", DefaultValueFactory = _ => 0 };
+        var groupShareOpt = new Option<double>("--sub-cluster-share") { Description = "The share of the cluster's stars in the groups.", DefaultValueFactory = _ => 0.3 };
+        var groupCoreOpt = new Option<double>("--sub-cluster-core") { Description = "A group's King core radius, pixels (tidal six times it).", DefaultValueFactory = _ => 8.0 };
+        var command = new Command("synthetic-cluster",
+            "Render synthetic crowded-cluster scenes from one master's own stars (brightness and colour from its starless plate's catalogue), " +
+            "profiles, noise and nebula: a King-profile cluster over a field, an unresolved glow, optionally the plate's nebula, in several optics " +
+            "and sky rotations of one sky. Each scene is written as <name>.fits (with the master's noise), <name>_stars.fits and " +
+            "<name>_starless.fits (the noise-free truth) and <name>_truth.csv.")
+        {
+            Options = { masterOpt, plateOpt, outOpt, atOpt, sizeOpt, seedOpt, rotationsOpt, opticsOpt, nebulaOpt, nebulaAtOpt, clusterStarsOpt, coreOpt, tidalOpt,
+                fieldDensityOpt, saturatedOpt, glowShareOpt, glowSlopeOpt, lateralOpt, groupsOpt, groupShareOpt, groupCoreOpt },
+        };
+        command.SetAction(async (parseResult, ct) =>
+        {
+            static bool TryPair(string? text, out (int X, int Y) pair)
+            {
+                pair = default;
+                var xy = (text ?? "").Split(',', StringSplitOptions.TrimEntries);
+                if (xy.Length != 2 || !int.TryParse(xy[0], CultureInfo.InvariantCulture, out var x) || !int.TryParse(xy[1], CultureInfo.InvariantCulture, out var y))
+                {
+                    return false;
+                }
+                pair = (x, y);
+                return true;
+            }
+            static ImmutableArray<double>? Doubles(string text)
+            {
+                var values = ImmutableArray.CreateBuilder<double>();
+                foreach (var part in text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    if (!double.TryParse(part, NumberStyles.Float, CultureInfo.InvariantCulture, out var v))
+                    {
+                        return null;
+                    }
+                    values.Add(v);
+                }
+                return values.ToImmutable();
+            }
+            if (!TryPair(parseResult.GetValue(atOpt), out var at))
+            {
+                consoleHost.WriteError("--at takes x,y");
+                return 1;
+            }
+            var size = parseResult.GetValue(sizeOpt);
+            var nebulaAt = (at.X + (size / 2), at.Y + (size / 2));
+            if (parseResult.GetValue(nebulaAtOpt) is { } nebulaAtText && !TryPair(nebulaAtText, out nebulaAt))
+            {
+                consoleHost.WriteError("--nebula-at takes x,y");
+                return 1;
+            }
+            if (Doubles(parseResult.GetValue(rotationsOpt) ?? "") is not { Length: > 0 } rotations
+                || Doubles(parseResult.GetValue(nebulaOpt) ?? "") is not { Length: > 0 } nebulae
+                || Doubles(parseResult.GetValue(lateralOpt) ?? "") is not { } lateral)
+            {
+                consoleHost.WriteError("--rotations, --nebula and --lateral-ppm take comma separated numbers");
+                return 1;
+            }
+            var optics = ImmutableArray.CreateBuilder<ClusterOptics>();
+            foreach (var name in (parseResult.GetValue(opticsOpt) ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!Enum.TryParse<ClusterOptics>(name, ignoreCase: true, out var o))
+                {
+                    consoleHost.WriteError($"--optics: '{name}' is none of plain, measured, lateral");
+                    return 1;
+                }
+                optics.Add(o);
+            }
+            var spec = new SyntheticClusterSpec(size, at.X, at.Y, 0.0,
+                parseResult.GetValue(clusterStarsOpt), parseResult.GetValue(coreOpt), parseResult.GetValue(tidalOpt), parseResult.GetValue(fieldDensityOpt),
+                parseResult.GetValue(saturatedOpt), parseResult.GetValue(glowShareOpt), parseResult.GetValue(glowSlopeOpt),
+                0.0, nebulaAt.Item1, nebulaAt.Item2, ClusterOptics.Plain, lateral, parseResult.GetValue(seedOpt),
+                parseResult.GetValue(groupsOpt), parseResult.GetValue(groupShareOpt), parseResult.GetValue(groupCoreOpt));
+            var run = new SyntheticClusterRun(parseResult.Required(masterOpt), parseResult.Required(plateOpt), parseResult.Required(outOpt), spec,
+                optics.ToImmutable(), nebulae, rotations);
+            var (scenes, _) = await run.RunAsync(new Progress<string>(line => consoleHost.WriteScrollable("[synthetic-cluster] " + line)), ct);
+            consoleHost.WriteScrollable($"[synthetic-cluster] {scenes.Length} scene(s) in {parseResult.Required(outOpt)}");
             return 0;
         });
         return command;
