@@ -99,6 +99,24 @@ under 3 h from May to July (`C:/temp/e2/lmc-season.py`, mid-month, the Sun below
 that, 3.6 h a panel is 108 to 151 h on the SV605CC (about half a year) and 180 to 260 h on the ASI585 (about a year;
 60 panels at the split overlap, 216 h); 7.8 h a panel is 2.2 times as long (two to two and a half years on the 585).
 
+**Every rig of the owner's against the LMC** (2026-10-20). Panels from `MosaicGenerator` at each rig's measured focal
+length; hours a panel are Saturday's 3.6 h scaled by aperture area, so equal depth per area of sky with the filter and
+sensor response held equal, which they are not across these rigs (an L-Ultimate 3 nm, LRGB on a mono, an uncooled
+294). The Samyang's 130 mm and the SV545's 202.4 mm are measured (the SV545's `FOCALLEN` read 205 until 2026-10-20);
+the Samyang subs read FWHM 2.1 px (12.8 arcsec), the SV545's 2.5 px (12 arcsec), the SH61's 2.2 to 2.7 (6 to 8).
+
+| Rig | Aperture | Scale | Panels, 10 % / 20 % | Hours a panel | Whole LMC | At 227 h a year |
+|---|---|---|---|---|---|---|
+| SH61 0.75x + SV605CC | 61 mm | 2.87 arcsec/px | 30 / 42 | 3.6 | 108 to 151 h | 0.5 to 0.7 yr |
+| SH61 0.75x + ASI585 | 61 mm | 2.22 | 50 / 72 (60 split) | 3.6 | 180 to 259 h | 0.8 to 1.1 yr |
+| Samyang 135 at f/2.8 + ASI533 | 46 mm | 5.97 | 9 / 9 | 6.2 | 56 h | 0.25 yr |
+| Samyang 135 at f/2 + ASI533 | 65 mm | 5.97 | 9 / 9 | 3.2 | 29 h | 0.13 yr |
+| FMA180 + ASI294 | 40 mm | 5.31 | 8 / 12 | 8.4 | 67 to 100 h | 0.3 to 0.45 yr |
+| SV545 + QHY294C Pro | 45 mm | 4.70 | 12 / 15 | 6.6 | 79 to 99 h | 0.35 to 0.45 yr |
+
+What sets a mosaic's time is the rig's etendue, aperture area times field: the Samyang covers the LMC in a 3 x 3 grid
+and needs about a third of the SH61's hours, at half its resolution (a 6,500 x 5,500 px mosaic against 13,500 x 11,500).
+
 ## E1: an Auto button that suggests a frame plan from what is in the frame
 
 Tracked by #1694. The owner's idea (2026-10-20): the session configuration offers **Auto**, which reads what the
