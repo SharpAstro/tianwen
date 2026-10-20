@@ -721,6 +721,18 @@ Tracked by #847.
   from the tile; or accept the floor and state which fields the model is not for. Answer
   with `condprobe.py` over the next cache before its first seed, not after.
 
+### Bright pixels on a starless plate are thrown to the ceiling
+
+Found 2026-10-20 on the Tarantula master of 2026-10-17 (SV605CC), through the registered N2N exactly as the enhance
+pipeline hands it a starless plate: three adjacent green pixels at 0.29 to 0.39, the remains of a core the star remover
+left, came out at 1.007, on a plate whose brightest pixel is 0.585 (7 channel-pixels raised by more than 0.1, 4 above
+the plate's peak; on the PixInsight-order plate of the same master 1 and 3; NoiseX on the same plate raises none).
+Everywhere else `image denoise` and the pipeline agree to about 1e-8: the verb divides the set by its brightest value
+first, which only moves where the ceiling lands (0.592 there). The likely mechanism is H0's bright-end note with the
+other sign, a stretched-domain overshoot near 1 that the inverse MTF turns into a jump to the ceiling; unconfirmed.
+Confirming it and choosing the fix (clamp, hand the bright pixels through untouched, or train it out):
+[#1708](https://github.com/SharpAstro/tianwen/issues/1708).
+
 ## 9. Run log
 
 ### E0.5, 2026-09-02: H0 on the seam-report master
