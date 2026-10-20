@@ -63,6 +63,11 @@ public sealed class PlanetaryRecenterDto
 
     // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is
     // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).
+    /// <summary>Pan the window; false leaves it where it is, so with <see cref="MountJog"/> the mount alone recentres.</summary>
+    public bool Roi { get; set; } = true;
+
+    // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is
+    // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).
     public int DeadbandPixels { get; set; } = 4;
 
     // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is

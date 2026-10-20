@@ -174,6 +174,7 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     private int _recenterGainPermille = 500;            // gain * 1000 (int so the cross-thread write is atomic)
     private int _flipRa;                                // 0/1
     private int _flipDec;                               // 0/1
+    private int _roiJogEnabled = 1;                     // 0/1
 
     // Mount-pulse single-flight + cooldown so the (rarely-fired, edge-blocked) coarse nudge never stacks pulses faster
     // than they execute, and never blocks the capture loop (it's fired-and-tracked).
@@ -1369,10 +1370,13 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
     /// Stages the recenter-loop configuration. The capture loop reads these per frame, so a change takes effect on the
     /// next frame. <paramref name="gain"/> is the fraction of the measured offset corrected per frame (0..1];
     /// <paramref name="mountJog"/> opts into the coarse mount nudge when the ROI is at the sensor edge;
-    /// <paramref name="flipRa"/>/<paramref name="flipDec"/> invert the (uncalibrated) pixel->mount-direction mapping.
+    /// <paramref name="flipRa"/>/<paramref name="flipDec"/> invert the (uncalibrated) pixel->mount-direction mapping;
+    /// <paramref name="roiJog"/> false leaves the window where it is, so the mount alone recentres.
     /// </summary>
-    public void ConfigureRecenter(bool auto, bool mountJog, int deadbandPixels, double gain, bool flipRa = false, bool flipDec = false)
+    public void ConfigureRecenter(bool auto, bool mountJog, int deadbandPixels, double gain, bool flipRa = false, bool flipDec = false,
+        bool roiJog = true)
     {
+        Volatile.Write(ref _roiJogEnabled, roiJog ? 1 : 0);
         Volatile.Write(ref _autoRecenter, auto ? 1 : 0);
         Volatile.Write(ref _mountJogEnabled, mountJog ? 1 : 0);
         Volatile.Write(ref _recenterDeadbandPx, Math.Max(0, deadbandPixels));
@@ -1421,7 +1425,8 @@ public sealed class PlanetaryCapture(ITimeProvider timeProvider, ILogger logger,
                 MountJogEnabled: Volatile.Read(ref _mountJogEnabled) == 1,
                 PixelScaleArcsec: _pixelScaleArcsec,
                 FlipRa: Volatile.Read(ref _flipRa) == 1,
-                FlipDec: Volatile.Read(ref _flipDec) == 1);
+                FlipDec: Volatile.Read(ref _flipDec) == 1,
+                RoiJogEnabled: Volatile.Read(ref _roiJogEnabled) == 1);
 
             var decision = PlanetaryRecenterController.Decide(
                 com, frame.Width, frame.Height, roi, sensorW, sensorH, canJog, options);

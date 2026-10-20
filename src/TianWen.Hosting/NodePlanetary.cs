@@ -759,7 +759,8 @@ internal sealed class NodePlanetaryRun : INodeStreamingRun
 
     /// <summary>The recenter's settings, given whole.</summary>
     public void Configure(PlanetaryRecenterDto recenter)
-        => Capture.ConfigureRecenter(recenter.Auto, recenter.MountJog, recenter.DeadbandPixels, recenter.Gain, recenter.FlipRa, recenter.FlipDec);
+        => Capture.ConfigureRecenter(recenter.Auto, recenter.MountJog, recenter.DeadbandPixels, recenter.Gain, recenter.FlipRa, recenter.FlipDec,
+            recenter.Roi);
 
     /// <summary>Stages each control the client gave, for the capture to take after its next frame.</summary>
     public void Apply(PlanetaryControlsDto controls)

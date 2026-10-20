@@ -37,6 +37,22 @@ public class PlanetaryRecenterControllerTests
     }
 
     [Fact]
+    public void With_the_window_not_to_be_panned_the_mount_recentres_the_whole_offset_mid_sensor()
+    {
+        // The panel's Mount mode (2026-10-20): the window has all its pan range, yet the mount moves the planet back, by the
+        // whole offset on that axis, and the window stays where it is.
+        var com = (Centre.X + 60.0, Centre.Y);
+        var d = PlanetaryRecenterController.Decide(
+            com, FrameW, FrameH, MidRoi, SensorW, SensorH, canJogRoi: true,
+            new RecenterOptions(Gain: 0.5, MountJogEnabled: true, PixelScaleArcsec: 1.0, MaxMountArcsec: 200, RoiJogEnabled: false));
+
+        d.Actuator.ShouldBe(RecenterActuator.Mount);
+        (d.RoiDx, d.RoiDy).ShouldBe((0, 0));
+        d.MountRaArcsec.ShouldBe(60.0, 1e-9);
+        d.MountDecArcsec.ShouldBe(0.0);
+    }
+
+    [Fact]
     public void Offset_within_deadband_holds_position()
     {
         // offset (2, 0) px, deadband 4 -> inside -> hold (but the offset is still reported for telemetry).

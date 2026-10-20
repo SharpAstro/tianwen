@@ -31,7 +31,8 @@ public class PlanetaryControlPanelFitTests
     [
         "PlanetaryCaptureToggle", "ExposureDec", "ExposureInc", "GainDec", "GainInc", "Depth8", "Depth16", "HighSpeed",
         "RoiSizeDec", "RoiSizeInc", "RoiPanLeft", "RoiPanRight", "RoiPanUp", "RoiPanDown",
-        "RecenterAuto", "RecenterDeadbandDec", "RecenterDeadbandInc", "RecenterGainDec", "RecenterGainInc", "RecenterMount",
+        "RecenterOff", "RecenterRoi", "RecenterMount", "RecenterBoth", "RecenterDeadbandDec", "RecenterDeadbandInc", "RecenterGainDec",
+        "RecenterGainInc",
         "MountNudgeN", "MountNudgeS", "MountNudgeE", "MountNudgeW",
         "FocCoarseIn", "FocFineIn", "FocFineOut", "FocCoarseOut",
     ];
@@ -99,9 +100,9 @@ public class PlanetaryControlPanelFitTests
                 RecenterActuator = RecenterActuator.Roi,
                 Recording = Ended,
             });
-            // Auto-recenter on as the user turns it on, a press where it is painted: its offset row shows while the capture runs.
+            // The recenter on as the user turns it on, a press where it is painted: its offset row shows while the capture runs.
             Paint(new RectF32(0f, 0f, PlanetaryControlPanel.BaseWidth * Scale, 1200 * Scale));
-            Host.Press("RecenterAuto");
+            Host.Press("RecenterRoi");
             if (!capturing)
             {
                 Capture.Ended();
