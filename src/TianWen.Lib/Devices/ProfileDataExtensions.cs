@@ -194,34 +194,6 @@ public static class ProfileDataExtensions
         }
 
         /// <summary>
-        /// Writes a just-connected filter wheel's slots onto the URI of every OTA that names it and lists no slots, so the
-        /// Equipment tab's filter table shows them: an Alpaca or ASCOM wheel knows its slots only once connected, where a ZWO
-        /// or QHY wheel's discovery writes them up front. A URI that already lists slots is the user's and is never
-        /// replaced. Returns the updated profile, or <see langword="null"/> when nothing changed (no slots reported, the
-        /// wheel in no OTA, or every OTA naming it already lists slots). Pure, applied on a wheel's connect by the node.
-        /// </summary>
-        public ProfileData? CaptureFilterSlots(Uri wheelUri, IFilterWheelDriver wheel)
-        {
-            var reported = wheel.Filters;
-            if (reported.Count == 0)
-            {
-                return null;
-            }
-
-            var otas = profile.OTAs;
-            var changed = false;
-            for (var i = 0; i < otas.Length; i++)
-            {
-                if (otas[i].FilterWheel is { } assigned && DeviceBase.SameDevice(assigned, wheelUri) && FilterWheelSlots.Read(assigned).Count == 0)
-                {
-                    otas = otas.SetItem(i, otas[i] with { FilterWheel = FilterWheelSlots.WithSlots(assigned, reported) });
-                    changed = true;
-                }
-            }
-            return changed ? profile with { OTAs = otas } : null;
-        }
-
-        /// <summary>
         /// This profile, an edit made of <paramref name="based"/>, made again onto <paramref name="latest"/>: every field
         /// the edit changed takes the edit's value, and every other field the latest's, so a change made elsewhere since
         /// the edit was read survives it. What a client does when the node refuses an edit as made against a profile that

@@ -43,6 +43,8 @@ namespace TianWen.UI.Abstractions
         // driver names them, which a filter change goes by, for the planetary panel's FILTER section (#1618).
         int FilterPosition = -1,
         ImmutableArray<string> FilterSlots = default,
+        // Each slot's focus offset as the wheel reports it, beside FilterSlots, so the Equipment tab can show a wheel's own slots.
+        ImmutableArray<int> FilterOffsets = default,
         // Arcseconds a pixel, unbinned, from the profile's focal length and the camera's photosite; NaN when either is unknown.
         // What a sequence's rotation light reads a planet's turn in (#1340).
         double PixelScaleArcsec = double.NaN)
@@ -87,6 +89,7 @@ namespace TianWen.UI.Abstractions
                 CanFastReadout: camera?.CanFastReadout ?? false,
                 FilterPosition: filterWheel?.Position ?? -1,
                 FilterSlots: filterWheel?.Slots is { IsDefault: false } slots ? slots : [],
+                FilterOffsets: filterWheel?.Offsets is { IsDefault: false } offsets ? offsets : [],
                 PixelScaleArcsec: ota is { FocalLength: > 0, CameraPixelSizeUm: > 0 and var pixelUm } ? 206.264806 * pixelUm / ota.FocalLength : double.NaN);
     }
 }

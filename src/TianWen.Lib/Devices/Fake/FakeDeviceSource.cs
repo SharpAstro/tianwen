@@ -37,11 +37,11 @@ internal class FakeDeviceSource : IDeviceSource<FakeDevice>
 
         if (deviceType is DeviceType.FilterWheel)
         {
-            // One wheel per preset, its slots ON its URI as a discovered ZWO or QHY wheel's are, so the Equipment tab's
-            // filter table (which reads the URI) shows them the moment the wheel is assigned.
+            // One wheel per preset, named after it. Its slots are the DRIVER's, as any wheel's are: a URI's slots are only ever the
+            // user's, so discovery writing them there would come back on every rediscovery as if the user had typed them.
             for (var i = 1; i <= FakeFilterWheelDriver.PresetCount; i++)
             {
-                yield return FilterWheelWithItsSlots(i);
+                yield return FilterWheelNamedForItsPreset(i);
             }
             yield break;
         }
@@ -96,16 +96,10 @@ internal class FakeDeviceSource : IDeviceSource<FakeDevice>
         }
     }
 
-    /// <summary>
-    /// The fake wheel <paramref name="id"/> as discovery lists it: its preset's filters as <c>filter1..N</c> and
-    /// <c>offset1..N</c>, which is what the driver reads them back from, and the preset's name in its display name.
-    /// </summary>
-    internal static FakeDevice FilterWheelWithItsSlots(int id)
-    {
-        var bare = new Uri($"{DeviceType.FilterWheel}://{nameof(FakeDevice)}/Fake{DeviceType.FilterWheel}{id}"
-            + $"#Fake Filter Wheel {id} ({FakeFilterWheelDriver.GetPresetNameForId(id)})");
-        return new FakeDevice(FilterWheelSlots.WithSlots(bare, FakeFilterWheelDriver.GetDefaultFiltersForId(id)));
-    }
+    /// <summary>The fake wheel <paramref name="id"/> as discovery lists it, its preset's name in its display name.</summary>
+    internal static FakeDevice FilterWheelNamedForItsPreset(int id)
+        => new FakeDevice(new Uri($"{DeviceType.FilterWheel}://{nameof(FakeDevice)}/Fake{DeviceType.FilterWheel}{id}"
+            + $"#Fake Filter Wheel {id} ({FakeFilterWheelDriver.GetPresetNameForId(id)})"));
 
     public ValueTask DiscoverAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 

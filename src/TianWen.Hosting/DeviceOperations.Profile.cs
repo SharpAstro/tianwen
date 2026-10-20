@@ -17,9 +17,8 @@ internal sealed partial class DeviceOperations
 {
     /// <summary>
     /// After a connect: the active profile's mount has its site reconciled with the profile's (the mount-side half
-    /// applied at once, the profile-side half written), a camera in the active profile has its sensor geometry
-    /// captured into its OTA, and a filter wheel whose URI lists no slots has the wheel's own written onto it. Answers
-    /// what it did, for the job's last step, or null when it did nothing.
+    /// applied at once, the profile-side half written), and a camera in the active profile has its sensor geometry
+    /// captured into its OTA. Answers what it did, for the job's last step, or null when it did nothing.
     /// </summary>
     private async Task<string?> WriteConnectIntoProfileAsync(DeviceBase device, CancellationToken cancellationToken)
     {
@@ -48,11 +47,6 @@ internal sealed partial class DeviceOperations
                     cancellationToken);
                 return write.Outcome is ProfileWriteOutcome.Written ? "its sensor recorded in the profile" : null;
 
-            case DeviceType.FilterWheel when hub.TryGetConnectedDriver<IFilterWheelDriver>(device.DeviceUri, out var wheel) && wheel is not null:
-                var slots = await profiles.UpdateAsync(profileId, readAt: null,
-                    current => current.Data is { } now && now.CaptureFilterSlots(device.DeviceUri, wheel) is { } captured ? current.WithData(captured) : current,
-                    cancellationToken);
-                return slots.Outcome is ProfileWriteOutcome.Written ? "its filters recorded in the profile" : null;
 
             default:
                 return null;

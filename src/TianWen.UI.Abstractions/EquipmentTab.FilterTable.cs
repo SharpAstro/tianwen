@@ -27,20 +27,23 @@ namespace TianWen.UI.Abstractions
         /// painter stashes its arranged rect so the name dropdown anchors from the real layout position.
         /// </summary>
         private Layout.Node BuildFilterTable(
-            GuiAppState appState, int otaIndex, ProfileData pd)
+            GuiAppState appState, int otaIndex, ProfileData pd, LiveSessionState? liveSessionState)
         {
             var dpiScale = DpiScale;
             var fontPath = FontPath;
-            var savedFilters = EquipmentActions.GetFilterConfig(pd, otaIndex);
+            var telemetry = liveSessionState?.PreviewOTATelemetry is { } all && otaIndex < all.Length ? all[otaIndex] : (PreviewOTATelemetry?)null;
+            var (savedFilters, fromWheel) = EquipmentActions.FiltersOnShow(pd, otaIndex, telemetry);
             var isExpanded = State.ExpandedFilterOtaIndex == otaIndex;
             var fontSize = BaseFontSize * dpiScale;
             float rowH = BaseItemHeight * 0.9f;   // design units
             var capturedOtaIdx = otaIndex;
 
             // Toggle header -- clicking expands/collapses and loads/discards editing state
+            // Slots the wheel reports, not yet saved as the user's, say so: a Save makes them theirs.
+            var source = fromWheel ? ", as the wheel reports them" : "";
             var headerLabel = isExpanded
-                ? $"    Filters ({savedFilters.Count}) [-]"
-                : $"    Filters ({savedFilters.Count}) [+]";
+                ? $"    Filters ({savedFilters.Count}{source}) [-]"
+                : $"    Filters ({savedFilters.Count}{source}) [+]";
             var toggle = FormRowLayout.ToggleHeaderRow(
                 headerLabel, rowH, FilterTableBg, HeaderText, BaseFontSize * 0.85f,
                 new HitResult.ButtonHit($"ToggleFilters{otaIndex}"),

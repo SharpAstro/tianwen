@@ -39,14 +39,13 @@ internal sealed class FakeFilterWheelDriver(FakeDevice fakeDevice, IServiceProvi
         new InstalledFilter("CH4", +18)
     ];
 
-    // A five-slot narrowband wheel: luminance, the three lines, and a blank for darks.
-    private static readonly IReadOnlyList<InstalledFilter> LshodFilters =
+    // A four-slot narrowband wheel: luminance and the three lines. No blank for darks: a flat run would expose through it.
+    private static readonly IReadOnlyList<InstalledFilter> LshoFilters =
     [
         new InstalledFilter("Luminance"),
         new InstalledFilter("SII", +25),
         new InstalledFilter("H-Alpha", +21),
-        new InstalledFilter("OIII", -3),
-        new InstalledFilter("Dark")
+        new InstalledFilter("OIII", -3)
     ];
 
     private static readonly IReadOnlyList<InstalledFilter> LhrgbFilters =
@@ -63,7 +62,7 @@ internal sealed class FakeFilterWheelDriver(FakeDevice fakeDevice, IServiceProvi
         ("LRGB", LrgbFilters),
         ("LRGBSHO", NarrowbandFilters),
         ("Planetary", PlanetaryFilters),
-        ("LSHOD", LshodFilters),
+        ("LSHO", LshoFilters),
         ("LHRGB", LhrgbFilters),
     ];
 

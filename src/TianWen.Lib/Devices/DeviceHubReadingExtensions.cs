@@ -81,7 +81,12 @@ public static class DeviceHubReadingExtensions
             {
                 slots[i] = filters[i].DisplayName;
             }
-            return new FilterWheelReading(slot, slot >= 0 && slot < filters.Count ? filters[slot].DisplayName : null, [.. slots]);
+            var offsets = new int[filters.Count];
+            for (var i = 0; i < offsets.Length; i++)
+            {
+                offsets[i] = filters[i].Position;
+            }
+            return new FilterWheelReading(slot, slot >= 0 && slot < filters.Count ? filters[slot].DisplayName : null, [.. slots], [.. offsets]);
         }
 
         /// <summary>
