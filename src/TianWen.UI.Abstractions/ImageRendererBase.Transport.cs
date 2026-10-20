@@ -99,7 +99,8 @@ namespace TianWen.UI.Abstractions
                 SegmentWidth = MeasureText(ViewSwitchWidestLabel, fs) + pad * 2,
             };
             // A live capture (no SER on screen, the GUI's planetary tab) has no recording to stack whole: Frames and Live only.
-            var offered = state.SequencePath is null ? views[..2] : views;
+            var live = state.IsLiveCapture;
+            var offered = live ? views[..2] : views;
             var viewSwitch = Layout.Builder.ButtonGroup(offered, state.PlanetaryView, state.ChoosePlanetaryView, viewStyle, fs);
             var controlsCtx = MeasureContext(scale: DesignScale.One);
             var segmentH = Layout.Engine.Measure(viewSwitch, new Layout.Size<float>(float.MaxValue, btnSize), controlsCtx).Height;
@@ -112,8 +113,8 @@ namespace TianWen.UI.Abstractions
                 .Bg(ToolbarButtonBg).BgHover(GuiTheme.Hover(ToolbarButtonBg))
                 .Clickable(new HitResult.ButtonHit("PlayPause"), _ => { state.IsPlaying = !state.IsPlaying; state.NeedsRedraw = true; });
 
-            // The row centred in the bar, as the readout is.
-            var controls = Layout.Builder.HStack(playPause, viewSwitch).WithGap(pad);
+            // The row centred in the bar, as the readout is. A live capture has no play/pause (#1716): its newest frame is on show.
+            var controls = live ? viewSwitch : Layout.Builder.HStack(playPause, viewSwitch).WithGap(pad);
             var controlsW = Layout.Engine.Measure(controls, new Layout.Size<float>(float.MaxValue, segmentH), controlsCtx).Width;
             var controlsY = r.Y + (r.Height - segmentH) / 2f;
             PaintLayout(ArrangeLayout(controls, new RectF32(btnX, controlsY, controlsW, segmentH), controlsCtx), controlsCtx, (fill, rect) =>
@@ -160,7 +161,11 @@ namespace TianWen.UI.Abstractions
             var readoutX = r.X + r.Width - pad - readoutW;
             DrawText(readout, readoutX, textY, fs, RGBAColor32.FromFloat(0.85f, 0.85f, 0.85f, 1f));
 
-            // Scrub track fills the gap between the buttons and the readout.
+            // Scrub track fills the gap between the buttons and the readout; none for a live capture, which has nothing to scrub (#1716).
+            if (live)
+            {
+                return;
+            }
             var trackX = btnX + controlsW + pad * 2;
             var trackRight = readoutX - pad * 2;
             var trackW = MathF.Max(0f, trackRight - trackX);

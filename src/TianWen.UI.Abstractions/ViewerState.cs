@@ -375,6 +375,12 @@ public sealed class ViewerState
     /// <summary>True when the active source is a multi-frame sequence -- gates the transport bar.</summary>
     public bool IsSequence { get; set; }
 
+    /// <summary>
+    /// A sequence with no recording behind it: the camera streaming (the GUI's Planetary mode). Its newest frame is always the
+    /// one on show, so the transport offers nothing to play, pause or scrub (#1716).
+    /// </summary>
+    public bool IsLiveCapture => IsSequence && SequencePath is null;
+
     /// <summary>Total frames in the active sequence (1 for a still image).</summary>
     public int FrameCount { get; set; } = 1;
 

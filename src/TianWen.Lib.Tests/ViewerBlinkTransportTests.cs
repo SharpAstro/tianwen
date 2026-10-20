@@ -318,5 +318,67 @@ namespace TianWen.Lib.Tests
 
             state.IsBlinking.ShouldBe(blinking);
         }
+
+        private static (BlinkViewer Viewer, ViewerState State) NewSequenceViewer(string? sequencePath)
+        {
+            var viewer = new BlinkViewer(new RgbaImageRenderer(SurfaceW, SurfaceH));
+            viewer.UploadChannelTexture(ReadOnlySpan<float>.Empty, 0, 400, 300);
+            var state = new ViewerState
+            {
+                ShowFileList = false,
+                ShowInfoPanel = false,
+                ShowHistogram = false,
+                StretchMode = StretchMode.None,
+                IsSequence = true,
+                FrameCount = 2086,
+                SequencePath = sequencePath,
+            };
+            viewer.Render(null, state);
+            return (viewer, state);
+        }
+
+        // The strip's own buttons, among the toolbar's that are painted with them.
+        private static readonly string[] TransportActions = ["PlayPause", "ViewFrames", "ViewLive", "ViewAuto"];
+
+        private static string[] PaintedButtons(BlinkViewer viewer)
+            => [.. viewer.PaintedRegions().Select(static r => r.Result).OfType<HitResult.ButtonHit>().Select(static h => h.Action)
+                .Where(static a => TransportActions.Contains(a))];
+
+        private static bool PaintsTheScrubTrack(BlinkViewer viewer)
+            => viewer.PaintedRegions().Any(r => r.Result is HitResult.SliderStateHit { State: var slider } && ReferenceEquals(slider, viewer.Scrub));
+
+        /// <summary>
+        /// A live capture's newest frame is always the one on show, so the strip offers only the Frames / Live switch and the
+        /// readout (#1716): its play/pause flipped a flag nothing read and its track sat at the newest frame, two things that
+        /// looked like controls and were not. A recorded capture keeps both, which is what keeps this honest.
+        /// </summary>
+        [Fact]
+        public void ALiveCaptureOffersNoPlayPauseNorScrubTrack()
+        {
+            var (live, liveState) = NewSequenceViewer(sequencePath: null);
+            liveState.IsLiveCapture.ShouldBeTrue();
+            PaintedButtons(live).ShouldBe(["ViewFrames", "ViewLive"], ignoreOrder: true);
+            PaintsTheScrubTrack(live).ShouldBeFalse("a live capture has nothing to scrub");
+
+            var (recorded, _) = NewSequenceViewer(sequencePath: Path.Combine("captures", "jupiter.ser"));
+            PaintedButtons(recorded).ShouldBe(["PlayPause", "ViewFrames", "ViewLive", "ViewAuto"], ignoreOrder: true);
+            PaintsTheScrubTrack(recorded).ShouldBeTrue("a recording keeps its track");
+        }
+
+        /// <summary>The transport keys go with the buttons: Space neither plays nor pauses a live capture, and an arrow seeks nothing.</summary>
+        [Fact]
+        public void ALiveCaptureClaimsNoTransportKey()
+        {
+            var (viewer, state) = NewSequenceViewer(sequencePath: null);
+
+            Press(viewer, InputKey.Space);
+            state.IsPlaying.ShouldBeFalse("Space plays nothing live");
+            Press(viewer, InputKey.Left);
+            state.RequestedFrame.ShouldBeNull("an arrow seeks nothing live");
+
+            var (recorded, recordedState) = NewSequenceViewer(sequencePath: Path.Combine("captures", "jupiter.ser"));
+            Press(recorded, InputKey.Space);
+            recordedState.IsPlaying.ShouldBeTrue("a recording still plays on Space");
+        }
     }
 }
