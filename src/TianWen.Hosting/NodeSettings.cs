@@ -101,7 +101,7 @@ public static class NodeListeningDecision
 {
     /// <summary>
     /// The socket always. TCP (the LAN) unless local-only (<see cref="NodeArguments.LocalOnly"/>, which the server sets
-    /// from <see cref="TianWen.Lib.LocalOnlyMode"/>, its command line or <c>TIANWEN_LOCAL_ONLY</c>): a node run by hand
+    /// from <see cref="Node.Lib.LocalOnlyMode"/>, its command line or <c>TIANWEN_LOCAL_ONLY</c>): a node run by hand
     /// keeps it, as a mini PC's does; a node a client started takes it only while the rig is shared (decision 3), so a
     /// GUI on a laptop never opens a port or announces a rig nobody asked to share.
     /// </summary>

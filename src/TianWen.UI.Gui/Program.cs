@@ -2,6 +2,7 @@
 using LAN.Lib;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Node.Lib;
 using SdlVulkan.Renderer;
 using TianWen.Lib;
 using TianWen.Lib.Astrometry.Catalogs;

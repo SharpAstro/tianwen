@@ -39,7 +39,7 @@ public sealed class LocalNodeConnection : NodeConnection
     public LocalNodeOutcome Outcome { get; }
 
     /// <summary>
-    /// Set when the node is used in the other mode than this client would start one in (<see cref="TianWen.Lib.LocalOnlyMode"/>,
+    /// Set when the node is used in the other mode than this client would start one in (<see cref="Node.Lib.LocalOnlyMode"/>,
     /// <see cref="LocalNode.ModeNote"/>): an ordinary window on a local-only node misses its WiFi devices and its LAN, so the app says so.
     /// </summary>
     public string? ModeNote { get; }
