@@ -39,6 +39,8 @@ public enum RecenterActuator
 /// <param name="FlipRa">Invert the X-pixel -> RA-direction mapping (the on-sky orientation depends on camera
 /// rotation + pier side, which this loop does not solve for).</param>
 /// <param name="FlipDec">Invert the Y-pixel -> Dec-direction mapping.</param>
+/// <param name="RoiJogEnabled">Pan the window. Off, every axis counts as blocked, so with <paramref name="MountJogEnabled"/> the
+/// mount recentres the whole offset and the window stays where it is (the panel's Mount mode).</param>
 public readonly record struct RecenterOptions(
     double DeadbandPixels = 4.0,
     double Gain = 0.5,
@@ -48,7 +50,8 @@ public readonly record struct RecenterOptions(
     double PixelScaleArcsec = double.NaN,
     double MaxMountArcsec = 60.0,
     bool FlipRa = false,
-    bool FlipDec = false);
+    bool FlipDec = false,
+    bool RoiJogEnabled = true);
 
 /// <summary>
 /// The recenter decision for one frame. The controller is <b>pure</b> -- it never touches a driver; the
@@ -142,8 +145,9 @@ public static class PlanetaryRecenterController
         var marginX = (int)Math.Round(Math.Clamp(options.EdgeMarginFraction, 0.0, 0.5) * maxStartX);
         var marginY = (int)Math.Round(Math.Clamp(options.EdgeMarginFraction, 0.0, 0.5) * maxStartY);
 
-        // An axis is "blocked" when it wants to jog but cannot: the camera can't ROI-jog, the axis has no pan
-        // range, or the window is already within the edge margin in the direction it needs to move.
+        // An axis is "blocked" when it wants to jog but cannot: the camera can't ROI-jog, the window is not to be panned, the
+        // axis has no pan range, or the window is already within the edge margin in the direction it needs to move.
+        canJogRoi &= options.RoiJogEnabled;
         var blockedX = wantDx != 0 && (!canJogRoi || maxStartX == 0
             || (wantDx > 0 && roi.X >= maxStartX - marginX)
             || (wantDx < 0 && roi.X <= marginX));

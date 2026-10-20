@@ -97,8 +97,7 @@ public sealed class PlanetaryControlPanel
     // --- RECENTER (Phase C): COM auto-recenter via ROI jog + opt-in coarse mount jog, handed to the capture once a frame. Both
     // are OPT-IN (the user, 2026-09-28): the operator turns the recenter on once the rig is ready for it, and it costs the
     // capture loop about 20 ms a frame at full frame. Mount jog moves the scope, and its sign is uncalibrated. ---
-    private bool _autoRecenter;
-    private bool _mountJog;
+    private PlanetaryRecenterMode _recenter;
     private static readonly int[] DeadbandPresetsPx = [2, 4, 8, 16, 32];
     private int _deadbandIdx = 1;                 // 4 px
     private static readonly int[] RecenterGainPresetsPct = [10, 25, 50, 75, 100];
@@ -308,7 +307,7 @@ public sealed class PlanetaryControlPanel
         else
         {
             rows.Add(Layout.Builder.HStack(
-                    Layout.Builder.Text("Pan", PanelFontSize, DimText, TextAlign.Near, TextAlign.Center).WFixed(40f).HStar(),
+                    RowLabel("Pan"),
                     RoiPanButton("◀", "RoiPanLeft", -1, 0, capture, capturing),
                     RoiPanButton("▶", "RoiPanRight", 1, 0, capture, capturing),
                     RoiPanButton("▲", "RoiPanUp", 0, -1, capture, capturing),
@@ -328,14 +327,23 @@ public sealed class PlanetaryControlPanel
         rows.Add(Layout.Builder.Spacer().RowH(BaseGap));
         rows.Add(Layout.Builder.Box(0f, 1f, Divider).RowH(1f));
         rows.Add(SectionHeader("RECENTER"));
-        rows.Add(CheckRow("Auto-recenter (ROI)", _autoRecenter, "RecenterAuto", () => _autoRecenter = !_autoRecenter));
+        var recenterStyle = new Layout.ButtonGroupStyle(CheckOnBg, StepBtnBg, HeaderText, DimText, GuiTheme.Hover(StepBtnBg));
+        ReadOnlySpan<Layout.ButtonGroupOption<PlanetaryRecenterMode>> recenterModes =
+        [
+            new(PlanetaryRecenterMode.Off, "Off") { Hit = new HitResult.ButtonHit("RecenterOff") },
+            new(PlanetaryRecenterMode.Roi, "ROI") { Hit = new HitResult.ButtonHit("RecenterRoi") },
+            new(PlanetaryRecenterMode.Mount, "Mount") { Hit = new HitResult.ButtonHit("RecenterMount") },
+            new(PlanetaryRecenterMode.Both, "Both") { Hit = new HitResult.ButtonHit("RecenterBoth") },
+        ];
+        rows.Add(Layout.Builder.ButtonGroup(recenterModes, _recenter, chosen => _recenter = chosen, recenterStyle, PanelFontSize * 0.9f)
+            .RowH(BaseRowHeight));
         rows.Add(Stepper("Deadband", $"{DeadbandPresetsPx[_deadbandIdx]} px", "RecenterDeadband",
             () => _deadbandIdx = Math.Max(0, _deadbandIdx - 1),
             () => _deadbandIdx = Math.Min(DeadbandPresetsPx.Length - 1, _deadbandIdx + 1)));
         rows.Add(Stepper("Gain", $"{RecenterGainPresetsPct[_gainIdx]}%", "RecenterGain",
             () => _gainIdx = Math.Max(0, _gainIdx - 1),
             () => _gainIdx = Math.Min(RecenterGainPresetsPct.Length - 1, _gainIdx + 1)));
-        if (capturing && _autoRecenter)
+        if (capturing && _recenter is not PlanetaryRecenterMode.Off)
         {
             var (ox, oy) = capture.LastComOffset;
             rows.Add(Layout.Builder.Text(
@@ -343,9 +351,8 @@ public sealed class PlanetaryControlPanel
                     PanelFontSize * 0.8f, DimText, TextAlign.Near, TextAlign.Center)
                 .RowH(BaseRowHeight * 0.8f));
         }
-        rows.Add(CheckRow("Mount jog (coarse)", _mountJog, "RecenterMount", () => _mountJog = !_mountJog));
         rows.Add(Layout.Builder.HStack(
-                Layout.Builder.Text("Nudge", PanelFontSize, DimText, TextAlign.Near, TextAlign.Center).WFixed(40f).HStar(),
+                RowLabel("Nudge"),
                 MountNudgeButton("N", "MountNudgeN", GuideDirection.North, bus),
                 MountNudgeButton("S", "MountNudgeS", GuideDirection.South, bus),
                 MountNudgeButton("E", "MountNudgeE", GuideDirection.East, bus),
@@ -503,7 +510,7 @@ public sealed class PlanetaryControlPanel
         rows.Add(Layout.Builder.HStack(
                 PanelButton("Add step", "SeqAdd", StepBtnBg, () => draft.Add(slots.Length, ExposurePresetsMs[_exposureIdx], (short)_gain)).WStar().HStar(),
                 Stepper("Sets", draft.Sets.ToString(System.Globalization.CultureInfo.InvariantCulture), "SeqSets",
-                    () => draft.StepSets(-1), () => draft.StepSets(1)).WStar().HStar())
+                    () => draft.StepSets(-1), () => draft.StepSets(1), alignedLabel: false).WStar().HStar())
             .RowH(BaseRowHeight).WithGap(BaseGap * 0.6f));
 
         if (running)
@@ -627,11 +634,21 @@ public sealed class PlanetaryControlPanel
             .Bg(fill).BgHover(GuiTheme.Hover(fill))
             .Clickable(new HitResult.ButtonHit(id), _ => onClick());
 
+    /// <summary>The widest label a row of the panel carries, which sizes every row's label column alike.</summary>
+    internal const string LabelWidthSample = "Deadband";
+
+    // A row's label, its column measured by the engine from the widest label, so every row's label lines up and none clips
+    // (a fixed 52 cut "Deadband" and "Nudge" to "Dead..." and "Nu...").
+    private static Layout.Node RowLabel(string label, bool aligned = true)
+        => Layout.Builder.Text(label, PanelFontSize, DimText, TextAlign.Near, TextAlign.Center, widthSample: aligned ? LabelWidthSample : null)
+            .HStar();
+
     private static Layout.Node SectionHeader(string text)
         => Layout.Builder.Text(text, PanelFontSize, SectionText, TextAlign.Near, TextAlign.Center).RowH(BaseRowHeight);
 
     // "label [-] value [+]" as one fixed-height row; a press runs the action, and the new value shows next frame.
-    private static Layout.Node Stepper(string label, string value, string idPrefix, Action onDec, Action onInc)
+    // A stepper sharing its row with another control (Sets, beside Add step) sizes its label to itself, not to the column.
+    private static Layout.Node Stepper(string label, string value, string idPrefix, Action onDec, Action onInc, bool alignedLabel = true)
     {
         // Its marks resolve where every step, jog and pan mark does (CLAUDE.md, Layout DSL).
         var dec = FormRowLayout.StepMark("-", PanelFontSize, ButtonText)
@@ -641,7 +658,7 @@ public sealed class PlanetaryControlPanel
             .WFixed(BaseRowHeight).HStar().Bg(StepBtnBg).BgHover(GuiTheme.Hover(StepBtnBg))
             .Clickable(new HitResult.ButtonHit(idPrefix + "Inc"), _ => onInc());
         return Layout.Builder.HStack(
-                Layout.Builder.Text(label, PanelFontSize, DimText, TextAlign.Near, TextAlign.Center).WFixed(52f).HStar(),
+                RowLabel(label, alignedLabel),
                 dec,
                 Layout.Builder.Text(value, PanelFontSize, HeaderText, TextAlign.Center, TextAlign.Center).WStar().HStar(),
                 inc)
@@ -659,7 +676,7 @@ public sealed class PlanetaryControlPanel
         var selected = _bitDepth is { } chosen && depths.Contains(chosen) ? chosen : depths[^1];
         var style = new Layout.ButtonGroupStyle(CheckOnBg, StepBtnBg, HeaderText, DimText, GuiTheme.Hover(StepBtnBg));
         return Layout.Builder.HStack(
-                Layout.Builder.Text("Depth", PanelFontSize, DimText, TextAlign.Near, TextAlign.Center).WFixed(52f).HStar(),
+                RowLabel("Depth"),
                 Layout.Builder.ButtonGroup<BitDepth>(options, selected, depth =>
                 {
                     _bitDepth = depth;
@@ -750,5 +767,20 @@ public sealed class PlanetaryControlPanel
 
     // The recenter the panel shows, handed to the capture (staged only when it changed).
     private void PushRecenter(NodePlanetaryCapture capture)
-        => capture.ConfigureRecenter(_autoRecenter, _mountJog, DeadbandPresetsPx[_deadbandIdx], RecenterGainPresetsPct[_gainIdx] / 100.0);
+        => capture.ConfigureRecenter(_recenter is not PlanetaryRecenterMode.Off, _recenter is PlanetaryRecenterMode.Mount or PlanetaryRecenterMode.Both,
+            DeadbandPresetsPx[_deadbandIdx], RecenterGainPresetsPct[_gainIdx] / 100.0,
+            roiJog: _recenter is not PlanetaryRecenterMode.Mount);
+}
+
+/// <summary>
+/// How the capture panel recentres the planet (the owner, 2026-10-20: one choice in place of two checkboxes): not at all, by
+/// panning the window, by the mount (the window left where it is), or both (the window first, the mount once the window reaches
+/// the sensor's edge). The mount's sign is uncalibrated, so its moves are capped.
+/// </summary>
+public enum PlanetaryRecenterMode
+{
+    Off,
+    Roi,
+    Mount,
+    Both,
 }

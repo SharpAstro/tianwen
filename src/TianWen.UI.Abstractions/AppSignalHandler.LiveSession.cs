@@ -312,6 +312,13 @@ namespace TianWen.UI.Abstractions
                 appState.NeedsRedraw = true;
             };
 
+            // And it says when a recording has ended, which the start's "Recording 60 s to ..." stayed saying after it.
+            planetaryCapture.RecordingEnded += words =>
+            {
+                Notify(NotificationSeverity.Info, words);
+                appState.NeedsRedraw = true;
+            };
+
             bus.Subscribe<StartVideoCaptureSignal>(sig =>
             {
                 // The remote mode pill offers Planetary too: it streams the camera of the rig on show, once this client

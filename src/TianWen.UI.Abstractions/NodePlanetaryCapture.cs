@@ -112,12 +112,14 @@ public sealed class NodePlanetaryCapture
     /// The recenter the panel shows. Called every frame: staged only when it differs from what the node was last given,
     /// so an unchanged panel sends nothing.
     /// </summary>
-    public void ConfigureRecenter(bool auto, bool mountJog, int deadbandPixels, double gain, bool flipRa = false, bool flipDec = false)
+    public void ConfigureRecenter(bool auto, bool mountJog, int deadbandPixels, double gain, bool flipRa = false, bool flipDec = false,
+        bool roiJog = true)
     {
         var recenter = new PlanetaryRecenterDto
         {
             Auto = auto,
             MountJog = mountJog,
+            Roi = roiJog,
             DeadbandPixels = deadbandPixels,
             Gain = gain,
             FlipRa = flipRa,
@@ -135,7 +137,7 @@ public sealed class NodePlanetaryCapture
     public PlanetaryRecenterDto? RecenterForStart => Volatile.Read(ref _recenter);
 
     private static bool Same(PlanetaryRecenterDto a, PlanetaryRecenterDto b) =>
-        a.Auto == b.Auto && a.MountJog == b.MountJog && a.DeadbandPixels == b.DeadbandPixels && a.Gain == b.Gain
+        a.Auto == b.Auto && a.MountJog == b.MountJog && a.Roi == b.Roi && a.DeadbandPixels == b.DeadbandPixels && a.Gain == b.Gain
         && a.FlipRa == b.FlipRa && a.FlipDec == b.FlipDec;
 
     private void Stage(Func<Pending, Pending> change) => ImmutableInterlocked.Update(ref _pending, change);

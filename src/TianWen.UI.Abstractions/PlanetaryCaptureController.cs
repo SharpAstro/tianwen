@@ -151,6 +151,7 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
         _state.IsSequence = true;
         _state.SourceFps = (float)(1000.0 / Math.Max(request.ExposureMs, 1e-3));
         Volatile.Write(ref _settingsSaid, null);
+        Volatile.Write(ref _recordingSaid, null);
         _state.NeedsTextureUpdate = true;
 
         var runCts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
@@ -197,6 +198,7 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
                         _state.SourceFps = (float)current;
                     }
                     SayIfTheSettingsChanged(state);
+                    SayIfARecordingEnded(state);
                     _state.NeedsRedraw = true;
                     if (!state.Running)
                     {
@@ -271,6 +273,40 @@ public sealed class PlanetaryCaptureController : IAsyncDisposable
         if (said is not null && said != words)
         {
             SettingsApplied?.Invoke(words);
+        }
+    }
+
+    // The recording whose end was last said, by its file: each ends once, and the poll sees a written one many times.
+    private string? _recordingSaid;
+
+    /// <summary>
+    /// Raised once a recording on the node's capture has ENDED and its file is whole, with what it came to in words
+    /// (<see cref="RecordingEndedInWords"/>): the start's notice said "Recording 60 s to ...", which stayed on the status line
+    /// after the file was done. On the watching's thread.
+    /// </summary>
+    public event Action<string>? RecordingEnded;
+
+    /// <summary>
+    /// "Recorded 10537 frames to Luminance_....ser, 0 dropped", or why it failed: short enough for the status line, since the
+    /// panel's RECORD section says why it ended.
+    /// </summary>
+    public static string RecordingEndedInWords(PlanetaryRecordingDto recording)
+    {
+        var file = System.IO.Path.GetFileName(recording.Path);
+        return recording.FailureReason is { } failed
+            ? $"Recording to {file} failed: {failed}"
+            : $"Recorded {recording.FramesWritten} frames to {file}, {recording.FramesDropped} dropped";
+    }
+
+    private void SayIfARecordingEnded(PlanetaryStateDto state)
+    {
+        if (state.Recording is not { Recording: false } ended || !(ended.Written || ended.FailureReason is not null))
+        {
+            return;
+        }
+        if (Interlocked.Exchange(ref _recordingSaid, ended.Path) != ended.Path)
+        {
+            RecordingEnded?.Invoke(RecordingEndedInWords(ended));
         }
     }
 

@@ -55,6 +55,14 @@ public class PlanetaryControlPanelTests
             => [.. GetCapturedLayout().Select(static arranged => arranged.Node).OfType<Layout.Node.Leaf>()
                 .Select(static leaf => leaf.Content).OfType<Layout.Content.Text>().Select(static text => text.Value)];
 
+        /// <summary>The widths the last paint arranged for every text leaf reading <paramref name="text"/>.</summary>
+        public IReadOnlyList<float> WidthsOf(string text)
+            => [.. GetCapturedLayout().Where(arranged => arranged.Node is Layout.Node.Leaf { Content: Layout.Content.Text { Value: var value } } && value == text)
+                .Select(static arranged => arranged.Bounds.Width)];
+
+        /// <summary>How wide <paramref name="text"/> draws at the panel's font size, measured as the paint measures it.</summary>
+        public float MeasuredWidth(string text) => MeasureContext().MeasureText(text, GuiTheme.Metrics.BaseFontSize).Width;
+
         /// <summary>Presses the control <paramref name="action"/> names the way a click arrives, through the router, where it was painted.</summary>
         public void Press(string action)
         {
@@ -319,6 +327,44 @@ public class PlanetaryControlPanelTests
             .ShouldBeTrue("the wheel's sequence still names its planet");
     }
 
+    [Theory]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public void EveryRowsLabelHasTheColumnItsWidestLabelNeedsSoNoneIsCut(float scale)
+    {
+        // A fixed 52 design units cut "Deadband" to "Dead..." and the Nudge row's 40 cut "Nudge" to "Nu..." (2026-10-20).
+        using var rig = new Rigged(scale, capturing: true, Saturn1780, height: 2400);
+        var column = rig.Host.MeasuredWidth(PlanetaryControlPanel.LabelWidthSample);
+
+        foreach (var label in new[] { "Exp", "Gain", "Depth", "Size", "Pan", "Deadband", "Nudge", "Sets" })
+        {
+            var widths = rig.Host.WidthsOf(label);
+            widths.ShouldNotBeEmpty($"the panel labels a row {label}");
+            widths.ShouldAllBe(width => width >= rig.Host.MeasuredWidth(label) - 0.5f, $"{label} fits its column");
+            if (label != "Sets")
+            {
+                // Sets shares its row with Add step, so its label takes only its own width.
+                widths.ShouldAllBe(width => Math.Abs(width - column) < 0.5f, $"{label}'s column lines up with the widest");
+            }
+        }
+    }
+
+    [Fact]
+    public void ARecordingsEndIsSaidAsWhatItCameTo()
+    {
+        // The status line kept the start's "Recording 60 s to ..." after the file was done (2026-10-20).
+        var done = new PlanetaryRecordingDto
+        {
+            Path = "C:/Pictures/Luminance_2026-10-20T02_07_35_OTA1.ser", Written = true, FramesWritten = 10537, FramesDropped = 0,
+            EndReason = "its duration is over",
+        };
+        PlanetaryCaptureController.RecordingEndedInWords(done)
+            .ShouldBe("Recorded 10537 frames to Luminance_2026-10-20T02_07_35_OTA1.ser, 0 dropped");
+
+        var failed = new PlanetaryRecordingDto { Path = "C:/Pictures/a.ser", FailureReason = "the disk is full" };
+        PlanetaryCaptureController.RecordingEndedInWords(failed).ShouldBe("Recording to a.ser failed: the disk is full");
+    }
+
     [Fact]
     public void ACameraWithNoWheelHasNoFilterSection()
     {
@@ -446,17 +492,33 @@ public class PlanetaryControlPanelTests
     {
         using var rig = new Rigged(1f, capturing: true);
 
-        rig.Press("RecenterAuto");
-        rig.Press("RecenterMount");
+        rig.Press("RecenterBoth");
         rig.Press("RecenterDeadbandInc");   // 4 px to 8 px
         rig.Press("RecenterGainDec");       // 50 % to 25 %
 
         var recenter = rig.Capture.TakeChanges().ShouldNotBeNull().Recenter.ShouldNotBeNull();
-        (recenter.Auto, recenter.MountJog, recenter.DeadbandPixels, recenter.Gain).ShouldBe((true, true, 8, 0.25));
+        (recenter.Auto, recenter.Roi, recenter.MountJog, recenter.DeadbandPixels, recenter.Gain).ShouldBe((true, true, true, 8, 0.25));
 
         rig.Paint();
         rig.Capture.TakeChanges().ShouldBeNull("a frame that changed nothing stages nothing");
         rig.Capture.RecenterForStart.ShouldBe(recenter, "and the next Start carries it");
+    }
+
+    [Theory]
+    [InlineData("RecenterOff", false, true, false)]
+    [InlineData("RecenterRoi", true, true, false)]
+    [InlineData("RecenterMount", true, false, true)]
+    [InlineData("RecenterBoth", true, true, true)]
+    public void EachRecenterModeIsWhatTheCaptureIsTold(string mode, bool auto, bool roi, bool mount)
+    {
+        using var rig = new Rigged(1f, capturing: true);
+        rig.Press(mode == "RecenterOff" ? "RecenterRoi" : "RecenterOff");
+        rig.Capture.TakeChanges();
+
+        rig.Press(mode);
+
+        var recenter = rig.Capture.TakeChanges().ShouldNotBeNull().Recenter.ShouldNotBeNull();
+        (recenter.Auto, recenter.Roi, recenter.MountJog).ShouldBe((auto, roi, mount));
     }
 
     [Fact]
