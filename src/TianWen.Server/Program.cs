@@ -49,7 +49,7 @@ var socketPath = node.SocketPath;
 // One node per socket: the lock, not the socket file, decides it, and only its holder may clear a stale socket.
 if (!NodeLock.TryAcquire(socketPath, out var held, out var refusal))
 {
-    var holder = await NodeLock.DescribeHolderAsync(socketPath, refusal, CancellationToken.None);
+    var holder = await NodeHolder.DescribeAsync(socketPath, refusal, CancellationToken.None);
     Console.Error.WriteLine(holder);
     NodeStartRefusal.Write(TianWenDataRoot.Directory.FullName, holder);
     return NodeExitCodes.AlreadyRunning;

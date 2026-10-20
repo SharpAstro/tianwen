@@ -101,7 +101,7 @@ public class NodeSocketTests(ITestOutputHelper outputHelper) : IDisposable
         NodeLock.TryAcquire(socketPath, out var second, out var refusal).ShouldBeFalse("one node per socket");
         second.ShouldBeNull();
 
-        var described = await NodeLock.DescribeHolderAsync(socketPath, refusal.ShouldNotBeNull(), ct);
+        var described = await NodeHolder.DescribeAsync(socketPath, refusal.ShouldNotBeNull(), ct);
         described.ShouldContain($"pid {running.ProcessId}");
         described.ShouldContain(running.NodeId);
 

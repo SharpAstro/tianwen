@@ -175,4 +175,9 @@
                       WithCulture="false" />
   </ItemGroup>
 
+  <!-- Node.Lib's NodeLock (through TianWen.Hosting), written global::. -->
+  <ItemGroup>
+    <Using Include="Node.Lib" />
+  </ItemGroup>
+
 </Project>

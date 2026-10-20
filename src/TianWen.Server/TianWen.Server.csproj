@@ -36,4 +36,10 @@
   </ItemGroup>
   <Import Project="..\ExeBeside.targets" />
 
+  <!-- Node.Lib's NodeLock and Kestrel hosting (through TianWen.Hosting), written global::. -->
+  <ItemGroup>
+    <Using Include="Node.Lib" />
+    <Using Include="Node.Lib.Hosting" />
+  </ItemGroup>
+
 </Project>
