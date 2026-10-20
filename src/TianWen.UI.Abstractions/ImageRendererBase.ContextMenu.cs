@@ -603,7 +603,6 @@ namespace TianWen.UI.Abstractions
         {
             var overThePicture = _layout.ImageArea.Contains(px, py)
                 && HoverAllowedAt(px, py)
-                && !state.SkyPaletteOwnsPointer
                 && !_isPinching
                 && HitTest(px, py) is null;
             if (!overThePicture)

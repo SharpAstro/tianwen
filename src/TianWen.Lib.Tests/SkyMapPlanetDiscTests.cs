@@ -505,6 +505,35 @@ public sealed class SkyMapPlanetDiscTests
     }
 
     /// <summary>
+    /// A host's photograph over the map hides the labels under it, so the part of a label it covers takes no press (#1513): the
+    /// viewer's sky backdrop drew Jupiter's name under the picture and a press on the picture there selected Jupiter. Half covered,
+    /// the label's region is the seen half; wholly covered, it has none; uncovered, it is the whole label as before.
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task APlanetsLabelTakesNoPressWhereAHostsPhotographCoversIt()
+    {
+        using var rig = await RigAsync(TestContext.Current.CancellationToken);
+        rig.Tab.State.Mode = SkyMapMode.Equatorial;
+        rig.Look(CatalogIndex.Jupiter, 20);
+        await rig.RenderSettledAsync();
+        ClickableRegion[] Labels() => [.. rig.Tab.GetRegisteredRegions()
+            .Where(r => r.Result is HitResult.ButtonHit { Action: var action } && action.StartsWith("SkyMapPlanetLabel:", StringComparison.Ordinal)
+                && action.EndsWith("Jupiter", StringComparison.Ordinal))];
+        var open = Labels().ShouldHaveSingleItem("nothing covers the map yet");
+
+        var photograph = new RectF32(0, 0, open.X + (open.Width / 2), Size);
+        rig.Tab.State.OccludedByHost = photograph;
+        rig.Render();
+        var seen = Labels().ShouldHaveSingleItem("the right half is still seen");
+        seen.X.ShouldBe(photograph.X + photograph.Width, 0.5f, "it starts at the photograph's edge");
+        (seen.X + seen.Width).ShouldBe(open.X + open.Width, 0.5f, "and ends where the label does");
+
+        rig.Tab.State.OccludedByHost = new RectF32(0, 0, Size, Size);
+        rig.Render();
+        Labels().ShouldBeEmpty("a label wholly behind the photograph takes no press at all");
+    }
+
+    /// <summary>
     /// The hover wash is the object's own footprint (CLAUDE.md, "The atlas's hover highlight"): over a Moon drawn 400 px across it is
     /// the disc's 200 px radius, from the same resolver the click uses; over Jupiter at 4 px, a dot, it stays the dot's tolerance.
     /// </summary>

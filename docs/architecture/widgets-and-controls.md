@@ -396,8 +396,9 @@ Default, so a plain button cannot stamp the arrow over a host that wanted a cros
 **Superseded (DIR.Lib 11.14): an open popover's claim now reaches what is painted before it**
 (`WindowUiSettings.PointerClaim`, carried across the frame while the popover stays open, with one extra frame the
 frame it opens), so a declared `.BgHover` is confined with no prediction, and hand-painted chrome asks the same rule
-(`PointerHovers`, `HoverAllowedAt`). `OverlayOwnsPointer` is gone; `ViewerState.SkyPaletteOwnsPointer` keeps the sky
-palette's term for the picture's hover wash. What follows is the reasoning that held until then.
+(`PointerHovers`, `HoverAllowedAt`). `OverlayOwnsPointer` is gone, and the sky palette's term that outlived it
+(`ViewerState.SkyPaletteOwnsPointer`) went with #1513, once the viewer painted the palette as its own chrome. What follows is
+the reasoning that held until then.
 
 **The same lesson, one level down: HOVER needs a z-order answer too, and it is
 `ViewerState.OverlayOwnsPointer`.** DIR.Lib 9.2 has its own half of this, `WindowUiSettings.PointerOwner`,
@@ -588,8 +589,16 @@ a fourth key router.
   Default), so a row inherits its card's cursor.
 - **HOVER's z-order answer is the engine's** (DIR.Lib 11.14): an open popover's claim reaches what is painted BEFORE
   it (`WindowUiSettings.PointerClaim`), so `.BgHover` needs nothing, and hand-painted chrome asks `PointerHovers(rect)` /
-  `HoverAllowedAt(x, y)`, the same rule. Never a list of open overlays (that was `OverlayOwnsPointer`, gone);
-  `ViewerState.SkyPaletteOwnsPointer` remains for the sky palette, which is not a popover and is another widget's.
+  `HoverAllowedAt(x, y)`, the same rule. Never a list of open overlays (that was `OverlayOwnsPointer`, gone, and the sky
+  palette's `SkyPaletteOwnsPointer` after it, #1513).
+- **A child drawn in two passes is not a child.** The FITS viewer's sky backdrop draws under the photograph and its layer
+  palette over the viewer's panels, which one `ChildrenUnderOwn` split cannot describe, so the map is a child painted UNDER
+  (`ChildrenUnderOwn => 1`) and the viewer paints the palette itself at its place in the frame
+  (`SkyMapTab.LayerPaletteTree` / `NoteLayerPaletteArranged`), its regions the viewer's own in that order: a menu opened over
+  the palette takes its press. The grip drags as a `DragCapture` (`FloatingPalette.Build` taking a `DesignScale`, DIR.Lib
+  11.28), so no host routes a move or a release to it, and a label under the photograph registers only its seen part
+  (`SkyLabelRegions.Outside`, against `SkyMapState.OccludedByHost`). Pinned by `ViewerSkyPaletteRoutingTests` and
+  `SkyMapPlanetDiscTests.APlanetsLabelTakesNoPressWhereAHostsPhotographCoversIt` (#1513).
 - **Every host routes through `DIR.Lib.InputRouter`, and the ORDER is the engine's**: an open popover, then
   any PAINTED node whose declared `Shortcut` matches, then the focused field, then the widget. The desktop
   (`GuiEventHandlerBase`) and the browser (`Planner.razor`) keep only what is theirs (platform binding,

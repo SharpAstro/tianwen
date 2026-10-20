@@ -37,12 +37,6 @@ namespace TianWen.UI.Abstractions
         protected bool _milkyWayLoadAttempted;
 
         // Last pointer Y in surface pixels, refreshed on every mouse move. The palette grip's drag
-        // starts from a click binding, which carries modifiers and no coordinates, so this is where
-        // the press position comes from.
-        // The grip's drag begins from a click binding, which carries modifiers and no coordinates, so
-        // the press position is the last move's. Everything else about the palette -- placement, drag,
-        // collapse, fade -- is DIR.Lib's, on State.LayerPalette.
-        private float _lastPointerY;
 
         // Async Milky Way load: the file read + lzip decompress (~270 ms for the raw BGRA
         // texture) runs on a background thread so it never stalls the first sky-map frame. The
@@ -513,40 +507,57 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         public void RenderLayerPalette(RectF32 contentRect, bool includeKeyHints = true)
         {
-            var dpiScale = DpiScale;
-            var fontPath = FontPath;
-
-            // The one thing that outranks it is the search modal, which owns the screen while it is
-            // open -- so the palette stands down rather than floating over a modal.
             if (LayerPaletteShown)
             {
-                var paletteNodes = RenderLayout(
-                    SkyMapLayerPalette.Build(State, BaseFontSize * 0.9f,
-                        ToggleLayerFromPalette,
-                        BeginLayerPaletteDrag,
-                        includeKeyHints),
-                    contentRect, fontPath, Scale);
+                NoteLayerPaletteArranged(
+                    RenderLayout(LayerPaletteTree(Scale, includeKeyHints), contentRect, FontPath, Scale), contentRect, Scale);
+            }
+        }
 
-                foreach (var node in paletteNodes)
-                {
-                    if (node.Node is Layout.Node.Stack { Axis: Layout.Axis.Vertical })
-                    {
-                        // Hands the palette where it actually landed, which is also what reconciles its
-                        // stored offset with the engine's clamp -- the thing that stopped collapsing
-                        // near the bottom from dropping the title bar.
-                        State.LayerPalette.NoteArranged(
-                            new RectF32(node.Bounds.X, node.Bounds.Y, node.Bounds.Width, node.Bounds.Height),
-                            contentRect.Y, Scale);
-                        break;
-                    }
-                }
+        /// <summary>
+        /// Whether the layer palette is on show this frame (<see cref="LayerPaletteShown"/>), for a host that paints it
+        /// as its own chrome (the FITS viewer, #1513).
+        /// </summary>
+        internal bool LayerPaletteOnShow => LayerPaletteShown;
 
-                // A fade in progress has to keep asking for frames, or it stops wherever the last event
-                // left it: nothing else in this tab redraws while the pointer is still.
-                if (State.LayerPalette.IsFading)
+        /// <summary>
+        /// The palette's tree, for <see cref="RenderLayerPalette"/> or a host that paints it as its own chrome, at the
+        /// point in its frame where the palette is drawn, so its regions take their place among the host's own
+        /// (#1513). Pair it with <see cref="NoteLayerPaletteArranged"/>.
+        /// </summary>
+        /// <param name="scale">The scale the painter arranges the tree at.</param>
+        /// <param name="includeKeyHints">Whether each row prints its key; see <see cref="SkyMapLayerPalette.ItemsFor"/>.</param>
+        /// <param name="onChanged">What a grip gesture asks of the painter; a frame of this map's by default.</param>
+        internal Layout.Node LayerPaletteTree(DesignScale scale, bool includeKeyHints, Action? onChanged = null)
+            => SkyMapLayerPalette.Build(State, BaseFontSize * 0.9f, ToggleLayerFromPalette, scale,
+                onChanged ?? (() => State.NeedsRedraw = true), includeKeyHints);
+
+        /// <summary>
+        /// Hands the palette where it actually landed, which is also what reconciles its stored offset with the
+        /// engine's clamp (the thing that stopped collapsing near the bottom from dropping the title bar), and keeps
+        /// asking for frames while it fades.
+        /// </summary>
+        /// <param name="arranged">What painting <see cref="LayerPaletteTree"/> arranged.</param>
+        /// <param name="contentRect">The rect it was arranged into.</param>
+        /// <param name="scale">The scale it was arranged at.</param>
+        internal void NoteLayerPaletteArranged(IReadOnlyList<Layout.ArrangedNode<float>> arranged, RectF32 contentRect, DesignScale scale)
+        {
+            foreach (var node in arranged)
+            {
+                if (node.Node is Layout.Node.Stack { Axis: Layout.Axis.Vertical })
                 {
-                    State.NeedsRedraw = true;
+                    State.LayerPalette.NoteArranged(
+                        new RectF32(node.Bounds.X, node.Bounds.Y, node.Bounds.Width, node.Bounds.Height),
+                        contentRect.Y, scale);
+                    break;
                 }
+            }
+
+            // A fade in progress has to keep asking for frames, or it stops wherever the last event left it:
+            // nothing else redraws while the pointer is still.
+            if (State.LayerPalette.IsFading)
+            {
+                State.NeedsRedraw = true;
             }
         }
 
@@ -1054,7 +1065,7 @@ namespace TianWen.UI.Abstractions
                     // frame's position, because the entry is stamped just below.
                     label.ScreenX = sx;
                     label.ScreenY = sy;
-                    RegisterClickable(sx + labelOffset, sy - fontSize, 100, fontSize * 1.2f,
+                    RegisterLabel(sx + labelOffset, sy - fontSize, 100, fontSize * 1.2f,
                         label.Hit, label.OnClick);
                 }
             }
@@ -1236,7 +1247,7 @@ namespace TianWen.UI.Abstractions
 
                 entry.ScreenX = sx;
                 entry.ScreenY = sy;
-                RegisterClickable(sx + 10, sy - fontSize, 170, fontSize * 1.2f,
+                RegisterLabel(sx + 10, sy - fontSize, 170, fontSize * 1.2f,
                     entry.Hit, entry.OnClick);
             }
         }
@@ -1522,17 +1533,16 @@ namespace TianWen.UI.Abstractions
 
             // A driven view is not this map's to move, so every gesture that would move it is left
             // UNHANDLED for the host that owns it -- the viewer pans and zooms the photograph, and the
-            // sky follows from where that lands. What still belongs here is the palette's own pointer
-            // handling: it is chrome floating on the map rather than part of the sky, and its grip
-            // drag is the one thing in this class the host cannot do for it.
+            // sky follows from where that lands. What still reaches here is the pointer's position, which
+            // holds the palette's fade open; its grip's drag is declared on the grip (#1513) and goes
+            // through the host's router.
             if (State.ViewDrivenExternally)
             {
-                return evt switch
+                if (evt is InputEvent.MouseMove(var mx, var my))
                 {
-                    InputEvent.MouseUp => ReleasePaletteGrip(),
-                    InputEvent.MouseMove(var mx, var my) => TrackPalettePointer(mx, my),
-                    _ => false,
-                };
+                    NotePalettePointer(mx, my);
+                }
+                return false;
             }
 
             return HandleOwnedInput(evt);
@@ -1552,47 +1562,19 @@ namespace TianWen.UI.Abstractions
 
         private bool HandleMouseUp(float x, float y)
         {
-            // A grip drag ends here and goes no further: TryEmitClickSelect would otherwise read the
-            // release as a click on the sky BEHIND the panel and select whatever sits under it.
-            if (ReleasePaletteGrip())
-            {
-                return true;
-            }
-
             // Distinguish a click (emit select signal) from the end of a pan drag.
             TryEmitClickSelect(x, y);
             return HandleDragEnd();
         }
 
-        /// <summary>Ends a palette grip drag, if one is in progress.</summary>
-        private bool ReleasePaletteGrip()
-        {
-            if (!State.LayerPalette.ReleaseGrip())
-            {
-                return false;
-            }
-
-            State.NeedsRedraw = true;
-            return true;
-        }
-
         /// <summary>
-        /// Records where the pointer is and routes the move. The RECORD is the load-bearing half: the
-        /// grip begins its drag from a click handler, which is handed modifiers and no position, so
-        /// the last move is the only thing that knows where the press was. Every move reaches a tab
-        /// (<c>GuiEventHandlerBase.HandleMouseMove</c> forwards unconditionally), so this is reliable
-        /// in a way hit-testing a stashed rect on mouse-down was not -- a press that lands on ANY
-        /// registered region never reaches the tab's own mouse-down path at all.
+        /// Routes a move: a pan while the sky is dragged, else the hover. The palette only notes the pointer here
+        /// (its fade); its grip's drag is the router's (#1513), so a palette drag never reaches this and cannot
+        /// also pan the sky under it.
         /// </summary>
         private bool HandleMouseMove(float x, float y)
         {
-            // While the grip has the pointer the move belongs to the palette, and the map never sees
-            // it -- so a palette drag cannot also pan the sky underneath it.
-            if (TrackPalettePointer(x, y))
-            {
-                ClearHoverTarget();
-                return true;
-            }
+            NotePalettePointer(x, y);
 
             // A drag is moving the sky, not inspecting it: the object under the cursor changes with
             // every frame of it and the answer would be stale before it was drawn.
@@ -1615,38 +1597,8 @@ namespace TianWen.UI.Abstractions
             return false;
         }
 
-        /// <summary>
-        /// Records where the pointer is for the palette and advances a grip drag if one is running.
-        /// True when the palette consumed the move.
-        /// </summary>
-        private bool TrackPalettePointer(float x, float y)
-        {
-            _lastPointerY = y;
-            State.LayerPalette.NotePointer(x, y);
-
-            if (!State.LayerPalette.DragTo(y, Scale))
-            {
-                return false;
-            }
-
-            State.NeedsRedraw = true;
-            return true;
-        }
-
-        /// <summary>
-        /// Begins a grip drag from wherever the pointer last was. Called from the palette's own click
-        /// binding, which the host dispatches on the PRESS.
-        /// </summary>
-        /// <summary>
-        /// Begins a grip drag, or collapses on the second press of a quick pair -- DIR.Lib decides
-        /// which. Called from the palette's own click binding, which the host dispatches on the PRESS
-        /// and which carries no coordinates, so the position is the last move's.
-        /// </summary>
-        private void BeginLayerPaletteDrag()
-        {
-            State.LayerPalette.PressGrip(_lastPointerY);
-            State.NeedsRedraw = true;
-        }
+        /// <summary>Tells the palette where the pointer is, which holds its fade open while it is over the panel.</summary>
+        internal void NotePalettePointer(float x, float y) => State.LayerPalette.NotePointer(x, y);
 
         /// <summary>Toggling a layer counts as engagement, so the panel does not fade under the click.</summary>
         private void ToggleLayerFromPalette(SkyMapLayer layer)

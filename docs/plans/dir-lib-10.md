@@ -1176,8 +1176,10 @@ viewer-layout-engine's P3 and P5.
   `F3` special case and `clicks >= 2` no longer exist in tianwen. **`OverlayOwnsPointer` met (2026-10-11):** DIR.Lib 11.14
   carries an open popover's pointer claim to what is painted before it, the toolbar is declared nodes and the histogram's
   LOG button a plain `.BgHover`, and the file list and the picture's hover wash ask the engine's rule (`PointerHovers`,
-  `HoverAllowedAt`). What it still predicted, the sky palette, is `ViewerState.SkyPaletteOwnsPointer`, read once (the
-  wash), because the palette is not a popover and is another widget's. **The drag flags met too (#1489):** the scrub
+  `HoverAllowedAt`). What it still predicted, the sky palette, was `ViewerState.SkyPaletteOwnsPointer`, read once (the
+  wash), because the palette was another widget's. **Met (#1513):** the viewer paints the palette as its own chrome, its
+  grip a `DragCapture` and its padding a region (DIR.Lib 11.28), the map paints under the viewer, and a label behind the
+  photograph registers only its seen part, so the flag and both hosts' hand-routed grip are gone. **The drag flags met too (#1489):** the scrub
   is a `Content.Slider`, and both dividers (the file list's and the before/after split's) are `Layout.Builder.Split`s
   whose divider drags itself (DIR.Lib 11.18, `onResize`), so no move or release handler steers any of them.
 - One key router per SURFACE KIND (pixel, cell, DOM), all three instances of `InputRouter`. **Unmet for the
