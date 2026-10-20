@@ -13,7 +13,7 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// A SER's view is one switch, Frames / Live / Auto (#1314 part 2; Best folded into Auto, #817): Auto runs the whole capture through the
+/// A SER's view is one switch, Raw / Stack / Auto (#1314 part 2; Best folded into Auto, #817): Auto runs the whole capture through the
 /// batch stack once, shows its master behind the same sharpening layer, and switches its stops with no Derive, since the run fitted them.
 /// Rule 5: what Auto shows at a stop is what its routine writes at that strength. Rule 7: switching views and stops stacks and derives
 /// nothing.
