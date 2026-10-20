@@ -56,28 +56,47 @@ internal static class NodeAccessConventions
 /// so a route added later is gated without remembering to be: a native route that is not a read, an Alpaca PUT and a
 /// ninaAPI route that does not say it reads are commands by what they are.
 /// </summary>
+/// <remarks>
+/// The gate itself (the socket passes; open, command or refused) is Node.Lib's, shared with pilot's node; this is
+/// tianwen's <see cref="Node.Lib.Hosting.NodeAccessPolicy"/> for it: which route is a command, who may command (a grant,
+/// or an application the owner allowed), and the refusal in each protocol's own shape.
+/// </remarks>
 internal static class NodeAccessGate
 {
-    public static async Task GateAsync(HttpContext context, RequestDelegate next)
+    private static readonly Node.Lib.Hosting.NodeAccessPolicy Policy = new Node.Lib.Hosting.NodeAccessPolicy
     {
-        if (context.GetEndpoint() is not { } endpoint
-            || endpoint.Metadata.GetMetadata<NodeProtocolMetadata>() is not { } protocol
-            || NodeEndpoints.CameOverTheSocket(context)
-            || !IsCommand(context.Request.Method, endpoint.Metadata, protocol.Protocol))
-        {
-            await next(context).ConfigureAwait(false);
-            return;
-        }
+        Classify = context => ProtocolOf(context) is { } protocol && IsCommand(context.Request.Method, context.GetEndpoint()!.Metadata, protocol)
+            ? Node.Lib.Hosting.NodeRouteAccess.Command
+            : Node.Lib.Hosting.NodeRouteAccess.Open,
+        MayCommand = MayCommandAsync,
+        RefuseAsync = (context, _) => RefuseAsync(context),
+    };
 
+    public static Task GateAsync(HttpContext context, RequestDelegate next) => Node.Lib.Hosting.NodeAccessGate.GateAsync(context, next, Policy);
+
+    /// <summary>The surface a request's route belongs to, or null for a route on none (which is not gated).</summary>
+    private static NodeProtocol? ProtocolOf(HttpContext context) =>
+        context.GetEndpoint()?.Metadata.GetMetadata<NodeProtocolMetadata>()?.Protocol;
+
+    /// <summary>A grant the node holds; or, for another application's protocol, an address or host its owner allowed.</summary>
+    private static async ValueTask<bool> MayCommandAsync(HttpContext context)
+    {
         var access = context.RequestServices.GetRequiredService<NodeAccess>();
         var cancellationToken = context.RequestAborted;
         if (await access.GrantOfAsync(context, cancellationToken).ConfigureAwait(false) is not null)
         {
-            await next(context).ConfigureAwait(false);
-            return;
+            return true;
         }
+        return ProtocolOf(context) is not NodeProtocol.Native
+            && NodeAccess.AddressOf(context) is { } address
+            && await access.AppMayCommandAsync(address, cancellationToken).ConfigureAwait(false);
+    }
 
-        if (protocol.Protocol is NodeProtocol.Native)
+    private static async Task RefuseAsync(HttpContext context)
+    {
+        var access = context.RequestServices.GetRequiredService<NodeAccess>();
+        var protocol = ProtocolOf(context);
+        if (protocol is NodeProtocol.Native)
         {
             context.Response.Headers.WWWAuthenticate = "Bearer realm=\"tianwen\"";
             await EnvelopeResults.Json(
@@ -87,13 +106,7 @@ internal static class NodeAccessGate
         }
 
         var address = NodeAccess.AddressOf(context);
-        if (address is not null && await access.AppMayCommandAsync(address, cancellationToken).ConfigureAwait(false))
-        {
-            await next(context).ConfigureAwait(false);
-            return;
-        }
-
-        var appProtocol = protocol.Protocol is NodeProtocol.Alpaca ? AppProtocol.Alpaca : AppProtocol.NinaV2;
+        var appProtocol = protocol is NodeProtocol.Alpaca ? AppProtocol.Alpaca : AppProtocol.NinaV2;
         if (address is not null)
         {
             access.RecordRefusal(address, appProtocol, UserAgentOf(context), await AlpacaClientIdOfAsync(context).ConfigureAwait(false),

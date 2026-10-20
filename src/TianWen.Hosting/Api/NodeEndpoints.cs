@@ -158,8 +158,7 @@ internal static class NodeEndpoints
     /// <summary>
     /// Whether the request reached the node over its Unix domain socket rather than TCP. Kestrel gives every TCP
     /// request its IP addresses and a socket request none, and the node listens on nothing else. (The connection's
-    /// end-point feature, which would name the socket, is not one the request can see.)
+    /// end-point feature, which would name the socket, is not one the request can see.) Node.Lib's test, shared with pilot.
     /// </summary>
-    internal static bool CameOverTheSocket(HttpContext context) =>
-        context.Connection.LocalIpAddress is null && context.Connection.RemoteIpAddress is null;
+    internal static bool CameOverTheSocket(HttpContext context) => Node.Lib.Hosting.NodeAccessGate.CameOverTheSocket(context);
 }
