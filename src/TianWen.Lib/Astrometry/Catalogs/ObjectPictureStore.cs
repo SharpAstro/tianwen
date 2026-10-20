@@ -105,8 +105,10 @@ internal sealed class ObjectPictureStore : IObjectPictureStore
     {
         if (encoded.StartsWith((ReadOnlySpan<byte>)[0x89, (byte)'P', (byte)'N', (byte)'G']))
         {
-            var png = PngReader.Decode(encoded);
-            return new ObjectPicture(png.Width, png.Height, png.ToRgba8());
+            // An RGBA8 PNG comes back as decoded, with no expansion copy.
+            return PngImageDecoder.TryDecodeRgba8(encoded, out var rgba, out var width, out var height)
+                ? new ObjectPicture(width, height, rgba)
+                : throw new InvalidDataException("not a PNG this decoder reads");
         }
 
         if (encoded.StartsWith((ReadOnlySpan<byte>)[0xFF, 0xD8]))
