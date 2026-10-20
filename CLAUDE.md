@@ -296,7 +296,7 @@ screenshot-poll-and-OCR**. **Every mechanism -- the fake-device URI shapes incl.
 `docs/architecture/unattended-ui-driving.md`.** The rules that bite even after reading it:
 
 - **A Debug app is found by the sidecar's `list_instances`, never by a port read off a log.** The `.mcp.json` pins
-  (`SdlVulkan.Renderer.Inspector` 7.70, `Console.Lib.Inspector` 5.7) read DIR.Lib's per-user inspector registry
+  (`SdlVulkan.Renderer.Inspector` 7.73, `Console.Lib.Inspector` 5.10) read DIR.Lib's per-user inspector registry
   (`%LOCALAPPDATA%/DIR.Lib/inspector`, where an app on DIR.Lib 11.21 or later registers with no socket but its
   loopback command server) and then multicast, which finds an app below 11.21. **Only a build against the sibling
   SOURCES has an inspector**, never a worktree's, and nothing on this machine needs `DIR_LIB_INSPECTOR_LAN`.

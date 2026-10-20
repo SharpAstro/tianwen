@@ -37,7 +37,7 @@ never background the app with shell `&` (the sandbox drops it).
 **Readiness and liveness.** The launcher returns once the process is up, which is before the window is.
 Wait on a signal the app writes, or on the inspector WHERE THE BUILD HAS ONE, never on a fixed sleep:
 `mcp__sdl-ui-inspector__list_instances` lists a Debug build against the sibling SOURCES only, by pid. The pinned
-sidecar (`.mcp.json`, `SdlVulkan.Renderer.Inspector` 7.70) finds it in DIR.Lib's per-user inspector registry
+sidecar (`.mcp.json`, `SdlVulkan.Renderer.Inspector` 7.73) finds it in DIR.Lib's per-user inspector registry
 (`%LOCALAPPDATA%/DIR.Lib/inspector`, where an app on DIR.Lib 11.21 or later registers as its inspector starts), and
 by multicast for an app on an older DIR.Lib. A build in a worktree under `.claude/worktrees/` finds no siblings, so
 it has no inspector at all and is never listed; wait on its log (`gui-stderr.log`, the node's `Server_*.log`)
