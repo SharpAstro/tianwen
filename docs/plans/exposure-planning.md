@@ -92,6 +92,13 @@ one: a degree of camera rotation between nights moves the far end of a 2.36 deg 
 about one, and the stack's autocrop takes the dithered margin. 20 % on the short axis and 10 % on the long one is 60
 panels (12 x 5) against 72 at 20 % on both; `MosaicGenerator` takes one overlap for both axes today.
 
+**At four clear nights a month it is about a year at Saturday's depth, two or more at Sculptor's.** At the owner's site
+(-37.9, 145.2) the LMC's centre stands above 30 deg in astronomical darkness for 5 to 7 h a night from September to March,
+under 3 h from May to July (`C:/temp/e2/lmc-season.py`, mid-month, the Sun below -18 deg): 57 h over one night a month,
+227 h a year at four clear nights a month if every one goes to the LMC, before focusing, flips and downloads. Against
+that, 3.6 h a panel is 108 to 151 h on the SV605CC (about half a year) and 180 to 260 h on the ASI585 (about a year;
+60 panels at the split overlap, 216 h); 7.8 h a panel is 2.2 times as long (two to two and a half years on the 585).
+
 ## E1: an Auto button that suggests a frame plan from what is in the frame
 
 Tracked by #1694. The owner's idea (2026-10-20): the session configuration offers **Auto**, which reads what the
@@ -118,3 +125,10 @@ the 585's 1,950 e- of headroom makes that sooner. The frame plan gets a second, 
 filter), suggested by E1 where the long sub clips the target's own core, and captured as its own group: `tianwen stack`
 already keys a light group on the exposure, so the short subs stack into their own master
 (`master_<target>_light_10s_...`). Merging the two masters is [stacking](stacking.md) § "L. HDR composition".
+
+## E3: an overlap per axis
+
+Tracked by #1698. `MosaicGenerator.GeneratePanels` takes one overlap for both axes. On the ASI585 at 270 mm that is 14.2
+arcmin of overlap on the long side and only 8.0 arcmin on the short one, which rotation, recentring and the autocrop eat
+first (above, "Stars are not what limits a 10 % overlap"). An overlap per axis lets the short side take 20 % and the long
+side 10 %: 60 panels for the LMC against 72.
