@@ -60,13 +60,51 @@ public sealed class ExtendedCoreMask
     /// <param name="CoreAreaPx">The core's area, before feathering.</param>
     public readonly record struct Core(int X, int Y, double PeakSigma, int SourceAreaPx, int CoreAreaPx);
 
-    private ExtendedCoreMask(int width, int height, float[] weight, ImmutableArray<Core> cores, double skySigma)
+    /// <summary>One extended source as the large-scale map found it, cored or not (the starless plate's brush protects
+    /// what it covers, R0's brush in docs/plans/star-remover-training.md).</summary>
+    /// <param name="X">Where its map peaks, frame pixels.</param>
+    /// <param name="Y">Where it peaks.</param>
+    /// <param name="PeakSigma">That peak over the sky, in per-pixel sky sigmas.</param>
+    /// <param name="Blocks">The <see cref="BlockPx"/> blocks it covers, as indices into the block grid
+    /// (<see cref="GridWidth"/> blocks a row).</param>
+    public readonly record struct Segment(int X, int Y, double PeakSigma, ImmutableArray<int> Blocks)
+    {
+        /// <summary>Its area, pixels.</summary>
+        public int AreaPx => Blocks.Length * BlockPx * BlockPx;
+    }
+
+    private ExtendedCoreMask(int width, int height, float[] weight, ImmutableArray<Core> cores, double skySigma, ImmutableArray<Segment> segments = default)
     {
         Width = width;
         Height = height;
         Weight = weight;
         Cores = cores;
         SkySigma = skySigma;
+        Segments = segments.IsDefault ? [] : segments;
+    }
+
+    /// <summary>Every extended source of at least <see cref="Options.MinSourceBlocks"/> blocks, brightest first, whatever its
+    /// peak: <see cref="Cores"/> are cut from those that reach <see cref="Options.MinPeakSigma"/>.</summary>
+    public ImmutableArray<Segment> Segments { get; }
+
+    /// <summary>The block grid's width, blocks.</summary>
+    public int GridWidth => Width / BlockPx;
+
+    /// <summary>Sets every pixel of <paramref name="segment"/> in <paramref name="mask"/> (rows are the frame's rows).</summary>
+    public void Stamp(in Segment segment, BitMatrix mask)
+    {
+        var gw = GridWidth;
+        foreach (var b in segment.Blocks)
+        {
+            var (bx, by) = (b % gw, b / gw);
+            for (var y = by * BlockPx; y < (by + 1) * BlockPx; y++)
+            {
+                for (var x = bx * BlockPx; x < (bx + 1) * BlockPx; x++)
+                {
+                    mask[y, x] = true;
+                }
+            }
+        }
     }
 
     /// <summary>The frame's width.</summary>
@@ -173,6 +211,7 @@ public sealed class ExtendedCoreMask
         var label = new int[gw * gh];
         var keep = new bool[gw * gh];
         var found = new List<(Core Core, double Peak)>();
+        var segments = new List<Segment>();
         var queue = new Queue<int>();
         var members = new List<int>();
         var extended = options.ExtendedSigma * sigma;
@@ -211,6 +250,7 @@ public sealed class ExtendedCoreMask
                 }
             }
             var peak = map[peakAt];
+            segments.Add(new Segment(((peakAt % gw) * BlockPx) + (BlockPx / 2), ((peakAt / gw) * BlockPx) + (BlockPx / 2), peak / sigma, [.. members]));
             if (peak < options.MinPeakSigma * sigma)
             {
                 continue;
@@ -282,7 +322,8 @@ public sealed class ExtendedCoreMask
         {
             cores.Add(core);
         }
-        return new ExtendedCoreMask(width, height, weight, cores.MoveToImmutable(), sigma);
+        segments.Sort((a, b) => b.PeakSigma.CompareTo(a.PeakSigma));
+        return new ExtendedCoreMask(width, height, weight, cores.MoveToImmutable(), sigma, [.. segments]);
     }
 
     /// <summary>

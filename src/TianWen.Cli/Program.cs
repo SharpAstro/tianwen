@@ -247,7 +247,9 @@ var rootCommand = new RootCommand
             consoleHost,
             // GetService: only gradient-report solves anything, and a host with no catalog must still build a dataset.
             services.GetService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>(),
-            services.GetService<ILogger<DatasetSubCommand>>()).Build(),
+            services.GetService<ILogger<DatasetSubCommand>>(),
+            // GetService: only starless-plates --brush protects catalogued galaxies with it.
+            services.GetService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>()).Build(),
         new TuiSubCommand(services, consoleHost, plannerState, profileSelector).Build()
     }
 };

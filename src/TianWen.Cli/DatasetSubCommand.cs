@@ -23,7 +23,9 @@ namespace TianWen.Cli;
 /// CLI contract: NO machine specifics; archive roots and the output dir are required parameters
 /// with fail-fast validation; behavioural knobs carry portable defaults only.
 /// </summary>
-internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFactory? plateSolverFactory = null, ILogger<DatasetSubCommand>? logger = null)
+internal sealed partial class DatasetSubCommand(
+    IConsoleHost consoleHost, IPlateSolverFactory? plateSolverFactory = null, ILogger<DatasetSubCommand>? logger = null,
+    TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB? objectDb = null)
 {
     public Command Build()
     {
@@ -889,6 +891,21 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Description = "Build no plate: give each plate already in <out>/plates the field profile its builder subtracted with " +
                           "(<stem>_plate.profile.json), where it has none (every one with --force), checked against the store's record.",
         };
+        var brushOpt = new Option<bool>("--brush")
+        {
+            Description = "After the build, paint every catalogue star the master shows over, halo included, with a surface fitted " +
+                          "outside it and the master's own grain; keep catalogued galaxies and nebulae and the detected extended " +
+                          "sources (only a moving catalogue star is removed there). The catalogue is <stem>.gaia.csv " +
+                          "(training/denoise/gaia_brush_catalogue.py).",
+        };
+        var catalogueDirOpt = new Option<string?>("--catalogue-dir")
+        {
+            Description = "Where --brush finds <stem>.gaia.csv; the master's own folder by default.",
+        };
+        var noProtectOpt = new Option<bool>("--no-protect")
+        {
+            Description = "With --brush, protect nothing: every catalogue star the master shows is removed, on a galaxy or not.",
+        };
 
         var command = new Command("starless-plates",
             "Build the classical starless plate of each master (PSF subtraction plus inpainting) and report what it left: " +
@@ -896,7 +913,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Resumes: a master already in the store is skipped. Create <out>/" + DatasetStarlessReport.StopFileName +
             " to stop before the next master.")
         {
-            Options = { mastersOpt, outOpt, noPlatesOpt, probeOpt, forceOpt, profilesOnlyOpt },
+            Options = { mastersOpt, outOpt, noPlatesOpt, probeOpt, forceOpt, profilesOnlyOpt, brushOpt, catalogueDirOpt, noProtectOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -924,14 +941,21 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 consoleHost.WriteError("No master FITS files found under --masters.");
                 return 1;
             }
+            var brush = parseResult.GetValue(brushOpt);
+            if (brush && !parseResult.GetValue(noProtectOpt) && objectDb is not null)
+            {
+                await objectDb.InitDBAsync(waitForTycho2BulkLoad: false, ct);
+            }
 
             var result = await DatasetStarlessReport.RunAsync(
                 new DatasetStarlessReport.RunOptions(files.ToImmutable(), parseResult.Required(outOpt),
                     WritePlates: !parseResult.GetValue(noPlatesOpt), ProbeHoles: parseResult.GetValue(probeOpt), Force: parseResult.GetValue(forceOpt),
-                    ProfilesOnly: parseResult.GetValue(profilesOnlyOpt)),
+                    ProfilesOnly: parseResult.GetValue(profilesOnlyOpt), Brush: brush, CatalogueDir: parseResult.GetValue(catalogueDirOpt),
+                    Protect: !parseResult.GetValue(noProtectOpt)),
                 logger,
                 progress: new Progress<string>(line => consoleHost.WriteScrollable(line)),
-                cancellationToken: ct);
+                cancellationToken: ct,
+                objectDb: brush ? objectDb : null);
 
             consoleHost.WriteScrollable(
                 $"[starless] {(result.Stopped ? $"STOPPED by {DatasetStarlessReport.StopFileName}: " : "")}measured {result.Measured}, skipped {result.Skipped}, failed {result.Failed}; report: {result.ReportPath}");

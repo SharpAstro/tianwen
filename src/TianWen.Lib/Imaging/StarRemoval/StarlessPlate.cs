@@ -131,9 +131,13 @@ public sealed record StarlessPlateStatistics(
 /// <param name="Statistics">The report's measures.</param>
 /// <param name="FieldProfile">The profile every star was subtracted with, the one its catalogued amplitude means anything
 /// with (null only where a caller built the record itself).</param>
+/// <param name="Brush">What the brush did, when the options asked for one (<see cref="StarlessPlateOptions.Brush"/>).</param>
+/// <param name="BrushFootprints">The pixels the brush painted.</param>
+/// <param name="BrushPlanes">Of those, the ones that took a ring's plane (the rest took the push-pull fill).</param>
 public sealed record StarlessPlate(
     Image Plate, BitMatrix Subtracted, BitMatrix Inpainted, ImmutableArray<FittedStar> Stars, StarlessPlateStatistics Statistics,
-    StarlessFieldProfile? FieldProfile = null);
+    StarlessFieldProfile? FieldProfile = null, StarlessBrushStatistics? Brush = null,
+    BitMatrix? BrushFootprints = null, BitMatrix? BrushPlanes = null);
 
 /// <summary>Knobs of the classical builder; the defaults are the design's (docs/plans/star-remover-training.md, R0).</summary>
 /// <param name="DetectionSigma">The finder's threshold for a point source, first and second pass.</param>
@@ -149,6 +153,8 @@ public sealed record StarlessPlate(
 /// inpainted.</param>
 /// <param name="Seed">The fill's noise seed; the same seed gives the same plate.</param>
 /// <param name="SecondPass">Run the finder again on the first pass's residual.</param>
+/// <param name="Brush">Paint the catalogue's stars over after the build (<see cref="StarlessBrush"/>); null builds R0's
+/// plate as it was.</param>
 public sealed record StarlessPlateOptions(
     float DetectionSigma = 5f,
     float LeftoverSigma = 4f,
@@ -159,7 +165,8 @@ public sealed record StarlessPlateOptions(
     float MinPeakExplained = 0.5f,
     float InpaintSigma = 3f,
     int Seed = 0x5EED,
-    bool SecondPass = true)
+    bool SecondPass = true,
+    StarlessBrush? Brush = null)
 {
     /// <summary>The design's defaults.</summary>
     public static StarlessPlateOptions Default { get; } = new StarlessPlateOptions();

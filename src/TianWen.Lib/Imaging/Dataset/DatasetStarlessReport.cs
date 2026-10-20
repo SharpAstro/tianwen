@@ -9,6 +9,8 @@ using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging.Sources;
 using TianWen.Lib.Imaging.StarRemoval;
 
@@ -45,8 +47,14 @@ public static class DatasetStarlessReport
     /// <param name="ProfilesOnly">Build no plate: give each plate already in <c>plates/</c> its field profile
     /// (<see cref="StarlessFieldProfile"/>), measured as the builder measures it, where it has none (every one with
     /// <paramref name="Force"/>), and check it against the beta the store recorded for the plate.</param>
+    /// <param name="Brush">Paint each master's catalogue stars over after the build (<see cref="StarlessBrush"/>): the catalogue
+    /// is <c>&lt;stem&gt;.gaia.csv</c> in <paramref name="CatalogueDir"/>, placed through the master's WCS.</param>
+    /// <param name="CatalogueDir">Where the brush's catalogues are; the master's own folder when null.</param>
+    /// <param name="Protect">Keep the catalogued galaxies and nebulae and the detected extended sources
+    /// (<see cref="StarlessBrush.BuildProtect"/>); needs the object database.</param>
     public sealed record RunOptions(
-        ImmutableArray<string> Masters, string OutputRoot, bool WritePlates = true, int ProbeHoles = 100, bool Force = false, bool ProfilesOnly = false);
+        ImmutableArray<string> Masters, string OutputRoot, bool WritePlates = true, int ProbeHoles = 100, bool Force = false, bool ProfilesOnly = false,
+        bool Brush = false, string? CatalogueDir = null, bool Protect = true);
 
     /// <summary>What a run did.</summary>
     public sealed record RunResult(int Measured, int Skipped, int Failed, string ReportPath, bool Stopped = false);
@@ -63,7 +71,8 @@ public static class DatasetStarlessReport
 
     /// <summary>Runs the report.</summary>
     public static async Task<RunResult> RunAsync(
-        RunOptions options, ILogger? logger = null, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+        RunOptions options, ILogger? logger = null, IProgress<string>? progress = null, CancellationToken cancellationToken = default,
+        ICelestialObjectDB? objectDb = null)
     {
         var statsDir = Path.Combine(options.OutputRoot, "stats");
         var platesDir = Path.Combine(options.OutputRoot, "plates");
@@ -116,7 +125,9 @@ public static class DatasetStarlessReport
                     failed++;
                     continue;
                 }
-                var plate = await ClassicalStarRemover.BuildAsync(image, logger: logger, cancellationToken: cancellationToken);
+                var (brush, protectedNames) = options.Brush ? BrushFor(options, path, image, wcs, objectDb, progress) : (null, []);
+                var plate = await ClassicalStarRemover.BuildAsync(
+                    image, brush is null ? null : StarlessPlateOptions.Default with { Brush = brush }, logger, cancellationToken);
                 var fill = options.ProbeHoles > 0
                     ? StarlessFillProbe.Measure(plate, StarlessFillProbe.DefaultRadii, options.ProbeHoles, cancellationToken: cancellationToken)
                     : ImmutableArray<FillProbeBand>.Empty;
@@ -137,6 +148,31 @@ public static class DatasetStarlessReport
                     {
                         await StarlessFieldProfile.WriteAsync(StarlessFieldProfile.PathFor(platesDir, stem), profile, cancellationToken);
                     }
+                    if (brush?.Protect is { } protect)
+                    {
+                        SourceDetectionWriter.WriteMap(Path.Combine(platesDir, stem + "_plate.protect.fits.gz"), SourceDetectionWriter.MaskToImage(protect), "PROTECT", wcs);
+                    }
+                    if (plate.BrushFootprints is { } footprints)
+                    {
+                        SourceDetectionWriter.WriteMap(Path.Combine(platesDir, stem + "_plate.brushed.fits.gz"), SourceDetectionWriter.MaskToImage(footprints), "BRUSHED", wcs);
+                    }
+                    if (plate.BrushPlanes is { } planes)
+                    {
+                        SourceDetectionWriter.WriteMap(Path.Combine(platesDir, stem + "_plate.brushplanes.fits.gz"), SourceDetectionWriter.MaskToImage(planes), "BRUSHPLANE", wcs);
+                    }
+                    if (plate.Brush is { } brushed)
+                    {
+                        await File.WriteAllTextAsync(
+                            Path.Combine(platesDir, stem + "_plate.brush.json"),
+                            System.Text.Json.JsonSerializer.Serialize(brushed, DatasetStarlessJsonContext.Default.StarlessBrushStatistics), cancellationToken);
+                    }
+                }
+                if (plate.Brush is { } b)
+                {
+                    progress?.Report(
+                        $"[starless] {name}: brush: {b.CatalogueInFrame} catalogue stars on the frame, {b.CatalogueMatched} matched, {b.CatalogueSeen} more seen, "
+                        + $"{b.Brushed} footprints ({b.BrushedFraction:P2}), {b.Restored} put back on protected sources ({b.ProtectFraction:P2} protected: {string.Join(", ", protectedNames)}); "
+                        + $"halo to {b.HaloReachPx} px from {b.HaloStars} stars, offset {b.MatchOffsetX:+0.00;-0.00}/{b.MatchOffsetY:+0.00;-0.00} px (spread {b.MatchSpreadPx:F2})");
                 }
                 var (channels, width, height) = image.Shape;
                 var stars = plate.Stars;
@@ -167,6 +203,40 @@ public static class DatasetStarlessReport
         }
         await WriteMarkdownAsync(reportPath, store.Values, cancellationToken);
         return new RunResult(measured, skipped, failed, reportPath, stopped);
+    }
+
+    // The brush for one master: its catalogue (<stem>.gaia.csv) placed through its WCS, and its protect mask from the object
+    // database and the detector's extended sources. A master with no WCS gets no brush.
+    private static (StarlessBrush? Brush, List<string> Protected) BrushFor(
+        RunOptions options, string path, Image image, WCS? wcs, ICelestialObjectDB? objectDb, IProgress<string>? progress)
+    {
+        var names = new List<string>();
+        var name = Path.GetFileName(path);
+        if (wcs is not { } w)
+        {
+            progress?.Report($"[starless] {name}: no WCS, so no brush");
+            return (null, names);
+        }
+        var (_, width, height) = image.Shape;
+        var csv = Path.Combine(options.CatalogueDir ?? Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".", Path.GetFileNameWithoutExtension(name) + ".gaia.csv");
+        if (!File.Exists(csv))
+        {
+            progress?.Report($"[starless] {name}: no catalogue at {csv}; the brush paints only what the builder found");
+        }
+        var catalogue = File.Exists(csv) ? StarlessBrush.ReadCatalogue(csv, w, width, height) : [];
+        BitMatrix? protect = null;
+        if (options.Protect)
+        {
+            if (objectDb is null)
+            {
+                progress?.Report($"[starless] {name}: no object database, so nothing is protected");
+            }
+            else
+            {
+                protect = StarlessBrush.BuildProtect(objectDb, w, width, height, ExtendedCoreMask.Find(image), drawn: names);
+            }
+        }
+        return (new StarlessBrush(catalogue, protect), names);
     }
 
     // The profiles-only pass: a plate built before profiles were kept is given the one its builder subtracted with, measured
@@ -356,5 +426,6 @@ public static class DatasetStarlessReport
 
 // NaN is a legitimate value here (a band with no clean star has no median), so the named literals are allowed.
 [JsonSerializable(typeof(DatasetStarlessReport.StarlessMasterRecord))]
+[JsonSerializable(typeof(StarlessBrushStatistics))]
 [JsonSourceGenerationOptions(WriteIndented = false, NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals)]
 internal partial class DatasetStarlessJsonContext : JsonSerializerContext;

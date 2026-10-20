@@ -456,6 +456,102 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         }
     }
 
+    // The field's stars as a catalogue: every one listed (its magnitude from its peak), every one moving.
+    private static StarlessBrush CatalogueOf(Field field, BitMatrix? protect = null, Func<Injected, bool>? moving = null)
+        => new StarlessBrush(
+            [.. field.Stars.Select(s => new CatalogueStar((float)s.X, (float)s.Y, (float)(20.0 - 2.5 * Math.Log10(s.Peak / Sigma)), moving?.Invoke(s) ?? true))],
+            protect);
+
+    // The mean of plate less truth over a disc, in sigma: a disc the brush left at a level of its own reads here, where a
+    // per-pixel error does not.
+    private static double DiscMean(StarlessPlate plate, Field field, double x, double y, double radius, int c = 0)
+    {
+        var plane = plate.Plate.GetChannelSpan(c);
+        double sum = 0;
+        var n = 0;
+        var r = (int)Math.Ceiling(radius);
+        for (var yy = (int)y - r; yy <= (int)y + r; yy++)
+        {
+            for (var xx = (int)x - r; xx <= (int)x + r; xx++)
+            {
+                if ((xx - x) * (xx - x) + (yy - y) * (yy - y) <= radius * radius && xx >= Ring && yy >= Ring && xx < Size - Ring && yy < Size - Ring)
+                {
+                    sum += plane[yy * Size + xx] - field.Truth[c][yy * Size + xx];
+                    n++;
+                }
+            }
+        }
+        return sum / Math.Max(1, n) / Sigma;
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task TheBrushPaintsEveryCataloguedStarOverAndLeavesNoDiscOfItsOwnLevel()
+    {
+        var field = MakeField(1);
+        var options = StarlessPlateOptions.Default with { Brush = CatalogueOf(field) };
+        var plate = await ClassicalStarRemover.BuildAsync(field.Image, options, cancellationToken: TestContext.Current.CancellationToken);
+        var brush = plate.Brush.ShouldNotBeNull();
+        output.WriteLine($"brushed {brush.Brushed} ({brush.BrushedFraction:P2}), halo to {brush.HaloReachPx} px, plane share {brush.PlaneShare:P1}, grain resample {brush.NoiseResampleSigma:F2} (band ratio {brush.NoiseBandRatio:F3})");
+
+        // Over the disc a bright star covered, the plate stands where the field without it stands: the surface is the sky's,
+        // not the halo's edge, and the grain has no level of its own. A disc's mean of N pixels reads its noise over root N.
+        var bright = field.Stars.Where(static s => !s.Saturated && s.Peak >= 100 * Sigma).ToArray();
+        var means = bright.Select(s => DiscMean(plate, field, s.X, s.Y, 4 * Fwhm)).OrderBy(static m => m).ToArray();
+        output.WriteLine($"{bright.Length} stars over 100 sigma: disc mean p10 {means[means.Length / 10]:F3}, median {means[means.Length / 2]:F3}, p90 {means[means.Length * 9 / 10]:F3} sigma");
+        Math.Abs(means[means.Length / 2]).ShouldBeLessThan(0.1);
+        means[means.Length * 9 / 10].ShouldBeLessThan(0.4);
+        means[means.Length / 10].ShouldBeGreaterThan(-0.4);
+
+        // The knot is in no catalogue, so the brush leaves it as the builder did.
+        ErrorRms(plate, field, field.Knot.X, field.Knot.Y, field.Knot.Fwhm).ShouldBeLessThan(0.5);
+    }
+
+    [Fact(Timeout = 300_000)]
+    public async Task OnAProtectedSourceOnlyAMovingStarIsRemoved()
+    {
+        var field = MakeField(1);
+        // Two bright isolated stars inside one protected disc each: the catalogue calls one moving (a foreground star) and
+        // the other not (a cluster of the galaxy's own), so the first goes and the second is put back as the input had it.
+        var isolated = field.Stars.Where(s => !s.Saturated && s.Peak is >= 50 * Sigma and <= 400 * Sigma
+                && s.X > 100 && s.Y > 100 && s.X < Size - 100 && s.Y < Size - 100
+                && field.Stars.All(o => ReferenceEquals(o, s) || Math.Abs(o.X - s.X) > 12 || Math.Abs(o.Y - s.Y) > 12))
+            .Take(2).ToArray();
+        isolated.Length.ShouldBe(2);
+        var (foreground, own) = (isolated[0], isolated[1]);
+        var protect = new BitMatrix(Size, Size);
+        foreach (var s in isolated)
+        {
+            for (var y = (int)s.Y - 20; y <= (int)s.Y + 20; y++)
+            {
+                for (var x = (int)s.X - 20; x <= (int)s.X + 20; x++)
+                {
+                    protect[y, x] = (x - s.X) * (x - s.X) + (y - s.Y) * (y - s.Y) <= 400;
+                }
+            }
+        }
+        var options = StarlessPlateOptions.Default with { Brush = CatalogueOf(field, protect, moving: s => !ReferenceEquals(s, own)) };
+        var plate = await ClassicalStarRemover.BuildAsync(field.Image, options, cancellationToken: TestContext.Current.CancellationToken);
+        var brush = plate.Brush.ShouldNotBeNull();
+        output.WriteLine($"restored {brush.Restored}, protected {brush.ProtectFraction:P3}");
+
+        DiscMean(plate, field, foreground.X, foreground.Y, 2 * Fwhm).ShouldBeInRange(-0.5, 0.5);
+        // The star the catalogue does not move is the input again: its light, over its core, is all there.
+        var input = field.Image.GetChannelSpan(0);
+        var platePlane = plate.Plate.GetChannelSpan(0);
+        double kept = 0, light = 0;
+        for (var y = (int)own.Y - 6; y <= (int)own.Y + 6; y++)
+        {
+            for (var x = (int)own.X - 6; x <= (int)own.X + 6; x++)
+            {
+                kept += platePlane[y * Size + x] - field.Truth[0][y * Size + x];
+                light += input[y * Size + x] - field.Truth[0][y * Size + x];
+            }
+        }
+        output.WriteLine($"the protected, unmoving source keeps {kept / light:P1} of its light");
+        (kept / light).ShouldBeGreaterThan(0.95);
+        plate.Stars.ShouldContain(s => Math.Abs(s.X - own.X) < 1.5 && Math.Abs(s.Y - own.Y) < 1.5 && s.Outcome == StarFitOutcome.Knot);
+    }
+
     [Fact]
     public async Task AColourMosaicIsRefused()
     {

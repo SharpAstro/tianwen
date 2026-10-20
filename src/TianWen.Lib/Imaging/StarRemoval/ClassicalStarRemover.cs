@@ -33,7 +33,7 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// <para>Deterministic: the fill's noise comes from a counter-based hash of the seed, the channel and the pixel, so the
 /// same image and seed give the same plate on any number of threads.</para>
 /// </remarks>
-public static class ClassicalStarRemover
+public static partial class ClassicalStarRemover
 {
     internal const int MaxSubtractRadius = 128;
     private const int MaxFitRadius = 96;
@@ -154,7 +154,7 @@ public static class ClassicalStarRemover
         public StarFitOutcome Outcome;
     }
 
-    private sealed class Builder(
+    private sealed partial class Builder(
         Image image, StarlessPlateOptions options, MoffatPsf lumPsf, float[] fwhm, float[] beta,
         ILogger? logger, CancellationToken ct)
     {
@@ -317,6 +317,13 @@ public static class ClassicalStarRemover
             SweepHoles(fitList, inpainted);
             CleanRemnants(subtracted, inpainted);
             _channelRms = ChannelRms();
+            StarlessBrushStatistics? brushed = null;
+            if (options.Brush is { } brush)
+            {
+                brushed = Brush(brush, fitList, inpainted);
+                RefreshLuminance();
+                _channelRms = ChannelRms();
+            }
 
             var stars = Describe(sources, fitList, secondFrom, inpainted);
             var statistics = Measure(stars, inpainted, subtracted, correlation, sw);
@@ -326,7 +333,7 @@ public static class ClassicalStarRemover
                 _width, _height, _channels, stars.Length, stars.Count(static s => s.Outcome == StarFitOutcome.Subtracted),
                 stars.Count(static s => s.Outcome is StarFitOutcome.Knot or StarFitOutcome.TooNarrow), statistics.InpaintFraction,
                 _fieldScale, sw.ElapsedMilliseconds);
-            return new StarlessPlate(plate, subtracted, inpainted, stars, statistics, FieldProfile());
+            return new StarlessPlate(plate, subtracted, inpainted, stars, statistics, FieldProfile(), brushed, _brushFootprints, _brushPlanes);
         }
 
         public StarlessFieldProfile MeasureFieldProfile()
