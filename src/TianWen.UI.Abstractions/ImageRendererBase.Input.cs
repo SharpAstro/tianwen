@@ -967,14 +967,12 @@ namespace TianWen.UI.Abstractions
             // resolvable sat under the pointer. Found by ViewerFrameDamageTests.
             var prevPos = state.CursorImagePosition;
 
-            // The sky's palette gets every move, before anything else looks at it: it holds its own
-            // fade open from the pointer, and while its grip is dragging the move is ITS move -- a
-            // palette dragged across the picture must not also pan the picture. It answers false the
-            // moment the grip is not held, so the ordinary path below is unaffected.
-            if (PaintedSkyBackdrop is { } sky && sky.HandleInput(evt))
+            // The sky's palette notes every move, which holds its fade open; it never takes one. Its grip's drag
+            // is a capture the router owns (#1513), so a palette dragged across the picture never reaches here
+            // to pan it.
+            if (PaintedSkyBackdrop is { } sky && evt is InputEvent.MouseMove(var paletteX, var paletteY))
             {
-                state.NeedsRedraw = true;
-                return true;
+                sky.NotePalettePointer(paletteX, paletteY);
             }
 
             // Set by any branch below that repaints something OTHER than the pixel readout. Every one of
@@ -1116,18 +1114,10 @@ namespace TianWen.UI.Abstractions
         {
             // Taken and cleared FIRST, so an armed tap cannot outlive its own release. Every path
             // below either uses it or drops it: a press whose release is claimed by something else
-            // (the palette grip, just below) would otherwise leave it set for a LATER release
-            // somewhere else to act on, and this is the one release path both hosts share.
+            // would otherwise leave it set for a LATER release somewhere else to act on, and this is
+            // the one release path both hosts share.
             var press = _pressToSelect;
             _pressToSelect = null;
-
-            // Ends a palette grip drag, and goes no further when it does -- the same reason the map's
-            // own release path stops there: a release consumed by the panel must not also read as a
-            // click on what is behind it.
-            if (PaintedSkyBackdrop is { } sky && sky.HandleInput(evt))
-            {
-                return true;
-            }
 
             if (_state is { } state)
             {

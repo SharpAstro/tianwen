@@ -25,6 +25,23 @@ namespace TianWen.UI.Abstractions
         public Action<float, float>? HostSelectAt { get; set; }
 
         /// <summary>
+        /// Registers a label's click region where the label is SEEN: a host's photograph over the map
+        /// (<see cref="SkyMapState.OccludedByHost"/>) hides what is under it, so the part of the label it covers takes no
+        /// press, which would otherwise select a name nobody can see (#1513). The map paints under the host, so its
+        /// labels are asked after the host's own regions and before the host's own press handling.
+        /// </summary>
+        private void RegisterLabel(float x, float y, float w, float h, HitResult hit, Action<InputModifier>? onClick)
+        {
+            Span<RectF32> visible = stackalloc RectF32[4];
+            var count = SkyLabelRegions.Outside(new RectF32(x, y, w, h), State.OccludedByHost, visible);
+            for (var i = 0; i < count; i++)
+            {
+                var r = visible[i];
+                RegisterClickable(r.X, r.Y, r.Width, r.Height, hit, onClick);
+            }
+        }
+
+        /// <summary>
         /// The one exit for a selection request; see <see cref="HostSelectAt"/>. The point is the
         /// OBJECT's screen position for a label click (the bridges re-synthesise it there), so the
         /// host resolves it exactly as it would a tap on the marker.

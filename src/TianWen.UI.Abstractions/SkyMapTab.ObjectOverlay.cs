@@ -379,7 +379,7 @@ namespace TianWen.UI.Abstractions
                     {
                         var objX = item.ScreenX;
                         var objY = item.ScreenY;
-                        RegisterClickable(lx, ly, maxLineW, labelH,
+                        RegisterLabel(lx, ly, maxLineW, labelH,
                             new HitResult.ButtonHit($"SkyMapObjectLabel:{item.LabelLines[0]}"),
                             _ => EmitSelectAt(objX, objY, InputModifier.None));
                     }

@@ -312,34 +312,6 @@ public sealed class ViewerState
     /// </summary>
     public DropdownMenuState<string> ToolbarDropdown { get; } = new();
 
-    /// <summary>
-    /// True while the sky backdrop's layer palette has the pointer (under it, or dragging it), so the picture
-    /// beneath must not resolve a hover wash through it.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>This was <c>OverlayOwnsPointer</c>, and the popovers have left it.</b> It predicted, for hand-painted
-    /// chrome that decides its hover before any overlay has drawn, whether something would cover it this frame:
-    /// the toolbar menu, the white balance and tone popovers, and this palette, read in six places. An open
-    /// popover's claim now reaches what is painted before it in DIR.Lib itself (11.14,
-    /// <c>WindowUiSettings.PointerClaim</c>), and chrome asks that rule directly (<c>.BgHover</c>,
-    /// <c>PointerHovers</c>, <c>HoverAllowedAt</c>), so a new popover needs no entry anywhere.
-    /// </para>
-    /// <para>
-    /// The palette stays because it is not a popover (no backdrop, no claim: dragged, snapped and faded instead)
-    /// and it belongs to the sky map's widget, whose regions the viewer's own hit test does not see. Its one
-    /// reader is the picture's hover wash.
-    /// </para>
-    /// </remarks>
-    public bool SkyPaletteOwnsPointer => ShowSkyBackdrop && SkyLayerPalette is { IsEngaged: true };
-
-    /// <summary>
-    /// The sky map's layer palette, when the host wired a sky backdrop -- the floating panel that
-    /// appears with the sky and is the only interactive thing it brings. Registered here so the rule
-    /// above can see it; null in a host with no backdrop.
-    /// </summary>
-    public FloatingPaletteState? SkyLayerPalette { get; set; }
-
     /// <summary>Index into <see cref="StretchParameters.Presets"/> for the selected stretch preset.</summary>
     public int StretchPresetIndex { get; set; } = 0; // Presets[0] IS StretchParameters.Default
 

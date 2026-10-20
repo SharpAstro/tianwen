@@ -347,9 +347,6 @@ var skyPlannerState = new PlannerState();
 imageRenderer.SkyBackdrop = skyBackdrop;
 imageRenderer.SkyPlannerState = skyPlannerState;
 imageRenderer.SkyTimeProvider = sp.GetRequiredService<TianWen.Lib.Devices.ITimeProvider>();
-// Registered on the viewer state so a pointer over the palette does not also count as a pointer over
-// the picture -- see ViewerState.SkyPaletteOwnsPointer, which is the one place that rule is stated.
-state.SkyLayerPalette = skyBackdrop.State.LayerPalette;
 
 // Once-only latches for the start-up trace. The three phases after "gpu" are all inside per-frame
 // callbacks, and only their FIRST run is start-up.

@@ -139,11 +139,11 @@ namespace TianWen.Lib.Tests
         public void ThePaletteBindsTheGripAndOneRowPerAvailableLayer()
         {
             var tree = SkyMapLayerPalette.Build(
-                FullyAvailable(milkyWay: false), 12f, _ => { }, () => { });
+                FullyAvailable(milkyWay: false), 12f, _ => { }, DesignScale.One);
 
             var actions = ClickActions(tree);
 
-            actions.ShouldContainKey(SkyMapLayerPalette.GripAction);
+            PressActions(tree).ShouldContain(SkyMapLayerPalette.GripAction, "the grip declares its press, which begins the drag");
             foreach (var layer in SkyMapLayers.All)
             {
                 var action = SkyMapLayerPalette.RowAction(in layer);
@@ -222,7 +222,7 @@ namespace TianWen.Lib.Tests
             {
                 toggled.Add(layer.Label);
                 layer.Toggle(state);
-            }, () => { });
+            }, DesignScale.One);
 
             var grid = SkyMapLayers.All.Single(l => l.Key == InputKey.G);
             var before = Snapshot(state);
@@ -235,18 +235,52 @@ namespace TianWen.Lib.Tests
                 .ShouldBe([SkyMapLayers.All.IndexOf(grid)]);
         }
 
+        /// <summary>
+        /// The grip's drag is DIR.Lib's declaration (11.28, #1513): its press begins the drag where it landed and a
+        /// double press collapses, so no host routes either by hand, and the panel claims the pointer over its padding.
+        /// </summary>
         [Fact]
-        public void PressingTheGripReachesTheHost()
+        public void TheGripDeclaresItsDragAndItsCollapseAndThePanelClaimsThePointer()
         {
-            // The drag's entry point: a host dispatches clickable regions from the mouse-DOWN and
-            // forwards the press to the tab only when nothing was hit, so this binding is the only way
-            // a grip drag can begin at all.
-            var pressed = 0;
-            var tree = SkyMapLayerPalette.Build(FullyAvailable(), 12f, _ => { }, () => pressed++);
+            var state = FullyAvailable();
+            var changed = 0;
+            var tree = SkyMapLayerPalette.Build(state, 12f, _ => { }, DesignScale.One, () => changed++);
 
-            ClickActions(tree)[SkyMapLayerPalette.GripAction].Invoke(InputModifier.None);
+            Layout.Node? grip = null;
+            var panelClaims = false;
+            Walk(tree, n =>
+            {
+                if (n.Hit is HitResult.ButtonHit { Action: var a } && a == SkyMapLayerPalette.GripAction)
+                {
+                    grip = n;
+                }
+                panelClaims |= n.Hit is HitResult.ButtonHit { Action: var p } && p == SkyMapLayerPalette.GripAction + ":Panel";
+            });
 
-            pressed.ShouldBe(1);
+            grip.ShouldNotBeNull();
+            var capture = grip.OnPress.ShouldNotBeNull()(new PointerPress(10f, 10f, MouseButton.Left, InputModifier.None, 1));
+            capture.ShouldNotBeNull("a single press claims the drag");
+            state.LayerPalette.IsDragging.ShouldBeTrue();
+            capture.Release(new PointerMove(10f, 10f, MouseButton.Left, InputModifier.None));
+            state.LayerPalette.IsDragging.ShouldBeFalse();
+            changed.ShouldBeGreaterThan(0, "the host is asked for a frame");
+
+            grip.OnDoubleClick.ShouldNotBeNull()(InputModifier.None);
+            state.LayerPalette.Collapsed.ShouldBeTrue("a double press collapses");
+            panelClaims.ShouldBeTrue("the panel's padding takes the pointer from what is behind it");
+        }
+
+        private static List<string> PressActions(Layout.Node root)
+        {
+            var found = new List<string>();
+            Walk(root, n =>
+            {
+                if (n is { Hit: HitResult.ButtonHit button, OnPress: not null })
+                {
+                    found.Add(button.Action);
+                }
+            });
+            return found;
         }
 
         private static Dictionary<string, Action<InputModifier>> ClickActions(Layout.Node root)

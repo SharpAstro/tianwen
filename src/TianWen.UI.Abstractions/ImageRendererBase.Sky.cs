@@ -43,9 +43,9 @@ namespace TianWen.UI.Abstractions
             set
             {
                 _skyBackdrop = value;
-                // The composition is STATED, once, here: the palette's rows are registered on the map
-                // and nothing asking only this widget would ever find them. Empty when there is no
-                // backdrop, which is what makes a host that wired none behave exactly as before.
+                // The composition is STATED, once, here: the map's labels are registered on the map, and
+                // nothing asking only this widget would ever find them. Empty when there is no backdrop,
+                // which is what makes a host that wired none behave exactly as before.
                 _children = value is null ? [] : [value];
                 ShareUiContext(value is null ? [] : [value]);
 
@@ -83,20 +83,21 @@ namespace TianWen.UI.Abstractions
         /// Gated on the map actually being DRAWN this frame, not merely attached. A widget keeps the
         /// regions it registered on its last paint, so a map that has stopped painting -- the ladder
         /// stepped off the sky rung, the frame lost its solution -- would go on answering hit tests
-        /// for a palette that is no longer on screen, and a click on the picture would toggle an
-        /// invisible layer row.
+        /// for labels that are no longer on screen.
         /// </remarks>
         protected override IReadOnlyList<PixelWidgetBase<TSurface>> Children
             => SkyBackdropActive ? _children : [];
 
         /// <inheritdoc/>
         /// <remarks>
-        /// None: the sky map paints UNDER everything this widget draws, but its palette paints over all of it, and a
-        /// child drawn in two passes cannot be split, so the map is kept wholly over and asked first by every query (a
-        /// routed press, the hover highlight, a shortcut, <c>HitTest</c>, the cursor). Its regions are the palette's
-        /// rows and the labels, which the host turns back into a selection here (<see cref="SkyBackdrop"/>).
+        /// The map, which paints UNDER everything this widget draws, so every query (a routed press, the hover
+        /// highlight, a shortcut, <c>HitTest</c>, the cursor) asks this widget's own regions first. Its palette is not
+        /// among its regions: this widget paints it as its own chrome (<see cref="RenderSkyPalette"/>), so a child
+        /// drawn in two passes no longer needs one split to describe it (#1513). What the map registers is its labels,
+        /// only where the photograph leaves them seen (<see cref="SkyMapState.OccludedByHost"/>), which the host turns
+        /// back into a selection here (<see cref="SkyBackdrop"/>).
         /// </remarks>
-        protected override int ChildrenUnderOwn => 0;
+        protected override int ChildrenUnderOwn => 1;
 
         /// <summary>The map, but only while it is on screen -- see the note on <see cref="Children"/>.</summary>
         private SkyMapTab<TSurface>? PaintedSkyBackdrop => SkyBackdropActive ? _skyBackdrop : null;
@@ -425,9 +426,21 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         private void RenderSkyPalette(RectF32 area)
         {
-            if (SkyBackdropActive && SkyBackdrop is { } tab)
+            // Painted by THIS widget, so its regions are the viewer's own, in its paint order: over the picture,
+            // the histogram and the info panel, under the selection panel, the status bar and every popover, which
+            // a press reaches in that order too (#1513). As the map's child the palette was over everything the
+            // viewer drew, and took the presses of a dropdown opened over it.
+            if (SkyBackdropActive && SkyBackdrop is { LayerPaletteOnShow: true } tab)
             {
-                tab.RenderLayerPalette(area, includeKeyHints: false);
+                var scale = Scale;
+                var arranged = RenderLayout(tab.LayerPaletteTree(scale, includeKeyHints: false, () =>
+                {
+                    if (_state is { } state)
+                    {
+                        state.NeedsRedraw = true;
+                    }
+                }), area);
+                tab.NoteLayerPaletteArranged(arranged, area, scale);
             }
         }
     }

@@ -1647,8 +1647,9 @@ add a fourth key router.
 - **HOVER's z-order answer is the engine's: an open popover's pointer claim reaches what is painted BEFORE it**
   (DIR.Lib 11.14, `WindowUiSettings.PointerClaim`), so a declared `.BgHover` needs nothing, and chrome that still decides its
   own highlight asks the same rule (`PointerHovers(rect)`, `HoverAllowedAt(x, y)`), never a list of open overlays. The
-  viewer's `OverlayOwnsPointer`, which was that list, is gone; `ViewerState.SkyPaletteOwnsPointer` is left for the sky
-  palette alone, which is not a popover and is another widget's.
+  viewer's `OverlayOwnsPointer`, which was that list, is gone, and so is `ViewerState.SkyPaletteOwnsPointer` (#1513): the
+  viewer paints the sky's layer palette as its OWN chrome, its grip's drag and its padding declared (DIR.Lib 11.28), and the
+  map paints under the viewer, a label behind the photograph registering only where it is seen (`SkyLabelRegions`).
 - **Every host routes through `DIR.Lib.InputRouter`, and the ORDER is the engine's**: an open popover, a PAINTED
   node's matching `Shortcut`, the focused field, the widget; hosts call `AfterPaint()` once the frame is drawn.
   **A key binding that belongs to a CONTROL is declared with it** (`.WithShortcut(key, mods)`, or the viewer's

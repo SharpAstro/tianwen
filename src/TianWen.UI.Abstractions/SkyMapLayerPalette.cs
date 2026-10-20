@@ -110,11 +110,15 @@ namespace TianWen.UI.Abstractions
         /// <param name="state">Read for each layer's on/off and for the palette's own placement.</param>
         /// <param name="fontSize">Row text size in DESIGN units.</param>
         /// <param name="onToggle">Invoked with the layer a click landed on.</param>
-        /// <param name="onGripPress">Invoked when the grip is pressed, to begin a drag or collapse.</param>
+        /// <param name="scale">The scale the tree is arranged at, which the grip's drag divides its pointer delta by.
+        /// The grip's drag, its double-press collapse and the panel's claim on the pointer are DIR.Lib's
+        /// declarations (11.28), so a host routes none of them (#1513).</param>
+        /// <param name="onChanged">Invoked whenever the grip moved, collapsed or released the panel, so the host
+        /// asks for a frame.</param>
         /// <param name="includeKeyHints">See <see cref="ItemsFor"/>: false in a host whose keyboard
         /// these letters do not belong to.</param>
         public static Layout.Node Build(SkyMapState state, float fontSize,
-            Action<SkyMapLayer> onToggle, Action onGripPress, bool includeKeyHints = true)
+            Action<SkyMapLayer> onToggle, DesignScale scale, Action? onChanged = null, bool includeKeyHints = true)
         {
             ArgumentNullException.ThrowIfNull(state);
             ArgumentNullException.ThrowIfNull(onToggle);
@@ -133,8 +137,9 @@ namespace TianWen.UI.Abstractions
                         onToggle(layer);
                     }
                 },
-                onGripPress,
-                PanelWidth);
+                scale,
+                onChanged,
+                panelWidth: PanelWidth);
         }
     }
 }
