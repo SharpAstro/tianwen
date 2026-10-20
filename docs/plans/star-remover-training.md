@@ -2961,6 +2961,84 @@ the real-star check's counting noise (about 0.3 points on its 4,215 bright stars
 is dropped. **What it decides:** whether `--star-subs` becomes the line's export. With (1) and (3) holding, it does, and
 every later arm and average starts from it.
 
+#### R2nc's read: the clipped deeper net trains cleanly and gains on faint stars, not on bright ones (2026-10-20)
+
+Trained on the Azure spot T4 on 2026-10-19. It was evicted once (found deallocated at 15:20, started again and resumed
+from its checkpoint), halved four times and stopped on its own at step 184,500, its held-out best 2.10e-6 at 172,500
+(R2i's seed 1, 2.44e-6; R2o, 2.55e-6). The driver fetched the weights at 18:50 and deleted the VM, its disk and its
+network itself at 18:51, then scored them by the same binary as R2i (`C:/temp/e2/read_r2nc_r2p.py`).
+
+| | R2i | R2nc |
+|---|---|---|
+| A's draws: clean 5-20 / 20-100 / 100-1000 sigma | 79.2 / 74.5 / 60.2 | **82.1 / 77.3** / 61.8 |
+| A's draws: clean in colour 5-20 / 20-100 sigma | 57.3 / 43.7 | **64.0 / 48.9** |
+| A's draws: dug 100-1000 sigma / clean saturated / dug saturated | 28.7 / 46.6 / 28.3 | 31.2 / **56.2** / 35.2 |
+| A's draws: footprint RMS | 2.50 | **1.05** |
+| plain / lobed twin: clean 100-1000 sigma | 61.2 / 61.0 | 62.0 / 60.4 |
+| real stars, 5-20 / 20-100 / 100-1000 sigma within a sigma | 94.8 / 97.1 / 96.4 | 96.5 / 98.4 / 95.0 |
+| real stars, 100-1000 sigma dug / left bright | 1.47 / 2.11 | 4.06 / 0.90 |
+| ring, 3-6 px (R / G / B): mean; a channel dug past -1 / left past +1 | -0.40 / -0.56 / -0.33; 43.1 / 12.4 % | -0.68 / -0.56 / -0.54; 53.1 / 7.9 % |
+| M31, central 6 px taken (R / G / B) | 3.1 / 3.1 / 0.3 % | 3.9 / -0.3 / 1.2 % |
+
+1. **Bright stars clean at least 64.5 %: misses**, 61.8 (1.6 over R2i, inside the 4.3 spread).
+2. **Saturated stars clean at least 50.0 %: holds**, 56.2. They are dug more too (35.2 against 28.3).
+3. **The faint bands at least 77.9 and 73.7 %: holds**, 82.1 and 77.3, both past the spread over R2i.
+4. **The ring dug on at most 38 % of bright stars: misses**, 53.1 %, deeper than R2i's 43.1 in red and blue.
+5. **Real bright stars flat on at least 96.4 %: misses**, 95.0, and dug on 4.06 % of them against R2i's 1.47.
+6. **M31's nucleus at most 5 % in every channel: holds**, 3.9 / -0.3 / 1.2 %.
+7. **No blow-up: holds.** No logged training loss above 1e-3 after step 2,000; the held-out objective fell to the end.
+
+**Read, not predicted:** after step 2,000 the clip bound 66 of 183,500 steps (0.04 %), at most 6 in a window of 500
+(at step 7,500), so the stabiliser acted only on the odd batch and changed nothing else.
+
+**The kill does not fire** (61.8 is above R2i's 60.2), but the gain it would need is not there either: inside the seed
+spread at one view, and on real stars the deeper net digs bright stars three times as often as R2i does.
+
+**What it decides.** Clipping was enough: four levels train cleanly at R2i's recipe, so R2n's blow-up was the
+instability and not the depth. With that settled, reach buys the FAINT stars (about 3 points clean, 5 to 7 in colour,
+and the tightest footprint of the line) and not the bright ones, which it digs harder on A's draws, on the ring and on
+real stars. So prediction (1) fails and four levels do not become the recipe: the base net stays at two levels, and
+what the bright stars lack is not reach. A deeper member could still serve an average for its faint-star gain, which
+is not measured here.
+
+#### R2p's read: one model told E5's answer carries most of E5's gain, and its own views pass E5 (2026-10-20)
+
+Trained on the 1070 from 08:36 to 18:55 on 2026-10-19 toward E5's output (`teacher.f16`), halved four times and stopped
+on its own at step 224,500, its held-out best 2.30e-6 at 200,500 (the held-out objective reads the clean tile, not the
+teacher). Scored by the same binary as R2i, at one view and over its own eight views (`C:/temp/e2/read_r2nc_r2p.py`).
+
+| | R2i | E5 | R2p | R2p, 8 views |
+|---|---|---|---|---|
+| forward passes per tile | 1 | 16 | 1 | 8 |
+| A's draws: clean 5-20 / 20-100 / 100-1000 sigma | 79.2 / 74.5 / 60.2 | **81.4** / 78.0 / 66.7 | 80.6 / 77.2 / 65.8 | 81.0 / **78.3 / 69.5** |
+| A's draws: dug 100-1000 sigma | 28.7 | 24.7 | 25.9 | **23.3** |
+| A's draws: clean in colour 100-1000 / clean saturated | 21.3 / 46.6 | **33.1** / 54.3 | 25.3 / 54.8 | 29.7 / **58.9** |
+| plain / lobed twin: clean 100-1000 sigma | 61.2 / 61.0 | | 66.6 / 65.9 | |
+| real stars, 5-20 / 20-100 / 100-1000 sigma within a sigma | 94.8 / 97.1 / 96.4 | 96.3 / 98.4 / 97.8 | 96.1 / 98.7 / 97.8 | |
+| real stars, 100-1000 sigma dug / left bright | 1.47 / 2.11 | 1.09 / 1.07 | 1.00 / 1.19 | |
+| ring, 3-6 px: a channel dug past -1 / left past +1 | 43.1 / 12.4 % | 38.9 / 10.3 % | 37.2 / 11.2 % | 36.5 / 11.1 % |
+| M31, central 6 px taken (R / G / B) | 3.1 / 3.1 / 0.3 % | 1.1 / 3.9 / 1.1 % | 1.2 / 4.5 / 1.8 % | |
+
+1. **One model, one view, bright stars at least 64.5 %: holds**, 65.8 against E5's 66.7.
+2. **The faint bands hold: holds**, 80.6 and 77.2.
+3. **Real bright stars flat on at least 96.4 %: holds**, 97.8, as E5, and dug on 1.00 % of them.
+4. **M31's nucleus at most 5 % in every channel: holds**, 1.2 / 4.5 / 1.8 %, green within half a point of the bar
+   and above E5's 3.9.
+
+**Read, not predicted:** R2p's own eight views gain 3.7 points on bright stars (R2i's gained 6.0), so the distilled
+model's views still disagree and averaging them still pays. Against E5 band by band, R2p at one view sits within a
+point everywhere but colour on bright stars (25.3 against 33.1); over its eight views it passes E5 on bright and
+saturated stars and digs less, at half E5's passes, and still trails it in colour on bright stars.
+
+**The kill does not fire.**
+
+**What it decides.** Distillation carries the average into one model where training on the views did not (R2o): one
+pass gets 5.6 of E5's 6.5 points over R2i on bright stars, and matches it on real stars, at a sixteenth of its passes.
+The colour of bright stars is the part that does not carry. A shipped single model is now possible; which model ships
+(R2p alone, R2p over its views, or an average) is the owner's call. The teacher caveat stands: E5's members trained on
+these draws, so R2p learned a target a little better than E5 would be on new data, and the real-star check, where E5
+never trained, is the one that says it held (97.8 against 97.8).
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
