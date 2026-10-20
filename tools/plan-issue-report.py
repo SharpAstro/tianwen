@@ -13,6 +13,10 @@ the named plans (their file stems): the plan-report workflow passes the plans a 
 that PR renamed cannot leave an issue's link dead, while an error elsewhere in the repository (an issue
 another piece of work opened) reports without failing someone else's PR. The weekly run fails nothing; the
 issues and milestones are the shared view. --markdown is what that workflow writes to the job summary.
+
+--roadmap writes the PUBLIC face of the same graph, https://sharpastro.github.io/tianwen/roadmap.html: what is next
+(priority:high, the newest priority:next), the plans in progress and planned by area with their progress, the latest
+releases and the shipped plans, and no findings. The pages workflow regenerates it on every deploy.
 """
 import argparse
 import html
@@ -151,8 +155,11 @@ def build():
         if s in INDEX_PLANS:
             continue
         m = ms_by_title.get(s)
+        title = re.search(r"^#\s+(.+?)\s*$", plans[s]["text"], re.M)
         table.append({
             "plan": s,
+            "title": re.sub(r"^Plan:\s*", "", title.group(1)) if title else s.replace("-", " ").capitalize(),
+            "status_line": plans[s]["status_line"],
             "summary": rows.get(s),
             "milestone": {"number": m["number"], "open": m["open_issues"], "closed": m["closed_issues"],
                           "state": m["state"], "url": m["html_url"]} if m else None,
@@ -266,6 +273,195 @@ def render(r):
 """
 
 
+# ---------------------------------------------------------------- roadmap
+
+ROADMAP_CSS = """
+:root{--bg:#f6f7f9;--panel:#ffffff;--ink:#1c2230;--dim:#5b6475;--rule:#dde1e8;--accent:#3b5bdb;--bar:#e6e9ef;
+--done:#2b8a3e;--prog:#3b5bdb;--plan:#868e96;--next:#c2410c;font-family:"IBM Plex Sans",system-ui,sans-serif;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#11141a;--panel:#181c24;--ink:#e3e7ef;--dim:#98a1b3;
+--rule:#2a303c;--accent:#7c93f0;--bar:#262c38;--done:#51cf66;--prog:#7c93f0;--plan:#98a1b3;--next:#fb923c;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#11141a;--panel:#181c24;--ink:#e3e7ef;--dim:#98a1b3;--rule:#2a303c;--accent:#7c93f0;
+--bar:#262c38;--done:#51cf66;--prog:#7c93f0;--plan:#98a1b3;--next:#fb923c;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);margin:0;padding:24px 16px 48px;line-height:1.45}
+main{max-width:1180px;margin:0 auto;display:grid;gap:28px}
+h1{font-size:1.7rem;margin:0}h2{font-size:1.2rem;margin:0 0 4px}h3{font-size:.8rem;margin:18px 0 8px;color:var(--dim);
+text-transform:uppercase;letter-spacing:.06em}
+.sub{color:var(--dim);font-size:.92rem;max-width:72ch}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.stats{display:flex;flex-wrap:wrap;gap:10px}
+.stat{background:var(--panel);border:1px solid var(--rule);border-radius:8px;padding:10px 14px;min-width:130px;flex:1 1 130px}
+.stat b{display:block;font-size:1.5rem;font-variant-numeric:tabular-nums}
+.stat span{color:var(--dim);font-size:.78rem;text-transform:uppercase;letter-spacing:.05em}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(min(100%,330px),1fr))}
+.card{background:var(--panel);border:1px solid var(--rule);border-radius:8px;padding:14px;display:grid;gap:8px;align-content:start;min-width:0}
+.card h4{margin:0;font-size:1rem;overflow-wrap:anywhere}
+.badge{display:inline-block;font-size:.72rem;font-weight:600;padding:1px 8px;border-radius:999px;border:1px solid currentColor;
+max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
+.prog{color:var(--prog)}.plan{color:var(--plan)}.done{color:var(--done)}.nx{color:var(--next)}
+.meter{display:flex;align-items:center;gap:8px;font-size:.8rem;color:var(--dim);font-variant-numeric:tabular-nums}
+.bar{flex:1;height:7px;background:var(--bar);border-radius:4px;overflow:hidden}.bar i{display:block;height:100%;background:var(--done)}
+ul{margin:0;padding-left:18px;font-size:.88rem}li{margin:2px 0;overflow-wrap:anywhere}
+.more{font-size:.82rem}
+.next li{margin:6px 0}
+.shipped{columns:3 260px;column-gap:24px;font-size:.88rem;padding-left:18px}
+.release{background:var(--panel);border:1px solid var(--rule);border-radius:8px;padding:12px 14px;font-size:.9rem}
+.release p{margin:6px 0 0;color:var(--dim)}
+code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.86em}
+footer{color:var(--dim);font-size:.82rem}
+"""
+
+# How many issues marked priority:next the roadmap lists, newest first; every priority:high one is listed.
+NEXT_SHOWN = 8
+
+AREA_NAMES = {"astrometry": "Astrometry", "drivers": "Devices and drivers", "guider": "Guiding", "imaging": "Imaging",
+              "infra": "Infrastructure", "sequencing": "Sessions and sequencing", "ui": "Apps and UI", "archive": "Archive"}
+
+
+def _inline_md(text, limit=None):
+    """A changelog or status snippet as safe HTML: escaped, `code` kept, links and emphasis reduced to their text."""
+    t = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    t = re.sub(r"\*\*([^*]+)\*\*|__([^_]+)__", lambda m: m.group(1) or m.group(2), t)
+    if limit and len(t) > limit:
+        t = t[:limit].rsplit(" ", 1)[0] + " ..."
+    t = html.escape(t)
+    return re.sub(r"`([^`]+)`", r"<code>\1</code>", t)
+
+
+def _bucket(p):
+    """Planned, in progress or shipped, read off the plan's own status and its milestone."""
+    st = (p["summary"] or p["status_line"] or "").strip().upper()
+    m = p["milestone"]
+    open_n = (m["open"] if m else 0) or len(p["open"])
+    closed_n = m["closed"] if m else len(p["closed"])
+    if open_n == 0:
+        return "shipped" if re.match(r"(DONE|SHIPPED|COMPLETE|RESOLVED|IMPLEMENTED)", st) else None
+    if st.startswith("NOT STARTED") and closed_n == 0:
+        return "planned"
+    return "progress"
+
+
+def _changelog(n=3):
+    path = os.path.join(REPO_DIR, "CHANGELOG.md")
+    if not os.path.exists(path):
+        return []
+    text = open(path, encoding="utf-8").read()
+    out = []
+    for m in re.finditer(r"^## (\S+)\s*\n(.*?)(?=^## |\Z)", text, re.M | re.S):
+        para = next((b.strip() for b in m.group(2).split("\n\n") if b.strip()), "")
+        out.append((m.group(1), " ".join(para.split())))
+        if len(out) == n:
+            break
+    return out
+
+
+def render_roadmap(r):
+    """The public face of the same graph: what is next, what is in progress, what is planned and what shipped, by area.
+    No findings: those are the maintainers' checklist, and this page is for everyone else."""
+    titles = {int(k): v for k, v in r["titles"].items()}
+    labels = {int(k): v for k, v in r.get("labels", {}).items()}
+
+    def area_of(nums):
+        votes = {}
+        for n in nums:
+            for l in labels.get(n, []):
+                if l.startswith("area:"):
+                    votes[l[5:]] = votes.get(l[5:], 0) + 1
+        return max(votes, key=votes.get) if votes else "other"
+
+    def issue_li(n):
+        return (f'<li><a href="https://github.com/{GH_REPO}/issues/{n}">#{n}</a> '
+                f'{_inline_md(titles.get(n, ""), 110)}</li>')
+
+    buckets = {"progress": [], "planned": [], "shipped": []}
+    plan_of = {}
+    for p in r["plans"]:
+        b = _bucket(p)
+        if b:
+            buckets[b].append(p)
+        for n in p["open"]:
+            plan_of[n] = p
+
+    def card(p, kind):
+        m = p["milestone"]
+        total = (m["open"] + m["closed"]) if m else len(p["open"]) + len(p["closed"])
+        closed = m["closed"] if m else len(p["closed"])
+        pct = int(round(100 * closed / total)) if total else 0
+        status = _inline_md(p["summary"] or p["status_line"] or ("planned" if kind == "planned" else "in progress"), 60)
+        badge = {"progress": "prog", "planned": "plan"}[kind]
+        opens = sorted(p["open"], key=lambda n: (not any(l.startswith("priority:") for l in labels.get(n, [])), -n))
+        more = len(opens) - 4
+        tail = (f'<div class="more"><a href="{m["url"]}">and {more} more</a></div>' if m and more > 0
+                else (f'<div class="more">and {more} more</div>' if more > 0 else ""))
+        meter = (f'<div class="meter"><div class="bar"><i style="width:{pct}%"></i></div>{closed} of {total} done</div>'
+                 if total else "")
+        return (f'<article class="card"><h4><a href="{BLOB}{p["plan"]}.md">{_inline_md(p["title"], 90)}</a></h4>'
+                f'<div><span class="badge {badge}" title="{html.escape(p["summary"] or "")}">{status}</span></div>{meter}'
+                f'<ul>{"".join(issue_li(n) for n in opens[:4])}</ul>{tail}</article>')
+
+    def by_area(plans, kind):
+        groups = {}
+        for p in plans:
+            groups.setdefault(area_of(p["open"]), []).append(p)
+        out = []
+        for a in sorted(groups, key=lambda a: (a == "other", AREA_NAMES.get(a, a))):
+            ps = sorted(groups[a], key=lambda p: (-(p["milestone"]["closed"] if p["milestone"] else 0), p["plan"]))
+            out.append(f'<h3>{html.escape(AREA_NAMES.get(a, "Other"))}</h3>'
+                       f'<div class="grid">{"".join(card(p, kind) for p in ps)}</div>')
+        return "".join(out)
+
+    high = sorted((n for n, ls in labels.items() if "priority:high" in ls), key=lambda n: -n)
+    nexts = sorted((n for n, ls in labels.items() if "priority:next" in ls and "priority:high" not in ls), key=lambda n: -n)
+
+    def plan_note(n):
+        # The plan's name, unless the issue's own title already says it.
+        if n not in plan_of:
+            return ""
+        t, it = plan_of[n]["title"].lower(), titles.get(n, "").lower()
+        return "" if t.startswith(it[:40]) or it.startswith(t[:40]) else f' <span class="sub">({_inline_md(plan_of[n]["title"], 60)})</span>'
+
+    next_items = "".join(
+        f'<li><span class="badge nx">{"high" if n in high else "next"}</span> '
+        f'<a href="https://github.com/{GH_REPO}/issues/{n}">#{n}</a> {_inline_md(titles.get(n, ""), 130)}{plan_note(n)}</li>'
+        for n in high + nexts[:NEXT_SHOWN])
+    if len(nexts) > NEXT_SHOWN:
+        next_items += (f'<li class="more"><a href="https://github.com/{GH_REPO}/issues?q=is%3Aissue+is%3Aopen+label%3Apriority%3Anext">'
+                       f'and {len(nexts) - NEXT_SHOWN} more marked next</a></li>')
+    shipped = "".join(f'<li><a href="{BLOB}{p["plan"]}.md">{_inline_md(p["title"], 80)}</a></li>'
+                      for p in sorted(buckets["shipped"], key=lambda p: p["title"].lower()))
+    releases = "".join(f'<div class="release"><b>{html.escape(v)}</b><p>{_inline_md(t, 320)}</p></div>'
+                       for v, t in _changelog())
+    open_total = sum(len(p["open"]) for p in buckets["progress"] + buckets["planned"])
+    done_total = sum((p["milestone"]["closed"] if p["milestone"] else 0) for p in r["plans"])
+    stats = "".join(f'<div class="stat"><b>{v}</b><span>{k}</span></div>' for k, v in [
+        ("in progress", len(buckets["progress"])), ("planned", len(buckets["planned"])),
+        ("shipped plans", len(buckets["shipped"])), ("open items", open_total), ("items done", done_total)])
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tianwen Roadmap</title>
+<meta name="description" content="What Tianwen is working on, what is planned and what has shipped, generated from its plans and milestones.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono&family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>{ROADMAP_CSS}</style></head>
+<body><main>
+<header><h1>Tianwen roadmap</h1>
+<p class="sub">What is being built, what is planned and what has shipped, generated from the repository's
+<a href="https://github.com/{GH_REPO}/tree/main/docs/plans">plans</a> and
+<a href="https://github.com/{GH_REPO}/milestones">milestones</a> on {html.escape(r["generated"])}.
+A plan is a design and the reasoning behind it, not a promise of a date. Released versions are on the
+<a href="https://github.com/{GH_REPO}/releases">releases page</a>.</p></header>
+<div class="stats">{stats}</div>
+{f'<section><h2>Next up</h2><ul class="next">{next_items}</ul></section>' if next_items else ""}
+<section><h2>In progress</h2><p class="sub">Plans with work done and work open, by area; most done first.</p>{by_area(buckets["progress"], "progress")}</section>
+<section><h2>Planned</h2><p class="sub">Designed and tracked, not started.</p>{by_area(buckets["planned"], "planned")}</section>
+<section><h2>Latest releases</h2><div class="grid">{releases}</div>
+<p class="sub"><a href="https://github.com/{GH_REPO}/blob/main/CHANGELOG.md">The full changelog</a></p></section>
+<section><h2>Shipped plans</h2><ul class="shipped">{shipped}</ul></section>
+<footer>Generated by <code>tools/plan-issue-report.py --roadmap</code>, from <a href="https://github.com/{GH_REPO}">{GH_REPO}</a>.</footer>
+</main></body></html>
+"""
+
+
 def render_markdown(r):
     """The counts and every ERROR and WARN, as the CI job summary shows them."""
     c = r["counts"]
@@ -292,6 +488,7 @@ def main():
     ap.add_argument("--html")
     ap.add_argument("--json")
     ap.add_argument("--markdown")
+    ap.add_argument("--roadmap", help="write the public roadmap page (no findings) to this path")
     ap.add_argument("--strict", action="store_true")
     ap.add_argument("--strict-plans", nargs="*", metavar="PLAN",
                     help="exit 1 only for an ERROR about one of these plans (file stems, e.g. denoiser-training)")
@@ -303,6 +500,8 @@ def main():
         open(a.html, "w", encoding="utf-8", newline="\n").write(render(r))
     if a.markdown:
         open(a.markdown, "w", encoding="utf-8", newline="\n").write(render_markdown(r))
+    if a.roadmap:
+        open(a.roadmap, "w", encoding="utf-8", newline="\n").write(render_roadmap(r))
     c = r["counts"]
     print(f"{c['plans']} plans, {c['open_issues']} open issues ({c['open_linked']} linked), "
           f"{c['milestones_open']} milestones; {c['ERROR']} errors, {c['WARN']} warnings, {c['INFO']} info")

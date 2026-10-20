@@ -54,6 +54,9 @@ on:
       # project rather than anywhere the web build references, so both need listing.
       - 'tools/bake-milkyway/**'
       - 'src/TianWen.UI.Gui/Resources/milkyway.bgra.lz'
+      # The roadmap page's renderer. Its CONTENT (plans, issues, milestones) changes too often to redeploy a 45-minute
+      # AOT build for each change, so the page refreshes with every deploy and at least weekly (the schedule below).
+      - 'tools/plan-issue-report.py'
       - '.github/workflows/pages.yml'
   schedule:
     # Weekly redeploy to re-bake the comet assets: orbit solutions update on new observation
@@ -65,6 +68,8 @@ on:
 
 permissions:
   contents: read
+  # The roadmap page reads the issues and milestones (tools/plan-issue-report.py --roadmap).
+  issues: read
   pages: write
   id-token: write
 
@@ -206,6 +211,16 @@ jobs:
           # Static hosts 404 on client-side deep links; GitHub Pages serves 404.html
           # for unknown paths, so a copy of index.html makes routes resolve.
           cp publish/wwwroot/index.html publish/wwwroot/404.html
+
+      # The public roadmap (/tianwen/roadmap.html): a view of the plans and milestones, regenerated on every deploy,
+      # so it is never edited by hand and never drifts. A failure here warns and ships the app without a fresh page:
+      # the roadmap is not worth blocking the app's deploy over, and the warning says it was skipped.
+      - name: Roadmap page
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/plan-issue-report.py --roadmap publish/wwwroot/roadmap.html \
+            || echo "::warning title=roadmap::tools/plan-issue-report.py --roadmap failed; the deploy carries no roadmap.html"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5

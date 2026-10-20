@@ -39,6 +39,11 @@ python tools/plan-issue-report.py --json "<scratchpad>/plan-report.json" --markd
 The console output lists every ERROR and WARN; the Markdown is the same table the job summary shows, ready to
 paste. Add `--html <path>` for the full page (plans, milestones, the issues linking no plan).
 
+`--roadmap <path>` writes the PUBLIC page instead, the same graph with no findings: next up, in progress and planned by
+area, the latest releases, the shipped plans. `pages.yml` regenerates it into the deployed site on every deploy
+(https://sharpastro.github.io/tianwen/roadmap.html), so it is never edited by hand; a plan's H1 is its title there and
+its summary row's bold lead its status, so keep both short and true.
+
 On GitHub, without a checkout: `gh workflow run plan-report.yml`, then `gh run list --workflow plan-report.yml`
 and read the run's summary.
 
