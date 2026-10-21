@@ -70,6 +70,11 @@ internal static class NativeDriverBlacklist
             ["ASCOM.ToupTek.Camera1"] = "ToupTekDevice",
             ["ASCOM.ToupTek.Camera2"] = "ToupTekDevice",
             ["ASCOM.ToupTek.Camera3"] = "ToupTekDevice",
+
+            // SVBONY camera: native SVBCameraSDK (SVBonyDevice, AddSVBony). The ProgID is read off a machine with
+            // SVBONY's driver package 1.13.4 installed (2026-10-21), which also registers ASCOM.SVBONY.Switch; that
+            // one is not listed, since nothing native replaces it.
+            ["ASCOM.SVBONY.Camera"] = "SVBonyDevice",
         };
 
     /// <summary>Looks up the native <see cref="DeviceBase.DeviceClass"/> that supersedes an ASCOM ProgID, if any.</summary>

@@ -98,8 +98,9 @@
 
     <PackageVersion Include="PlayerOne.SDK" Version="3.12.*" />
     <PackageVersion Include="ToupTek.SDK" Version="1.2.*" />
+    <PackageVersion Include="SVBony.SDK" Version="1.13.*" />
     <PackageVersion Include="QHYCCD.SDK" Version="2.0.*" />
-    <PackageVersion Include="TianWen.DAL" Version="3.3.*" />
+    <PackageVersion Include="TianWen.DAL" Version="3.4.*" />
     <PackageVersion Include="ZWOptical.SDK" Version="6.1.*" />
   </ItemGroup>
 </Project>
