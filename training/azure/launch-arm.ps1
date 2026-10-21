@@ -60,10 +60,13 @@ if ($DryRun) {
 }
 
 "creating $Vm"
+# Its own network, named after it: without --vnet-name, `az vm create` puts a new VM into a virtual network the group
+# already has, and the driver of the run that made that network cannot delete it while the other VM's card sits in it
+# (R2t went into R2r seed 1's network on 2026-10-21, which held R2r's cleanup until R2t ended).
 $ip = & $AzCli vm create -g $rg -n $Vm --subscription $sub --location $AzConfig.location --image $AzConfig.image `
     --size $AzConfig.vmSize --priority Spot --max-price $AzConfig.maxPrice --eviction-policy Deallocate --os-disk-size-gb 128 `
     --storage-sku StandardSSD_LRS --admin-username tw --ssh-key-values "$($AzConfig.sshKey).pub" --public-ip-sku Standard --nsg-rule SSH `
-    --tags @($AzConfig.tags) --query publicIpAddress -o tsv 2>$null
+    --vnet-name "${Vm}VNET" --subnet "${Vm}Subnet" --tags @($AzConfig.tags) --query publicIpAddress -o tsv 2>$null
 if (-not $ip) { throw "no VM: no spot capacity, or the create failed (nothing to clean up unless az resource list shows $Vm)" }
 "VM $Vm at $ip"
 
