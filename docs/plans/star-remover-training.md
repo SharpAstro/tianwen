@@ -3364,6 +3364,78 @@ dropped. With 1 holding, any of 3 to 6 missing means R2s is not adopted as it st
 owner's call. **What it decides:** whether the colour dig and the halos left come from the training stars' shapes. If
 they do, the next arm puts `--channel-halos` together with R2r's clusters and E5's teacher retrained on synth7.
 
+#### The synthetics review: what tells the training data from real, measured (2026-10-21)
+
+The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
+our existing corpus for certain values, including doing some domain analysis". Measured over the 8 validation sessions,
+40 cells each, through the exporter's own stretch in all three sources: the real masters (`r2-real-val`), synth4's own
+training inputs (stars on the synthetic background) and A's draws (stars on the real starless plates). Two instruments,
+kept in `C:/temp/e2/domain`: statistics in each tile's own noise sigma (`domain_stats.py`), and a small CNN told to tell
+real from synthetic and tested on a camera it never saw, leaving one of the QHY294PROC, ASI294MC, ASI533MC Pro and
+ASI585MC Pro out at a time (`domain_classifier.py`; an AUC of 0.5 is indistinguishable).
+
+| what the classifier reads | synth4 | A's draws |
+|---|---|---|
+| the whole 64 px crop | 0.81 | 0.64 |
+| high-pass: noise and star cores | 0.84 | 0.75 |
+| star-centred 24 px crops | 0.79 | 0.73 |
+| noise alone: 16 px crops with nothing over 4 sigma | 0.70 | 0.61 |
+| low-pass: the background's structure | 0.60 | 0.52 |
+
+| statistic | real | synth4 | A's draws |
+|---|---|---|---|
+| bright stars (100-1000 sigma): light at 3-5 px over the peak, R / G / B | 0.088 / 0.095 / 0.055 | 0.041 / 0.050 / 0.038 | 0.042 / 0.046 / 0.041 |
+| real wing over synth4's, at 20-50 / 50-100 / 100-200 / 200-500 sigma | 0.82 / 1.24 / 1.81 / 1.47 | | |
+| share of stars at 5-20 / 100-1000 sigma | 60 / 2.1 % | 53 / 6.0 % | 53 / 6.0 % |
+| stars over 5 sigma a tile | 146 | 119 | 122 |
+| star colour B/G at 20-100 sigma | 0.63 | 0.81 | 0.83 |
+| noise correlation between channels, R-G / G-B / R-B | 0.12 / 0.05 / 0.04 | 0.05 / 0.02 / 0.02 | 0.08 / 0.04 / 0.02 |
+| sky texture at 8 / 16 px, rms over sigma | 0.48 / 0.40 | 0.54 / 0.44 | 0.52 / 0.44 |
+
+The stars give the synthetics away most, then the noise; the synthetic background is close, and on the real plates the
+background's structure reads at chance. The statistics name what: bright stars carry about half the real near-wing
+light, the shortfall rising with brightness and differing by rig (none on the ASI585, 1.4 to 1.7 times on the ASI294MC);
+the population is three times too top-heavy with too few faint stars, since the injector draws brightness from the
+catalogue's fitted stars, which hold none of the faint and unresolved ones; mid-brightness stars are too blue; and the
+noise is drawn too independently across channels, where a stacked colour master's channels share theirs through the
+demosaic or the drizzle. Two caveats: every number is in the stretched domain the model sees, which compresses bright
+peaks (it would raise the synthetic wing share, so the shortfall is if anything larger), and a real "star" in a crowded
+field can be a blend.
+
+**The owner's call (2026-10-21): fix them by hand first, and keep a learned generator in sight** ("lets fix by hand
+first, but not lose the genrator out of sight"). Each fix is read by the two instruments on its own export before it
+trains, aiming at every component near 0.6 or under; the four below and R2s's halos are the list.
+
+#### Synthetics S1: bright stars' halos, per channel and by brightness
+
+Tracked by #1241 (and R2s, above). R2s draws each channel's wing at 0.5 to 2 times the measured one, around 1. The
+brightness trend is the step after it: a wing gain that rises with the star's brightness as the review's ratio does (0.8
+at 20-50 sigma to 1.8 at 100-200), which is #1241's own suggestion (a table with a brightness term), drawn per rig
+rather than fixed.
+
+#### Synthetics S2: the star population below the catalogue
+
+Tracked by #1737. The injected brightness follows a luminosity function fitted to the real tiles' star counts and
+extended below the catalogue's detection limit, so the input holds the faint stars a real master does (60 % of the real
+stars over 5 sigma are under 20 sigma, against 53 % injected) instead of three times the real share of bright ones.
+
+#### Synthetics S3: the stars' colours
+
+Tracked by #1738. The injected colours follow the real stars' colour distribution at each brightness. The pool's
+mid-brightness stars are bluer than the fields' (B/G 0.81 against 0.63 at 20-100 sigma); the bright stars agree.
+
+#### Synthetics S4: noise shared across channels
+
+Tracked by #1739. The noise the export draws (the stars' own, and the synthetic background's) carries the master's
+measured covariance between channels (R-G 0.12 on the real tiles against 0.05 drawn), with each channel's spatial
+correlation as now.
+
+#### A learned synthetics generator, kept in sight
+
+Tracked by #1740. If the hand fixes stall with a component above about 0.6, the next step is a generator learned from
+the corpus itself (a diffusion model or a GAN over real tiles, conditioned so that the truth stays exact), and the
+review's classifier is its acceptance test from its first day.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
