@@ -92,8 +92,8 @@ internal static class GeminiPowerBoxProtocol
     internal static GeminiPowerBoxStatus? ParseStatus(string payload)
     {
         var fields = payload.Split(StatusTags);
-        // Seventeen values and the empty string after the last letter.
-        if (fields.Length < 17 || fields[0].Length != 4 || fields[1].Length != 6)
+        // Seventeen values and the empty string after the last letter, exactly.
+        if (fields.Length != 18 || fields[17].Length != 0 || fields[0].Length != 4 || fields[1].Length != 6)
         {
             return null;
         }
@@ -144,12 +144,17 @@ internal static class GeminiPowerBoxProtocol
 
         for (var i = 0; i <= FramesToSkip; i++)
         {
-            switch (await ReadFrameAsync(conn, cancellationToken).ConfigureAwait(false))
+            // Nothing read is the end; something read that is not a frame is the TAIL of a status frame the read joined
+            // midway (Serial.Lib ends a read at the first '#', so " 0.16C  2.06P" arrives alone, as after the probe
+            // service discards its input buffer), and is read past like a whole one.
+            if (await conn.TryReadTerminatedAsync(Terminator, cancellationToken).ConfigureAwait(false) is not { } raw)
             {
-                case null:
-                    return null;
-                case { Letter: var l, Payload: var payload } when l == letter:
-                    return payload;
+                return null;
+            }
+
+            if (ParseFrame(raw) is { Letter: var l, Payload: var payload } && l == letter)
+            {
+                return payload;
             }
         }
 

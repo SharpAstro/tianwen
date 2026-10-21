@@ -58,8 +58,26 @@ internal sealed class FakeGeminiPowerBoxSerialDevice : ISerialConnection
 
     public bool IsOpen { get; private set; } = true;
     public Encoding Encoding => Encoding.ASCII;
-    public ValueTask<bool> TryCloseAsync() { IsOpen = false; return ValueTask.FromResult(true); }
-    public ValueTask DisposeAsync() { IsOpen = false; return ValueTask.CompletedTask; }
+    public ValueTask<bool> TryCloseAsync() { Unplug(); return ValueTask.FromResult(true); }
+    public ValueTask DisposeAsync() { Unplug(); return ValueTask.CompletedTask; }
+
+    /// <summary>
+    /// The port goes, as the box's does with its 12 V or its cable: closed, a read waiting in it ends empty, and every
+    /// later read and write fails.
+    /// </summary>
+    public void Unplug()
+    {
+        IsOpen = false;
+        _incoming.Writer.TryComplete();
+    }
+
+    private int _writesAfterClose;
+
+    /// <summary>Writes tried on the port after it closed: a reader the driver left running.</summary>
+    public int WritesAfterClose => Volatile.Read(ref _writesAfterClose);
+
+    /// <summary>Puts bytes on the wire as they are, for a fragment no whole frame would be.</summary>
+    public void EnqueueRaw(string bytes) => Enqueue(bytes);
 
     public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken) => _sem.AcquireLockAsync(cancellationToken);
 
@@ -82,6 +100,12 @@ internal sealed class FakeGeminiPowerBoxSerialDevice : ISerialConnection
 
     public ValueTask<bool> TryWriteAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
     {
+        if (!IsOpen)
+        {
+            Interlocked.Increment(ref _writesAfterClose);
+            return ValueTask.FromResult(false);
+        }
+
         var raw = Encoding.GetString(data.Span);
         var start = raw.IndexOf('>');
         var end = raw.IndexOf('#');
@@ -169,7 +193,7 @@ internal sealed class FakeGeminiPowerBoxSerialDevice : ISerialConnection
                 sb.Append((char)by);
             }
         }
-        catch (OperationCanceledException)
+        catch (Exception ex) when (ex is OperationCanceledException or ChannelClosedException)
         {
             return null;
         }

@@ -51,21 +51,39 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
     [Theory]
     [InlineData("1111D111111U")] // cut short
     [InlineData("11D111111U1A1T1A1M1B1M100C100C 24.81S 26.87T 56.00H 17.35D12.9V 0.16C  2.06P")] // two DC bits, not four
+    [InlineData("1111D111111U1A1T1A1M1B1M100C100C 24.81S 26.87T 56.00H 17.35D12.9V 0.16C  2.06")] // the last tag missing
+    [InlineData("1111D111111U1A1T1A1M1B1M100C100C 24.81S 26.87T 56.00H 17.35D12.9V 0.16C  2.06P 1.00P")] // a field too many
     public void AFrameOfTheWrongShapeIsNoStatus(string payload) => GeminiPowerBoxProtocol.ParseStatus(payload).ShouldBeNull();
 
     [Theory]
     [InlineData("*HGeminiPowerBoxPlusAdv3", 'H', "GeminiPowerBoxPlusAdv3")]
     [InlineData("*V309#", 'V', "309")]
-    [InlineData("0.16C  2.06P*V309", 'V', "309")] // a read that joined the stream mid-frame
     public void AFrameIsItsLetterAndPayload(string raw, char letter, string payload)
         => GeminiPowerBoxProtocol.ParseFrame(raw).ShouldBe((letter, payload));
 
+    /// <summary>
+    /// What a read that joined a status frame midway returns: its tail, up to the '#' that ends every Serial.Lib read, with
+    /// no '*'. It is no frame, and a query reads past it.
+    /// </summary>
     [Fact]
-    public async Task TheProbeMatchesTheBoxAndReadsPastAStatusFrameAlreadyComing()
+    public void AFramesTailIsNoFrame() => GeminiPowerBoxProtocol.ParseFrame(" 0.16C  2.06P").ShouldBeNull();
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TheProbeMatchesTheBoxAndReadsPastAStatusFrameAlreadyComing(bool tailOnly)
     {
-        // Measured: the box was still pushing from the connection before when the probe opened the port.
+        // Measured: the box was still pushing from the connection before when the probe opened the port, and the probe
+        // service discards the input buffer after its warm-up, which can leave only a frame's tail.
         var box = new FakeGeminiPowerBoxSerialDevice();
-        box.Push();
+        if (tailOnly)
+        {
+            box.EnqueueRaw(" 56.00H 17.35D12.9V 0.16C  2.06P#");
+        }
+        else
+        {
+            box.Push();
+        }
 
         var match = (await new GeminiPowerBoxSerialProbe().ProbeAsync("serial:COM5", box, TestContext.Current.CancellationToken)).ShouldNotBeNull();
 
@@ -89,7 +107,7 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var box = new FakeGeminiPowerBoxSerialDevice { Current = 1.25 };
-        await using var driver = Connected(box, out _);
+        await using var driver = Connected(out _, box);
         await driver.ConnectAsync(ct);
 
         driver.Channels.Count.ShouldBe(20);
@@ -111,7 +129,7 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var box = new FakeGeminiPowerBoxSerialDevice { HasAmbientSensor = false, HasLensProbe = false };
-        await using var driver = Connected(box, out _);
+        await using var driver = Connected(out _, box);
         await driver.ConnectAsync(ct);
 
         foreach (var reading in new[] { Ambient, Humidity, DewPoint, Lens })
@@ -125,7 +143,7 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var box = new FakeGeminiPowerBoxSerialDevice();
-        await using var driver = Connected(box, out _);
+        await using var driver = Connected(out _, box);
         await driver.ConnectAsync(ct);
 
         await driver.SetValueAsync(Dc3, 0, ct);
@@ -145,7 +163,7 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var box = new FakeGeminiPowerBoxSerialDevice();
-        await using var driver = Connected(box, out var concrete);
+        await using var driver = Connected(out var concrete, box);
         await driver.ConnectAsync(ct);
         box.IgnoreSets = true;
         concrete.ConfirmTimeout = TimeSpan.FromMilliseconds(300);
@@ -157,7 +175,7 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
     public async Task AnOutputTheBoxKeepsOnAndAReadingCannotBeWritten()
     {
         var ct = TestContext.Current.CancellationToken;
-        await using var driver = Connected(new FakeGeminiPowerBoxSerialDevice(), out _);
+        await using var driver = Connected(out _, new FakeGeminiPowerBoxSerialDevice());
         await driver.ConnectAsync(ct);
 
         await Should.ThrowAsync<InvalidOperationException>(async () => await driver.SetValueAsync(Dc1, 0, ct));
@@ -170,7 +188,7 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var box = new FakeGeminiPowerBoxSerialDevice { Dew7Mode = 0 };
-        await using var driver = Connected(box, out _);
+        await using var driver = Connected(out _, box);
         await driver.ConnectAsync(ct);
 
         await driver.SetValueAsync(Dew6, 40, ct);
@@ -187,7 +205,9 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var box = new FakeGeminiPowerBoxSerialDevice();
-        await using var driver = Connected(box, external, out _);
+        await using var driver = Connected(external, out var concrete, box);
+        // Only the fake clock moves here: the reader's real-clock silence must not ask for a fresh frame mid-test.
+        concrete.RequestAgainAfter = TimeSpan.FromHours(1);
         await driver.ConnectAsync(ct);
 
         external.TimeProvider.Advance(GeminiPowerBoxDriver.StatusStaleAfter + TimeSpan.FromSeconds(1));
@@ -200,7 +220,7 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var box = new FakeGeminiPowerBoxSerialDevice();
-        await using var driver = Connected(box, out var concrete);
+        await using var driver = Connected(out var concrete, box);
         await driver.ConnectAsync(ct);
         var before = concrete.LatestStatus.ShouldNotBeNull().Status;
 
@@ -216,35 +236,97 @@ public class GeminiPowerBoxTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 30_000)]
-    public async Task ABoxThatNeverSendsStatusFailsTheConnect()
+    public async Task ABoxThatNeverSendsStatusFailsTheConnectAndLeavesNoReader()
     {
         var ct = TestContext.Current.CancellationToken;
         var box = new FakeGeminiPowerBoxSerialDevice { NoStatus = true };
-        await using var driver = Connected(box, out var concrete);
+        await using var driver = Connected(out var concrete, box);
         concrete.ConfirmTimeout = TimeSpan.FromMilliseconds(300);
+        // A reader left running would ask for status again within this, on the closed port.
+        concrete.RequestAgainAfter = TimeSpan.FromMilliseconds(50);
 
         await Should.ThrowAsync<InvalidOperationException>(async () => await driver.ConnectAsync(ct));
         box.IsOpen.ShouldBeFalse("a failed connect closes its port");
+        await Task.Delay(TimeSpan.FromMilliseconds(400), ct);
+        box.WritesAfterClose.ShouldBe(0, "no reader outlives a failed connect");
+        driver.Connected.ShouldBeFalse();
     }
 
-    private ISwitchDriver Connected(FakeGeminiPowerBoxSerialDevice box, out GeminiPowerBoxDriver concrete)
-        => Connected(box, new FakeExternal(output), out concrete);
+    [Fact(Timeout = 30_000)]
+    public async Task APortThatGoesUnderAConnectionEndsIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var box = new FakeGeminiPowerBoxSerialDevice();
+        await using var driver = Connected(out _, box);
+        await driver.ConnectAsync(ct);
+        var lost = new TaskCompletionSource();
+        driver.DeviceConnectedEvent += (_, e) =>
+        {
+            if (!e.Connected)
+            {
+                lost.TrySetResult();
+            }
+        };
 
-    private ISwitchDriver Connected(FakeGeminiPowerBoxSerialDevice box, FakeExternal external, out GeminiPowerBoxDriver concrete)
+        box.Unplug();
+
+        await lost.Task.WaitAsync(ct);
+        driver.Connected.ShouldBeFalse();
+        await Should.ThrowAsync<InvalidOperationException>(async () => await driver.GetValueAsync(Voltage, ct));
+        await Should.ThrowAsync<InvalidOperationException>(async () => await driver.SetValueAsync(Dc3, 0, ct));
+    }
+
+    [Fact(Timeout = 30_000)]
+    public async Task AReconnectWithoutADisconnectStartsCleanOnTheNewPort()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var first = new FakeGeminiPowerBoxSerialDevice();
+        var silent = new FakeGeminiPowerBoxSerialDevice { NoStatus = true };
+        var third = new FakeGeminiPowerBoxSerialDevice { Voltage = 12.1 };
+        await using var driver = Connected(out var concrete, first, silent, third);
+        concrete.ConfirmTimeout = TimeSpan.FromMilliseconds(300);
+        await driver.ConnectAsync(ct);
+        first.Unplug();
+        while (driver.Connected)
+        {
+            await Task.Delay(10, ct);
+        }
+
+        // The old connection's frame must not count as the new port's first.
+        await Should.ThrowAsync<InvalidOperationException>(async () => await driver.ConnectAsync(ct));
+
+        await driver.ConnectAsync(ct);
+        (await driver.GetValueAsync(Voltage, ct)).ShouldBe(12.1);
+        first.WritesAfterClose.ShouldBe(0, "the first connection's reader ended with its port");
+        silent.WritesAfterClose.ShouldBe(0);
+    }
+
+    private ISwitchDriver Connected(out GeminiPowerBoxDriver concrete, params FakeGeminiPowerBoxSerialDevice[] ports)
+        => Connected(new FakeExternal(output), out concrete, ports);
+
+    private ISwitchDriver Connected(FakeExternal external, out GeminiPowerBoxDriver concrete, params FakeGeminiPowerBoxSerialDevice[] ports)
     {
         var sp = external.BuildServiceProvider();
-        new TestPowerBoxDevice(new Uri("switch://GeminiPowerBoxDevice/GeminiPowerBox_COM5?port=serial:COM5#Gemini power box"), box)
+        new TestPowerBoxDevice(new Uri("switch://GeminiPowerBoxDevice/GeminiPowerBox_COM5?port=serial:COM5#Gemini power box"), new PortQueue(ports))
             .TryInstantiateDriver<ISwitchDriver>(sp, out var driver).ShouldBeTrue();
         concrete = driver.ShouldBeOfType<GeminiPowerBoxDriver>();
         return driver;
     }
 
-    /// <summary>A power box device that connects to the in-memory fake instead of a real port.</summary>
-    private sealed record TestPowerBoxDevice(Uri DeviceUri, ISerialConnection Conn) : GeminiPowerBoxDevice(DeviceUri)
+    /// <summary>The ports successive connects open, the last one again once the list runs out.</summary>
+    private sealed class PortQueue(FakeGeminiPowerBoxSerialDevice[] ports)
+    {
+        private int _next;
+
+        public ISerialConnection Open() => ports[Math.Min(Interlocked.Increment(ref _next) - 1, ports.Length - 1)];
+    }
+
+    /// <summary>A power box device that connects to the in-memory fakes instead of a real port.</summary>
+    private sealed record TestPowerBoxDevice(Uri DeviceUri, PortQueue Ports) : GeminiPowerBoxDevice(DeviceUri)
     {
         public override ValueTask<ISerialConnection?> ConnectSerialDeviceAsync(
             IExternal external, ILogger logger, ITimeProvider timeProvider,
             int baud = GeminiPowerBoxProtocol.Baud, Encoding? encoding = null, CancellationToken cancellationToken = default)
-            => ValueTask.FromResult<ISerialConnection?>(Conn);
+            => ValueTask.FromResult<ISerialConnection?>(Ports.Open());
     }
 }
