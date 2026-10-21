@@ -255,14 +255,23 @@ publish latency.
 
 ## D.8 SVBONY raw video
 
-Tracked by #1748. SVBony.SDK 1.13 (the SV605CC and the rest of the SVBCameraSDK line) ships the exposure path alone:
-`SvbSession` keeps a soft-trigger stream running and asks it for one frame per exposure, so `CanVideoCapture` stays
-false and a live view runs one exposure at a time. Video is the same stream free-running: `SVB_MODE_NORMAL` and a
-(re)started capture, dropping the frame a restarted stream sends unasked (130 to 140 ms after a start), `GetVideoData`
-as `SVBGetVideoData`, back to `SVB_MODE_TRIG_SOFT` on stop, and `TryGetDroppedFrames` from `SVBGetDroppedFrames`.
-`CanPanRoiWhileStreaming` stays false until a bench run shows the window moving mid-stream. Bench it with the
-camera's USB direct to the PC: behind a VIA VL817 hub the stream stalls at high cooler duty
-(`docs/known-limitations.md`, "An SV605CC behind a VIA VL817 hub"). Ships as SVBony.SDK 1.14.
+**DONE (#1748, SVBony.SDK 1.14, 2026-10-21).** SVBony.SDK 1.13 shipped the exposure path alone: `SvbSession` keeps a
+soft-trigger stream and asks it for one frame per exposure. 1.14 runs the same stream free-running (`SVB_MODE_NORMAL`),
+read by the DAL loop on its own thread (`GetVideoData` is `SVBGetVideoData` with the caller's wait), with
+`TryGetDroppedFrames` from `SVBGetDroppedFrames`. No frame is dropped at a video's start: in normal mode the first
+frame is the video's own. A window, a format and a single exposure are refused while it runs, and
+`CanPanRoiWhileStreaming` stays false, so a pan is a stop, a move and a start.
+
+**A camera mode change costs about half a second each way**, measured on the bench SV605CC, so the binding writes the
+mode only when it changes and leaves the soft trigger stream to the next exposure. With soft trigger mode and its
+stream restored between a stop and a start, a pan took 2.1 s to its first frame; written lazily, 8 ms. The first
+exposure after a video pays the change once (about 1.2 s).
+
+**Bench, SV605CC, 2 ms, gain 120, uncooled:** through the binding's probe, 19.8 frames a second at full frame in RAW16
+and RAW8 alike (the sensor's rate) and 116 through 640 x 480, against 6.6 and 32 one exposure at a time; through
+`DALCameraDriver` (`SVBonyCameraProbe.ACameraStreamsThroughTheDriver`), 17.9 and 105.6, no stalls, and a 200 ms
+exposure straight after. Not yet run cooled, nor behind the VIA VL817 hub, where the exposure path stalls at high
+cooler duty (`docs/known-limitations.md`, "An SV605CC behind a VIA VL817 hub", #1749).
 
 ## D Risks / open decisions
 
