@@ -36,8 +36,6 @@ namespace TianWen.UI.Abstractions
         private ITimeProvider? _timeProvider;
         protected bool _milkyWayLoadAttempted;
 
-        // Last pointer Y in surface pixels, refreshed on every mouse move. The palette grip's drag
-
         // Async Milky Way load: the file read + lzip decompress (~270 ms for the raw BGRA
         // texture) runs on a background thread so it never stalls the first sky-map frame. The
         // Task itself is the cross-thread handoff -- TryApplyPendingMilkyWay polls it and does
