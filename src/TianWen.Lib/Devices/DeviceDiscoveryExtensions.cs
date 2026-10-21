@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Linq;
 using System.Web;
 
 namespace TianWen.Lib.Devices;
@@ -19,10 +21,11 @@ public static class DeviceDiscoveryExtensions
         /// <para>
         /// Fixes two classes of bug:
         /// <list type="bullet">
-        ///   <item>"I replugged USB to a different hub and now COM5 is COM6"; transport drift. Only for a family whose
-        ///   path keeps the port out (a camera's serial, Alpaca's unique id, an LX200/OnStep mount's UUID): a
-        ///   Skywatcher, a SkyGuider Pro or a mount without a UUID has the port in its path, so the rediscovered
-        ///   device is a different key and nothing here matches it (docs/architecture/device-architecture.md).</item>
+        ///   <item>"I replugged USB to a different hub and now COM5 is COM6"; transport drift. Here only for a family
+        ///   whose path keeps the port out (a camera's serial, Alpaca's unique id, an LX200/OnStep mount's UUID): one
+        ///   with the port in its path (a Gemini or QHY serial device, a Skywatcher, a SkyGuider Pro, a mount without a
+        ///   UUID) is a different key on its new port, which <see cref="FollowMovedPort"/> matches by model instead
+        ///   (docs/architecture/device-architecture.md).</item>
         ///   <item>"Discovery published default latitude=48.2 and reset my site to it"; user-config clobber.</item>
         /// </list>
         /// </para>
@@ -67,30 +70,103 @@ public static class DeviceDiscoveryExtensions
         }
 
         /// <summary>
-        /// Applies <see cref="ReconcileUri"/> to every device URI carried by a
-        /// <see cref="ProfileData"/>: top-level mount, guider, optional guider-camera /
-        /// guider-focuser / weather, plus each OTA's camera / cover / focuser / filter-wheel.
-        /// Returns <c>Changed = true</c> iff any URI actually drifted, so callers can
-        /// skip the disk write when everything is already in sync. Adding a new URI field
-        /// to <see cref="ProfileData"/> means updating this one helper, not every call site.
+        /// Reconciles every device URI a <see cref="ProfileData"/> carries with what was discovered. <c>Changed</c> is true
+        /// iff any URI actually drifted, so callers can skip the disk write when everything is already in sync.
         /// </summary>
+        /// <remarks>
+        /// Two passes. The first matches each slot by identity (<see cref="ReconcileUri"/>). The second gives a slot that
+        /// matched nothing its device on another port (<see cref="FollowMovedPort"/>), once every identity match is known, so
+        /// a device another slot already has is never taken twice.
+        /// </remarks>
         public (ProfileData Reconciled, bool Changed) ReconcileProfileData(ProfileData data)
         {
-            var mount = discovery.ReconcileUri(data.Mount);
-            var guider = discovery.ReconcileUri(data.Guider);
-            var guiderCam = data.GuiderCamera is { } gc ? discovery.ReconcileUri(gc) : null;
-            var guiderFoc = data.GuiderFocuser is { } gf ? discovery.ReconcileUri(gf) : null;
-            var weather = data.Weather is { } w ? discovery.ReconcileUri(w) : null;
+            var (byIdentity, identityChanged) = data.MapDeviceUris(discovery.ReconcileUri);
+
+            var taken = new HashSet<string>(byIdentity.DeviceUris().Select(u => u.DeviceKey), DeviceUriExtensions.DeviceKeyComparer);
+            var (followed, followChanged) = byIdentity.MapDeviceUris(uri => discovery.FollowMovedPort(uri, taken));
+
+            return (followed, identityChanged || followChanged);
+        }
+
+        /// <summary>
+        /// The device a slot's <paramref name="storedUri"/> names, on the port it has moved to, for a family whose ID ends in
+        /// its port (<see cref="DeviceUriExtensions.ModelKey"/>): Windows numbers a CH340's COM port by the USB SOCKET, so the
+        /// same Gemini focuser is <c>GeminiFocuser_COM3</c> in one socket and <c>GeminiFocuser_COM4</c> in the next, a different
+        /// key that <see cref="ReconcileUri"/> never matches (#1744). Only when the stored device was not discovered, and
+        /// exactly ONE discovered device of its model is in no other slot (<paramref name="taken"/>, which the one taken joins):
+        /// none or several is left as stored, never guessed. The user's keys (backlash, filter names, site) are kept, as
+        /// <see cref="MergeDiscoveredIntoStored"/> keeps them. Two identical units on swapped sockets are #783's case.
+        /// </summary>
+        public Uri FollowMovedPort(Uri storedUri, ISet<string> taken)
+        {
+            var deviceType = DeviceTypeHelper.TryParseDeviceType(storedUri.Scheme);
+            if (deviceType is DeviceType.Unknown || storedUri.ModelKey is not { } model)
+            {
+                return storedUri;
+            }
+
+            var discovered = discovery.RegisteredDevices(deviceType).ToList();
+            if (discovered.Exists(c => DeviceBase.SameDevice(c.DeviceUri, storedUri)))
+            {
+                return storedUri;
+            }
+
+            var candidates = discovered
+                .Where(c => c.DeviceUri.ModelKey is { } m && DeviceUriExtensions.DeviceKeyComparer.Equals(m, model) && !taken.Contains(c.DeviceUri.DeviceKey))
+                .ToList();
+            if (candidates is not [var moved])
+            {
+                return storedUri;
+            }
+
+            taken.Add(moved.DeviceUri.DeviceKey);
+            return MergeDiscoveredIntoStored(storedUri, moved.DeviceUri, identityFromDiscovered: true);
+        }
+    }
+
+    extension(ProfileData data)
+    {
+        /// <summary>Every device URI the profile carries, in <see cref="MapDeviceUris"/>'s order.</summary>
+        internal IEnumerable<Uri> DeviceUris()
+        {
+            yield return data.Mount;
+            yield return data.Guider;
+            if (data.GuiderCamera is { } gc) yield return gc;
+            if (data.GuiderFocuser is { } gf) yield return gf;
+            if (data.Weather is { } w) yield return w;
+            foreach (var ota in data.OTAs)
+            {
+                yield return ota.Camera;
+                if (ota.Cover is { } c) yield return c;
+                if (ota.Focuser is { } f) yield return f;
+                if (ota.FilterWheel is { } fw) yield return fw;
+            }
+        }
+
+        /// <summary>
+        /// The profile with <paramref name="map"/> applied to every device URI it carries: top-level mount, guider, optional
+        /// guider-camera / guider-focuser / weather, plus each OTA's camera / cover / focuser / filter-wheel.
+        /// Returns <c>Changed = true</c> iff any URI actually changed, so callers can skip the disk write when everything is
+        /// already in sync. Adding a new URI field to <see cref="ProfileData"/> means updating this one helper and
+        /// <see cref="DeviceUris"/>, not every call site.
+        /// </summary>
+        internal (ProfileData Mapped, bool Changed) MapDeviceUris(Func<Uri, Uri> map)
+        {
+            var mount = map(data.Mount);
+            var guider = map(data.Guider);
+            var guiderCam = data.GuiderCamera is { } gc ? map(gc) : null;
+            var guiderFoc = data.GuiderFocuser is { } gf ? map(gf) : null;
+            var weather = data.Weather is { } w ? map(w) : null;
 
             var otasChanged = false;
             var reconciledOtas = new OTAData[data.OTAs.Length];
             for (var i = 0; i < data.OTAs.Length; i++)
             {
                 var ota = data.OTAs[i];
-                var cam = discovery.ReconcileUri(ota.Camera);
-                var cover = ota.Cover is { } c ? discovery.ReconcileUri(c) : null;
-                var foc = ota.Focuser is { } f ? discovery.ReconcileUri(f) : null;
-                var fw = ota.FilterWheel is { } w2 ? discovery.ReconcileUri(w2) : null;
+                var cam = map(ota.Camera);
+                var cover = ota.Cover is { } c ? map(c) : null;
+                var foc = ota.Focuser is { } f ? map(f) : null;
+                var fw = ota.FilterWheel is { } w2 ? map(w2) : null;
 
                 if (cam != ota.Camera || cover != ota.Cover || foc != ota.Focuser || fw != ota.FilterWheel)
                 {
@@ -128,7 +204,9 @@ public static class DeviceDiscoveryExtensions
 
     /// <summary>
     /// Merges the query strings of <paramref name="storedUri"/> and <paramref name="discoveredUri"/>
-    /// into a new URI. Both URIs MUST share the same scheme + authority + path.
+    /// into a new URI. Both URIs share the same scheme + authority + path, unless <paramref name="identityFromDiscovered"/>:
+    /// a device found on another port (<c>FollowMovedPort</c>) then takes the discovered path and display name, since its
+    /// ID and name carry the new port.
     /// <para>
     /// Rules per query key:
     /// <list type="bullet">
@@ -141,7 +219,7 @@ public static class DeviceDiscoveryExtensions
     /// </list>
     /// </para>
     /// </summary>
-    internal static Uri MergeDiscoveredIntoStored(Uri storedUri, Uri discoveredUri)
+    internal static Uri MergeDiscoveredIntoStored(Uri storedUri, Uri discoveredUri, bool identityFromDiscovered = false)
     {
         var storedQuery = HttpUtility.ParseQueryString(storedUri.Query);
         var discoveredQuery = HttpUtility.ParseQueryString(discoveredUri.Query);
@@ -184,7 +262,7 @@ public static class DeviceDiscoveryExtensions
             }
         }
 
-        var builder = new UriBuilder(storedUri) { Query = merged.ToQueryString() };
+        var builder = new UriBuilder(identityFromDiscovered ? discoveredUri : storedUri) { Query = merged.ToQueryString() };
         return builder.Uri;
     }
 }

@@ -2,6 +2,7 @@ using Shouldly;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
@@ -193,6 +194,90 @@ public class DeviceDiscoveryExtensionsTests
         reconciled.OTAs[1].Camera.ShouldBe(camB, "second OTA's camera matches exactly, unchanged");
     }
 
+    // A Gemini focuser has no hardware identity, so its ID names the COM port, which Windows numbers by USB socket (#1744).
+    private static Uri GeminiFocuser(string port, string query = "")
+        => new Uri($"Focuser://GeminiFocuserDevice/GeminiFocuser_{port}?port=serial:{port}{query}#Gemini Focuser Pro on {port}");
+
+    private static ProfileData WithFocusers(params Uri?[] focusers)
+        => MakeProfileData(mount: OnStepSerialCom5, otas: [.. focusers.Select((f, i) => new OTAData($"OTA{i + 1}", 1000, new Uri($"Camera://ZwoDevice/cam{i}"), null, f, null, null, null))]);
+
+    [Theory]
+    [InlineData("Focuser://GeminiFocuserDevice/GeminiFocuser_COM3?port=serial:COM3", "focuser://geminifocuserdevice/GeminiFocuser")]
+    [InlineData("Switch://GeminiPowerBoxDevice/GeminiPowerBox_COM5?port=serial:COM5", "switch://geminipowerboxdevice/GeminiPowerBox")]
+    [InlineData("Mount://SkywatcherDevice/Skywatcher_EQ6_3.39_COM4?port=serial:COM4&baud=9600", "mount://skywatcherdevice/Skywatcher_EQ6_3.39")]
+    [InlineData("Mount://IOptronDevice/SkyGuider-Pro_210101_ttyUSB0?port=serial:ttyUSB0", "mount://ioptrondevice/SkyGuider-Pro_210101")]
+    [InlineData("Mount://OnStepDevice/OnStep_1_abc-uuid?port=serial:COM5", null)]
+    [InlineData("Camera://ZwoDevice/cam123?gain=100", null)]
+    public void AModelKeyIsTheIdWithItsPortTakenOut(string uri, string? model)
+        => new Uri(uri).ModelKey.ShouldBe(model);
+
+    [Fact]
+    public void AFocuserThatMovedToAnotherPortIsFollowedAndKeepsItsSettings()
+    {
+        var discovery = new StubDiscovery { Mounts = [new FakeDeviceRecord(OnStepSerialCom5)], Focusers = [new FakeDeviceRecord(GeminiFocuser("COM4"))] };
+
+        var (reconciled, changed) = discovery.ReconcileProfileData(WithFocusers(GeminiFocuser("COM3", "&focuserBacklashIn=40")));
+
+        changed.ShouldBeTrue();
+        var focuser = reconciled.OTAs[0].Focuser.ShouldNotBeNull();
+        focuser.DeviceKey.ShouldBe(GeminiFocuser("COM4").DeviceKey);
+        var query = System.Web.HttpUtility.ParseQueryString(focuser.Query);
+        query["port"].ShouldBe("serial:COM4");
+        query["focuserBacklashIn"].ShouldBe("40", "the user's keys travel with the device");
+        focuser.Fragment.ShouldContain("COM4");
+    }
+
+    [Fact]
+    public void AFocuserStillOnItsPortIsNotMovedEvenWithAnotherOfItsModelAbout()
+    {
+        var discovery = new StubDiscovery { Mounts = [new FakeDeviceRecord(OnStepSerialCom5)], Focusers = [new FakeDeviceRecord(GeminiFocuser("COM3")), new FakeDeviceRecord(GeminiFocuser("COM4"))] };
+        var data = WithFocusers(GeminiFocuser("COM3"));
+
+        var (reconciled, changed) = discovery.ReconcileProfileData(data);
+
+        changed.ShouldBeFalse();
+        reconciled.OTAs[0].Focuser.ShouldBe(GeminiFocuser("COM3"));
+    }
+
+    [Fact]
+    public void TwoUnclaimedFocusersOfTheModelAreNotGuessedBetween()
+    {
+        var discovery = new StubDiscovery { Mounts = [new FakeDeviceRecord(OnStepSerialCom5)], Focusers = [new FakeDeviceRecord(GeminiFocuser("COM4")), new FakeDeviceRecord(GeminiFocuser("COM6"))] };
+
+        var (reconciled, changed) = discovery.ReconcileProfileData(WithFocusers(GeminiFocuser("COM3")));
+
+        changed.ShouldBeFalse();
+        reconciled.OTAs[0].Focuser.ShouldBe(GeminiFocuser("COM3"));
+    }
+
+    /// <summary>
+    /// Two OTAs, each with a Gemini focuser: the first stayed on COM3, the second moved from COM4 to COM5. The one still on
+    /// COM3 belongs to the first OTA, so the second takes the only one left and never the first OTA's.
+    /// </summary>
+    [Fact]
+    public void AFocuserAnotherSlotHasIsNeverTakenByAMovedOne()
+    {
+        var discovery = new StubDiscovery { Mounts = [new FakeDeviceRecord(OnStepSerialCom5)], Focusers = [new FakeDeviceRecord(GeminiFocuser("COM3")), new FakeDeviceRecord(GeminiFocuser("COM5"))] };
+
+        var (reconciled, changed) = discovery.ReconcileProfileData(WithFocusers(GeminiFocuser("COM3"), GeminiFocuser("COM4")));
+
+        changed.ShouldBeTrue();
+        reconciled.OTAs[0].Focuser.ShouldBe(GeminiFocuser("COM3"));
+        reconciled.OTAs[1].Focuser.ShouldNotBeNull().DeviceKey.ShouldBe(GeminiFocuser("COM5").DeviceKey);
+    }
+
+    [Fact]
+    public void TwoMovedFocusersOfOneModelAreLeftAlone()
+    {
+        var discovery = new StubDiscovery { Mounts = [new FakeDeviceRecord(OnStepSerialCom5)], Focusers = [new FakeDeviceRecord(GeminiFocuser("COM5")), new FakeDeviceRecord(GeminiFocuser("COM6"))] };
+        var data = WithFocusers(GeminiFocuser("COM3"), GeminiFocuser("COM4"));
+
+        var (reconciled, changed) = discovery.ReconcileProfileData(data);
+
+        changed.ShouldBeFalse("which unit went where cannot be told without #783's fingerprint");
+        reconciled.ShouldBe(data);
+    }
+
     private static ProfileData MakeProfileData(Uri mount, ImmutableArray<OTAData>? otas = null)
         => new ProfileData(
             Mount: mount,
@@ -208,17 +293,19 @@ public class DeviceDiscoveryExtensionsTests
         public IReadOnlyList<DeviceBase> Mounts { get; set; } = [];
         public IReadOnlyList<DeviceBase> Cameras { get; set; } = [];
         public IReadOnlyList<DeviceBase> FilterWheels { get; set; } = [];
+        public IReadOnlyList<DeviceBase> Focusers { get; set; } = [];
 
         // Back-compat alias for existing tests.
         public IReadOnlyList<DeviceBase> MountDevices { set => Mounts = value; }
 
-        public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Mount, DeviceType.Camera, DeviceType.FilterWheel];
+        public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Mount, DeviceType.Camera, DeviceType.FilterWheel, DeviceType.Focuser];
 
         public IEnumerable<DeviceBase> RegisteredDevices(DeviceType deviceType) => deviceType switch
         {
             DeviceType.Mount => Mounts,
             DeviceType.Camera => Cameras,
             DeviceType.FilterWheel => FilterWheels,
+            DeviceType.Focuser => Focusers,
             _ => []
         };
 

@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.Hosting.Dto;
 using TianWen.Hosting.WebSocket;
+using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Devices;
 
 namespace TianWen.Hosting;
@@ -110,6 +111,12 @@ internal sealed class NodeProfiles(IExternal external, IDeviceDiscovery discover
                 foreach (var (field, from, to) in before.DiffTo(after))
                 {
                     logger.LogInformation("Reconcile {Profile} {Field}: {Before} -> {After}", registered.DisplayName, field, from, to);
+                }
+
+                // A focuser followed to another port (#1744) keeps its backlash history, which is filed under its device ID.
+                if (await BacklashHistoryPersistence.FollowMovedFocusersAsync(external, before, after, cancellationToken) is > 0 and var moved)
+                {
+                    logger.LogInformation("Reconcile {Profile}: backlash history of {Count} focuser(s) followed to the new port.", registered.DisplayName, moved);
                 }
             }
         }

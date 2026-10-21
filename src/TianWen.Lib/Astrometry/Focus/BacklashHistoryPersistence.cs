@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -38,9 +39,10 @@ public static class BacklashHistoryPersistence
     private static readonly BacklashHistoryJsonContext IndentedContext = new(IndentedOptions);
 
     /// <summary>
-    /// Returns the JSON file path for a given focuser's backlash history.
-    /// Keyed by <see cref="DeviceBase.DeviceId"/> which is stable across COM-port renames
-    /// (the transport bits live in the URI query string, not the device id).
+    /// Returns the JSON file path for a given focuser's backlash history, keyed by <see cref="DeviceBase.DeviceId"/>. That
+    /// ID does NOT survive a COM-port change for a focuser with no hardware identity (<c>GeminiFocuser_COM3</c>,
+    /// <c>QFOC_COM4</c>), so a profile that follows one to its new port carries the history with it
+    /// (<see cref="FollowMovedFocusersAsync"/>, #1744).
     /// </summary>
     private static string PathFor(DirectoryInfo profileFolder, string focuserDeviceId)
     {
@@ -75,5 +77,37 @@ public static class BacklashHistoryPersistence
             // Corrupt sidecar: treat as no prior history. The next AutoFocus will start fresh.
             return null;
         }
+    }
+
+    /// <summary>
+    /// Carries each focuser's history from its old device ID to its new one when a reconcile followed it to another port
+    /// (<see cref="DeviceDiscoveryExtensions.FollowMovedPort"/>, #1744): the slots of <paramref name="before"/> and
+    /// <paramref name="after"/> are paired in order, and a focuser slot whose key changed moves its file, unless the new ID
+    /// already has one, which is kept. Answers how many it moved.
+    /// </summary>
+    public static async Task<int> FollowMovedFocusersAsync(IExternal external, ProfileData before, ProfileData after, CancellationToken cancellationToken)
+    {
+        var moved = 0;
+        foreach (var (from, to) in before.DeviceUris().Zip(after.DeviceUris()))
+        {
+            if (DeviceTypeHelper.TryParseDeviceType(to.Scheme) is not DeviceType.Focuser
+                || DeviceUriExtensions.DeviceKeyComparer.Equals(from.DeviceKey, to.DeviceKey))
+            {
+                continue;
+            }
+
+            var (fromId, toId) = (DeviceBase.DeviceIdOf(from), DeviceBase.DeviceIdOf(to));
+            if (await TryLoadAsync(external, toId, cancellationToken) is not null
+                || await TryLoadAsync(external, fromId, cancellationToken) is not { } record)
+            {
+                continue;
+            }
+
+            await SaveAsync(external, toId, record, cancellationToken);
+            File.Delete(PathFor(external.ProfileFolder, fromId));
+            moved++;
+        }
+
+        return moved;
     }
 }

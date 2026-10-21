@@ -1,4 +1,6 @@
 using System;
+using System.Web;
+using TianWen.Lib.Connections;
 
 namespace TianWen.Lib.Devices;
 
@@ -39,5 +41,37 @@ public static class DeviceUriExtensions
         /// had drifted from the connected one. Compare with <see cref="DeviceKeyComparer"/>.
         /// </summary>
         public string DeviceKey => uri.GetLeftPart(UriPartial.Path);
+
+        /// <summary>
+        /// The device's MODEL, for a family whose ID ends in its serial port because the hardware has no identity of its own
+        /// (a CH340's Gemini focuser, flat panel and power box, a QHY wheel or focuser, a Skywatcher, a SkyGuider Pro, an
+        /// LX200 or OnStep mount without a UUID): <see cref="DeviceKey"/> with the trailing <c>_&lt;port&gt;</c> taken out, so
+        /// <c>GeminiFocuser_COM3</c> and <c>GeminiFocuser_COM4</c> are one model. Null for a device whose ID does not end in
+        /// the port its query names, which its key alone identifies. Compare with <see cref="DeviceKeyComparer"/> (#1744).
+        /// </summary>
+        public string? ModelKey
+        {
+            get
+            {
+                if (HttpUtility.ParseQueryString(uri.Query)[DeviceQueryKey.Port.Key] is not { Length: > 0 } port)
+                {
+                    return null;
+                }
+
+                var key = Uri.UnescapeDataString(uri.DeviceKey);
+                var bare = ISerialConnection.RemoveProtoPrrefix(port);
+                // The forms a probe writes the port in: as named, with /dev/ for a tty, or made path-safe.
+                foreach (var form in (ReadOnlySpan<string>)[bare, ISerialConnection.CleanupPortName(port), bare.Replace('_', '-').Replace('/', '-').Replace(':', '-')])
+                {
+                    var suffix = "_" + form;
+                    if (key.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) && key.Length > suffix.Length && key[^(suffix.Length + 1)] != '/')
+                    {
+                        return key[..^suffix.Length];
+                    }
+                }
+
+                return null;
+            }
+        }
     }
 }
