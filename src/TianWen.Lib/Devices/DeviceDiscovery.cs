@@ -42,9 +42,9 @@ internal class DeviceDiscovery(
     /// startup failure (e.g. network briefly offline when the HTTP-based Open-Meteo
     /// source first checked reachability) doesn't lock a device family out of the
     /// picker for the rest of the session. Sources that passed the last check are
-    /// kept as-is. Called from <see cref="DiscoverAsync"/> and
-    /// <see cref="DiscoverOnlyDeviceType"/> so a user-initiated discovery always
-    /// sees the freshest view of what's available.
+    /// kept as-is. Called from <see cref="DiscoverAsync"/> so a user-initiated discovery
+    /// always sees the freshest view of what's available; <see cref="DiscoverOnlyDeviceType"/>
+    /// re-asks only its own type's sources (<see cref="EnsureSupportCheckedAsync"/>).
     /// </summary>
     private async ValueTask RefreshUnsupportedAsync(CancellationToken cancellationToken)
     {
@@ -67,6 +67,33 @@ internal class DeviceDiscovery(
         {
             logger.LogInformation("Device source {Source} now supports this platform (previously unsupported).", s.GetType().Name);
         }
+    }
+
+    /// <summary>
+    /// Asks the <paramref name="candidates"/> not yet known to be supported whether they are (so an unsupported one is
+    /// asked again, as <see cref="RefreshUnsupportedAsync"/> does for every source), and adds those that are.
+    /// </summary>
+    private async ValueTask EnsureSupportCheckedAsync(IReadOnlyList<IDeviceSource<DeviceBase>> candidates, CancellationToken cancellationToken)
+    {
+        if (candidates.All(_supportedSources.Contains))
+        {
+            return;
+        }
+
+        using var @lock = await _initSem.AcquireLockAsync(cancellationToken);
+        var supportedSet = new HashSet<IDeviceSource<DeviceBase>>(_supportedSources);
+        var toAsk = candidates.Where(s => !supportedSet.Contains(s)).ToList();
+        if (toAsk.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var source in await ProbeSupportAsync(toAsk, cancellationToken))
+        {
+            supportedSet.Add(source);
+        }
+
+        _supportedSources = [.. supportedSet];
     }
 
     private async Task<List<IDeviceSource<DeviceBase>>> ProbeSupportAsync(
@@ -98,16 +125,24 @@ internal class DeviceDiscovery(
     public IEnumerable<DeviceBase> RegisteredDevices(DeviceType type)
         => NativeDriverBlacklist.FilterSuperseded(_supportedSources.SelectMany(s => s.RegisteredDevices(type)), logger);
 
+    /// <remarks>
+    /// <b>Only the sources of <paramref name="type"/> are asked whether they are supported</b>, never every source. A
+    /// PROFILE scan (after every profile write on the node, on every <c>MountLimitWatcher</c> tick) used to begin with the
+    /// whole support check and then re-ask every unsupported source, and OpenWeatherMap's answer is an HTTP HEAD with a
+    /// 5 s timeout: with no internet (a laptop at a dark site, a test's node) a profile write waited 10 s for two of them
+    /// and a client's 10 s budget ran out under load (#1741). A full <see cref="DiscoverAsync"/> still asks every source.
+    /// </remarks>
     public async ValueTask DiscoverOnlyDeviceType(DeviceType type, CancellationToken cancellationToken)
     {
-        if (!await CheckSupportAsync(cancellationToken))
+        var candidates = _allSources.Where(s => s.RegisteredDeviceTypes.Contains(type)).ToList();
+        await EnsureSupportCheckedAsync(candidates, cancellationToken);
+
+        var supported = _supportedSources;
+        var sources = candidates.Where(supported.Contains).ToList();
+        if (sources.Count == 0)
         {
             return;
         }
-
-        await RefreshUnsupportedAsync(cancellationToken);
-
-        var sources = _supportedSources.Where(s => s.RegisteredDeviceTypes.Contains(type)).ToList();
 
         // Centralised serial probing runs before per-source discovery so sources can
         // consume probe matches from ISerialProbeService instead of opening ports
