@@ -113,10 +113,12 @@ public static partial class DatasetDegradationExporter
     }
 
     /// <summary>One injected star, in the cell's coordinates (pixel centres at integers), per channel where it varies. A
-    /// <paramref name="Lobe"/> is part of the star before it (<see cref="InjectedStar.Lobe"/>): the eval does not score it.</summary>
+    /// <paramref name="Lobe"/> is part of the star before it (<see cref="InjectedStar.Lobe"/>): the eval does not score it.
+    /// <paramref name="HaloGain"/> is each channel's wing factor where the export drew one (R2s), null where it drew the
+    /// measured profile.</summary>
     public sealed record InjectedStarRow(
         double X, double Y, double[] Amplitude, double[] FwhmPx, double[] Beta, double AxisRatio, double PositionAngleDeg,
-        bool Saturated, double[]? ClipLevel, bool Lobe = false);
+        bool Saturated, double[]? ClipLevel, bool Lobe = false, double[]? HaloGain = null);
 
     /// <summary>One draw's injection: what was asked for, what was placed, and every star; on a synthetic background
     /// (R2d's D2), the knots its target keeps, the same in every draw of the cell.</summary>
@@ -442,7 +444,8 @@ public static partial class DatasetDegradationExporter
     {
         var size = cell.TileSize;
         var channels = unitPlate.ChannelCount;
-        var plan = population.Plan(cell.X, cell.Y, size, InjectionMarginPx, options.Placement, options.Profile, options.SaturatedFraction, new Random(seed));
+        var plan = population.Plan(cell.X, cell.Y, size, InjectionMarginPx, options.Placement, options.Profile, options.SaturatedFraction, new Random(seed),
+            options.ChannelVariation, options.ChannelVariation is null ? null : new Random(seed ^ 0x2545f491));
 
         // The plate's cell, or on R2d's synthetic background the cell's own noisy planes (SyntheticCell).
         var basePlanes = new float[channels][];
@@ -580,7 +583,8 @@ public static partial class DatasetDegradationExporter
                 s.Profiles.Length > 0 ? s.Profiles[0].PositionAngleRad * 180.0 / Math.PI : 0.0,
                 s.Saturated,
                 s.Saturated ? [.. s.ClipLevels] : null,
-                s.Lobe))],
+                s.Lobe,
+                s.Profiles.Any(static p => p.HaloLogGain != 0.0) ? [.. s.Profiles.Select(static p => p.HaloGain)] : null))],
             Knots: background is null ? null
                 : [.. knots.Select(static k => new InjectedKnotRow(k.X, k.Y, k.SigmaMajorPx, k.SigmaMinorPx, k.AngleRad * 180.0 / Math.PI, k.Peak))]);
         return (row, injection);

@@ -1558,12 +1558,18 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "(their amplitude, width and offset scatter), so an unsaturated star carries the profile jitter a real " +
                           "master's star does beyond its shot noise, instead of its exact profile (R2m).",
         };
+        var channelHalosOpt = new Option<bool>("--channel-halos")
+        {
+            Description = "--mode stars: draw each channel of every injected star at its own halo strength (0.5 to 2 times the " +
+                          "measured wing, core untouched) and width (0.85 to 1.18), drawn per draw of a cell and scattered per " +
+                          "star, from a stream of its own, so the stars and their brightness are the draw's without it (R2s).",
+        };
 
         var command = new Command("degrade",
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelHalosOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -1675,6 +1681,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 consoleHost.WriteError("--star-subs shapes the injected stars; it needs --mode stars");
                 return 1;
             }
+            var channelHalos = parseResult.GetValue(channelHalosOpt);
+            if (channelHalos && mode != DatasetDegradationExporter.DegradationMode.Stars)
+            {
+                consoleHost.WriteError("--channel-halos shapes the injected stars; it needs --mode stars");
+                return 1;
+            }
 
             var options = new DatasetDegradationExporter.Options(
                 BakeRoot: parseResult.Required(bakeOpt),
@@ -1711,7 +1723,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 NebulaKnots: nebulaKnots,
                 Steering: degradeSteering,
                 StarLobes: starLobes,
-                StarSubs: starSubs);
+                StarSubs: starSubs,
+                ChannelVariation: channelHalos ? TianWen.Lib.Imaging.StarRemoval.ChannelVariation.R2s : null);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);
