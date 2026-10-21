@@ -119,7 +119,8 @@ instance path (the socket and hub), COM port and parent hub; a hub whose devices
 reset; and a device a run holds that leaves or re-arrives said beside the run's lost frames and errors. Windows offers
 notifications with no window (`CM_Register_Notification`) and the arrival and removal times for anything missed; Linux
 has udev. It is open question 3 below (hot-plug notifications), so the watcher belongs in the lib, and TianWen's node
-consumes it.
+consumes it. **Moved to USB.Lib (2026-10-22):** USB's events and its tree are a sibling of their own, `usb-lib.md` U2,
+which Serial.Lib's enumeration reacts to.
 
 Also owed by the lib, and already known before the bench sessions:
 - the abandoned-write guard: a Bluetooth SPP port accepts an open and never completes a write
@@ -188,4 +189,4 @@ code; other SharpAstro consumers can use it; and it forces the clean API boundar
    lib, adapt TianWen's `ISerialConnection` to it (thin).
 3. **Enumeration + hot-plug.** `SerialPort.GetPortNames` is fine for P1; a native P2 could add
    arrival/removal notifications (WM_DEVICECHANGE / udev) so discovery reacts to plug events. The same watcher is
-   what #1745's log needs ("A log of every USB arrival and removal", above).
+   what #1745's log needs ("A log of every USB arrival and removal", above), now USB.Lib's U2 (`usb-lib.md`).
