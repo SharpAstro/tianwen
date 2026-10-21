@@ -143,6 +143,21 @@ class ThreePartObjective(unittest.TestCase):
         self.assertAlmostEqual(S.combined_objective(2.0e-4, 6.0e-4, 0.125), 0.875 * 2.0e-4 + 0.125 * 6.0e-4)
         self.assertEqual(S.combined_objective(3.0e-4, 9.0e-4, 0.0), 3.0e-4, "no extra share, the main objective alone")
 
+    def test_the_schedule_reads_the_main_part_alone_when_asked(self):
+        scheduled, parts = S.scheduled_objective(2.0e-4, 6.0e-4, 0.125, "main")
+        self.assertEqual(scheduled, 2.0e-4)
+        self.assertEqual(parts, {"main": 2.0e-4, "extra": 6.0e-4, "combined": S.combined_objective(2.0e-4, 6.0e-4, 0.125)})
+        self.assertEqual(S.scheduled_objective(2.0e-4, 6.0e-4, 0.125, "combined")[0], parts["combined"], "R2q's schedule")
+
+    def test_the_schedule_switch_is_in_the_fingerprint_only_when_set(self):
+        import argparse
+        meta = {"cells": 4, "train_cells": 3}
+        base = dict(schedule="plateau", steps=10, extra_cache="c:/x/clusters")
+        combined = S.resume_fingerprint(argparse.Namespace(**base, schedule_on="combined"), meta)
+        main = S.resume_fingerprint(argparse.Namespace(**base, schedule_on="main"), meta)
+        self.assertNotIn("schedule_on", combined, "an R2q checkpoint still resumes")
+        self.assertEqual(main["schedule_on"], "main")
+
     def test_a_drawn_batch_holds_about_its_share(self):
         rng = np.random.default_rng(1)
         fe = np.concatenate([S.pick_extra(rng, 64, 0.125, 100, 1)[0] for _ in range(400)])
