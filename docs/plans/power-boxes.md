@@ -1,6 +1,6 @@
 # Power boxes: switches, dew heaters and the supply they measure
 
-**Status: P1 BUILT (2026-10-21), P2-P8 NOT STARTED.** TianWen had a switch device type and nothing behind it:
+**Status: P1 BUILT (2026-10-21), P2-P9 NOT STARTED.** TianWen had a switch device type and nothing behind it:
 `ISwitchDriver` declared no members, and the ASCOM and Alpaca switch drivers were empty. A power box is the first switch
 the owner has (a Gemini Power&Data Hub Advanced 3), and it carries what a night runs on: the camera's 12 V, the USB
 hub its data goes through, the dew heaters, and the only measurement of the supply, which is what the SV605CC's
@@ -76,6 +76,9 @@ OTAs; an `OTAData` its camera, cover, focuser and filter wheel). So:
 - the Equipment tab shows it as a **wiring diagram**: the box's outputs on one side, the rig's devices on the other, a
   line for each feed, edited by drawing the line.
 
+The DATA half need not be drawn by hand: USB.Lib's device tree (`usb-lib.md`, U1 and U4, #1754) says which of a box's
+hub ports each device is on. The POWER half no USB tree can see.
+
 That lets the panel label a port by what it powers, lets the ownership gate refuse a set on a port that feeds a device a
 run holds (rather than every set while any run holds the box), and is what P7 and P8 act through.
 
@@ -101,3 +104,16 @@ down as it opens, a cycle the session owns rather than a constant 100 % all nigh
 alternative, and which to use is a profile choice per OTA: the session's control knows which OTA a heater is wrapped
 around and logs what it did, the box's does not. Heaters go off for flats (a warm tube changes the flat) and at the end
 of the run.
+
+## Pegasus Astro boxes (P9)
+
+Tracked by #1756. The owner has two Pegasus Astro boxes beside the Gemini: a **Pocket Powerbox Advance** (switchable
+12 V outputs, an adjustable output, two PWM dew channels, an environment sensor, and the supply's volts and amps, over a
+serial link) and the **USB Control Hub** (USB ports only, each one switched on and off over its own serial link). Both
+get native drivers behind the same `ISwitchDriver` channels as the Gemini (P1), each with its protocol document in its
+first commit, as every native serial protocol has one (`docs/architecture/device-architecture.md`).
+
+The USB Control Hub is the first box that can cut ONE device's USB power, which the SV605CC investigation wants (#1749:
+its cooler very likely runs from USB power below some load). With USB.Lib's device tree (`usb-lib.md`, U1 and U4) TianWen
+knows which of its ports each device hangs on, so a port is shown, and switched, by the device on it.
+
