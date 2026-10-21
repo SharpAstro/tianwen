@@ -104,6 +104,7 @@ public class NativeDriverBlacklistTests
     [InlineData("ASCOM.ToupTek.Camera3", "ToupTekDevice")]
     [InlineData("ASCOM.GeminiFPLite.CoverCalibrator", "GeminiDevice")]
     [InlineData("ASCOM.GeminiFocuserPro.Focuser", "GeminiFocuserDevice")]
+    [InlineData("ASCOM.GeminiPowerBoxPlusAdv3.Switch", "GeminiPowerBoxDevice")]
     [InlineData("ascom.asicamera2.camera", "ZWODevice")] // case-insensitive ProgID match
     [InlineData("ASCOM.EFW2_2.FilterWheel", "ZWODevice")]
     [InlineData("ASCOM.qfoc.Focuser", "QHYDevice")]
