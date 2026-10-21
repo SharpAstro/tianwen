@@ -83,12 +83,21 @@ next exchange), and allows one reader and one writer at a time. A frame arrives 
   that read in 500 ms windows lost the frame a window closed on, and missed the 3 s push on the bench;
 - a read that times out after 6 s has lost nothing, since nothing was arriving, and the loop asks for status again;
 - a command only WRITES, under the connection's lock, beside the reader; the queries that need a reply (identity,
-  firmware) are made at connect, before the reader starts.
+  firmware) are made at connect, before the reader starts;
+- a query reads past what is not its reply, a whole status frame or the TAIL of one (Serial.Lib ends a read at the
+  first `#`, so a read that joins a frame midway returns ` 0.16C  2.06P` with no `*`), at most four;
+- a port that goes away under the connection (closed under the reader, or three status requests in a row that cannot
+  be written) ends it: the driver reports itself disconnected once and refuses reads and sets until reconnected;
+- a disconnect cancels the reader, CLOSES the port, and only then waits for the reader (3 s at most), so a read that
+  does not heed its token cannot hold the disconnect.
 
 ## Connect handshake
 
-Open (DTR and RTS), wait 2 s, `>H#` up to three times with 1 s each until `GeminiPowerBoxPlusAdv3`, `>V#` (refused below
-308), start the reader, `>G#`, and wait for the first frame (8 s). Anything short of that closes the port and throws.
+Open (DTR and RTS), wait 2 s, `>H#` up to three times with 1 s each until `GeminiPowerBoxPlusAdv3`, `>V#` the same way
+(refused below 308, and refused when it never answers), start the reader, `>G#`, and wait for a frame read after that
+request (8 s). Anything short of that stops the reader, closes the port and throws. A connect first tears down whatever
+an earlier connection left, so a reconnect without a disconnect neither leaks the old reader nor counts the old
+connection's frame as the new one's.
 The connect writes NO dew mode, unlike the vendor driver, which writes `>M1x#` and `>M2x#` on every connect.
 
 ## Mapping to `ISwitchDriver`
@@ -115,7 +124,10 @@ The connect writes NO dew mode, unlike the vendor driver, which writes `>M1x#` a
 
 `GeminiPowerBoxSerialProbe`: 19200 baud, `#`-terminated, DTR and RTS asserted, a 2 s warm-up, `>H#` then `>V#`, matching
 the identity. The only 19200-baud probe. The device is `switch://GeminiPowerBoxDevice/GeminiPowerBox_<port>?port=...`,
-known by its port, since the box has no serial number. A device that is not the box sees nothing but `>H#`.
+known by its port, since the box has no serial number. A device that is not the box is SENT nothing but `>H#`, but the
+probe asserts DTR and RTS, so on the probe service's isolated pass every port still unmatched is opened at 19200 with them
+asserted, which resets a board that resets on DTR (an Arduino). The FlatPanel Lite's probe already does the same at 9600,
+so this is one more reset per scan, not a new kind of one.
 
 ## Native-driver blacklist
 
@@ -137,3 +149,5 @@ The owner's box, firmware 309, on COM5, 12.9 V in, the SV605CC on DC1 and its US
 
 `FakeGeminiPowerBoxSerialDevice` (tests) answers `>H#`, `>V#` and `>G#` in the bench layout, takes the sets silently,
 pushes a frame when a test asks, and reads as a port does: it waits for bytes, and a cancelled read gives up what it took.
+Unplugged or closed, a waiting read ends empty and every write fails and is counted (`WritesAfterClose`), which is how a
+test sees a reader the driver left running.
