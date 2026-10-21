@@ -253,6 +253,17 @@ publish latency.
   (ZWO), ROI size change, exposure/gain live-tune. Confirm the stacked planet renders through the existing
   preview. Read the Debug log for the capture heartbeat + per-stack timing already emitted by the controller.
 
+## D.8 SVBONY raw video
+
+Tracked by #1748. SVBony.SDK 1.13 (the SV605CC and the rest of the SVBCameraSDK line) ships the exposure path alone:
+`SvbSession` keeps a soft-trigger stream running and asks it for one frame per exposure, so `CanVideoCapture` stays
+false and a live view runs one exposure at a time. Video is the same stream free-running: `SVB_MODE_NORMAL` and a
+(re)started capture, dropping the frame a restarted stream sends unasked (130 to 140 ms after a start), `GetVideoData`
+as `SVBGetVideoData`, back to `SVB_MODE_TRIG_SOFT` on stop, and `TryGetDroppedFrames` from `SVBGetDroppedFrames`.
+`CanPanRoiWhileStreaming` stays false until a bench run shows the window moving mid-stream. Bench it with the
+camera's USB direct to the PC: behind a VIA VL817 hub the stream stalls at high cooler duty
+(`docs/known-limitations.md`, "An SV605CC behind a VIA VL817 hub"). Ships as SVBony.SDK 1.14.
+
 ## D Risks / open decisions
 
 - **Interface extension vs separate `ICMOSVideoInterface`** (D.1). Recommended: extend. Flag for sign-off.

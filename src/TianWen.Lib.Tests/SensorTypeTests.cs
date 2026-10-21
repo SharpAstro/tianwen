@@ -27,6 +27,23 @@ namespace TianWen.Lib.Tests
             => SensorType.FromFITSValue(null, 1, 0, 0, pattern)
                 .ShouldBe((SensorType.RGGB, expectedX, expectedY));
 
+        /// <summary>
+        /// A native camera's offsets come from the DAL (<c>BayerPatternEx.GetOffsets</c>) and a file's from its BAYERPAT,
+        /// and the two must name the same photosite as red. Until DAL 3.4 the DAL swapped GRBG and BGGR, so a GRBG body
+        /// captured natively (an SVBONY SV605CC) would have been written as BGGR, while the same camera's N.I.N.A. files
+        /// read correctly through BAYERPAT.
+        /// </summary>
+        [Theory]
+        [InlineData(TianWen.DAL.BayerPattern.RGGB, "RGGB")]
+        [InlineData(TianWen.DAL.BayerPattern.GRBG, "GRBG")]
+        [InlineData(TianWen.DAL.BayerPattern.GBRG, "GBRG")]
+        [InlineData(TianWen.DAL.BayerPattern.BGGR, "BGGR")]
+        public void TheDalsOffsetsAreTheFileConventions(TianWen.DAL.BayerPattern pattern, string bayerpat)
+        {
+            var (_, x, y) = SensorType.FromFITSValue(null, 1, 0, 0, bayerpat);
+            TianWen.DAL.BayerPatternEx.GetOffsets(pattern).ShouldBe((x, y));
+        }
+
         [Theory]
         [InlineData(0, 0, 0, 0)]
         [InlineData(1, 0, 1, 0)]

@@ -99,7 +99,20 @@ public class NativeDriverBlacklistTests
         ids.ShouldBe(["TP250818143548A337C2B6718F4135B"]);
     }
 
+    [Fact]
+    public void GivenSvbonyAscomWithNativeSvbonyPresentThenOnlyTheCameraTwinIsHidden()
+    {
+        // The SVBONY driver package registers a camera and a switch; only the camera has a native twin.
+        var ids = FilterIds(
+            Ascom(DeviceType.Camera, "ASCOM.SVBONY.Camera"),
+            Native("SVBonyDevice", DeviceType.Camera, "01233EB8CC0101CBEE2409250004"));
+
+        ids.ShouldBe(["01233EB8CC0101CBEE2409250004"]);
+        NativeDriverBlacklist.TryGetNativeClass("ASCOM.SVBONY.Switch", out _).ShouldBeFalse();
+    }
+
     [Theory]
+    [InlineData("ASCOM.SVBONY.Camera", "SVBonyDevice")]
     [InlineData("ASCOM.ToupTek.Camera1", "ToupTekDevice")]
     [InlineData("ASCOM.ToupTek.Camera3", "ToupTekDevice")]
     [InlineData("ASCOM.GeminiFPLite.CoverCalibrator", "GeminiDevice")]

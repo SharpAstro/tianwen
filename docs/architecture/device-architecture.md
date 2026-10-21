@@ -289,7 +289,7 @@ the device source writes, and these families write the port or the USB path into
 
 | Family | Path id | Survives a re-plug on another port? |
 |---|---|---|
-| ZWO, QHY, Player One, ToupTek | serial number, else custom id, else the model name | yes (no port involved), except on the model-name fallback |
+| ZWO, QHY, Player One, ToupTek, SVBONY | serial number, else custom id, else the model name | yes (no port involved), except on the model-name fallback |
 | Canon, raw USB (LibUsbDotNet; needs a WinUSB driver on Windows) | the USB descriptor's serial number, else the device path, else `VID:PID` | yes with a serial; **no** on the device-path fallback |
 | Canon over WiFi | the PTP/IP responder GUID, else the IP address | yes with the GUID; **no** on the IP fallback |
 | Canon, Windows' stock driver (WPD; the same USB cable) | the body's own DeviceInfo serial (32 hex digits), read once per path with no PTP session; the WPD path (the USB device instance, which on a body with no USB serial, an EOS 6D, is the hub and the hub port) rides in the `wpd=` query as transport state that `ReconcileUri` refreshes; a body that reports no serial, or does not answer a 3 s read, keeps the path as its key | yes with a serial: replugged into another port it is the same key (#1097); **no** on the path fallback |

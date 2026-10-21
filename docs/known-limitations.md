@@ -1291,6 +1291,29 @@ it is expected rather than a defect, and so the fix is specified when it is want
 on the filter's line-selectivity the way the renderer already gates the stretch, and give the mono
 result the same `FilterIdentity` so session grouping is unchanged.
 
+## Devices
+
+### An SV605CC behind a VIA VL817 hub
+
+Tracked by #1749 (bench). An SVBONY SV605CC cooled hard indoors stops delivering frames while its controls still
+answer, its USB hub resets, and afterwards the camera stays unreachable until replugged. Seen through N.I.N.A. on a
+laptop (19 Oct 2026, behind an SVBONY SV241's hub) and through TianWen's SVBony.SDK on the desktop (21 Oct, behind a
+Gemini Power&Data Hub Advanced 3's hub). Both boxes carry the same VIA VL817 USB 3 hub (`2109:0817`/`2817`, billboard
+`2109:8817`), and both programs ran SVBCameraSDK 1.13.4, so the stall is not one binding's. With the camera's USB
+direct to the PC it ran 71 minutes at 80 % cooler with no fault; a night with another hub in front of the VL817, and
+outdoors, was clean too. Not yet separated from cable, temperature and run length: two later runs through the same hub
+were clean.
+
+What is settled:
+- **A stream restart does not clear the stall; closing and reopening the camera does.** `SvbSession.CancelExposure`
+  stops and restarts the stream after a lost frame, and three in a row stayed lost; a new process's open delivered at
+  once.
+- **Never close the camera while a frame read is blocked.** N.I.N.A. crashed twice inside the SDK doing exactly that.
+  SvbSession's reader waits in 250 ms slices and is joined before the stream stops.
+- **A power box's current is not evidence here.** The Gemini box samples volts and amps once every 3 s, instantaneously,
+  against the cooler's PWM, so its reading sits at 2 A or at idle for minutes as the two clocks drift and flickers at the
+  crossings, while the cooler runs steadily. Only an average over minutes estimates the draw (power-boxes P5, #1733).
+
 ## GPU / rendering
 
 ### Dangling stack pointer via single-argument Vortice ctors

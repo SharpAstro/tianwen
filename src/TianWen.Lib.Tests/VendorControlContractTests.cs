@@ -37,6 +37,12 @@ public class VendorControlContractTests
         { "PlayerOne", CMOSControlType.HighSpeedMode },
         { "PlayerOne", CMOSControlType.PatternAdjust },
         { "PlayerOne", CMOSControlType.EnableDDR },
+        { "SVBony", CMOSControlType.Gamma },
+        { "SVBony", CMOSControlType.BandwidthOverload },
+        { "SVBony", CMOSControlType.HardwareBin },
+        { "SVBony", CMOSControlType.MonoBin },
+        { "SVBony", CMOSControlType.PatternAdjust },
+        { "SVBony", CMOSControlType.EnableDDR },
     };
 
     [Theory]
@@ -106,6 +112,7 @@ public class VendorControlContractTests
         "ZWO" => default(ASICamera2.ASI_CAMERA_INFO),
         "QHY" => default(QHYCamera.QHYCCD_CAMERA_INFO),
         "PlayerOne" => default(PlayerOneCamera.POACameraProperties),
+        "SVBony" => default(SVBony.SDK.SVBCameraDevice),
         _ => throw new System.ArgumentOutOfRangeException(nameof(vendor), vendor, "no such vendor in this test"),
     };
 }

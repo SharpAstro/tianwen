@@ -65,6 +65,7 @@ $siblings = @"
     <Project Path="../ZWOptical.SDK/ZWOptical.SDK.csproj" />
     <Project Path="../PlayerOne.SDK/PlayerOne.SDK.csproj" />
     <Project Path="../ToupTek.SDK/ToupTek.SDK.csproj" />
+    <Project Path="../SVBony.SDK/SVBony.SDK.csproj" />
     <Project Path="../FITS.Lib/CSharpFITS/CSharpFITS.csproj" />
     <Project Path="../SER.Lib/src/SER.Lib/SER.Lib.csproj" />
     <Project Path="../Lzip.Lib/src/Lzip.Lib/Lzip.Lib.csproj" />

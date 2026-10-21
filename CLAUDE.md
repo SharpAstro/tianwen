@@ -68,7 +68,7 @@ counts as the review. Answer it with the agent, or with one line saying why the 
 
 TianWen is a .NET 10 library for astronomical device management, image processing, and astrometry.
 Supports cameras, mounts, focusers, filter wheels, cover/calibrators, power boxes (switches), and guiders via ASCOM, Alpaca (HTTP),
-ZWO, QHYCCD, Player One, ToupTek (and the ten rebadged families on its SDK: Altair, Omegon, OGMA, MallinCam,
+ZWO, QHYCCD, Player One, SVBONY (the SVBCameraSDK line), ToupTek (and the ten rebadged families on its SDK: Altair, Omegon, OGMA, MallinCam,
 ...; only ToupTek verified), Meade LX200, Skywatcher, OnStep (serial + WiFi/mDNS), iOptron SkyGuider Pro, Gemini FlatPanel
 Lite (native serial cover/calibrator), Gemini Focuser Pro (native serial focuser, a rebadged myFocuserPro2), Gemini
 Power&Data Hub Advanced 3 (native serial power box, `ISwitchDriver`; `docs/plans/power-boxes.md`), PHD2, and a built-in guider. Published as `TianWen.Lib` on NuGet, plus AOT-published binaries, of
