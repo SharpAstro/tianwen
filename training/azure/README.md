@@ -49,8 +49,10 @@ A cache the container does not hold yet goes up first with `upload-cache.ps1`.
 - **The first scp after `az vm create` can fail** while sshd comes up: every copy is checked and retried.
 - **An ssh that starts a remote background job must not keep stdin**: `ssh -n` and `setsid nohup ... </dev/null`, or ssh
   waits for the whole run and the driver's next passes are skipped behind it.
-- **A pattern in `pkill -f` or `pgrep -f` matches the ssh's own shell**, whose command line holds it: bracket it
-  (`[n]2n_smoke`).
+- **`pkill -f` and `pgrep -f` read the ssh's own shell**, whose command line is the whole remote command: bracket the
+  pattern (`[n]2n_smoke`), and never spell out in that command a name the pattern looks for. The resume check's own
+  `~/resume.sh` made it answer 'running' on every pass while an evicted VM sat idle (2026-10-22); it names the script
+  through a variable.
 - **A cron install line under `set -e` can install an EMPTY crontab** when its grep matches nothing; the sync then stops
   while the trainer runs on. `train.sh` keeps the pipeline whole and checks the line is in.
 - **A driver must check the synced log's age**: a dead sync reads as a run in progress for as long as nobody looks.
