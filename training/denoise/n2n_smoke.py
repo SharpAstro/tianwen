@@ -1754,8 +1754,9 @@ def train(args):
             if len(evall) == 0:
                 raise SystemExit(f"--schedule plateau with --extra-cache needs val cells in {args.extra_cache}")
             evsel = evall[np.linspace(0, len(evall) - 1, min(args.val_loss_cells, len(evall))).round().astype(int)]
-            print(f"  and {len(evsel)} of the extra cache's held-out cells, each against its truth; the schedule stops on the two "
-                  f"objectives weighed by their share of the training draw ({1 - share:.3f} / {share:.3f})")
+            reads = (f"the two objectives weighed by their share of the training draw ({1 - share:.3f} / {share:.3f})"
+                     if args.schedule_on == "combined" else "the main cache's objective alone, the other two logged")
+            print(f"  and {len(evsel)} of the extra cache's held-out cells, each against its truth; the schedule stops on {reads}")
         held_parts = {}
 
         def score(mm_, sigma_, keep_, cells, draws_, target_slot):
