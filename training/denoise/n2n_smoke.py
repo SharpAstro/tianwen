@@ -238,6 +238,8 @@ def resume_fingerprint(args, meta):
         fp.update(teacher=os.path.basename(os.path.normpath(args.teacher)))
     if getattr(args, "extra_cache", None):
         fp.update(extra_cache=os.path.basename(os.path.normpath(args.extra_cache)))
+    if getattr(args, "schedule_on", "combined") != "combined":
+        fp.update(schedule_on=args.schedule_on)
     fp.update(cells=meta["cells"], train_cells=meta["train_cells"])
     if args.schedule == "cosine":
         fp["steps"] = args.steps
@@ -358,6 +360,14 @@ def combined_objective(main, extra, share):
     """The held-out objective the schedule stops on with an extra cache: each cache's own held-out objective (every val tile
     against its truth), weighed by its share of the training draw."""
     return (1.0 - share) * main + share * extra
+
+
+def scheduled_objective(main, extra, share, on):
+    """What the plateau reads with an extra cache, and the three parts it logs. `on` is "combined" (R2q: the two weighed by
+    share) or "main" (R2r: the main cache's alone, as R2p's schedule read it; the combined objective flattened sooner and
+    halved R2q's rate at half R2p's steps)."""
+    combined = combined_objective(main, extra, share)
+    return (combined if on == "combined" else main), {"main": main, "extra": extra, "combined": combined}
 
 
 # --------------------------------------------------------------------------- index
@@ -1797,8 +1807,8 @@ def train(args):
                 main = score(mm, sigma_planes, keep_planes, vsel, draws, synth_target)
                 if extra is not None:
                     other = score(extra.mm, extra.sigma, extra.keep, evsel, extra.draws, SLOT_MASTER)
-                    held_parts.update(main=main, extra=other)
-                    main = combined_objective(main, other, share)
+                    main, parts = scheduled_objective(main, other, share, args.schedule_on)
+                    held_parts.update(parts)
             if was:
                 model.train()
             return main
@@ -2153,7 +2163,8 @@ def train(args):
                   f"{val_best_step}   lr {lr_now:.2e}   {note}", flush=True)
             if held_parts:
                 print(f"  val  {step:6d}   held-out main {held_parts['main']:.6e}   extra {held_parts['extra']:.6e}   "
-                      f"combined {val_hist[-1]:.6e} ({1 - share:.3f} / {share:.3f})", flush=True)
+                      f"combined {held_parts['combined']:.6e} ({1 - share:.3f} / {share:.3f}), the schedule reads "
+                      f"{args.schedule_on}", flush=True)
             if args.clip_grad:
                 print(f"  clip {step:6d}   clipped {clipped} of the last {args.val_every} steps, median gradient norm "
                       f"{float(np.median(grad_hist)):.3e}, largest {grad_max:.3e}", flush=True)
@@ -2583,6 +2594,9 @@ if __name__ == "__main__":
                         "of the input tiles, each regressing onto its own truth (slot 0) whatever --teacher sets for this cache's; "
                         "the plateau's held-out objective reads both caches' val cells against their truths and stops on the two "
                         "weighed by that share, logging each")
+    p.add_argument("--schedule-on", choices=("combined", "main"), default="combined",
+                   help="with --extra-cache, which held-out objective the plateau halves and stops on: the two caches weighed "
+                        "by share (R2q), or the main cache's alone (R2r), the extra cache's still logged")
     p.add_argument("--teacher", default=None,
                    help="R2p: a folder from n2n_teacher.py; each synthetic draw regresses onto the teacher's output on it "
                         "instead of the clean tile (distillation), while the held-out objective still reads the clean tile")
