@@ -542,6 +542,119 @@ public class StarInjectionTests(ITestOutputHelper output)
         withHalo.Beta.ShouldBeLessThan(plain.Beta);
     }
 
+    /// <summary>
+    /// R2s's wing gain scales a profile past 1.5 FWHM by the gain, its halo table with it, and leaves the peak and the core
+    /// as measured; a default profile, whose log gain is 0, draws exactly as before.
+    /// </summary>
+    [Fact]
+    public void AWingGainScalesTheWingAndItsHaloAndLeavesTheCore()
+    {
+        default(StarProfile).HaloGain.ShouldBe(1.0, "a default profile draws its wings as measured");
+        var plain = StarProfile.Round(StarProfileFamily.Moffat, 2.5, 3.0);
+        var bright = plain with { HaloLogGain = Math.Log(2.0) };
+        var dim = plain with { HaloLogGain = Math.Log(0.5) };
+
+        // Every quadrature point of the centre pixel and its neighbour lies inside 0.75 FWHM (1.9 px): untouched.
+        bright.PixelMean(10, 10, 10.0, 10.0).ShouldBe(plain.PixelMean(10, 10, 10.0, 10.0));
+        bright.PixelMean(11, 10, 10.0, 10.0).ShouldBe(plain.PixelMean(11, 10, 10.0, 10.0));
+        // Every point of a pixel 5 px out lies past 1.5 FWHM (3.75 px): the whole gain.
+        bright.PixelMean(15, 10, 10.0, 10.0).ShouldBe(2.0 * plain.PixelMean(15, 10, 10.0, 10.0), 1e-15);
+        dim.PixelMean(15, 10, 10.0, 10.0).ShouldBe(0.5 * plain.PixelMean(15, 10, 10.0, 10.0), 1e-15);
+        bright.RadiusAtFraction(1e-3).ShouldBeGreaterThan(plain.RadiusAtFraction(1e-3), "a brighter wing reaches farther");
+        dim.RadiusAtFraction(1e-3).ShouldBe(plain.RadiusAtFraction(1e-3), "a dimmer one keeps the measured reach");
+
+        ImmutableArray<float> halo = [.. Enumerable.Repeat(0.01f, 40)];
+        var field = new StarProfile(StarProfileFamily.Field, 2.5, 3.0, 1.0, 0.0, halo, MoffatPsf.AlphaFor(2.5, 3.0));
+        (field with { HaloLogGain = Math.Log(2.0) }).PixelMean(18, 10, 10.0, 10.0)
+            .ShouldBe(2.0 * field.PixelMean(18, 10, 10.0, 10.0), 1e-12, "the halo table is part of the wing");
+    }
+
+    /// <summary>
+    /// A channel variation (R2s) changes the stars' shapes and nothing else: the same stars at the same places with the same
+    /// brightness and colour, drawn from a stream of its own; each channel takes its own factors, every star of one draw
+    /// sits within its scatter of them, a lobe takes its star's, and the same two seeds draw the same plan.
+    /// </summary>
+    [Fact]
+    public void AChannelVariationRedrawsOnlyTheShapesAndEachChannelOnItsOwn()
+    {
+        var population = BuildColourPopulation();
+        var variation = ChannelVariation.R2s;
+        var plain = population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Moffat, 1.0, new Random(21));
+        var varied = population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Moffat, 1.0, new Random(21), variation, new Random(99));
+
+        varied.Stars.Length.ShouldBe(plain.Stars.Length);
+        varied.Stars.Count(static s => s.Saturated).ShouldBe(1, "the saturated draw is varied too");
+        for (var i = 0; i < plain.Stars.Length; i++)
+        {
+            (varied.Stars[i].X, varied.Stars[i].Y, varied.Stars[i].Saturated).ShouldBe((plain.Stars[i].X, plain.Stars[i].Y, plain.Stars[i].Saturated));
+            varied.Stars[i].Amplitudes.ShouldBe(plain.Stars[i].Amplitudes);
+        }
+
+        var logHalo = new double[3][];
+        for (var c = 0; c < 3; c++)
+        {
+            var channel = c;
+            logHalo[c] = [.. varied.Stars.Select(s => s.Profiles[channel].HaloLogGain)];
+            foreach (var (star, i) in varied.Stars.Select(static (s, i) => (s, i)))
+            {
+                (star.Profiles[c].FwhmPx / plain.Stars[i].Profiles[c].FwhmPx).ShouldBeInRange(
+                    variation.WidthMin * Math.Exp(-variation.StarScatter), variation.WidthMax * Math.Exp(variation.StarScatter));
+                star.Profiles[c].HaloGain.ShouldBeInRange(variation.HaloMin * Math.Exp(-variation.StarScatter), variation.HaloMax * Math.Exp(variation.StarScatter));
+            }
+            (logHalo[c].Max() - logHalo[c].Min()).ShouldBeLessThanOrEqualTo(2 * variation.StarScatter + 1e-12, "one draw, one train per channel");
+        }
+        new[] { logHalo[0].Average(), logHalo[1].Average(), logHalo[2].Average() }.Distinct().Count().ShouldBe(3, "each channel on its own");
+
+        var again = population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Moffat, 1.0, new Random(21), variation, new Random(99));
+        again.Stars.SelectMany(static s => s.Profiles).ShouldBe(varied.Stars.SelectMany(static s => s.Profiles));
+        Should.Throw<ArgumentNullException>(() =>
+            population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Moffat, 1.0, new Random(21), variation, null));
+
+        // A lobe is part of its star: it takes the star's factors.
+        var (catalogue, image) = LobeCatalogue();
+        var lobed = InjectionPopulation.Build([catalogue[0], catalogue[1]], image, image, 1.0, [(2.5, 3.0)], null, lobes: true);
+        var pair = lobed.Plan(0, 0, 256, 0, InjectionPlacement.Random, StarProfileFamily.Moffat, 0.0, new Random(11), variation, new Random(3)).Stars;
+        pair[1].Lobe.ShouldBeTrue();
+        pair[1].Profiles[0].HaloLogGain.ShouldBe(pair[0].Profiles[0].HaloLogGain);
+        pair[1].Profiles[0].FwhmPx.ShouldBe(pair[0].Profiles[0].FwhmPx);
+    }
+
+    // BuildPopulation in three channels, each star a little redder than blue, the master's saturated star cored at 0.9 in all.
+    private static InjectionPopulation BuildColourPopulation()
+    {
+        const int size = 256;
+        var rng = new Random(2);
+        var catalogue = ImmutableArray.CreateBuilder<FittedStar>();
+        static FittedStar ColourStar(float x, float y, float amplitude, bool saturated)
+            => new FittedStar(x, y, 100, amplitude, 1f, 0.1f, 0.01f, StarFitOutcome.Subtracted, saturated, false, float.NaN, float.NaN, false, float.NaN,
+                StarFitModel.Moffat, [amplitude, 0.8f * amplitude, 0.6f * amplitude]);
+        for (var i = 0; i < 30; i++)
+        {
+            catalogue.Add(ColourStar((float)(10 + rng.NextDouble() * (size - 20)), (float)(10 + rng.NextDouble() * (size - 20)),
+                (float)(0.01 + rng.NextDouble() * 0.2), saturated: false));
+        }
+        catalogue.Add(ColourStar(200, 40, 3.0f, saturated: true));
+        var masterPlanes = new float[3][,];
+        var platePlanes = new float[3][,];
+        for (var c = 0; c < 3; c++)
+        {
+            masterPlanes[c] = new float[size, size];
+            platePlanes[c] = new float[size, size];
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    masterPlanes[c][y, x] = 0.1f;
+                    platePlanes[c][y, x] = 0.1f;
+                }
+            }
+            masterPlanes[c][40, 200] = 0.9f;
+        }
+        var master = new Image(masterPlanes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+        var plate = new Image(platePlanes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+        return InjectionPopulation.Build(catalogue.ToImmutable(), master, plate, 1.0, [(2.5, 3.0), (2.5, 3.0), (2.5, 3.0)], null);
+    }
+
     private static (InjectionPopulation Population, ImmutableArray<FittedStar> Catalogue) BuildPopulation()
     {
         const int size = 256;
