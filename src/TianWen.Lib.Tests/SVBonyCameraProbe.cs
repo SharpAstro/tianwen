@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Meziantou.Extensions.Logging.Xunit.v3;
 using Microsoft.Extensions.DependencyInjection;
@@ -84,6 +85,99 @@ public class SVBonyCameraProbe(ITestOutputHelper output)
         {
             await camera.DisconnectAsync(ct);
         }
+    }
+
+    /// <summary>
+    /// The same camera streaming through the driver's one DAL video loop (#1748): full frame and a planetary window, in 8
+    /// and 16 bits, then an exposure straight after, which must find the soft trigger stream back.
+    /// </summary>
+    /// <remarks>
+    /// Measured through SVBony.SDK's probe on the bench SV605CC (2026-10-21, USB 3 direct, 2 ms, uncooled): 19.8 frames a
+    /// second at full frame in either depth and 116 through 640 x 480, against 6.6 and 32 one exposure at a time.
+    /// </remarks>
+    [Fact(Timeout = 300_000)]
+    public async Task ACameraStreamsThroughTheDriver()
+    {
+        Assert.SkipUnless(Environment.GetEnvironmentVariable(GateVar) == "1", $"{GateVar} is not 1 (this drives the attached SVBONY camera)");
+        var ct = TestContext.Current.CancellationToken;
+        var device = new SVBonyDeviceSource().RegisteredDevices(DeviceType.Camera).FirstOrDefault();
+        Assert.SkipWhen(device is null, "no SVBONY camera attached");
+
+        await using var sp = new ServiceCollection()
+            .AddSingleton<IExternal>(new FakeExternal(output))
+            .AddSingleton<ITimeProvider>(SystemTimeProvider.Instance)
+            .AddLogging(logging => logging.AddProvider(new XUnitLoggerProvider(output, new XUnitLoggerOptions { TimestampFormat = "HH:mm:ss.fff" }))
+                .SetMinimumLevel(LogLevel.Information))
+            .BuildServiceProvider();
+        var camera = new SVBonyCameraDriver(device, sp);
+        await camera.ConnectAsync(ct);
+        try
+        {
+            camera.CanVideoCapture.ShouldBeTrue();
+            foreach (var (width, height, depth, floorFps) in new (int, int, BitDepth, double)[]
+            {
+                (camera.CameraXSize, camera.CameraYSize, BitDepth.Int16, 10),
+                (camera.CameraXSize, camera.CameraYSize, BitDepth.Int8, 10),
+                (640, 480, BitDepth.Int16, 60),
+                (640, 480, BitDepth.Int8, 60),
+            })
+            {
+                camera.BinX = 1;
+                camera.NumX = width;
+                camera.NumY = height;
+                camera.StartX = (camera.CameraXSize - width) / 2 & ~1;
+                camera.StartY = (camera.CameraYSize - height) / 2 & ~1;
+                var label = $"{width} x {height} {depth}";
+                var (frames, fps) = await StreamAsync(camera, new VideoCaptureOptions(TimeSpan.FromMilliseconds(2), BitDepth: depth), width, height, label);
+                frames.ShouldBeGreaterThan(10, label);
+                fps.ShouldBeGreaterThan(floorFps, label);
+            }
+
+            var after = await ExposeAsync(camera, TimeSpan.FromMilliseconds(200), "an exposure after the stream, 200 ms");
+            (after.Width, after.Height).ShouldBe((640, 480));
+        }
+        finally
+        {
+            await camera.DisconnectAsync(ct);
+        }
+    }
+
+    private async Task<(int Frames, double Fps)> StreamAsync(SVBonyCameraDriver camera, VideoCaptureOptions options, int width, int height, string label)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var clock = Stopwatch.StartNew();
+        TimeSpan? first = null;
+        var frames = 0;
+        var median = 0f;
+        await foreach (var frame in camera.CaptureVideoAsync(options, stop.Token))
+        {
+            try
+            {
+                (frame.Width, frame.Height).ShouldBe((width, height), label);
+                first ??= clock.Elapsed;
+                if (++frames == 10)
+                {
+                    var plane = frame.GetChannelSpan(0).ToArray();
+                    Array.Sort(plane);
+                    median = plane[plane.Length / 2];
+                }
+            }
+            finally
+            {
+                frame.Release();
+            }
+
+            if (clock.Elapsed - first >= TimeSpan.FromSeconds(5))
+            {
+                break;
+            }
+        }
+
+        var fps = (frames - 1) / (clock.Elapsed - (first ?? TimeSpan.Zero)).TotalSeconds;
+        output.WriteLine($"{label}: first frame after {first?.TotalMilliseconds:F0} ms, {fps:F1} fps ({frames} frames), median {median}, "
+            + $"dropped {camera.DroppedFrames}");
+        return (frames, fps);
     }
 
     private readonly record struct Frame(int Width, int Height, float Median);

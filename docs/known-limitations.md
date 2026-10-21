@@ -1310,6 +1310,12 @@ What is settled:
   once.
 - **Never close the camera while a frame read is blocked.** N.I.N.A. crashed twice inside the SDK doing exactly that.
   SvbSession's reader waits in 250 ms slices and is joined before the stream stops.
+- **From SVBony.SDK 1.14 the cooler is kept below 90 %** (the owner's rule for these bodies): the SDK has no power
+  limit, so the binding's `CoolerGovernor` raises the camera's target a degree, at most every 30 s, while the cooler
+  sits at 90 % or more, and brings it back toward the asked target, a degree at most every 2 minutes, once the power is
+  down to 80 %. The frame records the target the sensor was held at. The hour at 80 % ran clean behind this hub, so
+  the ceiling keeps a run out of the duty the stalls came with; it does not explain them. Not yet seen acting on
+  hardware.
 - **A power box's current is not evidence here.** The Gemini box samples volts and amps once every 3 s, instantaneously,
   against the cooler's PWM, so its reading sits at 2 A or at idle for minutes as the two clocks drift and flickers at the
   crossings, while the cooler runs steadily. Only an average over minutes estimates the draw (power-boxes P5, #1733).
