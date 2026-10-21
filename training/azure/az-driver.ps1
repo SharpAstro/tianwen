@@ -44,12 +44,14 @@ function Invoke-Vm([string]$ip, [string]$command, [int]$seconds, [string]$what) 
     return Invoke-Bounded 'ssh' "-n -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o BatchMode=yes -i $($AzConfig.sshKey) tw@$ip `"$command`"" $seconds $what
 }
 # Syncs, and starts resume.sh only when no trainer and no setup, resume or train script runs, so a second pass never
-# starts a second trainer. The pgrep pattern is bracketed: an unbracketed one matches the ssh's own shell, whose command
-# line holds it (a `pkill -f n2n_smoke.py` killed its own session, 2026-10-21).
+# starts a second trainer. `pgrep -f` also reads the ssh's own shell, whose command line is this whole string, so nothing
+# in it may match the pattern: the pattern is bracketed (it does not match its own text; an unbracketed `pkill -f
+# n2n_smoke.py` killed its own session, 2026-10-21), and resume.sh is named through $r, never spelled out (a literal
+# ~/resume.sh made every pass answer 'running' while an evicted R2t sat idle, 2026-10-22).
 function Resume-Trainer([string]$why) {
     $ip = (& $AzCli vm show -d -g $rg -n $Vm --subscription $sub --query publicIps -o tsv 2>$null)
     if (-not $ip) { Say "$why; no IP for $Vm yet, trying again next pass"; return }
-    $remote = "~/sync.sh; if pgrep -f '[n]2n_smoke|[r]esume.sh|[s]etup.sh|[t]rain.sh' >/dev/null; then echo running; else setsid nohup ~/resume.sh </dev/null >/dev/null 2>&1 & echo resumed; fi"
+    $remote = "~/sync.sh; if pgrep -f '[n]2n_smoke|[r]esume\.sh|[s]etup\.sh|[t]rain\.sh' >/dev/null; then echo running; else r=~/resume; setsid nohup `$r.sh </dev/null >/dev/null 2>&1 & echo resumed; fi"
     $code = Invoke-Vm $ip $remote 120 'resume'
     $out = Join-Path $RunsDir "$Tag-resume.out.log"
     $said = if (Test-Path $out) { (Get-Content $out -Raw).Trim() } else { '' }
