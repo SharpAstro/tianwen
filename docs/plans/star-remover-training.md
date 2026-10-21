@@ -3235,6 +3235,58 @@ holding, 3 to 5 holding means R2q's costs were its schedule's and R2r is a candi
 missing again means the clusters themselves cost synth4's bright stars and the nucleus, and the next question is their
 share. **What it decides:** whether the synthetic clusters can join the training draw at no cost elsewhere.
 
+#### R2s: each channel's halo and width drawn on its own, pre-registered (2026-10-21)
+
+Written before it trains, on the owner's word of 2026-10-21 ("yes" to the halo arm, after "we defo have to consider the
+halos"). Tracked by #1338.
+
+**Why: two measurements on the owner's Andromeda** (an Astro Pixel Processor master of an unknown rig) **and the
+held-out Tarantula.**
+
+- **The model takes blue's shape from red and green.** R2p digs 46 % of Andromeda's dark-sky stars at 100-1000 sigma,
+  the dug ones in blue. Each channel put through alone, as a mono frame, digs 1.5 %: blue's mean residual over 2,160
+  bright isolated stars goes from -1.40 / -1.04 sigma at 1.5-3 / 3-4.5 px to -0.28 / +0.01. Andromeda's blue wing is
+  weaker than its others (3.1 sigma at 3-4.5 px, against 5.0 and 5.6). On the Tarantula, whose blue near halo is a
+  little stronger for its core, R2p leaves the most light in blue instead (about 2 sigma at 0-8 px around the 40
+  brightest stars). Every training star's channels keep their master's measured relation, so nothing taught the model to
+  read each channel on its own. Blue's halo is not the stronger one on these rigs (on five masters it is weaker than or
+  level with red's and green's, but for the Tarantula's near halo): blue fails because the model infers it.
+- **The halos stay, in every channel.** Around Andromeda's 40 brightest stars R2p and R2i leave up to 1.1 sigma of halo
+  at 4-20 px in each channel, where StarX leaves at most 0.33. The field profile's halo tables reach about 10 FWHM
+  (median 17.5 px over the store's 543 channel tables), so that light is inside what the injector draws; but each
+  master's table is one median halo, and it under-reads bright stars' near wings by up to 30 percent (#1241).
+
+**The arm.** R2i's recipe exactly (two levels, patience 24, cap 480,000, a resume checkpoint every 2,000 steps) with no
+teacher, since E5's answer carries the coupled channels and the weak halos this arm is meant to undo, on synth7:
+synth4's export command with `--channel-halos` ("feat(star-removal): --channel-halos, each channel of an injected star
+drawn at its own halo strength and width (R2s)"). Each channel of every injected star is drawn at its own wing gain (0.5
+to 2 times the measured profile past 1.5 FWHM, the core and peak untouched, the halo table scaled with it) and width
+(0.85 to 1.18), log-uniform, once per draw of a cell and scattered up to 10 percent per star, from a stream of its own:
+every draw holds synth4's stars at synth4's places, brightness and colour, and only their shapes differ. Seed 1 on an
+Azure spot T4 under the owner's guards, beside R2i's own seed 1, also trained on a T4.
+
+**Predictions**, seed 1 at one view, against R2i's seed 1:
+
+1. The coupling goes: Andromeda's dark-sky stars at 100-1000 sigma dug on at most 17.0 % (R2i seed 1: 33.9; R2p 45.9;
+   each channel alone 1.5), and blue's mean residual over the 2,160 bright isolated stars no deeper than -0.5 sigma at
+   1.5-3 and 3-4.5 px (R2i seed 1: -1.14 / -0.88).
+2. The halos go: around Andromeda's 40 brightest stars, every channel's mean residual at 4-8 and 8-12 px at most 0.5
+   sigma (R2i seed 1: up to 0.72 and 0.93; StarX at most 0.33).
+3. A's draws hold within R2i's spread: at least 79.3 / 74.5 / 51.6 % clean (R2i seed 1: 80.6 / 75.3 / 55.9).
+4. Real bright stars (`r2-real-val`, 100-1000 sigma) flat on at least 94.4 % (R2i seed 1: 95.4, less the 1.0 points its
+   two seeds lie apart).
+5. M31's nucleus on the owner's Andromeda at most 5 % in every channel (R2i seed 1: -0.7 / 4.7 / 2.0).
+6. The Sagittarius Triplet (mono): dark-sky stars at 100-1000 sigma flat on at least 94.2 % (R2i seed 1: 98.5, less
+   4.3), and the owner's three masters' crops no worse by the owner's eye.
+
+**Read, not predicted:** the held-out Tarantula (R2i seed 1: dark-sky stars at 100-1000 sigma flat on 41.4 %, crowded
+71.9 %; blue around the brightest stars); Andromeda's flat rate; R2s's eight views; bright stars' colour on A's draws.
+
+**Kill:** prediction 1 missing means drawing each channel on its own does not decouple them, and `--channel-halos` is
+dropped. With 1 holding, any of 3 to 6 missing means R2s is not adopted as it stands; which costs are acceptable is the
+owner's call. **What it decides:** whether the colour dig and the halos left come from the training stars' shapes. If
+they do, the next arm puts `--channel-halos` together with R2r's clusters and E5's teacher retrained on synth7.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
