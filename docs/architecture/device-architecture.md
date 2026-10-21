@@ -188,6 +188,7 @@ does when the device is connected and does not answer.
 | iOptron SkyGuider Pro | [`sgp-protocol.md`](sgp-protocol.md) | `Devices/IOptron/` | serial |
 | Gemini Focuser Pro | [`gemini-focuser-pro-protocol.md`](gemini-focuser-pro-protocol.md) | `Devices/Gemini/GeminiFocuser*.cs` | USB serial |
 | Gemini FlatPanel Lite | [`gemini-flatpanel-lite-protocol.md`](gemini-flatpanel-lite-protocol.md) | `Devices/Gemini/GeminiFlatPanel*.cs` | USB serial |
+| Gemini Power&Data Hub Advanced 3 | [`gemini-powerbox-adv3-protocol.md`](gemini-powerbox-adv3-protocol.md) | `Devices/Gemini/GeminiPowerBox*.cs` | USB serial |
 
 All of them share the transport in `Connections/` (`ISerialConnection`, and `SerialConnection` for COM ports,
 an adapter over the Serial.Lib sibling, docs/plans/serial-lib.md) and one rule from [`driver-resilience.md`](driver-resilience.md):

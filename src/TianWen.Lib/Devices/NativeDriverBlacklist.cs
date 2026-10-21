@@ -42,6 +42,10 @@ internal static class NativeDriverBlacklist
             // Gemini Focuser Pro -- native serial focuser, a rebadged myFocuserPro2 (GeminiFocuserDevice, AddGemini).
             ["ASCOM.GeminiFocuserPro.Focuser"] = "GeminiFocuserDevice",
 
+            // Gemini Power&Data Hub Advanced 3 -- native serial power box (GeminiPowerBoxDevice, AddGemini). The ProgID is
+            // read off the owner's machine with the vendor's 3.0.2 driver installed (2026-10-21).
+            ["ASCOM.GeminiPowerBoxPlusAdv3.Switch"] = "GeminiPowerBoxDevice",
+
             // ZWO ASI camera / EAF focuser / EFW filter wheel -- native ZWO SDK (ZWODevice, AddZWO).
             ["ASCOM.ASICamera2.Camera"] = "ZWODevice",
             ["ASCOM.ASICamera2_2.Camera"] = "ZWODevice",
