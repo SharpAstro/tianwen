@@ -3216,7 +3216,9 @@ hardware, so the read against R2p differs only in the clusters. Frozen at "feat(
 plateau read off the main cache's held-out part alone" on feat/synthetic-cluster-scenes; its resume fingerprint is R2q's
 plus the switch. **Seed 1**, added the same afternoon before it trains (the owner: "why we not using azure as well?"), on
 an Azure spot T4 under the owner's guards, its data read from the storage account in the VMs' own region: read, not
-predicted, as R2q's seed 1 was, since R2q's two seeds lay 8 to 9 points apart on M31's nucleus.
+predicted, as R2q's seed 1 was, since R2q's two seeds lay 8 to 9 points apart on M31's nucleus. **Seed 1 was stopped at
+step 45,800** the same day, when the owner stopped Azure ("lets stop azure for now and only use this box"; see R2s); its
+resume checkpoint at step 44,000 is kept, so R2r reads on seed 0 alone unless seed 1 is resumed on the 1070.
 
 **Predictions**, seed 0 at one view, every bar R2q's:
 
@@ -3265,25 +3267,36 @@ synth4's export command with `--channel-halos` ("feat(star-removal): --channel-h
 drawn at its own halo strength and width (R2s)"). Each channel of every injected star is drawn at its own wing gain (0.5
 to 2 times the measured profile past 1.5 FWHM, the core and peak untouched, the halo table scaled with it) and width
 (0.85 to 1.18), log-uniform, once per draw of a cell and scattered up to 10 percent per star, from a stream of its own:
-every draw holds synth4's stars at synth4's places, brightness and colour, and only their shapes differ. Seed 1 on an
-Azure spot T4 under the owner's guards, beside R2i's own seed 1, also trained on a T4.
+every draw holds synth4's stars at synth4's places, brightness and colour, and only their shapes differ. Seed 0 on the
+1070, beside R2i's own seed 0, also trained on the 1070, once R2r's seed 0 has trained and been scored.
 
-**Predictions**, seed 1 at one view, against R2i's seed 1:
+**Moved to the 1070 before it trained, and its baseline with it (2026-10-21, 16:45).** R2s was first registered as seed
+1 on an Azure spot T4 against R2i's seed 1. Its 26 GB cache never reached the storage account: on a slow uplink azcopy's
+default 160 connections each timed out and were sent again (1,130 retries; 12.7 % of the first 6.5 GB file landed in 90
+minutes), and the owner stopped Azure ("lets stop azure for now and only use this box"). Seed 0 on the 1070 is read
+against R2i's seed 0, so the read still differs from its baseline in the training stars' shapes alone, on one seed and
+one GPU. Every bar below is re-derived by the rule the first one used, from R2i seed 0's numbers, measured that evening
+before R2s trained. The first bars, against R2i seed 1, were: dug at most 17.0 %; A's draws at least 79.3 / 74.5 / 51.6;
+real bright stars at least 94.4 %; the Sagittarius Triplet at least 94.2 %; the rest as below.
 
-1. The coupling goes: Andromeda's dark-sky stars at 100-1000 sigma dug on at most 17.0 % (R2i seed 1: 33.9; R2p 45.9;
-   each channel alone 1.5), and blue's mean residual over the 2,160 bright isolated stars no deeper than -0.5 sigma at
-   1.5-3 and 3-4.5 px (R2i seed 1: -1.14 / -0.88).
+**Predictions**, seed 0 at one view, against R2i's seed 0:
+
+1. The coupling goes: Andromeda's dark-sky stars at 100-1000 sigma dug on at most 18.3 % (half of R2i seed 0's 36.6;
+   seed 1: 33.9; R2p 45.9; each channel alone 1.5), and blue's mean residual over the 2,160 bright isolated stars no
+   deeper than -0.5 sigma at 1.5-3 and 3-4.5 px (R2i seed 0: -1.10 / -0.90; seed 1: -1.14 / -0.88).
 2. The halos go: around Andromeda's 40 brightest stars, every channel's mean residual at 4-8 and 8-12 px at most 0.5
-   sigma (R2i seed 1: up to 0.72 and 0.93; StarX at most 0.33).
-3. A's draws hold within R2i's spread: at least 79.3 / 74.5 / 51.6 % clean (R2i seed 1: 80.6 / 75.3 / 55.9).
-4. Real bright stars (`r2-real-val`, 100-1000 sigma) flat on at least 94.4 % (R2i seed 1: 95.4, less the 1.0 points its
+   sigma (R2i seed 0: up to 1.08 and 1.23, in green; seed 1: up to 0.72 and 0.93; StarX at most 0.33).
+3. A's draws hold within R2i's spread: at least 77.8 / 73.7 / 55.9 % clean (R2i seed 0: 79.2 / 74.5 / 60.2, less the
+   1.4 / 0.8 / 4.3 points its two seeds lie apart).
+4. Real bright stars (`r2-real-val`, 100-1000 sigma) flat on at least 95.4 % (R2i seed 0: 96.4, less the 1.0 points its
    two seeds lie apart).
-5. M31's nucleus on the owner's Andromeda at most 5 % in every channel (R2i seed 1: -0.7 / 4.7 / 2.0).
-6. The Sagittarius Triplet (mono): dark-sky stars at 100-1000 sigma flat on at least 94.2 % (R2i seed 1: 98.5, less
+5. M31's nucleus on the owner's Andromeda at most 5 % in every channel (R2i seed 0: 3.2 / 3.1 / 0.5).
+6. The Sagittarius Triplet (mono): dark-sky stars at 100-1000 sigma flat on at least 94.0 % (R2i seed 0: 98.3, less
    4.3), and the owner's three masters' crops no worse by the owner's eye.
 
-**Read, not predicted:** the held-out Tarantula (R2i seed 1: dark-sky stars at 100-1000 sigma flat on 41.4 %, crowded
-71.9 %; blue around the brightest stars); Andromeda's flat rate; R2s's eight views; bright stars' colour on A's draws.
+**Read, not predicted:** the held-out Tarantula (R2i seed 0: dark-sky stars at 100-1000 sigma flat on 35.8 %, crowded
+69.8 %; seed 1: 41.4 and 71.9; blue around the brightest stars); Andromeda's flat rate; R2s's eight views; bright stars'
+colour on A's draws.
 
 **Kill:** prediction 1 missing means drawing each channel on its own does not decouple them, and `--channel-halos` is
 dropped. With 1 holding, any of 3 to 6 missing means R2s is not adopted as it stands; which costs are acceptable is the
