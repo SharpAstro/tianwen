@@ -298,12 +298,24 @@ the device source writes, and these families write the port or the USB path into
 | Meade, OnStep **without a UUID** | model, site names **and the port** (`MeadeSerialProbe`, `OnStepSerialProbe`: "NOT transport-stable") | **no**: the key changes with the port |
 | Skywatcher | `Skywatcher_<model>_<fw>_<port>` (`SkywatcherSerialProbe`) | **no** |
 | iOptron SkyGuider Pro | `SkyGuider-Pro_<fw>_<port>` (`IOptronSerialProbe`) | **no** |
+| Gemini Focuser Pro, FlatPanel Lite, Power&Data Hub Advanced 3 (CH340, no USB serial, no board id) | `GeminiFocuser_<port>`, `Gemini_<port>`, `GeminiPowerBox_<port>` | **no** |
+| QHY CFW3 and QFOC over serial | `QHYCFW3_<port>`, `QFOC_<port>` | **no** |
 
 So wherever the key carries the port or a USB path, a re-plug is a NEW device: a lease does not follow it,
 `ReconcileUri` does not match it (it compares by `SameDevice`, which compares the path the port is in), and the hub's
 "a changed URI under the same key is rebuilt" rule (#806) never applies to it.
 
-Canon through WPD is keyed by the body's serial, because that is readable (`CanonDeviceSource.DiscoverWpdAsync`): a bare PTP `GetDeviceInfo`, no `OpenSession`, measured on an EOS 6D at 7 ms to open the device and 21 ms to read, and it changes nothing on the camera. It is not free of interference, though. While another program streamed live view, 2 of 11 such reads coincided with a live view frame answering `InternalError` (one frame, the next was fine; the error was stamped to the millisecond a read finished), so it is made once per path and remembered (`CanonBodyRegistry`), never for a camera a driver of this process holds: the driver records the serial its session reports, so discovery is told without opening the device. WPD wants the path as Windows wrote it, which is `CanonDevice.WpdDeviceId` (the `wpd=` value, else the URI path unescaped), never `DeviceId`, which is percent-escaped and which WPD rejects (#1096). Enumeration alone (`EnumerateWpdCameras`) opens nothing and caused no interference, but returns only the port-shaped path, which is why the serial needs the read. The Skywatcher, SkyGuider Pro and UUID-less LX200/OnStep rows have no such option.
+**A profile follows such a device to its new port by its MODEL, when that is unambiguous** (#1744). Windows numbers a
+CH340's COM port by the USB socket, so the same unit is `GeminiFocuser_COM3` in one socket and `GeminiFocuser_COM4` in the
+next. `Uri.ModelKey` is the key with the trailing `_<port>` taken out (null for a key that does not end in its port), and
+`ReconcileProfileData` runs a second pass after the identity match (`FollowMovedPort`): a slot whose device was not
+discovered takes the ONE discovered device of its model that no other slot has, keeping the user's query keys; none or
+several leaves the slot as stored, never guessed. A focuser's backlash history, filed under its device ID, moves with it
+(`BacklashHistoryPersistence.FollowMovedFocusersAsync`, run by `NodeProfiles.ReconcileAllAsync`). Two identical units on
+swapped sockets stay unresolved until #783's board fingerprint. Pinned by `DeviceDiscoveryExtensionsTests` and
+`BacklashHistoryPersistenceTests` over stub discovery; **not yet seen with a real device moved** (bench check #1746).
+
+Canon through WPD is keyed by the body's serial, because that is readable (`CanonDeviceSource.DiscoverWpdAsync`): a bare PTP `GetDeviceInfo`, no `OpenSession`, measured on an EOS 6D at 7 ms to open the device and 21 ms to read, and it changes nothing on the camera. It is not free of interference, though. While another program streamed live view, 2 of 11 such reads coincided with a live view frame answering `InternalError` (one frame, the next was fine; the error was stamped to the millisecond a read finished), so it is made once per path and remembered (`CanonBodyRegistry`), never for a camera a driver of this process holds: the driver records the serial its session reports, so discovery is told without opening the device. WPD wants the path as Windows wrote it, which is `CanonDevice.WpdDeviceId` (the `wpd=` value, else the URI path unescaped), never `DeviceId`, which is percent-escaped and which WPD rejects (#1096). Enumeration alone (`EnumerateWpdCameras`) opens nothing and caused no interference, but returns only the port-shaped path, which is why the serial needs the read. The Skywatcher, SkyGuider Pro, UUID-less LX200/OnStep, Gemini and QHY serial rows have no such option, and rely on the model match above.
 
 ### Known limitations of device keys
 

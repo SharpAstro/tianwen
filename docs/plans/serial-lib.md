@@ -3,7 +3,8 @@
 **Status: P1 and P3 DONE (2026-09-27); P2 open as #1012.** `SharpAstro/Serial.Lib` exists (1.0.11 on nuget.org;
 1.1 adds reads with no deadline and a loopback pair, 1.2 the Bluetooth device behind a port), and TianWen's `SerialConnection` is an adapter over it
 ("What shipped", below). #407 closes with P3. The 2026-09 bench findings it must cover are in
-"What the 2026-09 bench sessions added" (#780, #781, #783, #784, #809, #810). Motivated by the Gemini FlatPanel Lite hardware bring-up
+"What the 2026-09 bench sessions added" (#780, #781, #783, #784, #809, #810), and the 2026-10-21 bench added #1744
+(a device that moved port, done in TianWen) and #1745 (a USB arrival and removal log). Motivated by the Gemini FlatPanel Lite hardware bring-up
 (branch `fix/gemini-flat-panel`), which proved that .NET's `System.IO.Ports.SerialPort` is not
 trustworthy for our use. Serial is load-bearing for an astro app (mounts, focusers, filter wheels,
 cover/calibrators, flat panels; OnStep, LX200/Meade, Skywatcher, iOptron, QHYCFW/QFOC, Gemini), so
@@ -95,6 +96,31 @@ something:
 | On Linux the names are enumeration order (`/dev/ttyUSBn`), which is not even stable per socket. | #784 | Transport | Enumerate `/dev/serial/by-path` and `/dev/serial/by-id` alongside the `tty` names, and prefer them as identity. |
 | What reads do while the cable is out mid-move, and whether the driver comes back, is still a bench question. | #809 (bench) | Transport | Surface device REMOVAL as its own exception type, distinct from a timeout, so a driver can mark the position uncertain rather than retry into a vanished port. |
 
+### A device that moved to another port
+
+Tracked by #1744. Found on the 2026-10-21 bench: the Gemini power box went from COM5 to COM6 when its cable changed
+socket, as the Gemini focuser had before (#783's table). Every family with no hardware identity writes the port into its
+device ID, so after a move discovery finds a DIFFERENT device and a profile kept the old port, its connect failing on a
+port that was gone. TianWen now treats the port as a hint for those families: after the identity match, a profile slot
+whose device was not discovered takes the one discovered device of its MODEL (the ID with the port taken out) that no
+other slot has, keeping the user's keys, and a focuser's backlash history moves to its new ID. None or several is left
+alone. **Untested on hardware**: unit tests only, until the bench check #1746 moves a real focuser. The rule and its
+limits: `docs/architecture/device-architecture.md`, "Device keys by family". This is the
+TianWen half; the lib's half is the stable hardware identity above (#783, #784), which would make the model match
+unnecessary wherever a chip has one.
+
+### A log of every USB arrival and removal
+
+Tracked by #1745. On the same bench, Windows' own per-device arrival times, read by hand and then polled every 30 s by a
+throwaway script, were what showed a power box's whole hub resetting at 07:00:36 (and the SV605CC with it, its cooler
+restarting), and later that hub stuck so that replugging the camera registered nothing. Every one of those had read as
+"the camera stopped". The node should keep that log itself: each arrival and removal with its time, VID/PID, name,
+instance path (the socket and hub), COM port and parent hub; a hub whose devices all leave and return named as one hub
+reset; and a device a run holds that leaves or re-arrives said beside the run's lost frames and errors. Windows offers
+notifications with no window (`CM_Register_Notification`) and the arrival and removal times for anything missed; Linux
+has udev. It is open question 3 below (hot-plug notifications), so the watcher belongs in the lib, and TianWen's node
+consumes it.
+
 Also owed by the lib, and already known before the bench sessions:
 - the abandoned-write guard: a Bluetooth SPP port accepts an open and never completes a write
   (`ISerialConnection.HasAbandonedIo`; see CLAUDE.md's device-management notes);
@@ -161,4 +187,5 @@ code; other SharpAstro consumers can use it; and it forces the clean API boundar
    source of the serial abstraction; keeping it lets TianWen adapt. Lean: define `ISerialPort` in the
    lib, adapt TianWen's `ISerialConnection` to it (thin).
 3. **Enumeration + hot-plug.** `SerialPort.GetPortNames` is fine for P1; a native P2 could add
-   arrival/removal notifications (WM_DEVICECHANGE / udev) so discovery reacts to plug events.
+   arrival/removal notifications (WM_DEVICECHANGE / udev) so discovery reacts to plug events. The same watcher is
+   what #1745's log needs ("A log of every USB arrival and removal", above).
