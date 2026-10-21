@@ -3377,6 +3377,52 @@ dropped. With 1 holding, any of 3 to 6 missing means R2s is not adopted as it st
 owner's call. **What it decides:** whether the colour dig and the halos left come from the training stars' shapes. If
 they do, the next arm puts `--channel-halos` together with R2r's clusters and E5's teacher retrained on synth7.
 
+#### R2r seed 0 is R2q seed 0, and what that corrects (2026-10-21)
+
+`--schedule-on main` made the same rate halvings at the same evaluations as R2q's combined read (33,000 / 63,500 /
+79,000 / 113,500, stopped at 125,000): every held-out value in the two logs is identical and all 30 weight tensors are
+equal, so R2r seed 0 scores what R2q seed 0 scored (predictions 1, 2 and 6 hold, 3 to 5 miss). **R2q's read was wrong
+about its confound:** synth4's own held-out objective plateaus that early once the clusters share the draw. Seed 1
+matched R2q's seed 1 to step 20,000 and then halved sooner (29,000 against 48,000), so reading synth4 alone never
+lengthens the run. R2r cannot separate the clusters' cost from the shorter run, because the clusters cause the shorter
+run.
+
+#### Round 1: iterating for a better model (2026-10-21)
+
+The owner, after R2r's read: "What i want is a better model, so we need to iterate on how we can get it better." From
+here each arm is judged on one real-data scorecard against R2p and StarX (Andromeda's bright stars dug and blue's
+residual, the halo left around the brightest stars, the held-out Tarantula's crowded and faint Gaia stars, M31's
+nucleus, the Sagittarius Triplet, the real tiles' bright stars), arms run side by side on the 1070 and Azure T4s, every
+arm at a fixed length so the schedule never confounds a read again, and a pre-registration is a few lines. Round 1:
+
+- **A, R2t** (below): R2q's data on the four-level model, to R2p's length.
+- **B, R2s** (above): each channel's halo and width on its own, on the 1070.
+- **C**, after both: the bigger model on synth7 with the clusters and a teacher retrained on synth7. synth7's cache
+  uploads to the VMs' region for it, held to 8 connections so a slow uplink cannot thrash.
+
+#### R2t: R2q's data on the four-level model, run to R2p's length, pre-registered (2026-10-21)
+
+Written before it trains, on the owner's word ("yes arm A"). **Why:** the clusters gain on real crowded fields (crowded
+stars +10 points, faint Gaia stars +9 on the held-out Tarantula) but cost bright stars and M31's nucleus, and synth4's
+own objective plateaus sooner with them in the draw: what a model too small for its data does. Ours has 0.81 M weights;
+StarX's file holds about 16 M.
+
+**The arm.** R2q exactly (R2p's recipe, `--teacher` E5, `--extra-cache` the clusters at 12.5 % of the draw) on R2nc's
+four-level U-Net (`--levels 4 --max-ch 256`, 6.86 M weights, `--clip-grad 8`, which trained R2nc cleanly), with a cosine
+schedule fixed at R2p's length (`--schedule cosine --steps 224500`), seed 1 on an Azure spot T4. Three changes at once
+by design: the question is whether this model is better, not which change made it so.
+
+**Predictions**, at one view, every bar R2r's: (1) the held-out Tarantula's crowded stars flat on at least 74.5 % and
+dark-sky stars at 100-1000 sigma on at least 33.9 %; (2) Gaia purity at most 1.0 %, BP 17-19 removed on at least 77.5 %;
+(3) A's draws at least 79.3 / 76.4 / 61.5 % clean; (4) real bright stars flat on at least 96.4 %; (5) M31's nucleus at
+most 5 % in every channel; (6) Andromeda's dark-sky stars at 100-1000 sigma flat on at least 35.0 % and the Sagittarius
+Triplet's on 94.5 %. **Read, not predicted:** the rest of the scorecard (blue's residual and the halo left, as R2s reads
+them) against R2p.
+
+**Kill:** 1 or 2 missing means the bigger model loses what the clusters gave. With both holding, 3 to 5 holding makes
+R2t the better model and round 1's base; 3 to 5 missing means capacity at this size does not buy the clusters' cost, and
+the next lever is a smaller cluster share.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
