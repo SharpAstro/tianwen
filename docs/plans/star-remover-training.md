@@ -3279,6 +3279,36 @@ takes nine more points of the faint Gaia stars, and puts less light where no sta
 from the schedule. The arm that would separate them is R2q's data on R2p's schedule, the plateau read off synth4's part
 alone or the steps matched to R2p's; whether to run it is the owner's call.
 
+#### R2r: R2q's data on R2p's schedule, pre-registered (2026-10-21)
+
+Written before it trains, on the owner's word of 2026-10-21 ("yes", to R2r beside the halo arm). Tracked by #1338.
+
+**The arm.** R2q exactly (R2p's recipe, `--teacher` E5, `--extra-cache` the synthetic clusters at 12.5 % of the draw),
+with one switch: `--schedule-on main`, so the plateau halves the rate and stops on synth4's held-out part alone, as
+R2p's schedule read it; the clusters' part and the combined one are still logged. Seed 0 on the 1070, R2p's seed and
+hardware, so the read against R2p differs only in the clusters. Frozen at "feat(training): --schedule-on main, the
+plateau read off the main cache's held-out part alone" on feat/synthetic-cluster-scenes; its resume fingerprint is R2q's
+plus the switch.
+
+**Predictions**, seed 0 at one view, every bar R2q's:
+
+1. The crowded field keeps R2q's gain: on the held-out Tarantula, crowded stars flat on at least 74.5 % and dark-sky
+   stars at 100-1000 sigma on at least 33.9 %.
+2. Nothing else is taken for it: Gaia purity at most 1.0 %, BP 17-19 removed on at least 77.5 %.
+3. A's draws hold within R2p's spread: at least 79.3 / 76.4 / 61.5 % clean.
+4. Real bright stars flat on at least 96.4 %.
+5. M31's nucleus on the owner's Andromeda at most 5 % in every channel.
+6. The owner's masters do not regress: dark-sky stars at 100-1000 sigma flat on at least 35.0 % on Andromeda and 94.5 %
+   on the Sagittarius Triplet, and the crops by the owner's eye.
+
+**Read, not predicted:** the step it stops at and its rate halvings against R2p's (50,000 / 81,500 / 161,000 / 213,000,
+stopped at 224,500); synth4's part of the held-out objective at its best against R2p's 2.30e-6; the clusters' part.
+
+**Kill:** prediction 1 missing means R2q's crowded gain does not survive R2p's length, and the line keeps R2p. With 1
+holding, 3 to 5 holding means R2q's costs were its schedule's and R2r is a candidate to ship (the owner's call); 3 to 5
+missing again means the clusters themselves cost synth4's bright stars and the nucleus, and the next question is their
+share. **What it decides:** whether the synthetic clusters can join the training draw at no cost elsewhere.
+
 #### #1400's review: the texture's width and energy, re-read on the export's own grid (2026-10-10)
 
 An agent's review of R2c to R2e (#1400) found the generator's texture meant different things at different sizes, and its
