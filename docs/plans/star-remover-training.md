@@ -3214,7 +3214,9 @@ with one switch: `--schedule-on main`, so the plateau halves the rate and stops 
 R2p's schedule read it; the clusters' part and the combined one are still logged. Seed 0 on the 1070, R2p's seed and
 hardware, so the read against R2p differs only in the clusters. Frozen at "feat(training): --schedule-on main, the
 plateau read off the main cache's held-out part alone" on feat/synthetic-cluster-scenes; its resume fingerprint is R2q's
-plus the switch.
+plus the switch. **Seed 1**, added the same afternoon before it trains (the owner: "why we not using azure as well?"), on
+an Azure spot T4 under the owner's guards, its data read from the storage account in the VMs' own region: read, not
+predicted, as R2q's seed 1 was, since R2q's two seeds lay 8 to 9 points apart on M31's nucleus.
 
 **Predictions**, seed 0 at one view, every bar R2q's:
 
@@ -3228,7 +3230,8 @@ plus the switch.
    on the Sagittarius Triplet, and the crops by the owner's eye.
 
 **Read, not predicted:** the step it stops at and its rate halvings against R2p's (50,000 / 81,500 / 161,000 / 213,000,
-stopped at 224,500); synth4's part of the held-out objective at its best against R2p's 2.30e-6; the clusters' part.
+stopped at 224,500); synth4's part of the held-out objective at its best against R2p's 2.30e-6; the clusters' part;
+seed 1 against seed 0, every prediction's measure on both.
 
 **Kill:** prediction 1 missing means R2q's crowded gain does not survive R2p's length, and the line keeps R2p. With 1
 holding, 3 to 5 holding means R2q's costs were its schedule's and R2r is a candidate to ship (the owner's call); 3 to 5
