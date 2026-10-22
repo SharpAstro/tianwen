@@ -1092,7 +1092,9 @@ public partial class Image
             AddHeaderValueIfHasValue("SCALE", imageMeta.DerivedImageScale, "arcsec/px");
             AddHeaderValueIfHasValue("PIXSCALE", imageMeta.DerivedImageScale, "arcsec/px");
         }
-        if (imageMeta.FocusPos >= 0)
+        // -1 is the "unknown" marker (ImageMeta.FocusPos); any other value is a position, negative ones included
+        // (a QHY QFOC's counter goes below zero, #1763).
+        if (imageMeta.FocusPos != -1)
         {
             AddHeaderValueIfHasValue("FOCUSPOS", imageMeta.FocusPos, "steps");
             AddHeaderValueIfHasValue("FOCPOS", imageMeta.FocusPos, "steps");

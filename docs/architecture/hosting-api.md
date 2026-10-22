@@ -651,7 +651,8 @@ P2 part 4 (#929). A move is a JOB that ends when the device has SETTLED (the foc
 the position, the mount has landed or reports itself parked), and cancelling it halts the device on its way out.
 
 - **Focuser**: `POST /api/v1/devices/focuser/move` (`FocuserMoveRequestDto`: a `Position`, or `Steps` from where it
-  is, one of the two, inside `0..MaxStep`) and `/focuser/stop`.
+  is, one of the two, inside the focuser's travel, `MinStep..MaxStep`, whose floor is 0 unless the focuser declares a
+  negative one, `device-architecture.md` "A focuser's travel") and `/focuser/stop`.
 - **Filter wheel**: `POST /api/v1/devices/filterwheel/change` (`FilterChangeRequestDto`, a position counted from 0), and
   `/api/v1/ota/{index}/filterwheel/change?position=N` for an OTA's wheel. **It is the session's one filter change**
   (`FilterChange.ChangeAsync`, #1618; `docs/plans/live-planetary-capture.md`, Phase G): the wheel turned, its arrival

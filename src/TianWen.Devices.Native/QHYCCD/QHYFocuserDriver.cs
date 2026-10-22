@@ -83,6 +83,13 @@ internal class QHYFocuserDriver(QHYDevice device, IServiceProvider serviceProvid
 
     public int MaxStep => 1_000_000;
 
+    /// <summary>
+    /// The QFOC's counter is SIGNED and non-volatile: it read -559 on connect, ran through zero on a move and kept its
+    /// value across a full power-down (bench, 2026-10-22, #1763). So its floor mirrors <see cref="MaxStep"/>: the
+    /// counter's range, not the drawtube's travel, which the counter alone cannot tell.
+    /// </summary>
+    public int MinStep => -1_000_000;
+
     public bool CanGetStepSize => false;
 
     public double StepSize => double.NaN;

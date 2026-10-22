@@ -116,11 +116,10 @@ public static class FilterChange
         if (focuser is { } checking && offset != 0)
         {
             var reach = await checking.GetPositionAsync(cancellationToken) + offset;
-            var max = checking.Focuser.MaxStep;
-            if (reach < 0 || max > 0 && reach > max)
+            if (!checking.Focuser.IsWithinTravel(reach))
             {
                 throw new InvalidOperationException(
-                    $"{checking.Focuser.Name} moves between 0 and {max}: the focus offset from {NameOf(filters, from)} to "
+                    $"{checking.Focuser.Name} moves {checking.Focuser.TravelInWords}: the focus offset from {NameOf(filters, from)} to "
                     + $"{NameOf(filters, targetPosition)} ({offset:+0;-0} steps) would take it to {reach}, so the wheel was not turned");
             }
         }

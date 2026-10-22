@@ -54,9 +54,9 @@ internal sealed partial class DeviceOperations
         {
             return ResponseEnvelope<JobDto>.Fail("A move names a position or a number of steps, one of the two");
         }
-        if (target < 0 || focuser.MaxStep > 0 && target > focuser.MaxStep)
+        if (!focuser.IsWithinTravel(target))
         {
-            return ResponseEnvelope<JobDto>.Fail($"{name} moves between 0 and {focuser.MaxStep}");
+            return ResponseEnvelope<JobDto>.Fail($"{name} moves {focuser.TravelInWords}");
         }
 
         return Start(MoveJob, uri, name, async (step, ct) =>
