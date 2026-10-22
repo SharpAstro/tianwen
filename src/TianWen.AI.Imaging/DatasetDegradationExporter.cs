@@ -422,6 +422,10 @@ namespace TianWen.AI.Imaging
         /// its master's own (<see cref="TianWen.Lib.Imaging.StarRemoval.ChannelWingCut"/>, R2v), from a stream of its own, so
         /// the stars, their brightness and their colour are the draw's without it; half the draws keep every channel. Null
         /// cuts none. Not with <paramref name="ChannelRelationSessions"/>.</param>
+        /// <param name="KeptCores">With <paramref name="SyntheticBackground"/>: a share of the cells holds a bright galaxy-like
+        /// core in its background, in the input and the target alike, so a remover learns to keep it
+        /// (<see cref="TianWen.Lib.Imaging.StarRemoval.KeptCores"/>, #1658), from a stream of its own, so every other draw is
+        /// the one it was without it.</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -465,7 +469,8 @@ namespace TianWen.AI.Imaging
             bool StarSubs = false,
             IReadOnlyList<string>? ChannelRelationSessions = null,
             string? StarShapesPath = null,
-            double? ChannelWingCut = null);
+            double? ChannelWingCut = null,
+            bool KeptCores = false);
 
         /// <summary>
         /// The options one session's draws are made with: the warped shape's smoothing chosen by what made the master's noise.

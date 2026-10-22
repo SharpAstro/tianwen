@@ -1765,6 +1765,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Description = "--background synthetic: a knot under 2.5 PSF widths across peaks under 20 sigma, so only a wide knot is " +
                           "bright and nothing kept looks like a bright star (R2d's knots test).",
         };
+        var keptCoresOpt = new Option<bool>("--kept-cores")
+        {
+            Description = "--background synthetic: 15 % of the cells hold a bright galaxy-like core, 200 to 6,000 noise sigma and 2.5 to 6 " +
+                          "PSF widths across over a broad bulge, in a redder star's colour, kept in the target so a remover learns to keep " +
+                          "it (#1658, sized from M31's nucleus), from a stream of its own.",
+        };
         var measureInjectionOpt = new Option<bool>("--measure-injection")
         {
             Description = "--mode stars: read every draw's injected stars back (fitted FWHM and beta, saturated plateaus and edges " +
@@ -1805,7 +1811,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, channelWingCutOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, channelWingCutOpt, keptCoresOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -1845,6 +1851,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             if ((brightKnotsWide || nebulaKnots) && backgroundText != "synthetic")
             {
                 consoleHost.WriteError("--bright-knots-wide and --nebula-knots shape the synthetic background's knots; they need --background synthetic");
+                return 1;
+            }
+            var keptCores = parseResult.GetValue(keptCoresOpt);
+            if (keptCores && backgroundText != "synthetic")
+            {
+                consoleHost.WriteError("--kept-cores draws into the synthetic background; it needs --background synthetic");
                 return 1;
             }
             SyntheticBackground.Steering? degradeSteering = null;
@@ -2001,7 +2013,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 StarSubs: starSubs,
                 ChannelRelationSessions: relationSessions,
                 StarShapesPath: starShapes,
-                ChannelWingCut: channelWingCut);
+                ChannelWingCut: channelWingCut,
+                KeptCores: keptCores);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);
