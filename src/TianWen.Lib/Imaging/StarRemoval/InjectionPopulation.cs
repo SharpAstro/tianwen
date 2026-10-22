@@ -20,7 +20,12 @@ public enum InjectionPlacement
 
 /// <summary>One cell's injection: the stars in frame coordinates, how many were asked for and how many were placed; with a
 /// channel variation, whose relation the stars were drawn at (<see cref="ChannelRelation.Source"/>).</summary>
-public sealed record InjectionPlan(ImmutableArray<InjectedStar> Stars, int Requested, int Placed, bool SaturatedFallback, string? RelationFrom = null);
+public sealed record InjectionPlan(ImmutableArray<InjectedStar> Stars, int Requested, int Placed, bool SaturatedFallback, string? RelationFrom = null)
+{
+    /// <summary>With a luminosity function (S2), the extra stars under the catalogue's limit, drawn from a stream of their
+    /// own after <see cref="Stars"/>, which are the plan's without them; empty otherwise.</summary>
+    public ImmutableArray<InjectedStar> Faint { get; init; } = [];
+}
 
 /// <summary>
 /// A master's own star population, read once from its starless plate's catalogue, from which each cell's injected stars are
@@ -85,6 +90,8 @@ public sealed class InjectionPopulation
     private readonly StarlessFieldProfile? _field;
     private StarShapeRow? _shape;
     private ChannelRelation? _ownRelation;
+    private LuminosityFunction? _luminosity;
+    private PoolStar[] _faintColours = [];
 
     private InjectionPopulation(
         int width, int height, int channels, BitMatrix? absent, (double Fwhm, double Beta)[] psf, (double X, double Y)[] sites,
@@ -138,6 +145,9 @@ public sealed class InjectionPopulation
     /// <summary>Stars the elongation is measured on.</summary>
     public int MomentPool => _moments.Length;
 
+    /// <summary>The master's fitted luminosity function the extra faint stars are drawn from (S2), or null for none.</summary>
+    public LuminosityFunction? Luminosity => _luminosity;
+
     /// <summary>
     /// Whether a catalogued star is one the saturated pool draws from: subtracted with the field's Moffat (a giant's own
     /// profile, a pair or a blob the builder could only fit otherwise is not a star the injector reproduces), with every
@@ -162,11 +172,13 @@ public sealed class InjectionPopulation
     /// <paramref name="lobes"/> carries each star's second-pass rows with it (<see cref="LobeReachFwhm"/>); off, every row
     /// is a star of its own, as before R2k. <paramref name="shape"/> (R2s2, <see cref="StarShape"/>) draws each star's field
     /// profile at the wing gains the master's real stars of its brightness were measured to need, per channel; null draws
-    /// it as fitted.
+    /// it as fitted. <paramref name="faintFloor"/> (S2, <see cref="LuminosityFunction"/>) fits the counted sites' luminosity
+    /// function and draws extra stars under the catalogue's limit down to that significance; a catalogue too thin to fit is
+    /// refused.
     /// </summary>
     public static InjectionPopulation Build(
         ImmutableArray<FittedStar> catalogue, Image master, Image plate, double scale, IReadOnlyList<(double Fwhm, double Beta)> psf, BitMatrix? absent,
-        StarlessFieldProfile? field = null, bool lobes = false, StarShapeRow? shape = null)
+        StarlessFieldProfile? field = null, bool lobes = false, StarShapeRow? shape = null, double? faintFloor = null)
     {
         var channels = master.ChannelCount;
         if (psf.Count != channels)
@@ -272,8 +284,32 @@ public sealed class InjectionPopulation
             }
         }
 
+        LuminosityFunction? luminosity = null;
+        PoolStar[] faintColours = [];
+        if (faintFloor is { } floor)
+        {
+            // Fitted on the counted sites, the stars a cell's count is taken over, so the extra count is in the same units.
+            var counted = Enumerable.Range(0, catalogue.Length)
+                .Where(k => catalogue[k].Outcome == StarFitOutcome.Subtracted && !IsLobe(k))
+                .Select(k => catalogue[k].Significance)
+                .ToArray();
+            luminosity = LuminosityFunction.Fit(counted, floor)
+                ?? throw new InvalidOperationException(
+                    $"the plate's catalogue holds fewer than {LuminosityFunction.MinFitStars} stars from {LuminosityFunction.FitLowSigma} to {LuminosityFunction.FitHighSigma} sigma to fit a luminosity function to");
+            // A faint star's colour is a faint catalogued star's, the nearest the catalogue holds.
+            faintColours = amplitudes.Where(static s => s.Significance < LuminosityFunction.FitLowSigma && s.Significance > 0).ToArray();
+            if (faintColours.Length == 0)
+            {
+                faintColours = amplitudes.Where(static s => s.Significance > 0).ToArray();
+            }
+            if (faintColours.Length == 0)
+            {
+                throw new InvalidOperationException("the plate's catalogue has no star with a significance to scale a faint star's colour from");
+            }
+        }
+
         return new InjectionPopulation(width, height, channels, absent, psf.ToArray(), sites, countedSites, amplitudes, saturated, fallbackClips,
-            moments.ToArray(), field) { _shape = shape };
+            moments.ToArray(), field) { _shape = shape, _luminosity = luminosity, _faintColours = faintColours };
     }
 
     /// <summary>
@@ -316,11 +352,13 @@ public sealed class InjectionPopulation
     /// the draw makes without it and only their shapes differ. The master's own relation is its field profile's, so a
     /// variation needs <see cref="StarProfileFamily.Field"/>. A <paramref name="wingCut"/> (R2v) instead weakens one channel's
     /// wing for every star of the draw, from the same stream of its own, and is named in the plan's
-    /// <see cref="InjectionPlan.RelationFrom"/>.
+    /// <see cref="InjectionPlan.RelationFrom"/>. A population built with a luminosity function (S2) adds the cell's faint stars
+    /// in <see cref="InjectionPlan.Faint"/>, drawn from <paramref name="faintRng"/> alone, so the plan's other stars are the
+    /// ones it makes without them.
     /// </summary>
     public InjectionPlan Plan(
         int cellX, int cellY, int size, int margin, InjectionPlacement placement, StarProfileFamily family, double saturatedFraction, Random rng,
-        ChannelVariation? variation = null, Random? variationRng = null, ChannelWingCut? wingCut = null)
+        ChannelVariation? variation = null, Random? variationRng = null, ChannelWingCut? wingCut = null, Random? faintRng = null)
     {
         ImmutableArray<(double LogHalo, double LogWidth)> factors = default;
         string? relationFrom = null;
@@ -415,7 +453,35 @@ public sealed class InjectionPopulation
                 AddLobes(stars, p, drawn.Lobes, (x, y) => Shaped(x, y, float.PositiveInfinity));
             }
         }
-        return new InjectionPlan(stars.ToImmutable(), requested, placed, fallback, relationFrom);
+
+        ImmutableArray<InjectedStar> faint = [];
+        if (_luminosity is { } luminosity)
+        {
+            if (faintRng is null)
+            {
+                throw new ArgumentNullException(nameof(faintRng), "the faint stars draw from a stream of their own");
+            }
+            if (placement != InjectionPlacement.Random)
+            {
+                throw new InvalidOperationException("the faint stars are placed at random; the AtSite control takes the catalogue's sites only");
+            }
+            var count = luminosity.DrawCount(requested, faintRng);
+            var builder = ImmutableArray.CreateBuilder<InjectedStar>(count);
+            for (var i = 0; i < count; i++)
+            {
+                if (RandomPosition(x0, y0, x1, y1, faintRng) is not { } p)
+                {
+                    continue;
+                }
+                var significance = luminosity.DrawSignificance(faintRng);
+                var colour = _faintColours[faintRng.Next(_faintColours.Length)];
+                var gain = significance / colour.Significance;
+                builder.Add(new InjectedStar(p.X, p.Y, [.. colour.Amplitudes.Select(a => a * gain)], Shaped(p.X, p.Y, (float)significance),
+                    Saturated: false, ImmutableArray<double>.Empty, Faint: true));
+            }
+            faint = builder.ToImmutable();
+        }
+        return new InjectionPlan(stars.ToImmutable(), requested, placed, fallback, relationFrom) { Faint = faint };
     }
 
     /// <summary>

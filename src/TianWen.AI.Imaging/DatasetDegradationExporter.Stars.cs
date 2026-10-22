@@ -116,10 +116,12 @@ public static partial class DatasetDegradationExporter
     /// <summary>One injected star, in the cell's coordinates (pixel centres at integers), per channel where it varies. A
     /// <paramref name="Lobe"/> is part of the star before it (<see cref="InjectedStar.Lobe"/>): the eval does not score it.
     /// <paramref name="HaloGain"/> is each channel's wing factor where the export drew one (R2s2), null where it drew the
-    /// measured profile.</summary>
+    /// measured profile. A <paramref name="Faint"/> star is one under the catalogue's limit, drawn from the master's luminosity
+    /// function (S2); the field is written only when true, so an export without faint stars writes the rows it always did.</summary>
     public sealed record InjectedStarRow(
         double X, double Y, double[] Amplitude, double[] FwhmPx, double[] Beta, double AxisRatio, double PositionAngleDeg,
-        bool Saturated, double[]? ClipLevel, bool Lobe = false, double[]? HaloGain = null);
+        bool Saturated, double[]? ClipLevel, bool Lobe = false, double[]? HaloGain = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Faint = false);
 
     /// <summary>One draw's injection: what was asked for, what was placed, and every star; on a synthetic background
     /// (R2d's D2), the knots its target keeps, the same in every draw of the cell; with channel relations (R2s2), whose
@@ -236,6 +238,24 @@ public static partial class DatasetDegradationExporter
                 wingCut = new ChannelWingCut(minFactor);
                 logger?.LogInformation("[degrade] wing cut: {Share:P0} of the draws weaken one channel's wing by a factor from {Min} to 1",
                     ChannelWingCut.Share, minFactor);
+            }
+            if (options.FaintStarFloor is { } faintFloor)
+            {
+                if (!options.SyntheticBackground)
+                {
+                    // The plate keeps the stars its builder left under the detection limit; more would count them twice.
+                    throw new ArgumentException("the faint stars fill a synthetic background; the plate already holds its own", nameof(options));
+                }
+                if (options.Placement != InjectionPlacement.Random)
+                {
+                    throw new ArgumentException("the faint stars are placed at random, not at the catalogue's sites", nameof(options));
+                }
+                if (!(faintFloor >= LuminosityFunction.MinFloorSigma && faintFloor < LuminosityFunction.FitLowSigma))
+                {
+                    throw new ArgumentOutOfRangeException(nameof(options), faintFloor,
+                        $"the faint stars' floor is in [{LuminosityFunction.MinFloorSigma}, {LuminosityFunction.FitLowSigma}) sigma");
+                }
+                logger?.LogInformation("[degrade] faint stars: each master's luminosity function extended below its catalogue down to {Floor} sigma", faintFloor);
             }
             return new StarsContext(platesDir, psf, variation, shapes, wingCut);
         }
@@ -374,7 +394,15 @@ public static partial class DatasetDegradationExporter
                     string.Join("; ", starShape.Bands.Select(static b => string.Create(CultureInfo.InvariantCulture,
                         $"from {b.MinSignificance:F0}: {string.Join(" / ", b.Channels.Select(static c => c.WingGain.ToString("F2", CultureInfo.InvariantCulture)))}"))));
             }
-            var population = InjectionPopulation.Build(catalogue, master, plate, 1.0 / divisor, psf, absent, field, options.StarLobes, starShape);
+            var population = InjectionPopulation.Build(catalogue, master, plate, 1.0 / divisor, psf, absent, field, options.StarLobes, starShape,
+                options.FaintStarFloor);
+            if (population.Luminosity is { } luminosity)
+            {
+                logger?.LogInformation(
+                    "[degrade] {Session}: luminosity function alpha {Alpha:F3} over {Fit} stars from {Lo} to {Hi} sigma; {Deficit:F0} stars lacking from {Floor} sigma, {Extra:P1} more than the {Counted} counted",
+                    sessionId, luminosity.Alpha, luminosity.FitStars, LuminosityFunction.FitLowSigma, LuminosityFunction.FitHighSigma,
+                    luminosity.Deficit, luminosity.FloorSigma, luminosity.ExtraPerCountedStar, luminosity.Counted);
+            }
             if (options.StarLobes)
             {
                 logger?.LogInformation("[degrade] {Session}: {Lobes} lobes carried with their stars; {Counted} of {Sites} subtracted sites counted",
@@ -546,7 +574,8 @@ public static partial class DatasetDegradationExporter
         var size = cell.TileSize;
         var channels = unitPlate.ChannelCount;
         var plan = population.Plan(cell.X, cell.Y, size, InjectionMarginPx, options.Placement, options.Profile, options.SaturatedFraction, new Random(seed),
-            variation, variation is null && wingCut is null ? null : new Random(seed ^ 0x2545f491), wingCut);
+            variation, variation is null && wingCut is null ? null : new Random(seed ^ 0x2545f491), wingCut,
+            population.Luminosity is null ? null : new Random(seed ^ 0x3c6ef372));
 
         // The plate's cell, or on R2d's synthetic background the cell's own noisy planes (SyntheticCell).
         var basePlanes = new float[channels][];
@@ -574,6 +603,14 @@ public static partial class DatasetDegradationExporter
         var floors = calibrations.Select(k => InjectionFloorSigma * k.SigmaAt(k.BackgroundAdu, masterDepth)).ToArray();
         var local = plan.Stars.Select(s => s with { X = s.X - cell.X, Y = s.Y - cell.Y }).ToArray();
         var render = StarInjection.Render(basePlanes, size, size, cellAbsent, local, floors, new Random(seed ^ 0x6d2b79f5), options.StarSubs);
+        // The faint stars (S2) on top, in a pass of their own with a stream of their own, so the other stars render as they do
+        // without them, virtual subs and all.
+        var faintLocal = plan.Faint.Select(s => s with { X = s.X - cell.X, Y = s.Y - cell.Y }).ToArray();
+        if (faintLocal.Length > 0)
+        {
+            var faintRender = StarInjection.Render(render.Planes, size, size, cellAbsent, faintLocal, floors, new Random(seed ^ 0x510e527f), options.StarSubs);
+            render = render with { Planes = faintRender.Planes };
+        }
 
         var (drawShape, drawSigma) = DrawNoiseShape(options, seed);
 
@@ -676,7 +713,7 @@ public static partial class DatasetDegradationExporter
             Tile: row.Tile, SessionId: sessionId, CellX: cell.X, CellY: cell.Y, Draw: draw,
             Placement: options.Placement.ToString(), Profile: options.Profile.ToString(), Requested: plan.Requested, Placed: plan.Placed,
             SaturatedFallback: plan.SaturatedFallback,
-            Stars: [.. local.Select(static s => new InjectedStarRow(
+            Stars: [.. local.Concat(faintLocal).Select(static s => new InjectedStarRow(
                 s.X, s.Y,
                 [.. s.Amplitudes],
                 [.. s.Profiles.Select(static p => p.FwhmPx)],
@@ -686,7 +723,8 @@ public static partial class DatasetDegradationExporter
                 s.Saturated,
                 s.Saturated ? [.. s.ClipLevels] : null,
                 s.Lobe,
-                s.Profiles.Any(static p => p.HaloLogGain != 0.0) ? [.. s.Profiles.Select(static p => p.HaloGain)] : null))],
+                s.Profiles.Any(static p => p.HaloLogGain != 0.0) ? [.. s.Profiles.Select(static p => p.HaloGain)] : null,
+                s.Faint))],
             Knots: background is null ? null
                 : [.. knots.Select(static k => new InjectedKnotRow(k.X, k.Y, k.SigmaMajorPx, k.SigmaMinorPx, k.AngleRad * 180.0 / Math.PI, k.Peak))],
             RelationFrom: plan.RelationFrom,

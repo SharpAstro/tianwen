@@ -17,9 +17,11 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// channel the star does not clip; empty for an unsaturated star.</param>
 /// <param name="Lobe">A second-pass row carried beside the star before it in the plan, part of that star
 /// (<see cref="InjectionPopulation.LobeReachFwhm"/>): rendered as any star, never scored as one.</param>
+/// <param name="Faint">A star under the catalogue's detection limit, drawn from the master's fitted luminosity function
+/// (<see cref="LuminosityFunction"/>, S2): rendered as any star.</param>
 public sealed record InjectedStar(
     double X, double Y, ImmutableArray<double> Amplitudes, ImmutableArray<StarProfile> Profiles, bool Saturated,
-    ImmutableArray<double> ClipLevels, bool Lobe = false);
+    ImmutableArray<double> ClipLevels, bool Lobe = false, bool Faint = false);
 
 /// <summary>What <see cref="StarInjection.Render"/> returns.</summary>
 /// <param name="Planes">The plate plus the stars, noise-free, one row-major plane per channel.</param>

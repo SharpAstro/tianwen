@@ -431,6 +431,10 @@ namespace TianWen.AI.Imaging
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.ChannelNoiseCorrelation"/>, Synthetics S4), each channel's field mixed
         /// with the others' and its spatial correlation kept; the mix draws no random number, so every other draw is what it
         /// was. Off, each channel's noise is drawn on its own.</param>
+        /// <param name="FaintStarFloor">Stars mode on the synthetic background: each master's luminosity function is fitted
+        /// to its own catalogue and every draw adds the stars the catalogue lacks under its detection limit, down to this
+        /// significance (<see cref="TianWen.Lib.Imaging.StarRemoval.LuminosityFunction"/>, S2), each a point source of its
+        /// own, from a stream of its own, so the draw's other stars are the ones it makes without them. Null adds none.</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -476,7 +480,8 @@ namespace TianWen.AI.Imaging
             string? StarShapesPath = null,
             double? ChannelWingCut = null,
             bool KeptCores = false,
-            bool ChannelNoiseCorrelation = false);
+            bool ChannelNoiseCorrelation = false,
+            double? FaintStarFloor = null);
 
         /// <summary>
         /// The options one session's draws are made with: the warped shape's smoothing chosen by what made the master's noise.

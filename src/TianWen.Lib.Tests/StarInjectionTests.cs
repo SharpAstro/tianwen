@@ -909,6 +909,139 @@ public class StarInjectionTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// S2's luminosity function: fitted to a catalogue drawn from a known power law, complete above 10 sigma, half complete
+    /// from 5 to 10 and empty below 5, it reads the slope back, and its deficit is what the law puts between the floor and 10
+    /// sigma less what the catalogue holds there; the extra stars it draws all lie in [floor, 10), spread as that deficit is.
+    /// </summary>
+    [Fact]
+    public void TheLuminosityFunctionReadsItsSlopeAndDrawsTheDeficitBelowTheCatalogue()
+    {
+        const double alpha = 0.8;
+        var (catalogue, _) = PowerLawSignificances(alpha, 40_000, new Random(5));
+        var lf = LuminosityFunction.Fit(catalogue, 3.0).ShouldNotBeNull();
+        output.WriteLine($"alpha {lf.Alpha:F3} over {lf.FitStars}; deficit {lf.Deficit:F0}, {lf.ExtraPerCountedStar:P1} of {lf.Counted}");
+        lf.Alpha.ShouldBe(alpha, 0.03);
+
+        // What the law puts in [lo, hi), normalised on the fit's own range, as the fit does.
+        var inFit = catalogue.Count(static s => s >= LuminosityFunction.FitLowSigma && s < LuminosityFunction.FitHighSigma);
+        double Law(double lo, double hi) => inFit * (Math.Pow(lo, -alpha) - Math.Pow(hi, -alpha))
+            / (Math.Pow(LuminosityFunction.FitLowSigma, -alpha) - Math.Pow(LuminosityFunction.FitHighSigma, -alpha));
+        var expected = Law(3.0, 5.0) + Law(5.0, 10.0) - catalogue.Count(static s => s >= 5.0 && s < 10.0);
+        lf.Deficit.ShouldBe(expected, 0.05 * expected);
+
+        var rng = new Random(9);
+        var drawn = Enumerable.Range(0, 20_000).Select(_ => lf.DrawSignificance(rng)).ToArray();
+        drawn.ShouldAllBe(static s => s >= 3.0 && s < LuminosityFunction.FitLowSigma);
+        // Below 5 the catalogue is empty and the whole law is lacking; above it, half.
+        var below5 = drawn.Count(static s => s < 5.0) / (double)drawn.Length;
+        below5.ShouldBe(Law(3.0, 5.0) / expected, 0.03);
+        // Within [3, 5) the law's own slope: as many under 3.873 (the bin's geometric middle) as the law puts there.
+        var lower = drawn.Count(static s => s < Math.Sqrt(15.0)) / (double)drawn.Count(static s => s < 5.0);
+        lower.ShouldBe(Law(3.0, Math.Sqrt(15.0)) / Law(3.0, 5.0), 0.03);
+
+        // A catalogue complete down to the floor lacks nothing to speak of (a bin's noise is all max(0, ...) can leave).
+        var (complete, _) = PowerLawSignificances(alpha, 40_000, new Random(6), halfFrom: 10.0, emptyBelow: 0.0);
+        var none = LuminosityFunction.Fit(complete, 3.0).ShouldNotBeNull();
+        none.Deficit.ShouldBeLessThan(0.02 * complete.Count(static s => s >= 3.0 && s < 10.0));
+
+        // The draw count is the deficit's share of a cell's request, rounded at random to the exact mean.
+        var counts = Enumerable.Range(0, 4000).Select(_ => lf.DrawCount(100, rng)).ToArray();
+        counts.Average().ShouldBe(100 * lf.ExtraPerCountedStar, 0.05);
+        counts.ShouldAllBe(c => c == (int)Math.Floor(100 * lf.ExtraPerCountedStar) || c == (int)Math.Floor(100 * lf.ExtraPerCountedStar) + 1);
+
+        LuminosityFunction.Fit(catalogue.Where(static s => s < 10.0 || s > 20.0).Take(10).ToArray(), 3.0).ShouldBeNull();
+        Should.Throw<ArgumentOutOfRangeException>(() => LuminosityFunction.Fit(catalogue, 1.5));
+        Should.Throw<ArgumentOutOfRangeException>(() => LuminosityFunction.Fit(catalogue, 10.0));
+    }
+
+    /// <summary>
+    /// S2 in the plan: a population built with a floor adds the cell's faint stars from their own stream, as many as its
+    /// request times the master's deficit share, each a faint catalogued star's colour scaled to its drawn significance and
+    /// flagged faint, unsaturated and placed in the cell; every other star is the plan's without them, to the bit.
+    /// </summary>
+    [Fact]
+    public void FaintStarsComeFromTheirOwnStreamAndMoveNoOtherStar()
+    {
+        var (plain, faint) = (BuildPowerLawPopulation(null), BuildPowerLawPopulation(3.0));
+        var lf = faint.Luminosity.ShouldNotBeNull();
+        plain.Luminosity.ShouldBeNull();
+        lf.ExtraPerCountedStar.ShouldBeGreaterThan(0.1);
+        const int cell = 256;
+        var (requested, added) = (0, 0);
+        var significances = new List<double>();
+        for (var seed = 0; seed < 40; seed++)
+        {
+            var (cx, cy) = (256 * (seed % 3), 256 * (seed / 3 % 3));
+            var without = plain.Plan(cx, cy, cell, 8, InjectionPlacement.Random, StarProfileFamily.Moffat, 0.5, new Random(seed));
+            var with = faint.Plan(cx, cy, cell, 8, InjectionPlacement.Random, StarProfileFamily.Moffat, 0.5, new Random(seed), faintRng: new Random(1000 + seed));
+            without.Faint.ShouldBeEmpty();
+            (with.Requested, with.Placed, with.SaturatedFallback).ShouldBe((without.Requested, without.Placed, without.SaturatedFallback));
+            with.Stars.Length.ShouldBe(without.Stars.Length);
+            for (var i = 0; i < without.Stars.Length; i++)
+            {
+                var (a, b) = (with.Stars[i], without.Stars[i]);
+                (a.X, a.Y, a.Saturated, a.Faint).ShouldBe((b.X, b.Y, b.Saturated, false));
+                a.Amplitudes.ShouldBe(b.Amplitudes);
+            }
+            requested += with.Requested;
+            added += with.Faint.Length;
+            foreach (var s in with.Faint)
+            {
+                (s.Faint, s.Saturated, s.Lobe).ShouldBe((true, false, false));
+                s.X.ShouldBeInRange(cx - 8.5, cx + cell + 8.5);
+                s.Y.ShouldBeInRange(cy - 8.5, cy + cell + 8.5);
+                // The population's amplitudes are its significance over 1000 (PowerLawStar), so a faint star's reads back its draw.
+                significances.Add(s.Amplitudes[0] * 1000.0);
+            }
+        }
+        output.WriteLine($"{added} faint stars over {requested} requested, {lf.ExtraPerCountedStar:P1} expected");
+        // Placement can drop a star near a site, so at most the expectation, and within a few of it on this sparse field.
+        ((double)added).ShouldBeInRange(0.9 * requested * lf.ExtraPerCountedStar, 1.03 * requested * lf.ExtraPerCountedStar);
+        significances.ShouldAllBe(static s => s >= 3.0 - 1e-9 && s < LuminosityFunction.FitLowSigma + 1e-9);
+
+        Should.Throw<ArgumentNullException>(() => faint.Plan(0, 0, cell, 8, InjectionPlacement.Random, StarProfileFamily.Moffat, 0.5, new Random(1)));
+        Should.Throw<InvalidOperationException>(() =>
+            faint.Plan(0, 0, cell, 8, InjectionPlacement.AtSite, StarProfileFamily.Moffat, 0.5, new Random(1), faintRng: new Random(2)));
+        var thin = ImmutableArray.Create(PowerLawStar(100, 100, 20.0), PowerLawStar(200, 200, 7.0));
+        Should.Throw<InvalidOperationException>(() => InjectionPopulation.Build(thin, Image(256, 0.1f), Image(256, 0.1f), 1.0, [(2.5, 3.0)], null, faintFloor: 3.0));
+    }
+
+    // Significances from dN/dln S ~ S^-alpha over [1, 1000): all kept from 10 up, half from halfFrom to 10, none under emptyBelow.
+    private static (float[] Significances, Random Rng) PowerLawSignificances(double alpha, int n, Random rng, double halfFrom = 5.0, double emptyBelow = 5.0)
+    {
+        var (pl, ph) = (1.0, Math.Pow(1000.0, -alpha));
+        var kept = new List<float>(n);
+        for (var i = 0; i < n; i++)
+        {
+            var s = Math.Pow(pl - rng.NextDouble() * (pl - ph), -1.0 / alpha);
+            if (s < emptyBelow || (s < 10.0 && s >= halfFrom && rng.NextDouble() < 0.5))
+            {
+                continue;
+            }
+            kept.Add((float)s);
+        }
+        return ([.. kept], rng);
+    }
+
+    // A 1024 px mono master whose catalogue follows a power law (PowerLawSignificances), amplitude its significance over 1000.
+    private static InjectionPopulation BuildPowerLawPopulation(double? faintFloor)
+    {
+        const int size = 1024;
+        var (significances, rng) = PowerLawSignificances(0.8, 2500, new Random(3));
+        var catalogue = ImmutableArray.CreateRange(significances.Select(s => PowerLawStar(
+            (float)(4 + rng.NextDouble() * (size - 8)), (float)(4 + rng.NextDouble() * (size - 8)), s)));
+        var master = Image(size, 0.1f);
+        return InjectionPopulation.Build(catalogue, master, master, 1.0, [(2.5, 3.0)], null, faintFloor: faintFloor);
+    }
+
+    private static FittedStar PowerLawStar(float x, float y, double significance)
+    {
+        var amplitude = (float)(significance / 1000.0);
+        return new FittedStar(x, y, (float)significance, amplitude, 1f, 0.1f, 0.01f, StarFitOutcome.Subtracted, false, false, float.NaN, float.NaN, false,
+            float.NaN, StarFitModel.Moffat, [amplitude]);
+    }
+
+    /// <summary>
     /// R2s2's calibration: on a master whose real stars carry more (or less) light per amplitude just outside their core than
     /// its field profile draws, each channel on its own and differently for its bright stars than its faint ones, the measure
     /// finds each band's and channel's wing gain, and reads the drawn light short of (or past) the real light beforehand.
