@@ -3505,7 +3505,8 @@ real relation between channels: over the 123 colour training masters a wider red
 (correlation -0.59), R2s's draws had -0.23, and 45 % of its stars lay outside every real master's relation, which is how
 it learned a red-only star 8 px wide and took 77 % of M31's red nucleus above its ring.
 
-**The scorecard** is one command, `C:/temp/e2/score-whole.py <tag> --model <onnx>` (one view, how a model ships): Andromeda's
+**The scorecard** is one command (moving into the repo with the per-arm scorer and the driver: #1774),
+`C:/temp/e2/score-whole.py <tag> --model <onnx>` (one view, how a model ships): Andromeda's
 bright dark-sky stars flat and dug and blue's residual at 1.5-3 and 3-4.5 px, the Tarantula's bright dark-sky stars flat
 and left and its core residual per channel, its crowded stars, Gaia BP 17-19 and purity, the Sagittarius Triplet's
 crowded stars, and M31's nucleus. Its guards are round 1's: the nucleus at most 5 % in every channel, purity at most 1.0 %.
