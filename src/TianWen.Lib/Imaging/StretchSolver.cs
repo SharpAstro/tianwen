@@ -44,8 +44,23 @@ public static class StretchSolver
         (float R, float G, float B)? whiteBalance = null,
         (float R, float G, float B)? lumaWeights = null,
         (float R, float G, float B)? shaderWhiteBalance = null,
-        (float R, float G, float B)? backgroundNeutralization = null)
+        (float R, float G, float B)? backgroundNeutralization = null,
+        double? noiseScale = null)
     {
+        // The frame's measured noise times how much an enhance took out of it (ImageMeta.NoiseReduction), so the black point
+        // is sized by the data's real depth and not by what a denoiser left: every mode below reads its MAD through this.
+        if (noiseScale is { } scale and > 1)
+        {
+            var k = (float)scale;
+            var scaled = new ChannelStretchStats[perChannelStats.Length];
+            for (var c = 0; c < scaled.Length; c++)
+            {
+                scaled[c] = perChannelStats[c] with { Mad = perChannelStats[c].Mad * k };
+            }
+            perChannelStats = scaled;
+            lumaStats = lumaStats is { } l ? l with { Mad = l.Mad * k } : null;
+        }
+
         // Default luma weighting is Rec.709 -- matches the previous hardcoded constants
         // and keeps existing callers (no lumaWeights argument) on the same numerical path.
         var weights = lumaWeights ?? LumaWeighting.Rec709.Weights;

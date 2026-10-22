@@ -702,6 +702,8 @@ public partial class Image
                 ? hdu.Header.GetDoubleValue(Planetary.ColourBalance.SaturationCard, 1) : null,
             // Ours (ImageMeta.FluxScale): absent is 1, a value that is not a positive number is not a scale.
             FluxScale = hdu.Header.GetDoubleValue("FLUXSCAL", double.NaN) is var fluxScale && fluxScale > 0 ? fluxScale : null,
+            // Ours (ImageMeta.NoiseReduction): absent is none, a value below 1 is not a reduction.
+            NoiseReduction = hdu.Header.GetDoubleValue("NOISERED", double.NaN) is var noiseReduction && noiseReduction >= 1 ? noiseReduction : null,
             // Ours (ImageMeta.LimbEdge, #1349): absent, or not a number, is none read.
             LimbEdge = hdu.Header.GetDoubleValue("LIMBEDGE", double.NaN) is var limbEdge && double.IsFinite(limbEdge) ? limbEdge : null,
         };
@@ -1150,6 +1152,10 @@ public partial class Image
         if (imageMeta.SensorFullScaleAdu is { } fullScaleAdu and > 0)
         {
             AddHeaderValueIfHasValue("SATURATE", fullScaleAdu, "[adu] saturation level (sensor full scale)");
+        }
+        if (imageMeta.NoiseReduction is { } noiseReduction and >= 1)
+        {
+            AddHeaderValueIfHasValue("NOISERED", noiseReduction, "noise in over noise out of the enhance(s)");
         }
         if (imageMeta.FluxScale is { } fluxScale and > 0)
         {

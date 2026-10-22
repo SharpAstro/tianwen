@@ -155,7 +155,8 @@ namespace TianWen.Lib.Imaging
                 StretchParameters.Default,
                 stats,
                 lumaStats: null,
-                small.MaxValue);
+                small.MaxValue,
+                noiseScale: meta.NoiseReduction);
         }
 
         /// <summary>Sniffs the container and decodes one frame; internal so the tests can pin the dispatch.</summary>

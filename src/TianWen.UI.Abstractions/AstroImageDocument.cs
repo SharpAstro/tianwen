@@ -1012,8 +1012,9 @@ public sealed class AstroImageDocument : IPreviewSource
         // the stats that position the curve have to carry them (StretchSolver.Prepared). Attaching
         // them to a finished StretchUniforms is what anchored each channel's curve where its data no
         // longer arrived.
+        // Sized by the data's real noise: an enhanced frame's measured noise times what the enhance took out of it.
         var uniforms = ComputeStretchUniforms(mode, new StretchParameters(factor, clipping), stats, luma,
-            Basis.UnstretchedImage.MaxValue, autoWb, weights, shaderWb, bgNeut);
+            Basis.UnstretchedImage.MaxValue, autoWb, weights, shaderWb, bgNeut, Basis.UnstretchedImage.ImageMeta.NoiseReduction);
         return WithDisplayOptions(uniforms, lumaBlend, normalize, curvesMode, curveLut, curvesBoost, curvesMidpoint, hdrAmount, hdrKnee);
     }
 
@@ -1067,11 +1068,12 @@ public sealed class AstroImageDocument : IPreviewSource
         (float R, float G, float B)? whiteBalance = null,
         (float R, float G, float B)? lumaWeights = null,
         (float R, float G, float B)? shaderWhiteBalance = null,
-        (float R, float G, float B)? backgroundNeutralization = null)
+        (float R, float G, float B)? backgroundNeutralization = null,
+        double? noiseScale = null)
     {
         return StretchSolver.ComputeStretchUniforms(
             mode, parameters, perChannelStats, lumaStats, imageMaxValue,
-            whiteBalance, lumaWeights, shaderWhiteBalance, backgroundNeutralization);
+            whiteBalance, lumaWeights, shaderWhiteBalance, backgroundNeutralization, noiseScale);
     }
 
     /// <summary>
