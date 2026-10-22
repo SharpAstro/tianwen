@@ -3349,6 +3349,20 @@ them) against R2p.
 R2t the better model and round 1's base; 3 to 5 missing means capacity at this size does not buy the clusters' cost, and
 the next lever is a smaller cluster share.
 
+#### R2u: round 1's arm C, R2t's recipe with E6 as the teacher, pre-registered (2026-10-22)
+
+Written before it trains, on the owner's word ("I'd train it as R2t's recipe plus whatever won elsewhere"). R2s's halos
+lost (M31's nucleus taken 45.5 % in red), so synth7 stays out until they are fixed. R2t's first numbers lead round 1: A's
+draws 80.4 / 77.8 / 66.2 % clean against R2i seed 0's 79.2 / 74.5 / 60.2, real bright stars flat on 97.4 %, the
+nucleus 6.6 % in green. The one other measured winner is the E6 average (R2i seeds 0 and 1 and R2l over 8 views), which
+beat E5, R2t's teacher, on every band of the real-star check (bright stars flat on 98.4 % against 97.8).
+
+**The arm.** R2t exactly, the teacher E6 instead of E5, built on the T4 before training (`launch-arm.ps1
+-TeacherMembers`), seed 0. **Predictions**, at one view: R2t's six (above), and the real bright stars flat on at least
+97.4 %, R2t's own. **Read, not predicted:** A's draws and the nucleus against R2t, knowing R2r's two seeds differed by 4
+points on bright stars, so a difference under that is a seed's. **Kill:** below R2t on both the real bright stars and A's
+bright draws means the better teacher buys nothing at this size, and R2t stays round 1's base.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
