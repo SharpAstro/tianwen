@@ -414,6 +414,10 @@ namespace TianWen.AI.Imaging
         /// channel relations are measured on; every draw of a cell then takes one of them
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.ChannelVariation"/>, R2s2), from a stream of its own, so the stars,
         /// their brightness and their colour are the draw's without it. Null draws every channel as its master measured it.</param>
+        /// <param name="StarShapesPath">Stars mode: a <c>tianwen dataset star-shapes</c> file; each master's stars are drawn at
+        /// the per-channel wing gains its real stars of the same brightness were measured to need
+        /// (<see cref="TianWen.Lib.Imaging.StarRemoval.StarShape"/>, R2s2). Every exported session must have its row. Not
+        /// with <paramref name="ChannelRelationSessions"/>: another master's relation would undo the calibration.</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -455,7 +459,8 @@ namespace TianWen.AI.Imaging
             TianWen.Lib.Imaging.StarRemoval.SyntheticBackground.Steering? Steering = null,
             bool StarLobes = false,
             bool StarSubs = false,
-            IReadOnlyList<string>? ChannelRelationSessions = null);
+            IReadOnlyList<string>? ChannelRelationSessions = null,
+            string? StarShapesPath = null);
 
         /// <summary>
         /// The options one session's draws are made with: the warped shape's smoothing chosen by what made the master's noise.

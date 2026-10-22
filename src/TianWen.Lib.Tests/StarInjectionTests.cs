@@ -657,6 +657,100 @@ public class StarInjectionTests(ITestOutputHelper output)
         factors.ShouldAllBe(static f => f.LogHalo == 0.0 && f.LogWidth == 0.0);
     }
 
+    /// <summary>
+    /// R2s2's calibration: on a master whose real stars carry more (or less) light per amplitude just outside their core than
+    /// its field profile draws, each channel on its own and differently for its bright stars than its faint ones, the measure
+    /// finds each band's and channel's wing gain, and reads the drawn light short of (or past) the real light beforehand.
+    /// </summary>
+    [Fact]
+    public void AStarShapeFindsEachChannelsWingGainPerBrightnessFromTheRealStars()
+    {
+        const int size = 1024;
+        var field = ColourField((2.6, 0.004f), (2.2, 0.004f), (2.4, 0.004f));
+        double[][] trueGains = [[1.8, 1.0, 0.6], [1.3, 2.0, 1.0]];
+        float[] significance = [500f, 5000f];
+        var planes = new float[3][,];
+        for (var c = 0; c < 3; c++)
+        {
+            planes[c] = new float[size, size];
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    planes[c][y, x] = 0.01f;
+                }
+            }
+        }
+        var rng = new Random(4);
+        var catalogue = ImmutableArray.CreateBuilder<FittedStar>();
+        for (var gy = 0; gy < 8; gy++)
+        {
+            for (var gx = 0; gx < 8; gx++)
+            {
+                var band = (gx + gy) % 2;
+                var (sx, sy) = (60 + gx * 120 + rng.NextDouble(), 60 + gy * 120 + rng.NextDouble());
+                for (var c = 0; c < 3; c++)
+                {
+                    var ch = field.Channels[c];
+                    var real = new StarProfile(StarProfileFamily.Field, ch.Fwhm, ch.Beta, 1.0, 0.0, ch.Table, ch.TableAlpha, Math.Log(trueGains[band][c]));
+                    for (var y = (int)sy - StarShape.StampRadius; y <= (int)sy + StarShape.StampRadius + 1; y++)
+                    {
+                        for (var x = (int)sx - StarShape.StampRadius; x <= (int)sx + StarShape.StampRadius + 1; x++)
+                        {
+                            planes[c][y, x] += (float)real.PixelMean(x, y, sx, sy);
+                        }
+                    }
+                }
+                catalogue.Add(new FittedStar((float)sx, (float)sy, significance[band], 1f, 1f, 0.01f, 0.001f, StarFitOutcome.Subtracted, false, false,
+                    float.NaN, float.NaN, false, float.NaN, StarFitModel.Moffat, [1f, 1f, 1f], SkyAbove: 0f, Texture: 1f));
+            }
+        }
+        var master = new Image(planes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+
+        var row = StarShape.Measure("synthetic", master, catalogue.ToImmutable(), field, null);
+        row.Bands.Length.ShouldBe(2);
+        for (var b = 0; b < 2; b++)
+        {
+            row.Bands[b].Stars.ShouldBe(32);
+            for (var c = 0; c < 3; c++)
+            {
+                row.Bands[b].Channels[c].WingGain.ShouldBe(trueGains[b][c], 0.02 * trueGains[b][c], $"band {b} channel {c}");
+            }
+            StarShape.LogGains(row, significance[b]).ShouldBe([.. trueGains[b].Select(static g => Math.Log(g))], tolerance: 0.02);
+        }
+        row.Bands[0].Channels[0].DrawnLight.ShouldBeLessThan(row.Bands[0].Channels[0].RealLight, "a real wing 1.8 times the field's");
+        row.Bands[0].Channels[2].DrawnLight.ShouldBeGreaterThan(row.Bands[0].Channels[2].RealLight, "a real wing 0.6 times the field's");
+        StarShape.LogGains(row, 50f).ShouldBe(StarShape.LogGains(row, 500f), "a star fainter than every band takes the faintest's");
+    }
+
+    /// <summary>
+    /// A master calibrated to its real stars (R2s2) draws each star at its brightness band's measured wing gains, a saturated
+    /// one at the brightest band's, and refuses a channel variation, which would undo the calibration.
+    /// </summary>
+    [Fact]
+    public void ACalibratedMasterDrawsEveryStarAtItsBandsGains()
+    {
+        var own = ColourField((3.0, 0.002f), (2.3, 0.006f), (2.6, 0.004f));
+        static StarShapeBand Band(float from, params double[] gains)
+            => new StarShapeBand(from, 20, [.. gains.Select(static g => new StarShapeChannel(1.0, 1.0, g))]);
+        var shape = new StarShapeRow("own", [Band(100f, 1.7, 1.4, 1.5), Band(1000f, 1.2, 2.0, 1.1)]);
+        var population = BuildColourPopulation(own, shape);
+        var plan = population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(21));
+        plan.Stars.Count(static s => s.Saturated).ShouldBe(1);
+        foreach (var star in plan.Stars)
+        {
+            // The colour population's stars were all found at significance 100: the faint band; the saturated one is the bright band's.
+            var gains = star.Saturated ? StarShape.LogGains(shape, float.PositiveInfinity) : StarShape.LogGains(shape, 100f);
+            for (var c = 0; c < 3; c++)
+            {
+                star.Profiles[c].HaloLogGain.ShouldBe(gains[c]);
+            }
+        }
+        var a = ChannelRelation.Of("a", ColourField((2.2, 0.003f), (2.0, 0.005f), (2.4, 0.003f)));
+        Should.Throw<InvalidOperationException>(() =>
+            population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(21), new ChannelVariation([a]), new Random(1)));
+    }
+
     // A three-channel field profile: each channel's FWHM (beta 3) and a flat halo from 2 to 10 px at the field's width.
     private static StarlessFieldProfile ColourField((double Fwhm, float Halo) red, (double Fwhm, float Halo) green, (double Fwhm, float Halo) blue)
     {
@@ -669,7 +763,7 @@ public class StarInjectionTests(ITestOutputHelper output)
     }
 
     // BuildPopulation in three channels, each star a little redder than blue, the master's saturated star cored at 0.9 in all.
-    private static InjectionPopulation BuildColourPopulation(StarlessFieldProfile? field = null)
+    private static InjectionPopulation BuildColourPopulation(StarlessFieldProfile? field = null, StarShapeRow? shape = null)
     {
         const int size = 256;
         var rng = new Random(2);
@@ -701,7 +795,7 @@ public class StarInjectionTests(ITestOutputHelper output)
         }
         var master = new Image(masterPlanes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
         var plate = new Image(platePlanes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
-        return InjectionPopulation.Build(catalogue.ToImmutable(), master, plate, 1.0, [(2.5, 3.0), (2.5, 3.0), (2.5, 3.0)], null, field);
+        return InjectionPopulation.Build(catalogue.ToImmutable(), master, plate, 1.0, [(2.5, 3.0), (2.5, 3.0), (2.5, 3.0)], null, field, shape: shape);
     }
 
     private static (InjectionPopulation Population, ImmutableArray<FittedStar> Catalogue) BuildPopulation()
