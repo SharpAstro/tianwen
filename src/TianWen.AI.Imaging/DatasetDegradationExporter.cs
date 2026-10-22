@@ -410,9 +410,10 @@ namespace TianWen.AI.Imaging
         /// so an unsaturated star carries the profile jitter a real master's does beyond its shot noise
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.StarInjection.Render"/>, R2m); off, an unsaturated star is its exact
         /// profile.</param>
-        /// <param name="ChannelVariation">Stars mode: each channel of every injected star drawn at its own halo strength and
-        /// width (<see cref="TianWen.Lib.Imaging.StarRemoval.ChannelVariation"/>, R2s), from a stream of its own, so the
-        /// stars, their brightness and their colour are the draw's without it; null draws every channel as measured.</param>
+        /// <param name="ChannelRelationSessions">Stars mode: the sessions whose field profiles (in the plates store) the
+        /// channel relations are measured on; every draw of a cell then takes one of them
+        /// (<see cref="TianWen.Lib.Imaging.StarRemoval.ChannelVariation"/>, R2s2), from a stream of its own, so the stars,
+        /// their brightness and their colour are the draw's without it. Null draws every channel as its master measured it.</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -454,7 +455,7 @@ namespace TianWen.AI.Imaging
             TianWen.Lib.Imaging.StarRemoval.SyntheticBackground.Steering? Steering = null,
             bool StarLobes = false,
             bool StarSubs = false,
-            TianWen.Lib.Imaging.StarRemoval.ChannelVariation? ChannelVariation = null);
+            IReadOnlyList<string>? ChannelRelationSessions = null);
 
         /// <summary>
         /// The options one session's draws are made with: the warped shape's smoothing chosen by what made the master's noise.

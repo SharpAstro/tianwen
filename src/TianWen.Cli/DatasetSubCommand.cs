@@ -1748,18 +1748,19 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "(their amplitude, width and offset scatter), so an unsaturated star carries the profile jitter a real " +
                           "master's star does beyond its shot noise, instead of its exact profile (R2m).",
         };
-        var channelHalosOpt = new Option<bool>("--channel-halos")
+        var channelRelationsOpt = new Option<string>("--channel-relations")
         {
-            Description = "--mode stars: draw each channel of every injected star at its own halo strength (0.5 to 2 times the " +
-                          "measured wing, core untouched) and width (0.85 to 1.18), drawn per draw of a cell and scattered per " +
-                          "star, from a stream of its own, so the stars and their brightness are the draw's without it (R2s).",
+            Description = "--mode stars with --profile field: a file of session ids, one a line, whose field profiles in --plates " +
+                          "measure how real masters' channels differ (each channel's width and wing-to-core light against the " +
+                          "channels' mean); every draw of a cell takes one of them at random, from a stream of its own, its " +
+                          "stars' widths and wings moved onto it with the master's own mean kept (R2s2).",
         };
 
         var command = new Command("degrade",
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelHalosOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -1871,11 +1872,20 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 consoleHost.WriteError("--star-subs shapes the injected stars; it needs --mode stars");
                 return 1;
             }
-            var channelHalos = parseResult.GetValue(channelHalosOpt);
-            if (channelHalos && mode != DatasetDegradationExporter.DegradationMode.Stars)
+            string[]? relationSessions = null;
+            if (parseResult.GetValue(channelRelationsOpt) is { } relationsFile)
             {
-                consoleHost.WriteError("--channel-halos shapes the injected stars; it needs --mode stars");
-                return 1;
+                if (mode != DatasetDegradationExporter.DegradationMode.Stars || profile != StarProfileFamily.Field)
+                {
+                    consoleHost.WriteError("--channel-relations moves the injected stars' field profiles; it needs --mode stars and --profile field");
+                    return 1;
+                }
+                relationSessions = [.. (await File.ReadAllLinesAsync(relationsFile, ct)).Select(static l => l.Trim()).Where(static l => l.Length > 0)];
+                if (relationSessions.Length == 0)
+                {
+                    consoleHost.WriteError($"--channel-relations: {relationsFile} names no session");
+                    return 1;
+                }
             }
 
             var options = new DatasetDegradationExporter.Options(
@@ -1914,7 +1924,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 Steering: degradeSteering,
                 StarLobes: starLobes,
                 StarSubs: starSubs,
-                ChannelVariation: channelHalos ? TianWen.Lib.Imaging.StarRemoval.ChannelVariation.R2s : null);
+                ChannelRelationSessions: relationSessions);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);

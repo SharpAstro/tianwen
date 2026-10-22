@@ -36,7 +36,7 @@ public enum StarProfileFamily
 /// <param name="HaloAlpha">The alpha the halo table was measured at.</param>
 /// <param name="HaloLogGain">The natural log of the factor the profile's wings are drawn at (<see cref="WingFactor"/>):
 /// 0, the default, draws the profile as measured; ln 2 draws every wing past 1.5 FWHM twice as bright with the core
-/// untouched (R2s, <see cref="ChannelVariation"/>). A log, so that <c>default(StarProfile)</c> means no change.</param>
+/// untouched (<see cref="ChannelVariation"/>). A log, so that <c>default(StarProfile)</c> means no change.</param>
 public readonly record struct StarProfile(
     StarProfileFamily Family, double FwhmPx, double Beta, double AxisRatio, double PositionAngleRad,
     ImmutableArray<float> Halo = default, double HaloAlpha = 0.0, double HaloLogGain = 0.0) : IPointProfile
@@ -138,6 +138,28 @@ public readonly record struct StarProfile(
     }
 
     private bool HasHalo => !Halo.IsDefaultOrEmpty && HaloAlpha > 0;
+
+    /// <summary>
+    /// The profile at elliptical radius <paramref name="r"/> before its wing gain, its halo table added, never below zero:
+    /// what <see cref="PixelMean"/> draws at a pixel's centre far out, over <see cref="WingFactor"/>. The one radial reading
+    /// a channel's shape is measured with (<see cref="ChannelRelation"/>).
+    /// </summary>
+    public double UngainedAt(double r)
+    {
+        var r2 = r * r;
+        double value;
+        if (Family == StarProfileFamily.Gaussian)
+        {
+            var s = GaussSigma;
+            value = Math.Exp(-r2 / (2.0 * s * s));
+        }
+        else
+        {
+            var a = Alpha;
+            value = Math.Pow(1.0 + r2 / (a * a), -Beta);
+        }
+        return Math.Max(0.0, HasHalo ? value + RadialCorrection.Interpolate(Halo.AsSpan(), r * HaloAlpha / Alpha) : value);
+    }
 
     /// <summary>
     /// The mean of the profile over pixel (<paramref name="px"/>, <paramref name="py"/>) for a star centred at
