@@ -1322,6 +1322,8 @@ namespace TianWen.Lib.Tests
                 row.Mode.ShouldBe(nameof(DatasetDegradationExporter.DegradationMode.Stars));
                 row.NoiseAnchor.ShouldBe("master-calibration");
                 row.Placement.ShouldBe(nameof(InjectionPlacement.Random));
+                row.Stretch.ShouldBe("plate", "the plate's parameters unless the master's are asked for (#1776)");
+                row.StretchSkySlopeRatio.ShouldNotBeNull().Length.ShouldBe(3);
                 File.Exists(Path.Combine(options.OutDir, row.SigmaTile.ShouldNotBeNull())).ShouldBeTrue();
                 var injection = injections.Single(i => i.Tile == row.Tile);
                 injection.Stars.Length.ShouldBe(row.InjectedStars.ShouldNotBeNull());
@@ -1392,6 +1394,15 @@ namespace TianWen.Lib.Tests
                 dimmer.ShouldBe(0);
             }
 
+            // The master's stretch (#1776) exports the same draws and says so on every row.
+            var fromMaster = options with { OutDir = Path.Combine(_root, "stars-master-stretch"), StretchFromMaster = true };
+            (await DatasetDegradationExporter.RunAsync(fromMaster, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            var masterRows = ReadDegradationRows(fromMaster.OutDir);
+            masterRows.Length.ShouldBe(rows.Length);
+            masterRows.ShouldAllBe(static r => r.Stretch == "master");
+            File.ReadAllText(Path.Combine(fromMaster.OutDir, DatasetDegradationExporter.InjectionManifestFileName))
+                .ShouldBe(File.ReadAllText(Path.Combine(options.OutDir, DatasetDegradationExporter.InjectionManifestFileName)), "the stretch moves no star");
+
             // The same seed, the same bytes: every star and every tile, and reading the stars back changes none of them.
             var again = options with { OutDir = Path.Combine(_root, "stars-again"), MeasureInjection = true };
             (await DatasetDegradationExporter.RunAsync(again, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
@@ -1420,6 +1431,71 @@ namespace TianWen.Lib.Tests
                     ratio.ShouldBe(1.0, 0.05, "a star is fitted back at the FWHM it was drawn with");
                 }
             }
+        }
+
+        /// <summary>
+        /// #1776: a plate's minimum sits in its deepest subtraction holes, so its own stretch is gentler at the sky than the
+        /// master's, which is what inference stretches the master with. The stars stretch hands back the plate's parameters
+        /// or, asked, the master's, exactly as the inference runner measures them, on the master's own unit scale; and its
+        /// slope ratio reads the gap: well over 1 in the channel with the hole, 1 where the plate's floor is the master's.
+        /// </summary>
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1000f)]
+        public void TheStarsStretchIsThePlatesOrTheMastersAndMeasuresTheGapBetween(float scale)
+        {
+            const int size = 128;
+            var rng = new Random(3);
+            var master = new float[3][,];
+            var plate = new float[3][,];
+            for (var c = 0; c < 3; c++)
+            {
+                (master[c], plate[c]) = (new float[size, size], new float[size, size]);
+                for (var y = 0; y < size; y++)
+                {
+                    for (var x = 0; x < size; x++)
+                    {
+                        var sky = (0.01f + (0.0005f * (float)StarInjection.Gaussian(rng))) * scale;
+                        (master[c][y, x], plate[c][y, x]) = (sky, sky);
+                    }
+                }
+                // A few stars in the master; the plate has them subtracted.
+                foreach (var (sx, sy) in new[] { (30, 40), (90, 70), (64, 110) })
+                {
+                    master[c][sy, sx] += 0.2f * scale;
+                }
+            }
+            // One subtraction hole in red, deeper than any sky pixel.
+            for (var y = 60; y < 63; y++)
+            {
+                for (var x = 60; x < 63; x++)
+                {
+                    plate[0][y, x] = 0.001f * scale;
+                }
+            }
+            var masterImage = new Image(master, BitDepth.Float32, scale, 0f, 0f, new ImageMeta());
+            var plateImage = new Image(plate, BitDepth.Float32, scale, 0f, 0f, new ImageMeta());
+            var divisor = DatasetTileExporter.UnitDivisor(masterImage);
+            var unitPlate = DatasetTileExporter.ToUnitRange(plateImage, divisor);
+            var unitMaster = DatasetTileExporter.ToUnitRange(masterImage, divisor);
+
+            var (masterApplied, masterMin, masterBalances) = ChunkedNafnetRunner.InputStretchParameters(unitMaster, unitMaster.AbsentPixels());
+            var (plateApplied, plateMin, plateBalances) = ChunkedNafnetRunner.InputStretchParameters(unitPlate, unitPlate.AbsentPixels());
+            masterApplied.ShouldBeTrue();
+            plateApplied.ShouldBeTrue();
+
+            var fromMaster = DatasetDegradationExporter.StarsStretch("test", masterImage, divisor, unitPlate, fromMaster: true);
+            fromMaster.OrigMin.ShouldBe(masterMin.ShouldNotBeNull());
+            fromMaster.Balances.ShouldBe(masterBalances.ShouldNotBeNull());
+            var fromPlate = DatasetDegradationExporter.StarsStretch("test", masterImage, divisor, unitPlate, fromMaster: false);
+            fromPlate.OrigMin.ShouldBe(plateMin.ShouldNotBeNull());
+            fromPlate.Balances.ShouldBe(plateBalances.ShouldNotBeNull());
+            fromPlate.SkySlopeRatio.ShouldBe(fromMaster.SkySlopeRatio);
+
+            output.WriteLine($"scale {scale}: slope ratio master over plate {string.Join(" / ", fromMaster.SkySlopeRatio.Select(static r => r.ToString("F3")))}");
+            fromMaster.SkySlopeRatio[0].ShouldBeGreaterThan(1.5, "the hole drops red's floor, so the plate's stretch is gentler at the sky");
+            fromMaster.SkySlopeRatio[1].ShouldBe(1.0, 0.05, "green's plate floor is the master's");
+            fromMaster.SkySlopeRatio[2].ShouldBe(1.0, 0.05);
         }
 
         /// <summary>

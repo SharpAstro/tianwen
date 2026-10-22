@@ -213,6 +213,10 @@ namespace TianWen.AI.Imaging
         /// the noise this INPUT carries after the stretch, the master's own depth and the injected one in
         /// quadrature, by <see cref="StretchedNoise.Plane"/> in its units, one channel of raw little-endian fp16
         /// like the tiles. Null in an export from before E16.</param>
+        /// <param name="Stretch">Stars mode: whose parameters the pair was stretched with, "plate" or "master" (#1776); null
+        /// in an export from before it was recorded, which is "plate".</param>
+        /// <param name="StretchSkySlopeRatio">Stars mode: per channel, the master's MTF slope at its own sky over the plate's
+        /// at the same value, whichever stretch the pair took: how much more steeply inference stretches this master.</param>
         public sealed record DegradationRow(
             string Tile,
             string SessionId,
@@ -258,7 +262,9 @@ namespace TianWen.AI.Imaging
             int? InjectedSaturated = null,
             string? Placement = null,
             string? Profile = null,
-            int? InjectionShortfall = null);
+            int? InjectionShortfall = null,
+            string? Stretch = null,
+            double[]? StretchSkySlopeRatio = null);
 
         /// <summary>The extension of a tile's conditioning-plane sidecar, beside the tile.</summary>
         public const string SigmaTileExtension = ".sigma.f16";
@@ -439,6 +445,10 @@ namespace TianWen.AI.Imaging
         /// limit may add up to in one tile, the catalogue's own included, in the sky's noise sigma at the master's depth: the
         /// faint draw stops in its drawn order where it is reached
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.LuminosityFunction.KeptUnderCap"/>).</param>
+        /// <param name="StretchFromMaster">Stars mode: stretch both halves of every pair with the MASTER's own parameters,
+        /// the ones inference stretches that master with, instead of the plate's (H6), whose minimum sits in the plate's
+        /// deepest subtraction holes and so stretches the sky up to 3.8 times more gently (#1776). Off keeps every export as
+        /// it was; either way the session's log line gives the slope ratio between the two.</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -487,6 +497,7 @@ namespace TianWen.AI.Imaging
             bool ChannelNoiseCorrelation = false,
             double? FaintStarFloor = null,
             double FaintStarCap = TianWen.Lib.Imaging.StarRemoval.LuminosityFunction.DefaultCapSigma,
+            bool StretchFromMaster = false,
             Action<string>? Say = null);
 
         /// <summary>

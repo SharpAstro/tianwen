@@ -320,6 +320,57 @@ public static partial class DatasetDegradationExporter
         }
     }
 
+    /// <summary>
+    /// The stretch a stars session's pairs are written in (#1776): the plate's own parameters, or with
+    /// <paramref name="fromMaster"/> the master's, the ones inference stretches that master with
+    /// (<see cref="ChunkedNafnetRunner.InputStretchParameters"/>, the single source of both). <c>MtfStretch</c> anchors each
+    /// channel on its minimum, and a plate's minimum sits in its few deepest subtraction holes, so the plate's sky stands
+    /// further above its floor and the plate's stretch is gentler there: 1.9 to 3.8 times in red on 7 of the 8 validation
+    /// sessions. Also returns, per channel, the master's MTF slope at its own sky over the plate's at the same pixel value,
+    /// so every export measures that gap whichever stretch it writes.
+    /// </summary>
+    internal static (float[] OrigMin, double[] Balances, double[] SkySlopeRatio) StarsStretch(
+        string sessionId, Image master, float divisor, Image unitPlate, bool fromMaster)
+    {
+        var (plateApplied, plateMin, plateBalances) = ChunkedNafnetRunner.InputStretchParameters(unitPlate, unitPlate.AbsentPixels());
+        if (!plateApplied || plateMin is null || plateBalances is null)
+        {
+            throw new InvalidOperationException($"{sessionId}: the starless plate did not read as linear, so it is not a valid injection target");
+        }
+        // A divisor of 1 leaves the master as it is (ToUnitRange's own rule), so only a scaled copy is ours to release.
+        var scaled = divisor != 1f;
+        var unitMaster = scaled ? DatasetTileExporter.ToUnitRange(master, divisor) : master;
+        bool masterApplied;
+        float[]? masterMin;
+        double[]? masterBalances;
+        try
+        {
+            (masterApplied, masterMin, masterBalances) = ChunkedNafnetRunner.InputStretchParameters(unitMaster, unitMaster.AbsentPixels());
+        }
+        finally
+        {
+            if (scaled)
+            {
+                unitMaster.Release();
+            }
+        }
+        if (!masterApplied || masterMin is null || masterBalances is null)
+        {
+            throw new InvalidOperationException($"{sessionId}: the master did not read as linear, so its stretch cannot be measured");
+        }
+        var target = AiNafnetInputs.TargetMedian;
+        var ratio = new double[plateMin.Length];
+        for (var c = 0; c < ratio.Length; c++)
+        {
+            // The master's sky above its floor is where its stretch puts the target median; the MTF's inverse is the MTF at
+            // the complementary balance.
+            var skyAbove = Image.MidtonesTransferFunction(1.0 - masterBalances[c], target);
+            var onPlate = Math.Max(0.0, masterMin[c] + skyAbove - plateMin[c]);
+            ratio[c] = Image.MidtonesTransferFunctionSlope(masterBalances[c], skyAbove) / Image.MidtonesTransferFunctionSlope(plateBalances[c], onPlate);
+        }
+        return fromMaster ? (masterMin, masterBalances, ratio) : (plateMin, plateBalances, ratio);
+    }
+
     private static async Task<SessionResult> ExportStarsSessionAsync(
         Options options,
         StarsContext stars,
@@ -367,15 +418,15 @@ public static partial class DatasetDegradationExporter
             var strategy = DatasetGradientReport.ReadMasterCards(masterPath).Strategy;
             var sessionOptions = SessionOptions(options, strategy, channels);
 
-            // The plate on its MASTER's scale, and both sides stretched with the plate's (the target's) parameters, H6.
+            // The plate on its MASTER's scale, and both sides stretched with one set of parameters: the plate's (the target's,
+            // H6) by default, or with StretchFromMaster the master's own, which is what inference stretches the master with (#1776).
             var divisor = DatasetTileExporter.UnitDivisor(master);
             unitPlate = DatasetTileExporter.ToUnitRange(plate, divisor);
-            var (stretched, applied, origMin, balances) = ChunkedNafnetRunner.ApplyInputStretch(unitPlate);
-            plateStretched = stretched;
-            if (!applied || origMin is null || balances is null)
-            {
-                throw new InvalidOperationException($"{sessionId}: the starless plate did not read as linear, so it is not a valid injection target");
-            }
+            var (origMin, balances, skySlopeRatio) = StarsStretch(sessionId, master, divisor, unitPlate, options.StretchFromMaster);
+            logger?.LogInformation("[degrade] {Session}: stretched with the {Source}'s parameters; the master's slope at its sky over the plate's {Ratio}",
+                sessionId, options.StretchFromMaster ? "master" : "plate",
+                string.Join(" / ", skySlopeRatio.Select(static r => r.ToString("F2", CultureInfo.InvariantCulture))));
+            plateStretched = unitPlate.MtfStretchWith(origMin, balances);
 
             var absent = plate.AbsentPixels();
             // Synthetics S4: the plate is the master less its fitted stars, so its noise is the master's own, with most of the
@@ -504,7 +555,7 @@ public static partial class DatasetDegradationExporter
                     var (row, injection) = InjectCell(sessionOptions, unitPlate, absent, population, cell, draw, seed, stackedFrames, fieldRadius,
                         origMin, balances, calibrations, tilesDir, slug, sessionId, measures, stars.Variation, background, knots, stars.WingCut, core,
                         noiseCorrelation);
-                    degRows.Add(row);
+                    degRows.Add(row with { Stretch = options.StretchFromMaster ? "master" : "plate", StretchSkySlopeRatio = skySlopeRatio });
                     injectionRows.Add(injection);
                     tileRows.Add(new DatasetTileExporter.TileManifestRow(
                         Tile: row.Tile, SessionId: sessionId, Camera: cell.Camera, Frame: row.Frame,
@@ -537,10 +588,8 @@ public static partial class DatasetDegradationExporter
         }
         finally
         {
-            if (!ReferenceEquals(plateStretched, unitPlate))
-            {
-                plateStretched?.Release();
-            }
+            // Always a stretch of its own (MtfStretchWith), never the plate it was made from.
+            plateStretched?.Release();
             if (!ReferenceEquals(unitPlate, plate))
             {
                 unitPlate?.Release();

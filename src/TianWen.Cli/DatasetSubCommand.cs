@@ -1808,6 +1808,13 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "channels the master's noise has, measured robustly on its starless plate, each channel's spatial " +
                           "correlation kept; nothing else a draw takes moves (Synthetics S4).",
         };
+        var stretchFromOpt = new Option<string>("--stretch-from")
+        {
+            Description = "--mode stars: whose parameters both halves of a pair are stretched with: plate (the default, the plan's " +
+                          "H6) or master (the master's own, as inference stretches it; the plate's minimum sits in its deepest " +
+                          "subtraction holes, #1776). Each session logs the slope ratio between the two at the sky.",
+            DefaultValueFactory = _ => "plate",
+        };
 
         var faintStarsOpt = new Option<string?>("--faint-stars")
         {
@@ -1822,7 +1829,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, channelWingCutOpt, keptCoresOpt, channelNoiseCorrelationOpt, faintStarsOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, channelWingCutOpt, keptCoresOpt, channelNoiseCorrelationOpt, faintStarsOpt, stretchFromOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -2028,6 +2035,17 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     return 1;
                 }
             }
+            var stretchFrom = parseResult.GetValue(stretchFromOpt) ?? "plate";
+            if (stretchFrom is not ("plate" or "master"))
+            {
+                consoleHost.WriteError($"--stretch-from {stretchFrom}: give plate or master");
+                return 1;
+            }
+            if (stretchFrom == "master" && mode != DatasetDegradationExporter.DegradationMode.Stars)
+            {
+                consoleHost.WriteError("--stretch-from master chooses the stars mode's stretch; it needs --mode stars");
+                return 1;
+            }
 
             var options = new DatasetDegradationExporter.Options(
                 BakeRoot: parseResult.Required(bakeOpt),
@@ -2072,6 +2090,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 ChannelNoiseCorrelation: channelNoiseCorrelation,
                 FaintStarFloor: faintStars,
                 FaintStarCap: faintCap,
+                StretchFromMaster: stretchFrom == "master",
                 Say: Say);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);

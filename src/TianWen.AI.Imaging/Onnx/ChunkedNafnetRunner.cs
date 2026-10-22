@@ -329,15 +329,28 @@ public static class ChunkedNafnetRunner
     /// </summary>
     internal static (Image Stretched, bool Applied, float[]? OrigMin, double[]? Balances) ApplyInputStretch(Image input, BitMatrix? absent)
     {
+        var (applied, origMin, balances) = InputStretchParameters(input, absent);
+        return applied && origMin is not null && balances is not null
+            ? (input.MtfStretchWith(origMin, balances), true, origMin, balances)
+            : (input, false, null, null);
+    }
+
+    /// <summary>
+    /// The parameters <see cref="ApplyInputStretch(Image, BitMatrix?)"/> would stretch <paramref name="input"/> with, without
+    /// stretching it: for a caller that stretches ANOTHER frame with them, as the star-remover export stretches its plate with
+    /// its master's (#1776), so both halves of the pair land where inference puts the master.
+    /// </summary>
+    internal static (bool Applied, float[]? OrigMin, double[]? Balances) InputStretchParameters(Image input, BitMatrix? absent)
+    {
         if (!NeedsStretch(input, absent))
         {
             // Already in (or near) the NAFNet training distribution; feed it verbatim and skip
             // the inverse round-trip. Critical for pre-stretched inputs (GHS/ABE), where the MTF
             // nonlinearity near saturation amplifies per-channel noise around bright stars.
-            return (input, false, null, null);
+            return (false, null, null);
         }
         var (origMin, balances) = input.MtfStretchParameters(AiNafnetInputs.TargetMedian, absent);
-        return (input.MtfStretchWith(origMin, balances), true, origMin, balances);
+        return (true, origMin, balances);
     }
 
     /// <summary>
