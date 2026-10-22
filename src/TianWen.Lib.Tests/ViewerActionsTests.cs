@@ -446,6 +446,24 @@ public class ViewerActionsTests
     }
 
     /// <summary>
+    /// A fresh state holds an EMPTY curve, not a default one, and switching to the spline must still give it knots: a
+    /// spline with none was a lookup table of zeros on the GPU, and the picture went black.
+    /// </summary>
+    [Fact]
+    public void SwitchingAFreshStateToTheSplineGivesItAnSCurve()
+    {
+        var state = new ViewerState();
+        state.CurveData.IsEmpty.ShouldBeTrue();
+
+        ViewerActions.CycleCurvesMode(state);
+
+        state.CurvesMode.ShouldBe(1);
+        state.CurveData.Length.ShouldBe(33);
+        state.CurveData[32].ShouldBe(1f, 1e-5f);
+        state.CurveData[16].ShouldBeGreaterThan(0.4f, "the middle of the curve is not black");
+    }
+
+    /// <summary>
     /// The reason the ramps clamp instead of wrapping, and the case worth pinning: one notch past the
     /// top must NOT land back on zero. A wrap there turns the effect off in response to a request for
     /// more of it, which reads as a broken control rather than as a cycle.
