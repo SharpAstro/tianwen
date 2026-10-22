@@ -412,7 +412,9 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
             texelsPerPixel: state.Zoom > 0f ? 1f / state.Zoom : 1f,
             finishContrast: stretch.FinishContrast,
             finishSaturation: stretch.FinishSaturation,
-            starScreen: starScreen,
+            // The star split's scale and its stars' strength (ScreenedStars); scale 0 screens nothing.
+            starScale: starScreen && source is AstroImageDocument { StarSplit: { } split } ? split.Scale : 0f,
+            starMidtones: (float)ScreenedStars.MidtonesFor(rendition.StarStretch),
             slot: uboSlotOverride >= 0 ? uboSlotOverride : (int)slot);
     }
 

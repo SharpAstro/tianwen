@@ -1094,7 +1094,7 @@ namespace TianWen.UI.Abstractions
                 // Lit while any of its controls is off its default (a dial, or a planet's colour look). One
                 // button reports them all, so the light is the only thing saying the tone has been touched at all.
                 ToolbarAction.Tone => state.CurvesBoost > 0f || state.HdrAmount > 0f || state.PlanetaryLook is not null
-                    || state.FinishContrast > 0f || state.FinishSaturation != 1f,
+                    || state.FinishContrast > 0f || state.FinishSaturation != 1f || state.StarStretch != StarSplit.StarCurve,
                 // Lit from the RUNG rather than from one layer: the mark below already says which
                 // rung, so the highlight is only answering "is any of this on".
                 ToolbarAction.Overlays => state.OverlayLevel is not ViewerOverlayLevel.None,

@@ -495,8 +495,9 @@ namespace TianWen.UI.Abstractions
         protected virtual void ReleaseUnusedChannelTextures(int liveSlotCount) { }
 
         /// <summary>
-        /// Uploads one channel of a star split's stars plate, ALREADY stretched by its own fixed curve, which the render
-        /// screens over the stretched starless picture (<see cref="StarScreenActive"/>). A backend with no star plate
+        /// Uploads one channel of a star split's LINEAR stars plate, which the render stretches by the stars' own curve
+        /// (<see cref="ViewerState.StarStretch"/>, a uniform) and screens over the stretched starless picture
+        /// (<see cref="StarScreenActive"/>). A backend with no star plate
         /// storage ignores it, and then shows the starless picture alone.
         /// </summary>
         protected virtual void UploadStarTexture(ReadOnlySpan<float> data, int channel, int imageWidth, int imageHeight) { }
@@ -822,7 +823,7 @@ namespace TianWen.UI.Abstractions
             else if (state.ChannelView is ChannelView.Composite && source.ChannelCount >= 3
                 && source is AstroImageDocument { StarSplit: { } split })
             {
-                // The star split: the starless plate is the picture, the stretched stars go to their own textures.
+                // The star split: the starless plate is the picture, the linear stars go to their own textures.
                 ChannelTextureCount = 3;
                 ImageSourceMode = 0; // ProcessedChannels
                 uploadedSlots = 3;

@@ -388,8 +388,8 @@ public sealed class AstroImageDocument : IPreviewSource
     public bool IsEnhanceResult { get; private set; }
 
     /// <summary>
-    /// The enhance's star split, kept for the render: the starless plate every display lever acts on, and the stars plate
-    /// ALREADY stretched by its own fixed curve (<see cref="StarSplit.StarCurve"/>), which the render screens over the
+    /// The enhance's star split, kept for the render: the starless plate every display lever acts on, and the linear stars
+    /// plate, which the render stretches by its own curve (<see cref="ViewerState.StarStretch"/>) and screens over the
     /// stretched starless picture, as the CLI's <c>--dual-stretch</c> composes them. Null for a frame with no split. The
     /// document's own image stays the recombined master: its statistics, its stars, what Save writes.
     /// </summary>

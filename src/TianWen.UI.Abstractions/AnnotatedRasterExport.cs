@@ -162,7 +162,7 @@ namespace TianWen.UI.Abstractions
             using var renderer = new RgbaImageRenderer((uint)width, (uint)height);
             var viewer = new AnnotatedViewer(renderer, pixels)
             {
-                Stars = split?.Stars,
+                Stars = split,
                 CelestialObjectDB = celestialObjectDB,
                 Annotation = annotation,
             };
@@ -310,8 +310,8 @@ namespace TianWen.UI.Abstractions
             /// </summary>
             public float CurvesMidpoint { get; set; } = 0.25f;
 
-            /// <summary>A star split's stretched stars plate, screened over the render, or null for none.</summary>
-            public Image? Stars { get; init; }
+            /// <summary>A star split, its stars screened over the render at the rendition's strength, or null for none.</summary>
+            public StarSplit? Stars { get; init; }
 
             /// <summary>
             /// The image itself, rendered through the rendition the base resolved -- so the pixels
@@ -329,7 +329,7 @@ namespace TianWen.UI.Abstractions
                 var surface = _renderer.Surface.Pixels;
                 _pixels.RenderStretchedRgba(rendition.Stretch, surface,
                     rendition.CurvesBoost, rendition.CurvesMode, rendition.CurveSpan,
-                    CurvesMidpoint, rendition.HdrAmount, rendition.HdrKnee, Stars);
+                    CurvesMidpoint, rendition.HdrAmount, rendition.HdrKnee, Stars?.ScreenAt(rendition.StarStretch));
 
                 // A single-channel view shows ONE channel as grey, and the render above already applied
                 // that channel's own curve, so the value is sitting in its own slot and only has to be
