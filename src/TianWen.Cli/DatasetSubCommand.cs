@@ -512,6 +512,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 BuildSyntheticClusterCommand(),
                 BuildFillProbeCommand(),
                 BuildPlateMasksCommand(),
+                BuildStarShapesCommand(),
                 BuildBrightCellsCommand(),
                 BuildNoiseCheckCommand(),
                 BuildNoisePlanesCommand(),
@@ -1526,6 +1527,38 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
     }
 
     /// <summary>
+    /// <c>tianwen dataset star-shapes</c>: R2s2 (docs/plans/star-remover-training.md). Each named master's real stars against
+    /// the stars its field profile draws, per channel, and the wing gain that makes the drawn read as the real
+    /// (<see cref="StarShape"/>), for <c>degrade --star-shapes</c>.
+    /// </summary>
+    private Command BuildStarShapesCommand()
+    {
+        var bakeOpt = new Option<string>("--bake") { Description = "Dataset bake holding session-masters/.", Required = true };
+        var platesOpt = new Option<string>("--plates") { Description = "The starless-plates store (its plates/ hold each catalogue and field profile).", Required = true };
+        var sessionsOpt = new Option<string>("--sessions-file")
+        {
+            Description = "A file of session ids, one a line: the masters to measure.",
+            Required = true,
+        };
+        var outOpt = new Option<string>("--out", "-o") { Description = "The JSON-lines file written; a session already in it is skipped.", Required = true };
+        var command = new Command("star-shapes",
+            "Measure each master's real stars against the stars the injector draws for it: per channel and brightness band, the " +
+            "light 3 to 8 px out per catalogued amplitude, and the wing gain at which the drawn star reads as the real one.")
+        {
+            Options = { bakeOpt, platesOpt, sessionsOpt, outOpt },
+        };
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var sessions = (await File.ReadAllLinesAsync(parseResult.Required(sessionsOpt), ct)).Select(static l => l.Trim()).Where(static l => l.Length > 0).ToArray();
+            var result = await StarShapeRun.RunAsync(parseResult.Required(bakeOpt), parseResult.Required(platesOpt), sessions, parseResult.Required(outOpt),
+                logger, new Progress<string>(line => consoleHost.WriteScrollable(line)), ct);
+            consoleHost.WriteScrollable($"[star-shapes] {result.Measured} measured, {result.Present} present, {result.Missing} without a master, catalogue or profile");
+            return 0;
+        });
+        return command;
+    }
+
+    /// <summary>
     /// <c>tianwen dataset degrade</c>: the shared degradation exporter
     /// (docs/plans/model-training-roadmap.md section 1 item 3). It reads a bake's RETAINED LINEAR
     /// masters plus its P0 manifest, degrades each cell in linear units, and writes a cache whose
@@ -1755,12 +1788,18 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "channels' mean); every draw of a cell takes one of them at random, from a stream of its own, its " +
                           "stars' widths and wings moved onto it with the master's own mean kept (R2s2).",
         };
+        var starShapesOpt = new Option<string>("--star-shapes")
+        {
+            Description = "--mode stars with --profile field: a tianwen dataset star-shapes file; each master's stars are drawn at " +
+                          "the per-channel wing gains its own real stars of the same brightness were measured to need (R2s2). " +
+                          "Every session needs its row. Not with --channel-relations.",
+        };
 
         var command = new Command("degrade",
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -1887,6 +1926,17 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     return 1;
                 }
             }
+            var starShapes = parseResult.GetValue(starShapesOpt);
+            if (starShapes is not null && (mode != DatasetDegradationExporter.DegradationMode.Stars || profile != StarProfileFamily.Field))
+            {
+                consoleHost.WriteError("--star-shapes calibrates the injected stars' field profiles; it needs --mode stars and --profile field");
+                return 1;
+            }
+            if (starShapes is not null && relationSessions is not null)
+            {
+                consoleHost.WriteError("--star-shapes and --channel-relations are two arms; give one");
+                return 1;
+            }
 
             var options = new DatasetDegradationExporter.Options(
                 BakeRoot: parseResult.Required(bakeOpt),
@@ -1924,7 +1974,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 Steering: degradeSteering,
                 StarLobes: starLobes,
                 StarSubs: starSubs,
-                ChannelRelationSessions: relationSessions);
+                ChannelRelationSessions: relationSessions,
+                StarShapesPath: starShapes);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);

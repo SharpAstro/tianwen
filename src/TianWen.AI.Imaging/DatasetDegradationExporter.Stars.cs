@@ -134,12 +134,23 @@ public static partial class DatasetDegradationExporter
     /// <summary>What the Stars mode reads once per run: the plates, the PSF store and, with R2s2, the channel relations.</summary>
     internal sealed class StarsContext
     {
-        internal StarsContext(string platesDir, Dictionary<string, DatasetPsfNoiseReport.SessionPsf> psf, ChannelVariation? variation = null)
+        internal StarsContext(string platesDir, Dictionary<string, DatasetPsfNoiseReport.SessionPsf> psf, ChannelVariation? variation = null,
+            Dictionary<string, StarShapeRow>? shapes = null)
         {
             PlatesDir = platesDir;
             Psf = psf;
             Variation = variation;
+            Shapes = shapes;
         }
+
+        /// <summary>Each master's measured star shape (<see cref="Options.StarShapesPath"/>), or null for none.</summary>
+        public Dictionary<string, StarShapeRow>? Shapes { get; }
+
+        /// <summary>A session's measured star shape, or null without a shapes file; a session the file lacks is refused.</summary>
+        public StarShapeRow? ShapeFor(string sessionId)
+            => Shapes is null ? null
+                : Shapes.TryGetValue(sessionId, out var row) ? row
+                : throw new InvalidOperationException($"{sessionId}: the star-shapes file has no row for this session");
 
         public string PlatesDir { get; }
 
@@ -172,6 +183,21 @@ public static partial class DatasetDegradationExporter
             {
                 throw new FileNotFoundException("the PSF store is empty or missing; the injected stars take each channel's profile from it", psfPath);
             }
+            if (options.StarShapesPath is not null && options.ChannelRelationSessions is not null)
+            {
+                // A master calibrated to its own stars keeps their shape; another master's relation would undo it.
+                throw new ArgumentException("star shapes and channel relations are two arms; give one", nameof(options));
+            }
+            Dictionary<string, StarShapeRow>? shapes = null;
+            if (options.StarShapesPath is { } shapesPath)
+            {
+                shapes = await StarShape.ReadAllAsync(shapesPath, cancellationToken);
+                if (shapes.Count == 0)
+                {
+                    throw new FileNotFoundException("the star-shapes file holds no master", shapesPath);
+                }
+                logger?.LogInformation("[degrade] star shapes measured on {Count} masters: each master's stars drawn at its real stars' wing gains", shapes.Count);
+            }
             ChannelVariation? variation = null;
             if (options.ChannelRelationSessions is { } relationSessions)
             {
@@ -188,7 +214,7 @@ public static partial class DatasetDegradationExporter
                 logger?.LogInformation("[degrade] channel relations measured on {Count} masters' field profiles, {Colour} of them in colour",
                     variation.Pool.Length, variation.Pool.Count(static r => r.Channels > 1));
             }
-            return new StarsContext(platesDir, psf, variation);
+            return new StarsContext(platesDir, psf, variation, shapes);
         }
 
         public string PlatePath(string sessionId) => Path.Combine(PlatesDir, DatasetTileExporter.Sanitize(sessionId) + "_plate.fits");
@@ -309,7 +335,14 @@ public static partial class DatasetDegradationExporter
                 throw new InvalidOperationException(
                     $"{sessionId}: the plate has no field profile ({stars.ProfilePath(sessionId)}); give the store its profiles with tianwen dataset starless-plates --profiles-only");
             }
-            var population = InjectionPopulation.Build(catalogue, master, plate, 1.0 / divisor, psf, absent, field, options.StarLobes);
+            var starShape = stars.ShapeFor(sessionId);
+            if (starShape is not null)
+            {
+                logger?.LogInformation("[degrade] {Session}: wing gains per band {Gains}, from its real stars", sessionId,
+                    string.Join("; ", starShape.Bands.Select(static b => string.Create(CultureInfo.InvariantCulture,
+                        $"from {b.MinSignificance:F0}: {string.Join(" / ", b.Channels.Select(static c => c.WingGain.ToString("F2", CultureInfo.InvariantCulture)))}"))));
+            }
+            var population = InjectionPopulation.Build(catalogue, master, plate, 1.0 / divisor, psf, absent, field, options.StarLobes, starShape);
             if (options.StarLobes)
             {
                 logger?.LogInformation("[degrade] {Session}: {Lobes} lobes carried with their stars; {Counted} of {Sites} subtracted sites counted",
