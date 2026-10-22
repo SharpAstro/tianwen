@@ -350,6 +350,15 @@ public static partial class DatasetDegradationExporter
             }
 
             var absent = plate.AbsentPixels();
+            // Synthetics S4: the plate is the master less its fitted stars, so its noise is the master's own, with most of the
+            // shared light a faint star would add to a correlation taken out with the stars.
+            var noiseCorrelation = options.ChannelNoiseCorrelation && channels > 1 ? ChannelNoiseCorrelation.Measure(unitPlate, absent) : null;
+            if (noiseCorrelation is not null)
+            {
+                logger?.LogInformation("[degrade] {Session}: noise drawn correlated across channels as the plate's, {Correlation}{Shrunk}",
+                    sessionId, noiseCorrelation.InWords(),
+                    noiseCorrelation.Shrink < 1.0 ? string.Create(CultureInfo.InvariantCulture, $" (taken at {noiseCorrelation.Shrink:F2} to stay positive definite)") : "");
+            }
             // The field profile is the one every catalogued amplitude was fitted with; a plate store from before profiles were
             // kept has none, and drawing those amplitudes with another profile is what made saturated tops too wide.
             var field = await StarlessFieldProfile.ReadAsync(stars.ProfilePath(sessionId), cancellationToken);
@@ -436,7 +445,7 @@ public static partial class DatasetDegradationExporter
                 {
                     (background, knots, core, cleanMad) = SyntheticCell(sessionOptions, synthetic, unitPlate, absent, cell, calibrations, masterDepth,
                         stackedFrames, DrawSeed(options.Seed, sessionId, cell.X, cell.Y, -1), origMin, balances,
-                        Path.Combine(tilesDir, cleanFile), Path.Combine(tilesDir, SigmaPathFor(cleanFile)), sessionId, keptCores);
+                        Path.Combine(tilesDir, cleanFile), Path.Combine(tilesDir, SigmaPathFor(cleanFile)), sessionId, keptCores, noiseCorrelation);
                 }
                 else
                 {
@@ -457,7 +466,8 @@ public static partial class DatasetDegradationExporter
                 {
                     var seed = DrawSeed(options.Seed, sessionId, cell.X, cell.Y, draw);
                     var (row, injection) = InjectCell(sessionOptions, unitPlate, absent, population, cell, draw, seed, stackedFrames, fieldRadius,
-                        origMin, balances, calibrations, tilesDir, slug, sessionId, measures, stars.Variation, background, knots, stars.WingCut, core);
+                        origMin, balances, calibrations, tilesDir, slug, sessionId, measures, stars.Variation, background, knots, stars.WingCut, core,
+                        noiseCorrelation);
                     degRows.Add(row);
                     injectionRows.Add(injection);
                     tileRows.Add(new DatasetTileExporter.TileManifestRow(
@@ -530,7 +540,8 @@ public static partial class DatasetDegradationExporter
         float[][]? background = null,
         ImmutableArray<SyntheticBackground.Knot> knots = default,
         ChannelWingCut? wingCut = null,
-        KeptCore? core = null)
+        KeptCore? core = null,
+        ChannelNoiseCorrelation? noiseCorrelation = null)
     {
         var size = cell.TileSize;
         var channels = unitPlate.ChannelCount;
@@ -569,11 +580,12 @@ public static partial class DatasetDegradationExporter
         // The stars' own shot noise at the master's depth: what the plate plus a star carries beyond what the plate already
         // does, on a field of the master's shape, and only the share of a saturated star's subs that did not clip.
         var noiseRng = new Random(seed ^ 0x1b873593);
+        var fields = NoiseFieldsFor(drawShape, drawSigma, size, stackedFrames, noiseRng, channels, noiseCorrelation);
         var planes = new float[channels][,];
         var levelPlanes = new float[channels][,];
         for (var c = 0; c < channels; c++)
         {
-            var field = NoiseFieldFor(drawShape, drawSigma, size, stackedFrames, noiseRng);
+            var field = fields[c];
             var plane = new float[size, size];
             var level = new float[size, size];
             var calibration = calibrations[c];
@@ -694,7 +706,8 @@ public static partial class DatasetDegradationExporter
     private static (float[][] Planes, ImmutableArray<SyntheticBackground.Knot> Knots, KeptCore? Core, double CleanMad) SyntheticCell(
         Options options, SyntheticBackground synthetic, Image unitPlate, BitMatrix? absent, CellSpec cell,
         LinearDegradation.NoiseCalibration[] calibrations, double masterDepth, int stackedFrames, int seed,
-        float[] origMin, double[] balances, string tilePath, string sigmaPath, string sessionId, KeptCores? keptCores = null)
+        float[] origMin, double[] balances, string tilePath, string sigmaPath, string sessionId, KeptCores? keptCores = null,
+        ChannelNoiseCorrelation? noiseCorrelation = null)
     {
         var size = cell.TileSize;
         var channels = unitPlate.ChannelCount;
@@ -703,12 +716,13 @@ public static partial class DatasetDegradationExporter
         var core = keptCores?.AddTo(level, size, noiseSigma, new Random(seed ^ 0x7f4a7c15));
         var (shape, warpSigma) = DrawNoiseShape(options, seed);
         var noiseRng = new Random(seed ^ 0x5bd1e995);
+        var fields = NoiseFieldsFor(shape, warpSigma, size, stackedFrames, noiseRng, channels, noiseCorrelation);
         var noisy = new float[channels][];
         var noisyPlanes = new float[channels][,];
         var levelPlanes = new float[channels][,];
         for (var c = 0; c < channels; c++)
         {
-            var field = NoiseFieldFor(shape, warpSigma, size, stackedFrames, noiseRng);
+            var field = fields[c];
             var plate = CutClamped(unitPlate, c, cell.X, cell.Y, size, size);
             var plane = new float[size * size];
             var noisyPlane = new float[size, size];

@@ -1806,12 +1806,18 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "channel of every star, the channel drawn at random and the factor log-uniform up to 1, from a stream of " +
                           "its own (R2v: one channel falling off faster than any training master's does). Not with --channel-relations.",
         };
+        var channelNoiseCorrelationOpt = new Option<bool>("--channel-noise-correlation")
+        {
+            Description = "--mode stars: draw the noise (the stars' own, and the synthetic background's) with the correlation between " +
+                          "channels the master's noise has, measured robustly on its starless plate, each channel's spatial " +
+                          "correlation kept; nothing else a draw takes moves (Synthetics S4).",
+        };
 
         var command = new Command("degrade",
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, channelWingCutOpt, keptCoresOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, channelWingCutOpt, keptCoresOpt, channelNoiseCorrelationOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -1974,6 +1980,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     return 1;
                 }
             }
+            var channelNoiseCorrelation = parseResult.GetValue(channelNoiseCorrelationOpt);
+            if (channelNoiseCorrelation && mode != DatasetDegradationExporter.DegradationMode.Stars)
+            {
+                consoleHost.WriteError("--channel-noise-correlation draws the stars mode's noise; it needs --mode stars");
+                return 1;
+            }
 
             var options = new DatasetDegradationExporter.Options(
                 BakeRoot: parseResult.Required(bakeOpt),
@@ -2014,7 +2026,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 ChannelRelationSessions: relationSessions,
                 StarShapesPath: starShapes,
                 ChannelWingCut: channelWingCut,
-                KeptCores: keptCores);
+                KeptCores: keptCores,
+                ChannelNoiseCorrelation: channelNoiseCorrelation);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);

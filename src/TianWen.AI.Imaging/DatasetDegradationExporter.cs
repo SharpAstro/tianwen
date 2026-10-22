@@ -426,6 +426,11 @@ namespace TianWen.AI.Imaging
         /// core in its background, in the input and the target alike, so a remover learns to keep it
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.KeptCores"/>, #1658), from a stream of its own, so every other draw is
         /// the one it was without it.</param>
+        /// <param name="ChannelNoiseCorrelation">Stars mode: the noise drawn (the stars' own, and the synthetic background's)
+        /// carries the correlation between channels its master's noise was measured to have on the plate
+        /// (<see cref="TianWen.Lib.Imaging.StarRemoval.ChannelNoiseCorrelation"/>, Synthetics S4), each channel's field mixed
+        /// with the others' and its spatial correlation kept; the mix draws no random number, so every other draw is what it
+        /// was. Off, each channel's noise is drawn on its own.</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -470,7 +475,8 @@ namespace TianWen.AI.Imaging
             IReadOnlyList<string>? ChannelRelationSessions = null,
             string? StarShapesPath = null,
             double? ChannelWingCut = null,
-            bool KeptCores = false);
+            bool KeptCores = false,
+            bool ChannelNoiseCorrelation = false);
 
         /// <summary>
         /// The options one session's draws are made with: the warped shape's smoothing chosen by what made the master's noise.
@@ -837,6 +843,22 @@ namespace TianWen.AI.Imaging
             => shape == NoiseShape.White
                 ? NoiseField.White(size, size, rng)
                 : NoiseField.Warped(size, size, Math.Max(2, Math.Min(stackedFrames, 16)), rng, warpSigma);
+
+        /// <summary>
+        /// One field of the draw's shape per channel, drawn in channel order from <paramref name="rng"/> as a field at a time
+        /// always was, then, with a <paramref name="correlation"/>, mixed to carry it (Synthetics S4). The mix takes nothing
+        /// from any stream, so without it the fields are the ones drawn, and with it every other draw is unchanged.
+        /// </summary>
+        internal static float[][] NoiseFieldsFor(NoiseShape shape, double warpSigma, int size, int stackedFrames, Random rng, int channels,
+            TianWen.Lib.Imaging.StarRemoval.ChannelNoiseCorrelation? correlation)
+        {
+            var fields = new float[channels][];
+            for (var c = 0; c < channels; c++)
+            {
+                fields[c] = NoiseFieldFor(shape, warpSigma, size, stackedFrames, rng);
+            }
+            return correlation is { Channels: > 1 } && correlation.Channels == channels ? correlation.Mix(fields) : fields;
+        }
 
         /// <summary>
         /// The cells a session exports: its seeded sample and then its listed cells, in canonical row-major order. One rule
