@@ -3531,6 +3531,40 @@ guard lost: the nucleus at most 5 % in every channel, purity at most 1.0 %, A's 
 dig came from the training stars' wings; (1) missing with (2) holding means the wings were short but the hole is the cores;
 both missing sends the next arm to the cores. The judges' rows stay the ceiling.
 
+#### Round 2's first reads: R2s2 killed, and R2u gives the whole masters a seed spread (2026-10-23)
+
+Every row is `score-whole.py` at one view:
+
+| model | Andromeda bright flat / dug | blue at 1.5-3 / 3-4.5 px | Tarantula bright flat / left | Tarantula core R / G / B | Tarantula crowded | BP 17-19 / purity | Sag crowded | M31's nucleus R / G / B |
+|---|---|---|---|---|---|---|---|---|
+| R2i seed 0 | 32.8 / 36.6 | -1.10 / -0.90 | 35.8 / 60.6 | +0.89 / +1.06 / +0.61 | 69.8 | 90.3 / 0.6 | 95.0 | 3.2 / 3.1 / 0.5 % |
+| **R2s2** | 43.3 / 42.1 | -1.05 / -1.01 | 48.0 / 49.8 | +0.95 / +1.15 / +0.92 | 81.5 | 90.8 / 0.5 | 95.3 | **78.6 / 74.4 / 70.7 %** |
+| R2t seed 1 | 40.6 / 41.7 | -1.23 / -1.00 | 57.2 / 40.3 | +0.84 / +0.38 / +0.90 | 81.3 | 85.4 / 0.5 | 95.2 | 1.1 / 6.1 / 3.1 % |
+| R2u (R2t, seed 0) | 39.5 / 43.4 | -1.31 / -1.03 | 44.0 / 54.2 | +0.62 / +1.06 / +1.06 | 74.8 | 86.9 / 0.4 | 95.1 | -0.1 / 3.5 / 2.1 % |
+| SXT | 98.6 / 1.4 | -0.40 / -0.27 | 96.6 / 2.7 | -0.04 / +0.06 / +0.04 | 96.1 | 98.3 / 3.1 | 99.6 | 0.1 / 0.1 / 0.1 % |
+| StarNet2 | 48.1 / 0.4 | -0.22 / -0.12 | 92.3 / 7.4 | -0.33 / +0.01 / +0.05 | 96.5 | 98.9 / 1.7 | 99.8 | -0.8 / -0.9 / 0.1 % |
+
+**R2s2 is killed by (3).** It takes M31's nucleus at 78.6 / 74.4 / 70.7 %, the most any arm has, and A's bright draws fall to
+51.4 % clean (79.7 / 73.8 / 51.4 against R2i seed 0's 79.2 / 74.5 / 60.2), with the real tiles' bright stars at 95.33 %
+(bar 95.4). (1) misses outright: blue's residual is where it was (-1.05 / -1.01 against -1.10 / -0.90) and Andromeda's
+bright stars are dug more, 42.1 % against 36.6. (2) misses at 49.8 % left (bar 45). Purity held at 0.5 %. By the read
+written before it trained, both missing sends the next arm to the cores. Wings drawn up to 1.26 times brighter taught the
+small model to take a bright, extended core whole, and did not touch the blue hole.
+
+**R2u holds every prediction** (R2t's six, from the round 1 reads, and the real bright stars at 97.4 or more): A's draws
+80.1 / 77.2 / 66.3 % clean, the real bright stars 97.58 %, purity 0.4 % and BP 17-19 86.9 %, Andromeda's dark-sky bright
+stars 39.5 % and the Sagittarius Triplet's crowded stars 95.1 %, the Tarantula's crowded stars 74.8 % (bar 74.5) and its
+dark-sky bright stars 44.0 % (bar 33.9), and M31's nucleus at most 3.5 % in every channel, the one prediction R2t itself
+missed. Its kill (below R2t on both the real bright stars and A's bright draws) does not fire. R2t's recipe holds on a
+second seed, and its nucleus miss was its seed's.
+
+**What the second seed says about reading a whole master.** On Andromeda the two seeds agree to 1 to 2 points (flat 40.6
+and 39.5 %, dug 41.7 and 43.4 %) and blue's hole is the same in both (-1.23 and -1.31 sigma): the hole belongs to the
+recipe and its data, not to a seed. The held-out Tarantula moves far more: crowded stars 81.3 and 74.8 %, bright stars flat
+57.2 and 44.0 %, left 40.3 and 54.2 %, the core 0.4 sigma apart in green. So a single seed's Tarantula difference under
+about 13 points is not evidence, which reads R2s2's Tarantula gains over R2i seed 0 (flat 48.0 against 35.8, crowded 81.5
+against 69.8) as within a seed's reach, while its Andromeda dig and its nucleus are not.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
