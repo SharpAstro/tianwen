@@ -3703,6 +3703,55 @@ the file log alone (measured: `bright-cells --session zzzzqq` printed no selecti
 (`*M42*`), a different shape that a short value does not blow up; `gradient-export --only` matches master file names; and
 the cross-night `--exclude` and `--object` are not session filters. Pinned by `SessionFilterTests`, with no data.
 
+#### The export trains in a gentler stretch than inference runs (#1776, 2026-10-23)
+
+Found by the S2 worker (#1737) while reading the synthetics review's numbers. Inference stretches the whole master with its
+own parameters (`OnnxTianWenStarRemover`, `ChunkedNafnetRunner.ApplyInputStretch`). The stars export stretched both
+halves of every pair with the starless plate's (H6, "stretch input and target with the TARGET frame's MTF parameters", a rule
+written for the deconvolver, whose target and input share a floor). `MtfStretch` anchors each channel on its minimum, and a
+plate's minimum sits in its few deepest subtraction holes. So the plate's sky stands further above its floor, and its stretch
+is gentler there. Every model so far has trained in a gentler stretch than it runs in.
+
+The survey (`degrade --mode stars`, one cell of each of the 138 training masters; every row now records
+`StretchSkySlopeRatio`, the master's MTF slope at its own sky over the plate's at the same value):
+
+| | red | green | blue |
+|---|---|---|---|
+| broadband (54), median (IQR) | 1.13 (1.00-2.05) | 1.00 (0.98-1.88) | 1.00 (0.99-1.48) |
+| dual-band (69), median (IQR) | 1.31 (1.07-1.63) | 1.10 (1.00-1.45) | 1.00 (1.00-1.24) |
+| mono (15) | 0.97 (0.81-1.00) | | |
+
+73 of the 138 masters have a channel stretched at least 1.25 times more gently in training than at inference, 33 at least
+twice, and a few 8 to 30 times (the two Omega Centauri nights, V1045 Ori's blue, eta Carinae). It runs the other way too:
+18 masters have a channel the plate's stretch takes MORE steeply, by 0.8 or below (the Running Chicken night's green and blue
+at 0.67 and 0.69), so 91 of the 138 are off by 1.25 times or more one way or the other. Red is the gentle channel
+most often, which bears on the synthetics review's colour gap (S3, #1738: stretched stars bluer than real) and on its
+brightness gap (S2, #1737: stars read twice their real sigma).
+
+**The fix**, `degrade --stretch-from master`, stretches both halves with the master's own parameters through the runner's
+one helper (`ChunkedNafnetRunner.InputStretchParameters`), so the pair lands where inference puts the master. The default
+stays `plate`, which leaves every export and every arm so far as it was.
+
+#### R2w: the pairs stretched as inference stretches the master, pre-registered (2026-10-23)
+
+Written before it trains. **The arm.** R2i's recipe (run-r2.ps1, no teacher, no extra cache) on synth11, seed 0, on the
+1070 after R2v: synth4's command with `--stretch-from master`, every star, colour and background draw synth4's. One change
+against R2i seed 0. **Where it is read.** The whole-master scorecard and the real tiles stretch each master with its own
+parameters, R2w's training domain. A's draws and R2k's twins were exported with the plate's stretch, so R2w meets them out
+of its domain: they are read, not predicted.
+
+**Predictions** against R2i seed 0's whole-master row:
+1. The held-out Tarantula's core residual under +0.5 sigma in every channel (+0.89 / +1.06 / +0.61). A star met in a steeper
+   stretch than it was taught in reads brighter at its core than any it learned, which is the light left in sharp cores.
+2. The real tiles' bright stars flat on at least 97.0 % (R2i seed 0 96.4).
+3. No guard lost: M31's nucleus at most 5 % in every channel, purity at most 1.0 %.
+
+**Read, not predicted:** Andromeda's dig and blue residual, the crowded fields, A's draws and the twins.
+**Kill:** (3) failing.
+**Read:**
+- (1) and (2) holding make the master's stretch every later export's default.
+- Either missing with (3) holding means the skew was real but not what kept the cores.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
