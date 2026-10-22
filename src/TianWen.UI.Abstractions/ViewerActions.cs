@@ -295,7 +295,8 @@ public static class ViewerActions
     public static void CycleCurvesMode(ViewerState state)
     {
         state.CurvesMode = state.CurvesMode == 0 ? 1 : 0;
-        if (state.CurvesMode == 1 && state.CurveData.IsDefault)
+        // IsDefaultOrEmpty: the state starts on an EMPTY array, and a spline with no knots is a LUT of zeros, a black picture.
+        if (state.CurvesMode == 1 && state.CurveData.IsDefaultOrEmpty)
         {
             // Use an S-curve preset: lift shadows, preserve mids, compress highlights
             var spline = new FritschCarlsonSpline([(0f, 0f), (0.15f, 0.22f), (0.4f, 0.5f), (0.7f, 0.72f), (1f, 1f)]);

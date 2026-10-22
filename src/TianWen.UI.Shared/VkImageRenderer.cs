@@ -386,7 +386,8 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
             rescale: (stretch.Rescale.R, stretch.Rescale.G, stretch.Rescale.B),
             whiteBalance: (stretch.WhiteBalance.R, stretch.WhiteBalance.G, stretch.WhiteBalance.B),
             bgNeutralization: (stretch.BackgroundNeutralization.R, stretch.BackgroundNeutralization.G, stretch.BackgroundNeutralization.B),
-            curvesMode: rendition.CurvesMode,
+            // A spline with no knots is no curve, as the CPU render reads it (hasLut); the shader would read zeros.
+            curvesMode: rendition.CurveSpan.IsEmpty ? 0 : rendition.CurvesMode,
             curveData: rendition.CurveSpan,
             gridMode: gridMode,
             gridSpacingRA: gridSpacingRA,
