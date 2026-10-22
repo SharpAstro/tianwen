@@ -40,8 +40,8 @@ layout(set = 0, binding = 0, std140) uniform StretchUBO {
     // value reaches the sky map's own grid, so the two grids this shader hands over to each other
     // cannot drift apart. It is a constant, not a per-draw choice, which is why no caller passes it.
     vec4  gridColor;
-    // offset 432 (x = finish contrast 0..1, y = finish saturation, 1 = off; z = the star split's scale, what a LINEAR star
-    // sample (set 2) is multiplied by before its curve, 0 for no split; w = the stars' midtones balance, StarStretch's).
+    // offset 432 (x = finish contrast 0..1, y = finish saturation, 1 = off; z = the star split's asinh beta, 0 for no
+    // split; w = 1 / asinh(beta)). The stars plate (set 2) is LINEAR and stretched here by the CLI's colour asinh.
     // The masked finish, after the soft clip: applyFinish below, mirrored by Image.ApplyFinish on the CPU; the star
     // screen by ScreenedStars.Display and Image.ScreenStars.
     vec4  finishParams;
@@ -51,8 +51,8 @@ layout(set = 1, binding = 0) uniform sampler2D uChannel0;
 layout(set = 1, binding = 1) uniform sampler2D uChannel1;
 layout(set = 1, binding = 2) uniform sampler2D uChannel2;
 
-// Set 2: the star split's stars plate, LINEAR; stretched here by its own curve (finishParams.zw) and never by a display
-// lever. A 1x1 placeholder when the frame has no split.
+// Set 2: the star split's stars plate, LINEAR; stretched here by its own colour asinh (finishParams.zw) and never by a
+// display lever. A 1x1 placeholder when the frame has no split.
 layout(set = 2, binding = 0) uniform sampler2D uStar0;
 layout(set = 2, binding = 1) uniform sampler2D uStar1;
 layout(set = 2, binding = 2) uniform sampler2D uStar2;
@@ -765,15 +765,16 @@ void main() {
         r *= ns; g *= ns; b *= ns;
     }
 
-    // The star split: the stars plate, scaled onto the frame's full scale and through StarStretch's curve
-    // (ScreenedStars.Display), screened over everything the starless picture took, 1 - (1 - a)(1 - s), as the CLI's
-    // --dual-stretch recombines (Image.ScreenStars).
+    // The star split: the stars plate through the CLI's colour asinh, every channel times the one factor its Rec.709
+    // luminance gives (ScreenedStars.Display, Image.AsinhLumaScale), screened over everything the starless picture took,
+    // 1 - (1 - a)(1 - s), as the CLI's --dual-stretch recombines (Image.ScreenStars).
     if (ubo.finishParams.z > 0.0) {
-        float sm = ubo.finishParams.w;
-        float sk = ubo.finishParams.z;
+        float beta = ubo.finishParams.z;
+        vec3 lin = vec3(texture(uStar0, vTexCoord).r, texture(uStar1, vTexCoord).r, texture(uStar2, vTexCoord).r);
+        float sl = dot(vec3(0.2126, 0.7152, 0.0722), lin);
+        float k = sl < 1e-5 ? beta * ubo.finishParams.w : asinh(sl * beta) * ubo.finishParams.w / sl;
         vec3 a = clamp(vec3(r, g, b), 0.0, 1.0);
-        vec3 s = vec3(mtf(sm, texture(uStar0, vTexCoord).r * sk), mtf(sm, texture(uStar1, vTexCoord).r * sk),
-            mtf(sm, texture(uStar2, vTexCoord).r * sk));
+        vec3 s = clamp(lin * k, 0.0, 1.0);
         vec3 c = a + s * (vec3(1.0) - a);
         r = c.r; g = c.g; b = c.b;
     }

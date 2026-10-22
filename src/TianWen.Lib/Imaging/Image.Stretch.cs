@@ -550,7 +550,7 @@ public partial class Image
     /// for star plates extracted from already-stretched images. On linear
     /// stars-only plates (median near zero), values in the 1.5 - 3.0 range
     /// usually produce well-balanced stretches. Higher = stronger stretch.</param>
-    public Image StarStretch(double amount) => FixedMidtonesStretch(ScreenedStars.MidtonesFor(amount));
+    public Image StarStretch(double amount) => FixedMidtonesStretch(1.0 / (Math.Pow(3.0, amount) + 1.0));
 
     /// <summary>
     /// Hyperbolic-arcsin stretch (Siril's <c>asinh</c> command). For
@@ -602,8 +602,6 @@ public partial class Image
         // Limit of asinh(luma * β) / luma as luma → 0 is β; precompute the
         // resulting scale = β / asinh(β) so the near-zero branch is a single
         // multiply.
-        var nearZeroScale = betaF * invAsinhBeta;
-        const float LumaEpsilon = 1e-5f;
 
         if (channels == 1)
         {
@@ -613,10 +611,7 @@ public partial class Image
             {
                 var v = src[i];
                 if (float.IsNaN(v)) { dst[i] = float.NaN; continue; }
-                var scale = v < LumaEpsilon
-                    ? nearZeroScale
-                    : (float)Math.Asinh(v * betaF) * invAsinhBeta / v;
-                dst[i] = (v - bp) * scale;
+                dst[i] = (v - bp) * AsinhLumaScale(v, betaF, invAsinhBeta);
             }
         }
         else if (channels >= 3)
@@ -638,10 +633,7 @@ public partial class Image
                     dst0[i] = float.NaN; dst1[i] = float.NaN; dst2[i] = float.NaN;
                     continue;
                 }
-                var luma = wR * r + wG * g + wB * b;
-                var scale = luma < LumaEpsilon
-                    ? nearZeroScale
-                    : (float)Math.Asinh(luma * betaF) * invAsinhBeta / luma;
+                var scale = AsinhLumaScale(wR * r + wG * g + wB * b, betaF, invAsinhBeta);
                 dst0[i] = (r - bp) * scale;
                 dst1[i] = (g - bp) * scale;
                 dst2[i] = (b - bp) * scale;
@@ -655,6 +647,15 @@ public partial class Image
 
         return new Image(newData, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
     }
+
+    /// <summary>
+    /// The factor <see cref="AsinhStretch"/> multiplies a pixel by, from its luminance: <c>asinh(luma * beta) / (luma *
+    /// asinh(beta))</c>, or its limit <c>beta / asinh(beta)</c> below 1e-5, where the ratio is 0/0. The one definition for the
+    /// stretch and the star split's screen (<see cref="ScreenedStars"/>, the shader's star screen).
+    /// </summary>
+    /// <param name="invAsinhBeta">One over <c>asinh(beta)</c>, computed once by the caller.</param>
+    public static float AsinhLumaScale(float luma, float beta, float invAsinhBeta)
+        => luma < 1e-5f ? beta * invAsinhBeta : (float)Math.Asinh(luma * beta) * invAsinhBeta / luma;
 
     /// <summary>
     /// Estimates the background histogram peak (mode) of channel 0 by
@@ -1887,13 +1888,14 @@ public partial class Image
                 bOut *= u.NormalizeScale;
             }
 
-            // The star split: the stars plate, stretched by its own curve, screened over the starless picture after
-            // everything the picture took (ScreenStars, the shader's starScreen).
+            // The star split: the stars plate, stretched by its own colour asinh, screened over the starless picture after
+            // everything the picture took (ScreenedStars.Display, ScreenStars, the shader's starScreen).
             if (stars.Curve is { } starCurve)
             {
-                rOut = ScreenStars(rOut, starCurve.Display(stars.R[i]));
-                gOut = ScreenStars(gOut, starCurve.Display(stars.G[i]));
-                bOut = ScreenStars(bOut, starCurve.Display(stars.B[i]));
+                var (sr, sg, sb) = starCurve.Display(stars.R[i], stars.G[i], stars.B[i]);
+                rOut = ScreenStars(rOut, sr);
+                gOut = ScreenStars(gOut, sg);
+                bOut = ScreenStars(bOut, sb);
             }
 
             // Gamut-preserving max-channel scale -- see comment on the
@@ -2034,13 +2036,14 @@ public partial class Image
                 bOut *= u.NormalizeScale;
             }
 
-            // The star split: the stars plate, stretched by its own curve, screened over the starless picture after
-            // everything the picture took (ScreenStars, the shader's starScreen).
+            // The star split: the stars plate, stretched by its own colour asinh, screened over the starless picture after
+            // everything the picture took (ScreenedStars.Display, ScreenStars, the shader's starScreen).
             if (stars.Curve is { } starCurve)
             {
-                rOut = ScreenStars(rOut, starCurve.Display(stars.R[i]));
-                gOut = ScreenStars(gOut, starCurve.Display(stars.G[i]));
-                bOut = ScreenStars(bOut, starCurve.Display(stars.B[i]));
+                var (sr, sg, sb) = starCurve.Display(stars.R[i], stars.G[i], stars.B[i]);
+                rOut = ScreenStars(rOut, sr);
+                gOut = ScreenStars(gOut, sg);
+                bOut = ScreenStars(bOut, sb);
             }
 
             // Gamut-preserving max-channel scale before per-channel clamp:

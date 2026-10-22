@@ -392,7 +392,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     }
 
     /// <summary>
-    /// Uploads one channel of the star split's LINEAR stars plate, which the shader stretches by the stars' own curve
+    /// Uploads one channel of the star split's LINEAR stars plate, which the shader stretches by the stars' own colour asinh
     /// (<c>finishParams.zw</c>, <see cref="TianWen.Lib.Imaging.ScreenedStars"/>) and screens over the stretched starless
     /// picture. No display lever edits it, so the plate is uploaded once and its strength is a uniform.
     /// </summary>
@@ -738,8 +738,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         float texelsPerPixel = 1f,
         float finishContrast = 0f,
         float finishSaturation = 1f,
-        float starScale = 0f,
-        float starMidtones = 0.5f,
+        float starBeta = 0f,
         int slot = UboSlotPrimary)
     {
         if ((uint)slot >= StretchUboSlots)
@@ -888,9 +887,10 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         // FinishSaturation), applied after the soft clip; its mask's background is curvesMidpoint at offset 16.
         WriteFloat(p, 432, finishContrast);
         WriteFloat(p, 436, finishSaturation);
-        // The star split's scale (0 = no split) and its stars' midtones balance (ScreenedStars).
-        WriteFloat(p, 440, starScale);
-        WriteFloat(p, 444, starMidtones);
+        // The star split's asinh beta (0 = no split) and one over asinh(beta), so the shader takes no asinh of a constant
+        // per pixel (ScreenedStars, Image.AsinhLumaScale).
+        WriteFloat(p, 440, starBeta);
+        WriteFloat(p, 444, starBeta >= 1f ? 1f / MathF.Asinh(starBeta) : 0f);
 
         // Every 4-byte slot from 0 to StretchUboSize is written on every call, so comparing the whole
         // range against the previous contents is exact: there is no padding hole left holding stale or
