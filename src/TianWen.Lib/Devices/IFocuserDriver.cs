@@ -31,6 +31,21 @@ public interface IFocuserDriver : IDeviceDriver
     public int MaxStep { get; }
 
     /// <summary>
+    /// The FLOOR of the focuser's position range: the lowest absolute position it accepts, 0 unless the focuser
+    /// declares otherwise.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>This is a bound on WHERE the focuser can be, not on how far it can move.</b> It is not the smallest
+    /// move a focuser can make, which is always a single step; that has no member, and <see cref="MaxIncrement"/>
+    /// bounds a move from the other side.</para>
+    /// <para>Most focusers count from 0 (ASCOM defines a focuser's position as 0 to <see cref="MaxStep"/>), so the
+    /// default keeps every one of them as it was. A focuser whose counter is legitimately negative declares its own
+    /// floor: a QHY QFOC keeps a signed counter in non-volatile memory, and read -559 on connect (#1763). Check or
+    /// clamp a position with <see cref="FocuserTravelExtensions"/>, never against a literal 0.</para>
+    /// </remarks>
+    public int MinStep => 0;
+
+    /// <summary>
     /// True if <see cref="StepSize"/> is the known step size of the focuser
     /// </summary>
     public bool CanGetStepSize { get; }

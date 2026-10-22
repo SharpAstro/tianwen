@@ -40,4 +40,30 @@ public class BacklashCompensationMotionTests
         moves.ShouldBe([780, 800]);
         polls.ShouldBe(4);
     }
+
+    [Theory]
+    [InlineData(0, new[] { 0, 5 })]
+    [InlineData(-1000, new[] { -15, 5 })]
+    public async Task AnOvershootBelowZeroStopsAtTheFocusersOwnFloor(int minStep, int[] expectedMoves)
+    {
+        // From 50 down to 5 against the preferred (outward, positive) direction, with 20 steps of backlash: the
+        // overshoot wants -15. A focuser that counts from 0 stops it at 0; one whose counter goes negative (a QHY
+        // QFOC, #1763) takes it, so its backlash is taken out like any other's.
+        var ct = TestContext.Current.CancellationToken;
+        var focuser = Substitute.For<IFocuserDriver>();
+        focuser.MinStep.Returns(minStep);
+        focuser.MaxStep.Returns(10_000);
+
+        var moves = new List<int>();
+        var polls = 0;
+        var motion = new FocuserMotion(
+            (position, _) => { moves.Add(position); return ValueTask.CompletedTask; },
+            _ => ValueTask.FromResult(++polls % 2 == 1));
+
+        await BacklashCompensation.MoveWithCompensationAsync(
+            focuser, motion, targetPosition: 5, currentPosition: 50, backlashStepsIn: 20, backlashStepsOut: 20,
+            new FocusDirection(PreferOutward: true, OutwardIsPositive: true), new FakeTimeProviderWrapper(), ct);
+
+        moves.ShouldBe(expectedMoves);
+    }
 }

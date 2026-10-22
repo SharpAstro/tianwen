@@ -186,6 +186,21 @@ public class FitsPixelScaleTests
         plain.Meta.BiasSection.ShouldBeNull();
     }
 
+    [Theory]
+    [InlineData(1441)]
+    [InlineData(-559)]
+    public void AFocusPositionSurvivesTheRoundTripBelowZeroToo(int focusPos)
+    {
+        // A QHY QFOC's counter goes below zero (#1763): FOCUSPOS was written only when non-negative, so a frame
+        // taken at -559 lost the card and read back as unknown.
+        var testDir = SharedTestData.CreateTempTestOutputDir();
+        var path = Path.Combine(testDir, $"focuspos{focusPos}.fits");
+        ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN) with { FocusPos = focusPos }).WriteToFitsFile(path);
+
+        Image.TryReadFitsHeader(path, out var read).ShouldBeTrue();
+        read.Meta.FocusPos.ShouldBe(focusPos);
+    }
+
     [Fact]
     public void TheFrameSequenceSurvivesTheRoundTripAndAnUnsourcedCountReadsAsTheWeakerClaim()
     {

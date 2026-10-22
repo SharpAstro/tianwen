@@ -144,7 +144,7 @@ All of them are in steps, and also in µm only where a step size is configured.
 
 Today, converged means only that at least three rungs had enough stars and a fit ran. Add the checks that are
 missing:
-- `p` must lie inside the sweep. Today it is clamped to `[0, MaxStep]` and nothing else.
+- `p` must lie inside the sweep. Today it is clamped to the focuser's travel (`[MinStep, MaxStep]`, #1763) and nothing else.
 - Both arms must climb to about `2a` or more, or `b` is not constrained.
 - The fit error must be used, not just logged.
 - Above ten rungs, `MetricSampleMap` drops the two OUTERMOST positions as outliers. Those are the most informative

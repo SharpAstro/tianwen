@@ -14,6 +14,12 @@ internal class FakeFocuserDriver(FakeDevice fakeDevice, IServiceProvider service
     // Focus model: read from device URI settings, with sensible defaults
     private readonly int _baseBestFocus = int.TryParse(fakeDevice.Query.QueryValue(DeviceQueryKey.FocuserBestFocus), out var bf) ? bf : 1000;
     private readonly int _initialPosition = int.TryParse(fakeDevice.Query.QueryValue(DeviceQueryKey.FocuserInitialPosition), out var ip) ? ip : 980;
+
+    /// <summary>
+    /// The floor of the travel, 0 as most focusers have it, or <c>focuserMinStep</c> on the device URI for one whose
+    /// counter goes negative (a QHY QFOC). Settable for test setup.
+    /// </summary>
+    public int MinStep { get; set; } = int.TryParse(fakeDevice.Query.QueryValue(DeviceQueryKey.FocuserMinStep), out var ms) ? ms : 0;
     private double _tempCoefficient = 5.0; // steps per °C of focus shift
 
     // Backlash model
@@ -102,9 +108,9 @@ internal class FakeFocuserDriver(FakeDevice fakeDevice, IServiceProvider service
         {
             throw new InvalidOperationException("Focuser is not connected");
         }
-        else if (position < 0 || position > MaxStep)
+        else if (!this.IsWithinTravel(position))
         {
-            throw new ArgumentOutOfRangeException(nameof(position), position, $"Position out of range (0..{MaxStep})");
+            throw new ArgumentOutOfRangeException(nameof(position), position, $"Position out of range ({MinStep}..{MaxStep})");
         }
 
         // Track direction for backlash

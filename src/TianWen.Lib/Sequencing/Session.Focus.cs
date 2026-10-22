@@ -635,7 +635,7 @@ internal partial record Session
         var range = Configuration.AutoFocusRange;
         var stepCount = Configuration.AutoFocusStepCount;
         var stepSize = range / (stepCount - 1);
-        var startPos = Math.Max(0, currentPos - range / 2);
+        var startPos = focuser.ClampToTravel(currentPos - range / 2);
 
         _logger.LogInformation("Auto-focus telescope #{TelescopeNumber}: scanning {StepCount} positions from {StartPos} with step size {StepSize}.",
             telescopeIndex + 1, stepCount, startPos, stepSize);
@@ -794,7 +794,7 @@ internal partial record Session
         _currentActivity = $"#{telescopeIndex + 1} Fitting hyperbola\u2026";
         if (sampleMap.TryGetBestFocusSolution(out var solution, out _, out _))
         {
-            var bestPos = Math.Clamp((int)Math.Round(solution.Value.BestFocus), 0, focuser.MaxStep);
+            var bestPos = focuser.ClampToTravel((int)Math.Round(solution.Value.BestFocus));
             var currentPosNow = await ResilientInvokeAsync(
                 focuser, focuser.GetPositionAsync,
                 ResilientCallOptions.IdempotentRead, cancellationToken);

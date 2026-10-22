@@ -67,11 +67,16 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     [
         DeviceSettingHelper.IntSetting(
             DeviceQueryKey.FocuserInitialPosition.Key, "Initial Pos",
-            defaultValue: 980, min: 0, max: 2000, step: 10,
+            defaultValue: 980, min: -2000, max: 2000, step: 10,
             suffix: " steps"),
         DeviceSettingHelper.IntSetting(
             DeviceQueryKey.FocuserBestFocus.Key, "Best Focus",
-            defaultValue: 1000, min: 0, max: 2000, step: 50,
+            defaultValue: 1000, min: -2000, max: 2000, step: 50,
+            suffix: " steps"),
+        // The floor of the travel: below 0 for a focuser whose counter goes negative, as a QHY QFOC's does (#1763).
+        DeviceSettingHelper.IntSetting(
+            DeviceQueryKey.FocuserMinStep.Key, "Min Step",
+            defaultValue: 0, min: -2000, max: 0, step: 100,
             suffix: " steps"),
         DeviceSettingHelper.IntSetting(
             DeviceQueryKey.FocuserBacklashIn.Key, "Backlash In",

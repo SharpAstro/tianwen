@@ -330,6 +330,24 @@ Canon through WPD is keyed by the body's serial, because that is readable (`Cano
   from the hardware, which offers no identity; what is left is a profile migration or a rule for matching a moved mount,
   which is work of its own (#1090).
 
+### A focuser's travel: MinStep to MaxStep
+
+A focuser's position lies in `[IFocuserDriver.MinStep, IFocuserDriver.MaxStep]` (#1763). **`MinStep` is the FLOOR of
+that range, the lowest absolute position the focuser accepts, not the smallest move it can make** (a move can always be a
+single step, and `MaxIncrement` bounds a move from the other side). It defaults to 0, so every focuser that counts from
+0, which is every ASCOM and Alpaca one by ASCOM's own definition, is unchanged. A focuser whose counter is legitimately
+negative declares its floor: a QHY QFOC keeps a SIGNED counter in non-volatile memory (it read -559 on connect, ran
+through zero on a move and kept its value across a full power-down on the 2026-10-22 bench), so `QHYFocuserDriver`
+declares -1,000,000, the counter's range mirrored, not the drawtube's travel. A `MaxStep` of 0 or less is no upper
+bound, as callers always read it.
+
+**Check or clamp a position with `FocuserTravelExtensions` (`IsWithinTravel`, `ClampToTravel`, `TravelInWords` for a
+refusal), never against a literal 0.** Each of the session's autofocus sweep and best-focus move, the backlash
+overshoot, the node's focuser move route and a filter change's focus offset did, and so drove a QFOC at -559 to 0 or
+refused it. The fake focuser takes its floor from `focuserMinStep` on its URI. FITS keeps -1 as the "unknown" focus
+position (`ImageMeta.FocusPos`), so a frame records every other position, negative ones included; a real nullable in
+place of that marker is #1764.
+
 ## Alpaca camera image transfer
 
 `AddAlpaca()` is a **fully functional** device source (camera, telescope, focuser, filter wheel,

@@ -71,12 +71,8 @@ public static class BacklashCompensation
                     ? targetPosition + backlashSteps
                     : targetPosition - backlashSteps;
 
-                // Clamp to valid range
-                overshootPos = Math.Max(0, overshootPos);
-                if (focuser.MaxStep > 0)
-                {
-                    overshootPos = Math.Min(focuser.MaxStep, overshootPos);
-                }
+                // Within the focuser's travel, whose floor may be below zero (IFocuserDriver.MinStep)
+                overshootPos = focuser.ClampToTravel(overshootPos);
 
                 await MoveAndWaitAsync(motion, overshootPos, timeProvider, cancellationToken);
             }

@@ -69,6 +69,32 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task GivenAFocuserWhoseCounterGoesNegativeWhenBestFocusIsBelowZeroThenAutoFocusFindsIt()
+    {
+        // A QHY QFOC's counter is signed (it read -559 on connect, #1763). With best focus at -40 and the focuser at 10,
+        // the 200-step sweep must run from -90 to 110 around it: clamped to start at 0 it saw only one arm of the V, and
+        // the best focus it fitted was clamped to 0 again before the move.
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        const int bestFocus = -40;
+        ctx.Focuser.MinStep = -2000;
+        ctx.Camera.TrueBestFocus = bestFocus;
+        await ctx.Focuser.BeginMoveAsync(10, ct);
+        while (await ctx.Focuser.GetIsMovingAsync(ct))
+        {
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
+        }
+
+        var (converged, _) = await ctx.Session.AutoFocusAsync(0, ct);
+
+        converged.ShouldBeTrue("auto-focus should converge across zero");
+        var finalPos = await ctx.Focuser.GetPositionAsync(ct);
+        output.WriteLine($"True best focus: {bestFocus}, found: {finalPos}");
+        finalPos.ShouldBeLessThan(0, "best focus is below zero, and nothing may clamp it to 0");
+        Math.Abs(finalPos - bestFocus).ShouldBeLessThan(30, "focuser should be within 30 steps of true best focus");
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task GivenAutoFocusWhenBacklashConfiguredThenApproachesFromBelow()
     {
         // given: focuser starts above best focus, backlash = 20
