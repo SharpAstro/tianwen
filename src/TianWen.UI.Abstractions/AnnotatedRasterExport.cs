@@ -150,12 +150,19 @@ namespace TianWen.UI.Abstractions
                     state.DebayerAlgorithm.ResolveAuto(isBayerMosaic: true, isColour: false, isVideoStream: false),
                     cancellationToken: cancellationToken).ConfigureAwait(false)
                 : image;
+            // A star split composes as on screen: the starless plate through the display, its stretched stars screened over.
+            var split = isComposite ? document.StarSplit : null;
+            if (split is not null)
+            {
+                pixels = split.Starless;
+            }
 
             var (_, width, height) = pixels.Shape;
 
             using var renderer = new RgbaImageRenderer((uint)width, (uint)height);
             var viewer = new AnnotatedViewer(renderer, pixels)
             {
+                Stars = split?.Stars,
                 CelestialObjectDB = celestialObjectDB,
                 Annotation = annotation,
             };
@@ -303,6 +310,9 @@ namespace TianWen.UI.Abstractions
             /// </summary>
             public float CurvesMidpoint { get; set; } = 0.25f;
 
+            /// <summary>A star split's stretched stars plate, screened over the render, or null for none.</summary>
+            public Image? Stars { get; init; }
+
             /// <summary>
             /// The image itself, rendered through the rendition the base resolved -- so the pixels
             /// under the annotation are the same pixels "save as displayed" writes, by construction
@@ -319,7 +329,7 @@ namespace TianWen.UI.Abstractions
                 var surface = _renderer.Surface.Pixels;
                 _pixels.RenderStretchedRgba(rendition.Stretch, surface,
                     rendition.CurvesBoost, rendition.CurvesMode, rendition.CurveSpan,
-                    CurvesMidpoint, rendition.HdrAmount, rendition.HdrKnee);
+                    CurvesMidpoint, rendition.HdrAmount, rendition.HdrKnee, Stars);
 
                 // A single-channel view shows ONE channel as grey, and the render above already applied
                 // that channel's own curve, so the value is sitting in its own slot and only has to be

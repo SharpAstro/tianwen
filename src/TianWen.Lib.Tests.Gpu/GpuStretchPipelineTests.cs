@@ -496,7 +496,8 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         int height,
         ImmutableArray<float> curveLut,
         float hdrAmount,
-        float curvesMidpoint = 0.25f)
+        float curvesMidpoint = 0.25f,
+        Image? stars = null)
     {
         var ctx = _gpu.Ctx!;
         var renderer = _gpu.Renderer!;
@@ -519,6 +520,15 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         pipeline.UploadChannelTexture(debayered.GetChannelSpan(0), 0, debayered.Width, debayered.Height);
         pipeline.UploadChannelTexture(debayered.GetChannelSpan(1), 1, debayered.Width, debayered.Height);
         pipeline.UploadChannelTexture(debayered.GetChannelSpan(2), 2, debayered.Width, debayered.Height);
+        // The star split's plate, or none: the fixture is shared, so a previous case's plate is released either way.
+        pipeline.ReleaseStarTextures();
+        if (stars is not null)
+        {
+            for (var c = 0; c < 3; c++)
+            {
+                pipeline.UploadStarTexture(stars.GetChannelSpan(c), c, stars.Width, stars.Height);
+            }
+        }
 
         // Readback the first 16 floats of each channel as a sanity check for the upload. If
         // the GPU output is solid black but the readback returns the source data correctly,
@@ -570,7 +580,8 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
             lumaBlend: u.LumaBlend,
             normalizeScale: u.NormalizeScale,
             finishContrast: u.FinishContrast,
-            finishSaturation: u.FinishSaturation);
+            finishSaturation: u.FinishSaturation,
+            starScreen: stars is not null);
 
         // RecordImageDraw's last two args are the orthographic projection's viewport size, not
         // the draw-rect size -- they have to match the actual framebuffer the GPU is rendering
@@ -769,6 +780,51 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         // off arrives several bytes off (measured: mean 0.47, max 31, outliers 0.021 %). The mean and the outlier share
         // stay as tight as every other case; only the single worst pixel is relaxed, as the HDR normalise case does.
         AssertCpuGpuParity(cpuRgba, gpuRgba, "27_gpu_masked_finish", maxAllowed: 36);
+    }
+
+    /// <summary>
+    /// GPU/CPU parity for the star split's screen: the shader's starScreen, sampling the stars plate from set 2, against
+    /// Image.ScreenStars after the CPU render's normalise.
+    /// </summary>
+    [Fact]
+    public async Task GpuMatchesCpuForTheStarScreen()
+    {
+        if (!_gpu.VulkanAvailable)
+        {
+            Assert.Skip($"Vulkan runtime not available ({_gpu.UnavailableReason})");
+            return;
+        }
+
+        var ct = TestContext.Current.CancellationToken;
+        var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(VelaFixture, cancellationToken: ct);
+        var doc = await AstroImageDocument.AdoptImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
+        await doc.DetectStarsAsync(ct);
+
+        var uniforms = doc.ComputeStretchUniforms(StretchMode.Linked, new StretchParameters(0.15, -3));
+        var img = doc.UnstretchedImage;
+        var w = img.Width;
+        var h = img.Height;
+        // Any [0, 1] plate exercises the screen; this one is the frame itself through the stars' fixed curve.
+        var stars = img.Affine(1.0 / img.MaxValue, 0.0).StarStretch(TianWen.UI.Abstractions.StarSplit.StarCurve);
+
+        var cpuRgba = new byte[w * h * 4];
+        img.RenderStretchedRgba(uniforms, cpuRgba, starScreen: stars);
+
+        var gpuRgba = await _gpu.InvokeAsync(() =>
+        {
+            try
+            {
+                return RenderViaOffscreenGpu(img, uniforms, w, h, default, 0f, stars: stars);
+            }
+            finally
+            {
+                _gpu.Pipeline!.ReleaseStarTextures();
+            }
+        }, ct);
+        foreach (var line in _formatDiagBag) output.WriteLine(line);
+        _formatDiagBag.Clear();
+
+        AssertCpuGpuParity(cpuRgba, gpuRgba, "28_gpu_star_screen");
     }
 
     /// <summary>

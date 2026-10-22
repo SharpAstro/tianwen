@@ -387,6 +387,25 @@ public sealed class AstroImageDocument : IPreviewSource
     /// </remarks>
     public bool IsEnhanceResult { get; private set; }
 
+    /// <summary>
+    /// The enhance's star split, kept for the render: the starless plate every display lever acts on, and the stars plate
+    /// ALREADY stretched by its own fixed curve (<see cref="StarSplit.StarCurve"/>), which the render screens over the
+    /// stretched starless picture, as the CLI's <c>--dual-stretch</c> composes them. Null for a frame with no split. The
+    /// document's own image stays the recombined master: its statistics, its stars, what Save writes.
+    /// </summary>
+    public StarSplit? StarSplit { get; private set; }
+
+    /// <summary>Keeps an enhance's star split for the render (<see cref="StarSplit"/>), the plates on this document's grid.</summary>
+    public void AttachStarSplit(StarSplit split)
+    {
+        if (split.Starless.Width != UnstretchedImage.Width || split.Starless.Height != UnstretchedImage.Height
+            || split.Stars.Width != UnstretchedImage.Width || split.Stars.Height != UnstretchedImage.Height)
+        {
+            throw new System.ArgumentException("A star split's plates must be on the document's own grid.", nameof(split));
+        }
+        StarSplit = split;
+    }
+
     /// <summary>Marks this document as the AI enhance's output. One-way; an enhance result never
     /// becomes an ordinary frame.</summary>
     public void MarkAsEnhanceResult() => IsEnhanceResult = true;

@@ -67,7 +67,17 @@ uniform pipeline, not a mess of if else"):
   The preset (`(0.2, 2.8)`) and the user's choice of it are untouched; only the noise the black point is sized by
   changes. Without it the enhanced Sculptor master solved to midtones of 0.000127 (MAD 6e-6, a fifth of its pre-denoise
   noise) and every pixel above the sky went toward white, its colour noise with it. A frame no enhance touched carries
-  no card and stretches exactly as before. In Luma mode the producer always populates BOTH
+  no card and stretches exactly as before.
+- **An enhanced frame keeps its star split for the render** (`AstroImageDocument.StarSplit`, #1771): the enhance's
+  starless plate is the picture every display lever acts on, and its stars plate is stretched ONCE by a fixed curve
+  (`StarSplit.StarCurve`, StarStretch at the CLI's `--dual-stretch` default) on the frame's own full scale (divided by
+  the recombined frame's peak: a fixed curve needs a fixed scale, and the Sculptor master tops out at 0.017), then
+  screened over the stretched result after the normalise (`Image.ScreenStars`, `a + s(1 - a)`; the shader samples the
+  plate from descriptor set 2, a 1x1 placeholder when a frame has none, with `finishParams.z` the switch). The stars
+  take no display lever, which is the point: one curve over the recombined frame lifted every star's wings with the
+  faint signal, the blue rings round the Sculptor's bright stars. The document's own image stays the recombined master
+  (statistics, star detection, what Save writes as FITS); a saved PNG composes as the screen does. Held by
+  `StarSplitRenderTests` and `GpuMatchesCpuForTheStarScreen`. In Luma mode the producer always populates BOTH
 `StretchUniforms.LumaStretch` (scalar Luma MTF params) AND per-channel `Shadows/Midtones/Rescale`
 (linked branch params) so the shader can blend between them via `LumaBlend`.
 

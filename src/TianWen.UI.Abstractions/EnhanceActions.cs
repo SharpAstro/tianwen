@@ -33,6 +33,24 @@ public static class EnhanceActions
     /// (<c>AstroImageDocument.AdoptStatedBalanceAsync</c>), so what the enhance bakes in is what the frame was shown with,
     /// and a master stacked with SPCC is balanced as the CLI's <c>image sharpen</c> balances it.
     /// </summary>
+    /// <summary>
+    /// The linear plates an enhance's ADDITIVE recombine summed into <paramref name="final"/>, the most-processed on each
+    /// side as <c>RecombineStep</c> takes them, or null when the run kept no split (the whole-frame program), the frame is
+    /// not colour, or its scale is not [0, 1] (the document's adopt would rescale the recombined frame and not the plates).
+    /// </summary>
+    internal static (Image Starless, Image Stars)? SplitPlates(SharpenResult result, Image final)
+    {
+        var starless = result.DenoisedStarless ?? result.DeconvolvedStarless ?? result.Starless;
+        var stars = result.SharpenedStars ?? result.StarsOnly;
+        if (starless is null || stars is null || final.ChannelCount < 3 || !final.HasUnitScalePeak
+            || starless.Width != final.Width || starless.Height != final.Height
+            || stars.Width != final.Width || stars.Height != final.Height)
+        {
+            return null;
+        }
+        return (starless, stars);
+    }
+
     internal static ColourCalibration? EnhanceWhiteBalance(AstroImageDocument source, ViewerState state)
         => state.ColorCalibrationEnabled ? source.PhotometricColorCalibration : null;
 
@@ -128,9 +146,19 @@ public static class EnhanceActions
         // went negative and the frame rendered as a flat crimson wash. The stats are computed by the
         // adopt, so the rewrap has to happen on the way IN rather than at render time. Same call the
         // stacking preview has always made; it shares the arrays, so this costs no pixels.
+        // Read BEFORE the adopt, which scales a frame not already on [0, 1] in place: the star split's plates are on the
+        // pipeline's scale, so they are kept only where that scale is the document's.
+        var plates = SplitPlates(result, enhanced);
+        var peak = enhanced.MaxValue;
         var doc = await AstroImageDocument.AdoptImageAsync(
             enhanced.WithZeroPedestal(), debayerAlgorithm, wcs, source.FilePath, crop, cancellationToken)
             .ConfigureAwait(false);
+        // The star split for the render (AstroImageDocument.StarSplit): the plates the recombine added, the stars stretched
+        // once by their own curve, so no display lever lifts their wings with the faint signal.
+        if (plates is { } split)
+        {
+            doc.AttachStarSplit(StarSplit.FromLinear(split.Starless.WithZeroPedestal(), split.Stars, peak));
+        }
         // Every canonical program runs a GradientCorrectionStep, so the background of what comes back
         // has been flattened and levelled. Nothing needs telling any more: AstroImageDocument.
         // ChannelsAlreadyAgree MEASURES that from the per-channel medians the stretch already has, so

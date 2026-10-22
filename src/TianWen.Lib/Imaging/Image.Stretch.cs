@@ -1460,6 +1460,41 @@ public partial class Image
     }
 
     /// <summary>
+    /// The star split's composite of one channel: a stretched starless value with the stars plate's stretched value screened
+    /// over it, <c>1 - (1 - a)(1 - s)</c>, the blend the CLI's <c>--dual-stretch</c> recombines with. CPU mirror of the
+    /// shader's <c>starScreen</c>.
+    /// </summary>
+    public static float ScreenStars(float picture, float star)
+    {
+        // a + s(1 - a), the screen written so a pixel with no star comes back exactly as it was.
+        var a = Math.Clamp(picture, 0f, 1f);
+        var b = Math.Clamp(star, 0f, 1f);
+        return a + (b * (1f - a));
+    }
+
+    private readonly ref struct StarScreen(bool active, ReadOnlySpan<float> r, ReadOnlySpan<float> g, ReadOnlySpan<float> b)
+    {
+        public bool Active { get; } = active;
+        public ReadOnlySpan<float> R { get; } = r;
+        public ReadOnlySpan<float> G { get; } = g;
+        public ReadOnlySpan<float> B { get; } = b;
+    }
+
+    /// <summary>The stars plate's channels for <see cref="RenderStretchedRgba"/>, a mono plate read as grey; none for a plate of
+    /// another shape.</summary>
+    private static StarScreen StarScreenSpans(Image? stars, int width, int height)
+    {
+        if (stars is null || stars.Width != width || stars.Height != height)
+        {
+            return default;
+        }
+        var r = stars.GetChannelSpan(0);
+        return stars.ChannelCount >= 3
+            ? new StarScreen(true, r, stars.GetChannelSpan(1), stars.GetChannelSpan(2))
+            : new StarScreen(true, r, r, r);
+    }
+
+    /// <summary>
     /// Where the finish applies, from a pixel's STRETCHED luminance <paramref name="luma"/> against the post-stretch
     /// <paramref name="background"/>: 0 at and below the background, rising smoothly to 1 a quarter of the way from the
     /// background to white, then easing back to 0 over the last fifth below white, so the sky's noise and the star cores are
@@ -1750,7 +1785,8 @@ public partial class Image
         ReadOnlySpan<float> curveLut = default,
         float curvesMidpoint = 0.25f,
         float hdrAmount = 0f,
-        float hdrKnee = 0.8f)
+        float hdrKnee = 0.8f,
+        Image? starScreen = null)
     {
         var (channelCount, width, height) = Shape;
         var pixelCount = width * height;
@@ -1763,6 +1799,7 @@ public partial class Image
         var ch2 = isColor ? GetChannelSpan(2) : default;
         var hasLut = curvesMode == 1 && !curveLut.IsEmpty;
         var hasFinish = u.HasFinish;
+        var stars = StarScreenSpans(starScreen, width, height);
 
         for (var i = 0; i < pixelCount; i++)
         {
@@ -1854,6 +1891,15 @@ public partial class Image
                 bOut *= u.NormalizeScale;
             }
 
+            // The star split: the stars plate, stretched by its own fixed curve, screened over the starless picture after
+            // everything the picture took (ScreenStars, the shader's starScreen).
+            if (stars.Active)
+            {
+                rOut = ScreenStars(rOut, stars.R[i]);
+                gOut = ScreenStars(gOut, stars.G[i]);
+                bOut = ScreenStars(bOut, stars.B[i]);
+            }
+
             // Gamut-preserving max-channel scale -- see comment on the
             // 16-bit mirror RenderStretchedRgba16 below for the rationale.
             var maxOut = MathF.Max(rOut, MathF.Max(gOut, bOut));
@@ -1891,7 +1937,8 @@ public partial class Image
         ReadOnlySpan<float> curveLut = default,
         float curvesMidpoint = 0.25f,
         float hdrAmount = 0f,
-        float hdrKnee = 0.8f)
+        float hdrKnee = 0.8f,
+        Image? starScreen = null)
     {
         var (channelCount, width, height) = Shape;
         var pixelCount = width * height;
@@ -1904,6 +1951,7 @@ public partial class Image
         var ch2 = isColor ? GetChannelSpan(2) : default;
         var hasLut = curvesMode == 1 && !curveLut.IsEmpty;
         var hasFinish = u.HasFinish;
+        var stars = StarScreenSpans(starScreen, width, height);
 
         for (var i = 0; i < pixelCount; i++)
         {
@@ -1988,6 +2036,15 @@ public partial class Image
                 rOut *= u.NormalizeScale;
                 gOut *= u.NormalizeScale;
                 bOut *= u.NormalizeScale;
+            }
+
+            // The star split: the stars plate, stretched by its own fixed curve, screened over the starless picture after
+            // everything the picture took (ScreenStars, the shader's starScreen).
+            if (stars.Active)
+            {
+                rOut = ScreenStars(rOut, stars.R[i]);
+                gOut = ScreenStars(gOut, stars.G[i]);
+                bOut = ScreenStars(bOut, stars.B[i]);
             }
 
             // Gamut-preserving max-channel scale before per-channel clamp:
