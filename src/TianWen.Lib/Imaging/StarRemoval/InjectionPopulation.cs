@@ -17,8 +17,9 @@ public enum InjectionPlacement
     AtSite = 1,
 }
 
-/// <summary>One cell's injection: the stars in frame coordinates, how many were asked for and how many were placed.</summary>
-public sealed record InjectionPlan(ImmutableArray<InjectedStar> Stars, int Requested, int Placed, bool SaturatedFallback);
+/// <summary>One cell's injection: the stars in frame coordinates, how many were asked for and how many were placed; with a
+/// channel variation, whose relation the stars were drawn at (<see cref="ChannelRelation.Source"/>).</summary>
+public sealed record InjectionPlan(ImmutableArray<InjectedStar> Stars, int Requested, int Placed, bool SaturatedFallback, string? RelationFrom = null);
 
 /// <summary>
 /// A master's own star population, read once from its starless plate's catalogue, from which each cell's injected stars are
@@ -81,6 +82,7 @@ public sealed class InjectionPopulation
     private readonly ImmutableArray<double> _fallbackClips;
     private readonly (double X, double Y, double E, double Theta)[] _moments;
     private readonly StarlessFieldProfile? _field;
+    private ChannelRelation? _ownRelation;
 
     private InjectionPopulation(
         int width, int height, int channels, BitMatrix? absent, (double Fwhm, double Beta)[] psf, (double X, double Y)[] sites,
@@ -295,22 +297,31 @@ public sealed class InjectionPopulation
     /// <summary>
     /// Draws one cell's stars: the cell spans [<paramref name="cellX"/>, + <paramref name="size"/>) on each axis and the stars
     /// are placed over it and <paramref name="margin"/> pixels around it, so a tile's edge cuts stars as a real one's does.
-    /// With <paramref name="variation"/> (R2s) each channel's halo and width are drawn on their own, from
-    /// <paramref name="variationRng"/> alone, so the stars placed, their brightness and their colour are the ones the draw
-    /// makes without it and only their shapes differ.
+    /// With <paramref name="variation"/> (R2s2) every star of the draw, its lobes with it, takes one measured channel relation
+    /// drawn from <paramref name="variationRng"/> alone, so the stars placed, their brightness and their colour are the ones
+    /// the draw makes without it and only their shapes differ. The master's own relation is its field profile's, so a
+    /// variation needs <see cref="StarProfileFamily.Field"/>.
     /// </summary>
     public InjectionPlan Plan(
         int cellX, int cellY, int size, int margin, InjectionPlacement placement, StarProfileFamily family, double saturatedFraction, Random rng,
         ChannelVariation? variation = null, Random? variationRng = null)
     {
-        if (variation is not null && variationRng is null)
+        ImmutableArray<(double LogHalo, double LogWidth)> factors = default;
+        string? relationFrom = null;
+        if (variation is not null)
         {
-            throw new ArgumentNullException(nameof(variationRng), "a channel variation draws from a stream of its own");
+            if (variationRng is null)
+            {
+                throw new ArgumentNullException(nameof(variationRng), "a channel variation draws from a stream of its own");
+            }
+            if (family != StarProfileFamily.Field || _field is null)
+            {
+                throw new InvalidOperationException("a channel variation moves the master's field profile onto another's; it needs the Field profile");
+            }
+            _ownRelation ??= ChannelRelation.Of("own", _field);
+            var (drawnRelation, drawnFactors) = variation.DrawCell(_ownRelation, variationRng);
+            (factors, relationFrom) = (drawnFactors, drawnRelation.Source);
         }
-        var cellFactors = variation is { } v && variationRng is { } vr ? v.DrawCell(_channels, vr) : default;
-        // One star's factors, or none: its own scatter about the cell's, drawn in placement order.
-        ImmutableArray<(double LogHalo, double LogWidth)> StarFactors()
-            => variation is { } sv && variationRng is { } svr ? sv.DrawStar(cellFactors, svr) : default;
 
         var x0 = Math.Max(0, cellX - margin);
         var y0 = Math.Max(0, cellY - margin);
@@ -343,7 +354,6 @@ public sealed class InjectionPopulation
                 continue;
             }
             var drawn = _amplitudes[rng.Next(_amplitudes.Length)];
-            var factors = StarFactors();
             stars.Add(new InjectedStar(p.X, p.Y, drawn.Amplitudes, Varied(ProfilesAt(p.X, p.Y, family), factors), Saturated: false, ImmutableArray<double>.Empty));
             AddLobes(stars, p, drawn.Lobes, family, factors);
             placed++;
@@ -376,19 +386,18 @@ public sealed class InjectionPopulation
                     var target = clips.Max() * over;
                     amplitudes = colour.Select(a => peak > 0 ? a / peak * target : target).ToImmutableArray();
                 }
-                var factors = StarFactors();
                 stars.Add(new InjectedStar(p.X, p.Y, amplitudes, Varied(ProfilesAt(p.X, p.Y, family), factors), Saturated: true, clips));
                 AddLobes(stars, p, lobes, family, factors);
             }
         }
-        return new InjectionPlan(stars.ToImmutable(), requested, placed, fallback);
+        return new InjectionPlan(stars.ToImmutable(), requested, placed, fallback, relationFrom);
     }
 
-    // A star's profiles at its channel factors (R2s), or as measured where there are none.
+    // A star's profiles at the draw's channel factors (R2s2), or as measured where there are none.
     private static ImmutableArray<StarProfile> Varied(ImmutableArray<StarProfile> profiles, ImmutableArray<(double LogHalo, double LogWidth)> factors)
         => factors.IsDefault ? profiles : ChannelVariation.Apply(profiles, factors);
 
-    // A drawn star's lobes beside it, at their own offsets, each with the profile of where it lands and its star's channel
+    // A drawn star's lobes beside it, at their own offsets, each with the profile of where it lands and the draw's channel
     // factors; one that would land off the frame or on an absent pixel is left out. They draw nothing from the random
     // stream, so a plan with lobes places and picks its stars as one without them would, the count aside.
     private void AddLobes(ImmutableArray<InjectedStar>.Builder stars, (double X, double Y) at, ImmutableArray<Lobe> lobes, StarProfileFamily family,

@@ -1,5 +1,6 @@
 using Shouldly;
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using TianWen.Lib.Imaging;
@@ -570,57 +571,105 @@ public class StarInjectionTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// A channel variation (R2s) changes the stars' shapes and nothing else: the same stars at the same places with the same
-    /// brightness and colour, drawn from a stream of its own; each channel takes its own factors, every star of one draw
-    /// sits within its scatter of them, a lobe takes its star's, and the same two seeds draw the same plan.
+    /// A channel relation (R2s2) says how the channels differ and nothing of the star's size: identical channels relate as
+    /// zero, a profile and its widened copy measure the same wing-to-core light (the Moffat and the field's table both scale
+    /// with the width), and a wing gain g multiplies that light by g exactly.
     /// </summary>
     [Fact]
-    public void AChannelVariationRedrawsOnlyTheShapesAndEachChannelOnItsOwn()
+    public void AChannelRelationIsHowTheChannelsDifferAtAnyWidth()
     {
-        var population = BuildColourPopulation();
-        var variation = ChannelVariation.R2s;
-        var plain = population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Moffat, 1.0, new Random(21));
-        var varied = population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Moffat, 1.0, new Random(21), variation, new Random(99));
+        var same = ChannelRelation.Of("same", ColourField((2.4, 0.004f), (2.4, 0.004f), (2.4, 0.004f)));
+        same.LogWidth.ShouldAllBe(static w => Math.Abs(w) < 1e-12);
+        same.LogWing.ShouldAllBe(static w => Math.Abs(w) < 1e-12);
 
-        varied.Stars.Length.ShouldBe(plain.Stars.Length);
-        varied.Stars.Count(static s => s.Saturated).ShouldBe(1, "the saturated draw is varied too");
-        for (var i = 0; i < plain.Stars.Length; i++)
-        {
-            (varied.Stars[i].X, varied.Stars[i].Y, varied.Stars[i].Saturated).ShouldBe((plain.Stars[i].X, plain.Stars[i].Y, plain.Stars[i].Saturated));
-            varied.Stars[i].Amplitudes.ShouldBe(plain.Stars[i].Amplitudes);
-        }
+        var field = ColourField((3.0, 0.002f), (2.3, 0.006f), (2.6, 0.004f));
+        var star = new StarProfile(StarProfileFamily.Field, field.Channels[0].Fwhm, field.Channels[0].Beta, 1.0, 0.0, field.Channels[0].Table, field.Channels[0].TableAlpha);
+        ChannelRelation.WingToCore(star.Scaled(1.7)).ShouldBe(ChannelRelation.WingToCore(star), 1e-9 * ChannelRelation.WingToCore(star), "the same star wider");
+        ChannelRelation.WingToCore(star with { HaloLogGain = Math.Log(2.0) }).ShouldBe(2.0 * ChannelRelation.WingToCore(star), 1e-12);
 
-        var logHalo = new double[3][];
+        var wider = ChannelRelation.Of("wider", [.. field.Channels.Select(c => new StarProfile(StarProfileFamily.Field, 1.7 * c.Fwhm, c.Beta, 1.0, 0.0, c.Table, c.TableAlpha))]);
+        var measured = ChannelRelation.Of("field", field);
         for (var c = 0; c < 3; c++)
         {
-            var channel = c;
-            logHalo[c] = [.. varied.Stars.Select(s => s.Profiles[channel].HaloLogGain)];
-            foreach (var (star, i) in varied.Stars.Select(static (s, i) => (s, i)))
-            {
-                (star.Profiles[c].FwhmPx / plain.Stars[i].Profiles[c].FwhmPx).ShouldBeInRange(
-                    variation.WidthMin * Math.Exp(-variation.StarScatter), variation.WidthMax * Math.Exp(variation.StarScatter));
-                star.Profiles[c].HaloGain.ShouldBeInRange(variation.HaloMin * Math.Exp(-variation.StarScatter), variation.HaloMax * Math.Exp(variation.StarScatter));
-            }
-            (logHalo[c].Max() - logHalo[c].Min()).ShouldBeLessThanOrEqualTo(2 * variation.StarScatter + 1e-12, "one draw, one train per channel");
+            wider.LogWidth[c].ShouldBe(measured.LogWidth[c], 1e-12);
+            wider.LogWing[c].ShouldBe(measured.LogWing[c], 1e-9);
         }
-        new[] { logHalo[0].Average(), logHalo[1].Average(), logHalo[2].Average() }.Distinct().Count().ShouldBe(3, "each channel on its own");
+        measured.LogWidth.Sum().ShouldBe(0.0, 1e-12, "a relation is against the channels' mean");
+        measured.LogWing.Sum().ShouldBe(0.0, 1e-12);
+    }
 
-        var again = population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Moffat, 1.0, new Random(21), variation, new Random(99));
-        again.Stars.SelectMany(static s => s.Profiles).ShouldBe(varied.Stars.SelectMany(static s => s.Profiles));
+    /// <summary>
+    /// The measured agreement R2s lacked: every star of a draw, its saturated one too, takes exactly one relation of the
+    /// pool, measured as that relation, while keeping its master's mean width and mean wing, its place, its brightness and
+    /// its colour; a pool member of another channel count is never drawn, and the same two seeds draw the same plan.
+    /// </summary>
+    [Fact]
+    public void AnInjectedStarTakesTheDrawnMastersChannelRelation()
+    {
+        // The master's own red is the widest with the weakest wing, as most of the training masters' are.
+        var own = ColourField((3.0, 0.002f), (2.3, 0.006f), (2.6, 0.004f));
+        var population = BuildColourPopulation(own);
+        var a = ChannelRelation.Of("a", ColourField((2.2, 0.003f), (2.0, 0.005f), (2.4, 0.003f)));
+        var b = ChannelRelation.Of("b", ColourField((4.6, 0.010f), (1.2, 0.008f), (1.3, 0.007f)));
+        var mono = ChannelRelation.Of("mono", [StarProfile.Round(StarProfileFamily.Moffat, 2.0, 3.0)]);
+        var variation = new ChannelVariation([a, b, mono]);
+
+        var plain = population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(21));
+        plain.RelationFrom.ShouldBeNull();
+        var seen = new HashSet<string>();
+        for (var seed = 0; seed < 24; seed++)
+        {
+            var varied = population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(21), variation, new Random(seed));
+            var drawn = varied.RelationFrom switch { "a" => a, "b" => b, var other => throw new ShouldAssertException($"drew {other}") };
+            seen.Add(drawn.Source);
+            varied.Stars.Length.ShouldBe(plain.Stars.Length);
+            varied.Stars.Count(static s => s.Saturated).ShouldBe(1, "the saturated draw takes the relation too");
+            for (var i = 0; i < plain.Stars.Length; i++)
+            {
+                var (v, p) = (varied.Stars[i], plain.Stars[i]);
+                (v.X, v.Y, v.Saturated).ShouldBe((p.X, p.Y, p.Saturated));
+                v.Amplitudes.ShouldBe(p.Amplitudes);
+                var relation = ChannelRelation.Of("star", v.Profiles);
+                for (var c = 0; c < 3; c++)
+                {
+                    relation.LogWidth[c].ShouldBe(drawn.LogWidth[c], 1e-9);
+                    relation.LogWing[c].ShouldBe(drawn.LogWing[c], 1e-9);
+                }
+                // The master's own size and halo: the geometric means across channels are unmoved.
+                v.Profiles.Average(static q => Math.Log(q.FwhmPx)).ShouldBe(p.Profiles.Average(static q => Math.Log(q.FwhmPx)), 1e-9);
+                v.Profiles.Average(static q => Math.Log(ChannelRelation.WingToCore(q with { AxisRatio = 1.0 })))
+                    .ShouldBe(p.Profiles.Average(static q => Math.Log(ChannelRelation.WingToCore(q with { AxisRatio = 1.0 }))), 1e-9);
+            }
+        }
+        seen.ShouldBe(["a", "b"], ignoreOrder: true);
+
+        var once = population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(21), variation, new Random(99));
+        var again = population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(21), variation, new Random(99));
+        again.Stars.SelectMany(static s => s.Profiles).ShouldBe(once.Stars.SelectMany(static s => s.Profiles));
         Should.Throw<ArgumentNullException>(() =>
-            population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Moffat, 1.0, new Random(21), variation, null));
+            population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(21), variation, null));
+        Should.Throw<InvalidOperationException>(() =>
+            population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Moffat, 1.0, new Random(21), variation, new Random(1)));
 
-        // A lobe is part of its star: it takes the star's factors.
-        var (catalogue, image) = LobeCatalogue();
-        var lobed = InjectionPopulation.Build([catalogue[0], catalogue[1]], image, image, 1.0, [(2.5, 3.0)], null, lobes: true);
-        var pair = lobed.Plan(0, 0, 256, 0, InjectionPlacement.Random, StarProfileFamily.Moffat, 0.0, new Random(11), variation, new Random(3)).Stars;
-        pair[1].Lobe.ShouldBeTrue();
-        pair[1].Profiles[0].HaloLogGain.ShouldBe(pair[0].Profiles[0].HaloLogGain);
-        pair[1].Profiles[0].FwhmPx.ShouldBe(pair[0].Profiles[0].FwhmPx);
+        // A master whose channel count the pool lacks keeps its own relation.
+        var (kept, factors) = new ChannelVariation([a, b]).DrawCell(mono, new Random(5));
+        kept.ShouldBeSameAs(mono);
+        factors.ShouldAllBe(static f => f.LogHalo == 0.0 && f.LogWidth == 0.0);
+    }
+
+    // A three-channel field profile: each channel's FWHM (beta 3) and a flat halo from 2 to 10 px at the field's width.
+    private static StarlessFieldProfile ColourField((double Fwhm, float Halo) red, (double Fwhm, float Halo) green, (double Fwhm, float Halo) blue)
+    {
+        static FieldChannelProfile Channel((double Fwhm, float Halo) c)
+        {
+            var alpha = MoffatPsf.AlphaFor(c.Fwhm, 3.0);
+            return new FieldChannelProfile(alpha, 3.0, alpha, [.. Enumerable.Range(0, 60).Select(i => i is >= 8 and < 40 ? c.Halo : 0f)]);
+        }
+        return new StarlessFieldProfile([Channel(red), Channel(green), Channel(blue)], Channel(green));
     }
 
     // BuildPopulation in three channels, each star a little redder than blue, the master's saturated star cored at 0.9 in all.
-    private static InjectionPopulation BuildColourPopulation()
+    private static InjectionPopulation BuildColourPopulation(StarlessFieldProfile? field = null)
     {
         const int size = 256;
         var rng = new Random(2);
@@ -652,7 +701,7 @@ public class StarInjectionTests(ITestOutputHelper output)
         }
         var master = new Image(masterPlanes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
         var plate = new Image(platePlanes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
-        return InjectionPopulation.Build(catalogue.ToImmutable(), master, plate, 1.0, [(2.5, 3.0), (2.5, 3.0), (2.5, 3.0)], null);
+        return InjectionPopulation.Build(catalogue.ToImmutable(), master, plate, 1.0, [(2.5, 3.0), (2.5, 3.0), (2.5, 3.0)], null, field);
     }
 
     private static (InjectionPopulation Population, ImmutableArray<FittedStar> Catalogue) BuildPopulation()

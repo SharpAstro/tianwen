@@ -114,34 +114,39 @@ public static partial class DatasetDegradationExporter
 
     /// <summary>One injected star, in the cell's coordinates (pixel centres at integers), per channel where it varies. A
     /// <paramref name="Lobe"/> is part of the star before it (<see cref="InjectedStar.Lobe"/>): the eval does not score it.
-    /// <paramref name="HaloGain"/> is each channel's wing factor where the export drew one (R2s), null where it drew the
+    /// <paramref name="HaloGain"/> is each channel's wing factor where the export drew one (R2s2), null where it drew the
     /// measured profile.</summary>
     public sealed record InjectedStarRow(
         double X, double Y, double[] Amplitude, double[] FwhmPx, double[] Beta, double AxisRatio, double PositionAngleDeg,
         bool Saturated, double[]? ClipLevel, bool Lobe = false, double[]? HaloGain = null);
 
     /// <summary>One draw's injection: what was asked for, what was placed, and every star; on a synthetic background
-    /// (R2d's D2), the knots its target keeps, the same in every draw of the cell.</summary>
+    /// (R2d's D2), the knots its target keeps, the same in every draw of the cell; with channel relations (R2s2), whose
+    /// relation the draw's stars took, as the plate stem it was measured on.</summary>
     public sealed record InjectionRow(
         string Tile, string SessionId, int CellX, int CellY, int Draw, string Placement, string Profile, int Requested, int Placed,
-        bool SaturatedFallback, InjectedStarRow[] Stars, InjectedKnotRow[]? Knots = null);
+        bool SaturatedFallback, InjectedStarRow[] Stars, InjectedKnotRow[]? Knots = null, string? RelationFrom = null);
 
     /// <summary>One knot of a synthetic background (<see cref="SyntheticBackground.Knot"/>), in the cell's coordinates: its
     /// widths in pixels, its major axis's angle in degrees and its peak per channel on the master's unit scale.</summary>
     public sealed record InjectedKnotRow(double X, double Y, double SigmaMajorPx, double SigmaMinorPx, double AngleDeg, double[] Peak);
 
-    /// <summary>What the Stars mode reads once per run: the plates and the PSF store.</summary>
+    /// <summary>What the Stars mode reads once per run: the plates, the PSF store and, with R2s2, the channel relations.</summary>
     internal sealed class StarsContext
     {
-        internal StarsContext(string platesDir, Dictionary<string, DatasetPsfNoiseReport.SessionPsf> psf)
+        internal StarsContext(string platesDir, Dictionary<string, DatasetPsfNoiseReport.SessionPsf> psf, ChannelVariation? variation = null)
         {
             PlatesDir = platesDir;
             Psf = psf;
+            Variation = variation;
         }
 
         public string PlatesDir { get; }
 
         public Dictionary<string, DatasetPsfNoiseReport.SessionPsf> Psf { get; }
+
+        /// <summary>The measured channel relations every draw takes one of (<see cref="Options.ChannelRelationSessions"/>).</summary>
+        public ChannelVariation? Variation { get; }
 
         public static async Task<StarsContext> OpenAsync(Options options, ILogger? logger, CancellationToken cancellationToken)
         {
@@ -167,7 +172,23 @@ public static partial class DatasetDegradationExporter
             {
                 throw new FileNotFoundException("the PSF store is empty or missing; the injected stars take each channel's profile from it", psfPath);
             }
-            return new StarsContext(platesDir, psf);
+            ChannelVariation? variation = null;
+            if (options.ChannelRelationSessions is { } relationSessions)
+            {
+                var pool = ImmutableArray.CreateBuilder<ChannelRelation>(relationSessions.Count);
+                foreach (var session in relationSessions)
+                {
+                    var stem = DatasetTileExporter.Sanitize(session);
+                    var path = StarlessFieldProfile.PathFor(platesDir, stem);
+                    var field = await StarlessFieldProfile.ReadAsync(path, cancellationToken)
+                        ?? throw new FileNotFoundException($"{session}: no field profile to measure its channel relation on", path);
+                    pool.Add(ChannelRelation.Of(stem, field));
+                }
+                variation = new ChannelVariation(pool.ToImmutable());
+                logger?.LogInformation("[degrade] channel relations measured on {Count} masters' field profiles, {Colour} of them in colour",
+                    variation.Pool.Length, variation.Pool.Count(static r => r.Channels > 1));
+            }
+            return new StarsContext(platesDir, psf, variation);
         }
 
         public string PlatePath(string sessionId) => Path.Combine(PlatesDir, DatasetTileExporter.Sanitize(sessionId) + "_plate.fits");
@@ -370,7 +391,7 @@ public static partial class DatasetDegradationExporter
                 {
                     var seed = DrawSeed(options.Seed, sessionId, cell.X, cell.Y, draw);
                     var (row, injection) = InjectCell(sessionOptions, unitPlate, absent, population, cell, draw, seed, stackedFrames, fieldRadius,
-                        origMin, balances, calibrations, tilesDir, slug, sessionId, measures, background, knots);
+                        origMin, balances, calibrations, tilesDir, slug, sessionId, measures, stars.Variation, background, knots);
                     degRows.Add(row);
                     injectionRows.Add(injection);
                     tileRows.Add(new DatasetTileExporter.TileManifestRow(
@@ -439,13 +460,14 @@ public static partial class DatasetDegradationExporter
         string slug,
         string sessionId,
         InjectionMeasures? measures,
+        ChannelVariation? variation,
         float[][]? background = null,
         ImmutableArray<SyntheticBackground.Knot> knots = default)
     {
         var size = cell.TileSize;
         var channels = unitPlate.ChannelCount;
         var plan = population.Plan(cell.X, cell.Y, size, InjectionMarginPx, options.Placement, options.Profile, options.SaturatedFraction, new Random(seed),
-            options.ChannelVariation, options.ChannelVariation is null ? null : new Random(seed ^ 0x2545f491));
+            variation, variation is null ? null : new Random(seed ^ 0x2545f491));
 
         // The plate's cell, or on R2d's synthetic background the cell's own noisy planes (SyntheticCell).
         var basePlanes = new float[channels][];
@@ -586,7 +608,8 @@ public static partial class DatasetDegradationExporter
                 s.Lobe,
                 s.Profiles.Any(static p => p.HaloLogGain != 0.0) ? [.. s.Profiles.Select(static p => p.HaloGain)] : null))],
             Knots: background is null ? null
-                : [.. knots.Select(static k => new InjectedKnotRow(k.X, k.Y, k.SigmaMajorPx, k.SigmaMinorPx, k.AngleRad * 180.0 / Math.PI, k.Peak))]);
+                : [.. knots.Select(static k => new InjectedKnotRow(k.X, k.Y, k.SigmaMajorPx, k.SigmaMinorPx, k.AngleRad * 180.0 / Math.PI, k.Peak))],
+            RelationFrom: plan.RelationFrom);
         return (row, injection);
     }
 
