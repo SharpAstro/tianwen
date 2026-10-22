@@ -5,6 +5,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Stacking;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -34,7 +35,7 @@ public class MasterFrameBuilderTests
             PixelSizeX: 3.76f,
             PixelSizeY: 3.76f,
             FocalLength: 400,
-            FocusPos: -1,
+            FocusPos: FocuserPositions.None,
             Filter: Filter.Luminance,
             BinX: 1,
             BinY: 1,
@@ -345,7 +346,7 @@ public class MasterFrameBuilderTests
             ExposureDuration: TimeSpan.FromSeconds(10),
             FrameType: FrameType.Flat,
             Telescope: "scope",
-            PixelSizeX: 3.76f, PixelSizeY: 3.76f, FocalLength: 400, FocusPos: -1,
+            PixelSizeX: 3.76f, PixelSizeY: 3.76f, FocalLength: 400, FocusPos: FocuserPositions.None,
             Filter: Filter.FromName(writtenFilterCard) with { RawName = writtenFilterCard },
             BinX: 1, BinY: 1,
             CCDTemperature: -10f,
@@ -432,7 +433,7 @@ public class MasterFrameBuilderTests
                 ExposureDuration: TimeSpan.FromSeconds(10),
                 FrameType: FrameType.Flat,
                 Telescope: "scope",
-                PixelSizeX: 3.76f, PixelSizeY: 3.76f, FocalLength: 400, FocusPos: -1,
+                PixelSizeX: 3.76f, PixelSizeY: 3.76f, FocalLength: 400, FocusPos: FocuserPositions.None,
                 Filter: Filter.None,
                 BinX: 1, BinY: 1,
                 CCDTemperature: -10f,
@@ -452,7 +453,7 @@ public class MasterFrameBuilderTests
             ExposureDuration: TimeSpan.FromSeconds(300),
             FrameType: FrameType.Dark,
             Telescope: "scope",
-            PixelSizeX: 3.76f, PixelSizeY: 3.76f, FocalLength: 400, FocusPos: -1,
+            PixelSizeX: 3.76f, PixelSizeY: 3.76f, FocalLength: 400, FocusPos: FocuserPositions.None,
             Filter: Filter.HydrogenAlpha,
             BinX: 1, BinY: 1,
             CCDTemperature: -10.3f,
@@ -481,7 +482,7 @@ public class MasterFrameBuilderTests
     {
         var meta = new ImageMeta(
             "test", DateTimeOffset.UnixEpoch, TimeSpan.FromSeconds(60), FrameType.Bias,
-            "scope", 3.76f, 3.76f, 400, -1, Filter.Luminance, 1, 1,
+            "scope", 3.76f, 3.76f, 400, FocuserPositions.None, Filter.Luminance, 1, 1,
             float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown,
             float.NaN, float.NaN);
         var frame = new FrameInfo("test.fits", 100, 100, 1, BitDepth.Float32, meta);
@@ -496,7 +497,7 @@ public class MasterFrameBuilderTests
     {
         var meta = new ImageMeta(
             "test", DateTimeOffset.UnixEpoch, TimeSpan.FromSeconds(60), FrameType.Dark,
-            "scope", 3.76f, 3.76f, 400, -1, Filter.Luminance, 1, 1,
+            "scope", 3.76f, 3.76f, 400, FocuserPositions.None, Filter.Luminance, 1, 1,
             -10f, SensorType.Monochrome, 0, 0, RowOrder.TopDown,
             float.NaN, float.NaN);
         var frameA = new FrameInfo("a.fits", 100, 100, 1, BitDepth.Float32, meta);

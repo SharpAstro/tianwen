@@ -11,6 +11,7 @@ using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Stacking;
 using Microsoft.Extensions.Logging;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -98,7 +99,7 @@ public class StackEnhanceTests : IDisposable
                 b[y, x] = fill;
             }
         var meta = new ImageMeta("synth", DateTime.UtcNow, TimeSpan.FromSeconds(60),
-            FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
+            FrameType.Light, "", 3.76f, 3.76f, 500, FocuserPositions.None, Filter.Luminance, 1, 1,
             float.NaN, SensorType.Color, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
         return new Image([r, g, b], BitDepth.Float32, 1.0f, 0f, 0f, meta);
     }

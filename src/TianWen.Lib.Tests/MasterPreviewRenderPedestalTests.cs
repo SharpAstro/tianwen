@@ -6,6 +6,7 @@ using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -61,7 +62,7 @@ public class MasterPreviewRenderPedestalTests
             }
         }
         var meta = new ImageMeta("synth", DateTime.UnixEpoch, TimeSpan.FromSeconds(60),
-            FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
+            FrameType.Light, "", 3.76f, 3.76f, 500, FocuserPositions.None, Filter.Luminance, 1, 1,
             float.NaN, SensorType.Color, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
         // maxValue=1, the explicit floor as minValue. pedestal arg left 0 (the integrator
         // convention); the renderer reads the pedestal from MinValue/MaxValue.

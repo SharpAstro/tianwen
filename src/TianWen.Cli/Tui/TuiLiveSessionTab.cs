@@ -331,7 +331,7 @@ internal sealed class TuiLiveSessionTab(
             {
                 var tempStr = !double.IsNaN(tel.FocuserTempC) ? $" @ {tel.FocuserTempC:F1}\u00b0C" : "";
                 var movingStr = tel.FocuserIsMoving ? " moving" : "";
-                _rows.Add(new TextRow($"  Focus: {tel.FocusPosition}{tempStr}{movingStr}"));
+                _rows.Add(new TextRow($"  Focus: {LiveSessionActions.FocusPositionLabel(tel.FocusPosition)}{tempStr}{movingStr}"));
             }
             else
             {
@@ -657,7 +657,7 @@ internal sealed class TuiLiveSessionTab(
             {
                 var cs = cameraStates[i];
 
-                var focParts = $"Focus: {cs.FocusPosition}";
+                var focParts = $"Focus: {LiveSessionActions.FocusPositionLabel(cs.FocusPosition)}";
                 if (!double.IsNaN(cs.FocuserTemperature))
                 {
                     focParts += $"  ({cs.FocuserTemperature:F1}\u00b0C)";

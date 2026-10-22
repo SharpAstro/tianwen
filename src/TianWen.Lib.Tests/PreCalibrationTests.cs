@@ -10,6 +10,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -74,7 +75,7 @@ public sealed class PreCalibrationTests : IDisposable
             PixelSizeX: 9f,
             PixelSizeY: 9f,
             FocalLength: 2541,
-            FocusPos: -1,
+            FocusPos: FocuserPositions.None,
             Filter: Filter.None,
             BinX: 1,
             BinY: 1,

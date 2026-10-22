@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -174,7 +175,7 @@ public class LumaPlaneParityTests
         }
 
         var meta = new ImageMeta("luma", DateTimeOffset.UnixEpoch, TimeSpan.Zero, FrameType.Light, "",
-            0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Color, 0, 0,
+            0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Color, 0, 0,
             RowOrder.TopDown, float.NaN, float.NaN);
         return new Image(planes, adu ? BitDepth.Int16 : BitDepth.Float32, full, min, 0f, meta);
     }

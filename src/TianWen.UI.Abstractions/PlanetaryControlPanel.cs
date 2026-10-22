@@ -408,7 +408,7 @@ public sealed class PlanetaryControlPanel
         rows.Add(SectionHeader("FOCUSER"));
         if (telemetry.FocuserConnected)
         {
-            var focLabel = $"Pos: {telemetry.FocusPosition}";
+            var focLabel = $"Pos: {LiveSessionActions.FocusPositionLabel(telemetry.FocusPosition)}";
             if (!double.IsNaN(telemetry.FocuserTempC))
             {
                 focLabel += $"   {telemetry.FocuserTempC:F1}°C";

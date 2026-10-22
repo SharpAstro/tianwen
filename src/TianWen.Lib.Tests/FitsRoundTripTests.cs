@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -86,10 +87,8 @@ public class FitsRoundTripTests(ITestOutputHelper testOutput)
         {
             rt.FocalLength.ShouldBe(orig.FocalLength);
         }
-        if (orig.FocusPos >= 0)
-        {
-            rt.FocusPos.ShouldBe(orig.FocusPos);
-        }
+        // Every position survives, negative ones included, and "none" reads back as none (#1764).
+        rt.FocusPos.ShouldBe(orig.FocusPos);
 
         // Exposure metadata
         rt.ExposureDuration.TotalSeconds.ShouldBe(orig.ExposureDuration.TotalSeconds, 0.01);
@@ -226,7 +225,7 @@ public class FitsRoundTripTests(ITestOutputHelper testOutput)
             PixelSizeX: 3.76f,
             PixelSizeY: 3.76f,
             FocalLength: 270,
-            FocusPos: -1,
+            FocusPos: FocuserPositions.None,
             Filter: Filter.None,
             BinX: 1,
             BinY: 1,
@@ -264,7 +263,7 @@ public class FitsRoundTripTests(ITestOutputHelper testOutput)
             PixelSizeX: 3.76f,
             PixelSizeY: 3.76f,
             FocalLength: 270,
-            FocusPos: -1,
+            FocusPos: FocuserPositions.None,
             Filter: Filter.None,
             BinX: 1,
             BinY: 1,

@@ -9,6 +9,7 @@ using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
 using TianWen.Lib.Imaging.Stacking;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests
 {
@@ -25,7 +26,7 @@ namespace TianWen.Lib.Tests
                 PixelSizeX: 3.76f,
                 PixelSizeY: 3.76f,
                 FocalLength: 135,
-                FocusPos: -1,
+                FocusPos: FocuserPositions.None,
                 Filter: Filter.None,
                 BinX: 1,
                 BinY: 1,
@@ -237,7 +238,7 @@ namespace TianWen.Lib.Tests
             static SessionFrameAnalyzer.AnalyzedFrame Frame(KeyValuePair<string, FrameMetrics> kv)
             {
                 var meta = new ImageMeta("C", DateTimeOffset.UnixEpoch, TimeSpan.FromSeconds(60), FrameType.Light,
-                    "T", 3.76f, 3.76f, 135, -1, Filter.None, 1, 1, -10f, SensorType.RGGB, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
+                    "T", 3.76f, 3.76f, 135, FocuserPositions.None, Filter.None, 1, 1, -10f, SensorType.RGGB, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
                 return new SessionFrameAnalyzer.AnalyzedFrame(
                     new FrameInfo(kv.Key, 3008, 3008, 1, BitDepth.Int16, meta), kv.Value, StarList.Empty);
             }

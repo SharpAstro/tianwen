@@ -52,7 +52,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>Default instance with NaN temperatures and no connections.</summary>
         public static readonly PreviewOTATelemetry Unknown = new PreviewOTATelemetry(
             "", "", double.NaN, double.NaN, double.NaN,
-            false, 0, double.NaN, false, "--",
+            false, FocuserPositions.None, double.NaN, false, "--",
             false, false, false);
 
         /// <summary>
@@ -69,7 +69,7 @@ namespace TianWen.UI.Abstractions
                 SetpointC: camera?.SetpointC ?? double.NaN,
                 CoolerPowerPct: camera?.CoolerPowerPercent ?? double.NaN,
                 CoolerOn: camera?.CoolerOn ?? false,
-                FocusPosition: focuser?.Position ?? 0,
+                FocusPosition: focuser?.Position ?? FocuserPositions.None,
                 FocuserTempC: focuser?.TemperatureC ?? double.NaN,
                 FocuserIsMoving: focuser?.IsMoving ?? false,
                 FilterName: filterWheel?.FilterName ?? "--",

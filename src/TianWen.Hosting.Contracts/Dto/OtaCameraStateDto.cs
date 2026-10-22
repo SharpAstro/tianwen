@@ -33,7 +33,11 @@ public sealed class OtaCameraStateDto
     /// session's state could not be read by any client from its start until its first frame.
     /// </summary>
     public string? FilterName { get; init; }
-    public required int FocusPosition { get; init; }
+    /// <summary>
+    /// The focuser's position, null for none (<see cref="FocuserPositions"/>, #1764): every int is a position, negative ones
+    /// included, so the wire never carries the marker. Nullable and NOT <c>required</c>, as <see cref="FilterName"/>.
+    /// </summary>
+    public int? FocusPosition { get; init; }
     public double? FocuserTemperature { get; init; }
     public required bool FocuserIsMoving { get; init; }
 
@@ -75,7 +79,7 @@ public sealed class OtaCameraStateDto
         SubExposureSeconds = camera.SubExposure.TotalSeconds,
         FrameNumber = camera.FrameNumber,
         FilterName = camera.FilterName,
-        FocusPosition = camera.FocusPosition,
+        FocusPosition = FocuserPositions.ForWire(camera.FocusPosition),
         // NaN by default on CameraExposureState whenever no focuser is fitted, and the HFD/FWHM below
         // are NaN until a frame has been measured -- all three occur on an ordinary healthy session.
         FocuserTemperature = JsonNumber.OrNull(camera.FocuserTemperature),

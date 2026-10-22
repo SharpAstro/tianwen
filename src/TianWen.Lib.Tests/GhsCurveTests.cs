@@ -2,6 +2,7 @@ using System;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -24,7 +25,7 @@ public class GhsCurveTests
         var arr = new float[1, n];
         for (var i = 0; i < n; i++) arr[0, i] = (float)i / (n - 1);
         var meta = new ImageMeta("synth", DateTime.UtcNow, TimeSpan.FromSeconds(60),
-            FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
+            FrameType.Light, "", 3.76f, 3.76f, 500, FocuserPositions.None, Filter.Luminance, 1, 1,
             float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
         return new Image([arr], BitDepth.Float32, 1.0f, 0f, 0f, meta);
     }

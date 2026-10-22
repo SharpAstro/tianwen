@@ -8,6 +8,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.IO;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -39,7 +40,7 @@ public sealed class FitsHeaderIndexTests : IDisposable
             PixelSizeX: 3.76f,
             PixelSizeY: 3.76f,
             FocalLength: 135,
-            FocusPos: -1,
+            FocusPos: FocuserPositions.None,
             Filter: Filter.FromName("IDAS LPS D3"),
             BinX: 1,
             BinY: 1,

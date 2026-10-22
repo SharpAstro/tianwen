@@ -787,7 +787,7 @@ internal partial record Session
         // Reset camera state after V-curve loop
         if (telescopeIndex < _cameraStates.Length)
         {
-            _cameraStates[telescopeIndex] = default;
+            _cameraStates[telescopeIndex] = CameraExposureState.Unset;
         }
 
         // Fit hyperbola

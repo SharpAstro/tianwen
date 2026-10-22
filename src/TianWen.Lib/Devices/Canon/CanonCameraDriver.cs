@@ -652,7 +652,7 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver, ILe
 
     public double? SiteElevation { get; set; }
     public Filter Filter { get; set; }
-    public int FocusPosition { get; set; }
+    public int FocusPosition { get; set; } = FocuserPositions.None;
     public Target? Target { get; set; }
 
     /// <inheritdoc />

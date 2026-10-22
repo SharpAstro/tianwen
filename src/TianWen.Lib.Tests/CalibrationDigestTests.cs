@@ -8,6 +8,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -41,7 +42,7 @@ public sealed class CalibrationDigestTests : IDisposable
             PixelSizeX: 3.76f,
             PixelSizeY: 3.76f,
             FocalLength: 135,
-            FocusPos: -1,
+            FocusPos: FocuserPositions.None,
             Filter: Filter.None,
             BinX: 1,
             BinY: 1,

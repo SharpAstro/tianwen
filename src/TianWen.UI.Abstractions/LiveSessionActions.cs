@@ -69,6 +69,13 @@ namespace TianWen.UI.Abstractions
         public static string FilterDisplayLabel(string? filterName, string fallback)
             => filterName is { Length: > 0 } name && name != Filter.Unknown.DisplayName ? name : fallback;
 
+        /// <summary>
+        /// UI label for a focus position: the number, negative ones included, or "--" for
+        /// <see cref="FocuserPositions.None"/> (#1764). ONE rule for every panel, the TUI's too.
+        /// </summary>
+        public static string FocusPositionLabel(int position)
+            => FocuserPositions.IsKnown(position) ? position.ToString(CultureInfo.InvariantCulture) : "--";
+
         /// <summary>Format a timespan as a duration (e.g. "4h 56m" or "23m 45s").</summary>
         public static string FormatDuration(TimeSpan ts)
         {

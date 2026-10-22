@@ -12,6 +12,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 using TianWen.Lib.IO;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -55,7 +56,7 @@ public class PlanetaryCorpusTests : IDisposable
                     data[y, x] = FitsSample(bitDepth, i, x, y);
                 }
             }
-            var meta = new ImageMeta("ZWO ASI290MM", (start ?? T0) + (i * interval), exposure, frameType, "", 2.9f, 2.9f, 0, -1, Filter.Unknown, 1, 1,
+            var meta = new ImageMeta("ZWO ASI290MM", (start ?? T0) + (i * interval), exposure, frameType, "", 2.9f, 2.9f, 0, FocuserPositions.None, Filter.Unknown, 1, 1,
                 float.NaN, SensorType.Monochrome, 0, 0, rowOrder, float.NaN, float.NaN);
             new Image([data], bitDepth, bitDepth == BitDepth.Int8 ? 255f : 65535f, 0f, 0f, meta)
                 .WriteToFitsFile(Path.Combine(folder, $"2022-09-03-1209_8_LUM_{i + 1:00000}.fits"));
@@ -288,7 +289,7 @@ public class PlanetaryCorpusTests : IDisposable
         var root = NewFolder();
         var folder = Path.Combine(root.FullName, "lum");
         WriteFitsFrames(folder, 4, TimeSpan.FromMilliseconds(4), TimeSpan.FromMilliseconds(4), FrameType.Light);
-        var odd = new ImageMeta("ZWO ASI290MM", T0.AddSeconds(1), TimeSpan.FromMilliseconds(4), FrameType.Light, "", 2.9f, 2.9f, 0, -1, Filter.Unknown, 1, 1,
+        var odd = new ImageMeta("ZWO ASI290MM", T0.AddSeconds(1), TimeSpan.FromMilliseconds(4), FrameType.Light, "", 2.9f, 2.9f, 0, FocuserPositions.None, Filter.Unknown, 1, 1,
             float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
         new Image([new float[10, 16]], BitDepth.Int8, 255f, 0f, 0f, odd).WriteToFitsFile(Path.Combine(folder, "2022-09-03-1209_8_LUM_00005.fits"));
         var output = Path.Combine(root.FullName, "converted");

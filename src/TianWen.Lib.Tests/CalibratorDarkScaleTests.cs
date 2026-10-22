@@ -3,6 +3,7 @@ using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests
 {
@@ -34,7 +35,7 @@ namespace TianWen.Lib.Tests
                 }
             }
             var meta = new ImageMeta("t", DateTime.UnixEpoch, TimeSpan.FromSeconds(60),
-                FrameType.Light, "", 3.76f, 3.76f, 130, -1, Filter.Unknown, 1, 1,
+                FrameType.Light, "", 3.76f, 3.76f, 130, FocuserPositions.None, Filter.Unknown, 1, 1,
                 -10f, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
             return new Image([data], BitDepth.Float32, 1f, 0f, 0f, meta);
         }

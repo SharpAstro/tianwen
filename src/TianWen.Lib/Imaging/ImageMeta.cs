@@ -53,7 +53,8 @@ namespace TianWen.Lib.Imaging;
 /// better source. Note the two are in different conventions -- this one is the ACTUAL image scale
 /// and therefore already includes binning, while <see cref="DerivedPixelScale"/> is per unbinned
 /// photosite; do not substitute one for the other without accounting for <c>BinX</c>.</param>
-/// <param name="FocusPos">Focuser position in steps (FITS: FOCUSPOS, FOCPOS). -1 if unknown.</param>
+/// <param name="FocusPos">Focuser position in steps (FITS: FOCUSPOS, FOCPOS), negative ones included.
+/// <see cref="Devices.FocuserPositions.None"/> if there is none, never -1, which is a position (#1764).</param>
 /// <param name="Filter">Active filter during capture (FITS: FILTCLAS, coarse; FILTER, full name via <see cref="Imaging.Filter.FilterNameForFits"/>).</param>
 /// <param name="BinX">Horizontal binning factor (FITS: XBINNING).</param>
 /// <param name="BinY">Vertical binning factor (FITS: YBINNING).</param>

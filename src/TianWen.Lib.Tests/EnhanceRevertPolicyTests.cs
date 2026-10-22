@@ -3,6 +3,7 @@ using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -24,7 +25,7 @@ public class EnhanceRevertPolicyTests
 {
     private static ImageMeta Meta() => new ImageMeta(
         "synth", DateTimeOffset.UtcNow, TimeSpan.FromSeconds(1),
-        FrameType.Light, "", 2.9f, 2.9f, 1180, -1, Filter.None, 1, 1,
+        FrameType.Light, "", 2.9f, 2.9f, 1180, FocuserPositions.None, Filter.None, 1, 1,
         float.NaN, SensorType.Color, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
 
     /// <summary>An image of a given shape, allocated small and reported at the true size via the

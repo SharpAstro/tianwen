@@ -6,6 +6,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Devices;
 
 namespace TianWen.UI.Benchmarks;
 
@@ -112,7 +113,7 @@ public class IncrementalSolverBenchmarks
         return new Image(
             [data], BitDepth.Float32, max, min, 0,
             new ImageMeta("synth", DateTime.UtcNow, TimeSpan.FromSeconds(1),
-                FrameType.Light, "", 3.76f, 3.76f, 500, -1, default,
+                FrameType.Light, "", 3.76f, 3.76f, 500, FocuserPositions.None, default,
                 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
                 RowOrder.TopDown, float.NaN, float.NaN));
     }

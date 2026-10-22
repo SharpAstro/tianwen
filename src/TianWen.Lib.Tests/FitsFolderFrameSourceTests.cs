@@ -9,6 +9,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Stacking;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -38,7 +39,7 @@ public class FitsFolderFrameSourceTests : IDisposable
             PixelSizeX: 3.76f,
             PixelSizeY: 3.76f,
             FocalLength: 400,
-            FocusPos: -1,
+            FocusPos: FocuserPositions.None,
             Filter: filter ?? Filter.Luminance,
             BinX: 1,
             BinY: 1,

@@ -36,7 +36,7 @@ public class LiveSessionPreviewViewerTests
             }
         }
         var meta = new ImageMeta("synth", DateTimeOffset.UtcNow, TimeSpan.FromSeconds(2),
-            FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
+            FrameType.Light, "", 3.76f, 3.76f, 500, FocuserPositions.None, Filter.Luminance, 1, 1,
             float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
         return new Image([plane], BitDepth.Float32, maxValue: 4000f, minValue: 0f, pedestal: 0f, imageMeta: meta);
     }

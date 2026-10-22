@@ -129,7 +129,7 @@ namespace TianWen.UI.Abstractions
             if (display.HasFocuser && i < cameraStates.Length)
             {
                 var cs = cameraStates[i];
-                var focLabel = $"Foc: {cs.FocusPosition}";
+                var focLabel = $"Foc: {LiveSessionActions.FocusPositionLabel(cs.FocusPosition)}";
                 if (!double.IsNaN(cs.FocuserTemperature))
                 {
                     focLabel += $"  {cs.FocuserTemperature:F1}\u00b0C";

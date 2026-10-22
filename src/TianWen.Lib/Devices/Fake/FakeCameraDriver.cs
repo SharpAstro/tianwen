@@ -717,24 +717,12 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
 
     public double? SiteElevation { get; set; }
     public Filter Filter { get; set; } = Filter.Unknown;
-    /// <summary>The focuser's position as the session last gave it; see <see cref="FocusPositionSet"/>.</summary>
-    public int FocusPosition
-    {
-        get => _focusPosition;
-        set
-        {
-            _focusPosition = value;
-            FocusPositionSet = true;
-        }
-    }
-
-    private int _focusPosition;
-
     /// <summary>
-    /// True once a focus position was given: a camera with no focuser wired up (a guide camera) renders in perfect
-    /// focus. A flag rather than a sign test, since a focuser's position can be negative (IFocuserDriver.MinStep).
+    /// The focuser's position as the session last gave it, <see cref="FocuserPositions.None"/> until it gives one: a camera
+    /// with no focuser wired up (a guide camera) renders in perfect focus. Never a sign test, since a focuser's position can
+    /// be negative (IFocuserDriver.MinStep).
     /// </summary>
-    internal bool FocusPositionSet { get; private set; }
+    public int FocusPosition { get; set; } = FocuserPositions.None;
     public Target? Target { get; set; }
 
     /// <inheritdoc />
@@ -1165,7 +1153,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
                     // Defocus = |FocusPosition - TrueBestFocus|. A camera never given a focus
                     // position has no focuser wired up (e.g. a guide camera with no dedicated
                     // focuser) and renders in perfect focus; a position may be negative.
-                    var defocus = FocusPositionSet ? Math.Abs(FocusPosition - TrueBestFocus) : 0;
+                    var defocus = FocuserPositions.IsKnown(FocusPosition) ? Math.Abs(FocusPosition - TrueBestFocus) : 0;
 
                     // Projection centre for the catalog star field. Main imaging cameras render at
                     // their stamped Target - a believed-pointing quantity - shifted by the

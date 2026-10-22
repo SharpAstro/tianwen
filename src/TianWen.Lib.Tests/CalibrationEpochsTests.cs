@@ -5,6 +5,7 @@ using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests
 {
@@ -28,7 +29,7 @@ namespace TianWen.Lib.Tests
                 PixelSizeX: 3.76f,
                 PixelSizeY: 3.76f,
                 FocalLength: -1,
-                FocusPos: -1,
+                FocusPos: FocuserPositions.None,
                 Filter: Filter.None,
                 BinX: 1,
                 BinY: 1,
@@ -220,7 +221,7 @@ namespace TianWen.Lib.Tests
                 PixelSizeX: 5.4f,
                 PixelSizeY: 5.4f,
                 FocalLength: 530,
-                FocusPos: -1,
+                FocusPos: FocuserPositions.None,
                 Filter: FilterOf(filter),
                 BinX: 1,
                 BinY: 1,

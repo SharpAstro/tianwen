@@ -1492,7 +1492,7 @@ namespace TianWen.RemoteClient
                         TimeSpan.FromSeconds(camera.SubExposureSeconds),
                         camera.FrameNumber,
                         camera.FilterName,
-                        camera.FocusPosition,
+                        FocuserPositions.FromWire(camera.FocusPosition),
                         Enum.TryParse<CameraState>(camera.State, out var s) ? s : CameraState.Idle,
                         JsonNumber.FromWire(camera.FocuserTemperature),
                         camera.FocuserIsMoving));

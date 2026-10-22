@@ -461,6 +461,10 @@ public interface ICameraDriver : IDeviceDriver
 
     Filter Filter { get; set; }
 
+    /// <summary>
+    /// The focuser's position for the next frame's header (<c>FOCUSPOS</c>), <see cref="FocuserPositions.None"/> when the
+    /// camera has no focuser or its read failed: a position can be negative, so no other value says "none" (#1764).
+    /// </summary>
     int FocusPosition { get; set; }
 
     Target? Target { get; set; }

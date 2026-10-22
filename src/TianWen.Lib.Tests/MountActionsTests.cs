@@ -457,7 +457,7 @@ public class MountActionsTests
     {
         var data = new float[8, 8];
         var meta = new ImageMeta("solveSync", new DateTime(2026, 6, 11, 12, 0, 0, DateTimeKind.Utc),
-            TimeSpan.FromSeconds(1), FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
+            TimeSpan.FromSeconds(1), FrameType.Light, "", 3.76f, 3.76f, 500, FocuserPositions.None, Filter.Luminance, 1, 1,
             float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
         return new Image([data], BitDepth.Float32, 1f, 0f, 0f, meta);
     }

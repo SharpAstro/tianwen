@@ -4,6 +4,7 @@ using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests
 {
@@ -30,7 +31,7 @@ namespace TianWen.Lib.Tests
             }
 
             var meta = new ImageMeta("synth", DateTimeOffset.UtcNow, TimeSpan.FromSeconds(1),
-                FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
+                FrameType.Light, "", 3.76f, 3.76f, 500, FocuserPositions.None, Filter.Luminance, 1, 1,
                 float.NaN, sensor, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
             return new Image([ch], BitDepth.Float32, maxValue: max, minValue: 0f, pedestal: 0f, imageMeta: meta);
         }
@@ -49,7 +50,7 @@ namespace TianWen.Lib.Tests
             }
 
             var meta = new ImageMeta("synth", DateTimeOffset.UtcNow, TimeSpan.FromSeconds(1),
-                FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
+                FrameType.Light, "", 3.76f, 3.76f, 500, FocuserPositions.None, Filter.Luminance, 1, 1,
                 float.NaN, SensorType.RGGB, 1, 0, RowOrder.TopDown, float.NaN, float.NaN);
             return new Image([ch], BitDepth.Float32, maxValue: Max, minValue: 0f, pedestal: 0f, imageMeta: meta);
         }
@@ -149,7 +150,7 @@ namespace TianWen.Lib.Tests
         {
             var src = new LiveFramePreviewSource();
             var meta = new ImageMeta("synth", DateTimeOffset.UtcNow, TimeSpan.FromSeconds(1),
-                FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.None, 1, 1,
+                FrameType.Light, "", 3.76f, 3.76f, 500, FocuserPositions.None, Filter.None, 1, 1,
                 float.NaN, SensorType.RGGB, 1, 0, RowOrder.TopDown, float.NaN, float.NaN);
             var ch = new float[4, 4];
             var image = new Image([ch], BitDepth.Float32, maxValue: Max, minValue: 0f, pedestal: 0f, imageMeta: meta);
@@ -415,7 +416,7 @@ namespace TianWen.Lib.Tests
                 }
             }
             var meta = new ImageMeta("synth", DateTimeOffset.UtcNow, TimeSpan.FromSeconds(1),
-                FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.None, 1, 1,
+                FrameType.Light, "", 3.76f, 3.76f, 500, FocuserPositions.None, Filter.None, 1, 1,
                 float.NaN, SensorType.Color, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
             var frame = new Image(planes, depth, maxValue: 1f, minValue: 0f, pedestal: 0f, imageMeta: meta);
             var source = new LiveFramePreviewSource();

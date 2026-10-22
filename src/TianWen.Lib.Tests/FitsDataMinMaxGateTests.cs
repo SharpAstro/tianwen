@@ -5,6 +5,7 @@ using Shouldly;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests
 {
@@ -119,7 +120,7 @@ namespace TianWen.Lib.Tests
             var max = minSample + (Height * Width - 1);
             return new Image([plane], BitDepth.Int16, max, minSample, 0f,
                 new ImageMeta("synth", DateTimeOffset.UnixEpoch, TimeSpan.FromSeconds(60),
-                    FrameType.Light, "", 0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN,
+                    FrameType.Light, "", 0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN,
                     SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN));
         }
     }

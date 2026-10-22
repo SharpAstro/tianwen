@@ -1325,7 +1325,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
 
     public int? Aperture { get; set; }
 
-    public int FocusPosition { get; set; } = -1;
+    public int FocusPosition { get; set; } = FocuserPositions.None;
 
     public Filter Filter { get; set; } = Filter.Unknown;
 

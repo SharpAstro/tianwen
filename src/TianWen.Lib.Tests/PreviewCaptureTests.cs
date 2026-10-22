@@ -182,7 +182,7 @@ public class PreviewCaptureTests(ITestOutputHelper output)
         }
         var meta = new ImageMeta(
             "snapshot", DateTime.UtcNow, TimeSpan.FromSeconds(1), FrameType.Light, "",
-            3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
+            3.76f, 3.76f, 500, FocuserPositions.None, Filter.Luminance, 1, 1,
             float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
         return new Image([data], BitDepth.Float32, maxValue: 3.0f, minValue: 0f, pedestal: 0, meta);
     }

@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -259,7 +260,7 @@ public class HistogramCostDecompositionProbe(ITestOutputHelper output)
         }
 
         var meta = new ImageMeta("synth", DateTimeOffset.UtcNow, TimeSpan.Zero, FrameType.Light, "",
-            0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
+            0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
             RowOrder.TopDown, float.NaN, float.NaN);
         return (new Image([plane], BitDepth.Float32, max, min, 0f, meta), plane);
     }

@@ -187,7 +187,7 @@ namespace TianWen.UI.Abstractions
             // Focuser readout + jog controls (fine +-10, coarse +-100) + goto row
             if (tel.FocuserConnected)
             {
-                var focLabel = $"Foc: {tel.FocusPosition}";
+                var focLabel = $"Foc: {LiveSessionActions.FocusPositionLabel(tel.FocusPosition)}";
                 if (!double.IsNaN(tel.FocuserTempC))
                 {
                     focLabel += $"  {tel.FocuserTempC:F1}\u00b0C";
@@ -219,7 +219,8 @@ namespace TianWen.UI.Abstractions
                 if (capturedI < state.FocuserGotoInputs.Length)
                 {
                     var input = state.FocuserGotoInputs[capturedI];
-                    if (!input.IsActive && string.IsNullOrEmpty(input.Text))
+                    // Pre-filled only with a position the focuser gave: a failed read leaves the field empty.
+                    if (!input.IsActive && string.IsNullOrEmpty(input.Text) && FocuserPositions.IsKnown(tel.FocusPosition))
                     {
                         input.Text = tel.FocusPosition.ToString();
                         input.CursorPos = input.Text.Length;

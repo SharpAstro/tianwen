@@ -4,6 +4,7 @@ using System.IO;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests
 {
@@ -40,7 +41,7 @@ namespace TianWen.Lib.Tests
         private static Image MakeImage(float[,] data)
         {
             var meta = new ImageMeta("stg-test", DateTime.UtcNow, TimeSpan.FromSeconds(1),
-                FrameType.Light, "", 3.76f, 3.76f, 100, -1, Filter.None, 1, 1,
+                FrameType.Light, "", 3.76f, 3.76f, 100, FocuserPositions.None, Filter.None, 1, 1,
                 float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
             return new Image([data], BitDepth.Float32, 70000f, 0f, 0, meta);
         }
