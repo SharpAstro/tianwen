@@ -1794,12 +1794,18 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "the per-channel wing gains its own real stars of the same brightness were measured to need (R2s2). " +
                           "Every session needs its row. Not with --channel-relations.",
         };
+        var channelWingCutOpt = new Option<double?>("--channel-wing-cut")
+        {
+            Description = "--mode stars: the weakest wing, as a factor of the master's own, that half the draws of a cell give one " +
+                          "channel of every star, the channel drawn at random and the factor log-uniform up to 1, from a stream of " +
+                          "its own (R2v: one channel falling off faster than any training master's does). Not with --channel-relations.",
+        };
 
         var command = new Command("degrade",
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, channelWingCutOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -1937,6 +1943,25 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 consoleHost.WriteError("--star-shapes and --channel-relations are two arms; give one");
                 return 1;
             }
+            var channelWingCut = parseResult.GetValue(channelWingCutOpt);
+            if (channelWingCut is { } minFactor)
+            {
+                if (mode != DatasetDegradationExporter.DegradationMode.Stars)
+                {
+                    consoleHost.WriteError("--channel-wing-cut weakens injected stars' wings; it needs --mode stars");
+                    return 1;
+                }
+                if (!(minFactor > 0 && minFactor <= 1))
+                {
+                    consoleHost.WriteError($"--channel-wing-cut {minFactor}: the weakest wing is a factor in (0, 1]");
+                    return 1;
+                }
+                if (relationSessions is not null)
+                {
+                    consoleHost.WriteError("--channel-wing-cut and --channel-relations are two arms; give one");
+                    return 1;
+                }
+            }
 
             var options = new DatasetDegradationExporter.Options(
                 BakeRoot: parseResult.Required(bakeOpt),
@@ -1975,7 +2000,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 StarLobes: starLobes,
                 StarSubs: starSubs,
                 ChannelRelationSessions: relationSessions,
-                StarShapesPath: starShapes);
+                StarShapesPath: starShapes,
+                ChannelWingCut: channelWingCut);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);

@@ -658,6 +658,80 @@ public class StarInjectionTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// R2v's wing cut: about half the draws weaken one channel's wing, every star of the draw alike and the saturated one
+    /// too, by a factor from the least given up to 1, never brighter, and the plan names the channel and the factor; the
+    /// stars' places, brightness, colour, widths and every other channel are the draw's without it, and a mono master is
+    /// never cut.
+    /// </summary>
+    [Fact]
+    public void AWingCutWeakensOneChannelInHalfTheDrawsAndMovesNoStar()
+    {
+        var population = BuildColourPopulation(ColourField((3.0, 0.002f), (2.3, 0.006f), (2.6, 0.004f)));
+        var cut = new ChannelWingCut(0.45);
+        var plain = population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(21));
+        var (cuts, channelsCut) = (0, new HashSet<int>());
+        const int draws = 400;
+        for (var seed = 0; seed < draws; seed++)
+        {
+            var drawn = population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(21), null, new Random(seed), cut);
+            drawn.Stars.Length.ShouldBe(plain.Stars.Length);
+            int? channel = null;
+            var factor = 1.0;
+            for (var i = 0; i < plain.Stars.Length; i++)
+            {
+                var (d, p) = (drawn.Stars[i], plain.Stars[i]);
+                (d.X, d.Y, d.Saturated).ShouldBe((p.X, p.Y, p.Saturated));
+                d.Amplitudes.ShouldBe(p.Amplitudes);
+                for (var c = 0; c < 3; c++)
+                {
+                    d.Profiles[c].FwhmPx.ShouldBe(p.Profiles[c].FwhmPx);
+                    var gain = Math.Exp(d.Profiles[c].HaloLogGain - p.Profiles[c].HaloLogGain);
+                    if (gain == 1.0)
+                    {
+                        continue;
+                    }
+                    // One channel a draw, the same factor on every star of it.
+                    (channel ?? c).ShouldBe(c);
+                    channel = c;
+                    if (factor != 1.0)
+                    {
+                        gain.ShouldBe(factor, 1e-12);
+                    }
+                    factor = gain;
+                    gain.ShouldBeInRange(0.45, 1.0);
+                }
+            }
+            if (channel is { } ch)
+            {
+                cuts++;
+                channelsCut.Add(ch);
+                drawn.RelationFrom.ShouldBe(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"wing cut: channel {ch} at {factor:F3}"));
+            }
+            else
+            {
+                drawn.RelationFrom.ShouldBeNull();
+            }
+        }
+        // Half the draws, binomial over 400: 3.5 standard deviations either side.
+        cuts.ShouldBeInRange(165, 235);
+        channelsCut.ShouldBe([0, 1, 2], ignoreOrder: true);
+
+        Should.Throw<ArgumentNullException>(() =>
+            population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(21), null, null, cut));
+        var a = ChannelRelation.Of("a", ColourField((2.2, 0.003f), (2.0, 0.005f), (2.4, 0.003f)));
+        Should.Throw<InvalidOperationException>(() =>
+            population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(21), new ChannelVariation([a]), new Random(1), cut));
+        Should.Throw<ArgumentOutOfRangeException>(() => new ChannelWingCut(1.5));
+        Should.Throw<ArgumentOutOfRangeException>(() => new ChannelWingCut(0.0));
+        for (var seed = 0; seed < 50; seed++)
+        {
+            var (monoFactors, monoChannel, _) = cut.DrawCell(1, new Random(seed));
+            monoChannel.ShouldBe(-1);
+            monoFactors.ShouldAllBe(static f => f.LogHalo == 0.0 && f.LogWidth == 0.0);
+        }
+    }
+
+    /// <summary>
     /// R2s2's calibration: on a master whose real stars carry more (or less) light per amplitude just outside their core than
     /// its field profile draws, each channel on its own and differently for its bright stars than its faint ones, the measure
     /// finds each band's and channel's wing gain, and reads the drawn light short of (or past) the real light beforehand.

@@ -135,13 +135,17 @@ public static partial class DatasetDegradationExporter
     internal sealed class StarsContext
     {
         internal StarsContext(string platesDir, Dictionary<string, DatasetPsfNoiseReport.SessionPsf> psf, ChannelVariation? variation = null,
-            Dictionary<string, StarShapeRow>? shapes = null)
+            Dictionary<string, StarShapeRow>? shapes = null, ChannelWingCut? wingCut = null)
         {
             PlatesDir = platesDir;
             Psf = psf;
             Variation = variation;
             Shapes = shapes;
+            WingCut = wingCut;
         }
+
+        /// <summary>The wing cut every draw may take (<see cref="Options.ChannelWingCut"/>), or null for none.</summary>
+        public ChannelWingCut? WingCut { get; }
 
         /// <summary>Each master's measured star shape (<see cref="Options.StarShapesPath"/>), or null for none.</summary>
         public Dictionary<string, StarShapeRow>? Shapes { get; }
@@ -214,7 +218,18 @@ public static partial class DatasetDegradationExporter
                 logger?.LogInformation("[degrade] channel relations measured on {Count} masters' field profiles, {Colour} of them in colour",
                     variation.Pool.Length, variation.Pool.Count(static r => r.Channels > 1));
             }
-            return new StarsContext(platesDir, psf, variation, shapes);
+            ChannelWingCut? wingCut = null;
+            if (options.ChannelWingCut is { } minFactor)
+            {
+                if (variation is not null)
+                {
+                    throw new ArgumentException("a wing cut and channel relations are two arms; give one", nameof(options));
+                }
+                wingCut = new ChannelWingCut(minFactor);
+                logger?.LogInformation("[degrade] wing cut: {Share:P0} of the draws weaken one channel's wing by a factor from {Min} to 1",
+                    ChannelWingCut.Share, minFactor);
+            }
+            return new StarsContext(platesDir, psf, variation, shapes, wingCut);
         }
 
         public string PlatePath(string sessionId) => Path.Combine(PlatesDir, DatasetTileExporter.Sanitize(sessionId) + "_plate.fits");
@@ -424,7 +439,7 @@ public static partial class DatasetDegradationExporter
                 {
                     var seed = DrawSeed(options.Seed, sessionId, cell.X, cell.Y, draw);
                     var (row, injection) = InjectCell(sessionOptions, unitPlate, absent, population, cell, draw, seed, stackedFrames, fieldRadius,
-                        origMin, balances, calibrations, tilesDir, slug, sessionId, measures, stars.Variation, background, knots);
+                        origMin, balances, calibrations, tilesDir, slug, sessionId, measures, stars.Variation, background, knots, stars.WingCut);
                     degRows.Add(row);
                     injectionRows.Add(injection);
                     tileRows.Add(new DatasetTileExporter.TileManifestRow(
@@ -495,12 +510,13 @@ public static partial class DatasetDegradationExporter
         InjectionMeasures? measures,
         ChannelVariation? variation,
         float[][]? background = null,
-        ImmutableArray<SyntheticBackground.Knot> knots = default)
+        ImmutableArray<SyntheticBackground.Knot> knots = default,
+        ChannelWingCut? wingCut = null)
     {
         var size = cell.TileSize;
         var channels = unitPlate.ChannelCount;
         var plan = population.Plan(cell.X, cell.Y, size, InjectionMarginPx, options.Placement, options.Profile, options.SaturatedFraction, new Random(seed),
-            variation, variation is null ? null : new Random(seed ^ 0x2545f491));
+            variation, variation is null && wingCut is null ? null : new Random(seed ^ 0x2545f491), wingCut);
 
         // The plate's cell, or on R2d's synthetic background the cell's own noisy planes (SyntheticCell).
         var basePlanes = new float[channels][];
