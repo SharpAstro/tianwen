@@ -21,7 +21,7 @@ cat > ~/sync.sh <<'SYNC'
 #!/bin/bash
 source ~/run.env
 SAS=$(cat ~/.sas); BASE="https://${ACCOUNT:?run.env must name ACCOUNT}.blob.core.windows.net/tw-neural-training/r2-runs/$RUN"
-if pgrep -f n2n_smoke.py >/dev/null; then echo "$(date -Is) alive" > ~/heartbeat.txt; else echo "$(date -Is) dead" > ~/heartbeat.txt; fi
+if pgrep -f 'n2n_(smoke|teacher)\.py' >/dev/null; then echo "$(date -Is) alive" > ~/heartbeat.txt; else echo "$(date -Is) dead" > ~/heartbeat.txt; fi
 for f in ~/heartbeat.txt ~/$RUN.log ~/cache/$NAME.resume.pt ~/cache/$NAME.pt; do
     [ -f "$f" ] && azcopy copy "$f" "$BASE/$(basename "$f")?$SAS" --overwrite true --output-level quiet >/dev/null 2>&1
 done
@@ -33,10 +33,20 @@ chmod +x ~/sync.sh
 { crontab -l 2>/dev/null | grep -v sync.sh || true; echo '*/10 * * * * /home/tw/sync.sh'; } | crontab -
 crontab -l | grep -q sync.sh || { echo "cron sync NOT installed"; exit 1; }
 cd ~/run
+# A teacher named by its members (TEACHER_MEMBERS: checkpoints setup.sh fetched into the cache) is built HERE, on the T4,
+# not uploaded: E5's teacher.f16 is 7.6 GB, an hour and a half up a home link and about half an hour here. It goes on the
+# OS disk, which an eviction keeps, and n2n_teacher.py skips the blocks it has written, so a resume costs nothing. Its
+# progress goes into the run's log, which the driver reads.
+if [ -n "$TEACHER_MEMBERS" ]; then
+    [ -z "$TEACHER_BLOB" ] || { echo "run.env names both TEACHER_BLOB and TEACHER_MEMBERS"; exit 1; }
+    echo "$(date -Is) teacher: $TEACHER_MEMBERS over 8 views into ~/teacher-built" | tee -a ~/$RUN.log
+    ~/venv/bin/python n2n_teacher.py --cache /home/tw/cache --ckpt "$TEACHER_MEMBERS" --tta 8 --out /home/tw/teacher-built >> ~/$RUN.log 2>&1
+fi
 # One array, used below: an edit that built it and left a second, hard-coded command running ran R2r's seed 1 as R2q's
 # schedule until a check of the trainer's own command line caught it (2026-10-21).
 EXTRA_ARGS=()
 [ -n "$TEACHER_BLOB" ] && EXTRA_ARGS+=(--teacher /home/tw/teacher)
+[ -n "$TEACHER_MEMBERS" ] && EXTRA_ARGS+=(--teacher /home/tw/teacher-built)
 [ -n "$EXTRA_BLOB" ] && EXTRA_ARGS+=(--extra-cache /home/tw/clusters)
 [ -n "$SCHEDULE_ON" ] && EXTRA_ARGS+=(--schedule-on "$SCHEDULE_ON")
 [ -n "$TRAIN_FLAGS" ] && EXTRA_ARGS+=($TRAIN_FLAGS)

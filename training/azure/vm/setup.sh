@@ -20,6 +20,11 @@ fetch() {
 fetch "$CACHE_BLOB" cache
 [ -n "$TEACHER_BLOB" ] && fetch "$TEACHER_BLOB" teacher
 [ -n "$EXTRA_BLOB" ] && fetch "$EXTRA_BLOB" clusters
+# A teacher built on the VM (train.sh) averages checkpoints that must sit in the cache folder, as real files on the OS disk.
+if [ -n "$MEMBERS_BLOB" ]; then
+    echo "$(date -Is) download the teacher's members $MEMBERS_BLOB"
+    azcopy copy "$BASE/$MEMBERS_BLOB/*?$SAS" "$HOME/cache/" --output-level essential
+fi
 true
 mkdir -p ~/run
 tar -xzf ~/run.tgz -C ~/run
