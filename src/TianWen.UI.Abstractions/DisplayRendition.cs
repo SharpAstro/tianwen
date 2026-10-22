@@ -36,13 +36,30 @@ namespace TianWen.UI.Abstractions
         public ReadOnlySpan<float> CurveSpan => CurveData.IsDefaultOrEmpty ? default : CurveData.AsSpan();
 
         /// <summary>
+        /// The StarStretch amount a star split's stars are drawn with (<see cref="ViewerState.StarStretch"/>), so the pinned
+        /// half of a comparison keeps its own.
+        /// </summary>
+        /// <remarks>Stored as its distance from <see cref="StarSplit.StarCurve"/>, so a <c>new()</c> rendition, which skips
+        /// property initialisers, reads the default and not 0, which would draw the stars linear and all but invisible.</remarks>
+        public float StarStretch
+        {
+            get => StarSplit.StarCurve + _starStretchOffset;
+            init => _starStretchOffset = value - StarSplit.StarCurve;
+        }
+
+        private readonly float _starStretchOffset;
+
+        /// <summary>
         /// Snapshots how the viewer is displaying the frame right now. The Tone popover's finish (masked contrast and
         /// saturation) travels INSIDE the stretch, as the headless render carries it, so every path that renders a
         /// rendition, the GPU, the CPU save and the split's pinned half, applies the same finish.
         /// </summary>
         public static DisplayRendition FromState(StretchUniforms stretch, ViewerState state)
             => new DisplayRendition(stretch with { FinishContrast = state.FinishContrast, FinishSaturation = state.FinishSaturation },
-                state.CurvesBoost, state.HdrAmount, state.HdrKnee, state.CurvesMode, state.CurveData);
+                state.CurvesBoost, state.HdrAmount, state.HdrKnee, state.CurvesMode, state.CurveData)
+            {
+                StarStretch = state.StarStretch,
+            };
     }
 
     /// <summary>Which display-parameter slot a draw reads. Two draws share one command buffer, so each

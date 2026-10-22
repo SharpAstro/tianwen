@@ -153,11 +153,11 @@ public static class EnhanceActions
         var doc = await AstroImageDocument.AdoptImageAsync(
             enhanced.WithZeroPedestal(), debayerAlgorithm, wcs, source.FilePath, crop, cancellationToken)
             .ConfigureAwait(false);
-        // The star split for the render (AstroImageDocument.StarSplit): the plates the recombine added, the stars stretched
-        // once by their own curve, so no display lever lifts their wings with the faint signal.
+        // The star split for the render (AstroImageDocument.StarSplit): the plates the recombine added, both kept linear;
+        // the stars are stretched by their own curve as they are drawn, so no display lever lifts their wings.
         if (plates is { } split)
         {
-            doc.AttachStarSplit(StarSplit.FromLinear(split.Starless.WithZeroPedestal(), split.Stars, peak));
+            doc.AttachStarSplit(new StarSplit(split.Starless.WithZeroPedestal(), split.Stars, peak));
         }
         // Every canonical program runs a GradientCorrectionStep, so the background of what comes back
         // has been flattened and levelled. Nothing needs telling any more: AstroImageDocument.

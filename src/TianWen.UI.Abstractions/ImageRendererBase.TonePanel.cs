@@ -54,6 +54,8 @@ partial class ImageRendererBase<TSurface>
     private const string SoftClipHeading = "Soft clip: highlights bend instead of clipping";
     private const string FinishHeading = "Finish: the signal only, sky and star cores kept";
     private const string SaturationNeedsColourReason = "needs a colour frame";
+    private const string StarsHeading = "Stars: their own stretch, screened over the picture";
+    private const string StarsNeedSplitReason = "needs an enhance that split the stars";
     private const string BoostNeedsStarsReason = "needs detected stars";
     private const string CurveModeNeedsBoostReason = "no effect at zero boost";
     private const string KneeNeedsAmountReason = "no effect at zero amount";
@@ -84,6 +86,10 @@ partial class ImageRendererBase<TSurface>
     private const float FinishContrastMax = 1f;
     private const float FinishSaturationMax = 2.5f;
 
+    // The stars' own StarStretch amount: 0 is the identity, each step of one triples the lift; the CLI's --dual-stretch
+    // default (StarSplit.StarCurve, 2) sits in the lower half so a softer and a much harder screen are both on the track.
+    private const float StarStretchMax = 5f;
+
     /// <summary>
     /// The least track worth dragging, in design units, as a Star MINIMUM rather than a fixed
     /// width: it takes part in the measure that decides the panel's width and then gets out of the
@@ -100,6 +106,9 @@ partial class ImageRendererBase<TSurface>
     /// <summary>The soft clip's two dials share one accent: they are one control in two parts.</summary>
     private static readonly RGBAColor32 ToneSoftClipFill = RGBAColor32.FromFloat(0.85f, 0.66f, 0.35f, 1f);
 
+    /// <summary>The stars' dial.</summary>
+    private static readonly RGBAColor32 ToneStarsFill = RGBAColor32.FromFloat(0.55f, 0.70f, 0.90f, 1f);
+
     /// <summary>The finish's two dials share one accent, as the soft clip's do.</summary>
     private static readonly RGBAColor32 ToneFinishFill = RGBAColor32.FromFloat(0.40f, 0.72f, 0.62f, 1f);
 
@@ -113,6 +122,7 @@ partial class ImageRendererBase<TSurface>
     private readonly SliderState _toneKneeSlider = new() { Min = SoftClipKneeMin, Max = SoftClipKneeMax };
     private readonly SliderState _toneContrastSlider = new() { Min = 0f, Max = FinishContrastMax };
     private readonly SliderState _toneSaturationSlider = new() { Min = 0f, Max = FinishSaturationMax };
+    private readonly SliderState _toneStarsSlider = new() { Min = 0f, Max = StarStretchMax };
 
     /// <summary>Test seam: the boost dial, so a test can find its arranged leaf by identity.</summary>
     internal SliderState ToneBoostSliderState => _toneBoostSlider;
@@ -128,6 +138,9 @@ partial class ImageRendererBase<TSurface>
 
     /// <summary>Test seam: the finish's saturation dial.</summary>
     internal SliderState ToneSaturationSliderState => _toneSaturationSlider;
+
+    /// <summary>Test seam: the stars' dial.</summary>
+    internal SliderState ToneStarsSliderState => _toneStarsSlider;
 
     // EMPTY, never default: a default ImmutableArray throws on every read, so a closed panel would
     // hand a caller a different KIND of empty from an open one with nothing in it.
@@ -235,6 +248,16 @@ partial class ImageRendererBase<TSurface>
             state.NeedsRedraw = true;
         };
 
+        // The stars' strength moves only a star split's stars (an enhance's output), so it is dim on any other frame.
+        var starsEnabled = _document?.StarSplit is not null;
+        _toneStarsSlider.Value = state.StarStretch;
+        _toneStarsSlider.Enabled = starsEnabled;
+        _toneStarsSlider.OnChanged = v =>
+        {
+            state.StarStretch = v;
+            state.NeedsRedraw = true;
+        };
+
         var rows = ImmutableArray.CreateBuilder<Layout.Node>();
 
         rows.Add(ToneDialRow("Boost", _toneBoostSlider, UiFormat.Percent0(state.CurvesBoost), ToneBoostFill));
@@ -289,6 +312,16 @@ partial class ImageRendererBase<TSurface>
         if (!saturationEnabled)
         {
             rows.Add(ToneReasonRow(SaturationNeedsColourReason, small));
+        }
+
+        rows.Add(ToneSeparator());
+
+        // A star split's stars: StarStretch on the linear plate, the CLI's --dual-stretch curve, apart from every lever above.
+        rows.Add(Layout.Builder.Text(StarsHeading, small, ViewerTheme.Palette.DimText).WStar());
+        rows.Add(ToneDialRow("Stars", _toneStarsSlider, state.StarStretch.ToString("0.00"), ToneStarsFill));
+        if (!starsEnabled)
+        {
+            rows.Add(ToneReasonRow(StarsNeedSplitReason, small));
         }
 
         rows.Add(ToneSeparator());

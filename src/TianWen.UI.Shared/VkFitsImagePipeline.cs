@@ -89,7 +89,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     private readonly VkDescriptorSet[] _beforeSamplerSets = new VkDescriptorSet[VulkanContext.MaxFramesInFlight];
     private readonly int[] _imageSamplerSetStamp = new int[VulkanContext.MaxFramesInFlight];
     private readonly int[] _beforeSamplerSetStamp = new int[VulkanContext.MaxFramesInFlight];
-    // Set 2: the star split's pre-stretched stars plate (UploadStarTexture), per frame in flight like set 1, bound to the
+    // Set 2: the star split's linear stars plate (UploadStarTexture), per frame in flight like set 1, bound to the
     // placeholder on a frame with no split.
     private readonly VkDescriptorSet[] _starSamplerSets = new VkDescriptorSet[VulkanContext.MaxFramesInFlight];
     private readonly int[] _starSamplerSetStamp = new int[VulkanContext.MaxFramesInFlight];
@@ -392,9 +392,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     }
 
     /// <summary>
-    /// Uploads one channel of the star split's STRETCHED stars plate (display values in [0, 1], the stars' own fixed curve
-    /// already applied), which the shader screens over the stretched starless picture (<c>starScreen</c>). The plate is not
-    /// stretched again here, nor edited by any display lever: it is the same picture whatever the stretch.
+    /// Uploads one channel of the star split's LINEAR stars plate, which the shader stretches by the stars' own curve
+    /// (<c>finishParams.zw</c>, <see cref="TianWen.Lib.Imaging.ScreenedStars"/>) and screens over the stretched starless
+    /// picture. No display lever edits it, so the plate is uploaded once and its strength is a uniform.
     /// </summary>
     public void UploadStarTexture(ReadOnlySpan<float> data, int channel, int width, int height)
     {
@@ -738,7 +738,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         float texelsPerPixel = 1f,
         float finishContrast = 0f,
         float finishSaturation = 1f,
-        bool starScreen = false,
+        float starScale = 0f,
+        float starMidtones = 0.5f,
         int slot = UboSlotPrimary)
     {
         if ((uint)slot >= StretchUboSlots)
@@ -887,8 +888,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         // FinishSaturation), applied after the soft clip; its mask's background is curvesMidpoint at offset 16.
         WriteFloat(p, 432, finishContrast);
         WriteFloat(p, 436, finishSaturation);
-        WriteFloat(p, 440, starScreen ? 1f : 0f);
-        WriteFloat(p, 444, 0f);
+        // The star split's scale (0 = no split) and its stars' midtones balance (ScreenedStars).
+        WriteFloat(p, 440, starScale);
+        WriteFloat(p, 444, starMidtones);
 
         // Every 4-byte slot from 0 to StretchUboSize is written on every call, so comparing the whole
         // range against the previous contents is exact: there is no padding hole left holding stale or
