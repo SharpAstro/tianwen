@@ -40,6 +40,9 @@ layout(set = 0, binding = 0, std140) uniform StretchUBO {
     // value reaches the sky map's own grid, so the two grids this shader hands over to each other
     // cannot drift apart. It is a constant, not a per-draw choice, which is why no caller passes it.
     vec4  gridColor;
+    // offset 432 (x = finish contrast 0..1, y = finish saturation, 1 = off; zw = pad). The masked finish, after the soft
+    // clip: applyFinish below, mirrored by Image.ApplyFinish on the CPU.
+    vec4  finishParams;
 } ubo;
 
 layout(set = 1, binding = 0) uniform sampler2D uChannel0;
@@ -61,6 +64,39 @@ float stretchChannel(float raw, int ch) {
     norm = max(norm * ubo.whiteBalance[ch], 0.0);
     float rescaled = (norm - ubo.shadows[ch]) * ubo.rescale[ch];
     return mtf(ubo.midtones[ch], rescaled);
+}
+
+// Where the finish applies, from the STRETCHED luminance against the post-stretch background: 0 at and below the
+// background, smoothly 1 a quarter of the way to white, easing back to 0 over the last fifth below white. Mirrors
+// Image.FinishMask.
+float finishMask(float luma, float bg) {
+    float span = max(1.0 - bg, 1e-3);
+    float lo = clamp((luma - bg) / (0.25 * span), 0.0, 1.0);
+    lo = lo * lo * (3.0 - 2.0 * lo);
+    float hi = clamp((1.0 - luma) / 0.2, 0.0, 1.0);
+    return lo * hi;
+}
+
+// The masked finish on one stretched pixel: a smoothstep S-curve on the luminance between the background and white,
+// the colour kept, then saturation away from the new luminance, both through finishMask. Mirrors Image.ApplyFinish.
+vec3 applyFinish(vec3 c, float contrast, float saturation, float bg) {
+    float luma = dot(ubo.lumaWeights.xyz, c);
+    float m = finishMask(luma, bg);
+    if (m <= 0.0) return c;
+    if (contrast > 0.0 && luma > 1e-6) {
+        float span = max(1.0 - bg, 1e-3);
+        float t = clamp((luma - bg) / span, 0.0, 1.0);
+        float curved = t * t * (3.0 - 2.0 * t);
+        float target = bg + span * (t + contrast * (curved - t));
+        float s = (luma + m * (target - luma)) / luma;
+        c *= s;
+        luma *= s;
+    }
+    if (saturation != 1.0) {
+        float k = 1.0 + m * (saturation - 1.0);
+        c = max(vec3(luma) + (c - vec3(luma)) * k, vec3(0.0));
+    }
+    return c;
 }
 
 float applyCurve(float v, float boost) {
@@ -603,6 +639,9 @@ void main() {
         if (ubo.hdrAmount > 0.0) {
             r = applyHdr(r, ubo.hdrAmount, ubo.hdrKnee);
         }
+        if (ubo.finishParams.x > 0.0) {
+            r = applyFinish(vec3(r), ubo.finishParams.x, 1.0, ubo.curvesMidpoint).r;
+        }
         float nsMono = ubo.stretchBlend.y;
         if (nsMono != 1.0 && nsMono > 0.0) {
             r *= nsMono;
@@ -645,18 +684,25 @@ void main() {
         float nr = rawR * ubo.normFactor;
         float ng = rawG * ubo.normFactor;
         float nb = rawB * ubo.normFactor;
-        float prr = max((nr - ubo.pedestal[0]) * ubo.whiteBalance[0], 0.0);
-        float prg = max((ng - ubo.pedestal[1]) * ubo.whiteBalance[1], 0.0);
-        float prb = max((nb - ubo.pedestal[2]) * ubo.whiteBalance[2], 0.0);
+        // Background neutralisation, then white balance, as stretchChannel does: the Luma curve is solved against both.
+        float prr = max(((nr - ubo.pedestal[0]) * ubo.bgNeutralization[0] + (1.0 - ubo.bgNeutralization[0])) * ubo.whiteBalance[0], 0.0);
+        float prg = max(((ng - ubo.pedestal[1]) * ubo.bgNeutralization[1] + (1.0 - ubo.bgNeutralization[1])) * ubo.whiteBalance[1], 0.0);
+        float prb = max(((nb - ubo.pedestal[2]) * ubo.bgNeutralization[2] + (1.0 - ubo.bgNeutralization[2])) * ubo.whiteBalance[2], 0.0);
         float Ynorm = ubo.lumaWeights.x * prr + ubo.lumaWeights.y * prg + ubo.lumaWeights.z * prb;
-        float rescaled = (Ynorm - ubo.lumaStretch.x) * ubo.lumaStretch.z;
-        float Yp = mtf(ubo.lumaStretch.y, rescaled);
-        float scale = Ynorm > 1e-7 ? Yp / Ynorm : 0.0;
-        float maxCh = max(prr, max(prg, prb));
-        if (maxCh > 1e-7) scale = min(scale, 1.0 / maxCh);
-        float lumaR = clamp(prr * scale, 0.0, 1.0);
-        float lumaG = clamp(prg * scale, 0.0, 1.0);
-        float lumaB = clamp(prb * scale, 0.0, 1.0);
+        // The colour is kept above the BLACK POINT (the curve's shadow), not the pedestal: a channel's ratio is its signal's,
+        // not its signal plus the sky every pixel shares. Mirrors Image.StretchLumaPixelCpu.
+        float lumaShadow = ubo.lumaStretch.x;
+        float yAbove = Ynorm - lumaShadow;
+        float Yp = mtf(ubo.lumaStretch.y, yAbove * ubo.lumaStretch.z);
+        float ar = max(prr - lumaShadow, 0.0);
+        float ag = max(prg - lumaShadow, 0.0);
+        float ab = max(prb - lumaShadow, 0.0);
+        float scale = yAbove > 1e-7 ? Yp / yAbove : 0.0;
+        float maxCh = max(ar, max(ag, ab));
+        if (scale > 0.0 && maxCh > 1e-7) scale = min(scale, 1.0 / maxCh);
+        float lumaR = clamp(ar * scale, 0.0, 1.0);
+        float lumaG = clamp(ag * scale, 0.0, 1.0);
+        float lumaB = clamp(ab * scale, 0.0, 1.0);
 
         // Optional blend with the per-channel linked branch. ubo.shadows/midtones/rescale
         // hold the per-channel linked params in Luma mode (the producer always populates
@@ -697,6 +743,10 @@ void main() {
         r = applyHdr(r, ubo.hdrAmount, ubo.hdrKnee);
         g = applyHdr(g, ubo.hdrAmount, ubo.hdrKnee);
         b = applyHdr(b, ubo.hdrAmount, ubo.hdrKnee);
+    }
+    if (ubo.finishParams.x > 0.0 || ubo.finishParams.y != 1.0) {
+        vec3 finished = applyFinish(vec3(r, g, b), ubo.finishParams.x, ubo.finishParams.y, ubo.curvesMidpoint);
+        r = finished.r; g = finished.g; b = finished.b;
     }
 
     // Post-stretch normalize -- producer predicts max via Image.PredictPostStretchMaxScale

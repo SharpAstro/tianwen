@@ -89,8 +89,6 @@ public static class StretchSolver
             // The neutralisation is per channel, so the luma scalar takes it through the same
             // weighting the WB does; the affine's offset rides along with it.
             var lumaBn = weights.R * bn.R + weights.G * bn.G + weights.B * bn.B;
-            var (s, m, h, r) = Image.ComputeStretchParameters(
-                (luma.Median * lumaBn + (1f - lumaBn)) * lumaWb, luma.Mad * lumaBn * lumaWb, factor, clipping);
 
             // Use per-channel pedestals for background subtraction (avoids green cast from RGGB);
             // luma-derived midtone/shadows/rescale live in LumaStretch.
@@ -98,6 +96,15 @@ public static class StretchSolver
             var ped0 = chStats.Length > 0 ? chStats[0].Pedestal : luma.Pedestal;
             var ped1 = chStats.Length > 1 ? chStats[1].Pedestal : ped0;
             var ped2 = chStats.Length > 2 ? chStats[2].Pedestal : ped0;
+
+            // The luma median in the coordinates the PIXEL path computes luminance in: above the weighted per-channel
+            // pedestals it subtracts, not above the luminance's own pedestal, which the stats measured it from. The two
+            // differ by however far the sky sits above the channels' pedestals, and a curve solved in the other one put its
+            // shadow point that far below every sky pixel: an enhanced master whose sky was levelled to 0.0104 above
+            // per-channel pedestals of 0, its luminance pedestal 0.0103, rendered as a white field in Luma.
+            var lumaMedian = luma.Pedestal + luma.Median - ((weights.R * ped0) + (weights.G * ped1) + (weights.B * ped2));
+            var (s, m, h, r) = Image.ComputeStretchParameters(
+                (lumaMedian * lumaBn + (1f - lumaBn)) * lumaWb, luma.Mad * lumaBn * lumaWb, factor, clipping);
 
             // Always compute per-channel linked params alongside the luma scalar so that a
             // LumaBlend < 1 caller has the linked branch ready in the shader without a UBO

@@ -70,7 +70,7 @@ namespace TianWen.Lib.Imaging;
 ///
 /// <para><b>There was a fifth -- "identity or copy, decided at runtime" -- and it was not a
 /// convention but the absence of one.</b> <c>Calibrator.Apply</c>, the <c>SharpenPipeline</c> steps
-/// and <see cref="MaskedBoost"/> each returned either a new image or the caller's own input
+/// and <c>MaskedBoost</c> (since folded into the stretch's finish) each returned either a new image or the caller's own input
 /// depending on configuration, so fourteen call sites wrote
 /// <c>if (!ReferenceEquals(result, input)) input.Release();</c> longhand. P1 of
 /// <c>docs/plans/frame-lifecycle.md</c> retired every one of them. <b>Do not reintroduce that

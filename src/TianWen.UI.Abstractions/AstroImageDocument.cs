@@ -13,6 +13,7 @@ using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.ColorCalibration;
+using TianWen.Lib.Imaging.Stacking;
 using TianWen.Lib.Stat;
 
 namespace TianWen.UI.Abstractions;
@@ -245,6 +246,11 @@ public sealed class AstroImageDocument : IPreviewSource
     /// calibration fit to multiply into the pixels (<see cref="PhotometricColorCalibration"/>).</summary>
     internal const string SpccMethod = "SPCC";
 
+    /// <summary>The <see cref="ColorCalibrationSummary.Method"/> of an SPCC fit the FILE states (its <c>WB*</c> cards, written
+    /// by the stacker that fitted it), so the colour popover says where the calibration came from. Photometric like a fit
+    /// made here.</summary>
+    internal const string StatedSpccMethod = "SPCC, from the file";
+
     /// <summary>
     /// Whether this frame's white balance is already IN its pixels (<see cref="ColourCalibration.Applied"/>): an
     /// enhanced master whose broadband SPCC was multiplied into its linear data before the enhance. Such a frame is
@@ -260,7 +266,7 @@ public sealed class AstroImageDocument : IPreviewSource
     /// none left to apply.
     /// </summary>
     public ColourCalibration? PhotometricColorCalibration
-        => ColorCalibration is { } wb && ColorCalibrationSummary is { Method: SpccMethod } && !IsNarrowbandColorCalibration && !IsColourInPixels
+        => ColorCalibration is { } wb && ColorCalibrationSummary is { Method: SpccMethod or StatedSpccMethod } && !IsNarrowbandColorCalibration && !IsColourInPixels
             ? new ColourCalibration(wb.R, wb.G, wb.B, ColourCalibrationSource.Spcc)
             : null;
 
@@ -657,7 +663,7 @@ public sealed class AstroImageDocument : IPreviewSource
 
         var statistics = await ComputeStretchStatsAsync(viewImage, cancellationToken);
 
-        return new AstroImageDocument(
+        var document = new AstroImageDocument(
             filePath,
             viewImage,
             actualAlgorithm,
@@ -669,6 +675,27 @@ public sealed class AstroImageDocument : IPreviewSource
             InteriorHolesFilled = interiorHolesFilled,
             FullScaleAdu = fullScaleAdu,
         };
+        await document.AdoptStatedBalanceAsync(cancellationToken);
+        return document;
+    }
+
+    /// <summary>
+    /// The balance the FILE states becomes this document's calibration, as a fit made here would: ONE source for the
+    /// balance a frame is shown with and an enhance puts into its pixels. A master stacked with SPCC (its <c>WB*</c> cards)
+    /// therefore opens calibrated, as the CLI's render shows it, and the calibration button reads "SPCC on"; a balance
+    /// already in the pixels was installed as identity by the constructor. A stated fit through a line-selective filter is
+    /// carried as what it is, a display multiplier (<see cref="IsNarrowbandColorCalibration"/>).
+    /// </summary>
+    private async Task AdoptStatedBalanceAsync(CancellationToken cancellationToken)
+    {
+        var meta = UnstretchedImage.ImageMeta;
+        if (_colorCalibration is not null || meta.ColourCalibration is not { Source: ColourCalibrationSource.Spcc, Applied: false } stated)
+        {
+            return;
+        }
+        var lineSelective = await MasterPreviewRenderer.IsLineSelectiveAsync(meta, UnstretchedImage.ChannelCount, cancellationToken).ConfigureAwait(false);
+        InheritColorCalibration((stated.R, stated.G, stated.B),
+            new ColorCalibrationSummary(StatedSpccMethod, stated.R, stated.G, stated.B, StarCount: 0, WhiteReference: null), lineSelective);
     }
 
     /// <summary>
@@ -733,7 +760,9 @@ public sealed class AstroImageDocument : IPreviewSource
             wcs = astapWcs;
         }
 
-        return new AstroImageDocument(filePath, image, DebayerAlgorithm.None, statistics, wcs, isPreStretched);
+        var document = new AstroImageDocument(filePath, image, DebayerAlgorithm.None, statistics, wcs, isPreStretched);
+        await document.AdoptStatedBalanceAsync(cancellationToken);
+        return document;
     }
 
     /// <summary>
@@ -921,9 +950,12 @@ public sealed class AstroImageDocument : IPreviewSource
         // Resolve the Auto intent here, where both inputs are known: whether this frame is colour, and
         // whether a calibration is actually being applied to it. A calibrated colour frame renders
         // Linked so the WB shows; an uncalibrated one Unlinked so each channel's background neutralises.
+        // A balance already IN the pixels (an enhanced master, IsColourInPixels) is a calibration being
+        // shown, as the headless render counts it: rendered Unlinked, each channel's own curve undid it,
+        // and the enhanced L-Quad Sculptor master came out olive where the CLI rendered it balanced.
         var isColour = UnstretchedImage.ChannelCount >= 3
             || UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB;
-        mode = mode.ResolveAuto(isColour, autoWb is not null, ColourIsNotPhotometric,
+        mode = mode.ResolveAuto(isColour, autoWb is not null || IsColourInPixels, ColourIsNotPhotometric,
             ChannelsAlreadyAgree);
 
         if (UseIterativeConvergence && Basis.StarMaskedStats is { } masked)

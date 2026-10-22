@@ -209,12 +209,11 @@ public sealed record StackingOptions(
     // --enhance pass. null = EnhanceOptions.Default (Auto backend, no overrides) --
     // identical to the pre-option behaviour. Threaded immutably to SharpenPipeline.
     EnhanceOptions? EnhanceOptions = null,
-    // Opt-in masked finishing boost (saturation / contrast through a shared luminance
-    // range mask -- Image.MaskedBoost) baked into the rendered preview PNG only, AFTER
-    // the stretch. The linear masters (FITS / EXR) and the --split-plates TIFFs are
-    // never touched: the mask primitives expect stretched [0, 1] data, and the plates
-    // stay edit-ready for the user's own Affinity / Photoshop finishing. null = off
-    // (render path byte-identical to before).
+    // Opt-in masked finish (saturation / contrast through the signal mask, the stretch's own
+    // stage, Image.ApplyFinish) baked into the rendered preview PNG only. The linear masters
+    // (FITS / EXR) and the --split-plates TIFFs are never touched: the plates stay edit-ready
+    // for the user's own Affinity / Photoshop finishing. null = off (render path
+    // byte-identical to before).
     MaskedBoostOptions? PreviewBoost = null,
     // Linear display headroom for the Ultra HDR rendition (MasterRenderOutputs.UltraHdr):
     // peak nits / 203-nit BT.2408 SDR reference white sets how far the recovered cores roll

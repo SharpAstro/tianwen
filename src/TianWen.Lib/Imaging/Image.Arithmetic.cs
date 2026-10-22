@@ -234,6 +234,47 @@ public partial class Image
     /// channel, if any, is copied as it is. NaN propagates.</para>
     /// </remarks>
     /// <exception cref="ArgumentException">The frame has fewer than three channels, or a gain is not a positive finite number.</exception>
+    /// <summary>
+    /// The sky made neutral IN THE PIXELS: each channel raised by the offset that brings its background (the darkest region,
+    /// <see cref="ScanBackgroundRegion"/>) up to the brightest channel's, so the three skies are one level. An offset, not a
+    /// gain, so the colour of everything above the sky is kept, and raised rather than lowered, so no sample goes below
+    /// what it was. The step a gradient correction leaves undone on purpose (it flattens each channel about its OWN level),
+    /// run by the enhance right after it whenever a white balance went into the pixels: without it a balanced, flattened
+    /// sky stayed tinted (the L-Quad Sculptor master, R 0.0029 / G 0.0073 / B 0.0104 after its gradient correction), and a
+    /// Linked stretch then put red's sky below the shared shadow point. A new image; this one is untouched.
+    /// </summary>
+    /// <returns>The levelled frame, and the offset each channel took.</returns>
+    public (Image Image, float[] Offsets) WithBackgroundNeutralised()
+    {
+        if (ChannelCount < 3)
+        {
+            throw new InvalidOperationException($"Neutralising the background needs a colour frame; this one has {ChannelCount} channel(s).");
+        }
+        Span<float> pedestals = stackalloc float[ChannelCount];
+        pedestals.Fill(pedestal);
+        var (backgrounds, _) = ScanBackgroundRegion(pedestals);
+        var level = float.NegativeInfinity;
+        for (var c = 0; c < 3; c++)
+        {
+            level = MathF.Max(level, backgrounds[c]);
+        }
+
+        var offsets = new float[ChannelCount];
+        var dst = CreateChannelData(ChannelCount, Height, Width);
+        var max = float.NegativeInfinity;
+        var min = float.PositiveInfinity;
+        for (var c = 0; c < ChannelCount; c++)
+        {
+            offsets[c] = c < 3 && float.IsFinite(backgrounds[c]) ? level - backgrounds[c] : 0f;
+            var output = MemoryMarshal.CreateSpan(ref dst[c][0, 0], dst[c].Length);
+            TensorPrimitives.Add(GetChannelSpan(c), offsets[c], output);
+            var channel = GetChannel(c);
+            max = MathF.Max(max, channel.MaxValue + offsets[c]);
+            min = MathF.Min(min, channel.MinValue + offsets[c]);
+        }
+        return (new Image(dst, BitDepth.Float32, max, min, pedestal, imageMeta), offsets);
+    }
+
     public Image WithWhiteBalanceApplied(ColourCalibration calibration)
     {
         if (ChannelCount < 3)

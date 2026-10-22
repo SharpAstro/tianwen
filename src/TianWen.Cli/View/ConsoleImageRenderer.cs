@@ -154,6 +154,11 @@ internal sealed class ConsoleImageRenderer
                     bv = Image.ApplyHdr(bv, state.HdrAmount, state.HdrKnee);
                 }
 
+                if (state.FinishContrast > 0f || state.FinishSaturation != 1f)
+                {
+                    Image.ApplyFinish(ref rv, ref gv, ref bv, state.FinishContrast, state.FinishSaturation, bgLevel, stretch.LumaWeights);
+                }
+
                 var r = (byte)(Math.Clamp(rv, 0f, 1f) * 255);
                 var g = (byte)(Math.Clamp(gv, 0f, 1f) * 255);
                 var b = (byte)(Math.Clamp(bv, 0f, 1f) * 255);

@@ -161,10 +161,66 @@ public sealed class SpccBeforeEnhanceTests : IDisposable
         var applied = new ColourCalibration(1f, 2f / 3f, 0.5f, ColourCalibrationSource.Spcc, Applied: true);
         result.AppliedWhiteBalance.ShouldBe(applied);
         final.ImageMeta.ColourCalibration.ShouldBe(applied);
-        // The copy enhancers change nothing, so the result IS the balanced source.
-        final.GetChannelSpan(1)[0].ShouldBe(source.GetChannelSpan(1)[0] * (2f / 3f), 1e-6f);
-        final.GetChannelSpan(2)[0].ShouldBe(source.GetChannelSpan(2)[0] * 0.5f, 1e-6f);
+        // The copy enhancers change nothing, so the result is the balanced source with its sky levelled after the gradient
+        // correction: this frame is all sky, so its three channels come out at one level, the brightest channel's.
+        final.GetChannelSpan(0)[0].ShouldBe(source.GetChannelSpan(0)[0], 1e-6f, "the brightest sky is the level, untouched");
+        final.GetChannelSpan(1)[0].ShouldBe(final.GetChannelSpan(0)[0], 0.01f);
+        final.GetChannelSpan(2)[0].ShouldBe(final.GetChannelSpan(0)[0], 0.01f);
         source.ImageMeta.ColourCalibration.ShouldBeNull("the caller's source is never touched");
+    }
+
+    /// <summary>
+    /// The sky levelled in the pixels (<see cref="Image.WithBackgroundNeutralised"/>): each channel raised by an OFFSET to
+    /// the brightest channel's background, so the sky is neutral and a signal's colour above it is kept to the sample.
+    /// </summary>
+    [Fact]
+    public void TheBackgroundIsLevelledByAnOffsetAndTheSignalKeepsItsColour()
+    {
+        var sky = Rgb(0.01f, 0.02f, 0.03f, size: 96);
+        // A bright, coloured patch in one corner, away from the darkest region the scan picks.
+        var planes = new float[3][,];
+        for (var c = 0; c < 3; c++)
+        {
+            planes[c] = new float[96, 96];
+            var src = sky.GetChannelSpan(c);
+            for (var y = 0; y < 96; y++)
+            {
+                for (var x = 0; x < 96; x++)
+                {
+                    planes[c][y, x] = src[(y * 96) + x] + (x < 20 && y < 20 ? 0.3f - (0.1f * c) : 0f);
+                }
+            }
+        }
+        var frame = new Image(planes, BitDepth.Float32, 1f, 0f, 0f, sky.ImageMeta);
+
+        var (levelled, offsets) = frame.WithBackgroundNeutralised();
+
+        offsets[2].ShouldBe(0f, 1e-4f, "blue's sky is the brightest, so it is the level");
+        offsets[0].ShouldBe(0.02f, 0.003f);
+        offsets[1].ShouldBe(0.01f, 0.003f);
+        // Sky neutral, far from the patch.
+        levelled[0, 80, 80].ShouldBe(levelled[2, 80, 80], 0.01f);
+        levelled[1, 80, 80].ShouldBe(levelled[2, 80, 80], 0.01f);
+        // The patch's colour, its excess over the sky, is exactly what it was.
+        (levelled[0, 5, 5] - levelled[2, 5, 5]).ShouldBe((frame[0, 5, 5] - frame[2, 5, 5]) + (offsets[0] - offsets[2]), 1e-6f);
+        frame[0, 80, 80].ShouldBe(sky[0, 80, 80], "the input is untouched");
+    }
+
+    /// <summary>The background stage levels the sky on EVERY colour frame, balanced or not: one rule, the gradient and the
+    /// level together.</summary>
+    [Fact]
+    public async Task AnEnhanceLevelsTheSkyWhetherOrNotABalanceWentIn()
+    {
+        var copy = new CopyEnhancer();
+        var pipeline = new SharpenPipeline(starRemover: copy, denoiser: copy, gradientCorrector: copy);
+        var source = Rgb(0.30f, 0.20f, 0.10f);
+        var program = pipeline.CanonicalProgram(source, EnhanceOptions.Default);
+
+        var result = await pipeline.ProcessAsync(new SharpenRequest(source, program.ToSteps()), EnhanceOptions.Default,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var final = result.Final.ShouldNotBeNull();
+        final.GetChannelSpan(2)[0].ShouldBe(final.GetChannelSpan(0)[0], 0.01f, "blue's sky rose to red's");
     }
 
     [Fact]
@@ -272,10 +328,11 @@ public sealed class SpccBeforeEnhanceTests : IDisposable
         var (raw, sharpened) = await StackAndEnhanceAsync(Broadband, outputs);
 
         raw.ImageMeta.ColourCalibration.ShouldBe(Spcc);
-        raw.GetChannelSpan(2)[0].ShouldBe(0.10f, 1e-6f, "the raw master's pixels stay as integrated");
+        raw[2, Sky, Sky].ShouldBe(0.10f, 1e-6f, "the raw master's pixels stay as integrated");
 
         sharpened.ImageMeta.ColourCalibration.ShouldBe(new ColourCalibration(1f, 2f / 3f, 0.5f, ColourCalibrationSource.Spcc, Applied: true));
-        sharpened.GetChannelSpan(2)[0].ShouldBe(0.05f, 1e-6f);
+        // The block's excess over the sky carries the balance (0.2 x 0.5); the sky itself was levelled after the gradient.
+        Excess(sharpened, 2).ShouldBe(0.10f, 1e-5f);
     }
 
     /// <summary>The control: through a line-selective filter SPCC's triple is a fit of nothing, so it never enters the
@@ -291,7 +348,7 @@ public sealed class SpccBeforeEnhanceTests : IDisposable
 
         raw.ImageMeta.ColourCalibration.ShouldBe(Spcc);
         sharpened.ImageMeta.ColourCalibration.ShouldBe(Spcc);
-        sharpened.GetChannelSpan(2)[0].ShouldBe(0.10f, 1e-6f);
+        Excess(sharpened, 2).ShouldBe(0.20f, 1e-5f, "no balance went into the pixels");
     }
 
     /// <summary>A triple inherited from a donor whose OWN pixels carry it (its <c>WBAPPLD</c> card) is still this master's
@@ -303,8 +360,8 @@ public sealed class SpccBeforeEnhanceTests : IDisposable
         var (raw, sharpened) = await StackAndEnhanceAsync(Broadband, MasterRenderOutputs.None, Spcc with { Applied = true });
 
         raw.ImageMeta.ColourCalibration.ShouldBe(Spcc);
-        raw.GetChannelSpan(2)[0].ShouldBe(0.10f, 1e-6f, "the raw master's pixels stay as integrated");
-        sharpened.GetChannelSpan(2)[0].ShouldBe(0.05f, 1e-6f, "the triple went into the linear master before the enhance");
+        raw[2, Sky, Sky].ShouldBe(0.10f, 1e-6f, "the raw master's pixels stay as integrated");
+        Excess(sharpened, 2).ShouldBe(0.10f, 1e-5f, "the triple went into the linear master before the enhance");
     }
 
     private async Task<(Image Raw, Image Sharpened)> StackAndEnhanceAsync(string filterName, MasterRenderOutputs outputs, ColourCalibration? inherited = null)
@@ -312,9 +369,10 @@ public sealed class SpccBeforeEnhanceTests : IDisposable
         await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
         var dir = _folders.Create("spcc-before-enhance-").FullName;
         var masterPath = Path.Combine(dir, "master_test.fits");
-        // A flat frame, so a pixel read anywhere is the channel's level.
+        // A flat sky with a neutral signal block (+0.2 in every channel) in one corner: the enhance levels the sky, so a
+        // balance in the pixels is read off the block's excess over it.
         var master = new Image([Flat(0.30f), Flat(0.20f), Flat(0.10f)], BitDepth.Float32, 1f, 0f, 0f, Osc(filterName));
-        var rejection = new Image([new float[32, 32]], BitDepth.Float32, 1f, 0f, 0f, master.ImageMeta);
+        var rejection = new Image([new float[Size, Size]], BitDepth.Float32, 1f, 0f, 0f, master.ImageMeta);
         var copy = new CopyEnhancer();
         var processor = new MasterPostProcessor(NullLogger.Instance, catalogDb: null,
             new SharpenPipeline(starRemover: copy, denoiser: copy, gradientCorrector: copy));
@@ -322,7 +380,7 @@ public sealed class SpccBeforeEnhanceTests : IDisposable
         await processor.WriteMasterAsync(
             new IntegrationResult(master, rejection, FrameCount: 1, TotalRejections: 0, MeanRejectionRate: 0.0),
             masterPath, searchHint: null, imageDim: null, refMeta: master.ImageMeta,
-            autocropRect: new PixelRect(0, 0, 32, 32), strategy: IntegrationStrategyKind.InRamAllFrames,
+            autocropRect: new PixelRect(0, 0, Size, Size), strategy: IntegrationStrategyKind.InRamAllFrames,
             enhance: true, enhanceBlend: 1f, splitPlates: false, enhanceOptions: EnhanceOptions.Default,
             outputs: outputs, inheritedWhiteBalance: inherited ?? Spcc, ct: TestContext.Current.CancellationToken);
 
@@ -332,17 +390,26 @@ public sealed class SpccBeforeEnhanceTests : IDisposable
 
         static float[,] Flat(float level)
         {
-            var plane = new float[32, 32];
-            for (var y = 0; y < 32; y++)
+            var plane = new float[Size, Size];
+            for (var y = 0; y < Size; y++)
             {
-                for (var x = 0; x < 32; x++)
+                for (var x = 0; x < Size; x++)
                 {
-                    plane[y, x] = level;
+                    plane[y, x] = level + (x < Block && y < Block ? 0.2f : 0f);
                 }
             }
             return plane;
         }
     }
+
+    private const int Size = 96;
+    private const int Block = 16;
+
+    /// <summary>A pixel of the stacking fixture's sky, far from its signal block.</summary>
+    private const int Sky = 80;
+
+    /// <summary>The stacking fixture's signal block over its sky, in one channel.</summary>
+    private static float Excess(Image image, int channel) => image[channel, Block / 2, Block / 2] - image[channel, Sky, Sky];
 
     /// <summary>The viewer opens a file whose balance is in its pixels with an identity calibration, which also stops
     /// the calibration pass fitting one, and the enhance has nothing left to apply to it.</summary>
@@ -373,8 +440,8 @@ public sealed class SpccBeforeEnhanceTests : IDisposable
             .ShouldBe(expectApplied ? Spcc : null);
     }
 
-    /// <summary>The viewer's enhance end to end: a document calibrated by a broadband SPCC fit comes back with the
-    /// balance in its pixels and no multiplier of its own.</summary>
+    /// <summary>The viewer's enhance end to end: a document calibrated by a broadband SPCC fit, the calibration on, comes
+    /// back with the balance in its pixels and no multiplier of its own.</summary>
     [Fact]
     public async Task TheViewersEnhanceAppliesTheDocumentsSpccFirst()
     {
@@ -385,11 +452,33 @@ public sealed class SpccBeforeEnhanceTests : IDisposable
             wcs: null, filePath: "master.fits", cancellationToken: ct);
         source.InheritColorCalibration((1.5f, 1f, 0.75f), new ColorCalibrationSummary(AstroImageDocument.SpccMethod, 1.5f, 1f, 0.75f, 100, null));
 
-        var enhanced = (await EnhanceActions.EnhanceAsync(source, new ViewerState(), pipeline, EnhanceOptions.Default,
-            DebayerAlgorithm.None, crop: null, ct)).ShouldNotBeNull();
+        var enhanced = (await EnhanceActions.EnhanceAsync(source, new ViewerState { ColorCalibrationEnabled = true }, pipeline,
+            EnhanceOptions.Default, DebayerAlgorithm.None, crop: null, ct)).ShouldNotBeNull();
 
         enhanced.IsColourInPixels.ShouldBeTrue();
         enhanced.ColorCalibration.ShouldBe((1f, 1f, 1f));
+    }
+
+    /// <summary>
+    /// ONE source for the balance a frame is shown with and an enhance bakes in: the document's calibration, which is the
+    /// balance the FILE states from the moment it opens (as the CLI's render applies it) unless a fit made here replaces
+    /// it; the enhance takes it while the calibration is on and nothing while it is off.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public async Task AFileStatingSpccOpensCalibratedAndTheEnhanceBakesWhatIsShown(bool calibrationOn, bool expectApplied)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await FilterCurveDatabase.LoadAsync(ct);
+        var meta = new ImageMeta { Instrument = "synth", SensorType = SensorType.Color, ColourCalibration = Spcc };
+        var source = await AstroImageDocument.AdoptImageAsync(Rgb(0.3f, 0.2f, 0.1f, meta: meta), DebayerAlgorithm.None,
+            wcs: null, filePath: "master.fits", cancellationToken: ct);
+
+        source.ColorCalibration.ShouldBe((Spcc.R, Spcc.G, Spcc.B), "the file's own balance is the document's from the start");
+        source.PhotometricColorCalibration.ShouldNotBeNull();
+        (EnhanceActions.EnhanceWhiteBalance(source, new ViewerState { ColorCalibrationEnabled = calibrationOn }) is not null)
+            .ShouldBe(expectApplied);
     }
 
     /// <summary>The enhanced master beside its raw master in one folder matches it on every other count; sharing the

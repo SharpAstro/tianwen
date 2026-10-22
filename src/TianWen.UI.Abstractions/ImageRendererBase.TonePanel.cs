@@ -52,6 +52,8 @@ partial class ImageRendererBase<TSurface>
     private const string DisplayHdrReason = "not yet; the viewer always presents SDR";
 
     private const string SoftClipHeading = "Soft clip: highlights bend instead of clipping";
+    private const string FinishHeading = "Finish: the signal only, sky and star cores kept";
+    private const string SaturationNeedsColourReason = "needs a colour frame";
     private const string BoostNeedsStarsReason = "needs detected stars";
     private const string CurveModeNeedsBoostReason = "no effect at zero boost";
     private const string KneeNeedsAmountReason = "no effect at zero amount";
@@ -65,7 +67,7 @@ partial class ImageRendererBase<TSurface>
     private const string CurveModeWidthSample = "Curve: spline";
 
     /// <summary>Likewise for the dial columns: the widest label and the widest value.</summary>
-    private const string ToneLabelWidthSample = "Amount";
+    private const string ToneLabelWidthSample = "Saturation";
     private const string ToneValueWidthSample = "100%";
 
     // Slider travel. The boost and the soft-clip amount run from zero to the top of their own
@@ -77,6 +79,10 @@ partial class ImageRendererBase<TSurface>
     private const float SoftClipAmountMax = 2.0f;
     private const float SoftClipKneeMin = 0.50f;
     private const float SoftClipKneeMax = 0.95f;
+
+    // The finish: contrast from off to the full S-curve, saturation from grey to two and a half times the colour.
+    private const float FinishContrastMax = 1f;
+    private const float FinishSaturationMax = 2.5f;
 
     /// <summary>
     /// The least track worth dragging, in design units, as a Star MINIMUM rather than a fixed
@@ -94,6 +100,9 @@ partial class ImageRendererBase<TSurface>
     /// <summary>The soft clip's two dials share one accent: they are one control in two parts.</summary>
     private static readonly RGBAColor32 ToneSoftClipFill = RGBAColor32.FromFloat(0.85f, 0.66f, 0.35f, 1f);
 
+    /// <summary>The finish's two dials share one accent, as the soft clip's do.</summary>
+    private static readonly RGBAColor32 ToneFinishFill = RGBAColor32.FromFloat(0.40f, 0.72f, 0.62f, 1f);
+
     // The three dials, one state each, living across frames because the tree does not: a Content.Slider
     // leaf carries a REFERENCE to caller-owned state (the precedent a text field sets), and the drag the
     // engine arms on a press holds that same reference until the release. Re-seeded from ViewerState at
@@ -102,6 +111,8 @@ partial class ImageRendererBase<TSurface>
     private readonly SliderState _toneBoostSlider = new() { Min = 0f, Max = BoostSliderMax };
     private readonly SliderState _toneAmountSlider = new() { Min = 0f, Max = SoftClipAmountMax };
     private readonly SliderState _toneKneeSlider = new() { Min = SoftClipKneeMin, Max = SoftClipKneeMax };
+    private readonly SliderState _toneContrastSlider = new() { Min = 0f, Max = FinishContrastMax };
+    private readonly SliderState _toneSaturationSlider = new() { Min = 0f, Max = FinishSaturationMax };
 
     /// <summary>Test seam: the boost dial, so a test can find its arranged leaf by identity.</summary>
     internal SliderState ToneBoostSliderState => _toneBoostSlider;
@@ -111,6 +122,12 @@ partial class ImageRendererBase<TSurface>
 
     /// <summary>Test seam: the soft-clip knee dial.</summary>
     internal SliderState ToneKneeSliderState => _toneKneeSlider;
+
+    /// <summary>Test seam: the finish's contrast dial.</summary>
+    internal SliderState ToneContrastSliderState => _toneContrastSlider;
+
+    /// <summary>Test seam: the finish's saturation dial.</summary>
+    internal SliderState ToneSaturationSliderState => _toneSaturationSlider;
 
     // EMPTY, never default: a default ImmutableArray throws on every read, so a closed panel would
     // hand a caller a different KIND of empty from an open one with nothing in it.
@@ -201,6 +218,23 @@ partial class ImageRendererBase<TSurface>
             state.NeedsRedraw = true;
         };
 
+        // The finish needs no stars and no other dial: it reads the stretched pixel and the background the stretch has.
+        // Saturation means nothing on a mono frame, so it is dim there and says why.
+        var saturationEnabled = _document?.UnstretchedImage.ChannelCount is >= 3;
+        _toneContrastSlider.Value = state.FinishContrast;
+        _toneContrastSlider.OnChanged = v =>
+        {
+            state.FinishContrast = v;
+            state.NeedsRedraw = true;
+        };
+        _toneSaturationSlider.Value = state.FinishSaturation;
+        _toneSaturationSlider.Enabled = saturationEnabled;
+        _toneSaturationSlider.OnChanged = v =>
+        {
+            state.FinishSaturation = v;
+            state.NeedsRedraw = true;
+        };
+
         var rows = ImmutableArray.CreateBuilder<Layout.Node>();
 
         rows.Add(ToneDialRow("Boost", _toneBoostSlider, UiFormat.Percent0(state.CurvesBoost), ToneBoostFill));
@@ -243,6 +277,18 @@ partial class ImageRendererBase<TSurface>
         if (state.HdrAmount <= 0f)
         {
             rows.Add(ToneReasonRow(KneeNeedsAmountReason, small));
+        }
+
+        rows.Add(ToneSeparator());
+
+        // The masked finish (the Affinity masked contrast boost and saturation): what the CLI's image render
+        // --contrast-boost / --saturation applies too, by the same stage.
+        rows.Add(Layout.Builder.Text(FinishHeading, small, ViewerTheme.Palette.DimText).WStar());
+        rows.Add(ToneDialRow("Contrast", _toneContrastSlider, UiFormat.Percent0(state.FinishContrast), ToneFinishFill));
+        rows.Add(ToneDialRow("Saturation", _toneSaturationSlider, UiFormat.Percent0(state.FinishSaturation), ToneFinishFill));
+        if (!saturationEnabled)
+        {
+            rows.Add(ToneReasonRow(SaturationNeedsColourReason, small));
         }
 
         rows.Add(ToneSeparator());

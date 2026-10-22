@@ -213,17 +213,41 @@ public sealed class ViewerState
             ? ViewerOverlayLevel.Grid
             : ViewerOverlayLevel.None;
 
-    /// <summary>Whether Tycho-2 photometric color calibration is active.</summary>
-    public bool ColorCalibrationEnabled { get; set; }
+    /// <summary>
+    /// Whether the document's colour calibration is shown (and an enhance puts it into the pixels). ON by default: a
+    /// document's calibration is a fit made here or the one its file states, so a master stacked with SPCC opens as the
+    /// CLI renders it; a frame with no calibration shows none either way.
+    /// </summary>
+    public bool ColorCalibrationEnabled { get; set; } = true;
 
-    /// <summary>Whether background neutralization (pivot1 mode) is active.</summary>
-    public bool BackgroundNeutralizationEnabled { get; set; }
+    /// <summary>
+    /// The Tone popover's masked contrast against the background, 0 (off) to 1 (<see cref="StretchUniforms.FinishContrast"/>):
+    /// the Affinity masked contrast boost, the sky and star cores left alone. The CLI's <c>image render --contrast-boost</c>
+    /// is the same stage.
+    /// </summary>
+    public float FinishContrast { get; set; }
 
-    /// <summary>Chosen pivot algorithm for background neutralization. Mean = balanced
-    /// photographic average (default), GreenPivot = fix green & scale R/B, MinPivot =
-    /// fix darkest channel & scale the rest up. Switching method is cheap: results
-    /// cache per document in <see cref="AstroImageDocument.ComputeBackgroundNeutralization"/>.</summary>
-    public BackgroundNeutralizationMethod BackgroundNeutralizationMethod { get; set; } = BackgroundNeutralizationMethod.Mean;
+    /// <summary>
+    /// The Tone popover's masked saturation, 1 (off) and up (<see cref="StretchUniforms.FinishSaturation"/>), through the
+    /// same mask so the background's noise takes no colour. The CLI's <c>image render --saturation</c> is the same stage.
+    /// </summary>
+    public float FinishSaturation { get; set; } = 1f;
+
+    /// <summary>
+    /// Whether background neutralization (pivot1 mode) is active. ON by default, as the headless render always neutralises
+    /// (<c>MasterPreviewRenderer</c>, min pivot after the white balance): a white balance levels the STARS, not the sky behind
+    /// them, so a calibrated frame shown Linked with its sky left coloured puts one channel's background below the shared
+    /// shadow point. After a denoise has shrunk the noise that channel clipped to zero: the enhanced L-Quad Sculptor master,
+    /// its SPCC triple in the pixels and its sky R 0.0029 / G 0.0073 / B 0.0104, rendered as a flat cyan field here while the
+    /// CLI rendered it neutral.
+    /// </summary>
+    public bool BackgroundNeutralizationEnabled { get; set; } = true;
+
+    /// <summary>Chosen pivot algorithm for background neutralization. MinPivot = fix the darkest channel and scale the
+    /// rest up (the default, the headless render's), Mean = balanced photographic average, GreenPivot = fix green and scale
+    /// R/B. Switching method is cheap: results cache per document in
+    /// <see cref="AstroImageDocument.ComputeBackgroundNeutralization"/>.</summary>
+    public BackgroundNeutralizationMethod BackgroundNeutralizationMethod { get; set; } = BackgroundNeutralizationMethod.MinPivot;
 
     /// <summary>Strength of the background-neutralization effect, 0..1. Acts as a
     /// CPU-side lerp toward identity on the cached gain before the GPU uniform is
@@ -951,6 +975,8 @@ public sealed class ViewerState
         CurveData = CurveData,
         HdrAmount = HdrAmount,
         HdrKnee = HdrKnee,
+        FinishContrast = FinishContrast,
+        FinishSaturation = FinishSaturation,
         WaveletSharpenEnabled = WaveletSharpenEnabled,
         WaveletGains = WaveletGains,
         WaveletDerived = WaveletDerived,

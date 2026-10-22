@@ -1093,7 +1093,8 @@ namespace TianWen.UI.Abstractions
                     && state.DebayerAlgorithm is not DebayerAlgorithm.None,
                 // Lit while any of its controls is off its default (a dial, or a planet's colour look). One
                 // button reports them all, so the light is the only thing saying the tone has been touched at all.
-                ToolbarAction.Tone => state.CurvesBoost > 0f || state.HdrAmount > 0f || state.PlanetaryLook is not null,
+                ToolbarAction.Tone => state.CurvesBoost > 0f || state.HdrAmount > 0f || state.PlanetaryLook is not null
+                    || state.FinishContrast > 0f || state.FinishSaturation != 1f,
                 // Lit from the RUNG rather than from one layer: the mark below already says which
                 // rung, so the highlight is only answering "is any of this on".
                 ToolbarAction.Overlays => state.OverlayLevel is not ViewerOverlayLevel.None,
@@ -1102,7 +1103,7 @@ namespace TianWen.UI.Abstractions
                 // invisible -- so a press that was remembered would look like a press that was lost.
                 ToolbarAction.SkyBackdrop => state.ShowSkyBackdrop,
                 ToolbarAction.Stars => state.ShowStarOverlay,
-                ToolbarAction.ColorCalibrate => state.ColorCalibrationEnabled,
+                ToolbarAction.ColorCalibrate => state.ColorCalibrationEnabled && document?.ColorCalibration is not null,
                 ToolbarAction.BackgroundNeutralize => state.BackgroundNeutralizationEnabled,
                 // Lit while the EFFECTIVE white balance -- the calibration composed with the manual
                 // fine-tune, what the shader multiplies by -- is anything but neutral. Not while the
@@ -1823,7 +1824,7 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.StretchParams => "Stretch strength preset (+ / -)",
             ToolbarAction.Channel => "Channel view: RGB or one channel (C cycles)",
             ToolbarAction.Debayer => "Demosaic algorithm; the swatch is the sensor's CFA phase (D cycles)",
-            ToolbarAction.Tone => "Boost, highlight soft clip, a planet's colour look, and what display HDR would need (B / H cycle)",
+            ToolbarAction.Tone => "Boost, highlight soft clip, masked contrast and saturation, a planet's colour look, and what display HDR would need (B / H cycle)",
             ToolbarAction.Compare => "Before / after split; right-click re-pins (A / Shift+A)",
             ToolbarAction.AutoCrop => "Show only the area every sub covered, discarding the stack's ragged border (Shift+C)",
             ToolbarAction.ZoomFit => "Fit the image to the window (F / Ctrl+0)",
@@ -2231,7 +2232,8 @@ namespace TianWen.UI.Abstractions
         private static string ResolvedAutoLabel(IPreviewSource? source, AstroImageDocument? document, ViewerState state)
         {
             var isColour = source is { } s && IsColour(s);
-            var calibrationActive = state.ColorCalibrationEnabled && document?.ColorCalibration is not null;
+            var calibrationActive = (state.ColorCalibrationEnabled && document?.ColorCalibration is not null)
+                || document?.IsColourInPixels is true;
             // The same four inputs the render resolves from, or the button names a mode the picture is
             // not in -- which is the one thing a label that exists to say "Auto picked this" must not do.
             return StretchMode.Auto.ResolveAuto(isColour, calibrationActive,

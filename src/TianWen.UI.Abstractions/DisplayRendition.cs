@@ -35,10 +35,14 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public ReadOnlySpan<float> CurveSpan => CurveData.IsDefaultOrEmpty ? default : CurveData.AsSpan();
 
-        /// <summary>Snapshots how the viewer is displaying the frame right now.</summary>
+        /// <summary>
+        /// Snapshots how the viewer is displaying the frame right now. The Tone popover's finish (masked contrast and
+        /// saturation) travels INSIDE the stretch, as the headless render carries it, so every path that renders a
+        /// rendition, the GPU, the CPU save and the split's pinned half, applies the same finish.
+        /// </summary>
         public static DisplayRendition FromState(StretchUniforms stretch, ViewerState state)
-            => new DisplayRendition(stretch, state.CurvesBoost, state.HdrAmount, state.HdrKnee,
-                state.CurvesMode, state.CurveData);
+            => new DisplayRendition(stretch with { FinishContrast = state.FinishContrast, FinishSaturation = state.FinishSaturation },
+                state.CurvesBoost, state.HdrAmount, state.HdrKnee, state.CurvesMode, state.CurveData);
     }
 
     /// <summary>Which display-parameter slot a draw reads. Two draws share one command buffer, so each

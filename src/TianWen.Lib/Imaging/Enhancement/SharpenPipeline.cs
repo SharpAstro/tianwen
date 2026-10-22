@@ -411,6 +411,25 @@ public sealed class SharpenPipeline(
                         var gradientInput = deblurred ?? source;
                         gradientCorrected = HoldRing(await Require(gradientCorrector).EnhanceAsync(gradientInput, options, stepProgress, cancellationToken), gradientInput);
                         timings.Add(("gradient-correction", phaseSw.ElapsedMilliseconds, gradientCorrected.EstimateNoiseProfile()));
+
+                        // The background stage is the gradient AND the level: the gradient correction flattens each
+                        // channel about its own level and leaves the sky's tint, by design, so the sky is levelled here,
+                        // in the pixels, on every colour frame, where every later step and every program that opens the
+                        // result sees it (Image.WithBackgroundNeutralised). A white balance levels the stars, never the
+                        // sky; a sky already level takes a zero offset.
+                        if (gradientCorrected.ChannelCount >= 3)
+                        {
+                            phaseSw.Restart();
+                            var (neutralised, offsets) = gradientCorrected.WithBackgroundNeutralised();
+                            // A corrector that passed its input through returned the step's INPUT, which is the deblurred
+                            // plate or the caller's own source, and is not ours to release.
+                            if (!ReferenceEquals(gradientCorrected, gradientInput))
+                            {
+                                gradientCorrected.Release();
+                            }
+                            gradientCorrected = HoldRing(neutralised, gradientInput);
+                            timings.Add(($"background-neutralise({offsets[0]:E2},{offsets[1]:E2},{offsets[2]:E2})", phaseSw.ElapsedMilliseconds, default));
+                        }
                         break;
                     }
 
