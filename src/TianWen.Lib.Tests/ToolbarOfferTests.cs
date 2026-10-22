@@ -6,6 +6,7 @@ using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -180,7 +181,7 @@ public class ToolbarOfferTests
         }
 
         var meta = new ImageMeta("synth", DateTimeOffset.UtcNow, TimeSpan.FromSeconds(1),
-            FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
+            FrameType.Light, "", 3.76f, 3.76f, 500, FocuserPositions.None, Filter.Luminance, 1, 1,
             float.NaN, SensorType.Color, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
         return new Image(planes, BitDepth.Float32, maxValue: 4000f, minValue: 0f, pedestal: 0f, imageMeta: meta);
     }

@@ -191,19 +191,20 @@ public sealed record CameraRoiDto
 /// <summary>What a focuser reads (<see cref="FocuserReading"/>).</summary>
 public sealed record FocuserDeviceStateDto
 {
-    public required int Position { get; init; }
+    /// <summary>The position, null when the read failed (<see cref="FocuserPositions"/>, #1764). Nullable, never <c>required</c>.</summary>
+    public int? Position { get; init; }
     public double? TemperatureC { get; init; }
     public required bool IsMoving { get; init; }
 
     public static FocuserDeviceStateDto FromReading(FocuserReading reading) => new FocuserDeviceStateDto
     {
-        Position = reading.Position,
+        Position = FocuserPositions.ForWire(reading.Position),
         TemperatureC = DeviceStateDto.Known(reading.TemperatureC),
         IsMoving = reading.IsMoving,
     };
 
     /// <summary>The reading this state was made from, a temperature it did not give NaN again.</summary>
-    public FocuserReading ToReading() => new FocuserReading(Position, TemperatureC ?? double.NaN, IsMoving);
+    public FocuserReading ToReading() => new FocuserReading(FocuserPositions.FromWire(Position), TemperatureC ?? double.NaN, IsMoving);
 }
 
 /// <summary>What a filter wheel reads (<see cref="FilterWheelReading"/>).</summary>

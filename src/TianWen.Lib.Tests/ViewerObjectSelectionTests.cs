@@ -181,7 +181,7 @@ namespace TianWen.Lib.Tests
 
             return new Image([plane], BitDepth.Int16, 65535f, 0f, 0f,
                 new ImageMeta("synth", exposureStart ?? DateTimeOffset.UnixEpoch, TimeSpan.Zero,
-                    FrameType.Light, "", 0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN,
+                    FrameType.Light, "", 0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN,
                     SensorType.Monochrome, 0, 0, RowOrder.TopDown, latitude, longitude));
         }
 

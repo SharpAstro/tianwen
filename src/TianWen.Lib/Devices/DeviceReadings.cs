@@ -61,7 +61,10 @@ public readonly record struct CameraReading(
     }
 }
 
-/// <summary>What a connected focuser reads now; a temperature it does not give is NaN.</summary>
+/// <summary>
+/// What a connected focuser reads now; a temperature it does not give is NaN, a position it does not give (a failed read)
+/// <see cref="FocuserPositions.None"/>.
+/// </summary>
 public readonly record struct FocuserReading(int Position, double TemperatureC, bool IsMoving);
 
 /// <summary>

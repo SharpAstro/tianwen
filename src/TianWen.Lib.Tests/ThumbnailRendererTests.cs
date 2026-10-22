@@ -7,6 +7,7 @@ using SharpAstro.Ser;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests
 {
@@ -161,7 +162,7 @@ namespace TianWen.Lib.Tests
             }
             Image Master(string objectName) => new Image([plane.Copy()], BitDepth.Float32, 0.3f, 0f, 0f,
                 new ImageMeta("e2e", DateTimeOffset.UnixEpoch, TimeSpan.FromSeconds(1), FrameType.Light, "",
-                    0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
+                    0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
                     RowOrder.TopDown, float.NaN, float.NaN, ObjectName: objectName));
 
             var planet = Master("Jupiter");

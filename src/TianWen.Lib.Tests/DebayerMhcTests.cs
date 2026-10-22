@@ -4,6 +4,7 @@ using SharpAstro.Ser;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -182,7 +183,7 @@ public class DebayerMhcTests
             PixelSizeX: 3.76f,
             PixelSizeY: 3.76f,
             FocalLength: 275,
-            FocusPos: -1,
+            FocusPos: FocuserPositions.None,
             Filter: Filter.None,
             BinX: 1, BinY: 1,
             CCDTemperature: float.NaN,

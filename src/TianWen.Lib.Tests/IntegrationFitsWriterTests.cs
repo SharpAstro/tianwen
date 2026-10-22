@@ -6,6 +6,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Stacking;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -28,7 +29,7 @@ public class IntegrationFitsWriterTests : IDisposable
         var meta = new ImageMeta(
             Instrument: "synthetic", ExposureStartTime: DateTimeOffset.UnixEpoch,
             ExposureDuration: TimeSpan.FromSeconds(60), FrameType: type,
-            Telescope: "TestScope", PixelSizeX: 3.76f, PixelSizeY: 3.76f, FocalLength: 400, FocusPos: -1,
+            Telescope: "TestScope", PixelSizeX: 3.76f, PixelSizeY: 3.76f, FocalLength: 400, FocusPos: FocuserPositions.None,
             Filter: Filter.Luminance, BinX: 1, BinY: 1, CCDTemperature: -10f,
             SensorType: SensorType.Monochrome, BayerOffsetX: 0, BayerOffsetY: 0,
             RowOrder: RowOrder.TopDown, Latitude: float.NaN, Longitude: float.NaN);

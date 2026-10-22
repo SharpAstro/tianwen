@@ -4,6 +4,7 @@ using Shouldly;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Imaging;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -21,7 +22,7 @@ public class ImageStatsTests
     private const double Exposure = 5.0;
 
     private static ImageMeta MonoMeta() => new ImageMeta("synth", DateTime.UtcNow, TimeSpan.FromSeconds(Exposure),
-        FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
+        FrameType.Light, "", 3.76f, 3.76f, 500, FocuserPositions.None, Filter.Luminance, 1, 1,
         float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
 
     private static Image ToImage(float[,] data, float min, float max, float pedestal = 0f)
@@ -128,7 +129,7 @@ public class ImageStatsTests
                 b[y, x] = 0.10f;
             }
         var meta = new ImageMeta("synth", DateTime.UtcNow, TimeSpan.FromSeconds(Exposure),
-            FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
+            FrameType.Light, "", 3.76f, 3.76f, 500, FocuserPositions.None, Filter.Luminance, 1, 1,
             float.NaN, SensorType.Color, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
         var image = new Image([r, g, b], BitDepth.Float32, 0.10f, 0.05f, 0f, meta);
 

@@ -15,6 +15,7 @@ using System.Numerics.Tensors;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging.Dataset;
 
 namespace TianWen.Lib.Imaging;
@@ -552,7 +553,7 @@ public partial class Image
                 "HW" => FrameCounterSource.Hardware,
                 _ => FrameCounterSource.Software,
             };
-        var focusPos = hdu.Header.GetIntValue("FOCUSPOS", hdu.Header.GetIntValue("FOCPOS", -1));
+        var focusPos = hdu.Header.GetIntValue("FOCUSPOS", hdu.Header.GetIntValue("FOCPOS", FocuserPositions.None));
         var filterName = hdu.Header.GetStringValue("FILTER");
         var filterClassName = hdu.Header.GetStringValue("FILTCLAS");
         var sensorModel = hdu.Header.GetStringValue("SENSOR") ?? "";
@@ -1092,9 +1093,8 @@ public partial class Image
             AddHeaderValueIfHasValue("SCALE", imageMeta.DerivedImageScale, "arcsec/px");
             AddHeaderValueIfHasValue("PIXSCALE", imageMeta.DerivedImageScale, "arcsec/px");
         }
-        // -1 is the "unknown" marker (ImageMeta.FocusPos); any other value is a position, negative ones included
-        // (a QHY QFOC's counter goes below zero, #1763).
-        if (imageMeta.FocusPos != -1)
+        // Every position is written, negative ones included (a QHY QFOC's counter goes below zero, #1763); only "none" is not.
+        if (FocuserPositions.IsKnown(imageMeta.FocusPos))
         {
             AddHeaderValueIfHasValue("FOCUSPOS", imageMeta.FocusPos, "steps");
             AddHeaderValueIfHasValue("FOCPOS", imageMeta.FocusPos, "steps");

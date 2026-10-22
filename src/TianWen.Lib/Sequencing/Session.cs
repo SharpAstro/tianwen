@@ -443,7 +443,7 @@ internal partial record Session(
         // Reset camera states when leaving Observing (abort/complete/fail)
         if (old is SessionPhase.Observing && newPhase is not SessionPhase.Observing)
         {
-            _cameraStates = new CameraExposureState[_cameraStates.Length];
+            _cameraStates = CameraExposureState.UnsetFor(_cameraStates.Length);
         }
         _phaseTimeline.Enqueue(new PhaseTimestamp(newPhase, _timeProvider.GetUtcNow()));
         _logger.LogInformation("Session phase: {OldPhase} → {NewPhase}", old, newPhase);
@@ -756,7 +756,7 @@ internal partial record Session(
     /// </summary>
     private void AllocateObservableState()
     {
-        _cameraStates = new CameraExposureState[Setup.Telescopes.Length];
+        _cameraStates = CameraExposureState.UnsetFor(Setup.Telescopes.Length);
         ReleaseCapturedImages();
         EnsureCapturedImageSlots();
         _viewerChannels = new Imaging.Channel[]?[Setup.Telescopes.Length];

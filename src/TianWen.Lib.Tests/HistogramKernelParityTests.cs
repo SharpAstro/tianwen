@@ -5,6 +5,7 @@ using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -130,7 +131,7 @@ public class HistogramKernelParityTests
         inOrder.ShouldNotBe(swapped, "the premise: these two orders must give different doubles");
 
         var meta = new ImageMeta("order", DateTimeOffset.UnixEpoch, TimeSpan.Zero, FrameType.Light, "",
-            0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
+            0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
             RowOrder.TopDown, float.NaN, float.NaN);
         var image = new Image([plane], BitDepth.Int16, 65535f, 0f, 0f, meta);
         const uint threshold = 65536;
@@ -173,7 +174,7 @@ public class HistogramKernelParityTests
             }
         }
         var meta = new ImageMeta("weights", DateTimeOffset.UnixEpoch, TimeSpan.Zero, FrameType.Light, "",
-            0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Color, 0, 0,
+            0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Color, 0, 0,
             RowOrder.TopDown, float.NaN, float.NaN);
 
         // Labelled [0, 1] while every sample is 33.3: nothing lands in a bin, so there is no MAD.
@@ -206,7 +207,7 @@ public class HistogramKernelParityTests
             }
         }
         var meta = new ImageMeta("bands", DateTimeOffset.UnixEpoch, TimeSpan.Zero, FrameType.Light, "",
-            0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
+            0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
             RowOrder.TopDown, float.NaN, float.NaN);
         var image = new Image([plane], BitDepth.Int16, 4095f, 900f, 0f, meta);
 
@@ -439,7 +440,7 @@ public class HistogramKernelParityTests
         }
 
         var meta = new ImageMeta("parity", DateTimeOffset.UnixEpoch, TimeSpan.Zero, FrameType.Light, "",
-            0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, sensor, bayerX, bayerY,
+            0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN, sensor, bayerX, bayerY,
             RowOrder.TopDown, float.NaN, float.NaN);
         return new Image(planes, unit ? BitDepth.Float32 : BitDepth.Int16, full, min, 0f, meta);
     }

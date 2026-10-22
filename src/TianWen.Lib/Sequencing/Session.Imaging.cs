@@ -325,7 +325,7 @@ internal partial record Session
         // Ensure arrays are initialized (tests may call ImagingLoopAsync directly)
         if (_cameraStates.Length != scopes)
         {
-            _cameraStates = new CameraExposureState[scopes];
+            _cameraStates = CameraExposureState.UnsetFor(scopes);
         }
         if (_lastCapturedImages.Length != scopes)
         {

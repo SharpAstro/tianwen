@@ -2,6 +2,7 @@ using System;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -16,7 +17,7 @@ public class FrameSiteResolverTests
         => new ImageMeta("Test",
             capturedAt ?? new DateTimeOffset(2026, 6, 21, 12, 30, 0, TimeSpan.Zero),
             TimeSpan.FromSeconds(120), FrameType.Light, "Test",
-            3.76f, 3.76f, 700, -1, Filter.None, 1, 1,
+            3.76f, 3.76f, 700, FocuserPositions.None, Filter.None, 1, 1,
             -10f, SensorType.Monochrome, 0, 0, RowOrder.TopDown, latitude, longitude);
 
     [Fact]

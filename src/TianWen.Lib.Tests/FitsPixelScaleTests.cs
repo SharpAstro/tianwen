@@ -6,6 +6,7 @@ using TianWen.Lib.Geometry;
 using System.Threading.Tasks;
 using System.IO;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Stacking;
@@ -189,10 +190,13 @@ public class FitsPixelScaleTests
     [Theory]
     [InlineData(1441)]
     [InlineData(-559)]
+    [InlineData(-1)]
+    [InlineData(FocuserPositions.None)]
     public void AFocusPositionSurvivesTheRoundTripBelowZeroToo(int focusPos)
     {
         // A QHY QFOC's counter goes below zero (#1763): FOCUSPOS was written only when non-negative, so a frame
-        // taken at -559 lost the card and read back as unknown.
+        // taken at -559 lost the card and read back as unknown. -1 is a position too, and "none" is no card, which
+        // reads back as none (#1764).
         var testDir = SharedTestData.CreateTempTestOutputDir();
         var path = Path.Combine(testDir, $"focuspos{focusPos}.fits");
         ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN) with { FocusPos = focusPos }).WriteToFitsFile(path);

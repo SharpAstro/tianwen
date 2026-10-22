@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Imaging;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -36,7 +37,7 @@ public sealed class CloudLayerTests
         }
 
         var meta = new ImageMeta("synth", DateTime.UtcNow, TimeSpan.FromSeconds(Exposure),
-            FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
+            FrameType.Light, "", 3.76f, 3.76f, 500, FocuserPositions.None, Filter.Luminance, 1, 1,
             float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
         return (await new Image([data], BitDepth.Float32, max, min, 0, meta)
             .FindStarsAsync(0, snrMin: 5, maxStars: 400,

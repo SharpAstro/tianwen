@@ -173,7 +173,7 @@ public class ViewerPlanetaryMasterTests
         await using var e2e = ViewerE2E.Start(dpi);
         var ct = TestContext.Current.CancellationToken;
         var meta = new ImageMeta("e2e", PlanetarySharpeningTests.Night - (Exposure / 2), Exposure, FrameType.Light, "",
-            0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Color, 0, 0, RowOrder.TopDown, float.NaN, float.NaN) with { ObjectName = "Jupiter" };
+            0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Color, 0, 0, RowOrder.TopDown, float.NaN, float.NaN) with { ObjectName = "Jupiter" };
         var (_, mono) = PlanetarySharpeningTests.NoisyStack();
         var grey = mono.GetChannelSpan(0).ToArray();
         var (w, h) = (mono.Width, mono.Height);
@@ -333,7 +333,7 @@ public class ViewerPlanetaryMasterTests
     internal static async Task<string> OpenMasterAsync(ViewerE2E e2e, CancellationToken ct)
     {
         var meta = new ImageMeta("e2e", PlanetarySharpeningTests.Night - (Exposure / 2), Exposure, FrameType.Light, "",
-            0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN) with { ObjectName = "Jupiter" };
+            0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN) with { ObjectName = "Jupiter" };
         var (_, stack) = PlanetarySharpeningTests.NoisyStack(meta: meta);
         var path = Path.Combine(e2e.Folder, "master_jupiter.fits");
         stack.WriteToFitsFile(path);

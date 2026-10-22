@@ -8,6 +8,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Stacking;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -50,7 +51,7 @@ public sealed class StackingMasterCacheTests(ITestOutputHelper output) : IDispos
             PixelSizeX: 3.76f,
             PixelSizeY: 3.76f,
             FocalLength: 135,
-            FocusPos: -1,
+            FocusPos: FocuserPositions.None,
             Filter: Filter.None,
             BinX: 1,
             BinY: 1,

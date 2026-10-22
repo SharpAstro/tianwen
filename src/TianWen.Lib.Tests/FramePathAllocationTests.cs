@@ -214,7 +214,7 @@ public class FramePathAllocationTests
 
     private static ImageMeta Meta(SensorType sensorType) => new ImageMeta(
         "alloc", DateTimeOffset.UtcNow, TimeSpan.FromSeconds(10),
-        FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
+        FrameType.Light, "", 3.76f, 3.76f, 500, FocuserPositions.None, Filter.Luminance, 1, 1,
         float.NaN, sensorType, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
 
     /// <summary>Gaussian stars on a noisy RGGB mosaic, enough for a detection to find.</summary>

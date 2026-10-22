@@ -5,6 +5,7 @@ using System.Linq;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Dataset;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests
 {
@@ -302,7 +303,7 @@ namespace TianWen.Lib.Tests
                 if (v < min) min = v;
             }
             var meta = new ImageMeta("synth", DateTime.UtcNow, TimeSpan.FromSeconds(60),
-                FrameType.Light, "", 3.76f, 3.76f, 100, -1, Filter.Luminance, 1, 1,
+                FrameType.Light, "", 3.76f, 3.76f, 100, FocuserPositions.None, Filter.Luminance, 1, 1,
                 float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
             return new Image([data], BitDepth.Int16, max, min, 0, meta);
         }

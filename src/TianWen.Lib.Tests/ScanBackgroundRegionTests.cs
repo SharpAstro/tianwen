@@ -2,6 +2,7 @@ using System;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests
 {
@@ -154,7 +155,7 @@ namespace TianWen.Lib.Tests
             // Monochrome and single-channel, so ScanBackgroundRegion takes the MedianRegion path
             // rather than the Bayer-demosaic one, and the luma is just channel 0.
             var meta = new ImageMeta("synth", DateTime.UtcNow, TimeSpan.FromSeconds(1),
-                FrameType.Light, "", 3.76f, 3.76f, 100, -1, Filter.Luminance, 1, 1,
+                FrameType.Light, "", 3.76f, 3.76f, 100, FocuserPositions.None, Filter.Luminance, 1, 1,
                 float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
 
             return new Image([data], BitDepth.Float32, 1f, 0f, 0, meta);

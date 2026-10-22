@@ -9,6 +9,7 @@ using TianWen.Lib;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Stacking;
 using TianWen.Lib.Stat;
+using TianWen.Lib.Devices;
 
 namespace TianWen.UI.Benchmarks;
 
@@ -308,7 +309,7 @@ public class StatsPathBenchmarks
         }
 
         var meta = new ImageMeta("synth", DateTimeOffset.UnixEpoch, TimeSpan.Zero, FrameType.Light, "",
-            0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Color, 0, 0,
+            0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Color, 0, 0,
             RowOrder.TopDown, float.NaN, float.NaN);
         return new Image(planes, BitDepth.Float32, 1f, 0f, 0f, meta);
     }

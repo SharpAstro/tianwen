@@ -8,6 +8,7 @@ using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -120,7 +121,7 @@ public class ViewerBestStackTests
         var planetary = Path.Combine(e2e.Folder, "planetary.fits");
         new Image([plane], BitDepth.Float32, 0.8f, 0f, 0f,
             new ImageMeta("e2e", DateTimeOffset.UnixEpoch, TimeSpan.FromSeconds(1), FrameType.Light, "",
-                0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
+                0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
                 RowOrder.TopDown, float.NaN, float.NaN, ObjectName: "Jupiter")).WriteToFitsFile(planetary);
         await e2e.OpenAsync(planetary, ct);
         e2e.State.StretchMode.ShouldBe(StretchMode.Planetary, "a planet's frame opens in the planetary stretch");

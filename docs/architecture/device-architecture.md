@@ -369,9 +369,17 @@ bound, as callers always read it.
 **Check or clamp a position with `FocuserTravelExtensions` (`IsWithinTravel`, `ClampToTravel`, `TravelInWords` for a
 refusal), never against a literal 0.** Each of the session's autofocus sweep and best-focus move, the backlash
 overshoot, the node's focuser move route and a filter change's focus offset did, and so drove a QFOC at -559 to 0 or
-refused it. The fake focuser takes its floor from `focuserMinStep` on its URI. FITS keeps -1 as the "unknown" focus
-position (`ImageMeta.FocusPos`), so a frame records every other position, negative ones included; a real nullable in
-place of that marker is #1764.
+refused it. The fake focuser takes its floor from `focuserMinStep` on its URI.
+
+**"No focus position" is `FocuserPositions.None` (`int.MinValue`), never -1** (#1764): -1 is a position a QFOC can be
+at. It is the one marker wherever a focus position is an `int` (`ICameraDriver.FocusPosition`, `ImageMeta.FocusPos`,
+`CameraExposureState.FocusPosition`, `FocuserReading.Position`): a camera with no focuser, a focuser read that failed, a
+camera before its first frame (`CameraExposureState.Unset`, which the session publishes in place of `default`, whose 0 is
+a position). A frame writes `FOCUSPOS` for every position and none for the marker, and a file without the card reads
+back as it. The wire never carries the number: `FocuserPositions.ForWire` sends null and `FromWire` reads it back
+(`OtaCameraStateDto.FocusPosition`, `FocuserDeviceStateDto.Position`, nullable and not `required`, which is why
+`NodeWire.Version` went to 4), and a label shows "--" through `LiveSessionActions.FocusPositionLabel`.
+`FocusPositionMarkerTests` fails on an `ImageMeta` built with a literal -1 for its focus position.
 
 ## Alpaca camera image transfer
 

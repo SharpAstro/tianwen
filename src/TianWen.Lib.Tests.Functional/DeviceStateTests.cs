@@ -83,7 +83,7 @@ public class DeviceStateTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         var device = new FakeDevice(DeviceType.Focuser, 1);
         var focuser = (IFocuserDriver)await Hub.ConnectAsync(device, ct);
         var before = await UntilReadAsync(device.DeviceUri, static s => s.Focuser is { IsMoving: false }, ct);
-        var position = before.Focuser.ShouldNotBeNull().Position;
+        var position = before.Focuser.ShouldNotBeNull().Position.ShouldNotBeNull("a connected fake focuser reads its position");
 
         Hub.TryAcquireLease(device.DeviceUri, "Session run", out var lease).ShouldBeTrue();
         using (lease)
@@ -123,7 +123,7 @@ public class DeviceStateTests(ITestOutputHelper outputHelper) : IAsyncLifetime
 
         var focuser = (IFocuserDriver)await Hub.ConnectAsync(device, ct);
         await UntilAsync("the focuser's first push", _ => ValueTask.FromResult((pushed.Any(static s => s.Focuser is not null), $"{pushed.Count} pushed")), ct);
-        var position = pushed.Last(static s => s.Focuser is not null).Focuser.ShouldNotBeNull().Position;
+        var position = pushed.Last(static s => s.Focuser is not null).Focuser.ShouldNotBeNull().Position.ShouldNotBeNull("a connected fake focuser reads its position");
 
         // A read that changes nothing pushes nothing, though the reading time moves on every read: longer than the watched
         // cadence (2 s), an idle focuser is read again and must not be pushed again, or every client is flooded.

@@ -7,6 +7,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests
 {
@@ -172,7 +173,7 @@ namespace TianWen.Lib.Tests
             var document = await AstroImageDocument.AdoptImageAsync(
                 new Image([plane], BitDepth.Int16, 65535f, 0f, 0f,
                     new ImageMeta("synth", DateTimeOffset.UnixEpoch, TimeSpan.Zero, FrameType.Light, "",
-                        0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
+                        0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
                         RowOrder.TopDown, float.NaN, float.NaN)),
                 DebayerAlgorithm.None);
 

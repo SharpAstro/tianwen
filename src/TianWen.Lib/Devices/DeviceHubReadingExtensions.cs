@@ -58,7 +58,7 @@ public static class DeviceHubReadingExtensions
                 return null;
             }
 
-            var position = await logger.CatchAsync(focuser.GetPositionAsync, cancellationToken);
+            var position = await logger.CatchAsync(focuser.GetPositionAsync, cancellationToken, FocuserPositions.None);
             var temperature = await logger.CatchAsync(focuser.GetTemperatureAsync, cancellationToken, double.NaN);
             var moving = await logger.CatchAsync(focuser.GetIsMovingAsync, cancellationToken);
             return new FocuserReading(position, temperature, moving);

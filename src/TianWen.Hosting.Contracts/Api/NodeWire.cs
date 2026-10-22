@@ -13,11 +13,12 @@ namespace TianWen.Hosting.Api;
 public static class NodeWire
 {
     /// <summary>
-    /// 3: over TCP a command needs a grant (P6b, decision 13, #1021), so a client of wire 2 sees a rig and every command
-    /// it sends is refused. 2: the native state plane sends an unknown number as null, never 0 (P5b part 2), so a client
+    /// 4: a focus position the node has none of is null, never -1 (#1764), so a client of wire 3, whose focus position is a
+    /// required number, cannot read a camera or focuser without one. 3: over TCP a command needs a grant (P6b, decision 13,
+    /// #1021), so a client of wire 2 sees a rig and every command it sends is refused. 2: the native state plane sends an unknown number as null, never 0 (P5b part 2), so a client
     /// of wire 1, whose fields are required numbers, cannot read it.
     /// </summary>
-    public const int Version = 3;
+    public const int Version = 4;
 
     /// <summary>The TCP port a node listens on for the LAN: a node run by hand, or one whose rig is shared.</summary>
     public const int LanPort = 1888;

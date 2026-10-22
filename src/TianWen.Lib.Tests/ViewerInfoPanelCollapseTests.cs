@@ -88,7 +88,7 @@ namespace TianWen.Lib.Tests
 
             var image = new Image([planes[0], planes[1], planes[2]], BitDepth.Int16, 65535f, 0f, 0f,
                 new ImageMeta("synth", DateTimeOffset.UnixEpoch, TimeSpan.Zero, FrameType.Light, "",
-                    0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Color, 0, 0,
+                    0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Color, 0, 0,
                     RowOrder.TopDown, float.NaN, float.NaN));
             return await AstroImageDocument.AdoptImageAsync(
                 image, DebayerAlgorithm.None, null, filePath: "synthetic.fits", cancellationToken: ct);

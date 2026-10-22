@@ -10,6 +10,7 @@ using System.IO;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Devices;
 using CodecSampleFormat = SharpAstro.Codecs.Abstractions.SampleFormat;
 
 namespace TianWen.Lib.Imaging;
@@ -227,7 +228,7 @@ public partial class Image
             FrameType: FrameType.Light,
             Telescope: "",
             PixelSizeX: 0, PixelSizeY: 0,
-            FocalLength: -1, FocusPos: -1,
+            FocalLength: -1, FocusPos: FocuserPositions.None,
             Filter: Filter.Unknown,
             BinX: 1, BinY: 1,
             CCDTemperature: float.NaN,
@@ -778,7 +779,7 @@ public partial class Image
             pixelSizeX,
             pixelSizeY,
             focalLength,
-            FocusPos: -1,
+            FocusPos: FocuserPositions.None,
             Filter.None,
             BinX: 1,
             BinY: 1,

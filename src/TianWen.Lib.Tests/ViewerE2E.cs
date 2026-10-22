@@ -11,6 +11,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -133,7 +134,7 @@ internal sealed class ViewerE2E : IAsyncDisposable
 
         var image = new Image([planes[0], planes[1], planes[2]], BitDepth.Int16, 65535f, 0f, 0f,
             new ImageMeta("e2e", DateTimeOffset.UnixEpoch, TimeSpan.FromSeconds(1), FrameType.Light, "",
-                0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN, SensorType.Color, 0, 0,
+                0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Color, 0, 0,
                 RowOrder.TopDown, float.NaN, float.NaN));
         var path = Path.Combine(Folder, name);
         image.WriteToFitsFile(path);

@@ -305,7 +305,7 @@ public class FitsReadPathParityTests
 
         return new Image(data, depth, max, min, 0f, new ImageMeta(
             "Parity Camera", new DateTimeOffset(2026, 9, 25, 11, 0, 0, TimeSpan.Zero), TimeSpan.FromSeconds(120),
-            FrameType.Light, "SV 545 f4.5", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
+            FrameType.Light, "SV 545 f4.5", 3.76f, 3.76f, 500, FocuserPositions.None, Filter.Luminance, 1, 1,
             float.NaN, planes == 3 ? SensorType.Color : SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN));
     }
 

@@ -5,6 +5,7 @@ using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -285,7 +286,7 @@ public class PlanetaryColourReadingTests
                 max = MathF.Max(max, 0.55f * v);
             }
         }
-        var meta = new ImageMeta("test", at - (duration / 2), duration, FrameType.Light, "", 0f, 0f, -1, -1, Filter.None, 1, 1, float.NaN,
+        var meta = new ImageMeta("test", at - (duration / 2), duration, FrameType.Light, "", 0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN,
             SensorType.Color, 0, 0, RowOrder.TopDown, float.NaN, float.NaN, ObjectName: "Jupiter") { ColourBalanceSaturation = balanced ? 1 : null };
         return new Image(planes, BitDepth.Float32, max, 0f, 0f, meta);
     }

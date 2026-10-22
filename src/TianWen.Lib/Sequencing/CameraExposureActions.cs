@@ -125,7 +125,7 @@ public static class CameraExposureActions
             catch (Exception ex)
             {
                 logger?.LogDebug(ex, "StampDenorm: focuser GetPosition failed");
-                camera.FocusPosition = -1;
+                camera.FocusPosition = FocuserPositions.None;
             }
         }
 

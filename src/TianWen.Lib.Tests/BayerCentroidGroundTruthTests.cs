@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using Xunit;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Tests;
 
@@ -43,7 +44,7 @@ public class BayerCentroidGroundTruthTests(ITestOutputHelper output)
 
     private static ImageMeta Meta(SensorType sensorType) => new ImageMeta(
         "synth", DateTimeOffset.UtcNow, TimeSpan.FromSeconds(10),
-        FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
+        FrameType.Light, "", 3.76f, 3.76f, 500, FocuserPositions.None, Filter.Luminance, 1, 1,
         float.NaN, sensorType, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
 
     /// <summary>

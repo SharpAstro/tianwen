@@ -7,6 +7,7 @@ using System.Threading;
 using System.Text;
 using TianWen.Lib.Imaging;
 using Xunit;
+using TianWen.Lib.Devices;
 using static QHYCCD.SDK.QHYCamera;
 
 namespace TianWen.Lib.Tests;
@@ -611,7 +612,7 @@ public class QhyDarkSequenceProbe(ITestOutputHelper output)
                 PixelSizeX: 2.4f,
                 PixelSizeY: 2.4f,
                 FocalLength: -1,
-                FocusPos: -1,
+                FocusPos: FocuserPositions.None,
                 Filter: Filter.Unknown,
                 BinX: 1,
                 BinY: 1,
