@@ -86,9 +86,10 @@ partial class ImageRendererBase<TSurface>
     private const float FinishContrastMax = 1f;
     private const float FinishSaturationMax = 2.5f;
 
-    // The stars' own StarStretch amount: 0 is the identity, each step of one triples the lift; the CLI's --dual-stretch
-    // default (StarSplit.StarCurve, 2) sits in the lower half so a softer and a much harder screen are both on the track.
-    private const float StarStretchMax = 5f;
+    // The stars' own asinh beta runs on a LOG track (the dial's value is log10 of it): 1 to 1000 is three decades, and on a
+    // linear track the useful tens and low hundreds would be the first few pixels of it.
+    private static readonly float StarBetaLogMin = MathF.Log10(StarSplit.MinBeta);
+    private static readonly float StarBetaLogMax = MathF.Log10(StarSplit.MaxBeta);
 
     /// <summary>
     /// The least track worth dragging, in design units, as a Star MINIMUM rather than a fixed
@@ -122,7 +123,7 @@ partial class ImageRendererBase<TSurface>
     private readonly SliderState _toneKneeSlider = new() { Min = SoftClipKneeMin, Max = SoftClipKneeMax };
     private readonly SliderState _toneContrastSlider = new() { Min = 0f, Max = FinishContrastMax };
     private readonly SliderState _toneSaturationSlider = new() { Min = 0f, Max = FinishSaturationMax };
-    private readonly SliderState _toneStarsSlider = new() { Min = 0f, Max = StarStretchMax };
+    private readonly SliderState _toneStarsSlider = new() { Min = StarBetaLogMin, Max = StarBetaLogMax };
 
     /// <summary>Test seam: the boost dial, so a test can find its arranged leaf by identity.</summary>
     internal SliderState ToneBoostSliderState => _toneBoostSlider;
@@ -250,11 +251,11 @@ partial class ImageRendererBase<TSurface>
 
         // The stars' strength moves only a star split's stars (an enhance's output), so it is dim on any other frame.
         var starsEnabled = _document?.StarSplit is not null;
-        _toneStarsSlider.Value = state.StarStretch;
+        _toneStarsSlider.Value = MathF.Log10(state.StarStretch);
         _toneStarsSlider.Enabled = starsEnabled;
         _toneStarsSlider.OnChanged = v =>
         {
-            state.StarStretch = v;
+            state.StarStretch = MathF.Round(MathF.Pow(10f, v));
             state.NeedsRedraw = true;
         };
 
@@ -316,9 +317,9 @@ partial class ImageRendererBase<TSurface>
 
         rows.Add(ToneSeparator());
 
-        // A star split's stars: StarStretch on the linear plate, the CLI's --dual-stretch curve, apart from every lever above.
+        // A star split's stars: the CLI's colour asinh on the linear plate, its beta here, apart from every lever above.
         rows.Add(Layout.Builder.Text(StarsHeading, small, ViewerTheme.Palette.DimText).WStar());
-        rows.Add(ToneDialRow("Stars", _toneStarsSlider, state.StarStretch.ToString("0.00"), ToneStarsFill));
+        rows.Add(ToneDialRow("Stars", _toneStarsSlider, state.StarStretch.ToString("0"), ToneStarsFill));
         if (!starsEnabled)
         {
             rows.Add(ToneReasonRow(StarsNeedSplitReason, small));

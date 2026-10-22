@@ -149,7 +149,6 @@ public static class EnhanceActions
         // Read BEFORE the adopt, which scales a frame not already on [0, 1] in place: the star split's plates are on the
         // pipeline's scale, so they are kept only where that scale is the document's.
         var plates = SplitPlates(result, enhanced);
-        var peak = enhanced.MaxValue;
         var doc = await AstroImageDocument.AdoptImageAsync(
             enhanced.WithZeroPedestal(), debayerAlgorithm, wcs, source.FilePath, crop, cancellationToken)
             .ConfigureAwait(false);
@@ -157,7 +156,7 @@ public static class EnhanceActions
         // the stars are stretched by their own curve as they are drawn, so no display lever lifts their wings.
         if (plates is { } split)
         {
-            doc.AttachStarSplit(new StarSplit(split.Starless.WithZeroPedestal(), split.Stars, peak));
+            doc.AttachStarSplit(new StarSplit(split.Starless.WithZeroPedestal(), split.Stars));
         }
         // Every canonical program runs a GradientCorrectionStep, so the background of what comes back
         // has been flattened and levelled. Nothing needs telling any more: AstroImageDocument.

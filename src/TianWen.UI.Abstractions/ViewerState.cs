@@ -234,9 +234,9 @@ public sealed class ViewerState
     public float FinishSaturation { get; set; } = 1f;
 
     /// <summary>
-    /// The Tone popover's Stars dial: the StarStretch amount a star split's stars are drawn with (<see cref="StarSplit"/>,
-    /// <see cref="ScreenedStars.MidtonesFor"/>), apart from every other lever. The default is the CLI's <c>--dual-stretch</c>
-    /// amount. A frame with no split ignores it.
+    /// The Tone popover's Stars dial: the asinh beta a star split's stars are drawn with (<see cref="StarSplit"/>,
+    /// <see cref="ScreenedStars"/>), apart from every other lever, the CLI's <c>--asinh-beta</c>. A frame with no split
+    /// ignores it.
     /// </summary>
     public float StarStretch { get; set; } = StarSplit.StarCurve;
 

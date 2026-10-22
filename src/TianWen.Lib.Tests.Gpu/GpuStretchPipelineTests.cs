@@ -581,8 +581,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
             normalizeScale: u.NormalizeScale,
             finishContrast: u.FinishContrast,
             finishSaturation: u.FinishSaturation,
-            starScale: stars?.Scale ?? 0f,
-            starMidtones: stars?.Midtones ?? 0.5f);
+            starBeta: stars?.Beta ?? 0f);
 
         // RecordImageDraw's last two args are the orthographic projection's viewport size, not
         // the draw-rect size -- they have to match the actual framebuffer the GPU is rendering
@@ -784,15 +783,15 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
     }
 
     /// <summary>
-    /// GPU/CPU parity for the star split's screen: the shader scaling the LINEAR stars plate from set 2 and stretching it by
-    /// the stars' own curve, against ScreenedStars.Display and Image.ScreenStars after the CPU render's normalise, at the
-    /// default strength and at a softer and a harder one.
+    /// GPU/CPU parity for the star split's screen: the shader stretching the LINEAR stars plate from set 2 by the CLI's
+    /// colour asinh, against ScreenedStars.Display and Image.ScreenStars after the CPU render's normalise, at the default
+    /// beta and at a softer and a harder one.
     /// </summary>
     [Theory]
-    [InlineData(2.0)]
-    [InlineData(0.5)]
-    [InlineData(4.0)]
-    public async Task GpuMatchesCpuForTheStarScreen(double starStretch)
+    [InlineData(300f)]
+    [InlineData(30f)]
+    [InlineData(1000f)]
+    public async Task GpuMatchesCpuForTheStarScreen(float starBeta)
     {
         if (!_gpu.VulkanAvailable)
         {
@@ -809,8 +808,9 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         var img = doc.UnstretchedImage;
         var w = img.Width;
         var h = img.Height;
-        // Any linear plate exercises the screen; this one is the frame itself, on its own full scale.
-        var stars = ScreenedStars.At(img, img.MaxValue, starStretch);
+        // Any linear plate exercises the screen; this one is the frame itself, brought down to an enhanced master's level (the
+        // Sculptor's peaks at 0.02), where the asinh is neither all linear nor all clipped.
+        var stars = new ScreenedStars(img.Affine(0.02 / img.MaxValue, 0.0), starBeta);
 
         var cpuRgba = new byte[w * h * 4];
         img.RenderStretchedRgba(uniforms, cpuRgba, starScreen: stars);
@@ -829,7 +829,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         foreach (var line in _formatDiagBag) output.WriteLine(line);
         _formatDiagBag.Clear();
 
-        AssertCpuGpuParity(cpuRgba, gpuRgba, $"28_gpu_star_screen_{starStretch:0.0}");
+        AssertCpuGpuParity(cpuRgba, gpuRgba, $"28_gpu_star_screen_{starBeta:0}");
     }
 
     /// <summary>

@@ -3,32 +3,29 @@ using System;
 namespace TianWen.Lib.Imaging;
 
 /// <summary>
-/// A stars plate as a render screens it over the stretched picture (<see cref="Image.ScreenStars"/>): the LINEAR plate, scaled
-/// onto the frame's own full scale by <paramref name="Scale"/> and stretched by StarStretch's fixed-midtones curve at
-/// <paramref name="Midtones"/>. The render applies the curve per pixel, as the shader's star screen does, so the stars' strength
-/// is a uniform and the plate is held once, unstretched.
+/// A stars plate as a render screens it over the stretched picture (<see cref="Image.ScreenStars"/>): the LINEAR plate
+/// through the CLI's colour asinh stretch (<see cref="Image.AsinhStretch"/>, Rec.709 luminance, no black point) at
+/// <paramref name="Beta"/>, applied per pixel as the shader's star screen does, so the strength is a uniform and the plate is
+/// held once, unstretched. Every channel of a pixel takes the one factor its luminance gives, so a star keeps its colour to
+/// the core; a per-channel curve whitened the cores.
 /// </summary>
 /// <param name="Stars">The stars plate, linear, on the picture's grid.</param>
-/// <param name="Scale">What a linear star sample is multiplied by before the curve: one over the recombined frame's peak.</param>
-/// <param name="Midtones">The curve's midtones balance, <see cref="MidtonesFor"/> of a StarStretch amount.</param>
-public sealed record ScreenedStars(Image Stars, float Scale, float Midtones)
+/// <param name="Beta">The asinh stretch strength, Siril's "stretch" and the CLI's <c>--asinh-beta</c>, at least 1.</param>
+public sealed record ScreenedStars(Image Stars, float Beta)
 {
-    /// <summary>StarStretch's midtones balance for a slider <paramref name="amount"/>: <c>1 / (3^amount + 1)</c>, so 0 is the
-    /// identity (0.5) and each step of one triples the lift.</summary>
-    public static double MidtonesFor(double amount) => 1.0 / (Math.Pow(3.0, amount) + 1.0);
+    /// <summary>The luminance weights the factor is read with, the CLI's <c>--asinh-luma</c> default.</summary>
+    public static readonly (float R, float G, float B) LumaWeights = LumaWeighting.Rec709.Weights;
 
-    /// <summary>
-    /// The plate at a StarStretch <paramref name="amount"/> on a frame whose brightest sample is <paramref name="peak"/>. A
-    /// fixed curve needs a fixed scale: an enhanced master can top out far below 1 (the Sculptor's at 0.017), and its stars
-    /// stretched on the file's own scale sat at the curve's toe and all but vanished.
-    /// </summary>
-    public static ScreenedStars At(Image stars, float peak, double amount) => new(stars, ScaleFor(peak), (float)MidtonesFor(amount));
-
-    /// <summary>What a linear star sample is multiplied by on a frame whose brightest sample is <paramref name="peak"/>: one
-    /// over it, or one where the peak says nothing.</summary>
-    public static float ScaleFor(float peak) => peak > 0f && float.IsFinite(peak) ? 1f / peak : 1f;
-
-    /// <summary>One linear star sample as screened: scaled, then through the curve. The shader's star screen does the same.</summary>
-    public float Display(float linear)
-        => float.IsNaN(linear) ? 0f : (float)Image.MidtonesTransferFunction(Midtones, linear * Scale);
+    /// <summary>One linear star pixel as screened: each channel times the factor its luminance gives
+    /// (<see cref="Image.AsinhLumaScale"/>). Unclipped, as the CLI's stretch is; the screen clamps.</summary>
+    public (float R, float G, float B) Display(float r, float g, float b)
+    {
+        if (float.IsNaN(r) || float.IsNaN(g) || float.IsNaN(b))
+        {
+            return (0f, 0f, 0f);
+        }
+        var luma = (LumaWeights.R * r) + (LumaWeights.G * g) + (LumaWeights.B * b);
+        var scale = Image.AsinhLumaScale(luma, Beta, 1f / (float)Math.Asinh(Beta));
+        return (r * scale, g * scale, b * scale);
+    }
 }

@@ -36,11 +36,11 @@ namespace TianWen.UI.Abstractions
         public ReadOnlySpan<float> CurveSpan => CurveData.IsDefaultOrEmpty ? default : CurveData.AsSpan();
 
         /// <summary>
-        /// The StarStretch amount a star split's stars are drawn with (<see cref="ViewerState.StarStretch"/>), so the pinned
+        /// The asinh beta a star split's stars are drawn with (<see cref="ViewerState.StarStretch"/>), so the pinned
         /// half of a comparison keeps its own.
         /// </summary>
         /// <remarks>Stored as its distance from <see cref="StarSplit.StarCurve"/>, so a <c>new()</c> rendition, which skips
-        /// property initialisers, reads the default and not 0, which would draw the stars linear and all but invisible.</remarks>
+        /// property initialisers, reads the default and not 0, below the curve's least beta of 1.</remarks>
         public float StarStretch
         {
             get => StarSplit.StarCurve + _starStretchOffset;

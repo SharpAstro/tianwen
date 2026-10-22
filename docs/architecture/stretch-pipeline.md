@@ -70,15 +70,18 @@ uniform pipeline, not a mess of if else"):
   no card and stretches exactly as before.
 - **An enhanced frame keeps its star split for the render** (`AstroImageDocument.StarSplit`, #1771): the enhance's
   starless plate is the picture every display lever acts on, and its stars plate is kept LINEAR and stretched as it is
-  drawn by its own curve, StarStretch at the Tone popover's Stars dial (`ViewerState.StarStretch`, carried in
-  `DisplayRendition`; default `StarSplit.StarCurve`, the CLI's `--dual-stretch` amount), on the frame's own full scale
-  (times one over the recombined frame's peak: a fixed curve needs a fixed scale, and the Sculptor master tops out at
-  0.017), then screened over the stretched result after the normalise (`ScreenedStars.Display`, `Image.ScreenStars`,
-  `a + s(1 - a)`; the shader samples the plate from descriptor set 2, a 1x1 placeholder when a frame has none, with
-  `finishParams.z` the scale, 0 for no split, and `.w` the midtones). The curve is a uniform, so the dial costs no
-  re-upload and the plate is held once. The stars take no OTHER display lever, which is the point: one curve over the
-  recombined frame lifted every star's wings with the faint signal, the blue rings round the Sculptor's bright stars
-  (#1771, #1772). The document's own image stays the recombined master
+  drawn by the CLI's colour asinh (`Image.AsinhStretch`, `Image.AsinhLumaScale`: every channel times the one factor its
+  Rec.709 luminance gives, no black point, unclipped) at the Tone popover's Stars dial (`ViewerState.StarStretch`, the
+  asinh beta on a log track from 1 to 1000, carried in `DisplayRendition`; default `StarSplit.StarCurve`, 300, the CLI's
+  `--dual-stretch --star-stretch-mode asinh --asinh-beta 300`), then screened over the stretched result after the
+  normalise (`ScreenedStars.Display`, `Image.ScreenStars`, `a + s(1 - a)`, each channel clamped; the shader samples the
+  plate from descriptor set 2, a 1x1 placeholder when a frame has none, with `finishParams.z` the beta, 0 for no split,
+  and `.w` one over asinh of it). The beta is a uniform, so the dial costs no re-upload and the plate is held once. **A
+  per-channel curve is the wrong one for stars**: StarStretch (the CLI's default) runs each channel into the top of its
+  curve on its own, which whitened every core; the asinh keeps a star's colour to its core, chosen by eye on the enhanced
+  Sculptor master against StarStretch 2 and 3.5 and betas 100 and 1000 (#1773). The stars take no OTHER display lever,
+  which is the point: one curve over the recombined frame lifted every star's wings with the faint signal, the blue rings
+  round the Sculptor's bright stars (#1771, #1772). The document's own image stays the recombined master
   (statistics, star detection, what Save writes as FITS); a saved PNG composes as the screen does. Held by
   `StarSplitRenderTests` and `GpuMatchesCpuForTheStarScreen`. In Luma mode the producer always populates BOTH
 `StretchUniforms.LumaStretch` (scalar Luma MTF params) AND per-channel `Shadows/Midtones/Rescale`
