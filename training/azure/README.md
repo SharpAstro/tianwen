@@ -44,6 +44,12 @@ pwsh -File training/azure/launch-arm.ps1 -Tag r2taz -Name r2t_synth4_s1 -Seed 1 
 from the VM's process table and the head of its log: **read both against the pre-registration before leaving the run**.
 A cache the container does not hold yet goes up first with `upload-cache.ps1`.
 
+**A teacher can be built on the VM instead of uploaded**: `-TeacherMembers 'a.pt,b.pt,c.pt' -MembersBlob <folder>` (in
+place of `-TeacherBlob`) has `setup.sh` fetch the members into the cache and `train.sh` run `n2n_teacher.py` over it at 8
+views before training. A teacher is 7.6 GB, an hour and a half up a home link against about half an hour on the T4; it
+sits on the OS disk, so an eviction keeps it, and the build skips the blocks it has written. The launcher then shows the
+teacher starting rather than the trainer, so read the trainer's own command line once the teacher is done.
+
 ## Traps that each cost a run or an evening
 
 - **The first scp after `az vm create` can fail** while sshd comes up: every copy is checked and retried.

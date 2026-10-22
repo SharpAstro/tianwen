@@ -19,6 +19,9 @@ param(
     [Parameter(Mandatory)] [string]$CacheBlob,
     [Parameter(Mandatory)] [string]$FetchTo,
     [string]$TeacherBlob = '',
+    # Or a teacher built on the VM before training: its members' checkpoint names (comma separated), which -MembersBlob holds.
+    [string]$TeacherMembers = '',
+    [string]$MembersBlob = '',
     [string]$ExtraBlob = '',
     [string]$ScheduleOn = '',
     [string]$TrainFlags = '',
@@ -33,6 +36,9 @@ param(
 $vmDir = Join-Path $RunsDir "$Tag-vm"
 if (Test-Path (Join-Path $vmDir 'started.txt')) { throw "$Tag was started already ($vmDir/started.txt); remove it to launch again" }
 if (-not (Test-Path (Join-Path $Run 'n2n_smoke.py'))) { throw "$Run holds no n2n_smoke.py: -Run is the frozen run directory" }
+if ($TeacherMembers -and $TeacherBlob) { throw '-TeacherBlob is a teacher made elsewhere and -TeacherMembers one built on the VM: give one' }
+if ([bool]$TeacherMembers -ne [bool]$MembersBlob) { throw '-TeacherMembers and -MembersBlob go together' }
+if ($TeacherMembers -and -not (Test-Path (Join-Path $Run 'n2n_teacher.py'))) { throw "$Run holds no n2n_teacher.py, which builds the teacher" }
 $sub = $AzConfig.subscription; $rg = $AzConfig.resourceGroup
 
 # Spot quota: the subscription's region quota is shared, and a colleague's training has held 324 of 350 low-priority
@@ -47,7 +53,8 @@ if (-not $DryRun -and ($MintSas -or -not (Test-Path $AzConfig.sasFile))) { "mint
 New-Item -ItemType Directory -Force $vmDir | Out-Null
 @(
     "RUN=$Tag", "NAME=$Name", "SEED=$Seed", "ACCOUNT=$($AzConfig.account)", "CACHE_BLOB=$CacheBlob", "TEACHER_BLOB=$TeacherBlob",
-    "EXTRA_BLOB=$ExtraBlob", "SCHEDULE_ON=$ScheduleOn", "TRAIN_FLAGS=`"$TrainFlags`""
+    "TEACHER_MEMBERS=$TeacherMembers", "MEMBERS_BLOB=$MembersBlob", "EXTRA_BLOB=$ExtraBlob", "SCHEDULE_ON=$ScheduleOn",
+    "TRAIN_FLAGS=`"$TrainFlags`""
 ) -join "`n" | Set-Content (Join-Path $vmDir 'run.env') -NoNewline -Encoding ascii
 # pwsh's own `tar` is bsdtar, which has no --force-local; Windows' tar.exe takes a C: path as it is.
 & C:\Windows\System32\tar.exe -czf (Join-Path $vmDir 'run.tgz') -C $Run --exclude '__pycache__' --exclude '*.log' --exclude '*.pt' .
@@ -96,6 +103,17 @@ Register-ScheduledTask -TaskName "tw-$Tag" -Action $action -Trigger $trigger -Se
 "waiting for the trainer (setup downloads the cache in the VMs' region, then installs torch)..."
 foreach ($i in 1..30) {
     Start-Sleep -Seconds 60
+    if ($TeacherMembers) {
+        # The teacher is built first (about half an hour): show it starting and leave the trainer's own line to the hourly check.
+        $teach = & ssh -n @k "tw@$ip" "ps -eo args | grep '[n]2n_teacher' | head -1" 2>$null
+        if ($teach) {
+            Start-Sleep -Seconds 60
+            "the teacher builds: $teach"
+            & ssh -n @k "tw@$ip" "tail -3 ~/$Tag.log"
+            "check the trainer's own command line once the teacher is done (ps -eo args | grep '[n]2n_smoke')"
+            return
+        }
+    }
     $seen = & ssh -n @k "tw@$ip" "ps -eo args | grep '[n]2n_smoke' | head -1" 2>$null
     if ($seen) {
         Start-Sleep -Seconds 90
