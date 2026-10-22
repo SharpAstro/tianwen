@@ -1,0 +1,9 @@
+{
+  "cli": "<path to the tianwen executable>",
+  "out_root": "<folder where each tag's plates, checks and row.txt are made>",
+  "masters": {
+    "andromeda": "<path to the owner's M31 RGB master, FITS, 3 planes>",
+    "tarantula": "<path to the held-out Tarantula master of 2026-10-17, FITS, 3 planes, PIXORIG = 1>",
+    "sag": "<path to the Sagittarius Triplet master, mono or RGB>"
+  }
+}

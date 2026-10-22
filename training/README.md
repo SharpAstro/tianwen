@@ -21,6 +21,7 @@ and the tiles these scripts train on come from the C# exporter (`DatasetTileExpo
 | `denoise/run-e7-5.py`, `read-e7-5.py` | E7.5's 98-run crop grid through `n2n_operator_real.py`, and its read |
 | `denoise/condprobe.py`, `condpool.py` | where a cache and every master of a bake sit on the conditioning plane (`docs/plans/denoiser-training.md`) |
 | `denoise/run-x2r-export.ps1` | arm X2R's `dataset pair` export with the nights swapped |
+| `star-removal/` | the star remover's whole-master scorecard (`score_whole.py`, one row per arm) and the checks it parses: `remover_check2.py`, `gaia_remover_check.py`, `profiles.py`, `m31_nucleus.py`; no machine path in it, they come from a config (`scorecard.example.json`); see "Scoring an arm" below |
 | `azure/` | training runs on an Azure spot T4 (`azure/README.md`): `launch-arm.ps1` launches an arm in one command and checks the trainer's own command line, `az-driver.ps1` babysits it and deletes everything it made once the weights are home, `upload-cache.ps1` and `blockupload.py` send a cache up resumably at a capped rate, and `vm/` holds the scripts that run on the VM. The subscription, group and storage account come from a user-only settings file outside this public repository |
 | `planetary/r9_refiner.py`, `r9_score.py`, `r9_twin_pairs.py` | R9's learned refiner on the shipped planetary sharpening (`docs/plans/planetary-restoration.md`, "R9 revisited", #1056): train, apply, and refine one master; score a set against its truths through `tianwen planetary fidelity`; gather stacker-made twins into the pair layout. The synthetic pairs come from `tianwen planetary training-pairs` |
 | `planetary/r9-rules.md`, `r9_*.sh`, `r9_gains_*.py`, `r9_*plan.json` | R9's run records, machine paths kept as constants: the rules and every dated amendment, set before each arm ran; the twin makers (2022-09-03 Red, the EdgeHD 11 Jupiter at its fitted air) and their drawn plans; the learned gains' steps (the truth's own gains through the sharpening, the ridge, the deploy point's comparators and the real master's G5 and G6) |
@@ -130,3 +131,50 @@ Four rules, each of which cost a wrong conclusion once (the roadmap's section 4 
 
 The C# parity fixture is what `n2n_fixture.py` writes; regenerate it whenever the checkpoint or the
 plate changes, then run `N2nDenoiserTests`.
+
+## Scoring an arm
+
+A star remover is scored on WHOLE real masters, never on tiles (round 2 of `docs/plans/star-remover-training.md`;
+round 1's tile score put the models level with the judges while whole masters showed them far behind). One command
+makes the starless plates of the three masters and writes one row:
+
+```pwsh
+cd training\star-removal
+python score_whole.py r2t --config scorecard.local.json --model path\to\arm.onnx [more.onnx ...] [--views 1]
+```
+
+`<out root>\<tag>\` then holds `andromeda_starless.fits`, `tarantula_starless.fits`, `sag_starless.fits`, each
+check's working folder (`check2-*`, with the background and noise maps `tianwen image sources` wrote), `score.log`
+(every command and its output), `score.json` (the parsed numbers) and **`row.txt`**, the one line the plan's tables
+quote. A plate already in the folder is reused, so a re-run only re-reads it. A judge's plates (StarNet2, SXT, a
+tag made earlier) are scored without a model by linking them in: `--plates andromeda=... tarantula=... sag=...`
+(copied into the folder once, never over a plate that is there).
+
+**The paths are the machine's and are not in the repository.** `scorecard.example.json` shows the shape: the
+`tianwen` executable that runs `image remove-stars` and `image sources` (`cli`), the folder the tags are made under
+(`out_root`) and the three input masters (`masters`: the owner's M31 RGB master, the held-out Tarantula of 2026-10-17
+with `PIXORIG = 1`, and the Sagittarius Triplet, mono or RGB). Copy it to `scorecard.local.json` (ignored by git) and
+fill it in, or give `--cli`, `--out-root` and `--master NAME=PATH` on the command line, which win over the file.
+The Gaia stars for the Tarantula come from Vizier through `denoise/gaia_vizier.py`, cached under `TIANWEN_GAIA_CACHE`
+(default `~/.tianwen/gaia-cache`), so the first run needs the network and later ones do not.
+
+What a row says, and the scripts that read it (each also runs alone, `--help` or its docstring first):
+
+| row field | read by | meaning |
+|---|---|---|
+| `And dark flat / dug` | `remover_check2.py` | Andromeda's bright (SNR 100 to 1000) dark-sky stars: the share whose starless plate is flat to within half a sigma of the INPUT's own background inside 6 px, and the share dug below it |
+| `blue 1.5-3 / 3-4.5` | `profiles.py` | blue's residual (starless less local sky) in sigma at those radii, median over the bright isolated stars; negative is a hole |
+| `Tar dark flat / left` | `remover_check2.py` | the same on the Tarantula; `left` is light still above the background |
+| `core R/G/B` | `profiles.py` | the residual at 0 to 1.5 px, per channel: the light a sharp core leaves |
+| `Tar crowded`, `Sag crowded` | `remover_check2.py` | stars with three or more neighbours within 15 px that come out flat (the Triplet is mono, scored as three copies of its plane) |
+| `BP17-19`, `purity` | `gaia_remover_check.py` | Gaia stars of that magnitude the starless plate no longer holds, and the share of the removed light that lies away from every Gaia star |
+| `nucleus` | `m31_nucleus.py` | the share of M31's nucleus light (0 to 6 px) the remover took as a star, R/G/B; the guard is at most 5 % |
+
+The guards are round 1's: the nucleus at most 5 % in every channel and purity at most 1.0 %. A row is read against
+the judges' rows (the ceiling), R2i seed 0's (the small-model baseline) and R2t's (the round 1 base). Two things the
+scripts do not hide: **every number is parsed from the checks' own printed output**, so a check that changes its
+wording changes `score_whole.py`'s regexes with it (a missing match is a `KeyError`, never a zero); and the NaN
+canvas ring of a TianWen master is handled in `remover_check2.py` (its fine-scale filters fill the ring first and
+skip every cell it reaches), which the first copy of the Tarantula's check did not do and which moves only its
+cell-level lines, none of them in the row. Run any torch the scorer calls for on the CPU with
+`CUDA_VISIBLE_DEVICES=-1` while a training arm owns the card; the scorer itself needs no GPU.
