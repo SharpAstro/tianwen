@@ -7,6 +7,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.AI.Imaging.Onnx;
@@ -125,7 +126,14 @@ public static partial class DatasetDegradationExporter
     /// relation the draw's stars took, as the plate stem it was measured on.</summary>
     public sealed record InjectionRow(
         string Tile, string SessionId, int CellX, int CellY, int Draw, string Placement, string Profile, int Requested, int Placed,
-        bool SaturatedFallback, InjectedStarRow[] Stars, InjectedKnotRow[]? Knots = null, string? RelationFrom = null);
+        bool SaturatedFallback, InjectedStarRow[] Stars, InjectedKnotRow[]? Knots = null, string? RelationFrom = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] KeptCoreRow? Core = null);
+
+    /// <summary>A cell's kept core (<see cref="KeptCore"/>, #1658), in the cell's coordinates, the same in every draw of it:
+    /// its FWHM across both axes in pixels, its major axis's angle in degrees, the bulge's share and scale, the peak drawn in
+    /// noise sigma and the peak per channel on the master's unit scale, and whether the ceiling held it lower.</summary>
+    public sealed record KeptCoreRow(double X, double Y, double FwhmMinorPx, double FwhmMajorPx, double AngleDeg, double BulgeShare,
+        double BulgeScale, double DrawnSigma, double[] Peak, bool Capped);
 
     /// <summary>One knot of a synthetic background (<see cref="SyntheticBackground.Knot"/>), in the cell's coordinates: its
     /// widths in pixels, its major axis's angle in degrees and its peak per channel on the master's unit scale.</summary>
@@ -374,6 +382,15 @@ public static partial class DatasetDegradationExporter
                     (synthetic.BrightKnotsWide ? ", compact knots kept faint" : "") + (synthetic.NebulaKnots ? ", knots drawn as the nebula's" : "")
                     + (synthetic.Steered is { } st ? string.Create(CultureInfo.InvariantCulture, $", steered {st.Strength},{st.Exponent},{st.Wander},{st.Fine}") : ""));
             }
+            // #1658: bright galaxy-like cores the target keeps, in a share of the synthetic background's cells.
+            var keptCores = synthetic is not null && options.KeptCores
+                ? new KeptCores(synthetic.Fwhm, KeptCores.RedderColours(population.Colours, channels), population.FallbackClips)
+                : null;
+            if (keptCores is not null)
+            {
+                logger?.LogInformation("[degrade] {Session}: kept cores in {Share:P0} of the cells, {Colours} redder colours to draw from",
+                    sessionId, KeptCores.Share, keptCores.Colours.Length);
+            }
             var drawnWith = options.Profile == StarProfileFamily.Field && field is { } f
                 ? f.Channels.Select(static p => string.Create(CultureInfo.InvariantCulture, $"{p.Fwhm:F2} px b{p.Beta:F2} + table {p.Table.Length}"))
                 : psf.Select(static p => string.Create(CultureInfo.InvariantCulture, $"{p.Fwhm:F2} px b{p.Beta:F2}"));
@@ -413,12 +430,13 @@ public static partial class DatasetDegradationExporter
                 var masterDepth = 1.0 / Math.Sqrt(Math.Max(1, stackedFrames));
                 float[][]? background = null;
                 var knots = ImmutableArray<SyntheticBackground.Knot>.Empty;
+                KeptCore? core = null;
                 double cleanMad;
                 if (synthetic is not null)
                 {
-                    (background, knots, cleanMad) = SyntheticCell(sessionOptions, synthetic, unitPlate, absent, cell, calibrations, masterDepth,
+                    (background, knots, core, cleanMad) = SyntheticCell(sessionOptions, synthetic, unitPlate, absent, cell, calibrations, masterDepth,
                         stackedFrames, DrawSeed(options.Seed, sessionId, cell.X, cell.Y, -1), origMin, balances,
-                        Path.Combine(tilesDir, cleanFile), Path.Combine(tilesDir, SigmaPathFor(cleanFile)), sessionId);
+                        Path.Combine(tilesDir, cleanFile), Path.Combine(tilesDir, SigmaPathFor(cleanFile)), sessionId, keptCores);
                 }
                 else
                 {
@@ -439,7 +457,7 @@ public static partial class DatasetDegradationExporter
                 {
                     var seed = DrawSeed(options.Seed, sessionId, cell.X, cell.Y, draw);
                     var (row, injection) = InjectCell(sessionOptions, unitPlate, absent, population, cell, draw, seed, stackedFrames, fieldRadius,
-                        origMin, balances, calibrations, tilesDir, slug, sessionId, measures, stars.Variation, background, knots, stars.WingCut);
+                        origMin, balances, calibrations, tilesDir, slug, sessionId, measures, stars.Variation, background, knots, stars.WingCut, core);
                     degRows.Add(row);
                     injectionRows.Add(injection);
                     tileRows.Add(new DatasetTileExporter.TileManifestRow(
@@ -511,7 +529,8 @@ public static partial class DatasetDegradationExporter
         ChannelVariation? variation,
         float[][]? background = null,
         ImmutableArray<SyntheticBackground.Knot> knots = default,
-        ChannelWingCut? wingCut = null)
+        ChannelWingCut? wingCut = null,
+        KeptCore? core = null)
     {
         var size = cell.TileSize;
         var channels = unitPlate.ChannelCount;
@@ -658,25 +677,30 @@ public static partial class DatasetDegradationExporter
                 s.Profiles.Any(static p => p.HaloLogGain != 0.0) ? [.. s.Profiles.Select(static p => p.HaloGain)] : null))],
             Knots: background is null ? null
                 : [.. knots.Select(static k => new InjectedKnotRow(k.X, k.Y, k.SigmaMajorPx, k.SigmaMinorPx, k.AngleRad * 180.0 / Math.PI, k.Peak))],
-            RelationFrom: plan.RelationFrom);
+            RelationFrom: plan.RelationFrom,
+            Core: core is null ? null
+                : new KeptCoreRow(core.X, core.Y, core.FwhmMinorPx, core.FwhmMajorPx, core.AngleRad * 180.0 / Math.PI, core.BulgeShare,
+                    core.BulgeScale, core.DrawnSigma, [.. core.Peak], core.Capped));
         return (row, injection);
     }
 
     /// <summary>
     /// R2d's D2: one cell's synthetic background (<see cref="SyntheticBackground.Cell"/>) with the master's own noise in its
     /// own shape at the master's depth, written as the clean tile with its conditioning plane (the noise-free level's, as an
-    /// injected draw's is). Returns the noisy linear planes the cell's draws inject into, the knots and the clean tile's MAD.
-    /// A pixel on the canvas ring keeps the plate's own value, so the ring stays what it was.
+    /// injected draw's is). Returns the noisy linear planes the cell's draws inject into, the knots, the kept core (#1658,
+    /// with <paramref name="keptCores"/>, drawn from a stream of its own) and the clean tile's MAD. A pixel on the canvas ring
+    /// keeps the plate's own value, so the ring stays what it was.
     /// </summary>
-    private static (float[][] Planes, ImmutableArray<SyntheticBackground.Knot> Knots, double CleanMad) SyntheticCell(
+    private static (float[][] Planes, ImmutableArray<SyntheticBackground.Knot> Knots, KeptCore? Core, double CleanMad) SyntheticCell(
         Options options, SyntheticBackground synthetic, Image unitPlate, BitMatrix? absent, CellSpec cell,
         LinearDegradation.NoiseCalibration[] calibrations, double masterDepth, int stackedFrames, int seed,
-        float[] origMin, double[] balances, string tilePath, string sigmaPath, string sessionId)
+        float[] origMin, double[] balances, string tilePath, string sigmaPath, string sessionId, KeptCores? keptCores = null)
     {
         var size = cell.TileSize;
         var channels = unitPlate.ChannelCount;
         var noiseSigma = calibrations.Select(k => k.SigmaAt(k.BackgroundAdu, masterDepth)).ToArray();
         var level = synthetic.Cell(cell.X, cell.Y, size, noiseSigma, new Random(seed), out var knots);
+        var core = keptCores?.AddTo(level, size, noiseSigma, new Random(seed ^ 0x7f4a7c15));
         var (shape, warpSigma) = DrawNoiseShape(options, seed);
         var noiseRng = new Random(seed ^ 0x5bd1e995);
         var noisy = new float[channels][];
@@ -719,7 +743,7 @@ public static partial class DatasetDegradationExporter
             var cleanMad = DatasetTileExporter.WriteTile(noisyStretched, PixelPoint.Empty, size, tilePath, sessionId);
             levelStretched = levelImage.MtfStretchWith(origMin, balances);
             WriteSigmaTile(levelStretched, origMin, balances, calibrations, masterDepth, sigmaPath);
-            return (noisy, knots, cleanMad);
+            return (noisy, knots, core, cleanMad);
         }
         finally
         {

@@ -129,6 +129,12 @@ public sealed class InjectionPopulation
     /// <summary>Saturated stars a saturated injection is drawn from (0 means the fallback clip).</summary>
     public int SaturatedPool => _saturated.Length;
 
+    /// <summary>The unsaturated pool's colours: each star's per-channel amplitudes on the master's unit scale.</summary>
+    public IEnumerable<ImmutableArray<double>> Colours => _amplitudes.Select(static s => s.Amplitudes);
+
+    /// <summary>Per channel <see cref="FallbackClipFraction"/> of the master's brightest pixel, on its unit scale.</summary>
+    public ImmutableArray<double> FallbackClips => _fallbackClips;
+
     /// <summary>Stars the elongation is measured on.</summary>
     public int MomentPool => _moments.Length;
 

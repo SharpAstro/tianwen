@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 using System.Linq;
 using Shouldly;
 using TianWen.Lib.Imaging;
@@ -568,5 +569,171 @@ public sealed class SyntheticBackgroundTests
         var added = noisy[0].Zip(quiet[0], static (a, b) => (double)(a - b)).ToArray();
         var sd = Math.Sqrt(added.Select(static d => d * d).Average());
         sd.ShouldBe(noise[0], 0.1 * noise[0], "the preview's grain is the plate's noise");
+    }
+
+    // #1658's kept cores over three channels of noise 1, 2 and 4, a red colour, and no ceiling unless one is given.
+    private static readonly double[] CoreNoise = [1.0, 2.0, 4.0];
+    private static readonly ImmutableArray<double> RedColour = [1.0, 0.78, 0.64];
+
+    private static KeptCores Cores(ImmutableArray<double> ceilings = default) => new(Fwhm, [RedColour], ceilings);
+
+    private static float[][] Flat(int size, float level = 0f)
+        => [.. Enumerable.Range(0, CoreNoise.Length).Select(_ => Enumerable.Repeat(level, size * size).ToArray())];
+
+    [Fact]
+    public void AKeptCoreIsNeverNarrowerThanTwoAndAHalfPsfWidthsAndItsHalfPeakSaysSo()
+    {
+        const int size = 256;
+        var (cores, narrowest) = (0, double.PositiveInfinity);
+        for (var seed = 0; seed < 600; seed++)
+        {
+            var planes = Flat(size);
+            if (Cores().AddTo(planes, size, CoreNoise, new Random(seed)) is not { } core)
+            {
+                continue;
+            }
+            cores++;
+            core.FwhmMinorPx.ShouldBeGreaterThanOrEqualTo(KeptCores.MinWidths * Fwhm);
+            core.FwhmMinorPx.ShouldBeLessThanOrEqualTo(KeptCores.MaxWidths * Fwhm);
+            (core.FwhmMinorPx / core.FwhmMajorPx).ShouldBeInRange(KeptCores.MinAxisRatio, 1.0);
+            narrowest = Math.Min(narrowest, core.FwhmMinorPx / Fwhm);
+
+            // Read off the drawn plane: the pixels at half the core's peak or more cover at least the core's own half-peak
+            // ellipse (the bulge only widens it), so the drawn core is as wide as it says.
+            var peak = planes[0].Max();
+            var halfArea = planes[0].Count(v => v >= 0.5 * peak);
+            halfArea.ShouldBeGreaterThanOrEqualTo((int)(0.9 * Math.PI / 4 * core.FwhmMinorPx * core.FwhmMajorPx),
+                $"core {core.FwhmMinorPx:F1} by {core.FwhmMajorPx:F1} px");
+
+            // Along its minor axis half the peak is not reached inside half its stated width.
+            var (sin, cos) = Math.SinCos(core.AngleRad);
+            var inside = 0.5 * core.FwhmMinorPx * 0.999;
+            KeptCores.Profile(core, core.X - (inside * sin), core.Y + (inside * cos)).ShouldBeGreaterThan(0.5);
+        }
+        cores.ShouldBeInRange(60, 120, "about 15 % of 600 cells hold a core");
+        narrowest.ShouldBeLessThan(2.8, "the draw reaches down to its floor");
+    }
+
+    [Fact]
+    public void AKeptCoresPeakStandsItsDrawnSigmaInTheChannelItIsBrightestInAndTakesItsColour()
+    {
+        const int size = 256;
+        var drawn = new System.Collections.Generic.List<double>();
+        for (var seed = 0; seed < 1000; seed++)
+        {
+            var planes = Flat(size, 0.25f);
+            if (Cores().AddTo(planes, size, CoreNoise, new Random(seed)) is not { } core)
+            {
+                continue;
+            }
+            core.Capped.ShouldBeFalse("no ceiling was given");
+            core.DrawnSigma.ShouldBeInRange(KeptCores.MinPeakSigma, KeptCores.MaxPeakSigma);
+            drawn.Add(core.DrawnSigma);
+            var standing = core.Peak.Select((p, c) => p / CoreNoise[c]).ToArray();
+            standing.Max().ShouldBe(core.DrawnSigma, 1e-9 * core.DrawnSigma);
+            for (var c = 0; c < CoreNoise.Length; c++)
+            {
+                (core.Peak[c] / core.Peak[0]).ShouldBe(RedColour[c], 1e-9, "the colour drawn from");
+                // The drawn plane's top, over the level beneath it, is the core's peak (a pixel centre lies within half a
+                // pixel of the core's, where a 6 px wide profile is still above 0.97).
+                var top = planes[c].Max() - 0.25;
+                top.ShouldBeInRange(0.97 * core.Peak[c], core.Peak[c] * 1.000001);
+            }
+        }
+        // Log-uniform from 200 to 6,000: the median is their geometric mean, about 1,095.
+        var median = drawn.Order().ElementAt(drawn.Count / 2);
+        median.ShouldBeInRange(700.0, 1700.0);
+        drawn.Max().ShouldBeGreaterThan(3000.0, "the brightest reach M31's nucleus");
+    }
+
+    [Fact]
+    public void AKeptCoresTopStaysUnderTheMastersCeilingInItsOwnColour()
+    {
+        const int size = 256;
+        ImmutableArray<double> ceilings = [500.0, 500.0, 500.0];
+        var capped = 0;
+        for (var seed = 0; seed < 600; seed++)
+        {
+            var planes = Flat(size, 100f);
+            if (Cores(ceilings).AddTo(planes, size, CoreNoise, new Random(seed)) is not { } core)
+            {
+                continue;
+            }
+            for (var c = 0; c < CoreNoise.Length; c++)
+            {
+                planes[c].Max().ShouldBeLessThanOrEqualTo((float)(KeptCores.CeilingShare * ceilings[c]) * 1.000001f);
+                (core.Peak[c] / core.Peak[0]).ShouldBe(RedColour[c], 1e-9, "a cap keeps the colour");
+            }
+            if (core.Capped)
+            {
+                capped++;
+                core.Peak[0].ShouldBe((KeptCores.CeilingShare * ceilings[0]) - 100.0, 1e-6, "held at the ceiling, not under it");
+            }
+        }
+        capped.ShouldBeGreaterThan(10, "a 300 noise-sigma room caps most cores");
+    }
+
+    [Fact]
+    public void KeptCoresComeFromAStreamOfTheirOwnSoTheCellIsTheOneItWasBeyondTheirReach()
+    {
+        var plate = Plate(8);
+        var background = SyntheticBackground.Build(plate, absent: null, Fwhm, brightKnotsWide: true);
+        const int size = 256;
+        var withCores = 0;
+        for (var seed = 0; seed < 40; seed++)
+        {
+            var before = background.Cell(0, 0, size, [Noise], new Random(seed), out var knotsBefore);
+            var after = background.Cell(0, 0, size, [Noise], new Random(seed), out var knotsAfter);
+            var core = new KeptCores(Fwhm, [[1.0]], []).AddTo(after, size, [Noise], new Random(seed ^ 0x7f4a7c15));
+            knotsAfter.Select(static k => (k.X, k.Y, k.SigmaMajorPx, k.Peak[0])).ShouldBe(knotsBefore.Select(static k => (k.X, k.Y, k.SigmaMajorPx, k.Peak[0])));
+            if (core is null)
+            {
+                after[0].ShouldBe(before[0], "a cell without a core is byte for byte the cell");
+                continue;
+            }
+            withCores++;
+            var reach = KeptCores.ReachPx(core);
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    var i = (y * size) + x;
+                    var added = core.Peak[0] * KeptCores.Profile(core, x, y);
+                    if (Math.Abs(x - core.X) > reach || Math.Abs(y - core.Y) > reach || added == 0)
+                    {
+                        after[0][i].ShouldBe(before[0][i], "beyond the core every pixel is the cell's own");
+                    }
+                    else
+                    {
+                        ((double)after[0][i]).ShouldBe(before[0][i] + added, 1e-6 * (1 + Math.Abs(before[0][i] + added)), "the core alone is added");
+                    }
+                }
+            }
+        }
+        withCores.ShouldBeGreaterThan(0);
+    }
+
+    [Fact]
+    public void AKeptCoreReachesNoFurtherThanItsTaperAndItsWingsFallAsM31s()
+    {
+        // M31's nucleus: 7 px across at half its peak; a bulge of one core width at 0.55 of the peak reads 0.14, 0.06 and 0.02
+        // of the whole at 16, 30 and 60 px, as M31 does (to a third).
+        var core = new KeptCore(0, 0, 7.0, 7.0, 0, 0.55, 1.0, 1000, [1.0], false);
+        KeptCores.Profile(core, 0, 0).ShouldBe(1.0, 1e-12);
+        KeptCores.Profile(core, 16, 0).ShouldBe(0.14, 0.14 / 3);
+        KeptCores.Profile(core, 30, 0).ShouldBe(0.06, 0.06 / 3);
+        KeptCores.Profile(core, 60, 0).ShouldBe(0.02, 0.02 / 3);
+        KeptCores.Profile(core, KeptCores.ReachPx(core), 0).ShouldBe(0.0);
+        KeptCores.Profile(core, 0, KeptCores.ReachPx(core) + 1).ShouldBe(0.0);
+    }
+
+    [Fact]
+    public void KeptCoresTakeTheRedderHalfOfThePoolsColours()
+    {
+        ImmutableArray<double>[] pool = [[1.0, 1.0, 1.0], [2.0, 1.5, 1.0], [0.5, 0.8, 1.0], [3.0, 2.0, 1.0], [1.0, 0.0, 1.0]];
+        var redder = KeptCores.RedderColours(pool, 3);
+        redder.Length.ShouldBe(2, "of the four usable colours, the two at or above the median red over blue");
+        redder.ShouldAllBe(static c => c[0] == 1.0 && c[2] < 1.0);
+        KeptCores.RedderColours(pool, 1).ShouldHaveSingleItem().ToArray().ShouldBe(new[] { 1.0 });
     }
 }
