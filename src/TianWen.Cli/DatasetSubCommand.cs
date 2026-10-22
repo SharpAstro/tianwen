@@ -1813,11 +1813,18 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "correlation kept; nothing else a draw takes moves (Synthetics S4).",
         };
 
+        var faintStarsOpt = new Option<double?>("--faint-stars")
+        {
+            Description = "--mode stars on --background synthetic: fit each master's luminosity function to its own catalogue from " +
+                          "10 to 300 sigma and add, from a stream of its own, the stars the catalogue lacks under its detection " +
+                          "limit down to this significance (S2; 3 is the reviewed floor, at least 2), each a point source of its own.",
+        };
+
         var command = new Command("degrade",
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, channelWingCutOpt, keptCoresOpt, channelNoiseCorrelationOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, channelWingCutOpt, keptCoresOpt, channelNoiseCorrelationOpt, faintStarsOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -1986,6 +1993,25 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 consoleHost.WriteError("--channel-noise-correlation draws the stars mode's noise; it needs --mode stars");
                 return 1;
             }
+            var faintStars = parseResult.GetValue(faintStarsOpt);
+            if (faintStars is { } faintFloor)
+            {
+                if (mode != DatasetDegradationExporter.DegradationMode.Stars || backgroundText != "synthetic")
+                {
+                    consoleHost.WriteError("--faint-stars fills a synthetic background with the stars its catalogue lacks; it needs --mode stars --background synthetic");
+                    return 1;
+                }
+                if (placement != InjectionPlacement.Random)
+                {
+                    consoleHost.WriteError("--faint-stars places its stars at random; it needs --placement random");
+                    return 1;
+                }
+                if (!(faintFloor >= LuminosityFunction.MinFloorSigma && faintFloor < LuminosityFunction.FitLowSigma))
+                {
+                    consoleHost.WriteError($"--faint-stars {faintFloor}: the floor is in [{LuminosityFunction.MinFloorSigma}, {LuminosityFunction.FitLowSigma}) sigma");
+                    return 1;
+                }
+            }
 
             var options = new DatasetDegradationExporter.Options(
                 BakeRoot: parseResult.Required(bakeOpt),
@@ -2027,7 +2053,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 StarShapesPath: starShapes,
                 ChannelWingCut: channelWingCut,
                 KeptCores: keptCores,
-                ChannelNoiseCorrelation: channelNoiseCorrelation);
+                ChannelNoiseCorrelation: channelNoiseCorrelation,
+                FaintStarFloor: faintStars);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);
