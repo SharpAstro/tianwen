@@ -16,7 +16,11 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// <param name="DrawnLight">The same, of the field profile drawn at amplitude 1 at each star's own sub-pixel place.</param>
 /// <param name="WingGain">The wing gain (<see cref="StarProfile.HaloLogGain"/>, as a factor) at which the drawn light meets
 /// the real; 1 where the band has too few stars to say.</param>
-public sealed record StarShapeChannel(double RealLight, double DrawnLight, double WingGain);
+/// <param name="RealRings">The real stars' light in each of <see cref="StarShape.RingEdgesPx"/>'s rings over their amplitude,
+/// the median over them; empty on a row measured before the rings were read.</param>
+/// <param name="DrawnRings">The same of the drawn star at <paramref name="WingGain"/>.</param>
+public sealed record StarShapeChannel(double RealLight, double DrawnLight, double WingGain,
+    ImmutableArray<double> RealRings = default, ImmutableArray<double> DrawnRings = default);
 
 /// <summary>One brightness band of a master's measured star shape: its stars from <paramref name="MinSignificance"/> up.</summary>
 public sealed record StarShapeBand(float MinSignificance, int Stars, ImmutableArray<StarShapeChannel> Channels);
@@ -107,6 +111,91 @@ public static class StarShape
         return sum - count * Median(sky);
     }
 
+    /// <summary>
+    /// The rings a star's whole profile is read in, by radius in pixels: the core, the shoulder, the near wing and the wing
+    /// (<see cref="Rings"/>). Round 2's cores: the wing gain matches the light 3 to 8 px out, and these say whether the core
+    /// then matches too.
+    /// </summary>
+    public static readonly ImmutableArray<double> RingEdgesPx = [0.0, 1.5, 3.0, 4.5, 8.0];
+
+    /// <summary>
+    /// The light in each ring of <see cref="RingEdgesPx"/> about (<paramref name="cx"/>, <paramref name="cy"/>) above the sky,
+    /// the sky read as <see cref="Light"/> reads it; NaN in every ring where the stamp leaves the plane or touches an absent
+    /// pixel.
+    /// </summary>
+    public static double[] Rings(ReadOnlySpan<float> plane, int width, int height, double cx, double cy, BitMatrix? absent = null)
+    {
+        var rings = RingEdgesPx.Length - 1;
+        var sums = new double[rings];
+        var counts = new int[rings];
+        var (x0, y0) = ((int)Math.Round(cx), (int)Math.Round(cy));
+        if (x0 - StampRadius < 0 || y0 - StampRadius < 0 || x0 + StampRadius >= width || y0 + StampRadius >= height)
+        {
+            Array.Fill(sums, double.NaN);
+            return sums;
+        }
+        var outer = RingEdgesPx[^1];
+        var sky = new List<double>();
+        for (var y = y0 - StampRadius; y <= y0 + StampRadius; y++)
+        {
+            for (var x = x0 - StampRadius; x <= x0 + StampRadius; x++)
+            {
+                var r = Math.Sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
+                if (r > SkyToPx || (r >= outer && r < SkyFromPx))
+                {
+                    continue;
+                }
+                if (absent is { } a && a[y, x])
+                {
+                    Array.Fill(sums, double.NaN);
+                    return sums;
+                }
+                var v = plane[y * width + x];
+                if (r >= SkyFromPx)
+                {
+                    sky.Add(v);
+                    continue;
+                }
+                var k = 0;
+                while (r >= RingEdgesPx[k + 1])
+                {
+                    k++;
+                }
+                sums[k] += v;
+                counts[k]++;
+            }
+        }
+        var level = Median(sky);
+        for (var k = 0; k < rings; k++)
+        {
+            sums[k] -= counts[k] * level;
+        }
+        return sums;
+    }
+
+    /// <summary>What <paramref name="profile"/> draws at amplitude 1 at sub-pixel offset (<paramref name="ox"/>,
+    /// <paramref name="oy"/>), read in <see cref="Rings"/> as a real star is.</summary>
+    public static double[] DrawnRings(StarProfile profile, double ox, double oy)
+    {
+        const int size = 2 * StampRadius + 1;
+        var plane = new float[size * size];
+        var outer = RingEdgesPx[^1];
+        for (var py = 0; py < size; py++)
+        {
+            for (var px = 0; px < size; px++)
+            {
+                var (dx, dy) = (px - StampRadius - ox, py - StampRadius - oy);
+                var r = Math.Sqrt(dx * dx + dy * dy);
+                // Only the rings and the sky annulus are read.
+                if (r < outer + 1 || r >= SkyFromPx - 1)
+                {
+                    plane[py * size + px] = (float)profile.PixelMean(px, py, StampRadius + ox, StampRadius + oy);
+                }
+            }
+        }
+        return Rings(plane, size, size, StampRadius + ox, StampRadius + oy);
+    }
+
     /// <summary>The light <paramref name="profile"/> draws at amplitude 1, centred at sub-pixel offset (<paramref name="ox"/>,
     /// <paramref name="oy"/>) from a pixel centre, read as <see cref="Light"/> reads a real star.</summary>
     public static double DrawnLight(StarProfile profile, double ox, double oy)
@@ -157,13 +246,16 @@ public static class StarShape
             {
                 var plane = master.GetChannelSpan(c);
                 var real = new List<double>();
+                var realRings = new List<double[]>();
                 var places = new List<(double Ox, double Oy)>();
                 foreach (var s in stars)
                 {
                     var light = Light(plane, width, height, s.X, s.Y, absent);
                     if (double.IsFinite(light))
                     {
-                        real.Add(light / s.ChannelAmplitudes[c]);
+                        var amplitude = s.ChannelAmplitudes[c];
+                        real.Add(light / amplitude);
+                        realRings.Add([.. Rings(plane, width, height, s.X, s.Y, absent).Select(v => v / amplitude)]);
                         places.Add((s.X - Math.Round(s.X), s.Y - Math.Round(s.Y)));
                     }
                 }
@@ -172,9 +264,12 @@ public static class StarShape
                 var profile = new StarProfile(StarProfileFamily.Field, ch.Fwhm, ch.Beta, 1.0, 0.0, ch.Table, ch.TableAlpha);
                 var drawnPlaces = places.Count <= DrawnStars ? places : [.. Enumerable.Range(0, DrawnStars).Select(i => places[i * places.Count / DrawnStars])];
                 double DrawnAt(double logGain) => Median(drawnPlaces.Select(p => DrawnLight(profile with { HaloLogGain = logGain }, p.Ox, p.Oy)));
+                ImmutableArray<double> DrawnRingsAt(double logGain)
+                    => RingMedians([.. drawnPlaces.Select(p => DrawnRings(profile with { HaloLogGain = logGain }, p.Ox, p.Oy))]);
                 if (real.Count < MinStars)
                 {
-                    result[c] = new StarShapeChannel(real.Count > 0 ? Median(real) : double.NaN, drawnPlaces.Count > 0 ? DrawnAt(0) : double.NaN, double.NaN);
+                    result[c] = new StarShapeChannel(real.Count > 0 ? Median(real) : double.NaN, drawnPlaces.Count > 0 ? DrawnAt(0) : double.NaN, double.NaN,
+                        RingMedians(realRings), drawnPlaces.Count > 0 ? DrawnRingsAt(0) : RingMedians([]));
                     continue;
                 }
                 var target = Median(real);
@@ -191,7 +286,8 @@ public static class StarShape
                         hi = mid;
                     }
                 }
-                result[c] = new StarShapeChannel(target, DrawnAt(0), Math.Exp(0.5 * (lo + hi)));
+                var logGain = 0.5 * (lo + hi);
+                result[c] = new StarShapeChannel(target, DrawnAt(0), Math.Exp(logGain), RingMedians(realRings), DrawnRingsAt(logGain));
             }
             measured[b] = (used, result);
         }
@@ -284,6 +380,10 @@ public static class StarShape
         }
         return bands;
     }
+
+    // Each ring's median over the stars' rows.
+    private static ImmutableArray<double> RingMedians(IReadOnlyList<double[]> rows)
+        => [.. Enumerable.Range(0, RingEdgesPx.Length - 1).Select(k => Median(rows.Select(r => r[k])))];
 
     private static double Median(IEnumerable<double> values)
     {
