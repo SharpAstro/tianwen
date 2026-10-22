@@ -418,6 +418,10 @@ namespace TianWen.AI.Imaging
         /// the per-channel wing gains its real stars of the same brightness were measured to need
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.StarShape"/>, R2s2). Every exported session must have its row. Not
         /// with <paramref name="ChannelRelationSessions"/>: another master's relation would undo the calibration.</param>
+        /// <param name="ChannelWingCut">Stars mode: the weakest wing a draw's one weakened channel is given, as a factor of
+        /// its master's own (<see cref="TianWen.Lib.Imaging.StarRemoval.ChannelWingCut"/>, R2v), from a stream of its own, so
+        /// the stars, their brightness and their colour are the draw's without it; half the draws keep every channel. Null
+        /// cuts none. Not with <paramref name="ChannelRelationSessions"/>.</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -460,7 +464,8 @@ namespace TianWen.AI.Imaging
             bool StarLobes = false,
             bool StarSubs = false,
             IReadOnlyList<string>? ChannelRelationSessions = null,
-            string? StarShapesPath = null);
+            string? StarShapesPath = null,
+            double? ChannelWingCut = null);
 
         /// <summary>
         /// The options one session's draws are made with: the warped shape's smoothing chosen by what made the master's noise.

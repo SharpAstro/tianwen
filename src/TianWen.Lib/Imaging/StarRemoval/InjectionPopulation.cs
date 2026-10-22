@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Linq;
 
 namespace TianWen.Lib.Imaging.StarRemoval;
@@ -307,14 +308,30 @@ public sealed class InjectionPopulation
     /// With <paramref name="variation"/> (R2s2) every star of the draw, its lobes with it, takes one measured channel relation
     /// drawn from <paramref name="variationRng"/> alone, so the stars placed, their brightness and their colour are the ones
     /// the draw makes without it and only their shapes differ. The master's own relation is its field profile's, so a
-    /// variation needs <see cref="StarProfileFamily.Field"/>.
+    /// variation needs <see cref="StarProfileFamily.Field"/>. A <paramref name="wingCut"/> (R2v) instead weakens one channel's
+    /// wing for every star of the draw, from the same stream of its own, and is named in the plan's
+    /// <see cref="InjectionPlan.RelationFrom"/>.
     /// </summary>
     public InjectionPlan Plan(
         int cellX, int cellY, int size, int margin, InjectionPlacement placement, StarProfileFamily family, double saturatedFraction, Random rng,
-        ChannelVariation? variation = null, Random? variationRng = null)
+        ChannelVariation? variation = null, Random? variationRng = null, ChannelWingCut? wingCut = null)
     {
         ImmutableArray<(double LogHalo, double LogWidth)> factors = default;
         string? relationFrom = null;
+        if (wingCut is not null)
+        {
+            if (variationRng is null)
+            {
+                throw new ArgumentNullException(nameof(variationRng), "a wing cut draws from a stream of its own");
+            }
+            if (variation is not null)
+            {
+                throw new InvalidOperationException("a wing cut and a channel variation are two arms; give one");
+            }
+            var (cutFactors, channel, factor) = wingCut.DrawCell(_channels, variationRng);
+            factors = cutFactors;
+            relationFrom = channel < 0 ? null : string.Create(CultureInfo.InvariantCulture, $"wing cut: channel {channel} at {factor:F3}");
+        }
         if (variation is not null)
         {
             if (variationRng is null)

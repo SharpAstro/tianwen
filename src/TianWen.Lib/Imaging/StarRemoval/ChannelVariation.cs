@@ -6,6 +6,54 @@ using System.Linq;
 namespace TianWen.Lib.Imaging.StarRemoval;
 
 /// <summary>
+/// R2v (docs/plans/star-remover-training.md): one channel's wing weakened past every training master's channel relation. On
+/// Andromeda's bright stars blue holds 0.56 of green's light at 3 to 4.5 px over the core, where the 82 colour training
+/// masters with ten readable bright stars hold 0.72 at the least, and every model of ours digs blue's shoulder there; a pool
+/// of measured relations (<see cref="ChannelVariation"/>) cannot reach past its own extremes. Half the draws of a cell keep
+/// the master's own stars, the other <see cref="Share"/> weaken one channel's wing, the channel drawn uniformly, by a
+/// factor log-uniform from <see cref="MinFactor"/> to 1. A wing is only ever weakened: R2s's and R2s2's brighter wings
+/// taught a model to take M31's nucleus.
+/// </summary>
+public sealed record ChannelWingCut
+{
+    /// <summary>The share of a cell's draws whose stars have one channel's wing weakened.</summary>
+    public const double Share = 0.5;
+
+    /// <param name="minFactor">The weakest wing drawn, as a factor of the master's own, in (0, 1].</param>
+    public ChannelWingCut(double minFactor)
+    {
+        if (!(minFactor > 0.0 && minFactor <= 1.0))
+        {
+            throw new ArgumentOutOfRangeException(nameof(minFactor), minFactor, "a wing cut's least factor is in (0, 1]");
+        }
+        MinFactor = minFactor;
+    }
+
+    /// <summary>The weakest wing drawn, as a factor of the master's own.</summary>
+    public double MinFactor { get; }
+
+    /// <summary>
+    /// One draw's channel factors (log wing gain, log width) for a master of <paramref name="channels"/>: every channel's
+    /// zero but, in <see cref="Share"/> of the draws, one channel's wing. Three numbers are taken from <paramref name="rng"/>
+    /// whatever the outcome, so a draw never moves the next one's; a mono master is never cut, having no other channel for
+    /// its wing to depart from.
+    /// </summary>
+    public (ImmutableArray<(double LogHalo, double LogWidth)> Factors, int Channel, double Factor) DrawCell(int channels, Random rng)
+    {
+        var cut = rng.NextDouble() < Share;
+        var channel = rng.Next(channels);
+        var logFactor = Math.Log(MinFactor) * rng.NextDouble();
+        var factors = new (double LogHalo, double LogWidth)[channels];
+        if (!cut || channels < 2)
+        {
+            return ([.. factors], -1, 1.0);
+        }
+        factors[channel] = (logFactor, 0.0);
+        return ([.. factors], channel, Math.Exp(logFactor));
+    }
+}
+
+/// <summary>
 /// R2s2 (docs/plans/star-remover-training.md): every star of a draw of a cell takes one real master's channel relation
 /// (<see cref="ChannelRelation"/>), drawn from <see cref="Pool"/>, the training masters' own field profiles, in place of its
 /// own master's, so a master's stars are seen with every way real channels differ and with no way they do not. Each
