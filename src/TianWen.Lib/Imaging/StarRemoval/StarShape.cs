@@ -32,11 +32,12 @@ public sealed record StarShapeRow(string SessionId, ImmutableArray<StarShapeBand
 /// <see cref="SkyFromPx"/> to <see cref="SkyToPx"/> out) over the star's channel amplitude, the drawn star read the same way
 /// from <see cref="StarProfile.PixelMean"/> at the real star's own sub-pixel place.
 /// <para>
-/// Over the 119 colour training masters with a known filter, per amplitude, the field profile draws the 3 to 4.5 px
-/// shoulder short of the real one, nearly whatever the star's brightness: on broadband nights red 1.10 to 1.35 times, green
-/// 1.17 to 1.22, blue 1.08 to 1.46; on dual-band nights red 1.29 to 1.57 and green and blue about right (0.85 to 1.16).
-/// From 4.5 to 12 px it draws about the real light (0.85 to 1.13). Every master is calibrated from its own stars, so the
-/// gains follow its filter and its optics; a star's band is its source star's significance, a saturated one the brightest.
+/// Read on the stars from significance 1000, the field profile draws short of the real light 3 to 8 px out: on broadband
+/// nights 0.85 / 0.88 / 0.80 of it (red / green / blue, the median of 15 masters), on dual-band nights 0.79 / 1.03 / 1.12
+/// (59 masters), so the gains are about 1.2 on broadband nights and in a dual-band night's red, and about 1 in its green and
+/// blue. Every master is calibrated from its own stars, so the gains follow its filter and its optics with no filter list.
+/// The owner expected an OIII halo around a dual-band night's brightest stars; it showed only on giants, whose catalogued
+/// amplitude is their first ring and which the injector never draws.
 /// </para>
 /// </summary>
 public static class StarShape
@@ -44,8 +45,13 @@ public static class StarShape
     public const int StampRadius = 30;
     public const double LightFromPx = 3.0, LightToPx = 8.0, SkyFromPx = 22.0, SkyToPx = 28.0;
 
-    /// <summary>The brightness bands, by the finder's significance: each band's lower edge.</summary>
-    public static readonly ImmutableArray<float> BandEdges = [100f, 1000f];
+    /// <summary>
+    /// The brightness bands read by default, by the finder's significance: each band's lower edge. One, from 1000: on a star
+    /// fainter than that, the light 3 to 8 px out per amplitude is a fraction of a percent of the sky's error 22 to 28 px out,
+    /// and the faint band read the opposite of the bright one (dual-band nights' gains 0.83 / 0.66 / 0.59 against 1.26 /
+    /// 0.97 / 0.90), as the sky's bias would; every star, the fainter ones too, takes the bright band's gains.
+    /// </summary>
+    public static readonly ImmutableArray<float> DefaultBandEdges = [1000f];
 
     /// <summary>On dark, smooth sky (<see cref="FittedStar.SkyAbove"/>, <see cref="FittedStar.Texture"/>).</summary>
     public const float MaxSkyAbove = 5f, MaxTexture = 1.5f;
@@ -53,7 +59,7 @@ public static class StarShape
     /// <summary>With no other catalogued star of this fraction of its amplitude within this many pixels.</summary>
     public const double IsolationPx = 15.0, IsolationFraction = 0.01;
 
-    public const int MaxStarsPerBand = 200, MinStars = 15, DrawnStars = 48;
+    public const int MaxStarsPerBand = 200, MinStars = 10, DrawnStars = 48;
 
     /// <summary>The gain is found within these bounds.</summary>
     public const double MinGain = 0.25, MaxGain = 8.0;
@@ -127,19 +133,22 @@ public static class StarShape
     /// A master's star shape: its unsaturated, isolated first-pass Moffat stars on dark smooth sky, by brightness band, each
     /// channel's real light per amplitude against its field profile's at each star's place, and the wing gain at which the
     /// drawn median meets the real one (bisection in log gain; the light rises with the gain). A band with too few stars
-    /// takes the nearest band's gains, and a master with too few in any band keeps gain 1.
+    /// takes the nearest band's gains, and a master with too few in any band keeps gain 1. <paramref name="bandEdges"/>
+    /// defaults to <see cref="DefaultBandEdges"/>.
     /// </summary>
-    public static StarShapeRow Measure(string sessionId, Image master, ImmutableArray<FittedStar> catalogue, StarlessFieldProfile field, BitMatrix? absent)
+    public static StarShapeRow Measure(string sessionId, Image master, ImmutableArray<FittedStar> catalogue, StarlessFieldProfile field, BitMatrix? absent,
+        ImmutableArray<float> bandEdges = default)
     {
         var channels = master.ChannelCount;
         if (field.Channels.Length != channels)
         {
             throw new ArgumentException($"a field profile of {field.Channels.Length} channels for a {channels}-channel master", nameof(field));
         }
+        var edges = bandEdges.IsDefaultOrEmpty ? DefaultBandEdges : bandEdges;
         var (width, height) = (master.Width, master.Height);
-        var picked = Pick(catalogue, channels);
-        var measured = new (int Stars, StarShapeChannel[] Channels)[BandEdges.Length];
-        for (var b = 0; b < BandEdges.Length; b++)
+        var picked = Pick(catalogue, channels, edges);
+        var measured = new (int Stars, StarShapeChannel[] Channels)[edges.Length];
+        for (var b = 0; b < edges.Length; b++)
         {
             var stars = picked[b];
             var result = new StarShapeChannel[channels];
@@ -187,18 +196,18 @@ public static class StarShape
             measured[b] = (used, result);
         }
         // A band without a gain takes the nearest band's, and with none at all the master keeps its profile.
-        var bands = ImmutableArray.CreateBuilder<StarShapeBand>(BandEdges.Length);
-        for (var b = 0; b < BandEdges.Length; b++)
+        var bands = ImmutableArray.CreateBuilder<StarShapeBand>(edges.Length);
+        for (var b = 0; b < edges.Length; b++)
         {
             var channelsOut = new StarShapeChannel[channels];
             for (var c = 0; c < channels; c++)
             {
                 var own = measured[b].Channels[c];
-                var gain = Enumerable.Range(0, BandEdges.Length).OrderBy(k => Math.Abs(k - b))
+                var gain = Enumerable.Range(0, edges.Length).OrderBy(k => Math.Abs(k - b))
                     .Select(k => measured[k].Channels[c].WingGain).FirstOrDefault(double.IsFinite, 1.0);
                 channelsOut[c] = own with { WingGain = double.IsFinite(gain) ? gain : 1.0 };
             }
-            bands.Add(new StarShapeBand(BandEdges[b], measured[b].Stars, [.. channelsOut]));
+            bands.Add(new StarShapeBand(edges[b], measured[b].Stars, [.. channelsOut]));
         }
         return new StarShapeRow(sessionId, bands.MoveToImmutable());
     }
@@ -219,7 +228,7 @@ public static class StarShape
     }
 
     // The catalogue's readable stars per band, isolated, evenly spread over the significance order up to MaxStarsPerBand.
-    private static List<FittedStar>[] Pick(ImmutableArray<FittedStar> catalogue, int channels)
+    private static List<FittedStar>[] Pick(ImmutableArray<FittedStar> catalogue, int channels, ImmutableArray<float> edges)
     {
         const double cell = IsolationPx;
         var grid = new Dictionary<(int, int), List<int>>();
@@ -257,10 +266,10 @@ public static class StarShape
             }
             return true;
         }
-        var bands = new List<FittedStar>[BandEdges.Length];
-        for (var b = 0; b < BandEdges.Length; b++)
+        var bands = new List<FittedStar>[edges.Length];
+        for (var b = 0; b < edges.Length; b++)
         {
-            var (lo, hi) = (BandEdges[b], b + 1 < BandEdges.Length ? BandEdges[b + 1] : float.PositiveInfinity);
+            var (lo, hi) = (edges[b], b + 1 < edges.Length ? edges[b + 1] : float.PositiveInfinity);
             var readable = Enumerable.Range(0, catalogue.Length)
                 .Where(i => catalogue[i] is { Outcome: StarFitOutcome.Subtracted, Model: StarFitModel.Moffat, Saturated: false, SecondPass: false } s
                     && s.Significance >= lo && s.Significance < hi
