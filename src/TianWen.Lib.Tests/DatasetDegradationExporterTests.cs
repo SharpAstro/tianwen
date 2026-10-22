@@ -1444,6 +1444,36 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// Synthetics S4 end to end: the fixture's plate is noise-free, so the noise it reads shares nothing between its
+        /// channels, and with the option on the export is the export without it to the byte, every tile, plane and row; the
+        /// option takes nothing from any draw's streams.
+        /// </summary>
+        [Fact]
+        public async Task ANoiseCorrelationReadAsNoneLeavesEveryFileAsItWas()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, _) = await BuildPlatesStoreAsync(bake);
+            var options = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "stars-independent"),
+                Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 2, CellsPerSession: 0, Seed: 5,
+                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot, SyntheticBackground: true);
+            var correlated = options with { OutDir = Path.Combine(_root, "stars-correlated"), ChannelNoiseCorrelation = true };
+            (await DatasetDegradationExporter.RunAsync(options, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            (await DatasetDegradationExporter.RunAsync(correlated, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+
+            var files = Directory.GetFiles(Path.Combine(options.OutDir, "tiles"), "*", SearchOption.AllDirectories)
+                .Select(f => Path.GetRelativePath(options.OutDir, f)).Order(StringComparer.Ordinal).ToArray();
+            files.Length.ShouldBeGreaterThan(4);
+            Directory.GetFiles(Path.Combine(correlated.OutDir, "tiles"), "*", SearchOption.AllDirectories)
+                .Select(f => Path.GetRelativePath(correlated.OutDir, f)).Order(StringComparer.Ordinal).ShouldBe(files);
+            foreach (var file in files)
+            {
+                File.ReadAllBytes(Path.Combine(correlated.OutDir, file)).ShouldBe(File.ReadAllBytes(Path.Combine(options.OutDir, file)), file);
+            }
+            File.ReadAllText(Path.Combine(correlated.OutDir, DatasetDegradationExporter.InjectionManifestFileName))
+                .ShouldBe(File.ReadAllText(Path.Combine(options.OutDir, DatasetDegradationExporter.InjectionManifestFileName)));
+        }
+
+        /// <summary>
         /// A plate store from before profiles were kept has no field profile, and its amplitudes mean nothing with another
         /// profile: the default (field) refuses the session and names the fix; the PSF store's Moffat still draws from it.
         /// </summary>

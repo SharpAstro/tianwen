@@ -3,7 +3,9 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using TianWen.AI.Imaging;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Degradation;
 using TianWen.Lib.Imaging.StarRemoval;
 using Xunit;
 
@@ -729,6 +731,181 @@ public class StarInjectionTests(ITestOutputHelper output)
             monoChannel.ShouldBe(-1);
             monoFactors.ShouldAllBe(static f => f.LogHalo == 0.0 && f.LogWidth == 0.0);
         }
+    }
+
+    /// <summary>
+    /// Synthetics S4's estimator: on two noise series of correlation 0.12 with one sample in fifty carrying light both share
+    /// (a faint star, 3 to 7 sigma), a Pearson coefficient reads 0.41, the light taken for correlated noise, and the robust
+    /// form 0.14. It is not immune (one sample in twenty moves it to 0.17), so the plate it reads has its stars subtracted.
+    /// </summary>
+    [Fact]
+    public void TheRobustCorrelationReadsTheNoisePastTheLightBothChannelsShare()
+    {
+        const int n = 200_000;
+        const double rho = 0.12;
+        var rng = new Random(3);
+        var u = new float[n];
+        var v = new float[n];
+        for (var i = 0; i < n; i++)
+        {
+            var (a, b) = (Gaussian(rng), Gaussian(rng));
+            var star = rng.NextDouble() < 0.02 ? 3.0 + (4.0 * rng.NextDouble()) : 0.0;
+            u[i] = (float)(a + star);
+            v[i] = (float)((rho * a) + (Math.Sqrt(1 - (rho * rho)) * b) + star);
+        }
+        var pearson = Pearson(u, v);
+        var robust = ChannelNoiseCorrelation.RobustCorrelation(u, v);
+        output.WriteLine($"Pearson {pearson:F3}, robust {robust:F3}, drawn {rho}");
+        pearson.ShouldBeGreaterThan(0.3, "the shared light dominates a Pearson coefficient");
+        robust.ShouldBe(rho, 0.03);
+        robust.ShouldBeLessThan(pearson - 0.2);
+        ChannelNoiseCorrelation.RobustCorrelation([1f, 1f, 1f], [0f, 1f, 2f]).ShouldBe(double.NaN, "a series with no spread has no correlation to read");
+    }
+
+    /// <summary>
+    /// Synthetics S4's measure: a plate whose noise carries a known correlation between its channels, on a sloped sky with
+    /// a few stars every channel shares and an absent ring, reads that correlation back; a noise-free plate reads none, a
+    /// mono one is its identity.
+    /// </summary>
+    [Fact]
+    public void APlatesChannelNoiseCorrelationIsReadBack()
+    {
+        const int size = 600;
+        var drawn = new ChannelNoiseCorrelation(Correlation(0.12, 0.05, 0.04));
+        var rng = new Random(11);
+        var fields = drawn.Mix([.. Enumerable.Range(0, 3).Select(_ => NoiseField.White(size, size, rng))]);
+        var absent = new BitMatrix(size, size);
+        var planes = new float[3][,];
+        for (var c = 0; c < 3; c++)
+        {
+            var plane = new float[size, size];
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    var ring = x < 20 || y < 20;
+                    absent[y, x] = ring;
+                    var star = 0.0;
+                    for (var s = 0; s < 40; s++)
+                    {
+                        var (sx, sy) = (40 + (s * 37 % 540), 40 + (s * 101 % 540));
+                        var r2 = ((x - sx) * (x - sx)) + ((y - sy) * (y - sy));
+                        star += r2 < 64 ? 0.05 * Math.Exp(-r2 / 4.0) : 0.0;
+                    }
+                    plane[y, x] = ring ? 0f : (float)(0.1 + (0.02 * c) + (1e-5 * x) + star + (0.002 * (1 + c) * fields[c][(y * size) + x]));
+                }
+            }
+            planes[c] = plane;
+        }
+        var plate = new Image(planes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+        var read = ChannelNoiseCorrelation.Measure(plate, absent);
+        output.WriteLine($"read {read.InWords()}, drawn {drawn.InWords()}");
+        read.Channels.ShouldBe(3);
+        read[0, 1].ShouldBe(0.12, 0.02);
+        read[1, 2].ShouldBe(0.05, 0.02);
+        read[0, 2].ShouldBe(0.04, 0.02);
+        read[1, 0].ShouldBe(read[0, 1]);
+
+        var flat = new Image([new float[64, 64], new float[64, 64], new float[64, 64]], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+        var none = ChannelNoiseCorrelation.Measure(flat, null);
+        (none[0, 1], none[1, 2], none[0, 2]).ShouldBe((0.0, 0.0, 0.0));
+        var mono = ChannelNoiseCorrelation.Measure(new Image([planes[0]], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta()), absent);
+        mono.Channels.ShouldBe(1);
+        mono.InWords().ShouldBe("one channel");
+    }
+
+    /// <summary>
+    /// Synthetics S4's mix, through the exporter's own draw: the first channel's field is the one drawn, every field the
+    /// draw made without the mix is the same, each mixed channel keeps unit variance and its warped shape's lag-1
+    /// correlation, and the channels carry the given correlation. A matrix that is not positive definite is shrunk until it
+    /// is, and a malformed one is refused.
+    /// </summary>
+    [Fact]
+    public void TheMixGivesTheFieldsTheCorrelationAndKeepsEachOnesShape()
+    {
+        const int size = 512;
+        var correlation = new ChannelNoiseCorrelation(Correlation(0.12, 0.05, 0.04));
+        var plain = DatasetDegradationExporter.NoiseFieldsFor(DatasetDegradationExporter.NoiseShape.Warped, 0.5, size, 30, new Random(7), 3, null);
+        var mixed = DatasetDegradationExporter.NoiseFieldsFor(DatasetDegradationExporter.NoiseShape.Warped, 0.5, size, 30, new Random(7), 3, correlation);
+        var again = DatasetDegradationExporter.NoiseFieldsFor(DatasetDegradationExporter.NoiseShape.Warped, 0.5, size, 30, new Random(7), 3, null);
+        for (var c = 0; c < 3; c++)
+        {
+            again[c].ShouldBe(plain[c], "without a correlation the fields are the ones drawn");
+        }
+        mixed[0].ShouldBe(plain[0]);
+        var mismatched = DatasetDegradationExporter.NoiseFieldsFor(DatasetDegradationExporter.NoiseShape.Warped, 0.5, size, 30, new Random(7), 1, correlation);
+        mismatched[0].ShouldBe(plain[0], "a mono draw is never mixed");
+
+        for (var c = 0; c < 3; c++)
+        {
+            var (variance, lag) = (Variance(mixed[c]), LagOne(mixed[c], size));
+            output.WriteLine($"channel {c}: variance {variance:F4}, lag-1 {lag:F3} against {LagOne(plain[c], size):F3} unmixed");
+            variance.ShouldBe(1.0, 0.02);
+            lag.ShouldBe(LagOne(plain[c], size), 0.02);
+        }
+        LagOne(plain[0], size).ShouldBeGreaterThan(0.2, "the warped shape correlates neighbours");
+        var (rg, gb, rb) = (Pearson(mixed[0], mixed[1]), Pearson(mixed[1], mixed[2]), Pearson(mixed[0], mixed[2]));
+        output.WriteLine($"mixed R-G {rg:F3}, G-B {gb:F3}, R-B {rb:F3}; unmixed R-G {Pearson(plain[0], plain[1]):F3}");
+        rg.ShouldBe(0.12, 0.02);
+        gb.ShouldBe(0.05, 0.02);
+        rb.ShouldBe(0.04, 0.02);
+
+        var impossible = new ChannelNoiseCorrelation(Correlation(0.9, 0.9, -0.9));
+        impossible.Shrink.ShouldBeLessThan(1.0);
+        impossible[0, 1].ShouldBe(0.9, "the matrix is kept as given; only its factor is shrunk");
+        correlation.Shrink.ShouldBe(1.0);
+        Should.Throw<ArgumentException>(() => new ChannelNoiseCorrelation(new double[,] { { 1, 0.1 }, { 0.2, 1 } }));
+        Should.Throw<ArgumentException>(() => new ChannelNoiseCorrelation(new double[,] { { 0.9, 0.1 }, { 0.1, 1 } }));
+        Should.Throw<ArgumentException>(() => new ChannelNoiseCorrelation(new double[,] { { 1, 1 }, { 1, 1 } }));
+    }
+
+    private static double[,] Correlation(double rg, double gb, double rb) => new double[,] { { 1, rg, rb }, { rg, 1, gb }, { rb, gb, 1 } };
+
+    private static double Gaussian(Random rng) => Math.Sqrt(-2.0 * Math.Log(1.0 - rng.NextDouble())) * Math.Cos(2.0 * Math.PI * rng.NextDouble());
+
+    private static double Pearson(ReadOnlySpan<float> u, ReadOnlySpan<float> v)
+    {
+        double su = 0, sv = 0, suu = 0, svv = 0, suv = 0;
+        for (var i = 0; i < u.Length; i++)
+        {
+            su += u[i];
+            sv += v[i];
+            suu += (double)u[i] * u[i];
+            svv += (double)v[i] * v[i];
+            suv += (double)u[i] * v[i];
+        }
+        var n = u.Length;
+        return ((suv / n) - (su / n * (sv / n))) / Math.Sqrt(((suu / n) - (su / n * (su / n))) * ((svv / n) - (sv / n * (sv / n))));
+    }
+
+    private static double Variance(ReadOnlySpan<float> u)
+    {
+        var mean = 0.0;
+        foreach (var x in u)
+        {
+            mean += x;
+        }
+        mean /= u.Length;
+        var sum = 0.0;
+        foreach (var x in u)
+        {
+            sum += (x - mean) * (x - mean);
+        }
+        return sum / u.Length;
+    }
+
+    private static double LagOne(float[] field, int size)
+    {
+        var (sum, count) = (0.0, 0);
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 1; x < size; x++)
+            {
+                sum += (double)field[(y * size) + x] * field[(y * size) + x - 1];
+                count++;
+            }
+        }
+        return sum / count / Variance(field);
     }
 
     /// <summary>
