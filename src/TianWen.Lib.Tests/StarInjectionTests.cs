@@ -707,7 +707,7 @@ public class StarInjectionTests(ITestOutputHelper output)
         }
         var master = new Image(planes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
 
-        var row = StarShape.Measure("synthetic", master, catalogue.ToImmutable(), field, null);
+        var row = StarShape.Measure("synthetic", master, catalogue.ToImmutable(), field, null, bandEdges: [100f, 1000f]);
         row.Bands.Length.ShouldBe(2);
         for (var b = 0; b < 2; b++)
         {
@@ -721,6 +721,11 @@ public class StarInjectionTests(ITestOutputHelper output)
         row.Bands[0].Channels[0].DrawnLight.ShouldBeLessThan(row.Bands[0].Channels[0].RealLight, "a real wing 1.8 times the field's");
         row.Bands[0].Channels[2].DrawnLight.ShouldBeGreaterThan(row.Bands[0].Channels[2].RealLight, "a real wing 0.6 times the field's");
         StarShape.LogGains(row, 50f).ShouldBe(StarShape.LogGains(row, 500f), "a star fainter than every band takes the faintest's");
+
+        // By default one band, from 1000: the bright stars' gains, which every star then takes.
+        var bright = StarShape.Measure("synthetic", master, catalogue.ToImmutable(), field, null);
+        bright.Bands.Length.ShouldBe(1);
+        StarShape.LogGains(bright, 200f).ShouldBe([.. trueGains[1].Select(static g => Math.Log(g))], tolerance: 0.02);
     }
 
     /// <summary>
