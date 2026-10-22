@@ -3349,6 +3349,29 @@ them) against R2p.
 R2t the better model and round 1's base; 3 to 5 missing means capacity at this size does not buy the clusters' cost, and
 the next lever is a smaller cluster share.
 
+#### Round 1's reads: R2t is the base (2026-10-22)
+
+| arm | A's draws clean, 5-20 / 20-100 / 100-1000 sigma | real bright stars flat | held-out Tarantula crowded flat | M31's nucleus taken, R / G / B |
+|---|---|---|---|---|
+| R2i seed 0 (baseline) | 79.2 / 74.5 / 60.2 | 96.4 | 69.8 | 3.1 / 3.1 / 0.3 % |
+| R2p (ships) | | | 70.2 | 1.2 / 4.5 / 1.8 % |
+| R2r seed 0 (= R2q seed 0) | 78.7 / 74.8 / 54.5 | | | |
+| R2r seed 1 | 79.6 / 75.1 / 58.3 | 95.2 | | -0.1 / 3.7 / 1.6 % |
+| R2s (synth7, channel halos) | 81.0 / 76.0 / 58.2 | 97.3 | 76.0 | **45.5** / 4.5 / 8.4 % |
+| **R2t** (four levels, cosine) | **80.4 / 77.8 / 66.2** | **97.4** | **81.3** | 1.3 / **6.6** / 3.1 % |
+
+A's draws at one view; the nucleus at 8 views (R2s's at one); the E6 average reads 98.4 on the real bright stars and takes
+the nucleus 16.5 % in red. **R2t holds five of its six predictions**: (1) the Tarantula's crowded stars 81.3 % and
+dark-sky bright stars 57.2 % (bars 74.5 and 33.9; R2p 70.2 and 29.6); (2) Gaia purity 0.5 %, BP 17-19 removed 85.4 %
+(bars 1.0 and 77.5; R2p 79.8); (3) A's draws above; (4) the real bright stars 97.4 % (bar 96.4); (6) Andromeda's dark-sky
+bright stars 40.6 % and the Sagittarius Triplet's crowded stars 95.2 % (bars 35.0 and 94.5). (5) misses by 1.1 to 1.6
+points: the nucleus 6.1 % in green at one view, 6.6 % at eight. Read, not predicted: the ring's residual R/G/B -0.24 /
+-0.55 / -0.45 sigma against R2i's -0.40 / -0.56 / -0.33. By its kill rule R2t is the better model and round 1's base: the
+bigger model buys the clusters' cost and more, the largest single step on bright stars since R2i. It trained through four
+spot evictions, each resumed from its checkpoint. **R2s** is killed by the nucleus (its own read above), though it is
+flatter on the crowded field; its halos are being fixed against measured real stars before they are tried again. **R2r**
+bought nothing: its two seeds sit 4 points apart on bright stars, which is the seed spread R2u is read against.
+
 #### R2u: round 1's arm C, R2t's recipe with E6 as the teacher, pre-registered (2026-10-22)
 
 Written before it trains, on the owner's word ("I'd train it as R2t's recipe plus whatever won elsewhere"). R2s's halos
@@ -3362,6 +3385,14 @@ beat E5, R2t's teacher, on every band of the real-star check (bright stars flat 
 97.4 %, R2t's own. **Read, not predicted:** A's draws and the nucleus against R2t, knowing R2r's two seeds differed by 4
 points on bright stars, so a difference under that is a seed's. **Kill:** below R2t on both the real bright stars and A's
 bright draws means the better teacher buys nothing at this size, and R2t stays round 1's base.
+
+**Amended before its first training step (2026-10-22 14:05): the teacher is E5, so R2u is R2t's recipe on a second
+seed.** R2t's own read, finished while E6 was being built, put E6 itself at 16.5 % of M31's nucleus taken in red (8
+views), against E5's and R2p's 1.2 to 4.5 %. R2p showed a student keeps its teacher's nucleus, and a nucleus taken is what
+killed R2m, R2o and R2s, so E6 did not win elsewhere after all. The half-built E6 was stopped and dropped on the VM, E5
+fetched from the container, and training started on it (the trainer's own line: `--teacher` E5's two members over 8
+views, `--seed 0`, R2t's flags). The predictions stand as written; the read now says whether R2t's gain over R2r is its
+recipe's or its seed's.
 
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
