@@ -26,7 +26,7 @@ namespace TianWen.AI.Imaging;
 /// truth with the master's noise at its own level, as a Stars-mode draw's target is its plate, noise and all; a noise-free
 /// target would teach denoising on these tiles alone.</item>
 /// <item><c>deg000</c>, the input: the composite, which is that noisy truth plus the stars plus the stars' own shot noise
-/// (<see cref="SyntheticClusterScene.AddNoise"/>), so input less target is the stars and their own noise only.</item>
+/// (<c>SyntheticClusterScene.AddNoise</c>), so input less target is the stars and their own noise only.</item>
 /// <item>Each tile's conditioning plane (<see cref="DatasetDegradationExporter.SigmaPathFor"/>) from its noise-free level and the
 /// scene's own noise model (<see cref="SyntheticClusterSource.NoiseCalibration"/>), as an injected draw's is, and the
 /// draw's loss mask (<see cref="StarRemovalMasks.KeepPathFor"/>), all ones: the truth holds no star a plate kept, and its

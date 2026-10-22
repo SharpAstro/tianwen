@@ -424,7 +424,8 @@ public sealed class InjectionPopulation
         var peak = colour.Max();
         var over = 2.0 + rng.NextDouble() * 18.0;
         var target = _fallbackClips.Max() * over;
-        return new PoolStar(colour.Select(a => peak > 0 ? a / peak * target : target).ToImmutableArray(), _fallbackClips, []);
+        // Taken past the clip level, so in the brightest band, where Plan draws every saturated star's shape.
+        return new PoolStar(colour.Select(a => peak > 0 ? a / peak * target : target).ToImmutableArray(), _fallbackClips, [], float.PositiveInfinity);
     }
 
     // A star's profiles at the draw's channel factors (R2s2), or as measured where there are none.
