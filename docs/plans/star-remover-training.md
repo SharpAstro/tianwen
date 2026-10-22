@@ -3491,12 +3491,18 @@ about twice as fast; ours take the same shape out of every channel, so blue goes
 keep a little light. That blue hole is what remover_check2 counts as dug. (2) **The Tarantula: light left in sharp
 cores** (FWHM under 2 px in green and blue): R2p leaves 1.5 to 2.2 sigma at the core, R2t 0.4 to 0.9, SXT nothing.
 
-**The likely cause is the injected PSF, outside the real range.** The bake's own 50-session per-channel PSF survey puts
-red's FWHM at 2.43 to 3.67 px against green's 1.77 to 2.60, a red over green ratio of 1.16 to 1.90 (median 1.56). The
-injected stars run the other way: red 1.73 to 2.10 px, green 1.85 to 2.25, so red is the NARROW channel, and every real
-red FWHM, Andromeda's 2.76 px included, lies above the injected red's 95th percentile. A model that learned red is narrow
-takes too little red and, through the shared shape, too much of a steep channel. It is the deploy point outside the
-training range again.
+**What the injected stars get wrong, measured (the halo fix, 2026-10-22).** A first reading here said the injected red
+was narrower than green, against the 50-session survey's red at 1.16 to 1.90 times green's FWHM. That compared the drawn
+Moffat FWHM of A's draws, whose validation masters happen to have narrow red (ASI533 L-Quad HIP-80609: real 2.01 / 2.19 /
+2.08 px), with a survey of mostly L-Ultimate nights; measured on the drawn stars as on real ones, the injected FWHM
+matches each master's own stars to 0.99 to 1.00 per channel (R/G 1.21 injected, 1.22 real). What IS short is the light
+outside the core: per fitted amplitude, read on bright stars, the drawn star holds 0.91 / 0.88 / 0.86 of the real 3-8 px
+light (R/G/B) on broadband nights and 0.79 / 1.03 / 1.12 on dual-band ones, and the drawn core is 1.2 to 1.9 times
+brighter per amplitude than a real one. The owner's OIII halo around the brightest stars of dual-band nights came from
+giants, whose catalogued amplitude is their first ring and which the injector never draws. And R2s's halos broke the
+real relation between channels: over the 123 colour training masters a wider red core comes with a weaker red wing
+(correlation -0.59), R2s's draws had -0.23, and 45 % of its stars lay outside every real master's relation, which is how
+it learned a red-only star 8 px wide and took 77 % of M31's red nucleus above its ring.
 
 **The scorecard** is one command, `C:/temp/e2/score-whole.py <tag> --model <onnx>` (one view, how a model ships): Andromeda's
 bright dark-sky stars flat and dug and blue's residual at 1.5-3 and 3-4.5 px, the Tarantula's bright dark-sky stars flat
@@ -3504,10 +3510,26 @@ and left and its core residual per channel, its crowded stars, Gaia BP 17-19 and
 crowded stars, and M31's nucleus. Its guards are round 1's: the nucleus at most 5 % in every channel, purity at most 1.0 %.
 The judges' rows are the ceiling, R2i seed 0's the small-model baseline and R2t's the round 1 base.
 
-**The arms.** A1, **R2s2**: the per-channel PSF drawn from measured real stars (FWHM, beta and the shoulder per channel, as
-one joint distribution; the halo fix's branch, which also mends R2s's halos) exported as synth8, on R2i's recipe on the
-1070, against R2i seed 0. A2: R2t's recipe on synth8 on a T4, its teacher rebuilt on synth8 from R2s2 (a teacher of synth4
-models would teach the old shape back). Each is pre-registered here once synth8 is measured against real stars.
+**The arms.** A1, **R2s2**: each training master's stars drawn at that master's own measured wing gains (`degrade
+--star-shapes`, from `tianwen dataset star-shapes`, which solves per master and channel the gain that matches the drawn
+star's 3-8 px light per amplitude to the real stars'; branch fix/channel-halos-measured), exported as synth9, on R2i's
+recipe on the 1070, against R2i seed 0. Measured gains: broadband 1.11 / 1.13 / 1.18 (17 of 49 masters), dual-band 1.26 /
+0.97 / 0.90 (61 of 70); masters without ten bright isolated dark-sky stars keep 1. (synth8, the first try, drew each
+cell's channel relation from another master and crossed filter families; it is kept as an ablation, not trained.) A2:
+R2t's recipe on whichever data wins, on a T4, its teacher rebuilt on that data. The cores, drawn 1.2 to 1.9 times too
+bright per amplitude, are the next lever if the wings alone do not move the Tarantula.
+
+#### R2s2: the wings drawn at each master's measured gains, pre-registered (2026-10-22)
+
+Written before it trains. **The arm.** R2i's recipe (run-r2.ps1, no teacher, no extra cache) on synth9, seed 0, on the
+1070. Against R2i seed 0's whole-master row (`score-whole.py`): Andromeda's bright dark-sky stars 32.8 % flat and 36.6 %
+dug, blue's residual -1.10 / -0.90 sigma at 1.5-3 / 3-4.5 px; the Tarantula's 35.8 % flat and 60.6 % left, its core
++0.89 / +1.06 / +0.61; crowded 69.8 %; nucleus 3.2 / 3.1 / 0.5 %. **Predictions:** (1) Andromeda's blue residual above
+-0.6 / -0.5 and its bright stars dug at most 20 %; (2) the Tarantula's bright stars left with light at most 45 %; (3) no
+guard lost: the nucleus at most 5 % in every channel, purity at most 1.0 %, A's draws within 2 points of R2i seed 0's 79.2 /
+74.5 / 60.2 % clean, the real tiles' bright stars at least 95.4 %. **Kill:** (3) failing. **Read:** (1) holding means the
+dig came from the training stars' wings; (1) missing with (2) holding means the wings were short but the hole is the cores;
+both missing sends the next arm to the cores. The judges' rows stay the ceiling.
 
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
