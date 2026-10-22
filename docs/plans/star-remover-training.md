@@ -3498,7 +3498,8 @@ Moffat FWHM of A's draws, whose validation masters happen to have narrow red (AS
 matches each master's own stars to 0.99 to 1.00 per channel (R/G 1.21 injected, 1.22 real). What IS short is the light
 outside the core: per fitted amplitude, read on bright stars, the drawn star holds 0.91 / 0.88 / 0.86 of the real 3-8 px
 light (R/G/B) on broadband nights and 0.79 / 1.03 / 1.12 on dual-band ones, and the drawn core is 1.2 to 1.9 times
-brighter per amplitude than a real one. The owner's OIII halo around the brightest stars of dual-band nights came from
+brighter per amplitude than a real one (wrong: a ratio of two other measures; read directly the drawn core is the real one to
+2 to 6 %, "The cores measured", below). The owner's OIII halo around the brightest stars of dual-band nights came from
 giants, whose catalogued amplitude is their first ring and which the injector never draws. And R2s's halos broke the
 real relation between channels: over the 123 colour training masters a wider red core comes with a weaker red wing
 (correlation -0.59), R2s's draws had -0.23, and 45 % of its stars lay outside every real master's relation, which is how
@@ -3517,7 +3518,8 @@ recipe on the 1070, against R2i seed 0. Measured gains: broadband 1.11 / 1.13 / 
 0.97 / 0.90 (61 of 70); masters without ten bright isolated dark-sky stars keep 1. (synth8, the first try, drew each
 cell's channel relation from another master and crossed filter families; it is kept as an ablation, not trained.) A2:
 R2t's recipe on whichever data wins, on a T4, its teacher rebuilt on that data. The cores, drawn 1.2 to 1.9 times too
-bright per amplitude, are the next lever if the wings alone do not move the Tarantula.
+bright per amplitude, are the next lever if the wings alone do not move the Tarantula (they are not, measured: "The cores
+measured", below; the next lever became R2v).
 
 #### R2s2: the wings drawn at each master's measured gains, pre-registered (2026-10-22)
 
@@ -3564,6 +3566,57 @@ recipe and its data, not to a seed. The held-out Tarantula moves far more: crowd
 57.2 and 44.0 %, left 40.3 and 54.2 %, the core 0.4 sigma apart in green. So a single seed's Tarantula difference under
 about 13 points is not evidence, which reads R2s2's Tarantula gains over R2i seed 0 (flat 48.0 against 35.8, crowded 81.5
 against 69.8) as within a seed's reach, while its Andromeda dig and its nucleus are not.
+
+#### The cores measured: no gap there, and Andromeda's blue outside every training master (2026-10-23)
+
+**The cores are not 1.2 to 1.9 times too bright.** That figure (above, and the round's next lever) was a ratio of two other
+measures, the light 3 to 8 px out and the shoulder over the core, never read itself. `tianwen dataset star-shapes` now reads
+each channel's light per catalogued amplitude in four rings (0-1.5, 1.5-3, 3-4.5 and 4.5-8 px) on the real bright stars and
+on the drawn star at its wing gain (`StarShape.RingEdgesPx`). Over the 138 training masters, the 82 colour ones with ten
+readable bright stars, drawn over real, the median and quartiles:
+
+| | 0-1.5 px | 1.5-3 px | 3-4.5 px | 4.5-8 px |
+|---|---|---|---|---|
+| broadband (21), R / G / B | 0.97 / 0.97 / 0.98 | 0.95 / 0.97 / **0.86** (0.80-0.95) | 0.94 / 0.95 / 0.93 | **1.10 / 1.08 / 1.18** |
+| dual-band (61), R / G / B | 1.04 / 1.06 / 1.06 | **0.82** (0.74-0.90) / 1.06 / 1.04 | 0.91 / 0.98 / 0.95 | **1.20** / 1.03 / 1.05 |
+
+The drawn core is the real one to 2 to 6 %. What a one-number wing gain cannot draw is the shape between 1.5 and 8 px: it
+matches the light 3 to 8 px out by drawing the far wing 10 to 20 % too bright and the shoulder short (broadband blue, a
+dual-band night's red). R2s2's extra dig on Andromeda (42.1 % against 36.6) is what a too-bright far wing would teach.
+
+**Andromeda's blue falls off faster than any training master's.** Read the same way on 232 bright isolated dark-sky stars
+(a Python cross-check that gives the product's 0.72 on the Running Chicken master's own catalogue), each channel's light at
+3 to 4.5 px over its core, blue's over green's:
+
+| | blue over green, 1.5-3 px | blue over green, 3-4.5 px |
+|---|---|---|
+| Andromeda | 0.99 | **0.56** |
+| broadband training masters (21) | median 1.12, least 0.75 | median 0.98, tenth percentile 0.79, least **0.72** |
+| dual-band training masters (61) | median 1.00, least 0.81 | median 1.02, least 0.87 |
+
+Each of Andromeda's channels alone is inside the training range (its red and green shoulders near the top, its blue in the
+middle); the two together are not, and no training star ever had a blue shoulder half its green one. A model that has only
+seen a channel's shoulder follow the others' takes green's shape out of blue, which is the hole: blue alone is dug, at
+1.5-4.5 px, in every model of ours and both seeds of R2t. The held-out Tarantula is no such gap: its field FWHM (1.93 / 1.57
+/ 1.46 px) sits at the training masters' median (1.99 / 1.46 / 1.54).
+
+#### R2v: one channel's wing weakened past every training master's, pre-registered (2026-10-23)
+
+Written before it trains, on the owner's word ("just keep everything in this branch for the doco, and the training"). **The
+arm.** R2i's recipe (run-r2.ps1, no teacher, no extra cache) on synth10, seed 0, on the 1070: synth4's command with
+`degrade --channel-wing-cut 0.45` (`ChannelWingCut`), which in half the draws of a cell weakens one channel's wing, the
+channel at random and the factor log-uniform from 0.45 to 1, from a stream of its own. A wing is only ever weakened, never
+brightened: R2s's and R2s2's brighter wings are what took the nucleus. Checked on a smoke export before it runs: the uncut
+draws and every clean target are bit-identical to a plain export, and a cut draw differs in its one channel alone. Against R2i
+seed 0's whole-master row (above).
+
+**Predictions:** (1) Andromeda's blue residual above -0.5 sigma at 3-4.5 px and above -0.8 at 1.5-3 px (R2i seed 0 -0.90 /
+-1.10), and its bright stars dug at most 30 % (36.6; two seeds of R2t sit 1.7 apart); (2) no guard lost: M31's nucleus at most
+5 % in every channel, purity at most 1.0 %, A's draws within 2 points of 79.2 / 74.5 / 60.2 % clean, the real tiles' bright
+stars at least 95.4 %. **Read, not predicted:** the Tarantula (a seed moves it up to 13 points) and the crowded fields.
+**Kill:** (2) failing. **Read:** (1) holding means blue's hole was a channel relation the training never held, and the cut
+goes onto R2t's recipe; (1) missing with (2) holding means the relation is not the cause, and the remover takes one shape out
+of every channel for another reason.
 
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
