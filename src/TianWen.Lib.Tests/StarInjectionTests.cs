@@ -726,6 +726,29 @@ public class StarInjectionTests(ITestOutputHelper output)
         var bright = StarShape.Measure("synthetic", master, catalogue.ToImmutable(), field, null);
         bright.Bands.Length.ShouldBe(1);
         StarShape.LogGains(bright, 200f).ShouldBe([.. trueGains[1].Select(static g => Math.Log(g))], tolerance: 0.02);
+
+        // The rings read the whole profile, core to wing: drawn at the gain found, each meets the real stars', which were drawn
+        // from that profile at that gain.
+        for (var c = 0; c < 3; c++)
+        {
+            var ch = bright.Bands[0].Channels[c];
+            ch.RealRings.Length.ShouldBe(StarShape.RingEdgesPx.Length - 1);
+            for (var k = 0; k < ch.RealRings.Length; k++)
+            {
+                ch.RealRings[k].ShouldBeGreaterThan(0.0);
+                ch.DrawnRings[k].ShouldBe(ch.RealRings[k], 0.02 * ch.RealRings[k], $"channel {c} ring {k}");
+            }
+        }
+
+        // A master with no readable star still writes its rings, unknown, never an empty array the writer cannot serialise.
+        var none = StarShape.Measure("none", master, [], field, null);
+        foreach (var ch in none.Bands[0].Channels)
+        {
+            ch.RealRings.IsDefault.ShouldBeFalse();
+            ch.DrawnRings.IsDefault.ShouldBeFalse();
+            ch.RealRings.ShouldAllBe(static v => double.IsNaN(v));
+        }
+        Should.NotThrow(() => System.Text.Json.JsonSerializer.Serialize(none, StarShapeJsonContext.Default.StarShapeRow));
     }
 
     /// <summary>
