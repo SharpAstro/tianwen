@@ -113,11 +113,9 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
     /// SPCC / sky-bg solve is skipped -- the per-plate stretch path passes the one shared
     /// SPCC balance so each plate self-stretches its own background + MTF while inheriting
     /// the master's colour calibration. Null = solve the WB from this image.</param>
-    /// <param name="maskedBoost">Opt-in masked finishing boost (saturation / contrast through
-    /// a shared <see cref="Image.LuminanceRangeMask"/>, see <see cref="Image.MaskedBoost"/>)
-    /// baked into the rendered PNG AFTER the stretch -- the mask primitives expect stretched
-    /// [0, 1] data; on the linear master the mask degenerates to ~0 everywhere. Display-render
-    /// stage only: the linear FITS / EXR masters and the split-plate TIFFs are never touched.
+    /// <param name="maskedBoost">Opt-in masked finish (saturation and contrast against the background), the stretch's own
+    /// stage (<see cref="StretchUniforms.FinishContrast"/>, <see cref="Image.ApplyFinish"/>), the one the viewer's Tone
+    /// popover drives. Display-render stage only: the linear FITS / EXR masters and the split-plate TIFFs are never touched.
     /// Null or all-identity = the render path is byte-identical to before this option existed.</param>
     /// <param name="ultraHdrPath">When set, ALSO writes an Ultra HDR (gain-map / hdrgm 1.0)
     /// JPEG to this path alongside the PNG. The SDR base is the same stretched raster the PNG
@@ -190,17 +188,20 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         // interpret it as actual HDR. peakNits sets the "1.0 stretched
         // value -> X nits" mapping (default 1000 nits, cinema HDR10).
         var rgba = new ushort[width * height * 4];
-        master.RenderStretchedRgba16(uniforms, rgba);
-        // Masked finishing boost runs on the STRETCHED buffer, before the (optional) PQ
-        // re-encode below -- i.e. in SDR display-referred space, mirroring where the manual
-        // Affinity masked-contrast-boost + saturation layers sit.
+        // The masked finish (saturation and contrast against the background) is the STRETCH's own stage, the one the
+        // viewer's Tone popover drives (StretchUniforms.FinishContrast / FinishSaturation, Image.ApplyFinish, the shader's
+        // applyFinish), so a render here and the viewer's show the same picture. It runs in SDR display-referred space,
+        // before the (optional) PQ re-encode below, where the manual Affinity masked-contrast-boost and saturation layers
+        // sit. Its mask's background is the post-stretch background, measured as the viewer measures it.
+        var finishBackground = 0.25f;
         if (maskedBoost is { IsNoOp: false } boost)
         {
-            var boostSw = Stopwatch.StartNew();
-            ApplyMaskedBoost(rgba, channelCount, width, height, master.ImageMeta, boost);
-            logger.LogInformation("  [maskedBoost] saturation={Sat:F2} contrast={Con:F2} ({Ms} ms)",
-                boost.Saturation, boost.ContrastBoost, boostSw.ElapsedMilliseconds);
+            uniforms = uniforms with { FinishContrast = MaskedBoostOptions.ToFinishContrast(boost.ContrastBoost), FinishSaturation = boost.Saturation };
+            finishBackground = PostStretchBackground(stats, uniforms);
+            logger.LogInformation("  [finish] saturation={Sat:F2} contrast={Con:F2} background={Bg:F3}",
+                boost.Saturation, uniforms.FinishContrast, finishBackground);
         }
+        master.RenderStretchedRgba16(uniforms, rgba, curvesMidpoint: finishBackground);
         // Ultra HDR (gain-map JPEG) emit -- taken from the sRGB `rgba` here, BEFORE any PQ
         // re-encode below mutates it in place. Shares the one stretch solve with the PNG,
         // and recovers the highlights the SDR stretch clipped (see RenderHdrLinearRgb).
@@ -364,47 +365,6 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
     }
 
     /// <summary>
-    /// Applies the masked finishing boost (<see cref="Image.MaskedBoost"/>) to a STRETCHED
-    /// rgba16 buffer in place: convert to a float <see cref="Image"/>, boost, write the
-    /// boosted channels back (alpha untouched; mono is replicated back into R/G/B like
-    /// <see cref="Image.RenderStretchedRgba16"/> emits it). Static + buffer-in/buffer-out so
-    /// tests can drive it without a renderer instance or a PNG round-trip.
-    /// </summary>
-    internal static void ApplyMaskedBoost(ushort[] rgba, int channelCount, int width, int height, ImageMeta meta, MaskedBoostOptions boost)
-    {
-        var stretched = StretchedImageFromRgba16(rgba, channelCount, width, height, meta);
-        var boosted = stretched.MaskedBoost(boost);
-        try
-        {
-            var outCh = boosted.ChannelCount;
-            var r = boosted.GetChannelSpan(0);
-            var g = outCh >= 3 ? boosted.GetChannelSpan(1) : r;
-            var b = outCh >= 3 ? boosted.GetChannelSpan(2) : r;
-            var n = width * height;
-            for (var i = 0; i < n; i++)
-            {
-                var o = i * 4;
-                rgba[o] = ToU16(r[i]);
-                rgba[o + 1] = ToU16(g[i]);
-                rgba[o + 2] = ToU16(b[i]);
-            }
-        }
-        finally
-        {
-            // MaskedBoost returns its input untouched for a no-op options set, and that is exactly
-            // the predicate below -- asked of the OPTIONS rather than of the reference, so this and
-            // the method it calls cannot drift apart. See P1 of docs/plans/frame-lifecycle.md.
-            if (!boost.IsNoOp)
-            {
-                boosted.Release();
-            }
-            stretched.Release();
-        }
-
-        static ushort ToU16(float v) => (ushort)MathF.Min(MathF.Max(v, 0f) * 65535f + 0.5f, 65535f);
-    }
-
-    /// <summary>
     /// Rewraps <paramref name="img"/> with a zero pedestal so the stretch sees one (see the rationale
     /// in <see cref="ComputeStretchUniformsAsync"/>, and the fuller one on
     /// <see cref="Image.WithZeroPedestal"/>).
@@ -415,6 +375,18 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
     /// reason this call exists here.
     /// </remarks>
     private static Image WithZeroPedestal(Image img) => img.WithZeroPedestal();
+
+    /// <summary>
+    /// The post-stretch background of <paramref name="stats"/> under <paramref name="uniforms"/>, the level the finish's mask
+    /// and the curve boost pivot on: its background region scanned as the solve scans it (zero pedestal), then carried through
+    /// the stretch by <see cref="StretchUniforms.ComputePostStretchBackground"/>, the same call the viewer makes.
+    /// </summary>
+    internal static float PostStretchBackground(Image stats, in StretchUniforms uniforms)
+    {
+        var zeroPedestal = WithZeroPedestal(stats);
+        var (perChannel, luma) = zeroPedestal.ScanBackgroundRegion(new float[zeroPedestal.ChannelCount]);
+        return uniforms.ComputePostStretchBackground(perChannel, luma);
+    }
 
     /// <summary>
     /// The shared solve behind both <see cref="RenderAsync"/> (PNG) and
@@ -656,6 +628,14 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         var (throughputs, lineSelective) = await ChannelThroughputsAsync(3, sensorMeta, ct);
         return throughputs is not null && !lineSelective ? spcc : null;
     }
+
+    /// <summary>
+    /// Whether a colour capture's light came through a line-selective filter (<see cref="FilterCurveDatabase.IsLineSelective"/>
+    /// over the system throughput SPCC integrates), the same answer a render and a solve read: a balance stated for such a
+    /// frame is a display multiplier, never colour. False for a capture no curve describes and for fewer than three channels.
+    /// </summary>
+    public static async Task<bool> IsLineSelectiveAsync(ImageMeta sensorMeta, int channelCount, CancellationToken ct = default)
+        => (await ChannelThroughputsAsync(channelCount, sensorMeta, ct)).LineSelective;
 
     /// <summary>
     /// The system throughput (sensor QE x filter) and whether it is line-selective, for a colour frame; nothing for one of

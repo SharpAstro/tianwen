@@ -187,9 +187,9 @@ namespace TianWen.Lib.Tests
         {
             var split = PinnedAt(DisplayControls.Defaults);
 
-            var live = DisplayControls.Defaults with { ColorCalibrationEnabled = true };
+            var live = DisplayControls.Defaults with { HdrAmount = 1.5f };
 
-            split.HalfLabels(live).ShouldBe(("Pinned", "Live: +Calibrate"));
+            split.HalfLabels(live).ShouldBe(("Pinned", "Live: +Soft clip 1.5"));
         }
 
         [Fact]
@@ -216,15 +216,17 @@ namespace TianWen.Lib.Tests
             {
                 StretchMode = StretchMode.Unlinked,
                 StretchParameters = new StretchParameters(0.15, -5.0),
-                ColorCalibrationEnabled = true,
+                ColorCalibrationEnabled = false,
             };
-            var live = pinned with { ColorCalibrationEnabled = false };
+            var live = pinned with { ColorCalibrationEnabled = true };
 
             var (left, right) = PinnedAt(pinned).HalfLabels(live);
 
-            left.ShouldStartWith("Pinned: Calibrate");
+            // The calibration is on by default, so switching it OFF is the non-default the pin names, and switching it
+            // back on is named by that default.
+            left.ShouldStartWith("Pinned: No Calibrate");
             left.ShouldEndWith("+1");
-            right.ShouldBe("Live: No Calibrate");
+            right.ShouldBe("Live: Calibrate");
         }
 
         [Fact]
@@ -249,7 +251,7 @@ namespace TianWen.Lib.Tests
                 StretchMode = StretchMode.Unlinked,
                 CurvesBoost = 0.5f,
                 HdrAmount = 1.5f,
-                ColorCalibrationEnabled = true,
+                ColorCalibrationEnabled = false,
             };
 
             // A label that grew without bound would run off its own half of the pane.

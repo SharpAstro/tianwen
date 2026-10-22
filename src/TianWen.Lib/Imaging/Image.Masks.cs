@@ -202,66 +202,6 @@ public partial class Image
     }
 
     /// <summary>
-    /// The composed "finishing boost" over the mask primitives: <see cref="Saturate"/> and/or
-    /// <see cref="ContrastBoost"/> applied through one shared <see cref="LuminanceRangeMask"/>, so
-    /// the background and star cores stay untouched -- the Affinity masked-contrast-boost +
-    /// saturation macro, automated. Expects stretched display-referred values in [0, 1]: on a
-    /// LINEAR master the luminance mask degenerates to ~0 everywhere (background at ~0, star
-    /// cores rolled off, nebulosity a few percent of peak), so callers apply this AFTER the
-    /// stretch, never before. Returns the same instance when <paramref name="options"/> is a
-    /// no-op (no allocation).
-    /// <para><b>Frame ownership: the caller owns the result only when it is a new image, and
-    /// <see cref="MaskedBoostOptions.IsNoOp"/> is how it knows -- STATICALLY, without a reference
-    /// comparison.</b> `if (!options.IsNoOp) result.Release();` is the whole rule, and it is the same
-    /// predicate this method branches on, so the two cannot disagree. P1 of
-    /// <c>docs/plans/frame-lifecycle.md</c>: never derive "may I release this?" from
-    /// <c>ReferenceEquals</c>, which answers "is this a different instance?" and merely coincides.</para>
-    /// </summary>
-    /// <param name="options">Saturation multiplier + contrast boost amount; see
-    /// <see cref="MaskedBoostOptions"/>.</param>
-    public Image MaskedBoost(MaskedBoostOptions options)
-    {
-        if (options.IsNoOp)
-        {
-            return this;
-        }
-
-        var mask = LuminanceRangeMask();
-
-        // `processed` starts as the caller's frame and each optional stage replaces it with one of
-        // ours. Which of those two it currently is decides whether releasing it is right or is a
-        // release of somebody else's frame -- and the code KNOWS, because it just took the branch.
-        // Tracking that in a flag rather than re-deriving it from a reference comparison is P1 of
-        // docs/plans/frame-lifecycle.md in miniature: the comparison answers "is this a different
-        // instance?", which is a different question that merely coincides with this one.
-        var processed = this;
-        var processedIsOurs = false;
-        if (options.Saturation != 1f)
-        {
-            processed = Saturate(options.Saturation);
-            processedIsOurs = true;
-        }
-        if (options.ContrastBoost != 0f)
-        {
-            var boosted = processed.ContrastBoost(options.ContrastBoost);
-            if (processedIsOurs)
-            {
-                processed.Release();
-            }
-            processed = boosted;
-            processedIsOurs = true;
-        }
-
-        var result = BlendThroughMask(processed, mask);
-        if (processedIsOurs)
-        {
-            processed.Release();
-        }
-        mask.Release();
-        return result;
-    }
-
-    /// <summary>
     /// Per-pixel complement <c>1 - v</c>, per channel. The mask-inversion primitive: an inverted
     /// <see cref="LuminanceRangeMask"/> selects the background instead of the signal (e.g. for a
     /// background-only smoothing pass through <see cref="BlendThroughMask"/>). Expects unit-range
@@ -459,18 +399,24 @@ public partial class Image
 }
 
 /// <summary>
-/// Knobs for <see cref="Image.MaskedBoost"/> -- the masked (background- and star-core-protected)
-/// display finishing boost. Defaults are the identity so an all-default instance is a no-op;
-/// consumers should treat a null options reference the same way. Operates on STRETCHED [0, 1]
-/// data only (see <see cref="Image.MaskedBoost"/> for why linear input degenerates).
+/// Knobs for a headless render's masked finish (the background- and star-core-protected saturation and contrast), which
+/// is the stretch's own stage (<see cref="StretchUniforms.FinishContrast"/>, <see cref="StretchUniforms.FinishSaturation"/>,
+/// <see cref="Image.ApplyFinish"/>), the one the viewer's Tone popover drives. Defaults are the identity so an all-default
+/// instance is a no-op; consumers should treat a null options reference the same way.
 /// </summary>
-/// <param name="Saturation">Saturation multiplier fed to <see cref="Image.Saturate"/>.
-/// 1 = off; typical 1.3-2.0 for a finished deep-sky render. Ignored on mono images.</param>
-/// <param name="ContrastBoost">S-curve boost amount fed to <see cref="Image.ContrastBoost"/>
-/// (the stretch pipeline's <c>ApplyBoost</c> curve, pivoting at the estimated background
-/// level). 0 = off; typical 0.25-1.5.</param>
+/// <param name="Saturation">Saturation multiplier through the signal mask. 1 = off; typical 1.3-2.0 for a finished
+/// deep-sky render. Ignored on mono images.</param>
+/// <param name="ContrastBoost">Masked contrast against the background, 0 (off) to 1 (the full S-curve); a larger value is
+/// held at 1 (<see cref="ToFinishContrast"/>).</param>
 public sealed record MaskedBoostOptions(float Saturation = 1f, float ContrastBoost = 0f)
 {
     /// <summary>True when every knob is at its identity value -- callers skip the pass entirely.</summary>
     public bool IsNoOp => Saturation == 1f && ContrastBoost == 0f;
+
+    /// <summary>
+    /// <see cref="ContrastBoost"/> as the render's finish takes it (<see cref="StretchUniforms.FinishContrast"/>, 0 to 1):
+    /// the masked contrast of a headless render is the stretch's own stage, the one the viewer's Tone popover drives, and a
+    /// value above 1 is held at 1, the full S-curve.
+    /// </summary>
+    public static float ToFinishContrast(float contrastBoost) => Math.Clamp(contrastBoost, 0f, 1f);
 }

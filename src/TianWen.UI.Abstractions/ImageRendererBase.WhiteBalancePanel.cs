@@ -48,10 +48,9 @@ namespace TianWen.UI.Abstractions
         private const float WbMin = 0.25f;
         private const float WbMax = 4.0f;
 
-        /// <summary>The widest label the Reset button carries, held as the node's own width sample so
-        /// the row cannot shuffle sideways when the label changes. It used to be a union measured over
-        /// an array beside the paint, and then turned into a number.</summary>
-        private const string ResetWidthSample = "Reset to calibrated";
+        /// <summary>The Reset button's label, which is also its width sample (it carried a second, wider label until Reset
+        /// came to take the calibration off as well).</summary>
+        private const string ResetWidthSample = "Reset WB";
 
         /// <summary>
         /// Likewise for the calibration button, whose in-flight label is the widest of its four.
@@ -281,30 +280,14 @@ namespace TianWen.UI.Abstractions
                 }
             });
 
-            // "Reset" and not "Reset WB": with a calibration active this returns to the CALIBRATED
-            // triple (manual identity), not to no-white-balance-at-all, and the sliders visibly jump
-            // back to it. Switching the calibration off is the button beside this one.
-            //
-            // ACTIVE ONLY WHEN THERE IS SOMETHING TO RESET, which is the MANUAL triple being off
-            // identity -- not the sliders being off 1.00. The two differ exactly when a calibration is
-            // active: the sliders then read the EFFECTIVE value (1.44/1.00/1.23 on the Sag Triplet)
-            // while the manual layer this button clears is identity, because
-            // SetColorCalibrationEnabled sets it to identity when it switches the calibration on. So
-            // straight after calibrating, this button did nothing at all while looking like it would
-            // undo what you were looking at. Dim rather than absent, the same reading the calibration
-            // button beside it takes: a control that vanishes reads as a bug, one that is dim reads as
-            // a precondition.
-            var resetLabel = state.ColorCalibrationEnabled && _document?.ColorCalibration is not null
-                ? "Reset to calibrated"
-                : "Reset WB";
-            var canReset = state.ManualWhiteBalance != (1f, 1f, 1f);
-            var reset = PanelButton(resetLabel, "ResetWhiteBalance", canReset, () =>
+            // Reset goes back to NO white balance: the manual triple, what Auto dropped into it, and an active
+            // calibration all at once (ViewerActions.ResetWhiteBalance). It used to clear only the manual layer and read
+            // "Reset to calibrated" while a fit was on, so after Auto or a calibration it left a balance on screen that
+            // the button looked as if it would take off. Active whenever there is something to reset, dim otherwise: a
+            // control that vanishes reads as a bug, one that is dim reads as a precondition.
+            var reset = PanelButton(ResetWidthSample, "ResetWhiteBalance", ViewerActions.CanResetWhiteBalance(state, _document?.ColorCalibration is not null), () =>
             {
-                state.ManualWhiteBalance = (1f, 1f, 1f);
-                // Drop the parked triple too: the user has just said explicitly that identity is
-                // what they want, so resurrecting a pre-calibration value later would override a
-                // more recent instruction with an older one.
-                state.ManualWhiteBalanceBeforeCalibration = null;
+                ViewerActions.ResetWhiteBalance(state);
                 state.NeedsRedraw = true;
             }, ResetWidthSample);
 

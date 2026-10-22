@@ -175,58 +175,6 @@ public class ImageMaskTests
     }
 
     [Fact]
-    public void MaskedBoost_noop_returns_same_instance()
-    {
-        var img = MonoBands(0.05f, 0.5f, 0.97f);
-        img.MaskedBoost(new MaskedBoostOptions()).ShouldBeSameAs(img);
-        img.MaskedBoost(new MaskedBoostOptions(Saturation: 1f, ContrastBoost: 0f)).ShouldBeSameAs(img);
-    }
-
-    [Fact]
-    public void MaskedBoost_saturates_signal_and_protects_background()
-    {
-        // Same fixture shape as the manual composition test above: MaskedBoost must behave
-        // exactly like BlendThroughMask(Saturate(...), LuminanceRangeMask()) -- background
-        // untouched, coloured mid-tone signal more saturated.
-        var r = new float[1, 2]; var g = new float[1, 2]; var b = new float[1, 2];
-        r[0, 0] = 0.03f; g[0, 0] = 0.03f; b[0, 0] = 0.03f;   // background gray
-        r[0, 1] = 0.6f; g[0, 1] = 0.45f; b[0, 1] = 0.3f;     // mid-tone coloured signal
-        var img = Rgb(r, g, b);
-
-        var result = img.MaskedBoost(new MaskedBoostOptions(Saturation: 2f));
-
-        result.ShouldNotBeSameAs(img);
-        // Background pixel unchanged (mask ~0 there). The default blurSigma feathers the mask,
-        // so allow a small tolerance.
-        result[0, 0, 0].ShouldBe(0.03f, 1e-2f);
-        result[2, 0, 0].ShouldBe(0.03f, 1e-2f);
-        // Signal pixel got more saturated (R-B spread widened vs the original).
-        var origSpread = img[0, 0, 1] - img[2, 0, 1];
-        var newSpread = result[0, 0, 1] - result[2, 0, 1];
-        newSpread.ShouldBeGreaterThan(origSpread);
-    }
-
-    [Fact]
-    public void MaskedBoost_composes_saturation_and_contrast_within_unit_range()
-    {
-        var img = Rgb(Fill(8, 8, 0.5f), Fill(8, 8, 0.4f), Fill(8, 8, 0.3f));
-        var result = img.MaskedBoost(new MaskedBoostOptions(Saturation: 1.5f, ContrastBoost: 0.8f));
-
-        for (var c = 0; c < 3; c++)
-        {
-            for (var y = 0; y < 8; y++)
-            {
-                for (var x = 0; x < 8; x++)
-                {
-                    var v = result[c, y, x];
-                    float.IsFinite(v).ShouldBeTrue();
-                    v.ShouldBeInRange(0f, 1f);
-                }
-            }
-        }
-    }
-
-    [Fact]
     public void Invert_complements_and_roundtrips()
     {
         var mask = MonoBands(0.05f, 0.5f, 0.97f).LuminanceRangeMask(blurSigma: 0f);

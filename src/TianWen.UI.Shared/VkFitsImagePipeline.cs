@@ -20,10 +20,10 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
     /// <summary>
     /// std140 StretchUBO: see field layout in struct definition below.
-    /// Total: 432 bytes (192 base + 16 wb + 16 bgNeut + 144 curveData + 16 lumaWeights
-    /// + 16 lumaStretch + 16 stretchBlend + 16 gridColor).
+    /// Total: 448 bytes (192 base + 16 wb + 16 bgNeut + 144 curveData + 16 lumaWeights
+    /// + 16 lumaStretch + 16 stretchBlend + 16 gridColor + 16 finishParams).
     /// </summary>
-    private const int StretchUboSize = 432;
+    private const int StretchUboSize = 448;
 
     /// <summary>
     /// How many independent StretchUBO slots the stretch buffer holds.
@@ -673,6 +673,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         float normalizeScale = 1f,
         int debayerMode = 1,
         float texelsPerPixel = 1f,
+        float finishContrast = 0f,
+        float finishSaturation = 1f,
         int slot = UboSlotPrimary)
     {
         if ((uint)slot >= StretchUboSlots)
@@ -817,10 +819,17 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         WriteFloat(p, 424, SkyMapGpuGeometry.GridLineColor.Blue / 255f);
         WriteFloat(p, 428, SkyMapGpuGeometry.GridLineColor.Alpha / 255f);
 
+        // finishParams (vec4 at offset 432) -- the masked finish's contrast and saturation (StretchUniforms.FinishContrast /
+        // FinishSaturation), applied after the soft clip; its mask's background is curvesMidpoint at offset 16.
+        WriteFloat(p, 432, finishContrast);
+        WriteFloat(p, 436, finishSaturation);
+        WriteFloat(p, 440, 0f);
+        WriteFloat(p, 444, 0f);
+
         // Every 4-byte slot from 0 to StretchUboSize is written on every call, so comparing the whole
         // range against the previous contents is exact: there is no padding hole left holding stale or
         // uninitialised bytes. The read comes back from mapped host-visible memory, which is slower
-        // than normal RAM, but it is 432 bytes -- about seven cache lines -- once per draw. Staging the
+        // than normal RAM, but it is 448 bytes -- seven cache lines -- once per draw. Staging the
         // writes through a CPU-side array and copying in would avoid the read entirely; it would also
         // mean rewriting every WriteFloat above, for a cost nothing can measure.
         var written = new ReadOnlySpan<byte>(p, StretchUboSize);

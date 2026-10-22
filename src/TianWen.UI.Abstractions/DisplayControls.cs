@@ -50,9 +50,9 @@ public readonly record struct DisplayControls(
         0f,
         0,
         0f,
-        false,
-        false,
-        BackgroundNeutralizationMethod.Mean,
+        true,
+        true,
+        BackgroundNeutralizationMethod.MinPivot,
         1f,
         (1f, 1f, 1f));
 
@@ -111,40 +111,40 @@ public readonly record struct DisplayControls(
                 ? $"Boost {UiFormat.Percent0(CurvesBoost)}"
                 : $"Boost {UiFormat.Percent0(CurvesBoost)} spline",
         Slot.Hdr when HdrAmount > 0f => $"Soft clip {HdrAmount:F1}",
-        Slot.Calibration when ColorCalibrationEnabled => "Calibrate",
-        Slot.BackgroundNeutralization when BackgroundNeutralizationEnabled =>
-            BackgroundNeutralizationStrength >= 0.9999f
-                ? $"NeutBg {BackgroundNeutralizationMethod.ShortName}"
-                : $"NeutBg {BackgroundNeutralizationMethod.ShortName} {UiFormat.Percent0(BackgroundNeutralizationStrength)}",
+        // A toggle is named when it differs from its DEFAULT, whichever way that is (Toggle): the calibration and the
+        // neutralisation are on by default, so it is switching them OFF that is named.
+        Slot.Calibration => Toggle(ColorCalibrationEnabled, Defaults.ColorCalibrationEnabled, "Calibrate"),
+        Slot.BackgroundNeutralization when BackgroundNeutralizationEnabled
+            && (BackgroundNeutralizationMethod != Defaults.BackgroundNeutralizationMethod || BackgroundNeutralizationStrength < 0.9999f) =>
+            NeutralisationName(BackgroundNeutralizationMethod, BackgroundNeutralizationStrength),
+        Slot.BackgroundNeutralization => Toggle(BackgroundNeutralizationEnabled, Defaults.BackgroundNeutralizationEnabled, "NeutBg"),
         Slot.WhiteBalance when ManualWhiteBalance != Defaults.ManualWhiteBalance =>
             $"WB {ManualWhiteBalance.R:F2}/{ManualWhiteBalance.G:F2}/{ManualWhiteBalance.B:F2}",
         _ => null,
     };
 
-    /// <summary>
-    /// What to call a slot that is switched OFF, for slots that have an off state at all.
-    /// </summary>
-    /// <remarks>
-    /// Null for the two slots that are always a value rather than a toggle: every stretch mode IS a
-    /// mode and every stretch parameter pair IS a pair, so there is nothing to be "off" and
-    /// <see cref="DescribeDefault"/> names the value they fell back to instead.
-    /// </remarks>
-    private static string? OffName(Slot slot) => slot switch
-    {
-        Slot.Curves => "Boost",
-        Slot.Hdr => "Soft clip",
-        Slot.Calibration => "Calibrate",
-        Slot.BackgroundNeutralization => "NeutBg",
-        Slot.WhiteBalance => "WB",
-        _ => null,
-    };
+    /// <summary>A toggle named only when it is not at its default: "No X" when switched off from on, X when on from off.</summary>
+    private static string? Toggle(bool on, bool defaultOn, string name) => on == defaultOn ? null : on ? name : "No " + name;
 
-    /// <summary>How an always-a-value slot reads when it sits at its default.</summary>
-    private static string DescribeDefault(Slot slot) => slot switch
+    /// <summary>
+    /// How a slot reads when it goes BACK to its default, for the live half's delta: a mode or a parameter pair by its
+    /// default value, a toggle by its default state ("No Boost", or "Calibrate" for one that is on by default).
+    /// </summary>
+    private static string DefaultName(Slot slot) => slot switch
     {
         Slot.StretchMode => Defaults.StretchMode.DisplayName,
-        _ => $"Stretch {Defaults.StretchParameters}",
+        Slot.StretchParameters => $"Stretch {Defaults.StretchParameters}",
+        Slot.Curves => "No Boost",
+        Slot.Hdr => "No Soft clip",
+        Slot.Calibration => Defaults.ColorCalibrationEnabled ? "Calibrate" : "No Calibrate",
+        Slot.BackgroundNeutralization => Defaults.BackgroundNeutralizationEnabled
+            ? NeutralisationName(Defaults.BackgroundNeutralizationMethod, Defaults.BackgroundNeutralizationStrength)
+            : "No NeutBg",
+        _ => "No WB",
     };
+
+    private static string NeutralisationName(BackgroundNeutralizationMethod method, float strength)
+        => strength >= 0.9999f ? $"NeutBg {method.ShortName}" : $"NeutBg {method.ShortName} {UiFormat.Percent0(strength)}";
 
     /// <summary>
     /// Names what this snapshot has that is not a default, CONTESTED controls first.
@@ -211,8 +211,9 @@ public readonly record struct DisplayControls(
 
             scratch.Add((mine, theirs) switch
             {
-                ({ } added, null) => "+" + added,
-                (null, _) => OffName(slot) is { } off ? "No " + off : DescribeDefault(slot),
+                // A slot switched off from a default that is ON reads as itself ("No NeutBg"), never as an addition.
+                ({ } added, null) => added.StartsWith("No ", StringComparison.Ordinal) ? added : "+" + added,
+                (null, _) => DefaultName(slot),
                 ({ } changed, _) => changed,
             });
         }

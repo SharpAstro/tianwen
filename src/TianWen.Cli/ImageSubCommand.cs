@@ -1885,17 +1885,17 @@ internal sealed partial class ImageSubCommand(
         var formatOpt = OutputFormatOption(
             "Output container. 'png' (default) = 16-bit RGBA + cICP sRGB via MasterPreviewRenderer (SPCC + sky-bg WB + bg-neut + stretch). 'png-pq' = 16-bit RGBA + cICP HDR10 PQ (BT.2020 + SMPTE 2084); modern browsers / HDR displays render as actual HDR at --png-pq-peak-nits peak. 'jxr' = JPEG XR with float-true HDR pixels (BD32F mono / BD16F RGB); writes the input verbatim, NO SPCC / WB / stretch.", ImageOutputFormat.Png);
         var (pngPqPeakNitsOpt, pngPqGamutOpt) = HdrCompanionOptions();
-        // Masked finishing boost (Image.MaskedBoost) -- mirrors `stack --saturation` /
-        // `--contrast-boost` so the preview look can be iterated against an existing
-        // master FITS without re-stacking.
+        // The masked finish (StretchUniforms.FinishContrast / FinishSaturation): the stretch's own stage, the one the
+        // viewer's Tone popover drives, so a render here shows what the viewer shows. Mirrors `stack --saturation` /
+        // `--contrast-boost` so the preview look can be iterated against an existing master FITS without re-stacking.
         var saturationOpt = new Option<float>("--saturation")
         {
-            Description = "Masked saturation boost baked into the stretched PNG output (background and star cores are protected by a luminance range mask). 1.0 = off (default); typical 1.3-2.0. PNG / PNG-PQ only; ignored for --output-format jxr (verbatim float output).",
+            Description = "Masked saturation baked into the stretched PNG output, the viewer's Tone > Saturation (the sky and star cores are protected by the signal mask). 1.0 = off (default); typical 1.3-2.0. PNG / PNG-PQ only; ignored for --output-format jxr (verbatim float output).",
             DefaultValueFactory = _ => 1.0f,
         };
         var contrastBoostOpt = new Option<float>("--contrast-boost")
         {
-            Description = "Masked S-curve contrast boost baked into the stretched PNG output (same protective luminance mask as --saturation). 0 = off (default); typical 0.25-1.5. PNG / PNG-PQ only; ignored for --output-format jxr.",
+            Description = "Masked contrast against the background baked into the stretched PNG output, the viewer's Tone > Contrast (same protective mask as --saturation). 0 = off (default) to 1, the full S-curve; a larger value is held at 1. PNG / PNG-PQ only; ignored for --output-format jxr.",
             DefaultValueFactory = _ => 0f,
         };
         // INHERIT a colour calibration instead of re-fitting one. The renderer has always had the
@@ -2203,8 +2203,8 @@ internal sealed partial class ImageSubCommand(
     /// whether the sRGB-to-BT.2020 gamut matrix is applied (true,
     /// canonical HDR10) or skipped (false, narrow-gamut sRGB+PQ).
     /// Ignored for other formats.</param>
-    /// <param name="maskedBoost">Opt-in masked finishing boost baked into the
-    /// renderer-stretched PNG paths (see <see cref="Image.MaskedBoost"/>).
+    /// <param name="maskedBoost">Opt-in masked finish baked into the
+    /// renderer-stretched PNG paths (see <see cref="Image.ApplyFinish"/>).
     /// Ignored for JXR (verbatim floats) and the pre-stretched byte-encode
     /// paths (<paramref name="useStretchedPng"/>). Only the render verb
     /// passes a non-null value today.</param>

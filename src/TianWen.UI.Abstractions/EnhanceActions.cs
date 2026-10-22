@@ -27,6 +27,15 @@ public static class EnhanceActions
     /// Does NOT mutate <see cref="ViewerState.IsEnhancing"/>: the controller owns that lifecycle
     /// flag (set when the task is kicked, cleared on the render thread when the result is applied).
     /// </summary>
+    /// <summary>
+    /// The white balance an enhance multiplies into the linear pixels: the calibration ON DISPLAY, when it is photometric.
+    /// ONE source, the document's calibration, which is a fit made here or the one the file states
+    /// (<c>AstroImageDocument.AdoptStatedBalanceAsync</c>), so what the enhance bakes in is what the frame was shown with,
+    /// and a master stacked with SPCC is balanced as the CLI's <c>image sharpen</c> balances it.
+    /// </summary>
+    internal static ColourCalibration? EnhanceWhiteBalance(AstroImageDocument source, ViewerState state)
+        => state.ColorCalibrationEnabled ? source.PhotometricColorCalibration : null;
+
     public static async Task<AstroImageDocument?> EnhanceAsync(
         AstroImageDocument source,
         ViewerState state,
@@ -60,12 +69,12 @@ public static class EnhanceActions
         // deblurrer serves, whole-frame where no star remover does. Linear in / linear out: the viewer
         // applies its own stretch, so no final stretch step is included.
         //
-        // The document's own SPCC, when it is photometric, is multiplied into the linear pixels FIRST (the PixInsight
-        // order, as the stacking --enhance runs it), so every enhancer sees the colour it will be shown in and the
-        // result is shown with no white balance of its own (AstroImageDocument.IsColourInPixels). A frame not yet
-        // calibrated, or calibrated by the sky-background estimate or through a line-selective filter, is enhanced
-        // as it is and inherits the original's multiplier, as before.
-        var program = pipeline.CanonicalProgram(input, options) with { WhiteBalance = source.PhotometricColorCalibration };
+        // The enhance subsumes the colour balance: a photometric SPCC triple is multiplied into the linear pixels FIRST
+        // (the PixInsight order, as the stacking --enhance runs it), so every enhancer sees the colour it will be shown
+        // in and the result is shown with no white balance of its own (AstroImageDocument.IsColourInPixels). Which
+        // triple is EnhanceWhiteBalance's; a frame with none, or one calibrated by the sky-background estimate or
+        // through a line-selective filter, is enhanced as it is and inherits the original's multiplier, as before.
+        var program = pipeline.CanonicalProgram(input, options) with { WhiteBalance = EnhanceWhiteBalance(source, state) };
         var request = new SharpenRequest(input, program.ToSteps());
 
         // Per-step progress -> viewer status line. Runs on the background thread; these scalar

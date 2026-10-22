@@ -495,7 +495,8 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         int width,
         int height,
         ImmutableArray<float> curveLut,
-        float hdrAmount)
+        float hdrAmount,
+        float curvesMidpoint = 0.25f)
     {
         var ctx = _gpu.Ctx!;
         var renderer = _gpu.Renderer!;
@@ -546,7 +547,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
             stretchMode: (int)u.Mode,
             normFactor: u.NormFactor,
             curvesBoost: 0f,
-            curvesMidpoint: 0.25f,
+            curvesMidpoint: curvesMidpoint,
             hdrAmount: hdrAmount,
             hdrKnee: 0.8f,
             pedestal: u.Pedestal,
@@ -567,7 +568,9 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
             lumaWeights: u.LumaWeights,
             lumaStretch: u.LumaStretch,
             lumaBlend: u.LumaBlend,
-            normalizeScale: u.NormalizeScale);
+            normalizeScale: u.NormalizeScale,
+            finishContrast: u.FinishContrast,
+            finishSaturation: u.FinishSaturation);
 
         // RecordImageDraw's last two args are the orthographic projection's viewport size, not
         // the draw-rect size -- they have to match the actual framebuffer the GPU is rendering
@@ -721,6 +724,51 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         // precision near the HDR knee) by the same factor. Mean stays tight but the max
         // single-pixel byte diff can land in the ~20s; relax max + outliers proportionally.
         AssertCpuGpuParity(cpuRgba, gpuRgba, "26_gpu_hdr_normalize", maxAllowed: 28, outlierMax: 0.03);
+    }
+
+    /// <summary>
+    /// GPU/CPU parity for the masked finish (the Tone popover's contrast and saturation, the CLI's image render
+    /// --contrast-boost / --saturation): the shader's applyFinish against Image.ApplyFinish, its mask on the post-stretch
+    /// background both read from the same uniform.
+    /// </summary>
+    [Fact]
+    public async Task GpuMatchesCpuForTheMaskedFinish()
+    {
+        if (!_gpu.VulkanAvailable)
+        {
+            Assert.Skip($"Vulkan runtime not available ({_gpu.UnavailableReason})");
+            return;
+        }
+
+        var ct = TestContext.Current.CancellationToken;
+        var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(VelaFixture, cancellationToken: ct);
+        var doc = await AstroImageDocument.AdoptImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
+        await doc.DetectStarsAsync(ct);
+
+        var uniforms = doc.ComputeStretchUniforms(StretchMode.Linked, new StretchParameters(0.15, -3))
+            with { FinishContrast = 0.8f, FinishSaturation = 1.6f };
+        var background = uniforms.ComputePostStretchBackground(doc.PerChannelBackground, doc.LumaBackground);
+        output.WriteLine($"post-stretch background = {background:F4}");
+
+        var img = doc.UnstretchedImage;
+        var w = img.Width;
+        var h = img.Height;
+
+        var plain = new byte[w * h * 4];
+        img.RenderStretchedRgba(uniforms with { FinishContrast = 0f, FinishSaturation = 1f }, plain, curvesMidpoint: background);
+        var cpuRgba = new byte[w * h * 4];
+        img.RenderStretchedRgba(uniforms, cpuRgba, curvesMidpoint: background);
+        plain.AsSpan().SequenceEqual(cpuRgba).ShouldBeFalse("the finish moved the CPU render");
+
+        var gpuRgba = await _gpu.InvokeAsync(() => RenderViaOffscreenGpu(img, uniforms, w, h, default, 0f, background), ct);
+        foreach (var line in _formatDiagBag) output.WriteLine(line);
+        _formatDiagBag.Clear();
+
+        // The finish multiplies whatever the two stretches already disagree by: saturation 1.6 scales a chroma difference
+        // by up to 1.6 and the S-curve's slope reaches 1.5, so the rare pixel where the shader's MTF lands a byte or two
+        // off arrives several bytes off (measured: mean 0.47, max 31, outliers 0.021 %). The mean and the outlier share
+        // stay as tight as every other case; only the single worst pixel is relaxed, as the HDR normalise case does.
+        AssertCpuGpuParity(cpuRgba, gpuRgba, "27_gpu_masked_finish", maxAllowed: 36);
     }
 
     /// <summary>

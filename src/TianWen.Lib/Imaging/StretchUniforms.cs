@@ -59,6 +59,31 @@ public readonly record struct StretchUniforms(
     /// <c>Image.PredictPostStretchMaxScale</c> and sets this to <c>1 / max</c> so the
     /// brightest pixel in the rendered output lands at 1.0.</summary>
     public float NormalizeScale { get; init; } = 1f;
+
+    /// <summary>
+    /// The finish's contrast against the background, 0 (off, the default) to 1: an S-curve on the stretched luminance
+    /// between the background and white, through the signal mask (<see cref="Image.FinishMask"/>), the colour kept. The
+    /// Affinity "masked contrast boost". Applied after the soft clip, by <see cref="Image.ApplyFinish"/> and the shader's
+    /// <c>applyFinish</c>, which must agree.
+    /// </summary>
+    public float FinishContrast { get; init; }
+
+    /// <summary>
+    /// The finish's saturation, 1 (off, the default) and up: each channel pushed away from the luminance through the same
+    /// mask, so the background's noise takes no colour. Ignored on a mono frame.
+    /// </summary>
+    /// <remarks>Stored as its distance from 1, so a <c>default</c> or <c>new StretchUniforms()</c>, which skip property
+    /// initialisers, reads 1 (off) and not 0, which would turn every such render grey.</remarks>
+    public float FinishSaturation
+    {
+        get => 1f + _finishSaturationOffset;
+        init => _finishSaturationOffset = value - 1f;
+    }
+
+    private readonly float _finishSaturationOffset;
+
+    /// <summary>Whether the finish changes anything: the renders skip it otherwise.</summary>
+    public bool HasFinish => FinishContrast > 0f || FinishSaturation != 1f;
     /// <summary>
     /// Computes the post-stretch background level by stretching the measured
     /// background values through <see cref="Image.StretchValue"/>; the same pipeline as the GLSL shader.

@@ -299,17 +299,17 @@ internal sealed class StackSubCommand(
             Description = "Denoiser iterations. RC-Astro maps it to NoiseXTerminator's nxt --it; < 1 (default) = the enhancer's own default (2). Other backends ignore it. Implies --enhance.",
             DefaultValueFactory = _ => 0,
         };
-        // Masked finishing boost for the preview PNG (Image.MaskedBoost): applied AFTER the
-        // stretch through a luminance range mask, so background and star cores stay untouched.
+        // Masked finish for the preview PNG (Image.ApplyFinish, the viewer's Tone > Contrast and Saturation): the stretch's
+        // own stage, through the signal mask, so background and star cores stay untouched.
         // Display-render only -- the linear masters and --split-plates TIFFs are never boosted.
         var saturationOpt = new Option<float>("--saturation")
         {
-            Description = "Masked saturation boost baked into the rendered preview PNG only (background and star cores are protected by a luminance range mask). 1.0 = off (default); typical 1.3-2.0. The linear masters (FITS / EXR) and --split-plates TIFFs are never touched.",
+            Description = "Masked saturation baked into the rendered preview PNG only, the viewer's Tone > Saturation (the sky and star cores are protected by the signal mask). 1.0 = off (default); typical 1.3-2.0. The linear masters (FITS / EXR) and --split-plates TIFFs are never touched.",
             DefaultValueFactory = _ => 1.0f,
         };
         var contrastBoostOpt = new Option<float>("--contrast-boost")
         {
-            Description = "Masked S-curve contrast boost baked into the rendered preview PNG only (same protective luminance mask as --saturation; the curve is the stretch pipeline's boost curve pivoting at the estimated background level). 0 = off (default); typical 0.25-1.5.",
+            Description = "Masked contrast against the background baked into the rendered preview PNG only, the viewer's Tone > Contrast (same protective mask as --saturation). 0 = off (default) to 1, the full S-curve; a larger value is held at 1.",
             DefaultValueFactory = _ => 0f,
         };
 

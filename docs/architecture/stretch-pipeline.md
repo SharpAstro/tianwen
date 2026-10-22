@@ -15,12 +15,51 @@ same `StretchUniforms`:
   `Shaders/spirv/image.frag.spv`): `stretchChannel` (per-channel) + the Luma branch that mirrors
   `StretchLumaPixelCpu`; used by the live FITS viewer.
 - **CPU**: `Image.StretchChannelCpu`, `Image.StretchLumaPixelCpu`, `Image.ApplyHdr`,
-  `Image.ApplyCurveLut`, `Image.ApplyBoost`, `Image.RenderStretchedRgba`; used by
+  `Image.ApplyCurveLut`, `Image.ApplyBoost`, `Image.ApplyFinish`, `Image.RenderStretchedRgba`; used by
   `ConsoleImageRenderer` (TUI Sixel) and tests (`StretchTests_NewPipeline`). Never uses the GPU.
 
 Pipeline order in both: pedestal subtract -> bg neutralization -> WB -> shadow/rescale -> MTF ->
-luma blend -> curves (LUT or boost) -> HDR knee -> normalize -> clamp. Per-channel for
-Linked/Unlinked, luma-Y'/Y for Luma. In Luma mode the producer always populates BOTH
+luma blend -> curves (LUT or boost) -> HDR knee -> finish -> normalize -> clamp. Per-channel for
+Linked/Unlinked, luma-Y'/Y for Luma.
+
+**The finish is the Affinity masked contrast boost and saturation, as ONE stage of the stretch**
+(`StretchUniforms.FinishContrast` 0 to 1, `FinishSaturation` 1 = off; `Image.ApplyFinish` and the shader's
+`applyFinish`, held together by `GpuMatchesCpuForTheMaskedFinish`). Its mask (`Image.FinishMask`) is read per pixel
+from the STRETCHED luminance against the post-stretch background (the boost's `curvesMidpoint`): zero on the sky,
+full a quarter of the way to white, easing out over the last fifth below white, so the sky's noise and the star cores
+are left alone. Contrast is a smoothstep S-curve on the luminance between the background and white, the colour kept;
+saturation then moves each channel away from the new luminance. The viewer's Tone popover (Contrast, Saturation),
+the CLI's `image render --contrast-boost --saturation` and the stacking preview (`stack --contrast-boost
+--saturation`, `MaskedBoostOptions`) all drive this stage, so no host has a masked boost of its own: the separate pass
+that boosted the finished 16-bit buffer through a blurred percentile mask (`Image.MaskedBoost`) was removed with it.
+
+**The viewer neutralises the background by default, min pivot after the white balance, as the headless render
+always has.** A white balance levels the stars, not the sky behind them; shown Linked with the sky left coloured, one
+channel's background sits below the shared shadow point and clips once a denoise has shrunk the noise (the enhanced
+L-Quad Sculptor master, its SPCC triple in the pixels, rendered as a flat cyan field). And a balance already IN the
+pixels (`AstroImageDocument.IsColourInPixels`) counts as an active calibration for Auto, so the frame renders Linked,
+as the headless render resolves it; Unlinked, each channel's own curve undid the balance.
+
+**One colour chain, every step always run, an identity where it has nothing to do** (the owner, 2026-10-22: "a more
+uniform pipeline, not a mess of if else"):
+
+- **The balance has ONE source, the document's calibration.** A file that STATES an SPCC fit (its `WB*` cards, written
+  by the stacker that fitted it) carries it from the moment it opens (`AstroImageDocument.AdoptStatedBalanceAsync`,
+  popover "SPCC, from the file"), exactly as a fit made in the viewer does; a fit through a line-selective filter is
+  carried as the display multiplier it is. The calibration is ON by default (`ViewerState.ColorCalibrationEnabled`), so
+  such a master opens as the CLI renders it, and the enhance bakes in what is shown (`EnhanceActions.EnhanceWhiteBalance`):
+  the calibration on display, when it is photometric, and nothing when it is switched off.
+- **The enhance's background stage is the gradient AND the level.** The gradient correction flattens each channel about
+  its OWN level, by design; right after it the sky is levelled IN THE PIXELS on every colour frame
+  (`Image.WithBackgroundNeutralised`: each channel raised by an offset to the brightest channel's sky, so the colour above
+  the sky is kept and no sample drops). A sky already level takes a zero offset.
+- **Every stretch mode neutralises, then balances, then curves**, Luma included: its branch skipped the neutralisation,
+  and its curve was solved on a luminance measured above its own pedestal while the pixels measured it above the
+  per-channel pedestals (`StretchSolver`'s Luma branch now solves in the pixel path's coordinates).
+- **Luma keeps a pixel's colour ABOVE THE BLACK POINT** (the curve's shadow), not above the pedestal: measured above the
+  pedestal, the sky every pixel of a galaxy shares diluted its ratios to grey. On the enhanced L-Quad Sculptor master the
+  core reads R 0.0018 / G 0.0014 / B 0.0011 over its levelled sky, an orange Linked crushes to white near the top of its
+  curve and Luma now shows. In Luma mode the producer always populates BOTH
 `StretchUniforms.LumaStretch` (scalar Luma MTF params) AND per-channel `Shadows/Midtones/Rescale`
 (linked branch params) so the shader can blend between them via `LumaBlend`.
 

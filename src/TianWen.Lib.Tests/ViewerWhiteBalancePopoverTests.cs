@@ -395,18 +395,14 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
-        /// <b>Reset does nothing when there is nothing to reset to, and that is not merely cosmetic.</b>
-        /// It also clears the triple parked when the calibration was switched on -- so pressing a
-        /// button that looked inert used to quietly change what switching SPCC back off would restore.
+        /// <b>Reset goes back to no white balance at all</b>, which straight after calibrating means
+        /// switching the calibration off as well as clearing the manual layer: the sliders then read the
+        /// calibrated 1.44/1.00/1.23 while the manual layer is identity, and a Reset that cleared only that
+        /// layer did nothing while looking as if it would take the balance off. The triple parked when the
+        /// calibration went on is dropped, not restored: identity is what the user just asked for.
         /// </summary>
-        /// <remarks>
-        /// The state is the one a user is in straight after calibrating: sliders reading the effective
-        /// 1.44/1.00/1.23 while the MANUAL layer this button clears is already identity, because
-        /// <c>SetColorCalibrationEnabled</c> sets it so when it turns the calibration on. The button is
-        /// dim there now, and inert.
-        /// </remarks>
         [Fact]
-        public async Task ResetIsInertWhileTheManualLayerIsAlreadyIdentity()
+        public async Task ResetAfterCalibratingTakesTheWholeBalanceOff()
         {
             var ct = TestContext.Current.CancellationToken;
             using var renderer = new RgbaImageRenderer(WindowW, WindowH);
@@ -414,26 +410,37 @@ namespace TianWen.Lib.Tests
 
             // A manual adjustment the user made BEFORE calibrating, which switching the calibration on
             // parks and replaces with identity.
+            document.InheritColorCalibration((1.44f, 1f, 1.23f), null);
             state.ManualWhiteBalance = (1.2f, 1f, 1f);
             ViewerActions.SetColorCalibrationEnabled(state, true);
-            state.ManualWhiteBalance.ShouldBe((1f, 1f, 1f), "switching it on sets the manual layer to identity");
-            state.ManualWhiteBalanceBeforeCalibration.ShouldBe((1.2f, 1f, 1f), "and parks what was there");
+            ViewerActions.CanResetWhiteBalance(state, documentHasCalibration: true).ShouldBeTrue("a calibration in force is something to reset");
 
             var button = Button(viewer);
             Press(viewer, button.X + (button.Width / 2f), button.Y + (button.Height / 2f));
             viewer.Render(document, state);
 
             var (buttons, _, _) = HitsBelowTheBar(viewer);
-            buttons.ShouldContainKey("ResetWhiteBalance", "still registered when dim, so it swallows the press");
             var (rx, ry) = buttons["ResetWhiteBalance"];
             Press(viewer, rx, ry);
 
-            state.WhiteBalancePopover.IsOpen.ShouldBeTrue("a press on the dim button does not fall through and close the panel");
-            state.ManualWhiteBalanceBeforeCalibration.ShouldBe((1.2f, 1f, 1f),
-                "the parked triple survives, so switching the calibration off still restores it");
+            state.WhiteBalancePopover.IsOpen.ShouldBeTrue("the press stays on the button");
+            state.ColorCalibrationEnabled.ShouldBeFalse("Reset switches the calibration off");
+            state.ManualWhiteBalance.ShouldBe((1f, 1f, 1f));
+            state.ManualWhiteBalanceBeforeCalibration.ShouldBeNull("and does not bring the parked triple back");
+            ViewerActions.CanResetWhiteBalance(state, documentHasCalibration: true).ShouldBeFalse("nothing is left to reset, so the button is dim");
+        }
 
-            ViewerActions.SetColorCalibrationEnabled(state, false);
-            state.ManualWhiteBalance.ShouldBe((1.2f, 1f, 1f), "which is what switching it off gives back");
+        /// <summary>Reset takes what Auto (gray-world) dropped into the sliders off too: Auto writes the manual layer.</summary>
+        [Fact]
+        public void ResetTakesTheAutoTripleOff()
+        {
+            var state = new ViewerState { ManualWhiteBalance = (0.8f, 1f, 1.3f) };
+
+            ViewerActions.CanResetWhiteBalance(state, documentHasCalibration: false).ShouldBeTrue();
+            ViewerActions.ResetWhiteBalance(state);
+
+            state.ManualWhiteBalance.ShouldBe((1f, 1f, 1f));
+            state.ColorCalibrationEnabled.ShouldBeFalse();
         }
 
         /// <summary>

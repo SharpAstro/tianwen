@@ -1421,19 +1421,30 @@ public partial class Image
         var nr = r * u.NormFactor;
         var ng = g * u.NormFactor;
         var nb = b * u.NormFactor;
-        var prr = MathF.Max((nr - u.Pedestal.R) * u.WhiteBalance.R, 0f);
-        var prg = MathF.Max((ng - u.Pedestal.G) * u.WhiteBalance.G, 0f);
-        var prb = MathF.Max((nb - u.Pedestal.B) * u.WhiteBalance.B, 0f);
+        // Background neutralisation, then white balance, as every other mode's pre-curve chain (StretchNormalisedCpu): the
+        // Luma curve is SOLVED against both (StretchSolver, ComputePostStretchBackground), and applying only the balance left
+        // a coloured sky coloured, the enhanced L-Quad Sculptor master a flat blue field in Luma.
+        var bn = u.BackgroundNeutralization;
+        var prr = MathF.Max(((nr - u.Pedestal.R) * bn.R + (1f - bn.R)) * u.WhiteBalance.R, 0f);
+        var prg = MathF.Max(((ng - u.Pedestal.G) * bn.G + (1f - bn.G)) * u.WhiteBalance.G, 0f);
+        var prb = MathF.Max(((nb - u.Pedestal.B) * bn.B + (1f - bn.B)) * u.WhiteBalance.B, 0f);
         var yNorm = u.LumaWeights.R * prr + u.LumaWeights.G * prg + u.LumaWeights.B * prb;
-        var rescaled = (yNorm - u.LumaStretch.Shadow) * u.LumaStretch.Rescale;
-        var yPrime = (float)MidtonesTransferFunction(u.LumaStretch.Midtones, rescaled);
-        var scale = yNorm > 1e-7f ? yPrime / yNorm : 0f;
-        var maxCh = MathF.Max(prr, MathF.Max(prg, prb));
+        // The colour is kept ABOVE THE BLACK POINT (the curve's shadow), not above the pedestal: each channel's ratio is its
+        // signal's, not its signal plus the sky under it, which every pixel of a galaxy shares and which turned its colour
+        // to grey (the enhanced Sculptor master: core R 0.0018 / G 0.0014 / B 0.0011 above a levelled sky of 0.0104).
+        var shadow = u.LumaStretch.Shadow;
+        var yAbove = yNorm - shadow;
+        var yPrime = (float)MidtonesTransferFunction(u.LumaStretch.Midtones, yAbove * u.LumaStretch.Rescale);
+        var ar = MathF.Max(prr - shadow, 0f);
+        var ag = MathF.Max(prg - shadow, 0f);
+        var ab = MathF.Max(prb - shadow, 0f);
+        var scale = yAbove > 1e-7f ? yPrime / yAbove : 0f;
+        var maxCh = MathF.Max(ar, MathF.Max(ag, ab));
         if (scale > 0f && maxCh > 1e-7f) scale = MathF.Min(scale, 1f / maxCh);
         return (
-            Math.Clamp(prr * scale, 0f, 1f),
-            Math.Clamp(prg * scale, 0f, 1f),
-            Math.Clamp(prb * scale, 0f, 1f));
+            Math.Clamp(ar * scale, 0f, 1f),
+            Math.Clamp(ag * scale, 0f, 1f),
+            Math.Clamp(ab * scale, 0f, 1f));
     }
 
     /// <summary>
@@ -1446,6 +1457,60 @@ public partial class Image
         var range = 1f - knee;
         var t = (v - knee) / range;
         return knee + range * t / (1f + amount * t);
+    }
+
+    /// <summary>
+    /// Where the finish applies, from a pixel's STRETCHED luminance <paramref name="luma"/> against the post-stretch
+    /// <paramref name="background"/>: 0 at and below the background, rising smoothly to 1 a quarter of the way from the
+    /// background to white, then easing back to 0 over the last fifth below white, so the sky's noise and the star cores are
+    /// left alone (the Affinity masked contrast boost's mask, read per pixel so the GPU computes the same one). CPU mirror of
+    /// the shader's <c>finishMask</c>.
+    /// </summary>
+    public static float FinishMask(float luma, float background)
+    {
+        var span = MathF.Max(1f - background, 1e-3f);
+        var low = Math.Clamp((luma - background) / (0.25f * span), 0f, 1f);
+        low = low * low * (3f - 2f * low);
+        var high = Math.Clamp((1f - luma) / 0.2f, 0f, 1f);
+        return low * high;
+    }
+
+    /// <summary>
+    /// The finish (<see cref="StretchUniforms.FinishContrast"/>, <see cref="StretchUniforms.FinishSaturation"/>) on one
+    /// stretched pixel, in place, after the soft clip: the luminance takes an S-curve between the background and white
+    /// (a smoothstep, whose slope at the middle is 1.5) blended in by <paramref name="contrast"/> and the mask, the channels
+    /// scaled with it so the colour is kept; then each channel moves away from the new luminance by
+    /// <paramref name="saturation"/>, also through the mask. CPU mirror of the shader's <c>applyFinish</c>. Mono frames take
+    /// the contrast only (pass the same value in all three).
+    /// </summary>
+    public static void ApplyFinish(ref float r, ref float g, ref float b, float contrast, float saturation, float background,
+        (float R, float G, float B) lumaWeights)
+    {
+        var luma = lumaWeights.R * r + lumaWeights.G * g + lumaWeights.B * b;
+        var mask = FinishMask(luma, background);
+        if (mask <= 0f)
+        {
+            return;
+        }
+        if (contrast > 0f && luma > 1e-6f)
+        {
+            var span = MathF.Max(1f - background, 1e-3f);
+            var t = Math.Clamp((luma - background) / span, 0f, 1f);
+            var curved = t * t * (3f - 2f * t);
+            var target = background + span * (t + contrast * (curved - t));
+            var scale = (luma + mask * (target - luma)) / luma;
+            r *= scale;
+            g *= scale;
+            b *= scale;
+            luma *= scale;
+        }
+        if (saturation != 1f)
+        {
+            var k = 1f + mask * (saturation - 1f);
+            r = MathF.Max(luma + (r - luma) * k, 0f);
+            g = MathF.Max(luma + (g - luma) * k, 0f);
+            b = MathF.Max(luma + (b - luma) * k, 0f);
+        }
     }
 
     private static float PickChannel((float R, float G, float B) v, int ch) => ch switch
@@ -1673,7 +1738,8 @@ public partial class Image
     /// <param name="curvesBoost">Power-law boost amount; ignored when <paramref name="curvesMode"/> is 1.</param>
     /// <param name="curvesMode">0 = power-law boost, 1 = Fritsch-Carlson LUT.</param>
     /// <param name="curveLut">33-entry LUT used when <paramref name="curvesMode"/> is 1.</param>
-    /// <param name="curvesMidpoint">Background midpoint for power-law boost.</param>
+    /// <param name="curvesMidpoint">Post-stretch background level: the power-law boost's midpoint and the finish's mask
+    /// background (<see cref="FinishMask"/>).</param>
     /// <param name="hdrAmount">HDR knee-compression amount; 0 = off.</param>
     /// <param name="hdrKnee">HDR knee point.</param>
     public void RenderStretchedRgba(
@@ -1696,6 +1762,7 @@ public partial class Image
         var ch1 = isColor ? GetChannelSpan(1) : default;
         var ch2 = isColor ? GetChannelSpan(2) : default;
         var hasLut = curvesMode == 1 && !curveLut.IsEmpty;
+        var hasFinish = u.HasFinish;
 
         for (var i = 0; i < pixelCount; i++)
         {
@@ -1772,6 +1839,12 @@ public partial class Image
                 bOut = ApplyHdr(bOut, hdrAmount, hdrKnee);
             }
 
+            // The finish (masked contrast and saturation), after the soft clip as in the shader.
+            if (hasFinish)
+            {
+                ApplyFinish(ref rOut, ref gOut, ref bOut, u.FinishContrast, isColor ? u.FinishSaturation : 1f, curvesMidpoint, u.LumaWeights);
+            }
+
             // Optional post-stretch normalize: rescale so the predicted brightest pixel
             // (computed by PredictPostStretchMaxScale) lands at 1.0. Default scale=1 = no-op.
             if (u.NormalizeScale != 1f)
@@ -1830,6 +1903,7 @@ public partial class Image
         var ch1 = isColor ? GetChannelSpan(1) : default;
         var ch2 = isColor ? GetChannelSpan(2) : default;
         var hasLut = curvesMode == 1 && !curveLut.IsEmpty;
+        var hasFinish = u.HasFinish;
 
         for (var i = 0; i < pixelCount; i++)
         {
@@ -1901,6 +1975,12 @@ public partial class Image
                 rOut = ApplyHdr(rOut, hdrAmount, hdrKnee);
                 gOut = ApplyHdr(gOut, hdrAmount, hdrKnee);
                 bOut = ApplyHdr(bOut, hdrAmount, hdrKnee);
+            }
+
+            // The finish (masked contrast and saturation), after the soft clip as in the shader.
+            if (hasFinish)
+            {
+                ApplyFinish(ref rOut, ref gOut, ref bOut, u.FinishContrast, isColor ? u.FinishSaturation : 1f, curvesMidpoint, u.LumaWeights);
             }
 
             if (u.NormalizeScale != 1f)

@@ -518,6 +518,24 @@ public static class ViewerActions
         state.ColorCalibrationEnabled = enabled;
     }
 
+    /// <summary>
+    /// The colour popover's Reset: back to NO white balance, whatever put one there. The manual triple goes to identity, and
+    /// with it whatever Auto (gray-world) dropped into it, and an active calibration is switched off without bringing back
+    /// the triple parked when it was switched on: the user has just said identity is what they want, so resurrecting an
+    /// older value would override the newer instruction. The fit itself is kept, so the calibration button can put it back.
+    /// </summary>
+    public static void ResetWhiteBalance(ViewerState state)
+    {
+        state.ColorCalibrationEnabled = false;
+        state.ManualWhiteBalance = (1f, 1f, 1f);
+        state.ManualWhiteBalanceBeforeCalibration = null;
+    }
+
+    /// <summary>Whether <see cref="ResetWhiteBalance"/> would change anything: a manual or Auto triple off identity, or a
+    /// calibration on show (switched on, over a document that has one).</summary>
+    public static bool CanResetWhiteBalance(ViewerState state, bool documentHasCalibration)
+        => state.ManualWhiteBalance != (1f, 1f, 1f) || (state.ColorCalibrationEnabled && documentHasCalibration);
+
     public static void SelectFile(ViewerState state, int index)
     {
         if (index < 0 || index >= state.ImageFileNames.Count || state.CurrentFolder is null)
