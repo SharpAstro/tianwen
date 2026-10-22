@@ -1,53 +1,55 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 
 namespace TianWen.Lib.Imaging.StarRemoval;
 
 /// <summary>
-/// R2s (docs/plans/star-remover-training.md, "R2s: each channel's halo and width drawn on its own"): every channel of an
-/// injected star gets its own halo strength (<see cref="StarProfile.HaloLogGain"/>) and width, around the master's measured
-/// profile. A remover trained on stars whose channels all keep their master's relation learned to take blue's shape from
-/// red and green: on the owner's Andromeda, whose blue halo is weaker than its others, R2p dug blue at 46 % of its bright
-/// stars, and each channel put through alone came out clean (1.5 %); on the held-out Tarantula, whose blue halo is a
-/// little stronger, it left the most light in blue. The factors are drawn once per draw of a cell, one optical train per
-/// tile as a master's stars share theirs, each channel on its own and log-uniform in its range, and each star then
-/// scatters about them by up to <see cref="StarScatter"/> (log-uniform, both ways), its lobes taking its own.
+/// R2s2 (docs/plans/star-remover-training.md): every star of a draw of a cell takes one real master's channel relation
+/// (<see cref="ChannelRelation"/>), drawn from <see cref="Pool"/>, the training masters' own field profiles, in place of its
+/// own master's, so a master's stars are seen with every way real channels differ and with no way they do not. Each
+/// channel's width and wing are moved by the drawn relation less the master's own, so the master's mean width and wing (its
+/// seeing and its halo) stay its own.
+/// <para>
+/// R2s drew each channel's wing (0.5 to 2) and width (0.85 to 1.18) on its own, and its stars came out unlike any real
+/// master's. Over the 123 colour training masters a wider red core comes with a weaker red wing (correlation -0.59 between
+/// the two, red to green, against R2s's -0.23), 1 of 123 has red's wing 1.5 times green's or more (R2s: 12.8 percent of
+/// its stars) and 2 of 123 have red at least 1.3 times green's width with a wing at least green's (R2s: 9.4 percent); 45
+/// percent of R2s's stars lay outside every real master's relation. R2s then took 77 percent of the red above the ring at
+/// M31's nucleus, uniformly coloured light (red over green 1.17 to 1.21 from 0 to 30 px), against 10 percent of its green:
+/// a red-only star about 8 px wide, which its own data had taught it exists.
+/// </para>
 /// </summary>
-/// <param name="HaloMin">The smallest wing factor a channel draws.</param>
-/// <param name="HaloMax">The largest; past 1 it also covers the bright stars' near wings the field's table under-reads
-/// by up to 30 percent (#1241).</param>
-/// <param name="WidthMin">The smallest factor a channel's FWHM is drawn at.</param>
-/// <param name="WidthMax">The largest.</param>
-/// <param name="StarScatter">How far, as a log, each star's factors stray from the draw's.</param>
-public sealed record ChannelVariation(double HaloMin, double HaloMax, double WidthMin, double WidthMax, double StarScatter)
+public sealed class ChannelVariation
 {
-    /// <summary>
-    /// R2s's ranges. The halo spans half to twice the measured wing, which holds the channel-to-channel wing ratios measured
-    /// on the owner's masters (Andromeda's blue at 4-8 px about 0.4 of its red) and #1241's 30 percent; the width spans
-    /// 0.85 to 1.18 (Andromeda's green against its red is 0.82, the store's channels mostly within 10 percent of each other).
-    /// </summary>
-    public static ChannelVariation R2s { get; } = new ChannelVariation(0.5, 2.0, 0.85, 1.18, 0.1);
+    private readonly Dictionary<int, ImmutableArray<ChannelRelation>> _byChannels;
 
-    /// <summary>One draw of a cell's per-channel factors, as logs: (halo, width) for each channel.</summary>
-    public ImmutableArray<(double LogHalo, double LogWidth)> DrawCell(int channels, Random rng)
+    /// <param name="pool">The measured relations to draw from; a master draws only those of its own channel count.</param>
+    public ChannelVariation(ImmutableArray<ChannelRelation> pool)
     {
-        var factors = ImmutableArray.CreateBuilder<(double, double)>(channels);
-        for (var c = 0; c < channels; c++)
-        {
-            factors.Add((LogUniform(HaloMin, HaloMax, rng), LogUniform(WidthMin, WidthMax, rng)));
-        }
-        return factors.MoveToImmutable();
+        Pool = pool;
+        _byChannels = pool.GroupBy(static r => r.Channels).ToDictionary(static g => g.Key, static g => g.ToImmutableArray());
     }
 
-    /// <summary>One star's factors: the cell's, each scattered on its own by up to <see cref="StarScatter"/>.</summary>
-    public ImmutableArray<(double LogHalo, double LogWidth)> DrawStar(ImmutableArray<(double LogHalo, double LogWidth)> cell, Random rng)
+    /// <summary>The measured relations a draw is taken from.</summary>
+    public ImmutableArray<ChannelRelation> Pool { get; }
+
+    /// <summary>
+    /// One draw of a cell: a relation from the pool with the master's channel count, and each channel's factors (log wing
+    /// gain, log width) that move <paramref name="own"/> onto it. A master whose channel count the pool lacks keeps its own.
+    /// </summary>
+    public (ChannelRelation Drawn, ImmutableArray<(double LogHalo, double LogWidth)> Factors) DrawCell(ChannelRelation own, Random rng)
     {
-        var factors = ImmutableArray.CreateBuilder<(double, double)>(cell.Length);
-        foreach (var (logHalo, logWidth) in cell)
+        var drawn = _byChannels.TryGetValue(own.Channels, out var candidates) && candidates.Length > 0
+            ? candidates[rng.Next(candidates.Length)]
+            : own;
+        var factors = ImmutableArray.CreateBuilder<(double, double)>(own.Channels);
+        for (var c = 0; c < own.Channels; c++)
         {
-            factors.Add((logHalo + Scatter(rng), logWidth + Scatter(rng)));
+            factors.Add((drawn.LogWing[c] - own.LogWing[c], drawn.LogWidth[c] - own.LogWidth[c]));
         }
-        return factors.MoveToImmutable();
+        return (drawn, factors.MoveToImmutable());
     }
 
     /// <summary>Each channel's profile drawn at its factors.</summary>
@@ -65,9 +67,4 @@ public sealed record ChannelVariation(double HaloMin, double HaloMax, double Wid
         }
         return varied.MoveToImmutable();
     }
-
-    private double Scatter(Random rng) => StarScatter * (2.0 * rng.NextDouble() - 1.0);
-
-    private static double LogUniform(double min, double max, Random rng)
-        => Math.Log(min) + rng.NextDouble() * (Math.Log(max) - Math.Log(min));
 }
