@@ -3468,6 +3468,47 @@ fetched from the container, and training started on it (the trainer's own line: 
 views, `--seed 0`, R2t's flags). The predictions stand as written; the read now says whether R2t's gain over R2r is its
 recipe's or its seed's.
 
+#### Round 2: the hole under bright stars, read on whole masters (2026-10-22)
+
+Tracked by #1767. Round 1 judged our models on 256 px tiles. Put through the owner's whole masters beside the two judges (the "best three
+against StarNet2 and SXT" page), all three of ours fall far behind on bright stars: SXT leaves 98.6 % of Andromeda's
+bright dark-sky stars flat where ours leave 39 to 43 %, because ours dig a hole under 37 to 46 % of them, and on the
+held-out Tarantula's crowded stars StarNet2 and SXT leave about 96 % flat against R2t's 81 %. Ours win only purity, the
+light taken where no star is (0.3 to 0.7 % against 1.7 and 3.1 %). The owner: "Okay then let's do that": round 2 aims at
+the bright stars, and every arm is read on whole masters.
+
+**Where the hole is.** Per channel, over Andromeda's 2,160 bright isolated dark-sky stars, in sigma, at 0-1.5 / 1.5-3 /
+3-4.5 / 4.5-6 px:
+
+| | red | green | blue |
+|---|---|---|---|
+| input (FWHM) | 122.7 / 21.1 / 5.6 / 2.1 (2.76 px) | 110.9 / 18.9 / 5.0 / 1.6 (2.26 px) | 118.4 / 19.1 / **3.1 / 0.9** (2.76 px) |
+| R2t's residual | -0.03 / -0.64 / +0.36 / +0.21 | +0.29 / +0.07 / +0.51 / +0.22 | -0.55 / **-1.23 / -1.00** / -0.36 |
+| SXT's residual | +0.04 / -0.55 / +0.19 / -0.00 | -0.00 / -0.34 / +0.03 / -0.10 | +0.19 / -0.40 / -0.27 / -0.17 |
+
+Two failures. (1) **Andromeda: blue's shoulder is dug.** Blue's core is as wide as red's, but its shoulder (3-6 px) falls
+about twice as fast; ours take the same shape out of every channel, so blue goes below the sky there while red and green
+keep a little light. That blue hole is what remover_check2 counts as dug. (2) **The Tarantula: light left in sharp
+cores** (FWHM under 2 px in green and blue): R2p leaves 1.5 to 2.2 sigma at the core, R2t 0.4 to 0.9, SXT nothing.
+
+**The likely cause is the injected PSF, outside the real range.** The bake's own 50-session per-channel PSF survey puts
+red's FWHM at 2.43 to 3.67 px against green's 1.77 to 2.60, a red over green ratio of 1.16 to 1.90 (median 1.56). The
+injected stars run the other way: red 1.73 to 2.10 px, green 1.85 to 2.25, so red is the NARROW channel, and every real
+red FWHM, Andromeda's 2.76 px included, lies above the injected red's 95th percentile. A model that learned red is narrow
+takes too little red and, through the shared shape, too much of a steep channel. It is the deploy point outside the
+training range again.
+
+**The scorecard** is one command, `C:/temp/e2/score-whole.py <tag> --model <onnx>` (one view, how a model ships): Andromeda's
+bright dark-sky stars flat and dug and blue's residual at 1.5-3 and 3-4.5 px, the Tarantula's bright dark-sky stars flat
+and left and its core residual per channel, its crowded stars, Gaia BP 17-19 and purity, the Sagittarius Triplet's
+crowded stars, and M31's nucleus. Its guards are round 1's: the nucleus at most 5 % in every channel, purity at most 1.0 %.
+The judges' rows are the ceiling, R2i seed 0's the small-model baseline and R2t's the round 1 base.
+
+**The arms.** A1, **R2s2**: the per-channel PSF drawn from measured real stars (FWHM, beta and the shoulder per channel, as
+one joint distribution; the halo fix's branch, which also mends R2s's halos) exported as synth8, on R2i's recipe on the
+1070, against R2i seed 0. A2: R2t's recipe on synth8 on a T4, its teacher rebuilt on synth8 from R2s2 (a teacher of synth4
+models would teach the old shape back). Each is pre-registered here once synth8 is measured against real stars.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
