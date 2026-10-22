@@ -49,27 +49,16 @@ internal class QHYCameraControlledFilterWheelDriver(QHYDevice device, IServicePr
 
     protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
     {
-        // The CFW requires the camera to be initialised (stream mode + InitQHYCCD)
-        if (!_deviceInfo.Init())
+        // The CFW requires the camera to be initialised (stream mode + InitQHYCCD). A refusal is not closed here: the
+        // connect that called this closes what it opened when an init fails (DeviceDriverBase.ReleaseFailedConnectionAsync),
+        // through the SDK gate (#1758); closing here too closed it twice.
+        if (!_deviceInfo.Init() || !_deviceInfo.IsCfwPlugged)
         {
-            _deviceInfo.Close();
-            return ValueTask.FromResult(false);
-        }
-
-        if (!_deviceInfo.IsCfwPlugged)
-        {
-            _deviceInfo.Close();
             return ValueTask.FromResult(false);
         }
 
         _filterCount = _deviceInfo.CfwSlotCount;
-        if (_filterCount > 0)
-        {
-            return ValueTask.FromResult(true);
-        }
-
-        _deviceInfo.Close();
-        return ValueTask.FromResult(false);
+        return ValueTask.FromResult(_filterCount > 0);
     }
 
     /// <summary>

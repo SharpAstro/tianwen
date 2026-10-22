@@ -360,6 +360,25 @@ internal sealed class FakeCmosState(string serial)
     /// <summary>Called inside every control write, on the calling thread, so a test can hold a stream's pass there.</summary>
     public Action<CMOSControlType>? OnSetControl { get; set; }
 
+    /// <summary>Called inside a control read, on the reader's thread: a test holds a call inside the SDK with it.</summary>
+    public Action<CMOSControlType>? OnGetControl { get; set; }
+
+    private int _callsWhileClosed;
+
+    /// <summary>
+    /// Control reads that reached the SDK while the camera was closed: on hardware each is a call on a freed handle, the
+    /// access violation the driver's SDK gate exists to prevent (#1758).
+    /// </summary>
+    public int CallsWhileClosed => Volatile.Read(ref _callsWhileClosed);
+
+    public void NoteCall()
+    {
+        if (Opens <= Closes)
+        {
+            Interlocked.Increment(ref _callsWhileClosed);
+        }
+    }
+
     /// <summary>What a stall needs before the body sends frames again.</summary>
     public enum Cure { Restart, Reopen, Reset, Never }
 
@@ -694,6 +713,8 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
 
     public CMOSErrorCode GetControlValue(CMOSControlType controlType, out int value, out bool isAuto)
     {
+        state.NoteCall();
+        state.OnGetControl?.Invoke(controlType);
         isAuto = false;
         return state.Controls.TryGetValue(controlType, out value) ? CMOSErrorCode.Success : CMOSErrorCode.InvalidControlType;
     }

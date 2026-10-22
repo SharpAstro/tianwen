@@ -448,7 +448,8 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
 
     public ValueTask<short> GetGainAsync(CancellationToken cancellationToken = default)
     {
-        if (Connected
+        using var sdk = EnterSdk();
+        if (sdk.Entered
             && _deviceInfo.GetControlValue(CMOSControlType.Gain, out var gain, out _) is CMOSErrorCode.Success
             && gain >= GainMin
             && gain <= GainMax
@@ -461,7 +462,12 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
 
     public ValueTask SetGainAsync(short value, CancellationToken cancellationToken = default)
     {
-        if (value < GainMin || value > GainMax || _deviceInfo.SetControlValue(CMOSControlType.Gain, value) is not CMOSErrorCode.Success)
+        using var sdk = EnterSdk();
+        if (!sdk.Entered)
+        {
+            throw NotConnectedException();
+        }
+        else if (value < GainMin || value > GainMax || _deviceInfo.SetControlValue(CMOSControlType.Gain, value) is not CMOSErrorCode.Success)
         {
             throw new ArgumentOutOfRangeException(nameof(value), value, $"Gain must be between {GainMin} and {GainMax} inclusive");
         }
@@ -472,7 +478,8 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
 
     public ValueTask<int> GetOffsetAsync(CancellationToken cancellationToken = default)
     {
-        if (Connected
+        using var sdk = EnterSdk();
+        if (sdk.Entered
             && _deviceInfo.GetControlValue(CMOSControlType.Brightness, out var offset, out _) is CMOSErrorCode.Success
             && offset >= OffsetMin
             && offset <= OffsetMax
@@ -485,7 +492,12 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
 
     public ValueTask SetOffsetAsync(int value, CancellationToken cancellationToken = default)
     {
-        if (value < OffsetMin || value > OffsetMax || _deviceInfo.SetControlValue(CMOSControlType.Brightness, value) is not CMOSErrorCode.Success)
+        using var sdk = EnterSdk();
+        if (!sdk.Entered)
+        {
+            throw NotConnectedException();
+        }
+        else if (value < OffsetMin || value > OffsetMax || _deviceInfo.SetControlValue(CMOSControlType.Brightness, value) is not CMOSErrorCode.Success)
         {
             throw new ArgumentOutOfRangeException(nameof(value), value, $"Offset must be between {OffsetMin} and {OffsetMax} inclusive");
         }
@@ -696,6 +708,13 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
             return _camState;
         }
 
+        // Closed or closing under an exposure: the state stands until a connect or a reset says otherwise.
+        using var sdk = EnterSdk();
+        if (!sdk.Entered)
+        {
+            return _camState;
+        }
+
         if (_deviceInfo.GetExposureStatus(out var snapStatus) is CMOSErrorCode.Success)
         {
             switch (snapStatus)
@@ -756,14 +775,20 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
         => ValueTask.FromResult(GetCameraStateInternal());
 
     public ValueTask<double> GetCCDTemperatureAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(_deviceInfo.GetControlValue(CMOSControlType.TemperatureDeci, out var intTemp, out _) is CMOSErrorCode.Success ? intTemp * 0.1d : double.NaN);
+    {
+        using var sdk = EnterSdk();
+        return ValueTask.FromResult(sdk.Entered && _deviceInfo.GetControlValue(CMOSControlType.TemperatureDeci, out var intTemp, out _) is CMOSErrorCode.Success
+            ? intTemp * 0.1d
+            : double.NaN);
+    }
 
     public ValueTask<double> GetHeatSinkTemperatureAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(double.NaN);
 
     public ValueTask<double> GetCoolerPowerAsync(CancellationToken cancellationToken = default)
     {
-        if (!Connected)
+        using var sdk = EnterSdk();
+        if (!sdk.Entered)
         {
             throw NotConnectedException();
         }
@@ -782,14 +807,18 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
     }
 
     public ValueTask<bool> GetCoolerOnAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(Connected
+    {
+        using var sdk = EnterSdk();
+        return ValueTask.FromResult(sdk.Entered
             && CanGetCoolerOn
             && _deviceInfo.GetControlValue(CMOSControlType.CoolerOn, out var isOn, out _) is CMOSErrorCode.Success
             && isOn == Convert.ToInt32(true));
+    }
 
     public ValueTask SetCoolerOnAsync(bool value, CancellationToken cancellationToken = default)
     {
-        if (!Connected)
+        using var sdk = EnterSdk();
+        if (!sdk.Entered)
         {
             throw NotConnectedException();
         }
@@ -806,7 +835,8 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
 
     public ValueTask<double> GetSetCCDTemperatureAsync(CancellationToken cancellationToken = default)
     {
-        if (!Connected)
+        using var sdk = EnterSdk();
+        if (!sdk.Entered)
         {
             throw NotConnectedException();
         }
@@ -832,7 +862,8 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
     public ValueTask SetSetCCDTemperatureAsync(double value, CancellationToken cancellationToken = default)
     {
         // TODO exception
-        if (Connected
+        using var sdk = EnterSdk();
+        if (sdk.Entered
             && CanSetCCDTemperature
             && _deviceInfo.TryGetControlRange(CMOSControlType.TargetTemperature, out var min, out var max)
             && value >= min
@@ -865,7 +896,16 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
             throw new InvalidOperationException($"Native buffer size {nativeBuffer.Size} smaller than required {expBufferSize}");
         }
 
-        var dataAfterExpErrorCode = _deviceInfo.GetDataAfterExposure(nativeBuffer.Pointer, expBufferSize);
+        CMOSErrorCode dataAfterExpErrorCode;
+        using (var sdk = EnterSdk())
+        {
+            if (!sdk.Entered)
+            {
+                throw NotConnectedException();
+            }
+
+            dataAfterExpErrorCode = _deviceInfo.GetDataAfterExposure(nativeBuffer.Pointer, expBufferSize);
+        }
         if (dataAfterExpErrorCode is not CMOSErrorCode.Success)
         {
             throw new InvalidOperationException($"Getting data after exposure returned {dataAfterExpErrorCode} w={w} h={h} bit={exposureSettings.BitDepth}");
@@ -915,6 +955,27 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
         };
     }
 
+    /// <summary>
+    /// A close or a reset is waiting for the calls inside the SDK: an exposure going on is aborted (directly, the gate being
+    /// shut), so a download blocked on it comes back rather than keep the close waiting for the whole exposure.
+    /// </summary>
+    protected override void OnSdkClosing()
+    {
+        if (_camState is not CameraState.Exposing)
+        {
+            return;
+        }
+
+        try
+        {
+            _ = _deviceInfo.StopExposure();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "{Camera}: could not abort its exposure before closing: {Message}", Name, ex.Message);
+        }
+    }
+
     private void StopExposureInternal()
     {
         if (_camState == CameraState.Idle)
@@ -922,7 +983,8 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
             return;
         }
 
-        if (_deviceInfo.StopExposure() is CMOSErrorCode.Success)
+        using var sdk = EnterSdk();
+        if (sdk.Entered && _deviceInfo.StopExposure() is CMOSErrorCode.Success)
         {
             Interlocked.Exchange(ref _camState, CameraState.Idle);
             SetImageReadyToDownload(_exposureData is { } data ? TimeProvider.GetUtcNow() - data.StartTime : null);
@@ -1011,6 +1073,13 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
     private DateTimeOffset StartExposureCore(TimeSpan duration, FrameType frameType)
     {
         var settingsSnapshot = _cameraSettings;
+
+        // One stay inside the SDK for the whole start: the window, the exposure and the start itself.
+        using var sdk = EnterSdk();
+        if (!sdk.Entered)
+        {
+            throw NotConnectedException();
+        }
 
         if (duration < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(duration), duration, "0.0 upwards");
         if (Volatile.Read(ref _videoActive) == 1)
@@ -1132,6 +1201,12 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
 
     public ValueTask StartPulseGuideAsync(GuideDirection guideDirection, TimeSpan duration, CancellationToken cancellationToken = default)
     {
+        using var sdk = EnterSdk();
+        if (!sdk.Entered)
+        {
+            throw NotConnectedException();
+        }
+
         var timer = TimeProvider.CreateTimer(StopPulseGuiding, guideDirection, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
 
         // A device that times its own pulse is TOLD the duration; one that does not is started here
@@ -1174,7 +1249,9 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
             // Only ASK to stop a device that needs stopping. On one that timed its own pulse the
             // pulse is already over, and an extra stop is at best a wasted call and at worst a
             // command the SDK does not have, so the timer here only clears the in-flight state.
-            var code = _deviceInfo.CanPulseGuideForDuration
+            // A device closed meanwhile has no pulse left to stop: only the bookkeeping is cleared.
+            using var sdk = EnterSdk();
+            var code = !sdk.Entered || _deviceInfo.CanPulseGuideForDuration
                 ? CMOSErrorCode.Success
                 : _deviceInfo.PulseGuideOff(guideDirection);
             if (code is not CMOSErrorCode.Success)
