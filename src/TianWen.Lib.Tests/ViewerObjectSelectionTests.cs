@@ -774,6 +774,7 @@ namespace TianWen.Lib.Tests
             var ct = TestContext.Current.CancellationToken;
             using var renderer = new RgbaImageRenderer(WindowW, WindowH);
             var (viewer, state, document, _) = await NewViewerOnAsync(renderer, CatalogIndex.NGC5194, ct);
+            state.ShowOverlays = true;
             viewer.Render(document, state);
             var (x, y) = ObjectOnScreen(viewer, state);
 
@@ -805,6 +806,7 @@ namespace TianWen.Lib.Tests
             var ct = TestContext.Current.CancellationToken;
             using var renderer = new RgbaImageRenderer(WindowW, WindowH);
             var (viewer, state, document, _) = await NewViewerOnAsync(renderer, CatalogIndex.NGC5194, ct);
+            state.ShowOverlays = true;
             viewer.Render(document, state);
             var (x, y) = ObjectOnScreen(viewer, state);
 
@@ -814,6 +816,31 @@ namespace TianWen.Lib.Tests
             TapAt(viewer, x, y);
 
             state.SelectedObject.ShouldNotBeNull().Index.ShouldBe(hovered.Index);
+        }
+
+        /// <summary>
+        /// With neither the object overlay nor the sky behind the frame, nothing on screen names an object, so hovering
+        /// one washes nothing; a click still selects it.
+        /// </summary>
+        [Fact]
+        public async Task NoWashWhileNoObjectsAreShown()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+            var (viewer, state, document, _) = await NewViewerOnAsync(renderer, CatalogIndex.NGC5194, ct);
+            state.ShowOverlays = false;
+            state.ShowSkyBackdrop = false;
+            viewer.Render(document, state);
+            var (x, y) = ObjectOnScreen(viewer, state);
+
+            viewer.HandleInput(new InputEvent.MouseMove(x, y));
+            state.HoverObject.ShouldBeNull();
+            viewer.Fills.Clear();
+            viewer.Render(document, state);
+            viewer.Fills.ShouldBeEmpty();
+
+            TapAt(viewer, x, y);
+            state.SelectedObject.ShouldNotBeNull().Index.ShouldBe(CatalogIndex.NGC5194);
         }
 
         [Fact]

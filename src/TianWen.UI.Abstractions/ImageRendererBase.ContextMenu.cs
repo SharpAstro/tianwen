@@ -597,11 +597,14 @@ namespace TianWen.UI.Abstractions
         /// A declared region -- the object panel and its links, the histogram, the sky's palette --
         /// claims the pointer outright: no wash resolves through a panel to the picture behind it, and
         /// a move inside a lit link asks for nothing, which the router's own hover rule requires
-        /// (<c>CrossingOntoAPanelLinkRepaintsAndMovingWithinItDoesNot</c>).
+        /// (<c>CrossingOntoAPanelLinkRepaintsAndMovingWithinItDoesNot</c>). Nor does one resolve while no objects are
+        /// shown, neither the object overlay nor the sky behind the frame: a wash would light an object nothing on screen
+        /// names. A click still selects there.
         /// </remarks>
         private bool UpdateHoverAt(ViewerState state, float px, float py)
         {
-            var overThePicture = _layout.ImageArea.Contains(px, py)
+            var overThePicture = (state.ShowOverlays || SkyBackdropActive)
+                && _layout.ImageArea.Contains(px, py)
                 && HoverAllowedAt(px, py)
                 && !_isPinching
                 && HitTest(px, py) is null;
