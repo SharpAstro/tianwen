@@ -327,6 +327,16 @@ public record struct ImageMeta(
     public double? FluxScale { get; init; }
 
     /// <summary>
+    /// How many times quieter an enhance left this image than its input (the mean noise in over the noise out, compounding
+    /// over earlier enhances), null for an image no enhance has touched; FITS card <c>NOISERED</c>. A stretch sizes its
+    /// black point by the noise, and the noise of a denoised frame is a fraction of the data's real depth, so every auto
+    /// stretch multiplies the frame's measured noise back by this (<see cref="StretchSolver.ComputeStretchUniforms"/>'s
+    /// <c>noiseScale</c>): one rule for the viewer, a reopened file and the CLI.
+    /// </summary>
+    /// <remarks>Nullable rather than defaulted to 1, for the reason <see cref="FluxScale"/> is.</remarks>
+    public double? NoiseReduction { get; init; }
+
+    /// <summary>
     /// The frame's PICTURE, as the IRAF <c>DATASEC</c> card declares it: the sub-rectangle of the
     /// raster that carries light, 0-based with an exclusive width (<see cref="FitsSection"/> owns the
     /// conversion). Null when the file declares none, which is the common case and means "the whole

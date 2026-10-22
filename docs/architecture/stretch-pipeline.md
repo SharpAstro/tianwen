@@ -59,7 +59,15 @@ uniform pipeline, not a mess of if else"):
 - **Luma keeps a pixel's colour ABOVE THE BLACK POINT** (the curve's shadow), not above the pedestal: measured above the
   pedestal, the sky every pixel of a galaxy shares diluted its ratios to grey. On the enhanced L-Quad Sculptor master the
   core reads R 0.0018 / G 0.0014 / B 0.0011 over its levelled sky, an orange Linked crushes to white near the top of its
-  curve and Luma now shows. In Luma mode the producer always populates BOTH
+  curve and Luma now shows.
+- **An auto stretch is sized by the data's real noise, not by what a denoiser left.** Every enhance stamps how many times
+  quieter it left the frame (`ImageMeta.NoiseReduction`, FITS `NOISERED`, the mean noise in over the noise out,
+  compounding over earlier enhances), and every solve multiplies the frame's measured MAD back by it
+  (`StretchSolver.ComputeStretchUniforms`' `noiseScale`: the viewer, a reopened file, the headless render, thumbnails).
+  The preset (`(0.2, 2.8)`) and the user's choice of it are untouched; only the noise the black point is sized by
+  changes. Without it the enhanced Sculptor master solved to midtones of 0.000127 (MAD 6e-6, a fifth of its pre-denoise
+  noise) and every pixel above the sky went toward white, its colour noise with it. A frame no enhance touched carries
+  no card and stretches exactly as before. In Luma mode the producer always populates BOTH
 `StretchUniforms.LumaStretch` (scalar Luma MTF params) AND per-channel `Shadows/Midtones/Rescale`
 (linked branch params) so the shader can blend between them via `LumaBlend`.
 

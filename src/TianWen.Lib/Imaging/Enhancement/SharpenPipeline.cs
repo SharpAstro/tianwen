@@ -870,12 +870,37 @@ public sealed class SharpenPipeline(
         // second time. The in-house enhancers carry their input's metadata through; one that reads its output back from
         // a file of its own (RC-Astro) does not, and its plates are restamped here. Two slots can hold one image (the
         // SCNR'd stars), so each image is restamped once.
-        if (appliedWhiteBalance is { } applied)
+        //
+        // And every plate says how much quieter the run left it than its input (ImageMeta.NoiseReduction, the mean noise in
+        // over the result's, compounding over an earlier enhance): a stretch sizes its black point by the noise, and on a
+        // denoised frame that is a fraction of the data's real depth, so the auto-stretch read it back up by this factor
+        // rather than throw everything above the sky toward white (the enhanced Sculptor master, midtones 0.000127).
+        double? noiseReduction = null;
+        if (final is { } result)
+        {
+            var before = MeanNoise(inputNoise);
+            var after = MeanNoise(result.EstimateNoiseProfile());
+            if (before > 0 && after > 0)
+            {
+                noiseReduction = Math.Max(1.0, before / after) * (request.Source.ImageMeta.NoiseReduction ?? 1.0);
+            }
+        }
+        var stampedColour = appliedWhiteBalance;
+        if (stampedColour is not null || noiseReduction is not null)
         {
             var restamped = new List<(Image Plate, Image Stamped)>(4);
             Image? Stamp(Image? plate)
             {
-                if (plate is null || plate.ImageMeta.ColourCalibration == applied)
+                if (plate is null)
+                {
+                    return plate;
+                }
+                var meta = plate.ImageMeta with
+                {
+                    ColourCalibration = stampedColour ?? plate.ImageMeta.ColourCalibration,
+                    NoiseReduction = noiseReduction ?? plate.ImageMeta.NoiseReduction,
+                };
+                if (meta == plate.ImageMeta)
                 {
                     return plate;
                 }
@@ -886,7 +911,7 @@ public sealed class SharpenPipeline(
                         return stamped;
                     }
                 }
-                var copy = plate.Affine(1.0, 0.0, plate.ImageMeta with { ColourCalibration = applied });
+                var copy = plate.Affine(1.0, 0.0, meta);
                 restamped.Add((plate, copy));
                 return copy;
             }
@@ -928,6 +953,21 @@ public sealed class SharpenPipeline(
             InputNoise: inputNoise,
             FinalNoise: finalNoise,
             AppliedWhiteBalance: appliedWhiteBalance);
+    }
+
+    /// <summary>The mean of a per-channel noise profile, 0 for an empty one.</summary>
+    private static double MeanNoise(ImmutableArray<float> profile)
+    {
+        if (profile.IsDefaultOrEmpty)
+        {
+            return 0;
+        }
+        var sum = 0.0;
+        foreach (var sigma in profile)
+        {
+            sum += sigma;
+        }
+        return sum / profile.Length;
     }
 
     /// <summary>
