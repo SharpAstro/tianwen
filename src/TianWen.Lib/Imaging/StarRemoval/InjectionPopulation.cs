@@ -82,6 +82,7 @@ public sealed class InjectionPopulation
     private readonly ImmutableArray<double> _fallbackClips;
     private readonly (double X, double Y, double E, double Theta)[] _moments;
     private readonly StarlessFieldProfile? _field;
+    private StarShapeRow? _shape;
     private ChannelRelation? _ownRelation;
 
     private InjectionPopulation(
@@ -107,7 +108,7 @@ public sealed class InjectionPopulation
 
     /// <summary>A star the pool draws: its amplitudes, its clip levels (empty unless saturated) and the lobes that travel with
     /// it (empty unless lobes are carried).</summary>
-    private sealed record PoolStar(ImmutableArray<double> Amplitudes, ImmutableArray<double> Clips, ImmutableArray<Lobe> Lobes);
+    private sealed record PoolStar(ImmutableArray<double> Amplitudes, ImmutableArray<double> Clips, ImmutableArray<Lobe> Lobes, float Significance);
 
     /// <summary>A second-pass row carried beside its star: its offset from the star's centre, and its amplitudes.</summary>
     private sealed record Lobe(double Dx, double Dy, ImmutableArray<double> Amplitudes);
@@ -152,16 +153,22 @@ public sealed class InjectionPopulation
     /// FWHM and Moffat beta, the master's own measurement. <paramref name="absent"/> is the frame's absent canvas.
     /// <paramref name="field"/> is the plate builder's own profile, which <see cref="StarProfileFamily.Field"/> draws with.
     /// <paramref name="lobes"/> carries each star's second-pass rows with it (<see cref="LobeReachFwhm"/>); off, every row
-    /// is a star of its own, as before R2k.
+    /// is a star of its own, as before R2k. <paramref name="shape"/> (R2s2, <see cref="StarShape"/>) draws each star's field
+    /// profile at the wing gains the master's real stars of its brightness were measured to need, per channel; null draws
+    /// it as fitted.
     /// </summary>
     public static InjectionPopulation Build(
         ImmutableArray<FittedStar> catalogue, Image master, Image plate, double scale, IReadOnlyList<(double Fwhm, double Beta)> psf, BitMatrix? absent,
-        StarlessFieldProfile? field = null, bool lobes = false)
+        StarlessFieldProfile? field = null, bool lobes = false, StarShapeRow? shape = null)
     {
         var channels = master.ChannelCount;
         if (psf.Count != channels)
         {
             throw new ArgumentException($"{psf.Count} channel PSFs for a {channels}-channel master", nameof(psf));
+        }
+        if (shape is not null && shape.Bands.Any(b => b.Channels.Length != channels))
+        {
+            throw new ArgumentException($"a star shape whose bands are not of {channels} channels", nameof(shape));
         }
         if (field is { } f && f.Channels.Length != channels)
         {
@@ -200,7 +207,7 @@ public sealed class InjectionPopulation
             .ToArray();
         var amplitudes = Enumerable.Range(0, catalogue.Length)
             .Where(k => catalogue[k] is var s && Usable(s, channels) && !s.Saturated && s.ChannelAmplitudes.Max() > 0 && !IsLobe(k))
-            .Select(k => new PoolStar([.. catalogue[k].ChannelAmplitudes.Select(a => Math.Max(0.0, a) * scale)], [], LobesOf(k)))
+            .Select(k => new PoolStar([.. catalogue[k].ChannelAmplitudes.Select(a => Math.Max(0.0, a) * scale)], [], LobesOf(k), catalogue[k].Significance))
             .ToArray();
         if (amplitudes.Length == 0)
         {
@@ -222,7 +229,7 @@ public sealed class InjectionPopulation
             .Where(k => InSaturatedPool(catalogue[k], channels) && !IsLobe(k))
             .Select(k => (Entry: SaturatedEntry(catalogue[k], planes, platePlanes, width, height, scale), Lobes: LobesOf(k)))
             .Where(static t => t.Entry.Clips.Any(double.IsFinite) && t.Entry.Clips.All(static v => v > 0))
-            .Select(static t => new PoolStar(t.Entry.Amplitudes, t.Entry.Clips, t.Lobes))
+            .Select(static t => new PoolStar(t.Entry.Amplitudes, t.Entry.Clips, t.Lobes, float.PositiveInfinity))
             .ToArray();
         var fallbackClips = Enumerable.Range(0, channels)
             .Select(c => FallbackClipFraction * planes[c].Where(float.IsFinite).DefaultIfEmpty(0f).Max() * scale)
@@ -259,7 +266,7 @@ public sealed class InjectionPopulation
         }
 
         return new InjectionPopulation(width, height, channels, absent, psf.ToArray(), sites, countedSites, amplitudes, saturated, fallbackClips,
-            moments.ToArray(), field);
+            moments.ToArray(), field) { _shape = shape };
     }
 
     /// <summary>
@@ -318,10 +325,22 @@ public sealed class InjectionPopulation
             {
                 throw new InvalidOperationException("a channel variation moves the master's field profile onto another's; it needs the Field profile");
             }
+            if (_shape is not null)
+            {
+                // A master calibrated to its own stars (R2s2) keeps their shape; another master's relation would undo it.
+                throw new InvalidOperationException("a channel variation is not drawn on a master calibrated to its own stars' shape");
+            }
             _ownRelation ??= ChannelRelation.Of("own", _field);
             var (drawnRelation, drawnFactors) = variation.DrawCell(_ownRelation, variationRng);
             (factors, relationFrom) = (drawnFactors, drawnRelation.Source);
         }
+        if (_shape is not null && family != StarProfileFamily.Field)
+        {
+            throw new InvalidOperationException("a star shape calibrates the master's field profile; it needs the Field profile");
+        }
+        // A star's profiles where it lands, at its brightness's measured wing gains (R2s2) and the draw's channel factors.
+        ImmutableArray<StarProfile> Shaped(double x, double y, float significance)
+            => Varied(ProfilesAt(x, y, family, _shape is { } shape ? StarShape.LogGains(shape, significance) : default), factors);
 
         var x0 = Math.Max(0, cellX - margin);
         var y0 = Math.Max(0, cellY - margin);
@@ -354,8 +373,8 @@ public sealed class InjectionPopulation
                 continue;
             }
             var drawn = _amplitudes[rng.Next(_amplitudes.Length)];
-            stars.Add(new InjectedStar(p.X, p.Y, drawn.Amplitudes, Varied(ProfilesAt(p.X, p.Y, family), factors), Saturated: false, ImmutableArray<double>.Empty));
-            AddLobes(stars, p, drawn.Lobes, family, factors);
+            stars.Add(new InjectedStar(p.X, p.Y, drawn.Amplitudes, Shaped(p.X, p.Y, drawn.Significance), Saturated: false, ImmutableArray<double>.Empty));
+            AddLobes(stars, p, drawn.Lobes, (x, y) => Shaped(x, y, drawn.Significance));
             placed++;
         }
 
@@ -386,8 +405,9 @@ public sealed class InjectionPopulation
                     var target = clips.Max() * over;
                     amplitudes = colour.Select(a => peak > 0 ? a / peak * target : target).ToImmutableArray();
                 }
-                stars.Add(new InjectedStar(p.X, p.Y, amplitudes, Varied(ProfilesAt(p.X, p.Y, family), factors), Saturated: true, clips));
-                AddLobes(stars, p, lobes, family, factors);
+                // A saturated star is the brightest band's, however its source star was found.
+                stars.Add(new InjectedStar(p.X, p.Y, amplitudes, Shaped(p.X, p.Y, float.PositiveInfinity), Saturated: true, clips));
+                AddLobes(stars, p, lobes, (x, y) => Shaped(x, y, float.PositiveInfinity));
             }
         }
         return new InjectionPlan(stars.ToImmutable(), requested, placed, fallback, relationFrom);
@@ -397,11 +417,11 @@ public sealed class InjectionPopulation
     private static ImmutableArray<StarProfile> Varied(ImmutableArray<StarProfile> profiles, ImmutableArray<(double LogHalo, double LogWidth)> factors)
         => factors.IsDefault ? profiles : ChannelVariation.Apply(profiles, factors);
 
-    // A drawn star's lobes beside it, at their own offsets, each with the profile of where it lands and the draw's channel
-    // factors; one that would land off the frame or on an absent pixel is left out. They draw nothing from the random
-    // stream, so a plan with lobes places and picks its stars as one without them would, the count aside.
-    private void AddLobes(ImmutableArray<InjectedStar>.Builder stars, (double X, double Y) at, ImmutableArray<Lobe> lobes, StarProfileFamily family,
-        ImmutableArray<(double LogHalo, double LogWidth)> factors)
+    // A drawn star's lobes beside it, at their own offsets, each with the profile of where it lands shaped as its star's;
+    // one that would land off the frame or on an absent pixel is left out. They draw nothing from the random stream, so a
+    // plan with lobes places and picks its stars as one without them would, the count aside.
+    private void AddLobes(ImmutableArray<InjectedStar>.Builder stars, (double X, double Y) at, ImmutableArray<Lobe> lobes,
+        Func<double, double, ImmutableArray<StarProfile>> shaped)
     {
         foreach (var lobe in lobes)
         {
@@ -413,7 +433,7 @@ public sealed class InjectionPopulation
             {
                 continue;
             }
-            stars.Add(new InjectedStar(x, y, lobe.Amplitudes, Varied(ProfilesAt(x, y, family), factors), Saturated: false, ImmutableArray<double>.Empty, Lobe: true));
+            stars.Add(new InjectedStar(x, y, lobe.Amplitudes, shaped(x, y), Saturated: false, ImmutableArray<double>.Empty, Lobe: true));
         }
     }
 
@@ -445,8 +465,9 @@ public sealed class InjectionPopulation
     /// <summary>
     /// Each channel's profile at (<paramref name="x"/>, <paramref name="y"/>), elongated as the nearby stars are: the plate
     /// builder's own for <see cref="StarProfileFamily.Field"/>, the PSF store's Moffat (or a Gaussian at its FWHM) otherwise.
+    /// A field profile is drawn at <paramref name="wingLogGains"/> where given (<see cref="StarShape"/>), one per channel.
     /// </summary>
-    public ImmutableArray<StarProfile> ProfilesAt(double x, double y, StarProfileFamily family)
+    public ImmutableArray<StarProfile> ProfilesAt(double x, double y, StarProfileFamily family, ImmutableArray<double> wingLogGains = default)
     {
         if (family == StarProfileFamily.Field && _field is null)
         {
@@ -457,7 +478,8 @@ public sealed class InjectionPopulation
         for (var c = 0; c < _channels; c++)
         {
             profiles.Add(_field is { } field && family == StarProfileFamily.Field
-                ? new StarProfile(family, field.Channels[c].Fwhm, field.Channels[c].Beta, q, theta, field.Channels[c].Table, field.Channels[c].TableAlpha)
+                ? new StarProfile(family, field.Channels[c].Fwhm, field.Channels[c].Beta, q, theta, field.Channels[c].Table, field.Channels[c].TableAlpha,
+                    wingLogGains.IsDefault ? 0.0 : wingLogGains[c])
                 : new StarProfile(family, _psf[c].Fwhm, _psf[c].Beta, q, theta));
         }
         return profiles.MoveToImmutable();
