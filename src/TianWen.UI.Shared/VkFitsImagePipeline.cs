@@ -89,6 +89,10 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     private readonly VkDescriptorSet[] _beforeSamplerSets = new VkDescriptorSet[VulkanContext.MaxFramesInFlight];
     private readonly int[] _imageSamplerSetStamp = new int[VulkanContext.MaxFramesInFlight];
     private readonly int[] _beforeSamplerSetStamp = new int[VulkanContext.MaxFramesInFlight];
+    // Set 2: the star split's pre-stretched stars plate (UploadStarTexture), per frame in flight like set 1, bound to the
+    // placeholder on a frame with no split.
+    private readonly VkDescriptorSet[] _starSamplerSets = new VkDescriptorSet[VulkanContext.MaxFramesInFlight];
+    private readonly int[] _starSamplerSetStamp = new int[VulkanContext.MaxFramesInFlight];
     // Starts above the slots' zero so every set is written before its first bind.
     private int _samplerViewsStamp = 1;
 
@@ -112,6 +116,13 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     /// </summary>
     public VkFormatFeatureFlags R32SfloatOptimalTilingFeatures => _r32SfloatOptimalTilingFeatures;
     public bool R32SfloatLinearFilterSupported => _r32SfloatLinearFilterSupported;
+
+    // The star split's stretched stars plate (3x R32_SFLOAT 2D), screened over the starless picture by the shader.
+    private readonly VkImage[] _starImages = new VkImage[ChannelCount];
+    private readonly VkDeviceMemory[] _starMemories = new VkDeviceMemory[ChannelCount];
+    private readonly VkImageView[] _starViews = new VkImageView[ChannelCount];
+    private readonly int[] _starWidth = new int[ChannelCount];
+    private readonly int[] _starHeight = new int[ChannelCount];
 
     // Channel textures (3x R32_SFLOAT 2D)
     private readonly VkImage[] _channelImages = new VkImage[ChannelCount];
@@ -378,6 +389,58 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         UploadToImage(_channelImages[channel], (uint)width, (uint)height, byteSize, format);
         _channelWidth[channel] = width;
         _channelHeight[channel] = height;
+    }
+
+    /// <summary>
+    /// Uploads one channel of the star split's STRETCHED stars plate (display values in [0, 1], the stars' own fixed curve
+    /// already applied), which the shader screens over the stretched starless picture (<c>starScreen</c>). The plate is not
+    /// stretched again here, nor edited by any display lever: it is the same picture whatever the stretch.
+    /// </summary>
+    public void UploadStarTexture(ReadOnlySpan<float> data, int channel, int width, int height)
+    {
+        if ((uint)channel >= ChannelCount)
+            throw new ArgumentOutOfRangeException(nameof(channel));
+
+        var byteSize = (ulong)(data.Length * sizeof(float));
+        EnsureStagingBuffer(byteSize);
+        CopyToStaging(data, byteSize);
+        if (_starWidth[channel] != width || _starHeight[channel] != height)
+        {
+            DestroyStarTexture(channel);
+            CreateSampledTexture(width, height, VkFormat.R32Sfloat, out _starImages[channel], out _starMemories[channel],
+                out _starViews[channel], out _);
+            SamplerViewsChanged();
+        }
+        UploadToImage(_starImages[channel], (uint)width, (uint)height, byteSize, VkFormat.R32Sfloat);
+        _starWidth[channel] = width;
+        _starHeight[channel] = height;
+    }
+
+    /// <summary>Frees the star split's textures (a frame with no split binds the placeholder in their place).</summary>
+    public void ReleaseStarTextures()
+    {
+        for (var i = 0; i < ChannelCount; i++)
+        {
+            DestroyStarTexture(i);
+        }
+    }
+
+    /// <summary>True while a star split's stars plate is uploaded.</summary>
+    public bool HasStarTextures => _starViews[0] != VkImageView.Null;
+
+    private void DestroyStarTexture(int channel)
+    {
+        if (_starViews[channel] == VkImageView.Null)
+        {
+            return;
+        }
+        SamplerViewsChanged();
+        _ctx.DeferDestroy(view: _starViews[channel], image: _starImages[channel], memory: _starMemories[channel]);
+        _starViews[channel] = VkImageView.Null;
+        _starImages[channel] = VkImage.Null;
+        _starMemories[channel] = VkDeviceMemory.Null;
+        _starWidth[channel] = 0;
+        _starHeight[channel] = 0;
     }
 
     /// <summary>
@@ -675,6 +738,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         float texelsPerPixel = 1f,
         float finishContrast = 0f,
         float finishSaturation = 1f,
+        bool starScreen = false,
         int slot = UboSlotPrimary)
     {
         if ((uint)slot >= StretchUboSlots)
@@ -823,7 +887,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         // FinishSaturation), applied after the soft clip; its mask's background is curvesMidpoint at offset 16.
         WriteFloat(p, 432, finishContrast);
         WriteFloat(p, 436, finishSaturation);
-        WriteFloat(p, 440, 0f);
+        WriteFloat(p, 440, starScreen ? 1f : 0f);
         WriteFloat(p, 444, 0f);
 
         // Every 4-byte slot from 0 to StretchUboSize is written on every call, so comparing the whole
@@ -924,6 +988,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             0, 1, &uboSet, 0, null);
         api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics, _pipelineLayout,
             1, 1, &samplerSet, 0, null);
+        var starSet = EnsureStarSamplerSet(frameSlot);
+        api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics, _pipelineLayout,
+            2, 1, &starSet, 0, null);
 
         PushProjectionAndDraw(cmd, ctx, left, top, right, bottom, projW, projH);
         ctx.EndGpuSection();
@@ -1002,6 +1069,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         {
             DestroyChannelTexture(i);
             DestroyHistogramTexture(i);
+            DestroyStarTexture(i);
         }
         _ctx.DeferDestroy(view: _fallbackView, image: _fallbackImage, memory: _fallbackMemory);
 
@@ -1074,7 +1142,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
         // 3 UBO descriptors (image slot 0 + image slot 1 + histogram) + sampler descriptors for the
         // image and before-image sets, one of each PER FRAME IN FLIGHT, plus the histogram set.
-        const int SamplerSets = 2 * VulkanContext.MaxFramesInFlight + 1;
+        const int SamplerSets = 3 * VulkanContext.MaxFramesInFlight + 1;
         var poolSizes = stackalloc VkDescriptorPoolSize[2];
         poolSizes[0] = new VkDescriptorPoolSize
         {
@@ -1103,7 +1171,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         // Allocate every set at once: the four UBO sets, the histogram sampler set, then one image
         // sampler set and one before-image sampler set per frame in flight.
         const int Frames = VulkanContext.MaxFramesInFlight;
-        const int SetCount = 5 + 2 * Frames;
+        const int SetCount = 5 + 3 * Frames;
         var layouts = stackalloc VkDescriptorSetLayout[SetCount];
         layouts[0] = _uboSetLayout;       // image UBO, slot 0 (live)
         layouts[1] = _uboSetLayout;       // image UBO, slot 1 (comparison)
@@ -1112,7 +1180,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         layouts[4] = _samplerSetLayout;   // histogram samplers
         for (var i = 5; i < SetCount; i++)
         {
-            layouts[i] = _samplerSetLayout;   // image samplers x Frames, then before-image samplers x Frames
+            layouts[i] = _samplerSetLayout;   // image samplers x Frames, before-image samplers x Frames, star samplers x Frames
         }
 
         var sets = stackalloc VkDescriptorSet[SetCount];
@@ -1133,6 +1201,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         {
             _imageSamplerSets[f] = sets[5 + f];
             _beforeSamplerSets[f] = sets[5 + Frames + f];
+            _starSamplerSets[f] = sets[5 + (2 * Frames) + f];
         }
     }
 
@@ -1148,13 +1217,15 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             size = 64
         };
 
-        var setLayouts = stackalloc VkDescriptorSetLayout[2];
+        // Set 2 is the star split's stars plate, in the same three-sampler layout as set 1.
+        var setLayouts = stackalloc VkDescriptorSetLayout[3];
         setLayouts[0] = _uboSetLayout;
         setLayouts[1] = _samplerSetLayout;
+        setLayouts[2] = _samplerSetLayout;
 
         VkPipelineLayoutCreateInfo plCI = new()
         {
-            setLayoutCount = 2,
+            setLayoutCount = 3,
             pSetLayouts = setLayouts,
             pushConstantRangeCount = 1,
             pPushConstantRanges = &pushRange
@@ -1321,6 +1392,18 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
     private void CreateChannelTexture(int channel, int width, int height, VkFormat format)
     {
+        CreateSampledTexture(width, height, format, out _channelImages[channel], out _channelMemories[channel],
+            out _channelViews[channel], out _channelBytes[channel]);
+        _channelFormats[channel] = format;
+    }
+
+    /// <summary>
+    /// One 2D texture the fragment shader samples, in <see cref="VkImageLayout.ShaderReadOnlyOptimal"/>: ONE definition for
+    /// the channel textures and the star-split textures (<see cref="UploadStarTexture"/>).
+    /// </summary>
+    private void CreateSampledTexture(int width, int height, VkFormat format,
+        out VkImage image, out VkDeviceMemory memory, out VkImageView view, out long bytes)
+    {
         var api = _ctx.DeviceApi;
 
         VkImageCreateInfo imageCI = new()
@@ -1343,28 +1426,28 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             sharingMode = VkSharingMode.Exclusive,
             initialLayout = VkImageLayout.Undefined
         };
-        api.vkCreateImage(&imageCI, null, out _channelImages[channel]).CheckResult();
+        api.vkCreateImage(&imageCI, null, out image).CheckResult();
 
-        api.vkGetImageMemoryRequirements(_channelImages[channel], out var memReqs);
-        _channelBytes[channel] = (long)memReqs.size;
+        api.vkGetImageMemoryRequirements(image, out var memReqs);
+        bytes = (long)memReqs.size;
         VkMemoryAllocateInfo allocInfo = new()
         {
             allocationSize = memReqs.size,
             memoryTypeIndex = _ctx.FindMemoryType(memReqs.memoryTypeBits, VkMemoryPropertyFlags.DeviceLocal)
         };
-        api.vkAllocateMemory(&allocInfo, null, out _channelMemories[channel]).CheckResult();
-        api.vkBindImageMemory(_channelImages[channel], _channelMemories[channel], 0);
+        api.vkAllocateMemory(&allocInfo, null, out memory).CheckResult();
+        api.vkBindImageMemory(image, memory, 0);
 
+        var created = image;
         _ctx.ExecuteOneShot(cmd =>
-            TransitionImageLayout(cmd, _channelImages[channel],
+            TransitionImageLayout(cmd, created,
                 VkImageLayout.Undefined, VkImageLayout.ShaderReadOnlyOptimal));
 
         var viewCI = new VkImageViewCreateInfo(
-            _channelImages[channel], VkImageViewType.Image2D, format,
+            image, VkImageViewType.Image2D, format,
             VkComponentMapping.Rgba,
             new VkImageSubresourceRange(VkImageAspectFlags.Color, 0, 1, 0, 1));
-        api.vkCreateImageView(&viewCI, null, out _channelViews[channel]).CheckResult();
-        _channelFormats[channel] = format;
+        api.vkCreateImageView(&viewCI, null, out view).CheckResult();
     }
 
     private void CreateHistogramTexture(int channel)
@@ -1499,6 +1582,21 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
                 BindChannelSampler(i, view != VkImageView.Null ? view : _fallbackView, set);
             }
             stamps[slot] = _samplerViewsStamp;
+        }
+        return set;
+    }
+
+    /// <summary>This frame slot's star-split set, rewritten when a view changed: the stars plate, or the placeholder.</summary>
+    private VkDescriptorSet EnsureStarSamplerSet(int slot)
+    {
+        var set = _starSamplerSets[slot];
+        if (_starSamplerSetStamp[slot] != _samplerViewsStamp)
+        {
+            for (var i = 0; i < ChannelCount; i++)
+            {
+                BindChannelSampler(i, _starViews[i] != VkImageView.Null ? _starViews[i] : _fallbackView, set);
+            }
+            _starSamplerSetStamp[slot] = _samplerViewsStamp;
         }
         return set;
     }
@@ -1950,6 +2048,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             0, 1, &uboSet, 0, null);
         api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics, _pipelineLayout,
             1, 1, &samplerSet, 0, null);
+        var starSet = EnsureStarSamplerSet(ctx.CurrentFrame);
+        api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics, _pipelineLayout,
+            2, 1, &starSet, 0, null);
 
         // The pane, in the image's own texture coordinates. Outside [0, 1] wherever the pane reaches
         // past the picture, which is the point.

@@ -40,14 +40,21 @@ layout(set = 0, binding = 0, std140) uniform StretchUBO {
     // value reaches the sky map's own grid, so the two grids this shader hands over to each other
     // cannot drift apart. It is a constant, not a per-draw choice, which is why no caller passes it.
     vec4  gridColor;
-    // offset 432 (x = finish contrast 0..1, y = finish saturation, 1 = off; zw = pad). The masked finish, after the soft
-    // clip: applyFinish below, mirrored by Image.ApplyFinish on the CPU.
+    // offset 432 (x = finish contrast 0..1, y = finish saturation, 1 = off; z = 1 to screen the star split's stars plate
+    // (set 2) over the picture after the normalise, 0 for none; w = pad). The masked finish, after the soft clip:
+    // applyFinish below, mirrored by Image.ApplyFinish on the CPU; the star screen by Image.ScreenStars.
     vec4  finishParams;
 } ubo;
 
 layout(set = 1, binding = 0) uniform sampler2D uChannel0;
 layout(set = 1, binding = 1) uniform sampler2D uChannel1;
 layout(set = 1, binding = 2) uniform sampler2D uChannel2;
+
+// Set 2: the star split's stars plate, already STRETCHED by its own fixed curve (StarStretch) and never by a display lever;
+// a 1x1 placeholder when the frame has no split.
+layout(set = 2, binding = 0) uniform sampler2D uStar0;
+layout(set = 2, binding = 1) uniform sampler2D uStar1;
+layout(set = 2, binding = 2) uniform sampler2D uStar2;
 
 const float PI = 3.14159265358979323846;
 
@@ -755,6 +762,15 @@ void main() {
     float ns = ubo.stretchBlend.y;
     if (ns != 1.0 && ns > 0.0) {
         r *= ns; g *= ns; b *= ns;
+    }
+
+    // The star split: the stars plate screened over everything the starless picture took, 1 - (1 - a)(1 - s), as the
+    // CLI's --dual-stretch recombines (Image.ScreenStars).
+    if (ubo.finishParams.z > 0.5) {
+        vec3 a = clamp(vec3(r, g, b), 0.0, 1.0);
+        vec3 s = clamp(vec3(texture(uStar0, vTexCoord).r, texture(uStar1, vTexCoord).r, texture(uStar2, vTexCoord).r), 0.0, 1.0);
+        vec3 c = a + s * (vec3(1.0) - a);
+        r = c.r; g = c.g; b = c.b;
     }
 
     if (ubo.gridEnabled != 0) {

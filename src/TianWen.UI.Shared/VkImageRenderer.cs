@@ -177,6 +177,11 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
         return true;
     }
 
+    protected override void UploadStarTexture(ReadOnlySpan<float> data, int channel, int imageWidth, int imageHeight)
+        => _fitsPipeline.UploadStarTexture(data, channel, imageWidth, imageHeight);
+
+    protected override void ReleaseStarTextures() => _fitsPipeline.ReleaseStarTextures();
+
     protected override void ReleaseUnusedChannelTextures(int liveSlotCount)
     {
         _fitsPipeline.ReleaseChannelTexturesFrom(liveSlotCount);
@@ -266,7 +271,8 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
         float left, float top, float right, float bottom, uint projW, uint projH,
         RenditionSlot slot, bool sampleBeforeChannels)
     {
-        WriteImageUniforms(source, state, rendition, gridWcs, slot);
+        // The pre-enhance pixels the split's left half can show have no stars plate of theirs to screen.
+        WriteImageUniforms(source, state, rendition, gridWcs, slot, starScreen: StarScreenActive && !sampleBeforeChannels);
 
         _fitsPipeline.RecordImageDraw(
             _renderer.CurrentCommandBuffer,
@@ -289,7 +295,7 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
     protected override bool TryWriteImageUniforms(IPreviewSource? source, ViewerState state,
         in DisplayRendition rendition, WCS? gridWcs, RenditionSlot slot)
     {
-        WriteImageUniforms(source, state, rendition, gridWcs, slot);
+        WriteImageUniforms(source, state, rendition, gridWcs, slot, starScreen: StarScreenActive);
         return true;
     }
 
@@ -304,7 +310,7 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
     /// <paramref name="gridWcs"/> as an image draw does.</param>
     private void WriteImageUniforms(IPreviewSource? source, ViewerState state,
         in DisplayRendition rendition, WCS? gridWcs, RenditionSlot slot,
-        int uboSlotOverride = -1, int gridModeOverride = -1)
+        int uboSlotOverride = -1, int gridModeOverride = -1, bool starScreen = false)
     {
         // Everything below reads the RENDITION, never state.Curves*/Hdr* directly: the split's
         // comparison half is a pinned snapshot of those dials, so reading state here would leak the
@@ -406,6 +412,7 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
             texelsPerPixel: state.Zoom > 0f ? 1f / state.Zoom : 1f,
             finishContrast: stretch.FinishContrast,
             finishSaturation: stretch.FinishSaturation,
+            starScreen: starScreen,
             slot: uboSlotOverride >= 0 ? uboSlotOverride : (int)slot);
     }
 

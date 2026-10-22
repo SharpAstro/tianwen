@@ -495,6 +495,24 @@ namespace TianWen.UI.Abstractions
         protected virtual void ReleaseUnusedChannelTextures(int liveSlotCount) { }
 
         /// <summary>
+        /// Uploads one channel of a star split's stars plate, ALREADY stretched by its own fixed curve, which the render
+        /// screens over the stretched starless picture (<see cref="StarScreenActive"/>). A backend with no star plate
+        /// storage ignores it, and then shows the starless picture alone.
+        /// </summary>
+        protected virtual void UploadStarTexture(ReadOnlySpan<float> data, int channel, int imageWidth, int imageHeight) { }
+
+        /// <summary>Frees the star split's plate, for a frame that has none.</summary>
+        protected virtual void ReleaseStarTextures() { }
+
+        /// <summary>
+        /// Whether the frame on show is a star split (<see cref="AstroImageDocument.StarSplit"/>): its starless plate is the
+        /// picture every display lever acts on, and its stretched stars are screened over the result, as the CLI's
+        /// <c>--dual-stretch</c> composes them. One curve over the recombined stars lifted the wings of every star with the
+        /// faint signal: the blue rings round the enhanced Sculptor master's bright stars.
+        /// </summary>
+        public bool StarScreenActive { get; private set; }
+
+        /// <summary>
         /// Uploads histogram data from a preview source. Called once per image load (or sequence open).
         /// </summary>
         public abstract void UploadHistogramData(IPreviewSource source);
@@ -775,6 +793,12 @@ namespace TianWen.UI.Abstractions
             var pixelWidth = source.Width;
             var pixelHeight = source.Height;
             var uploadedSlots = 0;
+            // Set again by the one branch that composes a star split; every other upload shows its pixels as they are.
+            if (StarScreenActive)
+            {
+                StarScreenActive = false;
+                ReleaseStarTextures();
+            }
 
             // Raw Bayer: upload single channel, GPU shader debayers (bilinear / MHC / VNG per DebayerAlgorithm)
             if (source.SensorType is TianWen.Lib.Imaging.SensorType.RGGB && source.ChannelCount == 1
@@ -794,6 +818,20 @@ namespace TianWen.UI.Abstractions
                 {
                     UploadChannelTexture(source.GetChannelData(0), 0, pixelWidth, pixelHeight);
                 }
+            }
+            else if (state.ChannelView is ChannelView.Composite && source.ChannelCount >= 3
+                && source is AstroImageDocument { StarSplit: { } split })
+            {
+                // The star split: the starless plate is the picture, the stretched stars go to their own textures.
+                ChannelTextureCount = 3;
+                ImageSourceMode = 0; // ProcessedChannels
+                uploadedSlots = 3;
+                for (var i = 0; i < 3; i++)
+                {
+                    UploadChannelTexture(split.Starless.GetChannelSpan(i), i, pixelWidth, pixelHeight);
+                    UploadStarTexture(split.Stars.GetChannelSpan(i), i, pixelWidth, pixelHeight);
+                }
+                StarScreenActive = true;
             }
             else if (state.ChannelView is ChannelView.Composite && source.ChannelCount >= 3)
             {
