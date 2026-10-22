@@ -330,6 +330,31 @@ Canon through WPD is keyed by the body's serial, because that is readable (`Cano
   from the hardware, which offers no identity; what is left is a profile migration or a rule for matching a moved mount,
   which is work of its own (#1090).
 
+### Every call into a vendor SDK passes the gate
+
+Tracked by #1758. A native call made on a device its SDK has closed is a use-after-free inside the vendor's library: an
+access violation no .NET handler catches, which ends the whole node with any camera's cooler left as it was (a QHY178M
+faulted that way on 2026-10-22, there on a handle never initialised). Telemetry reads, exposure polls and downloads run
+outside the connect/disconnect transition, so a poll or a download could be inside the SDK when a disconnect, a forced
+disconnect at shutdown or the driver's own reset closed it.
+
+So `DALDeviceDriverBase` keeps a gate in front of the SDK, with no lock: **every call into it through `_deviceInfo` goes
+inside `using var sdk = EnterSdk();` and makes no call when `sdk.Entered` is false**, answering as a closed device does
+(a refused read is NaN or false, a refused command throws `NotConnectedException`). A caller counts itself in and then
+looks at the gate; a closer shuts the gate and then waits for the count to drain (`CloseSdkGateAsync`), both full
+fences, so either the caller backs out or the closer waits for it. A camera aborts an exposure going on before the wait
+(`OnSdkClosing`), so a download blocked on it comes back. **A close that is not drained within `SdkDrainTimeout` (30 s)
+does not close**: the disconnect fails and is tried again, a leaked handle being better than a dead node. The reset and
+the reopen are closers too, holding the SDK themselves while the gate is shut (`HoldSdk`), so a disconnect arriving
+meanwhile waits for them, and the gate opens again only when the last closer ends (`EndSdkClose`).
+
+Exempt, deliberately: calls made inside the connect transition (`InitDeviceAsync`, `InitCamera`), which no close can run
+beside; a video stream's own calls, which its disconnect waits out before closing; and values a binding caches at open
+(size, Bayer pattern, name). An `InitDeviceAsync` that fails does not close the device itself: the connect closes what it
+opened (`ReleaseFailedConnectionAsync`), through the gate, and closing in both places closed it twice. The ZWO wheel and
+focuser call ZWO's functions by id rather than through `_deviceInfo`, and ZWO answers a closed id with an error, not a
+fault. Each binding owes the same guarantee inside itself (#1759, #1760). Pinned by `DALCameraSdkGateTests`.
+
 ### A focuser's travel: MinStep to MaxStep
 
 A focuser's position lies in `[IFocuserDriver.MinStep, IFocuserDriver.MaxStep]` (#1763). **`MinStep` is the FLOOR of

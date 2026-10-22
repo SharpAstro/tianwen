@@ -149,17 +149,40 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo>
     {
         Interlocked.Exchange(ref _consecutiveLostExposures, 0);
 
-        var (settings, restore) = SettingsToRestore();
-        Logger.LogWarning("Resetting camera {Name} {Why}, as a replug would.", Name, why);
-        var resetResult = _deviceInfo.ResetDevice();
-        if (resetResult is not CMOSErrorCode.Success)
+        // A reset ends the handle as a close does: nothing else may be inside the SDK under it (#1758). The reset holds
+        // the SDK itself while the gate is shut, so a disconnect arriving meanwhile waits for it rather than closing under it.
+        if (!await CloseSdkGateAsync("a reset"))
         {
-            Logger.LogError("Camera {Name} refused the reset ({Error}); it is left as it is.", Name, resetResult);
+            EndSdkClose(reopen: true);
+            Logger.LogError("Camera {Name} was not reset {Why}: a call stayed inside its SDK. It is left as it is.", Name, why);
             return false;
         }
 
-        await FindAgainAndRestoreAsync(settings, restore, "its reset", cancellationToken);
-        return true;
+        HoldSdk();
+        var backOnTheBus = true;
+        try
+        {
+            var (settings, restore) = SettingsToRestore();
+            Logger.LogWarning("Resetting camera {Name} {Why}, as a replug would.", Name, why);
+            var resetResult = _deviceInfo.ResetDevice();
+            if (resetResult is not CMOSErrorCode.Success)
+            {
+                Logger.LogError("Camera {Name} refused the reset ({Error}); it is left as it is.", Name, resetResult);
+                return false;
+            }
+
+            backOnTheBus = false;
+            await FindAgainAndRestoreAsync(settings, restore, "its reset", cancellationToken);
+            backOnTheBus = true;
+            return true;
+        }
+        finally
+        {
+            // Open again once the camera is back (or a refused reset left it as it was); a camera that did not come back
+            // stays shut, and only a new connect opens it.
+            EndSdkClose(reopen: backOnTheBus);
+            ReleaseSdkHold();
+        }
     }
 
     /// <summary>
@@ -168,14 +191,32 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo>
     /// </summary>
     private async ValueTask ReopenAsync(string why, CancellationToken cancellationToken)
     {
-        var (settings, restore) = SettingsToRestore();
-        Logger.LogWarning("Closing camera {Name} and opening it again {Why}.", Name, why);
-        if (!_deviceInfo.Close())
+        // Closed under nothing (#1758): the telemetry reads beside a stalled stream are drained first.
+        if (!await CloseSdkGateAsync("a reopen"))
         {
-            Logger.LogWarning("Camera {Name} did not close cleanly; opening it again all the same.", Name);
+            EndSdkClose(reopen: true);
+            throw OperationalException(CMOSErrorCode.GeneralError, $"Camera {Name} was not closed and opened again {why}: a call stayed inside its SDK");
         }
 
-        await FindAgainAndRestoreAsync(settings, restore, "being closed", cancellationToken);
+        HoldSdk();
+        var backOnTheBus = false;
+        try
+        {
+            var (settings, restore) = SettingsToRestore();
+            Logger.LogWarning("Closing camera {Name} and opening it again {Why}.", Name, why);
+            if (!_deviceInfo.Close())
+            {
+                Logger.LogWarning("Camera {Name} did not close cleanly; opening it again all the same.", Name);
+            }
+
+            await FindAgainAndRestoreAsync(settings, restore, "being closed", cancellationToken);
+            backOnTheBus = true;
+        }
+        finally
+        {
+            EndSdkClose(reopen: backOnTheBus);
+            ReleaseSdkHold();
+        }
     }
 
     /// <summary>What a reset or a reopen puts back afterwards, read from the camera as it is now.</summary>

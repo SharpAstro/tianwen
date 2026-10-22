@@ -370,6 +370,9 @@ probing rules in full (moved from CLAUDE.md, 2026-10-09)").
   and a new native driver ships with its document in its first commit, mapping every driver member to the wire,
   including a connected device that does not answer: a transient THROW (#810).
 - **One driver per device; a driver's connect is all or nothing** (#806).
+- **Every call into a vendor SDK through `_deviceInfo` goes inside `using var sdk = EnterSdk();`** (`DALDeviceDriverBase`,
+  #1758): a call on a handle the SDK has closed is an access violation no handler catches, so a close shuts the gate and
+  waits for the calls inside, and gives up rather than close under one ("Every call into a vendor SDK passes the gate").
 - **A vendor's native binaries reach an app through the REFERENCE GRAPH, and nothing downstream can filter them
   out**, so the ZWO and QHYCCD drivers live in `TianWen.Devices.Native`, not `TianWen.Lib` (namespaces stayed
   `TianWen.Lib.Devices.*` on purpose; `internal` behind `InternalsVisibleTo`). Only `tianwen-server` references it

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
@@ -31,9 +31,8 @@ internal class ZWOCameraDriver(ZWODevice device, IServiceProvider sp) : DALCamer
         }
         else
         {
-            // close this device again as we failed to initalize it
-            _deviceInfo.Close();
-
+            // Not closed here: the connect that called this closes what it opened when an init fails
+            // (DeviceDriverBase.ReleaseFailedConnectionAsync), through the SDK gate (#1758); closing here too closed it twice.
             return ValueTask.FromResult(false);
         }
     }
