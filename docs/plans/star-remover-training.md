@@ -3812,8 +3812,9 @@ stars over 5 sigma are under 20 sigma, against 53 % injected) instead of three t
 the deficit under that law is counted per eighth of a decade from the floor (3 sigma) up to 10 sigma. The deficit is
 drawn as individual point sources on a random stream of its own and rendered in a pass of its own. Each drawn star is
 flagged `Faint` on its injection row. Without the option every draw and every clean master tile is byte-identical to
-the export before. The capped export's M42 master tiles and its other injection rows match the plain export, and every
-master tile and every untouched degraded tile matches the uncapped one.
+the export before. Two checks prove it on the capped export. Against a plain export of M42 alone (the one session
+exported without the option), M42's master tiles and its injection rows other than the faint stars match. Over all 8
+sessions, against the uncapped export, every master tile and every degraded tile the cap left untouched matches.
 
 **The owner's decision (2026-10-23): each tile's faint light is capped, and the floor stays at 3.** Unresolved glow
 belongs in the starless image, so the extension is held per tile, not on the session average. The measure is the light
@@ -3866,7 +3867,7 @@ below are the corrected read. Where the first read differed, its value follows i
 - **The noise level does not explain the count.** The synthetic's sigma is above real's on Lobster (0.0080 against
   0.0068), which raises its 5-sigma threshold in flux. So each synthetic tile was recounted at the paired real tile's
   threshold: the same session and cell, the same estimator and detector, and the same 256 px footprint, both tiles
-  through the master's stretch. The capped tiles come to 115.9 a tile, 17.4 % short, against 19.2 % at their own sigma;
+  through the master's stretch. The capped tiles come to 115.9 a tile, 17.3 % short, against 19.2 % at their own sigma;
   synth4 comes to 113.0, 19.4 % short. The per-tile sigma ratio's median is 1.057 over all sessions (first read 0.994).
   On Lobster's three sessions it is 1.17, 1.11 and 1.13, and the recount gains 6, 4 and 5 stars a tile against
   shortfalls of 53, 34 and 44. On HIP 80609 it is 1.02 to 1.06, and the recount gains 0.5 to 3 stars. It is 1.00 on M42
