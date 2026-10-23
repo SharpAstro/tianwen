@@ -932,12 +932,15 @@ public class StarInjectionTests(ITestOutputHelper output)
         var rng = new Random(9);
         var drawn = Enumerable.Range(0, 20_000).Select(_ => lf.DrawSignificance(rng)).ToArray();
         drawn.ShouldAllBe(static s => s >= 3.0 && s < LuminosityFunction.FitLowSigma);
-        // Below 5 the catalogue is empty and the whole law is lacking; above it, half.
-        var below5 = drawn.Count(static s => s < 5.0) / (double)drawn.Length;
-        below5.ShouldBe(Law(3.0, 5.0) / expected, 0.03);
-        // Within [3, 5) the law's own slope: as many under 3.873 (the bin's geometric middle) as the law puts there.
-        var lower = drawn.Count(static s => s < Math.Sqrt(15.0)) / (double)drawn.Count(static s => s < 5.0);
-        lower.ShouldBe(Law(3.0, Math.Sqrt(15.0)) / Law(3.0, 5.0), 0.03);
+        // Below 5 the catalogue is empty and the whole law is lacking; above it, half. Within a bin the draw follows the law,
+        // not the deficit's shape, so read the share at the last bin edge under 5 (10^(5/8) = 4.217), where it is exact.
+        var edge = Math.Pow(10.0, 5 * LuminosityFunction.BinDex);
+        var belowEdge = drawn.Count(s => s < edge) / (double)drawn.Length;
+        belowEdge.ShouldBe(Law(3.0, edge) / expected, 0.03);
+        // Within [3, edge) the law's own slope: as many under the geometric middle as the law puts there.
+        var middle = Math.Sqrt(3.0 * edge);
+        var lower = drawn.Count(s => s < middle) / (double)drawn.Count(s => s < edge);
+        lower.ShouldBe(Law(3.0, middle) / Law(3.0, edge), 0.03);
 
         // A catalogue complete down to the floor lacks nothing to speak of (a bin's noise is all max(0, ...) can leave).
         var (complete, _) = PowerLawSignificances(alpha, 40_000, new Random(6), halfFrom: 10.0, emptyBelow: 0.0);
@@ -1015,18 +1018,23 @@ public class StarInjectionTests(ITestOutputHelper output)
     public void TheCapStopsEachTilesFaintStarsWhereTheirLightReachesItAndDrawsNothing()
     {
         const int cell = 256;
-        const double cap = 0.005;
         // Amplitudes are significance over 1000 (PowerLawStar), so at a sky sigma of 0.001 a star's peak reads its significance.
         double[] sigma = [0.001];
         var population = BuildPowerLawPopulation(3.0);
-        var (touched, untouched) = (0, 0);
+        var tiles = new List<(InjectionPlan Plan, InjectedStar[] Stars, InjectedStar[] Faint, int Seed, int Cx, int Cy)>();
         for (var seed = 0; seed < 40; seed++)
         {
             var (cx, cy) = (256 * (seed % 3), 256 * (seed / 3 % 3));
             var plan = population.Plan(cx, cy, cell, 8, InjectionPlacement.Random, StarProfileFamily.Moffat, 0.5, new Random(seed), faintRng: new Random(1000 + seed));
+            tiles.Add((plan, [.. plan.Stars.Select(s => s with { X = s.X - cx, Y = s.Y - cy })], [.. plan.Faint.Select(s => s with { X = s.X - cx, Y = s.Y - cy })], seed, cx, cy));
+        }
+        // The cap at the tiles' median uncapped level, so it touches about half of them.
+        var uncapped = tiles.Select(t => t.Stars.Concat(t.Faint).Sum(s => LuminosityFunction.TileLevel(s, cell, sigma))).Order().ToArray();
+        var cap = uncapped[uncapped.Length / 2];
+        var (touched, untouched) = (0, 0);
+        foreach (var (plan, stars, faint, seed, cx, cy) in tiles)
+        {
             var again = population.Plan(cx, cy, cell, 8, InjectionPlacement.Random, StarProfileFamily.Moffat, 0.5, new Random(seed), faintRng: new Random(1000 + seed));
-            var stars = plan.Stars.Select(s => s with { X = s.X - cx, Y = s.Y - cy }).ToArray();
-            var faint = plan.Faint.Select(s => s with { X = s.X - cx, Y = s.Y - cy }).ToArray();
             var kept = LuminosityFunction.KeptUnderCap(stars, faint, cell, sigma, cap);
             LuminosityFunction.KeptUnderCap(stars, faint, cell, sigma, double.MaxValue).ShouldBe(faint.Length);
             // Nothing drawn: the same plan again holds the same faint stars, the cap's prefix among them.
@@ -1059,7 +1067,7 @@ public class StarInjectionTests(ITestOutputHelper output)
             // Past the cap by the last star kept at most.
             level.ShouldBeLessThanOrEqualTo(cap + (kept > 0 ? LuminosityFunction.TileLevel(faint[kept - 1], cell, sigma) : 0.0) + 1e-12);
         }
-        output.WriteLine($"cap {cap}: {touched} tiles touched, {untouched} not");
+        output.WriteLine($"cap {cap:F5} (uncapped levels {uncapped[0]:F5} to {uncapped[^1]:F5}): {touched} tiles touched, {untouched} not");
         touched.ShouldBeGreaterThan(0);
         untouched.ShouldBeGreaterThan(0);
 
