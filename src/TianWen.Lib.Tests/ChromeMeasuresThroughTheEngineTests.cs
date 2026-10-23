@@ -37,7 +37,7 @@ public class ChromeMeasuresThroughTheEngineTests
         ["ImageRendererBase.Overlays.cs"] = 5,
         ["ImageRendererBase.Toolbar.cs"] = 5,
         ["ImageRendererBase.Transport.cs"] = 2,
-        ["ImageRendererBase.cs"] = 10,
+        ["ImageRendererBase.cs"] = 3,
         ["SkyMapTab.ObjectOverlay.cs"] = 1,
         ["SkyMapTab.cs"] = 1,
         ["VkGuiRenderer.cs"] = 2,

@@ -528,8 +528,8 @@ public sealed class ViewerController(
 
                 FileLoaded?.Invoke(Path.GetFileName(requestedPath));
 
-                // Kick off star detection in the background
-                StartStarDetection(newDoc, appToken);
+                // Kick off star detection in the background; the stars it finds grade the frame (LightGrading).
+                StartStarDetection(newDoc, appToken, grade: true);
             }
             else if (loadError is not null)
             {
@@ -1157,7 +1157,9 @@ public sealed class ViewerController(
     /// disabled every control gated on it: Boost, Calibrate, SPCC and the star overlay all went dead
     /// after an enhance with nothing saying why.
     /// </remarks>
-    private void StartStarDetection(AstroImageDocument document, CancellationToken appToken)
+    /// <param name="grade">Whether the stars found grade the frame (<see cref="LightGrading"/>): an opened file's, never an
+    /// enhanced raster's, which has the original's path and would replace the grade of the frame as it was taken.</param>
+    private void StartStarDetection(AstroImageDocument document, CancellationToken appToken, bool grade = false)
     {
         _starDetectionCts?.Cancel();
         _starDetectionCts?.Dispose();
@@ -1169,6 +1171,10 @@ public sealed class ViewerController(
             {
                 await document.DetectStarsAsync(sdCts.Token);
                 var found = document.Findings;
+                if (grade && document.FilePath.Length > 0 && found.Stars is { } stars && LightGrading.Grade(document.UnstretchedImage, stars) is { } frameGrade)
+                {
+                    state.RecordFrameGrade(document.FilePath, frameGrade);
+                }
                 logger.LogInformation("Detected {StarCount} stars in {Duration:F1}s (HFD={HFD:F2}, FWHM={FWHM:F2})",
                     found.Stars?.Count ?? 0, document.StarDetectionDuration.TotalSeconds, found.MedianHfd, found.MedianFwhm);
                 state.NeedsRedraw = true;
@@ -1700,6 +1706,16 @@ public sealed class ViewerController(
         // otherwise build a backlog of requests and keep stepping after the user stopped -- and the
         // wait is not wasted, since the next due time is measured from when the frame actually landed.
         if (IsLoadPending || state.RequestedFilePath is not null)
+        {
+            return false;
+        }
+
+        // Nor step off a frame before its stars have graded it: a blink is the grading pass (LightGrading), and a step
+        // cancels the detection running on the frame it leaves. Only the first time round: a frame graded already
+        // steps at the blink's own pace, so a second pass over a graded folder runs as fast as it always did.
+        if (_starDetectionTask is { IsCompleted: false }
+            && state.SelectedFileIndex >= 0 && state.SelectedFileIndex < state.ImageFileNames.Count
+            && state.GradeOf(state.ImageFileNames[state.SelectedFileIndex]) is null)
         {
             return false;
         }

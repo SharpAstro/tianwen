@@ -316,9 +316,9 @@ public class ViewerE2ETests
         e2e.Click(ToolbarAction.FileList);
 
         // One of the four regions that swallowed its press before this host routed presses.
-        var collapsed = e2e.State.InfoPanelStatisticsCollapsed;
+        e2e.State.InfoPanelStatisticsPinned.ShouldBeNull("the room decides the table until the heading is pressed");
         e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ToggleStatistics" }, "the statistics heading"));
-        e2e.State.InfoPanelStatisticsCollapsed.ShouldBe(!collapsed, "the statistics heading folds the table");
+        e2e.State.InfoPanelStatisticsPinned.ShouldNotBeNull("the statistics heading pins the table the other way");
     }
 
     [Theory]

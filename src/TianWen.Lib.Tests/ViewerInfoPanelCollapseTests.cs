@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
@@ -36,11 +37,11 @@ namespace TianWen.Lib.Tests
 
         private sealed class StripViewer : ImageRendererBase<RgbaImage>
         {
-            public StripViewer(RgbaImageRenderer renderer) : base(renderer)
+            public StripViewer(RgbaImageRenderer renderer, float dpiScale = 1f) : base(renderer)
             {
                 Width = renderer.Width;
                 Height = renderer.Height;
-                DpiScale = 1f;
+                DpiScale = dpiScale;
                 FontPath = FontResolver.ResolveSystemFont();
             }
 
@@ -95,10 +96,10 @@ namespace TianWen.Lib.Tests
         }
 
         private static async Task<(StripViewer Viewer, ViewerState State, AstroImageDocument Document)>
-            NewViewerAsync(RgbaImageRenderer renderer, CancellationToken ct)
+            NewViewerAsync(RgbaImageRenderer renderer, CancellationToken ct, float dpiScale = 1f)
         {
             var document = await NewColourDocumentAsync(ct);
-            var viewer = new StripViewer(renderer);
+            var viewer = new StripViewer(renderer, dpiScale);
             viewer.UploadChannelTexture(ReadOnlySpan<float>.Empty, 0, ImageW, ImageH);
             var state = new ViewerState
             {
@@ -123,10 +124,10 @@ namespace TianWen.Lib.Tests
             var rect = viewer.CurrentInfoPanelRect;
             rect.Width.ShouldBeGreaterThan(0f, "the strip has to be laid out for this to observe anything");
 
-            // The same column the old sweep walked (8px into the panel): a heading's hit region spans
+            // A column just inside the strip's padding at any scale the tests use: a heading's hit region spans
             // most of the panel width, but this keeps an unrelated same-named button elsewhere in the
             // strip from being picked up.
-            var x = rect.X + 8f;
+            var x = rect.X + ProbeInset;
             var buttons = new Dictionary<string, float>();
             foreach (var region in viewer.GetRegisteredRegions())
             {
@@ -140,57 +141,111 @@ namespace TianWen.Lib.Tests
             return buttons;
         }
 
-        private static void Click(StripViewer viewer, float y)
-            => UiRouting.RoutePress(viewer, viewer.CurrentInfoPanelRect.X + 8f, y);
+        /// <summary>Whether the statistics table was PAINTED: its header's "mean" cell is among the text the strip laid out.</summary>
+        private static bool TablePainted(StripViewer viewer)
+            => viewer.GetCapturedLayout().Any(n => n.Node is DIR.Lib.Layout.Node.Leaf { Content: DIR.Lib.Layout.Content.Text { Value: "mean" } });
 
-        [Fact]
-        public async Task StatisticsStartRolledUpBehindTheirHeading()
+        private static void Click(StripViewer viewer, float y)
+            => UiRouting.RoutePress(viewer, viewer.CurrentInfoPanelRect.X + ProbeInset, y);
+
+        /// <summary>Past the strip's padding (6 design units) at 1.5x, where 8 px was inside it.</summary>
+        private const float ProbeInset = 16f;
+
+        /// <summary>
+        /// Unpinned, the table opens where the strip has the room for it and everything below, the Cursor readout's room
+        /// included, and rolls up to its heading where it has not; in one frame, at either scale.
+        /// </summary>
+        [Theory]
+        [InlineData(1f, WindowH, true)]
+        [InlineData(1f, 300u, false)]
+        [InlineData(1.5f, WindowH, true)]
+        [InlineData(1.5f, 300u, false)]
+        public async Task StatisticsOpenWhereTheStripHasTheRoom(float dpiScale, uint designHeight, bool open)
         {
             var ct = TestContext.Current.CancellationToken;
-            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
-            var (viewer, state, document) = await NewViewerAsync(renderer, ct);
+            using var renderer = new RgbaImageRenderer(WindowW * 2, (uint)(designHeight * dpiScale));
+            var (viewer, state, document) = await NewViewerAsync(renderer, ct, dpiScale);
 
-            state.InfoPanelStatisticsCollapsed.ShouldBeTrue("rolled up is the default");
-
+            state.InfoPanelStatisticsPinned.ShouldBeNull("the room decides by default");
             viewer.Render(document, state);
+
+            TablePainted(viewer).ShouldBe(open);
             PanelButtons(viewer).ShouldContainKey("ToggleStatistics");
         }
 
         /// <summary>
-        /// The heading is the toggle, and rolling Statistics up is what gives the space back:
-        /// everything below it moves up by the rows it no longer draws.
+        /// The pointer entering the picture changes nothing above the Cursor readout: its room was kept while it was off.
         /// </summary>
         [Fact]
-        public async Task TheHeadingTogglesTheSectionAndTheRowsBelowMoveWithIt()
+        public async Task ThePointerOverThePictureMovesNothingAboveTheReadout()
         {
             var ct = TestContext.Current.CancellationToken;
             using var renderer = new RgbaImageRenderer(WindowW, WindowH);
             var (viewer, state, document) = await NewViewerAsync(renderer, ct);
-
-            // The cursor section is the one thing drawn below the statistics on this fixture, so it
-            // is the yardstick: a pixel under the pointer, then its heading is a button? It is not --
-            // so the yardstick is the strip's next REGISTERED thing, which needs a stacked view for
-            // the wavelet buttons. Simpler: measure the heading's own y twice and the height the
-            // section adds through the wavelet toggle, which registers when ShowStacked is on.
             state.ShowStacked = true;
 
             viewer.Render(document, state);
-            var rolledUp = PanelButtons(viewer);
-            var waveletWhenRolledUp = rolledUp["WaveletToggle"];
+            var off = PanelButtons(viewer);
+            var tableOff = TablePainted(viewer);
 
-            Click(viewer, rolledUp["ToggleStatistics"]);
-            state.InfoPanelStatisticsCollapsed.ShouldBeFalse("the heading is the toggle");
+            state.CursorPixelInfo = new PixelInfo(1, 2, [0.1f, 0.2f, 0.3f], null, null);
+            viewer.Render(document, state);
+            var over = PanelButtons(viewer);
+
+            TablePainted(viewer).ShouldBe(tableOff);
+            over["ToggleStatistics"].ShouldBe(off["ToggleStatistics"]);
+            over["WaveletToggle"].ShouldBe(off["WaveletToggle"]);
+        }
+
+        /// <summary>
+        /// The heading pins the other state, and the rows below move by the table; pressed again, the pin goes, since it
+        /// would only restate what the room decides.
+        /// </summary>
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.5f)]
+        public async Task TheHeadingPinsTheOtherStateAndTheRowsBelowMoveWithIt(float dpiScale)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            // Tall enough that the wavelet block stays on the strip with the table open or rolled up.
+            using var renderer = new RgbaImageRenderer(WindowW * 2, (uint)(1200 * dpiScale));
+            var (viewer, state, document) = await NewViewerAsync(renderer, ct, dpiScale);
+
+            // The wavelet toggle is the strip's next registered thing below the statistics, so it is the yardstick.
+            state.ShowStacked = true;
 
             viewer.Render(document, state);
-            var open = PanelButtons(viewer);
+            var before = PanelButtons(viewer);
+            var openBefore = TablePainted(viewer);
 
-            // Five table rows for a colour frame (a header, R, G, B and Luma), each at least eight
-            // pixels tall at any font size the strip draws.
-            (open["WaveletToggle"] - waveletWhenRolledUp).ShouldBeGreaterThan(5 * 8f,
+            Click(viewer, before["ToggleStatistics"]);
+            state.InfoPanelStatisticsPinned.ShouldBe(!openBefore, "the heading pins the state not on show");
+
+            viewer.Render(document, state);
+            var after = PanelButtons(viewer);
+            TablePainted(viewer).ShouldBe(!openBefore);
+
+            // Five table rows for a colour frame (a header, R, G, B and Luma), each at least eight design units tall.
+            MathF.Abs(after["WaveletToggle"] - before["WaveletToggle"]).ShouldBeGreaterThan(5 * 8f * dpiScale,
                 "the statistics table sits between the two only while the section is open");
 
-            Click(viewer, open["ToggleStatistics"]);
-            state.InfoPanelStatisticsCollapsed.ShouldBeTrue("and the heading rolls it back up");
+            Click(viewer, after["ToggleStatistics"]);
+            state.InfoPanelStatisticsPinned.ShouldBeNull("back to what the room decides, the pin has nothing left to say");
+            viewer.Render(document, state);
+            TablePainted(viewer).ShouldBe(openBefore);
+        }
+
+        /// <summary>The room kept for the Cursor readout is the readout itself over the most a pixel of the frame can say.</summary>
+        [Fact]
+        public void TheCursorRoomIsTheWidestReadout()
+        {
+            var state = new ViewerState { CursorPixelInfo = new PixelInfo(1, 2, [0.1f, 0.2f, 0.3f], 1.5, -20.0) };
+            InfoPanelData.GetCursorLines(state).Count
+                .ShouldBe(InfoPanelData.GetWidestCursorLines(3, solved: true, state.ChannelView).Count);
+
+            state.CursorPixelInfo = new PixelInfo(1, 2, [0.1f], null, null);
+            InfoPanelData.GetCursorLines(state).Count
+                .ShouldBe(InfoPanelData.GetWidestCursorLines(1, solved: false, state.ChannelView).Count);
         }
 
         /// <summary>

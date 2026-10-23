@@ -594,6 +594,17 @@ Pinned by `DisplayCarryTests` (14), whose discriminating pair is that two frames
 different statistics render the SAME uniforms with an anchor and DIFFERENT ones without -- confirmed by
 breaking `Basis` and watching three of them go red.
 
+**The blink grades the frames, 2026-10-24.** Asked for by the owner on a public iTelescope LRGB set with bad lights in
+it: grade each frame during the blink against the best seen yet, colour its row, and show the grade under the
+statistics. `LightGrading` scores a frame as the stacker scores a reference candidate (`FrameRegistration.ReferenceScore`:
+many, sharp and round together) over the stars the viewer detects on every load anyway, and a grade is that score as a
+share of the best of its GROUP so far: one filter, one exposure, one binning, one field, every part MATCHING
+(`LightGradeKey`), since a blue sub shows a fraction of the luminance sub's stars. Below half the best a row reads red,
+from 85 % green, amber between. The blink waits on a frame it has not graded yet (a step cancels the detection running on
+the frame it leaves), only on the first pass. An enhanced raster is never graded: it carries the original's path. On the
+set (56 lights, 2019-08-23, T08) the five frames the stacker's quality gate dropped all read red, with about ten more of
+the same hour beside them, mostly for elongated stars (ecc 0.5).
+
 ## P20. A share link to the web viewer  — **FIXED** 2026-09-04
 
 From the user's notes 2026-08-27: *"right click menu could also have an option to create a share link

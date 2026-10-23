@@ -177,43 +177,106 @@ public static class InfoPanelData
     internal static string Sample(float value, float? fullScaleAdu)
         => fullScaleAdu is { } scale ? $"{value:F4} ({value * scale:F0})" : $"{value:F4}";
 
+    /// <summary>
+    /// The info strip's Grade section for the frame on show (<see cref="LightGrading"/>): its score as a share of the best
+    /// of its group graded so far, what the score is made of, and which frame is that best. <see cref="GradeReadout.Relative"/>
+    /// is null until the frame is graded, when the lines say why it is not. Null for a document with no file, which no
+    /// folder lists and nothing grades: a frame handed over in memory.
+    /// </summary>
+    public static GradeReadout? GetGradeReadout(ViewerState state, AstroImageDocument document)
+    {
+        if (string.IsNullOrEmpty(document.FilePath))
+        {
+            return null;
+        }
+
+        var grades = state.FrameGrades;
+        if (!grades.TryGetValue(System.IO.Path.GetFullPath(document.FilePath), out var grade))
+        {
+            return new GradeReadout(
+                [document.Findings.Stars is null ? "Measuring the stars..." : "Not graded: no stars found"], null, null);
+        }
+
+        var relative = LightGrading.Relative(grades, grade);
+        var graded = 0;
+        string? bestPath = null;
+        var bestScore = 0f;
+        foreach (var (path, other) in grades)
+        {
+            if (other.Key != grade.Key)
+            {
+                continue;
+            }
+            graded++;
+            if (other.Score > bestScore)
+            {
+                bestScore = other.Score;
+                bestPath = path;
+            }
+        }
+
+        var group = grade.Key.Describe();
+        var lines = ImmutableArray.CreateBuilder<string>();
+        lines.Add(relative >= 1f
+            ? $"Quality: the best of {graded} ({group})"
+            : $"Quality: {relative * 100f:0}% of the best of {graded} ({group})");
+        var metrics = grade.Metrics;
+        lines.Add(string.Create(CultureInfo.InvariantCulture,
+            $"Stars: {metrics.StarCount}, HFD {metrics.MedianHfd:0.00}, ecc {metrics.MedianEllipticity:0.00}"));
+        return new GradeReadout(lines.ToImmutable(), relative,
+            relative < 1f && bestPath is not null ? System.IO.Path.GetFileName(bestPath) : null);
+    }
+
+    /// <summary>
+    /// The readout over the most a pixel of this frame can say: every plane's value, and RA and Dec where the frame is
+    /// solved. The strip keeps room for this many lines whether or not the pointer is over the picture, read off the
+    /// readout itself so a line added to it is kept room for too.
+    /// </summary>
+    public static List<string> GetWidestCursorLines(int channelCount, bool solved, ChannelView view)
+        => GetCursorLines(new PixelInfo(0, 0, new float[channelCount >= 3 ? 3 : 1], solved ? 0.0 : null, solved ? 0.0 : null), view);
+
     public static List<string> GetCursorLines(ViewerState state)
+        => state.CursorPixelInfo is { } info ? GetCursorLines(info, state.ChannelView) : [];
+
+    private static List<string> GetCursorLines(PixelInfo info, ChannelView view)
     {
         var lines = new List<string>();
-
-        if (state.CursorPixelInfo is { } info)
+        lines.Add($"Pos: ({info.X}, {info.Y})");
+        if (info.Values.Length == 1)
         {
-            lines.Add($"Pos: ({info.X}, {info.Y})");
-            if (info.Values.Length == 1)
+            var v = info.Values[0];
+            // Name the channel when a view selected one, so the single value is not ambiguous.
+            // "Val" stays for a mono image, where there is nothing to disambiguate.
+            var label = view switch
             {
-                var v = info.Values[0];
-                // Name the channel when a view selected one, so the single value is not ambiguous.
-                // "Val" stays for a mono image, where there is nothing to disambiguate.
-                var label = state.ChannelView switch
-                {
-                    ChannelView.Red => "R",
-                    ChannelView.Green => "G",
-                    ChannelView.Blue => "B",
-                    ChannelView.Channel0 => "Ch0",
-                    ChannelView.Channel1 => "Ch1",
-                    ChannelView.Channel2 => "Ch2",
-                    _ => "Val"
-                };
-                lines.Add($"{label}: {Sample(v, info.FullScaleAdu)}");
-            }
-            else if (info.Values.Length >= 3)
-            {
-                lines.Add($"R: {Sample(info.Values[0], info.FullScaleAdu)}");
-                lines.Add($"G: {Sample(info.Values[1], info.FullScaleAdu)}");
-                lines.Add($"B: {Sample(info.Values[2], info.FullScaleAdu)}");
-            }
-            if (info.RA.HasValue && info.Dec.HasValue)
-            {
-                lines.Add($"RA: {CoordinateUtils.HoursToHMS(info.RA.Value)}");
-                lines.Add($"Dec: {CoordinateUtils.DegreesToDMS(info.Dec.Value)}");
-            }
+                ChannelView.Red => "R",
+                ChannelView.Green => "G",
+                ChannelView.Blue => "B",
+                ChannelView.Channel0 => "Ch0",
+                ChannelView.Channel1 => "Ch1",
+                ChannelView.Channel2 => "Ch2",
+                _ => "Val"
+            };
+            lines.Add($"{label}: {Sample(v, info.FullScaleAdu)}");
+        }
+        else if (info.Values.Length >= 3)
+        {
+            lines.Add($"R: {Sample(info.Values[0], info.FullScaleAdu)}");
+            lines.Add($"G: {Sample(info.Values[1], info.FullScaleAdu)}");
+            lines.Add($"B: {Sample(info.Values[2], info.FullScaleAdu)}");
+        }
+        if (info.RA.HasValue && info.Dec.HasValue)
+        {
+            lines.Add($"RA: {CoordinateUtils.HoursToHMS(info.RA.Value)}");
+            lines.Add($"Dec: {CoordinateUtils.DegreesToDMS(info.Dec.Value)}");
         }
 
         return lines;
     }
 }
+
+/// <summary>
+/// The Grade section's lines, the frame's grade relative to its group's best once it has one, and the best frame's file name
+/// while it is another frame: a name, which the strip trims rather than wraps.
+/// </summary>
+public readonly record struct GradeReadout(ImmutableArray<string> Lines, float? Relative, string? BestName);

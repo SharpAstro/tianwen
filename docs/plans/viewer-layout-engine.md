@@ -103,6 +103,17 @@ rect could drift. It is `Content.Slider` now, and the drag machinery behind it -
 `UpdateWaveletDrag`, and four dispatcher blocks across two hosts -- is deleted rather than moved.
 `InfoPanel.cs`: `MeasureText` 4 -> 0, `RegisterClickable` 2 -> 0.
 
+**The rest of the strip, 2026-10-24.** It was still laid by hand around those trees: a `ref float y` cursor through
+`DrawSectionHeading`, `DrawTable`, `DrawWrappedTextLine` and `TextLineAdvance`. Asked to open the Statistics table
+only when the strip has the room for it, the first cut summed the table, the room below it (measured off the PREVIOUS
+frame's paint) and a hand reserve for the Cursor readout, and the review rightly called that the engine's job. The strip
+is one tree now (`BuildInfoStrip`): the table opens when the engine's measure of the strip WITH it fits the panel, the
+Cursor readout sits at the bottom under a spacer with its room kept by the readout's own widest lines
+(`InfoPanelData.GetWidestCursorLines`), and every hand-laid helper above is deleted (`y +=` in `InfoPanel.cs` and
+`ImageRendererBase.cs`: 5 and 9 -> 0). One engine limit was met on the way: a Stack measures each child against the WHOLE
+available width, not what its siblings leave, so a `WrapH` beside a label in a row measures a line short whenever it
+wraps near the edge, and a line is wrapped whole instead. That is DIR.Lib's to fix.
+
 `ImageRendererBase.WhiteBalancePanel.cs` and `ImageRendererBase.InfoPanel.cs`, the two that already
 have a tree-shaped body and a hand-summed box. The white-balance panel is the direct analogue of the
 tone popover and should end up looking like it: one `BuildWhiteBalanceTree`, the box from the measure,
