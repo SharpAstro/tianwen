@@ -486,7 +486,8 @@ namespace TianWen.AI.Imaging
             bool KeptCores = false,
             bool ChannelNoiseCorrelation = false,
             double? FaintStarFloor = null,
-            double FaintStarCap = TianWen.Lib.Imaging.StarRemoval.LuminosityFunction.DefaultCapSigma);
+            double FaintStarCap = TianWen.Lib.Imaging.StarRemoval.LuminosityFunction.DefaultCapSigma,
+            Action<string>? Say = null);
 
         /// <summary>
         /// The options one session's draws are made with: the warped shape's smoothing chosen by what made the master's noise.
@@ -586,14 +587,15 @@ namespace TianWen.AI.Imaging
                 ? DatasetCellList.Read(extraPath)
                 : new Dictionary<string, HashSet<(int X, int Y)>>(StringComparer.Ordinal);
 
-            var sessions = SessionFilter.SelectAndAnnounce("degrade",
-                [.. cellsBySession.Keys.OrderBy(static s => s, StringComparer.Ordinal)], options.SessionFilters, logger);
+            var sessions = SessionFilter.Select([.. cellsBySession.Keys.OrderBy(static s => s, StringComparer.Ordinal)], options.SessionFilters);
+            var matched = sessions.Count;
             if (options.MaxSessions > 0 && sessions.Count > options.MaxSessions)
             {
                 sessions = sessions.Take(options.MaxSessions).ToList();
             }
 
-            // After the selection is said, never before: a StarsContext reads the plates and the PSF store.
+            // Said after the cap, so the count is what runs; and before any work: a StarsContext reads the plates and the PSF store.
+            SessionFilter.Announce("degrade", sessions, cellsBySession.Count, options.SessionFilters, logger, options.Say, matched, options.MaxSessions);
             var stars = options.Mode == DegradationMode.Stars ? await StarsContext.OpenAsync(options, logger, cancellationToken) : null;
 
             var results = ImmutableArray.CreateBuilder<SessionResult>();
@@ -957,7 +959,8 @@ namespace TianWen.AI.Imaging
             int excludeSampleOf = 0,
             int exportSeed = 1,
             ILogger? logger = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            Action<string>? say = null)
         {
             SessionFilter.Require(sessionFilters);
             if (frame is not (DatasetTileExporter.FrameMaster or DatasetTileExporter.FrameHalfMasterB))
@@ -966,7 +969,7 @@ namespace TianWen.AI.Imaging
             }
             var cellsBySession = await ReadCellsAsync(Path.Combine(bakeRoot, DatasetTileExporter.ManifestFileName), cancellationToken);
             var sessions = SessionFilter.SelectAndAnnounce("bright-cells",
-                [.. cellsBySession.Keys.OrderBy(static s => s, StringComparer.Ordinal)], sessionFilters, logger);
+                [.. cellsBySession.Keys.OrderBy(static s => s, StringComparer.Ordinal)], sessionFilters, logger, say);
 
             var listed = ImmutableArray.CreateBuilder<(string SessionId, int X, int Y)>();
             var counts = ImmutableArray.CreateBuilder<BrightCellCount>();
@@ -1057,14 +1060,15 @@ namespace TianWen.AI.Imaging
             int seed,
             string? extraCellsPath,
             ILogger? logger = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            Action<string>? say = null)
         {
             SessionFilter.Require(sessionFilters);
             var cellsBySession = await ReadCellsAsync(Path.Combine(bakeRoot, DatasetTileExporter.ManifestFileName), cancellationToken);
             var extra = extraCellsPath is { } p ? DatasetCellList.Read(p) : new Dictionary<string, HashSet<(int X, int Y)>>(StringComparer.Ordinal);
             var rows = ImmutableArray.CreateBuilder<InjectionCheckRow>();
             var sessions = SessionFilter.SelectAndAnnounce("noise-check",
-                [.. cellsBySession.Keys.OrderBy(static s => s, StringComparer.Ordinal)], sessionFilters, logger);
+                [.. cellsBySession.Keys.OrderBy(static s => s, StringComparer.Ordinal)], sessionFilters, logger, say);
             foreach (var sessionId in sessions)
             {
                 cancellationToken.ThrowIfCancellationRequested();

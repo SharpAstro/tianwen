@@ -43,7 +43,7 @@ public static class DatasetNoisePlaneExporter
     /// <param name="OutRoot">Where the planes go, mirroring the bake's tile paths.</param>
     /// <param name="SessionFilters">Case-insensitive substrings of the session id; empty takes every session.</param>
     /// <param name="Frames">Which frames get a plane (<see cref="DefaultFrames"/>).</param>
-    public sealed record Options(string BakeRoot, string OutRoot, ImmutableArray<string> SessionFilters, ImmutableArray<string> Frames);
+    public sealed record Options(string BakeRoot, string OutRoot, ImmutableArray<string> SessionFilters, ImmutableArray<string> Frames, Action<string>? Say = null);
 
     /// <summary>One session's estimate and what was written.</summary>
     /// <param name="SessionId">The session.</param>
@@ -95,7 +95,7 @@ public static class DatasetNoisePlaneExporter
         }
 
         // The manifest read is the only work so far; the masters are read below.
-        SessionFilter.Announce("noise-planes", [.. bySession.Keys.Order(StringComparer.Ordinal)], allSessions.Count, options.SessionFilters, logger);
+        SessionFilter.Announce("noise-planes", [.. bySession.Keys.Order(StringComparer.Ordinal)], allSessions.Count, options.SessionFilters, logger, options.Say);
 
         var results = ImmutableArray.CreateBuilder<SessionResult>();
         foreach (var (sessionId, rows) in bySession.OrderBy(kv => kv.Key, StringComparer.Ordinal))

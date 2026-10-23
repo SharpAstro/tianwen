@@ -61,18 +61,23 @@ public static class SessionFilter
 
     /// <summary>
     /// The lines that say what was selected: the count of the total, then the ids (every one when a filter is
-    /// given, else only the count, since "all of them" needs no list).
+    /// given, else only the count, since "all of them" needs no list). <paramref name="matched"/> is what the filter
+    /// matched when a cap (<paramref name="cap"/>, <c>--max-sessions</c>) cut <paramref name="selected"/> to fewer, so
+    /// the count never claims more sessions than run.
     /// </summary>
-    public static IReadOnlyList<string> Describe(string verb, IReadOnlyList<string> selected, int total, ImmutableArray<string> filters)
+    public static IReadOnlyList<string> Describe(string verb, IReadOnlyList<string> selected, int total, ImmutableArray<string> filters,
+        int? matched = null, int cap = 0)
     {
         var filtered = !filters.IsDefaultOrEmpty;
+        var count = matched ?? selected.Count;
+        var capped = cap > 0 && count > selected.Count ? $", the first {selected.Count} run (--max-sessions {cap})" : "";
         var lines = new List<string>
         {
             filtered
-                ? $"[{verb}] --session {string.Join(" ", filters.Select(static f => $"'{f}'"))} selects {selected.Count} of {total} sessions"
-                : $"[{verb}] no --session filter: {selected.Count} of {total} sessions",
+                ? $"[{verb}] --session {string.Join(" ", filters.Select(static f => $"'{f}'"))} selects {count} of {total} sessions{capped}"
+                : $"[{verb}] no --session filter: {count} of {total} sessions{capped}",
         };
-        if (filtered)
+        if (filtered || capped.Length > 0)
         {
             lines.AddRange(selected.Select(id => $"[{verb}]   {id}"));
         }
@@ -80,28 +85,36 @@ public static class SessionFilter
     }
 
     /// <summary>
-    /// Validates, selects and announces in one call: refuses a short value, then logs <see cref="Describe"/> so the
+    /// Validates, selects and announces in one call: refuses a short value, then says <see cref="Describe"/> so the
     /// selection is on record before the caller does any work.
     /// </summary>
-    public static List<string> SelectAndAnnounce(string verb, IReadOnlyCollection<string> sessionIds, ImmutableArray<string> filters, ILogger? logger)
+    public static List<string> SelectAndAnnounce(string verb, IReadOnlyCollection<string> sessionIds, ImmutableArray<string> filters,
+        ILogger? logger, Action<string>? say = null)
     {
         Require(filters);
         var selected = Select(sessionIds, filters);
-        Announce(verb, selected, sessionIds.Count, filters, logger);
+        Announce(verb, selected, sessionIds.Count, filters, logger, say);
         return selected;
     }
 
-    /// <summary>Logs <see cref="Describe"/>, for a caller that selected by its own walk (a manifest read row by row).</summary>
-    public static void Announce(string verb, IReadOnlyList<string> selected, int total, ImmutableArray<string> filters, ILogger? logger)
+    /// <summary>
+    /// Says <see cref="Describe"/>, for a caller that selected by its own walk (a manifest read row by row) or capped
+    /// the selection. The lines go to <paramref name="say"/>, which a CLI verb points at its console (a Release
+    /// build's console logger shows warnings only, so the logger alone would leave the selection in the file log),
+    /// and to <paramref name="logger"/>.
+    /// </summary>
+    public static void Announce(string verb, IReadOnlyList<string> selected, int total, ImmutableArray<string> filters,
+        ILogger? logger, Action<string>? say = null, int? matched = null, int cap = 0)
     {
-        if (logger is null)
+        if (logger is null && say is null)
         {
             return;
         }
 
-        foreach (var line in Describe(verb, selected, total, filters))
+        foreach (var line in Describe(verb, selected, total, filters, matched, cap))
         {
-            logger.LogInformation("{Line}", line);
+            say?.Invoke(line);
+            logger?.LogInformation("{Line}", line);
         }
     }
 }

@@ -167,6 +167,92 @@ public class SessionFilterTests : IDisposable
         accepted.Errors.ShouldNotContain(static e => e.Message.Contains("--session", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void ACapSaysHowManyRunAndNotHowManyMatched()
+    {
+        var lines = new List<string>();
+        var selected = SessionFilter.Select(Sessions, ["lrgb"]);
+        selected.Count.ShouldBe(3);
+
+        SessionFilter.Announce("degrade", [.. selected.Take(2)], Sessions.Length, ["lrgb"], logger: null, lines.Add, matched: selected.Count, cap: 2);
+
+        lines.ShouldBe(
+        [
+            "[degrade] --session 'lrgb' selects 3 of 4 sessions, the first 2 run (--max-sessions 2)",
+            $"[degrade]   {Sessions[0]}",
+            $"[degrade]   {Sessions[1]}",
+        ]);
+    }
+
+    [Fact]
+    public async Task TheDegradeExportSaysTheCappedSelectionBeforeItWorks()
+    {
+        var bake = WriteBake("asi2600/m42/lrgb/2026-01-03", "asi2600/m42/lrgb/2026-02-11", "qhy268/vela/ha/2026-03-09");
+        var lines = new List<string>();
+
+        await DatasetDegradationExporter.RunAsync(
+            new DatasetDegradationExporter.Options(bake, Path.Combine(_temp.Create("sf-").FullName, "out"), Draws: 1, CellsPerSession: 1,
+                MaxSessions: 1, SessionFilters: ["m42"], Say: lines.Add),
+            logger: null,
+            TestContext.Current.CancellationToken);
+
+        lines.ShouldBe(
+        [
+            "[degrade] --session 'm42' selects 2 of 3 sessions, the first 1 run (--max-sessions 1)",
+            "[degrade]   asi2600/m42/lrgb/2026-01-03",
+        ]);
+    }
+
+    [Fact]
+    public async Task TheHandlerWritesTheSelectionToTheConsoleBeforeTheExportReports()
+    {
+        var bake = WriteBake("asi2600/m42/lrgb/2026-01-03", "asi2600/m42/lrgb/2026-02-11", "qhy268/vela/ha/2026-03-09");
+        var written = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(static h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => written.Add(call.Arg<string>()));
+        var dataset = new DatasetSubCommand(host).Build();
+
+        var exit = await dataset.Parse(["degrade", "--bake", bake, "--out", Path.Combine(_temp.Create("sf-").FullName, "out"),
+            "--draws", "1", "--cells", "1", "--session", "m42", "vela"]).InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        written.Count.ShouldBeGreaterThan(4);
+        written[0].ShouldBe("[degrade] --session 'm42' 'vela' selects 3 of 3 sessions");
+        written.Skip(1).Take(3).ShouldBe(
+        [
+            "[degrade]   asi2600/m42/lrgb/2026-01-03",
+            "[degrade]   asi2600/m42/lrgb/2026-02-11",
+            "[degrade]   qhy268/vela/ha/2026-03-09",
+        ]);
+        written.Skip(4).ShouldContain(static l => l.StartsWith("[degrade] ", StringComparison.Ordinal) && l.Contains("sessions,", StringComparison.Ordinal),
+            "the export's own report comes after the selection");
+        exit.ShouldBeOneOf(0, 2);
+    }
+
+    [Fact]
+    public async Task TheBrightCellsHandlerWritesTheSelectionToTheConsole()
+    {
+        var bake = WriteBake("asi2600/m42/lrgb/2026-01-03", "qhy268/vela/ha/2026-03-09");
+        var written = new List<string>();
+        var host = Substitute.For<IConsoleHost>();
+        host.When(static h => h.WriteScrollable(Arg.Any<string>(), Arg.Any<bool>())).Do(call => written.Add(call.Arg<string>()));
+        var dataset = new DatasetSubCommand(host).Build();
+
+        await dataset.Parse(["bright-cells", "--bake", bake, "--session", "nothing-like-it"])
+            .InvokeAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        written[0].ShouldBe("[bright-cells] --session 'nothing-like-it' selects 0 of 2 sessions");
+    }
+
+    private string WriteBake(params string[] sessionIds)
+    {
+        var bake = _temp.Create("sf-").FullName;
+        var rows = sessionIds.Select(static id => System.Text.Json.JsonSerializer.Serialize(new DatasetTileExporter.TileManifestRow(
+            Tile: $"tiles/{id}/master_0_0.tif", SessionId: id, Camera: "testcam", Frame: DatasetTileExporter.FrameMaster, SourceFile: "master.fits",
+            CellX: 0, CellY: 0, TileSize: 64, Channels: 1, Gain: 0, ExposureSeconds: 60, NoiseMad: 0.001)));
+        File.WriteAllLines(Path.Combine(bake, DatasetTileExporter.ManifestFileName), rows);
+        return bake;
+    }
+
     private sealed class CapturingLogger : ILogger
     {
         public List<string> Lines { get; } = [];

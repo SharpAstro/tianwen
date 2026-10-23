@@ -3696,7 +3696,9 @@ degrade's `--session`: the option takes several values per flag, each a case-ins
 one shared helper (`SessionFilter`, `TianWen.AI.Imaging`) and not a per-verb patch. A value under 3 characters is refused
 and named, by the parser for the CLI (one option factory used by every declaration) and again by the exporters for a
 library caller; and each verb says what the filter selected, the count of the total and every id, before it reads or
-writes anything. It covers `dataset degrade`, `bright-cells`, `noise-check` and `noise-planes`, which are the verbs whose
+writes anything: through the console, since a Release CLI's console logger shows warnings only and a logger line would reach
+the file log alone (measured: `bright-cells --session zzzzqq` printed no selection line before the fix), and after
+`--max-sessions` has cut it, so the count is what runs. It covers `dataset degrade`, `bright-cells`, `noise-check` and `noise-planes`, which are the verbs whose
 `--session` takes substrings. **Left alone on purpose:** `dataset build --session` and `--rebuild-session` are wildcards
 (`*M42*`), a different shape that a short value does not blow up; `gradient-export --only` matches master file names; and
 the cross-night `--exclude` and `--object` are not session filters. Pinned by `SessionFilterTests`, with no data.
