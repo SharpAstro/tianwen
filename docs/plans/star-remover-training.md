@@ -3741,6 +3741,63 @@ Tracked by #1737. The injected brightness follows a luminosity function fitted t
 extended below the catalogue's detection limit, so the input holds the faint stars a real master does (60 % of the real
 stars over 5 sigma are under 20 sigma, against 53 % injected) instead of three times the real share of bright ones.
 
+**Built (2026-10-23), opt-in:** `dataset degrade --faint-stars <floor>[,<cap>]` (`LuminosityFunction`,
+`InjectionPopulation.Plan`). Each master's own catalogue is fitted with a truncated power law over 10 to 300 sigma, and
+the deficit under that law is counted per eighth of a decade from the floor (3 sigma) up to 10 sigma. The deficit is
+drawn as individual point sources on a random stream of its own and rendered in a pass of its own. Each drawn star is
+flagged `Faint` on its injection row. Without the option every draw and every clean master tile is byte-identical to
+the export before. The capped export's M42 master tiles and its other injection rows match the plain export, and every
+master tile and every untouched degraded tile matches the uncapped one.
+
+**The owner's decision (2026-10-23): each tile's faint light is capped, and the floor stays at 3.** Unresolved glow
+belongs in the starless image, so the extension is held per tile, not on the session average. The measure is the light
+of a tile's stars under 5 sigma (the catalogue's own included), as a mean level over the tile in the sky's sigma at the
+master's depth. The cap is 0.1 sigma by default (`LuminosityFunction.DefaultCapSigma`). It truncates the faint draw in
+drawn order and takes no random draw, so a capped tile's faint stars are the head of the uncapped tile's, and
+`FaintCapped` on the row says how many were dropped. Uncapped, the validation tiles averaged 0.056 sigma with the worst
+at 0.232. SMC averaged 0.109, with 14.5 % of its injected light under 5 sigma, against synth4's 0.019 (worst 0.096). The
+preview at 0.1 touched 33 of the 320 validation tiles, 18 of them SMC's, and took SMC's mean from 0.109 to 0.082 sigma.
+The export bears it out: 33 tiles touched, SMC 0.082 sigma (worst tile 0.1005), all sessions 0.052. SMC's faint stars
+went from 137 a tile to 80. `StarInjectionTests` pins the drawn distribution, the cap and the draws the cap leaves alone.
+
+**The read (2026-10-23), the 8 validation sessions, 40 cells each, `--faint-stars 3` at the default cap.** The review's
+instruments were re-run on copies. Real's tiles are the masters as exported. Each synthetic is read twice: as exported,
+and re-stretched by the master's own stretch in place of the plate's. The second reading takes out a confound the
+review's table carried:
+
+| | real | synth4 as exported | synth4 re-stretched | faint3c as exported | faint3c re-stretched |
+|---|---|---|---|---|---|
+| stars over 5 sigma a tile | 140.2 | 108.6 | 111.1 | 110.5 | 113.3 |
+| share at 5-20 / 20-100 / 100-1000 sigma | 59.6 / 38.3 / 2.07 % | 52.9 / 41.1 / 6.00 % | 54.3 / 43.2 / 2.56 % | 53.7 / 40.5 / 5.84 % | 55.2 / 42.3 / 2.48 % |
+| star colour R/G, B/G at 20-100 sigma | 1.09 / 0.63 | | 1.24 / 0.75 | 0.96 / 0.81 | 1.24 / 0.75 |
+| classifier, whole crop | | 0.81 (the review) | 0.799 | 0.772 | 0.770 |
+| classifier, star-centred crops | | 0.79 (the review) | 0.761 | 0.780 | 0.716 |
+
+- **The stretch made the top-heavy population.** The plate's stretch is not the master's. Read through the master's own,
+  synth4's share over 100 sigma falls from 6.0 % to 2.56 %, against real's 2.07 %, with no change to the stars. A
+  synthetic's share is compared re-stretched from here on.
+- **The faint extension moves the shares 0.9 point and the count by 2 a tile.** At 5-20 sigma that leaves 55.2 % against
+  59.6 %, 4.4 points short of the 1 point asked. Over 100 sigma, 2.48 % against 2.07 % is within it. The count is
+  113.3 a tile against 140.2, 19 % short of the 10 % asked. Per session, the count is short where the field is crowded:
+  Lobster 136/126/130 against 188/159/175, HIP 80609 129/112/115 against 172/138/140. SMC is at 82 against 87, and M42
+  over at 76 against 63.
+- **The count's shortfall is not in the population.** A Lobster tile is injected with about 415 catalogue stars over 5
+  sigma (147 at 5-10, 105 at 10-20, 121 at 20-100, 41 over 100), and the faint draw adds 25 at 5-10. Yet the detector
+  finds 136 on the synthetic tile and 188 on the real one. Missing stars cannot be the cause, since more are injected
+  over 5 sigma than are found on either. What the detector loses is in how a synthetic star reads: its profile, the
+  warp's blur and blending in a crowded field. That is S1's and the PSF's ground, not the luminosity function's. The
+  synthetic's own measured sigma is also above real's on Lobster (0.0080 against 0.0068), which lowers every
+  significance.
+- **The classifier finds the faint stars harder to tell, read re-stretched: star crops 0.761 to 0.716, whole crops 0.799
+  to 0.770.** By camera, the star crops are QHY294PROC 0.790 to 0.754, ASI294MC 0.635 to 0.569, ASI533MC Pro 0.869 to
+  0.855 and ASI585MC Pro 0.749 to 0.685. As exported, the star crops are at 0.780, against the review's 0.79 for synth4.
+  The statistics miss what the faint stars change, since nearly all of them sit under the 5 sigma every statistic
+  counts from. The classifier's spread over seeds has not been read, so a 0.045 move is a lead, not a result.
+
+**Verdict:** the Done-when is not met. The star crops' AUC is the only thing that moves, and the stars' count and their
+5-20 share are short for a reason below the catalogue cannot fix. The option stays in as built, opt-in and capped, for
+a training arm to judge.
+
 #### Synthetics S3: the stars' colours
 
 Tracked by #1738. The injected colours follow the real stars' colour distribution at each brightness. The pool's
