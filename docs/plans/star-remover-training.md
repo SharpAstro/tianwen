@@ -3851,9 +3851,17 @@ matches synth11 to f16 rounding; synth11 is the same export re-stretched by the 
   mix, not colour. Re-stretched, Lobster's default session has no synthetic star over 100 sigma against 125 real ones
   (B/G 0.95), and M42's B/G 0.77 to 0.81 weighs more among the synthetic stars. Each synthetic session's stars were
   resampled to real's count of that session in that band, over the sessions both hold. That leaves every band within
-  0.035: +0.019 / -0.035 over 100 sigma, each median's bootstrap spread 0.006 or under. Why Lobster's bright stars read
-  under 100 sigma is how a synthetic star reads (its noise is 16 % above real's there, and its profile), S1's and S2's
-  ground.
+  0.035: +0.019 / -0.035 over 100 sigma, each median's bootstrap spread 0.006 or under.
+- **Lobster's missing stars over 100 sigma are a ceiling, not a cap.** Through the master's stretch no pixel can read
+  more than (1 - its sky) over the tile's sigma. On Lobster's 40 cells that is 111 sigma on the real tiles (88 to 122)
+  and 95 on the synthetic (89 to 101), because the synthetic's stretched luminance noise is 16 % higher (0.00785
+  against 0.00676, the same sky of 0.249). Both reach the stretched ceiling: the brightest pixel is 0.999 on each. The
+  real tiles' brightest stars read 107 at the median and 115 at most, the synthetic's 91 and 97, so 32 real cells hold
+  a star over 100 and no synthetic cell can. The injector holds the bright end. Unsaturated draws reach linear
+  amplitudes of 0.99 / 1.25 / 0.90, past the stretch's 0.99 level (0.47 / 0.63 / 0.62). 13 saturated draws on these
+  cells clip at 0.83 to 0.95, against the real stars' brightest 0.92 to 0.96 over the plate. So the band's edge sits
+  in noise units, and the gap is the synthetic noise level on this rig: 1.11 to 1.17 times real's on Lobster's three
+  sessions, 1.00 on M42 and SMC (S2's recount).
 - **As exported, the gap is the stretch alone.** Through the plate's stretch, B/G is 0.27 high at 5-20 sigma and 0.18
   at 20-100, and R/G 0.36 and 0.13 low. Through the master's, the same tiles are within 0.035. Once tiles are exported
   `--stretch-from master` (#1776, synth11), the as-exported column is the re-stretched one.
