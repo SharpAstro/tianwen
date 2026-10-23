@@ -739,6 +739,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         float finishContrast = 0f,
         float finishSaturation = 1f,
         float starBeta = 0f,
+        float backgroundReduce = 1f,
         float starSaturation = 1f,
         int slot = UboSlotPrimary)
     {
@@ -828,7 +829,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         WriteFloat(p, 192, whiteBalance.R);
         WriteFloat(p, 196, whiteBalance.G);
         WriteFloat(p, 200, whiteBalance.B);
-        WriteFloat(p, 204, 0f);
+        // w: the background reduce's compression (StretchUniforms.BackgroundReduce), 1 = off.
+        WriteFloat(p, 204, backgroundReduce);
 
         // bgNeutralization (vec4 at offset 208)
         WriteFloat(p, 208, bgNeutralization.R);

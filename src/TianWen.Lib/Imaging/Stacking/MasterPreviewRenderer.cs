@@ -124,6 +124,8 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
     /// linear FITS/EXR masters or the split-plate TIFFs. Null = no gain-map JPEG.</param>
     /// <param name="ultraHdrQuality">Baseline-JPEG quality (1..100) for both Ultra HDR
     /// renditions. Default 90 (the encoder's default).</param>
+    /// <param name="backgroundReduce">The background reduce's level (<see cref="StretchUniforms.BackgroundReduce"/>), the
+    /// viewer's Background popover: 1, the default, leaves every caller's render as it was. SDR PNG and PNG-PQ only.</param>
     /// <param name="starScreen">A star split's LINEAR stars plate and its strength, stretched and screened over the render
     /// as the viewer's star split does (<see cref="ScreenedStars"/>, <see cref="Image.ScreenStars"/>), with
     /// <paramref name="master"/> as the starless plate. SDR PNG and PNG-PQ only; the Ultra HDR gain map ignores it.
@@ -146,6 +148,7 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         string? ultraHdrPath = null,
         int ultraHdrQuality = 90,
         ScreenedStars? starScreen = null,
+        float backgroundReduce = 1f,
         CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
@@ -205,6 +208,17 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
             finishBackground = PostStretchBackground(stats, uniforms);
             logger.LogInformation("  [finish] saturation={Sat:F2} contrast={Con:F2} background={Bg:F3}",
                 boost.Saturation, uniforms.FinishContrast, finishBackground);
+        }
+        // The background reduce, as the viewer's: anchored on the post-stretch sky, measured as the viewer measures it.
+        if (backgroundReduce < 1f)
+        {
+            uniforms = uniforms with { BackgroundReduce = backgroundReduce };
+            if (maskedBoost is not { IsNoOp: false })
+            {
+                finishBackground = PostStretchBackground(stats, uniforms);
+            }
+            logger.LogInformation("  [reduce] background to {Level:P0} of itself, sky {Sky:F3} to {Reduced:F3}",
+                backgroundReduce, finishBackground, uniforms.ReducedBackground(finishBackground));
         }
         master.RenderStretchedRgba16(uniforms, rgba, curvesMidpoint: finishBackground, starScreen: starScreen);
         // Ultra HDR (gain-map JPEG) emit -- taken from the sRGB `rgba` here, BEFORE any PQ

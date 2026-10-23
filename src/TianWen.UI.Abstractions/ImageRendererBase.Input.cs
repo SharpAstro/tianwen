@@ -447,7 +447,7 @@ namespace TianWen.UI.Abstractions
                     }
                     return true;
                 case InputKey.N:
-                    // Not routed, for the reason D is not: BackgroundNeutralize has a dropdown.
+                    // Not routed, for the reason D is not: BackgroundNeutralize opens a popover.
                     TryToggleBackgroundNeutralization(state);
                     return true;
                 case InputKey.I:
@@ -883,7 +883,7 @@ namespace TianWen.UI.Abstractions
             // HandleToolbarAction, which has no arm for either and so does nothing at all -- a button
             // that looks dead. White balance was the only one until the boost and the soft clip folded
             // into Tone; ADD A POPOVER HERE or its button will not open.
-            if (action is ToolbarAction.WhiteBalance or ToolbarAction.Tone
+            if (action is ToolbarAction.WhiteBalance or ToolbarAction.Tone or ToolbarAction.BackgroundNeutralize
                 && OpenToolbarDropdown(state, action))
             {
                 return;
@@ -894,10 +894,6 @@ namespace TianWen.UI.Abstractions
             if (action is ToolbarAction.ColorCalibrate)
             {
                 TryStartColorCalibration(state);
-            }
-            else if (action is ToolbarAction.BackgroundNeutralize)
-            {
-                TryToggleBackgroundNeutralization(state);
             }
         }
 

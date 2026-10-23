@@ -1214,6 +1214,7 @@ namespace TianWen.UI.Abstractions
             {
                 RenderWhiteBalancePanel(state);
                 RenderTonePanel(state);
+                RenderBackgroundPanel(state);
             }
 
             // Declared. The node carries its own backdrop and owns z-order, so the "rendered last so

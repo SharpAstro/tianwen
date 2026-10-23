@@ -67,7 +67,7 @@ public sealed class ToolbarOffer
         // replaced.
         ("Sky", ToolbarAction.SkyBackdrop, 5),
         ("Stars", ToolbarAction.Stars, 5),
-        ("NeutBg", ToolbarAction.BackgroundNeutralize, 5),
+        ("Background", ToolbarAction.BackgroundNeutralize, 5),
         // Mark only (three colour discs): it opens the white-balance popover, and its highlight
         // says a white balance is in force. Last in the colour group, beside what sets one.
         //

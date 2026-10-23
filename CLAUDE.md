@@ -1576,7 +1576,7 @@ Two implementations must produce visually equivalent output for the same `Stretc
 `Shaders/image.frag` for the live viewer; **CPU** `Image.StretchChannelCpu` / `StretchLumaPixelCpu` /
 `ApplyHdr` / `ApplyCurveLut` / `ApplyBoost` / `RenderStretchedRgba` for `ConsoleImageRenderer` (TUI
 Sixel) and tests. Order in both: pedestal subtract -> bg neutralization -> WB -> shadow/rescale -> MTF
--> luma blend -> curves -> HDR knee -> finish (masked contrast + saturation) -> normalize -> clamp. **The subject in full, with the
+-> luma blend -> background reduce -> curves -> HDR knee -> finish (masked contrast + saturation) -> normalize -> clamp. **The subject in full, with the
 measurements: `docs/architecture/stretch-pipeline.md`** (and `stacking-render-pipeline.md` sections
 5-6). Rules that bite:
 

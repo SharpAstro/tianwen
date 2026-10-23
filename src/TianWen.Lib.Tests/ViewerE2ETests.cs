@@ -41,7 +41,6 @@ public class ViewerE2ETests
         ToolbarAction.StretchParams,
         ToolbarAction.Channel,
         ToolbarAction.Zoom,
-        ToolbarAction.BackgroundNeutralize,
         ToolbarAction.Shortcuts,
     ];
 
@@ -121,6 +120,7 @@ public class ViewerE2ETests
                  {
                      (ToolbarAction.Tone, e2e.Viewer.ToneAmountSliderState),
                      (ToolbarAction.WhiteBalance, e2e.Viewer.WhiteBalanceSliderState(0)),
+                     (ToolbarAction.BackgroundNeutralize, e2e.Viewer.BackgroundReduceSliderState),
                  })
         {
             e2e.Click(action);
@@ -265,7 +265,7 @@ public class ViewerE2ETests
 
     [Theory]
     [MemberData(nameof(Scales))]
-    public async Task TheToneAndWhiteBalancePopoversOpenAndEscapeClosesThem(float dpiScale)
+    public async Task EveryPopoverOpensAndEscapeClosesIt(float dpiScale)
     {
         var ct = TestContext.Current.CancellationToken;
         await using var e2e = ViewerE2E.Start(dpiScale);
@@ -275,6 +275,7 @@ public class ViewerE2ETests
                  {
                      (ToolbarAction.Tone, e2e.State.TonePopover),
                      (ToolbarAction.WhiteBalance, e2e.State.WhiteBalancePopover),
+                     (ToolbarAction.BackgroundNeutralize, e2e.State.BackgroundPopover),
                  })
         {
             e2e.Click(action);
