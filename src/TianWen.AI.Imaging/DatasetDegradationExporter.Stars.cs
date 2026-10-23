@@ -418,8 +418,8 @@ public static partial class DatasetDegradationExporter
             var strategy = DatasetGradientReport.ReadMasterCards(masterPath).Strategy;
             var sessionOptions = SessionOptions(options, strategy, channels);
 
-            // The plate on its MASTER's scale, and both sides stretched with one set of parameters: the plate's (the target's,
-            // H6) by default, or with StretchFromMaster the master's own, which is what inference stretches the master with (#1776).
+            // The plate on its MASTER's scale, and both sides stretched with one set of parameters: the master's own by default
+            // (StretchFromMaster), which is what inference stretches the master with (#1776), or the plate's (the target's, H6).
             var divisor = DatasetTileExporter.UnitDivisor(master);
             unitPlate = DatasetTileExporter.ToUnitRange(plate, divisor);
             var (origMin, balances, skySlopeRatio) = StarsStretch(sessionId, master, divisor, unitPlate, options.StretchFromMaster);

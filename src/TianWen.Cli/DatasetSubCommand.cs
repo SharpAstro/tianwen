@@ -1808,12 +1808,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "channels the master's noise has, measured robustly on its starless plate, each channel's spatial " +
                           "correlation kept; nothing else a draw takes moves (Synthetics S4).",
         };
-        var stretchFromOpt = new Option<string>("--stretch-from")
+        var stretchFromOpt = new Option<string?>("--stretch-from")
         {
-            Description = "--mode stars: whose parameters both halves of a pair are stretched with: plate (the default, the plan's " +
-                          "H6) or master (the master's own, as inference stretches it; the plate's minimum sits in its deepest " +
-                          "subtraction holes, #1776). Each session logs the slope ratio between the two at the sky.",
-            DefaultValueFactory = _ => "plate",
+            Description = "--mode stars: whose parameters both halves of a pair are stretched with: master (the default, the " +
+                          "master's own, as inference stretches it, #1776) or plate (the plan's H6, as every export before " +
+                          "synth11; the plate's minimum sits in its deepest subtraction holes). Each session logs the slope ratio " +
+                          "between the two at the sky.",
         };
 
         var faintStarsOpt = new Option<string?>("--faint-stars")
@@ -2035,17 +2035,18 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                     return 1;
                 }
             }
-            var stretchFrom = parseResult.GetValue(stretchFromOpt) ?? "plate";
-            if (stretchFrom is not ("plate" or "master"))
+            var stretchGiven = parseResult.GetValue(stretchFromOpt);
+            if (stretchGiven is not (null or "plate" or "master"))
             {
-                consoleHost.WriteError($"--stretch-from {stretchFrom}: give plate or master");
+                consoleHost.WriteError($"--stretch-from {stretchGiven}: give plate or master");
                 return 1;
             }
-            if (stretchFrom == "master" && mode != DatasetDegradationExporter.DegradationMode.Stars)
+            if (stretchGiven is not null && mode != DatasetDegradationExporter.DegradationMode.Stars)
             {
-                consoleHost.WriteError("--stretch-from master chooses the stars mode's stretch; it needs --mode stars");
+                consoleHost.WriteError($"--stretch-from {stretchGiven} chooses the stars mode's stretch; it needs --mode stars");
                 return 1;
             }
+            var stretchFrom = stretchGiven ?? "master";
 
             var options = new DatasetDegradationExporter.Options(
                 BakeRoot: parseResult.Required(bakeOpt),
