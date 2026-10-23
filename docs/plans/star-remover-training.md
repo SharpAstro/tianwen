@@ -3861,7 +3861,8 @@ matches synth11 to f16 rounding; synth11 is the same export re-stretched by the 
   amplitudes of 0.99 / 1.25 / 0.90, past the stretch's 0.99 level (0.47 / 0.63 / 0.62). 13 saturated draws on these
   cells clip at 0.83 to 0.95, against the real stars' brightest 0.92 to 0.96 over the plate. So the band's edge sits
   in noise units, and the gap is the synthetic noise level on this rig: 1.11 to 1.17 times real's on Lobster's three
-  sessions, 1.00 on M42 and SMC (S2's recount).
+  sessions, 1.00 on M42 and SMC (S2's recount). That level is tracked by #1786. Where to look is the noise anchor's
+  calibration on the QHY294PROC.
 - **As exported, the gap is the stretch alone.** Through the plate's stretch, B/G is 0.27 high at 5-20 sigma and 0.18
   at 20-100, and R/G 0.36 and 0.13 low. Through the master's, the same tiles are within 0.035. Once tiles are exported
   `--stretch-from master` (#1776, synth11), the as-exported column is the re-stretched one.
