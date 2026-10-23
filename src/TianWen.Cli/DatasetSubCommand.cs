@@ -2071,7 +2071,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 KeptCores: keptCores,
                 ChannelNoiseCorrelation: channelNoiseCorrelation,
                 FaintStarFloor: faintStars,
-                FaintStarCap: faintCap);
+                FaintStarCap: faintCap,
+                Say: Say);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);
@@ -2099,6 +2100,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
     /// one, so a value too short to name a session (<see cref="SessionFilter.MinLength"/>) is a parse error naming it on
     /// each (#1778). The exporters check again, for a caller that never met this parser.
     /// </summary>
+    /// <summary>
+    /// Where a verb says its selected sessions (<see cref="SessionFilter.Announce"/>): the console, since a Release build's
+    /// console logger shows warnings only and the exporters' logger lines would reach the file log alone.
+    /// </summary>
+    private void Say(string line) => consoleHost.WriteScrollable(line);
+
     private static Option<string[]> SessionSubstringOption(string description)
     {
         var option = new Option<string[]>("--session")
@@ -2155,7 +2162,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             var frame = parseResult.GetValue(frameOpt) ?? DatasetTileExporter.FrameMaster;
             var excludeSample = parseResult.GetValue(excludeSampleOpt);
             var exportSeed = parseResult.GetValue(exportSeedOpt);
-            var (listed, counts) = await DatasetDegradationExporter.ListBrightCellsAsync(bake, [.. filters], perSession, seed, frame, excludeSample, exportSeed, logger, ct);
+            var (listed, counts) = await DatasetDegradationExporter.ListBrightCellsAsync(bake, [.. filters], perSession, seed, frame, excludeSample, exportSeed, logger, ct, Say);
             foreach (var c in counts.OrderByDescending(static c => c.Bright))
             {
                 consoleHost.WriteScrollable($"[bright-cells] {c.Bright,4} bright of {c.Cells,4} cells, {c.Listed,4} listed  {c.SessionId}");
@@ -2226,7 +2233,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         {
             var rows = await DatasetDegradationExporter.CheckInjectionAsync(
                 parseResult.Required(bakeOpt), [.. parseResult.GetValue(sessionFilterOpt) ?? []],
-                parseResult.GetValue(cellsOpt), parseResult.GetValue(seedOpt), parseResult.GetValue(extraCellsOpt), logger, ct);
+                parseResult.GetValue(cellsOpt), parseResult.GetValue(seedOpt), parseResult.GetValue(extraCellsOpt), logger, ct, Say);
             if (rows.Length == 0)
             {
                 consoleHost.WriteError("[noise-check] no cell could be read");
@@ -2463,7 +2470,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             var frames = (parseResult.GetValue(framesOpt) ?? "")
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToImmutableArray();
             var results = await DatasetNoisePlaneExporter.RunAsync(
-                new DatasetNoisePlaneExporter.Options(bake, outRoot, [.. parseResult.GetValue(sessionFilterOpt) ?? []], frames),
+                new DatasetNoisePlaneExporter.Options(bake, outRoot, [.. parseResult.GetValue(sessionFilterOpt) ?? []], frames, Say),
                 logger, ct);
             foreach (var r in results)
             {
