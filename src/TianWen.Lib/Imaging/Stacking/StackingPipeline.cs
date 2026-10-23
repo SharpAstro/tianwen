@@ -239,6 +239,26 @@ public sealed class StackingPipeline(
     }
 
     /// <summary>
+    /// <paramref name="slug"/>, or when an earlier group already took it, the slug with the first free <c>_2</c>, <c>_3</c>...
+    /// suffix: every group of a run writes under a name of its own.
+    /// </summary>
+    internal static string UniqueSlug(string slug, IEnumerable<string> taken)
+    {
+        var used = taken.ToHashSet(StringComparer.Ordinal);
+        if (!used.Contains(slug))
+        {
+            return slug;
+        }
+
+        var n = 2;
+        while (used.Contains($"{slug}_{n}"))
+        {
+            n++;
+        }
+        return $"{slug}_{n}";
+    }
+
+    /// <summary>
     /// Whether a master file named <paramref name="fileName"/> is replaced by this run. Its group is the
     /// LONGEST slug it is named after (<c>master_&lt;slug&gt;</c> then '.' or '_'), so one slug that
     /// prefixes another cannot claim the other's files. A group this run stacks: replaced. A group the
@@ -556,6 +576,18 @@ public sealed class StackingPipeline(
         {
             logger.LogInformation("[lights] pier-side split: {Groups} -> {SubGroups} sub-group(s)",
                 lightGroups.Count, subGroups.Count);
+        }
+
+        // A slug names the group's files, so two groups under one slug write one master each over the other, and the
+        // run reports both as written. The slug carries what usually tells groups apart, not every field of the key.
+        for (var i = 0; i < subGroups.Count; i++)
+        {
+            var unique = UniqueSlug(subGroups[i].Slug, subGroups.Take(i).Select(g => g.Slug));
+            if (unique != subGroups[i].Slug)
+            {
+                logger.LogWarning("[lights] two groups share the name {Slug}; the second is written as {Unique}", subGroups[i].Slug, unique);
+                subGroups[i] = subGroups[i] with { Slug = unique };
+            }
         }
 
         // Drop tiny sub-groups silently. These are almost always ghosts from

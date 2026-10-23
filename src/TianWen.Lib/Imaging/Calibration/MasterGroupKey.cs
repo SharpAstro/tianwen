@@ -108,8 +108,15 @@ public sealed record MasterGroupKey(
             sb.Append('_').Append(t.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append('C');
         }
 
-        // Filter only meaningful on flats; bias / dark are filter-independent.
-        if (Type is FrameType.Flat or FrameType.DarkFlat)
+        // Filter only meaningful on flats and lights; bias / dark are filter-independent. A LIGHT names it only when it
+        // has one, so an unfiltered colour session keeps the slug it always had, while a mono session's L, R, G and B,
+        // which agree on every other field, no longer write four masters to one name, each over the last (an iTelescope
+        // LRGB folder with no OBJECT card kept only its blue master).
+        if (Type is FrameType.Light && FilterIdentity.Length > 0)
+        {
+            sb.Append('_').Append(SanitizeForFilename(FilterIdentity));
+        }
+        else if (Type is FrameType.Flat or FrameType.DarkFlat)
         {
             // IdentityKey is "" for Filter.None, which is what makes this fallback reachable at
             // all: Filter.None.Name is the literal string "None", so the old key spelled an
