@@ -2115,16 +2115,16 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
     }
 
     /// <summary>
-    /// A <c>--session</c> of case-insensitive substrings, several per flag: the one declaration for every verb that takes
-    /// one, so a value too short to name a session (<see cref="SessionFilter.MinLength"/>) is a parse error naming it on
-    /// each (#1778). The exporters check again, for a caller that never met this parser.
-    /// </summary>
-    /// <summary>
     /// Where a verb says its selected sessions (<see cref="SessionFilter.Announce"/>): the console, since a Release build's
     /// console logger shows warnings only and the exporters' logger lines would reach the file log alone.
     /// </summary>
     private void Say(string line) => consoleHost.WriteScrollable(line);
 
+    /// <summary>
+    /// A <c>--session</c> of case-insensitive substrings, several per flag: the one declaration for every verb that takes
+    /// one, so a value too short to name a session (<see cref="SessionFilter.MinLength"/>) is a parse error naming it on
+    /// each (#1778). The exporters check again, for a caller that never met this parser.
+    /// </summary>
     private static Option<string[]> SessionSubstringOption(string description)
     {
         var option = new Option<string[]>("--session")
