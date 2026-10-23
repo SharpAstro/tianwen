@@ -1923,16 +1923,16 @@ internal sealed partial class ImageSubCommand(
             DefaultValueFactory = _ => StarSplit.StarSaturation,
         };
 
-        var reduceBackgroundOpt = new Option<float>("--reduce-background")
+        var skyLevelOpt = new Option<float>("--sky-level")
         {
-            Description = "The share of itself the stretched sky is curved down to, bright structure kept: the viewer's Background > Reduce, on there by default at the same level. 1 turns it off. Range (0, 1]. PNG / PNG-PQ only.",
-            DefaultValueFactory = _ => ViewerState.DefaultBackgroundReduceLevel,
+            Description = "Where the background reduce takes the stretched sky, as a share of the display range, bright structure kept and a sky already below it left alone: the viewer's Background > Reduce, on there by default at the same level. 1 turns it off. Range (0, 1]. PNG / PNG-PQ only.",
+            DefaultValueFactory = _ => ViewerState.DefaultBackgroundSkyLevel,
         };
 
         var cmd = new Command("render", "Render a FITS file to a stretched PNG (default), HDR PQ PNG (--output-format png-pq), or float-true HDR JPEG XR (--output-format jxr).")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, saturationOpt, contrastBoostOpt, whiteBalanceOpt, starsOpt, starBetaOpt, starSaturationOpt, reduceBackgroundOpt },
+            Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, saturationOpt, contrastBoostOpt, whiteBalanceOpt, starsOpt, starBetaOpt, starSaturationOpt, skyLevelOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -2013,10 +2013,10 @@ internal sealed partial class ImageSubCommand(
             // before. JXR is excluded because it writes the input floats verbatim by contract -- no
             // SPCC, no white balance, no stretch -- and scaling them would break that promise.
             var toRender = format == ImageOutputFormat.Jxr ? src : src.ScaleFloatValuesToUnit();
-            var reduceBackground = parseResult.GetValue(reduceBackgroundOpt);
-            if (!float.IsFinite(reduceBackground) || reduceBackground <= 0f || reduceBackground > 1f)
+            var skyLevel = parseResult.GetValue(skyLevelOpt);
+            if (!float.IsFinite(skyLevel) || skyLevel <= 0f || skyLevel > 1f)
             {
-                consoleHost.WriteError($"--reduce-background must be in (0, 1]; got {reduceBackground}.");
+                consoleHost.WriteError($"--sky-level must be in (0, 1]; got {skyLevel}.");
                 return 1;
             }
             ScreenedStars? starScreen = null;
@@ -2060,7 +2060,7 @@ internal sealed partial class ImageSubCommand(
                 maskedBoost: maskedBoost,
                 whiteBalanceOverride: whiteBalance,
                 starScreen: starScreen,
-                backgroundReduce: reduceBackground,
+                backgroundSky: skyLevel,
                 ct: ct);
             return 0;
         });
@@ -2281,7 +2281,7 @@ internal sealed partial class ImageSubCommand(
         MaskedBoostOptions? maskedBoost = null,
         (float R, float G, float B)? whiteBalanceOverride = null,
         ScreenedStars? starScreen = null,
-        float backgroundReduce = 1f,
+        float backgroundSky = 1f,
         CancellationToken ct = default)
     {
         if (format == ImageOutputFormat.None) return;
@@ -2307,10 +2307,10 @@ internal sealed partial class ImageSubCommand(
                 await WriteStretchedPngAsync(image, path, hdr10Pq: true, peakNits, gamutToBt2020, ct);
                 break;
             case ImageOutputFormat.Png:
-                await RenderPngAsync(image, sensorMeta, wcs, path, hdr10Pq: false, peakNits, gamutToBt2020, maskedBoost, whiteBalanceOverride, starScreen, backgroundReduce, ct);
+                await RenderPngAsync(image, sensorMeta, wcs, path, hdr10Pq: false, peakNits, gamutToBt2020, maskedBoost, whiteBalanceOverride, starScreen, backgroundSky, ct);
                 break;
             case ImageOutputFormat.PngPq:
-                await RenderPngAsync(image, sensorMeta, wcs, path, hdr10Pq: true, peakNits, gamutToBt2020, maskedBoost, whiteBalanceOverride, starScreen, backgroundReduce, ct);
+                await RenderPngAsync(image, sensorMeta, wcs, path, hdr10Pq: true, peakNits, gamutToBt2020, maskedBoost, whiteBalanceOverride, starScreen, backgroundSky, ct);
                 break;
             case ImageOutputFormat.UltraHdr:
                 await RenderUltraHdrAsync(image, sensorMeta, wcs, path, peakNits, maskedBoost, ct);
@@ -2354,14 +2354,14 @@ internal sealed partial class ImageSubCommand(
         return true;
     }
 
-    private async Task RenderPngAsync(Image img, ImageMeta sensorMeta, WCS? wcs, string pngPath, bool hdr10Pq, float peakNits, bool gamutToBt2020, MaskedBoostOptions? maskedBoost, (float R, float G, float B)? whiteBalanceOverride, ScreenedStars? starScreen, float backgroundReduce, CancellationToken ct)
+    private async Task RenderPngAsync(Image img, ImageMeta sensorMeta, WCS? wcs, string pngPath, bool hdr10Pq, float peakNits, bool gamutToBt2020, MaskedBoostOptions? maskedBoost, (float R, float G, float B)? whiteBalanceOverride, ScreenedStars? starScreen, float backgroundSky, CancellationToken ct)
     {
         try
         {
             var render = await previewRenderer.RenderAsync(img, sensorMeta, wcs, statsSource: null, pngPath,
                 hdr10Pq: hdr10Pq, peakNits: peakNits, gamutToBt2020: gamutToBt2020,
                 maskedBoost: maskedBoost, whiteBalanceOverride: whiteBalanceOverride, starScreen: starScreen,
-                backgroundReduce: backgroundReduce, ct: ct);
+                backgroundSky: backgroundSky, ct: ct);
             var suffix = hdr10Pq
                 ? $" (HDR PQ, {peakNits:F0} nits, {(gamutToBt2020 ? "BT.2020" : "sRGB")} primaries)"
                 : "";

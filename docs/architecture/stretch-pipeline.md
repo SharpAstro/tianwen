@@ -195,19 +195,26 @@ highlight-protecting neutralization and is algebraically verified equivalent to 
 
 ## The background reduce is a display stage, on by default in the viewer
 
-`StretchUniforms.BackgroundReduce` (1 = off, offset-stored like `FinishSaturation`, so a stretch built anywhere else renders
-as before) curves the STRETCHED sky down to that share of itself, bright structure kept: the CLI's `--dual-stretch` reduce,
-its one definition now `Image.ReduceBackgroundValue` (the LUT `ReduceBackground` reads, the CPU renders, the TUI, and the
-shader's `reduceBackground`, `whiteBalance.w`). It runs straight after the stretch, anchored on the post-stretch sky the
-render is handed (`curvesMidpoint`), and **every later stage pivots on the REDUCED sky** (`ReducedBackground`): the boost
-and the finish's mask read where the background now is. The curve's sky tangent is held to three times each neighbouring
-secant (Fritsch and Carlson), or a bright sky under a strong compression dipped below zero just above black.
+`StretchUniforms.BackgroundSky` (1 = off, offset-stored like `FinishSaturation`, so a stretch built anywhere else renders
+as before) is the LEVEL the stretched sky is curved down to, a share of the display range, bright structure kept: the CLI's
+`--dual-stretch` reduce, its one definition `Image.ReduceBackgroundValue` (the LUT `ReduceBackground` reads, the CPU
+renders, the TUI, and the shader's `reduceBackground`, the level in `whiteBalance.w`). It runs straight after the stretch,
+anchored on the post-stretch sky the render is handed (`curvesMidpoint`), with the compression the level over that sky,
+at most 1 (`BackgroundReduceCompression`, the shader's `reduceCompression`), so **a sky the stretch already puts at or
+below the level is left alone**; **every later stage pivots on the REDUCED sky** (`ReducedBackground`). The curve's sky
+tangent is held to three times each neighbouring secant (Fritsch and Carlson), or a bright sky under a strong
+compression dipped below zero just above black.
 
-The viewer's Background popover (#1779, the old NeutBg dropdown) carries it: on by default at 0.55
-(`ViewerState.DefaultBackgroundReduceLevel`), the owner's choice, which on the enhanced Sculptor master put the sky at
-(27, 30, 25) of 255 against the Wikipedia lead image's (25, 27, 30); it stands down under a planet's stretch
-(`BackgroundReduceStandsDown`), whose sky is already black and where it only made the picture follow the sky estimate.
-`image render --reduce-background` takes the same default; `MasterPreviewRenderer`'s other callers (stack previews,
+**A level, not a share of the sky** (#1792). #1788 shipped it as a share (0.55 of the sky), which multiplied with the
+stretch's own target: the default 0.2 put the sky at 0.11, the 0.1 preset at 0.055. A level puts it at one place whatever
+the target, as Astro Pixel Processor 2.0's Adaptive Deep Sky Stretch reads its "background level %"; the stretch's target
+then says how hard the data is stretched, the reduce where the sky sits.
+
+The viewer's Background popover (#1779, the old NeutBg dropdown) carries it: on by default at 0.11
+(`ViewerState.DefaultBackgroundSkyLevel`, where the owner's first choice took the default target), which on the enhanced
+Sculptor master put the sky at (27, 30, 25) of 255 against the Wikipedia lead image's (25, 27, 30); it stands down under a
+planet's stretch (`BackgroundReduceStandsDown`), whose sky is already black and where it only made the picture follow the
+sky estimate. `image render --sky-level` takes the same default; `MasterPreviewRenderer`'s other callers (stack previews,
 thumbnails) pass 1 and are unchanged. The popover also says what the neutralisation did, as each channel's stretched sky in
 0..255 levels with and without it, where the gains themselves (about 1e-5 from unity on a denoised frame) printed as
 1.0000.

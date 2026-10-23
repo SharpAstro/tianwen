@@ -9,7 +9,7 @@ namespace TianWen.UI.Abstractions;
 /// <summary>
 /// The Background popover under the toolbar's <see cref="ToolbarAction.BackgroundNeutralize"/> button: the sky's
 /// neutralisation (method and strength, what it did to the sky in 0..255 levels) and the background reduce
-/// (<see cref="StretchUniforms.BackgroundReduce"/>, on by default), the two things that decide what the sky looks like.
+/// (<see cref="StretchUniforms.BackgroundSky"/>, on by default), the two things that decide what the sky looks like.
 /// </summary>
 /// <remarks>
 /// <para><b>It replaced a flat dropdown of presets</b> (Off, Mean, Mean 50 %, Green pivot, Min pivot), which had no room for
@@ -25,12 +25,12 @@ partial class ImageRendererBase<TSurface>
     private const string ReduceNeedsStretchReason = "needs a stretch";
     private const string ReducePlanetaryReason = "off under a planet's stretch, whose sky is already black";
     private const string BackgroundStrengthLabel = "Strength";
-    private const string ReduceLevelLabel = "Sky to";
+    private const string ReduceLevelLabel = "Sky at";
 
-    // The reduce's level: the share of itself the sky is curved down to. Below 0.1 the sky goes black and takes the faint
-    // structure with it; at 1 the curve is the identity, which is the checkbox's job.
-    private const float ReduceLevelMin = 0.1f;
-    private const float ReduceLevelMax = 0.95f;
+    // The reduce's sky level, a share of the display range. Below 0.02 the sky is black and takes the faint structure with
+    // it; above 0.4 there is no stretched sky left to take down, and off is the checkbox's job.
+    private const float ReduceLevelMin = 0.02f;
+    private const float ReduceLevelMax = 0.4f;
 
     /// <summary>The neutralisation's dial accent.</summary>
     private static readonly RGBAColor32 BackgroundNeutraliseFill = RGBAColor32.FromFloat(0.55f, 0.75f, 0.55f, 1f);
@@ -94,12 +94,12 @@ partial class ImageRendererBase<TSurface>
             state.NeedsRedraw = true;
         };
 
-        _backgroundReduceSlider.Value = state.BackgroundReduceLevel;
+        _backgroundReduceSlider.Value = state.BackgroundSkyLevel;
         var reducible = stretched && !state.BackgroundReduceStandsDown;
         _backgroundReduceSlider.Enabled = state.BackgroundReduceEnabled && reducible;
         _backgroundReduceSlider.OnChanged = v =>
         {
-            state.BackgroundReduceLevel = v;
+            state.BackgroundSkyLevel = v;
             state.NeedsRedraw = true;
         };
 
@@ -132,7 +132,7 @@ partial class ImageRendererBase<TSurface>
                 checkStyle, BaseFontSize, new HitResult.ButtonHit("BackgroundReduce"),
                 disabledReason: !stretched ? ReduceNeedsStretchReason : state.BackgroundReduceStandsDown ? ReducePlanetaryReason : null)
             .WStar());
-        rows.Add(ToneDialRow(ReduceLevelLabel, _backgroundReduceSlider, UiFormat.Percent0(state.BackgroundReduceLevel),
+        rows.Add(ToneDialRow(ReduceLevelLabel, _backgroundReduceSlider, UiFormat.Percent0(state.BackgroundSkyLevel),
             BackgroundReduceFill));
         if (ReducedSkyInWords(stretch, state, inv) is { } reduced)
         {
@@ -195,13 +195,15 @@ partial class ImageRendererBase<TSurface>
     /// <summary>Where the reduce puts the sky, in 0..255 levels of the stretched luminance; null where it does not run.</summary>
     private string? ReducedSkyInWords(in StretchUniforms stretch, ViewerState state, CultureInfo inv)
     {
-        if (state.BackgroundReduce >= 1f || stretch.Mode is StretchMode.None || _document is not { } document)
+        if (state.BackgroundSky >= 1f || stretch.Mode is StretchMode.None || _document is not { } document)
         {
             return null;
         }
         var sky = stretch.ComputePostStretchBackground(document.PerChannelBackground, document.LumaBackground);
-        var reduced = (stretch with { BackgroundReduce = state.BackgroundReduce }).ReducedBackground(sky);
-        return string.Create(inv, $"sky {MathF.Round(sky * 255f):0} to {MathF.Round(reduced * 255f):0} of 255");
+        var reduced = (stretch with { BackgroundSky = state.BackgroundSky }).ReducedBackground(sky);
+        return reduced < sky
+            ? string.Create(inv, $"sky {MathF.Round(sky * 255f):0} to {MathF.Round(reduced * 255f):0} of 255")
+            : string.Create(inv, $"sky {MathF.Round(sky * 255f):0} of 255, already at or below the level");
     }
 
     private void RenderBackgroundPanel(ViewerState state)

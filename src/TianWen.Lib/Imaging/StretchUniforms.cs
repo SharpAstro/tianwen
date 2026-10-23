@@ -86,29 +86,43 @@ public readonly record struct StretchUniforms(
     public bool HasFinish => FinishContrast > 0f || FinishSaturation != 1f;
 
     /// <summary>
-    /// The background reduce's compression, 1 (off, the default) down toward 0: the stretched sky is curved down to that
-    /// fraction of itself by <see cref="Image.ReduceBackgroundValue"/>, the CLI's <c>--dual-stretch</c> reduce, applied
-    /// straight after the stretch and anchored on the post-stretch background the render is given (its
-    /// <c>curvesMidpoint</c>). The render and the shader's <c>reduceBackground</c> must agree.
+    /// Where the background reduce takes the stretched sky, as a share of the display range: 1 (off, the default) down
+    /// toward 0. The sky is curved down to this level by <see cref="Image.ReduceBackgroundValue"/>, the CLI's
+    /// <c>--dual-stretch</c> reduce, straight after the stretch and anchored on the post-stretch sky the render is given
+    /// (its <c>curvesMidpoint</c>); a sky already at or below it is left alone. The render and the shader's
+    /// <c>reduceBackground</c> must agree.
     /// </summary>
-    /// <remarks>Stored as its distance from 1, so a <c>default</c> or <c>new StretchUniforms()</c> reads 1 (off), as
-    /// <see cref="FinishSaturation"/> does.</remarks>
-    public float BackgroundReduce
+    /// <remarks>
+    /// <para><b>A level, not a share of the sky, because a share multiplied with the stretch's own target</b> (#1792): at
+    /// 0.55 of the sky, the default target 0.2 put it at 0.11 while the 0.1 preset put it at 0.055. A level puts it at
+    /// the same place whatever the target, which is how Astro Pixel Processor's background level % reads too.</para>
+    /// <para>Stored as its distance from 1, so a <c>default</c> or <c>new StretchUniforms()</c> reads 1 (off), as
+    /// <see cref="FinishSaturation"/> does.</para>
+    /// </remarks>
+    public float BackgroundSky
     {
-        get => 1f + _backgroundReduceOffset;
-        init => _backgroundReduceOffset = value - 1f;
+        get => 1f + _backgroundSkyOffset;
+        init => _backgroundSkyOffset = value - 1f;
     }
 
-    private readonly float _backgroundReduceOffset;
+    private readonly float _backgroundSkyOffset;
 
-    /// <summary>Whether the background reduce changes anything: a stretched frame with a compression below 1.</summary>
-    public bool HasBackgroundReduce => BackgroundReduce < 1f && BackgroundReduce > 0f && Mode is not StretchMode.None;
+    /// <summary>Whether the background reduce is asked for: a stretched frame with a sky level below 1. Whether it moves
+    /// a given sky is <see cref="BackgroundReduceCompression"/>'s answer.</summary>
+    public bool HasBackgroundReduce => BackgroundSky < 1f && BackgroundSky > 0f && Mode is not StretchMode.None;
+
+    /// <summary>
+    /// The compression the curve applies to a post-stretch sky at <paramref name="background"/>: the level over the sky,
+    /// at most 1, so a sky already at or below the level is not moved. 1 where there is no reduce or the sky is outside the
+    /// curve's domain, (0, 0.5). The shader's <c>reduceCompression</c> is the same arithmetic.
+    /// </summary>
+    public float BackgroundReduceCompression(float background) => HasBackgroundReduce && background > 0f && background < 0.5f
+        ? MathF.Min(1f, BackgroundSky / background)
+        : 1f;
 
     /// <summary>Where a post-stretch sky at <paramref name="background"/> lands after the reduce: the level every later
     /// stage pivots on.</summary>
-    public float ReducedBackground(float background) => HasBackgroundReduce && background > 0f && background < 0.5f
-        ? background * BackgroundReduce
-        : background;
+    public float ReducedBackground(float background) => background * BackgroundReduceCompression(background);
     /// <summary>
     /// Computes the post-stretch background level by stretching the measured
     /// background values through <see cref="Image.StretchValue"/>; the same pipeline as the GLSL shader.

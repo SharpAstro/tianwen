@@ -29,7 +29,7 @@ layout(set = 0, binding = 0, std140) uniform StretchUBO {
     // mat2 stored as 2 vec4 columns (std140 mat2 = 2 x vec4 = 32 bytes)
     vec4  cdCol0;           // offset 160
     vec4  cdCol1;           // offset 176
-    vec4  whiteBalance;        // offset 192  (xyz = WB multipliers, w = background reduce compression, 1 = off)
+    vec4  whiteBalance;        // offset 192  (xyz = WB multipliers, w = background reduce's sky level, 1 = off)
     vec4  bgNeutralization;    // offset 208  (xyz = neutralization gains, w = pad)
     vec4  curveData[9];        // offset 224  (33 knots packed into 9 vec4s; last 3 floats unused)
     vec4  lumaWeights;         // offset 368  (xyz = R/G/B luma weights, w = pad). Rec.709 default.
@@ -130,15 +130,22 @@ float reduceBackground(float v, float bg, float c) {
          + (-2.0 * u3 + 3.0 * u2) * y1 + (u3 - u2) * h * m1;
 }
 
-// Whether the background reduce runs (StretchUniforms.HasBackgroundReduce), and the sky every later stage pivots on
-// (StretchUniforms.ReducedBackground): the post-stretch sky, times the compression where the reduce moved it.
+// The background reduce's compression for the post-stretch sky (StretchUniforms.BackgroundReduceCompression): the sky
+// level over the sky, at most 1, so a sky already at or below the level is left alone; 1 with no reduce. And the sky
+// every later stage pivots on (StretchUniforms.ReducedBackground).
+float reduceCompression() {
+    float bg = ubo.curvesMidpoint;
+    float level = ubo.whiteBalance.w;
+    bool on = ubo.stretchMode >= 1 && level > 0.0 && level < 1.0;
+    return on && bg > 0.0 && bg < 0.5 ? min(1.0, level / bg) : 1.0;
+}
+
 bool hasBackgroundReduce() {
-    return ubo.stretchMode >= 1 && ubo.whiteBalance.w > 0.0 && ubo.whiteBalance.w < 1.0;
+    return reduceCompression() < 1.0;
 }
 
 float pivotBackground() {
-    float bg = ubo.curvesMidpoint;
-    return hasBackgroundReduce() && bg > 0.0 && bg < 0.5 ? bg * ubo.whiteBalance.w : bg;
+    return ubo.curvesMidpoint * reduceCompression();
 }
 
 float applyCurve(float v, float boost) {
@@ -674,7 +681,7 @@ void main() {
             r = stretchChannel(r, 0);
         }
         if (hasBackgroundReduce()) {
-            r = reduceBackground(r, ubo.curvesMidpoint, ubo.whiteBalance.w);
+            r = reduceBackground(r, ubo.curvesMidpoint, reduceCompression());
         }
         if (ubo.curvesMode == 1) {
             r = applyCurveLUT(r);
@@ -777,9 +784,10 @@ void main() {
 
     // The background reduce, straight after the stretch (Image.ReduceBackgroundValue, anchored on the post-stretch sky).
     if (hasBackgroundReduce()) {
-        r = reduceBackground(r, ubo.curvesMidpoint, ubo.whiteBalance.w);
-        g = reduceBackground(g, ubo.curvesMidpoint, ubo.whiteBalance.w);
-        b = reduceBackground(b, ubo.curvesMidpoint, ubo.whiteBalance.w);
+        float rc = reduceCompression();
+        r = reduceBackground(r, ubo.curvesMidpoint, rc);
+        g = reduceBackground(g, ubo.curvesMidpoint, rc);
+        b = reduceBackground(b, ubo.curvesMidpoint, rc);
     }
     if (ubo.curvesMode == 1) {
         r = applyCurveLUT(r);

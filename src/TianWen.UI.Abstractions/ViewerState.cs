@@ -82,9 +82,10 @@ public sealed class ViewerState
     /// </summary>
     public PopoverState BackgroundPopover { get; } = new();
 
-    /// <summary>The background reduce's default level, the share of itself the stretched sky is curved down to: on the
-    /// enhanced Sculptor master it put the sky at 27, 30, 25 of 255, where the Wikipedia lead image's is 25, 27, 30.</summary>
-    public const float DefaultBackgroundReduceLevel = 0.55f;
+    /// <summary>The background reduce's default sky level, a share of the display range: 0.11 is where the owner's first
+    /// choice (0.55 of a sky the default target puts at 0.2) took it, which on the enhanced Sculptor master was 27, 30, 25 of
+    /// 255 against the Wikipedia lead image's 25, 27, 30.</summary>
+    public const float DefaultBackgroundSkyLevel = 0.11f;
 
     /// <summary>Curves boost amount applied in the display shader (0.0 = off, up to 1.0).</summary>
     public float CurvesBoost { get; set; }
@@ -285,22 +286,23 @@ public sealed class ViewerState
     public float BackgroundNeutralizationStrength { get; set; } = 1f;
 
     /// <summary>
-    /// Whether the background reduce runs (<see cref="StretchUniforms.BackgroundReduce"/>): the stretched sky curved down,
+    /// Whether the background reduce runs (<see cref="StretchUniforms.BackgroundSky"/>): the stretched sky curved down,
     /// bright structure kept, the CLI's <c>--dual-stretch</c> reduce. ON by default, the owner's choice: a sky left where
     /// the stretch put it read as a grey veil on the enhanced Sculptor master.
     /// </summary>
     public bool BackgroundReduceEnabled { get; set; } = true;
 
-    /// <summary>The share of itself the reduce curves the sky down to, the Background popover's dial.</summary>
-    public float BackgroundReduceLevel { get; set; } = DefaultBackgroundReduceLevel;
+    /// <summary>Where the reduce takes the sky, a share of the display range: the Background popover's dial. A sky the
+    /// stretch already puts at or below it is left alone.</summary>
+    public float BackgroundSkyLevel { get; set; } = DefaultBackgroundSkyLevel;
 
     /// <summary>
-    /// The compression the render is given: the level while the reduce is on, 1 (off) otherwise, and off under a planet's
+    /// The sky level the render is given: the dial's while the reduce is on, 1 (off) otherwise, and off under a planet's
     /// stretch (<see cref="StretchMode.Planetary"/>), which already puts the sky at black: reducing it is a deep-sky step, and
     /// on a planet it only made the picture follow the sky estimate (a save of the same master moved by 1e-4 when its
     /// statistics came from another basis).
     /// </summary>
-    public float BackgroundReduce => BackgroundReduceEnabled && !BackgroundReduceStandsDown ? BackgroundReduceLevel : 1f;
+    public float BackgroundSky => BackgroundReduceEnabled && !BackgroundReduceStandsDown ? BackgroundSkyLevel : 1f;
 
     /// <summary>Whether the reduce stands down whatever its switch says: under a planet's stretch.</summary>
     public bool BackgroundReduceStandsDown => StretchMode is StretchMode.Planetary;
@@ -1019,7 +1021,7 @@ public sealed class ViewerState
         BackgroundNeutralizationMethod = BackgroundNeutralizationMethod,
         BackgroundNeutralizationStrength = BackgroundNeutralizationStrength,
         BackgroundReduceEnabled = BackgroundReduceEnabled,
-        BackgroundReduceLevel = BackgroundReduceLevel,
+        BackgroundSkyLevel = BackgroundSkyLevel,
         ManualWhiteBalance = ManualWhiteBalance,
 
         // The post-stretch dials.
