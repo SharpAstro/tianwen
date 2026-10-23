@@ -1,0 +1,31 @@
+{
+  "cli": "<path to the tianwen executable>",
+  "out_root": "<folder where each tag's plates, checks and row.txt are made>",
+  "masters": {
+    "andromeda": "<path to the owner's M31 RGB master, FITS, 3 planes>",
+    "tarantula": "<path to the held-out Tarantula master of 2026-10-17, FITS, 3 planes, PIXORIG = 1>",
+    "sag": "<path to the Sagittarius Triplet master, mono or RGB>"
+  },
+  "arm": {
+    "run": "<frozen copy of training/denoise at the arm's commit (r2_infer.py, n2n_export.py)>",
+    "eval_cli": "<tianwen executable that runs dataset starless-eval>",
+    "remove_cli": "<tianwen executable that runs image remove-stars over M31>",
+    "eval_root": "<folder of <name>/on-random, on-twin-*, on-real-val outputs>",
+    "reports": "<folder real-star-read-<name>.txt, ring-<name>.txt and m31-nucleus-<name>.txt are written to>",
+    "logs_root": "<folder score-<name>/ (logs, the ONNX) is made under>",
+    "real_export": "<the real-val noise-mode export>",
+    "random_export": "<the random-mode export of A's draws>",
+    "twins_root": "<folder holding the plain and lobed twin exports>",
+    "val_list": "<the validation sessions list, relative to run: arms/r2-val.txt>",
+    "plates_root": "<the bake's starless/plates folder>",
+    "m31_master": "<the owner's M31 RGB master (the same file as masters.andromeda)>",
+    "m31_out": "<folder M31's 8-view starless plates are written to>",
+    "real_star_baselines": [
+      "<an output folder name under eval_root the real-star check lists beside the arm>"
+    ],
+    "ring_baselines": [
+      "<an output folder name the ring check lists beside the arm>"
+    ],
+    "nucleus_reference": "<an earlier arm's M31 plate the nucleus read is printed beside>"
+  }
+}

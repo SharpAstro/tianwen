@@ -3556,12 +3556,28 @@ real relation between channels: over the 123 colour training masters a wider red
 (correlation -0.59), R2s's draws had -0.23, and 45 % of its stars lay outside every real master's relation, which is how
 it learned a red-only star 8 px wide and took 77 % of M31's red nucleus above its ring.
 
-**The scorecard** is one command (moving into the repo with the per-arm scorer and the driver: #1774),
-`C:/temp/e2/score-whole.py <tag> --model <onnx>` (one view, how a model ships): Andromeda's
+**The scorecard** is one command, in the repo since #1774 (`training/star-removal/score_whole.py`, its paths from a
+config; `training/README.md`, "Scoring an arm"), `python score_whole.py <tag> --config scorecard.local.json --model <onnx>`
+(one view, how a model ships): Andromeda's
 bright dark-sky stars flat and dug and blue's residual at 1.5-3 and 3-4.5 px, the Tarantula's bright dark-sky stars flat
 and left and its core residual per channel, its crowded stars, Gaia BP 17-19 and purity, the Sagittarius Triplet's
 crowded stars, and M31's nucleus. Its guards are round 1's: the nucleus at most 5 % in every channel, purity at most 1.0 %.
 The judges' rows are the ceiling, R2i seed 0's the small-model baseline and R2t's the round 1 base.
+The repo copy, run with tag r2t over R2t's own three plates and no model, wrote `row.txt` byte for byte as the scratch
+copy had (checked 2026-10-23, no GPU).
+
+**An arm's scorer and driver are in the repo too** (#1774, `training/star-removal/score-arm.ps1`, `arm-driver.ps1`,
+`register-arm-task.ps1`; paths from the `arm` object of the same config). `score-arm.ps1` is what scored R2nc to R2u after
+their weights came home: A's draws and R2k's twins at one view, the real tiles' check, the ring and M31's nucleus over 8
+views, with `real_star_check.py` and `ring_annulus.py` (moved beside it, their paths now arguments) and `m31_nucleus.py`.
+**Every step is skipped when its output exists**, the three reads included (they used to run again on every call), so a
+second call over a scored arm does no inference and uses no GPU. `arm-driver.ps1` is R2v's driver made generic: a scheduled
+task every 10 minutes (`conhost --headless`, priority 4, `IgnoreNew`), one step per pass, a stop file, and a failing step
+writes it so it is not retried all night. **Checked 2026-10-23** against R2u's existing outputs: `score-arm.ps1` skipped
+every step and exited 0 (only `score.log` grew); the three reads re-run into scratch matched the scratch copies' files line
+for line (ring: R2u -0.20 / -0.52 / -0.38 sigma, 41.1 % dug, 13.8 % left; nucleus 0-6 px +0.0 / +3.5 / +2.1 %; real-star
+5-20 sigma left |<1| 96.11 %), and the driver, pointed at that arm with a scratch runs folder, scored and wrote its done
+file with no GPU.
 
 **The arms.** A1, **R2s2**: each training master's stars drawn at that master's own measured wing gains (`degrade
 --star-shapes`, from `tianwen dataset star-shapes`, which solves per master and channel the gain that matches the drawn
