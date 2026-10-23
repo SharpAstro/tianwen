@@ -11,7 +11,8 @@
 #      the ONNX that scoring wrote, unless <out root>/<WholeTag>/row.txt is already there;
 #   6. writes <tag>.done.
 # Stop it with <tag>-chain.stop in the runs folder, then `schtasks /Change /TN tw-<tag> /DISABLE`. Status, log, stop and done
-# files are in the runs folder (TIANWEN_RUNS, default C:/temp/e2, as training/azure/common.ps1). A step that fails writes the stop
+# files are in the runs folder: -Runs, or TIANWEN_RUNS (the variable training/azure/common.ps1 reads); one of them is required,
+# since this file names no machine path. A step that fails writes the stop
 # file, so a failing step is not retried every 10 minutes for a night; the log says which and why.
 param(
     [Parameter(Mandatory)] [string]$Tag,
@@ -20,6 +21,10 @@ param(
     [Parameter(Mandatory)] [string]$TrainDir,
     [Parameter(Mandatory)] [string]$Cache,
     [string]$Config = (Join-Path $PSScriptRoot 'scorecard.local.json'),
+    # The runs folder; TIANWEN_RUNS when not given. A scheduled task passes it, since its environment may not carry the variable.
+    [string]$Runs = $env:TIANWEN_RUNS,
+    # A python command line that means another trainer holds the GPU, which the driver then waits for.
+    [string]$GpuTrainerPattern = 'n2n_smoke\.py --train',
     [string]$PreReg = '',
     [string]$ExportScript = '',
     [string]$ExportDone = '',
@@ -30,22 +35,41 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 if (-not $WholeTag) { $WholeTag = $Tag }
-$runs = if ($env:TIANWEN_RUNS) { $env:TIANWEN_RUNS } else { 'C:/temp/e2' }
+if (-not $Runs) { throw 'no runs folder: pass -Runs or set TIANWEN_RUNS' }
+$runs = $Runs
 $status = "$runs/$Tag-chain.status"
 $log = "$runs/$Tag-chain.log"
 $stop = "$runs/$Tag-chain.stop"
 $done = "$runs/$Tag.done"
 function Say([string]$what) { "$(Get-Date -Format o) $what" | Out-File $log -Append -Encoding utf8; "$what $(Get-Date -Format o)" | Out-File $status -Encoding utf8 }
-function Running([string]$pattern) { @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine -match $pattern }).Count -gt 0 }
+# A worker is a process of one of $names (never a shell or an editor session that merely MENTIONS a script in its prompt) whose
+# command line matches $pattern. The driver's own process tree is excluded: its command line carries -TrainScript and
+# -ExportScript as arguments, and so does its conhost parent under the scheduled task.
+$self = @{}
+for ($id = $PID; $id -and -not $self.ContainsKey([int]$id); ) {
+    $self[[int]$id] = $true
+    $id = (Get-CimInstance Win32_Process -Filter "ProcessId=$id" -ErrorAction SilentlyContinue).ParentProcessId
+}
+function Running([string[]]$names, [string]$pattern) {
+    @(Get-CimInstance Win32_Process | Where-Object {
+        $_.CommandLine -and -not $self.ContainsKey([int]$_.ProcessId) -and $_.CommandLine -notmatch 'arm-driver\.ps1' `
+            -and ($names -contains $_.Name) -and $_.CommandLine -match $pattern
+    }).Count -gt 0
+}
+# A pwsh running a script: its own -File argument names it, which the driver's -TrainScript argument never does.
+function RunningScript([string]$script) { Running @('pwsh.exe', 'powershell.exe') ('-File\s+"?[^\s"]*' + [regex]::Escape((Split-Path $script -Leaf)) + '(\s|"|$)') }
 function Halt([string]$why) { Say "FAILED: $why"; New-Item -ItemType File $stop -Force | Out-Null }
 
 if (Test-Path $done) { return }
 if (Test-Path $stop) { return }
 $n = [regex]::Escape($Name)
-if ($ExportScript -and (Running ([regex]::Escape((Split-Path $ExportScript -Leaf))))) { return }
-if ($TrainScript -and (Running ([regex]::Escape((Split-Path $TrainScript -Leaf))))) { return }
-if (Running "n2n_smoke\.py.*$n") { return }
-if (Running "score-arm\.ps1.*$n|r2_infer\.py.*$n|starless-eval.*$n|n2n_export\.py.*$n|real_star_check\.py|ring_annulus\.py|score_whole\.py|remove-stars") { return }
+if ($ExportScript -and (RunningScript $ExportScript)) { return }
+if ($TrainScript -and (RunningScript $TrainScript)) { return }
+$py = @('python.exe', 'python3.exe', 'py.exe')
+if (Running $py "n2n_smoke\.py.*$n") { return }
+if (Running @('pwsh.exe') "-File\s+\S*score-arm\.ps1.*$n") { return }
+if (Running $py "(r2_infer|n2n_export)\.py.*$n|(real_star_check|ring_annulus|score_whole)\.py") { return }
+if (Running @('tianwen.exe') "starless-eval.*$n|\bremove-stars\b") { return }
 
 try {
     $cfg = Get-Content $Config -Raw | ConvertFrom-Json
@@ -58,7 +82,7 @@ try {
     }
     if (-not (Test-Path "$TrainDir/$Name.pt")) {
         if (-not $TrainScript) { Halt "no $TrainDir/$Name.pt and no -TrainScript"; return }
-        if (Running 'n2n_smoke\.py --train') { Say 'waiting: another trainer holds the GPU'; return }
+        if (Running $py $GpuTrainerPattern) { Say 'waiting: another trainer holds the GPU'; return }
         Say "training: $(Split-Path $TrainScript -Leaf) $($TrainArgs -join ' ')"
         $r = Start-Process pwsh -ArgumentList (@('-NoProfile', '-File', $TrainScript) + $TrainArgs) -NoNewWindow -PassThru -Wait
         Say "trainer exited $($r.ExitCode)"
