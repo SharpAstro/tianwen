@@ -3688,6 +3688,19 @@ stars at least 95.4 %. **Read, not predicted:** the Tarantula (a seed moves it u
 goes onto R2t's recipe; (1) missing with (2) holding means the relation is not the cause, and the remover takes one shape out
 of every channel for another reason.
 
+#### A `--session` too short to name a session is refused (#1778, 2026-10-23)
+
+A sample export took the whole bake because a PowerShell splat turned `--kept-cores` into twelve one-letter values of
+degrade's `--session`: the option takes several values per flag, each a case-insensitive substring of a session id, and
+"e" or "t" matches 201 of 201. The read: this was a guard the verbs never had, not a bug in the matching, so the rule is
+one shared helper (`SessionFilter`, `TianWen.AI.Imaging`) and not a per-verb patch. A value under 3 characters is refused
+and named, by the parser for the CLI (one option factory used by every declaration) and again by the exporters for a
+library caller; and each verb says what the filter selected, the count of the total and every id, before it reads or
+writes anything. It covers `dataset degrade`, `bright-cells`, `noise-check` and `noise-planes`, which are the verbs whose
+`--session` takes substrings. **Left alone on purpose:** `dataset build --session` and `--rebuild-session` are wildcards
+(`*M42*`), a different shape that a short value does not blow up; `gradient-export --only` matches master file names; and
+the cross-night `--exclude` and `--object` are not session filters. Pinned by `SessionFilterTests`, with no data.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure

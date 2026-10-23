@@ -564,6 +564,7 @@ namespace TianWen.AI.Imaging
         public static async Task<RunResult> RunAsync(Options options, ILogger? logger = null, CancellationToken cancellationToken = default)
         {
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.Draws);
+            SessionFilter.Require(options.SessionFilters);
             if (Path.GetFullPath(options.BakeRoot).Equals(Path.GetFullPath(options.OutDir), StringComparison.OrdinalIgnoreCase))
             {
                 throw new ArgumentException("the degraded cache must not be written into the bake it reads: both use " + DatasetTileExporter.ManifestFileName, nameof(options));
@@ -579,23 +580,21 @@ namespace TianWen.AI.Imaging
             var outTileManifest = Path.Combine(options.OutDir, DatasetTileExporter.ManifestFileName);
             var outDegManifest = Path.Combine(options.OutDir, DegradationManifestFileName);
 
-            var stars = options.Mode == DegradationMode.Stars ? await StarsContext.OpenAsync(options, logger, cancellationToken) : null;
             var cellsBySession = await ReadCellsAsync(bakeManifest, cancellationToken);
             var alreadyDone = options.Force ? [] : await ReadExportedSessionsAsync(outDegManifest, cancellationToken);
             var extraCells = options.ExtraCellsPath is { } extraPath
                 ? DatasetCellList.Read(extraPath)
                 : new Dictionary<string, HashSet<(int X, int Y)>>(StringComparer.Ordinal);
 
-            var sessions = cellsBySession.Keys.OrderBy(static s => s, StringComparer.Ordinal).ToList();
-            if (!options.SessionFilters.IsDefaultOrEmpty)
-            {
-                var filters = options.SessionFilters;
-                sessions = sessions.Where(s => filters.Any(f => s.Contains(f, StringComparison.OrdinalIgnoreCase))).ToList();
-            }
+            var sessions = SessionFilter.SelectAndAnnounce("degrade",
+                [.. cellsBySession.Keys.OrderBy(static s => s, StringComparer.Ordinal)], options.SessionFilters, logger);
             if (options.MaxSessions > 0 && sessions.Count > options.MaxSessions)
             {
                 sessions = sessions.Take(options.MaxSessions).ToList();
             }
+
+            // After the selection is said, never before: a StarsContext reads the plates and the PSF store.
+            var stars = options.Mode == DegradationMode.Stars ? await StarsContext.OpenAsync(options, logger, cancellationToken) : null;
 
             var results = ImmutableArray.CreateBuilder<SessionResult>();
             var skipped = 0;
@@ -957,16 +956,17 @@ namespace TianWen.AI.Imaging
             string frame = DatasetTileExporter.FrameMaster,
             int excludeSampleOf = 0,
             int exportSeed = 1,
+            ILogger? logger = null,
             CancellationToken cancellationToken = default)
         {
+            SessionFilter.Require(sessionFilters);
             if (frame is not (DatasetTileExporter.FrameMaster or DatasetTileExporter.FrameHalfMasterB))
             {
                 throw new ArgumentException($"a level is read from the {DatasetTileExporter.FrameMaster} or the {DatasetTileExporter.FrameHalfMasterB} tile, not {frame}", nameof(frame));
             }
             var cellsBySession = await ReadCellsAsync(Path.Combine(bakeRoot, DatasetTileExporter.ManifestFileName), cancellationToken);
-            var sessions = cellsBySession.Keys.OrderBy(static s => s, StringComparer.Ordinal)
-                .Where(s => sessionFilters.IsDefaultOrEmpty || sessionFilters.Any(f => s.Contains(f, StringComparison.OrdinalIgnoreCase)))
-                .ToList();
+            var sessions = SessionFilter.SelectAndAnnounce("bright-cells",
+                [.. cellsBySession.Keys.OrderBy(static s => s, StringComparer.Ordinal)], sessionFilters, logger);
 
             var listed = ImmutableArray.CreateBuilder<(string SessionId, int X, int Y)>();
             var counts = ImmutableArray.CreateBuilder<BrightCellCount>();
@@ -1059,11 +1059,12 @@ namespace TianWen.AI.Imaging
             ILogger? logger = null,
             CancellationToken cancellationToken = default)
         {
+            SessionFilter.Require(sessionFilters);
             var cellsBySession = await ReadCellsAsync(Path.Combine(bakeRoot, DatasetTileExporter.ManifestFileName), cancellationToken);
             var extra = extraCellsPath is { } p ? DatasetCellList.Read(p) : new Dictionary<string, HashSet<(int X, int Y)>>(StringComparer.Ordinal);
             var rows = ImmutableArray.CreateBuilder<InjectionCheckRow>();
-            var sessions = cellsBySession.Keys.OrderBy(static s => s, StringComparer.Ordinal)
-                .Where(s => sessionFilters.IsDefaultOrEmpty || sessionFilters.Any(f => s.Contains(f, StringComparison.OrdinalIgnoreCase)));
+            var sessions = SessionFilter.SelectAndAnnounce("noise-check",
+                [.. cellsBySession.Keys.OrderBy(static s => s, StringComparer.Ordinal)], sessionFilters, logger);
             foreach (var sessionId in sessions)
             {
                 cancellationToken.ThrowIfCancellationRequested();
