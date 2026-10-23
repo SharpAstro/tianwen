@@ -58,9 +58,11 @@ public static class DatasetNoisePlaneExporter
     /// <summary>Writes the planes, one session at a time.</summary>
     public static async Task<ImmutableArray<SessionResult>> RunAsync(Options options, ILogger? logger, CancellationToken cancellationToken)
     {
+        SessionFilter.Require(options.SessionFilters);
         var manifest = Path.Combine(options.BakeRoot, DatasetTileExporter.ManifestFileName);
         var frames = options.Frames.IsDefaultOrEmpty ? DefaultFrames : options.Frames;
         var bySession = new Dictionary<string, List<DatasetTileExporter.TileManifestRow>>(StringComparer.Ordinal);
+        var allSessions = new HashSet<string>(StringComparer.Ordinal);
         await foreach (var line in File.ReadLinesAsync(manifest, cancellationToken))
         {
             if (line.Trim().Length == 0)
@@ -80,8 +82,8 @@ public static class DatasetNoisePlaneExporter
             {
                 continue;
             }
-            if (options.SessionFilters.Length > 0
-                && !options.SessionFilters.Any(f => row.SessionId.Contains(f, StringComparison.OrdinalIgnoreCase)))
+            allSessions.Add(row.SessionId);
+            if (!SessionFilter.Matches(row.SessionId, options.SessionFilters))
             {
                 continue;
             }
@@ -91,6 +93,9 @@ public static class DatasetNoisePlaneExporter
             }
             rows.Add(row);
         }
+
+        // The manifest read is the only work so far; the masters are read below.
+        SessionFilter.Announce("noise-planes", [.. bySession.Keys.Order(StringComparer.Ordinal)], allSessions.Count, options.SessionFilters, logger);
 
         var results = ImmutableArray.CreateBuilder<SessionResult>();
         foreach (var (sessionId, rows) in bySession.OrderBy(kv => kv.Key, StringComparer.Ordinal))

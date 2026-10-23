@@ -1692,12 +1692,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Description = "After exporting, measure band1/band0 of the injected draws and of the bake's own " +
                           "real sub and half-master pairs with the same code, which is the only way the numbers compare.",
         };
-        var sessionFilterOpt = new Option<string[]>("--session")
-        {
-            Description = "Case-insensitive substring of the session id (repeatable); only matching sessions are " +
-                          "exported. Names an arm's pool without exporting the whole bake.",
-            AllowMultipleArgumentsPerToken = true,
-        };
+        var sessionFilterOpt = SessionSubstringOption("Case-insensitive substring of the session id (repeatable); only matching sessions are " +
+                                                      "exported. Names an arm's pool without exporting the whole bake.");
         var noiseAnchorOpt = new Option<string>("--noise-anchor")
         {
             Description = "What the injected noise is anchored on: sub-mad (each cell on its own subs' tile MAD, channel " +
@@ -2099,6 +2095,28 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
     }
 
     /// <summary>
+    /// A <c>--session</c> of case-insensitive substrings, several per flag: the one declaration for every verb that takes
+    /// one, so a value too short to name a session (<see cref="SessionFilter.MinLength"/>) is a parse error naming it on
+    /// each (#1778). The exporters check again, for a caller that never met this parser.
+    /// </summary>
+    private static Option<string[]> SessionSubstringOption(string description)
+    {
+        var option = new Option<string[]>("--session")
+        {
+            Description = description + $" A value under {SessionFilter.MinLength} characters is refused.",
+            AllowMultipleArgumentsPerToken = true,
+        };
+        option.Validators.Add(result =>
+        {
+            if (!SessionFilter.TryValidate(result.GetValueOrDefault<string[]>(), out var error))
+            {
+                result.AddError(error);
+            }
+        });
+        return option;
+    }
+
+    /// <summary>
     /// <c>tianwen dataset bright-cells</c>: lists a bake's bright cells by the one rule (<see cref="DatasetBrightCells"/>),
     /// for the degrade export's <c>--extra-cells</c> and the trainer's prepare, and prints each session's count.
     /// </summary>
@@ -2106,11 +2124,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
     {
         var bakeOpt = new Option<string>("--bake") { Description = "The bake whose P0 cells are read.", Required = true };
         var outOpt = new Option<string>("--out", "-o") { Description = "The cell list to write (x TAB y TAB session id). Omit to count only." };
-        var sessionFilterOpt = new Option<string[]>("--session")
-        {
-            Description = "Case-insensitive substring of the session id (repeatable). None counts every session of the bake.",
-            AllowMultipleArgumentsPerToken = true,
-        };
+        var sessionFilterOpt = SessionSubstringOption("Case-insensitive substring of the session id (repeatable). None counts every session of the bake.");
         var perSessionOpt = new Option<int>("--per-session") { Description = "Cells listed per session, seeded and uniform among the bright ones; 0 lists all.", DefaultValueFactory = _ => 0 };
         var seedOpt = new Option<int>("--seed") { Description = "The list's own seed.", DefaultValueFactory = _ => 1 };
         var frameOpt = new Option<string>("--frame")
@@ -2141,7 +2155,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             var frame = parseResult.GetValue(frameOpt) ?? DatasetTileExporter.FrameMaster;
             var excludeSample = parseResult.GetValue(excludeSampleOpt);
             var exportSeed = parseResult.GetValue(exportSeedOpt);
-            var (listed, counts) = await DatasetDegradationExporter.ListBrightCellsAsync(bake, [.. filters], perSession, seed, frame, excludeSample, exportSeed, ct);
+            var (listed, counts) = await DatasetDegradationExporter.ListBrightCellsAsync(bake, [.. filters], perSession, seed, frame, excludeSample, exportSeed, logger, ct);
             foreach (var c in counts.OrderByDescending(static c => c.Bright))
             {
                 consoleHost.WriteScrollable($"[bright-cells] {c.Bright,4} bright of {c.Cells,4} cells, {c.Listed,4} listed  {c.SessionId}");
@@ -2170,11 +2184,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
     private Command BuildNoiseCheckCommand()
     {
         var bakeOpt = new Option<string>("--bake") { Description = "The bake.", Required = true };
-        var sessionFilterOpt = new Option<string[]>("--session")
-        {
-            Description = "Case-insensitive substring of the session id (repeatable), as the export takes them.",
-            AllowMultipleArgumentsPerToken = true,
-        };
+        var sessionFilterOpt = SessionSubstringOption("Case-insensitive substring of the session id (repeatable), as the export takes them.");
         var cellsOpt = new Option<int>("--cells") { Description = "The export's --cells.", DefaultValueFactory = _ => 120 };
         var seedOpt = new Option<int>("--seed") { Description = "The export's --seed.", DefaultValueFactory = _ => 1 };
         var extraCellsOpt = new Option<string>("--extra-cells") { Description = "The export's --extra-cells list." };
@@ -2429,11 +2439,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Description = "Where the .sigma.f16 planes go, mirroring the bake's tile paths. Never the bake itself.",
             Required = true,
         };
-        var sessionFilterOpt = new Option<string[]>("--session")
-        {
-            Description = "Case-insensitive substring of the session id (repeatable); only matching sessions get planes.",
-            AllowMultipleArgumentsPerToken = true,
-        };
+        var sessionFilterOpt = SessionSubstringOption("Case-insensitive substring of the session id (repeatable); only matching sessions get planes.");
         var framesOpt = new Option<string>("--frames")
         {
             Description = "Comma-separated frames to write planes for. Default master,halfmaster_a,halfmaster_b.",
