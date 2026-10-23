@@ -13,14 +13,31 @@ namespace TianWen.Lib.Tests;
 public class BackgroundReduceTests
 {
     [Fact]
-    public void TheCurveIsTheClisLut()
+    public void TheClisReduceIsTheDisplaysPixelForPixel()
     {
-        // The LUT the CLI's ReduceBackground reads is built from the one definition; sampled at its knots they agree exactly.
-        Span<float> lut = stackalloc float[4096];
-        Image.BuildBackgroundReduceLut(lut, 0.2f, 0.55f);
-        for (var i = 0; i < lut.Length; i += 97)
+        // The CLI's plate step (Image.ReduceBackground, the enhance pipeline's BackgroundReduceStep) runs the display's own
+        // per-pixel code, so a colour plate keeps its hue there as on screen.
+        var values = new[] { (0.95f, 0.75f, 0.6f), (0.3f, 0.1f, 0.05f), (0.15f, 0.16f, 0.2f), (0f, 0f, 0f) };
+        var planes = new float[3][,];
+        for (var c = 0; c < 3; c++)
         {
-            lut[i].ShouldBe(Image.ReduceBackgroundValue(i / 4095f, 0.2f, 0.55f), 1e-6f);
+            planes[c] = new float[1, values.Length];
+        }
+        for (var x = 0; x < values.Length; x++)
+        {
+            (planes[0][0, x], planes[1][0, x], planes[2][0, x]) = values[x];
+        }
+        var image = new Image(planes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+
+        var reduced = image.ReduceBackground(0.2, 0.55);
+
+        for (var x = 0; x < values.Length; x++)
+        {
+            var (r, g, b) = values[x];
+            Image.ReduceBackgroundRgb(ref r, ref g, ref b, 0.2f, 0.55f);
+            reduced[0, 0, x].ShouldBe(r);
+            reduced[1, 0, x].ShouldBe(g);
+            reduced[2, 0, x].ShouldBe(b);
         }
     }
 
