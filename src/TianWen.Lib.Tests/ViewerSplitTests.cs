@@ -280,7 +280,7 @@ namespace TianWen.Lib.Tests
             // something the picture cannot show.
             var split = PinnedAt(DisplayControls.Defaults);
 
-            var live = DisplayControls.Defaults with { CurvesMode = 1 };
+            var live = DisplayControls.Defaults with { CurvesMode = 0 };
 
             split.HalfLabels(live).Right.ShouldBe("Live");
         }
