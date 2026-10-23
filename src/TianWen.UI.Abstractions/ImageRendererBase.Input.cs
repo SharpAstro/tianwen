@@ -1208,6 +1208,14 @@ namespace TianWen.UI.Abstractions
                 _toolbarWheelAccumulator = 0f;
             }
 
+            // An open popover holds the pointer (WindowUiSettings.PointerClaim), so the wheel does not reach what is under
+            // it or under its backdrop: a notch that missed a dial in the Tone popover zoomed the picture (2026-10-23).
+            // Consumed, so the router reports the event handled and nothing behind the popover moves.
+            if (Ui.PointerClaim is not null)
+            {
+                return true;
+            }
+
             // Scroll file list when hovering over it (pane rect from the single arranged layout). The wheel
             // goes through the controller, whose fractional offset accumulates sub-1.0 trackpad deltas
             // instead of truncating them to zero, and whose bound is Count-visible (not the old Count-1).

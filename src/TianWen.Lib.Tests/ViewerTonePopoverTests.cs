@@ -127,6 +127,16 @@ public class ViewerTonePopoverTests
         viewer.Render(document, state);
     }
 
+    /// <summary>The part of <paramref name="a"/> inside <paramref name="b"/>, empty (zero width) when they do not meet.</summary>
+    private static RectF32 Overlap(RectF32 a, RectF32 b)
+    {
+        var x0 = MathF.Max(a.X, b.X);
+        var y0 = MathF.Max(a.Y, b.Y);
+        var x1 = MathF.Min(a.X + a.Width, b.X + b.Width);
+        var y1 = MathF.Min(a.Y + a.Height, b.Y + b.Height);
+        return x1 > x0 && y1 > y0 ? new RectF32(x0, y0, x1 - x0, y1 - y0) : new RectF32(x0, y0, 0f, 0f);
+    }
+
     private static RectF32 Rect(Layout.ArrangedNode<float> n)
         => new RectF32(n.Bounds.X, n.Bounds.Y, n.Bounds.Width, n.Bounds.Height);
 
@@ -189,6 +199,48 @@ public class ViewerTonePopoverTests
         return viewer.GetRegisteredRegions()
             .Any(r => r.Result is HitResult.SliderStateHit hit
                 && ReferenceEquals(hit.State, dial) && r.OnPress is not null);
+    }
+
+    /// <summary>
+    /// A wheel notch over the open popover, on a dial or beside one, does not zoom the picture under it, nor does one over
+    /// the backdrop: the popover holds the pointer (2026-10-23: a notch that missed the Boost dial zoomed the frame).
+    /// </summary>
+    [Fact]
+    public async Task AWheelOverTheOpenPopoverDoesNotZoomThePicture()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+        var (viewer, state, document) = await NewViewerAsync(renderer, ct);
+        // No info panel, so the popover hangs over the picture, as it did on the Sculptor.
+        state.ShowInfoPanel = false;
+        viewer.Render(document, state);
+        OpenPanel(viewer, state, document);
+        viewer.Render(document, state);
+
+        var panel = Panel(viewer);
+        var area = viewer.ImageArea;
+        // Where the popover hangs over the picture, which is where a wheel would zoom: part of it can sit over the info
+        // panel, so both points are taken inside the overlap rather than at an offset from the popover's corner.
+        var over = Overlap(panel, area);
+        over.Width.ShouldBeGreaterThan(8f, "the popover hangs over the picture");
+        // A dial over the picture: in this narrow window the bar wraps to two rows, and the top dials hang over the bar.
+        var dial = viewer.Arranged
+            .Where(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Slider })
+            .Select(n => Overlap(Rect(n), area))
+            .FirstOrDefault(r => r.Width > 0f);
+        dial.Width.ShouldBeGreaterThan(0f, "a dial hangs over the picture");
+        var onTheDial = (X: dial.X + (dial.Width / 2f), Y: dial.Y + (dial.Height / 2f));
+        var beside = (X: over.X + 2f, Y: over.Y + over.Height - 2f);
+        viewer.HitTest(beside.X, beside.Y).ShouldNotBeOfType<HitResult.SliderStateHit>("beside the dials, not on one");
+        var underTheBackdrop = (X: area.X + area.Width - 10f, Y: area.Y + area.Height - 10f);
+        panel.Contains(underTheBackdrop.X, underTheBackdrop.Y).ShouldBeFalse();
+
+        foreach (var (x, y) in (ReadOnlySpan<(float X, float Y)>)[beside, onTheDial, underTheBackdrop])
+        {
+            UiRouting.Route(viewer, new InputEvent.Scroll(1f, x, y));
+            state.Zoom.ShouldBe(1f, $"a wheel at ({x}, {y}) zoomed the picture under the open popover");
+        }
+        state.TonePopover.IsOpen.ShouldBeTrue("a wheel does not close the popover");
     }
 
     /// <summary>
