@@ -61,11 +61,16 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// Snapshots how the viewer is displaying the frame right now. The Tone popover's finish (masked contrast and
-        /// saturation) travels INSIDE the stretch, as the headless render carries it, so every path that renders a
+        /// saturation) and the Background popover's reduce travel INSIDE the stretch, as the headless render carries it, so every path that renders a
         /// rendition, the GPU, the CPU save and the split's pinned half, applies the same finish.
         /// </summary>
         public static DisplayRendition FromState(StretchUniforms stretch, ViewerState state)
-            => new DisplayRendition(stretch with { FinishContrast = state.FinishContrast, FinishSaturation = state.FinishSaturation },
+            => new DisplayRendition(stretch with
+                {
+                    FinishContrast = state.FinishContrast,
+                    FinishSaturation = state.FinishSaturation,
+                    BackgroundReduce = state.BackgroundReduce,
+                },
                 state.CurvesBoost, state.HdrAmount, state.HdrKnee, state.CurvesMode, state.CurveData)
             {
                 StarStretch = state.StarStretch,

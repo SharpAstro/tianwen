@@ -135,7 +135,7 @@ public static class ViewerShortcuts
         // Button named but NOT routed: a left press on this one opens its DROPDOWN in the host
         // (StandaloneViewerHost's policy tries OpenToolbarDropdown first), so routing the key as a
         // press would open a menu where the key has always toggled. See ViewerShortcutRoute.Press.
-        new("N", "Neutralise the background", InputKey.N,
+        new("N", "Neutralise the background on or off", InputKey.N,
             Button: ToolbarAction.BackgroundNeutralize),
         new("C", "Cycle the channel view", InputKey.C, Button: ToolbarAction.Channel),
         // Same as N: Debayer has a dropdown, so the key keeps its arm (which still asks the

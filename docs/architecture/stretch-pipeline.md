@@ -19,7 +19,7 @@ same `StretchUniforms`:
   `ConsoleImageRenderer` (TUI Sixel) and tests (`StretchTests_NewPipeline`). Never uses the GPU.
 
 Pipeline order in both: pedestal subtract -> bg neutralization -> WB -> shadow/rescale -> MTF ->
-luma blend -> curves (LUT or boost) -> HDR knee -> finish -> normalize -> clamp. Per-channel for
+luma blend -> background reduce -> curves (LUT or boost) -> HDR knee -> finish -> normalize -> clamp. Per-channel for
 Linked/Unlinked, luma-Y'/Y for Luma.
 
 **The finish is the Affinity masked contrast boost and saturation, as ONE stage of the stretch**
@@ -192,6 +192,25 @@ The `MinPivot` gain formula (`out = norm * g + (1 - g)`) ports SetiAstro Suite P
 highlight-protecting neutralization and is algebraically verified equivalent to SETI's own
 `out = 1 - (1 - val) * g` (`BackgroundNeutralization.ComputeGains`, provenance recorded in
 `docs/todo/imaging.md` and indexed in [`pixinsight-parity.md`](../plans/pixinsight-parity.md)).
+
+## The background reduce is a display stage, on by default in the viewer
+
+`StretchUniforms.BackgroundReduce` (1 = off, offset-stored like `FinishSaturation`, so a stretch built anywhere else renders
+as before) curves the STRETCHED sky down to that share of itself, bright structure kept: the CLI's `--dual-stretch` reduce,
+its one definition now `Image.ReduceBackgroundValue` (the LUT `ReduceBackground` reads, the CPU renders, the TUI, and the
+shader's `reduceBackground`, `whiteBalance.w`). It runs straight after the stretch, anchored on the post-stretch sky the
+render is handed (`curvesMidpoint`), and **every later stage pivots on the REDUCED sky** (`ReducedBackground`): the boost
+and the finish's mask read where the background now is. The curve's sky tangent is held to three times each neighbouring
+secant (Fritsch and Carlson), or a bright sky under a strong compression dipped below zero just above black.
+
+The viewer's Background popover (#1779, the old NeutBg dropdown) carries it: on by default at 0.55
+(`ViewerState.DefaultBackgroundReduceLevel`), the owner's choice, which on the enhanced Sculptor master put the sky at
+(27, 30, 25) of 255 against the Wikipedia lead image's (25, 27, 30); it stands down under a planet's stretch
+(`BackgroundReduceStandsDown`), whose sky is already black and where it only made the picture follow the sky estimate.
+`image render --reduce-background` takes the same default; `MasterPreviewRenderer`'s other callers (stack previews,
+thumbnails) pass 1 and are unchanged. The popover also says what the neutralisation did, as each channel's stretched sky in
+0..255 levels with and without it, where the gains themselves (about 1e-5 from unity on a denoised frame) printed as
+1.0000.
 
 ## The single producer, and its coordinate space
 

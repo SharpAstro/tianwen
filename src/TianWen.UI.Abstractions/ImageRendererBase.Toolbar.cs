@@ -614,29 +614,6 @@ namespace TianWen.UI.Abstractions
         private static readonly ImmutableArray<string> StretchParamsLabels = BuildLabels(
             StretchParameters.Presets, p => p.ToString());
 
-        /// <summary>Background-neutralization preset table; combines method × strength
-        /// into one flat dropdown. <c>null</c> method = "Off" (disable). Mean has a
-        /// strength variant to demonstrate the lerp plumbing; the other methods stay
-        /// at full strength until a separate strength slider lands.</summary>
-        private static readonly (string Label, BackgroundNeutralizationMethod? Method, float Strength)[] BackgroundNeutralizationPresets =
-        [
-            ("Off",          null,                                          0f),
-            ("Mean",         BackgroundNeutralizationMethod.Mean,           1f),
-            ("Mean (50%)",   BackgroundNeutralizationMethod.Mean,           0.5f),
-            ("Green pivot",  BackgroundNeutralizationMethod.GreenPivot,     1f),
-            ("Min pivot",    BackgroundNeutralizationMethod.MinPivot,       1f),
-        ];
-
-        private static readonly ImmutableArray<string> BackgroundNeutralizationLabels = BuildLabels(
-            BackgroundNeutralizationPresets, p => p.Label);
-
-        private static string ShortMethodLabel(BackgroundNeutralizationMethod m) => m switch
-        {
-            BackgroundNeutralizationMethod.GreenPivot => "Green",
-            BackgroundNeutralizationMethod.MinPivot   => "Min",
-            _                                         => "Mean",
-        };
-
         private static ImmutableArray<string> BuildLabels<T>(System.Collections.Generic.IReadOnlyList<T> items, Func<T, string> selector)
         {
             var arr = new string[items.Count];
@@ -840,46 +817,10 @@ namespace TianWen.UI.Abstractions
                     return true;
 
                 case ToolbarAction.BackgroundNeutralize:
-                    OpenDropdown(state, bounds, BackgroundNeutralizationLabels, (idx, _) =>
-                    {
-                        var presets = BackgroundNeutralizationPresets;
-                        if ((uint)idx >= (uint)presets.Length)
-                        {
-                            return;
-                        }
-                        var (label, method, strength) = presets[idx];
-                        state.BackgroundNeutralizationStrength = strength;
-                        if (method is { } m)
-                        {
-                            state.BackgroundNeutralizationMethod = m;
-                            // Compute (or hit per-method cache) and pin gain onto document.
-                            // User picked a method explicitly, so the toolbar reflects that
-                            // even if this image's gain happens to land near identity.
-                            var gain = _document?.ComputeBackgroundNeutralization(m, state.ColorCalibrationEnabled);
-                            state.BackgroundNeutralizationEnabled = true;
-                            state.StatusMessage = gain is { } g
-                                // FOUR decimals, because two are useless here and actively
-                                // misleading. The gain is affine about 1.0 (out = v*g + (1-g)) while
-                                // an astro sky background sits around 0.002, so the gain needed to
-                                // move it is a hair either side of unity: the measured triple that
-                                // takes a 2.66x blue-over-red post-WB cast to exactly neutral is
-                                // (0.9981, 1.0003, 1.0005), which at F2 prints as three 1.00s and
-                                // reads as "this did nothing" over an image it visibly fixed.
-                                ? $"NeutBg: {label}  R={g.R:F4} G={g.G:F4} B={g.B:F4}"
-                                : $"NeutBg: {label} (no background data)";
-                        }
-                        else
-                        {
-                            // "Off" entry: drop the document gain so the uniform reverts to identity
-                            if (_document is not null)
-                            {
-                                _document.BackgroundNeutralization = null;
-                            }
-                            state.BackgroundNeutralizationEnabled = false;
-                            state.StatusMessage = "NeutBg: Off";
-                        }
-                        state.NeedsRedraw = true;
-                    });
+                    // The Background popover: the neutralisation and the reduce, with what each did to the sky.
+                    // Toggled for the reason Tone is.
+                    state.BackgroundPopover.Toggle();
+                    state.NeedsRedraw = true;
                     return true;
 
                 default:
@@ -1060,8 +1001,8 @@ namespace TianWen.UI.Abstractions
             // The document's own action: SPCC and the grey world run on its image and its star mask.
             ToolbarAction.ColorCalibrate => document?.Findings.Stars is { Count: >= 5, StarMask: not null }
                 && IsColour(document),
-            ToolbarAction.BackgroundNeutralize => document?.PerChannelBackground is { Length: >= 3 }
-                && IsColour(document),
+            // Any stretched picture: the reduce needs no colour, and the popover says so where the neutralisation does.
+            ToolbarAction.BackgroundNeutralize => HasPicture,
             ToolbarAction.PlateSolve => document is not null && !document.Findings.IsPlateSolved,
             // Disabled once an enhance has BAKED a crop in: the pixels are the crop, so there is no
             // border left to take off and no way to put one back. Reverting the enhance restores both
@@ -1105,7 +1046,7 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.SkyBackdrop => state.ShowSkyBackdrop,
                 ToolbarAction.Stars => state.ShowStarOverlay,
                 ToolbarAction.ColorCalibrate => state.ColorCalibrationEnabled && document?.ColorCalibration is not null,
-                ToolbarAction.BackgroundNeutralize => state.BackgroundNeutralizationEnabled,
+                ToolbarAction.BackgroundNeutralize => state.BackgroundNeutralizationEnabled || state.BackgroundReduceEnabled,
                 // Lit while the EFFECTIVE white balance -- the calibration composed with the manual
                 // fine-tune, what the shader multiplies by -- is anything but neutral. Not while the
                 // popover is open: the popover is its own evidence, and the highlight is reserved for
@@ -1866,7 +1807,7 @@ namespace TianWen.UI.Abstractions
                 when state.ColorCalibrationEnabled && document?.ColorCalibrationSummary is { } done =>
                 $"{done.Describe()} -- click to turn off (W)",
             ToolbarAction.ColorCalibrate => "Photometric colour calibration (W)",
-            ToolbarAction.BackgroundNeutralize => "Neutralise the background (N)",
+            ToolbarAction.BackgroundNeutralize => "The sky: its colour neutralised (N toggles) and its level reduced",
             ToolbarAction.Enhance when state.IsEnhancing => "Cancel this enhance (E)",
             ToolbarAction.Enhance when state.IsEnhanced => "Turn the enhancement off (E); right-click cycles the backend",
             ToolbarAction.Enhance => "AI enhance; right-click cycles the backend (E)",
@@ -2322,10 +2263,6 @@ namespace TianWen.UI.Abstractions
                 // ladder has no count to switch to, so there the ellipsis is the only such signal.
                 ToolbarAction.Stars when Findings.Stars is null => "Stars",
                 ToolbarAction.Stars when Findings.Stars is { } s => $"{s.Count}",
-                ToolbarAction.BackgroundNeutralize when state.BackgroundNeutralizationEnabled =>
-                    state.BackgroundNeutralizationStrength >= 0.9999f
-                        ? $"NeutBg: {ShortMethodLabel(state.BackgroundNeutralizationMethod)}"
-                        : $"NeutBg: {ShortMethodLabel(state.BackgroundNeutralizationMethod)} {UiFormat.Percent0(state.BackgroundNeutralizationStrength)}",
                 // The mark says WHAT this button is, so the label is free to say only the state --
                 // and the state is the whole question a plate solve answers. The tick is paired
                 // with the activated highlight deliberately: whether this frame carries a WCS

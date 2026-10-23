@@ -41,15 +41,22 @@ internal sealed class ConsoleImageRenderer
     public void RenderImage(AstroImageDocument document, ViewerState state, float curvesBoost = 0f)
     {
         var image = document.UnstretchedImage;
-        var stretch = document.ComputeStretchUniforms(state.StretchMode, state.StretchParameters);
+        var stretch = document.ComputeStretchUniforms(state.StretchMode, state.StretchParameters) with
+        {
+            BackgroundReduce = state.BackgroundReduce,
+        };
         var surface = Surface;
         var surfW = surface.Width;
         var surfH = surface.Height;
 
-        // Background level for boost curve midpoint
-        var bgLevel = curvesBoost > 0 && document.PerChannelBackground.Length > 0
-            ? document.PerChannelBackground[0]
+        // The POST-stretch sky, as the GUI's shader is given it (curvesMidpoint): the background reduce's anchor, and, once
+        // the reduce has moved it, the level the boost and the finish pivot on. This read the LINEAR background of channel 0,
+        // which put the boost's and the finish's pivot a long way below the sky the picture shows.
+        var sky = document.PerChannelBackground.Length > 0
+            ? stretch.ComputePostStretchBackground(document.PerChannelBackground, document.LumaBackground)
             : 0.25f;
+        var reduce = stretch.HasBackgroundReduce;
+        var bgLevel = stretch.ReducedBackground(sky);
 
         float scale;
         int drawW, drawH, offsetX, offsetY;
@@ -132,6 +139,13 @@ internal sealed class ConsoleImageRenderer
                     var v = ch0[sampleIdx];
                     rv = stretch.Mode is StretchMode.None ? v : Image.StretchChannelCpu(v, 0, stretch);
                     gv = bv = rv;
+                }
+
+                if (reduce)
+                {
+                    rv = Image.ReduceBackgroundValue(rv, sky, stretch.BackgroundReduce);
+                    gv = Image.ReduceBackgroundValue(gv, sky, stretch.BackgroundReduce);
+                    bv = Image.ReduceBackgroundValue(bv, sky, stretch.BackgroundReduce);
                 }
 
                 if (hasLut)

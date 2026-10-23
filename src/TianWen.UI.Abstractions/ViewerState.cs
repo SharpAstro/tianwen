@@ -27,6 +27,7 @@ public sealed class ViewerState
     {
         TonePopover.Closed += () => NeedsRedraw = true;
         WhiteBalancePopover.Closed += () => NeedsRedraw = true;
+        BackgroundPopover.Closed += () => NeedsRedraw = true;
     }
 
     public StretchMode StretchMode { get; set; } = ViewerActions.DefaultStretchMode;
@@ -74,6 +75,16 @@ public sealed class ViewerState
     /// transition somewhere to be observed.
     /// </remarks>
     public PopoverState TonePopover { get; } = new();
+
+    /// <summary>
+    /// The Background popover (the sky's neutralisation and the background reduce, under the toolbar's
+    /// <see cref="ToolbarAction.BackgroundNeutralize"/> button), a menu on the same terms as <see cref="TonePopover"/>.
+    /// </summary>
+    public PopoverState BackgroundPopover { get; } = new();
+
+    /// <summary>The background reduce's default level, the share of itself the stretched sky is curved down to: on the
+    /// enhanced Sculptor master it put the sky at 27, 30, 25 of 255, where the Wikipedia lead image's is 25, 27, 30.</summary>
+    public const float DefaultBackgroundReduceLevel = 0.55f;
 
     /// <summary>Curves boost amount applied in the display shader (0.0 = off, up to 1.0).</summary>
     public float CurvesBoost { get; set; }
@@ -266,6 +277,27 @@ public sealed class ViewerState
     /// CPU-side lerp toward identity on the cached gain before the GPU uniform is
     /// written: no pixel work, no extra shader uniform. 1.0 = full effect.</summary>
     public float BackgroundNeutralizationStrength { get; set; } = 1f;
+
+    /// <summary>
+    /// Whether the background reduce runs (<see cref="StretchUniforms.BackgroundReduce"/>): the stretched sky curved down,
+    /// bright structure kept, the CLI's <c>--dual-stretch</c> reduce. ON by default, the owner's choice: a sky left where
+    /// the stretch put it read as a grey veil on the enhanced Sculptor master.
+    /// </summary>
+    public bool BackgroundReduceEnabled { get; set; } = true;
+
+    /// <summary>The share of itself the reduce curves the sky down to, the Background popover's dial.</summary>
+    public float BackgroundReduceLevel { get; set; } = DefaultBackgroundReduceLevel;
+
+    /// <summary>
+    /// The compression the render is given: the level while the reduce is on, 1 (off) otherwise, and off under a planet's
+    /// stretch (<see cref="StretchMode.Planetary"/>), which already puts the sky at black: reducing it is a deep-sky step, and
+    /// on a planet it only made the picture follow the sky estimate (a save of the same master moved by 1e-4 when its
+    /// statistics came from another basis).
+    /// </summary>
+    public float BackgroundReduce => BackgroundReduceEnabled && !BackgroundReduceStandsDown ? BackgroundReduceLevel : 1f;
+
+    /// <summary>Whether the reduce stands down whatever its switch says: under a planet's stretch.</summary>
+    public bool BackgroundReduceStandsDown => StretchMode is StretchMode.Planetary;
 
     /// <summary>Manual per-channel white-balance multipliers. (1,1,1) = neutral. Applied <i>on top of</i>
     /// any auto color calibration (Tycho-2 / SPCC): the renderer composes this with
@@ -980,6 +1012,8 @@ public sealed class ViewerState
         BackgroundNeutralizationEnabled = BackgroundNeutralizationEnabled,
         BackgroundNeutralizationMethod = BackgroundNeutralizationMethod,
         BackgroundNeutralizationStrength = BackgroundNeutralizationStrength,
+        BackgroundReduceEnabled = BackgroundReduceEnabled,
+        BackgroundReduceLevel = BackgroundReduceLevel,
         ManualWhiteBalance = ManualWhiteBalance,
 
         // The post-stretch dials.

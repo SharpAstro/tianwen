@@ -29,7 +29,7 @@ layout(set = 0, binding = 0, std140) uniform StretchUBO {
     // mat2 stored as 2 vec4 columns (std140 mat2 = 2 x vec4 = 32 bytes)
     vec4  cdCol0;           // offset 160
     vec4  cdCol1;           // offset 176
-    vec4  whiteBalance;        // offset 192  (xyz = WB multipliers, w = pad)
+    vec4  whiteBalance;        // offset 192  (xyz = WB multipliers, w = background reduce compression, 1 = off)
     vec4  bgNeutralization;    // offset 208  (xyz = neutralization gains, w = pad)
     vec4  curveData[9];        // offset 224  (33 knots packed into 9 vec4s; last 3 floats unused)
     vec4  lumaWeights;         // offset 368  (xyz = R/G/B luma weights, w = pad). Rec.709 default.
@@ -107,8 +107,42 @@ vec3 applyFinish(vec3 c, float contrast, float saturation, float bg) {
     return c;
 }
 
-float applyCurve(float v, float boost) {
+// The background reduce on one stretched value: the cubic Hermite through (0,0), (bg, bg c), (0.5, 0.5), (1-bg, 1-bg c),
+// (1,1) with finite-difference tangents, the sky point's held to three times each neighbouring secant (monotonic). Mirrors
+// Image.ReduceBackgroundValue, the one definition.
+float reduceBackground(float v, float bg, float c) {
+    if (!(bg > 0.0 && bg < 0.5 && c > 0.0 && c < 1.0)) return v;
+    float t = clamp(v, 0.0, 1.0);
+    float bgY = bg * c;
+    float sOuter = bgY / bg;
+    float sInner = (0.5 - bgY) / (0.5 - bg);
+    float mBg = min(0.5 * (sOuter + sInner), 3.0 * min(sOuter, sInner));
+    float x0, x1, y0, y1, m0, m1;
+    if (t <= bg) { x0 = 0.0; x1 = bg; y0 = 0.0; y1 = bgY; m0 = sOuter; m1 = mBg; }
+    else if (t <= 0.5) { x0 = bg; x1 = 0.5; y0 = bgY; y1 = 0.5; m0 = mBg; m1 = sInner; }
+    else if (t <= 1.0 - bg) { x0 = 0.5; x1 = 1.0 - bg; y0 = 0.5; y1 = 1.0 - bgY; m0 = sInner; m1 = mBg; }
+    else { x0 = 1.0 - bg; x1 = 1.0; y0 = 1.0 - bgY; y1 = 1.0; m0 = mBg; m1 = sOuter; }
+    float h = x1 - x0;
+    float u = (t - x0) / h;
+    float u2 = u * u;
+    float u3 = u2 * u;
+    return (2.0 * u3 - 3.0 * u2 + 1.0) * y0 + (u3 - 2.0 * u2 + u) * h * m0
+         + (-2.0 * u3 + 3.0 * u2) * y1 + (u3 - u2) * h * m1;
+}
+
+// Whether the background reduce runs (StretchUniforms.HasBackgroundReduce), and the sky every later stage pivots on
+// (StretchUniforms.ReducedBackground): the post-stretch sky, times the compression where the reduce moved it.
+bool hasBackgroundReduce() {
+    return ubo.stretchMode >= 1 && ubo.whiteBalance.w > 0.0 && ubo.whiteBalance.w < 1.0;
+}
+
+float pivotBackground() {
     float bg = ubo.curvesMidpoint;
+    return hasBackgroundReduce() && bg > 0.0 && bg < 0.5 ? bg * ubo.whiteBalance.w : bg;
+}
+
+float applyCurve(float v, float boost) {
+    float bg = pivotBackground();
     float hp = 0.85;
     if (v <= 0.0 || v >= 1.0 || bg <= 0.0 || bg >= hp) return v;
     float sp = bg * (1.0 + 0.1 * boost);
@@ -639,6 +673,9 @@ void main() {
         if (ubo.stretchMode >= 1) {
             r = stretchChannel(r, 0);
         }
+        if (hasBackgroundReduce()) {
+            r = reduceBackground(r, ubo.curvesMidpoint, ubo.whiteBalance.w);
+        }
         if (ubo.curvesMode == 1) {
             r = applyCurveLUT(r);
         } else if (ubo.curvesBoost > 0.0) {
@@ -648,7 +685,7 @@ void main() {
             r = applyHdr(r, ubo.hdrAmount, ubo.hdrKnee);
         }
         if (ubo.finishParams.x > 0.0) {
-            r = applyFinish(vec3(r), ubo.finishParams.x, 1.0, ubo.curvesMidpoint).r;
+            r = applyFinish(vec3(r), ubo.finishParams.x, 1.0, pivotBackground()).r;
         }
         float nsMono = ubo.stretchBlend.y;
         if (nsMono != 1.0 && nsMono > 0.0) {
@@ -738,6 +775,12 @@ void main() {
         b = max(b * ubo.whiteBalance[2], 0.0);
     }
 
+    // The background reduce, straight after the stretch (Image.ReduceBackgroundValue, anchored on the post-stretch sky).
+    if (hasBackgroundReduce()) {
+        r = reduceBackground(r, ubo.curvesMidpoint, ubo.whiteBalance.w);
+        g = reduceBackground(g, ubo.curvesMidpoint, ubo.whiteBalance.w);
+        b = reduceBackground(b, ubo.curvesMidpoint, ubo.whiteBalance.w);
+    }
     if (ubo.curvesMode == 1) {
         r = applyCurveLUT(r);
         g = applyCurveLUT(g);
@@ -753,7 +796,7 @@ void main() {
         b = applyHdr(b, ubo.hdrAmount, ubo.hdrKnee);
     }
     if (ubo.finishParams.x > 0.0 || ubo.finishParams.y != 1.0) {
-        vec3 finished = applyFinish(vec3(r, g, b), ubo.finishParams.x, ubo.finishParams.y, ubo.curvesMidpoint);
+        vec3 finished = applyFinish(vec3(r, g, b), ubo.finishParams.x, ubo.finishParams.y, pivotBackground());
         r = finished.r; g = finished.g; b = finished.b;
     }
 

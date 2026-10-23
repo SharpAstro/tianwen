@@ -84,6 +84,31 @@ public readonly record struct StretchUniforms(
 
     /// <summary>Whether the finish changes anything: the renders skip it otherwise.</summary>
     public bool HasFinish => FinishContrast > 0f || FinishSaturation != 1f;
+
+    /// <summary>
+    /// The background reduce's compression, 1 (off, the default) down toward 0: the stretched sky is curved down to that
+    /// fraction of itself by <see cref="Image.ReduceBackgroundValue"/>, the CLI's <c>--dual-stretch</c> reduce, applied
+    /// straight after the stretch and anchored on the post-stretch background the render is given (its
+    /// <c>curvesMidpoint</c>). The render and the shader's <c>reduceBackground</c> must agree.
+    /// </summary>
+    /// <remarks>Stored as its distance from 1, so a <c>default</c> or <c>new StretchUniforms()</c> reads 1 (off), as
+    /// <see cref="FinishSaturation"/> does.</remarks>
+    public float BackgroundReduce
+    {
+        get => 1f + _backgroundReduceOffset;
+        init => _backgroundReduceOffset = value - 1f;
+    }
+
+    private readonly float _backgroundReduceOffset;
+
+    /// <summary>Whether the background reduce changes anything: a stretched frame with a compression below 1.</summary>
+    public bool HasBackgroundReduce => BackgroundReduce < 1f && BackgroundReduce > 0f && Mode is not StretchMode.None;
+
+    /// <summary>Where a post-stretch sky at <paramref name="background"/> lands after the reduce: the level every later
+    /// stage pivots on.</summary>
+    public float ReducedBackground(float background) => HasBackgroundReduce && background > 0f && background < 0.5f
+        ? background * BackgroundReduce
+        : background;
     /// <summary>
     /// Computes the post-stretch background level by stretching the measured
     /// background values through <see cref="Image.StretchValue"/>; the same pipeline as the GLSL shader.

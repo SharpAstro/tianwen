@@ -1217,43 +1217,55 @@ public partial class Image
     /// </summary>
     internal static void BuildBackgroundReduceLut(Span<float> lut, float backgroundPeak, float compression)
     {
-        var bg = backgroundPeak;
-        var bgY = backgroundPeak * compression;
-        Span<float> xs = stackalloc float[5] { 0f, bg, 0.5f, 1f - bg, 1f };
-        Span<float> ys = stackalloc float[5] { 0f, bgY, 0.5f, 1f - bgY, 1f };
-
-        // Finite-difference tangents at each control point. Edges use
-        // one-sided differences; interior points average the left and
-        // right slopes.
-        Span<float> m = stackalloc float[5];
-        m[0] = (ys[1] - ys[0]) / (xs[1] - xs[0]);
-        m[4] = (ys[4] - ys[3]) / (xs[4] - xs[3]);
-        for (var k = 1; k < 4; k++)
-        {
-            var dL = (ys[k] - ys[k - 1]) / (xs[k] - xs[k - 1]);
-            var dR = (ys[k + 1] - ys[k]) / (xs[k + 1] - xs[k]);
-            m[k] = 0.5f * (dL + dR);
-        }
-
         for (var i = 0; i < lut.Length; i++)
         {
-            var t = (float)i / (lut.Length - 1);
-            // Find segment containing t.
-            var seg = 0;
-            while (seg < 3 && t > xs[seg + 1]) seg++;
-            var h = xs[seg + 1] - xs[seg];
-            var u = (t - xs[seg]) / h;
-            var u2 = u * u;
-            var u3 = u2 * u;
-            var h00 = 2f * u3 - 3f * u2 + 1f;
-            var h10 = u3 - 2f * u2 + u;
-            var h01 = -2f * u3 + 3f * u2;
-            var h11 = u3 - u2;
-            lut[i] = h00 * ys[seg]
-                   + h10 * h * m[seg]
-                   + h01 * ys[seg + 1]
-                   + h11 * h * m[seg + 1];
+            lut[i] = ReduceBackgroundValue((float)i / (lut.Length - 1), backgroundPeak, compression);
         }
+    }
+
+    /// <summary>
+    /// One stretched value through the <see cref="ReduceBackground"/> curve: the cubic Hermite through <c>(0, 0), (bg, bg c),
+    /// (0.5, 0.5), (1 - bg, 1 - bg c), (1, 1)</c> with finite-difference tangents limited to keep it monotonic, the value
+    /// clamped to [0, 1] first. The ONE
+    /// definition, which the LUT, the render (<see cref="StretchUniforms.BackgroundReduce"/>) and the shader's
+    /// <c>reduceBackground</c> all follow. Outside its domain (<paramref name="backgroundPeak"/> not in (0, 0.5), or
+    /// <paramref name="compression"/> not in (0, 1)) it is the identity.
+    /// </summary>
+    public static float ReduceBackgroundValue(float v, float backgroundPeak, float compression)
+    {
+        var bg = backgroundPeak;
+        if (!(bg > 0f && bg < 0.5f && compression > 0f && compression < 1f))
+        {
+            return v;
+        }
+        var t = Math.Clamp(v, 0f, 1f);
+        var bgY = bg * compression;
+
+        // The two segment slopes either side of each control point; the curve is symmetric about (0.5, 0.5), so the
+        // outer pair and the inner pair are the same numbers mirrored.
+        var sOuter = bgY / bg;                          // (0,0)-(bg,bgY), and (1-bg,1-bgY)-(1,1)
+        var sInner = (0.5f - bgY) / (0.5f - bg);        // (bg,bgY)-(0.5,0.5), and (0.5,0.5)-(1-bg,1-bgY)
+        var mEdge = sOuter;
+        // The averaged tangent at the sky point, held to three times each neighbouring secant (Fritsch and Carlson's
+        // sufficient condition), or a bright sky under a strong compression (0.3 at 0.2) overshoots: the cubic dipped below
+        // zero just above black. Inert at the defaults, where the average is already inside the bound.
+        var mBg = MathF.Min(0.5f * (sOuter + sInner), 3f * MathF.Min(sOuter, sInner));
+        var mMid = sInner;
+
+        float x0, x1, y0, y1, m0, m1;
+        if (t <= bg) { (x0, x1, y0, y1, m0, m1) = (0f, bg, 0f, bgY, mEdge, mBg); }
+        else if (t <= 0.5f) { (x0, x1, y0, y1, m0, m1) = (bg, 0.5f, bgY, 0.5f, mBg, mMid); }
+        else if (t <= 1f - bg) { (x0, x1, y0, y1, m0, m1) = (0.5f, 1f - bg, 0.5f, 1f - bgY, mMid, mBg); }
+        else { (x0, x1, y0, y1, m0, m1) = (1f - bg, 1f, 1f - bgY, 1f, mBg, mEdge); }
+
+        var h = x1 - x0;
+        var u = (t - x0) / h;
+        var u2 = u * u;
+        var u3 = u2 * u;
+        return ((2f * u3 - 3f * u2 + 1f) * y0)
+             + ((u3 - 2f * u2 + u) * h * m0)
+             + ((-2f * u3 + 3f * u2) * y1)
+             + ((u3 - u2) * h * m1);
     }
 
     /// <summary>
@@ -1622,7 +1634,12 @@ public partial class Image
             }
         }
 
-        // Apply curves + HDR to the predicted peak. Both stages are monotonic in [0,1].
+        // Apply the background reduce, curves + HDR to the predicted peak. All are monotonic in [0,1].
+        if (u.HasBackgroundReduce)
+        {
+            maxOverall = ReduceBackgroundValue(maxOverall, curvesMidpoint, u.BackgroundReduce);
+            curvesMidpoint = u.ReducedBackground(curvesMidpoint);
+        }
         if (hasLut) maxOverall = ApplyCurveLut(maxOverall, curveLut);
         else if (curvesBoost > 0f) maxOverall = ApplyBoost(maxOverall, curvesBoost, curvesMidpoint);
         if (hdrAmount > 0f) maxOverall = ApplyHdr(maxOverall, hdrAmount, hdrKnee);
@@ -1796,6 +1813,8 @@ public partial class Image
         var ch2 = isColor ? GetChannelSpan(2) : default;
         var hasLut = curvesMode == 1 && !curveLut.IsEmpty;
         var hasFinish = u.HasFinish;
+        var reduce = u.HasBackgroundReduce;
+        var pivot = reduce ? u.ReducedBackground(curvesMidpoint) : curvesMidpoint;
         var stars = StarScreenSpans(starScreen, width, height);
 
         for (var i = 0; i < pixelCount; i++)
@@ -1853,6 +1872,16 @@ public partial class Image
                 gOut = bOut = rOut;
             }
 
+            // The background reduce, straight after the stretch: the curve through the sky the stretch left
+            // (curvesMidpoint) to that sky times the compression, as the shader's reduceBackground. Every later stage pivots
+            // on the reduced sky (pivot), which is where the background now is.
+            if (reduce)
+            {
+                rOut = ReduceBackgroundValue(rOut, curvesMidpoint, u.BackgroundReduce);
+                gOut = ReduceBackgroundValue(gOut, curvesMidpoint, u.BackgroundReduce);
+                bOut = ReduceBackgroundValue(bOut, curvesMidpoint, u.BackgroundReduce);
+            }
+
             if (hasLut)
             {
                 rOut = ApplyCurveLut(rOut, curveLut);
@@ -1861,9 +1890,9 @@ public partial class Image
             }
             else if (curvesBoost > 0f)
             {
-                rOut = ApplyBoost(rOut, curvesBoost, curvesMidpoint);
-                gOut = ApplyBoost(gOut, curvesBoost, curvesMidpoint);
-                bOut = ApplyBoost(bOut, curvesBoost, curvesMidpoint);
+                rOut = ApplyBoost(rOut, curvesBoost, pivot);
+                gOut = ApplyBoost(gOut, curvesBoost, pivot);
+                bOut = ApplyBoost(bOut, curvesBoost, pivot);
             }
 
             if (hdrAmount > 0f)
@@ -1876,7 +1905,7 @@ public partial class Image
             // The finish (masked contrast and saturation), after the soft clip as in the shader.
             if (hasFinish)
             {
-                ApplyFinish(ref rOut, ref gOut, ref bOut, u.FinishContrast, isColor ? u.FinishSaturation : 1f, curvesMidpoint, u.LumaWeights);
+                ApplyFinish(ref rOut, ref gOut, ref bOut, u.FinishContrast, isColor ? u.FinishSaturation : 1f, pivot, u.LumaWeights);
             }
 
             // Optional post-stretch normalize: rescale so the predicted brightest pixel
@@ -1949,6 +1978,8 @@ public partial class Image
         var ch2 = isColor ? GetChannelSpan(2) : default;
         var hasLut = curvesMode == 1 && !curveLut.IsEmpty;
         var hasFinish = u.HasFinish;
+        var reduce = u.HasBackgroundReduce;
+        var pivot = reduce ? u.ReducedBackground(curvesMidpoint) : curvesMidpoint;
         var stars = StarScreenSpans(starScreen, width, height);
 
         for (var i = 0; i < pixelCount; i++)
@@ -2003,6 +2034,16 @@ public partial class Image
                 gOut = bOut = rOut;
             }
 
+            // The background reduce, straight after the stretch: the curve through the sky the stretch left
+            // (curvesMidpoint) to that sky times the compression, as the shader's reduceBackground. Every later stage pivots
+            // on the reduced sky (pivot), which is where the background now is.
+            if (reduce)
+            {
+                rOut = ReduceBackgroundValue(rOut, curvesMidpoint, u.BackgroundReduce);
+                gOut = ReduceBackgroundValue(gOut, curvesMidpoint, u.BackgroundReduce);
+                bOut = ReduceBackgroundValue(bOut, curvesMidpoint, u.BackgroundReduce);
+            }
+
             if (hasLut)
             {
                 rOut = ApplyCurveLut(rOut, curveLut);
@@ -2011,9 +2052,9 @@ public partial class Image
             }
             else if (curvesBoost > 0f)
             {
-                rOut = ApplyBoost(rOut, curvesBoost, curvesMidpoint);
-                gOut = ApplyBoost(gOut, curvesBoost, curvesMidpoint);
-                bOut = ApplyBoost(bOut, curvesBoost, curvesMidpoint);
+                rOut = ApplyBoost(rOut, curvesBoost, pivot);
+                gOut = ApplyBoost(gOut, curvesBoost, pivot);
+                bOut = ApplyBoost(bOut, curvesBoost, pivot);
             }
 
             if (hdrAmount > 0f)
@@ -2026,7 +2067,7 @@ public partial class Image
             // The finish (masked contrast and saturation), after the soft clip as in the shader.
             if (hasFinish)
             {
-                ApplyFinish(ref rOut, ref gOut, ref bOut, u.FinishContrast, isColor ? u.FinishSaturation : 1f, curvesMidpoint, u.LumaWeights);
+                ApplyFinish(ref rOut, ref gOut, ref bOut, u.FinishContrast, isColor ? u.FinishSaturation : 1f, pivot, u.LumaWeights);
             }
 
             if (u.NormalizeScale != 1f)
