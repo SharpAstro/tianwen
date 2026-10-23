@@ -3771,22 +3771,19 @@ correlation as now.
 
 A test pins that a correlation read as none leaves every file as it was.
 
-**The numbers.** The correlation is the median over tiles, R-G / G-B / R-B. The noise-only AUC is synth4's classifier on its `noise` crops, over three seeds. "Re-stretched" means taken from the plate's MTF to the master's own (the training session's `restretch.py`, #1776). Real tiles already carry the master's stretch.
+**The numbers.** The correlation is the median over tiles, R-G / G-B / R-B. The noise-only AUC is synth4's classifier on its `noise` crops, over three seeds, on the tiles as exported.
 
 | export | Pearson | robust | noise AUC, seeds 0 / 1 / 2 |
 |---|---|---|---|
 | real | 0.119 / 0.048 / 0.038 | 0.062 / 0.027 / 0.016 | |
 | synth4 (the option off) | 0.048 / 0.017 / 0.019 | 0.011 / 0.007 / 0.003 | 0.696 / 0.687 / 0.715 |
 | the option on | 0.101 / 0.034 / 0.027 | 0.063 / 0.021 / 0.009 | 0.745 / 0.714 / 0.720 |
-| synth4, re-stretched | 0.037 / 0.015 / 0.015 | 0.011 / 0.005 / 0.005 | 0.693 / 0.675 / 0.701 |
-| the option on, re-stretched | 0.093 / 0.031 / 0.024 | 0.065 / 0.019 / 0.013 | 0.727 / 0.716 / 0.720 |
 
-**The correlation matches.**
+A second read, re-stretched from the plate's MTF to the master's own (#1776), was dropped. The copy of the re-stretch tool it used skipped every exact zero or NaN in each channel, where the exporter skips only the canvas ring, so its figures are not comparable. The verdict rests on the tiles as exported.
 
-- As exported, every pair is within 0.02 of real by Pearson (0.018, 0.014 and 0.011 short), and within 0.007 robustly.
-- Re-stretched, Pearson's R-G is 0.026 short, and the robust read stays within 0.008.
+**The correlation matches.** Every pair is within 0.02 of real by Pearson (0.018, 0.014 and 0.011 short), and within 0.007 robustly.
 
-**But the noise is easier to find, not harder.** The AUC rose with the option on in all six seed pairings: as exported from a mean of 0.699 to 0.726 (+0.049, +0.027, +0.005 per seed), and re-stretched from 0.690 to 0.721 (+0.034, +0.041, +0.019). Seed 2's +0.005 is inside synth4's own spread over seeds (0.687 to 0.715), so the size of the rise is uncertain; its direction is not. Synth4's 0.70 from the review is reproduced (0.687 to 0.715).
+**But the noise is easier to find, not harder.** The AUC rose with the option on at every seed, from a mean of 0.699 to 0.726 (+0.049, +0.027, +0.005 per seed). Seed 2's +0.005 is inside synth4's own spread over seeds (0.687 to 0.715), so the size of the rise is uncertain; its direction is not. Synth4's 0.70 from the review is reproduced (0.687 to 0.715).
 
 The likely reason is where in space the channels share their noise. Below is each source's cross-correlation, on the classifier's own residuals, at a few pixel offsets (dy, dx), beside each channel's own lag-1. The values are medians over tiles.
 
