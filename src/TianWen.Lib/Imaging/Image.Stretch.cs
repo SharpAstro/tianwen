@@ -1183,44 +1183,45 @@ public partial class Image
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(compression);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(compression, 1.0);
 
-        const int LutSize = 4096;
-        Span<float> lut = stackalloc float[LutSize];
-        BuildBackgroundReduceLut(lut, (float)backgroundPeak, (float)compression);
-
+        // The display's own code, pixel for pixel: a colour plate through ReduceBackgroundRgb (the hue kept, as the viewer
+        // and the shader's reduceBackgroundRgb), a mono one through ReduceBackgroundValue. A NaN channel stays NaN and the
+        // pixel is scaled by its other channels.
+        var (bg, k) = ((float)backgroundPeak, (float)compression);
         var (channels, width, height) = Shape;
         var pixelCount = width * height;
         var newData = CreateChannelData(channels, height, width);
-        for (var c = 0; c < channels; c++)
+        if (channels == 3)
         {
-            var src = GetChannelSpan(c);
-            var dst = MemoryMarshal.CreateSpan(ref newData[c][0, 0], pixelCount);
+            var srcR = GetChannelSpan(0);
+            var srcG = GetChannelSpan(1);
+            var srcB = GetChannelSpan(2);
+            var dstR = MemoryMarshal.CreateSpan(ref newData[0][0, 0], pixelCount);
+            var dstG = MemoryMarshal.CreateSpan(ref newData[1][0, 0], pixelCount);
+            var dstB = MemoryMarshal.CreateSpan(ref newData[2][0, 0], pixelCount);
             for (var i = 0; i < pixelCount; i++)
             {
-                var v = src[i];
-                if (float.IsNaN(v)) { dst[i] = float.NaN; continue; }
-                var clamped = Math.Clamp(v, 0f, 1f);
-                var idx = clamped * (LutSize - 1);
-                var i0 = (int)idx;
-                if (i0 >= LutSize - 1) { dst[i] = lut[LutSize - 1]; continue; }
-                var frac = idx - i0;
-                dst[i] = lut[i0] * (1f - frac) + lut[i0 + 1] * frac;
+                var (r, g, b) = (srcR[i], srcG[i], srcB[i]);
+                var (rr, gg, bb) = (float.IsNaN(r) ? 0f : r, float.IsNaN(g) ? 0f : g, float.IsNaN(b) ? 0f : b);
+                ReduceBackgroundRgb(ref rr, ref gg, ref bb, bg, k);
+                dstR[i] = float.IsNaN(r) ? float.NaN : rr;
+                dstG[i] = float.IsNaN(g) ? float.NaN : gg;
+                dstB[i] = float.IsNaN(b) ? float.NaN : bb;
+            }
+        }
+        else
+        {
+            for (var c = 0; c < channels; c++)
+            {
+                var src = GetChannelSpan(c);
+                var dst = MemoryMarshal.CreateSpan(ref newData[c][0, 0], pixelCount);
+                for (var i = 0; i < pixelCount; i++)
+                {
+                    var v = src[i];
+                    dst[i] = float.IsNaN(v) ? float.NaN : ReduceBackgroundValue(v, bg, k);
+                }
             }
         }
         return new Image(newData, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
-    }
-
-    /// <summary>
-    /// Populates <paramref name="lut"/> with the cubic-Hermite-interpolated
-    /// 5-point S-curve used by <see cref="ReduceBackground"/>. Standalone
-    /// for testability + so callers can inspect / cache the LUT outside the
-    /// per-pixel hot loop. Finite-difference tangents at each control point.
-    /// </summary>
-    internal static void BuildBackgroundReduceLut(Span<float> lut, float backgroundPeak, float compression)
-    {
-        for (var i = 0; i < lut.Length; i++)
-        {
-            lut[i] = ReduceBackgroundValue((float)i / (lut.Length - 1), backgroundPeak, compression);
-        }
     }
 
     /// <summary>
