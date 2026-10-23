@@ -71,6 +71,20 @@ public static class ViewerActions
     public static StretchMode DefaultStretchMode => StretchLinkModes[0];
 
     /// <summary>
+    /// Solves the background neutralisation a document is shown with, as the viewer does on every open and on every change
+    /// of method or calibration, and as <c>tianwen image render --viewer</c> does before it writes: ONE step, so a render
+    /// outside the viewer cannot skip it. Solved for the white balance that will actually be applied: with the calibration
+    /// toggled off, gains for the calibrated triple would re-tint a frame that no longer receives it.
+    /// </summary>
+    public static void NeutraliseBackground(AstroImageDocument document, ViewerState state)
+    {
+        if (state.BackgroundNeutralizationEnabled)
+        {
+            document.ComputeBackgroundNeutralization(state.BackgroundNeutralizationMethod, state.ColorCalibrationEnabled);
+        }
+    }
+
+    /// <summary>
     /// The mode button steps from the mode it names (<see cref="ViewerState.StretchModeOn"/>), so while the stretch is off it steps
     /// from the one STF would turn on, and shows the step, as a choice from its menu does (<see cref="ChooseStretchLink"/>).
     /// </summary>

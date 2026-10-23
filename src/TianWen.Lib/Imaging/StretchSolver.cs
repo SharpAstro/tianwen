@@ -97,13 +97,8 @@ public static class StretchSolver
 
         if (mode is StretchMode.Luma && lumaStats is { } luma)
         {
-            // Luma stretch uses the chosen luminance weighting over the WB-adjusted channels;
-            // scale luma median/mad by the weighted WB so the luma stretch aligns with the
-            // actual luminance values produced post-WB.
-            var lumaWb = weights.R * wb.R + weights.G * wb.G + weights.B * wb.B;
-            // The neutralisation is per channel, so the luma scalar takes it through the same
-            // weighting the WB does; the affine's offset rides along with it.
-            var lumaBn = weights.R * bn.R + weights.G * bn.G + weights.B * bn.B;
+            // Luma stretch uses the chosen luminance weighting over the neutralised, WB-adjusted channels, so the luma
+            // median and MAD are carried through both before the curve is solved (below).
 
             // Use per-channel pedestals for background subtraction (avoids green cast from RGGB);
             // luma-derived midtone/shadows/rescale live in LumaStretch.
@@ -118,8 +113,17 @@ public static class StretchSolver
             // shadow point that far below every sky pixel: an enhanced master whose sky was levelled to 0.0104 above
             // per-channel pedestals of 0, its luminance pedestal 0.0103, rendered as a white field in Luma.
             var lumaMedian = luma.Pedestal + luma.Median - ((weights.R * ped0) + (weights.G * ped1) + (weights.B * ped2));
+            // Carried through each channel's OWN neutralisation and balance and then weighted, as the pixel path computes
+            // its luminance: never the averaged gains times the averaged balance, a product of averages that is not the
+            // average of the products. On the unenhanced Sculptor master (a sky levelled to 0.01056, SPCC 0.424/1/1.407,
+            // MinPivot gains 1/1.006/1.007) that put the sky at 0.00514 where its pixels arrive at 0.0045, the black point
+            // above every sky pixel, and Luma drew the sky black.
+            var (lr, lrd) = Prepared(new ChannelStretchStats(0f, lumaMedian, luma.Mad), bn.R, wb.R);
+            var (lg, lgd) = Prepared(new ChannelStretchStats(0f, lumaMedian, luma.Mad), bn.G, wb.G);
+            var (lb, lbd) = Prepared(new ChannelStretchStats(0f, lumaMedian, luma.Mad), bn.B, wb.B);
             var (s, m, h, r) = Image.ComputeStretchParameters(
-                (lumaMedian * lumaBn + (1f - lumaBn)) * lumaWb, luma.Mad * lumaBn * lumaWb, factor, clipping);
+                (weights.R * lr) + (weights.G * lg) + (weights.B * lb), (weights.R * lrd) + (weights.G * lgd) + (weights.B * lbd),
+                factor, clipping);
 
             // Always compute per-channel linked params alongside the luma scalar so that a
             // LumaBlend < 1 caller has the linked branch ready in the shader without a UBO
