@@ -435,6 +435,10 @@ namespace TianWen.AI.Imaging
         /// to its own catalogue and every draw adds the stars the catalogue lacks under its detection limit, down to this
         /// significance (<see cref="TianWen.Lib.Imaging.StarRemoval.LuminosityFunction"/>, S2), each a point source of its
         /// own, from a stream of its own, so the draw's other stars are the ones it makes without them. Null adds none.</param>
+        /// <param name="FaintStarCap">With <paramref name="FaintStarFloor"/>, the most light the stars under the detection
+        /// limit may add up to in one tile, the catalogue's own included, in the sky's noise sigma at the master's depth: the
+        /// faint draw stops in its drawn order where it is reached
+        /// (<see cref="TianWen.Lib.Imaging.StarRemoval.LuminosityFunction.KeptUnderCap"/>).</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -481,7 +485,8 @@ namespace TianWen.AI.Imaging
             double? ChannelWingCut = null,
             bool KeptCores = false,
             bool ChannelNoiseCorrelation = false,
-            double? FaintStarFloor = null);
+            double? FaintStarFloor = null,
+            double FaintStarCap = TianWen.Lib.Imaging.StarRemoval.LuminosityFunction.DefaultCapSigma);
 
         /// <summary>
         /// The options one session's draws are made with: the warped shape's smoothing chosen by what made the master's noise.

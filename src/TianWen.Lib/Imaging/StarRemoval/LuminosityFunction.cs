@@ -17,7 +17,9 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// <see cref="BinDex"/> bin, what the law expects less what the catalogue holds, never below zero, so a bin the catalogue
 /// already fills gets nothing. Every extra star is a point source of its own at or above the floor, never a carpet: the
 /// owner's guard (2026-10-20) is that unresolved glow belongs in the starless image and a remover takes each star's own
-/// flux, so a floor under <see cref="MinFloorSigma"/> is refused.</para>
+/// flux, so a floor under <see cref="MinFloorSigma"/> is refused. The same guard caps each tile's faint light
+/// (<see cref="KeptUnderCap"/>, <see cref="DefaultCapSigma"/>): where a dense field's extension would add up to a glow, the
+/// draw stops.</para>
 /// </summary>
 public sealed class LuminosityFunction
 {
@@ -35,6 +37,19 @@ public sealed class LuminosityFunction
 
     /// <summary>The lowest floor taken: under it an extra star is no longer a point source a remover should take.</summary>
     public const double MinFloorSigma = 2.0;
+
+    /// <summary>The catalogue's detection limit as the cap reads it: a star whose peak, channel mean, is under this many of
+    /// the sky's noise sigma at the master's depth is one of the faint stars whose light the cap counts.</summary>
+    public const double DetectionSigma = 5.0;
+
+    /// <summary>
+    /// The default per-tile cap on the faint stars' light (the owner, 2026-10-23): the light of every star under
+    /// <see cref="DetectionSigma"/> centred in the tile, the catalogue's own included, spread over the tile, in the sky's noise
+    /// sigma at the master's depth. Unresolved glow stays in the starless image, so the extension is capped per tile and not on
+    /// a session's average: uncapped at a floor of 3, the SMC's dense field read 0.109 sigma on average and 0.232 on its worst
+    /// tile.
+    /// </summary>
+    public const double DefaultCapSigma = 0.1;
 
     private readonly ImmutableArray<(double Lo, double Hi, double Deficit)> _bins;
     private readonly double _deficit;
@@ -167,5 +182,56 @@ public sealed class LuminosityFunction
         var (pl, ph) = (Math.Pow(bin.Lo, -Alpha), Math.Pow(bin.Hi, -Alpha));
         var s = Math.Pow(pl - rng.NextDouble() * (pl - ph), -1.0 / Alpha);
         return Math.Clamp(s, bin.Lo, bin.Hi);
+    }
+
+    /// <summary>
+    /// How many of a tile's <paramref name="faint"/> stars, in the order they were drawn, the cap keeps: starting from the
+    /// light of <paramref name="stars"/> under <see cref="DetectionSigma"/> (the catalogue's own faint stars), each faint star
+    /// is added while the level is still under <paramref name="capSigma"/>, and the rest are dropped. It draws nothing, so the
+    /// stars it keeps are the draw's without it. Both lists are in the tile's coordinates, the tile
+    /// <paramref name="size"/> pixels square; <paramref name="skySigma"/> is each channel's noise sigma at the master's depth,
+    /// in the stars' amplitude units. The level can pass the cap by the last star kept, never by more.
+    /// </summary>
+    public static int KeptUnderCap(
+        IReadOnlyList<InjectedStar> stars, IReadOnlyList<InjectedStar> faint, int size, IReadOnlyList<double> skySigma, double capSigma)
+    {
+        var level = 0.0;
+        foreach (var star in stars)
+        {
+            level += TileLevel(star, size, skySigma);
+        }
+        for (var i = 0; i < faint.Count; i++)
+        {
+            if (level >= capSigma)
+            {
+                return i;
+            }
+            level += TileLevel(faint[i], size, skySigma);
+        }
+        return faint.Count;
+    }
+
+    /// <summary>
+    /// A star's share of the tile's level under the cap: for an unsaturated star centred in the tile whose peak is under
+    /// <see cref="DetectionSigma"/>, its Moffat light (pi alpha^2 A / (beta - 1) per channel) over the sky's sigma, channel
+    /// mean, spread over the tile; zero for any other. The measure the carpet check of 2026-10-23 read the exports with.
+    /// </summary>
+    public static double TileLevel(InjectedStar star, int size, IReadOnlyList<double> skySigma)
+    {
+        if (star.Saturated || !(star.X >= 0 && star.X < size && star.Y >= 0 && star.Y < size))
+        {
+            return 0.0;
+        }
+        var channels = star.Amplitudes.Length;
+        double peak = 0, light = 0;
+        for (var c = 0; c < channels; c++)
+        {
+            var a = star.Amplitudes[c];
+            var (fwhm, beta) = (star.Profiles[c].FwhmPx, star.Profiles[c].Beta);
+            var alpha = fwhm / (2.0 * Math.Sqrt(Math.Pow(2.0, 1.0 / beta) - 1.0));
+            peak += a / skySigma[c];
+            light += Math.PI * alpha * alpha * a / (beta - 1.0) / skySigma[c];
+        }
+        return peak / channels < DetectionSigma ? light / channels / ((double)size * size) : 0.0;
     }
 }

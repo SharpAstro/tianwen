@@ -1006,6 +1006,78 @@ public class StarInjectionTests(ITestOutputHelper output)
         Should.Throw<InvalidOperationException>(() => InjectionPopulation.Build(thin, Image(256, 0.1f), Image(256, 0.1f), 1.0, [(2.5, 3.0)], null, faintFloor: 3.0));
     }
 
+    /// <summary>
+    /// The owner's cap on the faint stars (2026-10-23): a tile keeps its faint stars in their drawn order while the light of its
+    /// stars under 5 sigma, the catalogue's own counted first, is under the cap, so no tile passes it by more than the last
+    /// star kept; the cap draws nothing, so what it keeps is the plan's own prefix, and a cap no tile reaches keeps everything.
+    /// </summary>
+    [Fact]
+    public void TheCapStopsEachTilesFaintStarsWhereTheirLightReachesItAndDrawsNothing()
+    {
+        const int cell = 256;
+        const double cap = 0.005;
+        // Amplitudes are significance over 1000 (PowerLawStar), so at a sky sigma of 0.001 a star's peak reads its significance.
+        double[] sigma = [0.001];
+        var population = BuildPowerLawPopulation(3.0);
+        var (touched, untouched) = (0, 0);
+        for (var seed = 0; seed < 40; seed++)
+        {
+            var (cx, cy) = (256 * (seed % 3), 256 * (seed / 3 % 3));
+            var plan = population.Plan(cx, cy, cell, 8, InjectionPlacement.Random, StarProfileFamily.Moffat, 0.5, new Random(seed), faintRng: new Random(1000 + seed));
+            var again = population.Plan(cx, cy, cell, 8, InjectionPlacement.Random, StarProfileFamily.Moffat, 0.5, new Random(seed), faintRng: new Random(1000 + seed));
+            var stars = plan.Stars.Select(s => s with { X = s.X - cx, Y = s.Y - cy }).ToArray();
+            var faint = plan.Faint.Select(s => s with { X = s.X - cx, Y = s.Y - cy }).ToArray();
+            var kept = LuminosityFunction.KeptUnderCap(stars, faint, cell, sigma, cap);
+            LuminosityFunction.KeptUnderCap(stars, faint, cell, sigma, double.MaxValue).ShouldBe(faint.Length);
+            // Nothing drawn: the same plan again holds the same faint stars, the cap's prefix among them.
+            again.Faint.Length.ShouldBe(plan.Faint.Length);
+            for (var i = 0; i < plan.Faint.Length; i++)
+            {
+                (again.Faint[i].X, again.Faint[i].Y, again.Faint[i].Amplitudes[0]).ShouldBe((plan.Faint[i].X, plan.Faint[i].Y, plan.Faint[i].Amplitudes[0]));
+            }
+
+            var level = stars.Sum(s => LuminosityFunction.TileLevel(s, cell, sigma));
+            var before = level;
+            for (var i = 0; i < kept; i++)
+            {
+                before = level;
+                level += LuminosityFunction.TileLevel(faint[i], cell, sigma);
+            }
+            if (kept > 0)
+            {
+                before.ShouldBeLessThan(cap);
+            }
+            if (kept < faint.Length)
+            {
+                level.ShouldBeGreaterThanOrEqualTo(cap);
+                touched++;
+            }
+            else
+            {
+                untouched++;
+            }
+            // Past the cap by the last star kept at most.
+            level.ShouldBeLessThanOrEqualTo(cap + (kept > 0 ? LuminosityFunction.TileLevel(faint[kept - 1], cell, sigma) : 0.0) + 1e-12);
+        }
+        output.WriteLine($"cap {cap}: {touched} tiles touched, {untouched} not");
+        touched.ShouldBeGreaterThan(0);
+        untouched.ShouldBeGreaterThan(0);
+
+        // The measure: a 4-sigma Moffat at the tile's centre adds pi alpha^2 A / (beta - 1) over sigma, spread over the tile;
+        // a star at 5 sigma or over, a saturated star and one centred outside the tile add nothing.
+        StarProfile[] moffat = [new StarProfile(StarProfileFamily.Moffat, 2.5, 3.0, 1.0, 0.0)];
+        InjectedStar At(double x, double amplitude, bool saturated = false) => new(x, 128, [amplitude], [.. moffat], saturated, []);
+        var alpha = 2.5 / (2.0 * Math.Sqrt(Math.Pow(2.0, 1.0 / 3.0) - 1.0));
+        var four = At(128, 0.004);
+        LuminosityFunction.TileLevel(four, cell, sigma).ShouldBe(Math.PI * alpha * alpha * 4.0 / 2.0 / (cell * cell), 1e-12);
+        LuminosityFunction.TileLevel(At(128, 0.005), cell, sigma).ShouldBe(0.0);
+        LuminosityFunction.TileLevel(At(128, 0.004, saturated: true), cell, sigma).ShouldBe(0.0);
+        LuminosityFunction.TileLevel(At(-0.5, 0.004), cell, sigma).ShouldBe(0.0);
+        // The catalogue's own faint light counts first: a tile it already fills takes no faint star at all.
+        LuminosityFunction.KeptUnderCap([four], [At(64, 0.003)], cell, sigma, 0.5 * LuminosityFunction.TileLevel(four, cell, sigma)).ShouldBe(0);
+        LuminosityFunction.KeptUnderCap([four], [At(64, 0.003)], cell, sigma, 2.0 * LuminosityFunction.TileLevel(four, cell, sigma)).ShouldBe(1);
+    }
+
     // Significances from dN/dln S ~ S^-alpha over [1, 1000): all kept from 10 up, half from halfFrom to 10, none under emptyBelow.
     private static (float[] Significances, Random Rng) PowerLawSignificances(double alpha, int n, Random rng, double halfFrom = 5.0, double emptyBelow = 5.0)
     {

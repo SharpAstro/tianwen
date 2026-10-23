@@ -1813,11 +1813,13 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "correlation kept; nothing else a draw takes moves (Synthetics S4).",
         };
 
-        var faintStarsOpt = new Option<double?>("--faint-stars")
+        var faintStarsOpt = new Option<string?>("--faint-stars")
         {
-            Description = "--mode stars on --background synthetic: fit each master's luminosity function to its own catalogue from " +
-                          "10 to 300 sigma and add, from a stream of its own, the stars the catalogue lacks under its detection " +
-                          "limit down to this significance (S2; 3 is the reviewed floor, at least 2), each a point source of its own.",
+            Description = "<floor>[,<cap>]: --mode stars on --background synthetic: fit each master's luminosity function to its own " +
+                          "catalogue from 10 to 300 sigma and add, from a stream of its own, the stars the catalogue lacks under its " +
+                          "detection limit down to the floor's significance (S2; 3 is the reviewed floor, at least 2), each a point " +
+                          "source of its own, until a tile's light under 5 sigma, the catalogue's own included, reaches the cap in " +
+                          "the sky's sigma (0.1 by default, the owner's, 2026-10-23).",
         };
 
         var command = new Command("degrade",
@@ -1993,7 +1995,25 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 consoleHost.WriteError("--channel-noise-correlation draws the stars mode's noise; it needs --mode stars");
                 return 1;
             }
-            var faintStars = parseResult.GetValue(faintStarsOpt);
+            double? faintStars = null;
+            var faintCap = LuminosityFunction.DefaultCapSigma;
+            if (parseResult.GetValue(faintStarsOpt) is { } faintText)
+            {
+                var parts = faintText.Split(',', StringSplitOptions.TrimEntries);
+                if (parts.Length is < 1 or > 2
+                    || !double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var floorValue)
+                    || (parts.Length == 2 && !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out faintCap)))
+                {
+                    consoleHost.WriteError($"--faint-stars {faintText}: give <floor>[,<cap>], both in sigma");
+                    return 1;
+                }
+                if (!(faintCap > 0 && double.IsFinite(faintCap)))
+                {
+                    consoleHost.WriteError($"--faint-stars {faintText}: the cap is a positive level in sigma");
+                    return 1;
+                }
+                faintStars = floorValue;
+            }
             if (faintStars is { } faintFloor)
             {
                 if (mode != DatasetDegradationExporter.DegradationMode.Stars || backgroundText != "synthetic")
@@ -2054,7 +2074,8 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 ChannelWingCut: channelWingCut,
                 KeptCores: keptCores,
                 ChannelNoiseCorrelation: channelNoiseCorrelation,
-                FaintStarFloor: faintStars);
+                FaintStarFloor: faintStars,
+                FaintStarCap: faintCap);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);
             var degraded = result.Sessions.Sum(s => s.DegradedTiles);
