@@ -3752,6 +3752,34 @@ of its domain: they are read, not predicted.
 - (1) and (2) holding make the master's stretch every later export's default.
 - Either missing with (3) holding means the skew was real but not what kept the cores.
 
+#### R2v's read: killed by the nucleus's red, and Andromeda's blue moves toward its bars without reaching one (2026-10-23)
+
+R2v stopped on its own at step 217,500 (best at 193,500), twice R2s2's 110,500 on the same recipe: 9.8 hours on the 1070.
+Against its pre-registration, with R2i seed 0 as the baseline:
+
+| | R2i seed 0 | R2v | bar | |
+|---|---|---|---|---|
+| Andromeda blue, 1.5-3 px | -1.10 | -0.91 | above -0.8 | misses |
+| Andromeda blue, 3-4.5 px | -0.90 | -0.84 | above -0.5 | misses |
+| Andromeda bright stars dug | 36.6 % | 32.7 % | at most 30 % | misses |
+| M31's nucleus taken, R / G / B | 3.2 / 3.1 / 0.5 % | **13.9** / 3.4 / 2.9 % | at most 5 % | **fails** |
+| purity | 0.6 % | 0.3 % | at most 1.0 % | holds |
+| A's draws clean, by band | 79.2 / 74.5 / 60.2 % | 80.8 / 76.0 / 59.7 % | within 2 points | holds |
+| real tiles' bright stars flat | 96.4 % | 96.7 % | at least 95.4 % | holds |
+
+**The kill fires** on the nucleus's red, so the cut does not go onto R2t's recipe. Prediction (1) moved toward its bar on
+every count and reached none: blue at 1.5-3 px came 0.19 of the 0.30 sigma it needed, at 3-4.5 px 0.06 of 0.40, the dig 3.9
+of 6.6 points. The channel relation outside every training master explains part of Andromeda's blue hole, not most of it.
+One reading of the nucleus, not measured: taught that one channel may fall off faster than the others, the remover now
+accepts a source whose channels do not share one profile, and M31's red-heavy core is one.
+
+**Read, not predicted.** The held-out Tarantula: dark flat 23.7 % (35.8), left 74.5 % (60.6), core +1.67 / +0.96 / +0.74
+sigma (+0.89 / +1.06 / +0.61). The drop is near the 13 points a seed moves it, so it says little on one seed. The crowded
+Tarantula falls to 62.0 % (69.8), and Sagittarius stays at 94.7 % (95.0). On A's draws, colour-clean rises 4.9 points on
+faint stars and 5.7 on mid-bright, the same on both twins (4.8 / 5.7 plain, 4.9 / 6.1 lobed), and the dug bright stars move
+from red to green (red 5.0 points fewer, green 9.1 more). That is one seed, kept as a lead only. R2w (#1776) trains next on
+the 1070, as pre-registered.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
