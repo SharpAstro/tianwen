@@ -125,6 +125,54 @@ public class BackgroundReduceTests
         u.ReducedBackground(0.2f).ShouldBe(0.1f, 1e-6f, "the boost and the finish pivot on the reduced sky");
     }
 
+    [Fact]
+    public void AColouredCoreKeepsItsHueThroughTheReduce()
+    {
+        // An orange galaxy core well above the sky: the reduce brightens it as a whole, never one channel more than
+        // another, so its colour stays the stretch's (the reduce taken one channel at a time held red at the top while
+        // green rose, and the core went yellow-white).
+        var (r, g, b) = (0.95f, 0.75f, 0.6f);
+        var planes = new float[3][,];
+        foreach (var (c, v) in new[] { (0, r), (1, g), (2, b) })
+        {
+            planes[c] = new float[2, 2];
+            for (var y = 0; y < 2; y++)
+            {
+                for (var x = 0; x < 2; x++)
+                {
+                    planes[c][y, x] = v;
+                }
+            }
+        }
+        var image = new Image(planes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+        var u = Linked() with { BackgroundSky = 24f / 255f };
+
+        var rgba = new byte[2 * 2 * 4];
+        image.RenderStretchedRgba(u, rgba, curvesMidpoint: 49f / 255f);
+
+        var (rOut, gOut, bOut) = (rgba[0] / 255f, rgba[1] / 255f, rgba[2] / 255f);
+        (gOut / rOut).ShouldBe(g / r, 0.01f, "green over red as the stretch left it");
+        (bOut / rOut).ShouldBe(b / r, 0.01f, "blue over red as the stretch left it");
+        rOut.ShouldBeGreaterThan(r, "the bright structure is still lifted");
+    }
+
+    [Fact]
+    public void ThePixelIsScaledByItsBrightestChannelsCurve()
+    {
+        var (bg, c) = (0.19f, 0.5f);
+        var (r, g, b) = (0.3f, 0.1f, 0.05f);
+        Image.ReduceBackgroundRgb(ref r, ref g, ref b, bg, c);
+
+        var k = Image.ReduceBackgroundValue(0.3f, bg, c) / 0.3f;
+        r.ShouldBe(0.3f * k, 1e-6f);
+        g.ShouldBe(0.1f * k, 1e-6f);
+        b.ShouldBe(0.05f * k, 1e-6f);
+
+        var (zr, zg, zb) = (0f, 0f, 0f);
+        Image.ReduceBackgroundRgb(ref zr, ref zg, ref zb, bg, c);
+        (zr, zg, zb).ShouldBe((0f, 0f, 0f), "black stays black");
+    }
+
     private static StretchUniforms Linked()
         => new(StretchMode.Linked, 1f, default, default, (0.5f, 0.5f, 0.5f), (1f, 1f, 1f), (1f, 1f, 1f));
 }

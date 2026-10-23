@@ -1269,6 +1269,26 @@ public partial class Image
     }
 
     /// <summary>
+    /// The background reduce on one colour pixel: the whole pixel scaled by what <see cref="ReduceBackgroundValue"/> does to
+    /// its brightest channel, so the reduce changes how bright a pixel is and never its hue. Taken a channel at a time, the
+    /// curve's upper half (which compresses toward white) held a bright core's red near the top while its green rose, and a
+    /// galaxy's orange core went yellow-white. Scaled by the brightest channel, no channel passes 1. The shader's
+    /// <c>reduceBackgroundRgb</c> follows it.
+    /// </summary>
+    public static void ReduceBackgroundRgb(ref float r, ref float g, ref float b, float backgroundPeak, float compression)
+    {
+        var m = MathF.Max(r, MathF.Max(g, b));
+        if (!(m > 0f))
+        {
+            return;
+        }
+        var k = ReduceBackgroundValue(MathF.Min(m, 1f), backgroundPeak, compression) / MathF.Min(m, 1f);
+        r *= k;
+        g *= k;
+        b *= k;
+    }
+
+    /// <summary>
     /// Inverse of <see cref="MtfStretch"/>. Applies
     /// <see cref="MidtonesTransferFunction"/> with <c>1 - β</c> (which is the
     /// algebraic inverse of MTF with balance β) then adds the per-channel
@@ -1882,13 +1902,12 @@ public partial class Image
             }
 
             // The background reduce, straight after the stretch: the curve through the sky the stretch left
-            // (curvesMidpoint) to the level asked for, as the shader's reduceBackground. Every later stage pivots on the
-            // reduced sky (pivot), which is where the background now is.
+            // (curvesMidpoint) to the level asked for, on the whole pixel by its brightest channel so the hue stays the
+            // stretch's, as the shader's reduceBackgroundRgb. Every later stage pivots on the reduced sky (pivot), which is
+            // where the background now is.
             if (reduce)
             {
-                rOut = ReduceBackgroundValue(rOut, curvesMidpoint, reduceCompression);
-                gOut = ReduceBackgroundValue(gOut, curvesMidpoint, reduceCompression);
-                bOut = ReduceBackgroundValue(bOut, curvesMidpoint, reduceCompression);
+                ReduceBackgroundRgb(ref rOut, ref gOut, ref bOut, curvesMidpoint, reduceCompression);
             }
 
             if (hasLut)
@@ -2045,13 +2064,12 @@ public partial class Image
             }
 
             // The background reduce, straight after the stretch: the curve through the sky the stretch left
-            // (curvesMidpoint) to the level asked for, as the shader's reduceBackground. Every later stage pivots on the
-            // reduced sky (pivot), which is where the background now is.
+            // (curvesMidpoint) to the level asked for, on the whole pixel by its brightest channel so the hue stays the
+            // stretch's, as the shader's reduceBackgroundRgb. Every later stage pivots on the reduced sky (pivot), which is
+            // where the background now is.
             if (reduce)
             {
-                rOut = ReduceBackgroundValue(rOut, curvesMidpoint, reduceCompression);
-                gOut = ReduceBackgroundValue(gOut, curvesMidpoint, reduceCompression);
-                bOut = ReduceBackgroundValue(bOut, curvesMidpoint, reduceCompression);
+                ReduceBackgroundRgb(ref rOut, ref gOut, ref bOut, curvesMidpoint, reduceCompression);
             }
 
             if (hasLut)
