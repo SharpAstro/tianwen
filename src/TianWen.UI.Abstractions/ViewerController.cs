@@ -665,18 +665,6 @@ public sealed class ViewerController(
                 return;
             }
 
-            var image = saveDoc.UnstretchedImage;
-            var uniforms = saveDoc.ComputeStretchUniforms(
-                state.StretchMode, state.StretchParameters,
-                bgNeutralizationStrength: state.BackgroundNeutralizationStrength,
-                manualWhiteBalance: state.ManualWhiteBalance,
-                applyColorCalibration: state.ColorCalibrationEnabled);
-
-            // The boost pivots on the POST-stretch background, exactly as the shader's curvesMidpoint
-            // does; passing the default 0.25 instead would move the curve.
-            var background = uniforms.ComputePostStretchBackground(
-                saveDoc.PerChannelBackground, saveDoc.LumaBackground);
-
             DisplayRasterFormat format;
             if (DisplayRasterExport.FromExtension(target, pngDepth) is { } named)
             {
@@ -688,16 +676,7 @@ public sealed class ViewerController(
                 target = RenamedToPng(target);
             }
 
-            await DisplayRasterExport.WriteAsync(
-                image, target,
-                format,
-                uniforms,
-                state.CurvesBoost, state.CurvesMode, state.CurveData, background,
-                state.HdrAmount, state.HdrKnee,
-                displayedChannel: state.ChannelView.DisplayedSourceChannel(image.ChannelCount),
-                debayerAlgorithm: state.DebayerAlgorithm.ResolveAuto(image),
-                crop: ViewerState.ResolveDisplayCrop(state.DisplayCrop, image.Width, image.Height),
-                cancellationToken: token).ConfigureAwait(false);
+            await WriteDisplayedRasterAsync(saveDoc, state, target, format, token).ConfigureAwait(false);
 
             LogSaved(target, format.DisplayName(), saveStarted);
             state.StatusMessage = $"Saved {Path.GetFileName(target)}";
@@ -727,6 +706,45 @@ public sealed class ViewerController(
 
         logger.LogInformation("Saved {File} as {Format}: {Megapixels:F1} MP, {Megabytes:F0} MB in {Seconds:F2}s",
             Path.GetFileName(path), format, megapixels, megabytes, elapsed.Elapsed.TotalSeconds);
+    }
+
+    /// <summary>
+    /// "Save image as displayed": <paramref name="saveDoc"/> rendered as the screen shows it, through the rendition the
+    /// renderer draws with (<see cref="DisplayRendition.FromState"/>, so the Tone finish travels in the stretch) and, on a
+    /// star split, the starless plate with its stars screened over it at the Stars and Colour dials, as the shader and the
+    /// annotated save compose it. The plain save used to stretch the recombined frame with neither, so on an enhanced frame
+    /// its file showed the stars through the picture's curve and none of the finish.
+    /// </summary>
+    internal static Task WriteDisplayedRasterAsync(
+        AstroImageDocument saveDoc, ViewerState state, string target, DisplayRasterFormat format, CancellationToken cancellationToken)
+    {
+        var image = saveDoc.UnstretchedImage;
+        var rendition = DisplayRendition.FromState(saveDoc.ComputeStretchUniforms(
+            state.StretchMode, state.StretchParameters,
+            bgNeutralizationStrength: state.BackgroundNeutralizationStrength,
+            manualWhiteBalance: state.ManualWhiteBalance,
+            applyColorCalibration: state.ColorCalibrationEnabled), state);
+
+        // The boost pivots on the POST-stretch background, exactly as the shader's curvesMidpoint
+        // does; passing the default 0.25 instead would move the curve.
+        var background = rendition.Stretch.ComputePostStretchBackground(
+            saveDoc.PerChannelBackground, saveDoc.LumaBackground);
+
+        // The split composes only in the composite view, as on screen; a single channel shows the recombined frame.
+        var displayedChannel = state.ChannelView.DisplayedSourceChannel(image.ChannelCount);
+        var split = displayedChannel is null ? saveDoc.StarSplit : null;
+
+        return DisplayRasterExport.WriteAsync(
+            split?.Starless ?? image, target,
+            format,
+            rendition.Stretch,
+            rendition.CurvesBoost, rendition.CurvesMode, rendition.CurveData, background,
+            rendition.HdrAmount, rendition.HdrKnee,
+            displayedChannel: displayedChannel,
+            debayerAlgorithm: state.DebayerAlgorithm.ResolveAuto(image),
+            crop: ViewerState.ResolveDisplayCrop(state.DisplayCrop, image.Width, image.Height),
+            starScreen: split?.ScreenAt(rendition.StarStretch, rendition.StarSaturation),
+            cancellationToken: cancellationToken);
     }
 
     /// <summary>
