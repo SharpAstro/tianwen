@@ -3825,6 +3825,59 @@ not within 1. The count is 17 to 19 % short, not within 10 %.
 Tracked by #1738. The injected colours follow the real stars' colour distribution at each brightness. The pool's
 mid-brightness stars are bluer than the fields' (B/G 0.81 against 0.63 at 20-100 sigma); the bright stars agree.
 
+**The read (2026-10-23): the "too blue" stars were never there, and S3 closes on the read with no new option.** Two
+stretch errors made them, and neither is in the star colours. As exported, the export stretches a stars pair with the
+starless plate's parameters, not the master's (#1776). Re-stretched, the S2 read used a re-stretch whose absence rule
+was not the exporter's, which moved green's master floor on four of the eight sessions (S2's read above, "Corrected").
+Read through the exporter's own master stretch, the injected colours already match real's in every band. The injector
+draws a whole catalogued star and keeps its amplitude per channel (`InjectionPopulation`, R1). A drawn colour is
+therefore a real star's colour at that star's own brightness. An option drawing colours from the real distribution
+would draw what the pool already draws. The training session's call (2026-10-23) was to add none.
+
+Measured over the 8 validation sessions, 40 cells each, with the review's `domain_stats` colour: the median, over stars
+in each band, of the stretched peak over its 7 to 8 px annulus, R/G and B/G. Real is the masters as exported. synth4 is
+read as exported and re-stretched to the master's own parameters. The re-stretch uses the exporter's absence rule and
+matches synth11 to f16 rounding; synth11 is the same export re-stretched by the exporter itself.
+
+| median R/G, B/G | 5-20 sigma | 20-100 sigma | 100-1000 sigma |
+|---|---|---|---|
+| real | 1.333 / 0.510 | 1.086 / 0.627 | 1.014 / 0.912 |
+| synth4 as exported (the plate's stretch, #1776) | 0.969 / 0.777 | 0.959 / 0.808 | 0.990 / 0.919 |
+| synth4 re-stretched | 1.325 / 0.532 | 1.109 / 0.644 | 1.049 / 0.857 |
+| synth4 re-stretched, the session mix held to real's | 1.321 / 0.527 | 1.091 / 0.639 | 1.046 / 0.862 |
+| real over the same sessions | 1.333 / 0.510 | 1.086 / 0.627 | 1.027 / 0.896 |
+
+- **Within 0.05 of real in every band, re-stretched, except B/G over 100 sigma pooled (0.055).** That is the session
+  mix, not colour. Re-stretched, Lobster's default session has no synthetic star over 100 sigma against 125 real ones
+  (B/G 0.95), and M42's B/G 0.77 to 0.81 weighs more among the synthetic stars. Each synthetic session's stars were
+  resampled to real's count of that session in that band, over the sessions both hold. That leaves every band within
+  0.035: +0.019 / -0.035 over 100 sigma, each median's bootstrap spread 0.006 or under. Why Lobster's bright stars read
+  under 100 sigma is how a synthetic star reads (its noise is 16 % above real's there, and its profile), S1's and S2's
+  ground.
+- **As exported, the gap is the stretch alone.** Through the plate's stretch, B/G is 0.27 high at 5-20 sigma and 0.18
+  at 20-100, and R/G 0.36 and 0.13 low. Through the master's, the same tiles are within 0.035. Once tiles are exported
+  `--stretch-from master` (#1776, synth11), the as-exported column is the re-stretched one.
+- **The catalogue is the master's own colour.** At a catalogued star's site, the master's peak over its annulus gives
+  HIP 80609's 30-100 sigma stars 1.37 / 0.72 against the catalogue's 1.47 / 0.75. Lobster's flip b gives 0.59 / 0.44
+  against 0.58 / 0.42. The stars found on the tiles were read again in linear, taken back through the master's
+  stretch. There, synth4 and real agree per session: Lobster 0.60 / 0.43 against 0.62 / 0.42 at 20-100 sigma, HIP 80609
+  1.37 / 0.74 against 1.38 / 0.74, and their skies agree to 1e-4. The 20-100 sigma colour depends on the session: R/G is
+  0.96 to 1.04 on Lobster and 1.21 to 1.33 on HIP 80609. A pooled median is therefore a mix of sessions as much as of
+  stars.
+- **What is left is per session and changes sign with brightness.** SMC reads R/G 1.31 against 1.19 at 20-100 sigma
+  and 1.54 against 1.67 at 5-20. HIP 80609 reads 1.48 against 1.55 at 5-20. A colour population would move both bands
+  the same way. Blending in a crowded field and a star read into the next band do not, so this is S2's count ground.
+- **Star-centred crops: the classifier's AUC is 0.764 for synth4 re-stretched** (0.818 for the whole crop). By camera,
+  QHY294PROC 0.780, ASI294MC 0.646, ASI533MC Pro 0.855 and ASI585MC Pro 0.776. As exported, the review read 0.79. The
+  stars still give the synthetics away, but not by their colour: the star crops are normalised per channel to the tile's
+  own sigma, and colour already agrees. What is left is S1's halos and the count's profile and blending.
+
+**Verdict:** #1738 closes on this read, with nothing to build. The Done-when holds on tiles re-stretched to the
+master, with the session mix held (every band within 0.035). Pooled, it holds except B/G over 100 sigma, 0.055, from a
+session with no synthetic star there. The as-exported numbers are the #1776 stretch, which `--stretch-from master`
+removes. Instruments: `C:/temp/tianwen-scratch/TIA1737/colours` (`restretch2.py`, `bands.py`, `matched.py`,
+`lincolour.py`, `catvsmaster.py`, `vs-synth11.py`); the old `restretch.py` is marked faulty in its own header.
+
 #### Synthetics S4: noise shared across channels
 
 Tracked by #1739, and its next step by #1781. The noise the export draws (the stars' own, and the synthetic background's) carries the master's
