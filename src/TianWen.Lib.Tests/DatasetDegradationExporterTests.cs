@@ -1322,7 +1322,7 @@ namespace TianWen.Lib.Tests
                 row.Mode.ShouldBe(nameof(DatasetDegradationExporter.DegradationMode.Stars));
                 row.NoiseAnchor.ShouldBe("master-calibration");
                 row.Placement.ShouldBe(nameof(InjectionPlacement.Random));
-                row.Stretch.ShouldBe("plate", "the plate's parameters unless the master's are asked for (#1776)");
+                row.Stretch.ShouldBe("master", "the master's own parameters unless the plate's are asked for (#1776, R2w's read)");
                 row.StretchSkySlopeRatio.ShouldNotBeNull().Length.ShouldBe(3);
                 File.Exists(Path.Combine(options.OutDir, row.SigmaTile.ShouldNotBeNull())).ShouldBeTrue();
                 var injection = injections.Single(i => i.Tile == row.Tile);
@@ -1394,13 +1394,13 @@ namespace TianWen.Lib.Tests
                 dimmer.ShouldBe(0);
             }
 
-            // The master's stretch (#1776) exports the same draws and says so on every row.
-            var fromMaster = options with { OutDir = Path.Combine(_root, "stars-master-stretch"), StretchFromMaster = true };
-            (await DatasetDegradationExporter.RunAsync(fromMaster, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
-            var masterRows = ReadDegradationRows(fromMaster.OutDir);
-            masterRows.Length.ShouldBe(rows.Length);
-            masterRows.ShouldAllBe(static r => r.Stretch == "master");
-            File.ReadAllText(Path.Combine(fromMaster.OutDir, DatasetDegradationExporter.InjectionManifestFileName))
+            // The plate's stretch (H6, every export before #1776) exports the same draws and says so on every row.
+            var fromPlate = options with { OutDir = Path.Combine(_root, "stars-plate-stretch"), StretchFromMaster = false };
+            (await DatasetDegradationExporter.RunAsync(fromPlate, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            var plateRows = ReadDegradationRows(fromPlate.OutDir);
+            plateRows.Length.ShouldBe(rows.Length);
+            plateRows.ShouldAllBe(static r => r.Stretch == "plate");
+            File.ReadAllText(Path.Combine(fromPlate.OutDir, DatasetDegradationExporter.InjectionManifestFileName))
                 .ShouldBe(File.ReadAllText(Path.Combine(options.OutDir, DatasetDegradationExporter.InjectionManifestFileName)), "the stretch moves no star");
 
             // The same seed, the same bytes: every star and every tile, and reading the stars back changes none of them.

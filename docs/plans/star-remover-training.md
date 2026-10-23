@@ -3848,6 +3848,24 @@ model of ours so far, and the dig meets the 30 % bar R2v set and missed. The pri
 R2w's domain, and fall there as expected: 76.9 / 71.5 / 51.7 % clean on A's draws (79.2 / 74.5 / 60.2). One seed. R2x
 (kept cores, above) keeps the plate's stretch as pre-registered, so it still isolates the cores.
 
+**The owner's call (2026-10-24): the master's stretch is the default, "if it truly helps".** What argued against it, the real
+tiles' 0.8-point dip, was read by session first (the real-star check split per validation session, bright stars 100 to
+1,000 sigma, % flat):
+
+| session | stars | R2i seed 0 | R2t | R2u | R2v | R2w |
+|---|---|---|---|---|---|---|
+| Lobster (three views) | 933 / 622 / 791 | 98.9 / 99.5 / 99.9 | 98.7 / 99.8 / 99.9 | 98.8 / 99.8 / 99.9 | 98.6 / 99.7 / 99.5 | 98.0 / 99.4 / 99.7 |
+| M42 (ASI294MC) | 248 | 80.6 | 83.5 | 86.3 | 86.3 | **71.4** |
+| HIP 80609 (three views) | 639 / 441 / 444 | 94.8 / 96.4 / 98.2 | 95.6 / 96.8 / 98.6 | 95.9 / 96.8 / 98.0 | 95.1 / 95.2 / 95.7 | 94.5 / 96.1 / 96.2 |
+| SMC | 97 | 67.0 | 93.8 | 93.8 | 85.6 | **79.4** |
+| all | 4,215 | 96.4 | 97.4 | 97.6 | 96.7 | 95.6 |
+
+M42 alone is two thirds of the dip: on its bright stars over bright nebula R2w leaves light at 27.0 % of them (R2i seed 0
+16.5 %). Without M42, R2w stands at 97.1 % against R2i seed 0's 97.4 %, and the SMC gains 12 points. Against the whole
+masters' gains that is a net help, so `--stretch-from` now defaults to `master` (`DatasetDegradationExporter.Options
+.StretchFromMaster` true); `--stretch-from plate` reproduces an export before synth11. **M42's bright stars over nebula are
+the thing to watch** in the next arms on the master's stretch.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure

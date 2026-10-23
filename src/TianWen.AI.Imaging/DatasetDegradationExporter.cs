@@ -446,9 +446,10 @@ namespace TianWen.AI.Imaging
         /// faint draw stops in its drawn order where it is reached
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.LuminosityFunction.KeptUnderCap"/>).</param>
         /// <param name="StretchFromMaster">Stars mode: stretch both halves of every pair with the MASTER's own parameters,
-        /// the ones inference stretches that master with, instead of the plate's (H6), whose minimum sits in the plate's
-        /// deepest subtraction holes and so stretches the sky up to 3.8 times more gently (#1776). Off keeps every export as
-        /// it was; either way the session's log line gives the slope ratio between the two.</param>
+        /// the ones inference stretches that master with, rather than the plate's (H6), whose minimum sits in the plate's
+        /// deepest subtraction holes and so stretches the sky up to 3.8 times more gently (#1776). The default since R2w's
+        /// read (2026-10-24); false stretches with the plate's, as every export before synth11 did. Either way the
+        /// session's log line gives the slope ratio between the two.</param>
         public sealed record Options(
             string BakeRoot,
             string OutDir,
@@ -497,7 +498,7 @@ namespace TianWen.AI.Imaging
             bool ChannelNoiseCorrelation = false,
             double? FaintStarFloor = null,
             double FaintStarCap = TianWen.Lib.Imaging.StarRemoval.LuminosityFunction.DefaultCapSigma,
-            bool StretchFromMaster = false,
+            bool StretchFromMaster = true,
             Action<string>? Say = null);
 
         /// <summary>
