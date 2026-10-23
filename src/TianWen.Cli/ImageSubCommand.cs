@@ -2197,6 +2197,9 @@ internal sealed partial class ImageSubCommand(
             }
             document = enhanced;
         }
+        // The neutralisation the viewer solves on every open (ViewerActions.NeutraliseBackground): without it a frame whose
+        // balance is not neutral draws its sky in that balance's colour.
+        ViewerActions.NeutraliseBackground(document, state);
         await ViewerController.WriteDisplayedRasterAsync(document, state, dst, DisplayRasterFormat.Png16, ct);
         consoleHost.WriteScrollable(
             $"[render] as the viewer shows it: {state.StretchMode}, boost {state.CurvesBoost:0.##} ({(state.CurvesMode == 1 ? "spline" : "power")}), " +

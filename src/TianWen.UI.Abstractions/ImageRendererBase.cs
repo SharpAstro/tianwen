@@ -1407,12 +1407,7 @@ namespace TianWen.UI.Abstractions
             // gain is null. Otherwise a cached doc that was previously viewed under a different method
             // (e.g. Mean) keeps its stale Mean gains even though the toolbar shows Min pivot. The doc's
             // per-method dict makes the re-call a cheap dictionary lookup.
-            if (state.BackgroundNeutralizationEnabled)
-            {
-                // Solved for the WB that will actually be applied: with the calibration toggled off the
-                // gains for the calibrated triple would re-tint a frame that no longer receives it.
-                document.ComputeBackgroundNeutralization(state.BackgroundNeutralizationMethod, state.ColorCalibrationEnabled);
-            }
+            ViewerActions.NeutraliseBackground(document, state);
 
             // NO auto-retrigger on file switch. This used to start a fresh SPCC fit on every new file
             // while the toggle was down, which made the calibration look like it followed the user
