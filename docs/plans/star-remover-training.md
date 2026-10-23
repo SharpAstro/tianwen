@@ -2817,7 +2817,7 @@ one it was. Pinned in `SyntheticBackgroundTests`:
 - the redder-colour pool;
 - isolation: beyond a core's reach every pixel is the cell's own, byte for byte, and inside it the core alone is added.
 
-**The sample export** (synth4's recipe, the 8 R2 validation sessions, 40 cells, one draw each, once with `--kept-cores` and
+**The sample export** (synth4's recipe, the 8 R2 validation sessions, 40 cells each, one draw a cell, once with `--kept-cores` and
 once without; scratch `C:/temp/tianwen-scratch/TIA1658`, `measure_cores.py`):
 
 | | without | with |
@@ -2826,13 +2826,15 @@ once without; scratch `C:/temp/tianwen-scratch/TIA1658`, `measure_cores.py`):
 | tiles of the 270 cells without a core (clean, draw, sigma) | 1,080 | the same 1,080, **byte for byte** |
 | injection and degradation manifests | | identical, but for the 50 cells' `Core` field and clean-tile MAD |
 | cores' drawn peak | | median 1,088 sigma, 212 to 5,404 |
-| cores held by the ceiling | | 10 of 50, 8 of them on HIP 80609's three halves, the brightest stretched pixel 0.98 |
+| cores held by the ceiling | | 10 of 50, 8 of them on HIP 80609's three views, the brightest stretched pixel 0.98 |
 | core height, input over target (stretched, 5 x 5 at the centre, less the cell without the core) | | **median 1.0000, 0.982 to 1.000** over every core and channel |
 
 The core is the same in input and target. The few points under 1 are injected stars landing on a core's centre, which
 the input holds and the target does not. The cores' minor-axis FWHM ran 4.6 to 12.1 px over these PSFs, and their colour
 ran from Small-Magellanic-Cloud's red (0.39 / 0.17 / 0.09 stretched) to HIP 80609's near-white. Training on them waits
-for the GPU and for the owner's call on which arm carries them.
+for the GPU and for the owner's call on which arm carries them. That arm is read against the nucleus guard (at most 5 %
+of M31's central 6 px taken in every channel), where the before numbers are R2i's 3.1 / 3.1 / 0.3 %, E6's 16.5 / 7.9 /
+6.2 % and R2l's 35.9 / 14.9 / 14.9 %.
 
 #### Halos left around bright stars: an option to remove them, deferred (2026-10-18)
 
