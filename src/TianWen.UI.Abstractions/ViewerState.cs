@@ -241,6 +241,12 @@ public sealed class ViewerState
     public float StarStretch { get; set; } = StarSplit.StarCurve;
 
     /// <summary>
+    /// The Tone popover's Star colour dial: how far a star split's stretched stars are pushed from their luminance
+    /// (<see cref="ScreenedStars"/>), apart from the picture's own Saturation. A frame with no split ignores it.
+    /// </summary>
+    public float StarSaturation { get; set; } = StarSplit.StarSaturation;
+
+    /// <summary>
     /// Whether background neutralization (pivot1 mode) is active. ON by default, as the headless render always neutralises
     /// (<c>MasterPreviewRenderer</c>, min pivot after the white balance): a white balance levels the STARS, not the sky behind
     /// them, so a calibrated frame shown Linked with its sky left coloured puts one channel's background below the shared
@@ -985,6 +991,7 @@ public sealed class ViewerState
         FinishContrast = FinishContrast,
         FinishSaturation = FinishSaturation,
         StarStretch = StarStretch,
+        StarSaturation = StarSaturation,
         WaveletSharpenEnabled = WaveletSharpenEnabled,
         WaveletGains = WaveletGains,
         WaveletDerived = WaveletDerived,

@@ -33,7 +33,7 @@ layout(set = 0, binding = 0, std140) uniform StretchUBO {
     vec4  bgNeutralization;    // offset 208  (xyz = neutralization gains, w = pad)
     vec4  curveData[9];        // offset 224  (33 knots packed into 9 vec4s; last 3 floats unused)
     vec4  lumaWeights;         // offset 368  (xyz = R/G/B luma weights, w = pad). Rec.709 default.
-    vec4  lumaStretch;         // offset 384  (x = lumaShadow, y = lumaMidtones, z = lumaRescale, w = pad)
+    vec4  lumaStretch;         // offset 384  (x = lumaShadow, y = lumaMidtones, z = lumaRescale, w = star split's star saturation)
     vec4  stretchBlend;        // offset 400  (x = lumaBlend in [0,1], y = normalizeScale, z = debayerMode 0=bilinear/1=MHC, w = texelsPerPixel: mosaic texels per screen pixel, 0 = unknown = 1)
     // offset 416 (xyz = RA/Dec grid line RGB, w = its alpha). Written from
     // SkyMapGpuGeometry.GridLineColor, which is the ONE definition of the EQ grid's colour: the same
@@ -765,16 +765,24 @@ void main() {
         r *= ns; g *= ns; b *= ns;
     }
 
-    // The star split: the stars plate through the CLI's colour asinh, every channel times the one factor its Rec.709
-    // luminance gives (ScreenedStars.Display, Image.AsinhLumaScale), screened over everything the starless picture took,
-    // 1 - (1 - a)(1 - s), as the CLI's --dual-stretch recombines (Image.ScreenStars).
+    // The star split, as ScreenedStars.Display: magenta out (green up to the lesser of red and blue), the CLI's colour
+    // asinh (every channel times the one factor its Rec.709 luminance gives, Image.AsinhLumaScale), the stars' own
+    // saturation about their luminance, and a clip that scales the whole pixel down by its largest channel so a core keeps
+    // its hue; then screened over everything the starless picture took, 1 - (1 - a)(1 - s), as the CLI's --dual-stretch
+    // recombines (Image.ScreenStars).
     if (ubo.finishParams.z > 0.0) {
+        const vec3 starLuma = vec3(0.2126, 0.7152, 0.0722);
         float beta = ubo.finishParams.z;
         vec3 lin = vec3(texture(uStar0, vTexCoord).r, texture(uStar1, vTexCoord).r, texture(uStar2, vTexCoord).r);
-        float sl = dot(vec3(0.2126, 0.7152, 0.0722), lin);
+        lin.g = max(lin.g, min(lin.r, lin.b));
+        float sl = dot(starLuma, lin);
         float k = sl < 1e-5 ? beta * ubo.finishParams.w : asinh(sl * beta) * ubo.finishParams.w / sl;
+        vec3 st = lin * k;
+        float sy = dot(starLuma, st);
+        st = max(vec3(sy) + (st - vec3(sy)) * ubo.lumaStretch.w, vec3(0.0));
+        float sm = max(st.r, max(st.g, st.b));
+        vec3 s = sm > 1.0 ? st / sm : st;
         vec3 a = clamp(vec3(r, g, b), 0.0, 1.0);
-        vec3 s = clamp(lin * k, 0.0, 1.0);
         vec3 c = a + s * (vec3(1.0) - a);
         r = c.r; g = c.g; b = c.b;
     }

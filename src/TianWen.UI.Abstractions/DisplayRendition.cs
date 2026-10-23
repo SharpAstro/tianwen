@@ -49,6 +49,16 @@ namespace TianWen.UI.Abstractions
 
         private readonly float _starStretchOffset;
 
+        /// <summary>The star split's star saturation (<see cref="ViewerState.StarSaturation"/>), stored as its distance from
+        /// <see cref="StarSplit.StarSaturation"/> for the same reason as <see cref="StarStretch"/>.</summary>
+        public float StarSaturation
+        {
+            get => StarSplit.StarSaturation + _starSaturationOffset;
+            init => _starSaturationOffset = value - StarSplit.StarSaturation;
+        }
+
+        private readonly float _starSaturationOffset;
+
         /// <summary>
         /// Snapshots how the viewer is displaying the frame right now. The Tone popover's finish (masked contrast and
         /// saturation) travels INSIDE the stretch, as the headless render carries it, so every path that renders a
@@ -59,6 +69,7 @@ namespace TianWen.UI.Abstractions
                 state.CurvesBoost, state.HdrAmount, state.HdrKnee, state.CurvesMode, state.CurveData)
             {
                 StarStretch = state.StarStretch,
+                StarSaturation = state.StarSaturation,
             };
     }
 

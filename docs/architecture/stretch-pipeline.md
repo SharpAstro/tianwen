@@ -73,8 +73,13 @@ uniform pipeline, not a mess of if else"):
   drawn by the CLI's colour asinh (`Image.AsinhStretch`, `Image.AsinhLumaScale`: every channel times the one factor its
   Rec.709 luminance gives, no black point, unclipped) at the Tone popover's Stars dial (`ViewerState.StarStretch`, the
   asinh beta on a log track from 1 to 1000, carried in `DisplayRendition`; default `StarSplit.StarCurve`, 300, the CLI's
-  `--dual-stretch --star-stretch-mode asinh --asinh-beta 300`), then screened over the stretched result after the
-  normalise (`ScreenedStars.Display`, `Image.ScreenStars`, `a + s(1 - a)`, each channel clamped; the shader samples the
+  `--dual-stretch --star-stretch-mode asinh --asinh-beta 300`), its magenta taken out first (`ScreenedStars.Demagenta`,
+  green up to the lesser of red and blue: SCNR maximum-neutral on the inverted pixel, #1777), saturated about its
+  luminance by the Stars section's Colour dial (`ViewerState.StarSaturation`, default `StarSplit.StarSaturation`, 1.6,
+  `lumaStretch.w` in the shader) and clipped by scaling the whole pixel down by its largest channel
+  (`ScreenedStars.ClipKeepingHue`, which keeps a bright core's hue where a per-channel clamp whitened it), then screened
+  over the stretched result after the
+  normalise (`ScreenedStars.Display`, `Image.ScreenStars`, `a + s(1 - a)`; the shader samples the
   plate from descriptor set 2, a 1x1 placeholder when a frame has none, with `finishParams.z` the beta, 0 for no split,
   and `.w` one over asinh of it). The beta is a uniform, so the dial costs no re-upload and the plate is held once. **A
   per-channel curve is the wrong one for stars**: StarStretch (the CLI's default) runs each channel into the top of its

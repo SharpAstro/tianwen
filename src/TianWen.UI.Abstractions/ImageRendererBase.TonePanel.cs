@@ -56,6 +56,7 @@ partial class ImageRendererBase<TSurface>
     private const string SaturationNeedsColourReason = "needs a colour frame";
     private const string StarsHeading = "Stars: their own stretch, screened over the picture";
     private const string StarsNeedSplitReason = "needs an enhance that split the stars";
+    private const string StarColourLabel = "Colour";
     private const string BoostNeedsStarsReason = "needs detected stars";
     private const string CurveModeNeedsBoostReason = "no effect at zero boost";
     private const string KneeNeedsAmountReason = "no effect at zero amount";
@@ -124,6 +125,7 @@ partial class ImageRendererBase<TSurface>
     private readonly SliderState _toneContrastSlider = new() { Min = 0f, Max = FinishContrastMax };
     private readonly SliderState _toneSaturationSlider = new() { Min = 0f, Max = FinishSaturationMax };
     private readonly SliderState _toneStarsSlider = new() { Min = StarBetaLogMin, Max = StarBetaLogMax };
+    private readonly SliderState _toneStarColourSlider = new() { Min = 0f, Max = StarSplit.MaxStarSaturation };
 
     /// <summary>Test seam: the boost dial, so a test can find its arranged leaf by identity.</summary>
     internal SliderState ToneBoostSliderState => _toneBoostSlider;
@@ -142,6 +144,9 @@ partial class ImageRendererBase<TSurface>
 
     /// <summary>Test seam: the stars' dial.</summary>
     internal SliderState ToneStarsSliderState => _toneStarsSlider;
+
+    /// <summary>Test seam: the stars' colour dial.</summary>
+    internal SliderState ToneStarColourSliderState => _toneStarColourSlider;
 
     // EMPTY, never default: a default ImmutableArray throws on every read, so a closed panel would
     // hand a caller a different KIND of empty from an open one with nothing in it.
@@ -258,6 +263,13 @@ partial class ImageRendererBase<TSurface>
             state.StarStretch = MathF.Round(MathF.Pow(10f, v));
             state.NeedsRedraw = true;
         };
+        _toneStarColourSlider.Value = state.StarSaturation;
+        _toneStarColourSlider.Enabled = starsEnabled;
+        _toneStarColourSlider.OnChanged = v =>
+        {
+            state.StarSaturation = v;
+            state.NeedsRedraw = true;
+        };
 
         var rows = ImmutableArray.CreateBuilder<Layout.Node>();
 
@@ -320,6 +332,7 @@ partial class ImageRendererBase<TSurface>
         // A star split's stars: the CLI's colour asinh on the linear plate, its beta here, apart from every lever above.
         rows.Add(Layout.Builder.Text(StarsHeading, small, ViewerTheme.Palette.DimText).WStar());
         rows.Add(ToneDialRow("Stars", _toneStarsSlider, state.StarStretch.ToString("0"), ToneStarsFill));
+        rows.Add(ToneDialRow(StarColourLabel, _toneStarColourSlider, UiFormat.Percent0(state.StarSaturation), ToneStarsFill));
         if (!starsEnabled)
         {
             rows.Add(ToneReasonRow(StarsNeedSplitReason, small));
