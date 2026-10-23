@@ -1907,10 +1907,20 @@ internal sealed partial class ImageSubCommand(
             Description = "Use this exact white balance instead of solving one, as 'R,G,B' (e.g. 1.443,1,1.228) -- the triple the render line prints. Skips SPCC and the sky-background fallback. Use it to give an enhanced master the balance solved on the unenhanced one, rather than re-fitting against a background the enhance has already flattened. PNG / PNG-PQ only.",
         };
 
+        var starsOpt = new Option<string?>("--stars")
+        {
+            Description = "A LINEAR stars plate on the input's grid (image sharpen --no-recombine writes one as <output>_stars.fits), stretched by the colour asinh and screened over the render, as the viewer composes an enhanced frame's star split. The input is then the starless plate (<output>_denoised-starless.fits). PNG / PNG-PQ only.",
+        };
+        var starBetaOpt = new Option<float>("--star-beta")
+        {
+            Description = "The asinh beta the --stars plate is stretched with: the viewer's Tone > Stars dial and image sharpen's --asinh-beta. Range [1, 1000].",
+            DefaultValueFactory = _ => StarSplit.StarCurve,
+        };
+
         var cmd = new Command("render", "Render a FITS file to a stretched PNG (default), HDR PQ PNG (--output-format png-pq), or float-true HDR JPEG XR (--output-format jxr).")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, saturationOpt, contrastBoostOpt, whiteBalanceOpt },
+            Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, saturationOpt, contrastBoostOpt, whiteBalanceOpt, starsOpt, starBetaOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -1991,12 +2001,41 @@ internal sealed partial class ImageSubCommand(
             // before. JXR is excluded because it writes the input floats verbatim by contract -- no
             // SPCC, no white balance, no stretch -- and scaling them would break that promise.
             var toRender = format == ImageOutputFormat.Jxr ? src : src.ScaleFloatValuesToUnit();
+            ScreenedStars? starScreen = null;
+            if (parseResult.GetValue(starsOpt) is { Length: > 0 } starsPath)
+            {
+                var beta = parseResult.GetValue(starBetaOpt);
+                if (format is not (ImageOutputFormat.Png or ImageOutputFormat.PngPq))
+                {
+                    consoleHost.WriteError("--stars renders into the stretched PNG paths only (png, png-pq).");
+                    return 1;
+                }
+                if (!float.IsFinite(beta) || beta < StarSplit.MinBeta || beta > StarSplit.MaxBeta)
+                {
+                    consoleHost.WriteError($"--star-beta must be in [{StarSplit.MinBeta}, {StarSplit.MaxBeta}]; got {beta}.");
+                    return 1;
+                }
+                if (!Image.TryReadFitsFile(starsPath, out var starsPlate, out _))
+                {
+                    consoleHost.WriteError($"Failed to read the stars plate: {starsPath}");
+                    return 1;
+                }
+                if (starsPlate.Width != toRender.Width || starsPlate.Height != toRender.Height)
+                {
+                    consoleHost.WriteError($"The stars plate is {starsPlate.Width}x{starsPlate.Height}, the input {toRender.Width}x{toRender.Height}: they must share one grid.");
+                    return 1;
+                }
+                // On its own scale, as the viewer screens it, so one beta is one picture in both.
+                starScreen = new ScreenedStars(starsPlate, beta);
+                consoleHost.WriteScrollable($"[render] screening {starsPath} at asinh beta {beta:0}");
+            }
             await WriteCompanionAsync(toRender, dst, format, src.ImageMeta, wcs, "render",
                 useStretchedPng: false,
                 peakNits: Math.Clamp(parseResult.GetValue(pngPqPeakNitsOpt), 1f, 10000f),
                 gamutToBt2020: parseResult.GetValue(pngPqGamutOpt) == PngPqGamut.Bt2020,
                 maskedBoost: maskedBoost,
                 whiteBalanceOverride: whiteBalance,
+                starScreen: starScreen,
                 ct: ct);
             return 0;
         });
@@ -2216,6 +2255,7 @@ internal sealed partial class ImageSubCommand(
         bool gamutToBt2020,
         MaskedBoostOptions? maskedBoost = null,
         (float R, float G, float B)? whiteBalanceOverride = null,
+        ScreenedStars? starScreen = null,
         CancellationToken ct = default)
     {
         if (format == ImageOutputFormat.None) return;
@@ -2241,10 +2281,10 @@ internal sealed partial class ImageSubCommand(
                 await WriteStretchedPngAsync(image, path, hdr10Pq: true, peakNits, gamutToBt2020, ct);
                 break;
             case ImageOutputFormat.Png:
-                await RenderPngAsync(image, sensorMeta, wcs, path, hdr10Pq: false, peakNits, gamutToBt2020, maskedBoost, whiteBalanceOverride, ct);
+                await RenderPngAsync(image, sensorMeta, wcs, path, hdr10Pq: false, peakNits, gamutToBt2020, maskedBoost, whiteBalanceOverride, starScreen, ct);
                 break;
             case ImageOutputFormat.PngPq:
-                await RenderPngAsync(image, sensorMeta, wcs, path, hdr10Pq: true, peakNits, gamutToBt2020, maskedBoost, whiteBalanceOverride, ct);
+                await RenderPngAsync(image, sensorMeta, wcs, path, hdr10Pq: true, peakNits, gamutToBt2020, maskedBoost, whiteBalanceOverride, starScreen, ct);
                 break;
             case ImageOutputFormat.UltraHdr:
                 await RenderUltraHdrAsync(image, sensorMeta, wcs, path, peakNits, maskedBoost, ct);
@@ -2288,13 +2328,13 @@ internal sealed partial class ImageSubCommand(
         return true;
     }
 
-    private async Task RenderPngAsync(Image img, ImageMeta sensorMeta, WCS? wcs, string pngPath, bool hdr10Pq, float peakNits, bool gamutToBt2020, MaskedBoostOptions? maskedBoost, (float R, float G, float B)? whiteBalanceOverride, CancellationToken ct)
+    private async Task RenderPngAsync(Image img, ImageMeta sensorMeta, WCS? wcs, string pngPath, bool hdr10Pq, float peakNits, bool gamutToBt2020, MaskedBoostOptions? maskedBoost, (float R, float G, float B)? whiteBalanceOverride, ScreenedStars? starScreen, CancellationToken ct)
     {
         try
         {
             var render = await previewRenderer.RenderAsync(img, sensorMeta, wcs, statsSource: null, pngPath,
                 hdr10Pq: hdr10Pq, peakNits: peakNits, gamutToBt2020: gamutToBt2020,
-                maskedBoost: maskedBoost, whiteBalanceOverride: whiteBalanceOverride, ct: ct);
+                maskedBoost: maskedBoost, whiteBalanceOverride: whiteBalanceOverride, starScreen: starScreen, ct: ct);
             var suffix = hdr10Pq
                 ? $" (HDR PQ, {peakNits:F0} nits, {(gamutToBt2020 ? "BT.2020" : "sRGB")} primaries)"
                 : "";
