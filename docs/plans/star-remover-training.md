@@ -3775,7 +3775,9 @@ review's table carried:
 
 - **The stretch made the top-heavy population.** The plate's stretch is not the master's. Read through the master's own,
   synth4's share over 100 sigma falls from 6.0 % to 2.56 %, against real's 2.07 %, with no change to the stars. A
-  synthetic's share is compared re-stretched from here on.
+  synthetic's share is compared re-stretched from here on. The cause is #1776: the export stretched a tile with the
+  plate's parameters, not the master's. It predicts that R2w's export (synth11, `--stretch-from master`) already has
+  the right share over 100 sigma, as exported.
 - **The faint extension moves the shares 0.9 point and the count by 2 a tile.** At 5-20 sigma that leaves 55.2 % against
   59.6 %, 4.4 points short of the 1 point asked. Over 100 sigma, 2.48 % against 2.07 % is within it. The count is
   113.3 a tile against 140.2, 19 % short of the 10 % asked. Per session, the count is short where the field is crowded:
@@ -3785,17 +3787,25 @@ review's table carried:
   sigma (147 at 5-10, 105 at 10-20, 121 at 20-100, 41 over 100), and the faint draw adds 25 at 5-10. Yet the detector
   finds 136 on the synthetic tile and 188 on the real one. Missing stars cannot be the cause, since more are injected
   over 5 sigma than are found on either. What the detector loses is in how a synthetic star reads: its profile, the
-  warp's blur and blending in a crowded field. That is S1's and the PSF's ground, not the luminosity function's. The
-  synthetic's own measured sigma is also above real's on Lobster (0.0080 against 0.0068), which lowers every
-  significance.
+  warp's blur and blending in a crowded field. That is S1's and the PSF's ground, not the luminosity function's.
+- **The noise level does not explain the count.** The synthetic's sigma is above real's on Lobster (0.0080 against
+  0.0068), which raises its 5-sigma threshold in flux. So each synthetic tile was recounted at the paired real tile's
+  threshold: the same session and cell, the same estimator and detector, and the same 256 px footprint, both tiles
+  through the master's stretch. The capped tiles come to 113.5 a tile, 19.0 % short, against 19.2 % at their own sigma;
+  synth4 comes to 111.0. The per-tile sigma ratio's median is 0.994 over all sessions. It is above 1 only on two of
+  Lobster's three sessions (1.17 and 1.11), where the recount gains 6 and 4 stars a tile against shortfalls of 53 and 34.
+  On HIP 80609 the ratio is 0.90 to 0.98, and the recount loses stars. The count barely answers its threshold, because
+  the detector keeps one peak in 13 px. In a crowded field it counts the separate peaks it can see, not the stars over
+  5 sigma, which is where blending and the profile come in.
 - **The classifier finds the faint stars harder to tell, read re-stretched: star crops 0.761 to 0.716, whole crops 0.799
   to 0.770.** By camera, the star crops are QHY294PROC 0.790 to 0.754, ASI294MC 0.635 to 0.569, ASI533MC Pro 0.869 to
   0.855 and ASI585MC Pro 0.749 to 0.685. As exported, the star crops are at 0.780, against the review's 0.79 for synth4.
   The statistics miss what the faint stars change, since nearly all of them sit under the 5 sigma every statistic
   counts from. The classifier's spread over seeds has not been read, so a 0.045 move is a lead, not a result.
 
-**Verdict:** the Done-when is not met. The star crops' AUC is the only thing that moves, and the stars' count and their
-5-20 share are short for a reason below the catalogue cannot fix. The option stays in as built, opt-in and capped, for
+**Verdict:** the Done-when is not met. The star crops' AUC moves, but that move is a lead until the classifier's spread
+over seeds is read. The stars' count and their 5-20 share are short for a reason that stars added below the catalogue
+cannot fix, and the noise level is not that reason either. The option stays in as built, opt-in and capped, for
 a training arm to judge.
 
 #### Synthetics S3: the stars' colours
