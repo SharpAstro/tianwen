@@ -739,6 +739,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         float finishContrast = 0f,
         float finishSaturation = 1f,
         float starBeta = 0f,
+        float starSaturation = 1f,
         int slot = UboSlotPrimary)
     {
         if ((uint)slot >= StretchUboSlots)
@@ -859,7 +860,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         WriteFloat(p, 384, lumaStretch.Shadow);
         WriteFloat(p, 388, lumaStretch.Midtones);
         WriteFloat(p, 392, lumaStretch.Rescale);
-        WriteFloat(p, 396, 0f);
+        // w: the star split's star saturation (ScreenedStars), beside its beta in finishParams.zw.
+        WriteFloat(p, 396, starSaturation);
 
         // stretchBlend (vec4 at offset 400) -- (lumaBlend, normalizeScale, debayerMode, texelsPerPixel).
         // debayerMode (z) selects the in-shader Bayer demosaic for the RawBayer path: 1 = MHC, 2 = raw

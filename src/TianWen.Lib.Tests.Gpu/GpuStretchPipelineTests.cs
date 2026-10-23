@@ -581,7 +581,8 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
             normalizeScale: u.NormalizeScale,
             finishContrast: u.FinishContrast,
             finishSaturation: u.FinishSaturation,
-            starBeta: stars?.Beta ?? 0f);
+            starBeta: stars?.Beta ?? 0f,
+            starSaturation: stars?.Saturation ?? 1f);
 
         // RecordImageDraw's last two args are the orthographic projection's viewport size, not
         // the draw-rect size -- they have to match the actual framebuffer the GPU is rendering
@@ -788,10 +789,10 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
     /// beta and at a softer and a harder one.
     /// </summary>
     [Theory]
-    [InlineData(300f)]
-    [InlineData(30f)]
-    [InlineData(1000f)]
-    public async Task GpuMatchesCpuForTheStarScreen(float starBeta)
+    [InlineData(300f, 1.6f)]
+    [InlineData(30f, 1f)]
+    [InlineData(1000f, 2.5f)]
+    public async Task GpuMatchesCpuForTheStarScreen(float starBeta, float starSaturation)
     {
         if (!_gpu.VulkanAvailable)
         {
@@ -810,7 +811,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         var h = img.Height;
         // Any linear plate exercises the screen; this one is the frame itself, brought down to an enhanced master's level (the
         // Sculptor's peaks at 0.02), where the asinh is neither all linear nor all clipped.
-        var stars = new ScreenedStars(img.Affine(0.02 / img.MaxValue, 0.0), starBeta);
+        var stars = new ScreenedStars(img.Affine(0.02 / img.MaxValue, 0.0), starBeta, starSaturation);
 
         var cpuRgba = new byte[w * h * 4];
         img.RenderStretchedRgba(uniforms, cpuRgba, starScreen: stars);
@@ -829,7 +830,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         foreach (var line in _formatDiagBag) output.WriteLine(line);
         _formatDiagBag.Clear();
 
-        AssertCpuGpuParity(cpuRgba, gpuRgba, $"28_gpu_star_screen_{starBeta:0}");
+        AssertCpuGpuParity(cpuRgba, gpuRgba, $"28_gpu_star_screen_{starBeta:0}_{starSaturation:0.0}");
     }
 
     /// <summary>

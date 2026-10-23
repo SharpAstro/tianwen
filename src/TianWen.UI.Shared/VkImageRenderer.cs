@@ -415,6 +415,7 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
             finishSaturation: stretch.FinishSaturation,
             // The star split's asinh beta (ScreenedStars); 0 screens nothing.
             starBeta: starScreen && source is AstroImageDocument { StarSplit: not null } ? rendition.StarStretch : 0f,
+            starSaturation: rendition.StarSaturation,
             slot: uboSlotOverride >= 0 ? uboSlotOverride : (int)slot);
     }
 

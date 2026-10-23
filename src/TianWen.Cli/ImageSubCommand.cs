@@ -1917,10 +1917,16 @@ internal sealed partial class ImageSubCommand(
             DefaultValueFactory = _ => StarSplit.StarCurve,
         };
 
+        var starSaturationOpt = new Option<float>("--star-saturation")
+        {
+            Description = "The saturation of the --stars plate's stretched stars about their luminance, the viewer's Tone > Stars > Colour dial. 1 = as stretched. Range [0, 3].",
+            DefaultValueFactory = _ => StarSplit.StarSaturation,
+        };
+
         var cmd = new Command("render", "Render a FITS file to a stretched PNG (default), HDR PQ PNG (--output-format png-pq), or float-true HDR JPEG XR (--output-format jxr).")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, saturationOpt, contrastBoostOpt, whiteBalanceOpt, starsOpt, starBetaOpt },
+            Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, saturationOpt, contrastBoostOpt, whiteBalanceOpt, starsOpt, starBetaOpt, starSaturationOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -2005,6 +2011,12 @@ internal sealed partial class ImageSubCommand(
             if (parseResult.GetValue(starsOpt) is { Length: > 0 } starsPath)
             {
                 var beta = parseResult.GetValue(starBetaOpt);
+                var starSaturation = parseResult.GetValue(starSaturationOpt);
+                if (!float.IsFinite(starSaturation) || starSaturation < 0f || starSaturation > StarSplit.MaxStarSaturation)
+                {
+                    consoleHost.WriteError($"--star-saturation must be in [0, {StarSplit.MaxStarSaturation}]; got {starSaturation}.");
+                    return 1;
+                }
                 if (format is not (ImageOutputFormat.Png or ImageOutputFormat.PngPq))
                 {
                     consoleHost.WriteError("--stars renders into the stretched PNG paths only (png, png-pq).");
@@ -2026,8 +2038,8 @@ internal sealed partial class ImageSubCommand(
                     return 1;
                 }
                 // On its own scale, as the viewer screens it, so one beta is one picture in both.
-                starScreen = new ScreenedStars(starsPlate, beta);
-                consoleHost.WriteScrollable($"[render] screening {starsPath} at asinh beta {beta:0}");
+                starScreen = new ScreenedStars(starsPlate, beta, starSaturation);
+                consoleHost.WriteScrollable($"[render] screening {starsPath} at asinh beta {beta:0}, star saturation {starSaturation:0.##}");
             }
             await WriteCompanionAsync(toRender, dst, format, src.ImageMeta, wcs, "render",
                 useStretchedPng: false,

@@ -329,7 +329,7 @@ namespace TianWen.UI.Abstractions
                 var surface = _renderer.Surface.Pixels;
                 _pixels.RenderStretchedRgba(rendition.Stretch, surface,
                     rendition.CurvesBoost, rendition.CurvesMode, rendition.CurveSpan,
-                    CurvesMidpoint, rendition.HdrAmount, rendition.HdrKnee, Stars?.ScreenAt(rendition.StarStretch));
+                    CurvesMidpoint, rendition.HdrAmount, rendition.HdrKnee, Stars?.ScreenAt(rendition.StarStretch, rendition.StarSaturation));
 
                 // A single-channel view shows ONE channel as grey, and the render above already applied
                 // that channel's own curve, so the value is sitting in its own slot and only has to be
