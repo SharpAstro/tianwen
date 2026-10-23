@@ -27,10 +27,17 @@ namespace TianWen.AI.Imaging.RcAstro
         /// <summary>
         /// True when <paramref name="productKey"/> ("bxt" / "sxt" / "nxt") is
         /// licensed on this machine. Probes <c>rc-astro &lt;product&gt; --license</c>
-        /// once and caches the result. Synchronous by design so it can gate a
-        /// DI factory; returns false when the executable is absent.
+        /// and caches a GRANTED licence; a refusal is probed again on the next call.
+        /// Synchronous by design so it can gate a DI factory; returns false when the
+        /// executable is absent.
         /// </summary>
         bool IsLicensed(string productKey);
+
+        /// <summary>
+        /// Why <paramref name="productKey"/> was last refused, in words for a status line ("its licence
+        /// check exited 77: ..."), or null when it was not refused or not yet asked.
+        /// </summary>
+        string? LicenseRefusal(string productKey) => null;
 
         /// <summary>
         /// Runs <c>rc-astro &lt;productKey&gt; &lt;inputPath&gt; -o &lt;outputPath&gt;</c>

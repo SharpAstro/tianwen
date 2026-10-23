@@ -113,6 +113,18 @@ public sealed class SharpenPipeline(
     }
 
     /// <summary>
+    /// What each role's preferred backend refused under <paramref name="options"/>, once per refusal
+    /// (<see cref="IEnhancerAvailability.Refusal"/>; one product serves two roles). Empty when nothing was
+    /// refused. Ask it after <see cref="CapabilitiesFor"/>, which is what asks the backends.
+    /// </summary>
+    public ImmutableArray<string> RefusalsFor(EnhanceOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        IImageEnhancer?[] roles = [deblurrer, gradientCorrector, starRemover, stellarSharpener, nonStellarDeconvolver, denoiser];
+        return [.. roles.OfType<IEnhancerAvailability>().Select(role => role.Refusal(options)).OfType<string>().Distinct()];
+    }
+
+    /// <summary>
     /// The canonical linear program for <paramref name="input"/>, shaped by what can serve it: the ONE
     /// program the viewer, the CLI, the stacking <c>--enhance</c> and the enhance endpoint run. With a
     /// star remover it is the split program (BlurX-first when a deblurrer serves); without one it is

@@ -20,6 +20,14 @@ public interface IEnhancerAvailability
     bool CanServe(int channelCount, EnhanceOptions options);
 
     /// <summary>
+    /// Why the backend this role prefers under <paramref name="options"/> did not serve, in words for a status
+    /// line ("RC-Astro StarXTerminator (sxt): its licence check exited 77"), or null when it served or nothing
+    /// was refused. A role that fell back to another backend says so here too, since the fallback changes what
+    /// an enhance does (no star split without StarXTerminator) while every step still runs.
+    /// </summary>
+    string? Refusal(EnhanceOptions options) => null;
+
+    /// <summary>
     /// Whether <paramref name="role"/> is registered AND serves an input of <paramref name="channelCount"/>
     /// channels under <paramref name="options"/>: the ONE rule every caller asks. A registration is not
     /// an answer, because a deferred RC-Astro role is registered on every host and serves only where the
