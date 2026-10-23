@@ -2756,7 +2756,7 @@ member the same way.
 Tracked by #1658, on the owner's idea of 2026-10-19: identify the large, extended sources, mask the absolute brightest
 part of each, and keep it out of the stars layer, "something you can do with SXT in a very manual, tedious way". The
 owner's other reason: SXT can take the brightest part of M42 as one large star. It is the inference half of #1658; the
-training half (bright compact cores the target keeps, in the synthetic scenes) waits for R2p, R2nc and R2m to be read.
+training half (bright compact cores the target keeps, in the synthetic scenes) is "Kept cores" below.
 
 **`ExtendedCoreMask` (TianWen.Lib), applied in the split** (`NarrowbandCombination.SplitStarsAsync` with options;
 `image remove-stars --protect-cores`), so it holds for any remover, RC-Astro's as well as ours:
@@ -2782,6 +2782,57 @@ protected region changes 9,318 and 12,238 px, and keeps 3 of the Lagoon's 13,718
 M31's 23,728 out of the stars layer. The owner, on the Lagoon's crops: "it does make the stars a lot cleaner". The price
 is those few stars, which stay in the starless plate. Off by default until the owner says otherwise. The stacking workbench draws the cores and lets
 the user drop or add one (`stacking-workbench.md`, Deep sky, step 6). Pinned by `ExtendedCoreMaskTests`.
+
+#### Kept cores: bright galaxy-like cores the synthetic target keeps (2026-10-23)
+
+Tracked by #1658, its training half: `degrade --kept-cores` (with `--background synthetic`) draws a bright extended core
+into a share of the synthetic background's cells (`KeptCores`, TianWen.Lib). Because the core sits in the background, it
+is in the input and in the starless target alike, and a remover is taught to keep it. Nothing is trained here; the option
+is off by default.
+
+**Sized from M31's nucleus** on the owner's Andromeda master. Its peak stands at 6,127 / 4,760 / 3,951 sigma (R / G / B).
+It falls to half that peak about 3.5 px out, 2.5 to 3 star widths across, and holds 0.14 of the peak at 12 to 20 px, 0.06
+at 20 to 40 px and 0.02 at 40 to 80 px. A core is drawn as:
+
+| part | drawn | why |
+|---|---|---|
+| share of cells | 15 % | a modest share: a core is rare in a real field |
+| core | a Gaussian, FWHM 2.5 to 6 PSF widths across its minor axis (log-uniform), axis ratio 0.6 to 1 | **never under 2.5 widths**: R2d's knots test kept compact knots at 1.6 widths and left bright stars' cores in |
+| bulge | a Moffat of index 0.75 on the same ellipse, 0.35 to 0.6 of the peak, scale 1 to 2 core widths | M31's wing falls as r^-1.5. A bulge of one core width (7 px) at 0.55 of the peak reads 0.14 / 0.06 / 0.02 of the whole at 16 / 30 / 60 px, as M31 does |
+| reach | tapered to zero from 8 to 16 bulge scales | so a core ends inside a known radius |
+| peak | log-uniform from 200 to 6,000 noise sigma, in the channel it stands brightest in against its noise | M31's red stands 6,127 |
+| colour | one of the master's redder stars (its red over blue at or above the pool's median) | a bulge is an old, red population |
+| ceiling | its top held under 0.8 of the master's fallback clip (0.95 of each channel's brightest pixel), colour kept | a core never clips, which would make a flat top no star has |
+
+The width floor applies to the Gaussian, so the whole profile is wider than the core alone. With the bulge at M31's 0.55
+and one core width, it halves at 1.46 core widths. Even at the bottom of its range, a drawn core is therefore wider at
+half its peak than M31's nucleus.
+
+**From a stream of its own** (the cell's seed with a fixed mask, as `--channel-wing-cut` does), so every other draw is the
+one it was. Pinned in `SyntheticBackgroundTests`:
+- the drawn widths, and the half-peak area on the drawn plane;
+- the peak in sigma and its colour;
+- the ceiling;
+- M31's wing readings;
+- the redder-colour pool;
+- isolation: beyond a core's reach every pixel is the cell's own, byte for byte, and inside it the core alone is added.
+
+**The sample export** (synth4's recipe, the 8 R2 validation sessions, 40 cells, one draw each, once with `--kept-cores` and
+once without; scratch `C:/temp/tianwen-scratch/TIA1658`, `measure_cores.py`):
+
+| | without | with |
+|---|---|---|
+| cells holding a core | 0 of 320 | **50 of 320 (15.6 %)**, 4 to 9 per session |
+| tiles of the 270 cells without a core (clean, draw, sigma) | 1,080 | the same 1,080, **byte for byte** |
+| injection and degradation manifests | | identical, but for the 50 cells' `Core` field and clean-tile MAD |
+| cores' drawn peak | | median 1,088 sigma, 212 to 5,404 |
+| cores held by the ceiling | | 10 of 50, 8 of them on HIP 80609's three halves, the brightest stretched pixel 0.98 |
+| core height, input over target (stretched, 5 x 5 at the centre, less the cell without the core) | | **median 1.0000, 0.982 to 1.000** over every core and channel |
+
+The core is the same in input and target. The few points under 1 are injected stars landing on a core's centre, which
+the input holds and the target does not. The cores' minor-axis FWHM ran 4.6 to 12.1 px over these PSFs, and their colour
+ran from Small-Magellanic-Cloud's red (0.39 / 0.17 / 0.09 stretched) to HIP 80609's near-white. Training on them waits
+for the GPU and for the owner's call on which arm carries them.
 
 #### Halos left around bright stars: an option to remove them, deferred (2026-10-18)
 
