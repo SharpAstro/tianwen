@@ -247,6 +247,9 @@ namespace TianWen.UI.Abstractions
                 ? Path.GetFileName(anchor.FilePath)
                 : null;
 
+            // One snapshot of the grades for the whole list, so every row is coloured against the same best.
+            var grades = state.FrameGrades;
+
             foreach (var (fileIndex, rowRect) in _fileListScroll.VisibleRows())
             {
                 var fileName = state.ImageFileNames[fileIndex];
@@ -301,6 +304,12 @@ namespace TianWen.UI.Abstractions
                 else if (isHovered)
                 {
                     highlight = highlight.Bg(FileListHoverBg);
+                }
+                else if (state.GradeOf(fileName) is { } grade)
+                {
+                    // A graded frame's row says how it compares with the best of its group seen so far (LightGrading),
+                    // under the selection and the hover, which say something about the row the pointer or the load is on.
+                    highlight = highlight.Bg(LightGrading.RowTint(ViewerTheme.Palette, LightGrading.Relative(grades, grade)));
                 }
 
                 var row = Layout.Builder.HStack(highlight).PadX(2f)

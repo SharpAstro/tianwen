@@ -225,23 +225,5 @@ namespace TianWen.UI.Abstractions
                         state.NeedsRedraw = true;
                     });
         }
-
-        /// <summary>The planet and telescope section, measured and painted as the wavelet block is.</summary>
-        private void RenderTelescopeControls(ViewerState state, bool mono, ref float y, float x, float panelWidth)
-        {
-            DrawSectionHeading(ref y, x, "Planet and telescope", panelWidth);
-            PaintTree(BuildTelescopeTree(state, mono), ref y, x, panelWidth);
-        }
-
-
-        // A panel block's tree measured and painted through one context, below y, which moves past it.
-        private void PaintTree(Layout.Node tree, ref float y, float x, float panelWidth)
-        {
-            var ctx = MeasureContext();
-            var measured = MeasureLayout(tree, new Layout.Size<float>(panelWidth, float.MaxValue));
-            var rect = new RectF32(x, y, panelWidth, measured.Height);
-            PaintLayout(ArrangeLayout(tree, rect, ctx), ctx);
-            y = rect.Bottom + (WaveletGap * DpiScale);
-        }
     }
 }

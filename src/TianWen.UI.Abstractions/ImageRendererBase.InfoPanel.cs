@@ -22,6 +22,31 @@ namespace TianWen.UI.Abstractions
         // Info panel
         // -----------------------------------------------------------------------
 
+        /// <summary>Between the lines of one section, design units: a text leaf is its line box, which sets lines edge to edge.</summary>
+        private const float InfoLineGap = 2f;
+
+        /// <summary>Between two sections of the strip, design units: an empty line.</summary>
+        private const float InfoSectionGap = BaseFontSize;
+
+        /// <summary>
+        /// The docked info strip, as ONE tree the engine measures, arranges and paints: the metadata, the statistics, the
+        /// frame's grade, the planetary sections where they apply, and the Cursor readout at the bottom.
+        /// </summary>
+        /// <remarks>
+        /// <para>The metadata and the statistics read the SOURCE (InfoPanelData), so any source could show them; which do is
+        /// still decided here, a document's only: a SER and the planetary stack show only what applies to a sequence (the
+        /// wavelet controls of the stacked view). A SER's statistics are its first frame's, which a scrub would show under
+        /// every frame, so widening this waits for P3 (docs/plans/live-session-preview.md).</para>
+        /// <para><b>The Statistics table opens where the strip has the room for it</b> and rolls up to its heading where it
+        /// has not: it is the tallest block here and the one most frames never need, so it gives way first. The room is the
+        /// engine's measure of the whole strip with the table in it, the Cursor readout's room included even while the
+        /// pointer is off the picture (an empty block as tall as the readout gets), or the table would come and go as the
+        /// pointer crossed the frame's edge. The heading's click pins the other state
+        /// (<see cref="ViewerState.InfoPanelStatisticsPinned"/>), and a pin the room agrees with is dropped.</para>
+        /// <para><b>The Cursor readout sits at the bottom</b>, under a spacer, because it exists only while the pointer is
+        /// over the picture: anywhere above the sliders it would shove them up and down as the pointer entered and left, a
+        /// control moving under the hand about to grab it.</para>
+        /// </remarks>
         private void RenderInfoPanel(IPreviewSource source, ViewerState state)
         {
             if (string.IsNullOrEmpty(FontPath))
@@ -29,98 +54,194 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            // The metadata and the statistics read the SOURCE (InfoPanelData), so any source could show
-            // them; which do is still decided here, a document's only: a SER and the planetary stack show
-            // only what applies to a sequence (the wavelet controls of the stacked view) -- filling the
-            // strip the layout reserves regardless. A SER's statistics are its first frame's, which a scrub
-            // would show under every frame, so widening this waits for P3 (where the preview's readouts
-            // go, docs/plans/live-session-preview.md). The white balance is a toolbar popover now, shared
-            // by both.
             var document = source as AstroImageDocument;
 
             // Info-panel rect from the single layout pass (docked right by the Split's content Dock).
             var panel = _layout.InfoPanel;
             FillRect(panel.X, panel.Y, panel.Width, panel.Height, ViewerTheme.InfoPanelBg);
+            var rect = new RectF32(panel.X, panel.Y, panel.Width, panel.Height);
 
-            var y = panel.Y + PanelPadding;
-            var x = panel.X + PanelPadding;
+            // The wavelet dials carry the gains into the tree by reference, so they are seeded before it is built.
+            if (ShowsWavelets(state))
+            {
+                SeedWaveletDials(state);
+            }
 
-            var maxTextWidth = panel.Width - PanelPadding * 2;
+            var ctx = MeasureContext();
+            var roomy = Layout.Engine.Measure(BuildInfoStrip(source, state, document, statisticsOpen: true, toggle: null),
+                new Layout.Size<float>(rect.Width, float.MaxValue), ctx).Height <= rect.Height;
+            if (state.InfoPanelStatisticsPinned == roomy)
+            {
+                state.InfoPanelStatisticsPinned = null;
+            }
+
+            var open = state.InfoPanelStatisticsPinned ?? roomy;
+            var tree = BuildInfoStrip(source, state, document, open, () =>
+            {
+                state.InfoPanelStatisticsPinned = !open == roomy ? null : !open;
+                state.NeedsRedraw = true;
+            });
+
+            PaintLayout(ArrangeLayout(tree, rect, ctx), ctx, DrawSectionRule);
+        }
+
+        /// <summary>The planet and telescope section: the Best stack's and the live view's Derive (#1159), a planetary master's (#1314).</summary>
+        private static bool ShowsTelescope(ViewerState state) => state.ShowStacked || state.SequencePath is not null || state.IsPlanetaryMaster;
+
+        /// <summary>The wavelet dials: the live stacked view's and a planetary master's (#1314). They re-sharpen a master, not a raw frame.</summary>
+        private static bool ShowsWavelets(ViewerState state) => state.ShowStacked || state.ShowAuto || state.IsPlanetaryMaster;
+
+        private Layout.Node BuildInfoStrip(IPreviewSource source, ViewerState state, AstroImageDocument? document,
+            bool statisticsOpen, Action? toggle)
+        {
+            var sections = ImmutableArray.CreateBuilder<Layout.Node>();
+            var body = ViewerTheme.Palette.BodyText;
 
             if (document is not null)
             {
-                DrawSectionHeading(ref y, x, "Metadata", maxTextWidth);
+                var metadata = ImmutableArray.CreateBuilder<Layout.Node>();
+                metadata.Add(SectionHeading("Metadata"));
                 foreach (var line in InfoPanelData.GetMetadataLines(source))
                 {
-                    DrawWrappedTextLine(ref y, x, line, maxTextWidth, ViewerTheme.Palette.BodyText);
+                    metadata.Add(WrappedText(line, body));
                 }
+                sections.Add(Section(metadata));
 
-                y += FontSize;
-
-                // Rolled up by default: thirteen rows for a colour frame, the tallest block in the
-                // strip, and the one most frames never need. The heading stays, so the section is
-                // one click away rather than gone.
-                DrawCollapsibleHeading(ref y, x, "Statistics", maxTextWidth,
-                    state.InfoPanelStatisticsCollapsed, "ToggleStatistics", () =>
-                    {
-                        state.InfoPanelStatisticsCollapsed = !state.InfoPanelStatisticsCollapsed;
-                        state.NeedsRedraw = true;
-                    });
-                if (!state.InfoPanelStatisticsCollapsed)
+                // A table, not lines: the numbers line up on their decimal points in the strip's proportional face. The mark
+                // is text rather than an icon: the equipment tab's convention for the same thing (Advanced [+]).
+                var statistics = ImmutableArray.CreateBuilder<Layout.Node>();
+                statistics.Add(SectionHeading(statisticsOpen ? "Statistics [-]" : "Statistics [+]",
+                    new HitResult.ButtonHit("ToggleStatistics"), toggle));
+                if (statisticsOpen)
                 {
-                    // A table, not lines: the numbers line up on their decimal points in the strip's
-                    // proportional face, and a colour frame is five rows where it was thirteen.
                     var (header, rows) = InfoPanelData.GetStatisticsTable(source);
-                    DrawTable(ref y, x, maxTextWidth, header, rows);
+                    statistics.Add(StatisticsTable(header, rows));
+                }
+                sections.Add(Section(statistics));
+
+                // How this frame compares with the best of its group graded so far (LightGrading): the grade the file list
+                // colours its row by, in numbers, its first line in the grade's colour.
+                if (InfoPanelData.GetGradeReadout(state, document) is { } readout)
+                {
+                    var grade = ImmutableArray.CreateBuilder<Layout.Node>();
+                    grade.Add(SectionHeading("Grade"));
+                    for (var i = 0; i < readout.Lines.Length; i++)
+                    {
+                        grade.Add(WrappedText(readout.Lines[i], i == 0 && readout.Relative is { } relative
+                            ? LightGrading.Colour(ViewerTheme.Palette, relative)
+                            : body));
+                    }
+                    if (readout.BestName is { } bestName)
+                    {
+                        // A file name is one long word: trimmed at its end to the strip, never wrapped past it.
+                        grade.Add(Layout.Builder.HStack(
+                                Layout.Builder.Text("Best:", BaseFontSize, body, trim: TextTrim.None),
+                                Layout.Builder.Text(bestName, BaseFontSize, body, trim: TextTrim.End).WStar())
+                            .WithGap(BaseFontSize / 3)
+                            .WStar());
+                    }
+                    sections.Add(Section(grade));
                 }
             }
 
-            // The white-balance sliders used to be a section here. They are a popover under the
-            // toolbar's white-balance button now (ImageRendererBase.WhiteBalancePanel.cs): three
-            // sliders and two buttons most frames never touch were standing open under the
-            // statistics, and the button can say from across the bar what the section could not,
-            // that a white balance is in force.
-
-            // The planet and telescope both the Best stack and the live view's Derive sharpen for (#1159), once, above both; a planetary
-            // master's Derive too (#1314).
-            if (state.ShowStacked || state.SequencePath is not null || state.IsPlanetaryMaster)
+            // The white-balance sliders and the selection used to be sections here: a toolbar popover now
+            // (ImageRendererBase.WhiteBalancePanel.cs), and a panel floating over the picture
+            // (ImageRendererBase.SelectionPanel.cs).
+            if (ShowsTelescope(state))
             {
-                y += FontSize;
-                RenderTelescopeControls(state, source.SensorType is SensorType.Monochrome, ref y, x, maxTextWidth);
+                sections.Add(Section([SectionHeading("Planet and telescope"),
+                    BuildTelescopeTree(state, source.SensorType is SensorType.Monochrome)]));
             }
 
-            // Wavelet-sharpen layer sliders: the live stacked view's, and a planetary master's (#1314). They re-sharpen a master; they have
-            // no effect on a raw frame.
-            if (state.ShowStacked || state.ShowAuto || state.IsPlanetaryMaster)
+            if (ShowsWavelets(state))
             {
-                y += FontSize;
-                RenderWaveletControls(state, ref y, x, maxTextWidth);
+                sections.Add(Section([SectionHeading("Wavelet Sharpen"), BuildWaveletTree(state)]));
             }
 
+            // The keyboard-shortcut list that sat at the bottom is gone: a shortcut rides its button's tooltip, and the rest
+            // live behind the toolbar's "?" list.
+            sections.Add(Layout.Builder.Spacer().HStar());
+            sections.Add(CursorSection(source, state));
 
-            // The SELECTION used to have a section here. It now floats over the picture instead
-            // (ImageRendererBase.SelectionPanel.cs), with a dedicated info panel shared with the sky
-            // atlas -- Alt/Az and rise/transit/set included, which this strip never had room for.
+            return Layout.Builder.VStack([.. sections]).WithGap(InfoSectionGap).Pad(BasePanelPadding);
+        }
 
-            // Cursor readout goes LAST, and that placement is the point: it only exists while the
-            // pointer is over the image, so anywhere above the sliders it shoves them up and down as
-            // the pointer enters and leaves -- a control that moves under the hand about to grab it.
-            // A section whose presence varies belongs after every section whose does not.
+        /// <summary>
+        /// A section heading: the name, then a hairline rule across the rest of the row (drawn into a fill by
+        /// <see cref="DrawSectionRule"/>), the whole row answering <paramref name="onClick"/> when it is given one.
+        /// </summary>
+        /// <remarks>
+        /// The headings used to be written as <c>"-- Statistics --"</c>, which spends four characters of a narrow panel on
+        /// decoration the heading COLOUR already provides. A drawn rule is also font-independent: the tidier characters for
+        /// the job (an em dash, box-drawing U+2500) are the kind of codepoint a host face can lack.
+        /// </remarks>
+        private static Layout.Node SectionHeading(string title, HitResult? hit = null, Action? onClick = null)
+            => Layout.Builder.HStack(
+                    Layout.Builder.Text(title, BaseFontSize, ViewerTheme.Palette.HeaderText, vAlign: TextAlign.Near,
+                        trim: TextTrim.None),
+                    Layout.Builder.Fill(key: SectionRuleKey).WStar())
+                .WithGap(BaseFontSize * 0.5f)
+                .Clickable(hit, onClick is null ? null : _ => onClick())
+                .WStar();
+
+        /// <summary>A heading and its lines, a line gap apart.</summary>
+        private static Layout.Node Section(ImmutableArray<Layout.Node>.Builder rows) => Section(rows.ToImmutable());
+
+        private static Layout.Node Section(ImmutableArray<Layout.Node> rows)
+            => Layout.Builder.VStack([.. rows]).WithGap(InfoLineGap).WStar();
+
+        /// <summary>
+        /// The statistics as columns: the first left-aligned, every other right-aligned, so the numbers line up on their
+        /// decimal points in a proportional face, each column as wide as its widest cell, the header row dimmed. Cells are
+        /// never trimmed: a truncated number is a wrong number.
+        /// </summary>
+        private static Layout.Node StatisticsTable(ImmutableArray<string> header, ImmutableArray<ImmutableArray<string>> rows)
+        {
+            var columns = new Layout.Node[header.Length];
+            for (var c = 0; c < header.Length; c++)
+            {
+                var align = c == 0 ? TextAlign.Near : TextAlign.Far;
+                var cells = new Layout.Node[rows.Length + 1];
+                cells[0] = Cell(header[c], ViewerTheme.Palette.DimText, align);
+                for (var r = 0; r < rows.Length; r++)
+                {
+                    cells[r + 1] = Cell(c < rows[r].Length ? rows[r][c] : string.Empty, ViewerTheme.Palette.BodyText, align);
+                }
+                columns[c] = Layout.Builder.VStack(cells).WithGap(InfoLineGap);
+            }
+
+            return Layout.Builder.HStack(columns).WithGap(BaseFontSize * 0.5f);
+
+            static Layout.Node Cell(string text, RGBAColor32 color, TextAlign align)
+                => Layout.Builder.Text(text, BaseFontSize, color, hAlign: align, trim: TextTrim.None).WStar();
+        }
+
+        /// <summary>
+        /// The Cursor readout, or while the pointer is off the picture an empty block as tall as the readout gets over this
+        /// frame (<see cref="InfoPanelData.GetWidestCursorLines"/>): the room is kept, so nothing above it is placed by
+        /// whether the pointer happens to be over the picture.
+        /// </summary>
+        private static Layout.Node CursorSection(IPreviewSource source, ViewerState state)
+        {
+            var rows = ImmutableArray.CreateBuilder<Layout.Node>();
             if (state.CursorPixelInfo is not null)
             {
-                y += FontSize;
-                DrawSectionHeading(ref y, x, "Cursor", maxTextWidth);
+                rows.Add(SectionHeading("Cursor"));
                 foreach (var line in InfoPanelData.GetCursorLines(state))
                 {
-                    DrawTextLine(ref y, x, line, ViewerTheme.Palette.BodyText);
+                    rows.Add(Layout.Builder.Text(line, BaseFontSize, ViewerTheme.Palette.BodyText, trim: TextTrim.None));
                 }
             }
-
-            // The keyboard-shortcut list used to sit here: nineteen static rows, the tallest block in the
-            // info panel. It is gone. Every shortcut that has a button now rides that button's hover
-            // tooltip, and the ones that do not (zoom ratios, playback, the panel toggles) live behind the
-            // toolbar's "?" list. A tooltip puts the key where the user's pointer already is, which a
-            // block pinned to the bottom of a side panel cannot.
+            else
+            {
+                var lines = 1 + InfoPanelData.GetWidestCursorLines(source.ChannelCount, source.Findings.Wcs is not null,
+                    state.ChannelView).Count;
+                for (var i = 0; i < lines; i++)
+                {
+                    rows.Add(Layout.Builder.Text(string.Empty, BaseFontSize, ViewerTheme.Palette.BodyText));
+                }
+            }
+            return Section(rows);
         }
 
         // -----------------------------------------------------------------------
@@ -261,14 +382,11 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// The wavelet block. Seeds each band's dial from the gains, then measures and paints the tree
-        /// through the widget base's own context, so measure, arrange and paint are handed ONE instance
-        /// rather than three that have to agree by hand.
+        /// Seeds each band's dial from the gains before the strip's tree is built: a slider leaf carries a REFERENCE to its
+        /// dial, and the drag the engine arms on a press holds that same reference until the release.
         /// </summary>
-        private void RenderWaveletControls(ViewerState state, ref float y, float x, float panelWidth)
+        private void SeedWaveletDials(ViewerState state)
         {
-            DrawSectionHeading(ref y, x, "Wavelet Sharpen", panelWidth);
-
             var gains = state.WaveletGains;
             // One range for every band, so the dials compare as positions, read once for both directions of the mapping.
             var (min, max) = state.WaveletDialRange;
@@ -293,13 +411,6 @@ namespace TianWen.UI.Abstractions
                     dragState.NeedsRedraw = true;
                 };
             }
-
-            var tree = BuildWaveletTree(state);
-            var ctx = MeasureContext();
-            var measured = MeasureLayout(tree, new Layout.Size<float>(panelWidth, float.MaxValue));
-            var rect = new RectF32(x, y, panelWidth, measured.Height);
-            PaintLayout(ArrangeLayout(tree, rect, ctx), ctx);
-            y = rect.Bottom + (WaveletGap * DpiScale);
         }
 
     }

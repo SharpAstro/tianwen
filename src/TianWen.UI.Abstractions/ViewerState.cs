@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using TianWen.Lib.Geometry;
 using System.Collections.Immutable;
+using System.IO;
 using System.Linq;
+using System.Threading;
 using DIR.Lib;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
@@ -49,11 +51,38 @@ public sealed class ViewerState
     public bool ShowInfoPanel { get; set; } = true;
 
     /// <summary>
-    /// Whether the info strip's Statistics section is rolled up to its heading. Collapsed by default:
-    /// thirteen rows of per-channel numbers were the tallest block in the strip, wanted for a moment
-    /// and paid for on every frame, and the heading's [+] is one click away for that moment.
+    /// The info strip's Statistics section as the user last set it with its heading: <c>true</c> open, <c>false</c>
+    /// rolled up, <c>null</c> (the default) decided by the room the strip has. Unpinned, the table opens whenever it fits
+    /// beside everything else the strip shows, with the room the Cursor readout takes kept free even while the pointer is
+    /// off the picture, so the table does not come and go as the pointer crosses the frame edge.
     /// </summary>
-    public bool InfoPanelStatisticsCollapsed { get; set; } = true;
+    /// <remarks>
+    /// A pin is dropped as soon as the room agrees with it (the strip renderer does that), so it lasts exactly as long as
+    /// it overrides something: rolled up in a short window and then the window enlarged, the section follows the room
+    /// again. A pin that only restates what the room already decides is no choice at all.
+    /// </remarks>
+    public bool? InfoPanelStatisticsPinned { get; set; }
+
+    /// <summary>
+    /// Every frame graded so far, by its full path (<see cref="LightGrading"/>): written by star detection off the render
+    /// thread as each loaded frame's stars arrive, read by the file list and the info strip per frame. One atomic swap
+    /// per write (<see cref="RecordFrameGrade"/>), so a reader takes a snapshot and never sees half of one.
+    /// </summary>
+    public ImmutableDictionary<string, LightGrade> FrameGrades => Volatile.Read(ref _frameGrades);
+
+    private ImmutableDictionary<string, LightGrade> _frameGrades =
+        ImmutableDictionary.Create<string, LightGrade>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Records (or replaces) the grade of the frame at <paramref name="path"/>.</summary>
+    public void RecordFrameGrade(string path, LightGrade grade)
+        => ImmutableInterlocked.AddOrUpdate(ref _frameGrades, Path.GetFullPath(path), grade, (_, _) => grade);
+
+    /// <summary>The grade of the file-list entry <paramref name="fileName"/> in the folder on show, if it has one.</summary>
+    public LightGrade? GradeOf(string fileName)
+        => CurrentFolder is { Length: > 0 } folder
+           && FrameGrades.TryGetValue(Path.GetFullPath(Path.Combine(folder, fileName)), out var grade)
+            ? grade
+            : null;
 
     /// <summary>
     /// The white-balance popover (the R / G / B sliders, Auto and Reset, under the toolbar's
