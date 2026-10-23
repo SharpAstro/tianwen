@@ -130,6 +130,16 @@ float reduceBackground(float v, float bg, float c) {
          + (-2.0 * u3 + 3.0 * u2) * y1 + (u3 - u2) * h * m1;
 }
 
+// The background reduce on one colour pixel, as Image.ReduceBackgroundRgb: every channel scaled by what the curve does to
+// the brightest, so a reduce changes how bright a pixel is and never its hue (a channel at a time, a bright orange core went
+// yellow-white).
+vec3 reduceBackgroundRgb(vec3 c, float bg, float k) {
+    float m = max(c.r, max(c.g, c.b));
+    if (!(m > 0.0)) return c;
+    float mc = min(m, 1.0);
+    return c * (reduceBackground(mc, bg, k) / mc);
+}
+
 // The background reduce's compression for the post-stretch sky (StretchUniforms.BackgroundReduceCompression): the sky
 // level over the sky, at most 1, so a sky already at or below the level is left alone; 1 with no reduce. And the sky
 // every later stage pivots on (StretchUniforms.ReducedBackground).
@@ -782,12 +792,11 @@ void main() {
         b = max(b * ubo.whiteBalance[2], 0.0);
     }
 
-    // The background reduce, straight after the stretch (Image.ReduceBackgroundValue, anchored on the post-stretch sky).
+    // The background reduce, straight after the stretch (Image.ReduceBackgroundRgb, anchored on the post-stretch sky): the
+    // whole pixel scaled by the curve's answer for its brightest channel, so the hue stays the stretch's.
     if (hasBackgroundReduce()) {
-        float rc = reduceCompression();
-        r = reduceBackground(r, ubo.curvesMidpoint, rc);
-        g = reduceBackground(g, ubo.curvesMidpoint, rc);
-        b = reduceBackground(b, ubo.curvesMidpoint, rc);
+        vec3 reduced = reduceBackgroundRgb(vec3(r, g, b), ubo.curvesMidpoint, reduceCompression());
+        r = reduced.r; g = reduced.g; b = reduced.b;
     }
     // The curve at the boost's strength, off at zero in either mode: the spline moves each value that far toward the
     // S-curve (Image.ApplyCurveLut with a strength), the power-law is the boost.
