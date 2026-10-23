@@ -108,5 +108,32 @@ namespace TianWen.Lib.Tests
             groups.Count.ShouldBe(2);
             keys[frames[2]].CalibrationKey.TemperatureC.ShouldBeNull();
         }
+
+        // An iTelescope LRGB folder names no object, so its four filters' groups differed only by filter, which the light slug
+        // left out: four masters written to one name, each over the last.
+        [Fact]
+        public void LightsThroughDifferentFiltersAreNamedApart()
+        {
+            var slugs = new[] { Filter.Luminance, Filter.Red, Filter.Green, Filter.Blue }
+                .Select(f => LightGroupKey.FromFrame(Through(Light(-25f, objectName: ""), f)).Slug())
+                .ToList();
+
+            slugs.Distinct().Count().ShouldBe(4);
+            slugs[1].ShouldContain("_Red");
+        }
+
+        [Fact]
+        public void AnUnfilteredLightKeepsTheSlugItAlwaysHad()
+            => LightGroupKey.FromFrame(Light(13f, objectName: "")).Slug().ShouldBe("light_120s_13C_g120");
+
+        [Fact]
+        public void ASlugAnEarlierGroupTookGetsTheFirstFreeSuffix()
+        {
+            Imaging.Stacking.StackingPipeline.UniqueSlug("light_300s", []).ShouldBe("light_300s");
+            Imaging.Stacking.StackingPipeline.UniqueSlug("light_300s", ["light_300s"]).ShouldBe("light_300s_2");
+            Imaging.Stacking.StackingPipeline.UniqueSlug("light_300s", ["light_300s", "light_300s_2"]).ShouldBe("light_300s_3");
+        }
+
+        private static FrameInfo Through(FrameInfo frame, Filter filter) => frame with { Meta = frame.Meta with { Filter = filter } };
     }
 }
