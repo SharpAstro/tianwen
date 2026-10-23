@@ -93,6 +93,9 @@ public static class EnhanceActions
         // triple is EnhanceWhiteBalance's; a frame with none, or one calibrated by the sky-background estimate or
         // through a line-selective filter, is enhanced as it is and inherits the original's multiplier, as before.
         var program = pipeline.CanonicalProgram(input, options) with { WhiteBalance = EnhanceWhiteBalance(source, state) };
+        // What a backend refused, asked right after the program was shaped by it: a refused StarXTerminator is the
+        // whole-frame program, so no star split and no Stars dial, and it used to say only "whole frame".
+        var refusals = pipeline.RefusalsFor(options);
         var request = new SharpenRequest(input, program.ToSteps());
 
         // Per-step progress -> viewer status line. Runs on the background thread; these scalar
@@ -163,7 +166,8 @@ public static class EnhanceActions
         // ChannelsAlreadyAgree MEASURES that from the per-channel medians the stretch already has, so
         // the enhanced plate gets the right answer by the same route a master flattened in any other
         // tool does. The flag this used to set could only ever be right about our own output.
-        state.StatusMessage = $"Enhanced ({(program.Deblur ? "BlurX-first" : program.SplitStars ? "stars split" : "whole frame")})";
+        state.StatusMessage = $"Enhanced ({(program.Deblur ? "BlurX-first" : program.SplitStars ? "stars split" : "whole frame")})"
+            + (refusals.IsEmpty ? "" : $"; refused: {string.Join("; ", refusals)}");
         return doc;
     }
 }

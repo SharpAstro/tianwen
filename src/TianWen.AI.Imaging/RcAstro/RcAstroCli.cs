@@ -25,13 +25,27 @@ namespace TianWen.AI.Imaging.RcAstro
         private const int LicenseProbeTimeoutMs = 15_000;
 
         private readonly ILogger<RcAstroCli>? _logger;
-        private readonly ConcurrentDictionary<string, bool> _licenseCache = new();
+        // Only a GRANTED licence is remembered. A refusal is asked again on the next call: the probe has
+        // refused a licensed product (exit 77 on 2026-10-23, licensed again ten minutes later with nothing
+        // changed but `rc-astro license` run by hand), and a cached refusal kept every enhance in that
+        // process on the whole-frame program until it restarted. The callers ask once per enhance, a few
+        // times, so a refused product costs a few short probes per enhance and nothing per frame.
+        private readonly ConcurrentDictionary<string, byte> _licensed = new();
+        private readonly ConcurrentDictionary<string, string> _refusals = new();
+        private readonly Func<string, string, LicenseProbe> _probe;
 
         /// <param name="logger">Optional diagnostics logger.</param>
         public RcAstroCli(ILogger<RcAstroCli>? logger = null)
+            : this(LocateExecutable(), RunLicenseProbe, logger)
+        {
+        }
+
+        /// <summary>Test seam: a located executable and the probe that asks it.</summary>
+        internal RcAstroCli(string? executablePath, Func<string, string, LicenseProbe> probe, ILogger<RcAstroCli>? logger = null)
         {
             _logger = logger;
-            ExecutablePath = LocateExecutable();
+            _probe = probe;
+            ExecutablePath = executablePath;
             if (ExecutablePath is not null)
             {
                 _logger?.LogDebug("RC-Astro CLI located at {Path}", ExecutablePath);
@@ -58,7 +72,39 @@ namespace TianWen.AI.Imaging.RcAstro
 
         /// <inheritdoc/>
         public bool IsLicensed(string productKey)
-            => ExecutablePath is not null && _licenseCache.GetOrAdd(productKey, ProbeLicense);
+        {
+            if (ExecutablePath is not { } exePath)
+            {
+                return false;
+            }
+            if (_licensed.ContainsKey(productKey))
+            {
+                return true;
+            }
+
+            var probe = _probe(exePath, productKey);
+            _logger?.LogDebug("RC-Astro license probe {Product}: {Status} (exit {Exit})",
+                productKey, probe.Licensed ? "licensed" : "unlicensed", probe.ExitCode);
+            if (probe.Licensed)
+            {
+                _licensed.TryAdd(productKey, 0);
+                _refusals.TryRemove(productKey, out _);
+                return true;
+            }
+
+            var refusal = probe.ExitCode is { } exit
+                ? $"its licence check exited {exit}{(probe.StatusLine is { Length: > 0 } line ? $": {line}" : "")}"
+                : $"its licence check could not run{(probe.StatusLine is { Length: > 0 } why ? $": {why}" : "")}";
+            _refusals[productKey] = refusal;
+            _logger?.LogInformation("RC-Astro {Product} refused: {Refusal}", productKey, refusal);
+            return false;
+        }
+
+        /// <inheritdoc/>
+        public string? LicenseRefusal(string productKey)
+            => ExecutablePath is null ? "RC-Astro is not installed"
+                : _refusals.TryGetValue(productKey, out var refusal) ? refusal
+                : null;
 
         /// <inheritdoc/>
         public async Task<RcAstroRunResult> RunAsync(
@@ -211,15 +257,13 @@ namespace TianWen.AI.Imaging.RcAstro
             return new RcAstroRunResult(device, provider, lastProgress);
         }
 
-        private bool ProbeLicense(string productKey)
-        {
-            // No executable, no licence to probe -- asked rather than asserted, since LocateExecutable
-            // is allowed to find nothing and that is the whole reason the field is nullable.
-            if (ExecutablePath is not { } exePath)
-            {
-                return false;
-            }
+        /// <summary>What one <c>rc-astro &lt;product&gt; --license</c> said: whether it grants the product, its
+        /// exit code (null when it never ran or never exited), and its last line of output, the words to show
+        /// when it refuses.</summary>
+        internal readonly record struct LicenseProbe(bool Licensed, int? ExitCode, string? StatusLine);
 
+        private static LicenseProbe RunLicenseProbe(string exePath, string productKey)
+        {
             try
             {
                 var psi = new ProcessStartInfo(exePath)
@@ -235,13 +279,24 @@ namespace TianWen.AI.Imaging.RcAstro
                 using var proc = Process.Start(psi);
                 if (proc is null)
                 {
-                    return false;
+                    return new LicenseProbe(false, null, "the process did not start");
                 }
+
+                // stderr drains on its own thread, so neither pipe can fill while the other is read; it is kept
+                // because a refusal may say why only there.
+                var stderr = new ConcurrentQueue<string>();
+                proc.ErrorDataReceived += (_, e) => { if (e.Data is { Length: > 0 } line) stderr.Enqueue(line); };
+                proc.BeginErrorReadLine();
 
                 // Output is a small banner + one status line; ReadToEnd returns
                 // when the stream closes (on exit), so this cannot deadlock.
                 var stdout = proc.StandardOutput.ReadToEnd();
-                proc.WaitForExit(LicenseProbeTimeoutMs);
+                if (!proc.WaitForExit(LicenseProbeTimeoutMs))
+                {
+                    return new LicenseProbe(false, null, $"no answer in {LicenseProbeTimeoutMs / 1000} s");
+                }
+                // The parameterless wait flushes the redirected stderr handler once the timed wait saw the exit.
+                proc.WaitForExit();
 
                 // "<Product>: Permanently licensed." / "Trial license expires..."
                 // both count as licensed; "not licensed" / "expired" do not.
@@ -250,15 +305,21 @@ namespace TianWen.AI.Imaging.RcAstro
                     && !stdout.Contains("not licensed", StringComparison.OrdinalIgnoreCase)
                     && !stdout.Contains("expired", StringComparison.OrdinalIgnoreCase);
 
-                _logger?.LogDebug("RC-Astro license probe {Product}: {Status} (exit {Exit})",
-                    productKey, licensed ? "licensed" : "unlicensed", proc.ExitCode);
-                return licensed;
+                return new LicenseProbe(licensed, proc.ExitCode, LastLine(stderr.IsEmpty ? stdout : string.Join('\n', stderr)));
             }
             catch (Exception ex)
             {
-                _logger?.LogDebug(ex, "RC-Astro license probe failed for {Product}.", productKey);
-                return false;
+                return new LicenseProbe(false, null, ex.Message);
             }
+        }
+
+        /// <summary>The last non-blank line of a probe's output, trimmed: the status line, after the banner.</summary>
+        internal static string? LastLine(string text)
+        {
+            var span = text.AsSpan().TrimEnd();
+            var newline = span.LastIndexOfAny('\r', '\n');
+            var line = (newline < 0 ? span : span[(newline + 1)..]).Trim();
+            return line.IsEmpty ? null : line.ToString();
         }
 
         private static string? LocateExecutable()

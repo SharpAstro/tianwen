@@ -12,7 +12,7 @@ namespace TianWen.AI.Imaging.RcAstro
     /// runs), not at DI registration or service resolution. This keeps the (blocking,
     /// subprocess-backed) license probe off the construction path entirely: building the service
     /// provider -- even resolving the enhancer / <c>SharpenPipeline</c> -- spawns no <c>rc-astro</c>
-    /// process. The probe result is cached in <c>RcAstroCli</c>.
+    /// process. A granted licence is cached in <c>RcAstroCli</c>; a refusal is asked again on the next call.
     /// </summary>
     /// <remarks>
     /// The choice, in order: RC-Astro when its product is licensed; else TianWen's own model where
@@ -83,6 +83,14 @@ namespace TianWen.AI.Imaging.RcAstro
         public bool CanServe(int channelCount, EnhanceOptions options)
             => Resolve(options.Backend) is { } chosen
                && (chosen is not IEnhancerAvailability availability || availability.CanServe(channelCount, options));
+
+        /// <summary>RC-Astro's own refusal, when <see cref="EnhanceBackend.Auto"/> asked for it and it was refused;
+        /// a forced backend (<see cref="EnhanceBackend.TianWen"/>, <see cref="EnhanceBackend.ForceRcAstro"/>) asked
+        /// for nothing it was refused.</summary>
+        public string? Refusal(EnhanceOptions options)
+            => options.Backend is EnhanceBackend.Auto && Resolve(options.Backend) != Rc && cli.LicenseRefusal(productKey) is { } refusal
+                ? $"{Rc.Name}: {refusal}"
+                : null;
 
         /// <summary>The Auto-resolved backend (used by <see cref="Name"/> and the param-less path).</summary>
         internal IImageEnhancer? Backend => Resolve(EnhanceBackend.Auto);
