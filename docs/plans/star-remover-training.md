@@ -3780,6 +3780,39 @@ faint stars and 5.7 on mid-bright, the same on both twins (4.8 / 5.7 plain, 4.9 
 from red to green (red 5.0 points fewer, green 9.1 more). That is one seed, kept as a lead only. R2w (#1776) trains next on
 the 1070, as pre-registered.
 
+#### R2x: kept cores in the training data, pre-registered (2026-10-24)
+
+Written before it exports. The owner (2026-10-24) asked why the guards are not part of the loss. They already are, for
+whatever the training data holds: the loss compares the output with the starless target, which keeps a galaxy's core, so
+any core the remover takes costs it. But the synthetic backgrounds hold no bright compact core that is not a star, so the
+loss never meets one. Every arm that widened what a star may look like took M31's nucleus with it: R2l, R2m, R2s, R2s2, R2v.
+R2l is also the warning against weighting one kind of pixel instead, since its weight on bright stars took 35.9 % of the
+nucleus's red. So the case goes into the data (#1658's training half, "Kept cores" above), and the guard stays a guard: it
+reads a held-out master, where a loss on it would spend the test.
+
+**The arm.** R2i's recipe (run-r2.ps1, no teacher, no extra cache) on synth12, seed 0, on the 1070 after R2w: synth4's
+command with `--kept-cores`, the plate's stretch. One change against R2i seed 0. **Not R2t's recipe**, though R2t is the
+base: with `--teacher` every synthetic draw regresses onto the teacher's output instead of its clean target
+(`n2n_smoke.py`), so a kept core would be taught as E5 treats it, not as kept. Checked on a smoke export before it runs (one
+session, 40 cells, 4 draws): 7 cells hold a core, every injection row equals the plain export's but for `Core`, every
+differing tile lies in a core cell, and the plain export's 400 tiles are synth4's byte for byte.
+
+**Predictions** against R2i seed 0's whole-master row:
+1. M31's nucleus taken at most 1.0 % in every channel. R2i seed 0 takes 3.2 / 3.1 / 0.5 %; on this scorecard R2i seed 0,
+   R2t and R2u put their worst channel at 3.2, 6.1 and 3.5 %, so a run under 1.0 in all three is outside the seeds' spread.
+2. No guard lost: purity at most 1.0 %, A's draws within 2 points of 79.2 / 74.5 / 60.2 % clean, the real tiles' bright
+   stars at least 95.4 %.
+
+**Read, not predicted:** Andromeda's dig and blue, the Tarantula (a seed moves it 13 points) and its core residual, the
+crowded fields. The cores were sized from M31's nucleus (its width and fall-off, never its pixels), so the nucleus is a
+friendlier test than a galaxy the generator was not shaped on.
+**Kill:** (2) failing.
+**Read:**
+- (1) holding means the training data was what the nucleus lacked. The cores then go onto R2t's recipe, with a core cell
+  regressing onto its clean target as the clusters' rows already do, and onto the master's stretch if R2w holds.
+- (1) missing with (2) holding means the cores in the data do not carry to a real nucleus. The next step is then weighting
+  the kept cores' pixels in the loss.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
