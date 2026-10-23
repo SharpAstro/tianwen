@@ -63,6 +63,22 @@
     {
       "session": "SVBONY-SV605CC/Optolong-L-Quad-Enhance/Tarantula-Nebula/2026-10-17|SVBONY SV605CC|Tarantula Nebula|Optolong L-Quad Enhance",
       "reason": "The star remover's crowded-field test: the LMC around 30 Doradus, a dense cluster on unresolved galaxy light, where the checks of 2026-10-20 measured StarXTerminator and our models (holes and leftovers, flux taken, field light kept, Gaia completeness and purity). Training on it would void that measurement, and the 2025-10-18 night of the same field through the same camera and filter is already a test session by its bucket, so this keeps the field on one side of the split. Its own bucket would have put it in training. The owner's call, 2026-10-20 (\"We can hold it out, good call\")."
+    },
+    {
+      "session": "SMC iTelescope T08 APP sample/SMC NGC 292 T08 FLI LRGB 300s|FLI||Luminance",
+      "reason": "Astro Pixel Processor's free sample data: iTelescope T08 (Siding Spring, 106 mm f/5, FLI camera with 9 um pixels, 3.5 arcsec/px), 14 x 300 s per filter on 2019-08-23, raw with its own bias, 300 s darks and per-filter flats. Held out as a VERIFICATION set, never trained on: the only true mono CCD night in the store, and a stranger's rig, so it scores a model on a sensor and optics it has never seen. The night's middle (14:02 to 15:30 UT) has elongated stars; the quality gate drops five subs there. The owner's call, 2026-10-24."
+    },
+    {
+      "session": "SMC iTelescope T08 APP sample/SMC NGC 292 T08 FLI LRGB 300s|FLI||Red",
+      "reason": "Astro Pixel Processor's free sample data: iTelescope T08 (Siding Spring, 106 mm f/5, FLI camera with 9 um pixels, 3.5 arcsec/px), 14 x 300 s per filter on 2019-08-23, raw with its own bias, 300 s darks and per-filter flats. Held out as a VERIFICATION set, never trained on: the only true mono CCD night in the store, and a stranger's rig, so it scores a model on a sensor and optics it has never seen. The night's middle (14:02 to 15:30 UT) has elongated stars; the quality gate drops five subs there. The owner's call, 2026-10-24."
+    },
+    {
+      "session": "SMC iTelescope T08 APP sample/SMC NGC 292 T08 FLI LRGB 300s|FLI||Green",
+      "reason": "Astro Pixel Processor's free sample data: iTelescope T08 (Siding Spring, 106 mm f/5, FLI camera with 9 um pixels, 3.5 arcsec/px), 14 x 300 s per filter on 2019-08-23, raw with its own bias, 300 s darks and per-filter flats. Held out as a VERIFICATION set, never trained on: the only true mono CCD night in the store, and a stranger's rig, so it scores a model on a sensor and optics it has never seen. The night's middle (14:02 to 15:30 UT) has elongated stars; the quality gate drops five subs there. The owner's call, 2026-10-24."
+    },
+    {
+      "session": "SMC iTelescope T08 APP sample/SMC NGC 292 T08 FLI LRGB 300s|FLI||Blue",
+      "reason": "Astro Pixel Processor's free sample data: iTelescope T08 (Siding Spring, 106 mm f/5, FLI camera with 9 um pixels, 3.5 arcsec/px), 14 x 300 s per filter on 2019-08-23, raw with its own bias, 300 s darks and per-filter flats. Held out as a VERIFICATION set, never trained on: the only true mono CCD night in the store, and a stranger's rig, so it scores a model on a sensor and optics it has never seen. The night's middle (14:02 to 15:30 UT) has elongated stars; the quality gate drops five subs there. The owner's call, 2026-10-24."
     }
   ],
   "excludedSessions": [
