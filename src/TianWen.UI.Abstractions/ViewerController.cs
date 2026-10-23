@@ -715,7 +715,7 @@ public sealed class ViewerController(
     /// annotated save compose it. The plain save used to stretch the recombined frame with neither, so on an enhanced frame
     /// its file showed the stars through the picture's curve and none of the finish.
     /// </summary>
-    internal static Task WriteDisplayedRasterAsync(
+    public static Task WriteDisplayedRasterAsync(
         AstroImageDocument saveDoc, ViewerState state, string target, DisplayRasterFormat format, CancellationToken cancellationToken)
     {
         var image = saveDoc.UnstretchedImage;

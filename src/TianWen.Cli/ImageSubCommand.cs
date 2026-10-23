@@ -1929,10 +1929,34 @@ internal sealed partial class ImageSubCommand(
             DefaultValueFactory = _ => ViewerState.DefaultBackgroundSkyLevel,
         };
 
+        // The viewer's own picture: the file opened as tianwen-fits opens it and written by its save-as-displayed
+        // (ViewerController.WriteDisplayedRasterAsync), from the viewer's defaults with the levers below, so a render here
+        // is what the viewer shows at the same settings, by construction rather than by a second renderer kept in step.
+        var viewerOpt = new Option<bool>("--viewer")
+        {
+            Description = "Render as tianwen-fits shows the file, through the viewer's own save-as-displayed, from its defaults: --stretch, --boost, --curve, --sky-level, --saturation, --contrast-boost, and with --enhance --star-beta/--star-saturation, set the viewer's levers of the same name. Implied by --stretch, --boost, --curve or --enhance. A 16-bit PNG; not with --white-balance or another --output-format.",
+        };
+        var stretchOpt = new Option<StretchMode?>("--stretch")
+        {
+            Description = "The viewer's stretch: Auto (its default), Linked, Unlinked or Luma. Implies --viewer.",
+        };
+        var boostOpt = new Option<float?>("--boost")
+        {
+            Description = "The viewer's Tone > Boost, the curve's strength: 0 (its default) is off, 1 the full curve. Implies --viewer.",
+        };
+        var curveOpt = new Option<string?>("--curve")
+        {
+            Description = "The viewer's Tone curve the boost applies: spline (its default) or power. Implies --viewer.",
+        };
+        var enhanceOpt = new Option<bool>("--enhance")
+        {
+            Description = "Run the viewer's own Enhance on the file first (EnhanceActions, its backend Auto), star split and all, and render the enhanced frame as the viewer then shows it; --star-beta and --star-saturation set its Stars dials. Implies --viewer.",
+        };
+
         var cmd = new Command("render", "Render a FITS file to a stretched PNG (default), HDR PQ PNG (--output-format png-pq), or float-true HDR JPEG XR (--output-format jxr).")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, saturationOpt, contrastBoostOpt, whiteBalanceOpt, starsOpt, starBetaOpt, starSaturationOpt, skyLevelOpt },
+            Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, saturationOpt, contrastBoostOpt, whiteBalanceOpt, starsOpt, starBetaOpt, starSaturationOpt, skyLevelOpt, viewerOpt, stretchOpt, boostOpt, curveOpt, enhanceOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -2053,6 +2077,20 @@ internal sealed partial class ImageSubCommand(
                 starScreen = new ScreenedStars(starsPlate, beta, starSaturation);
                 consoleHost.WriteScrollable($"[render] screening {starsPath} at asinh beta {beta:0}, star saturation {starSaturation:0.##}");
             }
+            var stretch = parseResult.GetValue(stretchOpt);
+            var boost = parseResult.GetValue(boostOpt);
+            var curve = parseResult.GetValue(curveOpt);
+            var enhance = parseResult.GetValue(enhanceOpt);
+            if (parseResult.GetValue(viewerOpt) || stretch is not null || boost is not null || curve is not null || enhance)
+            {
+                if (starScreen is not null)
+                {
+                    consoleHost.WriteError("--viewer makes its star split by enhancing as the viewer does: use --enhance, not --stars.");
+                    return 1;
+                }
+                return await RenderAsViewerAsync(input, dst, format, whiteBalance is not null, stretch, boost, curve, skyLevel,
+                    saturation, contrastBoost, enhance, parseResult.GetValue(starBetaOpt), parseResult.GetValue(starSaturationOpt), ct);
+            }
             await WriteCompanionAsync(toRender, dst, format, src.ImageMeta, wcs, "render",
                 useStretchedPng: false,
                 peakNits: Math.Clamp(parseResult.GetValue(pngPqPeakNitsOpt), 1f, 10000f),
@@ -2065,6 +2103,105 @@ internal sealed partial class ImageSubCommand(
             return 0;
         });
         return cmd;
+    }
+
+    /// <summary>
+    /// <c>image render --viewer</c>: the file opened as the viewer opens it (<see cref="AstroImageDocument.OpenAsync"/>), a
+    /// <see cref="ViewerState"/> at the viewer's defaults with the given levers, and the viewer's own save-as-displayed
+    /// (<see cref="ViewerController.WriteDisplayedRasterAsync"/>), so the PNG is the viewer's picture at those settings.
+    /// </summary>
+    private async Task<int> RenderAsViewerAsync(
+        string input, string dst, ImageOutputFormat format, bool hasWhiteBalance, StretchMode? stretch, float? boost, string? curve,
+        float skyLevel, float saturation, float contrastBoost, bool enhance, float starBeta, float starSaturation, CancellationToken ct)
+    {
+        if (format != ImageOutputFormat.Png)
+        {
+            consoleHost.WriteError("--viewer writes the viewer's 16-bit PNG only (--output-format png).");
+            return 1;
+        }
+        if (hasWhiteBalance)
+        {
+            consoleHost.WriteError("--viewer takes the white balance the viewer solves; --white-balance is the master renderer's.");
+            return 1;
+        }
+        if (stretch is { } mode && mode is not (StretchMode.Auto or StretchMode.Linked or StretchMode.Unlinked or StretchMode.Luma))
+        {
+            consoleHost.WriteError($"--stretch must be Auto, Linked, Unlinked or Luma; got {mode}.");
+            return 1;
+        }
+        if (boost is { } b && (!float.IsFinite(b) || b < 0f || b > 1f))
+        {
+            consoleHost.WriteError($"--boost must be in [0, 1]; got {b}.");
+            return 1;
+        }
+        int? curvesMode = curve?.ToLowerInvariant() switch
+        {
+            null => null,
+            "spline" => 1,
+            "power" => 0,
+            _ => -1,
+        };
+        if (curvesMode == -1)
+        {
+            consoleHost.WriteError($"--curve must be spline or power; got '{curve}'.");
+            return 1;
+        }
+
+        var state = new ViewerState
+        {
+            FinishSaturation = saturation,
+            FinishContrast = MathF.Min(contrastBoost, 1f),
+            BackgroundReduceEnabled = skyLevel < 1f,
+        };
+        if (skyLevel < 1f)
+        {
+            state.BackgroundSkyLevel = skyLevel;
+        }
+        if (stretch is { } chosen)
+        {
+            state.StretchMode = chosen;
+        }
+        if (boost is { } strength)
+        {
+            state.CurvesBoost = strength;
+        }
+        if (curvesMode is 0)
+        {
+            state.CurvesMode = 0;
+        }
+
+        var document = await AstroImageDocument.OpenAsync(input, state.DebayerAlgorithm, ct);
+        if (document is null)
+        {
+            consoleHost.WriteError($"Failed to open {input} as the viewer opens it.");
+            return 1;
+        }
+        if (enhance)
+        {
+            if (!float.IsFinite(starBeta) || starBeta < StarSplit.MinBeta || starBeta > StarSplit.MaxBeta
+                || !float.IsFinite(starSaturation) || starSaturation < 0f || starSaturation > StarSplit.MaxStarSaturation)
+            {
+                consoleHost.WriteError($"--star-beta must be in [{StarSplit.MinBeta}, {StarSplit.MaxBeta}] and --star-saturation in [0, {StarSplit.MaxStarSaturation}].");
+                return 1;
+            }
+            state.StarStretch = starBeta;
+            state.StarSaturation = starSaturation;
+            // The viewer's Enhance press, as it runs it: its backend preference, its debayer, the display crop (none on open).
+            var enhanced = await EnhanceActions.EnhanceAsync(document, state, sharpenPipeline,
+                new EnhanceOptions(state.PreferredEnhanceBackend), state.DebayerAlgorithm.ResolveAuto(document.UnstretchedImage),
+                ViewerState.ResolveDisplayCrop(state.DisplayCrop, document.UnstretchedImage.Width, document.UnstretchedImage.Height), ct);
+            consoleHost.WriteScrollable($"[render] {state.StatusMessage}");
+            if (enhanced is null)
+            {
+                return 1;
+            }
+            document = enhanced;
+        }
+        await ViewerController.WriteDisplayedRasterAsync(document, state, dst, DisplayRasterFormat.Png16, ct);
+        consoleHost.WriteScrollable(
+            $"[render] as the viewer shows it: {state.StretchMode}, boost {state.CurvesBoost:0.##} ({(state.CurvesMode == 1 ? "spline" : "power")}), " +
+            $"sky {(state.BackgroundReduceEnabled ? $"at {state.BackgroundSkyLevel:P0}" : "not reduced")} -> {dst}");
+        return 0;
     }
 
     // -------- tianwen image stats --------------------------------------
