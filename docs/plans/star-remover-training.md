@@ -3515,6 +3515,19 @@ The judges' rows are the ceiling, R2i seed 0's the small-model baseline and R2t'
 The repo copy, run with tag r2t over R2t's own three plates and no model, wrote `row.txt` byte for byte as the scratch
 copy had (checked 2026-10-23, no GPU).
 
+**An arm's scorer and driver are in the repo too** (#1774, `training/star-removal/score-arm.ps1`, `arm-driver.ps1`,
+`register-arm-task.ps1`; paths from the `arm` object of the same config). `score-arm.ps1` is what scored R2nc to R2u after
+their weights came home: A's draws and R2k's twins at one view, the real tiles' check, the ring and M31's nucleus over 8
+views, with `real_star_check.py` and `ring_annulus.py` (moved beside it, their paths now arguments) and `m31_nucleus.py`.
+**Every step is skipped when its output exists**, the three reads included (they used to run again on every call), so a
+second call over a scored arm does no inference and uses no GPU. `arm-driver.ps1` is R2v's driver made generic: a scheduled
+task every 10 minutes (`conhost --headless`, priority 4, `IgnoreNew`), one step per pass, a stop file, and a failing step
+writes it so it is not retried all night. **Checked 2026-10-23** against R2u's existing outputs: `score-arm.ps1` skipped
+every step and exited 0 (only `score.log` grew); the three reads re-run into scratch matched the scratch copies' files line
+for line (ring: R2u -0.20 / -0.52 / -0.38 sigma, 41.1 % dug, 13.8 % left; nucleus 0-6 px +0.0 / +3.5 / +2.1 %; real-star
+5-20 sigma left |<1| 96.11 %), and the driver, pointed at that arm with a scratch runs folder, scored and wrote its done
+file with no GPU.
+
 **The arms.** A1, **R2s2**: each training master's stars drawn at that master's own measured wing gains (`degrade
 --star-shapes`, from `tianwen dataset star-shapes`, which solves per master and channel the gain that matches the drawn
 star's 3-8 px light per amplitude to the real stars'; branch fix/channel-halos-measured), exported as synth9, on R2i's

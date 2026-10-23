@@ -36,8 +36,14 @@ group to prove it. The SAS lives only in the user-only file the settings name an
 ```
 pwsh -File training/azure/launch-arm.ps1 -Tag r2taz -Name r2t_synth4_s1 -Seed 1 -Vm tw-r2t-t4 -Run C:/temp/e2/r2t-run `
     -CacheBlob r2-synth4/cache -TeacherBlob r2-synth4/teacher-e5 -ExtraBlob r2-clusters/cache `
-    -TrainFlags '--levels 4 --max-ch 256 --clip-grad 8 --schedule cosine --steps 224500' -FetchTo C:/temp/tianwen-scratch/r2-synth4
+    -TrainFlags '--levels 4 --max-ch 256 --clip-grad 8 --schedule cosine --steps 224500' -FetchTo C:/temp/tianwen-scratch/r2-synth4 `
+    -AfterScript training/star-removal/score-arm.ps1
 ```
+
+`-AfterScript` is the arm's scorer, run by the driver with `-Name` and `-Weights` once the weights are home and the VM is
+deleted: `training/star-removal/score-arm.ps1` for a star-remover arm (its paths come from `scorecard.local.json`,
+`training/README.md`, "Scoring an arm's weights"). It skips every step whose output exists, so the driver re-running it is
+harmless. An arm trained on the desktop's 1070 instead uses `training/star-removal/arm-driver.ps1`.
 
 `-Run` is a frozen copy of `training/denoise` at the commit the arm was registered at. The arm's own flags go in
 `-TrainFlags`, after the recipe's, so argparse's last value wins. The launcher ends by printing the trainer's command line
