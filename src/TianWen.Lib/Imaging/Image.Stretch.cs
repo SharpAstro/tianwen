@@ -1370,6 +1370,14 @@ public partial class Image
     /// Applies a LUT-based curve to a stretched pixel value via linear interpolation.
     /// Use <see cref="FritschCarlsonSpline"/> to build the LUT.
     /// </summary>
+    /// <summary>
+    /// The spline at a <paramref name="strength"/>, the Boost dial's in spline mode: how far a value moves toward the curve,
+    /// 0 none (the mode is off at zero boost, as the power-law boost is), 1 the curve itself, above 1 past it. The shader's
+    /// spline branch is the same expression.
+    /// </summary>
+    public static float ApplyCurveLut(float v, ReadOnlySpan<float> lut, float strength)
+        => v + (strength * (ApplyCurveLut(v, lut) - v));
+
     public static float ApplyCurveLut(float v, ReadOnlySpan<float> lut)
     {
         var idx = v * (lut.Length - 1);
@@ -1595,7 +1603,7 @@ public partial class Image
             return 1f;
         }
 
-        var hasLut = curvesMode == 1 && !curveLut.IsEmpty;
+        var hasLut = curvesMode == 1 && !curveLut.IsEmpty && curvesBoost > 0f;
         var maxOverall = 0f;
 
         if (u.Mode is StretchMode.Luma && histograms.Length >= 3)
@@ -1640,7 +1648,7 @@ public partial class Image
             maxOverall = ReduceBackgroundValue(maxOverall, curvesMidpoint, u.BackgroundReduceCompression(curvesMidpoint));
             curvesMidpoint = u.ReducedBackground(curvesMidpoint);
         }
-        if (hasLut) maxOverall = ApplyCurveLut(maxOverall, curveLut);
+        if (hasLut) maxOverall = ApplyCurveLut(maxOverall, curveLut, curvesBoost);
         else if (curvesBoost > 0f) maxOverall = ApplyBoost(maxOverall, curvesBoost, curvesMidpoint);
         if (hdrAmount > 0f) maxOverall = ApplyHdr(maxOverall, hdrAmount, hdrKnee);
 
@@ -1811,7 +1819,7 @@ public partial class Image
         var ch0 = GetChannelSpan(0);
         var ch1 = isColor ? GetChannelSpan(1) : default;
         var ch2 = isColor ? GetChannelSpan(2) : default;
-        var hasLut = curvesMode == 1 && !curveLut.IsEmpty;
+        var hasLut = curvesMode == 1 && !curveLut.IsEmpty && curvesBoost > 0f;
         var hasFinish = u.HasFinish;
         var reduceCompression = u.BackgroundReduceCompression(curvesMidpoint);
         var reduce = reduceCompression < 1f;
@@ -1885,9 +1893,9 @@ public partial class Image
 
             if (hasLut)
             {
-                rOut = ApplyCurveLut(rOut, curveLut);
-                gOut = ApplyCurveLut(gOut, curveLut);
-                bOut = ApplyCurveLut(bOut, curveLut);
+                rOut = ApplyCurveLut(rOut, curveLut, curvesBoost);
+                gOut = ApplyCurveLut(gOut, curveLut, curvesBoost);
+                bOut = ApplyCurveLut(bOut, curveLut, curvesBoost);
             }
             else if (curvesBoost > 0f)
             {
@@ -1977,7 +1985,7 @@ public partial class Image
         var ch0 = GetChannelSpan(0);
         var ch1 = isColor ? GetChannelSpan(1) : default;
         var ch2 = isColor ? GetChannelSpan(2) : default;
-        var hasLut = curvesMode == 1 && !curveLut.IsEmpty;
+        var hasLut = curvesMode == 1 && !curveLut.IsEmpty && curvesBoost > 0f;
         var hasFinish = u.HasFinish;
         var reduceCompression = u.BackgroundReduceCompression(curvesMidpoint);
         var reduce = reduceCompression < 1f;
@@ -2048,9 +2056,9 @@ public partial class Image
 
             if (hasLut)
             {
-                rOut = ApplyCurveLut(rOut, curveLut);
-                gOut = ApplyCurveLut(gOut, curveLut);
-                bOut = ApplyCurveLut(bOut, curveLut);
+                rOut = ApplyCurveLut(rOut, curveLut, curvesBoost);
+                gOut = ApplyCurveLut(gOut, curveLut, curvesBoost);
+                bOut = ApplyCurveLut(bOut, curveLut, curvesBoost);
             }
             else if (curvesBoost > 0f)
             {

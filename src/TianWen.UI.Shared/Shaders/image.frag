@@ -683,10 +683,10 @@ void main() {
         if (hasBackgroundReduce()) {
             r = reduceBackground(r, ubo.curvesMidpoint, reduceCompression());
         }
-        if (ubo.curvesMode == 1) {
-            r = applyCurveLUT(r);
-        } else if (ubo.curvesBoost > 0.0) {
-            r = applyCurve(r, ubo.curvesBoost);
+        // The curve at the boost's strength, off at zero in either mode: the spline moves the value that far toward the
+        // S-curve (Image.ApplyCurveLut with a strength), the power-law is the boost.
+        if (ubo.curvesBoost > 0.0) {
+            r = ubo.curvesMode == 1 ? r + ubo.curvesBoost * (applyCurveLUT(r) - r) : applyCurve(r, ubo.curvesBoost);
         }
         if (ubo.hdrAmount > 0.0) {
             r = applyHdr(r, ubo.hdrAmount, ubo.hdrKnee);
@@ -789,14 +789,18 @@ void main() {
         g = reduceBackground(g, ubo.curvesMidpoint, rc);
         b = reduceBackground(b, ubo.curvesMidpoint, rc);
     }
-    if (ubo.curvesMode == 1) {
-        r = applyCurveLUT(r);
-        g = applyCurveLUT(g);
-        b = applyCurveLUT(b);
-    } else if (ubo.curvesBoost > 0.0) {
-        r = applyCurve(r, ubo.curvesBoost);
-        g = applyCurve(g, ubo.curvesBoost);
-        b = applyCurve(b, ubo.curvesBoost);
+    // The curve at the boost's strength, off at zero in either mode: the spline moves each value that far toward the
+    // S-curve (Image.ApplyCurveLut with a strength), the power-law is the boost.
+    if (ubo.curvesBoost > 0.0) {
+        if (ubo.curvesMode == 1) {
+            r += ubo.curvesBoost * (applyCurveLUT(r) - r);
+            g += ubo.curvesBoost * (applyCurveLUT(g) - g);
+            b += ubo.curvesBoost * (applyCurveLUT(b) - b);
+        } else {
+            r = applyCurve(r, ubo.curvesBoost);
+            g = applyCurve(g, ubo.curvesBoost);
+            b = applyCurve(b, ubo.curvesBoost);
+        }
     }
     if (ubo.hdrAmount > 0.0) {
         r = applyHdr(r, ubo.hdrAmount, ubo.hdrKnee);

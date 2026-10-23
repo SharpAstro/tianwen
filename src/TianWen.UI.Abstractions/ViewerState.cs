@@ -87,7 +87,12 @@ public sealed class ViewerState
     /// 255 against the Wikipedia lead image's 25, 27, 30.</summary>
     public const float DefaultBackgroundSkyLevel = 0.11f;
 
-    /// <summary>Curves boost amount applied in the display shader (0.0 = off, up to 1.0).</summary>
+    /// <summary>
+    /// The curve's strength, 0 (off, the default) up to 1.5. In spline mode, how far each value moves toward the S-curve, 1
+    /// the curve itself (<see cref="TianWen.Lib.Imaging.Image.ApplyCurveLut(float, System.ReadOnlySpan{float}, float)"/>); in
+    /// boost mode, the power-law's amount. The shader used to apply the spline at ANY boost, zero included, while the popover
+    /// said zero was off; zero is off in both modes now, and the strength is the user's to set (the owner, 2026-10-23).
+    /// </summary>
     public float CurvesBoost { get; set; }
 
     /// <summary>Curve mode: 0 = power-law boost, 1 = Fritsch-Carlson spline LUT, the default (the owner's choice,
