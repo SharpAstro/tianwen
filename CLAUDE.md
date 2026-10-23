@@ -295,6 +295,10 @@ screenshot-poll-and-OCR**. **Every mechanism -- the fake-device URI shapes incl.
 `hasCover=false`, the DEBUG inspector surfaces, the cell-buffer contract -- is in
 `docs/architecture/unattended-ui-driving.md`.** The rules that bite even after reading it:
 
+- **An agent starts an app local-only: through `tools/start-app.ps1`, or with `TIANWEN_LOCAL_ONLY=1` set itself**, in a
+  `pilot run` job too. Windows Firewall asks once per executable PATH, and every worktree or job folder is a new path:
+  `tianwen-gui`/`tianwen-server` started straight from `.claude\jobs\<id>\tmp\…` left a firewall prompt (and a rule) per
+  folder on this machine. Only a run that tests the LAN itself sets it to 0.
 - **A Debug app is found by the sidecar's `list_instances`, never by a port read off a log.** The `.mcp.json` pins
   (`SdlVulkan.Renderer.Inspector` 7.73, `Console.Lib.Inspector` 5.10) read DIR.Lib's per-user inspector registry
   (`%LOCALAPPDATA%/DIR.Lib/inspector`, where an app on DIR.Lib 11.21 or later registers with no socket but its
