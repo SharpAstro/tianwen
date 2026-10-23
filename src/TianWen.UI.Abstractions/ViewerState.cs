@@ -89,12 +89,18 @@ public sealed class ViewerState
     /// <summary>Curves boost amount applied in the display shader (0.0 = off, up to 1.0).</summary>
     public float CurvesBoost { get; set; }
 
-    /// <summary>Curve mode: 0 = power-law boost, 1 = Fritsch-Carlson spline LUT.</summary>
-    public int CurvesMode { get; set; }
+    /// <summary>Curve mode: 0 = power-law boost, 1 = Fritsch-Carlson spline LUT, the default (the owner's choice,
+    /// 2026-10-23). It reaches the pixels only through <see cref="CurvesBoost"/>, so at zero boost either shows nothing.</summary>
+    public int CurvesMode { get; set; } = 1;
 
-    /// <summary>33 Fritsch-Carlson knots for the spline LUT (see <see cref="StretchUniforms.CurveData"/>).
-    /// Empty when using boost mode.</summary>
-    public ImmutableArray<float> CurveData { get; set; } = [];
+    /// <summary>33 Fritsch-Carlson knots for the spline LUT (see <see cref="StretchUniforms.CurveData"/>). Starts on
+    /// <see cref="SplineSCurve"/>, the spline being the default mode: a spline with no knots is a lookup table of zeros,
+    /// a black picture.</summary>
+    public ImmutableArray<float> CurveData { get; set; } = SplineSCurve;
+
+    /// <summary>The spline mode's S-curve: shadows lifted, the mids kept, the highlights compressed.</summary>
+    public static ImmutableArray<float> SplineSCurve { get; } =
+        new FritschCarlsonSpline([(0f, 0f), (0.15f, 0.22f), (0.4f, 0.5f), (0.7f, 0.72f), (1f, 1f)]).ComputeKnots33();
 
     /// <summary>Index into <see cref="CurvesBoostPresets"/>.</summary>
     public int CurvesBoostIndex { get; set; }

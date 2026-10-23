@@ -48,7 +48,7 @@ public readonly record struct DisplayControls(
         ViewerActions.DefaultStretchMode,
         StretchParameters.Default,
         0f,
-        0,
+        1,
         0f,
         true,
         true,
@@ -106,10 +106,11 @@ public readonly record struct DisplayControls(
             $"Stretch {StretchParameters}",
         // The curve mode only reaches the pixels through the boost, so at zero boost it is invisible
         // and naming it would point at a difference the picture cannot show.
+        // The mode is named only when it is not the default (the spline), like every other control.
         Slot.Curves when CurvesBoost > 0f =>
-            CurvesMode == 0
+            CurvesMode == Defaults.CurvesMode
                 ? $"Boost {UiFormat.Percent0(CurvesBoost)}"
-                : $"Boost {UiFormat.Percent0(CurvesBoost)} spline",
+                : $"Boost {UiFormat.Percent0(CurvesBoost)} {(CurvesMode == 0 ? "power" : "spline")}",
         Slot.Hdr when HdrAmount > 0f => $"Soft clip {HdrAmount:F1}",
         // A toggle is named when it differs from its DEFAULT, whichever way that is (Toggle): the calibration and the
         // neutralisation are on by default, so it is switching them OFF that is named.
