@@ -125,11 +125,13 @@ public static partial class DatasetDegradationExporter
 
     /// <summary>One draw's injection: what was asked for, what was placed, and every star; on a synthetic background
     /// (R2d's D2), the knots its target keeps, the same in every draw of the cell; with channel relations (R2s2), whose
-    /// relation the draw's stars took, as the plate stem it was measured on.</summary>
+    /// relation the draw's stars took, as the plate stem it was measured on; with faint stars (S2), how many of them the tile's
+    /// cap dropped, written only when any were.</summary>
     public sealed record InjectionRow(
         string Tile, string SessionId, int CellX, int CellY, int Draw, string Placement, string Profile, int Requested, int Placed,
         bool SaturatedFallback, InjectedStarRow[] Stars, InjectedKnotRow[]? Knots = null, string? RelationFrom = null,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] KeptCoreRow? Core = null);
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] KeptCoreRow? Core = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] int FaintCapped = 0);
 
     /// <summary>A cell's kept core (<see cref="KeptCore"/>, #1658), in the cell's coordinates, the same in every draw of it:
     /// its FWHM across both axes in pixels, its major axis's angle in degrees, the bulge's share and scale, the peak drawn in
@@ -255,7 +257,13 @@ public static partial class DatasetDegradationExporter
                     throw new ArgumentOutOfRangeException(nameof(options), faintFloor,
                         $"the faint stars' floor is in [{LuminosityFunction.MinFloorSigma}, {LuminosityFunction.FitLowSigma}) sigma");
                 }
-                logger?.LogInformation("[degrade] faint stars: each master's luminosity function extended below its catalogue down to {Floor} sigma", faintFloor);
+                if (!(options.FaintStarCap > 0 && double.IsFinite(options.FaintStarCap)))
+                {
+                    throw new ArgumentOutOfRangeException(nameof(options), options.FaintStarCap, "the faint stars' cap is a positive level in sigma");
+                }
+                logger?.LogInformation(
+                    "[degrade] faint stars: each master's luminosity function extended below its catalogue down to {Floor} sigma, each tile's light under {Limit} sigma capped at {Cap} sigma",
+                    faintFloor, LuminosityFunction.DetectionSigma, options.FaintStarCap);
             }
             return new StarsContext(platesDir, psf, variation, shapes, wingCut);
         }
@@ -604,8 +612,11 @@ public static partial class DatasetDegradationExporter
         var local = plan.Stars.Select(s => s with { X = s.X - cell.X, Y = s.Y - cell.Y }).ToArray();
         var render = StarInjection.Render(basePlanes, size, size, cellAbsent, local, floors, new Random(seed ^ 0x6d2b79f5), options.StarSubs);
         // The faint stars (S2) on top, in a pass of their own with a stream of their own, so the other stars render as they do
-        // without them, virtual subs and all.
-        var faintLocal = plan.Faint.Select(s => s with { X = s.X - cell.X, Y = s.Y - cell.Y }).ToArray();
+        // without them, virtual subs and all; cut in their drawn order where the tile's faint light reaches the cap.
+        var faintDrawn = plan.Faint.Select(s => s with { X = s.X - cell.X, Y = s.Y - cell.Y }).ToArray();
+        var faintKept = faintDrawn.Length == 0 ? 0
+            : LuminosityFunction.KeptUnderCap(local, faintDrawn, size, [.. floors.Select(static f => f / InjectionFloorSigma)], options.FaintStarCap);
+        var faintLocal = faintDrawn[..faintKept];
         if (faintLocal.Length > 0)
         {
             var faintRender = StarInjection.Render(render.Planes, size, size, cellAbsent, faintLocal, floors, new Random(seed ^ 0x510e527f), options.StarSubs);
@@ -730,7 +741,8 @@ public static partial class DatasetDegradationExporter
             RelationFrom: plan.RelationFrom,
             Core: core is null ? null
                 : new KeptCoreRow(core.X, core.Y, core.FwhmMinorPx, core.FwhmMajorPx, core.AngleRad * 180.0 / Math.PI, core.BulgeShare,
-                    core.BulgeScale, core.DrawnSigma, [.. core.Peak], core.Capped));
+                    core.BulgeScale, core.DrawnSigma, [.. core.Peak], core.Capped),
+            FaintCapped: faintDrawn.Length - faintKept);
         return (row, injection);
     }
 
