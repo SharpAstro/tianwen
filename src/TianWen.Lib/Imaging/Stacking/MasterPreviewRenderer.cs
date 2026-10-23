@@ -124,6 +124,10 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
     /// linear FITS/EXR masters or the split-plate TIFFs. Null = no gain-map JPEG.</param>
     /// <param name="ultraHdrQuality">Baseline-JPEG quality (1..100) for both Ultra HDR
     /// renditions. Default 90 (the encoder's default).</param>
+    /// <param name="starScreen">A star split's LINEAR stars plate and its strength, stretched and screened over the render
+    /// as the viewer's star split does (<see cref="ScreenedStars"/>, <see cref="Image.ScreenStars"/>), with
+    /// <paramref name="master"/> as the starless plate. SDR PNG and PNG-PQ only; the Ultra HDR gain map ignores it.
+    /// Null = no screen.</param>
     /// <returns>SPCC diagnostics when SPCC ran and produced a gain triple; null when
     /// SPCC was skipped (mono master, missing WCS / catalog, insufficient throughput
     /// data, fewer than 3 stars, or a WB override was supplied).</returns>
@@ -141,6 +145,7 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         MaskedBoostOptions? maskedBoost = null,
         string? ultraHdrPath = null,
         int ultraHdrQuality = 90,
+        ScreenedStars? starScreen = null,
         CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
@@ -201,7 +206,7 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
             logger.LogInformation("  [finish] saturation={Sat:F2} contrast={Con:F2} background={Bg:F3}",
                 boost.Saturation, uniforms.FinishContrast, finishBackground);
         }
-        master.RenderStretchedRgba16(uniforms, rgba, curvesMidpoint: finishBackground);
+        master.RenderStretchedRgba16(uniforms, rgba, curvesMidpoint: finishBackground, starScreen: starScreen);
         // Ultra HDR (gain-map JPEG) emit -- taken from the sRGB `rgba` here, BEFORE any PQ
         // re-encode below mutates it in place. Shares the one stretch solve with the PNG,
         // and recovers the highlights the SDR stretch clipped (see RenderHdrLinearRgb).
