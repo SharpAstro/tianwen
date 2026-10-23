@@ -96,7 +96,7 @@ internal sealed class ConsoleImageRenderer
         var imgW = image.Width;
 
         var curveLut = state.CurveData.IsDefaultOrEmpty ? default : state.CurveData.AsSpan();
-        var hasLut = state.CurvesMode == 1 && !curveLut.IsEmpty;
+        var hasLut = state.CurvesMode == 1 && !curveLut.IsEmpty && curvesBoost > 0f;
 
         for (var sy = 0; sy < drawH; sy++)
         {
@@ -151,9 +151,9 @@ internal sealed class ConsoleImageRenderer
 
                 if (hasLut)
                 {
-                    rv = Image.ApplyCurveLut(rv, curveLut);
-                    gv = Image.ApplyCurveLut(gv, curveLut);
-                    bv = Image.ApplyCurveLut(bv, curveLut);
+                    rv = Image.ApplyCurveLut(rv, curveLut, curvesBoost);
+                    gv = Image.ApplyCurveLut(gv, curveLut, curvesBoost);
+                    bv = Image.ApplyCurveLut(bv, curveLut, curvesBoost);
                 }
                 else if (curvesBoost > 0)
                 {
