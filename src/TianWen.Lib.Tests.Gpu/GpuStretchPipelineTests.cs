@@ -583,7 +583,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
             finishSaturation: u.FinishSaturation,
             starBeta: stars?.Beta ?? 0f,
             starSaturation: stars?.Saturation ?? 1f,
-            backgroundReduce: u.BackgroundReduce);
+            backgroundSky: u.BackgroundSky);
 
         // RecordImageDraw's last two args are the orthographic projection's viewport size, not
         // the draw-rect size -- they have to match the actual framebuffer the GPU is rendering
@@ -740,14 +740,14 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
     }
 
     /// <summary>
-    /// GPU/CPU parity for the background reduce (the Background popover, StretchUniforms.BackgroundReduce): the shader's
+    /// GPU/CPU parity for the background reduce (the Background popover, StretchUniforms.BackgroundSky): the shader's
     /// reduceBackground against Image.ReduceBackgroundValue, anchored on the post-stretch sky both read from curvesMidpoint, alone
     /// and under the finish, which then pivots on the REDUCED sky in both.
     /// </summary>
     [Theory]
-    [InlineData(0.55f, 0f, 1f)]
-    [InlineData(0.3f, 0.6f, 1.4f)]
-    public async Task GpuMatchesCpuForTheBackgroundReduce(float reduce, float finishContrast, float finishSaturation)
+    [InlineData(0.11f, 0f, 1f)]
+    [InlineData(0.05f, 0.6f, 1.4f)]
+    public async Task GpuMatchesCpuForTheBackgroundReduce(float skyLevel, float finishContrast, float finishSaturation)
     {
         if (!_gpu.VulkanAvailable)
         {
@@ -760,14 +760,14 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         var doc = await AstroImageDocument.AdoptImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
 
         var uniforms = doc.ComputeStretchUniforms(StretchMode.Linked, new StretchParameters(0.15, -3))
-            with { BackgroundReduce = reduce, FinishContrast = finishContrast, FinishSaturation = finishSaturation };
+            with { BackgroundSky = skyLevel, FinishContrast = finishContrast, FinishSaturation = finishSaturation };
         var background = uniforms.ComputePostStretchBackground(doc.PerChannelBackground, doc.LumaBackground);
         output.WriteLine($"post-stretch background = {background:F4}, reduced to {uniforms.ReducedBackground(background):F4}");
 
         var img = doc.UnstretchedImage;
         var (w, h) = (img.Width, img.Height);
         var plain = new byte[w * h * 4];
-        img.RenderStretchedRgba(uniforms with { BackgroundReduce = 1f }, plain, curvesMidpoint: background);
+        img.RenderStretchedRgba(uniforms with { BackgroundSky = 1f }, plain, curvesMidpoint: background);
         var cpuRgba = new byte[w * h * 4];
         img.RenderStretchedRgba(uniforms, cpuRgba, curvesMidpoint: background);
         plain.AsSpan().SequenceEqual(cpuRgba).ShouldBeFalse("the reduce moved the CPU render");
@@ -777,7 +777,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         _formatDiagBag.Clear();
 
         // The default tolerance for the reduce alone; with the finish on top the worst pixel is relaxed as in the finish case.
-        AssertCpuGpuParity(cpuRgba, gpuRgba, $"29_gpu_background_reduce_{reduce:0.00}", maxAllowed: finishContrast > 0f ? 36 : 16);
+        AssertCpuGpuParity(cpuRgba, gpuRgba, $"29_gpu_background_reduce_{skyLevel:0.00}", maxAllowed: finishContrast > 0f ? 36 : 16);
     }
 
     /// <summary>

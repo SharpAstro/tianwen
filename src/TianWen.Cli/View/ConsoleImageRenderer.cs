@@ -43,7 +43,7 @@ internal sealed class ConsoleImageRenderer
         var image = document.UnstretchedImage;
         var stretch = document.ComputeStretchUniforms(state.StretchMode, state.StretchParameters) with
         {
-            BackgroundReduce = state.BackgroundReduce,
+            BackgroundSky = state.BackgroundSky,
         };
         var surface = Surface;
         var surfW = surface.Width;
@@ -55,7 +55,8 @@ internal sealed class ConsoleImageRenderer
         var sky = document.PerChannelBackground.Length > 0
             ? stretch.ComputePostStretchBackground(document.PerChannelBackground, document.LumaBackground)
             : 0.25f;
-        var reduce = stretch.HasBackgroundReduce;
+        var reduceCompression = stretch.BackgroundReduceCompression(sky);
+        var reduce = reduceCompression < 1f;
         var bgLevel = stretch.ReducedBackground(sky);
 
         float scale;
@@ -143,9 +144,9 @@ internal sealed class ConsoleImageRenderer
 
                 if (reduce)
                 {
-                    rv = Image.ReduceBackgroundValue(rv, sky, stretch.BackgroundReduce);
-                    gv = Image.ReduceBackgroundValue(gv, sky, stretch.BackgroundReduce);
-                    bv = Image.ReduceBackgroundValue(bv, sky, stretch.BackgroundReduce);
+                    rv = Image.ReduceBackgroundValue(rv, sky, reduceCompression);
+                    gv = Image.ReduceBackgroundValue(gv, sky, reduceCompression);
+                    bv = Image.ReduceBackgroundValue(bv, sky, reduceCompression);
                 }
 
                 if (hasLut)

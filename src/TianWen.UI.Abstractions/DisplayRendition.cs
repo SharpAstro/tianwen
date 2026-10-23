@@ -69,7 +69,7 @@ namespace TianWen.UI.Abstractions
                 {
                     FinishContrast = state.FinishContrast,
                     FinishSaturation = state.FinishSaturation,
-                    BackgroundReduce = state.BackgroundReduce,
+                    BackgroundSky = state.BackgroundSky,
                 },
                 state.CurvesBoost, state.HdrAmount, state.HdrKnee, state.CurvesMode, state.CurveData)
             {

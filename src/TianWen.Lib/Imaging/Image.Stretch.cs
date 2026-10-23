@@ -1227,7 +1227,7 @@ public partial class Image
     /// One stretched value through the <see cref="ReduceBackground"/> curve: the cubic Hermite through <c>(0, 0), (bg, bg c),
     /// (0.5, 0.5), (1 - bg, 1 - bg c), (1, 1)</c> with finite-difference tangents limited to keep it monotonic, the value
     /// clamped to [0, 1] first. The ONE
-    /// definition, which the LUT, the render (<see cref="StretchUniforms.BackgroundReduce"/>) and the shader's
+    /// definition, which the LUT, the render (<see cref="StretchUniforms.BackgroundSky"/>) and the shader's
     /// <c>reduceBackground</c> all follow. Outside its domain (<paramref name="backgroundPeak"/> not in (0, 0.5), or
     /// <paramref name="compression"/> not in (0, 1)) it is the identity.
     /// </summary>
@@ -1637,7 +1637,7 @@ public partial class Image
         // Apply the background reduce, curves + HDR to the predicted peak. All are monotonic in [0,1].
         if (u.HasBackgroundReduce)
         {
-            maxOverall = ReduceBackgroundValue(maxOverall, curvesMidpoint, u.BackgroundReduce);
+            maxOverall = ReduceBackgroundValue(maxOverall, curvesMidpoint, u.BackgroundReduceCompression(curvesMidpoint));
             curvesMidpoint = u.ReducedBackground(curvesMidpoint);
         }
         if (hasLut) maxOverall = ApplyCurveLut(maxOverall, curveLut);
@@ -1813,8 +1813,9 @@ public partial class Image
         var ch2 = isColor ? GetChannelSpan(2) : default;
         var hasLut = curvesMode == 1 && !curveLut.IsEmpty;
         var hasFinish = u.HasFinish;
-        var reduce = u.HasBackgroundReduce;
-        var pivot = reduce ? u.ReducedBackground(curvesMidpoint) : curvesMidpoint;
+        var reduceCompression = u.BackgroundReduceCompression(curvesMidpoint);
+        var reduce = reduceCompression < 1f;
+        var pivot = u.ReducedBackground(curvesMidpoint);
         var stars = StarScreenSpans(starScreen, width, height);
 
         for (var i = 0; i < pixelCount; i++)
@@ -1873,13 +1874,13 @@ public partial class Image
             }
 
             // The background reduce, straight after the stretch: the curve through the sky the stretch left
-            // (curvesMidpoint) to that sky times the compression, as the shader's reduceBackground. Every later stage pivots
-            // on the reduced sky (pivot), which is where the background now is.
+            // (curvesMidpoint) to the level asked for, as the shader's reduceBackground. Every later stage pivots on the
+            // reduced sky (pivot), which is where the background now is.
             if (reduce)
             {
-                rOut = ReduceBackgroundValue(rOut, curvesMidpoint, u.BackgroundReduce);
-                gOut = ReduceBackgroundValue(gOut, curvesMidpoint, u.BackgroundReduce);
-                bOut = ReduceBackgroundValue(bOut, curvesMidpoint, u.BackgroundReduce);
+                rOut = ReduceBackgroundValue(rOut, curvesMidpoint, reduceCompression);
+                gOut = ReduceBackgroundValue(gOut, curvesMidpoint, reduceCompression);
+                bOut = ReduceBackgroundValue(bOut, curvesMidpoint, reduceCompression);
             }
 
             if (hasLut)
@@ -1978,8 +1979,9 @@ public partial class Image
         var ch2 = isColor ? GetChannelSpan(2) : default;
         var hasLut = curvesMode == 1 && !curveLut.IsEmpty;
         var hasFinish = u.HasFinish;
-        var reduce = u.HasBackgroundReduce;
-        var pivot = reduce ? u.ReducedBackground(curvesMidpoint) : curvesMidpoint;
+        var reduceCompression = u.BackgroundReduceCompression(curvesMidpoint);
+        var reduce = reduceCompression < 1f;
+        var pivot = u.ReducedBackground(curvesMidpoint);
         var stars = StarScreenSpans(starScreen, width, height);
 
         for (var i = 0; i < pixelCount; i++)
@@ -2035,13 +2037,13 @@ public partial class Image
             }
 
             // The background reduce, straight after the stretch: the curve through the sky the stretch left
-            // (curvesMidpoint) to that sky times the compression, as the shader's reduceBackground. Every later stage pivots
-            // on the reduced sky (pivot), which is where the background now is.
+            // (curvesMidpoint) to the level asked for, as the shader's reduceBackground. Every later stage pivots on the
+            // reduced sky (pivot), which is where the background now is.
             if (reduce)
             {
-                rOut = ReduceBackgroundValue(rOut, curvesMidpoint, u.BackgroundReduce);
-                gOut = ReduceBackgroundValue(gOut, curvesMidpoint, u.BackgroundReduce);
-                bOut = ReduceBackgroundValue(bOut, curvesMidpoint, u.BackgroundReduce);
+                rOut = ReduceBackgroundValue(rOut, curvesMidpoint, reduceCompression);
+                gOut = ReduceBackgroundValue(gOut, curvesMidpoint, reduceCompression);
+                bOut = ReduceBackgroundValue(bOut, curvesMidpoint, reduceCompression);
             }
 
             if (hasLut)
