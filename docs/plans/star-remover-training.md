@@ -3813,6 +3813,41 @@ friendlier test than a galaxy the generator was not shaped on.
 - (1) missing with (2) holding means the cores in the data do not carry to a real nucleus. The next step is then weighting
   the kept cores' pixels in the loss.
 
+#### R2w's read: the master's stretch empties the Tarantula's cores, and the real tiles' bright stars miss (2026-10-24)
+
+R2w stopped on its own at step 154,500 (best at 130,500), 6.9 hours on the 1070. Against its pre-registration, with R2i
+seed 0 as the baseline:
+
+| | R2i seed 0 | R2w | bar | |
+|---|---|---|---|---|
+| Tarantula core residual, R / G / B | +0.89 / +1.06 / +0.61 | **-0.11 / -0.17 / +0.42** | under +0.5 in every channel | holds |
+| real tiles' bright stars flat | 96.4 % | 95.6 % | at least 97.0 % | **misses** |
+| M31's nucleus taken, R / G / B | 3.2 / 3.1 / 0.5 % | 1.6 / 2.6 / 4.4 % | at most 5 % | holds |
+| purity | 0.6 % | 0.8 % | at most 1.0 % | holds |
+
+**No kill.** Prediction (1) holds by a wide margin: trained in the stretch it runs in, the remover leaves no light in the
+held-out Tarantula's sharp cores, so #1776's skew is what kept it there. Prediction (2) misses: on the real tiles the bright
+stars fall to 95.6 %, 0.8 below R2i seed 0 and the lowest of the comparable runs (R2t 97.4, R2u 97.6, R2v 96.7). The
+pre-registered rule makes the master's stretch every export's default only when both hold, so it does not become the default
+on this read. That stays the owner's call.
+
+**Read, not predicted**, and the reason the call is worth making:
+
+| | R2i seed 0 | R2w | R2t |
+|---|---|---|---|
+| Andromeda dark flat / dug | 32.8 / 36.6 % | **48.7 / 28.8 %** | 40.6 / 41.7 % |
+| Andromeda blue, 1.5-3 / 3-4.5 px | -1.10 / -0.90 | **-0.89 / -0.74** | -1.23 / -1.00 |
+| Tarantula dark flat / left | 35.8 / 60.6 % | **56.5 / 31.5 %** | 57.2 / 40.3 % |
+| crowded Tarantula / its BP 17-19 stars | 69.8 / 90.3 % | 77.8 / **92.6 %** | 81.3 / 85.4 % |
+| Sagittarius crowded | 95.0 % | 94.2 % | 95.2 % |
+
+Against R2i seed 0 every whole-master figure but Sagittarius moves the right way, past what a seed moves it (the Tarantula up
+to 13 points, here 29 on what is left; Andromeda 1 to 2, here 7.8 on the dig). Andromeda's blue and dig come closer than any
+model of ours so far, and the dig meets the 30 % bar R2v set and missed. The price in the guards is the nucleus's blue, 0.5 to
+4.4 %, still inside 5. A's draws and R2k's twins were exported with the plate's stretch, outside
+R2w's domain, and fall there as expected: 76.9 / 71.5 / 51.7 % clean on A's draws (79.2 / 74.5 / 60.2). One seed. R2x
+(kept cores, above) keeps the plate's stretch as pre-registered, so it still isolates the cores.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
