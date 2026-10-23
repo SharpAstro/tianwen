@@ -172,6 +172,9 @@ public static class DisplayRasterExport
     /// own channels do not carry.
     /// </param>
     /// <param name="jpegQuality">JPEG quality, 1-100. Ignored by every other format.</param>
+    /// <param name="crop">The view crop, in <paramref name="image"/>'s pixels, or null for the whole frame.</param>
+    /// <param name="starScreen">A star split's stars as the screen draws them (<see cref="ScreenedStars"/>), screened over
+    /// the rendered <paramref name="image"/>, which is then the split's starless plate; null for a frame with no split.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     public static async Task WriteAsync(
         Image image,
@@ -188,6 +191,7 @@ public static class DisplayRasterExport
         DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG,
         int jpegQuality = 92,
         PixelRect? crop = null,
+        ScreenedStars? starScreen = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(image);
@@ -209,6 +213,8 @@ public static class DisplayRasterExport
         if (crop is { Width: > 0, Height: > 0 } region)
         {
             source = source.Crop(region);
+            // The stars plate is read pixel for pixel beside the picture, so it is cut to the same region.
+            starScreen = starScreen is null ? null : starScreen with { Stars = starScreen.Stars.Crop(region) };
         }
 
         var (channelCount, width, height) = source.Shape;
@@ -328,7 +334,7 @@ public static class DisplayRasterExport
         {
             var rgba = new byte[pixelCount * 4];
             source.RenderStretchedRgba(uniforms, rgba, curvesBoost, curvesMode,
-                curveLut.IsDefaultOrEmpty ? default : curveLut.AsSpan(), curvesMidpoint, hdrAmount, hdrKnee);
+                curveLut.IsDefaultOrEmpty ? default : curveLut.AsSpan(), curvesMidpoint, hdrAmount, hdrKnee, starScreen);
             CollapseToDisplayedChannel(rgba, byte.MaxValue);
             return rgba;
         }
@@ -337,7 +343,7 @@ public static class DisplayRasterExport
         {
             var rgba = new ushort[pixelCount * 4];
             source.RenderStretchedRgba16(uniforms, rgba, curvesBoost, curvesMode,
-                curveLut.IsDefaultOrEmpty ? default : curveLut.AsSpan(), curvesMidpoint, hdrAmount, hdrKnee);
+                curveLut.IsDefaultOrEmpty ? default : curveLut.AsSpan(), curvesMidpoint, hdrAmount, hdrKnee, starScreen);
             CollapseToDisplayedChannel(rgba, ushort.MaxValue);
             return rgba;
         }

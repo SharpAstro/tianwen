@@ -48,6 +48,42 @@ namespace TianWen.Lib.Tests
                 + "are of one picture, and an annotation is the only thing allowed to differ");
         }
 
+        /// <summary>
+        /// An enhanced frame's star split and the Tone finish reach the plain save as they reach the screen and the
+        /// annotated save (2026-10-23: the plain save of the enhanced Sculptor in Luma came out pale, the recombined frame
+        /// through the picture's curve with no finish, while the screen showed the split and the saturation).
+        /// </summary>
+        [Fact]
+        public async Task AStarSplitAndTheFinishReachThePlainSaveAsTheyReachTheScreen()
+        {
+            var document = await NewColourDocumentAsync();
+            var stars = new float[3][,];
+            for (var c = 0; c < 3; c++)
+            {
+                stars[c] = new float[ImageH, ImageW];
+                stars[c][20, 30] = 0.02f * (c + 1);
+                stars[c][40, 70] = 0.01f * (3 - c);
+            }
+            document.AttachStarSplit(new StarSplit(document.UnstretchedImage, new Image(stars, BitDepth.Float32, 1f, 0f, 0f,
+                document.UnstretchedImage.ImageMeta)));
+
+            var state = NewState();
+            state.StretchMode = StretchMode.Luma;
+            state.FinishSaturation = 1.8f;
+            state.FinishContrast = 0.4f;
+            state.StarStretch = 120f;
+
+            var annotated = await ExportAnnotatedAsync(document, state);
+            var clean = await ExportCleanAsync(document, state);
+            clean.Pixels.ShouldBe(annotated.Pixels, "the plain save is not the picture on screen");
+
+            // And the split and the finish are IN it: without them the same save is a different picture.
+            var bare = NewState();
+            bare.StretchMode = StretchMode.Luma;
+            var withoutFinish = await ExportCleanAsync(document, bare);
+            withoutFinish.Pixels.ShouldNotBe(clean.Pixels, "the finish and the star dials changed nothing in the plain save");
+        }
+
         [Fact]
         public async Task TheStarOverlayReachesTheFile()
         {
@@ -201,20 +237,8 @@ namespace TianWen.Lib.Tests
             var path = Path.Combine(Path.GetTempPath(), $"clean-{Guid.NewGuid():N}.png");
             try
             {
-                var uniforms = document.ComputeStretchUniforms(
-                    state.StretchMode, state.StretchParameters,
-                    bgNeutralizationStrength: state.BackgroundNeutralizationStrength,
-                    manualWhiteBalance: state.ManualWhiteBalance,
-                    applyColorCalibration: state.ColorCalibrationEnabled);
-                var background = uniforms.ComputePostStretchBackground(
-                    document.PerChannelBackground, document.LumaBackground);
-
-                await DisplayRasterExport.WriteAsync(
-                    document.UnstretchedImage, path, DisplayRasterFormat.Png8, uniforms,
-                    state.CurvesBoost, state.CurvesMode, state.CurveData, background,
-                    state.HdrAmount, state.HdrKnee,
-                    displayedChannel: state.ChannelView.DisplayedSourceChannel(document.UnstretchedImage.ChannelCount),
-                    debayerAlgorithm: state.DebayerAlgorithm);
+                await ViewerController.WriteDisplayedRasterAsync(document, state, path, DisplayRasterFormat.Png8,
+                    TestContext.Current.CancellationToken);
 
                 return PngReader.Decode(await File.ReadAllBytesAsync(path));
             }
@@ -231,6 +255,31 @@ namespace TianWen.Lib.Tests
             ShowOverlays = false,
             ShowStarOverlay = false,
         };
+
+        private static async Task<AstroImageDocument> NewColourDocumentAsync()
+        {
+            var planes = new float[3][,];
+            for (var c = 0; c < 3; c++)
+            {
+                planes[c] = new float[ImageH, ImageW];
+                for (var y = 0; y < ImageH; y++)
+                {
+                    for (var x = 0; x < ImageW; x++)
+                    {
+                        // A sky with a gradient and a colourful blob, so a saturation and a contrast have something to move.
+                        var blob = MathF.Exp(-(((x - 48) * (x - 48)) + ((y - 32) * (y - 32))) / 200f);
+                        planes[c][y, x] = 0.01f + (y * 0.0001f) + (x * 0.00005f) + (blob * 0.05f * (1f + (0.4f * (c - 1))));
+                    }
+                }
+            }
+
+            return await AstroImageDocument.AdoptImageAsync(
+                new Image(planes, BitDepth.Float32, 1f, 0f, 0f,
+                    new ImageMeta("synth", DateTimeOffset.UnixEpoch, TimeSpan.Zero, FrameType.Light, "",
+                        0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Color, 0, 0,
+                        RowOrder.TopDown, float.NaN, float.NaN)),
+                DebayerAlgorithm.None);
+        }
 
         private static async Task<AstroImageDocument> NewDocumentAsync()
         {
