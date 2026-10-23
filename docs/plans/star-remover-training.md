@@ -3732,9 +3732,63 @@ mid-brightness stars are bluer than the fields' (B/G 0.81 against 0.63 at 20-100
 
 #### Synthetics S4: noise shared across channels
 
-Tracked by #1739. The noise the export draws (the stars' own, and the synthetic background's) carries the master's
+Tracked by #1739, and its next step by #1781. The noise the export draws (the stars' own, and the synthetic background's) carries the master's
 measured covariance between channels (R-G 0.12 on the real tiles against 0.05 drawn), with each channel's spatial
 correlation as now.
+
+##### S4's read (2026-10-23): the correlation matches, and the classifier finds the noise more easily
+
+**What was built.** `dataset degrade --channel-noise-correlation` (stars mode only, off by default):
+
+- Each session's correlation is measured once, on its starless plate (`ChannelNoiseCorrelation.Measure`). Each channel's residual from its 5x5 median is taken on a strided grid of covered pixels and read by a robust correlation, from the MADs of the standardised sum and difference.
+- The per-channel unit noise fields are drawn as before, then mixed by the correlation's Cholesky factor. Each field keeps its variance and its spatial shape, and the mix draws nothing, so every other draw is unchanged.
+
+**Why the correlation is read robustly.** The review's Pearson over a tile's sky also counts light the channels share, such as the faint stars S2 is about. That is why synth4, whose noise is drawn independent, still reads 0.05.
+
+- A star at 2 % of the field moves a true 0.12 to 0.42 by Pearson, but only to 0.14 robustly (`StarInjectionTests`).
+- On a plate drawn at 0.12 / 0.05 / 0.04, the measure reads back 0.113 / 0.043 / 0.036. The 5x5 residual costs it about 5 %.
+
+**Proof the option leaves other draws alone.** On the 8 validation sessions, the export with the option off is byte-identical to synth4's own tiles: 320 degraded, 320 clean, and both sets of sigma tiles. With the option on:
+
+- the injections (320 of 320) and the clean tiles' sigma are unchanged;
+- every noisy tile moves: the degraded tile, the synthetic-background clean tile, and the degraded sigma tile, which is read off the noisy level.
+
+A test pins that a correlation read as none leaves every file as it was.
+
+**The numbers.** The correlation is the median over tiles, R-G / G-B / R-B. The noise-only AUC is synth4's classifier on its `noise` crops, over three seeds. "Re-stretched" means taken from the plate's MTF to the master's own (the training session's `restretch.py`, #1776). Real tiles already carry the master's stretch.
+
+| export | Pearson | robust | noise AUC, seeds 0 / 1 / 2 |
+|---|---|---|---|
+| real | 0.119 / 0.048 / 0.038 | 0.062 / 0.027 / 0.016 | |
+| synth4 (the option off) | 0.048 / 0.017 / 0.019 | 0.011 / 0.007 / 0.003 | 0.696 / 0.687 / 0.715 |
+| the option on | 0.101 / 0.034 / 0.027 | 0.063 / 0.021 / 0.009 | 0.745 / 0.714 / 0.720 |
+| synth4, re-stretched | 0.037 / 0.015 / 0.015 | 0.011 / 0.005 / 0.005 | 0.693 / 0.675 / 0.701 |
+| the option on, re-stretched | 0.093 / 0.031 / 0.024 | 0.065 / 0.019 / 0.013 | 0.727 / 0.716 / 0.720 |
+
+**The correlation matches.**
+
+- As exported, every pair is within 0.02 of real by Pearson (0.018, 0.014 and 0.011 short), and within 0.007 robustly.
+- Re-stretched, Pearson's R-G is 0.026 short, and the robust read stays within 0.008.
+
+**But the noise is easier to find, not harder.** The AUC rose with the option on in all six seed pairings: as exported from a mean of 0.699 to 0.726 (+0.049, +0.027, +0.005 per seed), and re-stretched from 0.690 to 0.721 (+0.034, +0.041, +0.019). Seed 2's +0.005 is inside synth4's own spread over seeds (0.687 to 0.715), so the size of the rise is uncertain; its direction is not. Synth4's 0.70 from the review is reproduced (0.687 to 0.715).
+
+The likely reason is where in space the channels share their noise. Below is each source's cross-correlation, on the classifier's own residuals, at a few pixel offsets (dy, dx), beside each channel's own lag-1. The values are medians over tiles.
+
+| source | R-G at 0,0 / 0,1 / 1,1 | R-B at 0,0 / 1,1 | each channel's own lag-1, R / G / B |
+|---|---|---|---|
+| real | 0.099 / 0.052 / 0.025 | 0.029 / 0.018 | 0.205 / 0.181 / 0.162 |
+| synth4 | 0.021 / 0.009 / 0.006 | 0.010 / 0.003 | 0.173 / 0.167 / 0.155 |
+| the option on | 0.079 / 0.017 / 0.003 | 0.019 / 0.003 | 0.173 / 0.167 / 0.155 |
+
+- In real tiles, R-G one pixel away is half its zero-lag value. That is far more than each channel's own lag-1 would carry, and it is what a demosaic's interpolation makes.
+- The mix carries the shared part with each channel's own shape, so it falls away at once.
+- Per rig, the ASI533's real R-B sits on the diagonal (+0.050 at 1,1, +0.010 at 0,0). Read at zero lag on the plate, it is drawn at -0.018.
+- Before, the classifier saw almost no shared noise. Now it sees a zero-lag correlation without its neighbourhood, a shape no real master has.
+
+**Verdict: not adopted.** The zero-lag mix alone hands the classifier a correlation with no neighbourhood.
+
+- The option stays off by default, and nothing trains on it. It lands anyway, because the next step builds on it.
+- The next step is tracked by #1781: draw the shared part with real's own spatial cross-structure. Each rig's cross-correlation is measured off its plate at lags 0 to 2, and a shared component of that structure is drawn with each channel's own lag-1 held. It relaxes this item's "each channel's spatial correlation as now".
 
 #### A learned synthetics generator, kept in sight
 
