@@ -186,6 +186,21 @@ public static class InfoPanelData
         => fullScaleAdu is { } scale ? $"{value:F4} ({value * scale:F0})" : $"{value:F4}";
 
     /// <summary>
+    /// The status line's star measurements, or null where it should say none. HFD, not HFR: the median is of each star's
+    /// half-flux DIAMETER, and the line once said HFR over it, twice the radius it named. Only while the frame has no grade:
+    /// a graded frame's strip says the same and more under Grade (<see cref="GetGradeReadout"/>), a single frame included,
+    /// so a second copy in the status line said it twice.
+    /// </summary>
+    public static string? StarsStatus(AstroImageDocument? document, ViewerState state, FrameFindings findings)
+    {
+        var graded = document is { FilePath: { Length: > 0 } path }
+            && state.FrameGrades.ContainsKey(System.IO.Path.GetFullPath(path));
+        return !graded && findings.Stars is { Count: > 0 } stars
+            ? string.Create(CultureInfo.InvariantCulture, $"Stars: {stars.Count}  HFD: {findings.MedianHfd:F2}  FWHM: {findings.MedianFwhm:F2}")
+            : null;
+    }
+
+    /// <summary>
     /// The info strip's Grade section for the frame on show (<see cref="LightGrading"/>): its score as a share of the best
     /// of its group graded so far, what the score is made of, and which frame is that best. <see cref="GradeReadout.Relative"/>
     /// is null until the frame is graded, when the lines say why it is not. Null for a document with no file, which no
@@ -230,7 +245,7 @@ public static class InfoPanelData
             : $"Quality: {relative * 100f:0}% of the best of {graded} ({group})");
         var metrics = grade.Metrics;
         lines.Add(string.Create(CultureInfo.InvariantCulture,
-            $"Stars: {metrics.StarCount}, HFD {metrics.MedianHfd:0.00}, ecc {metrics.MedianEllipticity:0.00}"));
+            $"Stars: {metrics.StarCount}, HFD {metrics.MedianHfd:0.00}, FWHM {metrics.MedianFwhm:0.00}, ecc {metrics.MedianEllipticity:0.00}"));
         return new GradeReadout(lines.ToImmutable(), relative,
             relative < 1f && bestPath is not null ? System.IO.Path.GetFileName(bestPath) : null);
     }

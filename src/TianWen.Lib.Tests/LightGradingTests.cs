@@ -107,8 +107,30 @@ public class LightGradingTests
         var readout = InfoPanelData.GetGradeReadout(state, document) ?? throw new InvalidOperationException("a file has a grade section");
         readout.Relative.ShouldBe(0.5f);
         readout.Lines[0].ShouldBe("Quality: 50% of the best of 2 (0 s)");
-        readout.Lines[1].ShouldBe("Stars: 800, HFD 2.50, ecc 0.12");
+        readout.Lines[1].ShouldBe("Stars: 800, HFD 2.50, FWHM 2.80, ecc 0.12");
         readout.BestName.ShouldBe("best.fits");
+    }
+
+    [Fact]
+    public async Task AGradedFramesStarsAreSaidUnderGradeAndNotAgainInTheStatusLine()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var document = await ViewerInfoPanelCollapseTests.NewColourDocumentAsync(ct);
+        var state = new ViewerState();
+        var findings = new FrameFindings(null, new StarList(
+        [
+            new ImagedStar(HFD: 2.5f, StarFWHM: 2.8f, SNR: 100f, Flux: 1000f, XCentroid: 8f, YCentroid: 8f, Ellipticity: 0.1f),
+        ]), 2.5f, 2.8f);
+
+        // Before a grade, the status line is the only place the stars are said.
+        InfoPanelData.StarsStatus(document, state, findings).ShouldBe("Stars: 1  HFD: 2.50  FWHM: 2.80");
+
+        // A single frame's grade, "the best of 1", says them under Grade, FWHM included, and the status line no longer does.
+        state.RecordFrameGrade(document.FilePath,
+            new LightGrade(LightGradeKey.Of(document.UnstretchedImage), new FrameMetrics(2.5f, 2.8f, 0.1f, 1), 4f));
+        InfoPanelData.StarsStatus(document, state, findings).ShouldBeNull();
+        var readout = InfoPanelData.GetGradeReadout(state, document) ?? throw new InvalidOperationException("a file has a grade section");
+        readout.Lines[1].ShouldBe("Stars: 1, HFD 2.50, FWHM 2.80, ecc 0.10");
     }
 
     /// <summary>
