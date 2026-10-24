@@ -131,6 +131,10 @@ parity locked after **32,179 hypotheses** while the wrong one ground through **9
 (anchor margin 0% and 10%). Cancel the sibling once one seeds with consensus far above chance.
 This is the only phase that helps the FIRST solve of a session, which is why it leads.
 
+**Open (#1803):** `PlateSolveParityRaceTests`' flipped-field case reads "abandoned" false once in a while on an arm64 runner,
+with the right parity winning: the loser seems to finish before the winner can stop it, so the assertion is about timing,
+not the race's logic.
+
 Parity can also be carried rather than rediscovered, and `WCS.HasCDMatrix` plus
 `sign(CD1_1*CD2_2 - CD1_2*CD2_1)` IS the parity. `searchOrigin` is already a parameter on
 `SolveFileAsync` / `SolveImageAsync`, and today a hint is used for POSITION only while its
