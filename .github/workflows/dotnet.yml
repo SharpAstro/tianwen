@@ -5,6 +5,13 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  # main's merge queue: the PR rebased onto main with the PRs queued ahead of it. The queue BUILDS that commit and
+  # tests nothing: the tests ran on the PR and run again on the push to main, as ever. What only the queue sees is two
+  # PRs that each build alone and not together (2026-10-20: the ring buffer change and the background extractor, the
+  # same minute), and the build is what breaks then; the suites' 25 minutes per merge, their flaky legs throwing a
+  # PR out of the queue and their LFS fixtures were not worth one such break in nine days. Its gate job is the check
+  # main's ruleset requires.
+  merge_group:
   # publish-apps + release are gated on workflow_dispatch only -- LFS bandwidth
   # makes it too expensive to publish all six AOT RIDs on every push to main.
   # Trigger via the /release-tianwen skill (gh workflow run dotnet.yml).
@@ -264,8 +271,9 @@ jobs:
     # serial Viewer collection's tail took #1318's x64 leg past 25 with no test stuck
     timeout-minutes: 60
     needs: build
-    # Not again on a push to main whose tree its PR's passing run already tested (build's tested-on-pr).
-    if: needs.build.outputs.tested-on-pr != 'true'
+    # Not again on a push to main whose tree its PR's passing run already tested (build's tested-on-pr), nor in the
+    # merge queue, which only builds (see merge_group above).
+    if: needs.build.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
     env:
       VERSION_PREFIX: ${{ needs.build.outputs.version-prefix }}
     # Matrix on x86_64 + ARM64 so we cover both architectures, plus a third leg for the
@@ -500,8 +508,9 @@ jobs:
   test-functional:
     timeout-minutes: 20   # healthy 4m24s
     needs: build
-    # Not again on a push to main whose tree its PR's passing run already tested (build's tested-on-pr).
-    if: needs.build.outputs.tested-on-pr != 'true'
+    # Not again on a push to main whose tree its PR's passing run already tested (build's tested-on-pr), nor in the
+    # merge queue, which only builds (see merge_group above).
+    if: needs.build.outputs.tested-on-pr != 'true' && github.event_name != 'merge_group'
     runs-on: ubuntu-latest
     env:
       VERSION_PREFIX: ${{ needs.build.outputs.version-prefix }}
@@ -990,6 +999,20 @@ jobs:
   # passed, and only then: a skip would otherwise skip this job too, and a failed or cancelled test job
   # still stops the push. `!cancelled()` is what makes the condition evaluated at all once a need was
   # skipped.
+  # The one check main's ruleset requires, for a PR and for the merge queue: build passed, and each test job passed
+  # or was skipped as it should be (the merge queue, or a push of a tree its PR tested).
+  gate:
+    timeout-minutes: 5
+    needs: [build, test-unit, test-functional]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: Build and tests passed
+      run: |
+        echo "build: ${{ needs.build.result }}, test-unit: ${{ needs.test-unit.result }}, test-functional: ${{ needs.test-functional.result }}, event: ${{ github.event_name }}, tested-on-pr: ${{ needs.build.outputs.tested-on-pr }}"
+        ok() { [ "$1" = success ] || { [ "$1" = skipped ] && { [ "${{ github.event_name }}" = merge_group ] || [ "${{ needs.build.outputs.tested-on-pr }}" = true ]; }; }; }
+        [ "${{ needs.build.result }}" = success ] && ok "${{ needs.test-unit.result }}" && ok "${{ needs.test-functional.result }}"
+
   publish-nuget:
     timeout-minutes: 15   # one push
     needs: [build, test-unit, test-functional]
