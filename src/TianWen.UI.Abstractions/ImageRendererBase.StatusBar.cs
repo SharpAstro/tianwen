@@ -45,11 +45,9 @@ namespace TianWen.UI.Abstractions
             // away from the control that changes it. Fit mode is the one case the button shows a word
             // rather than a number, and the button's tooltip carries the number for it.
 
-            // HFD, not HFR: the median is of each star's half-flux DIAMETER, and this line said HFR over it,
-            // twice the radius it named.
-            if (findings.Stars is { Count: > 0 } detectedStars)
+            if (InfoPanelData.StarsStatus(document, state, findings) is { } stars)
             {
-                statusParts.Add($"Stars: {detectedStars.Count}  HFD: {findings.MedianHfd:F2}  FWHM: {findings.MedianFwhm:F2}");
+                statusParts.Add(stars);
             }
 
             // Say when this frame is NOT being shown with its own stretch, and name the frame it is
