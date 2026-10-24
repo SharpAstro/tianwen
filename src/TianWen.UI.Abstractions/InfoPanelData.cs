@@ -64,6 +64,14 @@ public static class InfoPanelData
         {
             lines.Add($"Focal: {meta.FocalLength}mm");
         }
+        if (meta.Aperture > 0)
+        {
+            // The focal ratio rides along where the focal length is known too (FOCRATIO's own derivation): it is what the
+            // two numbers are usually read for.
+            lines.Add(double.IsNaN(meta.DerivedFRatio)
+                ? $"Aperture: {meta.Aperture}mm"
+                : string.Create(CultureInfo.InvariantCulture, $"Aperture: {meta.Aperture}mm (f/{meta.DerivedFRatio:0.0})"));
+        }
         if (meta.PixelSizeX > 0)
         {
             lines.Add($"Pixel: {meta.PixelSizeX:F2}um");

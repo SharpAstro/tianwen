@@ -54,6 +54,30 @@ namespace TianWen.Lib.Tests
             offset.ShouldBe(gain + 1);
         }
 
+        /// <summary>
+        /// APTDIA was parsed and written back long before it was drawn, as gain and offset were. With the focal length
+        /// it reads as the focal ratio too; alone, as the aperture; unknown, as nothing.
+        /// </summary>
+        [Theory]
+        [InlineData(530, 106, "Aperture: 106mm (f/5.0)")]
+        [InlineData(-1, 106, "Aperture: 106mm")]
+        [InlineData(530, -1, null)]
+        public async Task TheApertureIsReportedWithItsFocalRatio(int focalLength, int aperture, string? expected)
+        {
+            var document = await NewDocumentAsync(Meta() with { FocalLength = focalLength, Aperture = aperture });
+
+            var lines = InfoPanelData.GetMetadataLines(document);
+
+            if (expected is null)
+            {
+                lines.ShouldNotContain(line => line.StartsWith("Aperture:"));
+            }
+            else
+            {
+                lines.ShouldContain(expected);
+            }
+        }
+
         [Fact]
         public async Task AnUnknownGainOrOffsetProducesNoRowAtAll()
         {
