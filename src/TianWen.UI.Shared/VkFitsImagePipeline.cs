@@ -739,6 +739,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         float finishContrast = 0f,
         float finishSaturation = 1f,
         float starBeta = 0f,
+        StarStretchMethod starMethod = StarStretchMethod.Arcsinh,
         float backgroundSky = 1f,
         float starSaturation = 1f,
         int slot = UboSlotPrimary)
@@ -854,7 +855,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         WriteFloat(p, 368, lwR);
         WriteFloat(p, 372, lwG);
         WriteFloat(p, 376, lwB);
-        WriteFloat(p, 380, 0f);
+        // lumaWeights.w: the star split's method (StarStretchMethod: 0 the arcsinh, 1 SETI's Star Stretch).
+        WriteFloat(p, 380, (float)starMethod);
 
         // lumaStretch (vec4 at offset 384) -- scalar Luma MTF params (shadow, midtones, rescale).
         // Producer leaves at zero when Mode is not Luma; the shader only reads these in the
@@ -891,10 +893,10 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         // FinishSaturation), applied after the soft clip; its mask's background is curvesMidpoint at offset 16.
         WriteFloat(p, 432, finishContrast);
         WriteFloat(p, 436, finishSaturation);
-        // The star split's asinh beta (0 = no split) and one over asinh(beta), so the shader takes no asinh of a constant
-        // per pixel (ScreenedStars, Image.AsinhLumaScale).
+        // The star split's curve parameter (0 = no split): the asinh's beta, with one over asinh(beta) so the shader takes no
+        // asinh of a constant per pixel (ScreenedStars, Image.AsinhLumaScale), or the Star Stretch's 3^amount.
         WriteFloat(p, 440, starBeta);
-        WriteFloat(p, 444, starBeta > 0f ? 1f / MathF.Asinh(starBeta) : 0f);
+        WriteFloat(p, 444, starBeta > 0f && starMethod is StarStretchMethod.Arcsinh ? 1f / MathF.Asinh(starBeta) : 0f);
 
         // Every 4-byte slot from 0 to StretchUboSize is written on every call, so comparing the whole
         // range against the previous contents is exact: there is no padding hole left holding stale or

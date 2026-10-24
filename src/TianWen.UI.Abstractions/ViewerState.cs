@@ -292,6 +292,14 @@ public sealed class ViewerState
     /// </summary>
     public float StarStretch { get; set; } = StarSplit.StarCurve;
 
+    /// <summary>The Tone popover's Stars choice: the arcsinh (<see cref="StarStretch"/>, the default) or SETI's Star Stretch
+    /// (<see cref="StarAmount"/>). Each keeps its own value, so switching back finds it where it was.</summary>
+    public StarStretchMethod StarMethod { get; set; }
+
+    /// <summary>The Star Stretch's amount, SETI's slider (<see cref="ScreenedStars.DefaultAmount"/>, from
+    /// <see cref="StarSplit.MinAmount"/> to <see cref="StarSplit.MaxAmount"/>).</summary>
+    public float StarAmount { get; set; } = ScreenedStars.DefaultAmount;
+
     /// <summary>
     /// The Tone popover's Star colour dial: how far a star split's stretched stars are pushed from their luminance
     /// (<see cref="ScreenedStars"/>), apart from the picture's own Saturation. A frame with no split ignores it.
@@ -1068,6 +1076,8 @@ public sealed class ViewerState
         FinishSaturation = FinishSaturation,
         StarStretch = StarStretch,
         StarSaturation = StarSaturation,
+        StarMethod = StarMethod,
+        StarAmount = StarAmount,
         WaveletSharpenEnabled = WaveletSharpenEnabled,
         WaveletGains = WaveletGains,
         WaveletDerived = WaveletDerived,

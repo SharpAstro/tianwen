@@ -743,7 +743,7 @@ public sealed class ViewerController(
             displayedChannel: displayedChannel,
             debayerAlgorithm: state.DebayerAlgorithm.ResolveAuto(image),
             crop: ViewerState.ResolveDisplayCrop(state.DisplayCrop, image.Width, image.Height),
-            starScreen: split?.ScreenAt(rendition.StarStretch, rendition.StarSaturation),
+            starScreen: split?.ScreenFor(rendition),
             cancellationToken: cancellationToken);
     }
 

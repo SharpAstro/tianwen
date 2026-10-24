@@ -59,6 +59,20 @@ namespace TianWen.UI.Abstractions
 
         private readonly float _starSaturationOffset;
 
+        /// <summary>How the star split's stars are stretched (<see cref="ViewerState.StarMethod"/>); the arcsinh is the
+        /// enum's default, so a <c>new()</c> rendition reads it.</summary>
+        public StarStretchMethod StarMethod { get; init; }
+
+        /// <summary>The Star Stretch's amount (<see cref="ViewerState.StarAmount"/>), stored as its distance from
+        /// <see cref="ScreenedStars.DefaultAmount"/> for the same reason as <see cref="StarStretch"/>.</summary>
+        public float StarAmount
+        {
+            get => ScreenedStars.DefaultAmount + _starAmountOffset;
+            init => _starAmountOffset = value - ScreenedStars.DefaultAmount;
+        }
+
+        private readonly float _starAmountOffset;
+
         /// <summary>
         /// Snapshots how the viewer is displaying the frame right now. The Tone popover's finish (masked contrast and
         /// saturation) and the Background popover's reduce travel INSIDE the stretch, as the headless render carries it, so every path that renders a
@@ -75,6 +89,8 @@ namespace TianWen.UI.Abstractions
             {
                 StarStretch = state.StarStretch,
                 StarSaturation = state.StarSaturation,
+                StarMethod = state.StarMethod,
+                StarAmount = state.StarAmount,
             };
     }
 

@@ -148,6 +148,39 @@ public class StarSplitRenderTests
         screen.Display(0.002f, 0.002f, 0.002f).R.ShouldBe(0.002f, 1e-4f);
     }
 
+    [Theory]
+    [InlineData(5f, 1e-3f, 0.190f)]
+    [InlineData(5f, 3e-3f, 0.414f)]
+    [InlineData(6f, 1e-3f, 0.411f)]
+    [InlineData(6f, 3e-3f, 0.679f)]
+    public void TheStarStretchIsSetiAstrosCurveOnEachChannel(float amount, float linear, float seti)
+    {
+        // The owner's SETI Astro Star Stretch exports of the enhanced Sculptor master's stars plate (Image01_seti_starstretch_s5_b1,
+        // _s6_b1.5): the median output over the plate's pixels at that linear luminance. A grey star, so the per-channel
+        // curve is the luminance's, and colour boost 1 (the Colour dial at 1) leaves it.
+        var screen = new ScreenedStars(Uniform(0f), 1f, 1f, StarStretchMethod.StarStretch, amount);
+        Luma(screen.Display(linear, linear, linear)).ShouldBe(seti, 0.012f);
+    }
+
+    [Fact]
+    public void TheStarStretchStretchesEachChannelAloneAndTheRenditionCarriesItsChoice()
+    {
+        // Each channel through the curve on its own, which is what pales a star's colour as it lifts it.
+        var k = ScreenedStars.StarStretchFactor(5f);
+        var (r, g, b) = new ScreenedStars(Uniform(0f), 1f, 1f, StarStretchMethod.StarStretch, 5f).Display(0.004f, 0.002f, 0.001f);
+        r.ShouldBe(ScreenedStars.StarStretch(0.004f, k), 1e-6f);
+        g.ShouldBe(ScreenedStars.StarStretch(0.002f, k), 1e-6f);
+        b.ShouldBe(ScreenedStars.StarStretch(0.001f, k), 1e-6f);
+
+        // The viewer's choice reaches every CPU render through the rendition, and a new() rendition reads the defaults.
+        new DisplayRendition().StarMethod.ShouldBe(StarStretchMethod.Arcsinh);
+        new DisplayRendition().StarAmount.ShouldBe(ScreenedStars.DefaultAmount);
+        var rendition = DisplayRendition.FromState(default, new ViewerState { StarMethod = StarStretchMethod.StarStretch, StarAmount = 6f });
+        var screen = new StarSplit(Uniform(0f), Uniform(0f)).ScreenFor(rendition);
+        screen.Method.ShouldBe(StarStretchMethod.StarStretch);
+        screen.Amount.ShouldBe(6f);
+    }
+
     private static readonly float DefaultBeta = StarSplit.BetaFor(StarSplit.StarCurve);
 
     private static float Luma((float R, float G, float B) c)

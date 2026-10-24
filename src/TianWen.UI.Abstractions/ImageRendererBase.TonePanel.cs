@@ -2,6 +2,7 @@
 using System.Collections.Immutable;
 using DIR.Lib;
 using TianWen.Lib.Imaging.Planetary;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.UI.Abstractions;
 
@@ -126,6 +127,7 @@ partial class ImageRendererBase<TSurface>
     private readonly SliderState _toneSaturationSlider = new() { Min = 0f, Max = FinishSaturationMax };
     private readonly SliderState _toneStarsSlider = new() { Min = StarStretchLogMin, Max = StarStretchLogMax };
     private readonly SliderState _toneStarColourSlider = new() { Min = 0f, Max = StarSplit.MaxStarSaturation };
+    private readonly SliderState _toneStarAmountSlider = new() { Min = StarSplit.MinAmount, Max = StarSplit.MaxAmount };
 
     /// <summary>Test seam: the boost dial, so a test can find its arranged leaf by identity.</summary>
     internal SliderState ToneBoostSliderState => _toneBoostSlider;
@@ -147,6 +149,9 @@ partial class ImageRendererBase<TSurface>
 
     /// <summary>Test seam: the stars' colour dial.</summary>
     internal SliderState ToneStarColourSliderState => _toneStarColourSlider;
+
+    /// <summary>Test seam: the Star Stretch's amount dial, shown in place of the Stars dial when that method is chosen.</summary>
+    internal SliderState ToneStarAmountSliderState => _toneStarAmountSlider;
 
     // EMPTY, never default: a default ImmutableArray throws on every read, so a closed panel would
     // hand a caller a different KIND of empty from an open one with nothing in it.
@@ -270,6 +275,13 @@ partial class ImageRendererBase<TSurface>
             state.StarSaturation = v;
             state.NeedsRedraw = true;
         };
+        _toneStarAmountSlider.Value = state.StarAmount;
+        _toneStarAmountSlider.Enabled = starsEnabled;
+        _toneStarAmountSlider.OnChanged = v =>
+        {
+            state.StarAmount = MathF.Round(v * 20f) / 20f;
+            state.NeedsRedraw = true;
+        };
 
         var rows = ImmutableArray.CreateBuilder<Layout.Node>();
 
@@ -329,9 +341,25 @@ partial class ImageRendererBase<TSurface>
 
         rows.Add(ToneSeparator());
 
-        // A star split's stars: the CLI's colour asinh on the linear plate, its beta here, apart from every lever above.
+        // A star split's stars, apart from every lever above: the arcsinh at PixInsight's stretch factor, or SETI's Star Stretch
+        // at its amount, each on its own dial, so switching back finds the other where it was.
         rows.Add(Layout.Builder.Text(StarsHeading, small, ViewerTheme.Palette.DimText).WStar());
-        rows.Add(ToneDialRow("Stars", _toneStarsSlider, state.StarStretch.ToString("0"), ToneStarsFill));
+        ReadOnlySpan<Layout.ButtonGroupOption<StarStretchMethod>> starMethods =
+        [
+            new(StarStretchMethod.Arcsinh, "Arcsinh") { Hit = new HitResult.ButtonHit("StarsArcsinh") },
+            new(StarStretchMethod.StarStretch, "Star Stretch") { Hit = new HitResult.ButtonHit("StarsStarStretch") },
+        ];
+        rows.Add(Layout.Builder.ButtonGroup(starMethods, state.StarMethod,
+                chosen =>
+                {
+                    state.StarMethod = chosen;
+                    state.NeedsRedraw = true;
+                },
+                PlanetaryChoiceStyle, BaseFontSize)
+            .WStar());
+        rows.Add(state.StarMethod is StarStretchMethod.StarStretch
+            ? ToneDialRow("Amount", _toneStarAmountSlider, state.StarAmount.ToString("0.00"), ToneStarsFill)
+            : ToneDialRow("Stretch", _toneStarsSlider, state.StarStretch.ToString("0"), ToneStarsFill));
         rows.Add(ToneDialRow(StarColourLabel, _toneStarColourSlider, UiFormat.Percent0(state.StarSaturation), ToneStarsFill));
         if (!starsEnabled)
         {

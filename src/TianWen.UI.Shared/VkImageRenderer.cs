@@ -413,8 +413,11 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
             texelsPerPixel: state.Zoom > 0f ? 1f / state.Zoom : 1f,
             finishContrast: stretch.FinishContrast,
             finishSaturation: stretch.FinishSaturation,
-            // The star split's asinh beta for the dial's stretch factor (StarSplit.BetaFor, ScreenedStars); 0 screens nothing.
-            starBeta: starScreen && source is AstroImageDocument { StarSplit: not null } ? StarSplit.BetaFor(rendition.StarStretch) : 0f,
+            // The star split's curve parameter (ScreenedStars.CurveParameter: the asinh's beta for the dial's stretch factor, or
+            // the Star Stretch's 3^amount) and its method; 0 screens nothing.
+            starBeta: starScreen && source is AstroImageDocument { StarSplit: not null } split
+                ? split.StarSplit.ScreenFor(rendition).CurveParameter : 0f,
+            starMethod: rendition.StarMethod,
             starSaturation: rendition.StarSaturation,
             backgroundSky: stretch.BackgroundSky,
             slot: uboSlotOverride >= 0 ? uboSlotOverride : (int)slot);
