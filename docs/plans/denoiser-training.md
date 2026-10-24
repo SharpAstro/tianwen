@@ -3226,3 +3226,25 @@ What happens to the material:
 - The bright-cell dose was 7 cells over 2 nights (M42 5, the ASI1600MM Ha 2), against E16b's 45. That is the pool as
   registered, with no widening.
 - The pre-registration is otherwise unchanged. D2 re-runs against whichever estimator E16c provides.
+
+#### 2026-10-24: an unseen mono camera, held out from the next bake on
+
+Astro Pixel Processor's free SMC sample is the store's first true mono CCD night and its first night from someone
+else's rig: iTelescope T08 (Siding Spring, 106 mm f/5, an FLI camera with 9 um pixels, 3.5 arcsec/px), NGC 292 through
+L, R, G and B, 14 x 300 s each on 2019-08-23, raw, with its own 19 bias, 28 darks at 300 s and 10 flats per filter. It is
+copied to `D:/Astro-Unsorted/SMC iTelescope T08 APP sample` and its four sessions are in `dataset-parameters.json`'s
+`heldOutSessions` (the owner, 2026-10-24): scored, never trained on. `dataset coverage` over `D:/Astro-Unsorted` resolves
+all four with a same-filter flat, a dark and a bias, and none below the 10-sub floor.
+
+What it is for, when H7 resumes:
+- **An `E-cam` night of a seventh camera**, a CCD where every training camera is CMOS, so prediction 2's detail-kept
+  kill reads on a sensor no mono model has seen.
+- **A broadband star field, not a nebula-filled frame.** It is the case D2's master anchor got right, so it can tell an
+  E16c estimator's error on nebulae apart from one it makes everywhere.
+
+What it is not: part of the pre-registration above. It enters H7 only when the owner adds it on resuming, and it is in no
+store until the next bake (the `2026-09-29-full` store predates it). Its limits are stated now rather than found later:
+one night and one field for four sessions, half masters of 6 or 7 subs after the gate (which drops five subs in the
+night's elongated stretch, 14:02 to 15:30 UT), and 3.5 arcsec/px sampling, which leaves it no use to the deconvolver.
+The quality gate's hot-pixel pass also flags about 0.6 % of the sensor at sigma 8, over its budget, which the noise check
+should read before any score is believed.
