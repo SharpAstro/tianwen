@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 using TianWen.Lib.Geometry;
 using TianWen.Lib.Astrometry;
@@ -335,6 +336,34 @@ public record struct ImageMeta(
     /// </summary>
     /// <remarks>Nullable rather than defaulted to 1, for the reason <see cref="FluxScale"/> is.</remarks>
     public double? NoiseReduction { get; init; }
+
+    /// <summary>
+    /// The <see cref="NoiseReduction"/> an image carries after a step took its noise from <paramref name="before"/> to
+    /// <paramref name="after"/> (<see cref="Image.EstimateNoiseProfile"/>, each the mean over its channels), compounding over
+    /// <paramref name="earlier"/>, the step's input's own; never below 1, so a step that adds noise (a deblur) leaves it as
+    /// it was. Null when either side has no noise to read and nothing earlier was recorded. The ONE rule for the enhance
+    /// program and every verb that runs an enhancer on its own (<c>image denoise</c>): a plate denoised outside the program
+    /// and not stamped was read by every auto stretch as that much cleaner data and stretched that much harder.
+    /// </summary>
+    public static double? CompoundNoiseReduction(ImmutableArray<float> before, ImmutableArray<float> after, double? earlier)
+    {
+        var (b, a) = (MeanNoise(before), MeanNoise(after));
+        return b > 0 && a > 0 ? Math.Max(1.0, b / a) * (earlier ?? 1.0) : earlier;
+    }
+
+    private static double MeanNoise(ImmutableArray<float> profile)
+    {
+        if (profile.IsDefaultOrEmpty)
+        {
+            return 0;
+        }
+        var sum = 0.0;
+        foreach (var sigma in profile)
+        {
+            sum += sigma;
+        }
+        return sum / profile.Length;
+    }
 
     /// <summary>
     /// The frame's PICTURE, as the IRAF <c>DATASEC</c> card declares it: the sub-rectangle of the
