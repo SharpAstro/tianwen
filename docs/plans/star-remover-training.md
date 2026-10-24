@@ -3866,6 +3866,45 @@ masters' gains that is a net help, so `--stretch-from` now defaults to `master` 
 .StretchFromMaster` true); `--stretch-from plate` reproduces an export before synth11. **M42's bright stars over nebula are
 the thing to watch** in the next arms on the master's stretch.
 
+#### R2x's read: M31's nucleus kept whole, and killed by the bright stars it digs on A's draws (2026-10-24)
+
+R2x stopped on its own at step 215,000 (best at 191,000), 9.4 hours on the 1070. Against its pre-registration, with R2i
+seed 0 as the baseline:
+
+| | R2i seed 0 | R2x | bar | |
+|---|---|---|---|---|
+| M31's nucleus taken, R / G / B | 3.2 / 3.1 / 0.5 % | **-0.1 / -0.1 / -0.1 %** | at most 1.0 % in every channel | holds |
+| purity | 0.6 % | 0.6 % | at most 1.0 % | holds |
+| A's draws clean, 5-20 / 20-100 / 100-1000 sigma | 79.2 / 74.5 / 60.2 % | 80.5 / 74.7 / **53.8 %** | within 2 points | **fails** |
+| real tiles' bright stars flat | 96.4 % | 96.9 % | at least 95.4 % | holds |
+
+**The kill fires** on A's bright stars. Prediction (1) holds as far as it can: R2x takes nothing from the nucleus, the first
+model of ours to do so (R2i seed 0, R2t and R2u put their worst channel at 3.2, 6.1 and 3.5 %). The 2-point bar was tighter
+than the seeds' own spread on the bright band (R2i seed 1 stands at 55.9 %), but what moved is the dig, and that is outside
+the spread: 39.0 % of A's bright stars dug, against 28.7 and 32.3 % for R2i's two seeds, and the same on both twins (40.3 %
+plain, 41.5 % lobed). The holes are in the sky, not over structure (31.1 % of the bright stars dug in sky, against 21.7 and
+24.3 %), deeper at the core (core mean -0.58 sigma, against -0.20 and -0.28), and worst on the Lobster's three views (dug
+34.9 / 22.6 / 38.4 %, where neither seed passes 22.9 / 20.7 / 24.0). HIP 80609 sits where R2i seed 1 does. The real tiles
+show a trace of the same: 2.1 % of their bright stars dug, against 1.5 % for R2i seed 0 and 1.2 % for R2t. Why kept cores
+teach a deeper cut at a bright star was not measured.
+
+**Read, not predicted**, one seed:
+
+| | R2i seed 0 | R2x | R2w | R2t |
+|---|---|---|---|---|
+| Andromeda dark flat / dug | 32.8 / 36.6 % | 43.7 / 33.1 % | 48.7 / 28.8 % | 40.6 / 41.7 % |
+| Andromeda blue, 1.5-3 / 3-4.5 px | -1.10 / -0.90 | **-0.75** / -0.86 | -0.89 / -0.74 | -1.23 / -1.00 |
+| Tarantula dark flat / left | 35.8 / 60.6 % | 46.9 / 51.9 % | 56.5 / 31.5 % | 57.2 / 40.3 % |
+| Tarantula core residual, R / G / B | +0.89 / +1.06 / +0.61 | +0.76 / +0.78 / +0.45 | -0.11 / -0.17 / +0.42 | +0.84 / +0.38 / +0.90 |
+| crowded Tarantula / its BP 17-19 stars | 69.8 / 90.3 % | 69.6 / **78.7 %** | 77.8 / 92.6 % | 81.3 / 85.4 % |
+| Sagittarius crowded | 95.0 % | 94.7 % | 94.2 % | 95.2 % |
+| A's draws clean in colour, 5-20 / 20-100 / 100-1000 sigma | 57.3 / 43.7 / 21.2 % | 64.3 / 52.2 / 23.4 % | 56.6 / 41.7 / 15.5 % | 60.4 / 50.4 / 33.0 % |
+
+Andromeda's blue at 1.5-3 px is the first of ours above the -0.8 that R2v set and missed, and colour-clean on A's draws rises
+7.0 points on faint stars and 8.5 on mid-bright, the most of any arm. The crowded Tarantula's faint Gaia stars fall 11.6
+points. **By the pre-registration the cores do not go onto R2t's recipe.** In use, M31's nucleus does not depend on them:
+inference keeps a core whatever the remover does (`--protect-cores`, #1658's inference half). The next lever is the owner's.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
