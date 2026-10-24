@@ -1911,9 +1911,9 @@ internal sealed partial class ImageSubCommand(
         {
             Description = "A LINEAR stars plate on the input's grid (image sharpen --no-recombine writes one as <output>_stars.fits), stretched by the colour asinh and screened over the render, as the viewer composes an enhanced frame's star split. The input is then the starless plate (<output>_denoised-starless.fits). PNG / PNG-PQ only.",
         };
-        var starBetaOpt = new Option<float>("--star-beta")
+        var starStretchOpt = new Option<float>("--star-stretch")
         {
-            Description = "The asinh beta the --stars plate is stretched with: the viewer's Tone > Stars dial and image sharpen's --asinh-beta. Range [1, 1000].",
+            Description = "The stretch the --stars plate is drawn with, PixInsight's ArcsinhStretch stretch factor at black point 0 (the curve's slope at black): the viewer's Tone > Stars dial. Range [1, 1000].",
             DefaultValueFactory = _ => StarSplit.StarCurve,
         };
 
@@ -1934,7 +1934,7 @@ internal sealed partial class ImageSubCommand(
         // is what the viewer shows at the same settings, by construction rather than by a second renderer kept in step.
         var viewerOpt = new Option<bool>("--viewer")
         {
-            Description = "Render as tianwen-fits shows the file, through the viewer's own save-as-displayed, from its defaults: --stretch, --boost, --curve, --sky-level, --saturation, --contrast-boost, and with --enhance --star-beta/--star-saturation, set the viewer's levers of the same name. Implied by --stretch, --boost, --curve or --enhance. A 16-bit PNG; not with --white-balance or another --output-format.",
+            Description = "Render as tianwen-fits shows the file, through the viewer's own save-as-displayed, from its defaults: --stretch, --boost, --curve, --sky-level, --saturation, --contrast-boost, and with --enhance --star-stretch/--star-saturation, set the viewer's levers of the same name. Implied by --stretch, --boost, --curve or --enhance. A 16-bit PNG; not with --white-balance or another --output-format.",
         };
         var stretchOpt = new Option<StretchMode?>("--stretch")
         {
@@ -1950,13 +1950,13 @@ internal sealed partial class ImageSubCommand(
         };
         var enhanceOpt = new Option<bool>("--enhance")
         {
-            Description = "Run the viewer's own Enhance on the file first (EnhanceActions, its backend Auto), star split and all, and render the enhanced frame as the viewer then shows it; --star-beta and --star-saturation set its Stars dials. Implies --viewer.",
+            Description = "Run the viewer's own Enhance on the file first (EnhanceActions, its backend Auto), star split and all, and render the enhanced frame as the viewer then shows it; --star-stretch and --star-saturation set its Stars dials. Implies --viewer.",
         };
 
         var cmd = new Command("render", "Render a FITS file to a stretched PNG (default), HDR PQ PNG (--output-format png-pq), or float-true HDR JPEG XR (--output-format jxr).")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, saturationOpt, contrastBoostOpt, whiteBalanceOpt, starsOpt, starBetaOpt, starSaturationOpt, skyLevelOpt, viewerOpt, stretchOpt, boostOpt, curveOpt, enhanceOpt },
+            Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, saturationOpt, contrastBoostOpt, whiteBalanceOpt, starsOpt, starStretchOpt, starSaturationOpt, skyLevelOpt, viewerOpt, stretchOpt, boostOpt, curveOpt, enhanceOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -2046,7 +2046,7 @@ internal sealed partial class ImageSubCommand(
             ScreenedStars? starScreen = null;
             if (parseResult.GetValue(starsOpt) is { Length: > 0 } starsPath)
             {
-                var beta = parseResult.GetValue(starBetaOpt);
+                var stretchFactor = parseResult.GetValue(starStretchOpt);
                 var starSaturation = parseResult.GetValue(starSaturationOpt);
                 if (!float.IsFinite(starSaturation) || starSaturation < 0f || starSaturation > StarSplit.MaxStarSaturation)
                 {
@@ -2058,9 +2058,9 @@ internal sealed partial class ImageSubCommand(
                     consoleHost.WriteError("--stars renders into the stretched PNG paths only (png, png-pq).");
                     return 1;
                 }
-                if (!float.IsFinite(beta) || beta < StarSplit.MinBeta || beta > StarSplit.MaxBeta)
+                if (!float.IsFinite(stretchFactor) || stretchFactor < StarSplit.MinStretch || stretchFactor > StarSplit.MaxStretch)
                 {
-                    consoleHost.WriteError($"--star-beta must be in [{StarSplit.MinBeta}, {StarSplit.MaxBeta}]; got {beta}.");
+                    consoleHost.WriteError($"--star-stretch must be in [{StarSplit.MinStretch}, {StarSplit.MaxStretch}]; got {stretchFactor}.");
                     return 1;
                 }
                 if (!Image.TryReadFitsFile(starsPath, out var starsPlate, out _))
@@ -2074,8 +2074,8 @@ internal sealed partial class ImageSubCommand(
                     return 1;
                 }
                 // On its own scale, as the viewer screens it, so one beta is one picture in both.
-                starScreen = new ScreenedStars(starsPlate, beta, starSaturation);
-                consoleHost.WriteScrollable($"[render] screening {starsPath} at asinh beta {beta:0}, star saturation {starSaturation:0.##}");
+                starScreen = new ScreenedStars(starsPlate, StarSplit.BetaFor(stretchFactor), starSaturation);
+                consoleHost.WriteScrollable($"[render] screening {starsPath} at stretch {stretchFactor:0}, star saturation {starSaturation:0.##}");
             }
             var stretch = parseResult.GetValue(stretchOpt);
             var boost = parseResult.GetValue(boostOpt);
@@ -2089,7 +2089,7 @@ internal sealed partial class ImageSubCommand(
                     return 1;
                 }
                 return await RenderAsViewerAsync(input, dst, format, whiteBalance is not null, stretch, boost, curve, skyLevel,
-                    saturation, contrastBoost, enhance, parseResult.GetValue(starBetaOpt), parseResult.GetValue(starSaturationOpt), ct);
+                    saturation, contrastBoost, enhance, parseResult.GetValue(starStretchOpt), parseResult.GetValue(starSaturationOpt), ct);
             }
             await WriteCompanionAsync(toRender, dst, format, src.ImageMeta, wcs, "render",
                 useStretchedPng: false,
@@ -2112,7 +2112,7 @@ internal sealed partial class ImageSubCommand(
     /// </summary>
     private async Task<int> RenderAsViewerAsync(
         string input, string dst, ImageOutputFormat format, bool hasWhiteBalance, StretchMode? stretch, float? boost, string? curve,
-        float skyLevel, float saturation, float contrastBoost, bool enhance, float starBeta, float starSaturation, CancellationToken ct)
+        float skyLevel, float saturation, float contrastBoost, bool enhance, float starStretch, float starSaturation, CancellationToken ct)
     {
         if (format != ImageOutputFormat.Png)
         {
@@ -2178,13 +2178,13 @@ internal sealed partial class ImageSubCommand(
         }
         if (enhance)
         {
-            if (!float.IsFinite(starBeta) || starBeta < StarSplit.MinBeta || starBeta > StarSplit.MaxBeta
+            if (!float.IsFinite(starStretch) || starStretch < StarSplit.MinStretch || starStretch > StarSplit.MaxStretch
                 || !float.IsFinite(starSaturation) || starSaturation < 0f || starSaturation > StarSplit.MaxStarSaturation)
             {
-                consoleHost.WriteError($"--star-beta must be in [{StarSplit.MinBeta}, {StarSplit.MaxBeta}] and --star-saturation in [0, {StarSplit.MaxStarSaturation}].");
+                consoleHost.WriteError($"--star-stretch must be in [{StarSplit.MinStretch}, {StarSplit.MaxStretch}] and --star-saturation in [0, {StarSplit.MaxStarSaturation}].");
                 return 1;
             }
-            state.StarStretch = starBeta;
+            state.StarStretch = starStretch;
             state.StarSaturation = starSaturation;
             // The viewer's Enhance press, as it runs it: its backend preference, its debayer, the display crop (none on open).
             var enhanced = await EnhanceActions.EnhanceAsync(document, state, sharpenPipeline,

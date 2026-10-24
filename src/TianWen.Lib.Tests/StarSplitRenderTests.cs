@@ -28,7 +28,7 @@ public class StarSplitRenderTests
         var stars = new Image([Plane(0.002f), Plane(0f), Plane(0f)], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
         // A linear passthrough, so the starless value is what the screen sees.
         var u = new StretchUniforms(StretchMode.None, 1f, default, default, default, (1f, 1f, 1f), (1f, 1f, 1f));
-        var screened = new ScreenedStars(stars, StarSplit.StarCurve, StarSplit.StarSaturation);
+        var screened = new ScreenedStars(stars, DefaultBeta, StarSplit.StarSaturation);
 
         var rgba = new byte[4 * 4 * 4];
         starless.RenderStretchedRgba(u, rgba, starScreen: screened);
@@ -44,8 +44,8 @@ public class StarSplitRenderTests
         // The same pixel through the CLI's stretch of a whole plate and through the screen's per-pixel display: green is not
         // short of both red and blue, so the magenta fix leaves it, and the stretched values stay below 1, so no clip.
         var plate = new Image([Plane(0.012f), Plane(0.009f), Plane(0.006f)], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
-        var cli = plate.AsinhStretch(StarSplit.StarCurve);
-        var (r, g, b) = new ScreenedStars(plate, StarSplit.StarCurve, 1f).Display(0.012f, 0.009f, 0.006f);
+        var cli = plate.AsinhStretch(DefaultBeta);
+        var (r, g, b) = new ScreenedStars(plate, DefaultBeta, 1f).Display(0.012f, 0.009f, 0.006f);
 
         r.ShouldBe(cli[0, 0, 0], 1e-5f);
         g.ShouldBe(cli[1, 0, 0], 1e-5f);
@@ -65,7 +65,7 @@ public class StarSplitRenderTests
     {
         // A bright blue star the asinh lifts past 1: the whole pixel is scaled down by its largest channel, so blue stays
         // the largest and the ratios hold, where clamping each channel to 1 would have left it near white.
-        var (r, g, b) = new ScreenedStars(Uniform(0f), StarSplit.StarCurve, 1f).Display(0.30f, 0.35f, 0.50f);
+        var (r, g, b) = new ScreenedStars(Uniform(0f), DefaultBeta, 1f).Display(0.30f, 0.35f, 0.50f);
 
         b.ShouldBe(1f, 1e-6f);
         (b / r).ShouldBe(0.50f / 0.30f, 1e-4f);
@@ -76,9 +76,10 @@ public class StarSplitRenderTests
     public void TheStarColourDialPushesTheColourApartAroundTheSameLuminance()
     {
         var plate = Uniform(0f);
-        var flat = new ScreenedStars(plate, StarSplit.StarCurve, 1f).Display(0.006f, 0.008f, 0.012f);
-        var vivid = new ScreenedStars(plate, StarSplit.StarCurve, 2f).Display(0.006f, 0.008f, 0.012f);
-        var grey = new ScreenedStars(plate, StarSplit.StarCurve, 0f).Display(0.006f, 0.008f, 0.012f);
+        // A faint star, so the doubled colour stays below the clip at the default stretch.
+        var flat = new ScreenedStars(plate, DefaultBeta, 1f).Display(0.0006f, 0.0008f, 0.0012f);
+        var vivid = new ScreenedStars(plate, DefaultBeta, 2f).Display(0.0006f, 0.0008f, 0.0012f);
+        var grey = new ScreenedStars(plate, DefaultBeta, 0f).Display(0.0006f, 0.0008f, 0.0012f);
 
         (vivid.B - vivid.R).ShouldBeGreaterThan(flat.B - flat.R);
         grey.R.ShouldBe(grey.B, 1e-6f, "no saturation is grey");
@@ -113,6 +114,41 @@ public class StarSplitRenderTests
         rendition.StarStretch.ShouldBe(120f);
         rendition.StarSaturation.ShouldBe(2.2f);
     }
+
+    [Theory]
+    [InlineData(2f)]
+    [InlineData(47f)]
+    [InlineData(250f)]
+    [InlineData(1000f)]
+    public void TheStarsDialIsPixInsightsStretchFactorTheCurvesSlopeAtBlack(float stretch)
+    {
+        // PixInsight's ArcsinhStretch "stretch" is the slope at black of asinh(beta x) / asinh(beta), beta / asinh(beta);
+        // the beta is what the curve takes, and the dial is never one.
+        var beta = StarSplit.BetaFor(stretch);
+        (beta / System.MathF.Asinh(beta)).ShouldBe(stretch, stretch * 1e-4f);
+    }
+
+    [Fact]
+    public void AtItsDefaultTheDialDrawsAStarAsPixInsightsArcsinhAtOneThousand()
+    {
+        // The owner's ArcsinhStretch at 1000, black point 0, on the enhanced Sculptor master's stars plate: a pixel of linear
+        // luminance 3e-4 came out at 0.183 (Image01_asinh_1000.tif, its median over the plate's pixels at that level), 1e-3 at
+        // 0.301. The beta of 300 this default replaced drew them at 0.014 and 0.046.
+        StarSplit.StarCurve.ShouldBe(StarSplit.MaxStretch, "1000 is PixInsight's own maximum");
+        var screen = new StarSplit(Uniform(0f), Uniform(0f)).ScreenAt(StarSplit.StarCurve, 1f);
+        Luma(screen.Display(3e-4f, 3e-4f, 3e-4f)).ShouldBe(0.183f, 0.005f);
+        Luma(screen.Display(1e-3f, 1e-3f, 1e-3f)).ShouldBe(0.301f, 0.01f);
+    }
+
+    [Fact]
+    public void AStretchOfOneIsTheIdentity()
+    {
+        var screen = new StarSplit(Uniform(0f), Uniform(0f)).ScreenAt(StarSplit.MinStretch, 1f);
+        screen.Display(0.2f, 0.2f, 0.2f).R.ShouldBe(0.2f, 1e-3f);
+        screen.Display(0.002f, 0.002f, 0.002f).R.ShouldBe(0.002f, 1e-4f);
+    }
+
+    private static readonly float DefaultBeta = StarSplit.BetaFor(StarSplit.StarCurve);
 
     private static float Luma((float R, float G, float B) c)
         => (ScreenedStars.LumaWeights.R * c.R) + (ScreenedStars.LumaWeights.G * c.G) + (ScreenedStars.LumaWeights.B * c.B);

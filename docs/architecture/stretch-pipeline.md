@@ -71,9 +71,14 @@ uniform pipeline, not a mess of if else"):
 - **An enhanced frame keeps its star split for the render** (`AstroImageDocument.StarSplit`, #1771): the enhance's
   starless plate is the picture every display lever acts on, and its stars plate is kept LINEAR and stretched as it is
   drawn by the CLI's colour asinh (`Image.AsinhStretch`, `Image.AsinhLumaScale`: every channel times the one factor its
-  Rec.709 luminance gives, no black point, unclipped) at the Tone popover's Stars dial (`ViewerState.StarStretch`, the
-  asinh beta on a log track from 1 to 1000, carried in `DisplayRendition`; default `StarSplit.StarCurve`, 300, the CLI's
-  `--dual-stretch --star-stretch-mode asinh --asinh-beta 300`), its magenta taken out first (`ScreenedStars.Demagenta`,
+  Rec.709 luminance gives, no black point, unclipped) at the Tone popover's Stars dial (`ViewerState.StarStretch`, carried
+  in `DisplayRendition`, `image render --star-stretch`). **The dial is PixInsight's ArcsinhStretch stretch factor, the
+  curve's slope at black, never the beta**: `StarSplit.BetaFor` solves `beta / asinh(beta)` for it, on a log track from 1
+  (the identity) to 1000, PixInsight's own maximum and the default (`StarSplit.StarCurve`, beta 9,893). The beta of 300 it
+  replaced is a stretch of 47: on the enhanced Sculptor master it drew a median star 6 levels above the sky where the
+  picture before the enhance drew it at 55, and the field's stars above three sigma of the sky fell from 5,045 to 2,252;
+  at 1000 they are 5,895 (250: 4,026, 500: 5,209, 2000: 6,053, measured through `image render --viewer --enhance`). Its
+  magenta is taken out first (`ScreenedStars.Demagenta`,
   green up to the lesser of red and blue: SCNR maximum-neutral on the inverted pixel, #1777), saturated about its
   luminance by the Stars section's Colour dial (`ViewerState.StarSaturation`, default `StarSplit.StarSaturation`, 1.6,
   `lumaStretch.w` in the shader) and clipped by scaling the whole pixel down by its largest channel

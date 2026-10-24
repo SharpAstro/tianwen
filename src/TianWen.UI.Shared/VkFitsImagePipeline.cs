@@ -894,7 +894,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         // The star split's asinh beta (0 = no split) and one over asinh(beta), so the shader takes no asinh of a constant
         // per pixel (ScreenedStars, Image.AsinhLumaScale).
         WriteFloat(p, 440, starBeta);
-        WriteFloat(p, 444, starBeta >= 1f ? 1f / MathF.Asinh(starBeta) : 0f);
+        WriteFloat(p, 444, starBeta > 0f ? 1f / MathF.Asinh(starBeta) : 0f);
 
         // Every 4-byte slot from 0 to StretchUboSize is written on every call, so comparing the whole
         // range against the previous contents is exact: there is no padding hole left holding stale or

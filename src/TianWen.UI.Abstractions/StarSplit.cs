@@ -13,10 +13,14 @@ namespace TianWen.UI.Abstractions;
 public sealed record StarSplit(Image Starless, Image Stars)
 {
     /// <summary>
-    /// The stars' default strength, an asinh beta: the CLI's <c>--dual-stretch --star-stretch-mode asinh --asinh-beta 300</c>,
-    /// chosen by eye on the enhanced Sculptor master against StarStretch (which whitened every core) and betas 100 and 1000.
+    /// The stars' default strength, PixInsight's ArcsinhStretch "stretch factor" at black point 0: the curve's slope at black,
+    /// <c>beta / asinh(beta)</c> (<see cref="BetaFor"/>). 1000 is PixInsight's own maximum and the owner's choice on the enhanced
+    /// Sculptor master against 250, 500 and 2000: the field's stars stand where they stood before the enhance (5,895 above
+    /// three sigma of the sky against 5,045 before it), their halos small. The beta of 300 it replaces is a stretch of 47,
+    /// which drew a median star six levels above the sky where the picture before the enhance drew it at 55, and half the
+    /// field's stars vanished.
     /// </summary>
-    public const float StarCurve = 300f;
+    public const float StarCurve = 1000f;
 
     /// <summary>
     /// The stars' default saturation, the owner's choice on the enhanced Sculptor master against 1 and 2.2: with the hue kept,
@@ -27,13 +31,41 @@ public sealed record StarSplit(Image Starless, Image Stars)
     /// <summary>The most the Star colour dial reaches.</summary>
     public const float MaxStarSaturation = 3f;
 
-    /// <summary>The least and the most the Stars dial reaches, the CLI's <c>--asinh-beta</c> range.</summary>
-    public const float MinBeta = 1f;
+    /// <summary>The least and the most the Stars dial reaches, PixInsight's ArcsinhStretch range: 1 is the identity.</summary>
+    public const float MinStretch = 1f;
 
-    /// <inheritdoc cref="MinBeta"/>
-    public const float MaxBeta = 1000f;
+    /// <inheritdoc cref="MinStretch"/>
+    public const float MaxStretch = 1000f;
 
-    /// <summary>The stars plate as a CPU render screens it at an asinh <paramref name="beta"/> and a
+    /// <summary>
+    /// The asinh beta whose curve, <c>asinh(beta x) / asinh(beta)</c>, rises at black with the slope <paramref name="stretch"/>:
+    /// PixInsight's stretch factor is that slope, <c>beta / asinh(beta)</c>, and not the beta (its 1000 is a beta of 9,893).
+    /// The slope only grows with beta, so a bisection on its logarithm finds it; a stretch of 1 or less is the identity's limit,
+    /// a beta near 0.
+    /// </summary>
+    public static float BetaFor(float stretch)
+    {
+        if (!(stretch > 1f))
+        {
+            return 1e-3f;
+        }
+        double lo = 1e-3, hi = 1e9;
+        for (var i = 0; i < 100; i++)
+        {
+            var mid = System.Math.Sqrt(lo * hi);
+            if (mid / System.Math.Asinh(mid) < stretch)
+            {
+                lo = mid;
+            }
+            else
+            {
+                hi = mid;
+            }
+        }
+        return (float)System.Math.Sqrt(lo * hi);
+    }
+
+    /// <summary>The stars plate as a CPU render screens it at a <paramref name="stretch"/> (<see cref="BetaFor"/>) and a
     /// <paramref name="saturation"/>.</summary>
-    public ScreenedStars ScreenAt(float beta, float saturation) => new(Stars, beta, saturation);
+    public ScreenedStars ScreenAt(float stretch, float saturation) => new(Stars, BetaFor(stretch), saturation);
 }
