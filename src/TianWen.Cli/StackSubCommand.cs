@@ -296,7 +296,7 @@ internal sealed class StackSubCommand(
         };
         var denoiseIterationsOpt = new Option<int>("--denoise-iterations")
         {
-            Description = "Denoiser iterations. RC-Astro maps it to NoiseXTerminator's nxt --it; < 1 (default) = the enhancer's own default (2). Other backends ignore it. Implies --enhance.",
+            Description = "Denoise passes on the starless plate, each a denoiser call on the last one's output, run that many ungated; < 1 (default) = gated: up to 3, a further pass kept only while it takes at least 35 % off the coarse (16 and 32 px) sky noise. Never NoiseXTerminator's own --it, which stays at 1. Implies --enhance.",
             DefaultValueFactory = _ => 0,
         };
         // Masked finish for the preview PNG (Image.ApplyFinish, the viewer's Tone > Contrast and Saturation): the stretch's
@@ -568,7 +568,7 @@ internal sealed class StackSubCommand(
                     ? "defaults"
                     : $"bxt-sn={tuning.DeblurSharpen?.ToString("0.00") ?? "def"} " +
                       $"nxt-dn={tuning.DenoiseStrength?.ToString("0.00") ?? "auto"} " +
-                      $"nxt-it={tuning.DenoiseIterations?.ToString() ?? "def"}";
+                      $"denoise-passes={tuning.DenoiseIterations?.ToString() ?? "gated"}";
                 consoleHost.WriteScrollable(
                     $"[stack] enhance: backend={enhanceOptions.Backend} gradient={enhanceOptions.Gradient.ToString().ToLowerInvariant()} blend={enhanceBlendArg:0.00} " +
                     $"split-plates={(splitPlatesArg ? "on" : "off")} tuning={tuneSummary}");

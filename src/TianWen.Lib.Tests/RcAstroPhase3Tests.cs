@@ -79,8 +79,10 @@ public class RcAstroPhase3Tests : IDisposable
     }
 
     [Fact]
-    public async Task Tuning_MapsDenoiseStrengthAndIterationsToNxtArgs()
+    public async Task Tuning_MapsDenoiseStrengthToNxtAndItsPassesAreNeverNxtsIterations()
     {
+        // The tuning's DenoiseIterations is how many passes the ENHANCE runs (SharpenPipeline.DenoisePassesAsync), each one
+        // call here: nxt's own --it stays at 1, since 2 and 3 left the Sculptor's residual unchanged for twice the time.
         var cli = new FakeRcAstroCli();
         var nxt = new RcAstroDenoiser(cli);
         var src = RcAstroTestSupport.BuildNoisyRgb(64, 64, bg: 0.2f, noiseSigma: 0.02f, seed: 7);
@@ -88,7 +90,7 @@ public class RcAstroPhase3Tests : IDisposable
         await nxt.EnhanceAsync(src, new EnhanceOptions(Tuning: new EnhanceTuning(DenoiseStrength: 0.33f, DenoiseIterations: 4)),
             cancellationToken: TestContext.Current.CancellationToken);
 
-        cli.LastExtraArgs.ShouldBe(["--dn", "0.33", "--it", "4"]);
+        cli.LastExtraArgs.ShouldBe(["--dn", "0.33", "--it", "1"]);
     }
 
     [Fact]

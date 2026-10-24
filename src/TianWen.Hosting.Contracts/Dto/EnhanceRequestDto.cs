@@ -24,7 +24,8 @@ public sealed class EnhanceRequestDto
     /// <summary>Denoise strength in [0, 1]: RC maps it to <c>nxt --dn</c> (null = noise-adaptive auto); TianWen's own denoiser maps it to its blend dial (null = 1.0).</summary>
     public float? DenoiseStrength { get; init; }
 
-    /// <summary>Denoiser iterations; RC maps it to <c>nxt --it</c>. Null = enhancer default.</summary>
+    /// <summary>Denoise passes on the starless plate, run ungated; null = the gate (up to 3, each kept while it takes enough off
+    /// the coarse sky noise). Never NoiseXTerminator's own <c>--it</c>, which stays at 1.</summary>
     public int? DenoiseIterations { get; init; }
 
     /// <summary>The blur TianWen's own deconvolver removes, a Moffat FWHM in native pixels: one value or three
