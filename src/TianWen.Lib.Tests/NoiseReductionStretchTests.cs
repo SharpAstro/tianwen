@@ -57,6 +57,31 @@ public sealed class NoiseReductionStretchTests : System.IDisposable
         result.Final.ShouldNotBeNull().ImageMeta.NoiseReduction.ShouldNotBeNull().ShouldBe(4.0, 0.4);
     }
 
+    [Fact]
+    public async Task ADenoiseOutsideTheProgramSaysByHowMuchToo()
+    {
+        // image denoise runs the denoiser on its own (NarrowbandCombination.DenoiseAsync), and its plates were stamped with
+        // nothing: a second NXT pass on the Sculptor's starless plate came back three times cleaner and was stretched three
+        // times harder by every auto stretch, the galaxy thrown to white and the sky green.
+        var source = Noisy(new ImageMeta { Instrument = "synth", NoiseReduction = 2.0 });
+
+        var denoised = await NarrowbandCombination.DenoiseAsync([source], new HalvingDenoiser(), EnhanceOptions.Default,
+            TestContext.Current.CancellationToken);
+
+        denoised[0].ImageMeta.NoiseReduction.ShouldNotBeNull().ShouldBe(4.0, 0.4);
+    }
+
+    [Theory]
+    [InlineData(1e-4f, 5e-5f, null, 2.0)]
+    [InlineData(1e-4f, 5e-5f, 3.0, 6.0)]
+    [InlineData(5e-5f, 1e-4f, 3.0, 3.0)]
+    public void TheRuleIsNoiseInOverNoiseOutNeverBelowOneAndCompounding(float before, float after, double? earlier, double expected)
+    {
+        // A step that adds noise (a deblur) leaves the factor as it was.
+        ImageMeta.CompoundNoiseReduction([before, before, before], [after, after, after], earlier)
+            .ShouldNotBeNull().ShouldBe(expected, 1e-6);
+    }
+
     private static Image Noisy(ImageMeta meta)
     {
         var plane = new float[64, 64];

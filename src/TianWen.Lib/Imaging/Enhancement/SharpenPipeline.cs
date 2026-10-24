@@ -887,16 +887,9 @@ public sealed class SharpenPipeline(
         // over the result's, compounding over an earlier enhance): a stretch sizes its black point by the noise, and on a
         // denoised frame that is a fraction of the data's real depth, so the auto-stretch read it back up by this factor
         // rather than throw everything above the sky toward white (the enhanced Sculptor master, midtones 0.000127).
-        double? noiseReduction = null;
-        if (final is { } result)
-        {
-            var before = MeanNoise(inputNoise);
-            var after = MeanNoise(result.EstimateNoiseProfile());
-            if (before > 0 && after > 0)
-            {
-                noiseReduction = Math.Max(1.0, before / after) * (request.Source.ImageMeta.NoiseReduction ?? 1.0);
-            }
-        }
+        var noiseReduction = final is { } result
+            ? ImageMeta.CompoundNoiseReduction(inputNoise, result.EstimateNoiseProfile(), request.Source.ImageMeta.NoiseReduction)
+            : null;
         var stampedColour = appliedWhiteBalance;
         if (stampedColour is not null || noiseReduction is not null)
         {
@@ -968,20 +961,6 @@ public sealed class SharpenPipeline(
     }
 
     /// <summary>The mean of a per-channel noise profile, 0 for an empty one.</summary>
-    private static double MeanNoise(ImmutableArray<float> profile)
-    {
-        if (profile.IsDefaultOrEmpty)
-        {
-            return 0;
-        }
-        var sum = 0.0;
-        foreach (var sigma in profile)
-        {
-            sum += sigma;
-        }
-        return sum / profile.Length;
-    }
-
     /// <summary>
     /// Renders a per-channel σ vector as a slash-separated scientific-notation
     /// string for log lines (e.g. <c>4.21E-003/5.18E-003/4.99E-003</c>).

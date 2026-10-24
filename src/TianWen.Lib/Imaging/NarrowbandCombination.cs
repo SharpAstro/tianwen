@@ -229,9 +229,17 @@ public static class NarrowbandCombination
                 back[c] = dst;
             }
             output.Release();
-            result[i] = float.IsFinite(max)
+            var stepped = float.IsFinite(max)
                 ? new Image(back, BitDepth.Float32, max, min, plane.Pedestal, plane.ImageMeta)
                 : new Image(back, BitDepth.Float32, plane.MaxValue, plane.MinValue, plane.Pedestal, plane.ImageMeta);
+            // How much quieter the step left the plane, as the enhance program records it (ImageMeta.CompoundNoiseReduction),
+            // so a plate denoised here is not stretched as that much cleaner data by every auto stretch after.
+            var noiseReduction = ImageMeta.CompoundNoiseReduction(plane.EstimateNoiseProfile(), stepped.EstimateNoiseProfile(),
+                plane.ImageMeta.NoiseReduction);
+            result[i] = noiseReduction == plane.ImageMeta.NoiseReduction
+                ? stepped
+                : new Image(back, BitDepth.Float32, stepped.MaxValue, stepped.MinValue, stepped.Pedestal,
+                    plane.ImageMeta with { NoiseReduction = noiseReduction });
         }
         return (result, atCeiling);
     }
