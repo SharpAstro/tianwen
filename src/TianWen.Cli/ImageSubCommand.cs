@@ -952,7 +952,7 @@ internal sealed partial class ImageSubCommand(
         };
         var denoiseIterationsOpt = new Option<int>("--denoise-iterations")
         {
-            Description = "Denoiser iterations. RC-Astro maps it to NoiseXTerminator's nxt --it; < 1 (default) = the enhancer's own default (2). Other backends ignore it.",
+            Description = "Denoise passes on the starless plate, each a denoiser call on the last one's output, run that many ungated; < 1 (default) = gated: up to 3, a further pass kept only while it takes at least 35 % off the coarse (16 and 32 px) sky noise. Never NoiseXTerminator's own --it, which stays at 1.",
             DefaultValueFactory = _ => 0,
         };
         // A balance the input does not state, given on the command line: the SPCC fit `image render` printed for the
@@ -1475,7 +1475,7 @@ internal sealed partial class ImageSubCommand(
                 $"[sharpen] {input} {src.Width}x{src.Height}x{src.ChannelCount} mode={mode} " +
                 $"stellar={doStellar}({stellarBlend:F2}) deconv={!noDeconv}({deconvBlend:F2}) " +
                 $"denoise={!noDenoise}({denoiseBlend:F2},{denoiseVariant}) scnr={effectiveScnrMode}({scnrAmount:F2}){dualStretchDesc} recombine={!noRecombine} backend={backend} " +
-                $"gradient={(noGradient ? "off" : GradientBackendOption.NameFor(gradientCorrector, gradient))}{(tuning is null ? "" : $" tuning(sn={tuning.DeblurSharpen?.ToString("F2") ?? "-"},dn={tuning.DenoiseStrength?.ToString("F2") ?? "-"},it={tuning.DenoiseIterations?.ToString() ?? "-"})")}");
+                $"gradient={(noGradient ? "off" : GradientBackendOption.NameFor(gradientCorrector, gradient))}{(tuning is null ? "" : $" tuning(sn={tuning.DeblurSharpen?.ToString("F2") ?? "-"},dn={tuning.DenoiseStrength?.ToString("F2") ?? "-"},passes={tuning.DenoiseIterations?.ToString() ?? "gated"})")}");
 
             SharpenResult result;
             try

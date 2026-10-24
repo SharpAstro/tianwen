@@ -125,7 +125,17 @@ own either way, and passes only what it sets:
 |---------|-----------------|
 | sxt | CLI defaults (star removal is unconditional). |
 | bxt | `--sn 0.90` only; `--ansp` (auto nonstellar PSF) defaults true, which on a starless plate reads no PSF ([#1704](https://github.com/SharpAstro/tianwen/issues/1704)), and `--ss` / `--ash` are no-ops on the starless plate so are not passed. |
-| nxt | `--it 2`, `--dn` auto from noise (0.7-0.95), heavier for noisier input. |
+| nxt | `--it 1`, `--dn` auto from noise (0.7-0.95), heavier for noisier input. The passes are the enhance's own, gated (below). |
+
+### Denoise passes
+
+**Denoise passes are run by the enhance, never by `nxt --it`** (#1805). On the enhanced Sculptor master `--it 1`, `2` and
+`3` left the starless plate's residual the same at every scale, for 12.9, 22.1 and 31.3 s. Feeding the output back in, as
+people do by hand, does what `--it` does not: each pass took about 80 % off the 1 px noise, but the coarse (16 and 32 px)
+sky noise fell 47 % on pass 2 and only 22 % on pass 3, which by eye only blotched the sky. So
+`SharpenPipeline.DenoisePassesAsync` runs pass 1, keeps each further pass while it takes at least 35 % off the coarse sky
+noise (`MultiScaleNoise`, a trous bands on the same sky pixels before and after), discards the first that does not, and
+stops at 3; a stated `DenoiseIterations` is that many passes, ungated. The 35 % is provisional, from one master.
 
 **Noise-adaptive denoise** (matches the "heavier denoise on short integration"
 workflow): the denoiser measures the input it is handed
@@ -172,7 +182,7 @@ public enum EnhanceBackend { Auto, ForceRcAstro, ForceSas }   // Auto = "RC when
 public sealed record EnhanceTuning(
     float? DeblurSharpen     = null,   // RC bxt --sn ; SAS has no analogue -> ignored
     float? DenoiseStrength   = null,   // RC nxt --dn ; null = noise-adaptive auto (today)
-    int?   DenoiseIterations = null);  // RC nxt --it
+    int?   DenoiseIterations = null);  // the enhance's denoise PASSES, null = gated (never nxt --it, which stays at 1)
 
 public sealed record EnhanceOptions(EnhanceBackend Backend = EnhanceBackend.Auto, EnhanceTuning? Tuning = null)
 {

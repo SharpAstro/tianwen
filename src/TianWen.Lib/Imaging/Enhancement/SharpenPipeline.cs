@@ -168,6 +168,69 @@ public sealed class SharpenPipeline(
     /// <para>The mean fallback stays for what both leave: an interior hole wider than the fill
     /// reaches.</para>
     /// </remarks>
+    /// <summary>The most denoise passes the gate runs (<see cref="DenoisePassesAsync"/>).</summary>
+    internal const int MaxDenoisePasses = 3;
+
+    /// <summary>
+    /// The least share of the starless plate's coarse sky noise (<see cref="MultiScaleNoise.Coarse"/>, the 16 and 32 px bands)
+    /// a further denoise pass must take off to be kept. Measured on the enhanced Sculptor master with NoiseXTerminator: pass 2
+    /// took 47 % off and was the owner's choice by eye, pass 3 took 22 % and only smoothed the sky into blotches. A provisional
+    /// value from one master, to be checked on more (#1805).
+    /// </summary>
+    internal const float MinCoarseReduction = 0.35f;
+
+    /// <summary>
+    /// The starless plate denoised in passes run HERE, each one denoiser call on the last one's output (NoiseXTerminator at
+    /// <c>--it 1</c>, never its own iterations, which left the Sculptor's residual unchanged at 2 and 3 for twice and three times
+    /// the time). Pass 1 always runs. A further pass is kept only while it takes at least <see cref="MinCoarseReduction"/> off the
+    /// coarse sky noise, measured on the same sky pixels before and after; the first that does not is discarded and ends the
+    /// run, up to <see cref="MaxDenoisePasses"/>. A stated <see cref="EnhanceTuning.DenoiseIterations"/> is that many passes,
+    /// ungated. A single-pixel noise estimate cannot gate this: one pass on the Sculptor took 70 % off at 1 px and only 37 % at
+    /// 32 px, so the blotches a second pass removes are invisible to it.
+    /// </summary>
+    /// <param name="holdRing">The run's canvas ring put back on each pass's output (ProcessAsync's <c>HoldRing</c>).</param>
+    private async Task<Image> DenoisePassesAsync(Image input, DenoiseVariant variant, EnhanceOptions options, IProgress<float>? progress,
+        Func<Image, Image, Image> holdRing, CancellationToken cancellationToken)
+    {
+        var den = Require(denoiser);
+        var current = holdRing(await den.EnhanceAsync(input, variant, options, progress, cancellationToken), input);
+        var stated = options.Tuning?.DenoiseIterations;
+        var passes = Math.Clamp(stated ?? MaxDenoisePasses, 1, MaxDenoisePasses);
+        var before = stated is null ? MultiScaleNoise.Measure(current) : null;
+        for (var pass = 2; pass <= passes; pass++)
+        {
+            if (stated is null && before is null)
+            {
+                break;
+            }
+            var next = holdRing(await den.EnhanceAsync(current, variant, options, progress, cancellationToken), current);
+            if (ReferenceEquals(next, current))
+            {
+                // A denoiser that hands its input back changed nothing, and a further pass would change nothing either.
+                break;
+            }
+            if (stated is null && before is { } measured)
+            {
+                var after = MultiScaleNoise.Measure(next, onSkyOf: measured);
+                var reduction = after is null ? 0f : 1f - (after.Coarse / measured.Coarse);
+                logger?.LogInformation("SharpenPipeline: denoise pass {Pass} took {Reduction:P0} off the coarse sky noise ({Before:E2} to {After:E2}); {Verdict}",
+                    pass, reduction, measured.Coarse, after?.Coarse ?? float.NaN, reduction >= MinCoarseReduction ? "kept" : "discarded, the passes stop");
+                if (after is null || reduction < MinCoarseReduction)
+                {
+                    next.Release();
+                    break;
+                }
+                before = after;
+            }
+            if (!ReferenceEquals(current, input))
+            {
+                current.Release();
+            }
+            current = next;
+        }
+        return current;
+    }
+
     internal static Image SanitiseForEnhance(Image source, ILogger? logger)
     {
         var filled = source.WithInteriorHolesFilled();
@@ -536,7 +599,7 @@ public sealed class SharpenPipeline(
                         // output if a DeconvolveStarlessStep ran earlier,
                         // otherwise the raw starless plate.
                         var inputPlate = deconvolvedStarless ?? Require(starless);
-                        var raw = HoldRing(await Require(denoiser).EnhanceAsync(inputPlate, denoiseStep.Variant, options, stepProgress, cancellationToken), inputPlate);
+                        var raw = await DenoisePassesAsync(inputPlate, denoiseStep.Variant, options, stepProgress, HoldRing, cancellationToken);
                         if (denoiseStep.Blend < 1f)
                         {
                             denoisedStarless = inputPlate.Lerp(raw, denoiseStep.Blend);

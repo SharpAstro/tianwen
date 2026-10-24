@@ -452,6 +452,15 @@ Settled by the campaign; restated so no run re-derives them.
   the stricter one" assumption is checkable. Never gate on both.
 - **Blend grid at 0.05 or finer** before calling a checkpoint unable to reach a noise level.
 
+### Residual noise by scale
+
+**A single-pixel noise figure cannot judge what a denoiser leaves** (measured 2026-10-24, #1805). Its residual is mostly
+blotchy large-scale mottle: one NoiseXTerminator pass on the Sculptor master's starless plate took 70 % off at 1 px but only
+37 % at 32 px in luminance (a trous B3 bands on the sky, `MultiScaleNoise`). The colour residual falls the same way (red
+minus luminance: 0.31 of its input at 1 px, 0.42 at 32 px). So "matched residual noise" (above) must be matched per band,
+or two denoisers that look matched can leave twice the blotches. Read N2N's starless plate the same way, beside NXT's,
+before sizing a chroma step after it (#1804, planned for the in-house N2N path only).
+
 ## 4. Experiments, in order
 
 | Step | What | Cost | Decides |

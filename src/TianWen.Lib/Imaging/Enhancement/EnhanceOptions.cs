@@ -69,7 +69,9 @@ public enum GradientBackend
 /// <c>bxt --sn</c>.</param>
 /// <param name="DenoiseStrength">Denoise strength in [0, 1]. RC maps it to <c>nxt --dn</c>
 /// (overriding the noise-adaptive auto value); the N2N backend maps it to its blend dial.</param>
-/// <param name="DenoiseIterations">Denoiser iterations; RC maps it to <c>nxt --it</c>.</param>
+/// <param name="DenoiseIterations">How many denoise passes the enhance runs on the starless plate, each a denoiser call on the
+/// last one's output, ungated; null lets the gate decide (<c>SharpenPipeline.DenoisePassesAsync</c>: up to 3, each further pass
+/// kept only while it takes enough off the coarse sky noise). Never NoiseXTerminator's own <c>--it</c>.</param>
 /// <param name="Deconvolution">The blur TianWen's own deconvolver is asked to remove (<see cref="DeconvolutionKernel"/>):
 /// it takes its kernel as an input and serves only a run that states one, since nothing yet finds a kernel in a single
 /// frame (#741). RC-Astro measures its own and ignores this.</param>
@@ -113,7 +115,7 @@ public sealed record EnhanceOptions(
     /// (<c>null</c> = noise-adaptive auto); the N2N backend maps it to its blend dial
     /// (<c>out = in + s*(den - in)</c>, <c>null</c> = 1.0, and 0 is rejected there -- run without the
     /// denoise step instead of asking a denoiser to do nothing).</param>
-    /// <param name="denoiseIterations">RC <c>nxt --it</c> override, or <c>null</c> for the enhancer default.</param>
+    /// <param name="denoiseIterations">How many denoise passes to run, or <c>null</c> for the gate (<see cref="EnhanceTuning.DenoiseIterations"/>).</param>
     /// <param name="deconvolution">The kernel TianWen's own deconvolver is asked to remove
     /// (<see cref="DeconvolutionKernel.TryParse"/>), or <c>null</c> where none was stated.</param>
     /// <param name="options">The parsed options (<see cref="Default"/> when this returns <c>false</c>).</param>
