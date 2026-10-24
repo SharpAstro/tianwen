@@ -65,7 +65,18 @@ public sealed record StarSplit(Image Starless, Image Stars)
         return (float)System.Math.Sqrt(lo * hi);
     }
 
-    /// <summary>The stars plate as a CPU render screens it at a <paramref name="stretch"/> (<see cref="BetaFor"/>) and a
-    /// <paramref name="saturation"/>.</summary>
+    /// <summary>The least and the most the Star Stretch's amount dial reaches, SETI's slider range.</summary>
+    public const float MinAmount = 0f;
+
+    /// <inheritdoc cref="MinAmount"/>
+    public const float MaxAmount = 8f;
+
+    /// <summary>The stars plate as a CPU render screens it at an arcsinh <paramref name="stretch"/> (<see cref="BetaFor"/>)
+    /// and a <paramref name="saturation"/>.</summary>
     public ScreenedStars ScreenAt(float stretch, float saturation) => new(Stars, BetaFor(stretch), saturation);
+
+    /// <summary>The stars plate as a CPU render screens it for a <paramref name="rendition"/>: its method, its stretch or
+    /// amount, its saturation. The one place a rendition's star dials become a screen, for every CPU render.</summary>
+    public ScreenedStars ScreenFor(in DisplayRendition rendition)
+        => new(Stars, BetaFor(rendition.StarStretch), rendition.StarSaturation, rendition.StarMethod, rendition.StarAmount);
 }

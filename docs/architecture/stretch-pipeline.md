@@ -77,8 +77,13 @@ uniform pipeline, not a mess of if else"):
   (the identity) to 1000, PixInsight's own maximum and the default (`StarSplit.StarCurve`, beta 9,893). The beta of 300 it
   replaced is a stretch of 47: on the enhanced Sculptor master it drew a median star 6 levels above the sky where the
   picture before the enhance drew it at 55, and the field's stars above three sigma of the sky fell from 5,045 to 2,252;
-  at 1000 they are 5,895 (250: 4,026, 500: 5,209, 2000: 6,053, measured through `image render --viewer --enhance`). Its
-  magenta is taken out first (`ScreenedStars.Demagenta`,
+  at 1000 they are 5,895 (250: 4,026, 500: 5,209, 2000: 6,053, measured through `image render --viewer --enhance`).
+  **The arcsinh is one of two methods** (`StarStretchMethod`, the Stars section's choice, `ViewerState.StarMethod`,
+  `image render --star-method`), since one curve or the other suits different optics: SETI Astro's Star Stretch,
+  `3^amount x / ((3^amount - 1) x + 1)` on each channel alone (the MTF at `1 / (3^amount + 1)`, measured against SETI's
+  own exports to an rms of 0.002), at its own Amount dial (`ViewerState.StarAmount`, 0 to 8, default 5, `--star-amount`).
+  The method goes to the shader in `lumaWeights.w` and the curve's parameter in `finishParams.z`
+  (`ScreenedStars.CurveParameter`: the beta, or `3^amount`). Either way the magenta is taken out first (`ScreenedStars.Demagenta`,
   green up to the lesser of red and blue: SCNR maximum-neutral on the inverted pixel, #1777), saturated about its
   luminance by the Stars section's Colour dial (`ViewerState.StarSaturation`, default `StarSplit.StarSaturation`, 1.6,
   `lumaStretch.w` in the shader) and clipped by scaling the whole pixel down by its largest channel

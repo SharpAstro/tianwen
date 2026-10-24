@@ -581,7 +581,8 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
             normalizeScale: u.NormalizeScale,
             finishContrast: u.FinishContrast,
             finishSaturation: u.FinishSaturation,
-            starBeta: stars?.Beta ?? 0f,
+            starBeta: stars?.CurveParameter ?? 0f,
+            starMethod: stars?.Method ?? StarStretchMethod.Arcsinh,
             starSaturation: stars?.Saturation ?? 1f,
             backgroundSky: u.BackgroundSky);
 
@@ -831,10 +832,12 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
     /// beta and at a softer and a harder one.
     /// </summary>
     [Theory]
-    [InlineData(300f, 1.6f)]
-    [InlineData(30f, 1f)]
-    [InlineData(1000f, 2.5f)]
-    public async Task GpuMatchesCpuForTheStarScreen(float starBeta, float starSaturation)
+    [InlineData(300f, 1.6f, StarStretchMethod.Arcsinh)]
+    [InlineData(30f, 1f, StarStretchMethod.Arcsinh)]
+    [InlineData(9893f, 2.5f, StarStretchMethod.Arcsinh)]
+    [InlineData(5f, 1.6f, StarStretchMethod.StarStretch)]
+    [InlineData(2f, 1f, StarStretchMethod.StarStretch)]
+    public async Task GpuMatchesCpuForTheStarScreen(float starCurve, float starSaturation, StarStretchMethod method)
     {
         if (!_gpu.VulkanAvailable)
         {
@@ -853,7 +856,10 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         var h = img.Height;
         // Any linear plate exercises the screen; this one is the frame itself, brought down to an enhanced master's level (the
         // Sculptor's peaks at 0.02), where the asinh is neither all linear nor all clipped.
-        var stars = new ScreenedStars(img.Affine(0.02 / img.MaxValue, 0.0), starBeta, starSaturation);
+        // starCurve is the asinh's beta, or the Star Stretch's amount.
+        var stars = method is StarStretchMethod.StarStretch
+            ? new ScreenedStars(img.Affine(0.02 / img.MaxValue, 0.0), 1f, starSaturation, method, starCurve)
+            : new ScreenedStars(img.Affine(0.02 / img.MaxValue, 0.0), starCurve, starSaturation);
 
         var cpuRgba = new byte[w * h * 4];
         img.RenderStretchedRgba(uniforms, cpuRgba, starScreen: stars);
@@ -872,7 +878,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         foreach (var line in _formatDiagBag) output.WriteLine(line);
         _formatDiagBag.Clear();
 
-        AssertCpuGpuParity(cpuRgba, gpuRgba, $"28_gpu_star_screen_{starBeta:0}_{starSaturation:0.0}");
+        AssertCpuGpuParity(cpuRgba, gpuRgba, $"28_gpu_star_screen_{method}_{starCurve:0}_{starSaturation:0.0}");
     }
 
     /// <summary>

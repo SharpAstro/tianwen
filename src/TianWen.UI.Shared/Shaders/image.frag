@@ -32,7 +32,7 @@ layout(set = 0, binding = 0, std140) uniform StretchUBO {
     vec4  whiteBalance;        // offset 192  (xyz = WB multipliers, w = background reduce's sky level, 1 = off)
     vec4  bgNeutralization;    // offset 208  (xyz = neutralization gains, w = pad)
     vec4  curveData[9];        // offset 224  (33 knots packed into 9 vec4s; last 3 floats unused)
-    vec4  lumaWeights;         // offset 368  (xyz = R/G/B luma weights, w = pad). Rec.709 default.
+    vec4  lumaWeights;         // offset 368  (xyz = R/G/B luma weights, w = the star split's method: 0 arcsinh, 1 SETI's Star Stretch). Rec.709 default.
     vec4  lumaStretch;         // offset 384  (x = lumaShadow, y = lumaMidtones, z = lumaRescale, w = star split's star saturation)
     vec4  stretchBlend;        // offset 400  (x = lumaBlend in [0,1], y = normalizeScale, z = debayerMode 0=bilinear/1=MHC, w = texelsPerPixel: mosaic texels per screen pixel, 0 = unknown = 1)
     // offset 416 (xyz = RA/Dec grid line RGB, w = its alpha). Written from
@@ -839,9 +839,16 @@ void main() {
         float beta = ubo.finishParams.z;
         vec3 lin = vec3(texture(uStar0, vTexCoord).r, texture(uStar1, vTexCoord).r, texture(uStar2, vTexCoord).r);
         lin.g = max(lin.g, min(lin.r, lin.b));
-        float sl = dot(starLuma, lin);
-        float k = sl < 1e-5 ? beta * ubo.finishParams.w : asinh(sl * beta) * ubo.finishParams.w / sl;
-        vec3 st = lin * k;
+        vec3 st;
+        if (ubo.lumaWeights.w > 0.5) {
+            // SETI's Star Stretch on each channel at slope beta = 3^amount (ScreenedStars.StarStretch).
+            vec3 x = max(lin, vec3(0.0));
+            st = beta * x / ((beta - 1.0) * x + vec3(1.0));
+        } else {
+            float sl = dot(starLuma, lin);
+            float k = sl < 1e-5 ? beta * ubo.finishParams.w : asinh(sl * beta) * ubo.finishParams.w / sl;
+            st = lin * k;
+        }
         float sy = dot(starLuma, st);
         st = max(vec3(sy) + (st - vec3(sy)) * ubo.lumaStretch.w, vec3(0.0));
         float sm = max(st.r, max(st.g, st.b));
