@@ -87,10 +87,10 @@ partial class ImageRendererBase<TSurface>
     private const float FinishContrastMax = 1f;
     private const float FinishSaturationMax = 2.5f;
 
-    // The stars' own asinh beta runs on a LOG track (the dial's value is log10 of it): 1 to 1000 is three decades, and on a
+    // The stars' stretch factor runs on a LOG track (the dial's value is log10 of it): 1 to 1000 is three decades, and on a
     // linear track the useful tens and low hundreds would be the first few pixels of it.
-    private static readonly float StarBetaLogMin = MathF.Log10(StarSplit.MinBeta);
-    private static readonly float StarBetaLogMax = MathF.Log10(StarSplit.MaxBeta);
+    private static readonly float StarStretchLogMin = MathF.Log10(StarSplit.MinStretch);
+    private static readonly float StarStretchLogMax = MathF.Log10(StarSplit.MaxStretch);
 
     /// <summary>
     /// The least track worth dragging, in design units, as a Star MINIMUM rather than a fixed
@@ -124,7 +124,7 @@ partial class ImageRendererBase<TSurface>
     private readonly SliderState _toneKneeSlider = new() { Min = SoftClipKneeMin, Max = SoftClipKneeMax };
     private readonly SliderState _toneContrastSlider = new() { Min = 0f, Max = FinishContrastMax };
     private readonly SliderState _toneSaturationSlider = new() { Min = 0f, Max = FinishSaturationMax };
-    private readonly SliderState _toneStarsSlider = new() { Min = StarBetaLogMin, Max = StarBetaLogMax };
+    private readonly SliderState _toneStarsSlider = new() { Min = StarStretchLogMin, Max = StarStretchLogMax };
     private readonly SliderState _toneStarColourSlider = new() { Min = 0f, Max = StarSplit.MaxStarSaturation };
 
     /// <summary>Test seam: the boost dial, so a test can find its arranged leaf by identity.</summary>
