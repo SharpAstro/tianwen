@@ -30,6 +30,11 @@ param(
     [string]$ExportDone = '',
     [string]$TrainScript = '',
     [string[]]$TrainArgs = @(),
+    # #1362: the speckle teacher, handed to the train script as -SpeckleWeight / -SpeckleSigma (training/denoise/run-r2.ps1 takes
+    # them, as n2n_smoke.py's --speckle-weight / --speckle-sigma); 0 (default) passes nothing, so a train script that has no such
+    # parameter is untouched.
+    [double]$SpeckleWeight = 0,
+    [double]$SpeckleSigma = 100,
     # The tag score_whole.py writes the row under, when it is not -Tag.
     [string]$WholeTag = ''
 )
@@ -83,8 +88,13 @@ try {
     if (-not (Test-Path "$TrainDir/$Name.pt")) {
         if (-not $TrainScript) { Halt "no $TrainDir/$Name.pt and no -TrainScript"; return }
         if (Running $py $GpuTrainerPattern) { Say 'waiting: another trainer holds the GPU'; return }
-        Say "training: $(Split-Path $TrainScript -Leaf) $($TrainArgs -join ' ')"
-        $r = Start-Process pwsh -ArgumentList (@('-NoProfile', '-File', $TrainScript) + $TrainArgs) -NoNewWindow -PassThru -Wait
+        $trainArgs = @($TrainArgs)
+        if ($SpeckleWeight -gt 0) {
+            $trainArgs += '-SpeckleWeight', $SpeckleWeight.ToString([cultureinfo]::InvariantCulture)
+            $trainArgs += '-SpeckleSigma', $SpeckleSigma.ToString([cultureinfo]::InvariantCulture)
+        }
+        Say "training: $(Split-Path $TrainScript -Leaf) $($trainArgs -join ' ')"
+        $r = Start-Process pwsh -ArgumentList (@('-NoProfile', '-File', $TrainScript) + $trainArgs) -NoNewWindow -PassThru -Wait
         Say "trainer exited $($r.ExitCode)"
         if ($r.ExitCode -ne 0 -or -not (Test-Path "$TrainDir/$Name.pt")) { Halt "the trainer left no $Name.pt (exit $($r.ExitCode))"; return }
     }
