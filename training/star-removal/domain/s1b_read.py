@@ -10,10 +10,14 @@ export's files into the numbers F4's gate is read from. Every path is an argumen
       the real over each synthetic, by band: the synthetics review's table
   python s1b_read.py clamp-report --injections <injections.jsonl> [...]
       the stars drawn, the stars the clamp moved and the ones it could not bring inside the envelope
+  python s1b_read.py reads --real <real root> --synthetic NAME=ROOT [...] --out <dir> [--seeds 0,1,2,3,4] [--threads 6]
+      the two instruments over every synthetic at once: domain_stats.py over all of them (stats.json), then one
+      domain_classifier.py per synthetic (cls-NAME.json, its log NAME.log), run side by side, star and noise crops
 """
 import argparse
 import json
 import os
+import subprocess
 import sys
 from collections import defaultdict
 
@@ -155,6 +159,30 @@ def clamp_report(paths):
     print(f'{rows} injection rows, {stars} stars drawn, {clamped} with a channel moved to the envelope, {unreached} unreached (still outside)')
 
 
+def reads(real, synthetics, out, seeds, threads):
+    here = os.path.dirname(os.path.abspath(__file__))
+    os.makedirs(out, exist_ok=True)
+    stats = [sys.executable, '-I', os.path.join(here, 'domain_stats.py'), '--real', real, '--out', os.path.join(out, 'stats.json')]
+    for spec in synthetics:
+        stats += ['--synthetic', spec]
+    with open(os.path.join(out, 'stats.log'), 'w', encoding='utf-8') as log:
+        subprocess.run(stats, stdout=log, stderr=subprocess.STDOUT, check=True)
+    procs = {}
+    for spec in synthetics:
+        name = spec.partition('=')[0]
+        cmd = [sys.executable, '-I', os.path.join(here, 'domain_classifier.py'), '--real', real, '--synthetic', spec,
+               '--out', os.path.join(out, f'cls-{name}.json'), '--variants', 'stars,noise', '--seeds', seeds, '--threads', str(threads)]
+        procs[name] = subprocess.Popen(cmd, stdout=open(os.path.join(out, f'{name}.log'), 'w', encoding='utf-8'), stderr=subprocess.STDOUT)
+    failed = [n for n, p in procs.items() if p.wait() != 0]
+    for name in procs:
+        with open(os.path.join(out, f'{name}.log'), encoding='utf-8') as f:
+            for line in f:
+                if 'AUC' in line:
+                    print(line.rstrip())
+    if failed:
+        sys.exit(f'classifier failed: {", ".join(failed)}')
+
+
 def main(argv):
     p = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     sub = p.add_subparsers(dest='cmd', required=True)
@@ -171,6 +199,12 @@ def main(argv):
     w.add_argument('--bands', default='20,50,100,200,500')
     c = sub.add_parser('clamp-report')
     c.add_argument('--injections', nargs='+', required=True)
+    r = sub.add_parser('reads')
+    r.add_argument('--real', required=True)
+    r.add_argument('--synthetic', action='append', required=True, metavar='NAME=ROOT[,FRAME]')
+    r.add_argument('--out', required=True)
+    r.add_argument('--seeds', default='0,1,2,3,4')
+    r.add_argument('--threads', type=int, default=6)
     a = p.parse_args(argv)
     if a.cmd == 'val-sessions':
         print('\n'.join(val_sessions(a.real)))
@@ -180,6 +214,8 @@ def main(argv):
         band_gains(a.shapes, a.sessions)
     elif a.cmd == 'wing-table':
         wing_table(a.stats, [float(x) for x in a.bands.split(',')])
+    elif a.cmd == 'reads':
+        reads(a.real, a.synthetic, a.out, a.seeds, a.threads)
     else:
         clamp_report(a.injections)
 
