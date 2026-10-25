@@ -429,6 +429,11 @@ portrait-resized desktop SDL window. Fixed once in the shared widget, so GUI + w
   (collapse case), plus an offline `RgbaImageRenderer` pixel render on both orientations asserting
   <2% of a magenta sentinel prefill survives (catches the zero-width-region-paints-nothing class);
   PNGs dumped beside the test binary for eyeballing. `PlannerDetailsTests` pins the shed order.
+- **Toolbar on a phone (#1818 item 1)**: the HTML toolbar (`Planner.razor`, `app.css`) was a loose
+  column at 390 px, a fifth of the screen. Under 600 px it is ONE row: Lat/Lon a compact pair (their
+  labels hidden, placeholders and `aria-label` name them), Recompute and Locate icon buttons (titles
+  name them), the verdict word dropped (its colour stays, the label is its title). Desktop width is
+  unchanged. `PlannerToolbarPhoneTests` measures the toolbar's height and the Lat/Lon boxes at 390x844.
 - **Not yet**: list fling/momentum scrolling on touch (named cost, shared-code addable).
 
 ## Sky-atlas interactions round (2026-07-20, seventh session)
