@@ -151,6 +151,8 @@ namespace TianWen.UI.Abstractions
                 contentRect);
             _targetListRect = ArrangedFills.RectOf(arranged, ListFillKey);
             var detailsRect = ArrangedFills.RectOf(arranged, DetailsFillKey);
+            DetailsRect = detailsRect;
+            PaintedDetailLines = [];
             _chartRect = ArrangedFills.RectOf(arranged, ChartFillKey);
 
             // --- 1. Altitude chart ---
@@ -230,6 +232,12 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>Chart rect from last render (for slider drag coordinate conversion).</summary>
         public RectF32 ChartRect => _chartRect;
+
+        /// <summary>The details strip's rect from the last render (empty when it collapsed away).</summary>
+        public RectF32 DetailsRect { get; private set; }
+
+        /// <summary>The lines the details strip painted last render, so a test reads what was drawn.</summary>
+        public IReadOnlyList<string> PaintedDetailLines { get; private set; } = [];
 
         /// <summary>
         /// Renders the altitude chart. Override in GPU-backed subclasses to use cached textures.
@@ -564,7 +572,10 @@ namespace TianWen.UI.Abstractions
             // Separator line at top
             RenderLayout(Layout.Builder.Spacer().Bg(SeparatorColor), new RectF32(rect.X, rect.Y, rect.Width, 1f));
 
-            var lines = PlannerDetails.GetLines(state, _lastFilteredTargets, _currentTime, maxLines);
+            var infoW = rect.Width - padding * 2f;
+            var lines = PlannerDetails.GetLines(state, _lastFilteredTargets, _currentTime, maxLines,
+                text => Renderer.MeasureText(text.AsSpan(), fontPath, fontSize).Width <= infoW);
+            PaintedDetailLines = lines;
             if (lines.Count == 0)
             {
                 DrawText("Select a target to see details.".AsSpan(), fontPath,
