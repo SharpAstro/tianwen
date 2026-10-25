@@ -481,11 +481,12 @@ public static class StarShape
     /// The log wing gains a star of <paramref name="significance"/> is drawn at, per channel. Without a slope
     /// (<see cref="StarShapeRow.LogSlopes"/> empty or zero in the channel) that is its band's gain, a star fainter than every
     /// band taking the faintest's and a saturated one being given the brightest's by its caller: exactly what a row measured
-    /// before the trend drew. With one it is the TREND: the brightest band's own log gain (each master keeps its own level at
-    /// the bright band) plus the slope times the log of the significance over the brightest band's median, the significance
-    /// first clamped to the range the bands measured (the faintest band's median to the brightest's), and the result held to
-    /// <see cref="MinGain"/> and <see cref="MaxGain"/>. A row of one band has no range, so it draws that band's gain whatever
-    /// its slope.
+    /// before the trend drew. With one it is the TREND: the brightest READ band's own log gain (each master keeps its own
+    /// level at the bright band) plus the slope times the log of the significance over that band's median, the significance
+    /// first clamped to the range the read bands measured (the faintest read band's median to the brightest's), and the result
+    /// held to <see cref="MinGain"/> and <see cref="MaxGain"/>. A read band is one <see cref="Points"/> yields, so a band lent
+    /// its neighbour's gain, or on a bound, anchors nothing; a channel with fewer than two read bands, or a row of one band,
+    /// draws its band's gain whatever its slope.
     /// </summary>
     public static ImmutableArray<double> LogGains(StarShapeRow row, float significance)
     {

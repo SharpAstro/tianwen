@@ -4186,10 +4186,13 @@ the review's direction, are the next measurement.
   default being `none`, each master keeping its own). A
   rig with no readable pair of bands, or a master with no rig, keeps its own.
 - **The draw** (`StarShape.LogGains`): with no slope, or a slope of 0, a star takes its band's gain, as every row did, so a
-  row written before reads back and draws the same. With one, the brightest band's own log gain plus the slope times the log
-  of the significance over that band's median, the significance clamped to the range the bands measured (the faintest band's
-  median to the brightest's, so a star fainter than every band, or a saturated one, holds the end's gain), and the gain held
-  to 0.25 to 8.
+  row written before reads back and draws the same. With one, the brightest READ band's own log gain plus the slope times the
+  log of the significance over that band's median, the significance clamped to the range the READ bands measured (the faintest
+  read band's median to the brightest's, so a star fainter than every band, or a saturated one, holds the end's gain), and the
+  gain held to 0.25 to 8. A read band is one `Points` yields: a weight above 0, and a gain off both bounds. A master with fewer
+  than two of them draws its band step, slope or not. (The first version anchored on the band with the greatest reference
+  whether or not it was read; the correction, "fix(star-removal): the brightness trend's level and clamp come from the bands
+  that were read", is described in "S1b's read" below, and the export measured there was drawn before it.)
 - **Judged by:** the pooled slopes per camera against the review's ratio (0.82 at 20-50 sigma to 1.81 at 100-200 on the
   ASI294MC, 1.4 to 1.7 and none on the ASI585); F4's own gate is the star-crop AUC bar above, read on an export drawn with
   the trend, `degrade --star-shapes` on the new file.
@@ -4288,18 +4291,34 @@ is the stars that changed.
 **The clamp moved nothing:** over the 1,440 drawn tiles, 556,778 stars, `WingClamped` 0 and `WingUnreached` 0. The real
 envelope holds every drawn star's channel relation, so that half of the gate holds, but on this export nothing tested it.
 
-**Verdict: not adopted for R3d, and #1241 stays open.** The gate asks the star-crop AUC to fall past the classifier's spread,
-and it rose instead: by 0.10 against synth11 and by 0.08 against synth4, eleven and nine times the larger spread. The cause is in
-the gains, not the trend's shape. The linear per-amplitude measure says a drawn star at 20 to 200 sigma needs a quarter to half
-of its wing. The stretched-domain statistic, which the classifier agrees with, says it needs as much or more. A gain stuck on
-its floor in nearly every master is a measure that found no solution, not a rig's wing. **The next step:**
+**The export's anchor was a flaw (found in review, 2026-10-26).** `StarShape.LogGains` took each master's level, and the bright
+end of its clamp, from the band with the greatest reference whether or not that band was read. A band under 10 stars is
+lent the nearest band's gain at weight 0, and its reference is its own few stars' median, or the band's edge (1000) when it holds
+none, so the draw's level was a lent gain at a significance above every band that was measured. At the +0.25 to +0.5 slopes
+above that pulls every fainter star's gain down by 10 to 30 %, in proportion to how far the empty band sits above the last
+read one (`ln(1000 / 300) * 0.3` is 0.36 in the log, 30 %, for a last read band at 300). **In 50 of the 138 masters in
+`star-shapes.jsonl` the brightest band by reference has weight 0** (41 of them in all three colour channels, the other 9
+single-channel; no star in it, its reference the 1000 edge). The other 88 were anchored on a read band and drew as designed.
+The code now takes the level and both clamp ends from the read bands, and a master with fewer than two draws its band step
+(`AnUnreadableBrightestBandDoesNotAnchorTheTrend`). **Nothing was exported again**, so the table above is the export as it was
+drawn, and how much of its numbers the anchor owns was not measured.
+
+**Verdict: not adopted for R3d, and #1241 stays open. The anchor does not change it.** The gate asks the star-crop AUC to
+fall past the classifier's spread, and it rose instead: by 0.10 against synth11 and by 0.08 against synth4, eleven and nine
+times the larger spread. The anchor cannot be the whole of that. It touches 50 masters in 138 and only lowers faint stars'
+gains, by at most the 10 to 30 % above, where the faint bands sit on the gain's floor in `Measure` itself (0.25 at 20 sigma on
+every colour rig), so a corrected anchor lifts a 20 to 50 sigma star's gain by a fraction of what separates it from real, and
+the other 88 masters, anchored on a read band, are not touched by it. It could move the numbers some; it was not tested. The likely cause is in the gains, not the trend's shape. The linear per-amplitude measure says a drawn
+star at 20 to 200 sigma needs a quarter to half of its wing. The stretched-domain statistic, which the classifier agrees with,
+says it needs as much or more. A gain stuck on its floor in nearly every master is a measure that found no solution, not a
+rig's wing. **The next step:**
 1. Find why the faint and mid bands land on the floor before drawing from them again. Read a run without `--sky-bias` against the
    corrected file over the same masters. If the bands leave the floor without the correction, the blank-field bias is
    over-subtracting: a blank position's light still holds unresolved stars' glow, which a real star's sky annulus also holds.
 2. Then check the measure against the statistic that judges it: a drawn star at its measured gain should read real's 3-5 px
    light through the exporter's stretch, band by band.
-3. Only then export again. The classifier reads such an export in about 40 minutes, which makes it the cheap test of any next
-   gain table.
+3. Only then export again, drawn with the corrected anchor, which also says how much of this read the old one owned. The
+   classifier reads such an export in about 40 minutes, which makes it the cheap test of any next gain table.
 
 Everything stays on DE1 under `C:/temp/tianwen-scratch/tia1241-s1b`: `star-shapes.jsonl`, `band-gains.txt`, `synth-s1b`,
 `degrade.log`, and `reads/` (`stats.json`, `cls-*.json`, the classifier logs). `--star-shapes` without a slope draws as before,
