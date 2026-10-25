@@ -1984,9 +1984,13 @@ different settings no longer land on each other, and the name records what made 
 a name back, so a code is short rather than complete; the full settings go into the PNG itself as `iTXt`
 text (SharpAstro.Png 3.21, Codecs#40): `Software`, `Source` (the master's file name) and
 `TianWen:Rendition`, every display setting as JSON, the defaults included (`RenditionMetadata`). A JPEG
-carries the name only. The annotated save keeps `-annotated`. Pinned by `RenditionFileNameTests`,
+carries the same as EXIF (Software, the source as ImageDescription when it is ASCII, the JSON as UserComment)
+and XMP (`xmp:CreatorTool`, `dc:description`, `tianwen:Rendition`), from SharpAstro.Jpeg 3.22 (Codecs#43);
+`DisplayRasterText` is the one record each container's form is made from. The annotated save keeps
+`-annotated`. Pinned by `RenditionFileNameTests`,
 `SaveDialogFolderTests.TheDisplayedSaveSuggestsANameThatSaysHowThePictureWasRendered`, which fails with the
-controller suggesting the bare stem, and `AnnotatedRasterExportTests.ThePlainSaveCarriesItsRenditionInThePng`.
+controller suggesting the bare stem, `AnnotatedRasterExportTests.ThePlainSaveCarriesItsRenditionInThePng` and
+`AJpegSaveCarriesItsRenditionInExifAndXmp`.
 
 
 ## P36. One Enhance popover: the AI program for deep sky, the sharpening for a planet  (PLANNED 2026-10-08)

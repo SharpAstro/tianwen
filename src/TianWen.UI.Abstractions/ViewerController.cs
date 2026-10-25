@@ -744,23 +744,13 @@ public sealed class ViewerController(
             cancellationToken: cancellationToken);
     }
 
-    /// <summary>The text a displayed PNG carries: the program, the source file and every display setting
+    /// <summary>What a displayed save carries: the program, the source file and every display setting
     /// (<see cref="RenditionMetadata"/>), so the file says how it was made whatever it is later called.</summary>
-    internal static IReadOnlyList<SharpAstro.Png.PngText> RenditionText(
+    internal static DisplayRasterText RenditionText(
         AstroImageDocument saveDoc, ViewerState state, StretchMode shownMode, bool starSplitShown)
-    {
-        var text = new List<SharpAstro.Png.PngText>(3)
-        {
-            new("Software", RenditionMetadata.Software),
-        };
-        if (Path.GetFileName(saveDoc.FilePath) is { Length: > 0 } source)
-        {
-            text.Add(new("Source", source));
-        }
-        text.Add(new(RenditionMetadata.RenditionKeyword,
-            RenditionMetadata.Json(state, shownMode, saveDoc.IsEnhanceResult, starSplitShown)));
-        return text;
-    }
+        => new(RenditionMetadata.Software,
+            Path.GetFileName(saveDoc.FilePath) is { Length: > 0 } source ? source : null,
+            RenditionMetadata.Json(state, shownMode, saveDoc.IsEnhanceResult, starSplitShown));
 
     /// <summary>The rendition <paramref name="saveDoc"/> is drawn with under <paramref name="state"/>, through the one producer
     /// of its uniforms (<c>ComputeStretchUniforms</c>), so the save and the name it suggests agree on the stretch shown.</summary>

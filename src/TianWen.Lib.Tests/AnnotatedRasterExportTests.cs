@@ -3,7 +3,11 @@ using System.Collections.Concurrent;
 using TianWen.Lib.Geometry;
 using System.IO;
 using System.Linq;
+using System.Text;
+using System.Text.Json;
+using System.Xml.Linq;
 using System.Threading.Tasks;
+using SharpAstro.Exif;
 using SharpAstro.Png;
 using Shouldly;
 using TianWen.Lib.Imaging;
@@ -32,6 +36,9 @@ namespace TianWen.Lib.Tests
     {
         private const int ImageW = 96;
         private const int ImageH = 64;
+
+        /// <summary>EXIF's UserComment tag, in the Exif sub-IFD.</summary>
+        private const ushort ExifUserComment = 0x9286;
 
         [Fact]
         public async Task WithNoOverlaysOn_ItIsTheCleanRasterPixelForPixel()
@@ -64,7 +71,7 @@ namespace TianWen.Lib.Tests
             var text = (await ExportCleanAsync(document, state)).Text;
 
             text.ShouldContain(t => t.Keyword == "Software" && t.Text.StartsWith("TianWen "));
-            var rendition = text.Where(t => t.Keyword == RenditionMetadata.RenditionKeyword).ShouldHaveSingleItem();
+            var rendition = text.Where(t => t.Keyword == DisplayRasterText.RenditionKeyword).ShouldHaveSingleItem();
             using var json = System.Text.Json.JsonDocument.Parse(rendition.Text);
             var root = json.RootElement;
             root.GetProperty("stretch").GetString().ShouldBe(nameof(StretchMode.None));
@@ -72,6 +79,40 @@ namespace TianWen.Lib.Tests
             root.GetProperty("backgroundSkyLevel").GetSingle().ShouldBe(0.09f);
             root.GetProperty("finishContrast").GetSingle().ShouldBe(0f, "a setting at its default is recorded too");
             root.TryGetProperty("stars", out _).ShouldBeFalse("no star split is shown");
+        }
+
+        /// <summary>
+        /// A JPEG save carries the same rendition, as EXIF (Software, and the JSON as UserComment) and as XMP
+        /// (<c>tianwen:Rendition</c>), since a JPEG has no text chunks.
+        /// </summary>
+        [Fact]
+        public async Task AJpegSaveCarriesItsRenditionInExifAndXmp()
+        {
+            var document = await NewColourDocumentAsync();
+            var state = NewState();
+            state.FinishSaturation = 1.24f;
+
+            var jpeg = await ExportCleanBytesAsync(document, state, DisplayRasterFormat.Jpeg, ".jpg");
+
+            var exif = ExifReader.FromJpeg(jpeg).ShouldNotBeNull("the JPEG must carry an EXIF segment");
+            exif.Software.ShouldNotBeNull().ShouldStartWith("TianWen ");
+            var comment = exif.RawTags[ExifUserComment].Bytes;
+            Encoding.ASCII.GetString(comment, 0, 8).ShouldBe("ASCII\0\0\0");
+            using (var json = JsonDocument.Parse(comment.AsMemory(8)))
+            {
+                json.RootElement.GetProperty("finishSaturation").GetSingle().ShouldBe(1.24f);
+            }
+
+            var start = jpeg.AsSpan().IndexOf("<x:xmpmeta"u8);
+            var end = jpeg.AsSpan().IndexOf("</x:xmpmeta>"u8);
+            start.ShouldBeGreaterThanOrEqualTo(0, "the JPEG must carry an XMP packet");
+            var packet = XDocument.Parse(Encoding.UTF8.GetString(jpeg, start, end + "</x:xmpmeta>".Length - start));
+            var rendition = packet.Descendants().Attributes(XName.Get("Rendition", DisplayRasterText.XmpNamespaceUri))
+                .ShouldHaveSingleItem().Value;
+            using (var json = JsonDocument.Parse(rendition))
+            {
+                json.RootElement.GetProperty("finishSaturation").GetSingle().ShouldBe(1.24f);
+            }
         }
 
         /// <summary>
@@ -267,6 +308,23 @@ namespace TianWen.Lib.Tests
                     TestContext.Current.CancellationToken);
 
                 return PngReader.Decode(await File.ReadAllBytesAsync(path));
+            }
+            finally
+            {
+                File.Delete(path);
+            }
+        }
+
+        private static async Task<byte[]> ExportCleanBytesAsync(
+            AstroImageDocument document, ViewerState state, DisplayRasterFormat format, string extension)
+        {
+            var path = Path.Combine(Path.GetTempPath(), $"clean-{Guid.NewGuid():N}{extension}");
+            try
+            {
+                await ViewerController.WriteDisplayedRasterAsync(document, state, path, format,
+                    TestContext.Current.CancellationToken);
+
+                return await File.ReadAllBytesAsync(path);
             }
             finally
             {
