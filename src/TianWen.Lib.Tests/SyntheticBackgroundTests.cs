@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Linq;
 using Shouldly;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Degradation;
 using TianWen.Lib.Imaging.StarRemoval;
 using Xunit;
 
@@ -540,6 +541,83 @@ public sealed class SyntheticBackgroundTests
             narrowRound += a.Count(static k => k.SigmaMajorPx == k.SigmaMinorPx && k.SigmaMajorPx < 4 * Fwhm / 2.3548);
         }
         narrowRound.ShouldBeGreaterThan(0, "D3's round knots start at 1.6 PSF widths");
+    }
+
+    // #1786: a smooth nebula at up to four times the sky, whose noise is the master's shot-noise ramp (variance linear in the
+    // level above the pedestal), so a pixel at 4x the sky carries twice the sky's sigma. Nothing in it but noise.
+    private const float RampSky = 0.05f;
+    private const float RampBump = 3f;
+
+    private static double RampLevel(int x, int y)
+        => RampSky * (1 + (RampBump * Math.Exp(-(((x - 256.0) * (x - 256.0)) + ((y - 256.0) * (y - 256.0))) / (2 * 90.0 * 90.0))));
+
+    private static LinearDegradation.NoiseCalibration RampCalibration => new(0.0, RampSky, Noise, 1);
+
+    private static Image RampPlate(int seed)
+    {
+        var rng = new Random(seed);
+        var plane = new float[Size, Size];
+        for (var y = 0; y < Size; y++)
+        {
+            for (var x = 0; x < Size; x++)
+            {
+                var level = RampLevel(x, y);
+                plane[y, x] = (float)(level + (RampCalibration.SigmaAt(level, 1.0) * Gaussian(rng)));
+            }
+        }
+        return new Image([plane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+    }
+
+    // 1.4826 x the median absolute horizontal difference over sqrt 2: the estimator the synthetics review reads a tile's noise by.
+    private static double AdjacentSigma(Func<int, int, double> at, int x0, int y0, int side)
+    {
+        var diffs = new double[(side - 1) * side];
+        var k = 0;
+        for (var y = y0; y < y0 + side; y++)
+        {
+            for (var x = x0 + 1; x < x0 + side; x++)
+            {
+                diffs[k++] = Math.Abs(at(x, y) - at(x - 1, y));
+            }
+        }
+        Array.Sort(diffs);
+        return 1.4826 * diffs[diffs.Length / 2] / Math.Sqrt(2);
+    }
+
+    [Fact]
+    public void ANebulaOnAShotNoiseRampHoldsNoTextureAtTheScalesOfItsOwnNoise()
+    {
+        var background = SyntheticBackground.Build(RampPlate(11), absent: null, Fwhm);
+
+        // At the middle the level is 4x the sky, so the plate's own noise is 2x the sky's. A sky-wide noise variance taken out
+        // of the local one left that excess, 3 sky variances of 4, as texture the exporter then drew its noise on top of.
+        var local = RampCalibration.SigmaAt(RampLevel(256, 256), 1.0);
+        for (var j = 0; j < 3; j++)
+        {
+            var amplitudes = Enumerable.Range(0, 40).Select(k => (double)background.Amplitude(0, j, 236 + k, 256)).ToArray();
+            amplitudes.Average().ShouldBeLessThan(0.3 * local, $"the plate holds only noise at {1 << j} px, at the nebula's top as on the sky");
+        }
+    }
+
+    [Fact]
+    public void ASyntheticNebulaOnAShotNoiseRampReadsTheNoiseOfThePlateItCameFromAndNotMore()
+    {
+        var plate = RampPlate(12);
+        var background = SyntheticBackground.Build(plate, absent: null, Fwhm);
+        const int cell = 256;
+        var level = background.Cell(128, 128, cell, [RampCalibration.SigmaAt(RampSky, 1.0)], new Random(13), out _, withKnots: false);
+        var white = TianWen.Lib.Imaging.Degradation.NoiseField.White(cell, cell, new Random(14));
+        var noisy = new double[cell * cell];
+        for (var i = 0; i < noisy.Length; i++)
+        {
+            noisy[i] = level[0][i] + (RampCalibration.SigmaAt(level[0][i], 1.0) * white[i]);
+        }
+        var real = plate.GetChannelArray(0);
+
+        // The middle 96 px of the plate, where the level is 3.5 to 4x the sky.
+        var plateSigma = AdjacentSigma((x, y) => real[y, x], 208, 208, 96);
+        var syntheticSigma = AdjacentSigma((x, y) => noisy[((y - 128) * cell) + (x - 128)], 208, 208, 96);
+        (syntheticSigma / plateSigma).ShouldBe(1.0, 0.05, "the drawn noise is the plate's, with no texture of the plate's noise beneath it");
     }
 
     [Fact]

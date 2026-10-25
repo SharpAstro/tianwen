@@ -4565,7 +4565,8 @@ matches synth11 to f16 rounding; synth11 is the same export re-stretched by the 
   cells clip at 0.83 to 0.95, against the real stars' brightest 0.92 to 0.96 over the plate. So the band's edge sits
   in noise units, and the gap is the synthetic noise level on this rig: 1.11 to 1.17 times real's on Lobster's three
   sessions, 1.00 on M42 and SMC (S2's recount). That level is tracked by #1786. Where to look is the noise anchor's
-  calibration on the QHY294PROC.
+  calibration on the QHY294PROC. **Found (flight TIA1781, #1786): it is not the anchor, it is the synthetic background's
+  texture, which carried the plate's own shot noise a second time** (see "S4b: the noise level (#1786)" below).
 - **As exported, the gap is the stretch alone.** Through the plate's stretch, B/G is 0.27 high at 5-20 sigma and 0.18
   at 20-100, and R/G 0.36 and 0.13 low. Through the master's, the same tiles are within 0.035. Once tiles are exported
   `--stretch-from master` (#1776, synth11), the as-exported column is the re-stretched one.
@@ -4660,6 +4661,46 @@ Tracked by #1781 (the step S4's verdict named). **What was built:** `dataset deg
 - **Pinned by** `StarInjectionTests` (a known diagonal structure is fitted without shrink, and drawn fields, white and warped, carry every lag as the measure reads it, hold unit variance and each channel's lag-1 and leave the draw's own stream where it was; a plate drawn with a known structure reads it back through the real median to 0.03; an unreachable measure is shrunk) and `DatasetDegradationExporterTests` (a noise-free plate reads none, and the export is the one without the option to the byte).
 
 **The read this leaves for the next leg:** as S4's: per rig, the lagged cross-correlations against real, and the noise-only AUC over three seeds against synth4, as exported and re-stretched to the master's own stretch.
+
+##### S4b: the noise level (#1786)
+
+Folded into this flight (F5). The stars export's noise ran 1.11 to 1.17 times the real master's on the QHY294PROC (Lobster)
+and 1.00 on M42 and SMC. **The cause is named from the code and reproduced on a constructed plate. The per-session
+re-read on the 8 validation sessions is NOT done**: those sessions, synth4's tiles and #1786's instruments
+(`C:/temp/tianwen-scratch/TIA1737/colours`) are not on the machine this leg ran on (no archive drive, no scratch folder), so the
+table below is the constructed plate's, and the real one is still owed (see the last bullet).
+
+- **Not the noise anchor.** The exporter draws `sigma(level) * field` with the master's own recorded calibration
+  (`CellMasterCalibration`: the master row's `NoiseSigma`, times `sqrt(N)` for one sub and back by `masterDepth`), and
+  `SigmaAt` is the same model the master was measured by. Nothing in that chain is rig-specific.
+- **The synthetic background's texture carried the plate's shot noise.** `SyntheticBackground.SignalAmplitude` sets the
+  texture's amplitude at each replaced scale (1 to 8 px at a 4-PSF keep) as the plate's local energy less its noise, and it
+  took ONE noise variance for the whole plate (the clean pixels' robust variance, which the sky dominates), times
+  `NoiseMargin` 1.2. A master's noise is not flat: its variance is linear in the level above the pedestal. Over a nebula at
+  four times the sky the plate's own noise is twice the sky's, and the excess (3 sky variances of 4) was read as TEXTURE.
+  The exporter then drew its level-dependent noise on top, so the fine scales, and with them the adjacent-difference
+  estimate, held the noise twice. It scales with how far the nebula stands above the sky, so it is largest on a dark-sky rig
+  shooting a bright nebula (Lobster) and absent on a field whose sky is as bright as its nebula (M42, SMC read 1.00).
+- **Reproduced** (`SyntheticBackgroundTests.ASyntheticNebulaOnAShotNoiseRampReadsTheNoiseOfThePlateItCameFromAndNotMore`):
+  a 512 px one-channel plate, sky 0.05, a smooth nebula rising to 4x the sky, noise on the shot ramp and nothing else in it.
+  The background built from it and drawn with the exporter's noise read **1.20 times the plate's adjacent-difference sigma**
+  over the nebula's middle 96 px (the estimator of #1786's table), inside the band 1.11 to 1.17 once a tile's
+  sky share is averaged in. Texture amplitude at the nebula's top averaged 0.38 of the local noise at the first scale that failed the bound (the
+  test's 0.3), from a plate that holds nothing but noise (`ANebulaOnAShotNoiseRampHoldsNoTextureAtTheScalesOfItsOwnNoise`).
+- **The fix** (`SyntheticBackground.NoiseVarianceRamp`, in `Build` per channel): the noise taken out of a pixel's local energy
+  is the sky's variance times the plate's own ramp at that pixel (`SigmaAt`'s clamp, `MinVarianceFraction` to
+  `MaxVarianceFactor`, from the plate's coarse level above its pedestal, the sky the lower sixth of the clean levels), and the
+  sky's variance is read as detail over the ramp's root. On a flat plate the ramp is 1 and the amplitude is what it was, so a
+  sky-only field is unchanged. On the constructed plate the sigma ratio falls to within 1.05 and the texture holds none of the
+  nebula's noise (both tests pin it, and failed at 1.20 and 0.38 before).
+- **Not changed:** the large-scale-driven path (`LargeScale`, which takes its own measured noise per band), `FineStructure`'s
+  steering read and the tail read, which still take one noise per plate. They read orientation and kurtosis, not the energy
+  that is drawn.
+- **Still owed, on the machine that holds the sessions:** re-export Lobster's three sessions and one of each other rig with
+  the stars arm, re-read the median per-tile sigma ratio by `domain_stats` through the master's stretch, and expect Lobster at
+  1.05 or under with M42, SMC and HIP 80609 not past 1.05. If Lobster is still above, the next suspect is the lag-1 of the warped
+  field against real's (the adjacent-difference estimate falls with correlation), which S4b's per-channel structure now measures.
+  Every export baked before this change drew the doubled noise.
 
 #### A learned synthetics generator, kept in sight
 
