@@ -9,7 +9,9 @@ deduped against the rest of this file. Date in parens is when the note was writt
 sections above when picked up. Notes that turned out to be already DONE or already tracked elsewhere are
 intentionally NOT repeated here.
 
-**Sweep watermark: the Slack self-DM is swept through 2026-09-19.** Earlier passes are folded in below: the
+**Sweep watermark: the Slack self-DM is swept through 2026-10-24.** The 2026-10-24 pass (the first since the backlog became
+issues) filed #1810 to #1816 and commented on #1659 and #535. The SkyWatcher "old notes" were already #372, and the pilot
+and pdf-viewer notes went to those projects. Earlier passes are folded in below: the
 2026-06-02 consolidation below (Mar-May), and a 2026-07-07 pass that filed the ROEBA banding and Hough
 star-halo notes **straight into [imaging.md](imaging.md)** with full detail rather than through this file,
 which is why they are absent here, a 2026-08-27/28 pass that filed the whole FITS-viewer band straight
