@@ -168,6 +168,95 @@ namespace TianWen.Lib.Tests
             tab.TargetListRect.Width.ShouldBe(780f, 1f);
         }
 
+        // A phone's chart: every twilight zone, the weather strip with its seeing row, two pinned-less
+        // targets. The nautical zone is 15 minutes wide so "Civil" and "Astro" (the same label row) sit
+        // closer together than their words are wide, which is what piled the words up at the left edge.
+        private static PlannerState BuildChartState()
+        {
+            var state = BuildState();
+            state.CivilSet = NightStart - TimeSpan.FromMinutes(45);
+            state.NauticalSet = NightStart - TimeSpan.FromMinutes(30);
+            state.NauticalRise = NightEnd + TimeSpan.FromMinutes(30);
+            state.CivilRise = NightEnd + TimeSpan.FromMinutes(45);
+            state.MinHeightAboveHorizon = 20;
+            state.WeatherForecast = [.. Enumerable.Range(-1, 14).Select(h => new HourlyWeatherForecast(
+                NightStart.AddHours(h), CloudCover: 20, Precipitation: 0, Temperature: 12, Humidity: 85, DewPoint: 9,
+                WindSpeed: 3, WindGust: 5, WindDirection: 270, Visibility: 20000, WeatherCode: 1,
+                WindSpeed250hPa: 20))];
+            return state;
+        }
+
+        private static (PlannerTab<RgbaImage> Tab, TextCapturingRenderer Renderer) RenderChartTab(
+            int width, int height, float dpiScale)
+        {
+            var renderer = new TextCapturingRenderer((uint)width, (uint)height);
+            var tab = new PlannerTab<RgbaImage>(renderer) { DpiScale = dpiScale, FontPath = FontResolver.ResolveSystemFont() };
+            tab.Render(BuildChartState(), new RectF32(0, 0, renderer.Width, renderer.Height),
+                new FakeTimeProviderWrapper(new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero)));
+            return (tab, renderer);
+        }
+
+        [Theory]
+        [InlineData(780, 1688, 2f)]  // 390x844 design space at 2x
+        [InlineData(1170, 2532, 3f)] // and at 3x
+        public void Portrait_ChartText_IsNeverUnderTheMinimumPhysicalSize(int width, int height, float dpiScale)
+        {
+            var (tab, renderer) = RenderChartTab(width, height, dpiScale);
+            using var _ = renderer;
+
+            var chart = tab.ChartRect;
+            var inChart = renderer.Runs
+                .Where(r => r.Rect.UpperLeft.X >= (int)chart.X && r.Rect.LowerRight.X <= (int)(chart.X + chart.Width)
+                         && r.Rect.UpperLeft.Y >= (int)chart.Y && r.Rect.LowerRight.Y <= (int)(chart.Y + chart.Height))
+                .ToArray();
+
+            // The strip, the title, the legend and the limit label are all in there, or this proves nothing.
+            inChart.ShouldContain(r => r.Text == "RH");
+            inChart.ShouldContain(r => r.Text.StartsWith("Observation Schedule", StringComparison.Ordinal));
+            inChart.ShouldContain(r => r.Text == "20°");
+
+            var floor = AltitudeChartRenderer.MinFontDesign * dpiScale;
+            foreach (var run in inChart)
+            {
+                run.FontSize.ShouldBeGreaterThanOrEqualTo(floor - 0.01f,
+                    $"'{run.Text}' is drawn at {run.FontSize} px, under the {floor} px a {dpiScale}x phone needs to read it");
+            }
+        }
+
+        [Theory]
+        [InlineData(390, 844, 1f)]
+        [InlineData(780, 1688, 2f)]
+        [InlineData(1170, 2532, 3f)]
+        public void Portrait_TwilightLabels_DoNotOverlapOneAnother(int width, int height, float dpiScale)
+        {
+            var (_, renderer) = RenderChartTab(width, height, dpiScale);
+            using var _ = renderer;
+
+            var labels = renderer.Runs
+                .Where(r => r.Text is "Civil" or "Naut." or "Astro")
+                .Select(r =>
+                {
+                    var ink = renderer.MeasureText(r.Text.AsSpan(), r.Font, r.FontSize).Width;
+                    var centre = (r.Rect.UpperLeft.X + r.Rect.LowerRight.X) / 2f;
+                    return (r.Text, Y: r.Rect.UpperLeft.Y, Left: centre - ink / 2f, Right: centre + ink / 2f);
+                })
+                .ToArray();
+
+            labels.Length.ShouldBeGreaterThan(1, "the twilight labels must draw, or this proves nothing");
+            for (var i = 0; i < labels.Length; i++)
+            {
+                for (var j = i + 1; j < labels.Length; j++)
+                {
+                    if (labels[i].Y != labels[j].Y)
+                    {
+                        continue; // different rows: the rows are a text height apart
+                    }
+                    var overlap = labels[i].Left < labels[j].Right && labels[j].Left < labels[i].Right;
+                    overlap.ShouldBeFalse($"'{labels[i].Text}' and '{labels[j].Text}' share a row and their words overlap");
+                }
+            }
+        }
+
         [Fact]
         public void Portrait_TightWindow_DetailsStripCollapsesAway()
         {
