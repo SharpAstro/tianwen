@@ -3905,6 +3905,119 @@ Andromeda's blue at 1.5-3 px is the first of ours above the -0.8 that R2v set an
 points. **By the pre-registration the cores do not go onto R2t's recipe.** In use, M31's nucleus does not depend on them:
 inference keeps a core whatever the remover does (`--protect-cores`, #1658's inference half). The next lever is the owner's.
 
+#### Round 3: closing on the judges, flown as pilot flights (draft, 2026-10-25)
+
+The owner, 2026-10-25: "lets first create a plan on how we improve the stellar removal training, including connecting
+flights". Rounds 1 and 2 were run by one long session with scheduled-task drivers; from round 3 each piece of work is a
+pilot flight (one issue, one plane cut from main, legs, a reviewed PR), and the owner creates, connects and merges them.
+
+##### Where round 2 left us
+
+On whole masters, at one view (rows from "Round 2" and "R2w's read" above):
+
+| | ours, best | which | SXT | StarNet2 |
+|---|---|---|---|---|
+| Andromeda bright dark-sky stars flat / dug | 48.7 / 28.8 % | R2w | 98.6 / 1.4 % | 48.1 / 0.4 % |
+| Andromeda blue at 1.5-3 px | -0.75 sigma | R2x (killed) | -0.40 | -0.22 |
+| Tarantula bright dark-sky stars flat / left | 57.2 / 40.3 % | R2t | 96.6 / 2.7 % | 92.3 / 7.4 % |
+| held-out Tarantula crowded stars flat | 81.3 % | R2t | 96.1 % | 96.5 % |
+| purity (light taken where no star is) | 0.5 % | R2t | 3.1 % | 1.7 % |
+
+StarNet2 is no closer than ours on Andromeda's flat count, but it leaves light where ours dig: 0.4 % dug against 28.8. A
+star left faint is a cosmetic miss; a hole is the one forbidden artefact (the goal, top of this plan).
+
+Three things are settled and carried: R2t's recipe is the base (four levels, 6.86 M weights, cosine, `--clip-grad 8`, the
+clusters at 12.5 %); every export takes the master's stretch (#1776); M31's nucleus is kept at inference
+(`--protect-cores`), not by the training data (R2x). The gap left is the hole under bright stars: Andromeda's dig stands
+27.4 points above SXT's, three and a half times the most any round-2 arm moved it (7.8, R2w).
+
+##### What limits us, ranked
+
+1. **Nothing in the objective punishes a dug core more than a left one.** Bright cores carry about 2.5 % of the squared
+   error, and the hole is a one-sided failure. The speckle teacher (#1362) is the lever built for it and was never tried.
+2. **The teacher is out of domain.** E5's members trained on the plate's stretch; on master-stretched inputs R2t's
+   recipe would regress onto answers to a different stretch. Retrain or drop it, never carry it silently.
+3. **The evaluation sets are out of domain too.** A's draws and R2k's twins were exported with the plate's stretch, so
+   R2w and every later arm fall there by construction ("R2w's read"). Until they are re-exported, the whole masters and
+   the real tiles are the only fair reads.
+4. **The training stars are still the easiest thing to tell from real** (the synthetics review: star crops AUC 0.76 to
+   0.79): bright stars carry about half the real 3-5 px light, rising with brightness and differing by rig (S1, #1241),
+   and the noise's shared part has no neighbourhood (S4b, #1781) and runs 1.11 to 1.17 times real on the QHY294PROC
+   (#1786).
+5. **One seed is not a read on bright stars.** R2i's two seeds stand 4 points apart on A's bright band and R2u moves the
+   Tarantula up to 13 points; R2x's kill bar was tighter than the seeds' own spread. Bright-band bars come from two seeds.
+6. **Capacity** last: R2t gained by growing to 6.86 M weights and SXT's file holds about 16 M, but a bigger net on
+   unrealistic stars learns the unrealistic stars better.
+
+##### The flights
+
+Infrastructure and data changes are code flights; each training arm is a flight of its own, three legs, written below.
+Every flight is filed as an issue in the `star-remover-training` milestone and links its heading here.
+
+| flight | issue | what lands | done when | connects to |
+|---|---|---|---|---|
+| F1 run tooling | #1774, #1787 folded in | the arm chain runnable as pilot jobs: export, train resumed across two jobs, score, ONNX; the driver's stop file on any exception | a dry arm over R2u's outputs runs every step through `pilot run` and exits 0 with no GPU | none |
+| F2 fair reads | to open | A's draws and both twins re-exported on the master's stretch; R2i seed 0 and 1, R2t, R2w re-scored on them; bright-band bars stated from two seeds; M42 read per session in the scorecard | the four baselines' rows on the new sets in the plan | F1 |
+| F3 the dig penalty | #1362 | the speckle teacher as a trainer option, pinned to `StarlessSpeckles` by a parity fixture | the fixture passes on CPU; the option off is byte-identical training | none |
+| F4 the wings by brightness | #1241 | S1b: each rig's wing gain with a brightness term, drawn per channel inside the real channel relation (R2s's lesson); the classifier's spread over seeds read first | star-crop AUC moves past the classifier's own spread, and no drawn star outside every real master's relation | none |
+| F5 the noise | #1781, #1786 folded in | S4b's shared component with real's cross-structure at lags 0 to 2, and the QHY294PROC's noise anchor recalibrated | noise-crop AUC below synth4's 0.70 and Lobster's sigma ratio within 1.05 | none |
+| F6 the clusters' stretch | #1823 | the synthetic cluster tiles stretched with the master's parameters, as synth11's are (they took the plate's, 1.32 to 1.53 times gentler at the sky), and re-exported | the 90 skies re-exported and packed into a cache beside synth11's | none |
+| R3a | to open | R2t's recipe on a master-stretched export, no teacher, seeds 0 and 1, both on the 1070 | both rows on whole masters, real tiles and F2's sets | F2, F6 |
+| R3b | to open | R3a plus the dig penalty on the synthetic tiles | its read | R3a, F3 |
+| R3b2 | filed after R3b's read | the dig penalty on real master tiles too, beside the synthetic loss, which must stay or the net learns to remove nothing | its read, timidity checked: real stars within a sigma at 100 to 1000 sigma no worse than R3b's | R3b |
+| R3c | filed after R3b's read | the winner plus a teacher rebuilt from R3a's two seeds (E7, 8 views) | its read | R3b |
+| R3d | filed after F4 and F5's gates | the winner on the export with whatever F4 and F5 adopted | its read | R3c |
+| R3e | only if R3d plateaus | a larger net on a T4 | its read | R3d |
+
+**Why R3a has no teacher.** It isolates what R2t's recipe does on the master's stretch against R2w (R2i's recipe on the
+same stretch), and its two seeds are then both the bright-band spread and E7's members, so the teacher question costs no
+extra training.
+
+**Which connections are made ahead.** F2 to F1, R3a to F2 and F6, and R3b to R3a and F3 run whatever the earlier read says, so
+they are created and connected at once and each lands into the next. R3c onwards depend on a verdict, so the read that
+precedes each names its candidates as issue drafts and the owner files the one picked. F3, F4 and F5 have no
+connection: they fly beside the arms, and their checks stay off the GPU (jobs queue one at a time on the node).
+
+##### An arm as a flight
+
+- **Leg 1, export.** `dataset degrade` from the frozen recipe, on C: or D: (never E:). Check: the export's manifest
+  exists with the expected tile counts, and `FROZEN-AT.txt` names the commit.
+- **Leg 2, train.** The worker starts the trainer with `pilot run --timeout 8h` and ends its turn; a run past 8 h resumes
+  from its checkpoint in a second job. A modest token budget, since the worker sleeps while the job runs. Check: the best
+  checkpoint and the ONNX with its contract exist. A seed on an Azure T4 is a job that drives `launch-arm.ps1` and polls,
+  under the same cap, with eviction answered by the trainer's resume; it needs a new SAS first.
+- **Leg 3, read.** `score_whole.py`, `score-arm.ps1` and F2's sets; the pre-registration's predictions checked and the
+  read written into this plan under the arm's own heading, with the candidate next arms as issue drafts. Check: the row
+  file exists and parses. A bad score never fails the leg: a negative result lands like any other.
+- **The PR carries the read.** The reviewer reads it; the owner reads it on the merge ring, merges, and picks the next
+  arm. Every arm flies on DE1, the desktop with the 1070.
+
+##### Rules carried into round 3
+
+- Pre-register before the first training step, a few lines, its kill rule included.
+- Bright-band bars from both of R2i's seeds, or the arm's own two; a difference under the seeds' spread is a seed's.
+- The whole masters and the real tiles decide; A's draws and the twins only once F2 has re-exported them.
+- Guards: purity at most 1.0 %; M31's nucleus read without `--protect-cores` at most 5 % in every channel, since a
+  remover that takes a core takes other bright compact structure too.
+- M42's bright stars over nebula read per session on every master-stretched arm (two thirds of R2w's real-tile dip).
+
+##### Housekeeping before R3a
+
+- Azure: `r2-synth4`, `r2-synth6` and `r2-synth7` serve no round-3 arm, since every new export takes the master's
+  stretch; the owner deletes them (134 GB over two accounts).
+- R3a trains both seeds on the 1070 (the owner, 2026-10-25), so nothing is uploaded. Its inputs are local: synth11's
+  export (`C:/temp/tianwen-scratch/r2-train-synth11`, kept; its cache, deleted after R2w, is rebuilt from it by the prepare
+  step) and F6's clusters (`C:/temp/tianwen-scratch/r3-clusters-master`, re-exported 2026-10-25).
+- The four-level net has never trained on the 1070 (R2nc, R2t and R2u ran on T4s), so its time there is measured on R3a's
+  first job, not assumed.
+- The 1070 and the Azure group are idle; no scheduled task is left (all retired 2026-10-24).
+
+##### Deferred, and why
+
+The learned generator (#1740) waits on F4 and F5: if a component stays above about 0.6 AUC after them, it comes next. The
+halo option (#1659), the scenes (#1363, the bright star in nebula first if M42 keeps failing), the background structure
+(#1338, #1311) and the spikes (section 8) stay where they are.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
