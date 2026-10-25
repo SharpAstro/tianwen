@@ -51,9 +51,8 @@ def recon(config):
         for pattern in ("C:/Users/SebastianGodelet/source/repos/sharpastro/tianwen/training/star-removal/scorecard*.json",
                         "C:/temp/*/scorecard*.json", "C:/temp/*/*/scorecard*.json", "C:/temp/scorecard*.json",
                         "D:/*/scorecard*.json", "D:/*/*/scorecard*.json", "C:/Users/SebastianGodelet/*/scorecard*.json"):
-            candidates += [pathlib.Path(p) for p in glob.glob(pattern)]
-    for c in candidates:
-        print("CONFIG CANDIDATE", c)
+            candidates += [pathlib.Path(p) for p in glob.glob(pattern) if 'example' not in p]
+    print("CONFIG CANDIDATES", [str(c) for c in candidates])
     if not candidates:
         return
     cfg = json.loads(candidates[0].read_text())
