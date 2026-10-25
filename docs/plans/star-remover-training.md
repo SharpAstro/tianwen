@@ -4191,6 +4191,32 @@ the review's direction, are the next measurement.
   ASI294MC, 1.4 to 1.7 and none on the ASI585); F4's own gate is the star-crop AUC bar above, read on an export drawn with
   the trend, `degrade --star-shapes` on the new file.
 
+**The channel relation, held to the real envelope (`degrade --clamp-wing-relations`, 2026-10-25, #1241's leg
+`channel-relation-clamp`; opt-in, not yet run on the masters).** `degrade --star-shapes` on a file with a slope already draws
+each star at the gain of its own significance (`InjectionPopulation.Plan`, `StarShape.LogGains`; a saturated star the brightest
+band's), but a slope per channel moves each channel's wing on its own, so a drawn star's channels can leave every real
+master's relation (R2s's lesson: Andromeda's blue). The option holds them in:
+
+- **The envelope** (`ChannelWingEnvelope.Read`, over the star-shapes file's masters) is each channel's real light 3 to 8 px
+  out per amplitude (`StarShapeChannel.RealLight`) as a ratio to green's, in logs, least and greatest over every band that is
+  read to better than the stars' own scatter (`MinReliability` 0.5 of the weight the stars alone carry; a faint band's ratio
+  is the sky's error, and would only widen it; a row from before the weight was kept counts for nothing). One box per channel
+  count: the file carries no filter, so a colour sensor's masters of every filter share it, the widest honest envelope; a
+  mono master has no relation and is never clamped. Narrower, per filter family, needs the filter in the file.
+- **The clamp** (`WingRelationClamp`, in `InjectionPopulation.Plan`, after the trend and any channel factors) moves a channel
+  outside its bounds to the edge by solving its wing gain, green's never touched: the light a gain draws, as `DrawnLight`
+  reads it, is a line in the gain (two readings per channel fix it), so the edge is one division. It draws no random number,
+  so the stars keep their places, brightness and colour, and every lobe, saturated and faint star goes through it.
+- **Said, not silent.** Each injection row carries `WingClamped` (the stars a channel of which was moved) and `WingUnreached`
+  (of those, the ones whose gain hit 0.25 or 8 before the edge, a core that alone carries more of the light than the edge
+  allows, so the star is still outside); both are written only when non-zero, and the session's log line gives their totals.
+  The "no drawn star outside the envelope" gate holds where `WingUnreached` is 0, so read that number on the first real export.
+- **Refused with** `--channel-wing-cut` (which departs from the envelope on purpose) and `--channel-relations`; it needs
+  `--star-shapes`. Pinned by `StarInjectionTests` (`ATrendDrawsBrighterStarsWithStrongerWings`,
+  `AClampedStarsChannelsStayInsideTheEnvelopeTheRealMastersSpan`, `AnEdgeTheWingGainCannotReachIsSaidAndTakenToTheGainsBound`)
+  and `DatasetDegradationExporterTests.AWingRelationClampHoldsEveryStarToTheRealEnvelopeAndNothingElseMoves`, where an envelope no
+  star leaves changes no byte of any tile or row.
+
 #### Synthetics S2: the star population below the catalogue
 
 Tracked by #1737. The injected brightness follows a luminosity function fitted to the real tiles' star counts and

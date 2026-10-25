@@ -25,6 +25,15 @@ public sealed record InjectionPlan(ImmutableArray<InjectedStar> Stars, int Reque
     /// <summary>With a luminosity function (S2), the extra stars under the catalogue's limit, drawn from a stream of their
     /// own after <see cref="Stars"/>, which are the plan's without them; empty otherwise.</summary>
     public ImmutableArray<InjectedStar> Faint { get; init; } = [];
+
+    /// <summary>With a wing relation clamp (<see cref="WingRelationClamp"/>), the stars of <see cref="Stars"/> and
+    /// <see cref="Faint"/>, lobes included, a channel of which had its wing gain moved onto the real envelope's edge; 0
+    /// otherwise.</summary>
+    public int WingClamped { get; init; }
+
+    /// <summary>Of <see cref="WingClamped"/>'s stars, those with a channel whose gain could not reach the envelope's edge within
+    /// <see cref="StarShape.MinGain"/> and <see cref="StarShape.MaxGain"/>, and so is still outside it.</summary>
+    public int WingUnreached { get; init; }
 }
 
 /// <summary>
@@ -89,6 +98,7 @@ public sealed class InjectionPopulation
     private readonly (double X, double Y, double E, double Theta)[] _moments;
     private readonly StarlessFieldProfile? _field;
     private StarShapeRow? _shape;
+    private WingRelationClamp? _wingClamp;
     private ChannelRelation? _ownRelation;
     private LuminosityFunction? _luminosity;
     private PoolStar[] _faintColours = [];
@@ -145,6 +155,10 @@ public sealed class InjectionPopulation
     /// <summary>Stars the elongation is measured on.</summary>
     public int MomentPool => _moments.Length;
 
+    /// <summary>Whether every drawn star's channel wing relation is held to the real masters' envelope
+    /// (<see cref="WingRelationClamp"/>).</summary>
+    public bool ClampsWingRelations => _wingClamp is not null;
+
     /// <summary>The master's fitted luminosity function the extra faint stars are drawn from (S2), or null for none.</summary>
     public LuminosityFunction? Luminosity => _luminosity;
 
@@ -174,12 +188,19 @@ public sealed class InjectionPopulation
     /// profile at the wing gains the master's real stars of its brightness were measured to need, per channel; null draws
     /// it as fitted. <paramref name="faintFloor"/> (S2, <see cref="LuminosityFunction"/>) fits the counted sites' luminosity
     /// function and draws extra stars under the catalogue's limit down to that significance; a catalogue too thin to fit is
-    /// refused.
+    /// refused. <paramref name="wingEnvelope"/> (#1241, <see cref="WingRelationClamp"/>) holds every drawn star's channel wing
+    /// relation to the one the real masters span, where the envelope has masters of this channel count; it draws on the
+    /// field profile.
     /// </summary>
     public static InjectionPopulation Build(
         ImmutableArray<FittedStar> catalogue, Image master, Image plate, double scale, IReadOnlyList<(double Fwhm, double Beta)> psf, BitMatrix? absent,
-        StarlessFieldProfile? field = null, bool lobes = false, StarShapeRow? shape = null, double? faintFloor = null)
+        StarlessFieldProfile? field = null, bool lobes = false, StarShapeRow? shape = null, double? faintFloor = null,
+        ChannelWingEnvelope? wingEnvelope = null)
     {
+        if (wingEnvelope is not null && field is null)
+        {
+            throw new ArgumentException("a wing relation envelope holds the master's field profile; it needs one", nameof(wingEnvelope));
+        }
         var channels = master.ChannelCount;
         if (psf.Count != channels)
         {
@@ -308,8 +329,15 @@ public sealed class InjectionPopulation
             }
         }
 
+        WingRelationClamp? wingClamp = null;
+        if (wingEnvelope?.BoundsFor(channels) is { } bounds && field is { } fieldProfile)
+        {
+            wingClamp = new WingRelationClamp(
+                [.. fieldProfile.Channels.Select(static c => new StarProfile(StarProfileFamily.Field, c.Fwhm, c.Beta, 1.0, 0.0, c.Table, c.TableAlpha))], bounds);
+        }
+
         return new InjectionPopulation(width, height, channels, absent, psf.ToArray(), sites, countedSites, amplitudes, saturated, fallbackClips,
-            moments.ToArray(), field) { _shape = shape, _luminosity = luminosity, _faintColours = faintColours };
+            moments.ToArray(), field) { _shape = shape, _luminosity = luminosity, _faintColours = faintColours, _wingClamp = wingClamp };
     }
 
     /// <summary>
@@ -354,7 +382,10 @@ public sealed class InjectionPopulation
     /// wing for every star of the draw, from the same stream of its own, and is named in the plan's
     /// <see cref="InjectionPlan.RelationFrom"/>. A population built with a luminosity function (S2) adds the cell's faint stars
     /// in <see cref="InjectionPlan.Faint"/>, drawn from <paramref name="faintRng"/> alone, so the plan's other stars are the
-    /// ones it makes without them.
+    /// ones it makes without them. A population with a wing relation clamp (<see cref="WingRelationClamp"/>) then holds each
+    /// star's channels to the real envelope, which draws no random number, and counts the stars it moved in
+    /// <see cref="InjectionPlan.WingClamped"/>; it is not drawn with a wing cut or a channel variation, which depart from the
+    /// envelope on purpose.
     /// </summary>
     public InjectionPlan Plan(
         int cellX, int cellY, int size, int margin, InjectionPlacement placement, StarProfileFamily family, double saturatedFraction, Random rng,
@@ -362,6 +393,14 @@ public sealed class InjectionPopulation
     {
         ImmutableArray<(double LogHalo, double LogWidth)> factors = default;
         string? relationFrom = null;
+        if (_wingClamp is not null && (wingCut is not null || variation is not null))
+        {
+            throw new InvalidOperationException("a wing relation clamp holds the stars to the real envelope; a wing cut or a channel variation draws outside it");
+        }
+        if (_wingClamp is not null && family != StarProfileFamily.Field)
+        {
+            throw new InvalidOperationException("a wing relation clamp moves the master's field profile; it needs the Field profile");
+        }
         if (wingCut is not null)
         {
             if (variationRng is null)
@@ -400,8 +439,19 @@ public sealed class InjectionPopulation
             throw new InvalidOperationException("a star shape calibrates the master's field profile; it needs the Field profile");
         }
         // A star's profiles where it lands, at its brightness's measured wing gains (R2s2) and the draw's channel factors.
+        var (wingClamped, wingUnreached) = (0, 0);
         ImmutableArray<StarProfile> Shaped(double x, double y, float significance)
-            => Varied(ProfilesAt(x, y, family, _shape is { } shape ? StarShape.LogGains(shape, significance) : default), factors);
+        {
+            var profiles = Varied(ProfilesAt(x, y, family, _shape is { } shape ? StarShape.LogGains(shape, significance) : default), factors);
+            if (_wingClamp is null)
+            {
+                return profiles;
+            }
+            profiles = _wingClamp.Apply(profiles, out var moved, out var unreached);
+            wingClamped += moved ? 1 : 0;
+            wingUnreached += unreached ? 1 : 0;
+            return profiles;
+        }
 
         var x0 = Math.Max(0, cellX - margin);
         var y0 = Math.Max(0, cellY - margin);
@@ -481,7 +531,7 @@ public sealed class InjectionPopulation
             }
             faint = builder.ToImmutable();
         }
-        return new InjectionPlan(stars.ToImmutable(), requested, placed, fallback, relationFrom) { Faint = faint };
+        return new InjectionPlan(stars.ToImmutable(), requested, placed, fallback, relationFrom) { Faint = faint, WingClamped = wingClamped, WingUnreached = wingUnreached };
     }
 
     /// <summary>

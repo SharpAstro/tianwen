@@ -126,12 +126,16 @@ public static partial class DatasetDegradationExporter
     /// <summary>One draw's injection: what was asked for, what was placed, and every star; on a synthetic background
     /// (R2d's D2), the knots its target keeps, the same in every draw of the cell; with channel relations (R2s2), whose
     /// relation the draw's stars took, as the plate stem it was measured on; with faint stars (S2), how many of them the tile's
-    /// cap dropped, written only when any were.</summary>
+    /// cap dropped, written only when any were; with the wing relation clamp (#1241), how many of the draw's stars had a channel's
+    /// wing gain moved onto the real envelope's edge, written only when any were, and how many of those could not reach it within
+    /// the gain's bounds and are still outside, written only when any are.</summary>
     public sealed record InjectionRow(
         string Tile, string SessionId, int CellX, int CellY, int Draw, string Placement, string Profile, int Requested, int Placed,
         bool SaturatedFallback, InjectedStarRow[] Stars, InjectedKnotRow[]? Knots = null, string? RelationFrom = null,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] KeptCoreRow? Core = null,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] int FaintCapped = 0);
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] int FaintCapped = 0,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] int WingClamped = 0,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] int WingUnreached = 0);
 
     /// <summary>A cell's kept core (<see cref="KeptCore"/>, #1658), in the cell's coordinates, the same in every draw of it:
     /// its FWHM across both axes in pixels, its major axis's angle in degrees, the bulge's share and scale, the peak drawn in
@@ -147,14 +151,18 @@ public static partial class DatasetDegradationExporter
     internal sealed class StarsContext
     {
         internal StarsContext(string platesDir, Dictionary<string, DatasetPsfNoiseReport.SessionPsf> psf, ChannelVariation? variation = null,
-            Dictionary<string, StarShapeRow>? shapes = null, ChannelWingCut? wingCut = null)
+            Dictionary<string, StarShapeRow>? shapes = null, ChannelWingCut? wingCut = null, ChannelWingEnvelope? wingEnvelope = null)
         {
             PlatesDir = platesDir;
             Psf = psf;
             Variation = variation;
             Shapes = shapes;
             WingCut = wingCut;
+            WingEnvelope = wingEnvelope;
         }
+
+        /// <summary>The channel wing relations the real masters span (<see cref="Options.ClampWingRelations"/>), or null for no clamp.</summary>
+        public ChannelWingEnvelope? WingEnvelope { get; }
 
         /// <summary>The wing cut every draw may take (<see cref="Options.ChannelWingCut"/>), or null for none.</summary>
         public ChannelWingCut? WingCut { get; }
@@ -204,7 +212,16 @@ public static partial class DatasetDegradationExporter
                 // A master calibrated to its own stars keeps their shape; another master's relation would undo it.
                 throw new ArgumentException("star shapes and channel relations are two arms; give one", nameof(options));
             }
+            if (options.ClampWingRelations && options.StarShapesPath is null)
+            {
+                throw new ArgumentException("the wing relation clamp reads its envelope off the star-shapes file; give one", nameof(options));
+            }
+            if (options.ClampWingRelations && options.ChannelWingCut is not null)
+            {
+                throw new ArgumentException("a wing cut departs from the real envelope on purpose; the clamp would undo it", nameof(options));
+            }
             Dictionary<string, StarShapeRow>? shapes = null;
+            ChannelWingEnvelope? wingEnvelope = null;
             if (options.StarShapesPath is { } shapesPath)
             {
                 shapes = await StarShape.ReadAllAsync(shapesPath, cancellationToken);
@@ -213,6 +230,12 @@ public static partial class DatasetDegradationExporter
                     throw new FileNotFoundException("the star-shapes file holds no master", shapesPath);
                 }
                 logger?.LogInformation("[degrade] star shapes measured on {Count} masters: each master's stars drawn at its real stars' wing gains", shapes.Count);
+                if (options.ClampWingRelations)
+                {
+                    wingEnvelope = ChannelWingEnvelope.Read(shapes.Values);
+                    logger?.LogInformation("[degrade] wing relation envelope over {Masters} masters (log light to green's, per channel, from / to): {Envelope}",
+                        shapes.Count, wingEnvelope.InWords());
+                }
             }
             ChannelVariation? variation = null;
             if (options.ChannelRelationSessions is { } relationSessions)
@@ -265,7 +288,7 @@ public static partial class DatasetDegradationExporter
                     "[degrade] faint stars: each master's luminosity function extended below its catalogue down to {Floor} sigma, each tile's light under {Limit} sigma capped at {Cap} sigma",
                     faintFloor, LuminosityFunction.DetectionSigma, options.FaintStarCap);
             }
-            return new StarsContext(platesDir, psf, variation, shapes, wingCut);
+            return new StarsContext(platesDir, psf, variation, shapes, wingCut, wingEnvelope);
         }
 
         public string PlatePath(string sessionId) => Path.Combine(PlatesDir, DatasetTileExporter.Sanitize(sessionId) + "_plate.fits");
@@ -454,7 +477,12 @@ public static partial class DatasetDegradationExporter
                         $"from {b.MinSignificance:F0}: {string.Join(" / ", b.Channels.Select(static c => c.WingGain.ToString("F2", CultureInfo.InvariantCulture)))}"))));
             }
             var population = InjectionPopulation.Build(catalogue, master, plate, 1.0 / divisor, psf, absent, field, options.StarLobes, starShape,
-                options.FaintStarFloor);
+                options.FaintStarFloor, stars.WingEnvelope);
+            if (stars.WingEnvelope is not null && !population.ClampsWingRelations)
+            {
+                logger?.LogWarning("[degrade] {Session}: the star-shapes file has no readable {Channels}-channel master, so its stars' wing relation is not clamped",
+                    sessionId, channels);
+            }
             if (population.Luminosity is { } luminosity)
             {
                 logger?.LogInformation(
@@ -566,6 +594,13 @@ public static partial class DatasetDegradationExporter
             }
 
             await DatasetTileExporter.AppendManifestAsync(outTileManifest, tileRows.ToImmutable(), cancellationToken);
+            if (population.ClampsWingRelations)
+            {
+                var unreached = injectionRows.Sum(static r => r.WingUnreached);
+                logger?.LogInformation("[degrade] {Session}: wing relation clamp moved a channel of {Clamped} of {Stars} drawn stars onto the real envelope's edge{Unreached}",
+                    sessionId, injectionRows.Sum(static r => r.WingClamped), injectionRows.Sum(static r => r.Stars.Length),
+                    unreached == 0 ? "" : $"; {unreached} of them could not reach it within the gain's bounds and stay outside");
+            }
             await AppendInjectionsAsync(Path.Combine(options.OutDir, InjectionManifestFileName), injectionRows.ToImmutable(), cancellationToken);
             if (measures is not null)
             {
@@ -791,7 +826,9 @@ public static partial class DatasetDegradationExporter
             Core: core is null ? null
                 : new KeptCoreRow(core.X, core.Y, core.FwhmMinorPx, core.FwhmMajorPx, core.AngleRad * 180.0 / Math.PI, core.BulgeShare,
                     core.BulgeScale, core.DrawnSigma, [.. core.Peak], core.Capped),
-            FaintCapped: faintDrawn.Length - faintKept);
+            FaintCapped: faintDrawn.Length - faintKept,
+            WingClamped: plan.WingClamped,
+            WingUnreached: plan.WingUnreached);
         return (row, injection);
     }
 

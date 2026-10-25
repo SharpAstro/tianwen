@@ -1455,6 +1455,202 @@ public class StarInjectionTests(ITestOutputHelper output)
         Should.NotThrow(() => System.Text.Json.JsonSerializer.Serialize(new StarShapeRow("bare", trend.Bands), StarShapeJsonContext.Default.StarShapeRow));
     }
 
+    // A rig's row with a brightness trend per channel: bands at 30, 100 and 400 sigma, the gains at 400 the bright ones.
+    private static StarShapeRow TrendShape()
+    {
+        float[] significance = [30f, 100f, 400f];
+        double[] bright = [1.8, 1.4, 1.2];
+        double[] slope = [0.6, 0.4, 0.2];
+        var bands = significance.Select(s => new StarShapeBand(s * 0.7f, 50,
+            [.. bright.Select((g, c) => new StarShapeChannel(1.0, 1.0, g * Math.Pow(s / 400.0, slope[c]), Stars: 50, Weight: 5000.0))], s));
+        return new StarShapeRow("trend", [.. bands], "ASI294MC", slope.ToImmutableArray());
+    }
+
+    // A master's row of the real light per amplitude, one array of channels a band; a band read to better than the stars' scatter.
+    private static StarShapeRow RealRow(string id, params double[][] lights)
+        => new StarShapeRow(id, [.. lights.Select((l, b) => new StarShapeBand(100f * (b + 1), 50,
+            [.. l.Select(static v => new StarShapeChannel(v, v, 1.0, Stars: 50, Weight: 5000.0))], 100f * (b + 1)))]);
+
+    // A star's channel relation as the envelope reads it: the light 3 to 8 px out per amplitude of channel c over green's, as a log.
+    private static double LogRelation(ImmutableArray<StarProfile> profiles, int c)
+    {
+        static double Light(StarProfile p) => StarShape.DrawnLight(p with { AxisRatio = 1.0, PositionAngleRad = 0.0 }, 0.0, 0.0);
+        return Math.Log(Light(profiles[c]) / Light(profiles[ChannelWingEnvelope.ReferenceChannel(profiles.Length)]));
+    }
+
+    /// <summary>
+    /// #1241: with a brightness trend a star is drawn at the gain of ITS significance, so a brighter star has the stronger wing
+    /// in every channel with a rising slope, and a saturated one the brightest band's.
+    /// </summary>
+    [Fact]
+    public void ATrendDrawsBrighterStarsWithStrongerWings()
+    {
+        var shape = TrendShape();
+        var population = BuildColourPopulation(ColourField((3.0, 0.002f), (2.3, 0.006f), (2.6, 0.004f)), shape, spreadSignificance: true);
+        var plan = population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 0.0, new Random(21));
+        var stars = plan.Stars.Where(static s => !s.Saturated).OrderBy(static s => s.Amplitudes[0]).ToArray();
+        stars.Length.ShouldBeGreaterThan(10);
+        for (var c = 0; c < 3; c++)
+        {
+            var gains = stars.Select(s => s.Profiles[c].HaloLogGain).ToArray();
+            gains.ShouldBe([.. gains.Order()], $"channel {c}: the wing never weakens with brightness");
+            gains[^1].ShouldBeGreaterThan(gains[0] + 0.05, $"channel {c}: the brightest star's wing is stronger than the faintest's");
+        }
+        foreach (var star in stars)
+        {
+            var expected = StarShape.LogGains(shape, 20f + 1000f * (float)star.Amplitudes[0]);
+            for (var c = 0; c < 3; c++)
+            {
+                star.Profiles[c].HaloLogGain.ShouldBe(expected[c], 1e-9);
+            }
+        }
+        var saturated = population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(21)).Stars.Single(static s => s.Saturated);
+        for (var c = 0; c < 3; c++)
+        {
+            saturated.Profiles[c].HaloLogGain.ShouldBe(StarShape.LogGains(shape, float.PositiveInfinity)[c], 1e-9);
+        }
+    }
+
+    /// <summary>
+    /// The envelope is each channel's least and greatest light ratio to green's over the real masters' reliable bands: a band whose
+    /// light the sky's error swamps, a mono master, and a row measured before the weight was kept say nothing.
+    /// </summary>
+    [Fact]
+    public void AnEnvelopeIsTheRealMastersSpanInTheirReadableBands()
+    {
+        var unreliable = new StarShapeRow("noisy", [new StarShapeBand(10f, 50, [.. new[] { 5.0, 1.0, 0.1 }.Select(static v => new StarShapeChannel(v, v, 1.0, Stars: 50, Weight: 10.0))], 10f)]);
+        var envelope = ChannelWingEnvelope.Read([
+            RealRow("a", [0.9, 1.0, 1.1], [1.1, 1.0, 0.95]),
+            RealRow("b", [1.0, 1.0, 1.3]),
+            unreliable,
+            RealRow("mono", [1.0]),
+            RealRow("pair", [2.0, 1.0])]);
+        var bounds = envelope.BoundsFor(3).ShouldNotBeNull();
+        bounds[0].ShouldBe((Math.Log(0.9), Math.Log(1.1)));
+        bounds[1].ShouldBe((0.0, 0.0), "green is the reference");
+        bounds[2].ShouldBe((Math.Log(0.95), Math.Log(1.3)));
+        envelope.BandsByChannels[3].ShouldBe(3, "the noisy band is not read");
+        envelope.BoundsFor(1).ShouldBeNull();
+        envelope.BoundsFor(2).ShouldNotBeNull()[0].ShouldBe((Math.Log(2.0), Math.Log(2.0)));
+        envelope.BoundsFor(4).ShouldBeNull();
+
+        var before = new StarShapeRow("old", [new StarShapeBand(1000f, 20, [.. Enumerable.Repeat(new StarShapeChannel(1.0, 1.0, 1.2), 3)])]);
+        var none = ChannelWingEnvelope.Read([before]);
+        none.BoundsFor(3).ShouldBeNull("a row with no weight is no reading");
+        none.InWords().ShouldContain("nothing is clamped");
+    }
+
+    /// <summary>The clamp's two readings per channel make the light a line in the gain, as the real measure draws it.</summary>
+    [Fact]
+    public void AWingGainDrawsALineInTheLightPerAmplitude()
+    {
+        var field = ColourField((3.0, 0.002f), (2.3, 0.006f), (2.6, 0.004f));
+        var round = field.Channels.Select(static c => new StarProfile(StarProfileFamily.Field, c.Fwhm, c.Beta, 1.0, 0.0, c.Table, c.TableAlpha)).ToImmutableArray();
+        var clamp = new WingRelationClamp(round, [(-1.0, 1.0), (0.0, 0.0), (-1.0, 1.0)]);
+        for (var c = 0; c < 3; c++)
+        {
+            foreach (var gain in new[] { 0.3, 1.0, 3.0, 7.0 })
+            {
+                var read = StarShape.DrawnLight(round[c] with { HaloLogGain = Math.Log(gain) }, 0.0, 0.0);
+                // The light is read off a float plane, so a line to a part in 1e7 is a line.
+                clamp.LightAt(c, gain).ShouldBe(read, 1e-5 * Math.Abs(read), $"channel {c} at gain {gain}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// #1241: the trend moves each channel's wing on its own, so a drawn star's channels can leave every real master's relation;
+    /// the clamp puts them back, and no drawn star (lobes, saturated, faint alike) stays outside. It moves green never, draws no
+    /// random number (the same stars land at the same places with the same colours), and counts the stars it moved.
+    /// </summary>
+    [Fact]
+    public void AClampedStarsChannelsStayInsideTheEnvelopeTheRealMastersSpan()
+    {
+        // One width in every channel, so the wing gain alone can reach any relation the envelope asks for.
+        var field = ColourField((2.4, 0.002f), (2.4, 0.006f), (2.4, 0.004f));
+        var shape = TrendShape();
+        var envelope = ChannelWingEnvelope.Read([RealRow("a", [0.9, 1.0, 1.1], [1.1, 1.0, 0.95]), RealRow("b", [1.0, 1.0, 1.05])]);
+        var bounds = envelope.BoundsFor(3).ShouldNotBeNull();
+        var free = BuildColourPopulation(field, shape, spreadSignificance: true);
+        var clamped = BuildColourPopulation(field, shape, spreadSignificance: true, wingEnvelope: envelope);
+        free.ClampsWingRelations.ShouldBeFalse();
+        clamped.ClampsWingRelations.ShouldBeTrue();
+
+        var outsideWithout = 0;
+        var moved = 0;
+        for (var seed = 21; seed < 25; seed++)
+        {
+            var plan = free.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(seed));
+            var held = clamped.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(seed));
+            held.Stars.Length.ShouldBe(plan.Stars.Length);
+            var changed = 0;
+            for (var i = 0; i < plan.Stars.Length; i++)
+            {
+                var (before, after) = (plan.Stars[i], held.Stars[i]);
+                (after.X, after.Y, after.Saturated).ShouldBe((before.X, before.Y, before.Saturated));
+                after.Amplitudes.ShouldBe(before.Amplitudes, "a star keeps its brightness and colour");
+                after.Profiles[1].HaloLogGain.ShouldBe(before.Profiles[1].HaloLogGain, "green is never moved");
+                for (var c = 0; c < 3; c += 2)
+                {
+                    var (lo, hi) = bounds[c];
+                    var wasOutside = LogRelation(before.Profiles, c) is var r && (r < lo - 1e-5 || r > hi + 1e-5);
+                    outsideWithout += wasOutside ? 1 : 0;
+                    LogRelation(after.Profiles, c).ShouldBeInRange(lo - 1e-5, hi + 1e-5, $"seed {seed} star {i} channel {c}");
+                    if (!wasOutside)
+                    {
+                        after.Profiles[c].HaloLogGain.ShouldBe(before.Profiles[c].HaloLogGain, "a channel inside the envelope is left as the trend drew it");
+                    }
+                }
+                changed += after.Profiles.SequenceEqual(before.Profiles) ? 0 : 1;
+            }
+            held.WingClamped.ShouldBe(changed);
+            held.WingUnreached.ShouldBe(0, "the wing gain reaches every edge here");
+            plan.WingClamped.ShouldBe(0);
+            moved += changed;
+        }
+        outsideWithout.ShouldBeGreaterThan(0, "the trend must leave the envelope somewhere, or this tests nothing");
+        moved.ShouldBeGreaterThan(0);
+
+        // An envelope as wide as no real master could be moves nothing.
+        var wide = ChannelWingEnvelope.Read([RealRow("w", [0.001, 1.0, 0.001], [1000.0, 1.0, 1000.0])]);
+        var open = BuildColourPopulation(field, shape, spreadSignificance: true, wingEnvelope: wide)
+            .Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(21));
+        open.WingClamped.ShouldBe(0);
+        open.Stars.Select(static s => s.Profiles).ShouldBe(free.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(21)).Stars.Select(static s => s.Profiles));
+    }
+
+    /// <summary>
+    /// A channel much wider than green carries more of the 3 to 8 px light in its core alone than a tight envelope allows, whatever
+    /// its wing: the clamp takes the gain to its bound, the nearest the draw can be, and says so rather than claim the star is held.
+    /// </summary>
+    [Fact]
+    public void AnEdgeTheWingGainCannotReachIsSaidAndTakenToTheGainsBound()
+    {
+        var field = ColourField((3.0, 0.002f), (2.3, 0.006f), (2.6, 0.004f));
+        var envelope = ChannelWingEnvelope.Read([RealRow("tight", [1.0, 1.0, 1.0])]);
+        var population = BuildColourPopulation(field, TrendShape(), spreadSignificance: true, wingEnvelope: envelope);
+        var plan = population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 0.0, new Random(21));
+        plan.WingClamped.ShouldBeGreaterThan(0);
+        plan.WingUnreached.ShouldBeGreaterThan(0);
+        plan.Stars.ShouldContain(static s => Math.Abs(s.Profiles[0].HaloLogGain - Math.Log(StarShape.MinGain)) < 1e-12, "red, whose core is the widest, sits at the least gain");
+    }
+
+    /// <summary>A clamp holds the field profile's stars to the real envelope: a wing cut or a variation departs from it on
+    /// purpose, and a profile that is not the field's is not the envelope's measure.</summary>
+    [Fact]
+    public void AWingRelationClampRefusesWhatDepartsFromTheEnvelope()
+    {
+        var field = ColourField((3.0, 0.002f), (2.3, 0.006f), (2.6, 0.004f));
+        var envelope = ChannelWingEnvelope.Read([RealRow("a", [0.9, 1.0, 1.1])]);
+        var population = BuildColourPopulation(field, TrendShape(), spreadSignificance: true, wingEnvelope: envelope);
+        Should.Throw<InvalidOperationException>(() => population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 0.0, new Random(1),
+            variationRng: new Random(2), wingCut: new ChannelWingCut(0.5)));
+        Should.Throw<InvalidOperationException>(() => population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Moffat, 0.0, new Random(1)));
+        Should.Throw<ArgumentException>(() => BuildColourPopulation(field: null, wingEnvelope: envelope));
+        // An envelope with no master of the channel count is no clamp.
+        BuildColourPopulation(field, wingEnvelope: ChannelWingEnvelope.Read([RealRow("mono", [1.0])])).ClampsWingRelations.ShouldBeFalse();
+    }
+
     // A three-channel field profile: each channel's FWHM (beta 3) and a flat halo from 2 to 10 px at the field's width.
     private static StarlessFieldProfile ColourField((double Fwhm, float Halo) red, (double Fwhm, float Halo) green, (double Fwhm, float Halo) blue)
     {
@@ -1467,14 +1663,16 @@ public class StarInjectionTests(ITestOutputHelper output)
     }
 
     // BuildPopulation in three channels, each star a little redder than blue, the master's saturated star cored at 0.9 in all.
-    private static InjectionPopulation BuildColourPopulation(StarlessFieldProfile? field = null, StarShapeRow? shape = null)
+    // With spreadSignificance each star's significance rises with its amplitude (20 + 1000 x amplitude, 30 to 230), not all 100.
+    private static InjectionPopulation BuildColourPopulation(StarlessFieldProfile? field = null, StarShapeRow? shape = null, bool spreadSignificance = false,
+        ChannelWingEnvelope? wingEnvelope = null)
     {
         const int size = 256;
         var rng = new Random(2);
         var catalogue = ImmutableArray.CreateBuilder<FittedStar>();
-        static FittedStar ColourStar(float x, float y, float amplitude, bool saturated)
-            => new FittedStar(x, y, 100, amplitude, 1f, 0.1f, 0.01f, StarFitOutcome.Subtracted, saturated, false, float.NaN, float.NaN, false, float.NaN,
-                StarFitModel.Moffat, [amplitude, 0.8f * amplitude, 0.6f * amplitude]);
+        FittedStar ColourStar(float x, float y, float amplitude, bool saturated)
+            => new FittedStar(x, y, spreadSignificance ? 20f + 1000f * amplitude : 100f, amplitude, 1f, 0.1f, 0.01f, StarFitOutcome.Subtracted, saturated, false,
+                float.NaN, float.NaN, false, float.NaN, StarFitModel.Moffat, [amplitude, 0.8f * amplitude, 0.6f * amplitude]);
         for (var i = 0; i < 30; i++)
         {
             catalogue.Add(ColourStar((float)(10 + rng.NextDouble() * (size - 20)), (float)(10 + rng.NextDouble() * (size - 20)),
@@ -1499,7 +1697,8 @@ public class StarInjectionTests(ITestOutputHelper output)
         }
         var master = new Image(masterPlanes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
         var plate = new Image(platePlanes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
-        return InjectionPopulation.Build(catalogue.ToImmutable(), master, plate, 1.0, [(2.5, 3.0), (2.5, 3.0), (2.5, 3.0)], null, field, shape: shape);
+        return InjectionPopulation.Build(catalogue.ToImmutable(), master, plate, 1.0, [(2.5, 3.0), (2.5, 3.0), (2.5, 3.0)], null, field, shape: shape,
+            wingEnvelope: wingEnvelope);
     }
 
     private static (InjectionPopulation Population, ImmutableArray<FittedStar> Catalogue) BuildPopulation()
