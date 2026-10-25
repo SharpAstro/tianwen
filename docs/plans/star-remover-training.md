@@ -3997,7 +3997,7 @@ Every flight is filed as an issue in the `star-remover-training` milestone and l
 
 | flight | issue | what lands | done when | connects to |
 |---|---|---|---|---|
-| F1 run tooling | #1774, #1787 folded in | the arm chain runnable as pilot jobs: export, train resumed across two jobs, score, ONNX; the driver's stop file on any exception | a dry arm over R2u's outputs runs every step through `pilot run` and exits 0 with no GPU | none |
+| F1 run tooling | #1774, #1787 folded in | the arm chain runnable as pilot jobs: `training/star-removal/arm-step.ps1 -Step export`, `train` (`-Budget` 7h30m, `-CheckpointEvery`, exit 4 "resumable: run the train step again", run it twice when needed), `onnx`, `score`, `whole`; the driver's stop file on any exception | a dry arm over R2u's outputs runs every step through `pilot run` and exits 0 with no GPU; that dry run on DE1 is the bench check, `test-arm-steps.ps1` the stub one | none |
 | F2 fair reads | to open | A's draws and both twins re-exported on the master's stretch; R2i seed 0 and 1, R2t, R2w re-scored on them; bright-band bars stated from two seeds; M42 read per session in the scorecard | the four baselines' rows on the new sets in the plan | F1 |
 | F3 the dig penalty | #1362 | the speckle teacher as a trainer option, pinned to `StarlessSpeckles` by a parity fixture. **Landed:** the port and fixture, then `--speckle-weight` / `--speckle-sigma` in `n2n_smoke.py` (off by default, in the fingerprint only when set, in the training and held-out objectives, logged), `-SpeckleWeight` / `-SpeckleSigma` in `run-r2.ps1` and `arm-driver.ps1`; see "The speckle teacher" | the fixture passes on CPU; the option off is byte-identical training | none |
 | F4 the wings by brightness | #1241 | S1b: each rig's wing gain with a brightness term, drawn per channel inside the real channel relation (R2s's lesson); the classifier's spread over seeds read first | star-crop AUC moves past the classifier's own spread, and no drawn star outside every real master's relation | none |
@@ -4021,13 +4021,23 @@ connection: they fly beside the arms, and their checks stay off the GPU (jobs qu
 
 ##### An arm as a flight
 
-- **Leg 1, export.** `dataset degrade` from the frozen recipe, on C: or D: (never E:). Check: the export's manifest
-  exists with the expected tile counts, and `FROZEN-AT.txt` names the commit.
-- **Leg 2, train.** The worker starts the trainer with `pilot run --timeout 8h` and ends its turn; a run past 8 h resumes
-  from its checkpoint in a second job. A modest token budget, since the worker sleeps while the job runs. Check: the best
-  checkpoint and the ONNX with its contract exist. A seed on an Azure T4 is a job that drives `launch-arm.ps1` and polls,
-  under the same cap, with eviction answered by the trainer's resume; it needs a new SAS first.
-- **Leg 3, read.** `score_whole.py`, `score-arm.ps1` and F2's sets; the pre-registration's predictions checked and the
+Each leg's step is `training/star-removal/arm-step.ps1 -Step <s> <common>`, `<common>` being the arm's `-Tag -Name -TrainDir
+-Cache -Config -Runs` (`training/README.md`, "Scoring an arm's weights, and driving a local arm", has the five lines in full).
+
+- **Leg 1, export.** `dataset degrade` from the frozen recipe, on C: or D: (never E:), as
+  `pilot run -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step export <common> -ExportScript <export.ps1> -ExportDone <done file>`.
+  Check: the export's manifest exists with the expected tile counts, and `FROZEN-AT.txt` names the commit.
+- **Leg 2, train.** The worker starts
+  `pilot run --timeout 8h -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step train <common> -TrainScript training/denoise/run-r2.ps1 -TrainArgs <switches>`
+  and ends its turn. The step stops the trainer itself at its `-Budget` (7h30m) with the resume checkpoint whole, says
+  `resumable: run the train step again` and exits 4; the worker then runs **the same line again** as a second job, which
+  resumes. A modest token budget, since the worker sleeps while the job runs. Then
+  `pilot run -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step onnx <common>` writes `<Name>.onnx` and its
+  contract from the weights. Check: the best checkpoint and the ONNX with its contract exist. A seed on an Azure T4 is a job
+  that drives `launch-arm.ps1` and polls, under the same cap, with eviction answered by the trainer's resume; it needs a
+  new SAS first.
+- **Leg 3, read.** `arm-step.ps1 -Step score <common>` (`score-arm.ps1`, reusing the ONNX) and `-Step whole <common>`
+  (`score_whole.py`), each its own `pilot run -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 ...`, and F2's sets; the pre-registration's predictions checked and the
   read written into this plan under the arm's own heading, with the candidate next arms as issue drafts. Check: the row
   file exists and parses. A bad score never fails the leg: a negative result lands like any other.
 - **The PR carries the read.** The reviewer reads it; the owner reads it on the merge ring, merges, and picks the next

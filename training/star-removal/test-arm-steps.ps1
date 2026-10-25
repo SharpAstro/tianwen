@@ -5,7 +5,9 @@
 # What it shows: every step over an arm whose outputs all exist (R2u's shape) exits 0 and starts no child (the stubs count their
 # starts, and a score or whole step that did start score-arm.ps1 or score_whole.py would fail on the stub config); export and
 # train run their stubs when the output is missing; a config that fails to load writes <tag>-chain.stop once and logs the error,
-# and the next pass makes no attempt; and the driver is still a pass over the steps (one step per pass, <tag>.done at the end).
+# and the next pass makes no attempt; the driver is still a pass over the steps (one step per pass, <tag>.done at the end); a train
+# step over its -Budget stops the stub trainer's whole tree, leaves the resume file, exits 4 and a second call resumes; and the
+# onnx step writes the ONNX and its contract through a stub n2n_export.py, skipping once both exist.
 $ErrorActionPreference = 'Stop'
 $pwsh = (Get-Command pwsh -ErrorAction Stop).Source
 $step = Join-Path $PSScriptRoot 'arm-step.ps1'
@@ -37,12 +39,24 @@ function New-Arm([string]$tag, [string]$outputs, [switch]$BadConfig) {
     foreach ($d in 'runs', 'train', 'cache', 'out', 'reports', 'logs') { New-Item -ItemType Directory -Force "$arm/$d" | Out-Null }
     $name = "${tag}_s0"
     Set-Content "$arm/export.ps1" "Add-Content '$arm/starts-export.txt' 'start'; Set-Content '$arm/export.done' 'done'"
-    Set-Content "$arm/train.ps1" "param([string]`$Name); Add-Content '$arm/starts-train.txt' `"start `$Name`"; Set-Content `"$arm/train/`$Name.pt`" 'weights'"
-    $config = [ordered]@{ out_root = "$arm/out"; arm = [ordered]@{ reports = "$arm/reports"; logs_root = "$arm/logs" } }
+    Set-Content "$arm/train.ps1" "param([string]`$Name, [int]`$CheckpointEvery); Add-Content '$arm/starts-train.txt' `"start `$Name`"; Set-Content `"$arm/train/`$Name.pt`" 'weights'"
+    # The frozen run folder's n2n_export.py, as a stub: writes <--name> and its contract into <--out>, and counts its starts.
+    New-Item -ItemType Directory -Force "$arm/run" | Out-Null
+    Set-Content "$arm/run/n2n_export.py" @"
+import sys, os
+a = dict(zip(sys.argv[1::2], sys.argv[2::2]))
+with open(r'$arm/starts-onnx.txt', 'a') as f: f.write('start\n')
+open(os.path.join(a['--out'], a['--name']), 'w').write('onnx')
+open(os.path.join(a['--out'], a['--name'].replace('.onnx', '.contract.json')), 'w').write('{}')
+"@
+    $config = [ordered]@{ out_root = "$arm/out"; arm = [ordered]@{ run = "$arm/run"; reports = "$arm/reports"; logs_root = "$arm/logs" } }
     if ($BadConfig) { Set-Content "$arm/config.json" '{ this is not json' } else { Set-Content "$arm/config.json" ($config | ConvertTo-Json -Depth 4) }
     if ($outputs -eq 'all') {
         Set-Content "$arm/export.done" 'done'
         Set-Content "$arm/train/$name.pt" 'weights'
+        New-Item -ItemType Directory -Force "$arm/logs/score-$name" | Out-Null
+        Set-Content "$arm/logs/score-$name/$name.onnx" 'onnx'
+        Set-Content "$arm/logs/score-$name/$name.contract.json" '{}'
         foreach ($r in "real-star-read-$name.txt", "ring-$name.txt", "m31-nucleus-$name.txt") { Set-Content "$arm/reports/$r" 'read' }
         New-Item -ItemType Directory -Force "$arm/out/$tag" | Out-Null
         Set-Content "$arm/out/$tag/row.txt" 'row'
@@ -55,14 +69,14 @@ function New-Arm([string]$tag, [string]$outputs, [switch]$BadConfig) {
 try {
     # 1. an arm whose outputs all exist: every step skips, exit 0, no child.
     $a = New-Arm 'r2u' 'all'
-    foreach ($s in 'export', 'train', 'score', 'whole') {
+    foreach ($s in 'export', 'train', 'onnx', 'score', 'whole') {
         $r = Call $step (@('-Step', $s) + $a.Args)
         Assert ($r.Code -eq 0) "step $s over a finished arm exits 0 (exit $($r.Code): $($r.Out.Trim()))"
         Assert ($r.Out -match "arm-step $($s): skipped") "step $s says it skipped"
     }
-    Assert ((Starts $a.Dir 'export') -eq 0 -and (Starts $a.Dir 'train') -eq 0) 'no stub script was started over a finished arm'
+    Assert ((Starts $a.Dir 'export') -eq 0 -and (Starts $a.Dir 'train') -eq 0 -and (Starts $a.Dir 'onnx') -eq 0) 'no stub script was started over a finished arm'
     Assert (-not (Test-Path "$($a.Dir)/runs/r2u-chain.stop")) 'a finished arm wrote no stop file'
-    Assert (-not (Test-Path "$($a.Dir)/logs/score-$($a.Name)")) 'no score-arm.ps1 or score_whole.py was started over a finished arm'
+    Assert (-not (Test-Path "$($a.Dir)/logs/score-$($a.Name)/score.log")) 'no score-arm.ps1 or score_whole.py was started over a finished arm'
 
     # 2. export and train run their stubs when the output is missing, and skip on the call after.
     $b = New-Arm 'r3x' 'none'
@@ -116,13 +130,79 @@ try {
 
     # 6. a failing stub (the trainer leaves no weights) stops the chain once, through the driver as through a step.
     $f = New-Arm 'r3f' 'none'
-    Set-Content "$($f.Dir)/train.ps1" "param([string]`$Name); Add-Content '$($f.Dir)/starts-train.txt' 'start'; exit 7"
+    Set-Content "$($f.Dir)/train.ps1" "param([string]`$Name, [int]`$CheckpointEvery); Add-Content '$($f.Dir)/starts-train.txt' 'start'; exit 7"
     Set-Content "$($f.Dir)/export.done" 'done'
     $r = Call $driver $f.Args
     Assert (Test-Path "$($f.Dir)/runs/r3f-chain.stop") 'a trainer that leaves no weights writes the stop file'
     Assert ((FailedLines $f.Dir 'r3f') -eq 1) 'and the failure is logged once'
     $r = Call $driver $f.Args
     Assert ((Starts $f.Dir 'train') -eq 1) 'the next pass does not run the trainer again'
+
+    # 7. the train budget: a stub trainer writes a resume file, starts a child of its own and sleeps. A short -Budget stops the whole
+    # tree, leaves the resume file, exits 4 with the documented words and starts no second trainer; a second call resumes (the stub
+    # sees the resume file, as the real trainer's --resume does) and finishes with <Name>.pt.
+    $g = New-Arm 'r3g' 'none'
+    function New-BudgetTrainer([string]$arm) {
+        $text = @'
+param([string]$Name, [int]$CheckpointEvery)
+Add-Content 'ARM/starts-train.txt' "start $Name every $CheckpointEvery"
+$resume = 'ARM/train/' + $Name + '.resume.pt'
+if (Test-Path $resume) {
+    Add-Content 'ARM/starts-train.txt' 'resumed'
+    Remove-Item $resume
+    Set-Content ('ARM/train/' + $Name + '.pt') 'weights'
+    exit 0
+}
+Set-Content $resume 'checkpoint'
+$child = Start-Process pwsh -ArgumentList '-NoProfile', '-Command', 'Start-Sleep 600' -PassThru -NoNewWindow
+Set-Content 'ARM/child.pid' $child.Id
+Start-Sleep 600
+'@
+        Set-Content "$arm/train.ps1" $text.Replace('ARM', $arm)
+    }
+    New-BudgetTrainer $g.Dir
+    $r = Call $step (@('-Step', 'train', '-Budget', '00:00:06', '-CheckpointEvery', '250') + $g.Args)
+    Assert ($r.Code -eq 4) "a train step past its budget exits 4, resumable (exit $($r.Code): $($r.Out.Trim()))"
+    Assert ($r.Out -match 'resumable: run the train step again') 'it says resumable: run the train step again'
+    Assert (Test-Path "$($g.Dir)/train/$($g.Name).resume.pt") 'the resume file is left'
+    Assert (-not (Test-Path "$($g.Dir)/train/$($g.Name).pt")) 'there are no final weights yet'
+    Assert ((Starts $g.Dir 'train') -eq 1) 'no second trainer was started'
+    Assert ((Get-Content "$($g.Dir)/starts-train.txt") -eq "start $($g.Name) every 250") 'the trainer got -CheckpointEvery'
+    $childId = [int](Get-Content "$($g.Dir)/child.pid")
+    Assert (-not (Get-Process -Id $childId -ErrorAction SilentlyContinue)) "the trainer's own child process ($childId) was stopped with it"
+    Assert (-not (Test-Path "$($g.Dir)/runs/r3g-chain.stop")) 'a budget stop is not a failure and writes no stop file'
+    $r = Call $step (@('-Step', 'train', '-Budget', '00:00:30') + $g.Args)
+    Assert ($r.Code -eq 0 -and $r.Out -match 'arm-step train: done') "the second call resumes and finishes (exit $($r.Code): $($r.Out.Trim()))"
+    Assert ((Get-Content "$($g.Dir)/starts-train.txt") -contains 'resumed') 'the second trainer saw the resume file'
+    Assert (Test-Path "$($g.Dir)/train/$($g.Name).pt") 'the weights are there'
+
+    # 8. a budget stop with no resume file is a failure with the stop file: there is nothing to resume from.
+    $h = New-Arm 'r3h' 'none'
+    Set-Content "$($h.Dir)/train.ps1" "param([string]`$Name, [int]`$CheckpointEvery); Add-Content '$($h.Dir)/starts-train.txt' 'start'; Start-Sleep 600"
+    $r = Call $step (@('-Step', 'train', '-Budget', '00:00:03') + $h.Args)
+    Assert ($r.Code -ne 0 -and $r.Code -ne 4 -and (Test-Path "$($h.Dir)/runs/r3h-chain.stop")) 'a budget stop that left no resume file fails and writes the stop file'
+
+    # 9. the onnx step writes <Name>.onnx and its contract from the weights, and skips once both exist.
+    $i = New-Arm 'r3i' 'none'
+    Set-Content "$($i.Dir)/train/$($i.Name).pt" 'weights'
+    $r = Call $step (@('-Step', 'onnx') + $i.Args)
+    $score = "$($i.Dir)/logs/score-$($i.Name)"
+    Assert ($r.Code -eq 0 -and $r.Out -match 'arm-step onnx: done') "the onnx step exports (exit $($r.Code): $($r.Out.Trim()))"
+    Assert ((Test-Path "$score/$($i.Name).onnx") -and (Test-Path "$score/$($i.Name).contract.json") -and (Test-Path "$($i.Dir)/cache/$($i.Name).pt")) 'it left the ONNX and its contract in the score folder, from the weights in the cache'
+    $r = Call $step (@('-Step', 'onnx') + $i.Args)
+    Assert ($r.Code -eq 0 -and $r.Out -match 'arm-step onnx: skipped' -and (Starts $i.Dir 'onnx') -eq 1) 'a second onnx call skips and starts no export'
+    Remove-Item "$score/$($i.Name).contract.json"
+    $r = Call $step (@('-Step', 'onnx') + $i.Args)
+    Assert ($r.Code -eq 0 -and (Starts $i.Dir 'onnx') -eq 2) 'an ONNX without its contract is exported again'
+
+    # 10. the driver treats a budget stop as neither done nor failed: no stop file, and the next pass resumes.
+    $j = New-Arm 'r3j' 'none'
+    Set-Content "$($j.Dir)/export.done" 'done'
+    New-BudgetTrainer $j.Dir
+    $r = Call $driver (@('-Budget', '00:00:06') + $j.Args)
+    Assert ($r.Code -eq 0 -and -not (Test-Path "$($j.Dir)/runs/r3j-chain.stop") -and (Test-Path "$($j.Dir)/train/$($j.Name).resume.pt")) "a driver pass that hits the budget ends with the checkpoint and no stop file (exit $($r.Code): $($r.Out.Trim()))"
+    $r = Call $driver (@('-Budget', '00:00:30') + $j.Args)
+    Assert ((Test-Path "$($j.Dir)/train/$($j.Name).pt") -and (Starts $j.Dir 'train') -ge 2) 'the next pass resumes and finishes the training'
 
     Write-Host 'all arm-step checks passed'
     Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue

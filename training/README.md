@@ -21,7 +21,7 @@ and the tiles these scripts train on come from the C# exporter (`DatasetTileExpo
 | `denoise/run-e7-5.py`, `read-e7-5.py` | E7.5's 98-run crop grid through `n2n_operator_real.py`, and its read |
 | `denoise/condprobe.py`, `condpool.py` | where a cache and every master of a bake sit on the conditioning plane (`docs/plans/denoiser-training.md`) |
 | `denoise/run-x2r-export.ps1` | arm X2R's `dataset pair` export with the nights swapped |
-| `star-removal/` | the star remover's whole-master scorecard (`score_whole.py`, one row per arm) and the checks it parses: `remover_check2.py`, `gaia_remover_check.py`, `profiles.py`, `m31_nucleus.py`; an arm's own scorer `score-arm.ps1` (with `real_star_check.py`, `ring_annulus.py`) and the resumable driver of an arm trained here, `arm-driver.ps1` (a pass over `arm-step.ps1`'s four steps, each also a pilot job; `test-arm-steps.ps1` checks them) and `register-arm-task.ps1`; no machine path in it, they come from a config (`scorecard.example.json`); see "Scoring an arm" below |
+| `star-removal/` | the star remover's whole-master scorecard (`score_whole.py`, one row per arm) and the checks it parses: `remover_check2.py`, `gaia_remover_check.py`, `profiles.py`, `m31_nucleus.py`; an arm's own scorer `score-arm.ps1` (with `real_star_check.py`, `ring_annulus.py`) and the resumable driver of an arm trained here, `arm-driver.ps1` (a pass over `arm-step.ps1`'s five steps, each also a pilot job; `test-arm-steps.ps1` checks them) and `register-arm-task.ps1`; no machine path in it, they come from a config (`scorecard.example.json`); see "Scoring an arm" below |
 | `azure/` | training runs on an Azure spot T4 (`azure/README.md`): `launch-arm.ps1` launches an arm in one command and checks the trainer's own command line, `az-driver.ps1` babysits it and deletes everything it made once the weights are home, `upload-cache.ps1` and `blockupload.py` send a cache up resumably at a capped rate, and `vm/` holds the scripts that run on the VM. The subscription, group and storage account come from a user-only settings file outside this public repository |
 | `planetary/r9_refiner.py`, `r9_score.py`, `r9_twin_pairs.py` | R9's learned refiner on the shipped planetary sharpening (`docs/plans/planetary-restoration.md`, "R9 revisited", #1056): train, apply, and refine one master; score a set against its truths through `tianwen planetary fidelity`; gather stacker-made twins into the pair layout. The synthetic pairs come from `tianwen planetary training-pairs` |
 | `planetary/r9-rules.md`, `r9_*.sh`, `r9_gains_*.py`, `r9_*plan.json` | R9's run records, machine paths kept as constants: the rules and every dated amendment, set before each arm ran; the twin makers (2022-09-03 Red, the EdgeHD 11 Jupiter at its fitted air) and their drawn plans; the learned gains' steps (the truth's own gains through the sharpening, the ridge, the deploy point's comparators and the real master's G5 and G6) |
@@ -191,9 +191,33 @@ pass, run by a scheduled task (`register-arm-task.ps1`: every 10 minutes, `conho
 a stop file, and a failing step stops the chain rather than retrying all night (any exception does, not only a named
 failure, #1787).
 
-The work of a pass is `star-removal/arm-step.ps1 -Step export|train|score|whole`, one step per call with the driver's
-parameters, so each runs alone as a pilot job (`pilot run -- pwsh -NoProfile -File arm-step.ps1 -Step train -Tag ...`) and
-the task and a job run the same code. A step whose output exists (ExportDone, `<Name>.pt`, the three reports, `row.txt`)
-prints `skipped` and exits 0 without starting a child; a failure exits non-zero and writes `<tag>-chain.stop`, which a
-step also refuses to run past; exit 3 (train only) is "another trainer holds the GPU", nothing done, nothing failed.
-`star-removal/test-arm-steps.ps1` checks all of it on a stub arm in a temp folder (no GPU, no build, no data).
+The work of a pass is `star-removal/arm-step.ps1 -Step export|train|onnx|score|whole`, one step per call with the driver's
+parameters, so each runs alone as a pilot job and the task and a job run the same code. A step whose output exists
+(ExportDone, `<Name>.pt`, `<Name>.onnx` with its contract, the three reports, `row.txt`) prints `skipped` and exits 0
+without starting a child; a failure exits non-zero and writes `<tag>-chain.stop`, which a step also refuses to run past; exit
+3 (train only) is "another trainer holds the GPU", nothing done, nothing failed; exit 4 (train only) is "resumable", below.
+
+**An arm as pilot jobs, one line per step.** `<common>` is the arm's own `-Tag r3a -Name r3a_s0 -TrainDir <the training
+cache> -Cache <the scoring cache> -Config <scorecard.local.json> -Runs <the runs folder>`, the same for every step:
+
+```
+pilot run -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step export <common> -ExportScript <export.ps1> -ExportDone <its done file>
+pilot run --timeout 8h -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step train <common> -TrainScript training/denoise/run-r2.ps1 -TrainArgs <run-r2's switches, comma-separated>
+pilot run -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step onnx <common>
+pilot run -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step score <common>
+pilot run -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step whole <common>
+```
+
+**The train step finishes across two jobs.** It passes `-CheckpointEvery N` (default 500; `run-r2.ps1` forwards it as
+`--checkpoint-every` and `--resume`) and waits on the trainer for at most `-Budget` (a timespan, default 7h30m, under
+pilot's 8 h cap). At the budget it stops the trainer's whole process tree itself; the trainer replaces
+`<TrainDir>/<Name>.resume.pt` by an atomic rename, so the last checkpoint is whole whenever the process dies. It then says
+`resumable: run the train step again` and exits 4, without a stop file: **run the same train line again** and the trainer
+continues from the checkpoint (the second job's budget is its own, a full 7h30m). A trainer that ends without `<Name>.pt`,
+or a budget stop that left no resume file (`-CheckpointEvery 0`), is a failure and writes the stop file. Under the driver
+a pass that hits the budget just ends, and the next pass resumes.
+
+The onnx step runs the frozen run's `n2n_export.py` (the config's `arm.run`) over `<Cache>/<Name>.pt`, writing `<Name>.onnx`
+and `<Name>.contract.json` into the score folder (`<arm.logs_root>/score-<Name>`); `score-arm.ps1` and the whole step reuse
+that ONNX. `star-removal/test-arm-steps.ps1` checks all of it on a stub arm in a temp folder (no GPU, no build, no data;
+its stub trainer writes a resume file and sleeps, to show the budget stop and the resume).
