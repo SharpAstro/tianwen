@@ -63,8 +63,44 @@ def recon(config):
         show_small_files(path)
 
 
+def dirs(*roots):
+    """One line: every sub-folder of each root, marked with the record files it holds."""
+    out = []
+    for r in roots:
+        root = pathlib.Path(r)
+        if not root.is_dir():
+            out.append(f"{r} MISSING")
+            continue
+        for d in sorted(root.iterdir()):
+            if d.is_dir():
+                marks = [m for m in ("FROZEN-AT.txt", "manifest.json", "manifest.jsonl", "meta.json") if (d / m).exists()]
+                out.append(f"{d.as_posix()}{'[' + ','.join(marks) + ']' if marks else ''}")
+    print(len(out), " ; ".join(out))
+
+
+def find_records(*roots):
+    """One line: every FROZEN-AT.txt / manifest under each root, to two levels."""
+    out = []
+    for r in roots:
+        for pattern in ("*/FROZEN-AT.txt", "*/*/FROZEN-AT.txt", "*/manifest*", "*/*/manifest*"):
+            out += [pathlib.Path(p).as_posix() for p in glob.glob(f"{r}/{pattern}")]
+    print(len(out), " ; ".join(sorted(out)))
+
+
+def cat(*files):
+    for f in files:
+        print("----", f)
+        print(pathlib.Path(f).read_text(errors="replace")[:6000])
+
+
 if __name__ == "__main__":
-    if sys.argv[1] == "sync":
+    if sys.argv[1] == "dirs":
+        dirs(*sys.argv[2:])
+    elif sys.argv[1] == "find":
+        find_records(*sys.argv[2:])
+    elif sys.argv[1] == "cat":
+        cat(*sys.argv[2:])
+    elif sys.argv[1] == "sync":
         sync(sys.argv[2])
     elif sys.argv[1] == "recon":
         recon(sys.argv[2] if len(sys.argv) > 2 else None)
