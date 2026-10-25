@@ -94,6 +94,24 @@ def lobes(plain, lobed):
           f"non-lobe star count equals the plain row's in {same_count}, the stars equal in {same_stars}")
 
 
+def stretch_params(new, old, wanted=3):
+    """The stretch parameters the tile manifests record for the same tiles in a new (master-stretched) and an old (plate-stretched) set."""
+    old_by_tile = {r["Tile"]: r for r in rows(pathlib.Path(old) / "tiles-manifest.jsonl")}
+    shown = same = differ = 0
+    for r in rows(pathlib.Path(new) / "tiles-manifest.jsonl"):
+        o = old_by_tile.get(r["Tile"])
+        if o is None or r.get("StretchOrigMin") is None:
+            continue
+        if (r["StretchOrigMin"], r["StretchBalance"]) == (o["StretchOrigMin"], o["StretchBalance"]):
+            same += 1
+        else:
+            differ += 1
+        if shown < wanted and r["Frame"] == "master":
+            shown += 1
+            print("  ", r["Tile"][-60:], "new", r["StretchOrigMin"], r["StretchBalance"], "old", o["StretchOrigMin"], o["StretchBalance"])
+    print(f"{new} against {old}: stretch parameters equal on {same} tiles, differ on {differ}")
+
+
 def stretch(folder):
     seen = collections.Counter()
     ratios = []
@@ -130,5 +148,7 @@ if __name__ == "__main__":
         compare(folders[0], folders[1], ignore, keep)
     elif verb == "lobes":
         lobes(args[0], args[1])
+    elif verb == "stretchparams":
+        stretch_params(args[0], args[1])
     elif verb == "stretch":
         stretch(args[0])
