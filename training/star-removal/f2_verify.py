@@ -160,6 +160,20 @@ def star_diff(a, b, wanted=2):
     print(f"{a} vs {b}: {rows_n} rows, star count differs in {counts_differ}, {stars_differ} of {stars_n} paired stars differ in {dict(keys)}; examples {examples}")
 
 
+def tiles(new, old, every="200"):
+    """Every Nth tile of a new set against the same tile of an old one: do the stretched values differ, and by how much on average."""
+    import numpy as np
+    out = []
+    for i, r in enumerate(rows(pathlib.Path(new) / "tiles-manifest.jsonl")):
+        if i % int(every):
+            continue
+        a = np.fromfile(pathlib.Path(new) / r["Tile"], dtype=np.float16).astype(np.float32)
+        b = np.fromfile(pathlib.Path(old) / r["Tile"], dtype=np.float16).astype(np.float32)
+        out.append(f"{r['Frame']} {r['Tile'][-34:]}: {'same size' if a.shape == b.shape else 'SIZE DIFFERS'}, "
+                   f"median {float(np.median(a)):.5f} new against {float(np.median(b)):.5f} old, mean |difference| {float(np.abs(a - b).mean()):.5f}")
+    print(f"{new} against {old}:", " | ".join(out))
+
+
 def stretch(folder):
     seen = collections.Counter()
     ratios = []
@@ -201,5 +215,7 @@ if __name__ == "__main__":
         stretch_params(args[0], args[1])
     elif verb == "stardiff":
         star_diff(args[0], args[1])
+    elif verb == "tiles":
+        tiles(*args)
     elif verb == "stretch":
         stretch(args[0])
