@@ -6,7 +6,7 @@
 
 `counts` prints the sessions, rows and tile files of each set. `same` compares the three manifests of two sets row by row in
 order (the keys named by --ignore left out; --sessions-of keeps only the rows of the sessions that other set holds) and
-prints how many rows differ and by which keys. `stretch` reads the Stretch and StretchSkySlopeRatio each row records.
+prints how many rows differ and by which keys. `lobes` reads what the lobed twin adds to the plain one. `stretch` reads the Stretch and StretchSkySlopeRatio each row records.
 Every verb prints few, long lines, since a node job shows only the last lines of its output.
 """
 import collections
@@ -22,6 +22,15 @@ def rows(path):
         for line in f:
             if line.strip():
                 yield json.loads(line)
+
+
+def strip(value, ignore):
+    """A row without the ignored keys at any depth (the Lobe flag sits on each star inside an injection row)."""
+    if isinstance(value, dict):
+        return {k: strip(v, ignore) for k, v in value.items() if k not in ignore}
+    if isinstance(value, list):
+        return [strip(v, ignore) for v in value]
+    return value
 
 
 def session_of(row):
@@ -61,12 +70,28 @@ def compare(a, b, ignore, keep_sessions):
                 only_a += 1
                 continue
             total += 1
-            diff = {k for k in x.keys() | y.keys() if k not in ignore and x.get(k) != y.get(k)}
+            x, y = strip(x, ignore), strip(y, ignore)
+            diff = {k for k in x.keys() | y.keys() if x.get(k) != y.get(k)}
             if diff:
                 differing += 1
                 keys.update(diff)
         out.append(f"{name}: {total} paired, {differing} differ{dict(keys) if keys else ''}, only in first {only_a}, only in second {only_b}")
     print(f"{a} vs {b} (ignoring {sorted(ignore)}): " + " | ".join(out))
+
+
+def lobes(plain, lobed):
+    """What the lobed twin adds to the plain one: per injection row, the stars that are not lobes against the plain row's stars."""
+    rows_n = rows_with_lobe = lobe_total = same_stars = same_count = 0
+    for p, l in zip(rows(pathlib.Path(plain) / "injections.jsonl"), rows(pathlib.Path(lobed) / "injections.jsonl")):
+        rows_n += 1
+        ls = [st for st in l["Stars"] if st.get("Lobe")]
+        wholes = [st for st in l["Stars"] if not st.get("Lobe")]
+        lobe_total += len(ls)
+        rows_with_lobe += bool(ls)
+        same_count += len(wholes) == len(p["Stars"])
+        same_stars += strip(wholes, {"Lobe"}) == strip(p["Stars"], {"Lobe"})
+    print(f"{lobed} against {plain}: {rows_n} injection rows, {rows_with_lobe} with a lobe, {lobe_total} lobes, "
+          f"non-lobe star count equals the plain row's in {same_count}, the stars equal in {same_stars}")
 
 
 def stretch(folder):
@@ -103,5 +128,7 @@ if __name__ == "__main__":
                 folders.append(args[i])
                 i += 1
         compare(folders[0], folders[1], ignore, keep)
+    elif verb == "lobes":
+        lobes(args[0], args[1])
     elif verb == "stretch":
         stretch(args[0])
