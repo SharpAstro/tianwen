@@ -131,6 +131,19 @@ def lines(file, text, width="420"):
     print(len(found), "lines with", repr(text), "in", file, ":", " ¶ ".join(found))
 
 
+def globs(*patterns):
+    """One line: every path a glob matches."""
+    found = sorted({pathlib.Path(m).as_posix() for pattern in patterns for m in glob.glob(pattern, recursive=True)})
+    print(len(found), " ; ".join(found))
+
+
+def junction(link, target):
+    """A directory junction (mklink /J, which needs no privilege), so a folder can answer to a second name."""
+    r = subprocess.run(["cmd", "/c", "mklink", "/J", str(pathlib.Path(link)), str(pathlib.Path(target))], capture_output=True, text=True)
+    print(r.returncode, r.stdout.strip(), r.stderr.strip())
+    sys.exit(r.returncode)
+
+
 def cat(*files):
     for f in files:
         # one line, since a job's view keeps only the last few lines of its output
@@ -154,6 +167,10 @@ if __name__ == "__main__":
         ps1(*sys.argv[2:])
     elif sys.argv[1] == "lines":
         lines(*sys.argv[2:])
+    elif sys.argv[1] == "glob":
+        globs(*sys.argv[2:])
+    elif sys.argv[1] == "junction":
+        junction(*sys.argv[2:])
     elif sys.argv[1] == "cat":
         cat(*sys.argv[2:])
     elif sys.argv[1] == "sync":
