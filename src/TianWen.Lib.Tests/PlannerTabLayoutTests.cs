@@ -112,7 +112,7 @@ namespace TianWen.Lib.Tests
             foreach (var line in tab.PaintedDetailLines.Skip(1))
             {
                 renderer.MeasureText(line.AsSpan(), fontPath, fontSize).Width
-                    .ShouldBeLessThanOrEqualTo(tab.DetailsRect.Width, line);
+                    .ShouldBeLessThanOrEqualTo(tab.DetailsRect.Width - 2f * 6f * dpiScale, line); // 6 = PlannerTab.BasePadding
             }
 
             var coords = tab.PaintedDetailLines.Single(l => l.StartsWith("RA "));

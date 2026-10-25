@@ -572,9 +572,13 @@ namespace TianWen.UI.Abstractions
             // Separator line at top
             RenderLayout(Layout.Builder.Spacer().Bg(SeparatorColor), new RectF32(rect.X, rect.Y, rect.Width, 1f));
 
+            // The engine measures the candidate at the strip's own scale (design-unit font, MeasureContext's
+            // DpiScale), so the fit rule is the one a declared Text node would be laid out by.
             var infoW = rect.Width - padding * 2f;
+            var measureCtx = MeasureContext();
             var lines = PlannerDetails.GetLines(state, _lastFilteredTargets, _currentTime, maxLines,
-                text => Renderer.MeasureText(text.AsSpan(), fontPath, fontSize).Width <= infoW);
+                text => Layout.Engine.Measure(Layout.Builder.Text(text, BaseFontSize, DetailsInfoText),
+                    new Layout.Size<float>(float.MaxValue, float.MaxValue), measureCtx).Width <= infoW);
             PaintedDetailLines = lines;
             if (lines.Count == 0)
             {
