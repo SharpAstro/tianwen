@@ -502,17 +502,24 @@ public static class StarShape
         {
             return [.. step];
         }
-        var references = row.Bands.Select(Reference).ToArray();
-        var (faint, bright) = (references.Min(), references.Max());
-        var brightBand = row.Bands[Array.IndexOf(references, bright)];
-        var x = Math.Log(Math.Clamp(double.IsNaN(significance) ? bright : significance, faint, bright));
-        for (var c = 0; c < step.Length && c < row.LogSlopes.Length && c < brightBand.Channels.Length; c++)
+        for (var c = 0; c < step.Length && c < row.LogSlopes.Length; c++)
         {
-            if (row.LogSlopes[c] != 0.0 && double.IsFinite(row.LogSlopes[c]))
+            if (row.LogSlopes[c] == 0.0 || !double.IsFinite(row.LogSlopes[c]))
             {
-                var level = Math.Log(brightBand.Channels[c].WingGain);
-                step[c] = Math.Clamp(level + row.LogSlopes[c] * (x - Math.Log(bright)), Math.Log(MinGain), Math.Log(MaxGain));
+                continue;
             }
+            // The level and both ends of the clamp are the READ bands': a band with too few stars was lent its neighbour's gain
+            // (Measure) and its reference is its few stars' median, or the edge, so anchoring there would move every fainter
+            // star by the slope times the distance to a place no star was measured. Fewer than two read bands leave the step.
+            var read = Points(row, c).ToArray();
+            if (read.Length < 2)
+            {
+                continue;
+            }
+            var (xFaint, xBright) = (read.Min(static p => p.X), read.Max(static p => p.X));
+            var level = read.First(p => p.X == xBright).Y;
+            var x = Math.Clamp(double.IsNaN(significance) ? xBright : significance > 0f ? Math.Log(significance) : double.NegativeInfinity, xFaint, xBright);
+            step[c] = Math.Clamp(level + row.LogSlopes[c] * (x - xBright), Math.Log(MinGain), Math.Log(MaxGain));
         }
         return [.. step];
     }

@@ -1487,6 +1487,42 @@ public class StarInjectionTests(ITestOutputHelper output)
         options.CorrectSkyBias.ShouldBeFalse();
     }
 
+    /// <summary>
+    /// #1241 (#1837 review): the trend's level and the ends of its clamp are the bands that were READ. A brightest band with too
+    /// few stars carries a borrowed gain at Weight 0 and a reference far above the others; anchoring on it would pull every
+    /// fainter star's gain down by the slope times the distance to it. The readable bands' trend is what is drawn, and with
+    /// fewer than two read bands a channel draws its band's gain.
+    /// </summary>
+    [Fact]
+    public void AnUnreadableBrightestBandDoesNotAnchorTheTrend()
+    {
+        const double slope = 0.4;
+        float[] significance = [30f, 100f, 400f];
+        double[] level = [1.8, 1.4, 1.2];
+        StarShapeChannel Read(double gain) => new(1.0, 1.0, gain, Stars: 50, Weight: 50.0);
+        // The 2000 sigma band read nothing: the 400 band's gain lent, Weight 0, its median far above the readable ones.
+        StarShapeChannel Lent(double gain) => new(double.NaN, 1.0, gain, Stars: 3, Weight: 0.0);
+        var bands = significance.Select(s => new StarShapeBand(s * 0.7f, 50, [.. level.Select(g => Read(g * Math.Pow(s / 400.0, slope)))], s)).ToList();
+        bands.Add(new StarShapeBand(1000f, 3, [.. level.Select(Lent)], 2000f));
+        var row = new StarShapeRow("lent", [.. bands], "ASI294MC");
+        row = row with { LogSlopes = StarShape.OwnSlopes(row) };
+        row.LogSlopes.ShouldBe([slope, slope, slope], tolerance: 1e-9);
+
+        for (var b = 0; b < 3; b++)
+        {
+            StarShape.LogGains(row, significance[b]).ShouldBe([.. level.Select(g => Math.Log(g * Math.Pow(significance[b] / 400.0, slope)))], tolerance: 1e-9);
+        }
+        // Past the brightest READ band it holds that band's gain, which the unread 2000 band does not move.
+        StarShape.LogGains(row, 3000f).ShouldBe([.. level.Select(static g => Math.Log(g))], tolerance: 1e-9);
+        StarShape.LogGains(row, float.PositiveInfinity).ShouldBe(StarShape.LogGains(row, 400f));
+        StarShape.LogGains(row, 5f).ShouldBe(StarShape.LogGains(row, 30f));
+
+        // With one read band there is no trend to anchor: the channel draws its band's gain.
+        var one = new StarShapeRow("one", [bands[2], bands[3]], "ASI294MC", [slope, slope, slope]);
+        StarShape.LogGains(one, 400f).ShouldBe([.. level.Select(static g => Math.Log(g))], tolerance: 1e-9);
+        StarShape.LogGains(one, 100f).ShouldBe([.. level.Select(static g => Math.Log(g))], tolerance: 1e-9, customMessage: "below the only band it takes that band's gain");
+    }
+
     // A rig's row with a brightness trend per channel: bands at 30, 100 and 400 sigma, the gains at 400 the bright ones.
     private static StarShapeRow TrendShape()
     {
