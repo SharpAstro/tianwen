@@ -191,6 +191,23 @@ pass, run by a scheduled task (`register-arm-task.ps1`: every 10 minutes, `conho
 a stop file, and a failing step stops the chain rather than retrying all night (any exception does, not only a named
 failure, #1787).
 
+**The real-star read is per session as well as pooled.** `real_star_check.py` prints its pooled table first, unchanged,
+then three small tables for the bright band (100 to 1,000 sigma): `% flat`, `% left` and `% dug`, one row per validation
+session as the plan's "R2w's read" names them (Lobster, M42 (ASI294MC), HIP 80609, SMC), then `all`. A session's views (the
+night and its `flip=a` / `flip=b` halves) share a row, their stars and percentages joined by ` / `, and every listed model
+is a column. `score-arm.ps1` copies the whole log into `real-star-read-<name>.txt`, so the tables land there; the whole
+masters' `row.txt` (`score_whole.py`) reads no real tiles and carries none.
+`test_real_star_sessions.py` pins the split on a stub export (no GPU, no owner data).
+
+**Scoring on a second set of A's draws and twins** (F2's master-stretched ones) is one more config, never a flag:
+`score-arm.ps1 -Name <arm> -Weights <cache>/<arm>.pt -Config scorecard.master-stretch.json`, where the copy names NEW folders
+for `arm.random_export`, `arm.twins_root`, `arm.eval_root`, `arm.reports` and `arm.logs_root`. The skip tests key on
+`<eval_root>/<name>/on-*/` and `<reports>/*-<name>.txt`, so with those five apart the second run reads and writes nothing of
+the first set's (the scores already made stay as they are); with `eval_root` or `reports` shared it would take the first set's
+outputs for its own and skip, silently. `real_export`, `val_list`, `plates_root`, `m31_master` and `m31_out` may stay shared:
+they do not depend on the set (the real tiles are scored again under the new `eval_root`, a cheap inference).
+`arm-step.ps1 -Step score` and `arm-driver.ps1` take the same `-Config`.
+
 The work of a pass is `star-removal/arm-step.ps1 -Step export|train|onnx|score|whole`, one step per call with the driver's
 parameters, so each runs alone as a pilot job and the task and a job run the same code. A step whose output exists
 (ExportDone, `<Name>.pt`, `<Name>.onnx` with its contract, the three reports, `row.txt`) prints `skipped` and exits 0

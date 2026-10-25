@@ -4,7 +4,9 @@
 # skipped, so a second run over a scored arm does no inference and touches no GPU, and exits 0.
 #   pwsh -File score-arm.ps1 -Name r2u_synth4_s0 -Weights <cache>/r2u_synth4_s0.pt
 # The machine's paths are not here. They come from the "arm" object of scorecard.local.json (scorecard.example.json shows the
-# keys), or the file -Config names. -Baselines are the models the real-star check and M31's nucleus compare the arm with.
+# keys), or the file -Config names. A second set of A's draws and twins is a second config with NEW random_export, twins_root,
+# eval_root, reports and logs_root: the skips below key on those folders, so a shared one would read as already scored.
+# -Baselines are the models the real-star check and M31's nucleus compare the arm with.
 param(
     [Parameter(Mandatory)] [string]$Name,
     [Parameter(Mandatory)] [string]$Weights,
