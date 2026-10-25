@@ -186,6 +186,15 @@ masters in self-refinement (H4), where an injected star's target is not availabl
 plane and its sites, the C# rate and the per-site flags written out, the torch term asserted to flag the same sites),
 as the denoiser's runner path was, so the teacher and the gate cannot drift.
 
+**The port and its fixture (#1362).** `training/denoise/n2n_speckle.py` is the torch port (`noise_cap`, `read_sites`,
+`speckle_penalty`, batched over tiles and sites) and `test_n2n_speckle.py` pins it per site to
+`training/denoise/fixtures/speckle/`, which `SpecklePortFixtureProbe` writes from `StarlessSpeckles.ReadSites` (flags exact,
+the ring median exact, sigma to 1e-6, the noise cap to 1e-4; regeneration is in the test's docstring). Two choices the C#
+does not make: the ring's median and sigma are computed from the output but **detached** by default (with their gradient the
+net could shrink the term by making the ring noisier), and the noise cap is read from the INPUT once per tile
+(`noise_cap` is a loop over cells, a data-pipeline step, not a per-step one). Torch has no win-arm64 wheel for Python 3.13+
+(3.12 has a CPU one), so on the arm64 laptop the test runs only under a 3.12 venv; elsewhere without torch it skips.
+
 **One alternative structure, held for H4's kill:** the third-party architectures read in the SAS study
 ([model-training-roadmap.md](model-training-roadmap.md) section 8, item 7) separate a positive subtractive
 star layer from a gated inpaint branch that takes the hole mask as an input. That is R0's own structure
