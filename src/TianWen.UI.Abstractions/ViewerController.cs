@@ -613,8 +613,9 @@ public sealed class ViewerController(
 
             // The annotated variant suggests its own name, because the two files are of the same
             // picture and land in the same folder: saving one over the other is the mistake worth
-            // designing out, and it is the file NAME that has to say which is which.
-            var suggested = (withOverlays ? stem + "-annotated" : stem) + ".png";
+            // designing out, and it is the file NAME that has to say which is which. The plain save says how the picture
+            // was rendered too, so two saves of one frame under different settings do not land on each other either.
+            var suggested = (withOverlays ? stem + "-annotated" : SuggestedDisplayedFileName(saveDoc, state, stem)) + ".png";
             var title = withOverlays ? "Save image with overlays" : "Save image as displayed";
 
             // The dialog appends the first filter's extension to a name typed without one (IFileDialogs' contract),
@@ -719,20 +720,15 @@ public sealed class ViewerController(
         AstroImageDocument saveDoc, ViewerState state, string target, DisplayRasterFormat format, CancellationToken cancellationToken)
     {
         var image = saveDoc.UnstretchedImage;
-        var rendition = DisplayRendition.FromState(saveDoc.ComputeStretchUniforms(
-            state.StretchMode, state.StretchParameters,
-            bgNeutralizationStrength: state.BackgroundNeutralizationStrength,
-            manualWhiteBalance: state.ManualWhiteBalance,
-            applyColorCalibration: state.ColorCalibrationEnabled), state);
+        var rendition = DisplayedRendition(saveDoc, state);
 
         // The boost pivots on the POST-stretch background, exactly as the shader's curvesMidpoint
         // does; passing the default 0.25 instead would move the curve.
         var background = rendition.Stretch.ComputePostStretchBackground(
             saveDoc.PerChannelBackground, saveDoc.LumaBackground);
 
-        // The split composes only in the composite view, as on screen; a single channel shows the recombined frame.
         var displayedChannel = state.ChannelView.DisplayedSourceChannel(image.ChannelCount);
-        var split = displayedChannel is null ? saveDoc.StarSplit : null;
+        var split = ShownStarSplit(saveDoc, state);
 
         return DisplayRasterExport.WriteAsync(
             split?.Starless ?? image, target,
@@ -746,6 +742,28 @@ public sealed class ViewerController(
             starScreen: split?.ScreenFor(rendition),
             cancellationToken: cancellationToken);
     }
+
+    /// <summary>The rendition <paramref name="saveDoc"/> is drawn with under <paramref name="state"/>, through the one producer
+    /// of its uniforms (<c>ComputeStretchUniforms</c>), so the save and the name it suggests agree on the stretch shown.</summary>
+    internal static DisplayRendition DisplayedRendition(AstroImageDocument saveDoc, ViewerState state)
+        => DisplayRendition.FromState(saveDoc.ComputeStretchUniforms(
+            state.StretchMode, state.StretchParameters,
+            bgNeutralizationStrength: state.BackgroundNeutralizationStrength,
+            manualWhiteBalance: state.ManualWhiteBalance,
+            applyColorCalibration: state.ColorCalibrationEnabled), state);
+
+    /// <summary>The star split composed into the picture: the split composes only in the composite view, as on screen; a
+    /// single channel shows the recombined frame.</summary>
+    internal static StarSplit? ShownStarSplit(AstroImageDocument saveDoc, ViewerState state)
+        => state.ChannelView.DisplayedSourceChannel(saveDoc.UnstretchedImage.ChannelCount) is null ? saveDoc.StarSplit : null;
+
+    /// <summary>
+    /// The file name "Save image as displayed" suggests: the document's stem and how it is rendered
+    /// (<see cref="RenditionFileName.Suffix"/>), so a second save under other settings does not land on the first.
+    /// </summary>
+    internal static string SuggestedDisplayedFileName(AstroImageDocument saveDoc, ViewerState state, string stem)
+        => stem + RenditionFileName.Suffix(state, DisplayedRendition(saveDoc, state).Stretch.Mode,
+            enhanced: saveDoc.IsEnhanceResult, starSplitShown: ShownStarSplit(saveDoc, state) is not null);
 
     /// <summary>
     /// <paramref name="path"/> with a <c>.png</c> extension, for when the writer fell back to PNG

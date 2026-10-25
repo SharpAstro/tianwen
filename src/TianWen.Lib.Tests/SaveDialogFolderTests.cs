@@ -36,9 +36,36 @@ public class SaveDialogFolderTests : IDisposable
         var fits = await SharedTestData.ExtractGZippedFitsFileAsync("PlateSolveTestFile",
             TestContext.Current.CancellationToken);
 
-        var asked = await SaveAndCaptureInitialDirectoryAsync(fits, withOverlays);
+        var asked = await SaveAndCaptureRequestAsync(fits, withOverlays, new ViewerState());
 
-        asked.ShouldBe(Path.GetDirectoryName(Path.GetFullPath(fits)));
+        asked.InitialDirectory.ShouldBe(Path.GetDirectoryName(Path.GetFullPath(fits)));
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task TheDisplayedSaveSuggestsANameThatSaysHowThePictureWasRendered()
+    {
+        var fits = await SharedTestData.ExtractGZippedFitsFileAsync("PlateSolveTestFile",
+            TestContext.Current.CancellationToken);
+        var stem = Path.GetFileNameWithoutExtension(fits);
+
+        var plain = await SaveAndCaptureRequestAsync(fits, withOverlays: false, new ViewerState());
+        var moved = await SaveAndCaptureRequestAsync(fits, withOverlays: false, new ViewerState { FinishSaturation = 1.24f });
+
+        // The stretch on show is always named; a moved dial adds its code, so the second save does not land on the first.
+        plain.SuggestedFileName.ShouldStartWith(stem + "_");
+        plain.SuggestedFileName.ShouldEndWith(".png");
+        moved.SuggestedFileName.ShouldBe(Path.GetFileNameWithoutExtension(plain.SuggestedFileName) + "_sat1.24.png");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task TheAnnotatedSaveKeepsItsOwnName()
+    {
+        var fits = await SharedTestData.ExtractGZippedFitsFileAsync("PlateSolveTestFile",
+            TestContext.Current.CancellationToken);
+
+        var asked = await SaveAndCaptureRequestAsync(fits, withOverlays: true, new ViewerState { FinishSaturation = 1.24f });
+
+        asked.SuggestedFileName.ShouldBe(Path.GetFileNameWithoutExtension(fits) + "-annotated.png");
     }
 
     [Theory]
@@ -68,25 +95,24 @@ public class SaveDialogFolderTests : IDisposable
     }
 
     /// <summary>
-    /// Opens <paramref name="path"/> through the controller, asks it to save, and returns the folder
-    /// it handed the dialog.
+    /// Opens <paramref name="path"/> through the controller under <paramref name="state"/>, asks it to save, and returns
+    /// what it asked the dialog.
     /// </summary>
-    private static async Task<string?> SaveAndCaptureInitialDirectoryAsync(string path, bool withOverlays)
+    private static async Task<FileDialogRequest> SaveAndCaptureRequestAsync(string path, bool withOverlays, ViewerState state)
     {
-        var state = new ViewerState();
         var cache = Substitute.For<IDocumentCache>();
         var dialog = Substitute.For<IFileDialogs>();
         var controller = new ViewerController(state, cache, dialog,
             Substitute.For<IPlateSolverFactory>(), new FakeTimeProviderWrapper(),
             new BackgroundTaskTracker(), NullLogger<ViewerController>.Instance);
 
-        string? asked = null;
+        FileDialogRequest? asked = null;
         var called = 0;
         dialog.SaveAsync(Arg.Any<FileDialogRequest>(), Arg.Any<CancellationToken>())
             .Returns(call =>
             {
                 called++;
-                asked = call.ArgAt<FileDialogRequest>(0).InitialDirectory;
+                asked = call.ArgAt<FileDialogRequest>(0);
                 return Task.FromResult(new FileDialogResult());
             });
 
@@ -105,6 +131,6 @@ public class SaveDialogFolderTests : IDisposable
         await controller.ShutdownAsync();
 
         called.ShouldBe(1);
-        return asked;
+        return asked ?? throw new InvalidOperationException("The dialog was never asked");
     }
 }
