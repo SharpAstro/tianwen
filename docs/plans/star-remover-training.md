@@ -4077,7 +4077,7 @@ The owner, 2026-10-21: "review our synthetics, they do still do not look natural
 our existing corpus for certain values, including doing some domain analysis". Measured over the 8 validation sessions,
 40 cells each, through the exporter's own stretch in all three sources: the real masters (`r2-real-val`), synth4's own
 training inputs (stars on the synthetic background) and A's draws (stars on the real starless plates). Two instruments,
-kept in `C:/temp/e2/domain`: statistics in each tile's own noise sigma (`domain_stats.py`), and a small CNN told to tell
+kept in `training/star-removal/domain/` (every path an argument, `training/README.md`; they lived in `C:/temp/e2/domain` on DE1): statistics in each tile's own noise sigma (`domain_stats.py`), and a small CNN told to tell
 real from synthetic and tested on a camera it never saw, leaving one of the QHY294PROC, ASI294MC, ASI533MC Pro and
 ASI585MC Pro out at a time (`domain_classifier.py`; an AUC of 0.5 is indistinguishable).
 
@@ -4119,6 +4119,39 @@ Tracked by #1241 (and R2s, above). R2s draws each channel's wing at 0.5 to 2 tim
 brightness trend is the step after it: a wing gain that rises with the star's brightness as the review's ratio does (0.8
 at 20-50 sigma to 1.8 at 100-200), which is #1241's own suggestion (a table with a brightness term), drawn per rig
 rather than fixed.
+
+**The classifier's own spread, read first (2026-10-25, F4's gate).** The review read each AUC from one net. `domain_classifier.py`
+now takes `--seeds` and trains each fold's net at each seed on the same crops, so the spread over seeds is the classifier's
+noise, which a change to an export must clear. Run on DE1 (job j59, 34 minutes, seeds 0 to 4, 6 CPU threads), on the review's
+tiles: `r2-real-val` against synth4's training inputs and against A's draws, the 8 validation sessions, one camera left out at a
+time of the QHY294PROC, ASI294MC, ASI533MC Pro and ASI585MC Pro. The AUC is the mean over the four held-out cameras, then the
+mean and sample standard deviation over the five seeds.
+
+| crops | synth4: mean +- std (seeds 0 to 4) | A's draws: mean +- std (seeds 0 to 4) |
+|---|---|---|
+| star-centred 24 px, a 20 to 500 sigma star | 0.782 +- 0.009 (0.792, 0.779, 0.789, 0.783, 0.770) | 0.732 +- 0.043 (0.739, 0.709, 0.805, 0.706, 0.700) |
+| noise: 16 px, nothing over 4 sigma, high-passed | 0.705 +- 0.007 (0.709, 0.696, 0.714, 0.702, 0.702) | 0.615 +- 0.004 (0.616, 0.619, 0.617, 0.609, 0.616) |
+
+Crops, real / synthetic: stars 18124 / 18396 (synth4) and 18681 (draws); noise 25481 / 30867 and 30351. The review's single reads
+(0.79 and 0.73 on stars, 0.70 and 0.61 on noise) are inside these spreads.
+
+- **Synth4's reads are tight, A's draws' star read is not.** Four of the five seeds on the draws' star crops sit at 0.700 to
+  0.739 and seed 2 at 0.805, so the spread (0.043) is one seed's. Without it the draws read 0.714 +- 0.017. The ASI294MC fold
+  moves most (0.594 to 0.785 over seeds on the draws, 0.638 to 0.680 on synth4); the ASI533MC Pro fold hardly at all (0.826
+  to 0.868 and 0.855 to 0.873). The mean over cameras averages some of that down, so a single camera's AUC needs a wider
+  margin than the mean does.
+- **The bar a new export's star-crop AUC must clear to count (F4):** its mean over at least five seeds, on the same seeds and
+  the same tiles, is lower than the baseline's by more than twice the larger of the two spreads. Against synth4 that is
+  below 0.764 (0.782 - 2 x 0.009). Against A's draws it is below 0.646 (0.732 - 2 x 0.043), or below 0.68 on the four-seed
+  spread (0.714 - 2 x 0.017) if seed 2's outlier is read as the classifier's and not the draws'; read the draws' star AUC at
+  seeds 0 to 9 before using the tighter bar. A move inside that is the classifier. F4's other half, no drawn star outside
+  every real master's relation, is not a classifier read and has no spread.
+- **F5 (#1781) reads its noise-crop AUC with the same scripts**: `--variants noise --seeds 0,1,2,3,4`. Its gate is below synth4's
+  0.70, and synth4's own noise read is 0.705 +- 0.007, so 0.70 is inside the spread: a new export's noise AUC counts as below
+  it only past about 0.69 (0.705 - 2 x 0.007), and A's draws' 0.615 +- 0.004 is the floor that read has shown on real starless
+  plates.
+- The JSONs and logs stay on DE1 (`C:/temp/tia1241-domain/out`, `cls-synth4.json`, `cls-draws.json`; job logs j59 and j62);
+  the classifier that ran is byte-identical to the committed `domain_classifier.py`.
 
 #### Synthetics S2: the star population below the catalogue
 
