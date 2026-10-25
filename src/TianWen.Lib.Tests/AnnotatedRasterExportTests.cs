@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using TianWen.Lib.Geometry;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using SharpAstro.Png;
 using Shouldly;
@@ -46,6 +47,31 @@ namespace TianWen.Lib.Tests
             annotated.Pixels.ShouldBe(clean.Pixels,
                 "with nothing switched on, the annotated save must BE the clean save -- the two files "
                 + "are of one picture, and an annotation is the only thing allowed to differ");
+        }
+
+        /// <summary>
+        /// The plain save writes into the PNG how the picture was rendered: the program, and every display setting as JSON,
+        /// the moved ones and the defaults alike.
+        /// </summary>
+        [Fact]
+        public async Task ThePlainSaveCarriesItsRenditionInThePng()
+        {
+            var document = await NewColourDocumentAsync();
+            var state = NewState();
+            state.FinishSaturation = 1.24f;
+            state.BackgroundSkyLevel = 0.09f;
+
+            var text = (await ExportCleanAsync(document, state)).Text;
+
+            text.ShouldContain(t => t.Keyword == "Software" && t.Text.StartsWith("TianWen "));
+            var rendition = text.Where(t => t.Keyword == RenditionMetadata.RenditionKeyword).ShouldHaveSingleItem();
+            using var json = System.Text.Json.JsonDocument.Parse(rendition.Text);
+            var root = json.RootElement;
+            root.GetProperty("stretch").GetString().ShouldBe(nameof(StretchMode.None));
+            root.GetProperty("finishSaturation").GetSingle().ShouldBe(1.24f);
+            root.GetProperty("backgroundSkyLevel").GetSingle().ShouldBe(0.09f);
+            root.GetProperty("finishContrast").GetSingle().ShouldBe(0f, "a setting at its default is recorded too");
+            root.TryGetProperty("stars", out _).ShouldBeFalse("no star split is shown");
         }
 
         /// <summary>

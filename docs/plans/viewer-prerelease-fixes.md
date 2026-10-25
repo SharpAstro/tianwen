@@ -1981,10 +1981,12 @@ its default and reaching the picture (`f`/`clip` stretch parameters, channel, de
 shown `ss`/`sst`/`ssat`, then `wav`, `crop`), for example
 `master_SculptorGalaxy_..._autocrop_enh_luma_sky0.09_ss302_ssat1.24.png`. Two saves of one master under
 different settings no longer land on each other, and the name records what made the picture. Nothing reads
-a name back, so a code is short rather than complete; the full settings go into the PNG itself, as `iTXt`
-text, once SharpAstro.Png 3.21 (Codecs#40) is published. The annotated save keeps `-annotated`. Pinned by
-`RenditionFileNameTests` and `SaveDialogFolderTests.TheDisplayedSaveSuggestsANameThatSaysHowThePictureWasRendered`,
-which fails with the controller suggesting the bare stem.
+a name back, so a code is short rather than complete; the full settings go into the PNG itself as `iTXt`
+text (SharpAstro.Png 3.21, Codecs#40): `Software`, `Source` (the master's file name) and
+`TianWen:Rendition`, every display setting as JSON, the defaults included (`RenditionMetadata`). A JPEG
+carries the name only. The annotated save keeps `-annotated`. Pinned by `RenditionFileNameTests`,
+`SaveDialogFolderTests.TheDisplayedSaveSuggestsANameThatSaysHowThePictureWasRendered`, which fails with the
+controller suggesting the bare stem, and `AnnotatedRasterExportTests.ThePlainSaveCarriesItsRenditionInThePng`.
 
 
 ## P36. One Enhance popover: the AI program for deep sky, the sharpening for a planet  (PLANNED 2026-10-08)
