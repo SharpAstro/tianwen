@@ -430,6 +430,9 @@ limit at every setting.
   own (`VideoCaptureOptions`): it reads out in the depth it asks for, with the high-speed readout on unless asked
   otherwise, and takes the body's whole bandwidth while it runs, giving back what it found as it ends. The camera's
   single exposures keep their own depth, so a planetary capture in 8 bits leaves the next deep-sky frame in 16.
+  **Taking the "whole" bandwidth assumes a higher value is faster, which is ZWO's sense**; QHY's `CONTROL_USBTRAFFIC`
+  runs the other way, and the bandwidth is still a literal 50 at connect for every vendor, never recorded or changeable.
+  Tracked by #1822: `USBLIMIT` on every frame, each vendor's own range and direction, a median default, a profile setting.
 - **The planetary panel switches both**: a Depth choice among the depths the camera streams in (its device state's
   `VideoBitDepths`) and High speed where it has one (`CanFastReadout`), at the start and live. A change restarts the
   stream inside the driver, as a new window size does. The wire carries them on `PlanetaryRequestDto` and
