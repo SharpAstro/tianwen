@@ -1959,6 +1959,10 @@ internal sealed partial class ImageSubCommand(
         {
             Description = "The viewer's Tone curve the boost applies: spline (its default) or power. Implies --viewer.",
         };
+        var stretchParamsOpt = new Option<string?>("--stretch-params")
+        {
+            Description = "The viewer's stretch preset as 'factor,clip': the background's target and the shadows clipped in MAD below the sky, e.g. 0.25,2.8 (PixInsight's STF). Default 0.2,2.8. Implies --viewer.",
+        };
         var enhanceOpt = new Option<bool>("--enhance")
         {
             Description = "Run the viewer's own Enhance on the file first (EnhanceActions, its backend Auto), star split and all, and render the enhanced frame as the viewer then shows it; --star-method, --star-stretch, --star-amount and --star-saturation set its Stars choice and dials. Implies --viewer.",
@@ -1967,7 +1971,7 @@ internal sealed partial class ImageSubCommand(
         var cmd = new Command("render", "Render a FITS file to a stretched PNG (default), HDR PQ PNG (--output-format png-pq), or float-true HDR JPEG XR (--output-format jxr).")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, saturationOpt, contrastBoostOpt, whiteBalanceOpt, starsOpt, starStretchOpt, starSaturationOpt, starMethodOpt, starAmountOpt, skyLevelOpt, viewerOpt, stretchOpt, boostOpt, curveOpt, enhanceOpt },
+            Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, saturationOpt, contrastBoostOpt, whiteBalanceOpt, starsOpt, starStretchOpt, starSaturationOpt, starMethodOpt, starAmountOpt, skyLevelOpt, viewerOpt, stretchOpt, boostOpt, curveOpt, stretchParamsOpt, enhanceOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -2099,14 +2103,29 @@ internal sealed partial class ImageSubCommand(
             var boost = parseResult.GetValue(boostOpt);
             var curve = parseResult.GetValue(curveOpt);
             var enhance = parseResult.GetValue(enhanceOpt);
-            if (parseResult.GetValue(viewerOpt) || stretch is not null || boost is not null || curve is not null || enhance)
+            StretchParameters? stretchParams = null;
+            if (parseResult.GetValue(stretchParamsOpt) is { Length: > 0 } paramsText)
+            {
+                var parts = paramsText.Split(',');
+                if (parts.Length != 2
+                    || !double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var factor)
+                    || !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var clip)
+                    || !double.IsFinite(factor) || factor <= 0 || factor >= 1 || !double.IsFinite(clip))
+                {
+                    consoleHost.WriteError($"--stretch-params must be 'factor,clip' with factor in (0, 1); got '{paramsText}'.");
+                    return 1;
+                }
+                // The clip is below the sky whichever sign it is written with, as the preset button shows it unsigned.
+                stretchParams = new StretchParameters(factor, -Math.Abs(clip));
+            }
+            if (parseResult.GetValue(viewerOpt) || stretch is not null || boost is not null || curve is not null || stretchParams is not null || enhance)
             {
                 if (starScreen is not null)
                 {
                     consoleHost.WriteError("--viewer makes its star split by enhancing as the viewer does: use --enhance, not --stars.");
                     return 1;
                 }
-                return await RenderAsViewerAsync(input, dst, format, whiteBalance is not null, stretch, boost, curve, skyLevel,
+                return await RenderAsViewerAsync(input, dst, format, whiteBalance is not null, stretch, boost, curve, stretchParams, skyLevel,
                     saturation, contrastBoost, enhance, parseResult.GetValue(starStretchOpt), parseResult.GetValue(starSaturationOpt),
                     parseResult.GetValue(starMethodOpt), parseResult.GetValue(starAmountOpt), ct);
             }
@@ -2131,7 +2150,7 @@ internal sealed partial class ImageSubCommand(
     /// </summary>
     private async Task<int> RenderAsViewerAsync(
         string input, string dst, ImageOutputFormat format, bool hasWhiteBalance, StretchMode? stretch, float? boost, string? curve,
-        float skyLevel, float saturation, float contrastBoost, bool enhance, float starStretch, float starSaturation, StarStretchMethod starMethod, float starAmount,
+        StretchParameters? stretchParams, float skyLevel, float saturation, float contrastBoost, bool enhance, float starStretch, float starSaturation, StarStretchMethod starMethod, float starAmount,
         CancellationToken ct)
     {
         if (format != ImageOutputFormat.Png)
@@ -2189,6 +2208,10 @@ internal sealed partial class ImageSubCommand(
         {
             state.CurvesMode = 0;
         }
+        if (stretchParams is { } chosenParams)
+        {
+            state.StretchParameters = chosenParams;
+        }
 
         var document = await AstroImageDocument.OpenAsync(input, state.DebayerAlgorithm, ct);
         if (document is null)
@@ -2229,7 +2252,7 @@ internal sealed partial class ImageSubCommand(
         ViewerActions.NeutraliseBackground(document, state);
         await ViewerController.WriteDisplayedRasterAsync(document, state, dst, DisplayRasterFormat.Png16, ct);
         consoleHost.WriteScrollable(
-            $"[render] as the viewer shows it: {state.StretchMode}, boost {state.CurvesBoost:0.##} ({(state.CurvesMode == 1 ? "spline" : "power")}), " +
+            $"[render] as the viewer shows it: {state.StretchMode} {state.StretchParameters}, boost {state.CurvesBoost:0.##} ({(state.CurvesMode == 1 ? "spline" : "power")}), " +
             $"sky {(state.BackgroundReduceEnabled ? $"at {state.BackgroundSkyLevel:P0}" : "not reduced")} -> {dst}");
         return 0;
     }
