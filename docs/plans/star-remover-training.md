@@ -4167,11 +4167,13 @@ the review's direction, are the next measurement.
   of each position's light over the pixels it counts being a per-pixel level (`StarShapeChannel.SkyBias`), taken off every
   real star's light and rings before they are divided by the amplitude (`Light(..., skyBias)`, `Rings(..., skyBias)`).
   A star's own wing in its sky annulus is not in this and needs no correction: the drawn star is read through the same
-  estimator. `--no-sky-bias` reads as before, for the comparison. On a synthetic field of skewed noise whose true gain is the
+  estimator. **Opt-in, `--sky-bias`** (`StarShapeRun.Options.CorrectSkyBias`, `Measure(correctSkyBias:)`): by default the light is
+  read as R2s2 read it, with no bias taken off, so a plain run re-measures the adopted recipe's file. On a synthetic field of skewed noise whose true gain is the
   same at every brightness, the uncorrected faint band reads 1.63 for a true 1.4 and the slope -0.05 to -0.12; corrected,
   1.38 and 0.01.
-- **Bands go down to about 20 sigma** (`StarShape.TrendBandEdges`: 20, 50, 100, 200, 500, 1000; `DefaultBandEdges` stays one
-  band from 1000 for a caller that does not ask). Each band records the median significance of its stars
+- **Bands can go down to about 20 sigma, on request** (`StarShape.TrendBandEdges`: 20, 50, 100, 200, 500, 1000, asked for as
+  `--band-edges 20 50 100 200 500 1000`; the default is `DefaultBandEdges`, one band from 1000, which is the row every file held
+  before the trend and so carries no slope). Each band records the median significance of its stars
   (`StarShapeBand.MedianSignificance`), where its gain is read, and each channel its star count and a **weight**
   (`StarShape.BandWeight`): stars over the squared scatter of one star's light ratio, an intrinsic 10 % plus the light's own
   error against the sky's (the blank field's robust spread over the star's light), in quadrature. A faint band's light is a
@@ -4180,7 +4182,8 @@ the review's direction, are the next measurement.
 - **The slope** (`StarShapeRow.LogSlopes`, per channel) is d ln(gain) / d ln(significance): the weighted least-squares line
   over a master's readable bands (`StarShape.OwnSlopes`), and **per rig** (the master's `INSTRUME`, `StarShapeRow.Rig`) the
   same fit pooled over every master of the camera, each about its own weighted means so that every master keeps its own
-  level and only the rise is shared (`StarShape.PoolSlopesPerRig`, run once the run is done; `--pool-by camera|none`). A
+  level and only the rise is shared (`StarShape.PoolSlopesPerRig`, run once the run is done; opt-in, `--pool-by camera`, the
+  default being `none`, each master keeping its own). A
   rig with no readable pair of bands, or a master with no rig, keeps its own.
 - **The draw** (`StarShape.LogGains`): with no slope, or a slope of 0, a star takes its band's gain, as every row did, so a
   row written before reads back and draws the same. With one, the brightest band's own log gain plus the slope times the log
@@ -4222,7 +4225,8 @@ master's relation (R2s's lesson: Andromeda's blue). The option holds them in:
 Run on DE1 from the flight's branch at "training(star-removal): s1b_read.py, the shape, wing-band and clamp reports F4's gate
 is read from", built Release and frozen in `C:/temp/tianwen-scratch/tia1241-s1b/bin` (`FROZEN-AT.txt` there and in the export).
 Three steps, each a pilot job: `tianwen dataset star-shapes` over synth11's 138 training masters (the store
-`D:/Astro-Dataset/2026-10-12-full`, its `starless` plates, the trend bands 20 to 1000 by default, `--pool-by camera`), then
+`D:/Astro-Dataset/2026-10-12-full`, its `starless` plates, with the options the trend needs, `--band-edges 20 50 100 200 500 1000 --sky-bias --pool-by camera`, which
+were the run's defaults when it was made and are opt-in now), then
 `dataset degrade` with synth11's frozen recipe exactly (`--mode stars --shape warped --warp-sigma 0.5 --warp-sigma-drizzle 0
 --cells 40 --draws 4 --seed 1 --background synthetic --steer 0.5,2,0.8,1 --nebula-knots --bright-knots-wide --stretch-from
 master`) plus `--star-shapes` on the new file and `--clamp-wing-relations`, over the validation sessions only (four `--session`
@@ -4289,7 +4293,7 @@ and it rose instead: by 0.10 against synth11 and by 0.08 against synth4, eleven 
 the gains, not the trend's shape. The linear per-amplitude measure says a drawn star at 20 to 200 sigma needs a quarter to half
 of its wing. The stretched-domain statistic, which the classifier agrees with, says it needs as much or more. A gain stuck on
 its floor in nearly every master is a measure that found no solution, not a rig's wing. **The next step:**
-1. Find why the faint and mid bands land on the floor before drawing from them again. Read `--no-sky-bias` against the
+1. Find why the faint and mid bands land on the floor before drawing from them again. Read a run without `--sky-bias` against the
    corrected file over the same masters. If the bands leave the floor without the correction, the blank-field bias is
    over-subtracting: a blank position's light still holds unresolved stars' glow, which a real star's sky annulus also holds.
 2. Then check the measure against the statistic that judges it: a drawn star at its measured gain should read real's 3-5 px
@@ -4299,7 +4303,9 @@ its floor in nearly every master is a measure that found no solution, not a rig'
 
 Everything stays on DE1 under `C:/temp/tianwen-scratch/tia1241-s1b`: `star-shapes.jsonl`, `band-gains.txt`, `synth-s1b`,
 `degrade.log`, and `reads/` (`stats.json`, `cls-*.json`, the classifier logs). `--star-shapes` without a slope draws as before,
-and the trend and the clamp stay in as opt-in options.
+and the trend and the clamp are opt-in: `star-shapes` with no options measures the one-band, no-bias, unpooled row R2s2 and synth11
+were drawn from (`TheDefaultMeasureIsTheOneBandRowWithNoBiasAndNoSlope`), the trend takes `--band-edges 20 50 100 200 500 1000
+--sky-bias --pool-by camera`, and the clamp takes `degrade --clamp-wing-relations`.
 
 #### Synthetics S2: the star population below the catalogue
 

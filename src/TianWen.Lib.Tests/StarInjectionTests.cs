@@ -1305,7 +1305,7 @@ public class StarInjectionTests(ITestOutputHelper output)
         var (master, catalogue) = BuildBandedMaster(field, significance, [0.1, 0.3, 1.0], (_, c) => truth[c], skew: 0.001, seed: 11);
         ImmutableArray<float> edges = [20f, 60f, 200f];
 
-        var row = StarShape.Measure("flat", master, catalogue, field, null, edges);
+        var row = StarShape.Measure("flat", master, catalogue, field, null, edges, correctSkyBias: true);
         row.Bands.Select(static b => b.MedianSignificance).ShouldBe(significance);
         for (var b = 0; b < 3; b++)
         {
@@ -1347,7 +1347,7 @@ public class StarInjectionTests(ITestOutputHelper output)
         double Truth(int band, int c) => level[c] * Math.Pow(significance[band] / 100.0, slope);
         var (master, catalogue) = BuildBandedMaster(field, significance, [0.1, 0.3, 1.0], Truth, skew: 0.001, seed: 12);
 
-        var row = StarShape.Measure("rising", master, catalogue, field, null, [20f, 60f, 200f], rig: "ASI294MC");
+        var row = StarShape.Measure("rising", master, catalogue, field, null, [20f, 60f, 200f], rig: "ASI294MC", correctSkyBias: true);
         row.Rig.ShouldBe("ASI294MC");
         for (var c = 0; c < 3; c++)
         {
@@ -1453,6 +1453,38 @@ public class StarInjectionTests(ITestOutputHelper output)
         back.Bands[0].MedianSignificance.ShouldBe(30f);
         back.Bands[0].Channels[0].Weight.ShouldBe(50.0);
         Should.NotThrow(() => System.Text.Json.JsonSerializer.Serialize(new StarShapeRow("bare", trend.Bands), StarShapeJsonContext.Default.StarShapeRow));
+    }
+
+    /// <summary>
+    /// The trend is opt-in (#1837 review): a run that names nothing measures the row R2s2 and synth11 were drawn from, one band
+    /// from 1000 sigma, the light read with no sky bias taken off, and no slope, however the master's stars rise with brightness;
+    /// and <c>star-shapes</c> with no options pools nothing and corrects nothing.
+    /// </summary>
+    [Fact]
+    public void TheDefaultMeasureIsTheOneBandRowWithNoBiasAndNoSlope()
+    {
+        var field = ColourField((2.6, 0.004f), (2.2, 0.004f), (2.4, 0.004f));
+        float[] significance = [30f, 100f, 1500f];
+        double[] level = [1.2, 1.0, 0.8];
+        var (master, catalogue) = BuildBandedMaster(field, significance, [0.1, 0.3, 1.0], (band, c) => level[c] * Math.Pow(significance[band] / 100.0, 0.4), skew: 0.001, seed: 13);
+
+        var row = StarShape.Measure("default", master, catalogue, field, null, rig: "ASI294MC");
+        row.Bands.Length.ShouldBe(1);
+        row.Bands[0].MinSignificance.ShouldBe(1000f);
+        row.Bands[0].Channels.ShouldAllBe(static c => c.SkyBias == 0.0, "the light is read as it is");
+        row.LogSlopes.IsDefaultOrEmpty.ShouldBeTrue("one band has no slope to write");
+        StarShape.LogGains(row, 30f).ShouldBe(StarShape.LogGains(row, 1500f), "every star takes the bright band's gains");
+
+        // Asked for, the same master reads a trend: the options are what turn it on.
+        var asked = StarShape.Measure("asked", master, catalogue, field, null, [20f, 60f, 200f], "ASI294MC", correctSkyBias: true);
+        asked.Bands.Length.ShouldBe(3);
+        asked.LogSlopes.Length.ShouldBe(3);
+        asked.Bands[0].Channels[0].SkyBias.ShouldBeGreaterThan(0.0);
+
+        var options = new TianWen.AI.Imaging.StarShapeRun.Options();
+        options.BandEdges.IsDefaultOrEmpty.ShouldBeTrue();
+        options.PoolByRig.ShouldBeFalse();
+        options.CorrectSkyBias.ShouldBeFalse();
     }
 
     // A rig's row with a brightness trend per channel: bands at 30, 100 and 400 sigma, the gains at 400 the bright ones.

@@ -22,19 +22,20 @@ public static class StarShapeRun
     public sealed record Result(int Measured, int Present, int Missing);
 
     /// <summary>
-    /// What a run measures. <paramref name="BandEdges"/> are the brightness bands' lower edges by significance (empty:
-    /// <see cref="StarShape.TrendBandEdges"/>, down to 20 sigma; <c>1000</c> alone is the one bright band every row held before
-    /// the trend). <paramref name="PoolByRig"/> pools each camera's masters' slopes once the run is done
-    /// (<see cref="StarShape.PoolSlopesPerRig"/>), each master keeping its own level at the bright band; off, every master draws
+    /// What a run measures; the defaults are the one-band row R2s2 and synth11 were drawn from. <paramref name="BandEdges"/>
+    /// are the brightness bands' lower edges by significance (empty: <see cref="StarShape.DefaultBandEdges"/>, <c>1000</c> alone,
+    /// the one bright band every row held before the trend; <see cref="StarShape.TrendBandEdges"/> reads down to 20 sigma).
+    /// <paramref name="PoolByRig"/> pools each camera's masters' slopes once the run is done
+    /// (<see cref="StarShape.PoolSlopesPerRig"/>), each master keeping its own level at the bright band; off, every master keeps
     /// its own, noisy slope. <paramref name="CorrectSkyBias"/> takes the blank sky's bias off every star's light
-    /// (<see cref="StarShape.BlankField"/>).
+    /// (<see cref="StarShape.BlankField"/>). Both are off by default: the trend they serve is not adopted (S1b's read).
     /// </summary>
-    public sealed record Options(ImmutableArray<float> BandEdges = default, bool PoolByRig = true, bool CorrectSkyBias = true);
+    public sealed record Options(ImmutableArray<float> BandEdges = default, bool PoolByRig = false, bool CorrectSkyBias = false);
 
     public static async Task<Result> RunAsync(string bakeRoot, string platesRoot, IReadOnlyList<string> sessions, string outPath, Options options,
         ILogger? logger, IProgress<string>? progress, CancellationToken cancellationToken)
     {
-        var edges = options.BandEdges.IsDefaultOrEmpty ? StarShape.TrendBandEdges : options.BandEdges;
+        var edges = options.BandEdges.IsDefaultOrEmpty ? StarShape.DefaultBandEdges : options.BandEdges;
         var platesDir = Path.Combine(platesRoot, "plates");
         var done = await StarShape.ReadAllAsync(outPath, cancellationToken);
         var (measured, present, missing) = (0, 0, 0);
@@ -56,7 +57,7 @@ public static class StarShapeRun
                 continue;
             }
             var catalogue = await StarlessCatalogue.ReadAsync(cataloguePath, cancellationToken);
-            var row = StarShape.Measure(session, master, catalogue, field, master.AbsentPixels(), edges, master.ImageMeta.Instrument.Trim(),options.CorrectSkyBias);
+            var row = StarShape.Measure(session, master, catalogue, field, master.AbsentPixels(), edges, master.ImageMeta.Instrument.Trim(), options.CorrectSkyBias);
             await StarShape.AppendAsync(outPath, row, cancellationToken);
             measured++;
             progress?.Report(string.Create(CultureInfo.InvariantCulture,

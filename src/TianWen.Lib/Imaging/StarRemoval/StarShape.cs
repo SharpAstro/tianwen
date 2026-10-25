@@ -73,14 +73,15 @@ public static class StarShape
     /// fainter than that, the light 3 to 8 px out per amplitude is a fraction of a percent of the sky's error 22 to 28 px out,
     /// and the faint band read the opposite of the bright one (dual-band nights' gains 0.83 / 0.66 / 0.59 against 1.26 /
     /// 0.97 / 0.90), as the sky's bias would; every star, the fainter ones too, takes the bright band's gains. The bias is now
-    /// measured and taken off (<see cref="BlankField"/>), which is what lets <see cref="TrendBandEdges"/> read fainter.
+    /// measured (<see cref="BlankField"/>) and can be taken off on request, which is what lets <see cref="TrendBandEdges"/> read fainter.
     /// </summary>
     public static readonly ImmutableArray<float> DefaultBandEdges = [1000f];
 
     /// <summary>
     /// The bands a brightness trend is read over, down to about 20 sigma (#1241): the review's real-over-synthetic ratio rises
     /// from 0.82 at 20-50 sigma to 1.81 at 100-200, so a band per octave or so from 20 up to the bright band the
-    /// <see cref="DefaultBandEdges"/> read.
+    /// <see cref="DefaultBandEdges"/> read. Opt-in (<c>star-shapes --band-edges 20 50 100 200 500 1000</c>): S1b's read found the
+    /// export it draws further from real than the one-band default, so nothing reads it unasked.
     /// </summary>
     public static readonly ImmutableArray<float> TrendBandEdges = [20f, 50f, 100f, 200f, 500f, 1000f];
 
@@ -372,17 +373,17 @@ public static class StarShape
     /// channel's real light per amplitude against its field profile's at each star's place, and the wing gain at which the
     /// drawn median meets the real one (bisection in log gain; the light rises with the gain). A band with too few stars
     /// takes the nearest band's gains, and a master with too few in any band keeps gain 1. <paramref name="bandEdges"/>
-    /// defaults to <see cref="DefaultBandEdges"/>.
+    /// defaults to <see cref="DefaultBandEdges"/>: with the defaults the row is the one R2s2 measured, one band and no slope.
     /// <para>
-    /// The real light is read with the sky's bias taken off (<see cref="BlankField"/>; <paramref name="correctSkyBias"/> false
-    /// reads it as before, for the comparison). The row also carries each channel's own brightness slope, the weighted
+    /// The real light is read as it is by default; <paramref name="correctSkyBias"/> takes the sky's bias off
+    /// (<see cref="BlankField"/>), which a trend over faint bands needs. The row also carries each channel's own brightness slope, the weighted
     /// least-squares line of the log gain over the log of each band's median significance (<see cref="OwnSlopes"/>; 0 where
     /// fewer than two bands are readable). It is the master's own, noisy as one master's bands are; a rig's masters pool it
     /// (<see cref="PoolSlopesPerRig"/>). <paramref name="rig"/> is the master's camera, the pooling key.
     /// </para>
     /// </summary>
     public static StarShapeRow Measure(string sessionId, Image master, ImmutableArray<FittedStar> catalogue, StarlessFieldProfile field, BitMatrix? absent,
-        ImmutableArray<float> bandEdges = default, string rig = "", bool correctSkyBias = true)
+        ImmutableArray<float> bandEdges = default, string rig = "", bool correctSkyBias = false)
     {
         var channels = master.ChannelCount;
         if (field.Channels.Length != channels)
@@ -472,7 +473,8 @@ public static class StarShape
             bands.Add(new StarShapeBand(edges[b], measured[b].Stars, [.. channelsOut], median));
         }
         var row = new StarShapeRow(sessionId, bands.MoveToImmutable(), rig);
-        return row with { LogSlopes = OwnSlopes(row) };
+        // One band has no slope to read, and the row stays what it was before the trend.
+        return bands.Count < 2 ? row : row with { LogSlopes = OwnSlopes(row) };
     }
 
     /// <summary>
