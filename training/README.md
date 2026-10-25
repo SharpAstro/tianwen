@@ -21,7 +21,7 @@ and the tiles these scripts train on come from the C# exporter (`DatasetTileExpo
 | `denoise/run-e7-5.py`, `read-e7-5.py` | E7.5's 98-run crop grid through `n2n_operator_real.py`, and its read |
 | `denoise/condprobe.py`, `condpool.py` | where a cache and every master of a bake sit on the conditioning plane (`docs/plans/denoiser-training.md`) |
 | `denoise/run-x2r-export.ps1` | arm X2R's `dataset pair` export with the nights swapped |
-| `star-removal/` | the star remover's whole-master scorecard (`score_whole.py`, one row per arm) and the checks it parses: `remover_check2.py`, `gaia_remover_check.py`, `profiles.py`, `m31_nucleus.py`; an arm's own scorer `score-arm.ps1` (with `real_star_check.py`, `ring_annulus.py`) and the resumable driver of an arm trained here, `arm-driver.ps1` and `register-arm-task.ps1`; no machine path in it, they come from a config (`scorecard.example.json`); see "Scoring an arm" below |
+| `star-removal/` | the star remover's whole-master scorecard (`score_whole.py`, one row per arm) and the checks it parses: `remover_check2.py`, `gaia_remover_check.py`, `profiles.py`, `m31_nucleus.py`; an arm's own scorer `score-arm.ps1` (with `real_star_check.py`, `ring_annulus.py`) and the resumable driver of an arm trained here, `arm-driver.ps1` (a pass over `arm-step.ps1`'s four steps, each also a pilot job; `test-arm-steps.ps1` checks them) and `register-arm-task.ps1`; no machine path in it, they come from a config (`scorecard.example.json`); see "Scoring an arm" below |
 | `azure/` | training runs on an Azure spot T4 (`azure/README.md`): `launch-arm.ps1` launches an arm in one command and checks the trainer's own command line, `az-driver.ps1` babysits it and deletes everything it made once the weights are home, `upload-cache.ps1` and `blockupload.py` send a cache up resumably at a capped rate, and `vm/` holds the scripts that run on the VM. The subscription, group and storage account come from a user-only settings file outside this public repository |
 | `planetary/r9_refiner.py`, `r9_score.py`, `r9_twin_pairs.py` | R9's learned refiner on the shipped planetary sharpening (`docs/plans/planetary-restoration.md`, "R9 revisited", #1056): train, apply, and refine one master; score a set against its truths through `tianwen planetary fidelity`; gather stacker-made twins into the pair layout. The synthetic pairs come from `tianwen planetary training-pairs` |
 | `planetary/r9-rules.md`, `r9_*.sh`, `r9_gains_*.py`, `r9_*plan.json` | R9's run records, machine paths kept as constants: the rules and every dated amendment, set before each arm ran; the twin makers (2022-09-03 Red, the EdgeHD 11 Jupiter at its fitted air) and their drawn plans; the learned gains' steps (the truth's own gains through the sharpening, the ridge, the deploy point's comparators and the real master's G5 and G6) |
@@ -188,4 +188,12 @@ nucleus over 8 views (`m31_nucleus.py`). Its paths are the `arm` object of `scor
 (`scorecard.example.json` lists the keys). **Resumable: a step whose output exists is skipped**, so a second call over a
 scored arm runs no inference and exits 0. `arm-driver.ps1` is the same idea for an arm trained on this machine: one step per
 pass, run by a scheduled task (`register-arm-task.ps1`: every 10 minutes, `conhost --headless`, priority 4, `IgnoreNew`),
-a stop file, and a failing step stops the chain rather than retrying all night.
+a stop file, and a failing step stops the chain rather than retrying all night (any exception does, not only a named
+failure, #1787).
+
+The work of a pass is `star-removal/arm-step.ps1 -Step export|train|score|whole`, one step per call with the driver's
+parameters, so each runs alone as a pilot job (`pilot run -- pwsh -NoProfile -File arm-step.ps1 -Step train -Tag ...`) and
+the task and a job run the same code. A step whose output exists (ExportDone, `<Name>.pt`, the three reports, `row.txt`)
+prints `skipped` and exits 0 without starting a child; a failure exits non-zero and writes `<tag>-chain.stop`, which a
+step also refuses to run past; exit 3 (train only) is "another trainer holds the GPU", nothing done, nothing failed.
+`star-removal/test-arm-steps.ps1` checks all of it on a stub arm in a temp folder (no GPU, no build, no data).

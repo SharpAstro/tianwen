@@ -1,19 +1,20 @@
 # The driver of one star-remover arm trained on THIS machine (the GTX 1070), as a RESUMABLE pass that Task Scheduler re-runs every
 # 10 minutes (register-arm-task.ps1: task tw-<tag>, conhost --headless, priority 4, every child -NoNewWindow, IgnoreNew). The
 # Azure arms have training/azure/az-driver.ps1, which ends in score-arm.ps1 as its -AfterScript; this is the same shape for an
-# arm that trains here. A pass does the first step whose output is missing and ends, so a pass is never long and a crash costs
-# at most one step:
-#   1. exits at once when the arm is done (<tag>.done), stopped (<tag>-chain.stop), or one of its workers still runs;
+# arm that trains here. The work itself is arm-step.ps1's, one step per call (export, train, score, whole), each of which a pilot
+# job can run alone; this file is a pass over those steps, so the task and a job run the same code. A pass does the first step
+# whose output is missing and ends, so a pass is never long and a crash costs at most one step:
+#   1. exits at once when the arm is done (<tag>.done), stopped (<tag>-chain.stop), or one of its workers still runs (a step run
+#      alone as a job included);
 #   2. waits for the pre-registration file, when -PreReg names one (a run is registered before it is looked at);
-#   3. exports the training set (-ExportScript, itself resumable, done when -ExportDone exists);
-#   4. trains (-TrainScript, which leaves <TrainDir>/<Name>.pt);
-#   5. copies the weights into -Cache and runs score-arm.ps1 (skips every step whose output exists), then score_whole.py over
-#      the ONNX that scoring wrote, unless <out root>/<WholeTag>/row.txt is already there;
-#   6. writes <tag>.done.
+#   3. runs the steps in order, each skipping itself when its output exists: export (-ExportScript, itself resumable, done when
+#      -ExportDone exists), train (-TrainScript, which leaves <TrainDir>/<Name>.pt), score (the weights into -Cache, then
+#      score-arm.ps1), whole (score_whole.py over the ONNX that scoring wrote, unless <out root>/<WholeTag>/row.txt is there);
+#   4. writes <tag>.done once every step has skipped.
 # Stop it with <tag>-chain.stop in the runs folder, then `schtasks /Change /TN tw-<tag> /DISABLE`. Status, log, stop and done
 # files are in the runs folder: -Runs, or TIANWEN_RUNS (the variable training/azure/common.ps1 reads); one of them is required,
-# since this file names no machine path. A step that fails writes the stop
-# file, so a failing step is not retried every 10 minutes for a night; the log says which and why.
+# since this file names no machine path. A step that fails, and any other exception, writes the stop file (once), so a failure
+# is not retried every 10 minutes for a night; the log says which and why.
 param(
     [Parameter(Mandatory)] [string]$Tag,
     [Parameter(Mandatory)] [string]$Name,
@@ -73,50 +74,50 @@ if ($TrainScript -and (RunningScript $TrainScript)) { return }
 $py = @('python.exe', 'python3.exe', 'py.exe')
 if (Running $py "n2n_smoke\.py.*$n") { return }
 if (Running @('pwsh.exe') "-File\s+\S*score-arm\.ps1.*$n") { return }
+# A step run alone (a pilot job: arm-step.ps1 -Step ... -Tag <tag>); the driver's own steps are children it has not started yet.
+if (Running @('pwsh.exe') ('-File\s+"?\S*arm-step\.ps1.*-Tag\s+' + [regex]::Escape($Tag) + '(\s|$)')) { return }
 if (Running $py "(r2_infer|n2n_export)\.py.*$n|(real_star_check|ring_annulus|score_whole)\.py") { return }
 if (Running @('tianwen.exe') "starless-eval.*$n|\bremove-stars\b") { return }
 
 try {
     $cfg = Get-Content $Config -Raw | ConvertFrom-Json
     if ($PreReg -and -not (Test-Path $PreReg)) { Say "waiting for the pre-registration ($PreReg)"; return }
-    if ($ExportScript -and $ExportDone -and -not (Test-Path $ExportDone)) {
-        Say "exporting ($(Split-Path $ExportScript -Leaf), resumable)"
-        $x = Start-Process pwsh -ArgumentList (@('-NoProfile', '-File', $ExportScript)) -NoNewWindow -PassThru -Wait
-        if (-not (Test-Path $ExportDone)) { Halt "the export ended (exit $($x.ExitCode)) without $ExportDone"; return }
-        Say 'exported'
-    }
-    if (-not (Test-Path "$TrainDir/$Name.pt")) {
-        if (-not $TrainScript) { Halt "no $TrainDir/$Name.pt and no -TrainScript"; return }
-        if (Running $py $GpuTrainerPattern) { Say 'waiting: another trainer holds the GPU'; return }
+    # The steps in arm-step.ps1's order. A step whose output exists says "skipped" and the pass goes on to the next; the first one
+    # that does work ends the pass, so a pass is never long and a crash costs at most one step. A failing step has written the
+    # stop file itself (arm-step.ps1 does, on any exception), which the next pass reads.
+    foreach ($step in 'export', 'train', 'score', 'whole') {
+        $out = Join-Path ([IO.Path]::GetTempPath()) "$Tag-$step-$PID.out"
+        $stepArgs = @('-NoProfile', '-File', "$PSScriptRoot/arm-step.ps1", '-Step', $step, '-Tag', $Tag, '-Name', $Name, '-TrainDir', $TrainDir,
+            '-Cache', $Cache, '-Config', $Config, '-Runs', $runs, '-GpuTrainerPattern', $GpuTrainerPattern, '-WholeTag', $WholeTag)
+        # An empty value would vanish from the command line and leave its switch eating the next one.
+        foreach ($optional in @(@('-ExportScript', $ExportScript), @('-ExportDone', $ExportDone), @('-TrainScript', $TrainScript))) {
+            if ($optional[1]) { $stepArgs += $optional }
+        }
+        # #1362: the speckle teacher goes to the train script as -SpeckleWeight / -SpeckleSigma; 0 passes nothing.
         $trainArgs = @($TrainArgs)
         if ($SpeckleWeight -gt 0) {
             $trainArgs += '-SpeckleWeight', $SpeckleWeight.ToString([cultureinfo]::InvariantCulture)
             $trainArgs += '-SpeckleSigma', $SpeckleSigma.ToString([cultureinfo]::InvariantCulture)
         }
-        Say "training: $(Split-Path $TrainScript -Leaf) $($trainArgs -join ' ')"
-        $r = Start-Process pwsh -ArgumentList (@('-NoProfile', '-File', $TrainScript) + $trainArgs) -NoNewWindow -PassThru -Wait
-        Say "trainer exited $($r.ExitCode)"
-        if ($r.ExitCode -ne 0 -or -not (Test-Path "$TrainDir/$Name.pt")) { Halt "the trainer left no $Name.pt (exit $($r.ExitCode))"; return }
-    }
-    New-Item -ItemType Directory -Force $Cache | Out-Null
-    if (-not (Test-Path "$Cache/$Name.pt")) { Copy-Item "$TrainDir/$Name.pt" "$Cache/$Name.pt" }
-    Say "scoring: score-arm.ps1 -Name $Name"
-    $s = Start-Process pwsh -ArgumentList '-NoProfile', '-File', "$PSScriptRoot/score-arm.ps1", '-Name', $Name, '-Weights', "$Cache/$Name.pt", '-Config', $Config `
-        -NoNewWindow -PassThru -Wait
-    if ($s.ExitCode -ne 0) { Halt "score-arm.ps1 exited $($s.ExitCode); see $($cfg.arm.logs_root)/score-$Name/score.log"; return }
-    $row = "$($cfg.out_root)/$WholeTag/row.txt"
-    if (-not (Test-Path $row)) {
-        $onnx = "$($cfg.arm.logs_root)/score-$Name/$Name.onnx"
-        if (-not (Test-Path $onnx)) { Halt "no $onnx for the whole-master scorecard"; return }
-        Say "the whole-master scorecard (score_whole.py $WholeTag)"
-        $w = Start-Process python -ArgumentList '-I', "$PSScriptRoot/score_whole.py", $WholeTag, '--config', $Config, '--model', $onnx `
-            -NoNewWindow -PassThru -Wait
-        if ($w.ExitCode -ne 0 -or -not (Test-Path $row)) { Halt "score_whole.py exited $($w.ExitCode); see $($cfg.out_root)/$WholeTag/score.log"; return }
+        # Under -File an array is one comma-joined string, which arm-step.ps1 splits again.
+        if ($trainArgs.Count) { $stepArgs += @('-TrainArgs', ($trainArgs -join ',')) }
+        # Start-Process joins its arguments without quoting any (the default GPU pattern has a space in it).
+        $stepArgs = @($stepArgs | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } })
+        $p = Start-Process pwsh -ArgumentList $stepArgs -NoNewWindow -PassThru -Wait -RedirectStandardOutput $out -RedirectStandardError "$out.err"
+        $said = (Get-Content $out -ErrorAction SilentlyContinue) -join ' '
+        $complained = (Get-Content "$out.err" -ErrorAction SilentlyContinue) -join ' '
+        Remove-Item $out, "$out.err" -ErrorAction SilentlyContinue
+        # 3 is "another trainer holds the GPU": nothing was done and nothing failed.
+        if ($p.ExitCode -eq 3) { return }
+        if ($p.ExitCode -ne 0) { if (-not (Test-Path $stop)) { Halt "arm-step.ps1 -Step $step exited $($p.ExitCode): $complained" }; return }
+        if ($said -notmatch 'skipped') { return }
     }
     "scored $(Get-Date -Format o)" | Out-File $done -Encoding utf8
-    Say "done: scored; $Name's eval folders, the real-star, ring and nucleus reads and $row written"
+    Say "done: scored; $Name's eval folders, the real-star, ring and nucleus reads and $($cfg.out_root)/$WholeTag/row.txt written"
 }
 catch {
-    Say "FAILED: $_"
+    # Halt as a failing step does (#1787): without the stop file a config that cannot load, or any exception no step named, was
+    # tried again every 10 minutes for a night. Once: a step's own failure has written it already.
+    if (-not (Test-Path $stop)) { Halt "$_" }
     throw
 }
