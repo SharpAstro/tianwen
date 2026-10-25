@@ -125,6 +125,12 @@ def ps1(script, *args):
     sys.exit(code)
 
 
+def lines(file, text, width="420"):
+    """One line: the lines of a file that contain a text, each cut to a width."""
+    found = [ln[:int(width)] for ln in pathlib.Path(file).read_text(errors="replace").splitlines() if text in ln]
+    print(len(found), "lines with", repr(text), "in", file, ":", " ¶ ".join(found))
+
+
 def cat(*files):
     for f in files:
         # one line, since a job's view keeps only the last few lines of its output
@@ -146,6 +152,8 @@ if __name__ == "__main__":
         freeze(*sys.argv[2:])
     elif sys.argv[1] == "ps1":
         ps1(*sys.argv[2:])
+    elif sys.argv[1] == "lines":
+        lines(*sys.argv[2:])
     elif sys.argv[1] == "cat":
         cat(*sys.argv[2:])
     elif sys.argv[1] == "sync":
