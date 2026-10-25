@@ -112,6 +112,29 @@ def stretch_params(new, old, wanted=3):
     print(f"{new} against {old}: stretch parameters equal on {same} tiles, differ on {differ}")
 
 
+def star_diff(a, b, wanted=2):
+    """How the star lists of two injection manifests differ, star by star, ignoring the Lobe flag."""
+    keys = collections.Counter()
+    rows_n = counts_differ = stars_n = stars_differ = 0
+    examples = []
+    for x, y in zip(rows(pathlib.Path(a) / "injections.jsonl"), rows(pathlib.Path(b) / "injections.jsonl")):
+        rows_n += 1
+        sx, sy = strip(x["Stars"], {"Lobe"}), strip(y["Stars"], {"Lobe"})
+        if len(sx) != len(sy):
+            counts_differ += 1
+        for p, q in zip(sx, sy):
+            stars_n += 1
+            diff = {k for k in p.keys() | q.keys() if p.get(k) != q.get(k)}
+            if diff:
+                stars_differ += 1
+                keys.update(diff)
+                if len(examples) < wanted:
+                    examples.append({k: (p.get(k), q.get(k)) for k in sorted(diff)})
+        other = {k for k in x.keys() | y.keys() if k != "Stars" and x.get(k) != y.get(k)}
+        keys.update("row." + k for k in other)
+    print(f"{a} vs {b}: {rows_n} rows, star count differs in {counts_differ}, {stars_differ} of {stars_n} paired stars differ in {dict(keys)}; examples {examples}")
+
+
 def stretch(folder):
     seen = collections.Counter()
     ratios = []
@@ -122,7 +145,8 @@ def stretch(folder):
     per_session = {}
     for r in rows(pathlib.Path(folder) / "degradations.jsonl"):
         if r.get("StretchSkySlopeRatio") is not None:
-            per_session[session_of(r).split("|")[0][-40:]] = round(r["StretchSkySlopeRatio"], 4)
+            v = r["StretchSkySlopeRatio"]
+            per_session[session_of(r)[-60:]] = [round(x, 4) for x in v] if isinstance(v, list) else round(v, 4)
     print(f"{folder}: Stretch values {dict(seen)}, slope ratio on {len(ratios)} rows, per session {per_session}")
 
 
@@ -150,5 +174,7 @@ if __name__ == "__main__":
         lobes(args[0], args[1])
     elif verb == "stretchparams":
         stretch_params(args[0], args[1])
+    elif verb == "stardiff":
+        star_diff(args[0], args[1])
     elif verb == "stretch":
         stretch(args[0])
