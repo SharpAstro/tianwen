@@ -32,8 +32,10 @@ namespace TianWen.AI.Imaging;
 /// draw's loss mask (<see cref="StarRemovalMasks.KeepPathFor"/>), all ones: the truth holds no star a plate kept, and its
 /// knots must count, since the net is to learn to keep them.</item>
 /// </list>
-/// Both sides are stretched with the plate's own parameters (H6, as a Stars-mode export stretches its draws), the plate put
-/// on the master's scale first. A sky is held out WHOLE, by its seed (<see cref="HeldOut"/>): every optics and every cell of
+/// Both sides are stretched with one set of parameters, chosen as a Stars-mode export chooses them
+/// (<see cref="DatasetDegradationExporter.StarsStretch"/>): the master's own by default, as inference stretches it (#1776), or
+/// the plate's (H6, every cluster export before), the plate put on the master's scale first. One output holds one stretch
+/// (<see cref="StretchFileName"/>), so a resumed run cannot mix them. A sky is held out WHOLE, by its seed (<see cref="HeldOut"/>): every optics and every cell of
 /// it, never a tile of a training sky. Each sky's rows land in a fragment of their own once all its tiles are written, so a
 /// run resumes where it stopped and several runs over disjoint seeds share one output; the manifest, the split lists and the
 /// scene table are rebuilt from the fragments at the end of every run.
@@ -54,6 +56,9 @@ public static class SyntheticClusterExport
 
     /// <summary>Where each sky's manifest rows and scene rows wait until the manifest is rebuilt.</summary>
     public const string FragmentDir = "skies";
+
+    /// <summary>Whose stretch the output's tiles are in, <c>master</c> or <c>plate</c>, written by its first run.</summary>
+    public const string StretchFileName = "stretch.txt";
 
     /// <summary>Every <see cref="ValEvery"/>-th seed is a held-out sky (seeds 10, 20, ...): one in ten, by seed alone, so a
     /// split never depends on which runs drew which seeds.</summary>
@@ -109,35 +114,47 @@ public static class SyntheticClusterExport
     /// <summary>
     /// Renders the skies <paramref name="firstSeed"/> to <paramref name="firstSeed"/> + <paramref name="skies"/> - 1 of
     /// <paramref name="run"/>'s master in each of <paramref name="optics"/>, <paramref name="concurrency"/> at a time over one
-    /// shared source, and writes their tiles under <paramref name="run"/>'s output; then rebuilds the manifest, the lists and
-    /// the scene table from every fragment there.
+    /// shared source, and writes their tiles under <paramref name="run"/>'s output, stretched with the master's parameters or,
+    /// with <paramref name="stretchFromMaster"/> false, the plate's; then rebuilds the manifest, the lists and the scene table
+    /// from every fragment there.
     /// </summary>
     public static async Task<Result> RunAsync(SyntheticClusterRun run, int firstSeed, int skies, ImmutableArray<ClusterOptics> optics,
-        double nebulaShare, int concurrency, IProgress<string>? progress, CancellationToken cancellationToken)
+        double nebulaShare, int concurrency, bool stretchFromMaster, IProgress<string>? progress, CancellationToken cancellationToken)
     {
+        var stretchName = stretchFromMaster ? "master" : "plate";
+        Directory.CreateDirectory(run.OutDir);
+        var stretchFile = Path.Combine(run.OutDir, StretchFileName);
+        if (File.Exists(stretchFile) && (await File.ReadAllTextAsync(stretchFile, cancellationToken)).Trim() is var written && written != stretchName)
+        {
+            throw new InvalidOperationException($"{run.OutDir} holds tiles in the {written}'s stretch; a run in the {stretchName}'s needs an output of its own");
+        }
         var (master, source, line) = await run.OpenSourceAsync(cancellationToken);
         progress?.Report(line);
         if (!Image.TryReadFitsFile(run.PlatePath, out var plate))
         {
             throw new InvalidDataException($"not a readable FITS image: {run.PlatePath}");
         }
-        // The plate on its master's scale and stretched as a Stars-mode export stretches it: its parameters stretch both sides.
+        // The plate on its master's scale, and both sides stretched with the parameters a Stars-mode export would take.
         var divisor = DatasetTileExporter.UnitDivisor(master);
         var unitPlate = DatasetTileExporter.ToUnitRange(plate, divisor);
-        var (stretchedPlate, applied, origMin, balances) = ChunkedNafnetRunner.ApplyInputStretch(unitPlate);
-        if (!ReferenceEquals(stretchedPlate, unitPlate))
+        float[] origMin;
+        double[] balances;
+        double[] skySlopeRatio;
+        try
         {
-            stretchedPlate.Release();
+            (origMin, balances, skySlopeRatio) = DatasetDegradationExporter.StarsStretch(Path.GetFileName(run.MasterPath), master, divisor, unitPlate, stretchFromMaster);
         }
-        if (!ReferenceEquals(unitPlate, plate))
+        finally
         {
-            unitPlate.Release();
+            if (!ReferenceEquals(unitPlate, plate))
+            {
+                unitPlate.Release();
+            }
+            plate.Release();
         }
-        plate.Release();
-        if (!applied || origMin is null || balances is null)
-        {
-            throw new InvalidOperationException($"{run.PlatePath} did not read as linear, so it cannot set the tiles' stretch");
-        }
+        progress?.Report(string.Create(CultureInfo.InvariantCulture,
+            $"stretched with the {stretchName}'s parameters; the master's slope at its sky over the plate's {string.Join(" / ", skySlopeRatio.Select(static r => r.ToString("F2", CultureInfo.InvariantCulture)))}"));
+        await WriteAtomicAsync(stretchFile, stretchName + "\n", cancellationToken);
         // The scene's own noise model, on the unit scale: its conditioning planes are then the noise the tiles hold.
         var calibrations = new LinearDegradation.NoiseCalibration[master.ChannelCount];
         for (var c = 0; c < calibrations.Length; c++)

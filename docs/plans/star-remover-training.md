@@ -3256,7 +3256,10 @@ every 1024 px scene into sixteen 256 px cells laid out as a Stars-mode export's,
 unchanged (`C:\temp\e2\clusters-cache.sh`; `--compact` keeps only the truth and its one draw, two slots a cell where the
 usual eleven would leave nine empty): per cell the target is the noisy starless truth (`master`), the one draw the
 composite (`deg000`), each with its noise plane, and the draw an all-ones loss mask (the truth holds no star a plate kept,
-and its knots must count). Both are stretched with the plate's own parameters. Every tenth seed is held out whole, in both
+and its knots must count). Both were stretched with the plate's own parameters (H6) for R2q; since round 3 they take the
+master's by default, as synth11's draws do (`--stretch-from master|plate`, #1776), and an output holds one stretch
+(`stretch.txt`). On this window the master's slope at its sky is 1.32 / 1.53 / 1.48 times the plate's, so R2q's tiles
+were stretched more gently than inference stretches. Every tenth seed is held out whole, in both
 optics and every cell, never a tile of a training sky (`clusters-train.txt`, `clusters-val.txt`). The export at the
 window right of 30 Doradus, 90 skies (61 with a nebula), is 2,592 training and 288 held-out input tiles, 14.9 % of synth4's 19,360 and 12.5 % of the
 training draw beside synth4's 18,080 training tiles (`C:\temp\tianwen-scratch\r2-clusters`, its cache `r2-clusters-cache`,

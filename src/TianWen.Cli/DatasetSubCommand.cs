@@ -1396,6 +1396,12 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
         };
         var nebulaShareOpt = new Option<double>("--nebula-share") { Description = "--export-skies: the share of skies with a nebula.", DefaultValueFactory = _ => 2.0 / 3.0 };
         var concurrencyOpt = new Option<int>("--concurrency") { Description = "--export-skies: skies rendered at once over the one shared source.", DefaultValueFactory = _ => 4 };
+        var clusterStretchOpt = new Option<string?>("--stretch-from")
+        {
+            Description = "--export-skies: whose parameters both halves of a tile are stretched with, as degrade --mode stars: master (the " +
+                          "default, the master's own, as inference stretches it, #1776) or plate (H6, every cluster export before). One --out " +
+                          "holds one stretch.",
+        };
         var command = new Command("synthetic-cluster",
             "Render synthetic crowded-cluster scenes from one master's own stars (brightness and colour from its starless plate's catalogue), " +
             "profiles, noise and nebula: a King-profile cluster over a field, the stars too faint to find, optionally a nebula (the background " +
@@ -1408,7 +1414,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Options = { masterOpt, plateOpt, outOpt, atOpt, sizeOpt, seedOpt, rotationsOpt, opticsOpt, nebulaOpt, nebulaAtOpt, clusterStarsOpt, coreOpt, tidalOpt,
                 fieldDensityOpt, saturatedOpt, glowShareOpt, glowSlopeOpt, lateralOpt, groupsOpt, groupHalfLightOpt, groupStarsOpt, groupGlowOpt,
                 poolMarginOpt, minSeparationOpt, nebulaPlateOpt, nebulaTextureFromOpt, nebulaLogNormalOpt, nebulaKnotsOpt, exportSkiesOpt,
-                nebulaShareOpt, concurrencyOpt },
+                nebulaShareOpt, concurrencyOpt, clusterStretchOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
@@ -1481,10 +1487,16 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             var run = new SyntheticClusterRun(parseResult.Required(masterOpt), parseResult.Required(plateOpt), parseResult.Required(outOpt), spec,
                 optics.ToImmutable(), nebulae, rotations, parseResult.GetValue(poolMarginOpt), parseResult.GetValue(nebulaPlateOpt),
                 (int)Math.Round(Math.Log2(Math.Clamp(parseResult.GetValue(nebulaTextureFromOpt), 1, 32))), parseResult.GetValue(nebulaLogNormalOpt));
+            var clusterStretch = parseResult.GetValue(clusterStretchOpt);
+            if (clusterStretch is not (null or "plate" or "master"))
+            {
+                consoleHost.WriteError($"--stretch-from {clusterStretch}: give plate or master");
+                return 1;
+            }
             if (parseResult.GetValue(exportSkiesOpt) is > 0 and var skies)
             {
                 var result = await SyntheticClusterExport.RunAsync(run, spec.Seed, skies, optics.ToImmutable(), parseResult.GetValue(nebulaShareOpt),
-                    parseResult.GetValue(concurrencyOpt), new Progress<string>(line => consoleHost.WriteScrollable("[synthetic-cluster] " + line)), ct);
+                    parseResult.GetValue(concurrencyOpt), clusterStretch is not "plate", new Progress<string>(line => consoleHost.WriteScrollable("[synthetic-cluster] " + line)), ct);
                 consoleHost.WriteScrollable(
                     $"[synthetic-cluster] {result.Skies} sk(ies) written, {result.Skipped} present; the manifest holds {result.TrainTiles} training and " +
                     $"{result.ValTiles} held-out input tiles in {parseResult.Required(outOpt)}");
