@@ -474,7 +474,7 @@ public static class StarShape
         }
         var row = new StarShapeRow(sessionId, bands.MoveToImmutable(), rig);
         // One band has no slope to read, and the row stays what it was before the trend.
-        return bands.Count < 2 ? row : row with { LogSlopes = OwnSlopes(row) };
+        return row.Bands.Length < 2 ? row : row with { LogSlopes = OwnSlopes(row) };
     }
 
     /// <summary>
