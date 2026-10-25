@@ -33,6 +33,27 @@ def strip(value, ignore):
     return value
 
 
+def first_difference(a, b, path=""):
+    """The path and the two values at the first place two parsed rows differ, or None."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        for k in sorted(a.keys() | b.keys()):
+            if k not in a or k not in b:
+                return f"{path}/{k}: missing in {'first' if k not in a else 'second'}"
+            found = first_difference(a[k], b[k], f"{path}/{k}")
+            if found:
+                return found
+        return None
+    if isinstance(a, list) and isinstance(b, list):
+        if len(a) != len(b):
+            return f"{path}: length {len(a)} <> {len(b)}"
+        for i, (p, q) in enumerate(zip(a, b)):
+            found = first_difference(p, q, f"{path}[{i}]")
+            if found:
+                return found
+        return None
+    return None if a == b else f"{path}: {str(a)[:80]} <> {str(b)[:80]}"
+
+
 def session_of(row):
     return row.get("SessionId") or row.get("Session") or ""
 
@@ -78,7 +99,7 @@ def compare(a, b, ignore, keep_sessions):
                 keys.update(diff)
                 if not examples:
                     k = sorted(diff)[0]
-                    examples.append(f"{k}: {str(x.get(k))[:300]} <> {str(y.get(k))[:300]}")
+                    examples.append(f"{k}: {first_difference(x.get(k), y.get(k))}")
         out.append(f"{name}: {total} paired, {differing} differ{dict(keys) if keys else ''}, only in first {only_a}, only in second {only_b}{'; first: ' + examples[0] if examples else ''}")
     print(f"{a} vs {b} (ignoring {sorted(ignore)}): " + " | ".join(out))
 
