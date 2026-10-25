@@ -1553,17 +1553,42 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Required = true,
         };
         var outOpt = new Option<string>("--out", "-o") { Description = "The JSON-lines file written; a session already in it is skipped.", Required = true };
+        var bandEdgesOpt = new Option<float[]>("--band-edges")
+        {
+            Description = "The brightness bands' lower edges, by the finder's significance, ascending (default 20 50 100 200 500 1000, down to about " +
+                "20 sigma; 1000 alone is the one bright band every row held before the trend).",
+            AllowMultipleArgumentsPerToken = true,
+        };
+        var poolByOpt = new Option<string>("--pool-by")
+        {
+            Description = "What the brightness slope is pooled over once the run is done: camera (default; each rig's masters' bands fitted " +
+                "together, each master keeping its own level at the bright band, the camera read from INSTRUME) or none (each master keeps its own, noisy slope).",
+            DefaultValueFactory = _ => "camera",
+        };
+        var noSkyBiasOpt = new Option<bool>("--no-sky-bias")
+        {
+            Description = "Read each star's light as before the correction, with no bias of the blank sky taken off (the comparison; the faint bands then read the wrong way).",
+        };
         var command = new Command("star-shapes",
             "Measure each master's real stars against the stars the injector draws for it: per channel and brightness band, the " +
-            "light 3 to 8 px out per catalogued amplitude, and the wing gain at which the drawn star reads as the real one.")
+            "light 3 to 8 px out per catalogued amplitude (with the blank sky's bias taken off), the wing gain at which the drawn star " +
+            "reads as the real one, and per channel the log-gain slope over log significance, pooled per camera, by which the drawn wing rises with brightness.")
         {
-            Options = { bakeOpt, platesOpt, sessionsOpt, outOpt },
+            Options = { bakeOpt, platesOpt, sessionsOpt, outOpt, bandEdgesOpt, poolByOpt, noSkyBiasOpt },
         };
         command.SetAction(async (parseResult, ct) =>
         {
             var sessions = (await File.ReadAllLinesAsync(parseResult.Required(sessionsOpt), ct)).Select(static l => l.Trim()).Where(static l => l.Length > 0).ToArray();
+            var edges = parseResult.GetValue(bandEdgesOpt) is { Length: > 0 } given ? ImmutableArray.CreateRange(given.Order()) : default;
+            var poolBy = parseResult.GetValue(poolByOpt) ?? "camera";
+            if (!poolBy.Equals("camera", StringComparison.OrdinalIgnoreCase) && !poolBy.Equals("none", StringComparison.OrdinalIgnoreCase))
+            {
+                consoleHost.WriteScrollable($"[star-shapes] --pool-by takes camera or none, not '{poolBy}'");
+                return 1;
+            }
+            var options = new StarShapeRun.Options(edges, poolBy.Equals("camera", StringComparison.OrdinalIgnoreCase), !parseResult.GetValue(noSkyBiasOpt));
             var result = await StarShapeRun.RunAsync(parseResult.Required(bakeOpt), parseResult.Required(platesOpt), sessions, parseResult.Required(outOpt),
-                logger, new Progress<string>(line => consoleHost.WriteScrollable(line)), ct);
+                options, logger, new Progress<string>(line => consoleHost.WriteScrollable(line)), ct);
             consoleHost.WriteScrollable($"[star-shapes] {result.Measured} measured, {result.Present} present, {result.Missing} without a master, catalogue or profile");
             return 0;
         });

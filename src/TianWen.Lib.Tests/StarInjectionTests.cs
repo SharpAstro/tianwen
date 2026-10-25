@@ -1243,6 +1243,218 @@ public class StarInjectionTests(ITestOutputHelper output)
             population.Plan(0, 0, 256, 8, InjectionPlacement.Random, StarProfileFamily.Field, 1.0, new Random(21), new ChannelVariation([a]), new Random(1)));
     }
 
+    // A 1024 px three-channel master of a 16 x 16 grid of stars 60 px apart, each in one of the bands by (gx * 7 + gy * 3), drawn
+    // from the field profile at that band's amplitude and its own true wing gain, on a sky of 0.01 plus exponential noise: a
+    // skewed sky, whose mean is above its median, so the light annulus reads a level the sky annulus does not (the bias).
+    private static (Image Master, ImmutableArray<FittedStar> Catalogue) BuildBandedMaster(StarlessFieldProfile field, float[] significance, double[] amplitude,
+        Func<int, int, double> trueGain, double skew, int seed)
+    {
+        const int size = 1024;
+        var rng = new Random(seed);
+        var planes = new float[3][,];
+        for (var c = 0; c < 3; c++)
+        {
+            planes[c] = new float[size, size];
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    planes[c][y, x] = (float)(0.01 - skew * Math.Log(1.0 - rng.NextDouble()));
+                }
+            }
+        }
+        var catalogue = ImmutableArray.CreateBuilder<FittedStar>();
+        for (var gy = 0; gy < 16; gy++)
+        {
+            for (var gx = 0; gx < 16; gx++)
+            {
+                var band = (gx * 7 + gy * 3) % significance.Length;
+                var (sx, sy) = (40 + gx * 60 + rng.NextDouble(), 40 + gy * 60 + rng.NextDouble());
+                var a = amplitude[band];
+                for (var c = 0; c < 3; c++)
+                {
+                    var ch = field.Channels[c];
+                    var real = new StarProfile(StarProfileFamily.Field, ch.Fwhm, ch.Beta, 1.0, 0.0, ch.Table, ch.TableAlpha, Math.Log(trueGain(band, c)));
+                    for (var y = (int)sy - StarShape.StampRadius; y <= (int)sy + StarShape.StampRadius + 1; y++)
+                    {
+                        for (var x = (int)sx - StarShape.StampRadius; x <= (int)sx + StarShape.StampRadius + 1; x++)
+                        {
+                            planes[c][y, x] += (float)(a * real.PixelMean(x, y, sx, sy));
+                        }
+                    }
+                }
+                catalogue.Add(new FittedStar((float)sx, (float)sy, significance[band], (float)a, 1f, 0.01f, 0.001f, StarFitOutcome.Subtracted, false, false,
+                    float.NaN, float.NaN, false, float.NaN, StarFitModel.Moffat, [(float)a, (float)a, (float)a], SkyAbove: 0f, Texture: 1f));
+            }
+        }
+        return (new Image(planes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta()), catalogue.ToImmutable());
+    }
+
+    /// <summary>
+    /// #1241: the faint bands were unreadable because the light annulus is a sum over the sky annulus's median, so a skewed sky
+    /// leaves a fixed level in every star's light, which per catalogued amplitude is large on a faint star and nothing on a
+    /// bright one. On a field whose true wing gain is the same at every brightness, the uncorrected measure reads the faint band
+    /// off by that level; with the blank sky's bias taken off every band reads the one gain and the slope reads zero.
+    /// </summary>
+    [Fact]
+    public void AFlatTruthReadsTheSameGainInEveryBandOnceTheSkyBiasIsTakenOff()
+    {
+        var field = ColourField((2.6, 0.004f), (2.2, 0.004f), (2.4, 0.004f));
+        double[] truth = [1.4, 1.0, 0.7];
+        float[] significance = [30f, 100f, 400f];
+        var (master, catalogue) = BuildBandedMaster(field, significance, [0.1, 0.3, 1.0], (_, c) => truth[c], skew: 0.001, seed: 11);
+        ImmutableArray<float> edges = [20f, 60f, 200f];
+
+        var row = StarShape.Measure("flat", master, catalogue, field, null, edges);
+        row.Bands.Select(static b => b.MedianSignificance).ShouldBe(significance);
+        for (var b = 0; b < 3; b++)
+        {
+            for (var c = 0; c < 3; c++)
+            {
+                var ch = row.Bands[b].Channels[c];
+                ch.SkyBias.ShouldBeGreaterThan(1e-4, "a skewed sky leaves a level");
+                ch.Stars.ShouldBeGreaterThan(40);
+                ch.Weight.ShouldBeGreaterThan(0.0);
+                ch.WingGain.ShouldBe(truth[c], 0.06 * truth[c], $"band {b} channel {c}");
+            }
+        }
+        row.LogSlopes.Length.ShouldBe(3);
+        row.LogSlopes.ShouldAllBe(static s => Math.Abs(s) < 0.05);
+
+        // Left uncorrected, the faintest band reads another gain, which a slope would take for a brightness trend.
+        var raw = StarShape.Measure("flat", master, catalogue, field, null, edges, correctSkyBias: false);
+        raw.Bands[0].Channels[0].SkyBias.ShouldBe(0.0);
+        var rawError = Math.Abs(Math.Log(raw.Bands[0].Channels[0].WingGain / truth[0]));
+        var error = Math.Abs(Math.Log(row.Bands[0].Channels[0].WingGain / truth[0]));
+        rawError.ShouldBeGreaterThan(0.1, "the uncorrected faint band");
+        error.ShouldBeLessThan(0.5 * rawError, "the correction took out most of it");
+        output.WriteLine($"faint band, channel 0: truth {truth[0]}, uncorrected {raw.Bands[0].Channels[0].WingGain:F3}, corrected {row.Bands[0].Channels[0].WingGain:F3}; " +
+            $"slopes uncorrected {string.Join(" ", raw.LogSlopes.Select(static s => s.ToString("F3")))}, corrected {string.Join(" ", row.LogSlopes.Select(static s => s.ToString("F3")))}");
+    }
+
+    /// <summary>
+    /// #1241: a master whose true wing gain rises with brightness as a power of the significance is read as that slope, per
+    /// channel and about the master's own level, and the trend draws a star at the gain the truth gives it, clamped to the
+    /// significance range the bands measured.
+    /// </summary>
+    [Fact]
+    public void ARisingTruthIsReadAsASlopeAndDrawnAsATrend()
+    {
+        var field = ColourField((2.6, 0.004f), (2.2, 0.004f), (2.4, 0.004f));
+        double[] level = [1.2, 1.0, 0.8];
+        float[] significance = [30f, 100f, 400f];
+        const double slope = 0.4;
+        double Truth(int band, int c) => level[c] * Math.Pow(significance[band] / 100.0, slope);
+        var (master, catalogue) = BuildBandedMaster(field, significance, [0.1, 0.3, 1.0], Truth, skew: 0.001, seed: 12);
+
+        var row = StarShape.Measure("rising", master, catalogue, field, null, [20f, 60f, 200f], rig: "ASI294MC");
+        row.Rig.ShouldBe("ASI294MC");
+        for (var c = 0; c < 3; c++)
+        {
+            row.LogSlopes[c].ShouldBe(slope, 0.08, $"channel {c}'s slope");
+        }
+        for (var b = 0; b < 3; b++)
+        {
+            StarShape.LogGains(row, significance[b]).ShouldBe([.. Enumerable.Range(0, 3).Select(c => Math.Log(Truth(b, c)))], tolerance: 0.1);
+        }
+        // Between the bands the trend interpolates, in the log.
+        var between = StarShape.LogGains(row, 200f);
+        var (faint, bright) = (StarShape.LogGains(row, 100f), StarShape.LogGains(row, 400f));
+        for (var c = 0; c < 3; c++)
+        {
+            between[c].ShouldBeGreaterThan(faint[c]);
+            between[c].ShouldBeLessThan(bright[c]);
+        }
+        // Outside the measured range it holds the end's gain: fainter than the faintest band, or saturated.
+        StarShape.LogGains(row, 5f).ShouldBe(StarShape.LogGains(row, 30f));
+        StarShape.LogGains(row, float.PositiveInfinity).ShouldBe(StarShape.LogGains(row, 400f));
+    }
+
+    private static StarShapeRow TrendRow(string id, string rig, double[] brightGain, double[] slope, double weight = 50.0)
+    {
+        float[] significance = [30f, 100f, 400f];
+        var bands = significance.Select(s => new StarShapeBand(s * 0.7f, 50,
+            [.. brightGain.Select((g, c) => new StarShapeChannel(1.0, 1.0, g * Math.Pow(s / 400.0, slope[c]), Stars: 50, Weight: weight))], s));
+        return new StarShapeRow(id, [.. bands], rig);
+    }
+
+    /// <summary>
+    /// A rig's masters pool one slope per channel over their bands, each keeping its own level at the bright band: the pooled
+    /// slope is the weighted mean of what they show, another rig's is its own, and a master with no rig keeps its own fit.
+    /// </summary>
+    [Fact]
+    public void ARigsMastersPoolOneSlopeAndEachKeepsItsOwnLevel()
+    {
+        var m1 = TrendRow("m1", "ASI294MC", [1.8, 1.6, 1.4], [0.5, 0.5, 0.5]);
+        var m2 = TrendRow("m2", "ASI294MC", [1.2, 1.0, 0.9], [0.3, 0.3, 0.3]);
+        var other = TrendRow("o", "ASI585MC", [1.5, 1.5, 1.5], [0.0, 0.0, 0.0]);
+        var orphan = TrendRow("x", "", [1.5, 1.5, 1.5], [0.2, 0.2, 0.2]);
+        var rows = new[] { m1, m2, other, orphan }.ToDictionary(static r => r.SessionId, static r => r with { LogSlopes = StarShape.OwnSlopes(r) });
+        rows["m1"].LogSlopes.ShouldBe([0.5, 0.5, 0.5], tolerance: 1e-9);
+        rows["m2"].LogSlopes.ShouldBe([0.3, 0.3, 0.3], tolerance: 1e-9);
+
+        var pooled = StarShape.PoolSlopesPerRig(rows);
+        pooled["m1"].LogSlopes.ShouldBe([0.4, 0.4, 0.4], tolerance: 1e-9);
+        pooled["m2"].LogSlopes.ShouldBe([0.4, 0.4, 0.4], tolerance: 1e-9);
+        pooled["o"].LogSlopes.ShouldBe([0.0, 0.0, 0.0], tolerance: 1e-9);
+        pooled["x"].LogSlopes.ShouldBe([0.2, 0.2, 0.2], 1e-9, "a master of no rig keeps its own");
+        rows["m1"].LogSlopes[0].ShouldBe(0.5, 1e-12, "the input is unchanged");
+
+        // Each master draws its brightest stars at its own level and the rig's slope below them.
+        StarShape.LogGains(pooled["m1"], 400f).ShouldBe([.. new[] { 1.8, 1.6, 1.4 }.Select(static g => Math.Log(g))], tolerance: 1e-9);
+        StarShape.LogGains(pooled["m2"], 400f).ShouldBe([.. new[] { 1.2, 1.0, 0.9 }.Select(static g => Math.Log(g))], tolerance: 1e-9);
+        StarShape.LogGains(pooled["m2"], 100f)[0].ShouldBe(Math.Log(1.2) + 0.4 * Math.Log(100.0 / 400.0), 1e-9);
+
+        // A band the sky's error swamps counts for nothing: m2's slope pools at its weight.
+        var weak = TrendRow("m2", "ASI294MC", [1.2, 1.0, 0.9], [0.3, 0.3, 0.3], weight: 5.0);
+        var heavy = StarShape.PoolSlopesPerRig(new Dictionary<string, StarShapeRow> { ["m1"] = rows["m1"], ["m2"] = weak with { LogSlopes = [0.3, 0.3, 0.3] } });
+        heavy["m1"].LogSlopes[0].ShouldBe((0.5 * 50 + 0.3 * 5) / 55, 1e-9);
+    }
+
+    /// <summary>
+    /// A row measured before the trend has no slope, and reads back and draws exactly as it did: every star at its band's gain.
+    /// A row of the new shape round-trips its slopes, and a slope of zero is the band's gain too.
+    /// </summary>
+    [Fact]
+    public void ARowWrittenBeforeTheTrendDrawsAtItsBandsGains()
+    {
+        const string old = """
+            {"SessionId":"old","Bands":[
+            {"MinSignificance":100,"Stars":20,"Channels":[{"RealLight":1,"DrawnLight":0.9,"WingGain":1.7},{"RealLight":1,"DrawnLight":0.9,"WingGain":1.4}]},
+            {"MinSignificance":1000,"Stars":30,"Channels":[{"RealLight":1,"DrawnLight":0.9,"WingGain":1.2},{"RealLight":1,"DrawnLight":0.9,"WingGain":2.0}]}]}
+            """;
+        var row = System.Text.Json.JsonSerializer.Deserialize(old, StarShapeJsonContext.Default.StarShapeRow);
+        row.ShouldNotBeNull();
+        row.LogSlopes.IsDefaultOrEmpty.ShouldBeTrue();
+        row.Rig.ShouldBe("");
+        StarShape.LogGains(row, 50f).ShouldBe([Math.Log(1.7), Math.Log(1.4)]);
+        StarShape.LogGains(row, 100f).ShouldBe([Math.Log(1.7), Math.Log(1.4)]);
+        StarShape.LogGains(row, 999f).ShouldBe([Math.Log(1.7), Math.Log(1.4)]);
+        StarShape.LogGains(row, 1000f).ShouldBe([Math.Log(1.2), Math.Log(2.0)]);
+        StarShape.LogGains(row, float.PositiveInfinity).ShouldBe([Math.Log(1.2), Math.Log(2.0)]);
+
+        // Pooling leaves a row with no bands' weight alone, and it has no slope to give.
+        var pooledOld = StarShape.PoolSlopesPerRig(new Dictionary<string, StarShapeRow> { ["old"] = row with { Rig = "cam" } });
+        StarShape.LogGains(pooledOld["old"], 50f).ShouldBe([Math.Log(1.7), Math.Log(1.4)]);
+
+        // A zero slope draws the band's gain, whatever the bands.
+        var zero = row with { LogSlopes = [0.0, 0.0] };
+        StarShape.LogGains(zero, 50f).ShouldBe(StarShape.LogGains(row, 50f));
+        StarShape.LogGains(zero, 500f).ShouldBe(StarShape.LogGains(row, 500f));
+
+        // The new shape round-trips, and a row with no slope still writes.
+        var trend = TrendRow("new", "ASI294MC", [1.8, 1.6], [0.5, 0.5]);
+        trend = trend with { LogSlopes = StarShape.OwnSlopes(trend) };
+        var json = System.Text.Json.JsonSerializer.Serialize(trend, StarShapeJsonContext.Default.StarShapeRow);
+        var back = System.Text.Json.JsonSerializer.Deserialize(json, StarShapeJsonContext.Default.StarShapeRow);
+        back.ShouldNotBeNull();
+        back.Rig.ShouldBe("ASI294MC");
+        back.LogSlopes.ShouldBe(trend.LogSlopes);
+        back.Bands[0].MedianSignificance.ShouldBe(30f);
+        back.Bands[0].Channels[0].Weight.ShouldBe(50.0);
+        Should.NotThrow(() => System.Text.Json.JsonSerializer.Serialize(new StarShapeRow("bare", trend.Bands), StarShapeJsonContext.Default.StarShapeRow));
+    }
+
     // A three-channel field profile: each channel's FWHM (beta 3) and a flat halo from 2 to 10 px at the field's width.
     private static StarlessFieldProfile ColourField((double Fwhm, float Halo) red, (double Fwhm, float Halo) green, (double Fwhm, float Halo) blue)
     {

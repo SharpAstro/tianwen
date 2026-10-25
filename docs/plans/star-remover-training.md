@@ -4153,6 +4153,44 @@ Crops, real / synthetic: stars 18124 / 18396 (synth4) and 18681 (draws); noise 2
 - The JSONs and logs stay on DE1 (`C:/temp/tia1241-domain/out`, `cls-synth4.json`, `cls-draws.json`; job logs j59 and j62);
   the classifier that ran is byte-identical to the committed `domain_classifier.py`.
 
+**The brightness trend, per rig (the design, 2026-10-25; not yet a measurement; F4's leg `brightness-gains`).**
+`tianwen dataset star-shapes` reads each channel's wing gain with a brightness term. Nothing below has been run on the
+masters: only synthetic fields pin it (`StarInjectionTests`), so the real slopes, and whether the faint bands now read in
+the review's direction, are the next measurement.
+
+- **The sky bias that flipped the faint bands is measured and taken off, not weighted away.** `StarShape.Light` is a SUM over
+  the 3 to 8 px annulus minus the MEDIAN of the 22 to 28 px annulus, so a sky whose mean is not its median (skewed noise,
+  unresolved stars' glow, a gradient) leaves a fixed level in every star's light, whatever the star's amplitude. Per
+  catalogued amplitude it is large on a faint star and nothing on a bright one, which is the old remark (a faint band
+  reading the opposite way to the bright one). `StarShape.BlankField` reads it where it can be read alone: `Light` at a
+  grid of positions (at least 48 px apart, at most 600) with no catalogued star of 5 sigma or more within 31 px, the median
+  of each position's light over the pixels it counts being a per-pixel level (`StarShapeChannel.SkyBias`), taken off every
+  real star's light and rings before they are divided by the amplitude (`Light(..., skyBias)`, `Rings(..., skyBias)`).
+  A star's own wing in its sky annulus is not in this and needs no correction: the drawn star is read through the same
+  estimator. `--no-sky-bias` reads as before, for the comparison. On a synthetic field of skewed noise whose true gain is the
+  same at every brightness, the uncorrected faint band reads 1.63 for a true 1.4 and the slope -0.05 to -0.12; corrected,
+  1.38 and 0.01.
+- **Bands go down to about 20 sigma** (`StarShape.TrendBandEdges`: 20, 50, 100, 200, 500, 1000; `DefaultBandEdges` stays one
+  band from 1000 for a caller that does not ask). Each band records the median significance of its stars
+  (`StarShapeBand.MedianSignificance`), where its gain is read, and each channel its star count and a **weight**
+  (`StarShape.BandWeight`): stars over the squared scatter of one star's light ratio, an intrinsic 10 % plus the light's own
+  error against the sky's (the blank field's robust spread over the star's light), in quadrature. A faint band's light is a
+  fraction of the sky's error, so it counts for little however many stars it holds; a band under 10 stars or on a bisection
+  bound counts for nothing.
+- **The slope** (`StarShapeRow.LogSlopes`, per channel) is d ln(gain) / d ln(significance): the weighted least-squares line
+  over a master's readable bands (`StarShape.OwnSlopes`), and **per rig** (the master's `INSTRUME`, `StarShapeRow.Rig`) the
+  same fit pooled over every master of the camera, each about its own weighted means so that every master keeps its own
+  level and only the rise is shared (`StarShape.PoolSlopesPerRig`, run once the run is done; `--pool-by camera|none`). A
+  rig with no readable pair of bands, or a master with no rig, keeps its own.
+- **The draw** (`StarShape.LogGains`): with no slope, or a slope of 0, a star takes its band's gain, as every row did, so a
+  row written before reads back and draws the same. With one, the brightest band's own log gain plus the slope times the log
+  of the significance over that band's median, the significance clamped to the range the bands measured (the faintest band's
+  median to the brightest's, so a star fainter than every band, or a saturated one, holds the end's gain), and the gain held
+  to 0.25 to 8.
+- **Judged by:** the pooled slopes per camera against the review's ratio (0.82 at 20-50 sigma to 1.81 at 100-200 on the
+  ASI294MC, 1.4 to 1.7 and none on the ASI585); F4's own gate is the star-crop AUC bar above, read on an export drawn with
+  the trend, `degrade --star-shapes` on the new file.
+
 #### Synthetics S2: the star population below the catalogue
 
 Tracked by #1737. The injected brightness follows a luminosity function fitted to the real tiles' star counts and
