@@ -258,8 +258,8 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
         }
     }
 
-    private IReadOnlyList<string> ReadoutModes
-        => Connected ? SafeGet(() => (IReadOnlyList<string>)_camera.ReadoutModes.AsReadOnly(), []) : throw new InvalidOperationException("Camera is not connected");
+    public IReadOnlyList<string> ReadoutModes
+        => Connected ? SafeGet(() => (IReadOnlyList<string>)_camera.ReadoutModes.AsReadOnly(), []) : [];
 
     public ValueTask<string?> GetReadoutModeAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(SafeGet(() => _camera.ReadoutMode, (short)-1) is var readoutMode && readoutMode >= 0 && ReadoutModes is { Count: > 0 } modes && readoutMode < modes.Count ? modes[readoutMode] : (string?)null);

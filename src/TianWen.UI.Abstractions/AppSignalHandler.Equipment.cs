@@ -665,6 +665,25 @@ namespace TianWen.UI.Abstractions
                     "Camera warmed and disconnected");
             });
 
+            bus.Subscribe<SetCameraReadoutModeSignal>(async sig =>
+            {
+                if (LocalNodeOrSay() is not { } node) return;
+
+                // Applied live first, so a mode the camera refuses (exposing, streaming) is never saved.
+                var set = await node.Client.SetCameraSettingsAsync(new CameraSettingsRequestDto { DeviceUri = sig.DeviceUri.ToString(), ReadoutMode = sig.ReadoutMode }, cts.Token);
+                if (!set.IsSuccess)
+                {
+                    Notify(NotificationSeverity.Error, $"Readout mode not changed: {set.Error}");
+                    return;
+                }
+                if (appState.ActiveProfile is { Data: { } data })
+                {
+                    bus.Post(new UpdateProfileSignal(EquipmentActions.WithCameraReadoutMode(data, sig.DeviceUri, sig.ReadoutMode)));
+                }
+                Notify(NotificationSeverity.Info, $"Readout mode {sig.ReadoutMode}");
+                await node.RefreshDevicesNowAsync(cts.Token);
+            });
+
             bus.Subscribe<SetCoolerSetpointSignal>(async sig =>
             {
                 if (LocalNodeOrSay() is not { } node) return;

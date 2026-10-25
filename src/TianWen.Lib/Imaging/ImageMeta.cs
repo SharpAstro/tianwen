@@ -395,6 +395,13 @@ public record struct ImageMeta(
     public PixelRect? BiasSection { get; init; } = null;
 
     /// <summary>
+    /// The camera's readout mode by its vendor's name (FITS: <c>READOUTM</c>, N.I.N.A.'s card), such as a QHY294PROC's
+    /// "11M MODE" or "47M MODE"; null when the camera has a single mode or the file does not say. A mode can change the
+    /// photosite, the frame and how the colour filter is read out, so frames of two modes are not one population.
+    /// </summary>
+    public string? ReadoutMode { get; init; } = null;
+
+    /// <summary>
     /// The saturation a planetary colour balance took this frame to (FITS: the balance's <c>CBALSAT</c> card,
     /// <see cref="Planetary.PlanetaryColourBalance"/>, #1212), null for a frame no balance touched (<see cref="IsColourBalanced"/>). Null,
     /// not NaN: <c>new ImageMeta { ... }</c> on this record struct runs no property initialiser, so a NaN default read 0, balanced.

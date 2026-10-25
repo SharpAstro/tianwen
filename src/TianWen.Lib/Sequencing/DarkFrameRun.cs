@@ -31,13 +31,16 @@ namespace TianWen.Lib.Sequencing;
 /// bias written as a Dark is a frame the calibration resolver will never find when it wants a bias,
 /// however short its exposure. The type is the fact; the exposure is only how it was achieved.</para>
 /// </param>
+/// <param name="ReadoutMode">The camera's readout mode by name, or null to leave it. A mode can change the photosite and the
+/// frame (a QHY294PROC's 47M mode is 8432 x 5648 against its 11M mode's 4212 x 2850), so a dark serves only lights of its mode.</param>
 public sealed record DarkFrameRunOptions(
     TimeSpan Exposure,
     int Count,
     short? Gain = null,
     int? Offset = null,
     int Bin = 1,
-    FrameType FrameType = FrameType.Dark);
+    FrameType FrameType = FrameType.Dark,
+    string? ReadoutMode = null);
 
 /// <summary>One captured frame and the state it was captured in.</summary>
 public sealed record DarkFrameCaptured(string Path, DateTimeOffset StartedUtc, double SensorTemperatureC);
@@ -76,6 +79,12 @@ public sealed class DarkFrameRun(IExternal external, ITimeProvider timeProvider,
         ArgumentOutOfRangeException.ThrowIfLessThan(options.Count, 1);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.Exposure, TimeSpan.Zero);
 
+        // First: a mode decides the geometry, and puts the bin back to 1.
+        if (options.ReadoutMode is { Length: > 0 } readoutMode)
+        {
+            await camera.SetReadoutModeAsync(readoutMode, cancellationToken);
+        }
+
         if (options.Bin is > 0 and var bin && bin != camera.BinX)
         {
             camera.BinX = bin;
@@ -105,6 +114,12 @@ public sealed class DarkFrameRun(IExternal external, ITimeProvider timeProvider,
             throw new InvalidOperationException(
                 $"Requested bin {options.Bin} but the camera reports {camera.BinX}x{camera.BinY} "
                 + $"(max bin {camera.MaxBinX}). Refusing to capture frames that would not match.");
+        }
+
+        if (options.ReadoutMode is { Length: > 0 } wantMode && await camera.GetReadoutModeAsync(cancellationToken) is var gotMode
+            && !string.Equals(gotMode, wantMode, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"Requested readout mode {wantMode} but the camera reports {gotMode ?? "none"}.");
         }
 
         if (options.Gain is { } wantGain && await camera.GetGainAsync(cancellationToken) is var gotGain && gotGain != wantGain)
@@ -175,9 +190,11 @@ public sealed class DarkFrameRun(IExternal external, ITimeProvider timeProvider,
                 // Omitting bin 1 keeps the common case short, which is the same reason a filter is
                 // not named on a dark.
                 var binTag = meta.BinX > 1 ? $"_bin{meta.BinX}" : "";
+                // The mode likewise, named only on a camera that has a choice.
+                var modeTag = meta.ReadoutMode is { Length: > 0 } mode ? "_" + mode.Replace(' ', '-') : "";
 
                 var stem = string.Create(CultureInfo.InvariantCulture,
-                    $"{kind}_{options.Exposure.TotalSeconds:0.#####}s_g{meta.Gain}_o{meta.Offset}{binTag}_{meta.CCDTemperature:0.0}C_{startedUtc:yyyy-MM-ddTHH_mm_ss}_{frame:0000}");
+                    $"{kind}_{options.Exposure.TotalSeconds:0.#####}s_g{meta.Gain}_o{meta.Offset}{binTag}{modeTag}_{meta.CCDTemperature:0.0}C_{startedUtc:yyyy-MM-ddTHH_mm_ss}_{frame:0000}");
                 var path = Path.Combine(folder, external.GetSafeFileName(stem) + ".fits");
 
                 await external.WriteFitsFileAsync(image, path);

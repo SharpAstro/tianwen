@@ -77,6 +77,12 @@ public sealed class CameraSettingsRequestDto
 
     /// <summary>In binned pixels, snapped to what the camera can read out and kept on its sensor.</summary>
     public FrameDto? Frame { get; init; }
+
+    /// <summary>
+    /// One of the camera's readout modes by name. Applied before the bin and the frame, since a mode changes the sensor's
+    /// geometry and puts the frame back to the whole sensor at bin 1.
+    /// </summary>
+    public string? ReadoutMode { get; init; }
 }
 
 /// <summary>
@@ -166,4 +172,7 @@ public sealed class CameraSettingsDto
     public required int BinX { get; init; }
     public required int BinY { get; init; }
     public required FrameDto Frame { get; init; }
+
+    /// <summary>Null for a camera with a single readout mode.</summary>
+    public string? ReadoutMode { get; init; }
 }

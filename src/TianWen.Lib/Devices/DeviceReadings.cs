@@ -11,6 +11,8 @@ namespace TianWen.Lib.Devices;
 /// does not stream, or cannot choose.</param>
 /// <param name="CanFastReadout">Whether it has a high-speed readout (<see cref="ICameraDriver.CanFastReadout"/>), which a
 /// planetary capture switches.</param>
+/// <param name="ReadoutModes">Its readout modes by name (<see cref="ICameraDriver.ReadoutModes"/>); empty when it has one.</param>
+/// <param name="ReadoutMode">The readout mode it is in, one of <paramref name="ReadoutModes"/>; null when it has one or cannot say.</param>
 public readonly record struct CameraReading(
     double CcdTemperatureC,
     double HeatsinkTemperatureC,
@@ -28,7 +30,9 @@ public readonly record struct CameraReading(
     int SensorHeight,
     RoiConstraints RoiConstraints,
     ImmutableArray<BitDepth> VideoBitDepths = default,
-    bool CanFastReadout = false)
+    bool CanFastReadout = false,
+    ImmutableArray<string> ReadoutModes = default,
+    string? ReadoutMode = null)
 {
     /// <summary>Exposing, downloading or otherwise at work: what a disconnect or a new exposure has to wait for.</summary>
     public bool IsBusy => State is not (CameraState.Idle or CameraState.NotConnected);

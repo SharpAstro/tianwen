@@ -187,6 +187,30 @@ public class FitsPixelScaleTests
         plain.Meta.BiasSection.ShouldBeNull();
     }
 
+    [Fact]
+    public void TheReadoutModeSurvivesTheRoundTripAndReadsNinasCard()
+    {
+        // READOUTM is N.I.N.A.'s card, so ours and a N.I.N.A. frame read the same; absent is no mode, never an empty one.
+        var testDir = SharedTestData.CreateTempTestOutputDir();
+        var withMode = Path.Combine(testDir, "readoutm.fits");
+        ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN) with { ReadoutMode = "47M MODE" }).WriteToFitsFile(withMode);
+
+        Image.TryReadFitsHeader(withMode, out var read).ShouldBeTrue();
+        read.Meta.ReadoutMode.ShouldBe("47M MODE");
+        Image.TryReadFitsFile(withMode, out var full).ShouldBeTrue();
+        full.ImageMeta.ReadoutMode.ShouldBe("47M MODE");
+        full.Release();
+
+        var without = Path.Combine(testDir, "no-readoutm.fits");
+        ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN)).WriteToFitsFile(without);
+        Image.TryReadFitsHeader(without, out var plain).ShouldBeTrue();
+        plain.Meta.ReadoutMode.ShouldBeNull();
+
+        AddCards(without, ("READOUTM", "11M MODE"));
+        Image.TryReadFitsHeader(without, out var nina).ShouldBeTrue();
+        nina.Meta.ReadoutMode.ShouldBe("11M MODE");
+    }
+
     [Theory]
     [InlineData(1441)]
     [InlineData(-559)]

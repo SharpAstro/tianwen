@@ -1047,6 +1047,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : IVideoCa
         {
             FrameSequence = Interlocked.Increment(ref _frameSequence),
             FrameCounterSource = FrameCounterSource,
+            ReadoutMode = _readoutModeName,
         };
         return new Image([_videoPlanes.Wrap(plane, min, max, 0)], bitDepth, pedestal: 0f, meta);
     }

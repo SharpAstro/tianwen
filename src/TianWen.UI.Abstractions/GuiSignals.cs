@@ -172,6 +172,12 @@ public readonly record struct WarmAndDisconnectDeviceSignal(System.Uri DeviceUri
 /// Posted only after the secondary force-confirmation button is clicked.</summary>
 public readonly record struct ForceDisconnectDeviceSignal(System.Uri DeviceUri);
 
+/// <summary>
+/// Switch a hub-connected camera to one of its readout modes, and keep it on the camera's URI so the next connect, and every
+/// run, starts in it.
+/// </summary>
+public readonly record struct SetCameraReadoutModeSignal(System.Uri DeviceUri, string ReadoutMode);
+
 /// <summary>Set the cooler setpoint (°C) on a hub-connected camera and turn the cooler on.</summary>
 public readonly record struct SetCoolerSetpointSignal(System.Uri DeviceUri, double SetpointC);
 

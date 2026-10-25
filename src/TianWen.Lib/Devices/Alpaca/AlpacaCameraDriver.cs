@@ -298,6 +298,8 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
         _fastReadout = value;
     }
 
+    public IReadOnlyList<string> ReadoutModes => _readoutModes;
+
     // "readoutmode" is a server-side index into the "readoutmodes" list (cached at init); map it to
     // a name on read and back to an index on write, so the mode actually round-trips to the device
     // instead of living in a local field (the previous stub never talked to the server).

@@ -557,6 +557,7 @@ public partial class Image
         var filterName = hdu.Header.GetStringValue("FILTER");
         var filterClassName = hdu.Header.GetStringValue("FILTCLAS");
         var sensorModel = hdu.Header.GetStringValue("SENSOR") ?? "";
+        var readoutMode = hdu.Header.GetStringValue("READOUTM") is { } readoutCard && readoutCard.Trim() is { Length: > 0 } readoutName ? readoutName : null;
         var ccdTemp = hdu.Header.GetFloatValue("CCD-TEMP", float.NaN);
         var rowOrder = RowOrder.FromFITSValue(hdu.Header.GetStringValue("ROWORDER")) ?? RowOrder.TopDown;
         // FRAME is Astro Pixel Processor's card and comes LAST, only when neither of the usual two
@@ -696,6 +697,7 @@ public partial class Image
             PreCalibrated = Calibration.PreCalibration.Parse(hdu.Header.GetStringValue(Calibration.PreCalibration.CalStatCard)),
             DataSection = dataSection,
             BiasSection = biasSection,
+            ReadoutMode = readoutMode,
             FrameSequence = frameSequence,
             FrameCounterSource = frameCounterSource,
             ColourBalanceSaturation = hdu.Header.ContainsKey(Planetary.ColourBalance.SaturationCard)
@@ -1126,6 +1128,10 @@ public partial class Image
         AddHeaderValueIfHasValue("FILTER", imageMeta.Filter.FilterNameForFits, "");
         AddHeaderValueIfHasValue("FILTCLAS", imageMeta.Filter.Name, "");
         AddHeaderValueIfHasValue("SENSOR", imageMeta.SensorModel, "");
+        if (imageMeta.ReadoutMode is { Length: > 0 } readoutMode)
+        {
+            AddHeaderValueIfHasValue("READOUTM", readoutMode, "Sensor readout mode");
+        }
         // Round-trip PIERSIDE in N.I.N.A.'s string convention so other tools
         // recognise it without a numeric-vs-string ambiguity.
         if (imageMeta.PierSide is Devices.PointingState.Normal or Devices.PointingState.ThroughThePole)

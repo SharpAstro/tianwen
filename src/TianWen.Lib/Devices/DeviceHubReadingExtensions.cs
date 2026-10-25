@@ -41,13 +41,22 @@ public static class DeviceHubReadingExtensions
             var state = await logger.CatchAsync(camera.GetCameraStateAsync, cancellationToken, CameraState.NotConnected);
             var gain = await logger.CatchAsync(camera.GetGainAsync, cancellationToken);
             var gainModes = camera.UsesGainMode && camera.Gains is { Count: > 0 } gains ? [.. gains] : ImmutableArray<string>.Empty;
+            ImmutableArray<string> readoutModes = camera.ReadoutModes is { Count: > 1 } modes ? [.. modes] : [];
+            string? readoutMode = null;
+            if (readoutModes.Length > 0)
+            {
+                try { readoutMode = await camera.GetReadoutModeAsync(cancellationToken); }
+                catch (Exception ex) when (!cancellationToken.IsCancellationRequested) { logger.LogWarning(ex, "Could not read the readout mode of {Camera}", cameraUri); }
+            }
 
             return new CameraReading(
                 ccd, heatsink, setpoint, power, coolerOn, state,
                 camera.UsesGainValue, camera.UsesGainMode, camera.GainMin, camera.GainMax, gain, gainModes,
                 camera.CameraXSize, camera.CameraYSize, camera.RoiConstraints,
                 camera is IVideoCameraDriver { CanVideoCapture: true } video ? video.VideoBitDepths : [],
-                camera.CanFastReadout);
+                camera.CanFastReadout,
+                readoutModes,
+                readoutMode);
         }
 
         /// <summary>The focuser at <paramref name="focuserUri"/> as it reads now, or null when it is not connected.</summary>

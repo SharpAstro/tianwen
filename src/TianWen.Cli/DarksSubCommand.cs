@@ -68,6 +68,10 @@ internal sealed class DarksSubCommand(IConsoleHost consoleHost)
         {
             Description = "Camera offset / black level. Leave unset to keep the camera's current value.",
         };
+        var readoutModeOpt = new Option<string?>("--readout-mode")
+        {
+            Description = "Readout mode by the camera's own name (a QHY294's \"11M MODE\" or \"47M MODE\"). Leave unset to keep the camera's current one.",
+        };
         var binOpt = new Option<int>("--bin")
         {
             Description = "Binning (default 1).",
@@ -80,7 +84,7 @@ internal sealed class DarksSubCommand(IConsoleHost consoleHost)
 
         var darksCommand = new Command("darks", "Capture dark or bias frames on-demand from one camera.")
         {
-            Options = { exposureOpt, biasOpt, countOpt, gainOpt, offsetOpt, binOpt, cameraOpt },
+            Options = { exposureOpt, biasOpt, countOpt, gainOpt, offsetOpt, readoutModeOpt, binOpt, cameraOpt },
         };
 
         darksCommand.SetAction(async (parseResult, ct) =>
@@ -141,6 +145,7 @@ internal sealed class DarksSubCommand(IConsoleHost consoleHost)
                 Count = parseResult.GetValue(countOpt),
                 Gain = parseResult.GetValue(gainOpt) is { } g ? (short)g : null,
                 Offset = parseResult.GetValue(offsetOpt),
+                ReadoutMode = parseResult.GetValue(readoutModeOpt),
                 Bin = parseResult.GetValue(binOpt),
                 Bias = isBias,
             };
@@ -149,6 +154,7 @@ internal sealed class DarksSubCommand(IConsoleHost consoleHost)
                 $"[{tag}] {device.DisplayName}: {request.Count} x {request.ExposureSeconds:0.#####}s"
                 + (request.Gain is { } gv ? $", gain {gv}" : "")
                 + (request.Offset is { } ov ? $", offset {ov}" : "")
+                + (request.ReadoutMode is { } rm ? $", {rm}" : "")
                 + $", bin {request.Bin}");
 
             var connectedHere = false;

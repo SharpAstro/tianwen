@@ -26,6 +26,9 @@ public sealed class DarkLibraryRequestDto
     /// <summary>Offset, or null to leave the camera's.</summary>
     public int? Offset { get; init; }
 
+    /// <summary>Readout mode by name, or null to leave the camera's.</summary>
+    public string? ReadoutMode { get; init; }
+
     // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is
     // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).
     /// <summary>Binning, both axes.</summary>

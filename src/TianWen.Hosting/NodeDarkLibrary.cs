@@ -75,7 +75,7 @@ internal sealed class NodeDarkLibrary(IDeviceHub hub, NodeJobs jobs, IHostedSess
         try
         {
             var options = new DarkFrameRunOptions(TimeSpan.FromSeconds(request.ExposureSeconds), request.Count, request.Gain, request.Offset,
-                request.Bin, request.Bias ? FrameType.Bias : FrameType.Dark);
+                request.Bin, request.Bias ? FrameType.Bias : FrameType.Dark, request.ReadoutMode);
             run = new DarkLibraryRun(capture, camera, name, uri, options, claim, logger);
             claim = null;
             if (!await hosted.TryStartAsync(run, hosted.ActiveProfileId ?? Guid.Empty))

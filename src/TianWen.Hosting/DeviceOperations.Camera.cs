@@ -100,6 +100,19 @@ internal sealed partial class DeviceOperations
             return ResponseEnvelope<CameraSettingsDto>.Fail(invalid);
         }
 
+        // First: a mode changes the geometry the bin and the frame are checked against, and resets them.
+        if (request.ReadoutMode is { Length: > 0 } readoutMode)
+        {
+            try
+            {
+                await camera.SetReadoutModeAsync(readoutMode, cancellationToken);
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Exposing, streaming or refused by the body: said, and nothing else applied.
+                return ResponseEnvelope<CameraSettingsDto>.Fail($"{NameOf(uri)}: {ex.Message}");
+            }
+        }
         if (request.Bin is not null || request.Frame is not null)
         {
             camera.SetFrame(request.Bin ?? camera.BinX, request.Frame is { } f ? new RoiRect(f.X, f.Y, f.Width, f.Height) : null);
@@ -120,12 +133,19 @@ internal sealed partial class DeviceOperations
             BinX = camera.BinX,
             BinY = camera.BinY,
             Frame = new FrameDto { X = camera.StartX, Y = camera.StartY, Width = camera.NumX, Height = camera.NumY },
+            ReadoutMode = camera.ReadoutModes.Count > 1 ? await camera.GetReadoutModeAsync(cancellationToken) : null,
         });
     }
 
     /// <summary>Why the camera cannot take the request as it stands, or null when it can.</summary>
     private static string? Invalid(ICameraDriver camera, string name, CameraSettingsRequestDto request)
     {
+        if (request.ReadoutMode is { Length: > 0 } readoutMode && !camera.ReadoutModes.Contains(readoutMode, StringComparer.OrdinalIgnoreCase))
+        {
+            return camera.ReadoutModes.Count > 1
+                ? $"{name} reads out in {string.Join(", ", camera.ReadoutModes)}, not {readoutMode}"
+                : $"{name} has a single readout mode";
+        }
         if (request.Gain is { } gain)
         {
             if (camera.UsesGainValue && (gain < camera.GainMin || gain > camera.GainMax))

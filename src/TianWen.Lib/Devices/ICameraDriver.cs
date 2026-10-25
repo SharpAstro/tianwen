@@ -137,8 +137,16 @@ public interface ICameraDriver : IDeviceDriver
     /// </summary>
     RoiConstraints RoiConstraints => Devices.RoiConstraints.ForSensor(CameraXSize, CameraYSize);
 
+    /// <summary>
+    /// The camera's readout modes by name, empty when it has one or does not say. A mode can change the sensor's geometry
+    /// (<see cref="CameraXSize"/>, <see cref="PixelSizeX"/>, the bins), so read those again after
+    /// <see cref="SetReadoutModeAsync"/>.
+    /// </summary>
+    IReadOnlyList<string> ReadoutModes => [];
+
     ValueTask<string?> GetReadoutModeAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Switches to the readout mode named <paramref name="value"/>, one of <see cref="ReadoutModes"/>; null changes nothing.</summary>
     ValueTask SetReadoutModeAsync(string? value, CancellationToken cancellationToken = default);
 
     ValueTask<bool> GetFastReadoutAsync(CancellationToken cancellationToken = default);
@@ -353,6 +361,13 @@ public interface ICameraDriver : IDeviceDriver
         var ccdTemp = await GetCCDTemperatureAsync(cancellationToken);
         var offset = await GetOffsetAsync(cancellationToken);
         var gain = await GetGainAsync(cancellationToken);
+        // Only a camera with a choice says which: READOUTM on a single-mode body would name nothing.
+        string? readoutMode = null;
+        if (ReadoutModes.Count > 1)
+        {
+            try { readoutMode = await GetReadoutModeAsync(cancellationToken); }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested) { Logger.LogWarning(ex, "Could not read the readout mode of {Camera}", Name); }
+        }
         var setCCDTemp = CanSetCCDTemperature ? (float)await Logger.CatchAsync(GetSetCCDTemperatureAsync, cancellationToken, double.NaN) : float.NaN;
         float egain;
         try { egain = (float)ElectronsPerADU; } catch { egain = float.NaN; }
@@ -412,6 +427,7 @@ public interface ICameraDriver : IDeviceDriver
                 FrameCounterSource = FrameCounterSource,
                 DataSection = DataSection,
                 BiasSection = BiasSection,
+                ReadoutMode = readoutMode,
             }
         );
 
