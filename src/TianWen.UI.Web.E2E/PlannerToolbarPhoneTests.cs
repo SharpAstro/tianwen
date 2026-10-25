@@ -14,8 +14,8 @@ public sealed class PlannerToolbarPhoneTests(TianWenWebFixture fixture)
 {
     private const float BootTimeout = 180_000;
 
-    // One row: a button is about 28 px tall and the toolbar adds 8 px of padding; two rows would be 60 or more.
-    private const double OneRowMaxHeight = 48;
+    // One row measured 49 px (buttons, padding and border); a second row adds a full control height, so 80 or more.
+    private const double OneRowMaxHeight = 60;
 
     [Fact]
     public async Task OnAPhoneTheToolbarIsOneRowWithLatLonInView()
