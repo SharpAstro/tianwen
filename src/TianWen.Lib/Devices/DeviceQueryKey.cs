@@ -65,6 +65,12 @@ public enum DeviceQueryKey
     /// connect fixes it at Daylight, so every frame is taken under the same one. On unless false.
     /// </summary>
     DaylightWhiteBalance,
+
+    /// <summary>
+    /// A camera's readout mode by the vendor's own name (a QHY294PROC's "11M MODE" or "47M MODE"), set on connect before
+    /// the sensor's geometry is read, so every frame of a connection is taken in it. Absent keeps the mode the body has.
+    /// </summary>
+    ReadoutMode,
 }
 
 public static class DeviceQueryKeyExtensions
@@ -127,6 +133,7 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.HasCover => "hasCover",
             DeviceQueryKey.MirrorLockup => "mirrorLockup",
             DeviceQueryKey.DaylightWhiteBalance => "daylightWhiteBalance",
+            DeviceQueryKey.ReadoutMode => "readoutMode",
             _ => key.ToString().ToLowerInvariant()
         };
     }

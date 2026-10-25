@@ -355,6 +355,37 @@ opened (`ReleaseFailedConnectionAsync`), through the gate, and closing in both p
 focuser call ZWO's functions by id rather than through `_deviceInfo`, and ZWO answers a closed id with an error, not a
 fault. Each binding owes the same guarantee inside itself (#1759, #1760). Pinned by `DALCameraSdkGateTests`.
 
+### A camera's readout mode decides its geometry
+
+Some bodies read out in more than one mode, by the vendor's own names (`ICameraDriver.ReadoutModes`; TianWen.DAL 4.1's
+`ICMOSNativeInterface.ReadoutModes` / `TrySetReadoutMode`). A mode is not a control like gain: it can change the frame,
+the photosite and the converter's depth. A QHY294PROC reads out 4212 x 2850 at 4.63 um in "11M MODE" and 8432 x 5648 at
+2.315 um in "47M MODE", measured 2026-10-25. So the rules:
+
+- **The camera URI carries the mode (`readoutMode`, `DeviceQueryKey.ReadoutMode`), and the DAL driver sets it on
+  connect BEFORE it reads the geometry** (`InitCamera`), so a reconnect or the next night starts in it. A session sets it
+  again after its connects (`ConnectTelescopeAsync`), since a dark run or a client may have switched an already connected
+  camera. A name the body does not have is logged and the body's own mode kept, so a profile never fails a connect.
+- **A camera a run holds keeps its mode.** The node's camera settings ask the hub lease like every actuation (409 naming
+  the run), the driver refuses during an exposure or a stream, and the Equipment tab's chooser is disabled while either
+  holds. A dark run sets the mode itself, as the lease's holder.
+- **A switch on a connected camera reads the geometry again** (`ReadSensorGeometry`) and puts the frame back to the
+  whole sensor at bin 1; gain, offset and the cooler stay. It is refused during an exposure or a stream. On QHY a
+  switch is `SetQHYCCDReadMode` and a second `InitQHYCCD`, which keeps gain, offset, USB traffic, the white balance and
+  the cooler's target.
+- **Every frame of a camera with a choice says which** (`ImageMeta.ReadoutMode`, FITS `READOUTM`, N.I.N.A.'s card).
+  A single-mode camera writes none.
+- **The Equipment tab switches it** (Camera Control pane, from the node's device state) through the node's camera
+  settings (`CameraSettingsRequestDto.ReadoutMode`, applied before the bin and the frame), then keeps it on the URI;
+  `tianwen darks --readout-mode` sets, verifies and names it (`DarkFrameRunOptions.ReadoutMode`).
+
+- **A calibration frame serves only lights of its mode** (`MasterGroupKey.ReadoutMode`, a hard gate in
+  `CalibrationResolver.DimensionCompatible`, for the bake and `tianwen stack` alike): some modes keep the frame's size and
+  change what the gain means, so the size alone cannot keep them apart. An unknown mode on either side is a wildcard, as an
+  unknown gain is, and a master's slug names its mode only when it has one.
+
+Pinned by `DALCameraReadoutModeTests` and `CalibrationReadoutModeTests`.
+
 ### A focuser's travel: MinStep to MaxStep
 
 A focuser's position lies in `[IFocuserDriver.MinStep, IFocuserDriver.MaxStep]` (#1763). **`MinStep` is the FLOOR of

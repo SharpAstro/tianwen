@@ -41,6 +41,9 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// <param name="Gain">Camera gain register setting. -1 = unknown; treated as
 /// a distinct value from any real gain.</param>
 /// <param name="Offset">Camera offset / black-level register. -1 = unknown.</param>
+/// <param name="ReadoutMode">The camera's readout mode by its vendor's name (<c>READOUTM</c>), null when the frame does not
+/// say. A mode can change the gain's meaning, the converter and the geometry, and not every mode changes the frame's
+/// size, so two frames of different modes are never calibration-interchangeable.</param>
 public sealed record MasterGroupKey(
     FrameType Type,
     TimeSpan Exposure,
@@ -51,7 +54,8 @@ public sealed record MasterGroupKey(
     int ChannelCount,
     SensorType SensorType,
     short Gain,
-    int Offset)
+    int Offset,
+    string? ReadoutMode = null)
 {
     /// <summary>
     /// Do these two keys name the same filter? <b>The one filter-match test</b>, because it was
@@ -80,7 +84,8 @@ public sealed record MasterGroupKey(
             ChannelCount: frame.ChannelCount,
             SensorType: meta.SensorType,
             Gain: meta.Gain,
-            Offset: meta.Offset);
+            Offset: meta.Offset,
+            ReadoutMode: meta.ReadoutMode);
     }
 
     /// <summary>
@@ -128,6 +133,13 @@ public sealed record MasterGroupKey(
         if (Gain >= 0)
         {
             sb.Append("_g").Append(Gain);
+        }
+
+        // Named only when a frame says, so a single-mode camera's masters keep the names they always had, while two modes
+        // that agree on every other field (and on the frame's size) no longer write one master over the other.
+        if (ReadoutMode is { Length: > 0 } mode)
+        {
+            sb.Append('_').Append(SanitizeForFilename(mode));
         }
 
         return sb.ToString();

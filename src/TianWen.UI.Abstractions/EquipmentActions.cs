@@ -226,6 +226,13 @@ public static class EquipmentActions
         Uri editUri, string key, string value, ICredentialStore credentialStore)
         => DeviceSettingHelper.Commit(TryDeviceFromUri(editUri), editUri, key, value, credentialStore);
 
+    /// <summary>
+    /// The profile with <paramref name="cameraUri"/> carrying <paramref name="readoutMode"/> (<see cref="DeviceQueryKey.ReadoutMode"/>),
+    /// which the camera's driver sets on every connect; unchanged when no OTA has that camera.
+    /// </summary>
+    public static ProfileData WithCameraReadoutMode(ProfileData data, Uri cameraUri, string readoutMode)
+        => data.ReplaceDeviceUri(cameraUri, DeviceSettingHelper.WithQueryParam(cameraUri, DeviceQueryKey.ReadoutMode.Key, readoutMode));
+
     public static ProfileData SetSiteTieBreaker(ProfileData data, SiteTieBreaker tieBreaker)
         => data with { SiteTieBreaker = tieBreaker };
 

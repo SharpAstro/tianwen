@@ -513,6 +513,21 @@ internal partial record Session
         _logger.LogDebug("Init: connecting OTA #{OtaIndex} camera {Camera}", index, camera);
         await ConnectOrFailAsync(camera, $"camera '{camera.Device.DisplayName}' on telescope '{telescope.Name}'", null, cancellationToken).ConfigureAwait(false);
 
+        // The profile's readout mode, for a camera that was already connected: its connect set it then, but a dark run or a
+        // client may have switched it since, and the run's frames are taken in the profile's.
+        if (camera.Device.DeviceUri.QueryValue(DeviceQueryKey.ReadoutMode) is { Length: > 0 } readoutMode
+            && camera.Driver.ReadoutModes.Count > 1)
+        {
+            try
+            {
+                await camera.Driver.SetReadoutModeAsync(readoutMode, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning(ex, "Init: camera {Camera} keeps its readout mode, not the profile's {Mode}", camera.Device.DisplayName, readoutMode);
+            }
+        }
+
         if (telescope.Focuser is { } focuser)
         {
             _logger.LogDebug("Init: connecting OTA #{OtaIndex} focuser {Focuser}", index, focuser);

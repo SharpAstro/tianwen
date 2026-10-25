@@ -205,11 +205,13 @@ internal static class ScriptedDalCamera
 {
     internal static async Task<(TestDalCameraDriver Camera, FakeCmosState State, FakeTimeProviderWrapper Time)> ConnectAsync(
         ITestOutputHelper output, bool canReset = false, IReadOnlyList<PixelDataFormat>? formats = null, bool canStream = false,
-        BayerPattern bayerPattern = BayerPattern.Monochrome, bool hasHighSpeed = false, int bandwidthMax = 0, ILoggerProvider? logTo = null)
+        BayerPattern bayerPattern = BayerPattern.Monochrome, bool hasHighSpeed = false, int bandwidthMax = 0, ILoggerProvider? logTo = null,
+        IReadOnlyList<string>? readoutModes = null, string? uriReadoutMode = null)
     {
         var time = new FakeTimeProviderWrapper();
         var external = new FakeExternal(output, time);
-        var device = new FakeDevice(DeviceType.Camera, 1);
+        var device = new FakeDevice(DeviceType.Camera, 1,
+            uriReadoutMode is null ? null : new System.Collections.Specialized.NameValueCollection { [DeviceQueryKey.ReadoutMode.Key] = uriReadoutMode });
         var state = new FakeCmosState(device.DeviceId)
         {
             CanReset = canReset,
@@ -218,6 +220,7 @@ internal static class ScriptedDalCamera
             BayerPattern = bayerPattern,
             HasHighSpeed = hasHighSpeed,
             BandwidthMax = bandwidthMax,
+            ReadoutModes = readoutModes ?? [],
         };
         // A log the test reads takes the driver's lines from Debug up; with none, its loggers write nowhere.
         var camera = new TestDalCameraDriver(device, logTo is null ? external.BuildServiceProvider() : external.BuildServiceProvider(logTo, LogLevel.Debug), state);
@@ -325,6 +328,15 @@ internal sealed class FakeCmosState(string serial)
     public bool CanStream { get; init; }
 
     public BayerPattern BayerPattern { get; init; } = BayerPattern.Monochrome;
+
+    /// <summary>The body's readout modes; its second, when it has one, reads out twice as wide and high at half the pitch.</summary>
+    public IReadOnlyList<string> ReadoutModes { get; init; } = [];
+
+    public int ReadoutMode { get; set; }
+
+    public int ReadoutModeSets { get; set; }
+
+    public int ModeScale => ReadoutModes.Count > 1 && ReadoutMode == 1 ? 2 : 1;
 
     /// <summary>Whether the body has a high-speed readout (ZWO's <c>ASI_HIGH_SPEED_MODE</c>), a control of range 0 to 1.</summary>
     public bool HasHighSpeed { get; init; }
@@ -683,10 +695,23 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
         return CMOSErrorCode.Success;
     }
 
-    public int MaxHeight => 100;
-    public int MaxWidth => 100;
+    public int MaxHeight => 100 * state.ModeScale;
+    public int MaxWidth => 100 * state.ModeScale;
     public int BitDepth => 16;
-    public double PixelSize => 3.76;
+    public double PixelSize => 3.76 / state.ModeScale;
+    public IReadOnlyList<string> ReadoutModes => state.ReadoutModes;
+    public int ReadoutMode => state.ReadoutModes.Count > 0 ? state.ReadoutMode : -1;
+
+    public bool TrySetReadoutMode(int mode)
+    {
+        if (mode < 0 || mode >= state.ReadoutModes.Count)
+        {
+            return false;
+        }
+        state.ReadoutMode = mode;
+        state.ReadoutModeSets++;
+        return true;
+    }
     public BayerPattern BayerPattern => state.BayerPattern;
     public IReadOnlyList<int> SupportedBins => Bins;
     public IReadOnlyList<PixelDataFormat> SupportedPixelDataFormats => state.Formats;

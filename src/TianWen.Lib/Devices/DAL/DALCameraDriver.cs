@@ -49,6 +49,9 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
 
     /// <summary>The shielded strip in the same coordinates, null when the body exposes none.</summary>
     private Geometry.PixelRect? _sensorOverscanArea;
+
+    /// <summary>The readout mode the geometry was read in, for a video frame's <c>READOUTM</c>; null on a single-mode body.</summary>
+    private string? _readoutModeName;
     private IReadOnlySet<BitDepth> _supportedBitDepth = ImmutableHashSet.Create<BitDepth>();
 
     /// <summary>
@@ -355,14 +358,76 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
 
     public int BayerOffsetY { get; private set; } = int.MinValue;
 
-    /// <summary>
-    /// TODO: implement trigger
-    /// </summary>
-    public ValueTask<string?> GetReadoutModeAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult<string?>(null);
+    public IReadOnlyList<string> ReadoutModes
+    {
+        get
+        {
+            using var sdk = EnterSdk();
+            return sdk.Entered ? _deviceInfo.ReadoutModes : [];
+        }
+    }
 
+    public ValueTask<string?> GetReadoutModeAsync(CancellationToken cancellationToken = default)
+    {
+        using var sdk = EnterSdk();
+        return ValueTask.FromResult(sdk.Entered && _deviceInfo.ReadoutModes is { Count: > 0 } modes && _deviceInfo.ReadoutMode is var mode && mode >= 0 && mode < modes.Count
+            ? modes[mode]
+            : null);
+    }
+
+    /// <summary>
+    /// Switches the readout mode and reads the sensor's geometry again, since a mode can change it (a QHY294PROC's 47M mode
+    /// is 8432 x 5648 at 2.315 um, its 11M mode 4212 x 2850 at 4.63 um). The frame goes back to the whole sensor at bin 1;
+    /// gain, offset and the cooler are the body's and stay where they were. Refused during an exposure or a stream.
+    /// </summary>
     public ValueTask SetReadoutModeAsync(string? value, CancellationToken cancellationToken = default)
-        => ValueTask.CompletedTask;
+    {
+        if (value is not { Length: > 0 })
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        using var sdk = EnterSdk();
+        if (!sdk.Entered)
+        {
+            throw NotConnectedException();
+        }
+
+        var modes = _deviceInfo.ReadoutModes;
+        var index = IndexOfMode(modes, value);
+        if (index < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(value), value,
+                modes.Count > 0 ? $"Readout mode must be one of {string.Join(", ", modes)}" : "This camera has a single readout mode");
+        }
+        if (index == _deviceInfo.ReadoutMode)
+        {
+            return ValueTask.CompletedTask;
+        }
+        if (_camState is not CameraState.Idle || Volatile.Read(ref _videoActive) == 1)
+        {
+            throw new InvalidOperationException($"The readout mode cannot change while the camera is {(_camState is CameraState.Idle ? "streaming" : _camState.ToString().ToLowerInvariant())}");
+        }
+        if (!_deviceInfo.TrySetReadoutMode(index))
+        {
+            throw OperationalException(CMOSErrorCode.GeneralError, $"The camera refused readout mode {value}");
+        }
+
+        ReadSensorGeometry(_cameraSettings.BitDepth, _cameraSettings.FastReadout);
+        return ValueTask.CompletedTask;
+    }
+
+    private static int IndexOfMode(IReadOnlyList<string> modes, string name)
+    {
+        for (var i = 0; i < modes.Count; i++)
+        {
+            if (string.Equals(modes[i], name, StringComparison.OrdinalIgnoreCase))
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
 
     public ValueTask<bool> GetFastReadoutAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(Connected && CanFastReadout && _cameraSettings.FastReadout);
@@ -526,35 +591,20 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
 
     private void InitCamera()
     {
-        // set max binning values
+        // The URI's readout mode is set FIRST, since a mode decides the geometry read below. A name the body does not have
+        // is logged and the body's own mode kept, so a profile from another camera never fails a connect.
+        if (_device.Query.QueryValue(DeviceQueryKey.ReadoutMode) is { Length: > 0 } wanted)
         {
-            short maxBin = 0;
-            foreach (var supportedBin in _deviceInfo.SupportedBins)
+            var index = IndexOfMode(_deviceInfo.ReadoutModes, wanted);
+            if (index < 0)
             {
-                if (supportedBin is 0)
-                {
-                    break;
-                }
-                else if (supportedBin is <= short.MaxValue)
-                {
-                    maxBin = Math.Max(maxBin, (short)supportedBin);
-                }
+                Logger.LogWarning("{Camera} has no readout mode {Mode} (it has {Modes}); keeping its own", _device.DisplayName, wanted,
+                    _deviceInfo.ReadoutModes.Count > 0 ? string.Join(", ", _deviceInfo.ReadoutModes) : "one");
             }
-            MaxBinX = maxBin;
-            MaxBinY = maxBin;
-        }
-
-        // Bayer pattern
-        if (_deviceInfo.BayerPattern is BayerPattern.Monochrome)
-        {
-            BayerOffsetX = 0;
-            BayerOffsetY = 0;
-            SensorType = SensorType.Monochrome;
-        }
-        else
-        {
-            (BayerOffsetX, BayerOffsetY) = _deviceInfo.BayerPattern.GetOffsets();
-            SensorType = SensorType.RGGB;
+            else if (index != _deviceInfo.ReadoutMode && !_deviceInfo.TrySetReadoutMode(index))
+            {
+                Logger.LogWarning("{Camera} refused readout mode {Mode}; keeping its own", _device.DisplayName, wanted);
+            }
         }
 
         // update supported bidepth set
@@ -571,6 +621,9 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
 
             _ = Interlocked.Exchange(ref _supportedBitDepth, supported);
         }
+
+        var highestPossibleBitDepth = _supportedBitDepth.Where(x => x.IsIntegral).OrderByDescending(x => x.BitSize).First();
+        ReadSensorGeometry(highestPossibleBitDepth, fastReadout: false);
 
         var isCoolerCam = _deviceInfo.HasCooler;
         CanSetCCDTemperature = isCoolerCam;
@@ -591,11 +644,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
             CanGetCCDTemperature = false;
         }
 
-        var highestPossibleBitDepth = _supportedBitDepth.Where(x => x.IsIntegral).OrderByDescending(x => x.BitSize).First();
-        _cameraSettings = new CameraSettings(0, 0, CameraXSize  = _deviceInfo.MaxWidth, CameraYSize = _deviceInfo.MaxHeight, 1, 1, highestPossibleBitDepth, false);
-        PixelSizeX = PixelSizeY = _deviceInfo.PixelSize;
         ElectronsPerADU = _deviceInfo.ElectronPerADU is var elecPerADU and > 0f ? elecPerADU : double.NaN;
-        AdcDepth = _deviceInfo.BitDepth is > 0 and <= 32 ? new Imaging.AdcResolution(_deviceInfo.BitDepth) : null;
 
         CanFastReadout = _deviceInfo.TryGetControlRange(CMOSControlType.HighSpeedMode, out _, out _);
 
@@ -626,16 +675,6 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
         // open are exactly what the number exists to identify.
         Interlocked.Exchange(ref _frameSequence, -1);
 
-        // Sensor geometry is a property of the BODY, so it is asked once per connect rather than per
-        // frame. Both are routinely absent (a QHY178M reports its effective area as the whole readout
-        // and an overscan of 0 x 0), and absent is a real answer, not a failure.
-        _sensorEffectiveArea = _deviceInfo.TryGetEffectiveArea(out var effX, out var effY, out var effW, out var effH)
-            ? new Geometry.PixelRect(effX, effY, effW, effH)
-            : null;
-        _sensorOverscanArea = _deviceInfo.TryGetOverscanArea(out var osX, out var osY, out var osW, out var osH)
-            ? new Geometry.PixelRect(osX, osY, osW, osH)
-            : null;
-
         var initControlValues = new Dictionary<CMOSControlType, int>
         {
             [CMOSControlType.Flip] = 0,
@@ -659,6 +698,57 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
         }
 
         SetNeutralWhiteBalance();
+    }
+
+    /// <summary>
+    /// Reads what the readout mode decides: the frame size, the photosite, the converter's depth, the bins, the colour
+    /// filter's phase and the lit and shielded areas. The frame goes back to the whole sensor at bin 1. Asked on connect
+    /// and after a readout mode changes, never per frame.
+    /// </summary>
+    private void ReadSensorGeometry(BitDepth bitDepth, bool fastReadout)
+    {
+        short maxBin = 0;
+        foreach (var supportedBin in _deviceInfo.SupportedBins)
+        {
+            if (supportedBin is 0)
+            {
+                break;
+            }
+            else if (supportedBin is <= short.MaxValue)
+            {
+                maxBin = Math.Max(maxBin, (short)supportedBin);
+            }
+        }
+        MaxBinX = maxBin;
+        MaxBinY = maxBin;
+
+        if (_deviceInfo.BayerPattern is BayerPattern.Monochrome)
+        {
+            BayerOffsetX = 0;
+            BayerOffsetY = 0;
+            SensorType = SensorType.Monochrome;
+        }
+        else
+        {
+            (BayerOffsetX, BayerOffsetY) = _deviceInfo.BayerPattern.GetOffsets();
+            SensorType = SensorType.RGGB;
+        }
+
+        _cameraSettings = new CameraSettings(0, 0, CameraXSize = _deviceInfo.MaxWidth, CameraYSize = _deviceInfo.MaxHeight, 1, 1, bitDepth, fastReadout);
+        PixelSizeX = PixelSizeY = _deviceInfo.PixelSize;
+        _readoutModeName = _deviceInfo.ReadoutModes is { Count: > 1 } modes && _deviceInfo.ReadoutMode is var mode && mode >= 0 && mode < modes.Count
+            ? modes[mode]
+            : null;
+        AdcDepth = _deviceInfo.BitDepth is > 0 and <= 32 ? new Imaging.AdcResolution(_deviceInfo.BitDepth) : null;
+
+        // Both are routinely absent (a QHY178M reports its effective area as the whole readout and an overscan of 0 x 0),
+        // and absent is a real answer, not a failure.
+        _sensorEffectiveArea = _deviceInfo.TryGetEffectiveArea(out var effX, out var effY, out var effW, out var effH)
+            ? new Geometry.PixelRect(effX, effY, effW, effH)
+            : null;
+        _sensorOverscanArea = _deviceInfo.TryGetOverscanArea(out var osX, out var osY, out var osW, out var osH)
+            ? new Geometry.PixelRect(osX, osY, osW, osH)
+            : null;
     }
 
     /// <summary>

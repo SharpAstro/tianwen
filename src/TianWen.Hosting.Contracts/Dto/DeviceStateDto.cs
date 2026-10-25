@@ -113,6 +113,15 @@ public sealed record CameraDeviceStateDto
     /// <summary>Whether the camera has a high-speed readout a planetary capture can switch; false from an older node.</summary>
     public bool CanFastReadout { get; init; }
 
+    /// <summary>
+    /// The camera's readout modes by name; null when it has one, and from a node before readout modes, which a client reads
+    /// as a camera offering no choice.
+    /// </summary>
+    public string[]? ReadoutModes { get; init; }
+
+    /// <summary>The readout mode the camera is in, one of <see cref="ReadoutModes"/>; null when it has none to choose.</summary>
+    public string? ReadoutMode { get; init; }
+
     public static CameraDeviceStateDto FromReading(CameraReading reading, CoolerIntent? intent) => new CameraDeviceStateDto
     {
         CcdTemperatureC = DeviceStateDto.Known(reading.CcdTemperatureC),
@@ -134,6 +143,8 @@ public sealed record CameraDeviceStateDto
         Roi = reading.RoiConstraints == default ? null : CameraRoiDto.FromConstraints(reading.RoiConstraints),
         VideoBitDepths = reading.VideoBitDepths.IsDefaultOrEmpty ? null : [.. reading.VideoBitDepths],
         CanFastReadout = reading.CanFastReadout,
+        ReadoutModes = reading.ReadoutModes.IsDefaultOrEmpty ? null : [.. reading.ReadoutModes],
+        ReadoutMode = reading.ReadoutMode,
     };
 
     /// <summary>
@@ -157,7 +168,9 @@ public sealed record CameraDeviceStateDto
         SensorHeight: SensorHeight,
         RoiConstraints: Roi?.ToConstraints() ?? default,
         VideoBitDepths: VideoBitDepths is { } depths ? [.. depths] : [],
-        CanFastReadout: CanFastReadout);
+        CanFastReadout: CanFastReadout,
+        ReadoutModes: ReadoutModes is { } readoutModes ? [.. readoutModes] : [],
+        ReadoutMode: ReadoutMode);
 }
 
 /// <summary>A camera's region-of-interest rules (<see cref="RoiConstraints"/>), in pixels.</summary>

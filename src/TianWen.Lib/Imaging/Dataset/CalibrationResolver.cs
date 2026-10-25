@@ -1011,11 +1011,24 @@ public static class CalibrationResolver
     // Internal rather than private: StackingPipeline.MatchMaster consumes the same gates and
     // penalties, so the two paths' matching arithmetic cannot drift (the registrar collapse's
     // lesson applied to calibration matching).
+    /// <summary>
+    /// Whether a calibration group is read out as the light is: the same sensor type, channels and size, and no readout
+    /// mode that disagrees. A mode is a hard gate, never a penalty: some modes keep the frame's size and change what the gain
+    /// means or how the converter reads, and nothing else in the key would tell them apart. An unknown mode on either side
+    /// stays a wildcard, as an unknown gain does (<see cref="GainCompatible"/>), so a library from software that writes no
+    /// <c>READOUTM</c> is not dropped.
+    /// </summary>
     internal static bool DimensionCompatible(MasterGroupKey g, MasterGroupKey light) =>
         g.SensorType == light.SensorType
         && g.ChannelCount == light.ChannelCount
         && g.Width == light.Width
-        && g.Height == light.Height;
+        && g.Height == light.Height
+        && ReadoutModeCompatible(g, light);
+
+    internal static bool ReadoutModeCompatible(MasterGroupKey g, MasterGroupKey light) =>
+        g.ReadoutMode is not { Length: > 0 } calibrationMode
+        || light.ReadoutMode is not { Length: > 0 } lightMode
+        || string.Equals(calibrationMode, lightMode, StringComparison.OrdinalIgnoreCase);
 
     internal static double TempPenalty(MasterGroupKey g, MasterGroupKey light) =>
         g.TemperatureC is { } gt && light.TemperatureC is { } lt ? Math.Abs(gt - lt) : 100.0;

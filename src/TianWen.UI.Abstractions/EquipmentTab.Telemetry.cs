@@ -39,7 +39,7 @@ namespace TianWen.UI.Abstractions
             // Stored on EquipmentTabState as a separate sub-key so it doesn't clash.
             var paneKey = $"CoolerPane:{key}";
             var isOpen = State.ExpandedDeviceSettingsUri == paneKey;
-            var headerLabel = isOpen ? "    Cooler Control [-]" : "    Cooler Control [+]";
+            var headerLabel = isOpen ? "    Camera Control [-]" : "    Camera Control [+]";
 
             var toggle = FormRowLayout.ToggleHeaderRow(
                 headerLabel, rowH, FilterTableBg, HeaderText, BaseFontSize * 0.85f,
@@ -108,6 +108,25 @@ namespace TianWen.UI.Abstractions
                             else PostSignal(new SetCoolerOffSignal(capUri));
                         }))
                 .WithGap(4f).RowH(rowH).Bg(FilterTableBg));
+
+            // ---- Readout mode row, for a camera with a choice: [Readout: | < mode > ]. The modes are the connected camera's,
+            // as the node last read it; a press switches the camera through the node and keeps the mode on its URI. ----
+            if (appState.LocalNode?.Device(cameraUri) is { Camera: { ReadoutModes: { Length: > 1 } modes } cameraState } cameraDevice)
+            {
+                // Locked while a run holds the camera (its lease) or it is at work: the node would refuse the switch anyway,
+                // and a mode changed under a run would change the frames it is taking.
+                var heldBy = cameraDevice.LeaseOwner;
+                var current = Array.FindIndex(modes, m => string.Equals(m, cameraState.ReadoutMode, StringComparison.OrdinalIgnoreCase));
+                var stepStyle = new FormRowLayout.StepperStyle(EditButtonBg, BodyText, EditButtonBg, DimText, BaseFontSize * 0.78f, 24f);
+                rows.Add(Layout.Builder.HStack(
+                        Layout.Builder.Text("    Readout:", BaseFontSize * 0.85f, DimText).WFixed(80f).HStar(),
+                        FormRowLayout.StepperControl(stepStyle,
+                            "◀", $"ReadoutPrev_{key}", _ => PostSignal(new SetCameraReadoutModeSignal(capUri, modes[(Math.Max(current, 0) - 1 + modes.Length) % modes.Length])),
+                            "▶", $"ReadoutNext_{key}", _ => PostSignal(new SetCameraReadoutModeSignal(capUri, modes[(current + 1) % modes.Length])),
+                            heldBy is null ? cameraState.ReadoutMode ?? "?" : $"{cameraState.ReadoutMode} ({heldBy})", BaseFontSize * 0.85f, BodyText,
+                            enabled: heldBy is null && cameraState.State is CameraState.Idle).WFixed(240f).HStar())
+                    .WithGap(4f).RowH(rowH).Bg(FilterRowAlt));
+            }
 
             // Confirmation strip -- appears under the controls row when the user clicked
             // Cooler Off on a cooled camera. Two stages, mirror of the disconnect flow.
