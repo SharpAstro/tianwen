@@ -210,11 +210,38 @@ def bright_weights(x, y, plane, sigma_floor, weight):
     pixels and 7.2 % of R2i's squared error, while the eval asks its core to within one sigma. Used as masked_mean's mask,
     it is a weighted mean, so a tile with no bright star keeps the plain objective's scale."""
     import torch
-    sigma = plane.float().unsqueeze(1) / PLANE_SCALE
-    z = (x - y).mean(dim=1, keepdim=True) / sigma.clamp_min(1e-12)
+    z = star_layer_sigmas(x, y, plane)
     bright = (z >= sigma_floor).float()
     bright = torch.nn.functional.max_pool2d(bright, kernel_size=3, stride=1, padding=1)
     return 1.0 + (weight - 1.0) * bright
+
+
+def star_layer_sigmas(x, y, plane):
+    """The star layer [B, 1, H, W] in the draw's own noise sigmas: the draw x less its truth y (the channels' mean) over the
+    sigma its plane [B, H, W] (PLANE_SCALE units) states. What --bright-weight and --speckle-weight both read."""
+    sigma = plane.float().unsqueeze(1) / PLANE_SCALE
+    return (x - y).mean(dim=1, keepdim=True) / sigma.clamp_min(1e-12)
+
+
+def speckle_term(pred, x, y, plane, floor):
+    """The --speckle-weight term (#1362, docs/plans/star-remover-training.md, "The speckle teacher"): `n2n_speckle`'s
+    one-sided penalty on the output's luminance at the sites of the stars the draw's truth removed. The tile's sites are the
+    local maxima of its star layer at or above `floor` sigmas (`star_layer_sigmas`, the planes --bright-weight reads, so
+    --cond-map's planes are needed), kept off the rim the pixel term leaves out; the noise cap is read from the INPUT x once
+    per tile. Detached statistics, as the module says. pred, x, y are [B, C, H, W], plane [B, H, W]."""
+    import n2n_speckle as SP
+    return SP.site_penalty(pred, x.mean(dim=1), star_layer_sigmas(x, y, plane), floor, BORDER)
+
+
+def add_speckle(loss, args, pred, x, y, plane):
+    """(loss, term) with --speckle-weight's term joined to `loss`, for the training step and the held-out objective alike.
+    Off (weight 0) it returns `loss` itself and None before touching anything, which is what keeps a run without the option
+    the run it always was. `plane` is the draw's noise plane as stored (a numpy array [B, H, W]), read only when on."""
+    if not args.speckle_weight:
+        return loss, None
+    import torch
+    term = speckle_term(pred, x, y, torch.from_numpy(np.ascontiguousarray(plane)).to(pred.device), args.speckle_sigma)
+    return loss + args.speckle_weight * term, term
 
 
 def resume_fingerprint(args, meta):
@@ -232,6 +259,8 @@ def resume_fingerprint(args, meta):
         fp.update(levels=args.levels, max_ch=args.max_ch)
     if getattr(args, "bright_weight", 0.0):
         fp.update(bright_weight=args.bright_weight, bright_sigma=args.bright_sigma)
+    if getattr(args, "speckle_weight", 0.0):
+        fp.update(speckle_weight=args.speckle_weight, speckle_sigma=args.speckle_sigma)
     if getattr(args, "clip_grad", 0.0):
         fp.update(clip_grad=args.clip_grad)
     if getattr(args, "teacher", None):
@@ -1490,6 +1519,17 @@ def train(args):
             raise SystemExit("--bright-weight takes a weight over 1 and --bright-sigma a floor over 0")
         print(f"objective: pixels where the star layer stands {args.bright_sigma:g} sigma or more (grown by one pixel) "
               f"weighed {args.bright_weight:g} times (--bright-weight, R2l)")
+    if args.speckle_weight:
+        # The sites are where the star layer peaks (the draw less its truth, in the draw's own noise sigma), the same
+        # planes --bright-weight reads, so the option needs them too: no plane, no way to say what a significant star is.
+        if sigma_planes is None:
+            raise SystemExit("--speckle-weight takes its sites from the star layer in the draw's own noise: it needs "
+                             "--cond-map's planes")
+        if not args.speckle_weight > 0.0 or not args.speckle_sigma > 0.0:
+            raise SystemExit("--speckle-weight takes a weight over 0 and --speckle-sigma a floor over 0")
+        print(f"objective: + {args.speckle_weight:g} x the speckle penalty at the peaks of the star layer "
+              f"({args.speckle_sigma:g} sigma or more, the output's core pixels under its own sky less 4 sigma; "
+              f"--speckle-weight, #1362)")
 
     # R2d's D4: the sky near a source the plate itself kept is left out of the pixel and band terms, in training and in
     # the plateau's held-out objective alike, so neither asks the net to keep a faint star it is asked to remove elsewhere.
@@ -1798,6 +1838,7 @@ def train(args):
                             band = band + (masked_mean((dp - dy) ** 2, mc) if mc is not None
                                            else nn.functional.mse_loss(dp, dy))
                         obj = obj + args.band_loss * band / len(band_scales)
+                    obj, _ = add_speckle(obj, args, pred, x, y, sigma_[vi, slots] if sigma_ is not None else None)
                     total += float(obj.item()) * len(vi)
             return total / (2 * len(cells))
 
@@ -1820,6 +1861,7 @@ def train(args):
     t0 = time.perf_counter()
     running = []
     running_star = []
+    running_speckle = []
     regime_steps = defaultdict(int)
     best = (-1.0, 0, None, None)      # (score, step, metrics, state_dict)
     # The same tuple, tracked WITHOUT the noise threshold: the best-by-noise probe among those
@@ -2092,6 +2134,12 @@ def train(args):
                 band = band + (masked_mean((dp - dy) ** 2, mc) if mc is not None else nn.functional.mse_loss(dp, dy))
             loss = loss + args.band_loss * band / len(band_scales)
 
+        # #1362's --speckle-weight: the one-sided penalty on the output's cores at the removed stars' sites (speckle_term),
+        # logged beside the other terms. Off, none of this runs and the step is the one it always was.
+        loss, sp_term = add_speckle(loss, args, pred, x, y, plane_now)
+        if sp_term is not None:
+            running_speckle.append(float(sp_term.item()))
+
         # The star term (E2.8). Its weight is set on the FIRST batch that carries a star so the term
         # equals the pixel term there, then never moves: logged once, saved in the checkpoint, and
         # never tuned on the gate.
@@ -2178,6 +2226,8 @@ def train(args):
             el = time.perf_counter() - t0
             star_note = (f"  star {np.mean(running_star[-args.log_every:]):.4f}"
                          if star_term is not None and running_star else "")
+            if args.speckle_weight and running_speckle:
+                star_note += f"  speckle {np.mean(running_speckle[-args.log_every:]):.4e}"
             print(f"  step {step:6d}/{steps}  loss {np.mean(running[-args.log_every:]):.5f}{star_note}  "
                   f"{step*args.batch/el:5.1f} tiles/s  elapsed {el/60:5.1f} min", flush=True)
 
@@ -2650,6 +2700,14 @@ if __name__ == "__main__":
                         "plateau's held-out objective (a weighted mean); 0 keeps the plain objective. Needs --cond-map")
     p.add_argument("--bright-sigma", type=float, default=100.0,
                    help="R2l: the star layer's floor, in the draw's own noise sigma, for --bright-weight")
+    p.add_argument("--speckle-weight", type=float, default=0.0,
+                   help="#1362: add the speckle teacher to the objective (training and the plateau's held-out objective): "
+                        "the one-sided penalty (n2n_speckle.py, a port of StarlessSpeckles) on the output's luminance cores "
+                        "at the removed stars' sites, in the pixel term's units, times this weight; 0 (default) is off and "
+                        "leaves the run, its fingerprint and its step untouched. Sites are the local maxima of the star "
+                        "layer (draw less truth) at or above --speckle-sigma. Needs --cond-map")
+    p.add_argument("--speckle-sigma", type=float, default=100.0,
+                   help="#1362: the star layer's floor, in the draw's own noise sigma, for a --speckle-weight site")
     p.add_argument("--upsample", action="store_true")
     p.add_argument("--pair-avg", type=int, default=1)
     p.add_argument("--mix-avg", action="store_true")

@@ -193,7 +193,36 @@ the ring median exact, sigma to 1e-6, the noise cap to 1e-4; regeneration is in 
 does not make: the ring's median and sigma are computed from the output but **detached** by default (with their gradient the
 net could shrink the term by making the ring noisier), and the noise cap is read from the INPUT once per tile
 (`noise_cap` is a loop over cells, a data-pipeline step, not a per-step one). Torch has no win-arm64 wheel for Python 3.13+
-(3.12 has a CPU one), so on the arm64 laptop the test runs only under a 3.12 venv; elsewhere without torch it skips.
+(3.12 has a CPU one, from the `https://download.pytorch.org/whl/cpu` index; PyPI has none for win-arm64), so on the arm64
+laptop the test runs only under a 3.12 venv; elsewhere without torch it skips.
+
+**The trainer option (#1362).** `n2n_smoke.py --train --speckle-weight W [--speckle-sigma S]` adds `W` times the penalty to the
+objective, in the training step and in the plateau's held-out objective alike (one routine, `add_speckle`, so the schedule
+stops on what the net trains on). Off (the default, 0) is the run it always was: the function returns the loss object itself
+before touching anything, the fingerprint gains nothing (`speckle_weight` and `speckle_sigma` are recorded only when set, so a
+checkpoint written before still resumes), and a fixed-seed CPU step gives the same loss and weights to the bit
+(`test_n2n_speckle_option.py`). Four decisions the option makes, each stated in the code beside it:
+
+- **Where a tile's sites come from: the star layer the draw removed.** The layer is the draw less its truth (the channels'
+  mean) in the draw's own noise sigma, read from the stored per-pixel noise plane exactly as `--bright-weight` reads it
+  (`star_layer_sigmas`), so the option **needs `--cond-map`'s planes and refuses with a `SystemExit` without them**. A site is a
+  local maximum of that layer (5 x 5 neighbourhood) at or above `--speckle-sigma` (default 100, the band where R2's cores
+  were dug), at least `BORDER + 3` px inside the tile so its core lies in what the pixel term averages, at most 32 per tile (a
+  saturated core peaks on many equal pixels), brightest first, ties by index. No truth is read beyond that: the penalty
+  itself needs none, which is what lets real masters use it later (R3b2).
+- **The noise cap is the INPUT's**, computed once per tile and step (`noise_cap` is a loop over cells: 0.39 s for 16 tiles
+  of 256 x 256 on the win-arm64 laptop's CPU, an extra per step to be measured on the training box before an arm leans on it) and never from the output, whose
+  differences a remover can bend. The ring's median and sigma carry no gradient (the module's `detach_stats`).
+- **The term is in the pixel term's units**: the penalty summed over every site, divided by the pixels the pixel term averages
+  (tile less the 16 px rim, over the batch), so `W = 1` is of the order of the plain objective, and a batch with no site adds an
+  exact zero that stays in the graph. It is the output's LUMINANCE (the channels' mean) that is tested, as `StarlessSpeckles`
+  tests a luminance.
+- **Logged, never gated**: the step line prints `speckle <mean term>` beside the loss while the option is on, and the plateau's
+  `val` line is the objective with the term in it.
+
+To turn it on: `run-r2.ps1 -SpeckleWeight W [-SpeckleSigma S]` (the arm-driver takes the same two parameters and hands them to its
+train script as `-SpeckleWeight` / `-SpeckleSigma`; the Azure VM's `TRAIN_FLAGS` carry `--speckle-weight` as any other flag). `W`
+is not chosen here: R3b is the arm that picks it, against R3a, and the pre-registration names the value before the run.
 
 **One alternative structure, held for H4's kill:** the third-party architectures read in the SAS study
 ([model-training-roadmap.md](model-training-roadmap.md) section 8, item 7) separate a positive subtractive
@@ -3970,7 +3999,7 @@ Every flight is filed as an issue in the `star-remover-training` milestone and l
 |---|---|---|---|---|
 | F1 run tooling | #1774, #1787 folded in | the arm chain runnable as pilot jobs: export, train resumed across two jobs, score, ONNX; the driver's stop file on any exception | a dry arm over R2u's outputs runs every step through `pilot run` and exits 0 with no GPU | none |
 | F2 fair reads | to open | A's draws and both twins re-exported on the master's stretch; R2i seed 0 and 1, R2t, R2w re-scored on them; bright-band bars stated from two seeds; M42 read per session in the scorecard | the four baselines' rows on the new sets in the plan | F1 |
-| F3 the dig penalty | #1362 | the speckle teacher as a trainer option, pinned to `StarlessSpeckles` by a parity fixture | the fixture passes on CPU; the option off is byte-identical training | none |
+| F3 the dig penalty | #1362 | the speckle teacher as a trainer option, pinned to `StarlessSpeckles` by a parity fixture. **Landed:** the port and fixture, then `--speckle-weight` / `--speckle-sigma` in `n2n_smoke.py` (off by default, in the fingerprint only when set, in the training and held-out objectives, logged), `-SpeckleWeight` / `-SpeckleSigma` in `run-r2.ps1` and `arm-driver.ps1`; see "The speckle teacher" | the fixture passes on CPU; the option off is byte-identical training | none |
 | F4 the wings by brightness | #1241 | S1b: each rig's wing gain with a brightness term, drawn per channel inside the real channel relation (R2s's lesson); the classifier's spread over seeds read first | star-crop AUC moves past the classifier's own spread, and no drawn star outside every real master's relation | none |
 | F5 the noise | #1781, #1786 folded in | S4b's shared component with real's cross-structure at lags 0 to 2, and the QHY294PROC's noise anchor recalibrated | noise-crop AUC below synth4's 0.70 and Lobster's sigma ratio within 1.05 | none |
 | F6 the clusters' stretch | #1823 | the synthetic cluster tiles stretched with the master's parameters, as synth11's are (they took the plate's, 1.32 to 1.53 times gentler at the sky), and re-exported | the 90 skies re-exported and packed into a cache beside synth11's | none |

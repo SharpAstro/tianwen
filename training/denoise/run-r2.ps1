@@ -56,6 +56,11 @@ param(
     # (n2n_smoke.py --bright-weight, --bright-sigma); 0 (default) keeps the plain objective.
     [double]$BrightWeight = 0,
     [double]$BrightSigma = 100,
+    # #1362: add the speckle teacher (the one-sided penalty on the output's cores at the removed stars' sites, n2n_speckle.py) to
+    # the objective, this many times (n2n_smoke.py --speckle-weight, --speckle-sigma: the star layer's floor, in the draw's own
+    # noise sigma, for a site); 0 (default) leaves the run, its fingerprint and its steps as they were.
+    [double]$SpeckleWeight = 0,
+    [double]$SpeckleSigma = 100,
     # R2n: how many times the U-Net halves the tile (n2n_smoke.py --levels; 2, the default, is every model before R2n) and
     # the cap on any level's channels (--max-ch; 0 is none).
     [int]$Levels = 2,
@@ -99,7 +104,7 @@ function Export-Ready([string]$arm) {
 Set-Status 'starting'
 
 try {
-    "$Tag at $(git -C $PSScriptRoot rev-parse --short HEAD), $(Get-Date -Format o), patience $Patience, cap $Steps, loss mask $LossMask, seeds from $FirstSeed, snapshot at $SnapshotAt, channel noise $ChannelNoise, checkpoint every $CheckpointEvery, bright weight $BrightWeight over $BrightSigma sigma, levels $Levels, channel cap $MaxCh, dihedral $Dihedral, ema $Ema, clip $ClipGrad, teacher '$Teacher', extra cache '$ExtraCache'" | Tee-Object -FilePath $log -Append
+    "$Tag at $(git -C $PSScriptRoot rev-parse --short HEAD), $(Get-Date -Format o), patience $Patience, cap $Steps, loss mask $LossMask, seeds from $FirstSeed, snapshot at $SnapshotAt, channel noise $ChannelNoise, checkpoint every $CheckpointEvery, bright weight $BrightWeight over $BrightSigma sigma, speckle weight $SpeckleWeight over $SpeckleSigma sigma, levels $Levels, channel cap $MaxCh, dihedral $Dihedral, ema $Ema, clip $ClipGrad, teacher '$Teacher', extra cache '$ExtraCache'" | Tee-Object -FilePath $log -Append
     while ($AfterPid -gt 0 -and (Get-Process -Id $AfterPid -ErrorAction SilentlyContinue)) {
         if (Stop-Requested "waiting for process $AfterPid") { return }
         Set-Status "waiting for process $AfterPid"
@@ -150,6 +155,10 @@ try {
             if ($BrightWeight -gt 0) {
                 $mask.Add('--bright-weight'); $mask.Add($BrightWeight.ToString([cultureinfo]::InvariantCulture))
                 $mask.Add('--bright-sigma'); $mask.Add($BrightSigma.ToString([cultureinfo]::InvariantCulture))
+            }
+            if ($SpeckleWeight -gt 0) {
+                $mask.Add('--speckle-weight'); $mask.Add($SpeckleWeight.ToString([cultureinfo]::InvariantCulture))
+                $mask.Add('--speckle-sigma'); $mask.Add($SpeckleSigma.ToString([cultureinfo]::InvariantCulture))
             }
             if ($Levels -ne 2) { $mask.Add('--levels'); $mask.Add("$Levels") }
             if ($MaxCh -gt 0) { $mask.Add('--max-ch'); $mask.Add("$MaxCh") }

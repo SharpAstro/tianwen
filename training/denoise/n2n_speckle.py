@@ -239,3 +239,48 @@ def read_sites(plane, sites, cap, absent=None, detach_stats=True):
 def speckle_penalty(plane, sites, cap, absent=None, detach_stats=True):
     """The loss term: the summed shortfall penalty over every site, a scalar (divide by the site count to mean it)."""
     return read_sites(plane, sites, cap, absent, detach_stats).penalty.sum()
+
+
+# Where the trainer's sites come from (--speckle-weight in n2n_smoke.py, #1362). A removed star's site is where the draw's
+# own star layer peaks: the layer is the draw less its truth (the star the draw injected), read in the draw's own noise
+# sigma, so a site is a local maximum of that layer at or above a significance floor. The same planes --bright-weight reads
+# (the stored per-pixel noise plane), so the option needs them too. A flat saturated core peaks on many equal pixels, so a
+# tile keeps at most MAX_SITES_PER_TILE of its brightest peaks, ties broken by the lowest index (deterministic).
+PEAK_RADIUS = 2
+MAX_SITES_PER_TILE = 32
+
+
+def peak_sites(layer, floor, margin, max_per_tile=MAX_SITES_PER_TILE):
+    """The sites [N, 3] (tile, x, y), float64, of `layer` [B, 1, H, W] (the star layer in noise sigmas): the pixels at or
+    above `floor` that are the maximum of their (2 * PEAK_RADIUS + 1)^2 neighbourhood and at least `margin` px from every
+    edge (a site closer reads no ring), brightest first within a tile, at most `max_per_tile` of them per tile."""
+    b, _, h, w = layer.shape
+    z = layer[:, 0]
+    peak = (z >= floor) & (z == torch.nn.functional.max_pool2d(layer, 2 * PEAK_RADIUS + 1, 1, PEAK_RADIUS)[:, 0])
+    inner = torch.zeros_like(peak)
+    inner[:, margin : h - margin, margin : w - margin] = True
+    score = torch.where(peak & inner, z, torch.full_like(z, float("-inf"))).flatten(1)
+    values, index = score.topk(min(max_per_tile, score.shape[1]), dim=1)
+    keep = torch.isfinite(values)
+    tile = torch.arange(b, device=layer.device)[:, None].expand_as(index)[keep]
+    index = index[keep]
+    return torch.stack([tile, index % w, index // w], dim=1).double()
+
+
+@torch.no_grad()
+def tile_cap(luminance):
+    """`noise_cap` of the INPUT luminance [B, H, W], once per tile (see the module docstring on why not the output's)."""
+    return noise_cap(luminance.float())
+
+
+def site_penalty(output, luminance_in, layer, floor, border):
+    """The trainer's term: `speckle_penalty` of the output's luminance (the mean of its channels) at the peaks of `layer`,
+    for sites whose core lies inside the `border`-px rim the pixel term leaves out, over the pixels that term averages (the
+    batch's tile less the rim), i.e. in the pixel term's own units, so a weight of 1 is the same order as the plain
+    objective. `output` [B, C, H, W] carries the gradient; `luminance_in` [B, H, W] is the draw the net was fed. A batch
+    with no site gives a zero that still belongs to the graph."""
+    b, _, h, w = output.shape
+    sites = peak_sites(layer, floor, border + int(math.ceil(CORE_RADIUS)))
+    if sites.shape[0] == 0:
+        return output.sum() * 0.0
+    return speckle_penalty(output.mean(dim=1), sites, tile_cap(luminance_in)) / (b * (h - 2 * border) * (w - 2 * border))
