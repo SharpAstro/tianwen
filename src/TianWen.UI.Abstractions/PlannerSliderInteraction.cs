@@ -68,10 +68,10 @@ namespace TianWen.UI.Abstractions
         /// since a terminal cannot report a click finer than a cell.
         /// </para>
         /// </summary>
-        public static HitBands GetHitBands(PlannerState state, RectF32 chartRect, float bandWidth)
+        public static HitBands GetHitBands(PlannerState state, RectF32 chartRect, float bandWidth, float dpiScale = 1f)
         {
             var (tStart, tEnd, plotX, plotY, plotW, plotH) = AltitudeChartRenderer.GetChartPlotLayout(
-                state, (int)chartRect.X, (int)chartRect.Y, (int)chartRect.Width, (int)chartRect.Height);
+                state, (int)chartRect.X, (int)chartRect.Y, (int)chartRect.Width, (int)chartRect.Height, dpiScale);
             var rangeHours = (tEnd - tStart).TotalHours;
 
             // A degenerate time range would make every fraction NaN. Report no bands instead: a region
@@ -106,7 +106,7 @@ namespace TianWen.UI.Abstractions
         /// moved. The capture owns its lifetime, so it cannot be left behind by a release nobody routed.
         /// </para>
         /// </remarks>
-        public static DragCapture BeginDrag(PlannerState state, int index, RectF32 chartRect)
+        public static DragCapture BeginDrag(PlannerState state, int index, RectF32 chartRect, float dpiScale = 1f)
         {
             state.DraggingSliderIndex = index;
 
@@ -118,7 +118,7 @@ namespace TianWen.UI.Abstractions
                     if (state.DraggingSliderIndex is var idx && idx >= 0 && idx < state.HandoffSliders.Length)
                     {
                         var (tStart, tEnd, plotX, plotW) = AltitudeChartRenderer.GetChartTimeLayout(
-                            state, (int)chartRect.X, (int)chartRect.Width);
+                            state, (int)chartRect.X, (int)chartRect.Width, dpiScale);
                         PlannerActions.MoveSlider(state, idx,
                             AltitudeChartRenderer.XToTime(move.X, tStart, tEnd, plotX, plotW));
                         state.NeedsRedraw = true;
@@ -141,7 +141,7 @@ namespace TianWen.UI.Abstractions
         /// handler, i.e. click-to-place was defined by what it was NOT -- and "not on a handle" and "not
         /// on anything at all" are different questions that arm shared the answer to.
         /// </remarks>
-        public static DragCapture? BeginPlaceNearest(PlannerState state, RectF32 chartRect, float px, float py)
+        public static DragCapture? BeginPlaceNearest(PlannerState state, RectF32 chartRect, float px, float py, float dpiScale = 1f)
         {
             if (state.HandoffSliders.Length == 0)
             {
@@ -149,7 +149,7 @@ namespace TianWen.UI.Abstractions
             }
 
             var (tStart, tEnd, plotX, plotY, plotW, plotH) = AltitudeChartRenderer.GetChartPlotLayout(
-                state, (int)chartRect.X, (int)chartRect.Y, (int)chartRect.Width, (int)chartRect.Height);
+                state, (int)chartRect.X, (int)chartRect.Y, (int)chartRect.Width, (int)chartRect.Height, dpiScale);
 
             // Only inside the PLOT area -- a press on the weather band above it, or the legend below,
             // must not move a divider. The region is the whole chart, so this is the narrowing.
@@ -166,7 +166,7 @@ namespace TianWen.UI.Abstractions
             }
 
             state.NeedsRedraw = true;
-            return BeginDrag(state, moved, chartRect);
+            return BeginDrag(state, moved, chartRect, dpiScale);
         }
 
         /// <summary>

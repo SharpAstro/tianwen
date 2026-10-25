@@ -123,8 +123,9 @@ public static class AltitudeChartRenderer
         PlannerState state,
         string fontFamily = DefaultFontFamily,
         int? highlightTargetIndex = null,
-        string? emojiFontPath = null)
-        => Render(renderer, state, fontFamily, 0, 0, (int)renderer.Width, (int)renderer.Height, highlightTargetIndex, emojiFontPath: emojiFontPath);
+        string? emojiFontPath = null,
+        float dpiScale = 1f)
+        => Render(renderer, state, fontFamily, 0, 0, (int)renderer.Width, (int)renderer.Height, highlightTargetIndex, emojiFontPath: emojiFontPath, dpiScale: dpiScale);
 
     /// <summary>
     /// Renders the chart within a specific area of the renderer surface.
@@ -138,7 +139,8 @@ public static class AltitudeChartRenderer
         int? highlightTargetIndex = null,
         DateTimeOffset? currentTime = null,
         (float X, float Y)? mouseScreenPosition = null,
-        string? emojiFontPath = null)
+        string? emojiFontPath = null,
+        float dpiScale = 1f)
     {
         // Guard: no data loaded yet (AstroDark is default = 0001-01-01)
         if (state.AstroDark == default)
@@ -151,8 +153,8 @@ public static class AltitudeChartRenderer
         var h = areaH;
 
         // --- Layout (proportional to area size, offset by areaX/areaY) ---
-        var xMargin = Math.Max(48, w / 14);
-        var (yMarginTop, _, legendH, plotH, titleVisible) = VerticalLayout(state, h);
+        var xMargin = Math.Max(Px(48, dpiScale), w / 14);
+        var (yMarginTop, _, legendH, plotH, titleVisible) = VerticalLayout(state, h, dpiScale);
 
         var plotX = areaX + xMargin;
         var plotY = areaY + yMarginTop;
@@ -173,10 +175,10 @@ public static class AltitudeChartRenderer
         FillRect(renderer, areaX, areaY, w, h, BackgroundColor);
 
         // --- Twilight zones ---
-        DrawTwilightZones(renderer, state, tStart, tEnd, TimeToX, plotX, plotY, plotW, plotH, fontFamily);
+        DrawTwilightZones(renderer, state, tStart, tEnd, TimeToX, plotX, plotY, plotW, plotH, fontFamily, dpiScale);
 
         // --- Grid ---
-        DrawGrid(renderer, state, tStart, tEnd, TimeToX, AltToY, plotX, plotY, plotW, plotH, fontFamily);
+        DrawGrid(renderer, state, tStart, tEnd, TimeToX, AltToY, plotX, plotY, plotW, plotH, fontFamily, dpiScale);
 
         // --- Min altitude threshold (dashed red line + shaded area below) ---
         var minAltY = AltToY(state.MinHeightAboveHorizon);
@@ -191,10 +193,10 @@ public static class AltitudeChartRenderer
         DrawDashedHLine(renderer, plotX, plotX + plotW, minAltY, MinAltColor, dashLen: 6, gapLen: 4);
 
         // Label on the RIGHT side (avoids overlap with grid's degree scale on the left)
-        var minAltLabelRect = MakeRect(plotX + plotW + 4, minAltY - 8, 40, 16);
+        var minAltLabelRect = MakeRect(plotX + plotW + Px(4, dpiScale), minAltY - Px(8, dpiScale), Px(40, dpiScale), Px(16, dpiScale));
         renderer.DrawText(
             $"{state.MinHeightAboveHorizon}°",
-            fontFamily, FontSize(h, 10), MinAltLabelColor,
+            fontFamily, FontSize(h, 10, dpiScale), MinAltLabelColor,
             minAltLabelRect, TextAlign.Near, TextAlign.Center);
 
         // --- Pinned target viable windows + handoff sliders ---
@@ -208,17 +210,17 @@ public static class AltitudeChartRenderer
         if (state.PinnedCount >= 1)
         {
             DrawPinnedTargetWindows(renderer, state, allTargets, targetColorMap,
-                TimeToX, AltToY, plotX, plotY, plotW, plotH, fontFamily, h);
+                TimeToX, AltToY, plotX, plotY, plotW, plotH, fontFamily, h, dpiScale);
         }
 
         // --- Altitude curves ---
         DrawAltitudeCurves(renderer, state, allTargets, targetColorMap,
-            TimeToX, AltToY, fontFamily, h, highlightInList);
+            TimeToX, AltToY, fontFamily, h, highlightInList, dpiScale);
 
         // --- Moon curve ---
         if (state.MoonAltitudeProfile is { Count: > 1 } moonProfile)
         {
-            DrawMoonCurve(renderer, moonProfile, state, TimeToX, AltToY, h, emojiFontPath ?? fontFamily);
+            DrawMoonCurve(renderer, moonProfile, state, TimeToX, AltToY, h, emojiFontPath ?? fontFamily, dpiScale);
         }
 
         // --- Title (top band; the weather band and the twilight labels are reserved below it) ---
@@ -227,22 +229,22 @@ public static class AltitudeChartRenderer
         // areaX + areaW / 2 and slid left out of the chart column, under the planner's target list.
         if (titleVisible)
         {
-            var titleRect = MakeRect(areaX, areaY + TitleTopGap, w, TitleTextHeight(h));
+            var titleRect = MakeRect(areaX, areaY + TitleTopGap, w, TitleTextHeight(h, dpiScale));
             var latSign = state.SiteLatitude >= 0 ? "N" : "S";
             var lonSign = state.SiteLongitude >= 0 ? "E" : "W";
             renderer.DrawText(
                 $"Observation Schedule; {Math.Abs(state.SiteLatitude):F1}°{latSign}, {Math.Abs(state.SiteLongitude):F1}°{lonSign}",
-                fontFamily, FontSize(h, 16), WhiteColor,
+                fontFamily, FontSize(h, 16, dpiScale), WhiteColor,
                 titleRect, TextAlign.Center, TextAlign.Near);
         }
 
         // --- Weather band (above the twilight zone labels) ---
         if (state.WeatherForecast is { Count: > 0 } forecast)
         {
-            var bandH = WeatherBandHeight(h);
-            var weatherBandY = areaY + TitleBandHeight(h);
+            var bandH = WeatherBandHeight(h, dpiScale);
+            var weatherBandY = areaY + TitleBandHeight(h, dpiScale);
             DrawWeatherBand(renderer, state, forecast, tStart, tEnd, TimeToX,
-                plotX, weatherBandY, plotW, bandH, h, fontFamily, emojiFontPath ?? fontFamily);
+                plotX, weatherBandY, plotW, bandH, h, fontFamily, emojiFontPath ?? fontFamily, dpiScale);
         }
 
         // --- Current time shade (grey out elapsed time) ---
@@ -263,8 +265,8 @@ public static class AltitudeChartRenderer
             DrawVLine(renderer, (int)mx, plotY, plotY + plotH, SkyInkAlpha(50));
             var mouseTime = XToTime(mx, tStart, tEnd, plotX, plotW);
             var mouseLabel = mouseTime.ToOffset(state.SiteTimeZone).ToString("HH:mm");
-            var mouseLabelRect = MakeRect((int)mx - 20, plotY + 2, 40, 14);
-            renderer.DrawText(mouseLabel, fontFamily, FontSize(h, 10), SkyInkAlpha(160),
+            var mouseLabelRect = MakeRect((int)mx - Px(20, dpiScale), plotY + 2, Px(40, dpiScale), Px(14, dpiScale));
+            renderer.DrawText(mouseLabel, fontFamily, FontSize(h, 10, dpiScale), SkyInkAlpha(160),
                 mouseLabelRect, TextAlign.Center, TextAlign.Near);
         }
 
@@ -274,12 +276,12 @@ public static class AltitudeChartRenderer
             .ToArray();
         DrawLegend(renderer, legendTargets, targetColorMap,
             plotX, areaY + h - legendH - 4, legendH, fontFamily, h, areaX + w,
-            WeatherCredit(state), plotX + plotW);
+            WeatherCredit(state), plotX + plotW, dpiScale);
 
         // --- Weather hover, last so its box lies over the plot and the legend ---
         if (mouseScreenPosition is { } mouse)
         {
-            DrawWeatherTooltip(renderer, state, fontFamily, mouse, areaX, areaY, areaW, areaH);
+            DrawWeatherTooltip(renderer, state, fontFamily, mouse, areaX, areaY, areaW, areaH, dpiScale);
         }
     }
 
@@ -304,7 +306,8 @@ public static class AltitudeChartRenderer
         int plotY,
         int plotW,
         int plotH,
-        string fontFamily)
+        string fontFamily,
+        float dpiScale)
     {
         var xAstroDark     = timeToX(state.AstroDark);
         var xAstroTwilight = timeToX(state.AstroTwilight);
@@ -363,11 +366,18 @@ public static class AltitudeChartRenderer
         }
 
         // Draw zone boundary markers and labels above the plot (staggered two-row layout)
-        var fs = FontSize((int)renderer.Height, 10);
+        var fs = FontSize((int)renderer.Height, 10, dpiScale);
         // Anchored UP from the plot, from the same constants the top margin reserves (see
         // TwilightLabelBandH) so the labels cannot climb into the title band.
-        var labelRow0Y = plotY - ZoneLabelRow0Offset; // top row (even zones)
-        var labelRow1Y = plotY - ZoneLabelRow1Offset; // bottom row (odd zones)
+        var labelRow0Y = plotY - Px(ZoneLabelRow0Offset, dpiScale); // top row (even zones)
+        var labelRow1Y = plotY - Px(ZoneLabelRow1Offset, dpiScale); // bottom row (odd zones)
+        var labelTextH = Px(ZoneLabelTextH, dpiScale);
+        var labelGap = Px(3, dpiScale);
+
+        // Where the last label drawn on each row ends. A narrow zone (Naut. and Astro are 30 and 60 minutes
+        // wide, a few pixels on a phone) centres a label wider than itself on a neighbour's, so the words
+        // piled up at the left edge; a label that would start inside its row's previous one is dropped.
+        var rowRight = new[] { int.MinValue, int.MinValue };
 
         for (var zi = 0; zi < zones.Count; zi++)
         {
@@ -384,9 +394,18 @@ public static class AltitudeChartRenderer
             if (bandW < 10) continue;
 
             // Stagger: even zones on top row, odd on bottom row
-            var labelY = (zi % 2 == 0) ? labelRow0Y : labelRow1Y;
+            var row = zi % 2;
+            var labelY = row == 0 ? labelRow0Y : labelRow1Y;
             var cx = (x1 + x2) / 2;
-            var lRect = MakeRect(cx - 60, labelY - ZoneLabelTextH, 120, ZoneLabelTextH);
+            var inkW = (int)MathF.Ceiling(renderer.MeasureText(label.AsSpan(), fontFamily, fs).Width);
+            var left = cx - inkW / 2;
+            if (left < rowRight[row] + labelGap)
+            {
+                continue;
+            }
+
+            rowRight[row] = left + inkW;
+            var lRect = MakeRect(cx - Px(60, dpiScale), labelY - labelTextH, Px(120, dpiScale), labelTextH);
             renderer.DrawText(label, fontFamily, fs, ZoneLabelColor, lRect, TextAlign.Center, TextAlign.Far);
         }
     }
@@ -406,7 +425,8 @@ public static class AltitudeChartRenderer
         int plotY,
         int plotW,
         int plotH,
-        string fontFamily)
+        string fontFamily,
+        float dpiScale)
     {
         var h = (int)renderer.Height;
 
@@ -416,8 +436,8 @@ public static class AltitudeChartRenderer
             var y = altToY(alt);
             DrawHLine(renderer, plotX, plotX + plotW, y, GridColor);
 
-            var labelRect = MakeRect(plotX - 44, y - 8, 40, 16);
-            renderer.DrawText($"{alt}°", fontFamily, FontSize(h, 10), TextColor,
+            var labelRect = MakeRect(plotX - Px(44, dpiScale), y - Px(8, dpiScale), Px(40, dpiScale), Px(16, dpiScale));
+            renderer.DrawText($"{alt}°", fontFamily, FontSize(h, 10, dpiScale), TextColor,
                 labelRect, TextAlign.Far, TextAlign.Center);
         }
 
@@ -431,10 +451,10 @@ public static class AltitudeChartRenderer
             var x = timeToX(t);
             DrawVLine(renderer, x, plotY, plotY + plotH, GridColor);
 
-            var labelRect = MakeRect(x - 24, plotY + plotH + 2, 48, 16);
+            var labelRect = MakeRect(x - Px(24, dpiScale), plotY + plotH + 2, Px(48, dpiScale), Px(16, dpiScale));
             // Axis is "Local Time": label hour ticks in the site timezone, never the
             // machine TZ (a bare ToString would render the stored UTC offset).
-            renderer.DrawText(t.ToOffset(state.SiteTimeZone).ToString("HH:mm"), fontFamily, FontSize(h, 10), TextColor,
+            renderer.DrawText(t.ToOffset(state.SiteTimeZone).ToString("HH:mm"), fontFamily, FontSize(h, 10, dpiScale), TextColor,
                 labelRect, TextAlign.Center, TextAlign.Near);
         }
 
@@ -456,8 +476,8 @@ public static class AltitudeChartRenderer
         DrawHLine(renderer, plotX, plotX + plotW, plotY + plotH, AxisColor);
 
         // Axis label
-        var axisLabelRect = MakeRect(plotX, plotY + plotH + 20, plotW, 18);
-        renderer.DrawText("Local Time", fontFamily, FontSize(h, 12), TextColor,
+        var axisLabelRect = MakeRect(plotX, plotY + plotH + Px(20, dpiScale), plotW, Px(18, dpiScale));
+        renderer.DrawText("Local Time", fontFamily, FontSize(h, 12, dpiScale), TextColor,
             axisLabelRect, TextAlign.Center, TextAlign.Near);
     }
 
@@ -473,7 +493,7 @@ public static class AltitudeChartRenderer
         Func<DateTimeOffset, int> timeToX,
         Func<double, int> altToY,
         int plotX, int plotY, int plotW, int plotH,
-        string fontFamily, int h)
+        string fontFamily, int h, float dpiScale)
     {
         var pinnedCount = state.PinnedCount;
         var minAlt = (double)state.MinHeightAboveHorizon;
@@ -566,10 +586,11 @@ public static class AltitudeChartRenderer
                 var minAltLabelY = altToY(state.MinHeightAboveHorizon);
                 var sliderTime = state.HandoffSliders[i].ToOffset(state.SiteTimeZone);
                 var labelText = sliderTime.ToString("HH:mm");
-                var labelRect = MakeRect(sliderX - 22, minAltLabelY - 18, 44, 14);
+                var labelRect = MakeRect(sliderX - Px(22, dpiScale), minAltLabelY - Px(18, dpiScale), Px(44, dpiScale), Px(14, dpiScale));
                 // Dark background for readability
-                FillRect(renderer, sliderX - 22, minAltLabelY - 18, 44, 14, Sky(0.06f).WithAlpha(200));
-                renderer.DrawText(labelText, fontFamily, FontSize(h, 10), SliderLabelColor,
+                FillRect(renderer, (int)labelRect.UpperLeft.X, (int)labelRect.UpperLeft.Y,
+                    (int)labelRect.Width, (int)labelRect.Height, Sky(0.06f).WithAlpha(200));
+                renderer.DrawText(labelText, fontFamily, FontSize(h, 10, dpiScale), SliderLabelColor,
                     labelRect, TextAlign.Center, TextAlign.Center);
             }
         }
@@ -638,9 +659,9 @@ public static class AltitudeChartRenderer
     /// The time range is zero-length until a night window exists -- see <see cref="TimeAxis"/>.
     /// </summary>
     public static (DateTimeOffset TStart, DateTimeOffset TEnd, float PlotX, float PlotW) GetChartTimeLayout(
-        PlannerState state, int areaX, int areaW)
+        PlannerState state, int areaX, int areaW, float dpiScale = 1f)
     {
-        var xMargin = Math.Max(48, areaW / 14);
+        var xMargin = Math.Max(Px(48, dpiScale), areaW / 14);
         var plotX = areaX + xMargin;
         var plotW = areaW - xMargin * 2;
         var (tStart, tEnd) = TimeAxis(state);
@@ -652,10 +673,10 @@ public static class AltitudeChartRenderer
     /// on top of a cached chart texture.
     /// </summary>
     public static (DateTimeOffset TStart, DateTimeOffset TEnd, int PlotX, int PlotY, int PlotW, int PlotH)
-        GetChartPlotLayout(PlannerState state, int areaX, int areaY, int areaW, int areaH)
+        GetChartPlotLayout(PlannerState state, int areaX, int areaY, int areaW, int areaH, float dpiScale = 1f)
     {
-        var xMargin = Math.Max(48, areaW / 14);
-        var (yMarginTop, _, _, plotH, _) = VerticalLayout(state, areaH);
+        var xMargin = Math.Max(Px(48, dpiScale), areaW / 14);
+        var (yMarginTop, _, _, plotH, _) = VerticalLayout(state, areaH, dpiScale);
 
         var plotX = areaX + xMargin;
         var plotY = areaY + yMarginTop;
@@ -672,18 +693,19 @@ public static class AltitudeChartRenderer
     /// column (see <see cref="GetChartPlotLayout"/>).
     /// </summary>
     public static (int BandX, int BandY, int BandW, int BandH)? GetWeatherBandLayout(
-        PlannerState state, int areaX, int areaY, int areaW, int areaH)
+        PlannerState state, int areaX, int areaY, int areaW, int areaH, float dpiScale = 1f)
     {
         if (state.AstroDark == default || state.WeatherForecast is not { Count: > 0 })
         {
             return null;
         }
 
-        var xMargin = Math.Max(48, areaW / 14);
+        var xMargin = Math.Max(Px(48, dpiScale), areaW / 14);
         var bandX = areaX + xMargin;
         var bandW = areaW - xMargin * 2;
-        var bandY = areaY + TitleBandHeight(areaH);
-        var bandH = WeatherBandHeight(areaH) + HumidityRowHeight(areaH) + SeeingRowHeight(state.WeatherForecast, areaH);
+        var bandY = areaY + TitleBandHeight(areaH, dpiScale);
+        var bandH = WeatherBandHeight(areaH, dpiScale) + HumidityRowHeight(areaH, dpiScale)
+            + SeeingRowHeight(state.WeatherForecast, areaH, dpiScale);
         return (bandX, bandY, bandW, bandH);
     }
 
@@ -702,17 +724,17 @@ public static class AltitudeChartRenderer
     // -----------------------------------------------------------------------
 
     /// <summary>Returns the weather icon band height, proportional to chart height.</summary>
-    private static int WeatherBandHeight(int chartH) => Math.Max(18, chartH / 36);
+    private static int WeatherBandHeight(int chartH, float dpiScale) => Math.Max(Px(18, dpiScale), chartH / 36);
 
     /// <summary>Returns the humidity readout row height (drawn just below the icon band), proportional to chart height.</summary>
-    private static int HumidityRowHeight(int chartH) => Math.Max(11, chartH / 60);
+    private static int HumidityRowHeight(int chartH, float dpiScale) => Math.Max(Px(11, dpiScale), chartH / 60);
 
     /// <summary>
     /// The seeing-estimate row under the humidity row, or zero when no hour carries an upper-air wind to
     /// estimate from: a provider with no pressure-level field (OpenWeatherMap) gets no empty row.
     /// </summary>
-    private static int SeeingRowHeight(IReadOnlyList<HourlyWeatherForecast>? forecast, int chartH)
-        => HasSeeing(forecast) ? HumidityRowHeight(chartH) : 0;
+    private static int SeeingRowHeight(IReadOnlyList<HourlyWeatherForecast>? forecast, int chartH, float dpiScale)
+        => HasSeeing(forecast) ? HumidityRowHeight(chartH, dpiScale) : 0;
 
     private static bool HasSeeing(IReadOnlyList<HourlyWeatherForecast>? forecast)
     {
@@ -731,20 +753,21 @@ public static class AltitudeChartRenderer
     }
 
     /// <summary>Returns extra top margin pixels when weather data is available, proportional to chart height.</summary>
-    private static int WeatherMargin(PlannerState state, int chartH = 800)
+    private static int WeatherMargin(PlannerState state, int chartH, float dpiScale)
         => state.WeatherForecast is { Count: > 0 } forecast
-            ? WeatherBandHeight(chartH) + HumidityRowHeight(chartH) + SeeingRowHeight(forecast, chartH) + Math.Max(16, chartH / 50)
+            ? WeatherBandHeight(chartH, dpiScale) + HumidityRowHeight(chartH, dpiScale)
+                + SeeingRowHeight(forecast, chartH, dpiScale) + Math.Max(Px(16, dpiScale), chartH / 50)
             : 0;
 
     /// <summary>Returns the title text height, proportional to chart height.</summary>
-    private static int TitleTextHeight(int chartH) => Math.Max(16, chartH / 35);
+    private static int TitleTextHeight(int chartH, float dpiScale) => Math.Max(Px(16, dpiScale), chartH / 35);
 
     /// <summary>
     /// Returns the height reserved for the title row, gaps included. The weather band starts at
     /// exactly this offset, which is what keeps the two from overlapping.
     /// </summary>
-    private static int TitleBandHeight(int chartH)
-        => TitleTopGap + TitleTextHeight(chartH) + TitleBottomGap;
+    private static int TitleBandHeight(int chartH, float dpiScale)
+        => TitleTopGap + TitleTextHeight(chartH, dpiScale) + TitleBottomGap;
 
     /// <summary>
     /// The chart's vertical layout, allocated top-down so no two rows can claim the same pixels:
@@ -756,18 +779,19 @@ public static class AltitudeChartRenderer
     /// <returns><c>TitleVisible</c> is false when the chart is too short to hold the title band
     /// without eating into the plot; the caller then does not draw the title at all.</returns>
     private static (int YMarginTop, int YMarginBot, int LegendH, int PlotH, bool TitleVisible)
-        VerticalLayout(PlannerState state, int chartH)
+        VerticalLayout(PlannerState state, int chartH, float dpiScale)
     {
-        var legendH = Math.Max(20, chartH / 33);
-        var yMarginBot = Math.Max(44, chartH / 14);
-        var desiredTop = TitleBandHeight(chartH) + WeatherMargin(state, chartH)
-            + Math.Max(TwilightLabelBandH, chartH / 22);
+        var legendH = Math.Max(Px(20, dpiScale), chartH / 33);
+        var yMarginBot = Math.Max(Px(44, dpiScale), chartH / 14);
+        var desiredTop = TitleBandHeight(chartH, dpiScale) + WeatherMargin(state, chartH, dpiScale)
+            + Math.Max(Px(TwilightLabelBandH, dpiScale), chartH / 22);
 
         var yMarginTop = desiredTop;
         var plotH = chartH - yMarginTop - yMarginBot - legendH;
-        if (plotH < MinPlotH)
+        var minPlotH = Px(MinPlotH, dpiScale);
+        if (plotH < minPlotH)
         {
-            yMarginTop = Math.Max(0, yMarginTop - (MinPlotH - plotH));
+            yMarginTop = Math.Max(0, yMarginTop - (minPlotH - plotH));
             plotH = chartH - yMarginTop - yMarginBot - legendH;
         }
 
@@ -816,9 +840,10 @@ public static class AltitudeChartRenderer
         int plotX, int bandY, int plotW,
         int bandH, int chartH,
         string fontFamily,
-        string emojiFontPath)
+        string emojiFontPath,
+        float dpiScale)
     {
-        var iconSize = FontSize(chartH, 14);
+        var iconSize = FontSize(chartH, 14, dpiScale);
         var tRange = (tEnd - tStart).TotalHours;
         // Width of one hour slot in pixels
         var slotW = (int)Math.Max(8, plotW / tRange);
@@ -826,12 +851,12 @@ public static class AltitudeChartRenderer
         // Humidity readout row sits directly under the icon band (its height is reserved
         // by WeatherMargin so the twilight-zone labels below shift down with it).
         var humRowY = bandY + bandH;
-        var humRowH = HumidityRowHeight(chartH);
-        var humFontSize = FontSize(chartH, 9);
+        var humRowH = HumidityRowHeight(chartH, dpiScale);
+        var humFontSize = FontSize(chartH, 9, dpiScale);
 
         // Gutter label so the bare percentages read as relative humidity (left of the plot,
         // mirrors the altitude "°" gutter; the gutter is free above the plot area).
-        var rhLabelRect = MakeRect(plotX - 44, humRowY, 40, humRowH);
+        var rhLabelRect = MakeRect(plotX - Px(44, dpiScale), humRowY, Px(40, dpiScale), humRowH);
         renderer.DrawText("RH", fontFamily, humFontSize, GrayColor,
             rhLabelRect, TextAlign.Far, TextAlign.Center);
 
@@ -843,7 +868,7 @@ public static class AltitudeChartRenderer
         if (showSeeing)
         {
             renderer.DrawText("Seeing", fontFamily, humFontSize, GrayColor,
-                MakeRect(plotX - 44, seeingRowY, 40, humRowH), TextAlign.Far, TextAlign.Center);
+                MakeRect(plotX - Px(44, dpiScale), seeingRowY, Px(40, dpiScale), humRowH), TextAlign.Far, TextAlign.Center);
         }
 
         for (var i = 0; i < forecast.Count; i++)
@@ -1035,11 +1060,11 @@ public static class AltitudeChartRenderer
     /// </remarks>
     public static HourlyWeatherForecast? DrawWeatherTooltip<TSurface>(
         Renderer<TSurface> renderer, PlannerState state, string fontFamily,
-        (float X, float Y) mouse, int areaX, int areaY, int areaW, int areaH)
+        (float X, float Y) mouse, int areaX, int areaY, int areaW, int areaH, float dpiScale = 1f)
     {
         var (mx, my) = mouse;
         if (state.AstroDark == default || state.WeatherForecast is not { Count: > 0 } forecast
-            || GetWeatherBandLayout(state, areaX, areaY, areaW, areaH) is not { } band)
+            || GetWeatherBandLayout(state, areaX, areaY, areaW, areaH, dpiScale) is not { } band)
         {
             return null;
         }
@@ -1051,7 +1076,7 @@ public static class AltitudeChartRenderer
             return null;
         }
 
-        var (tStart, tEnd, plotX, _, plotW, _) = GetChartPlotLayout(state, areaX, areaY, areaW, areaH);
+        var (tStart, tEnd, plotX, _, plotW, _) = GetChartPlotLayout(state, areaX, areaY, areaW, areaH, dpiScale);
         var tRange = (tEnd - tStart).TotalHours;
         if (tRange <= 0)
         {
@@ -1092,7 +1117,7 @@ public static class AltitudeChartRenderer
         // framed on the band's fill inside a 1 px outline, centred under the hovered hour's column, kept inside the
         // chart, and opened above the band where it would run off the bottom. The placement is the engine's; this
         // used to measure the box and work out each of those by hand.
-        var fontSize = Math.Max(7f, 11f * areaH / 800f);
+        var fontSize = Math.Max(MinFontDesign * dpiScale, 11f * areaH / 800f);
         var rows = new Layout.Node[lines.Count];
         for (var i = 0; i < lines.Count; i++)
         {
@@ -1104,9 +1129,9 @@ public static class AltitudeChartRenderer
             Border: GuiTheme.Palette.Info.WithAlpha(200),
             FontSize: fontSize)
         {
-            PadX = 8f,
-            PadY = 8f,
-            Margin = 6f,
+            PadX = Px(8, dpiScale),
+            PadY = Px(8, dpiScale),
+            Margin = Px(6, dpiScale),
         };
         var column = new RectF32((float)(bestX - (slotW / 2)), bandY, (float)slotW, bandH);
 
@@ -1234,7 +1259,8 @@ public static class AltitudeChartRenderer
         Func<DateTimeOffset, int> timeToX,
         Func<double, int> altToY,
         int chartH,
-        string emojiFontPath)
+        string emojiFontPath,
+        float dpiScale)
     {
         // Draw dashed moon altitude curve
         var visible = moonProfile
@@ -1256,8 +1282,8 @@ public static class AltitudeChartRenderer
             {
                 var peakX = timeToX(peak.Time);
                 var peakY = altToY(peak.Alt);
-                var emojiSize = FontSize(chartH, 16);
-                var emojiRect = MakeRect(peakX - 12, peakY - 20, 24, 18);
+                var emojiSize = FontSize(chartH, 16, dpiScale);
+                var emojiRect = MakeRect(peakX - Px(12, dpiScale), peakY - Px(20, dpiScale), Px(24, dpiScale), Px(18, dpiScale));
                 renderer.DrawText(emoji, emojiFontPath, emojiSize, WhiteColor,
                     emojiRect, TextAlign.Center, TextAlign.Center);
             }
@@ -1313,7 +1339,8 @@ public static class AltitudeChartRenderer
         Func<double, int> altToY,
         string fontFamily,
         int rendererH,
-        int highlightIndex)
+        int highlightIndex,
+        float dpiScale)
     {
         for (var i = 0; i < allTargets.Length; i++)
         {
@@ -1357,12 +1384,12 @@ public static class AltitudeChartRenderer
             var peak     = profile.MaxBy(p => p.Alt);
             var peakX    = timeToX(peak.Time);
             var peakY    = altToY(peak.Alt);
-            var nameRect = MakeRect(peakX - 60, peakY - 18, 120, 14);
-            renderer.DrawText(target.Name, fontFamily, FontSize(rendererH, 12), curveColor,
+            var nameRect = MakeRect(peakX - Px(60, dpiScale), peakY - Px(18, dpiScale), Px(120, dpiScale), Px(14, dpiScale));
+            renderer.DrawText(target.Name, fontFamily, FontSize(rendererH, 12, dpiScale), curveColor,
                 nameRect, TextAlign.Center, TextAlign.Far);
             var peakTimeStr = peak.Time.ToOffset(state.SiteTimeZone).ToString("HH:mm");
-            var timeRect = MakeRect(peakX - 30, peakY + 4, 60, 12);
-            renderer.DrawText(peakTimeStr, fontFamily, FontSize(rendererH, 9), GrayColor,
+            var timeRect = MakeRect(peakX - Px(30, dpiScale), peakY + Px(4, dpiScale), Px(60, dpiScale), Px(12, dpiScale));
+            renderer.DrawText(peakTimeStr, fontFamily, FontSize(rendererH, 9, dpiScale), GrayColor,
                 timeRect, TextAlign.Center, TextAlign.Near);
         }
     }
@@ -1404,15 +1431,16 @@ public static class AltitudeChartRenderer
         int rendererH,
         int rendererW,
         string? credit,
-        int plotRight)
+        int plotRight,
+        float dpiScale)
     {
-        var fs       = FontSize(rendererH, 10);
+        var fs       = FontSize(rendererH, 10, dpiScale);
         var cursorX  = plotX;
         var lineY    = legendY + legendH / 2;
         var availW   = rendererW - plotX * 2;
 
         // Reserve space at the end, never less than the old Primary/Spare labels'
-        var targetW  = availW - 180;
+        var targetW  = availW - Px(180, dpiScale);
 
         // The weather source's credit, right-aligned under the plot's right edge. It is a node, so the engine
         // measures it, and the targets give way to the fill it leaves them.
@@ -1423,15 +1451,15 @@ public static class AltitudeChartRenderer
             var arranged = row.Paint(
                 Layout.Builder.HStack(
                     Layout.Builder.Fill(key: LegendTargetsKey).WStar(),
-                    Layout.Builder.Spacer().WFixed(8f),
-                    Layout.Builder.Text(credit, FontSize(rendererH, 8), GrayColor, TextAlign.Far, TextAlign.Center).HStar()),
+                    Layout.Builder.Spacer().WFixed(Px(8, dpiScale)),
+                    Layout.Builder.Text(credit, FontSize(rendererH, 8, dpiScale), GrayColor, TextAlign.Far, TextAlign.Center).HStar()),
                 new RectF32(plotX, legendY, plotRight - plotX, legendH));
             targetW = Math.Min(targetW, (int)ArrangedFills.RectOf(arranged, LegendTargetsKey).Width);
         }
 
         // Show top-scored targets that fit (max 6 for readability)
         var maxTargets = Math.Min(allTargets.Length, 6);
-        var itemW = maxTargets > 0 ? Math.Max(100, targetW / maxTargets) : 100;
+        var itemW = maxTargets > 0 ? Math.Max(Px(100, dpiScale), targetW / maxTargets) : Px(100, dpiScale);
 
         for (var i = 0; i < maxTargets; i++)
         {
@@ -1444,7 +1472,7 @@ public static class AltitudeChartRenderer
             var color    = TargetColors[colorIdx];
 
             // Short coloured sample line (3px tall rect)
-            FillRect(renderer, cursorX, lineY - 1, 20, 3, color);
+            FillRect(renderer, cursorX, lineY - 1, Px(20, dpiScale), 3, color);
 
             // Truncate long names
             var name = allTargets[i].Name;
@@ -1453,7 +1481,7 @@ public static class AltitudeChartRenderer
                 name = name[..11] + ".";
             }
 
-            var labelRect = MakeRect(cursorX + 22, legendY, itemW - 24, legendH);
+            var labelRect = MakeRect(cursorX + Px(22, dpiScale), legendY, itemW - Px(24, dpiScale), legendH);
             renderer.DrawText(name, fontFamily, fs, color,
                 labelRect, TextAlign.Near, TextAlign.Center);
 
@@ -1462,10 +1490,10 @@ public static class AltitudeChartRenderer
 
         if (maxTargets < allTargets.Length)
         {
-            var moreRect = MakeRect(cursorX, legendY, 60, legendH);
+            var moreRect = MakeRect(cursorX, legendY, Px(60, dpiScale), legendH);
             renderer.DrawText($"+{allTargets.Length - maxTargets}", fontFamily, fs, GrayColor,
                 moreRect, TextAlign.Near, TextAlign.Center);
-            cursorX += 60;
+            cursorX += Px(60, dpiScale);
         }
 
     }
@@ -1625,7 +1653,18 @@ public static class AltitudeChartRenderer
         return map;
     }
 
-    /// <summary>Scales a nominal font size proportionally to the renderer height.</summary>
-    private static float FontSize(int rendererH, float nominalAt800)
-        => Math.Max(6f, nominalAt800 * rendererH / 800f);
+    /// <summary>
+    /// The smallest text the chart draws, in DESIGN units. Scaled by the window's DPI it is a physical
+    /// floor: the proportional size alone is 3.5 px on a phone-sized chart, and the old flat 6 device
+    /// px floor was 3 design units at 2x, which is why the title, weather strip, legend and credit
+    /// could not be read there (#1818).
+    /// </summary>
+    internal const float MinFontDesign = 8f;
+
+    /// <summary>Scales a design-unit constant to device pixels.</summary>
+    private static int Px(float design, float dpiScale) => (int)MathF.Round(design * dpiScale);
+
+    /// <summary>Scales a nominal font size proportionally to the renderer height, never under the physical floor.</summary>
+    private static float FontSize(int rendererH, float nominalAt800, float dpiScale)
+        => Math.Max(MinFontDesign * dpiScale, nominalAt800 * rendererH / 800f);
 }

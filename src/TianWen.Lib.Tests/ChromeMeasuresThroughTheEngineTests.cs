@@ -31,6 +31,9 @@ public class ChromeMeasuresThroughTheEngineTests
     /// </summary>
     private static readonly Dictionary<string, int> Allowance = new(StringComparer.Ordinal)
     {
+        // The altitude chart's twilight labels: each is centred on a zone of whatever width the night has, and one
+        // that would start inside its row's previous label is dropped, an overlap budget the engine has no node for.
+        ["AltitudeChartRenderer.cs"] = 1,
         ["EquipmentTab.DeviceList.cs"] = 3,
         ["EquipmentTab.ProfilePanel.cs"] = 2,
         ["ImageRendererBase.FileList.cs"] = 2,

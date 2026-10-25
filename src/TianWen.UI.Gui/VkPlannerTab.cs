@@ -126,7 +126,8 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
             state.WeatherForecast is { Count: > 0 } wf ? wf[0].Time.GetHashCode() : 0,
             state.AstroDark.GetHashCode(),
             slidersHash.ToHashCode(),
-            TianWen.UI.Abstractions.GuiTheme.PaletteGeneration
+            TianWen.UI.Abstractions.GuiTheme.PaletteGeneration,
+            DpiScale
         );
 
         // Re-render only on cache miss AND when no upload is already queued for
@@ -147,7 +148,7 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
             AltitudeChartRenderer.Render(_chartRenderer, state, FontPath,
                 0, 0, chartW, chartH,
                 selectedIndex, currentTime: null, mouseScreenPosition: null,
-                EmojiFontPath);
+                EmojiFontPath, DpiScale);
 
             // Copy to a detached buffer: the upload happens next frame, and by
             // then _chartRenderer.Surface.Pixels may have been overwritten.
@@ -169,7 +170,7 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
         {
             var (tStart, tEnd, plotX, plotY, plotW, plotH) =
                 AltitudeChartRenderer.GetChartPlotLayout(state,
-                    (int)chartRect.X, (int)chartRect.Y, chartW, chartH);
+                    (int)chartRect.X, (int)chartRect.Y, chartW, chartH, DpiScale);
 
             DrawTimeOverlay(chartCurrentTime, tStart, tEnd, plotX, plotY, plotW, plotH);
             DrawMouseFollower(mousePos, state, tStart, tEnd, plotX, plotY, plotW, plotH, chartH);
@@ -177,7 +178,7 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
             if (mousePos is { } mouse)
             {
                 AltitudeChartRenderer.DrawWeatherTooltip(_renderer, state, FontPath, mouse,
-                    (int)chartRect.X, (int)chartRect.Y, chartW, chartH);
+                    (int)chartRect.X, (int)chartRect.Y, chartW, chartH, DpiScale);
             }
         }
     }
@@ -256,5 +257,7 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
         // The theme is an INPUT to the chart even though it is not chart data. Without it, F12 left
         // this cached texture painting the old palette while every other surface moved: the
         // frozen-snapshot bug one layer out.
-        int PaletteGeneration);
+        int PaletteGeneration,
+        // The text floor and the row heights follow the window's DPI scale.
+        float DpiScale);
 }

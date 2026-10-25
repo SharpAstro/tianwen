@@ -250,7 +250,7 @@ namespace TianWen.UI.Abstractions
             // from the inherited FontPath / EmojiFontPath (host-set) properties.
             AltitudeChartRenderer.Render(Renderer, state, FontPath,
                 (int)chartRect.X, (int)chartRect.Y, (int)chartRect.Width, (int)chartRect.Height,
-                selectedIndex, chartCurrentTime, mousePos, EmojiFontPath);
+                selectedIndex, chartCurrentTime, mousePos, EmojiFontPath, DpiScale);
         }
 
         /// <summary>
@@ -275,12 +275,12 @@ namespace TianWen.UI.Abstractions
             var chart = _chartRect;
             RegisterClickable(chart.X, chart.Y, chart.Width, chart.Height,
                 new HitResult.ButtonHit(PlannerSliderInteraction.ChartRegion),
-                onPress: press => PlannerSliderInteraction.BeginPlaceNearest(state, chart, press.X, press.Y));
+                onPress: press => PlannerSliderInteraction.BeginPlaceNearest(state, chart, press.X, press.Y, DpiScale));
 
             // Band geometry (including the plot-Y bound that keeps a click on the weather band above the
             // plot from grabbing a divider) is shared with every other host that hit-tests this chart.
             var bands = PlannerSliderInteraction.GetHitBands(
-                state, chart, PlannerSliderInteraction.DefaultBandWidth * DpiScale);
+                state, chart, PlannerSliderInteraction.DefaultBandWidth * DpiScale, DpiScale);
 
             for (var i = 0; i < bands.Count; i++)
             {
@@ -291,7 +291,7 @@ namespace TianWen.UI.Abstractions
                     onPress: _ =>
                     {
                         PlannerActions.SelectSlider(state, index);
-                        return PlannerSliderInteraction.BeginDrag(state, index, chart);
+                        return PlannerSliderInteraction.BeginDrag(state, index, chart, DpiScale);
                     });
             }
         }
