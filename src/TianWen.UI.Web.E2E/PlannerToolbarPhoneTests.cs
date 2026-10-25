@@ -47,6 +47,16 @@ public sealed class PlannerToolbarPhoneTests(TianWenWebFixture fixture)
             Assert.NotNull(box);
             Assert.True(box.X + box.Width <= 390, $"{name} runs off the right edge");
         }
+
+        // The verdict, when the planned night has one, stays on screen as a dot that keeps its colour and data-verdict.
+        var verdict = page.Locator(".night-verdict");
+        if (await verdict.CountAsync() > 0)
+        {
+            await Expect(verdict).ToBeVisibleAsync();
+            var box = await verdict.BoundingBoxAsync();
+            Assert.NotNull(box);
+            Assert.True(box.Width > 0 && box.X >= 0 && box.X + box.Width <= 390, $"verdict spans {box.X}..{box.X + box.Width}, outside the viewport");
+        }
         await page.Context.CloseAsync();
     }
 }

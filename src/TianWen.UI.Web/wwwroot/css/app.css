@@ -159,8 +159,8 @@ html, body {
 .toolbar .night .night-verdict { font-size: 0.85rem; font-weight: 600; }
 
 /* Phone width: the toolbar is ONE row. Lat/Lon shrink to a compact pair (their placeholders name them),
-   Recompute and Locate are icon buttons (their titles name them), the verdict word is dropped (its
-   colour stays and the label is its title). */
+   Recompute and Locate are icon buttons (their titles name them), the verdict word shrinks to a
+   dot in the verdict's colour (the label stays as its title). */
 @media (max-width: 600px) {
     .toolbar { display: flex; gap: 6px; padding: 4px 8px; }
     .toolbar .site { flex-wrap: nowrap; gap: 4px; min-width: 0; }
@@ -169,7 +169,8 @@ html, body {
     .toolbar input { width: 3.4rem; padding: 4px 3px; }
     .toolbar button { padding: 4px 7px; }
     .toolbar .night .night-step { padding: 4px 6px; }
-    .toolbar .night .night-verdict { display: none; }
+    .toolbar .night .night-verdict { font-size: 0; }
+    .toolbar .night .night-verdict::before { content: "\25CF"; font-size: 0.85rem; }
 }
 
 /* View-switcher chips in the titlebar (Planner / Sky Map). */
