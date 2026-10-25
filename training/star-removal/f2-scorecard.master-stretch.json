@@ -1,0 +1,28 @@
+{
+  "_note": "F2's scorecard config on DE1 (#1827): scorecard.example.json filled in for the three master-stretched sets. DE1 held no scorecard.local.json, so the paths are the ones the earlier arms were scored with (C:/temp/e2/score-r2i.ps1, whole/r2x/score.log) and the folders of the second set are new. Copied to C:/temp/tianwen-scratch/f2-scorecard.master-stretch.json.",
+  "cli": "C:/temp/e2/sr-cli/tianwen.exe",
+  "out_root": "C:/temp/tianwen-scratch/f2-whole-master",
+  "masters": {
+    "andromeda": "C:/temp/startnet2/Andromeda_Galaxy-RGB-session_1.fits",
+    "tarantula": "C:/temp/tianwen-scratch/synthetic-clusters/tarantula.fits",
+    "sag": "C:/temp/startnet2/Sag_Triplet_OIII-RGB-session_1.fits"
+  },
+  "arm": {
+    "run": "C:/temp/e2/r3a-run",
+    "eval_cli": "C:/temp/tianwen-scratch/f2-reexport-bin/tianwen.exe",
+    "remove_cli": "C:/temp/e2/sr-cli/tianwen.exe",
+    "eval_root": "C:/temp/tianwen-scratch/f2-eval-master",
+    "reports": "C:/temp/tianwen-scratch/f2-reports-master",
+    "logs_root": "C:/temp/tianwen-scratch/f2-logs-master",
+    "real_export": "C:/temp/tianwen-scratch/r2-real-val",
+    "random_export": "C:/temp/tianwen-scratch/f2-random-master",
+    "twins_root": "C:/temp/tianwen-scratch/f2-twins-master",
+    "val_list": "arms/r2-val.txt",
+    "plates_root": "D:/Astro-Dataset/2026-10-12-full/starless/plates",
+    "m31_master": "C:/temp/startnet2/Andromeda_Galaxy-RGB-session_1.fits",
+    "m31_out": "C:/temp/e2/m31",
+    "real_star_baselines": ["r2i_synth4_s0", "r2i_synth4_s1", "r2t_synth4_s1", "r2w_synth11_s0"],
+    "ring_baselines": ["r2i_synth4_s0", "r2i_synth4_s1", "r2t_synth4_s1", "r2w_synth11_s0"],
+    "nucleus_reference": "C:/temp/e2/m31/m31_r2i_v8.fits"
+  }
+}

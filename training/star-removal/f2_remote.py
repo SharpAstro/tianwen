@@ -139,9 +139,18 @@ def globs(*patterns):
 
 def junction(link, target):
     """A directory junction (mklink /J, which needs no privilege), so a folder can answer to a second name."""
+    pathlib.Path(link).parent.mkdir(parents=True, exist_ok=True)
     r = subprocess.run(["cmd", "/c", "mklink", "/J", str(pathlib.Path(link)), str(pathlib.Path(target))], capture_output=True, text=True)
     print(r.returncode, r.stdout.strip(), r.stderr.strip())
     sys.exit(r.returncode)
+
+
+def put(source, target):
+    """Copies a file out of the checkout to a path beside the data (a config the checkout must not hold as its own)."""
+    import shutil
+    pathlib.Path(target).parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, target)
+    print("copied", source, "->", target, pathlib.Path(target).stat().st_size, "bytes")
 
 
 def cat(*files):
@@ -171,6 +180,8 @@ if __name__ == "__main__":
         globs(*sys.argv[2:])
     elif sys.argv[1] == "junction":
         junction(*sys.argv[2:])
+    elif sys.argv[1] == "put":
+        put(*sys.argv[2:])
     elif sys.argv[1] == "cat":
         cat(*sys.argv[2:])
     elif sys.argv[1] == "sync":
