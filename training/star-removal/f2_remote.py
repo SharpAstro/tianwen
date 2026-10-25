@@ -118,6 +118,13 @@ def freeze(source, target):
     print("frozen", source, "->", target, sum(1 for _ in pathlib.Path(target).rglob("*")), "entries")
 
 
+def ps1(script, *args):
+    """Runs a PowerShell script (pilot refuses a command that names pwsh), streaming its output, and returns its exit code."""
+    code = subprocess.call(["pwsh", "-NoProfile", "-File", script, *args])
+    print("pwsh exit", code)
+    sys.exit(code)
+
+
 def cat(*files):
     for f in files:
         # one line, since a job's view keeps only the last few lines of its output
@@ -137,6 +144,8 @@ if __name__ == "__main__":
         head(*sys.argv[2:])
     elif sys.argv[1] == "freeze":
         freeze(*sys.argv[2:])
+    elif sys.argv[1] == "ps1":
+        ps1(*sys.argv[2:])
     elif sys.argv[1] == "cat":
         cat(*sys.argv[2:])
     elif sys.argv[1] == "sync":
