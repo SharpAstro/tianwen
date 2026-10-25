@@ -158,7 +158,7 @@ composition around it whose every step is its own `image` verb and whose recipe 
 ([Every step is a verb of its own](#every-step-is-a-verb-of-its-own-and-image-combine-runs-them-in-order)). Not started:
 phase 1 (robust normalization), the palette mixer beyond HaRGB, phases 3 to 5.
 
-Tracked by #874, #875, #876.
+Tracked by #874, #875, #876, #534, #535, #536, #684.
 
 **P1 scope, for a reader arriving from [pixinsight-parity.md](pixinsight-parity.md):** Phases 1+2
 only -- robust plane normalization + the named-preset palette mixer (ADR-1's own decision). No new
@@ -175,7 +175,7 @@ why).
 | 2 | **Palette mixer + named presets.** `Ha`/`OIII` to RGB as a per-channel lerp, applied globally. Presets name which effect they apply (H-beta vs hue rotation). | same; `NarrowbandCombination`, `tianwen image combine` | HaRGB case BUILT 2026-10-05 ("Phase 0 as built" below); OIII and the presets NOT STARTED |
 | 3 | **Line unmixing: the OSC on-ramp only.** Recovers mono line planes from one dual/tri-band RGB frame, via DBXtract algebra + per-sensor crosstalk coefficients. **Mono imagers skip this entirely** and start at phase 1. **3a: the three-line Ha/Hb/OIII solve is the high-value variant** (exactly determined, the only source of *measured* blue). Gated on a known sensor. | same, plus a coefficient table asset | NOT STARTED |
 | **3b** | **DUO-BAND PAIR: the OSC path to real SHO, and the one to build.** Two sessions of one target through `Ha/OIII` and `SII/OIII`, paired by target across filters, normalised to each other through the **shared OIII** plane. Over-determined (6 channels, 3 lines) and the Ha-vs-SII separation is optical, so phase 3's crosstalk table and sensor gating do not apply. Needs: both curves digitised, a filter-pair declaration, and phase 1 extended across masters. | same, plus a filter-pair asset | NOT STARTED |
-| 4 | **SPCC narrowband mode.** Declared passbands convolved against real star spectra. Needs a Gaia DR3 spectra source. | `Astrometry/`, extends `Tycho2ColorCalibration` | NOT STARTED (blocked, see ADR-3) |
+| 4 | **SPCC narrowband mode.** Declared passbands convolved against real star spectra. Needs a Gaia DR3 spectra source. | `Astrometry/`, extends `Tycho2ColorCalibration` | NOT STARTED (blocked, see ADR-3; #536, data: #684) |
 | 5 | **Masked colour adjustment.** Mask = (hue band and/or **line plane**) x luminance range, minus protection ramps (low-saturation / shadow / highlight). Then curves over Lab `L`/`C` + per-channel RGB, `C` as a hue-preserving scale of `a`,`b`. Reuses `FritschCarlsonSpline` (ADR-7). See ADR-8/11. | `Image.Masks.cs`, `MasterPreviewRenderer` | NOT STARTED (separate concern, see ADR-4/8) |
 | 6 | **Narrowband star colour.** Synthesize plausible RGB stars from the line planes and recombine with the starless narrowband image. Fixes the magenta stars that narrowband colour calibration produces. | `TianWen.Lib/Imaging/`, composes with `SharpenPipeline`'s star lineage | NOT STARTED |
 
@@ -1294,8 +1294,9 @@ problem. Nothing is ill-conditioned; the palette is simply an artistic mapping a
 calibrator has no business producing it.
 
 **Consequence.** Narrowband SPCC is a Gaia DR3 project, not a colour project, and should be planned
-alongside the existing Gaia items in [inbox.md](../todo/inbox.md) (Stellarium `.dat` loader,
-Gaia SP download) rather than on its own.
+alongside the existing Gaia items (Stellarium `.dat` loader, #663; Gaia spectra download, #684) rather
+than on its own. Tracked by #536 (the phase) and #684 (the data), which is a download option, never bundled
+like Tycho-2 (the owner, 2026-10-25).
 
 **What SHO gets instead (added 2026-08-02).** This ADR ruled SHO out of the *photometric* path but
 left it with no answer at all, which was a gap. The answer is technique F,

@@ -164,6 +164,7 @@ No hand-rolled pump. No JIT fallback. Phase A's first commit IS the AOT publish 
 | `catalog.lookup` | designation | RA/Dec/Mag/colour + cross-refs | none |
 | `catalog.spatial` | ra, dec, radius_deg | array of nearby objects | none |
 | `catalog.tyc_prefix` | query string | array of matching TYC | none |
+| `planner.best` | latitude, longitude, range (tonight/week/month), whenIso?, minAltitudeDeg?, count? | ranked targets: name, score, best night, optimal start, peak altitude, Moon separation | none |
 | `spcc.match` | path | funnel: detect/no-cat/tol-miss/photo-miss/k-rej/accepted + per-gate examples | none |
 | `stack.summary` | output_dir | per-master {WB, match-counts, paths} | none |
 | `profile.list` | - | array of {id, name, slug, equipment slot summary, modified-utc} | none |
@@ -251,7 +252,10 @@ The marquee tool. Requires extending `Tycho2ColorCalibration.MatchStars` to coun
 ### Phase G: stack summary + log grep
 Convenience tools that aggregate the data the AI would otherwise piece together from multiple file reads. ~0.5 day.
 
-Total estimate: ~8-10 days of focused work. Phase A alone delivers a usable scaffold; each subsequent phase strictly adds tools without breaking earlier ones.
+### Phase H: best targets, tonight / this week / this month (#687)
+`planner.best`: the top N deep-sky targets for a site (latitude, longitude, optional date and minimum altitude), over `tonight`, `week` or `month`. Tonight is one `ObservationScheduler.TonightsBest` call; a range samples nights and aggregates per target (best night, score, number of good nights). Calls the Lib routine directly, never `PlannerActions` (no `UI.Abstractions` reference, see "Open design questions" 2). Measure the per-night catalogue scan before choosing the sampling step. ~1 day.
+
+Total estimate: ~8-10 days of focused work, plus Phase H (~1 day). Phase A alone delivers a usable scaffold; each subsequent phase strictly adds tools without breaking earlier ones.
 
 ## Open design questions
 

@@ -11,7 +11,8 @@ Companion plans:
 - [video-guiding.md](video-guiding.md): builds the aligned star stack that a video autofocus would reuse.
 
 Related issues: #579 (temperature-driven refocus, with the coefficients measured from the archive) and #585
-(discrete autofocus triggers).
+(discrete autofocus triggers, including the guard that suppresses a refocus as the meridian approaches, folded in
+from the closed #675).
 
 ## The theory, and a check of it
 

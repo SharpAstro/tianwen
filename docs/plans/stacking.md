@@ -510,12 +510,18 @@ Mean-vs-median combine: bias and dark masters tolerate mean (high-frame-count,
 near-Gaussian noise). Flat masters use median to reject star ghosts and
 particles on the sensor.
 
+Foreign (third-party) masters: the dataset bake ingests them (`MasterCache.LoadForeignMasterAsync`), but
+`tianwen stack` skips every `IMAGETYP=MASTER*` frame at scan time. Tracked by #682.
+
 ### Phase 4: Calibration
 
 Pedestal trick from SetiAstro's `subtract_dark_with_pedestal`: add a constant
 offset (e.g. 100 ADU equivalent) before subtraction to avoid negative pixels
 when dark mean > light background. Track the pedestal in `Image.Pedestal`
 field (already exists) so downstream stretch / stats math can subtract it.
+
+Flat choice at stack time: `StackingPipeline.MatchMaster` still ranks a flat by temperature before its night
+(the defect the dataset bake's `BestFlat` fixed). Tracked by #590.
 
 ### Phase 7: SigmaClipRejector
 

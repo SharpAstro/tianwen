@@ -326,7 +326,10 @@ Pinned by `SessionAutoFocusFrameCaptureTests`.
 
 ### 2.1c Airmass-paired real degradation (raised 2026-08-28, NOT MEASURED)
 
-Tracked by #700.
+Tracked by #700. The blur-pair half was measured by E2.9 on 2026-09-07 (0 of 67 sessions reach a 1.3x FWHM span
+from air mass, [deconvolver-training.md, E2.9](deconvolver-training.md#e29-fwhm-against-airmass-over-the-archive-21cs-first-step))
+and is dead as a real-blur source. The gradient-pair half stays open as the control H7/G3 in
+[gradient-remover-training.md](gradient-remover-training.md#6-experiments-in-order).
 
 The same note that asked for defocus ladders asked a second question: the archive holds targets that
 **cross the zenith**, so the same field exists at high and at low altitude on the same night, and the

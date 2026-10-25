@@ -30,7 +30,8 @@ what isn't, and in what order we tackle it**.
    trips against known obstructions. The first-observation-of-the-night gap
    in sub-plan 2 is one of the strongest arguments for actually shipping this:
    a static horizon mask catches obstructions *before* the night begins, so it
-   doesn't need a prior baseline.
+   doesn't need a prior baseline. The plan file was never written; the work is
+   tracked by #676.
 
 ## Goal
 

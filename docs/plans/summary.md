@@ -4,7 +4,7 @@ Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase
 
 | Plan | Status |
 |------|--------|
-| [mcp](mcp.md) | **PARTIAL** (added to this table 2026-09-25): `tianwen-mcp` ships only the Fits, Catalog and Log tools; Phases B' to G are not built (#549, #787, #687). |
+| [mcp](mcp.md) | **PARTIAL** (added to this table 2026-09-25): `tianwen-mcp` ships only the Fits, Catalog and Log tools; Phases B' to H are not built (#549, #687; #787 is closed). |
 | [android-host](android-host.md) | **NOT STARTED** (added 2026-09-25): an Android host, P0 an atlas-only shell, then P1-P4 and a PWA track (#829). |
 | [ascom-oop-host](ascom-oop-host.md) | **P1-P4.5 DONE, P5 PARTIAL** (added 2026-09-25): the CET-off out-of-process COM host `tianwen-ascomhost` (PR #79). Still to ship it with the released apps (#408) and P5 sub-dispatch plus win-arm64 (#830). |
 | [ascom-safearray-marshaling](ascom-safearray-marshaling.md) | **RESOLVED** (PR #74; added 2026-09-25). The follow-up lives in sharpastro-lzip.md. |
@@ -181,12 +181,12 @@ Written 2026-08-29, when the user referenced Frank FreeStar8n's MetaGuide. Two d
 - Phase 8 (per-camera sparkline colors): **NOT STARTED**; `BuildSparkline` at line 600 is monochrome Unicode.
 - Phase 9 (integration tests): **NOT STARTED**.
 
-## first-light-resilience: PARTIAL (meta only)
+## first-light-resilience: DONE for sub-plans 1 and 2; sub-plan 3 deferred (#676)
 
 - Meta-plan document (sequencing, non-goals, prior-art inventory): **DONE** as a coordination document.
-- Sub-plan 1 (driver resilience): **NOT STARTED**; see below.
-- Sub-plan 2 (FOV obstruction detection): **NOT STARTED**; correctly gated on driver-resilience PR-B1..B3.
-- Sub-plan 3 (site horizon mask): **NOT STARTED**; explicitly deferred.
+- Sub-plan 1 (driver resilience): **DONE** (`driver-resilience.md`).
+- Sub-plan 2 (FOV obstruction detection): **DONE** (`fov-obstruction-detection.md`).
+- Sub-plan 3 (site horizon mask): **deferred**, tracked by #676.
 - Cross-cutting conventions (`ITimeProvider.SleepAsync`, Device/Phase logger scopes, `SessionConfiguration` XML docs): in place from prior work, but the new wrappers that would use them haven't been written.
 
 ## driver-resilience: DONE ~95%
