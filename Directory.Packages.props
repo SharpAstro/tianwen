@@ -96,11 +96,11 @@
     <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.12" />
     <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.12" />
 
-    <PackageVersion Include="PlayerOne.SDK" Version="3.12.*" />
-    <PackageVersion Include="ToupTek.SDK" Version="1.2.*" />
-    <PackageVersion Include="SVBony.SDK" Version="1.14.*" />
-    <PackageVersion Include="QHYCCD.SDK" Version="2.0.*" />
-    <PackageVersion Include="TianWen.DAL" Version="3.4.*" />
-    <PackageVersion Include="ZWOptical.SDK" Version="6.1.*" />
+    <PackageVersion Include="PlayerOne.SDK" Version="3.13.*" />
+    <PackageVersion Include="ToupTek.SDK" Version="1.3.*" />
+    <PackageVersion Include="SVBony.SDK" Version="1.15.*" />
+    <PackageVersion Include="QHYCCD.SDK" Version="2.1.*" />
+    <PackageVersion Include="TianWen.DAL" Version="4.0.*" />
+    <PackageVersion Include="ZWOptical.SDK" Version="6.2.*" />
   </ItemGroup>
 </Project>

@@ -288,7 +288,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo>
     private static readonly CMOSControlType[] RestoredAfterReset =
     [
         CMOSControlType.Gain,
-        CMOSControlType.Brightness,
+        CMOSControlType.BlackLevel,
         CMOSControlType.WB_R,
         CMOSControlType.WB_G,
         CMOSControlType.WB_B,
