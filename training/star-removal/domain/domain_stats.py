@@ -1,11 +1,17 @@
 """The synthetics review, part 1 (the owner, 2026-10-21: "review our synthetics, they still do not look natural enough"):
-the same statistics on real master tiles and on the two synthetic sources the remover trains and is scored on, over the 8
-validation sessions, all three through the exporter's own stretch.
-  real   r2-real-val, the masters' own cells (Frame "master")
-  synth4 the training export: the synthetic background with injected stars and the master's noise (Frame "deg000")
-  draws  A's draws: injected stars on the starless plate (Frame "deg000")
+the same statistics on real master tiles and on the synthetic sources the remover trains and is scored on, over the 8
+validation sessions, all through the exporter's own stretch.
+  real   the real validation tiles, the masters' own cells (Frame "master")
+  synthetic sources, as many as named (Frame "deg000" unless given), for instance
+    synth4 the training export: the synthetic background with injected stars and the master's noise
+    draws  A's draws: injected stars on the starless plate
 Every statistic is in the tile's own noise sigma, so a level or depth difference between sources is not read as a domain gap.
-Glue for a diagnosis: python domain_stats.py <out.json>"""
+
+Every path is an argument. A tile root holds `tiles-manifest.jsonl` (one JSON object per line with `SessionId`, `Frame` and
+`Tile`, the tile's path relative to the root) and the tiles it names (3 x 256 x 256 little-endian float16, the exporter's
+layout). The real root's `master` frames set the validation sessions.
+  python domain_stats.py --real <real root> --synthetic synth4=<root>[,<frame>] --synthetic draws=<root> --out stats.json"""
+import argparse
 import json
 import os
 import sys
@@ -14,31 +20,28 @@ from collections import defaultdict
 import numpy as np
 from scipy.ndimage import convolve, maximum_filter, median_filter, binary_dilation
 
-ROOT = 'C:/temp/tianwen-scratch'
-SOURCES = {
-    'real': (f'{ROOT}/r2-real-val', 'master'),
-    'synth4': (f'{ROOT}/r1-train-synth4/synth4', 'deg000'),
-    'draws': (f'{ROOT}/r1-train/random', 'deg000'),
-}
+REAL_FRAME = 'master'
+DEFAULT_SYNTHETIC_FRAME = 'deg000'
 TILE = 256
 B3 = np.array([1, 4, 6, 4, 1], np.float32) / 16
 
 
-def val_sessions():
+def val_sessions(real_root):
     real = set()
-    for line in open(f'{ROOT}/r2-real-val/tiles-manifest.jsonl', encoding='utf-8'):
-        r = json.loads(line)
-        if r['Frame'] == 'master':
-            real.add(r['SessionId'])
+    with open(os.path.join(real_root, 'tiles-manifest.jsonl'), encoding='utf-8') as f:
+        for line in f:
+            r = json.loads(line)
+            if r['Frame'] == REAL_FRAME:
+                real.add(r['SessionId'])
     return real
 
 
-def tiles(source, sessions):
-    root, frame = SOURCES[source]
-    for line in open(f'{root}/tiles-manifest.jsonl', encoding='utf-8'):
-        r = json.loads(line)
-        if r['Frame'] == frame and r['SessionId'] in sessions:
-            yield r['SessionId'], np.fromfile(os.path.join(root, r['Tile']), dtype='<f2').astype(np.float32).reshape(3, TILE, TILE)
+def tiles(root, frame, sessions):
+    with open(os.path.join(root, 'tiles-manifest.jsonl'), encoding='utf-8') as f:
+        for line in f:
+            r = json.loads(line)
+            if r['Frame'] == frame and r['SessionId'] in sessions:
+                yield r['SessionId'], np.fromfile(os.path.join(root, r['Tile']), dtype='<f2').astype(np.float32).reshape(3, TILE, TILE)
 
 
 def starlet(plane, scales=5):
@@ -106,17 +109,34 @@ def measure(t):
     return m
 
 
-def main(out):
-    sessions = val_sessions()
+def main(sources, sessions, out):
     result = defaultdict(list)
-    for source in SOURCES:
-        for sid, t in tiles(source, sessions):
+    for source, (root, frame) in sources.items():
+        for sid, t in tiles(root, frame, sessions):
             m = measure(t)
             m['session'] = sid
             result[source].append(m)
         print(f'{source}: {len(result[source])} tiles', flush=True)
-    json.dump(result, open(out, 'w'))
+    with open(out, 'w', encoding='utf-8') as f:
+        json.dump(result, f)
+
+
+def parse(argv):
+    p = argparse.ArgumentParser(description=__doc__.split('\n')[0])
+    p.add_argument('--real', required=True, help='the real validation tile root (its `master` frames set the sessions)')
+    p.add_argument('--synthetic', action='append', default=[], metavar='NAME=ROOT[,FRAME]',
+                   help=f'a synthetic tile root to measure beside real, and the frame to read (default {DEFAULT_SYNTHETIC_FRAME}); repeatable')
+    p.add_argument('--out', required=True, help='the result JSON to write')
+    a = p.parse_args(argv)
+    sources = {'real': (a.real, REAL_FRAME)}
+    for spec in a.synthetic:
+        name, _, rest = spec.partition('=')
+        root, _, frame = rest.partition(',')
+        if not name or not root or name in sources:
+            p.error('--synthetic is NAME=ROOT[,FRAME], with a name of its own (not "real")')
+        sources[name] = (root, frame or DEFAULT_SYNTHETIC_FRAME)
+    return sources, val_sessions(a.real), a.out
 
 
 if __name__ == '__main__':
-    main(sys.argv[1])
+    main(*parse(sys.argv[1:]))

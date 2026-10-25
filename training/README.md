@@ -226,3 +226,27 @@ The onnx step runs the frozen run's `n2n_export.py` (the config's `arm.run`) ove
 and `<Name>.contract.json` into the score folder (`<arm.logs_root>/score-<Name>`); `score-arm.ps1` and the whole step reuse
 that ONNX. `star-removal/test-arm-steps.ps1` checks all of it on a stub arm in a temp folder (no GPU, no build, no data;
 its stub trainer writes a resume file and sleeps, to show the budget stop and the resume).
+
+### The synthetics' domain gap: `star-removal/domain/`
+
+The synthetics review's two instruments (`docs/plans/star-remover-training.md`, "Synthetics S1" and "Round 3"), kept here so a new
+export is read by the scripts that read the last one. Both are pure numpy/scipy (the classifier also torch, on the CPU), read tile
+roots through `tiles-manifest.jsonl` and take **every path as an argument**: a tile root is the exporter's folder, whose manifest
+lines carry `SessionId`, `Frame` and `Tile`. The real root's `master` frames set the 8 validation sessions, and a synthetic
+root is read for those sessions only (frame `deg000` unless `NAME=ROOT,FRAME` names another).
+
+```
+python star-removal/domain/domain_stats.py --real <real root> --synthetic synth4=<root> --synthetic draws=<root> --out stats.json
+python star-removal/domain/domain_classifier.py --real <real root> --synthetic synth4=<root> --out cls-synth4-stars.json \
+    --variants stars,noise --seeds 0,1,2
+```
+
+- `domain_stats.py` writes one record per tile (noise sigma, lag-1, kurtosis, channel coupling, starlet texture by scale, and each
+  isolated star's brightness, width, wing share and colour), every statistic in the tile's own noise sigma.
+- `domain_classifier.py` trains a small CNN to tell real from synthetic crops and reads it on **a camera it never saw** (leave one
+  camera out), so its AUC is how far the synthetic is from real (0.5: none). `--variants` picks the crop kind: `stars` (24 px,
+  centred on a 20 to 500 sigma star), `noise` (16 px sky crops, high-passed), `full`, `high`, `low`, `sky`. **`--seeds` is the
+  classifier's own spread**: each fold's net is trained at each seed on the same crops, and the JSON reports each variant's AUC as
+  the mean and sample standard deviation over seeds (`auc_mean`, `auc_std`), per seed and per camera. Read a change to an export
+  against that spread, never a single seed: three seeds at least. `--threads` bounds torch's CPU threads (default 4).
+- The JSON holds only counts and AUCs, no tile data. The tiles themselves are the owner's and never committed.
