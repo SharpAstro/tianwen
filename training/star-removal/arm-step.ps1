@@ -97,6 +97,13 @@ try {
                 Say "the budget of $Budget is up: stopping the trainer's process tree ($($tree -join ', '))"
                 foreach ($id in $tree) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
                 $r.WaitForExit()
+                # A trainer that had already saved its final weights removed its resume file and was on to the next seed or arm
+                # (run-r2.ps1 trains several): the step is done, there is nothing to resume.
+                if (Test-Path "$TrainDir/$Name.pt") {
+                    Say "the budget stopped the trainer after it wrote $Name.pt"
+                    "arm-step train: done ($TrainDir/$Name.pt)"
+                    exit 0
+                }
                 $resume = "$TrainDir/$Name.resume.pt"
                 if (-not (Test-Path $resume)) { Fail "the budget of $Budget stopped the trainer and it left no $resume to resume from (is -CheckpointEvery 0?)" }
                 Say 'resumable: run the train step again'

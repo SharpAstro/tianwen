@@ -182,6 +182,15 @@ Start-Sleep 600
     $r = Call $step (@('-Step', 'train', '-Budget', '00:00:03') + $h.Args)
     Assert ($r.Code -ne 0 -and $r.Code -ne 4 -and (Test-Path "$($h.Dir)/runs/r3h-chain.stop")) 'a budget stop that left no resume file fails and writes the stop file'
 
+    # 8b. a trainer that had already written <Name>.pt (n2n_smoke removes the resume file right after its final save; run-r2.ps1 then goes
+    # on to its next seed or arm) and is stopped by the budget has finished: done, exit 0, no stop file.
+    $k = New-Arm 'r3k' 'none'
+    Set-Content "$($k.Dir)/train.ps1" "param([string]`$Name, [int]`$CheckpointEvery); Add-Content '$($k.Dir)/starts-train.txt' 'start'; Set-Content '$($k.Dir)/train/$($k.Name).pt' 'weights'; Start-Sleep 600"
+    $r = Call $step (@('-Step', 'train', '-Budget', '00:00:06') + $k.Args)
+    Assert ($r.Code -eq 0 -and $r.Out -match 'arm-step train: done') "a budget stop after the weights were written is done (exit $($r.Code): $($r.Out.Trim()))"
+    Assert (-not (Test-Path "$($k.Dir)/runs/r3k-chain.stop")) 'and writes no stop file'
+    Assert (-not (Test-Path "$($k.Dir)/train/$($k.Name).resume.pt")) 'and there is no resume file'
+
     # 9. the onnx step writes <Name>.onnx and its contract from the weights, and skips once both exist.
     $i = New-Arm 'r3i' 'none'
     Set-Content "$($i.Dir)/train/$($i.Name).pt" 'weights'

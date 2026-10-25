@@ -198,23 +198,28 @@ without starting a child; a failure exits non-zero and writes `<tag>-chain.stop`
 3 (train only) is "another trainer holds the GPU", nothing done, nothing failed; exit 4 (train only) is "resumable", below.
 
 **An arm as pilot jobs, one line per step.** `<common>` is the arm's own `-Tag r3a -Name r3a_s0 -TrainDir <the training
-cache> -Cache <the scoring cache> -Config <scorecard.local.json> -Runs <the runs folder>`, the same for every step:
+cache> -Cache <the scoring cache> -Config <scorecard.local.json> -Runs <the runs folder>`, the same for every step. Every
+line carries `--timeout 8h`, because pilot run's default is 2 h and ends a job at it. A job killed at its timeout loses
+nothing: every step skips what exists and the export resumes, so **run the same line again**.
 
 ```
-pilot run -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step export <common> -ExportScript <export.ps1> -ExportDone <its done file>
+pilot run --timeout 8h -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step export <common> -ExportScript <export.ps1> -ExportDone <its done file>
 pilot run --timeout 8h -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step train <common> -TrainScript training/denoise/run-r2.ps1 -TrainArgs <run-r2's switches, comma-separated>
-pilot run -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step onnx <common>
-pilot run -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step score <common>
-pilot run -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step whole <common>
+pilot run --timeout 8h -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step onnx <common>
+pilot run --timeout 8h -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step score <common>
+pilot run --timeout 8h -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step whole <common>
 ```
 
-**The train step finishes across two jobs.** It passes `-CheckpointEvery N` (default 500; `run-r2.ps1` forwards it as
+**The train step finishes across two jobs.** `-TrainArgs` must make `run-r2.ps1` train exactly `<Name>` in `<TrainDir>`:
+its `-Tag`, ONE value in `-Arms`, `-FirstSeed` and `-SeedCount 1` (its defaults train three arms x three seeds, nine
+models, and a budget stop would land in the middle of one of them). The step passes `-CheckpointEvery N` (default 500; `run-r2.ps1` forwards it as
 `--checkpoint-every` and `--resume`) and waits on the trainer for at most `-Budget` (a timespan, default 7h30m, under
 pilot's 8 h cap). At the budget it stops the trainer's whole process tree itself; the trainer replaces
 `<TrainDir>/<Name>.resume.pt` by an atomic rename, so the last checkpoint is whole whenever the process dies. It then says
 `resumable: run the train step again` and exits 4, without a stop file: **run the same train line again** and the trainer
-continues from the checkpoint (the second job's budget is its own, a full 7h30m). A trainer that ends without `<Name>.pt`,
-or a budget stop that left no resume file (`-CheckpointEvery 0`), is a failure and writes the stop file. Under the driver
+continues from the checkpoint (the second job's budget is its own, a full 7h30m). A budget stop after the trainer had written
+`<Name>.pt` (it removes its resume file right after the final save) is done: exit 0, no stop file. A trainer that ends
+without `<Name>.pt`, or a budget stop that left no resume file (`-CheckpointEvery 0`), is a failure and writes the stop file. Under the driver
 a pass that hits the budget just ends, and the next pass resumes.
 
 The onnx step runs the frozen run's `n2n_export.py` (the config's `arm.run`) over `<Cache>/<Name>.pt`, writing `<Name>.onnx`
