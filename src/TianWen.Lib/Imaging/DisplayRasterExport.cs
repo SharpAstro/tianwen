@@ -176,7 +176,8 @@ public static class DisplayRasterExport
     /// <param name="crop">The view crop, in <paramref name="image"/>'s pixels, or null for the whole frame.</param>
     /// <param name="starScreen">A star split's stars as the screen draws them (<see cref="ScreenedStars"/>), screened over
     /// the rendered <paramref name="image"/>, which is then the split's starless plate; null for a frame with no split.</param>
-    /// <param name="text">Text written into a PNG (<see cref="PngWriteOptions.Text"/>); a JPEG ignores it.</param>
+    /// <param name="text">What the file says about itself (<see cref="DisplayRasterText"/>): iTXt in a PNG, EXIF and XMP in a JPEG;
+    /// a TIFF carries none.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     public static async Task WriteAsync(
         Image image,
@@ -194,7 +195,7 @@ public static class DisplayRasterExport
         int jpegQuality = 92,
         PixelRect? crop = null,
         ScreenedStars? starScreen = null,
-        IReadOnlyList<PngText>? text = null,
+        DisplayRasterText? text = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(image);
@@ -240,7 +241,7 @@ public static class DisplayRasterExport
                     Cicp = CicpChunk.Srgb,
                     DiscardAlpha = true,
                     ParallelFragments = PngFragments,
-                    Text = text,
+                    Text = text?.ToPng(),
                 });
                 break;
             }
@@ -253,7 +254,7 @@ public static class DisplayRasterExport
                     IccProfile = IccProfiles.SRgbV4.ToArray(),
                     DiscardAlpha = true,        // see the 16-bit case above
                     ParallelFragments = PngFragments,
-                    Text = text,
+                    Text = text?.ToPng(),
                 });
                 break;
             }
@@ -280,7 +281,12 @@ public static class DisplayRasterExport
                 }
 
                 var jpeg = JpegEncoder.Encode(packed, width, height, samplesPerPixel,
-                    new JpegEncodeOptions { Quality = Math.Clamp(jpegQuality, 1, 100) });
+                    new JpegEncodeOptions
+                    {
+                        Quality = Math.Clamp(jpegQuality, 1, 100),
+                        Exif = text?.ToExif(),
+                        Xmp = text?.ToXmp(),
+                    });
                 encoded = JpegIccInjector.EmbedIccProfile(jpeg, IccProfiles.SRgbV4);
                 break;
             }

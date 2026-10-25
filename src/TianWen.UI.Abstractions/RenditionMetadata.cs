@@ -7,16 +7,13 @@ using TianWen.Lib.Imaging;
 namespace TianWen.UI.Abstractions;
 
 /// <summary>
-/// The text "Save image as displayed" writes into a PNG: every display setting the picture was rendered with, as JSON under
-/// <see cref="RenditionKeyword"/>, beside the program and the source file. Where <see cref="RenditionFileName"/> names only
+/// The text "Save image as displayed" writes into a PNG or a JPEG (<see cref="DisplayRasterText"/>): every display setting the picture was rendered with, as JSON under
+/// <see cref="DisplayRasterText.RenditionKeyword"/>, beside the program and the source file. Where <see cref="RenditionFileName"/> names only
 /// what moved off its default, this records all of it, so the file says how it was made even when its name was changed.
 /// </summary>
 /// <remarks>A note for the person who saved it, as the name is: nothing reads it back.</remarks>
 public static class RenditionMetadata
 {
-    /// <summary>The PNG keyword the settings are written under.</summary>
-    public const string RenditionKeyword = "TianWen:Rendition";
-
     /// <summary>
     /// The settings as JSON, written by hand through <see cref="Utf8JsonWriter"/> so it needs no serialiser context (AOT).
     /// </summary>
