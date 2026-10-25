@@ -1550,6 +1550,95 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// #1241 end to end: a star-shapes file with a brightness trend per channel draws each channel's wing on its own, and
+        /// <c>ClampWingRelations</c> holds every drawn star's channels to the envelope that file's real masters span. The fixture's
+        /// field profile is one profile in all three channels, so an envelope of exactly green's light (every ratio 1) makes every
+        /// clamped star's three gains equal; with the option off no row says anything of a clamp and the files are what they were,
+        /// and an envelope no star leaves changes no byte of any tile, plane or row but the log's.
+        /// </summary>
+        [Fact]
+        public async Task AWingRelationClampHoldsEveryStarToTheRealEnvelopeAndNothingElseMoves()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, _) = await BuildPlatesStoreAsync(bake);
+            StarShapeRow Row(string id, params double[][] lights)
+                => new StarShapeRow(id, [.. lights.Select((l, b) => new StarShapeBand(100f * (b + 1), 50,
+                    [.. l.Select(static v => new StarShapeChannel(v, v, 1.0, Stars: 50, Weight: 5000.0))], 100f * (b + 1)))]);
+            // The master's own trend row: bands at 30, 100 and 400 sigma with a different gain and slope in every channel.
+            float[] significance = [30f, 100f, 400f];
+            double[] bright = [2.4, 1.5, 1.1];
+            double[] slope = [0.7, 0.2, -0.3];
+            var trend = new StarShapeRow(SessionId, [.. significance.Select(s => new StarShapeBand(s * 0.7f, 50,
+                [.. bright.Select((g, c) => new StarShapeChannel(1.0, 1.0, g * Math.Pow(s / 400.0, slope[c]), Stars: 50, Weight: 5000.0))], s))],
+                "TestCam", slope.ToImmutableArray());
+            async Task<string> ShapesAsync(string name, params StarShapeRow[] others)
+            {
+                var path = Path.Combine(_root, name);
+                await StarShape.AppendAsync(path, trend, TestContext.Current.CancellationToken);
+                foreach (var other in others)
+                {
+                    await StarShape.AppendAsync(path, other, TestContext.Current.CancellationToken);
+                }
+                return path;
+            }
+            var narrow = await ShapesAsync("shapes-narrow.jsonl", Row("equal", [1.0, 1.0, 1.0]));
+            var wide = await ShapesAsync("shapes-wide.jsonl", Row("wide", [0.001, 1.0, 0.001], [1000.0, 1.0, 1000.0]));
+            // The trend row's own bands are in the envelope too (RealLight 1 in every channel), and so is the pair above.
+            var baseOptions = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "stars-trend"),
+                Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 2, CellsPerSession: 0, Seed: 5,
+                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot, SaturatedFraction: 1.0, StarShapesPath: narrow);
+            (await DatasetDegradationExporter.RunAsync(baseOptions, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            var free = ReadInjectionRows(baseOptions.OutDir);
+            var freeStars = free.SelectMany(static i => i.Stars).ToArray();
+            freeStars.ShouldNotBeEmpty();
+            freeStars.ShouldContain(static s => s.HaloGain != null && Math.Abs(s.HaloGain[0] - s.HaloGain[1]) > 0.05, "the trend draws the channels apart");
+            File.ReadAllText(Path.Combine(baseOptions.OutDir, DatasetDegradationExporter.InjectionManifestFileName))
+                .ShouldNotContain("WingClamped", Case.Sensitive, "without the option no row says anything of a clamp");
+            free.ShouldAllBe(static i => i.WingClamped == 0);
+
+            var held = baseOptions with { OutDir = Path.Combine(_root, "stars-clamped"), ClampWingRelations = true };
+            (await DatasetDegradationExporter.RunAsync(held, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            var clamped = ReadInjectionRows(held.OutDir);
+            clamped.Length.ShouldBe(free.Length);
+            clamped.Sum(static i => i.WingClamped).ShouldBeGreaterThan(0);
+            foreach (var (before, after) in free.Zip(clamped))
+            {
+                after.Stars.Length.ShouldBe(before.Stars.Length);
+                for (var i = 0; i < after.Stars.Length; i++)
+                {
+                    (after.Stars[i].X, after.Stars[i].Y).ShouldBe((before.Stars[i].X, before.Stars[i].Y), "the stars keep their places");
+                    after.Stars[i].Amplitude.ShouldBe(before.Stars[i].Amplitude, "and their brightness and colour");
+                    var gains = after.Stars[i].HaloGain.ShouldNotBeNull();
+                    gains[0].ShouldBe(gains[1], 1e-6, "an envelope of green's own light leaves every channel the wing green has");
+                    gains[2].ShouldBe(gains[1], 1e-6);
+                    gains[1].ShouldBe(before.Stars[i].HaloGain.ShouldNotBeNull()[1], 1e-9, "green is never moved");
+                }
+            }
+
+            // No star leaves an envelope this wide, so nothing moves: every tile, plane and row but the clamp's own.
+            var open = baseOptions with { OutDir = Path.Combine(_root, "stars-open"), StarShapesPath = wide, ClampWingRelations = true };
+            var openFree = baseOptions with { OutDir = Path.Combine(_root, "stars-open-free"), StarShapesPath = wide };
+            (await DatasetDegradationExporter.RunAsync(open, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            (await DatasetDegradationExporter.RunAsync(openFree, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            ReadInjectionRows(open.OutDir).ShouldAllBe(static i => i.WingClamped == 0);
+            var files = Directory.GetFiles(Path.Combine(openFree.OutDir, "tiles"), "*", SearchOption.AllDirectories)
+                .Select(f => Path.GetRelativePath(openFree.OutDir, f)).Order(StringComparer.Ordinal).ToArray();
+            files.Length.ShouldBeGreaterThan(4);
+            foreach (var file in files)
+            {
+                File.ReadAllBytes(Path.Combine(open.OutDir, file)).ShouldBe(File.ReadAllBytes(Path.Combine(openFree.OutDir, file)), file);
+            }
+            File.ReadAllText(Path.Combine(open.OutDir, DatasetDegradationExporter.InjectionManifestFileName))
+                .ShouldBe(File.ReadAllText(Path.Combine(openFree.OutDir, DatasetDegradationExporter.InjectionManifestFileName)));
+
+            // The option reads its envelope off the file and does not meet a wing cut.
+            var noFile = baseOptions with { OutDir = Path.Combine(_root, "stars-no-file"), StarShapesPath = null, ClampWingRelations = true };
+            await Should.ThrowAsync<ArgumentException>(async () => await DatasetDegradationExporter.RunAsync(noFile, logger: null, TestContext.Current.CancellationToken));
+            var cut = held with { OutDir = Path.Combine(_root, "stars-cut"), ChannelWingCut = 0.5 };
+            await Should.ThrowAsync<ArgumentException>(async () => await DatasetDegradationExporter.RunAsync(cut, logger: null, TestContext.Current.CancellationToken));
+        }
+
+        /// <summary>
         /// A plate store from before profiles were kept has no field profile, and its amplitudes mean nothing with another
         /// profile: the default (field) refuses the session and names the fix; the PSF store's Moffat still draws from it.
         /// </summary>

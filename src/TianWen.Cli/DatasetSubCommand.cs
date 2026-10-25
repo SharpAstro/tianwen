@@ -1833,6 +1833,14 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "the per-channel wing gains its own real stars of the same brightness were measured to need (R2s2). " +
                           "Every session needs its row. Not with --channel-relations.",
         };
+        var clampWingRelationsOpt = new Option<bool>("--clamp-wing-relations")
+        {
+            Description = "--star-shapes: hold every drawn star's channel wing relation (each channel's 3 to 8 px light over its core, as a " +
+                          "ratio to green's) inside the envelope the real masters of the star-shapes file span, a channel outside it " +
+                          "having its wing gain moved to the nearest edge; a brightness trend moves each channel on its own and " +
+                          "can leave every real master's relation (R2s: Andromeda's blue). Draws no random number; the stars moved " +
+                          "are counted in each injections.jsonl row's WingClamped. Not with --channel-wing-cut.",
+        };
         var channelWingCutOpt = new Option<double?>("--channel-wing-cut")
         {
             Description = "--mode stars: the weakest wing, as a factor of the master's own, that half the draws of a cell give one " +
@@ -1866,7 +1874,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, channelWingCutOpt, keptCoresOpt, channelNoiseCorrelationOpt, faintStarsOpt, stretchFromOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, channelWingCutOpt, keptCoresOpt, channelNoiseCorrelationOpt, faintStarsOpt, stretchFromOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -2010,7 +2018,18 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 consoleHost.WriteError("--star-shapes and --channel-relations are two arms; give one");
                 return 1;
             }
+            var clampWingRelations = parseResult.GetValue(clampWingRelationsOpt);
+            if (clampWingRelations && starShapes is null)
+            {
+                consoleHost.WriteError("--clamp-wing-relations reads its envelope off the star-shapes file; it needs --star-shapes");
+                return 1;
+            }
             var channelWingCut = parseResult.GetValue(channelWingCutOpt);
+            if (clampWingRelations && channelWingCut is not null)
+            {
+                consoleHost.WriteError("--clamp-wing-relations and --channel-wing-cut are two arms; give one");
+                return 1;
+            }
             if (channelWingCut is { } minFactor)
             {
                 if (mode != DatasetDegradationExporter.DegradationMode.Stars)
@@ -2129,6 +2148,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 FaintStarFloor: faintStars,
                 FaintStarCap: faintCap,
                 StretchFromMaster: stretchFrom == "master",
+                ClampWingRelations: clampWingRelations,
                 Say: Say);
 
             var result = await DatasetDegradationExporter.RunAsync(options, logger, ct);

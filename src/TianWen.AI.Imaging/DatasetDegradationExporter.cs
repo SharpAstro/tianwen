@@ -428,6 +428,13 @@ namespace TianWen.AI.Imaging
         /// its master's own (<see cref="TianWen.Lib.Imaging.StarRemoval.ChannelWingCut"/>, R2v), from a stream of its own, so
         /// the stars, their brightness and their colour are the draw's without it; half the draws keep every channel. Null
         /// cuts none. Not with <paramref name="ChannelRelationSessions"/>.</param>
+        /// <param name="ClampWingRelations">With <paramref name="StarShapesPath"/> (#1241): every drawn star's channel wing
+        /// relation (each channel's 3 to 8 px light over its core, against green's) is held to the envelope the real masters
+        /// of the file span (<see cref="TianWen.Lib.Imaging.StarRemoval.ChannelWingEnvelope"/>), a channel outside it having
+        /// its wing gain moved to the nearest edge (<see cref="TianWen.Lib.Imaging.StarRemoval.WingRelationClamp"/>); the
+        /// stars moved are counted in each injection row's <c>WingClamped</c>. Draws no random number, so the stars keep
+        /// their places, brightness and colour. Off, every export is what it was. Not with
+        /// <paramref name="ChannelWingCut"/>, which departs from the envelope on purpose.</param>
         /// <param name="KeptCores">With <paramref name="SyntheticBackground"/>: a share of the cells holds a bright galaxy-like
         /// core in its background, in the input and the target alike, so a remover learns to keep it
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.KeptCores"/>, #1658), from a stream of its own, so every other draw is
@@ -499,6 +506,7 @@ namespace TianWen.AI.Imaging
             double? FaintStarFloor = null,
             double FaintStarCap = TianWen.Lib.Imaging.StarRemoval.LuminosityFunction.DefaultCapSigma,
             bool StretchFromMaster = true,
+            bool ClampWingRelations = false,
             Action<string>? Say = null);
 
         /// <summary>
