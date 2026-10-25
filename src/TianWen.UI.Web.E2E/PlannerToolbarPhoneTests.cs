@@ -25,7 +25,10 @@ public sealed class PlannerToolbarPhoneTests(TianWenWebFixture fixture)
         await page.GotoAsync(fixture.BaseUrl + "?e2e=1", new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
         await Expect(page.Locator("[data-view=planner]")).ToBeVisibleAsync(new() { Timeout = BootTimeout });
 
-        var toolbar = await page.Locator(".toolbar").BoundingBoxAsync();
+        // The catalog load keeps the main thread busy, and a box read waits on it.
+        await Expect(page.Locator(".catalog-loading")).ToHaveCountAsync(0, new() { Timeout = BootTimeout });
+
+        var toolbar = await page.Locator(".toolbar").BoundingBoxAsync(new() { Timeout = BootTimeout });
         Assert.NotNull(toolbar);
         Assert.True(toolbar.Height <= OneRowMaxHeight, $"toolbar is {toolbar.Height} px tall, more than one row");
 
