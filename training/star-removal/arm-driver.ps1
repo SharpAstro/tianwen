@@ -1,15 +1,16 @@
 # The driver of one star-remover arm trained on THIS machine (the GTX 1070), as a RESUMABLE pass that Task Scheduler re-runs every
 # 10 minutes (register-arm-task.ps1: task tw-<tag>, conhost --headless, priority 4, every child -NoNewWindow, IgnoreNew). The
 # Azure arms have training/azure/az-driver.ps1, which ends in score-arm.ps1 as its -AfterScript; this is the same shape for an
-# arm that trains here. The work itself is arm-step.ps1's, one step per call (export, train, score, whole), each of which a pilot
+# arm that trains here. The work itself is arm-step.ps1's, one step per call (export, train, onnx, score, whole), each of which a pilot
 # job can run alone; this file is a pass over those steps, so the task and a job run the same code. A pass does the first step
 # whose output is missing and ends, so a pass is never long and a crash costs at most one step:
 #   1. exits at once when the arm is done (<tag>.done), stopped (<tag>-chain.stop), or one of its workers still runs (a step run
 #      alone as a job included);
 #   2. waits for the pre-registration file, when -PreReg names one (a run is registered before it is looked at);
 #   3. runs the steps in order, each skipping itself when its output exists: export (-ExportScript, itself resumable, done when
-#      -ExportDone exists), train (-TrainScript, which leaves <TrainDir>/<Name>.pt), score (the weights into -Cache, then
-#      score-arm.ps1), whole (score_whole.py over the ONNX that scoring wrote, unless <out root>/<WholeTag>/row.txt is there);
+#      -ExportDone exists), train (-TrainScript, which leaves <TrainDir>/<Name>.pt; a pass that reaches -Budget stops it with its
+#      resume checkpoint whole and the next pass resumes), onnx (n2n_export.py: <Name>.onnx and its contract), score (the weights
+#      into -Cache, then score-arm.ps1), whole (score_whole.py over the ONNX that scoring wrote, unless <out root>/<WholeTag>/row.txt is there);
 #   4. writes <tag>.done once every step has skipped.
 # Stop it with <tag>-chain.stop in the runs folder, then `schtasks /Change /TN tw-<tag> /DISABLE`. Status, log, stop and done
 # files are in the runs folder: -Runs, or TIANWEN_RUNS (the variable training/azure/common.ps1 reads); one of them is required,
@@ -36,6 +37,9 @@ param(
     # parameter is untouched.
     [double]$SpeckleWeight = 0,
     [double]$SpeckleSigma = 100,
+    # The train step's budget and checkpoint interval (arm-step.ps1); a pass that stops the trainer at the budget ends, and the next resumes.
+    [timespan]$Budget = [timespan]'07:30:00',
+    [int]$CheckpointEvery = 500,
     # The tag score_whole.py writes the row under, when it is not -Tag.
     [string]$WholeTag = ''
 )
@@ -85,10 +89,11 @@ try {
     # The steps in arm-step.ps1's order. A step whose output exists says "skipped" and the pass goes on to the next; the first one
     # that does work ends the pass, so a pass is never long and a crash costs at most one step. A failing step has written the
     # stop file itself (arm-step.ps1 does, on any exception), which the next pass reads.
-    foreach ($step in 'export', 'train', 'score', 'whole') {
+    foreach ($step in 'export', 'train', 'onnx', 'score', 'whole') {
         $out = Join-Path ([IO.Path]::GetTempPath()) "$Tag-$step-$PID.out"
         $stepArgs = @('-NoProfile', '-File', "$PSScriptRoot/arm-step.ps1", '-Step', $step, '-Tag', $Tag, '-Name', $Name, '-TrainDir', $TrainDir,
-            '-Cache', $Cache, '-Config', $Config, '-Runs', $runs, '-GpuTrainerPattern', $GpuTrainerPattern, '-WholeTag', $WholeTag)
+            '-Cache', $Cache, '-Config', $Config, '-Runs', $runs, '-GpuTrainerPattern', $GpuTrainerPattern, '-WholeTag', $WholeTag,
+            '-Budget', "$Budget", '-CheckpointEvery', "$CheckpointEvery")
         # An empty value would vanish from the command line and leave its switch eating the next one.
         foreach ($optional in @(@('-ExportScript', $ExportScript), @('-ExportDone', $ExportDone), @('-TrainScript', $TrainScript))) {
             if ($optional[1]) { $stepArgs += $optional }
@@ -109,6 +114,8 @@ try {
         Remove-Item $out, "$out.err" -ErrorAction SilentlyContinue
         # 3 is "another trainer holds the GPU": nothing was done and nothing failed.
         if ($p.ExitCode -eq 3) { return }
+        # 4 is "resumable": the train step reached its budget and left its checkpoint, so the next pass resumes it.
+        if ($p.ExitCode -eq 4) { return }
         if ($p.ExitCode -ne 0) { if (-not (Test-Path $stop)) { Halt "arm-step.ps1 -Step $step exited $($p.ExitCode): $complained" }; return }
         if ($said -notmatch 'skipped') { return }
     }

@@ -80,6 +80,7 @@ if (-not (Test-Path $ringRead)) {
 $nucleusRead = "$($arm.reports)/m31-nucleus-$Name.txt"
 if (-not (Test-Path $nucleusRead)) {
     $onnx = "$logs/$Name.onnx"
+    # arm-step.ps1 -Step onnx writes this file (and its contract) ahead of the score; it is reused, never exported twice.
     if (-not (Test-Path $onnx)) {
         Say "exporting $Name to ONNX"
         Py @('n2n_export.py', '--cache', $cache, '--ckpt', "$Name.pt", '--eval', $cache, '--out', $logs, '--name', "$Name.onnx") 'export'
