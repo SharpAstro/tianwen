@@ -98,6 +98,19 @@ def ls(*roots):
         print(r, len(entries), "entries:", " ; ".join(f"{e.name}/" if e.is_dir() else f"{e.name} {e.stat().st_size}" for e in entries[:80]))
 
 
+def names(root, pattern):
+    """One line: the entries of a folder whose name matches the regex."""
+    import re
+    print(" ; ".join(e.name for e in sorted(pathlib.Path(root).iterdir()) if re.search(pattern, e.name, re.I)))
+
+
+def head(file, count="3", width="2500"):
+    """The first lines of a file, each cut to a width."""
+    with open(file, errors="replace") as f:
+        for _ in range(int(count)):
+            print(f.readline()[:int(width)].rstrip())
+
+
 def cat(*files):
     for f in files:
         print("----", f)
@@ -111,6 +124,10 @@ if __name__ == "__main__":
         find_records(*sys.argv[2:])
     elif sys.argv[1] == "ls":
         ls(*sys.argv[2:])
+    elif sys.argv[1] == "names":
+        names(*sys.argv[2:])
+    elif sys.argv[1] == "head":
+        head(*sys.argv[2:])
     elif sys.argv[1] == "cat":
         cat(*sys.argv[2:])
     elif sys.argv[1] == "sync":
