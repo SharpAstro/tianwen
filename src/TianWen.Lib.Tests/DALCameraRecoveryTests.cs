@@ -94,7 +94,7 @@ public class DALCameraRecoveryTests(ITestOutputHelper output)
 
         state.ResetCount.ShouldBe(1);
         state.Controls[CMOSControlType.Gain].ShouldBe(42);
-        state.Controls[CMOSControlType.Brightness].ShouldBe(7);
+        state.Controls[CMOSControlType.BlackLevel].ShouldBe(7);
         state.Controls[CMOSControlType.CoolerOn].ShouldBe(1, "a reset switched the cooler off; it is switched back on");
         state.Controls.ShouldContainKey(CMOSControlType.TargetTemperature);
         camera.BinX.ShouldBe(2, "binning lives in the driver's settings and survives the reset");
@@ -315,7 +315,7 @@ internal sealed class FakeCmosState(string serial)
     {
         [CMOSControlType.Exposure] = 1000,
         [CMOSControlType.Gain] = 0,
-        [CMOSControlType.Brightness] = 0,
+        [CMOSControlType.BlackLevel] = 0,
         [CMOSControlType.CoolerOn] = 0,
         [CMOSControlType.TargetTemperature] = 20,
         [CMOSControlType.TemperatureDeci] = 200,
@@ -702,7 +702,7 @@ internal readonly struct FakeCmosCamera(FakeCmosState state) : ICMOSNativeInterf
         {
             CMOSControlType.Exposure => (1, int.MaxValue),
             CMOSControlType.Gain => (0, 100),
-            CMOSControlType.Brightness => (0, 100),
+            CMOSControlType.BlackLevel => (0, 100),
             CMOSControlType.TargetTemperature => (-40, 30),
             CMOSControlType.HighSpeedMode when state.HasHighSpeed => (0, 1),
             CMOSControlType.BandwidthOverload when state.BandwidthMax > 0 => (40, state.BandwidthMax),

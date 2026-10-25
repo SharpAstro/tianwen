@@ -480,7 +480,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
     {
         using var sdk = EnterSdk();
         if (sdk.Entered
-            && _deviceInfo.GetControlValue(CMOSControlType.Brightness, out var offset, out _) is CMOSErrorCode.Success
+            && _deviceInfo.GetControlValue(CMOSControlType.BlackLevel, out var offset, out _) is CMOSErrorCode.Success
             && offset >= OffsetMin
             && offset <= OffsetMax
         )
@@ -497,7 +497,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
         {
             throw NotConnectedException();
         }
-        else if (value < OffsetMin || value > OffsetMax || _deviceInfo.SetControlValue(CMOSControlType.Brightness, value) is not CMOSErrorCode.Success)
+        else if (value < OffsetMin || value > OffsetMax || _deviceInfo.SetControlValue(CMOSControlType.BlackLevel, value) is not CMOSErrorCode.Success)
         {
             throw new ArgumentOutOfRangeException(nameof(value), value, $"Offset must be between {OffsetMin} and {OffsetMax} inclusive");
         }
@@ -600,7 +600,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
         CanFastReadout = _deviceInfo.TryGetControlRange(CMOSControlType.HighSpeedMode, out _, out _);
 
         // min max offset and gain
-        if (_deviceInfo.TryGetControlRange(CMOSControlType.Brightness, out var offsetMin, out var offsetMax))
+        if (_deviceInfo.TryGetControlRange(CMOSControlType.BlackLevel, out var offsetMin, out var offsetMax))
         {
             OffsetMin = offsetMin;
             OffsetMax = offsetMax;
@@ -647,7 +647,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
             [CMOSControlType.BandwidthOverload] = 50,
             [CMOSControlType.EnableDDR] = 1,
             [CMOSControlType.Gain] = (int)MathF.FusedMultiplyAdd(GainMax - GainMin, 0.4f, GainMin),
-            [CMOSControlType.Brightness] = (int)MathF.FusedMultiplyAdd(OffsetMax - OffsetMin, 0.1f, OffsetMin),
+            [CMOSControlType.BlackLevel] = (int)MathF.FusedMultiplyAdd(OffsetMax - OffsetMin, 0.1f, OffsetMin),
         };
 
         foreach (var pair in initControlValues)
@@ -680,9 +680,9 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
     /// Player One has all three, and writing two of three leaves the third wherever it was last
     /// put.</para>
     /// <para>The 50 remains as the fallback for a device that does not yet answer
-    /// <see cref="ICMOSNativeInterface.TryGetWhiteBalanceRange"/>, so this is not a behaviour change
-    /// for ZWO or QHY: they keep exactly what they had until each implements the member, and only a
-    /// camera that states its own scale is driven by it.</para>
+    /// <see cref="ICMOSNativeInterface.TryGetWhiteBalanceRange"/>, which is right only on ZWO. On a colour QHY it put red
+    /// and blue at 3.1 times green (unity there is 16), until QHYCCD.SDK 2.1 answered the member (measured on a
+    /// QHY294PROC, 2026-10-25).</para>
     /// </remarks>
     private void SetNeutralWhiteBalance()
     {
@@ -1175,7 +1175,7 @@ internal abstract partial class DALCameraDriver<TDevice, TDeviceInfo> : DALDevic
             Interlocked.Increment(ref _frameSequence);
             var startTime = TimeProvider.GetUtcNow();
             _deviceInfo.GetControlValue(CMOSControlType.Gain, out var currentGain, out _);
-            _deviceInfo.GetControlValue(CMOSControlType.Brightness, out var currentOffset, out _);
+            _deviceInfo.GetControlValue(CMOSControlType.BlackLevel, out var currentOffset, out _);
             _exposureData = new ExposureData(startTime, duration, null, frameType, currentGain, currentOffset);
             // ensure that on image readout we use the settings that the image was exposed with
             _exposureSettings = settingsSnapshot;

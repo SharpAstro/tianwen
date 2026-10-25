@@ -78,7 +78,7 @@ public class VendorControlContractTests
             [CMOSControlType.WB_R] = ASICamera2.ASI_CONTROL_TYPE.ASI_WB_R,
             [CMOSControlType.WB_G] = null,
             [CMOSControlType.WB_B] = ASICamera2.ASI_CONTROL_TYPE.ASI_WB_B,
-            [CMOSControlType.Brightness] = ASICamera2.ASI_CONTROL_TYPE.ASI_BRIGHTNESS,
+            [CMOSControlType.BlackLevel] = ASICamera2.ASI_CONTROL_TYPE.ASI_BRIGHTNESS,
             [CMOSControlType.BandwidthOverload] = ASICamera2.ASI_CONTROL_TYPE.ASI_BANDWIDTHOVERLOAD,
             [CMOSControlType.Overclock] = ASICamera2.ASI_CONTROL_TYPE.ASI_OVERCLOCK,
             [CMOSControlType.TemperatureDeci] = ASICamera2.ASI_CONTROL_TYPE.ASI_TEMPERATURE,
