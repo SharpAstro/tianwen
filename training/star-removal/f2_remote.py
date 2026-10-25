@@ -87,6 +87,17 @@ def find_records(*roots):
     print(len(out), " ; ".join(sorted(out)))
 
 
+def ls(*roots):
+    """One line per root: the first 80 entries, folders marked with a slash and files with their size."""
+    for r in roots:
+        root = pathlib.Path(r)
+        if not root.is_dir():
+            print(r, "MISSING")
+            continue
+        entries = sorted(root.iterdir())
+        print(r, len(entries), "entries:", " ; ".join(f"{e.name}/" if e.is_dir() else f"{e.name} {e.stat().st_size}" for e in entries[:80]))
+
+
 def cat(*files):
     for f in files:
         print("----", f)
@@ -98,6 +109,8 @@ if __name__ == "__main__":
         dirs(*sys.argv[2:])
     elif sys.argv[1] == "find":
         find_records(*sys.argv[2:])
+    elif sys.argv[1] == "ls":
+        ls(*sys.argv[2:])
     elif sys.argv[1] == "cat":
         cat(*sys.argv[2:])
     elif sys.argv[1] == "sync":
