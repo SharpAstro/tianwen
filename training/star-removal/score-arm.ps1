@@ -18,7 +18,10 @@ param(
     # The ring check's baseline output folders.
     [string[]]$RingBaselines = @(),
     # M31's starless plate of the model the nucleus read is compared with (a v8 plate of an earlier arm).
-    [string]$NucleusReference = ''
+    [string]$NucleusReference = '',
+    # Steps to leave out: 'ring', 'nucleus'. A re-score on a second set of draws (F2's) has no use for M31's nucleus, which does not
+    # depend on the draws, and a job's -File arrives with an array as one comma-joined string, split below.
+    [string[]]$Skip = @()
 )
 $ErrorActionPreference = 'Stop'
 if (-not (Test-Path $Config)) { throw "no scorecard settings at $Config (scorecard.example.json shows the shape)" }
@@ -29,7 +32,11 @@ foreach ($key in 'run', 'eval_cli', 'remove_cli', 'eval_root', 'reports', 'logs_
     if ($null -eq $arm.$key -or "$($arm.$key)" -eq '') { throw "$Config does not name arm.$key" }
 }
 if (-not $Run) { $Run = $arm.run }
+$Skip = @($Skip | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 if (-not $RealStarBaselines.Count -and $arm.real_star_baselines) { $RealStarBaselines = @($arm.real_star_baselines) }
+# A baseline is a model already scored over the real tiles, and never the arm itself: one not yet scored is left out of this arm's
+# read (the real-star check cannot open its outputs), and a list that names the arm does not read it twice.
+$RealStarBaselines = @($RealStarBaselines | ForEach-Object { $_ -split ',' } | Where-Object { $_ -and $_ -ne $Name -and ($_ -eq 'input' -or (Test-Path "$($arm.eval_root)/$_/on-real-val/outputs.jsonl")) })
 if (-not $RingBaselines.Count -and $arm.ring_baselines) { $RingBaselines = @($arm.ring_baselines) }
 if (-not $NucleusReference -and $arm.nucleus_reference) { $NucleusReference = $arm.nucleus_reference }
 
@@ -73,14 +80,14 @@ if (-not (Test-Path $realRead)) {
     Copy-Item "$logs/realstar.log" $realRead -Force
 }
 $ringRead = "$($arm.reports)/ring-$Name.txt"
-if (-not (Test-Path $ringRead)) {
+if ($Skip -notcontains 'ring' -and -not (Test-Path $ringRead)) {
     Say 'measuring: the ring'
     $ring = @('-I', "$PSScriptRoot/ring_annulus.py", '--export', $arm.random_export, '--eval-root', $arm.eval_root) + $RingBaselines + $Name
     Py $ring 'ring' $logs
     Copy-Item "$logs/ring.log" $ringRead -Force
 }
 $nucleusRead = "$($arm.reports)/m31-nucleus-$Name.txt"
-if (-not (Test-Path $nucleusRead)) {
+if ($Skip -notcontains 'nucleus' -and -not (Test-Path $nucleusRead)) {
     $onnx = "$logs/$Name.onnx"
     # arm-step.ps1 -Step onnx writes this file (and its contract) ahead of the score; it is reused, never exported twice.
     if (-not (Test-Path $onnx)) {
@@ -100,4 +107,4 @@ if (-not (Test-Path $nucleusRead)) {
     Py $nucleus 'nucleus' $logs
     Copy-Item "$logs/nucleus.log" $nucleusRead -Force
 }
-Say "done: real-star-read-$Name.txt, ring-$Name.txt and m31-nucleus-$Name.txt written"
+Say "done: real-star-read-$Name.txt$(if ($Skip -notcontains 'ring') { ", ring-$Name.txt" })$(if ($Skip -notcontains 'nucleus') { " and m31-nucleus-$Name.txt" }) written"
