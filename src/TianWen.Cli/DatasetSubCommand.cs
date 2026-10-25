@@ -1856,6 +1856,13 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                           "channels the master's noise has, measured robustly on its starless plate, each channel's spatial " +
                           "correlation kept; nothing else a draw takes moves (Synthetics S4).",
         };
+        var channelNoiseStructureOpt = new Option<bool>("--channel-noise-structure")
+        {
+            Description = "--mode stars: as --channel-noise-correlation, but the shared part is drawn with the master's spatial " +
+                          "cross-structure: each pair's correlation at every offset up to two pixels, measured on its starless plate, " +
+                          "fitted by kernels over one shared field drawn from a stream of its own, each channel keeping unit variance " +
+                          "and its own lag-1 (Synthetics S4b, #1781). Not with --channel-noise-correlation.",
+        };
         var stretchFromOpt = new Option<string?>("--stretch-from")
         {
             Description = "--mode stars: whose parameters both halves of a pair are stretched with: master (the default, the " +
@@ -1877,7 +1884,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             "Export degraded/clean training pairs from a bake's retained linear masters: inject noise " +
             "(denoiser) or blur then noise (deconvolver), through the P0 export path so both sides share one domain.")
         {
-            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, channelWingCutOpt, keptCoresOpt, channelNoiseCorrelationOpt, faintStarsOpt, stretchFromOpt },
+            Options = { bakeOpt, outOpt, modeOpt, shapeOpt, drawsOpt, cellsOpt, sessionsOpt, sessionFilterOpt, seedOpt, warpSigmaOpt, warpSigmaDrizzleOpt, warpSigmaMonoOpt, warpSigmaMaxOpt, whiteFractionOpt, minBlurRatioOpt, maxBlurRatioOpt, estimateKernelsOpt, estimateWindowOpt, perChannelOpt, forceOpt, measureOpt, noiseAnchorOpt, extraCellsOpt, listedOnlyOpt, platesOpt, placementOpt, profileOpt, saturatedFractionOpt, psfStoreOpt, measureInjectionOpt, backgroundOpt, brightKnotsWideOpt, nebulaKnotsOpt, degradeSteerOpt, starLobesOpt, starSubsOpt, channelRelationsOpt, starShapesOpt, clampWingRelationsOpt, channelWingCutOpt, keptCoresOpt, channelNoiseCorrelationOpt, channelNoiseStructureOpt, faintStarsOpt, stretchFromOpt },
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -2057,6 +2064,17 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 consoleHost.WriteError("--channel-noise-correlation draws the stars mode's noise; it needs --mode stars");
                 return 1;
             }
+            var channelNoiseStructure = parseResult.GetValue(channelNoiseStructureOpt);
+            if (channelNoiseStructure && mode != DatasetDegradationExporter.DegradationMode.Stars)
+            {
+                consoleHost.WriteError("--channel-noise-structure draws the stars mode's noise; it needs --mode stars");
+                return 1;
+            }
+            if (channelNoiseStructure && channelNoiseCorrelation)
+            {
+                consoleHost.WriteError("--channel-noise-structure and --channel-noise-correlation are two arms; give one");
+                return 1;
+            }
             double? faintStars = null;
             var faintCap = LuminosityFunction.DefaultCapSigma;
             if (parseResult.GetValue(faintStarsOpt) is { } faintText)
@@ -2148,6 +2166,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
                 ChannelWingCut: channelWingCut,
                 KeptCores: keptCores,
                 ChannelNoiseCorrelation: channelNoiseCorrelation,
+                ChannelNoiseStructure: channelNoiseStructure,
                 FaintStarFloor: faintStars,
                 FaintStarCap: faintCap,
                 StretchFromMaster: stretchFrom == "master",

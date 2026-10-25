@@ -1550,6 +1550,46 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// Synthetics S4b end to end: the fixture's plate is noise-free, so there is no cross-structure to read, and with the
+        /// option on every tile, plane and injection row is the export without it to the byte; the shared field is a stream of
+        /// its own and nothing is drawn from it. Only the degradation rows say the option was on, and an export without it
+        /// leaves them as they were.
+        /// </summary>
+        [Fact]
+        public async Task ACrossStructureReadAsNoneLeavesEveryFileAsItWasAndTheRowsSayTheOptionWasOn()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, _) = await BuildPlatesStoreAsync(bake);
+            var options = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "stars-unstructured"),
+                Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 2, CellsPerSession: 0, Seed: 5,
+                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot, SyntheticBackground: true);
+            var explicitlyOff = options with { OutDir = Path.Combine(_root, "stars-structure-off"), ChannelNoiseStructure = false };
+            var structured = options with { OutDir = Path.Combine(_root, "stars-structured"), ChannelNoiseStructure = true };
+            foreach (var run in new[] { options, explicitlyOff, structured })
+            {
+                (await DatasetDegradationExporter.RunAsync(run, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            }
+
+            var files = Directory.GetFiles(Path.Combine(options.OutDir, "tiles"), "*", SearchOption.AllDirectories)
+                .Select(f => Path.GetRelativePath(options.OutDir, f)).Order(StringComparer.Ordinal).ToArray();
+            files.Length.ShouldBeGreaterThan(4);
+            foreach (var other in new[] { explicitlyOff, structured })
+            {
+                Directory.GetFiles(Path.Combine(other.OutDir, "tiles"), "*", SearchOption.AllDirectories)
+                    .Select(f => Path.GetRelativePath(other.OutDir, f)).Order(StringComparer.Ordinal).ShouldBe(files);
+                foreach (var file in files)
+                {
+                    File.ReadAllBytes(Path.Combine(other.OutDir, file)).ShouldBe(File.ReadAllBytes(Path.Combine(options.OutDir, file)), file);
+                }
+                File.ReadAllText(Path.Combine(other.OutDir, DatasetDegradationExporter.InjectionManifestFileName))
+                    .ShouldBe(File.ReadAllText(Path.Combine(options.OutDir, DatasetDegradationExporter.InjectionManifestFileName)));
+            }
+            ReadDegradationRows(options.OutDir).ShouldAllBe(static r => r.NoiseStructure == null && r.NoiseStructureShrink == null);
+            ReadDegradationRows(explicitlyOff.OutDir).ShouldAllBe(static r => r.NoiseStructure == null && r.NoiseStructureShrink == null);
+            ReadDegradationRows(structured.OutDir).ShouldAllBe(static r => r.NoiseStructure == "cross-lags" && r.NoiseStructureShrink != null);
+        }
+
+        /// <summary>
         /// #1241 end to end: a star-shapes file with a brightness trend per channel draws each channel's wing on its own, and
         /// <c>ClampWingRelations</c> holds every drawn star's channels to the envelope that file's real masters span. The fixture's
         /// field profile is one profile in all three channels, so an envelope of exactly green's light (every ratio 1) makes every
