@@ -4153,7 +4153,7 @@ Crops, real / synthetic: stars 18124 / 18396 (synth4) and 18681 (draws); noise 2
 - The JSONs and logs stay on DE1 (`C:/temp/tia1241-domain/out`, `cls-synth4.json`, `cls-draws.json`; job logs j59 and j62);
   the classifier that ran is byte-identical to the committed `domain_classifier.py`.
 
-**The brightness trend, per rig (the design, 2026-10-25; not yet a measurement; F4's leg `brightness-gains`).**
+**The brightness trend, per rig (the design, 2026-10-25; F4's leg `brightness-gains`; measured in "S1b's read" below).**
 `tianwen dataset star-shapes` reads each channel's wing gain with a brightness term. Nothing below has been run on the
 masters: only synthetic fields pin it (`StarInjectionTests`), so the real slopes, and whether the faint bands now read in
 the review's direction, are the next measurement.
@@ -4192,7 +4192,7 @@ the review's direction, are the next measurement.
   the trend, `degrade --star-shapes` on the new file.
 
 **The channel relation, held to the real envelope (`degrade --clamp-wing-relations`, 2026-10-25, #1241's leg
-`channel-relation-clamp`; opt-in, not yet run on the masters).** `degrade --star-shapes` on a file with a slope already draws
+`channel-relation-clamp`; opt-in; first run in "S1b's read" below).** `degrade --star-shapes` on a file with a slope already draws
 each star at the gain of its own significance (`InjectionPopulation.Plan`, `StarShape.LogGains`; a saturated star the brightest
 band's), but a slope per channel moves each channel's wing on its own, so a drawn star's channels can leave every real
 master's relation (R2s's lesson: Andromeda's blue). The option holds them in:
@@ -4216,6 +4216,90 @@ master's relation (R2s's lesson: Andromeda's blue). The option holds them in:
   `AClampedStarsChannelsStayInsideTheEnvelopeTheRealMastersSpan`, `AnEdgeTheWingGainCannotReachIsSaidAndTakenToTheGainsBound`)
   and `DatasetDegradationExporterTests.AWingRelationClampHoldsEveryStarToTheRealEnvelopeAndNothingElseMoves`, where an envelope no
   star leaves changes no byte of any tile or row.
+
+##### S1b's read: the trend's export reads further from real, not nearer, and is not adopted (2026-10-26)
+
+Run on DE1 from the flight's branch at "training(star-removal): s1b_read.py, the shape, wing-band and clamp reports F4's gate
+is read from", built Release and frozen in `C:/temp/tianwen-scratch/tia1241-s1b/bin` (`FROZEN-AT.txt` there and in the export).
+Three steps, each a pilot job: `tianwen dataset star-shapes` over synth11's 138 training masters (the store
+`D:/Astro-Dataset/2026-10-12-full`, its `starless` plates, the trend bands 20 to 1000 by default, `--pool-by camera`), then
+`dataset degrade` with synth11's frozen recipe exactly (`--mode stars --shape warped --warp-sigma 0.5 --warp-sigma-drizzle 0
+--cells 40 --draws 4 --seed 1 --background synthetic --steer 0.5,2,0.8,1 --nebula-knots --bright-knots-wide --stretch-from
+master`) plus `--star-shapes` on the new file and `--clamp-wing-relations`, over the validation sessions only (four `--session`
+substrings, which also took a ninth session the instruments do not read) into `synth-s1b`, then both instruments
+(`training/star-removal/domain/s1b_read.py reads`, seeds 0 to 4, the same tiles as the bar). synth11, the same recipe without
+the trend, is read beside it as the control: the bar was set on synth4, which is the plate's stretch, and synth11 is synth4's
+draws on the master's. synth4 was read again in the same run and reproduced the bar seed for seed (0.782 +- 0.009).
+
+**The slopes, per rig** (d ln gain / d ln significance, R / G / B, pooled over the rig's masters, each keeping its own level):
+
+| rig | masters | slope R / G / B |
+|---|---|---|
+| ZWO ASI533MC Pro | 92 | +0.25 / +0.24 / +0.21 |
+| ZWO ASI585MC Pro | 15 | +0.31 / +0.20 / +0.47 |
+| ZWO ASI294MC | 7 | +0.58 / +0.43 / +0.39 |
+| QHY294PROC | 6 | +0.32 / +0.27 / +0.14 |
+| Uranus-C (IMX585) | 2 | -0.31 / 0.00 / -0.10 |
+| ZWO ASI294MM (mono) | 7 | +0.38 |
+| the other monos (QHY178M, QHY183M, ASI183MM, ASI1600MM Pro, one unnamed QHY) and the ASI462MC | 1 to 4 each | -0.37 to +0.38, or none read |
+
+The ASI294MC's +0.4 to +0.6 is what the review's ratio implies (0.82 at about 35 sigma to 1.81 at about 150 is a slope near
+0.55). The ASI585MC Pro, where the review saw no shortfall, reads +0.2 to +0.5 all the same. **The faint bands sit on the gain's
+floor.** The median band gain over a rig's masters is the lower bound, 0.25, at 20 sigma on every colour rig and at 50 sigma on
+the ASI533MC Pro (75 masters) and the QHY294PROC. It is 0.4 to 0.6 at 100 sigma, and rises to about 1 only at 500 to 1000. A
+band on a bound weighs nothing in the fit, so the slope is read off the 100 to 1000 sigma bands, and the draw then extrapolates
+it down to the faintest band's median.
+
+**The wing, real over synthetic** (`domain_stats.py`, the median over the stars of a band of the 3-5 px light over the
+peak, the mean of the three channels' ratios; the review's table for synth4 is reproduced to 0.04):
+
+| sigma | 20-50 | 50-100 | 100-200 | 200-500 |
+|---|---|---|---|---|
+| real over synth4 (the review: 0.82 / 1.24 / 1.81 / 1.47) | 0.82 | 1.25 | 1.77 | 1.53 |
+| real over synth11 (the control) | 0.67 | 0.78 | 1.34 | 1.38 |
+| real over s1b | 1.13 | 1.21 | 2.43 | 1.48 |
+
+| 3-5 px light over the peak, R / G / B | 5-20 sigma | 20-100 | 100-1000 |
+|---|---|---|---|
+| real | 0.012 / 0.012 / 0.004 | 0.022 / 0.022 / 0.018 | 0.088 / 0.095 / 0.055 |
+| synth11 | 0.014 / 0.019 / 0.018 | 0.030 / 0.034 / 0.026 | 0.068 / 0.083 / 0.043 |
+| s1b | 0.007 / 0.010 / 0.009 | 0.017 / 0.019 / 0.017 | 0.037 / 0.048 / 0.027 |
+
+The trend takes light out of the wing at every brightness up to 200 sigma. Below 100 sigma it overshoots real and lands on the
+other side (synth11 0.67 / 0.78, s1b 1.13 / 1.21). From 100 to 200 sigma it widens a gap that was already there (1.34 to 2.43).
+Only 200 to 500 sigma is left about where it was.
+
+**The classifier** (`domain_classifier.py`, leave one camera out, the mean over the four held-out cameras, then over seeds 0
+to 4):
+
+| crops | synth4 (the bar's baseline) | synth11 (control) | s1b |
+|---|---|---|---|
+| star-centred 24 px | 0.782 +- 0.009 | 0.760 +- 0.002 | **0.860 +- 0.006** (0.852, 0.855, 0.865, 0.866, 0.860) |
+| noise, 16 px | 0.705 +- 0.007 | 0.690 +- 0.014 | 0.685 +- 0.007 |
+
+Every camera's star AUC rises with the trend: QHY294PROC 0.78-0.80 to 0.89-0.90, ASI294MC 0.58-0.65 to 0.72-0.77, ASI533MC
+Pro 0.83-0.87 to 0.91-0.93, ASI585MC Pro 0.76-0.80 to 0.84-0.90. The noise crops do not move (inside synth11's spread), so it
+is the stars that changed.
+
+**The clamp moved nothing:** over the 1,440 drawn tiles, 556,778 stars, `WingClamped` 0 and `WingUnreached` 0. The real
+envelope holds every drawn star's channel relation, so that half of the gate holds, but on this export nothing tested it.
+
+**Verdict: not adopted for R3d, and #1241 stays open.** The gate asks the star-crop AUC to fall past the classifier's spread,
+and it rose instead: by 0.10 against synth11 and by 0.08 against synth4, eleven and nine times the larger spread. The cause is in
+the gains, not the trend's shape. The linear per-amplitude measure says a drawn star at 20 to 200 sigma needs a quarter to half
+of its wing. The stretched-domain statistic, which the classifier agrees with, says it needs as much or more. A gain stuck on
+its floor in nearly every master is a measure that found no solution, not a rig's wing. **The next step:**
+1. Find why the faint and mid bands land on the floor before drawing from them again. Read `--no-sky-bias` against the
+   corrected file over the same masters. If the bands leave the floor without the correction, the blank-field bias is
+   over-subtracting: a blank position's light still holds unresolved stars' glow, which a real star's sky annulus also holds.
+2. Then check the measure against the statistic that judges it: a drawn star at its measured gain should read real's 3-5 px
+   light through the exporter's stretch, band by band.
+3. Only then export again. The classifier reads such an export in about 40 minutes, which makes it the cheap test of any next
+   gain table.
+
+Everything stays on DE1 under `C:/temp/tianwen-scratch/tia1241-s1b`: `star-shapes.jsonl`, `band-gains.txt`, `synth-s1b`,
+`degrade.log`, and `reads/` (`stats.json`, `cls-*.json`, the classifier logs). `--star-shapes` without a slope draws as before,
+and the trend and the clamp stay in as opt-in options.
 
 #### Synthetics S2: the star population below the catalogue
 
