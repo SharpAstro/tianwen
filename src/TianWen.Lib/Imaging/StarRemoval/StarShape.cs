@@ -19,14 +19,33 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// <param name="RealRings">The real stars' light in each of <see cref="StarShape.RingEdgesPx"/>'s rings over their amplitude,
 /// the median over them; empty on a row measured before the rings were read.</param>
 /// <param name="DrawnRings">The same of the drawn star at <paramref name="WingGain"/>.</param>
+/// <param name="SkyBias">The per-pixel level (in the master's units) the real light was read off by: the median of
+/// <see cref="StarShape.Light"/> over the pixels it counts, at positions with no catalogued star about them
+/// (<see cref="StarShape.BlankField"/>), taken off every real star's light before it is divided by its amplitude; 0 on a row
+/// measured before, or with the correction off.</param>
+/// <param name="Stars">The stars this channel's light was read on (a star whose stamp left the plane or touched an absent pixel is
+/// not one); 0 on a row measured before.</param>
+/// <param name="Weight">How much this band's gain counts in a slope's fit: its stars over the scatter of one star's light
+/// ratio, a fixed intrinsic part plus the light's own error against the sky's (<see cref="StarShape.BandWeight"/>); 0
+/// where the band had too few stars to say, and on a row measured before.</param>
 public sealed record StarShapeChannel(double RealLight, double DrawnLight, double WingGain,
-    ImmutableArray<double> RealRings = default, ImmutableArray<double> DrawnRings = default);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] ImmutableArray<double> RealRings = default,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] ImmutableArray<double> DrawnRings = default,
+    double SkyBias = 0.0, int Stars = 0, double Weight = 0.0);
 
 /// <summary>One brightness band of a master's measured star shape: its stars from <paramref name="MinSignificance"/> up.</summary>
-public sealed record StarShapeBand(float MinSignificance, int Stars, ImmutableArray<StarShapeChannel> Channels);
+/// <param name="MedianSignificance">The median significance of the band's stars, where the band's gain is read (the trend's
+/// abscissa, <see cref="StarShape.LogGains"/>); 0 on a row measured before, which reads as <paramref name="MinSignificance"/>.</param>
+public sealed record StarShapeBand(float MinSignificance, int Stars, ImmutableArray<StarShapeChannel> Channels, float MedianSignificance = 0f);
 
 /// <summary>A master's measured star shape, per brightness band and channel.</summary>
-public sealed record StarShapeRow(string SessionId, ImmutableArray<StarShapeBand> Bands);
+/// <param name="Rig">The master's camera (<c>INSTRUME</c>), the key its slopes are pooled over
+/// (<see cref="StarShape.PoolSlopesPerRig"/>); empty where unknown, and such a row keeps its own slopes.</param>
+/// <param name="LogSlopes">Per channel, how the log wing gain rises with the log significance (<see cref="StarShape.LogGains"/>):
+/// the master's own fit over its bands, or the rig's pooled slope once pooled. Empty on a row measured before, which draws every
+/// star at its band's gain, as every row did.</param>
+public sealed record StarShapeRow(string SessionId, ImmutableArray<StarShapeBand> Bands, string Rig = "",
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] ImmutableArray<double> LogSlopes = default);
 
 /// <summary>
 /// How much light a master's real stars carry just outside their core, per catalogued amplitude, against the stars the
@@ -53,9 +72,30 @@ public static class StarShape
     /// The brightness bands read by default, by the finder's significance: each band's lower edge. One, from 1000: on a star
     /// fainter than that, the light 3 to 8 px out per amplitude is a fraction of a percent of the sky's error 22 to 28 px out,
     /// and the faint band read the opposite of the bright one (dual-band nights' gains 0.83 / 0.66 / 0.59 against 1.26 /
-    /// 0.97 / 0.90), as the sky's bias would; every star, the fainter ones too, takes the bright band's gains.
+    /// 0.97 / 0.90), as the sky's bias would; every star, the fainter ones too, takes the bright band's gains. The bias is now
+    /// measured and taken off (<see cref="BlankField"/>), which is what lets <see cref="TrendBandEdges"/> read fainter.
     /// </summary>
     public static readonly ImmutableArray<float> DefaultBandEdges = [1000f];
+
+    /// <summary>
+    /// The bands a brightness trend is read over, down to about 20 sigma (#1241): the review's real-over-synthetic ratio rises
+    /// from 0.82 at 20-50 sigma to 1.81 at 100-200, so a band per octave or so from 20 up to the bright band the
+    /// <see cref="DefaultBandEdges"/> read.
+    /// </summary>
+    public static readonly ImmutableArray<float> TrendBandEdges = [20f, 50f, 100f, 200f, 500f, 1000f];
+
+    /// <summary>Blank-field samples (<see cref="BlankField"/>): positions with no catalogued star of at least
+    /// <see cref="BlankClearSignificance"/> within <see cref="BlankClearPx"/>, at most <see cref="MaxBlankSamples"/> of them.</summary>
+    public const float BlankClearSignificance = 5f;
+    public const double BlankClearPx = SkyToPx + 3.0;
+    public const int MaxBlankSamples = 600, MinBlankSamples = 10;
+
+    /// <summary>Blank-field positions lie at least this far apart: their stamps overlap, but not their light annuli.</summary>
+    public const double MinBlankStridePx = 48.0;
+
+    /// <summary>The scatter of one star's light per amplitude about its band's median that is the stars' own (profile, colour,
+    /// sub-pixel place), as a fraction: what <see cref="BandWeight"/> adds the sky's error to.</summary>
+    public const double IntrinsicScatter = 0.1;
 
     /// <summary>On dark, smooth sky (<see cref="FittedStar.SkyAbove"/>, <see cref="FittedStar.Texture"/>).</summary>
     public const float MaxSkyAbove = 5f, MaxTexture = 1.5f;
@@ -71,10 +111,19 @@ public static class StarShape
     /// <summary>
     /// The light from <see cref="LightFromPx"/> to <see cref="LightToPx"/> about (<paramref name="cx"/>, <paramref name="cy"/>)
     /// above the sky in a row-major plane, the sky the median from <see cref="SkyFromPx"/> to <see cref="SkyToPx"/>; NaN where
-    /// the stamp leaves the plane or touches an absent pixel.
+    /// the stamp leaves the plane or touches an absent pixel. <paramref name="skyBias"/> is a per-pixel level taken off as well
+    /// (<see cref="BlankField"/>), 0 for none.
     /// </summary>
-    public static double Light(ReadOnlySpan<float> plane, int width, int height, double cx, double cy, BitMatrix? absent = null)
+    public static double Light(ReadOnlySpan<float> plane, int width, int height, double cx, double cy, BitMatrix? absent = null, double skyBias = 0.0)
     {
+        var light = LightAndCount(plane, width, height, cx, cy, absent, out var count);
+        return light - count * skyBias;
+    }
+
+    // The light as Light reads it with no bias taken off, and the number of pixels it sums.
+    private static double LightAndCount(ReadOnlySpan<float> plane, int width, int height, double cx, double cy, BitMatrix? absent, out int count)
+    {
+        count = 0;
         var (x0, y0) = ((int)Math.Round(cx), (int)Math.Round(cy));
         if (x0 - StampRadius < 0 || y0 - StampRadius < 0 || x0 + StampRadius >= width || y0 + StampRadius >= height)
         {
@@ -82,7 +131,6 @@ public static class StarShape
         }
         var sky = new List<double>();
         double sum = 0;
-        var count = 0;
         for (var y = y0 - StampRadius; y <= y0 + StampRadius; y++)
         {
             for (var x = x0 - StampRadius; x <= x0 + StampRadius; x++)
@@ -94,6 +142,7 @@ public static class StarShape
                 }
                 if (absent is { } a && a[y, x])
                 {
+                    count = 0;
                     return double.NaN;
                 }
                 var v = plane[y * width + x];
@@ -121,9 +170,9 @@ public static class StarShape
     /// <summary>
     /// The light in each ring of <see cref="RingEdgesPx"/> about (<paramref name="cx"/>, <paramref name="cy"/>) above the sky,
     /// the sky read as <see cref="Light"/> reads it; NaN in every ring where the stamp leaves the plane or touches an absent
-    /// pixel.
+    /// pixel. <paramref name="skyBias"/> is a per-pixel level taken off every ring as well, as in <see cref="Light"/>.
     /// </summary>
-    public static double[] Rings(ReadOnlySpan<float> plane, int width, int height, double cx, double cy, BitMatrix? absent = null)
+    public static double[] Rings(ReadOnlySpan<float> plane, int width, int height, double cx, double cy, BitMatrix? absent = null, double skyBias = 0.0)
     {
         var rings = RingEdgesPx.Length - 1;
         var sums = new double[rings];
@@ -168,7 +217,7 @@ public static class StarShape
         var level = Median(sky);
         for (var k = 0; k < rings; k++)
         {
-            sums[k] -= counts[k] * level;
+            sums[k] -= counts[k] * (level + skyBias);
         }
         return sums;
     }
@@ -218,15 +267,122 @@ public static class StarShape
         return Light(plane, size, size, StampRadius + ox, StampRadius + oy);
     }
 
+    /// <summary>What <see cref="BlankField"/> read: the per-pixel level the light reads off blank sky, the spread of one position's
+    /// light about it (a robust sigma, in light units), and the positions it read.</summary>
+    public readonly record struct BlankFieldRead(double Level, double Noise, int Samples);
+
+    /// <summary>
+    /// The bias of <see cref="Light"/> on sky with no star in it. The estimator subtracts the MEDIAN of the sky annulus from a
+    /// SUM over the light annulus, so any sky whose mean is not its median (skewed noise, the glow of unresolved stars, a
+    /// gradient across the stamp) leaves a level, per pixel, in every star's light that has nothing to do with the star. It is
+    /// the same added light whatever the star's amplitude, so per catalogued amplitude it is huge on a faint star and nothing
+    /// on a bright one, which is what turned the faint bands' wing gain the opposite way to the bright band's
+    /// (<see cref="DefaultBandEdges"/>). It is measured where it can be read alone: <see cref="Light"/> at a grid of positions
+    /// with no catalogued star of <see cref="BlankClearSignificance"/> within <see cref="BlankClearPx"/>, the median of each
+    /// position's light over the pixels it counts being <see cref="BlankFieldRead.Level"/>, and the robust spread of that light
+    /// <see cref="BlankFieldRead.Noise"/> (the light's own error against which a band is weighted, <see cref="BandWeight"/>). A
+    /// star's own wing in its sky annulus is not in this: the drawn star is read through the same estimator.
+    /// </summary>
+    public static BlankFieldRead BlankField(ReadOnlySpan<float> plane, int width, int height, ImmutableArray<FittedStar> catalogue, BitMatrix? absent = null)
+    {
+        const double cell = BlankClearPx;
+        var grid = new Dictionary<(int, int), List<(double X, double Y)>>();
+        foreach (var s in catalogue)
+        {
+            if (s.Significance >= BlankClearSignificance && double.IsFinite(s.X) && double.IsFinite(s.Y))
+            {
+                var key = ((int)Math.Floor(s.X / cell), (int)Math.Floor(s.Y / cell));
+                if (!grid.TryGetValue(key, out var list))
+                {
+                    grid[key] = list = [];
+                }
+                list.Add((s.X, s.Y));
+            }
+        }
+        bool Clear(double x, double y)
+        {
+            var (gx, gy) = ((int)Math.Floor(x / cell), (int)Math.Floor(y / cell));
+            for (var dy = -1; dy <= 1; dy++)
+            {
+                for (var dx = -1; dx <= 1; dx++)
+                {
+                    if (grid.TryGetValue((gx + dx, gy + dy), out var list)
+                        && list.Any(o => (o.X - x) * (o.X - x) + (o.Y - y) * (o.Y - y) < BlankClearPx * BlankClearPx))
+                    {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+        const int margin = StampRadius + 1;
+        var (spanX, spanY) = (width - 2 * margin, height - 2 * margin);
+        if (spanX <= 0 || spanY <= 0)
+        {
+            return new BlankFieldRead(0.0, double.NaN, 0);
+        }
+        var stride = Math.Max(MinBlankStridePx, Math.Sqrt((double)spanX * spanY / MaxBlankSamples));
+        var lights = new List<double>();
+        var levels = new List<double>();
+        for (var fy = (double)margin; fy < height - margin; fy += stride)
+        {
+            for (var fx = (double)margin; fx < width - margin; fx += stride)
+            {
+                if (!Clear(fx, fy))
+                {
+                    continue;
+                }
+                var light = LightAndCount(plane, width, height, fx, fy, absent, out var count);
+                if (double.IsFinite(light) && count > 0)
+                {
+                    lights.Add(light);
+                    levels.Add(light / count);
+                }
+            }
+        }
+        if (lights.Count < MinBlankSamples)
+        {
+            return new BlankFieldRead(0.0, double.NaN, lights.Count);
+        }
+        var centre = Median(lights);
+        return new BlankFieldRead(Median(levels), 1.4826 * Median(lights.Select(v => Math.Abs(v - centre))), lights.Count);
+    }
+
+    /// <summary>
+    /// How much a band's gain counts in a slope's fit: <paramref name="stars"/> over the squared scatter of one star's light
+    /// ratio, <see cref="IntrinsicScatter"/> and the light's own error (<paramref name="lightNoise"/>, <see cref="BlankField"/>)
+    /// against the light itself (<paramref name="medianAmplitude"/> times <paramref name="realLight"/> per amplitude), in
+    /// quadrature. A faint band's light is a fraction of the sky's error, so it counts for little however many stars it holds,
+    /// and a bright band's error is nothing against its own scatter.
+    /// </summary>
+    public static double BandWeight(int stars, double lightNoise, double medianAmplitude, double realLight)
+    {
+        if (stars <= 0)
+        {
+            return 0.0;
+        }
+        var relative = double.IsFinite(lightNoise) && lightNoise > 0
+            ? lightNoise / (medianAmplitude * Math.Max(realLight, 1e-12))
+            : 0.0;
+        return stars / (IntrinsicScatter * IntrinsicScatter + relative * relative);
+    }
+
     /// <summary>
     /// A master's star shape: its unsaturated, isolated first-pass Moffat stars on dark smooth sky, by brightness band, each
     /// channel's real light per amplitude against its field profile's at each star's place, and the wing gain at which the
     /// drawn median meets the real one (bisection in log gain; the light rises with the gain). A band with too few stars
     /// takes the nearest band's gains, and a master with too few in any band keeps gain 1. <paramref name="bandEdges"/>
     /// defaults to <see cref="DefaultBandEdges"/>.
+    /// <para>
+    /// The real light is read with the sky's bias taken off (<see cref="BlankField"/>; <paramref name="correctSkyBias"/> false
+    /// reads it as before, for the comparison). The row also carries each channel's own brightness slope, the weighted
+    /// least-squares line of the log gain over the log of each band's median significance (<see cref="OwnSlopes"/>; 0 where
+    /// fewer than two bands are readable). It is the master's own, noisy as one master's bands are; a rig's masters pool it
+    /// (<see cref="PoolSlopesPerRig"/>). <paramref name="rig"/> is the master's camera, the pooling key.
+    /// </para>
     /// </summary>
     public static StarShapeRow Measure(string sessionId, Image master, ImmutableArray<FittedStar> catalogue, StarlessFieldProfile field, BitMatrix? absent,
-        ImmutableArray<float> bandEdges = default)
+        ImmutableArray<float> bandEdges = default, string rig = "", bool correctSkyBias = true)
     {
         var channels = master.ChannelCount;
         if (field.Channels.Length != channels)
@@ -237,6 +393,11 @@ public static class StarShape
         var (width, height) = (master.Width, master.Height);
         var picked = Pick(catalogue, channels, edges);
         var measured = new (int Stars, StarShapeChannel[] Channels)[edges.Length];
+        var blank = new BlankFieldRead[channels];
+        for (var c = 0; c < channels; c++)
+        {
+            blank[c] = BlankField(master.GetChannelSpan(c), width, height, catalogue, absent);
+        }
         for (var b = 0; b < edges.Length; b++)
         {
             var stars = picked[b];
@@ -245,17 +406,20 @@ public static class StarShape
             for (var c = 0; c < channels; c++)
             {
                 var plane = master.GetChannelSpan(c);
+                var skyBias = correctSkyBias ? blank[c].Level : 0.0;
                 var real = new List<double>();
+                var amplitudes = new List<double>();
                 var realRings = new List<double[]>();
                 var places = new List<(double Ox, double Oy)>();
                 foreach (var s in stars)
                 {
-                    var light = Light(plane, width, height, s.X, s.Y, absent);
+                    var light = Light(plane, width, height, s.X, s.Y, absent, skyBias);
                     if (double.IsFinite(light))
                     {
                         var amplitude = s.ChannelAmplitudes[c];
                         real.Add(light / amplitude);
-                        realRings.Add([.. Rings(plane, width, height, s.X, s.Y, absent).Select(v => v / amplitude)]);
+                        amplitudes.Add(amplitude);
+                        realRings.Add([.. Rings(plane, width, height, s.X, s.Y, absent, skyBias).Select(v => v / amplitude)]);
                         places.Add((s.X - Math.Round(s.X), s.Y - Math.Round(s.Y)));
                     }
                 }
@@ -269,7 +433,7 @@ public static class StarShape
                 if (real.Count < MinStars)
                 {
                     result[c] = new StarShapeChannel(real.Count > 0 ? Median(real) : double.NaN, drawnPlaces.Count > 0 ? DrawnAt(0) : double.NaN, double.NaN,
-                        RingMedians(realRings), drawnPlaces.Count > 0 ? DrawnRingsAt(0) : RingMedians([]));
+                        RingMedians(realRings), drawnPlaces.Count > 0 ? DrawnRingsAt(0) : RingMedians([]), skyBias, real.Count, 0.0);
                     continue;
                 }
                 var target = Median(real);
@@ -287,7 +451,8 @@ public static class StarShape
                     }
                 }
                 var logGain = 0.5 * (lo + hi);
-                result[c] = new StarShapeChannel(target, DrawnAt(0), Math.Exp(logGain), RingMedians(realRings), DrawnRingsAt(logGain));
+                result[c] = new StarShapeChannel(target, DrawnAt(0), Math.Exp(logGain), RingMedians(realRings), DrawnRingsAt(logGain), skyBias, real.Count,
+                    BandWeight(real.Count, blank[c].Noise, Median(amplitudes), target));
             }
             measured[b] = (used, result);
         }
@@ -303,13 +468,23 @@ public static class StarShape
                     .Select(k => measured[k].Channels[c].WingGain).FirstOrDefault(double.IsFinite, 1.0);
                 channelsOut[c] = own with { WingGain = double.IsFinite(gain) ? gain : 1.0 };
             }
-            bands.Add(new StarShapeBand(edges[b], measured[b].Stars, [.. channelsOut]));
+            var median = picked[b].Count > 0 ? (float)Median(picked[b].Select(static s => (double)s.Significance)) : edges[b];
+            bands.Add(new StarShapeBand(edges[b], measured[b].Stars, [.. channelsOut], median));
         }
-        return new StarShapeRow(sessionId, bands.MoveToImmutable());
+        var row = new StarShapeRow(sessionId, bands.MoveToImmutable(), rig);
+        return row with { LogSlopes = OwnSlopes(row) };
     }
 
-    /// <summary>The log wing gains a star of <paramref name="significance"/> is drawn at, per channel: its band's (a star
-    /// fainter than every band takes the faintest's; a saturated one is given the brightest's by its caller).</summary>
+    /// <summary>
+    /// The log wing gains a star of <paramref name="significance"/> is drawn at, per channel. Without a slope
+    /// (<see cref="StarShapeRow.LogSlopes"/> empty or zero in the channel) that is its band's gain, a star fainter than every
+    /// band taking the faintest's and a saturated one being given the brightest's by its caller: exactly what a row measured
+    /// before the trend drew. With one it is the TREND: the brightest band's own log gain (each master keeps its own level at
+    /// the bright band) plus the slope times the log of the significance over the brightest band's median, the significance
+    /// first clamped to the range the bands measured (the faintest band's median to the brightest's), and the result held to
+    /// <see cref="MinGain"/> and <see cref="MaxGain"/>. A row of one band has no range, so it draws that band's gain whatever
+    /// its slope.
+    /// </summary>
     public static ImmutableArray<double> LogGains(StarShapeRow row, float significance)
     {
         var band = row.Bands[0];
@@ -320,7 +495,107 @@ public static class StarShape
                 band = b;
             }
         }
-        return [.. band.Channels.Select(static c => Math.Log(c.WingGain))];
+        var step = band.Channels.Select(static c => Math.Log(c.WingGain)).ToArray();
+        if (row.LogSlopes.IsDefaultOrEmpty || row.Bands.Length < 2)
+        {
+            return [.. step];
+        }
+        var references = row.Bands.Select(Reference).ToArray();
+        var (faint, bright) = (references.Min(), references.Max());
+        var brightBand = row.Bands[Array.IndexOf(references, bright)];
+        var x = Math.Log(Math.Clamp(double.IsNaN(significance) ? bright : significance, faint, bright));
+        for (var c = 0; c < step.Length && c < row.LogSlopes.Length && c < brightBand.Channels.Length; c++)
+        {
+            if (row.LogSlopes[c] != 0.0 && double.IsFinite(row.LogSlopes[c]))
+            {
+                var level = Math.Log(brightBand.Channels[c].WingGain);
+                step[c] = Math.Clamp(level + row.LogSlopes[c] * (x - Math.Log(bright)), Math.Log(MinGain), Math.Log(MaxGain));
+            }
+        }
+        return [.. step];
+    }
+
+    // Where a band's gain is read: its stars' median significance, its lower edge on a row that did not record one.
+    private static double Reference(StarShapeBand band) => band.MedianSignificance > 0f ? band.MedianSignificance : band.MinSignificance;
+
+    // A band's point in a channel's fit: log significance, log gain and weight, or none where the band said nothing (too few
+    // stars) or its gain sits on a search bound, where the bisection found a limit and not a gain.
+    private static IEnumerable<(double X, double Y, double W)> Points(StarShapeRow row, int channel)
+    {
+        foreach (var band in row.Bands)
+        {
+            if (channel < band.Channels.Length && band.Channels[channel] is { Weight: > 0.0 } ch
+                && double.IsFinite(ch.WingGain) && ch.WingGain > MinGain * 1.01 && ch.WingGain < MaxGain / 1.01)
+            {
+                yield return (Math.Log(Reference(band)), Math.Log(ch.WingGain), ch.Weight);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The weighted within-master slope of log gain over log significance of one channel across several masters (the least-squares
+    /// line of each master's points about that master's own weighted means, pooled), NaN where no master has two points at
+    /// different significances. Each master's level drops out, so a rig's masters of different gains pool into one slope.
+    /// </summary>
+    private static double PooledSlope(IEnumerable<IReadOnlyList<(double X, double Y, double W)>> masters)
+    {
+        double cross = 0, spread = 0;
+        foreach (var points in masters)
+        {
+            if (points.Count < 2)
+            {
+                continue;
+            }
+            var w = points.Sum(static p => p.W);
+            var (mx, my) = (points.Sum(static p => p.W * p.X) / w, points.Sum(static p => p.W * p.Y) / w);
+            cross += points.Sum(p => p.W * (p.X - mx) * (p.Y - my));
+            spread += points.Sum(p => p.W * (p.X - mx) * (p.X - mx));
+        }
+        return spread > 1e-12 ? cross / spread : double.NaN;
+    }
+
+    /// <summary>A master's own slope per channel (<see cref="StarShapeRow.LogSlopes"/>): the weighted line over its readable
+    /// bands (<see cref="BandWeight"/>), 0 in a channel with fewer than two.</summary>
+    public static ImmutableArray<double> OwnSlopes(StarShapeRow row)
+    {
+        var channels = row.Bands.Length == 0 ? 0 : row.Bands[0].Channels.Length;
+        return [.. Enumerable.Range(0, channels).Select(c =>
+        {
+            var slope = PooledSlope([[.. Points(row, c)]]);
+            return double.IsFinite(slope) ? slope : 0.0;
+        })];
+    }
+
+    /// <summary>
+    /// Each rig's brightness slope, pooled: a master's camera is the rig (<see cref="StarShapeRow.Rig"/>), and its masters'
+    /// bands are fitted together, per channel, each about its own mean so that every master keeps its own level and only the
+    /// shared rise with brightness is pooled (<see cref="PooledSlope"/>). A master of a rig with no pooled slope in a channel
+    /// (no master of it has two readable bands), and a master with no rig, keeps its own. Rows that do not agree in channel
+    /// count are different rigs. Returns new rows; the input is unchanged.
+    /// </summary>
+    public static Dictionary<string, StarShapeRow> PoolSlopesPerRig(IReadOnlyDictionary<string, StarShapeRow> rows)
+    {
+        var pooled = new Dictionary<(string Rig, int Channels), double[]>();
+        foreach (var group in rows.Values.Where(static r => r.Rig.Length > 0 && r.Bands.Length > 0).GroupBy(static r => (r.Rig, r.Bands[0].Channels.Length)))
+        {
+            var members = group.ToList();
+            pooled[group.Key] = [.. Enumerable.Range(0, group.Key.Item2)
+                .Select(c => PooledSlope(members.Select(r => (IReadOnlyList<(double X, double Y, double W)>)[.. Points(r, c)])))];
+        }
+        var result = new Dictionary<string, StarShapeRow>(rows.Count, StringComparer.Ordinal);
+        foreach (var (id, row) in rows)
+        {
+            if (row.Rig.Length > 0 && row.Bands.Length > 0 && pooled.TryGetValue((row.Rig, row.Bands[0].Channels.Length), out var slopes))
+            {
+                var own = row.LogSlopes.IsDefaultOrEmpty ? OwnSlopes(row) : row.LogSlopes;
+                result[id] = row with { LogSlopes = [.. slopes.Select((s, c) => double.IsFinite(s) ? s : (c < own.Length ? own[c] : 0.0))] };
+            }
+            else
+            {
+                result[id] = row;
+            }
+        }
+        return result;
     }
 
     // The catalogue's readable stars per band, isolated, evenly spread over the significance order up to MaxStarsPerBand.
