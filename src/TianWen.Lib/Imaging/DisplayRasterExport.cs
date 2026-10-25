@@ -4,6 +4,7 @@ using SharpAstro.Jpeg;
 using SharpAstro.Png;
 using SharpAstro.Tiff;
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -175,6 +176,7 @@ public static class DisplayRasterExport
     /// <param name="crop">The view crop, in <paramref name="image"/>'s pixels, or null for the whole frame.</param>
     /// <param name="starScreen">A star split's stars as the screen draws them (<see cref="ScreenedStars"/>), screened over
     /// the rendered <paramref name="image"/>, which is then the split's starless plate; null for a frame with no split.</param>
+    /// <param name="text">Text written into a PNG (<see cref="PngWriteOptions.Text"/>); a JPEG ignores it.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     public static async Task WriteAsync(
         Image image,
@@ -192,6 +194,7 @@ public static class DisplayRasterExport
         int jpegQuality = 92,
         PixelRect? crop = null,
         ScreenedStars? starScreen = null,
+        IReadOnlyList<PngText>? text = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(image);
@@ -237,6 +240,7 @@ public static class DisplayRasterExport
                     Cicp = CicpChunk.Srgb,
                     DiscardAlpha = true,
                     ParallelFragments = PngFragments,
+                    Text = text,
                 });
                 break;
             }
@@ -249,6 +253,7 @@ public static class DisplayRasterExport
                     IccProfile = IccProfiles.SRgbV4.ToArray(),
                     DiscardAlpha = true,        // see the 16-bit case above
                     ParallelFragments = PngFragments,
+                    Text = text,
                 });
                 break;
             }

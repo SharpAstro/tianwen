@@ -740,7 +740,26 @@ public sealed class ViewerController(
             debayerAlgorithm: state.DebayerAlgorithm.ResolveAuto(image),
             crop: ViewerState.ResolveDisplayCrop(state.DisplayCrop, image.Width, image.Height),
             starScreen: split?.ScreenFor(rendition),
+            text: RenditionText(saveDoc, state, rendition.Stretch.Mode, split is not null),
             cancellationToken: cancellationToken);
+    }
+
+    /// <summary>The text a displayed PNG carries: the program, the source file and every display setting
+    /// (<see cref="RenditionMetadata"/>), so the file says how it was made whatever it is later called.</summary>
+    internal static IReadOnlyList<SharpAstro.Png.PngText> RenditionText(
+        AstroImageDocument saveDoc, ViewerState state, StretchMode shownMode, bool starSplitShown)
+    {
+        var text = new List<SharpAstro.Png.PngText>(3)
+        {
+            new("Software", RenditionMetadata.Software),
+        };
+        if (Path.GetFileName(saveDoc.FilePath) is { Length: > 0 } source)
+        {
+            text.Add(new("Source", source));
+        }
+        text.Add(new(RenditionMetadata.RenditionKeyword,
+            RenditionMetadata.Json(state, shownMode, saveDoc.IsEnhanceResult, starSplitShown)));
+        return text;
     }
 
     /// <summary>The rendition <paramref name="saveDoc"/> is drawn with under <paramref name="state"/>, through the one producer
