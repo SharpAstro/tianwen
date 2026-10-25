@@ -72,6 +72,14 @@ internal sealed class DarksSubCommand(IConsoleHost consoleHost)
         {
             Description = "Readout mode by the camera's own name (a QHY294's \"11M MODE\" or \"47M MODE\"). Leave unset to keep the camera's current one.",
         };
+        var setpointOpt = new Option<double?>("--setpoint")
+        {
+            Description = "Cool the sensor to this temperature in °C, through the node's ramp, before the first frame. Leave unset to shoot at whatever it is.",
+        };
+        var warmWhenFinishedOpt = new Option<bool>("--warm-when-finished")
+        {
+            Description = "Warm the sensor through the node's ramp and turn its cooler off once the frames are taken. A camera this command connected is always warmed and disconnected; this is for one that was already connected, which otherwise stays as the run left it.",
+        };
         var binOpt = new Option<int>("--bin")
         {
             Description = "Binning (default 1).",
@@ -84,7 +92,7 @@ internal sealed class DarksSubCommand(IConsoleHost consoleHost)
 
         var darksCommand = new Command("darks", "Capture dark or bias frames on-demand from one camera.")
         {
-            Options = { exposureOpt, biasOpt, countOpt, gainOpt, offsetOpt, readoutModeOpt, binOpt, cameraOpt },
+            Options = { exposureOpt, biasOpt, countOpt, gainOpt, offsetOpt, readoutModeOpt, setpointOpt, warmWhenFinishedOpt, binOpt, cameraOpt },
         };
 
         darksCommand.SetAction(async (parseResult, ct) =>
@@ -170,6 +178,20 @@ internal sealed class DarksSubCommand(IConsoleHost consoleHost)
 
             try
             {
+                // A dark is defined by its temperature as much as its exposure, so a stated setpoint is reached before the
+                // first frame, by the same ramp a session cools with. A camera connected here is warmed by the disconnect
+                // below; one that was already connected is left as the run made it, cooler on.
+                if (parseResult.GetValue(setpointOpt) is { } setpointC)
+                {
+                    consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture, $"[{tag}] cooling {device.DisplayName} to {setpointC:0} C"));
+                    if (await RunJobAsync(node, node.CoolCameraAsync(device.DeviceUri, setpointC, null, ct), ct) is { } coolFailure)
+                    {
+                        consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
+                            $"[{tag}] {device.DisplayName} did not reach {setpointC:0} C: {coolFailure}"));
+                        return 1;
+                    }
+                }
+
                 var started = await node.StartDarkLibraryAsync(request, ct);
                 if (!started.IsSuccess)
                 {
@@ -208,6 +230,16 @@ internal sealed class DarksSubCommand(IConsoleHost consoleHost)
             }
             finally
             {
+                // A camera connected here is warmed by its disconnect anyway; one that was connected before is warmed only
+                // when asked, and stays connected with its cooler off.
+                if (!connectedHere && parseResult.GetValue(warmWhenFinishedOpt))
+                {
+                    consoleHost.WriteScrollable($"[{tag}] warming {device.DisplayName}");
+                    if (await RunJobAsync(node, node.WarmCameraAsync(device.DeviceUri, CancellationToken.None), CancellationToken.None) is { } warmFailure)
+                    {
+                        consoleHost.WriteScrollable($"[{tag}] {device.DisplayName} was not warmed: {warmFailure}");
+                    }
+                }
                 if (connectedHere && await RunJobAsync(node, node.DisconnectDeviceAsync(device.DeviceUri, skipWarmUp: false, CancellationToken.None),
                     CancellationToken.None) is { } disconnectFailure)
                 {
