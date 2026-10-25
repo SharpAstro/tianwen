@@ -1055,7 +1055,8 @@ Verify after any endpoint change by *publishing* (not just building) and smoke-t
 `dotnet publish TianWen.Server -c Release -r win-arm64`, then run `tianwen-server.exe --port <p>` and
 `curl` a GET, a complex-body POST, and a previously-`object` endpoint. The only expected publish
 warnings are 2 third-party rollups (IL2104/IL3053) from `LibUsbDotNet` (optional Canon-over-USB
-discovery; the lib ships no AOT annotations and we do not mask the warning).
+discovery; the lib ships no AOT annotations and we do not mask the warning). The package leaves with
+USB.Lib U3 (#1755), and the warnings with it.
 
 ## Invariants 7-13 in full (moved from CLAUDE.md, 2026-09-29)
 

@@ -2,7 +2,8 @@
 
 **Status: G0 + G1 DONE (2026-09-02/03); G1b and G2's master export DONE on the re-baked full store (2026-10-02:
 the passband, not the field below 10 degrees, orders the amplitude; masks not crops, section 3 "Edges"); the
-owner's first golden-set verdicts in (15 golden, 3 known-bad of 19, #1164); G3, the first training, next.**
+owner's first golden-set verdicts in (15 golden, 3 known-bad of 19, #1164); G3 (the airmass control, #700) and then
+G4 (the first training) next.**
 Design captured 2026-08-11, sharpened 2026-09-02 after the Siril and SAS Pro reference review. Tracked by #473. This is the P5 row of
 [ai-denoise-deconv.md](ai-denoise-deconv.md) (design in its section 2.6) at run-level detail. Its
 classical prerequisite is [background-extraction.md](background-extraction.md) Phases 1 and 2, and
@@ -39,7 +40,7 @@ fills today. Shared discipline: [model-training-roadmap.md](model-training-roadm
 | Classical flattener | **SHIPPED 2026-09-02** (`ClassicalBackgroundExtractor`, also the `IGradientCorrector` that `AddTianWenAi()` falls back to when GraXpert is absent; that plan's "Implementation" section has the measurements) | [background-extraction.md](background-extraction.md); after the 2026-09-02 review the recommended Phase 2 is the sample-free robust-rejection + structure-mask + masked-low-pass-inpainting surface (AutoGradientRemoval.py), degree 2 polynomial, correction in LINEAR, level preserved |
 | Ephemerides | shipped | `MeeusMoon` (`Astrometry/Lunar/`, internal), `VSOP87a` (`Astrometry/VSOP87/`), `CatalogPlateSolver`, `FitsHeaderEditor` writing `AIRMASS` / `CENTALT` / `CENTAZ` |
 | Scenes | on disk | **190 retained linear session masters in the full store** (`D:/Astro-Dataset/2026-09-29-full/session-masters/`, recipe 3, the same store the denoiser's E16b was built from), each with its coverage and bad-pixel sidecars and, where it rejected anything, a rejection sidecar. The two bakes G1 measured (`2025-2026-organized`, 51 masters; `2025-2026-darkscaled`, 67) were deleted in the ring-fix cleanup of 2026-09-29. Calibrated subs are still NOT retained (scratch is wiped per session) |
-| Real pairs (control) | not measured | 2.1c: same-night, same-field high-vs-low-airmass frames on zenith-crossing targets; the cards are on disk |
+| Real pairs (control) | not measured (#700) | 2.1c: same-night, same-field high-vs-low-airmass frames on zenith-crossing targets; the cards are on disk |
 
 ### What GraXpert does, read from its source (2026-10-02)
 
@@ -187,7 +188,7 @@ family's shapes.
 *Prediction:* the real difference surfaces are dominated by a linear term aligned with the vertical
 (CENTAZ-projected up), and their amplitudes fall inside H1's distribution. If they fall outside, the
 synthetic family is unfair and H1's distribution is re-fitted to include them.
-*Never pair across nights* (transparency, moon and focus all move).
+*Never pair across nights* (transparency, moon and focus all move). Tracked by #700. E2.9 (deconvolver-training.md) found few sessions span enough air mass, so count them first.
 
 **H8. The trained model beats the classical fit only on frames where the fit's model is wrong.** A
 degree-2 polynomial plus inpainting surface handles most gradients. The net's value is on
@@ -475,7 +476,7 @@ convention every reference and the existing extractor share).
 | G1 | **DONE 2026-09-03.** Gradient-distribution report over both bakes (118 masters, 350 planes) as a sibling of `psf-noise-report.md`: `tianwen dataset gradient-report`, `stats/gradient-report.md` + `gradient-masters.jsonl` per bake. Answered H1 (see section 2) and measured both of G0's reasoned thresholds | done, a day | H1; the injection family |
 | G1b | **DONE 2026-10-02** (read below the phasing table: four of six predictions hold; the passband, not the field below 10 degrees, orders the amplitude). G1 again over the full store's 190 masters (the bakes G1 read are gone, and the store holds cameras G1 never saw, the QHY294C and SV605CC 2026 sessions among them); predictions below. Each record now carries its master's own scale, only ever a solve (this run's, else the solved WCS in the master's header; never `FOCALLEN`, nor a `PIXSCALE` our writer stamps from it) and the report bins by field width; the run started on the binary before that, and the next run gives those records their scale from the header without re-solving | ~2 h, no GPU | the injection family on today's data; the solves and covariates G2 reuses |
 | G2 | **Masters DONE 2026-10-02**: `tianwen dataset gradient-export` over the re-baked store's 190 masters, 0 failed, 28 test by the bake's pinned split, 172 flat-fielded, 17 recorded with no flat, 1 unrecorded (Seagull 2022-02-05, baked before a session with no master recorded that as an empty provenance), 360 MB at 256 px (`C:/temp/e2/gradexport-full-2026-10-02`), 6 minutes at `--parallel 6` (byte-identical to one at a time). The thin band's steps refuted their prediction (section 3, #1163). Whole-frame linear exporter (masters; then the `ExportWholeFrame` sub option) on the whole canvas with a presence plane (section 3, "Edges"), covariates joined from G1b's store, fitted coefficients and the autocrop rectangle per row; the thin band's level steps measured. Each row also carries its session's optical train and the calibration the bake recorded (the PSF store's `Calibration`), with `HasFlat` null where nothing was recorded, never false, so training reads `HasFlat == true` and the no-flat sessions stay out (section 3) | 1 to 2 days | H2, H3, H9 data |
-| G3 | Airmass-pair control on the zenith-crossing sessions, no training | half a day | H7 |
+| G3 | Airmass-pair control on the zenith-crossing sessions, no training | half a day | H7 (#700) |
 | G4 | Arm M, three seeds, masked and crop-only (H9); nebulosity strata report; edge-invariance gate; labelled comparison at full resolution on three Ha-rich masters | 6 x minutes | H2, H8, H9 |
 | G5 | Arm S vs arm M | 3 x minutes plus the sub export bake (~1 h) | H3 |
 | G6 | Isotropic vs covariate-conditioned injection | 6 x minutes | H4 |

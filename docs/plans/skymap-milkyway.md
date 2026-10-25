@@ -99,6 +99,9 @@ The Tycho-2 bake below is what this phase was before, and stays as the tool it i
       `--dust-opacity <path>` is scaffolded in the tool and multiplies `exp(-k * tau)` when provided; it
       needs the HEALPix → equirectangular step of Phase 4, which nothing now waits on.
 
+**Not in this map: nebulosity.** NASA's map is a Gaia star-count map and carries no emission or reflection glow.
+Whether to composite the large nebulae into the texture (a tool post-step, or a separate shader layer) is open: #664.
+
 ### ⛔ Phase 4: Planck Dust Extinction HEALPix Reader (SUPERSEDED by Phase 3, #893)
 
 Nothing waits on this since NASA's map ships: its dust lanes come from Gaia's star counts. Kept for the

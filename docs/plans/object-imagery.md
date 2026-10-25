@@ -324,7 +324,8 @@ an object absent from the table gets no link rather than a dead one.
   loads a SUBSET of the Noto COLRv1 face (the full face is 4.99 MB). It held only the camera (2.9 KB) until
   2026-10-05, when the planner chart's weather band was found drawing no night moon from it, and no sun or
   clouds once the atlas had set the face both tabs share; it is now `NotoEmoji-Web.ttf` (17.9 KB, the
-  weather and Moon-phase glyphs too), and `WebEmojiSubsetTests` asks it for every glyph the web draws.
+  weather and Moon-phase glyphs too), and `WebEmojiSubsetTests` asks it for every glyph the web draws. The desktop hosts still bundle
+  the full 4.99 MB `Noto-COLRv1.ttf`; cutting a desktop subset is #689.
 
 ### P2: positioned images on the atlas
 

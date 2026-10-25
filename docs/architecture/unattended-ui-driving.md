@@ -41,7 +41,7 @@ screenshot-poll-and-OCR**. Three pieces compose:
 
 3. **Drive + observe via the DEBUG inspector, not screenshots.** A **DEBUG** GUI build attaches
    `DebugInspector` (`Program.cs`, compiled out of Release entirely), exposing this process to the
-   `sdl-ui-inspector` MCP sidecar (`.mcp.json` → `dnx SdlVulkan.Renderer.Inspector@7.70.4041`).
+   `sdl-ui-inspector` MCP sidecar (`.mcp.json` → `dnx SdlVulkan.Renderer.Inspector@7.73.4171`).
    **`list_instances` finds the app through DIR.Lib's per-user inspector registry**: from DIR.Lib 11.21 the
    inspector writes `%LOCALAPPDATA%/DIR.Lib/inspector/<pid>-<port>.json` as it starts and deletes it as it closes,
    and binds nothing but its loopback command server, so no build path prompts. The sidecar multicasts after reading

@@ -201,7 +201,7 @@ meridian wins on the tie-break. Right answer, wrong reason, and the broken rank 
   proposed.
 - **Do we get park positions at all?** GSS's named-park model presumes a list of park positions;
   TianWen has `ParkAsync` and nothing else. The fallback (`StopAxes` equivalent = stop tracking,
-  abort slew) may be all v1 can offer, which is fine and should be stated rather than discovered.
+  abort slew) may be all v1 can offer, which is fine and should be stated rather than discovered. Tracked by #677.
 - **AltAz mounts.** `docs/plans/altaz-mount-support.md` exists; GSS's AltAz limits are axis-travel
   limits, which TianWen cannot see. Probably out of scope for v1 -- say so explicitly.
 

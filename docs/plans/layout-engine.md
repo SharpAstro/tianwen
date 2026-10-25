@@ -504,4 +504,4 @@ dev loop uses ProjectReference and skips the wait; the dance is only for CI / ot
 - TODO.md:57 (data-driven per-OTA profile panel) -- becomes a `LayoutNode` tree from the content model.
 - `docs/todo/infra.md`: "RollingGraphWidget extracted to DIR.Lib", "Abstract redraw flag propagation",
   "Replace IReadOnlyList<T> with ReadOnlySpan<T>".
-- `docs/todo/inbox.md`: "Move RGBAColor32Extensions to DIR.Lib" (Phase 1 neighbour).
+- Done 2026-04-26: `RGBAColor32Extensions.cs` was dropped and its helpers became members of DIR.Lib's `RGBAColor32` (#692).

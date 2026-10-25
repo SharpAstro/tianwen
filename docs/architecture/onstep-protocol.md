@@ -283,7 +283,7 @@ and the `:St` / `:Sg` bytes of a northern and a southern site.
 - **#648, the axis angle**, and **#542**, the rest: jog and guide rates; an mDNS fallback to an ephemeral port
   when Bonjour or Avahi owns 5353 (today WiFi discovery then silently finds nothing, common on macOS); SRV
   parsing for a non-default port; an "add unseen device" dialog for a WiFi mount that does not advertise
-  mDNS; tests for `EquipmentActions.ReconcileAllProfilesAsync`.
+  mDNS (general form: #674); tests for `EquipmentActions.ReconcileAllProfilesAsync`.
 - **The step counts reach the guider and are thrown away.** `GetWormPeriodStepsAsync` answers `0` and
   `GuideLoop` computes a periodic-error phase only when it is positive, so on OnStep every guide frame pays
   two extra round trips (`:GX44#`, `:GX45#`) and the phase stays `NaN`.

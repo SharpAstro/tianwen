@@ -179,7 +179,8 @@ shot from a dark site and opened at home would draw the wrong horizon with full 
 
 **6. Remember the last site, and let it be typed.** The floor, and what carries a site across files:
 a frame that knows where it was seeds the view, and the next frame without one keeps that rather than
-losing the horizon.
+losing the horizon. The web build's declined-location fallback, and an address lookup that fills the typed
+tier, are #705.
 
 Falling out of all this: `SkyMapTab`'s no-site placeholder says *"Connect a mount to auto-seed, or
 set the site manually in the Equipment tab"*, naming a tab this host does not have. It needs a
