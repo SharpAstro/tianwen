@@ -113,8 +113,8 @@ def head(file, count="3", width="2500"):
 
 def cat(*files):
     for f in files:
-        print("----", f)
-        print(pathlib.Path(f).read_text(errors="replace")[:6000])
+        # one line, since a job's view keeps only the last few lines of its output
+        print("----", f, " ¶ ".join(pathlib.Path(f).read_text(errors="replace")[:8000].splitlines()))
 
 
 if __name__ == "__main__":
