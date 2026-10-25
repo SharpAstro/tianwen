@@ -329,7 +329,39 @@ public static class StarlessSpeckles
     // dark, every dark core pixel is collected rather than the first answering.
     private static bool? Read(
         float[] plane, int width, int height, BitMatrix? absent, double cx, double cy, float[] scratch, float[] cap, List<int>? dark = null)
+        => Read(plane, width, height, absent, cx, cy, scratch, cap, out _, out _, dark);
+
+    /// <summary>
+    /// What a site's read found: whether it is speckled (null where it cannot be read) and the ring's median and the sigma
+    /// (the ring's MAD capped by the noise cap) the core was tested against, NaN where the site was not read or its sigma is
+    /// not positive. The per-site truth a port of the test is pinned against.
+    /// </summary>
+    internal readonly record struct SiteRead(bool? Speckled, float Median, float Sigma);
+
+    /// <summary>
+    /// Reads every one of <paramref name="sites"/> as <see cref="Measure"/> does, one result each in order, with the cap
+    /// <see cref="NoiseCap"/> gives <paramref name="luminance"/> unless <paramref name="cap"/> is passed.
+    /// </summary>
+    internal static SiteRead[] ReadSites(
+        float[] luminance, int width, int height, BitMatrix? absent, IReadOnlyList<(float X, float Y)> sites, float[]? cap = null)
     {
+        cap ??= NoiseCap(luminance, width, height, absent);
+        var scratch = NewScratch();
+        var reads = new SiteRead[sites.Count];
+        for (var i = 0; i < reads.Length; i++)
+        {
+            var speckled = Read(luminance, width, height, absent, sites[i].X, sites[i].Y, scratch, cap, out var median, out var sigma);
+            reads[i] = new SiteRead(speckled, median, sigma);
+        }
+        return reads;
+    }
+
+    private static bool? Read(
+        float[] plane, int width, int height, BitMatrix? absent, double cx, double cy, float[] scratch, float[] cap,
+        out float skyMedian, out float skySigma, List<int>? dark = null)
+    {
+        skyMedian = float.NaN;
+        skySigma = float.NaN;
         var r = (int)Math.Ceiling(SkyOuter);
         var x0 = (int)Math.Round(cx);
         var y0 = (int)Math.Round(cy);
@@ -366,10 +398,12 @@ public static class StarlessSpeckles
             sky[i] = Math.Abs(sky[i] - median);
         }
         var sigma = Math.Min(1.4826f * StatisticsHelper.NthSmallest(sky, count / 2), cap[(y0 * width) + x0]);
+        skyMedian = median;
         if (!(sigma > 0))
         {
             return null;
         }
+        skySigma = sigma;
         var limit = median - (SpeckleSigma * sigma);
         var c = (int)Math.Ceiling(CoreRadius);
         var speckled = false;
