@@ -1,0 +1,165 @@
+{
+  "_what": "F2's three master-stretched sets (#1827), exported on DE1 (DESKTOP-U74IF48) on 2026-10-26 by training/star-removal/f2-export.ps1, with the tianwen CLI built Release at the commit named (its src/ is the branch's to this day) and frozen at C:/temp/tianwen-scratch/f2-reexport-bin. 'args' follow the CLI's 'dataset degrade', with one --session per entry of 'sessions' (the 8 of C:/temp/e2/r1-train-random-val-sessions.txt were passed, 7 exported). 'tiles' are the tile-manifest rows (1120 draws and 280 clean masters); 'tile_files' are the .f16 files under tiles/ (each tile and its sigma plane).",
+  "decision_sessions": "A's new draws hold 7 of the original 8 sessions, as R2k's twins did. The Orion night (ZWO-ASI294MC/UV-IR-Cut/Great-Orion-Nebula/2021-11-28) fails in all three exports with 'plate (3, 4151, 2893) is not its master's shape (3, 4155, 2897)': that master in the 2026-09-29 store was baked again after the plate was made, and nothing in the store gives the old master back. The original A export (C:/temp/tianwen-scratch/r1-train/random: 8 sessions, 1280 draws, 1600 tiles) was restored before the re-bake. So the sets are scored on 7 sessions and 1120 draws, the Orion night absent from every arm's read alike; the rows on them are not comparable with a read on the original 8.",
+  "originals": {
+    "random": {
+      "path": "C:/temp/tianwen-scratch/r1-train/random",
+      "sessions": 8,
+      "draws": 1280,
+      "tiles": 1600,
+      "binary": "tianwen 9.0.0+591a2c39, recipe C:/temp/e2/restore-r1-train-random-val.ps1"
+    },
+    "twins": {
+      "path": "C:/temp/tianwen-scratch/r2k-twins/{plain,lobed}",
+      "sessions": 7,
+      "draws": 1120,
+      "tiles": 1400,
+      "binary": "tianwen 9.0.0+ebcab93a, recipe C:/temp/e2/r2k-twins.ps1"
+    }
+  },
+  "sets": {
+    "random": {
+      "path": "C:/temp/tianwen-scratch/f2-random-master",
+      "stretch": "master",
+      "commit": "d95c747805e3356e98f96bc2bde918dbb5686c75",
+      "command": "dataset degrade",
+      "args": [
+        "--bake",
+        "D:/Astro-Dataset/2026-09-29-full",
+        "--plates",
+        "D:/Astro-Dataset/2026-09-29-full/starless",
+        "--mode",
+        "stars",
+        "--shape",
+        "warped",
+        "--warp-sigma",
+        "0.5",
+        "--warp-sigma-drizzle",
+        "0",
+        "--cells",
+        "40",
+        "--draws",
+        "4",
+        "--seed",
+        "1",
+        "--stretch-from",
+        "master",
+        "--out",
+        "C:/temp/tianwen-scratch/f2-random-master"
+      ],
+      "sessions": [
+        "QHYCCD-QHY294C/IDAS-LPS-D3/Lobster-Nebula/2026-08-01|QHY294PROC|Lobster Nebula|IDAS LPS D3",
+        "QHYCCD-QHY294C/IDAS-LPS-D3/Lobster-Nebula/2026-08-01|QHY294PROC|Lobster Nebula|IDAS LPS D3|flip=a",
+        "QHYCCD-QHY294C/IDAS-LPS-D3/Lobster-Nebula/2026-08-01|QHY294PROC|Lobster Nebula|IDAS LPS D3|flip=b",
+        "ZWO-ASI533MC-Pro/Optolong-L-Quad-Enhance/HIP-80609/2026-04-21|ZWO ASI533MC Pro|HIP 80609|Optolong L-Quad Enhance",
+        "ZWO-ASI533MC-Pro/Optolong-L-Quad-Enhance/HIP-80609/2026-04-21|ZWO ASI533MC Pro|HIP 80609|Optolong L-Quad Enhance|flip=a",
+        "ZWO-ASI533MC-Pro/Optolong-L-Quad-Enhance/HIP-80609/2026-04-21|ZWO ASI533MC Pro|HIP 80609|Optolong L-Quad Enhance|flip=b",
+        "ZWO-ASI585MC-Pro/Optolong-L-eNhance/Small-Magellanic-Cloud/2024-09-27|ZWO ASI585MC Pro|SMC 120s LEnh ASI585 252g|Optolong L-eNhance"
+      ],
+      "draws": 1120,
+      "tiles": 1400,
+      "tile_files": 2800
+    },
+    "plain": {
+      "path": "C:/temp/tianwen-scratch/f2-twin-plain-master",
+      "stretch": "master",
+      "commit": "d95c747805e3356e98f96bc2bde918dbb5686c75",
+      "command": "dataset degrade",
+      "args": [
+        "--bake",
+        "D:/Astro-Dataset/2026-09-29-full",
+        "--plates",
+        "D:/Astro-Dataset/2026-09-29-full/starless",
+        "--mode",
+        "stars",
+        "--shape",
+        "warped",
+        "--warp-sigma",
+        "0.5",
+        "--warp-sigma-drizzle",
+        "0",
+        "--cells",
+        "40",
+        "--draws",
+        "4",
+        "--seed",
+        "1",
+        "--stretch-from",
+        "master",
+        "--out",
+        "C:/temp/tianwen-scratch/f2-twin-plain-master"
+      ],
+      "sessions": [
+        "QHYCCD-QHY294C/IDAS-LPS-D3/Lobster-Nebula/2026-08-01|QHY294PROC|Lobster Nebula|IDAS LPS D3",
+        "QHYCCD-QHY294C/IDAS-LPS-D3/Lobster-Nebula/2026-08-01|QHY294PROC|Lobster Nebula|IDAS LPS D3|flip=a",
+        "QHYCCD-QHY294C/IDAS-LPS-D3/Lobster-Nebula/2026-08-01|QHY294PROC|Lobster Nebula|IDAS LPS D3|flip=b",
+        "ZWO-ASI533MC-Pro/Optolong-L-Quad-Enhance/HIP-80609/2026-04-21|ZWO ASI533MC Pro|HIP 80609|Optolong L-Quad Enhance",
+        "ZWO-ASI533MC-Pro/Optolong-L-Quad-Enhance/HIP-80609/2026-04-21|ZWO ASI533MC Pro|HIP 80609|Optolong L-Quad Enhance|flip=a",
+        "ZWO-ASI533MC-Pro/Optolong-L-Quad-Enhance/HIP-80609/2026-04-21|ZWO ASI533MC Pro|HIP 80609|Optolong L-Quad Enhance|flip=b",
+        "ZWO-ASI585MC-Pro/Optolong-L-eNhance/Small-Magellanic-Cloud/2024-09-27|ZWO ASI585MC Pro|SMC 120s LEnh ASI585 252g|Optolong L-eNhance"
+      ],
+      "draws": 1120,
+      "tiles": 1400,
+      "tile_files": 2800
+    },
+    "lobed": {
+      "path": "C:/temp/tianwen-scratch/f2-twin-lobed-master",
+      "stretch": "master",
+      "commit": "d95c747805e3356e98f96bc2bde918dbb5686c75",
+      "command": "dataset degrade",
+      "args": [
+        "--bake",
+        "D:/Astro-Dataset/2026-09-29-full",
+        "--plates",
+        "D:/Astro-Dataset/2026-09-29-full/starless",
+        "--mode",
+        "stars",
+        "--shape",
+        "warped",
+        "--warp-sigma",
+        "0.5",
+        "--warp-sigma-drizzle",
+        "0",
+        "--cells",
+        "40",
+        "--draws",
+        "4",
+        "--seed",
+        "1",
+        "--stretch-from",
+        "master",
+        "--star-lobes",
+        "--out",
+        "C:/temp/tianwen-scratch/f2-twin-lobed-master"
+      ],
+      "sessions": [
+        "QHYCCD-QHY294C/IDAS-LPS-D3/Lobster-Nebula/2026-08-01|QHY294PROC|Lobster Nebula|IDAS LPS D3",
+        "QHYCCD-QHY294C/IDAS-LPS-D3/Lobster-Nebula/2026-08-01|QHY294PROC|Lobster Nebula|IDAS LPS D3|flip=a",
+        "QHYCCD-QHY294C/IDAS-LPS-D3/Lobster-Nebula/2026-08-01|QHY294PROC|Lobster Nebula|IDAS LPS D3|flip=b",
+        "ZWO-ASI533MC-Pro/Optolong-L-Quad-Enhance/HIP-80609/2026-04-21|ZWO ASI533MC Pro|HIP 80609|Optolong L-Quad Enhance",
+        "ZWO-ASI533MC-Pro/Optolong-L-Quad-Enhance/HIP-80609/2026-04-21|ZWO ASI533MC Pro|HIP 80609|Optolong L-Quad Enhance|flip=a",
+        "ZWO-ASI533MC-Pro/Optolong-L-Quad-Enhance/HIP-80609/2026-04-21|ZWO ASI533MC Pro|HIP 80609|Optolong L-Quad Enhance|flip=b",
+        "ZWO-ASI585MC-Pro/Optolong-L-eNhance/Small-Magellanic-Cloud/2024-09-27|ZWO ASI585MC Pro|SMC 120s LEnh ASI585 252g|Optolong L-eNhance"
+      ],
+      "draws": 1120,
+      "tiles": 1400,
+      "tile_files": 2800
+    }
+  },
+  "scorecard_config": {
+    "path_on_de1": "C:/temp/tianwen-scratch/f2-scorecard.master-stretch.json",
+    "source_in_branch": "training/star-removal/f2-scorecard.master-stretch.json",
+    "twins_root": "C:/temp/tianwen-scratch/f2-twins-master (junctions plain -> f2-twin-plain-master, lobed -> f2-twin-lobed-master)",
+    "note": "DE1 held no scorecard.local.json to copy: the file is scorecard.example.json filled from the paths earlier arms were scored with (C:/temp/e2/score-r2i.ps1, whole/r2x/score.log), with new eval_root, reports, logs_root, random_export and twins_root. Score with score-arm.ps1 -Name <arm> -Weights <cache>/<arm>.pt -Config <path_on_de1>."
+  },
+  "checks": {
+    "counts": "all three sets: 7 sessions, 1120 degraded draw rows, 1400 tile-manifest rows, 1120 injection rows, 2800 tile files (f2_verify.py counts); the old twins read the same, the original A 8 sessions, 1280, 1600 and 3200.",
+    "random_vs_plain": "one command, so the rows are identical: degradations, tiles-manifest and injections, 1120 / 1400 / 1120 paired, 0 differ, ignoring only the Lobe flag (f2_verify.py same --ignore Lobe).",
+    "plain_vs_old_plain_twin": "0 of 1120 / 1400 / 1120 rows differ once the stretch fields (Stretch, StretchSkySlopeRatio), the new per-star HaloGain (null) and NoiseMad of the 280 clean master tiles (the MAD of the stretched master) are ignored; all 509,330 stars are equal field for field. Without ignoring HaloGain every injection row differs, by that one new field.",
+    "lobed_vs_old_lobed_twin": "the same result as the plain pair: 0 differ ignoring Lobe, Stretch, StretchSkySlopeRatio, HaloGain, NoiseMad.",
+    "random_vs_original_A": "on the 7 sessions both hold, rows equal to the original A's (restored 2026-10-11) but for those four fields: 0 of 1120 / 1400 / 1120 differ. The original rows carry no Lobe field and no HaloGain.",
+    "lobed_only_by_lobes": "the lobed twin carries 57,118 lobes over 1119 of its 1120 injection rows, and its degradation and tile rows equal the old lobed twin's. Its whole stars are not the plain twin's: the lobe branch takes a second-pass row out of the amplitude pool, so the star lists differ row for row (the non-lobe star count equals the plain row's in 16 rows only), as in R2k's pre-check, which also read the two as different draws of one recipe.",
+    "stretch": "all 1120 rows of the lobed twin record Stretch 'master' with a per-channel StretchSkySlopeRatio (the master's stretch against the plate's at the sky: 1.18 to 5.68 in the first channel by session, away from 1), and the log of each export names the same. Against the old plate-stretched twin the clean master tiles are the same size and differ (7 sampled, mean |difference| 0.0003 to 0.0142; the median of the first 0.2454 against 0.2489).",
+    "tile_stretch_params": "StretchOrigMin and StretchBalance are null in the tile manifests of the old and the new sets alike, so no per-tile parameter reads back; the evidence is the Stretch field, the slope ratio and the tile difference."
+  }
+}
