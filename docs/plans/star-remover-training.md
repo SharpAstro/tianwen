@@ -4023,21 +4023,23 @@ connection: they fly beside the arms, and their checks stay off the GPU (jobs qu
 
 Each leg's step is `training/star-removal/arm-step.ps1 -Step <s> <common>`, `<common>` being the arm's `-Tag -Name -TrainDir
 -Cache -Config -Runs` (`training/README.md`, "Scoring an arm's weights, and driving a local arm", has the five lines in full).
+Every line carries `--timeout 8h` (pilot run's default is 2 h); a job killed at its timeout is resumed by running the same line again.
 
 - **Leg 1, export.** `dataset degrade` from the frozen recipe, on C: or D: (never E:), as
-  `pilot run -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step export <common> -ExportScript <export.ps1> -ExportDone <done file>`.
+  `pilot run --timeout 8h -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step export <common> -ExportScript <export.ps1> -ExportDone <done file>`.
   Check: the export's manifest exists with the expected tile counts, and `FROZEN-AT.txt` names the commit.
 - **Leg 2, train.** The worker starts
   `pilot run --timeout 8h -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step train <common> -TrainScript training/denoise/run-r2.ps1 -TrainArgs <switches>`
-  and ends its turn. The step stops the trainer itself at its `-Budget` (7h30m) with the resume checkpoint whole, says
+  and ends its turn; `<switches>` make run-r2.ps1 train exactly `<Name>` in `<TrainDir>` (`-Tag`, ONE `-Arms`, `-FirstSeed`,
+  `-SeedCount 1`), its defaults being nine models. The step stops the trainer itself at its `-Budget` (7h30m) with the resume checkpoint whole, says
   `resumable: run the train step again` and exits 4; the worker then runs **the same line again** as a second job, which
   resumes. A modest token budget, since the worker sleeps while the job runs. Then
-  `pilot run -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step onnx <common>` writes `<Name>.onnx` and its
+  `pilot run --timeout 8h -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 -Step onnx <common>` writes `<Name>.onnx` and its
   contract from the weights. Check: the best checkpoint and the ONNX with its contract exist. A seed on an Azure T4 is a job
   that drives `launch-arm.ps1` and polls, under the same cap, with eviction answered by the trainer's resume; it needs a
   new SAS first.
 - **Leg 3, read.** `arm-step.ps1 -Step score <common>` (`score-arm.ps1`, reusing the ONNX) and `-Step whole <common>`
-  (`score_whole.py`), each its own `pilot run -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 ...`, and F2's sets; the pre-registration's predictions checked and the
+  (`score_whole.py`), each its own `pilot run --timeout 8h -- pwsh -NoProfile -File training/star-removal/arm-step.ps1 ...`, and F2's sets; the pre-registration's predictions checked and the
   read written into this plan under the arm's own heading, with the candidate next arms as issue drafts. Check: the row
   file exists and parses. A bad score never fails the leg: a negative result lands like any other.
 - **The PR carries the read.** The reviewer reads it; the owner reads it on the merge ring, merges, and picks the next
