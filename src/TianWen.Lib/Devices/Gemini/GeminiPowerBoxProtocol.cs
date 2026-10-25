@@ -164,6 +164,10 @@ internal static class GeminiPowerBoxProtocol
     private static async ValueTask<bool> SendAsync(ISerialConnection conn, string command, CancellationToken cancellationToken)
     {
         using var @lock = await conn.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        // A caller that was cancelled while it waited for the lock (a teardown cancels, then closes the port) must not
+        // write on a port that is closing: the wait can finish with the token already cancelled.
+        cancellationToken.ThrowIfCancellationRequested();
         return await WriteLineAsync(conn, command, cancellationToken).ConfigureAwait(false);
     }
 
