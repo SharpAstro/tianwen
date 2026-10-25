@@ -96,6 +96,29 @@ namespace TianWen.Lib.Tests
             tab.ChartRect.Height.ShouldBe(880f, 0.5f); // 1000 - 120 details
         }
 
+        [Theory]
+        [InlineData(390, 844, 1f)]
+        [InlineData(780, 1688, 2f)] // the same design space at 2x
+        public void Portrait_DetailsLines_EachFitTheirRect_WindowDroppedFirst(int width, int height, float dpiScale)
+        {
+            using var renderer = new RgbaImageRenderer((uint)width, (uint)height);
+            var tab = RenderTab(renderer, dpiScale);
+
+            tab.DetailsRect.Width.ShouldBeGreaterThan(0f);
+            tab.PaintedDetailLines.ShouldNotBeEmpty();
+
+            var fontPath = FontResolver.ResolveSystemFont();
+            var fontSize = GuiTheme.Metrics.BaseFontSize * dpiScale;
+            foreach (var line in tab.PaintedDetailLines.Skip(1))
+            {
+                renderer.MeasureText(line.AsSpan(), fontPath, fontSize).Width
+                    .ShouldBeLessThanOrEqualTo(tab.DetailsRect.Width, line);
+            }
+
+            var coords = tab.PaintedDetailLines.Single(l => l.StartsWith("RA "));
+            coords.ShouldNotContain("Window", Case.Sensitive, "the window is the first field to go");
+        }
+
         [Fact]
         public void Landscape_NarrowWindow_ListWidthCapped_ChartNeverStarves()
         {

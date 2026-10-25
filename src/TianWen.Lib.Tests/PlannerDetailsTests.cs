@@ -108,6 +108,36 @@ public class PlannerDetailsTests
         one.ShouldBe([obj.DisplayName]);
     }
 
+    [Theory]
+    [InlineData(1000, "Window")]
+    [InlineData(50, "Peak")]    // the full line is 58 chars: too narrow for the window, which goes first
+    [InlineData(35, "Alt")]     // then peak (38 chars with it)
+    public void GivenNarrowWidthWhenCoordinateLineThenLeastImportantFieldsShedFirst(int chars, string lastKept)
+    {
+        var target = new Target(1.0, 45, "T0", null);
+        var scored = Scored(target);
+        var state = BuildState(scored, db: null);
+
+        var line = PlannerDetails.FormatCoordinateLine(state, scored, text => text.Length <= chars);
+
+        line.Length.ShouldBeLessThanOrEqualTo(chars);
+        line.ShouldContain(lastKept);
+        line.ShouldStartWith("RA ");
+        if (lastKept != "Window") line.ShouldNotContain("Window");
+        if (lastKept == "Alt") line.ShouldNotContain("Peak");
+    }
+
+    [Fact]
+    public void GivenNothingFitsWhenCoordinateLineThenRaDecStayAndOtherLinesAreUntouched()
+    {
+        var target = new Target(1.0, 45, "T0", null);
+        var scored = Scored(target);
+        var state = BuildState(scored, db: null);
+
+        PlannerDetails.FormatCoordinateLine(state, scored, _ => false).ShouldNotContain("Alt");
+        PlannerDetails.GetLines(state, [scored], fitsInfoLine: _ => false)[0].ShouldBe("T0");
+    }
+
     [Fact]
     public async Task GivenCataloguedTargetWhenGetWikipediaUrlThenLinksTheVerifiedArticle()
     {

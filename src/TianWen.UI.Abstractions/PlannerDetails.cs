@@ -29,13 +29,16 @@ public static class PlannerDetails
     /// Returns an empty list if no target is selected. <paramref name="maxLines"/> is a line budget
     /// for space-starved panels (portrait phones): over budget, lines shed least-important-first
     /// (size, photometry, alias, type/constellation, rating, imaging window, coordinates -- the name
-    /// never drops) while the survivors keep their display order.
+    /// never drops) while the survivors keep their display order. <paramref name="fitsInfoLine"/>
+    /// answers whether a text fits the strip's width as it is painted (measured by the caller through
+    /// its own renderer); the coordinate line sheds fields (window, peak, alt) until it does.
     /// </summary>
     public static List<string> GetLines(
         PlannerState state,
         IReadOnlyList<ScoredTarget> filteredTargets,
         DateTimeOffset? currentTime = null,
-        int maxLines = int.MaxValue)
+        int maxLines = int.MaxValue,
+        Func<string, bool>? fitsInfoLine = null)
     {
         var idx = state.SelectedTargetIndex;
         if (idx < 0 || idx >= filteredTargets.Count)
@@ -59,7 +62,7 @@ public static class PlannerDetails
         AddCatalogLines(state, scored, entries);
 
         // Line 2: coordinates + altitude + peak time + window
-        entries.Add((RankCoords, FormatCoordinateLine(state, scored)));
+        entries.Add((RankCoords, FormatCoordinateLine(state, scored, fitsInfoLine)));
 
         // Line 3: allocated imaging time (for pinned targets)
         if (isProposed && idx < pinnedCount)
@@ -154,14 +157,36 @@ public static class PlannerDetails
     /// so the CLI inline prompt can render exactly this line without depending on its positional
     /// index in <see cref="GetLines"/> (which now inserts catalog-property lines above it).
     /// </summary>
-    public static string FormatCoordinateLine(PlannerState state, ScoredTarget scored)
+    public static string FormatCoordinateLine(PlannerState state, ScoredTarget scored, Func<string, bool>? fits = null)
     {
         var window = FormatWindow(scored, state);
         var peakTime = state.AltitudeProfiles.TryGetValue(scored.Target, out var prof) && prof.Count > 0
             ? prof.MaxBy(p => p.Alt).Time.ToOffset(state.SiteTimeZone).ToString("HH:mm")
             : "?";
-        return $"RA {scored.Target.RA:F3}h  Dec {scored.Target.Dec:+0.0;-0.0}°" +
-               $"  Alt {scored.OptimalAltitude:F0}°  Peak {peakTime}  Window {window}";
+        var position = $"RA {scored.Target.RA:F3}h  Dec {scored.Target.Dec:+0.0;-0.0}°";
+        var alt = $"  Alt {scored.OptimalAltitude:F0}°";
+
+        // Fields shed least-important-first, the same order as whole lines: window, then peak, then
+        // alt. RA/Dec never drop; when even they do not fit the line is returned as is (the strip clips).
+        string[] candidates =
+        [
+            $"{position}{alt}  Peak {peakTime}  Window {window}",
+            $"{position}{alt}  Peak {peakTime}",
+            $"{position}{alt}",
+            position,
+        ];
+        if (fits is null)
+        {
+            return candidates[0];
+        }
+        foreach (var candidate in candidates)
+        {
+            if (fits(candidate))
+            {
+                return candidate;
+            }
+        }
+        return position;
     }
 
     // Appends physical-property lines (type + constellation, magnitude + surface brightness + colour
