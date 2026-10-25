@@ -111,6 +111,13 @@ def head(file, count="3", width="2500"):
             print(f.readline()[:int(width)].rstrip())
 
 
+def freeze(source, target):
+    """A frozen copy of a build's output, so a rebuild in the checkout cannot change a running export's binary."""
+    import shutil
+    shutil.copytree(source, target, dirs_exist_ok=True)
+    print("frozen", source, "->", target, sum(1 for _ in pathlib.Path(target).rglob("*")), "entries")
+
+
 def cat(*files):
     for f in files:
         # one line, since a job's view keeps only the last few lines of its output
@@ -128,6 +135,8 @@ if __name__ == "__main__":
         names(*sys.argv[2:])
     elif sys.argv[1] == "head":
         head(*sys.argv[2:])
+    elif sys.argv[1] == "freeze":
+        freeze(*sys.argv[2:])
     elif sys.argv[1] == "cat":
         cat(*sys.argv[2:])
     elif sys.argv[1] == "sync":
