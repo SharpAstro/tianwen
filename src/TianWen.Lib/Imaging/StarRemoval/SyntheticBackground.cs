@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Numerics;
+using TianWen.Lib.Imaging.Degradation;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.StarRemoval;
@@ -341,9 +342,10 @@ public sealed class SyntheticBackground
                 }
                 continue;
             }
+            var noiseRamp = NoiseVarianceRamp(keep, clean, unitPlate.Pedestal);
             for (var j = 0; j < firstKept; j++)
             {
-                amplitude[c][j] = SignalAmplitude(decomposition.Detail(j), clean, width, height, j);
+                amplitude[c][j] = SignalAmplitude(decomposition.Detail(j), clean, width, height, j, noiseRamp: noiseRamp);
             }
         }
         Orientation? orientation = null;
@@ -710,7 +712,11 @@ public sealed class SyntheticBackground
     // The local RMS of a detail plane over the clean pixels, smoothed at twice the scale or AmplitudeWindowPx, less its noise
     // (the clean pixels' robust variance, which a smooth sky dominates, with NoiseMargin), floored at zero: the signal the
     // plate has at that scale there. Without subtractNoise the local RMS itself.
-    private static float[] SignalAmplitude(ReadOnlySpan<float> detail, float[] clean, int width, int height, int scale, bool subtractNoise = true)
+    // With a noiseRamp (#1786, NoiseVarianceRamp) the noise is the master's: its variance is the sky's times the ramp at the
+    // pixel, so the sky's is read as detail over the ramp's root and the local variance is taken out against the ramp's own
+    // smoothed value, not one number for the whole plate.
+    private static float[] SignalAmplitude(ReadOnlySpan<float> detail, float[] clean, int width, int height, int scale, bool subtractNoise = true,
+        float[]? noiseRamp = null)
     {
         var n = detail.Length;
         var energy = new float[n];
@@ -721,7 +727,7 @@ public sealed class SyntheticBackground
             energy[i] = clean[i] * detail[i] * detail[i];
             if (subtractNoise && clean[i] > 0f)
             {
-                sample[count++] = detail[i];
+                sample[count++] = noiseRamp is null ? detail[i] : detail[i] / MathF.Sqrt(noiseRamp[i]);
             }
         }
         var noiseVariance = 0.0;
@@ -739,13 +745,58 @@ public sealed class SyntheticBackground
         var sigma = Math.Max(AmplitudeWindowPx, 2f * (1 << scale));
         var local = Image.SeparableGaussianBlur(energy, width, height, sigma);
         var weight = Image.SeparableGaussianBlur(clean, width, height, sigma);
+        float[]? rampEnergy = null;
+        if (noiseRamp is not null)
+        {
+            var weighted = new float[n];
+            for (var i = 0; i < n; i++)
+            {
+                weighted[i] = clean[i] * noiseRamp[i];
+            }
+            rampEnergy = Image.SeparableGaussianBlur(weighted, width, height, sigma);
+        }
         var amplitude = new float[n];
         for (var i = 0; i < n; i++)
         {
             var variance = weight[i] > 0.05f ? local[i] / weight[i] : 0f;
-            amplitude[i] = (float)Math.Sqrt(Math.Max(0.0, variance - (NoiseMargin * noiseVariance)));
+            var noise = rampEnergy is null ? noiseVariance : (weight[i] > 0.05f ? noiseVariance * rampEnergy[i] / weight[i] : 0.0);
+            amplitude[i] = (float)Math.Sqrt(Math.Max(0.0, variance - (NoiseMargin * noise)));
         }
         return amplitude;
+    }
+
+    /// <summary>
+    /// How much noisier than the sky a plate is at each pixel, as a VARIANCE multiple (#1786): the master's shot-noise ramp,
+    /// whose variance is linear in the level above the pedestal (<see cref="LinearDegradation.NoiseCalibration.SigmaAt"/>, the
+    /// model the exporter draws its noise by), read off the plate's coarse part. The sky is the lower sixth of the clean
+    /// pixels' levels above the pedestal. Null for a plate with no level above its pedestal to take it from.
+    /// </summary>
+    internal static float[]? NoiseVarianceRamp(float[] coarse, float[] clean, double pedestal)
+    {
+        var above = new List<float>(coarse.Length);
+        for (var i = 0; i < coarse.Length; i++)
+        {
+            if (clean[i] > 0f && float.IsFinite(coarse[i]) && coarse[i] - pedestal > 0)
+            {
+                above.Add((float)(coarse[i] - pedestal));
+            }
+        }
+        if (above.Count == 0)
+        {
+            return null;
+        }
+        var sky = StatisticsHelper.NthSmallest(above.ToArray().AsSpan(), above.Count / 6);
+        var ramp = new float[coarse.Length];
+        for (var i = 0; i < ramp.Length; i++)
+        {
+            ramp[i] = (float)Math.Clamp((coarse[i] - pedestal) / sky, LinearDegradation.NoiseCalibration.MinVarianceFraction,
+                LinearDegradation.NoiseCalibration.MaxVarianceFactor);
+            if (!float.IsFinite(ramp[i]))
+            {
+                ramp[i] = 1f;
+            }
+        }
+        return ramp;
     }
 
     /// <summary>
