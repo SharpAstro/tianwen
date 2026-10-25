@@ -55,6 +55,7 @@ def compare(a, b, ignore, keep_sessions):
     for name in MANIFESTS:
         total = differing = only_a = only_b = 0
         keys = collections.Counter()
+        examples = []
         ra = (r for r in rows(pathlib.Path(a) / name) if not keep_sessions or session_of(r) in keep_sessions)
         rb = (r for r in rows(pathlib.Path(b) / name) if not keep_sessions or session_of(r) in keep_sessions)
         sentinel = object()
@@ -75,7 +76,10 @@ def compare(a, b, ignore, keep_sessions):
             if diff:
                 differing += 1
                 keys.update(diff)
-        out.append(f"{name}: {total} paired, {differing} differ{dict(keys) if keys else ''}, only in first {only_a}, only in second {only_b}")
+                if not examples:
+                    k = sorted(diff)[0]
+                    examples.append(f"{k}: {str(x.get(k))[:300]} <> {str(y.get(k))[:300]}")
+        out.append(f"{name}: {total} paired, {differing} differ{dict(keys) if keys else ''}, only in first {only_a}, only in second {only_b}{'; first: ' + examples[0] if examples else ''}")
     print(f"{a} vs {b} (ignoring {sorted(ignore)}): " + " | ".join(out))
 
 
