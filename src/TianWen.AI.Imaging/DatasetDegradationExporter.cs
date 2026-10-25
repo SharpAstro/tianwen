@@ -217,6 +217,10 @@ namespace TianWen.AI.Imaging
         /// in an export from before it was recorded, which is "plate".</param>
         /// <param name="StretchSkySlopeRatio">Stars mode: per channel, the master's MTF slope at its own sky over the plate's
         /// at the same value, whichever stretch the pair took: how much more steeply inference stretches this master.</param>
+        /// <param name="NoiseStructure">Stars mode: "cross-lags" when the pair's noise was drawn with the master's spatial
+        /// cross-structure between channels (S4b, #1781); null when it was not.</param>
+        /// <param name="NoiseStructureShrink">With <paramref name="NoiseStructure"/>: the factor the session's measured
+        /// cross-correlations were drawn at, 1 when the fit reached them, below it when they were shrunk toward independent.</param>
         public sealed record DegradationRow(
             string Tile,
             string SessionId,
@@ -264,7 +268,9 @@ namespace TianWen.AI.Imaging
             string? Profile = null,
             int? InjectionShortfall = null,
             string? Stretch = null,
-            double[]? StretchSkySlopeRatio = null);
+            double[]? StretchSkySlopeRatio = null,
+            string? NoiseStructure = null,
+            double? NoiseStructureShrink = null);
 
         /// <summary>The extension of a tile's conditioning-plane sidecar, beside the tile.</summary>
         public const string SigmaTileExtension = ".sigma.f16";
@@ -444,6 +450,12 @@ namespace TianWen.AI.Imaging
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.ChannelNoiseCorrelation"/>, Synthetics S4), each channel's field mixed
         /// with the others' and its spatial correlation kept; the mix draws no random number, so every other draw is what it
         /// was. Off, each channel's noise is drawn on its own.</param>
+        /// <param name="ChannelNoiseStructure">Stars mode (Synthetics S4b, #1781): as <paramref name="ChannelNoiseCorrelation"/>, but the
+        /// shared part is drawn with the master's spatial cross-structure, each pair's correlation at every offset up to two
+        /// pixels measured on its starless plate and fitted by kernels over one shared field
+        /// (<see cref="TianWen.Lib.Imaging.StarRemoval.ChannelNoiseStructure"/>), each channel keeping unit variance and its
+        /// own lag-1. The shared field has a random stream of its own, so every other draw is what it was. Not with
+        /// <paramref name="ChannelNoiseCorrelation"/>.</param>
         /// <param name="FaintStarFloor">Stars mode on the synthetic background: each master's luminosity function is fitted
         /// to its own catalogue and every draw adds the stars the catalogue lacks under its detection limit, down to this
         /// significance (<see cref="TianWen.Lib.Imaging.StarRemoval.LuminosityFunction"/>, S2), each a point source of its
@@ -506,6 +518,7 @@ namespace TianWen.AI.Imaging
             double? FaintStarFloor = null,
             double FaintStarCap = TianWen.Lib.Imaging.StarRemoval.LuminosityFunction.DefaultCapSigma,
             bool StretchFromMaster = true,
+            bool ChannelNoiseStructure = false,
             bool ClampWingRelations = false,
             Action<string>? Say = null);
 
@@ -879,14 +892,29 @@ namespace TianWen.AI.Imaging
         /// One field of the draw's shape per channel, drawn in channel order from <paramref name="rng"/> as a field at a time
         /// always was, then, with a <paramref name="correlation"/>, mixed to carry it (Synthetics S4). The mix takes nothing
         /// from any stream, so without it the fields are the ones drawn, and with it every other draw is unchanged.
+        /// <para>
+        /// With a <paramref name="structure"/> (Synthetics S4b, #1781) the fields are drawn the same, then carry the shared
+        /// part with real's cross-structure (<see cref="TianWen.Lib.Imaging.StarRemoval.ChannelNoiseStructure.Mix"/>), whose one
+        /// shared field comes from <paramref name="sharedRng"/>, a stream of its own: the fields drawn from
+        /// <paramref name="rng"/> are the ones drawn without it. Not with a <paramref name="correlation"/> as well.
+        /// </para>
         /// </summary>
         internal static float[][] NoiseFieldsFor(NoiseShape shape, double warpSigma, int size, int stackedFrames, Random rng, int channels,
-            TianWen.Lib.Imaging.StarRemoval.ChannelNoiseCorrelation? correlation)
+            TianWen.Lib.Imaging.StarRemoval.ChannelNoiseCorrelation? correlation,
+            TianWen.Lib.Imaging.StarRemoval.ChannelNoiseStructure? structure = null, Random? sharedRng = null)
         {
+            if (structure is not null && correlation is not null)
+            {
+                throw new ArgumentException("the noise's cross-structure and its zero-lag correlation are two arms; give one", nameof(structure));
+            }
             var fields = new float[channels][];
             for (var c = 0; c < channels; c++)
             {
                 fields[c] = NoiseFieldFor(shape, warpSigma, size, stackedFrames, rng);
+            }
+            if (structure is { Channels: > 1 } && structure.Channels == channels)
+            {
+                return structure.Mix(fields, size, sharedRng ?? throw new ArgumentNullException(nameof(sharedRng), "a cross-structure draws its shared field from a stream of its own"));
             }
             return correlation is { Channels: > 1 } && correlation.Channels == channels ? correlation.Mix(fields) : fields;
         }

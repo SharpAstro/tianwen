@@ -245,7 +245,7 @@ public sealed class ChannelNoiseCorrelation
         return result;
     }
 
-    private static bool Usable(float[][,] planes, BitMatrix? absent, int x, int y, int reach)
+    internal static bool Usable(float[][,] planes, BitMatrix? absent, int x, int y, int reach)
     {
         for (var dy = -reach; dy <= reach; dy++)
         {

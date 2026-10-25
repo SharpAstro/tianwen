@@ -859,6 +859,341 @@ public class StarInjectionTests(ITestOutputHelper output)
         Should.Throw<ArgumentException>(() => new ChannelNoiseCorrelation(new double[,] { { 1, 1 }, { 1, 1 } }));
     }
 
+    // Synthetics S4b: three 3 x 3 kernels over one shared field, R and G on the same pixel and B on the diagonal, as an
+    // ASI533's R-B sits (+0.050 at offset 1,1 against +0.010 at 0,0). What a structure is built from is the correlation the
+    // MEASURE would read of them, at every offset up to two pixels, through the 5 x 5 residual; the support of a 3 x 3
+    // kernel's correlation ends at two, so it is reachable by the fit.
+    private static (double[][,] Cross, double[] Own) KnownStructure()
+    {
+        double[] Bump(int cy, int cx, double centre, double edge, double corner)
+        {
+            var k = new double[25];
+            for (var dy = -1; dy <= 1; dy++)
+            {
+                for (var dx = -1; dx <= 1; dx++)
+                {
+                    k[((cy + dy + 2) * 5) + cx + dx + 2] = (dy, dx) == (0, 0) ? centre : (dy == 0 || dx == 0 ? edge : corner);
+                }
+            }
+            return k;
+        }
+        double[][] kernels = [Bump(0, 0, 0.30, 0.12, 0.06), Bump(0, 0, 0.28, 0.10, 0.05), Bump(1, 1, 0.28, 0.12, 0.04)];
+        // The fields' own cross-covariance at offset (dy, dx): the kernels' cross-correlation.
+        double Raw(int a, int b, int dy, int dx)
+        {
+            var sum = 0.0;
+            for (var ey = -2; ey <= 2; ey++)
+            {
+                for (var ex = -2; ex <= 2; ex++)
+                {
+                    var (ay, ax) = (ey + dy, ex + dx);
+                    if (Math.Abs(ay) <= 2 && Math.Abs(ax) <= 2)
+                    {
+                        sum += kernels[a][((ay + 2) * 5) + ax + 2] * kernels[b][((ey + 2) * 5) + ex + 2];
+                    }
+                }
+            }
+            return sum;
+        }
+        // What the instrument reads of it: the residual from a 5 x 5 mean, h = delta - box / 25, whose autocorrelation K
+        // takes the covariance at d to the sum over r of K(r) times the covariance at d + r, over K(0), the variance white
+        // noise keeps. The measure's median agrees with it to 0.005 (a draw of 0.144 reads 0.098).
+        double K(int ry, int rx)
+        {
+            var sum = 0.0;
+            for (var uy = -2; uy <= 2; uy++)
+            {
+                for (var ux = -2; ux <= 2; ux++)
+                {
+                    var (vy, vx) = (uy + ry, ux + rx);
+                    if (Math.Abs(vy) <= 2 && Math.Abs(vx) <= 2)
+                    {
+                        var h = (((uy, ux) == (0, 0) ? 1.0 : 0.0) - (1.0 / 25), ((vy, vx) == (0, 0) ? 1.0 : 0.0) - (1.0 / 25));
+                        sum += h.Item1 * h.Item2;
+                    }
+                }
+            }
+            return sum;
+        }
+        var cross = new List<double[,]>();
+        for (var a = 0; a < 3; a++)
+        {
+            for (var b = a + 1; b < 3; b++)
+            {
+                var m = new double[5, 5];
+                for (var dy = -2; dy <= 2; dy++)
+                {
+                    for (var dx = -2; dx <= 2; dx++)
+                    {
+                        var read = 0.0;
+                        for (var ry = -4; ry <= 4; ry++)
+                        {
+                            for (var rx = -4; rx <= 4; rx++)
+                            {
+                                read += K(ry, rx) * Raw(a, b, dy + ry, dx + rx);
+                            }
+                        }
+                        m[dy + 2, dx + 2] = read / K(0, 0);
+                    }
+                }
+                cross.Add(m);
+            }
+        }
+        return ([.. cross], [0.2, 0.18, 0.16]);
+    }
+
+    /// <summary>A field less the mean of the 5 x 5 pixels around each pixel, the interior only: the instrument's residual, as a mean.</summary>
+    private static float[] BoxResidual(float[] field, int size)
+    {
+        var inner = size - 4;
+        var result = new float[inner * inner];
+        for (var y = 0; y < inner; y++)
+        {
+            for (var x = 0; x < inner; x++)
+            {
+                var sum = 0.0;
+                for (var dy = 0; dy < 5; dy++)
+                {
+                    for (var dx = 0; dx < 5; dx++)
+                    {
+                        sum += field[((y + dy) * size) + x + dx];
+                    }
+                }
+                result[(y * inner) + x] = (float)(field[((y + 2) * size) + x + 2] - (sum / 25.0));
+            }
+        }
+        return result;
+    }
+
+    /// <summary>Pearson correlation of <paramref name="u"/> at a pixel with <paramref name="v"/> at that pixel plus (dy, dx), over the overlap.</summary>
+    private static double Lagged(float[] u, float[] v, int size, int dy, int dx)
+    {
+        var (a, b) = (new List<float>(), new List<float>());
+        for (var y = Math.Max(0, -dy); y < Math.Min(size, size - dy); y++)
+        {
+            for (var x = Math.Max(0, -dx); x < Math.Min(size, size - dx); x++)
+            {
+                a.Add(u[(y * size) + x]);
+                b.Add(v[((y + dy) * size) + x + dx]);
+            }
+        }
+        return Pearson(a.ToArray(), b.ToArray());
+    }
+
+    /// <summary>A field's lag-1 correlation, the horizontal and the vertical neighbours together.</summary>
+    private static double LagOneBoth(float[] field, int size)
+    {
+        var (sum, count) = (0.0, 0);
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                if (x + 1 < size)
+                {
+                    sum += (double)field[(y * size) + x] * field[(y * size) + x + 1];
+                    count++;
+                }
+                if (y + 1 < size)
+                {
+                    sum += (double)field[(y * size) + x] * field[((y + 1) * size) + x];
+                    count++;
+                }
+            }
+        }
+        return sum / count / Variance(field);
+    }
+
+    /// <summary>
+    /// Synthetics S4b's draw, through the exporter's own: a structure built from a known lagged cross-structure (R-B on
+    /// the diagonal) is reached by the fit with nothing shrunk, and fields drawn with it, white and warped, carry every
+    /// pair's correlation at every offset up to two pixels, each channel keeps unit variance and the lag-1 its field had,
+    /// and the fields the draw's own stream makes are the ones it made without the structure.
+    /// </summary>
+    [Theory]
+    [InlineData(DatasetDegradationExporter.NoiseShape.White)]
+    [InlineData(DatasetDegradationExporter.NoiseShape.Warped)]
+    public void TheDrawReproducesTheLaggedCrossStructureAndHoldsEachChannelsLagOne(DatasetDegradationExporter.NoiseShape shape)
+    {
+        const int size = 512;
+        var (cross, own) = KnownStructure();
+        var structure = new ChannelNoiseStructure(3, cross, own);
+        output.WriteLine($"fit: shrink {structure.Shrink:F2}, rms {structure.FitRms:F5}, shared {structure.SharedVariance(0):F3} / {structure.SharedVariance(1):F3} / {structure.SharedVariance(2):F3}");
+        structure.Shrink.ShouldBe(1.0);
+        structure.FitRms.ShouldBeLessThan(0.002);
+        structure.IsIdentity.ShouldBeFalse();
+
+        var plainRng = new Random(7);
+        var plain = DatasetDegradationExporter.NoiseFieldsFor(shape, 0.0, size, 30, plainRng, 3, null);
+        var drawnRng = new Random(7);
+        var drawn = DatasetDegradationExporter.NoiseFieldsFor(shape, 0.0, size, 30, drawnRng, 3, null, structure, new Random(99));
+        drawnRng.Next().ShouldBe(plainRng.Next(), "the draw's own stream is left where it was");
+        var again = DatasetDegradationExporter.NoiseFieldsFor(shape, 0.0, size, 30, new Random(7), 3, null, structure, new Random(99));
+        var other = DatasetDegradationExporter.NoiseFieldsFor(shape, 0.0, size, 30, new Random(7), 3, null, structure, new Random(100));
+        for (var c = 0; c < 3; c++)
+        {
+            again[c].ShouldBe(drawn[c], "the same streams draw the same fields");
+            other[c].ShouldNotBe(drawn[c], "the shared field is the stream's own");
+            var (variance, lag) = (Variance(drawn[c]), LagOneBoth(drawn[c], size));
+            output.WriteLine($"channel {c}: variance {variance:F4}, lag-1 {lag:F3} against {LagOneBoth(plain[c], size):F3} before");
+            variance.ShouldBe(1.0, 0.02);
+            lag.ShouldBe(LagOneBoth(plain[c], size), 0.02);
+        }
+
+        // Read as the measure reads: the residual from a 5 x 5 mean (the median's linear stand-in), a Pearson correlation
+        // of it at each offset, against the correlation the structure was given.
+        var (residual, inner) = (drawn.Select(f => BoxResidual(f, size)).ToArray(), size - 4);
+        var index = 0;
+        for (var a = 0; a < 3; a++)
+        {
+            for (var b = a + 1; b < 3; b++, index++)
+            {
+                var (peakDrawn, peakGiven) = ((0, 0), (0, 0));
+                for (var dy = -2; dy <= 2; dy++)
+                {
+                    for (var dx = -2; dx <= 2; dx++)
+                    {
+                        var read = Lagged(residual[a], residual[b], inner, dy, dx);
+                        read.ShouldBe(cross[index][dy + 2, dx + 2], 0.025, $"pair {a}-{b} at offset {dy},{dx}");
+                        peakDrawn = read > Lagged(residual[a], residual[b], inner, peakDrawn.Item1, peakDrawn.Item2) ? (dy, dx) : peakDrawn;
+                        peakGiven = cross[index][dy + 2, dx + 2] > cross[index][peakGiven.Item1 + 2, peakGiven.Item2 + 2] ? (dy, dx) : peakGiven;
+                    }
+                }
+                output.WriteLine($"pair {a}-{b}: peak at {peakDrawn}, given {peakGiven}; zero lag {Lagged(residual[a], residual[b], inner, 0, 0):F3} against {cross[index][2, 2]:F3}");
+                peakDrawn.ShouldBe(peakGiven);
+            }
+        }
+        PeakOfRb(cross).ShouldNotBe((0, 0), "R-B is the diagonal's");
+
+        static (int, int) PeakOfRb(double[][,] cross)
+        {
+            var best = (0, 0);
+            for (var dy = -2; dy <= 2; dy++)
+            {
+                for (var dx = -2; dx <= 2; dx++)
+                {
+                    best = cross[1][dy + 2, dx + 2] > cross[1][best.Item1 + 2, best.Item2 + 2] ? (dy, dx) : best;
+                }
+            }
+            return best;
+        }
+    }
+
+    /// <summary>
+    /// Synthetics S4b's measure and draw closed on one another: a plate whose noise is drawn with a known structure (the
+    /// correlations the instrument is to read), on a sloped sky with stars and an absent ring, reads back that structure at
+    /// every offset through the real 5 x 5 median, and holds the diagonal's place; a noise-free plate reads none and draws
+    /// nothing, a mono one is its identity.
+    /// </summary>
+    [Fact]
+    public void APlatesLaggedCrossStructureIsReadBack()
+    {
+        const int size = 600;
+        var (cross, own) = KnownStructure();
+        var truth = new ChannelNoiseStructure(3, cross, own);
+        var fields = DatasetDegradationExporter.NoiseFieldsFor(DatasetDegradationExporter.NoiseShape.White, 0.0, size, 30, new Random(11), 3, null, truth, new Random(5));
+        var absent = new BitMatrix(size, size);
+        var planes = new float[3][,];
+        for (var c = 0; c < 3; c++)
+        {
+            var plane = new float[size, size];
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    var ring = x < 20 || y < 20;
+                    absent[y, x] = ring;
+                    var star = 0.0;
+                    for (var s = 0; s < 40; s++)
+                    {
+                        var (sx, sy) = (40 + (s * 37 % 540), 40 + (s * 101 % 540));
+                        var r2 = ((x - sx) * (x - sx)) + ((y - sy) * (y - sy));
+                        star += r2 < 64 ? 0.05 * Math.Exp(-r2 / 4.0) : 0.0;
+                    }
+                    plane[y, x] = ring ? 0f : (float)(0.1 + (0.02 * c) + (1e-5 * x) + star + (0.002 * (1 + c) * fields[c][(y * size) + x]));
+                }
+            }
+            planes[c] = plane;
+        }
+        var plate = new Image(planes, BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+        var read = ChannelNoiseStructure.Measure(plate, absent);
+        output.WriteLine($"read {read.InWords()}");
+        read.Channels.ShouldBe(3);
+        var worst = 0.0;
+        for (var a = 0; a < 3; a++)
+        {
+            for (var b = a + 1; b < 3; b++)
+            {
+                for (var dy = -2; dy <= 2; dy++)
+                {
+                    for (var dx = -2; dx <= 2; dx++)
+                    {
+                        var (r, t) = (read.Cross(a, b, dy, dx), truth.Cross(a, b, dy, dx));
+                        worst = Math.Max(worst, Math.Abs(r - t));
+                        r.ShouldBe(t, 0.03, $"pair {a}-{b} at offset {dy},{dx}");
+                    }
+                }
+            }
+        }
+        output.WriteLine($"worst gap to the structure drawn {worst:F3}");
+        read.Cross(0, 2, -1, -1).ShouldBeGreaterThan(read.Cross(0, 2, 0, 0) + 0.03, "R-B sits on the diagonal");
+        for (var c = 0; c < 3; c++)
+        {
+            read.OwnLag1(c).ShouldBeInRange(-0.15, 0.05, "white noise's residual from a median reads a little under zero at lag-1");
+        }
+
+        var flat = new Image([new float[64, 64], new float[64, 64], new float[64, 64]], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
+        var none = ChannelNoiseStructure.Measure(flat, null);
+        none.IsIdentity.ShouldBeTrue("a plate with no noise has no structure to draw");
+        var rng = new Random(3);
+        var given = new[] { NoiseField.White(16, 16, new Random(1)), NoiseField.White(16, 16, new Random(2)), NoiseField.White(16, 16, new Random(4)) };
+        none.Mix(given, 16, rng).ShouldBeSameAs(given);
+        rng.Next().ShouldBe(new Random(3).Next(), "nothing is drawn when nothing is shared");
+        var mono = ChannelNoiseStructure.Measure(new Image([planes[0]], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta()), absent);
+        mono.Channels.ShouldBe(1);
+        mono.IsIdentity.ShouldBeTrue();
+        mono.InWords().ShouldBe("one channel");
+        var monoFields = DatasetDegradationExporter.NoiseFieldsFor(DatasetDegradationExporter.NoiseShape.White, 0.0, 16, 30, new Random(7), 1, null, mono, new Random(5));
+        monoFields.Length.ShouldBe(1);
+    }
+
+    /// <summary>
+    /// Synthetics S4b's fit says when it cannot reach a measure: three channels asked to correlate 0.9, 0.9 and -0.9 at zero
+    /// lag cannot, and are shrunk toward independent until the fit is within its tolerance and no channel is more than half
+    /// shared; the measure is kept as given. A malformed measure is refused, and the two noise arms are not given together.
+    /// </summary>
+    [Fact]
+    public void AMeasureTheFitCannotReachIsShrunkTowardIndependent()
+    {
+        double[,] Zero() => new double[5, 5];
+        var rg = Zero();
+        var gb = Zero();
+        var rb = Zero();
+        (rg[2, 2], gb[2, 2], rb[2, 2]) = (0.9, 0.9, -0.9);
+        var impossible = new ChannelNoiseStructure(3, [rg, rb, gb], [0.2, 0.2, 0.2]);
+        output.WriteLine($"shrink {impossible.Shrink:F3}, rms {impossible.FitRms:F4}");
+        impossible.Shrink.ShouldBeLessThan(1.0);
+        impossible.FitRms.ShouldBeLessThanOrEqualTo(ChannelNoiseStructure.FitTolerance);
+        impossible.Cross(0, 1, 0, 0).ShouldBe(0.9, "the measure is kept as given; only what is drawn is shrunk");
+        for (var c = 0; c < 3; c++)
+        {
+            impossible.SharedVariance(c).ShouldBeLessThanOrEqualTo(ChannelNoiseStructure.MaxSharedVariance * 1.001);
+        }
+
+        var (cross, own) = KnownStructure();
+        var wrongSize = new double[5, 4];
+        Should.Throw<ArgumentException>(() => new ChannelNoiseStructure(3, [wrongSize, cross[1], cross[2]], own));
+        var outside = Zero();
+        outside[0, 0] = 1.0;
+        Should.Throw<ArgumentException>(() => new ChannelNoiseStructure(3, [outside, cross[1], cross[2]], own));
+        Should.Throw<ArgumentOutOfRangeException>(() => new ChannelNoiseStructure(3, [cross[0]], own));
+
+        var structure = new ChannelNoiseStructure(3, cross, own);
+        Should.Throw<ArgumentException>(() => DatasetDegradationExporter.NoiseFieldsFor(DatasetDegradationExporter.NoiseShape.White, 0.0, 16, 30, new Random(7), 3,
+            new ChannelNoiseCorrelation(Correlation(0.1, 0.1, 0.1)), structure, new Random(1)));
+        Should.Throw<ArgumentNullException>(() => DatasetDegradationExporter.NoiseFieldsFor(DatasetDegradationExporter.NoiseShape.White, 0.0, 16, 30, new Random(7), 3,
+            null, structure, null));
+    }
+
     private static double[,] Correlation(double rg, double gb, double rb) => new double[,] { { 1, rg, rb }, { rg, 1, gb }, { rb, gb, 1 } };
 
     private static double Gaussian(Random rng) => Math.Sqrt(-2.0 * Math.Log(1.0 - rng.NextDouble())) * Math.Cos(2.0 * Math.PI * rng.NextDouble());
