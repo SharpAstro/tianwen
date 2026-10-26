@@ -1506,8 +1506,8 @@ six-arm table is section 9 of the denoiser plan, and this table's k = 1 row desc
 - **Backend selection** extends the existing single source of truth: `EnhanceBackend` gains
   `ForceTianWen`; `EnhanceOptions.TryParse` accepts `--ai-backend tianwen`; the `Deferred*` proxies'
   Auto order becomes **RC (installed + licensed) → TianWen (model + contract present) → SAS**. RC
-  stays first in Auto until our eval says otherwise; users opt in via the flag / viewer
-  backend-cycle (right-click on the Enhance button already cycles backends).
+  stays first in Auto until our eval says otherwise; users opt in via the flag / the viewer
+  Enhance popover's backend choice (the right-click cycle went with #1345).
 - **Model distribution:** published as GitHub Release assets on the TianWen repo;
   `tools/tianwen-ai-models-fetch.ps1` gains a TianWen-models section **with SHA-256 verification**
   (the SAS fetch currently has none, ours sets the standard; contract JSON ships beside the model).

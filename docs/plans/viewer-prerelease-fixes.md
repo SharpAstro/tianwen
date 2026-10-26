@@ -66,7 +66,7 @@ the 35 TIFF / import / codec tests pass against it.
 | P33 | The info strip: statistics roll up into a table, white balance moves to a toolbar popover | **DONE** 2026-09-11 |
 | P34 | A tap resolves against what is DRAWN; the ring's name is the selected object's only label | **FIXED** 2026-09-12 |
 | P35 | Save opens to Explorer's last folder, not the currently-open file's folder | **SHIPPED** 2026-09-27 (#904) |
-| P36 | One Enhance popover: the AI program for deep sky, the sharpening for a planet | PLANNED 2026-10-08 (#1345), for 10.0 |
+| P36 | One Enhance popover: the AI program for deep sky, the sharpening for a planet | **SHIPPED** 2026-10-27 (#1345), for 10.0 |
 
 ---
 
@@ -1873,8 +1873,7 @@ popover must render before pressing the button under its backdrop again; and a b
 a proportional face is not guessable, so the scan records the point it found each button at and
 presses there.
 
-**Not done.** The Wavelet Sharpen section keeps its always-open form (it only appears on the live
-stacked view). A one-line summary on the rolled-up Statistics heading was considered and left out.
+**Not done.** ~~The Wavelet Sharpen section keeps its always-open form~~ (resolved by P36: the section moved into the Enhance popover's planetary half). A one-line summary on the rolled-up Statistics heading was considered and left out.
 
 ## P34. A tap resolves against what is DRAWN; the ring's name is the selected object's only label  (FIXED 2026-09-12)
 
@@ -2001,7 +2000,7 @@ controller suggesting the bare stem, `AnnotatedRasterExportTests.ThePlainSaveCar
 `AJpegSaveCarriesItsRenditionInExifAndXmp`.
 
 
-## P36. One Enhance popover: the AI program for deep sky, the sharpening for a planet  (PLANNED 2026-10-08)
+## P36. One Enhance popover: the AI program for deep sky, the sharpening for a planet  (SHIPPED 2026-10-27)
 
 Tracked by #1345, wanted in 10.0.
 
@@ -2041,9 +2040,33 @@ chooses what is shown, not how it is enhanced.
 **Why in 10.0.** It is the first release to ship the planetary controls, so they should arrive where
 they will stay, before the Store listing describes them in the strip.
 
-**How it will be pinned.** As P33's popover is: through the hit tracker, so a closed popover has
-registered nothing and the strip registers no control (`ViewerWhiteBalancePopoverTests` is the model),
-and through `ViewerE2E` at DPI 1 and 1.5.
+**What shipped (2026-10-27).** `ToolbarAction.Enhance` opens an Enhance popover (`ImageRendererBase.EnhancePanel.cs`, a
+`PopoverState` on `ViewerState`, opened as the white balance popover is). `ViewerState.EnhancesAsPlanet` is the ONE
+predicate (`ShowStacked || ShowAuto || SequencePath is not null || IsPlanetaryMaster`); true shows the planetary half,
+false the deep-sky half, and the strip's `ShowsTelescope` / `ShowsWavelets` are gone, so the strip only reports.
+
+- **Deep sky**: the steps `CanonicalProgram` would run from what serves (`SharpenPipeline.CapabilitiesFor`, never
+  `is null`), the backend as a `ButtonGroup` of the backends that serve (Auto always first), run / cancel with progress,
+  and off. The right-click cycle is gone, and the tooltips no longer mention it. `E` keeps its toggle and never opens the popover.
+- **Planet**: the strip's Planet and telescope section (planet, filter, aperture, design, strength stops, Derive) and the
+  Wavelet Sharpen section (dials, Reset) moved whole. The button is enabled on a planet's way, where there is no document.
+- **Lit and tooltip**: the button is lit while either half's enhancement is in force (the AI enhance, or the sharpening
+  layer on show), and its tooltip says which.
+- **Palette fills**: `PlanetaryChoiceStyle` and the transport's Raw / Stack / Auto style take fill, text and hover from
+  `ViewerTheme.Palette`, so the literal light text is gone and Light and Night read.
+
+**How it is pinned.** Through the hit tracker and `ViewerE2E` at DPI 1 and 1.5: `ViewerEnhancePopoverTests`
+(`AClosedPopoverHasRegisteredNothing`, `PressingTheButtonOpensThePopoverAndAPressOutsideOrOnTheButtonCloses`,
+`EscapeClosesIt`, `TheServingBackendsAreAButtonGroupAndChoosingOneSetsThePreference`, `RunPressesTheSameToggleEDoes`,
+`WhileRunningTheRowIsCancelWithTheProgressAndRunIsGone`, `WhileEnhancedOffRevertsAndRunDoesNothing`,
+`EKeepsItsToggleAndNeverOpensThePopover`, `ARightPressOnTheButtonNoLongerCyclesTheBackend`,
+`AFrameOnAPlanetsWayShowsThePlanetaryHalfAndNoAiControls`, `TheRawFramesOfASerHaveTheTelescopeAndNoDials`,
+`ChoosingThePlanetTheDesignAndTheStrengthInThePopoverSetsThem`, `DeriveAsksForADerivationAndResetPutsThePresetBack`,
+`OneRuleSaysWhichHalfShows`, `TheButtonIsLitWhileEitherHalfsEnhancementIsInForce`, `TheTooltipSaysWhichHalf`,
+`TheChoicesAreAskedOfWhatServesAndAutoIsAlwaysFirst`), and the planetary viewer tests (`ViewerInfoPanelCollapseTests`,
+`ViewerWaveletDeriveTests`, `ViewerBestStackTests`, `ViewerAutoViewTests`) now drive the popover.
+
+**Left.** Nothing owed; the Raw / Stack / Auto switch stays in the transport by design.
 
 ## The viewer remembers a file's last display (#1814)
 

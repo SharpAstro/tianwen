@@ -2298,7 +2298,7 @@ namespace TianWen.UI.Abstractions
                 // sits beside the word it replaces gives no width back.
                 ToolbarAction.Enhance when state.EnhancesAsPlanet => string.Empty,
                 ToolbarAction.Enhance when state.IsEnhancing => $"{state.EnhanceProgressPct:F0}%",
-                // Show the selected backend (right-click cycles it); left-click runs the enhance.
+                // Show the selected backend (chosen in the Enhance popover); left-click opens it.
                 ToolbarAction.Enhance => state.PreferredEnhanceBackend switch
                 {
                     EnhanceBackend.ForceRcAstro => "RC",
