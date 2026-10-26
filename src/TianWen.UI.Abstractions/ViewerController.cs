@@ -2076,7 +2076,8 @@ public sealed class ViewerController(
 
     /// <summary>
     /// Writes the display of the file on show, when the user changed it since it opened (#1814). The record is captured on the calling
-    /// thread. A follower of a held run keeps nothing: its display is the anchor's, not its own.
+    /// thread. A follower of a held run keeps nothing: its display is the anchor's, not its own, and neither does an enhance result,
+    /// which carries its source's path but shows the enhanced view's display (and drops its crop): the source's record stays as it was.
     /// </summary>
     private Task SaveLeavingDisplayAsync()
     {
@@ -2085,6 +2086,7 @@ public sealed class ViewerController(
             || _displayAtOpen is not { } atOpen
             || Document is not { } document
             || !string.Equals(document.FilePath, path, StringComparison.OrdinalIgnoreCase)
+            || document.IsEnhanceResult
             || (state.CarryDisplayAcrossFrames && document.DisplayAnchor is not null))
         {
             return Task.CompletedTask;

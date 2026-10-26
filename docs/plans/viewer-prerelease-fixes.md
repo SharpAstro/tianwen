@@ -2050,6 +2050,9 @@ first paint, and saves it when the user leaves the file and on exit (through `St
 neither restores a record nor saves one, so it shows the anchor's display and leaves what it remembered
 untouched. The first file of a run is its own anchor and is never a follower.
 
+**An enhance result never writes its source's record.** It carries the source's path but shows the enhanced view's
+display (and drops the crop), so leaving it, or quitting on it, saves nothing and the source's record stays as it was.
+
 **Reset display** (`Ctrl+Shift+R`, declared in `ViewerShortcuts`, `ResetDisplaySignal`) puts the defaults
 back and forgets the file's record. The display crop belongs to the document and is not carried to a newly
 opened file; only a record restores it.
