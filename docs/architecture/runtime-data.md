@@ -13,7 +13,7 @@ TianWen/
 ├── ObjectImages/       # Wikimedia object pictures, one file per (image, standard width) (ObjectPictureStore)
 ├── PlanetMaps/         # OPAL colour composites for the atlas's planet discs, one TIFF per apparition (PlanetMapStore)
 ├── SmallBodies/        # JPL SBDB comet cache: comets.json + apparitions.json
-├── Viewer/             # tianwen-fits' own: planetary-telescope.json, the planet and telescope panel's last telescope (PlanetaryTelescopePersistence)
+├── Viewer/             # tianwen-fits' own: planetary-telescope.json, the planet and telescope panel's last telescope (PlanetaryTelescopePersistence); and <hash of the full path>.json, one per file, the display it was last shown with, stamped with its size and modification time (ViewerDisplayMemory, #1814)
 ├── Planetary/          # telescopes.json: the telescope each camera was last said to be on, which AUTO reads (PlanetaryTelescopeMemory, #1391)
 ├── models/             # AI ONNX models (ModelResolver; also finds GraXpert's model in GraXpert's own cache)
 ├── Secrets/            # 0600 file per device secret, non-Windows or a TIANWEN_DATA_ROOT tree (else Credential Manager)
