@@ -79,8 +79,9 @@ public class ViewerDisplayMemoryE2ETests(ITestOutputHelper output) : IDisposable
         Tune(e2e.State, 0f);
         e2e.Frame();
 
+        // A file with no record keeps what is on show; b is tuned differently, so a's return can only come from its record.
         await e2e.OpenAsync(b, ct);
-        ShouldBeDefault(e2e.State);
+        Tune(e2e.State, 3f);
 
         await e2e.OpenAsync(a, ct);
         ShouldBeTuned(e2e.State, 0f);
@@ -99,12 +100,14 @@ public class ViewerDisplayMemoryE2ETests(ITestOutputHelper output) : IDisposable
         await e2e.OpenAsync(a, ct);
         Tune(e2e.State, 0f);
         await e2e.OpenAsync(b, ct);
+        Tune(e2e.State, 3f);
 
         e2e.WriteColourFits("a.fits", level: 20f);
         File.SetLastWriteTimeUtc(a, File.GetLastWriteTimeUtc(a).AddMinutes(3));
 
+        // The stale record is not applied: what was on show (b's) carries over instead.
         await e2e.OpenAsync(a, ct);
-        ShouldBeDefault(e2e.State);
+        ShouldBeTuned(e2e.State, 3f);
     }
 
     [Theory(Timeout = 120_000)]
@@ -130,6 +133,7 @@ public class ViewerDisplayMemoryE2ETests(ITestOutputHelper output) : IDisposable
         e2e.Frame();
 
         await e2e.OpenAsync(b, ct);
+        e2e.Frame();
         e2e.Controller.Document.ShouldNotBeNull().DisplayAnchor.ShouldNotBeNull("b follows a's run");
         ShouldBeTuned(e2e.State, 0f);
 
