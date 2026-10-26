@@ -315,6 +315,14 @@ namespace TianWen.UI.Abstractions
                 var row = Layout.Builder.HStack(highlight).PadX(2f)
                     .Pressable(new HitResult.ListItemHit(FileListId, fileIndex), press =>
                     {
+                        // A right press is the row's context menu and arms no scroll gesture, so its
+                        // release selects nothing; left and the rest belong to the scroll controller.
+                        if (press.Button == MouseButton.Right)
+                        {
+                            TryOpenFileRowContextMenu(state, fileIndex, press.X, press.Y);
+                            return null;
+                        }
+
                         HandleFileListScroll(state, new InputEvent.MouseDown(press.X, press.Y, press.Button,
                             press.Modifiers, press.Clicks));
                         return null;

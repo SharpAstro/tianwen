@@ -360,6 +360,46 @@ public class ViewerE2ETests
     }
 
     /// <summary>
+    /// A right press on a file row opens the image's own dropdown with the row's path and folder, and neither
+    /// selects the row nor arms a scroll gesture; picking an entry hands the payload on (#1326).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Scales))]
+    public async Task ARightPressOnAFileRowOffersItsPathAndFolder(float dpiScale)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var e2e = ViewerE2E.Start(dpiScale);
+        var first = e2e.WriteColourFits("a.fits");
+        var second = e2e.WriteColourFits("b.fits", level: 500f);
+        await e2e.OpenAsync(first, ct);
+        var copied = new List<string>();
+        var opened = new List<string>();
+        e2e.Viewer.SetClipboardText = copied.Add;
+        e2e.Bus.Subscribe<OpenUrlSignal>(sig => opened.Add(sig.Url));
+
+        var index = e2e.State.ImageFileNames.IndexOf("b.fits");
+        var selected = e2e.State.SelectedFileIndex;
+        var rowIs = (Func<HitResult, bool>)(h => h is HitResult.ListItemHit { ListId: ImageRendererBase<RgbaImage>.FileListId } item
+            && item.Index == index);
+
+        foreach (var (item, expectStatus) in new[] { (0, "Copied full path"), (1, "Opening the containing folder...") })
+        {
+            e2e.Click(e2e.Region(rowIs, "the second file's row"), MouseButton.Right);
+            e2e.State.ToolbarDropdown.IsOpen.ShouldBeTrue("a right press on a row opens the menu");
+            e2e.State.SelectedFileIndex.ShouldBe(selected, "a right press selects nothing");
+
+            e2e.Click(e2e.Region(h => h is HitResult.ListItemHit { ListId: DropdownMenuState<string>.ListId, Index: var i } && i == item,
+                $"menu item {item}"));
+            e2e.State.StatusMessage.ShouldBe(expectStatus);
+            e2e.State.SelectedFileIndex.ShouldBe(selected, "picking an entry selects nothing either");
+            e2e.IsShowing(first).ShouldBeTrue();
+        }
+
+        copied.ShouldHaveSingleItem().ShouldBe(Path.GetFullPath(second));
+        opened.ShouldHaveSingleItem().ShouldBe(Path.GetDirectoryName(Path.GetFullPath(second)));
+    }
+
+    /// <summary>
     /// A press on the transport's scrub track seeks to where it landed and pauses, and the drag that follows goes on
     /// seeking until the button comes up: the track is DIR.Lib's slider, whose press arms its own drag (#1489), not a
     /// flag on the state that the move and release handlers each had to remember. After the release a move seeks
