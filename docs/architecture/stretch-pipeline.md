@@ -113,6 +113,77 @@ the Luma-weighting options below. The shipped `[x]` items and their provenance n
 see [`pixinsight-parity.md`](../plans/pixinsight-parity.md) for the indexed cross-reference (this
 architecture doc previously carried none, which is the gap that doc exists to close).
 
+## Demagenta on a frame with no star split (#1824)
+
+The demagenta of #1777 (`G' = max(G, min(R, B))`, `ScreenedStars.Demagenta`) is shipped on the stars plate of a star
+split only. A frame with no enhance has no such plate, and its magenta star cores stay magenta. #1824 asks whether the
+same step should run on that frame: **A**, on the whole frame, or **B**, weighted by the star mask (`rise = w * dG`,
+`w` the mask feathered by a Gaussian of 1 px). **Nothing is implemented**: this section is the measurement the owner
+picks from. `tools/master-quality/demagenta.py` made every figure, from the sidecars of
+`tianwen image sources <master> --maps` (reproduce: that command, then `python tools/master-quality/demagenta.py
+<master> --sidecars <dir> --out <dir>`). Figures are the share of a region's pixels whose green rises by more than 1
+sigma and 3 sigma of the green RMS map, and the 99th percentile of the rise in sigma.
+
+**The three masters.** Sculptor (L-Quad, 233 subs) and Tarantula (L-Quad, 104 subs) are TianWen drizzle masters,
+linear, three planes. The Sag Triplet is an external HOO composite (R = Ha, G = B = OIII): it has no exposure,
+instrument or TianWen card, and sits on a pedestal of about 0.064 (plane minima 0.0637 to 0.0642, medians 0.0658), so it
+is linear plus a pedestal as far as its numbers can say, not proven so.
+
+**HOO is a no-op, by construction.** G equals B in every pixel (maximum difference 0), so `min(R, B)` is never above
+G and the rise is zero everywhere: 0 pixels of 9.4 million move, under A and under B. Ha-red over cyan, which the rule
+looks like it could lift, is untouched, because it only ever lifts where both R and B exceed G. A and B are bit-equal
+to the master on this frame and need no special case.
+
+| Master | Variant | Region | Pixels | > 1 sigma | > 3 sigma | p99 rise |
+|---|---|---|---|---|---|---|
+| Sculptor | A, whole frame | stars | 529,820 | 15.79 % | 3.23 % | 6.470 |
+| Sculptor | A, whole frame | structure | 15,029 | 0.11 % | 0.01 % | 0.061 |
+| Sculptor | A, whole frame | sky | 7,907,667 | 12.01 % | 0.82 % | 2.883 |
+| Sculptor | B, star mask | stars | 529,820 | 15.79 % | 3.23 % | 6.470 |
+| Sculptor | B, star mask | structure | 15,029 | 0.02 % | 0.00 % | 0.000 |
+| Sculptor | B, star mask | sky | 7,907,667 | 0.01 % | 0.00 % | 0.020 |
+| Sculptor | B, ring 1 to 4 px past the mask | magenta left (residual) | 655,945 | 11.06 % | 0.62 % | 2.718 |
+| Tarantula | A, whole frame | stars | 3,158,007 | 3.30 % | 0.56 % | 2.060 |
+| Tarantula | A, whole frame | structure | 161,931 | 1.29 % | 0.15 % | 1.137 |
+| Tarantula | A, whole frame | sky | 5,578,273 | 1.48 % | 0.01 % | 1.171 |
+| Tarantula | B, star mask | stars | 3,158,007 | 3.30 % | 0.56 % | 2.060 |
+| Tarantula | B, star mask | structure | 161,931 | 0.58 % | 0.08 % | 0.701 |
+| Tarantula | B, star mask | sky | 5,578,273 | 0.00 % | 0.00 % | 0.070 |
+| Tarantula | B, ring 1 to 4 px past the mask | magenta left (residual) | 1,984,983 | 1.09 % | 0.01 % | 1.034 |
+| Sag Triplet HOO | A and B | stars, structure, sky, ring | 3,455,322 / 106,754 / 5,783,954 / 2,703,660 | 0.00 % | 0.00 % | 0.000 |
+
+Inside the star mask A and B are the same number (the weight there is 1). They differ only outside it.
+
+**What the crops show** (before | A | B through one stretch from the before frame; every crop looked at):
+
+- **Stars: A and B give the same picture.** The magenta halo on the brightest Tarantula star and the pink core of the
+  brightest Sculptor star both go to white-and-red in both, with no visible difference between the two. On Sculptor
+  both leave a faint stair pattern in the whitened core, the R and B planes' own noise copied into G, and no
+  difference between them.
+- **Sky: A tints it, B does not.** On Sculptor A turns the dark sky of the whole frame a visible green (12 % of the sky
+  pixels lift past 1 sigma, p99 2.9 sigma, which is the pure noise bias of `min(R, B) - G`, the sky rows of B being 0.01
+  %). On Tarantula A takes some of the faint blue cast off the dark edge (1.48 % of the sky), which is a colour change and
+  not a star fix; B leaves it. The sky-patch crops show the same on both.
+- **Structure: A moves it twice as much as B, and neither is visible.** The Sculptor galaxy keeps its salmon and its
+  core (0.11 % and 0.02 %). Tarantula's nebula moves 1.29 % under A and 0.58 % under B, the B share being the star
+  mask's margin overlapping the nebula, and the crops of the nebula look the same to the eye.
+- **The halo past the mask.** The ring 1 to 4 px past the mask carries 12.25 % of Sculptor pixels over 1 sigma and
+  1.45 % on Tarantula, which are the sky's own noise-bias rates (12.01 %, 1.48 %): the ring figures cannot tell a halo
+  from noise, so none can be measured above it. B removes 0.12 % and 0.01 % of them. One Sculptor star with a pink fringe
+  (the left edge of the structure crop) keeps its fringe in B and shows a little less of it in A.
+- **Crowding sets B's cost.** The star mask covers 6.3 % of Sculptor's valid pixels and 35 % of Tarantula's (the
+  crowded-field rule raised its detection to 5 sigma), so on Tarantula B is a third of the frame and its saving over A
+  is smaller than on Sculptor.
+
+**Recommendation: B, the star mask weighted demagenta, as one toggled stage in the CPU and GPU mirror.** It gives the
+star cores of A exactly (same figures in the star rows, same picture) and none of A's cost: no green sky on Sculptor
+(0.01 % against 12.01 % of the sky), half the structure change on Tarantula. Its open point is the fringe past the
+mask: the mask's margin (`--margin`, 3 px) is the lever, and the figures above cannot size it, so it wants an eye on a
+frame with bright pink fringes before the margin is fixed. The stage must go into `image.frag` and the CPU helpers
+together, take the mask from the same detection `image sources` runs, and skip a frame that carries a star split, so
+the stars plate is not demagentaed twice. A is the simpler stage (no mask) and the one to pick if a frame must render
+with no detection pass; the price is the sky tint above.
+
 ## `Linked` and `Unlinked` mean what they mean in PixInsight
 
 The difference lives ENTIRELY in the uniforms -- neither the GLSL nor `StretchChannelCpu` branches on
