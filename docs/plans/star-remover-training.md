@@ -4666,10 +4666,9 @@ Tracked by #1781 (the step S4's verdict named). **What was built:** `dataset deg
 ##### S4b: the noise level (#1786)
 
 Folded into this flight (F5). The stars export's noise ran 1.11 to 1.17 times the real master's on the QHY294PROC (Lobster)
-and 1.00 on M42 and SMC. **The cause is named from the code and reproduced on a constructed plate. The per-session
-re-read on the 8 validation sessions is NOT done**: those sessions, synth4's tiles and #1786's instruments
-(`C:/temp/tianwen-scratch/TIA1737/colours`) are not on the machine this leg ran on (no archive drive, no scratch folder), so the
-table below is the constructed plate's, and the real one is still owed (see the last bullet).
+and 1.00 on M42 and SMC. **A mechanism is named from the code and reproduced on a constructed plate, but it does not carry
+Lobster's excess: the per-session re-read on the 8 validation sessions is in "S4b: the level re-read on the validation sessions"
+below, and Lobster stays at 1.16 after the fix.** The constructed-plate numbers in this section describe the mechanism only.
 
 - **Not the noise anchor.** The exporter draws `sigma(level) * field` with the master's own recorded calibration
   (`CellMasterCalibration`: the master row's `NoiseSigma`, times `sqrt(N)` for one sub and back by `masterDepth`), and
@@ -4685,8 +4684,8 @@ table below is the constructed plate's, and the real one is still owed (see the 
 - **Reproduced** (`SyntheticBackgroundTests.ASyntheticNebulaOnAShotNoiseRampReadsTheNoiseOfThePlateItCameFromAndNotMore`):
   a 512 px one-channel plate, sky 0.05, a smooth nebula rising to 4x the sky, noise on the shot ramp and nothing else in it.
   The background built from it and drawn with the exporter's noise read **1.20 times the plate's adjacent-difference sigma**
-  over the nebula's middle 96 px (the estimator of #1786's table), inside the band 1.11 to 1.17 once a tile's
-  sky share is averaged in. Texture amplitude at the nebula's top averaged 0.38 of the local noise at the first scale that failed the bound (the
+  over the nebula's middle 96 px (the estimator of #1786's table). That is the band's order (1.11 to 1.17) only by construction
+  of the plate: the real re-read below shows the mechanism is not what Lobster's tiles hold. Texture amplitude at the nebula's top averaged 0.38 of the local noise at the first scale that failed the bound (the
   test's 0.3), from a plate that holds nothing but noise (`ANebulaOnAShotNoiseRampHoldsNoTextureAtTheScalesOfItsOwnNoise`).
 - **The fix** (`SyntheticBackground.NoiseVarianceRamp`, in `Build` per channel): the noise taken out of a pixel's local energy
   is the sky's variance times the plate's own ramp at that pixel (`SigmaAt`'s clamp, `MinVarianceFraction` to
@@ -4702,7 +4701,7 @@ table below is the constructed plate's, and the real one is still owed (see the 
   1.05 or under with M42, SMC and HIP 80609 not past 1.05. If Lobster is still above, the next suspect is the lag-1 of the warped
   field against real's (the adjacent-difference estimate falls with correlation), which S4b's per-channel structure now measures.
   Every export baked before this change drew the doubled noise. **Answered below** ("S4b: the level re-read on the validation
-  sessions").
+  sessions"): Lobster did not move.
 
 ##### S4b: the level re-read on the validation sessions
 
@@ -4724,6 +4723,11 @@ faulty first one). Median per session, before the fix (synth4) and after it:
 | HIP 80609 | 0.997 | 0.997 | 0.997 |
 | HIP 80609 flip a | 1.012 | 1.012 | 1.008 |
 | HIP 80609 flip b | 1.018 | 1.018 | 1.019 |
+
+The synth4 column is this leg's read of synth4's tiles by the one estimator above (the mean of the three channels per tile, then the
+median over the session), so Lobster's flips read 1.092 and 1.104 here where #1786 recorded 1.11 and 1.13: the difference is
+the estimator (this leg's mean of three channels per tile) or the re-stretch recipe (the corrected `restretch2`), not measured apart,
+and the columns of this table compare with each other, not with #1786's.
 
 - **Lobster stays above the 1.05 bar**: 1.159 (base) and 1.156 (struct) on the main session, 1.08 to 1.10 on its flips. The fix did
   not move it (1.161 before). Its red and green channels carry the excess (about 1.19) and blue sits at about 1.10.
@@ -4762,7 +4766,7 @@ By rig, red-green at lag (0,0) and (0,1), and the own lag-1 of green (real / str
 - **Base is synth4**: with the structure off the cross-correlation is the near-zero of synth4 at every lag, so the #1786 fix changes
   none of it (as expected; it moves a level, not a structure).
 - **Struct draws real's lagged cross-structure**: the lag (0,1) and (1,0) red-green, green-blue and red-blue values come to within
-  a few thousandths of real's pooled (RG 0,1 .041 against .052; GB .026 against .028; RG 1,0 .046 against .050), where `corr` had
+  about .01 of real's pooled (RG 0,1 .041 against .052; GB .026 against .028; RG 1,0 .046 against .050), where `corr` had
   only the zero lag (RG 0,0 .079 against real's .099, and lag (0,1) .017) and synth4 none. The (1,1) and (0,2) values are small in real
   and small in struct (RG 1,1 .012 against .025).
 - **Where it overshoots or undershoots**: on the ASI533MC Pro the struct blue lags are too strong (RB 1,1 +.078 against real's +.050,
@@ -4815,7 +4819,11 @@ seeds, the seeds' range in brackets:
 **Verdict: F5's gate is NOT met.** The noise-crop AUC is below 0.70 on the mean (struct .659, struct-rs .671), but only because one
 rig's crops crossed to the far side of chance while the QHY294PROC and ASI533MC Pro became easier to tell (.82 and .74, from .73 and
 .66), and Lobster's sigma ratio is 1.16, not within 1.05. `--channel-noise-structure` is **not proposed for adoption** and stays off by
-default; the owner decides. What it needs before another read: the kernels' own shapes constrained, per axis, and each axis's lag-1
+default; the owner decides.
+
+###### S4b: what it needs before another read
+
+Tracked by #1847 (the follow-up; #1781 is closed by the PR that built the option, and this is what it did not deliver). Needed: the kernels' own shapes constrained, per axis, and each axis's lag-1
 held (today only the pooled horizontal-plus-vertical raw lag-1 is held; see the diagnosis above), and Lobster's level excess found
 (red and green at 1.19, blue 1.10, the #1786 mechanism ruled out above; #1786 stays open).
 
