@@ -1016,7 +1016,8 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.ZoomFit or ToolbarAction.ZoomActual or ToolbarAction.Zoom => HasPicture,
             // Only on the bar where the host offers it (ToolbarOffer), so the gate here is just "have an image".
             // Re-click while a pass runs is harmless -- the controller guards on IsEnhancing.
-            ToolbarAction.Enhance => document is not null,
+            // The planetary half (a SER, the live stack) has no document, and its sharpening is what the button opens (#1345).
+            ToolbarAction.Enhance => document is not null || (HasPicture && _state is { EnhancesAsPlanet: true }),
             // Pixels, not a document: the pinned-settings comparison is just as useful on a SER
             // sequence (which has no document at all) as on a still.
             ToolbarAction.Compare => HasPicture,

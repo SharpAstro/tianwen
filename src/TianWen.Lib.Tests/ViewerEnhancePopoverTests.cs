@@ -363,7 +363,7 @@ namespace TianWen.Lib.Tests
             var (viewer, state, _) = await OpenAsync(renderer, dpiScale, ct, OnAStackedCapture);
 
             state.EnhancesAsPlanet.ShouldBeTrue();
-            HitsBelowTheBar(viewer).Keys.ShouldBeEmpty("neither the AI backends nor Run, Cancel and Off are on a planet's way");
+            HitsBelowTheBar(viewer).Keys.ShouldBe(["EnhancePanelBackground"], "neither the AI backends nor Run, Cancel and Off are on a planet's way");
 
             var hits = PlanetaryHits(viewer).Keys;
             hits.ShouldContain("PlanetJupiter");
