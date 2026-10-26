@@ -375,13 +375,18 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 TransportTrackFill = RGBAColor32.FromFloat(0.30f, 0.50f, 0.80f, 1f);
 
         /// <summary>
-        /// The style the Best stack panel's planet and telescope groups and the tone popover's colour look are drawn in, read per paint since
-        /// the palette changes with the theme. Its text is the palette's but its fills are the toolbar's fixed greys, so in Light the text is
-        /// near black on dark grey: the transport's Raw / Stack / Auto switch keeps its literal light text until the fills come from the
-        /// palette too, which the Enhance popover that rehouses these controls owes (P36, #1345; found by the audit on #1343).
+        /// The idle fill of a choice: the palette's panel colour moved a step toward its ink, so a segment reads as a button on the
+        /// panel it sits in, in Light and Night as in Dark (P36, #1345).
         /// </summary>
-        private static Layout.ButtonGroupStyle PlanetaryChoiceStyle => new Layout.ButtonGroupStyle(TransportTrackFill, ToolbarButtonBg,
-            ViewerTheme.Palette.BodyText, ViewerTheme.Palette.BodyText, GuiTheme.Hover(ToolbarButtonBg));
+        private static RGBAColor32 ChoiceFill => GuiTheme.Hover(ViewerTheme.Palette.PanelBg);
+
+        /// <summary>
+        /// The style of every choice group of the viewer's chrome: the Enhance popover's backend and planetary choices, the tone popover's
+        /// colour look and the transport's Raw / Stack / Auto switch. Fills, text and hover all come from the palette, read per paint
+        /// since the palette changes with the theme.
+        /// </summary>
+        private static Layout.ButtonGroupStyle PlanetaryChoiceStyle => new Layout.ButtonGroupStyle(ViewerTheme.Palette.Selection, ChoiceFill,
+            ViewerTheme.Palette.BodyText, ViewerTheme.Palette.BodyText, GuiTheme.Hover(ChoiceFill));
         private static readonly RGBAColor32 TransportHandle = RGBAColor32.FromFloat(0.85f, 0.85f, 0.90f, 1f);
         // Shared chrome for every track slider (WB / wavelet / scrub) -- identical at all call sites; the
         // DrawTrackSlider control lives in DIR.Lib PixelWidgetBase and takes these two colours as a param.

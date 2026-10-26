@@ -30,12 +30,12 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// The docked info strip, as ONE tree the engine measures, arranges and paints: the metadata, the statistics, the
-        /// frame's grade, the planetary sections where they apply, and the Cursor readout at the bottom.
+        /// frame's grade and the Cursor readout at the bottom. It REPORTS and holds no control but the Statistics heading.
         /// </summary>
         /// <remarks>
         /// <para>The metadata and the statistics read the SOURCE (InfoPanelData), so any source could show them; which do is
-        /// still decided here, a document's only: a SER and the planetary stack show only what applies to a sequence (the
-        /// wavelet controls of the stacked view). A SER's statistics are its first frame's, which a scrub would show under
+        /// still decided here, a document's only: a SER and the planetary stack show only the Cursor readout (their sharpening
+        /// controls are the Enhance popover's planetary half). A SER's statistics are its first frame's, which a scrub would show under
         /// every frame, so widening this waits for P3 (docs/plans/live-session-preview.md).</para>
         /// <para><b>The Statistics table opens where the strip has the room for it</b> and rolls up to its heading where it
         /// has not: it is the tallest block here and the one most frames never need, so it gives way first. The room is the
@@ -61,12 +61,6 @@ namespace TianWen.UI.Abstractions
             FillRect(panel.X, panel.Y, panel.Width, panel.Height, ViewerTheme.InfoPanelBg);
             var rect = new RectF32(panel.X, panel.Y, panel.Width, panel.Height);
 
-            // The wavelet dials carry the gains into the tree by reference, so they are seeded before it is built.
-            if (ShowsWavelets(state))
-            {
-                SeedWaveletDials(state);
-            }
-
             var ctx = MeasureContext();
             var roomy = Layout.Engine.Measure(BuildInfoStrip(source, state, document, statisticsOpen: true, toggle: null),
                 new Layout.Size<float>(rect.Width, float.MaxValue), ctx).Height <= rect.Height;
@@ -84,12 +78,6 @@ namespace TianWen.UI.Abstractions
 
             PaintLayout(ArrangeLayout(tree, rect, ctx), ctx, DrawSectionRule);
         }
-
-        /// <summary>The planet and telescope section: the Best stack's and the live view's Derive (#1159), a planetary master's (#1314).</summary>
-        private static bool ShowsTelescope(ViewerState state) => state.ShowStacked || state.SequencePath is not null || state.IsPlanetaryMaster;
-
-        /// <summary>The wavelet dials: the live stacked view's and a planetary master's (#1314). They re-sharpen a master, not a raw frame.</summary>
-        private static bool ShowsWavelets(ViewerState state) => state.ShowStacked || state.ShowAuto || state.IsPlanetaryMaster;
 
         private Layout.Node BuildInfoStrip(IPreviewSource source, ViewerState state, AstroImageDocument? document,
             bool statisticsOpen, Action? toggle)
@@ -147,17 +135,8 @@ namespace TianWen.UI.Abstractions
             // The white-balance sliders and the selection used to be sections here: a toolbar popover now
             // (ImageRendererBase.WhiteBalancePanel.cs), and a panel floating over the picture
             // (ImageRendererBase.SelectionPanel.cs).
-            if (ShowsTelescope(state))
-            {
-                sections.Add(Section([SectionHeading("Planet and telescope"),
-                    BuildTelescopeTree(state, source.SensorType is SensorType.Monochrome)]));
-            }
-
-            if (ShowsWavelets(state))
-            {
-                sections.Add(Section([SectionHeading("Wavelet Sharpen"), BuildWaveletTree(state)]));
-            }
-
+            // The planet and telescope and the wavelet sharpening were sections here: the Enhance popover's planetary half now
+            // (ImageRendererBase.EnhancePanel.cs). The strip reports and holds no control.
             // The keyboard-shortcut list that sat at the bottom is gone: a shortcut rides its button's tooltip, and the rest
             // live behind the toolbar's "?" list.
             sections.Add(Layout.Builder.Spacer().HStar());
@@ -342,7 +321,7 @@ namespace TianWen.UI.Abstractions
                         // Widest of the two labels, stated once on the node, so toggling it cannot move
                         // the Reset button beside it.
                         widthSample: "Sharpen: Off",
-                        background: state.WaveletSharpenEnabled ? TransportTrackFill : ToolbarButtonBg),
+                        background: state.WaveletSharpenEnabled ? ViewerTheme.Palette.Selection : ChoiceFill),
                     PanelButton("Reset", "WaveletReset", enabled: true,
                         onPress: () =>
                         {
