@@ -4001,7 +4001,7 @@ Every flight is filed as an issue in the `star-remover-training` milestone and l
 | F2 fair reads | #1827 | A's draws and both twins re-exported on the master's stretch; R2i seed 0 and 1, R2t, R2w re-scored on them; bright-band bars stated from two seeds; M42 read per session in the scorecard | the four baselines' rows on the new sets in the plan | F1 |
 | F3 the dig penalty | #1362 | the speckle teacher as a trainer option, pinned to `StarlessSpeckles` by a parity fixture. **Landed:** the port and fixture, then `--speckle-weight` / `--speckle-sigma` in `n2n_smoke.py` (off by default, in the fingerprint only when set, in the training and held-out objectives, logged), `-SpeckleWeight` / `-SpeckleSigma` in `run-r2.ps1` and `arm-driver.ps1`; see "The speckle teacher" | the fixture passes on CPU; the option off is byte-identical training | none |
 | F4 the wings by brightness | #1241 | S1b: each rig's wing gain with a brightness term, drawn per channel inside the real channel relation (R2s's lesson); the classifier's spread over seeds read first | star-crop AUC moves past the classifier's own spread, and no drawn star outside every real master's relation | none |
-| F5 the noise | #1781, #1786 folded in | S4b's shared component with real's cross-structure at lags 0 to 2, and the QHY294PROC's noise anchor recalibrated | noise-crop AUC below synth4's 0.70 and Lobster's sigma ratio within 1.05 | none |
+| F5 the noise | #1781, #1786 folded in | S4b's shared component with real's cross-structure at lags 0 to 2, and the QHY294PROC's noise anchor recalibrated | noise-crop AUC below synth4's 0.70 and Lobster's sigma ratio within 1.05 (**not met**, 2026-10-26: Lobster 1.16, and the AUC's fall is one rig's; "S4b: the read") | none |
 | F6 the clusters' stretch | #1823 | the synthetic cluster tiles stretched with the master's parameters, as synth11's are (they took the plate's, 1.32 to 1.53 times gentler at the sky), and re-exported | the 90 skies re-exported and packed into a cache beside synth11's | none |
 | R3a | to open | R2t's recipe on a master-stretched export, no teacher, seeds 0 and 1, both on the 1070 | both rows on whole masters, real tiles and F2's sets | F2, F6 |
 | R3b | to open | R3a plus the dig penalty on the synthetic tiles | its read | R3a, F3 |
@@ -4770,8 +4770,42 @@ By rig, red-green at lag (0,0) and (0,1), and the own lag-1 of green (real / str
   QHY294PROC .120 against .179, ASI533MC Pro .105 against .171, but ASI585MC Pro .286 against .169 and ASI294MC .327 against .261.
   Red and blue are within about .03 of real's pooled. The structure is drawn for the cross terms, and the own lag-1 is not held to
   real's; that is the second thing the next leg should look at beside the level.
-- **The AUC part is left for the next leg**: the classifier AUC of base and struct against real (the synthetics review's 0.81 for
-  synth4) is not read here.
+
+The noise-only classifier (`domain_classifier.py`, mode `noise`: 16 px crops with no pixel over 4 sigma above the local sky, less
+their 5 px box mean; leave one camera out over the 8 sessions), run on the CPU at seeds 0, 1 and 2 over base and struct as exported
+and re-stretched to the master's stretch (`-rs`). Its AUC is the mean of the four held-out cameras' folds. synth4, `corr` and their
+`-rs` rows are #1739's runs (`tia1739/cls.txt`); this leg's are in `C:/temp/tianwen-scratch/tia1781/cls.txt`. Mean over the three
+seeds, the seeds' range in brackets:
+
+| source | AUC | QHY294PROC | ZWO ASI294MC | ZWO ASI533MC Pro | ZWO ASI585MC Pro |
+|---|---|---|---|---|---|
+| synth4 | .699 (.687 to .715) | .729 | .616 | .660 | .792 |
+| corr (#1739) | .726 (.714 to .745) | .737 | .629 | .745 | .796 |
+| base | .697 (.690 to .706) | .731 | .601 | .654 | .801 |
+| struct | .659 (.646 to .681) | .818 | .587 | .739 | .492 |
+| synth4-rs | .690 (.675 to .701) | .724 | .606 | .655 | .775 |
+| corr-rs (#1739) | .721 (.716 to .727) | .732 | .624 | .734 | .795 |
+| base-rs | .691 (.678 to .706) | .720 | .613 | .642 | .789 |
+| struct-rs | .671 (.661 to .690) | .819 | .587 | .761 | .516 |
+
+- **Base is synth4 to the classifier**: .697 against .699, every rig within .015, inside synth4's own spread. The #1786 fix moved
+  nothing a noise crop shows, as the level read above found.
+- **Struct's mean falls below synth4's spread** (.659 against .687 to .715; re-stretched .671 against .675 to .701), but **the fall
+  is one rig's, and two rigs rise**. On the ASI585MC Pro the AUC drops from .80 to .49 (.52 re-stretched), and at seed 2 to .43, under
+  chance: the classifier trained on the other three rigs now reads the 585's synthetic crops as more real than real, which is a
+  difference too, not a match. The QHY294PROC rises from .73 to .82 and the ASI533MC Pro from .66 to .74 (.76 re-stretched), both far
+  outside synth4's spread; the ASI294MC is unmoved (.59 against .60 to .62).
+- **The rises follow the own lag-1 the structure moved** (the lag table above): green's lag-1 fell to .120 against real's .179 on the
+  QHY294PROC and to .105 against .171 on the ASI533MC Pro, and rose to .286 against .169 on the ASI585MC Pro. The cross-structure came to
+  real's, and each channel's own neighbourhood went away from it, by rig in opposite directions; a noise crop sees the second more than
+  the first. `corr` (the zero lag alone) raised every rig a little; struct trades the zero-lag gap for a lag-1 one.
+- **Lobster's sigma ratio stays 1.16** (base 1.159, struct 1.156), past the gate's 1.05.
+
+**Verdict: F5's gate is NOT met.** The noise-crop AUC is below 0.70 on the mean (struct .659, struct-rs .671), but only because one
+rig's crops crossed to the far side of chance while the QHY294PROC and ASI533MC Pro became easier to tell (.82 and .74, from .73 and
+.66), and Lobster's sigma ratio is 1.16, not within 1.05. `--channel-noise-structure` is **not proposed for adoption** and stays off by
+default; the owner decides. What it needs before another read: each channel's own lag-1 held to the REAL plate's per rig (today it is
+held to the draw's own), and Lobster's level excess found (red and green at 1.19, blue 1.10, the #1786 mechanism ruled out above).
 
 #### A learned synthetics generator, kept in sight
 
