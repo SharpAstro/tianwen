@@ -4003,7 +4003,7 @@ Every flight is filed as an issue in the `star-remover-training` milestone and l
 | F4 the wings by brightness | #1241 | S1b: each rig's wing gain with a brightness term, drawn per channel inside the real channel relation (R2s's lesson); the classifier's spread over seeds read first | star-crop AUC moves past the classifier's own spread, and no drawn star outside every real master's relation | none |
 | F5 the noise | #1781, #1786 folded in | S4b's shared component with real's cross-structure at lags 0 to 2, and the QHY294PROC's noise anchor recalibrated | noise-crop AUC below synth4's 0.70 and Lobster's sigma ratio within 1.05 | none |
 | F6 the clusters' stretch | #1823 | the synthetic cluster tiles stretched with the master's parameters, as synth11's are (they took the plate's, 1.32 to 1.53 times gentler at the sky), and re-exported | the 90 skies re-exported and packed into a cache beside synth11's | none |
-| R3a | to open | R2t's recipe on a master-stretched export, no teacher, seeds 0 and 1, both on the 1070 | both rows on whole masters, real tiles and F2's sets | F2, F6 |
+| R3a | #1828 | R2t's recipe on a master-stretched export, no teacher, seeds 0 and 1, both on the 1070 | both rows on whole masters, real tiles and F2's sets | F2, F6 |
 | R3b | to open | R3a plus the dig penalty on the synthetic tiles | its read | R3a, F3 |
 | R3b2 | filed after R3b's read | the dig penalty on real master tiles too, beside the synthetic loss, which must stay or the net learns to remove nothing | its read, timidity checked: real stars within a sigma at 100 to 1000 sigma no worse than R3b's | R3b |
 | R3c | filed after R3b's read | the winner plus a teacher rebuilt from R3a's two seeds (E7, 8 views) | its read | R3b |
@@ -4069,6 +4069,62 @@ Every line carries `--timeout 8h` (pilot run's default is 2 h); a job killed at 
 - The four-level net has never trained on the 1070 (R2nc, R2t and R2u ran on T4s), so its time there is measured on R3a's
   first job, not assumed.
 - The 1070 and the Azure group are idle; no scheduled task is left (all retired 2026-10-24).
+
+##### R3a's pre-registration (2026-10-26)
+
+**When this was written.** After seed 0 trained and before any R3a score was read: no scorer, no whole-master run and no GPU
+test has touched either R3a checkpoint. Seed 1 is still training on the 1070 (step 24,400 of 224,500 at 11:55 on 2026-10-26,
+due about 23:15); this section is fixed before it finishes, so its read cannot move the bars.
+
+**Inputs, as checked (read-only, 2026-10-26).**
+
+| input | found |
+|---|---|
+| synth11's export | `C:/temp/tianwen-scratch/r2-train-synth11/export.done` exists |
+| synth11's cache | `r2-synth11/meta.json` and `prepare.done`: 4 injected draws, 4,520 train and 320 held-out cells, 11 slots, 3 channels |
+| F6's clusters (#1823) | `r3-clusters-master-cache`: 2,592 train and 288 held-out cells, 1 injected draw, master-stretched |
+| the trainer | `C:/temp/e2/r3a-run/FROZEN-AT.txt` names the commit "build: the camera SDKs on TianWen.DAL 4.0, whose offset control is BlackLevel" |
+| seed 0's weights | `r2-synth11/r3a_synth11_s0.pt` exists |
+
+**The recipe, from the driver's command line and the head of seed 0's log.** R2p's base line (`--synthetic --loss l2 --upsample
+--cond-map --band-loss 3 --band-scales "2,4 4,8" --base 32 --val-every 500 --patience 24 --max-decays 4 --min-improve 0.001
+--gate-every 0`), `--levels 4 --max-ch 256 --clip-grad 8 --schedule cosine --steps 224500 --seed 0`, `--extra-cache` the
+clusters (the log: "extra cache ON ... 12.5% of the training draw"), `--checkpoint-every 2000 --resume`, no teacher. The log
+prints "levels=4 (channels capped at 256), 6.86 M params, 4520 train cells" and "gradient clipping ON". It matches the brief.
+
+**Seed 0 on the 1070, measured:** 224,500 steps in 698.1 min (11.6 h) at 42.9 tiles/s (41.7 at the first 200 steps), loss
+0.00000 at the end, no error output. That is the four-level net's time on this card; R2nc, R2t and R2u ran on T4s.
+
+**What is compared.** R3a seed 0 and seed 1 against R2t and R2w (the two arms on the same recipe or the same stretch), on:
+the three whole masters (Andromeda, the Tarantula and the held-out crowded field), the real tiles with M42 per session, and
+F2's sets (A's draws and the lobed twin, `f2-sets.json`, 7 sessions) against the four baselines' rows in "F2's read". R2t is
+the one to beat there: A's draws 59.2 clean and 32.4 dug at 100-1000 sigma (56.7 / 24.2 saturated), the lobed twin 58.1 / 34.0,
+M42 83.5 % flat.
+
+**Predictions.** R3a is R2t's recipe on the stretch inference runs in, so it is R2t's net with the domain skew removed.
+
+1. **A's draws, clean at 100-1000 sigma:** each seed at least 59.2 minus 2.6, and the two seeds' mean at or above R2t's 59.2.
+   R2t barely moved with the stretch in colour (+0.8), so no large jump is expected; a gain would come from the dug side.
+2. **A's draws, dug at 100-1000 sigma:** the mean no worse than 32.4, with a hope of 29 or less. R2w's master-stretched data
+   cut its dig against the plate-stretched R2i, and R3a has R2t's capacity on top of it.
+3. **Lobed twin:** the same signs, clean at least 55.0 and dug at most 37.9 per seed (R2t's rows less and plus the 3.1 and
+   3.9 bars).
+4. **Whole masters:** Andromeda's dug count (28.8 % for R2w, the best round-2 row) moves toward R2w's and no worse than
+   R2t's; the Tarantula's left count stays at R2t's 40.3 % or below. Neither is expected to close on SXT, whose gap is the dig
+   penalty's (R3b).
+5. **M42:** flat within 6.4 points of R2t's 83.5 per seed, so at least 77.1 %.
+6. **Seeds:** a bright-band difference between the two seeds under 2.6 clean and 3.2 dug on A's draws is a seed's, as is
+   every other gap under F2's bars.
+
+**Guards, either seed failing one is a fail.** Purity (light taken where no star is) at most 1.0 %. M31's nucleus read
+without `--protect-cores` at most 5 % in every channel. M42 read per session, no session more than 6.4 points under R2t's.
+
+**Kill rule.** R3a is killed as a base for R3b if, on A's draws at 100-1000 sigma, EITHER seed is under 56.6 clean (R2t less
+the bar of 2.6) AND the lobed twin agrees (under 55.0); or if either seed fails a guard; or if both seeds' dug at 100-1000
+sigma on A's draws is above R2t's 32.4 by more than 3.2. A kill on one set alone, or a spread between the seeds past the bars,
+is reported and the arm kept: R3b would then start from R2t's recipe on the master's stretch, which R2w and F2 already say is
+the right stretch. A pass needs no win over R2t, only no loss past the bars and clean guards, since R3a's job is the
+two-seed baseline (and E7's members) for R3b and R3c. Seeds spread over the bars are read as the arm's own bars from then on.
 
 ##### Deferred, and why
 
