@@ -684,7 +684,7 @@ public static partial class DatasetDegradationExporter
     {
         var size = cell.TileSize;
         var channels = unitPlate.ChannelCount;
-        var plan =population.Plan(cell.X, cell.Y, size, InjectionMarginPx, options.Placement, options.Profile, options.SaturatedFraction, new Random(seed),
+        var plan = population.Plan(cell.X, cell.Y, size, InjectionMarginPx, options.Placement, options.Profile, options.SaturatedFraction, new Random(seed),
             variation, variation is null && wingCut is null ? null : new Random(seed ^ 0x2545f491), wingCut,
             population.Luminosity is null ? null : new Random(seed ^ 0x3c6ef372));
 

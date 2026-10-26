@@ -1861,7 +1861,7 @@ internal sealed partial class DatasetSubCommand(IConsoleHost consoleHost, IPlate
             Description = "--mode stars: as --channel-noise-correlation, but the shared part is drawn with the master's spatial " +
                           "cross-structure: each pair's correlation at every offset up to two pixels, measured on its starless plate, " +
                           "fitted by kernels over one shared field drawn from a stream of its own, each channel keeping unit variance " +
-                          "and its own lag-1 (Synthetics S4b, #1781). Not with --channel-noise-correlation.",
+                          "and its own pooled (horizontal plus vertical) lag-1, not per axis (Synthetics S4b, #1781). Not with --channel-noise-correlation.",
         };
         var stretchFromOpt = new Option<string?>("--stretch-from")
         {
