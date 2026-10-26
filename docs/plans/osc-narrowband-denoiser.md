@@ -677,7 +677,7 @@ server endpoint / the viewer. `EnhanceBackend.N2n` closes that, with three delib
   `nxt --dn`, N2N maps it to the blend (`out = in + s*(den - in)`, null = 1.0). No second flag for
   the same user intent.
 
-The viewer's right-click backend cycle gains the fourth stop (Auto -&gt; RC -&gt; SAS -&gt; N2N,
+The viewer's backend choice (a right-click cycle then, the Enhance popover's button group since #1345) gains the fourth stop (Auto -&gt; RC -&gt; SAS -&gt; N2N,
 label `Enhance (N2N)`); the server endpoint inherits the value through the shared
 `EnhanceOptions.TryParse`. Pinned by `EnhanceOptionsTests` (parse), `RcAstroPhase3Tests`
 (the routing matrix: explicit n2n, degrade-to-Auto without a lane, and the four-row rescue

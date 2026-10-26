@@ -1487,6 +1487,8 @@ Partial-class structure, one layout root, the shared slider, the live-preview ho
 label-width rule, and **this section in full**: `docs/architecture/widgets-and-controls.md` (§ The FITS viewer
 widget, and "Rules in full (moved from CLAUDE.md, 2026-10-09)").
 
+- **The Enhance popover has two halves, chosen by ONE predicate** (`ViewerState.EnhancesAsPlanet`, #1345): the AI
+  program for deep sky, the planetary sharpening for a planet; the info strip holds no controls.
 - **Two live sources, not interchangeable**: `LiveFramePreviewSource` is per-EXPOSURE and holds no document,
   `LiveStackPreviewSource` is video-rate and wraps an `AstroImageDocument`; a cost argument about "the live path"
   names which. `StretchSolver.CollectPerChannelStats` and `CollectChannelHistograms` are two collectors on purpose.
