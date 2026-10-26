@@ -207,7 +207,14 @@ internal sealed class ViewerE2E : IAsyncDisposable
 
     /// <summary>A click on a toolbar button, which must be on the bar.</summary>
     internal void Click(ToolbarAction action, MouseButton button = MouseButton.Left)
-        => Click(ToolbarButton(action), button);
+    {
+        if (action is not ToolbarAction.Enhance)
+        {
+            CloseEnhancePopover();
+        }
+
+        Click(ToolbarButton(action), button);
+    }
 
     /// <summary>Opens the Enhance popover by its button, as a user does, if it is not open; the planetary controls are in it.</summary>
     internal void OpenEnhancePopover()
@@ -224,7 +231,17 @@ internal sealed class ViewerE2E : IAsyncDisposable
     internal RectF32 EnhanceRegion(Func<HitResult, bool> match, string what)
     {
         OpenEnhancePopover();
-        return Region(match, what);
+        return RegionOnShow(match, what);
+    }
+
+    /// <summary>Closes the Enhance popover as Escape does, if it is open.</summary>
+    internal void CloseEnhancePopover()
+    {
+        if (State.EnhancePopover.IsOpen)
+        {
+            Key(InputKey.Escape);
+            State.EnhancePopover.IsOpen.ShouldBeFalse("Escape closes the Enhance popover");
+        }
     }
 
     /// <summary>A key press and release through the host, then a frame.</summary>
@@ -265,6 +282,13 @@ internal sealed class ViewerE2E : IAsyncDisposable
 
     /// <summary>The one painted region whose hit matches, as the inspector and a click would find it.</summary>
     internal RectF32 Region(Func<HitResult, bool> match, string what)
+    {
+        // A press outside an open popover only closes it, so a control that is not the popover's is reached with it closed.
+        CloseEnhancePopover();
+        return RegionOnShow(match, what);
+    }
+
+    private RectF32 RegionOnShow(Func<HitResult, bool> match, string what)
     {
         var regions = Viewer.PaintedRegions().Where(r => match(r.Result)).ToArray();
         regions.Length.ShouldBe(1, $"exactly one painted region is {what}");
