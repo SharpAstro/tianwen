@@ -46,7 +46,7 @@ public class ViewerBestViewTests
         foreach (var stop in PlanetarySharpening.StrengthStops)
         {
             var drawn = best.MastersDrawnOutsideTheLimb;
-            e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: var a } && a == ButtonFor(stop), $"the {stop} button"));
+            e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: var a } && a == ButtonFor(stop), $"the {stop} button"));
             if (stop != 1)
             {
                 await e2e.PumpUntilAsync(() => best.MastersDrawnOutsideTheLimb > drawn && !best.IsBusy, $"the Auto view at {stop}", ct);
@@ -92,10 +92,10 @@ public class ViewerBestViewTests
         {
             e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewLive" }, "the Live view"));
             await e2e.PumpUntilAsync(() => ReferenceEquals(e2e.Controller.Source, live) && !live.IsBusy, "the live view back", ct);
-            e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "Strength2" }, "the strength 2 button"));
+            e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: "Strength2" }, "the strength 2 button"));
             e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewAuto" }, "the Auto view"));
             await e2e.PumpUntilAsync(() => ReferenceEquals(e2e.Controller.Source, best) && !best.IsBusy, "the Auto view back", ct);
-            e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "StrengthTruth" }, "the truth's button"));
+            e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: "StrengthTruth" }, "the truth's button"));
             await e2e.PumpUntilAsync(() => !best.IsBusy, "the Auto view at the truth", ct);
         }
 

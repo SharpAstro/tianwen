@@ -1228,6 +1228,10 @@ namespace TianWen.UI.Abstractions
         internal bool IsToolbarButtonActiveForTest(ToolbarAction action, ViewerState state)
             => IsToolbarButtonActive(action, _document, state);
 
+        /// <summary>The tooltip a button takes for this state. Test seam: the tooltip is declared on the node and shown after a hover.</summary>
+        internal string? ToolbarTooltipForTest(ToolbarAction action, ViewerState state)
+            => GetToolbarButtonTooltip(action, state, _document, Findings);
+
         private void DrawToolbarMark(ToolbarAction action, float x, float btnY, float btnH,
             ViewerState state, RGBAColor32 ink, bool enabled)
         {

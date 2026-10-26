@@ -84,7 +84,7 @@ public class ViewerAutoViewTests
             telescope: "254 mm f/4.7 Newtonian, Test OTA");
         await OpenAsync(e2e, named, ct);
         e2e.State.PlanetaryApertureMm.ShouldBe(254, "the header's telescope shows in the panel");
-        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ApertureDown" }, "the aperture's step down"));
+        e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: "ApertureDown" }, "the aperture's step down"));
         e2e.State.PlanetaryTelescopeSetHere.ShouldBeTrue();
 
         e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewAuto" }, "the Auto view"));
