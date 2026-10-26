@@ -339,23 +339,6 @@ namespace TianWen.Lib.Tests
         [Theory]
         [InlineData(1f)]
         [InlineData(1.5f)]
-        public async Task ARightPressOnTheButtonNoLongerCyclesTheBackend(float dpiScale)
-        {
-            var ct = TestContext.Current.CancellationToken;
-            using var renderer = NewRenderer(dpiScale);
-            var (viewer, state, _) = await NewViewerAsync(renderer, dpiScale, ct);
-
-            var button = Button(viewer);
-            UiRouting.Route(viewer,
-                new InputEvent.MouseDown(button.X + 2f, button.Y + 2f, MouseButton.Right),
-                new InputEvent.MouseUp(button.X + 2f, button.Y + 2f, MouseButton.Right));
-
-            state.PreferredEnhanceBackend.ShouldBe(EnhanceBackend.Auto);
-        }
-
-        [Theory]
-        [InlineData(1f)]
-        [InlineData(1.5f)]
         public async Task AFrameOnAPlanetsWayShowsThePlanetaryHalfAndNoAiControls(float dpiScale)
         {
             var ct = TestContext.Current.CancellationToken;

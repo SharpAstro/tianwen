@@ -1066,7 +1066,13 @@ public sealed class ViewerController(
                 break;
 
             case ToolbarAction.Enhance:
-                // The backend is chosen in the Enhance popover (one way to choose), never by a press here.
+                // The backend is chosen in the Enhance popover (one way to choose), never by a press here, so a
+                // right press (reverse) is a no-op: it used to cycle the backend and must not fall through to a run.
+                if (reverse)
+                {
+                    break;
+                }
+
                 // Pressing while a run is in flight CANCELS it. The pipeline threads the token all
                 // the way into RcAstroCli, which kills the child process tree, so this stops the work
                 // rather than merely abandoning it.
@@ -1086,7 +1092,9 @@ public sealed class ViewerController(
                     break;
                 }
 
-                if (Document is { } enhanceDoc && EnhancePipeline is { } pipeline
+                // On a planet's way the deep-sky models do not serve the frame, and the popover shows the planetary
+                // half, which has no progress or Cancel for this job: E and the button run nothing there.
+                if (!state.EnhancesAsPlanet && Document is { } enhanceDoc && EnhancePipeline is { } pipeline
                     && _enhanceTask is null)
                 {
                     state.IsEnhancing = true;

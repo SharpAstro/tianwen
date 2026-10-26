@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Enhancement;
 using DIR.Lib;
 using SharpAstro.Ser;
 using Shouldly;
@@ -477,5 +480,81 @@ public class ViewerE2ETests
         e2e.Drag(cx, cy, cx + 40f, cy + 30f);
 
         e2e.State.PanOffset.ShouldNotBe(before, "dragging the picture pans it");
+    }
+
+    /// <summary>
+    /// A right press on the sparkles button goes through the host's own press policy to the controller, where it used to cycle
+    /// the backend and now does nothing: it starts no enhance, and the backend is chosen in the popover alone (#1345).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Scales))]
+    public async Task ARightPressOnTheEnhanceButtonStartsNothing(float dpiScale)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var e2e = ViewerE2E.Start(dpiScale);
+        await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
+        var clone = new CloneEnhancer();
+        e2e.Controller.EnhancePipeline = new SharpenPipeline(
+            starRemover: clone, stellarSharpener: clone, nonStellarDeconvolver: clone,
+            denoiser: clone, gradientCorrector: clone);
+        var backend = e2e.State.PreferredEnhanceBackend;
+
+        e2e.Click(e2e.ToolbarButton(ToolbarAction.Enhance), MouseButton.Right);
+
+        e2e.State.PreferredEnhanceBackend.ShouldBe(backend, "a right press cycles nothing");
+        e2e.State.IsEnhancing.ShouldBeFalse("a right press starts no enhance");
+        e2e.State.IsEnhanced.ShouldBeFalse();
+        e2e.State.EnhancePopover.IsOpen.ShouldBeFalse("a right press is not the menu either");
+    }
+
+    /// <summary>
+    /// On a planet's way the deep-sky models do not serve the frame and the popover shows the planetary half, which has no progress
+    /// or Cancel for the AI program: the E key runs nothing there, even on a planetary master with a document (#1345).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Scales))]
+    public async Task TheEnhanceKeyRunsNothingOnAPlanetaryMaster(float dpiScale)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var e2e = ViewerE2E.Start(dpiScale);
+        await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
+        var clone = new CloneEnhancer();
+        e2e.Controller.EnhancePipeline = new SharpenPipeline(
+            starRemover: clone, stellarSharpener: clone, nonStellarDeconvolver: clone,
+            denoiser: clone, gradientCorrector: clone);
+        e2e.State.MasterPlanet = TianWen.Lib.Astrometry.Catalogs.CatalogIndex.Jupiter;
+        e2e.State.EnhancesAsPlanet.ShouldBeTrue();
+
+        e2e.Key(InputKey.E);
+
+        e2e.State.IsEnhancing.ShouldBeFalse("the deep-sky program is not run on a planetary master");
+        e2e.State.IsEnhanced.ShouldBeFalse();
+    }
+
+    private sealed class CloneEnhancer : IStarRemover, IStellarSharpener, INonStellarDeconvolver, IDenoiseEnhancer, IGradientCorrector
+    {
+        public string Name => "Test/CloneEnhancer";
+
+        public Task<Image> EnhanceAsync(Image input, CancellationToken cancellationToken = default)
+        {
+            var (channels, w, h) = input.Shape;
+            var data = new float[channels][,];
+            for (var c = 0; c < channels; c++)
+            {
+                var plane = new float[h, w];
+                var src = input.GetChannelSpan(c);
+                for (var y = 0; y < h; y++)
+                {
+                    for (var x = 0; x < w; x++)
+                    {
+                        plane[y, x] = src[(y * w) + x];
+                    }
+                }
+
+                data[c] = plane;
+            }
+
+            return Task.FromResult(new Image(data, BitDepth.Float32, 1.0f, 0f, 0f, input.ImageMeta));
+        }
     }
 }
