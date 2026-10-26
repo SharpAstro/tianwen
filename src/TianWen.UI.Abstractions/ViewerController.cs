@@ -85,6 +85,11 @@ public sealed class ViewerController(
     private CancellationTokenSource? _loadCts;
     private string? _loadingPath;
 
+    // The file whose display is remembered (#1814) and what that display was when it opened (restored, or the defaults). Leaving the
+    // file saves the display only when it differs from this, so a file only looked at leaves no record.
+    private string? _displayPath;
+    private ViewerDisplayRecord? _displayAtOpen;
+
     // Previous sources (e.g. a SerPreviewSource / LiveStackPreviewSource holding a memory-mapped file)
     // replaced by a new load. Disposed in ReleaseCompletedTasks (post-frame, UI thread) once no longer
     // busy, so no in-flight render/decode/stack still reads them.
@@ -262,6 +267,10 @@ public sealed class ViewerController(
             return;
         }
 
+        // The file on show is about to go: its display is captured now, on this thread, and written before the next file's record is read
+        // (the next one may be the same file).
+        var leavingSave = SaveLeavingDisplayAsync();
+
         state.RequestedFilePath = null;
         _loadingPath = requestedPath;
         // A new file is not an enhanced view of the old one. Done here rather than on the completion
@@ -290,6 +299,7 @@ public sealed class ViewerController(
 
         _loadTask = Task.Run(async () =>
         {
+            await leavingSave;
             var previousRaw = _rawSource;
             var previousLive = _liveSource;
 
@@ -412,6 +422,16 @@ public sealed class ViewerController(
                 loadError = ex;
             }
 
+            // What the file was last shown with (#1814), read here on the load's own thread so the restore below is part of the
+            // swap and nothing paints the defaults first. A held run reads none (the anchor's display is the run's), and a planet's
+            // master or a pre-stretched file is not a deep-sky display.
+            ViewerDisplayRecord? remembered = null;
+            if (newDoc is not null && RemembersFile(newDoc) && PlanetaryCaptureName.Named(newDoc.UnstretchedImage.ImageMeta.ObjectName) is null
+                && !state.CarryDisplayAcrossFrames)
+            {
+                remembered = await LoadRememberedDisplayAsync(requestedPath, loadToken);
+            }
+
             if (loadToken.IsCancellationRequested)
             {
                 // Superseded after the load completed; don't clobber the newer selection.
@@ -464,12 +484,14 @@ public sealed class ViewerController(
                 // Enhance ran back on, mirroring the retained-document revert branch. A path
                 // mismatch means a later, unrelated open won the race and this crop is not its to
                 // apply, so it is silently dropped rather than obeyed.
+                var revertCropApplied = false;
                 if (pendingRevertCrop is { } pending
                     && string.Equals(pending.Path, requestedPath, StringComparison.OrdinalIgnoreCase))
                 {
                     state.DisplayCrop = ViewerState.ResolveDisplayCrop(pending.Crop,
                         newDoc.UnstretchedImage.Width, newDoc.UnstretchedImage.Height);
                     _rememberedCrop = state.DisplayCrop;
+                    revertCropApplied = true;
                 }
 
                 state.NotifySourceReplaced();
@@ -519,6 +541,25 @@ public sealed class ViewerController(
                     state.StretchModeBeforeLinear = ViewerActions.DefaultStretchMode;
                 }
                 state.HistogramLogScale = state.StretchMode is StretchMode.None;
+
+                // The file's remembered display goes on over the defaults just set (#1814), unless this open is an Enhance revert's
+                // reload, which brings its own crop back.
+                _displayPath = null;
+                _displayAtOpen = null;
+                if (masterLayer is null && RemembersFile(newDoc) && !revertCropApplied)
+                {
+                    if (remembered is not null)
+                    {
+                        ViewerDisplayMemory.Apply(remembered, state);
+                        state.DisplayCrop = ViewerState.ResolveDisplayCrop(remembered.DisplayCrop,
+                            newDoc.UnstretchedImage.Width, newDoc.UnstretchedImage.Height);
+                        _rememberedCrop = state.DisplayCrop;
+                        state.HistogramLogScale = state.StretchMode is StretchMode.None;
+                    }
+
+                    _displayPath = requestedPath;
+                    _displayAtOpen = ViewerDisplayMemory.Capture(state);
+                }
 
                 if (newDoc.Findings.Wcs is { } wcs)
                 {
@@ -2012,11 +2053,100 @@ public sealed class ViewerController(
         }
     }
 
+    // A plain image whose display is remembered per file (#1814): not an enhance result, which is the same file after a transform, and
+    // not a pre-stretched one. A SER and a planetary master are left out by the callers (no document, a sharpening layer).
+    private bool RemembersFile(AstroImageDocument document) => external is not null && !document.IsEnhanceResult && !document.IsPreStretched;
+
+    private async Task<ViewerDisplayRecord?> LoadRememberedDisplayAsync(string path, CancellationToken token)
+    {
+        try
+        {
+            return external is null ? null : await ViewerDisplayMemory.LoadAsync(external, path, token);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read the remembered display of {FilePath}", path);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Writes the display of the file on show, when the user changed it since it opened (#1814). The record is captured on the calling
+    /// thread. A follower of a held run keeps nothing: its display is the anchor's, not its own.
+    /// </summary>
+    private Task SaveLeavingDisplayAsync()
+    {
+        if (external is null
+            || _displayPath is not { } path
+            || _displayAtOpen is not { } atOpen
+            || Document is not { } document
+            || !string.Equals(document.FilePath, path, StringComparison.OrdinalIgnoreCase)
+            || (state.CarryDisplayAcrossFrames && document.DisplayAnchor is not null))
+        {
+            return Task.CompletedTask;
+        }
+
+        var now = ViewerDisplayMemory.Capture(state);
+        if (now == atOpen)
+        {
+            return Task.CompletedTask;
+        }
+
+        _displayAtOpen = now;
+        return SaveDisplayAsync(external, path, now);
+    }
+
+    private async Task SaveDisplayAsync(IExternal store, string path, ViewerDisplayRecord record)
+    {
+        try
+        {
+            await ViewerDisplayMemory.SaveAsync(store, path, record, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not remember the display of {FilePath}", path);
+        }
+    }
+
+    /// <summary>
+    /// Reset display (#1814): every display setting back to its default for the file on show, its crop dropped, and its remembered
+    /// record forgotten, so the next open shows the defaults too.
+    /// </summary>
+    public void ResetDisplay()
+    {
+        if (Document is not { } document)
+        {
+            return;
+        }
+
+        ViewerDisplayMemory.Apply(ViewerDisplayMemory.Capture(new ViewerState()), state);
+        state.StretchMode = document.IsPreStretched ? StretchMode.None
+            : StretchMode.ForFrame(document.UnstretchedImage.ImageMeta, StretchMode.None) is StretchMode.Planetary ? StretchMode.Planetary
+            : document.UnstretchedImage.ChannelCount < 3 && ViewerActions.DefaultStretchMode is StretchMode.Linked or StretchMode.Luma ? StretchMode.Unlinked
+            : ViewerActions.DefaultStretchMode;
+        state.HistogramLogScale = state.StretchMode is StretchMode.None;
+        state.ManualWhiteBalanceBeforeCalibration = null;
+        state.DisplayCrop = null;
+        _rememberedCrop = null;
+
+        if (external is not null && _displayPath is { } path)
+        {
+            ViewerDisplayMemory.Forget(external, path);
+            _displayAtOpen = ViewerDisplayMemory.Capture(state);
+        }
+    }
+
     /// <summary>
     /// Awaits all in-flight tasks and disposes the star detection CTS. Call at app shutdown.
     /// </summary>
     public async Task ShutdownAsync()
     {
+        // The file on show keeps its display, before anything below lets go of it.
+        await SaveLeavingDisplayAsync();
         _starDetectionCts?.Cancel();
         _starDetectionCts?.Dispose();
 

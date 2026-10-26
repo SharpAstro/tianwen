@@ -106,11 +106,28 @@ public static class ViewerDisplayMemory
 
     /// <summary>Saves the state's display for the file as it stands now; a file that is not there keeps nothing.</summary>
     public static Task SaveAsync(IExternal external, string filePath, ViewerState state, CancellationToken cancellationToken)
+        => SaveAsync(external, filePath, Capture(state), cancellationToken);
+
+    /// <summary>Saves an already captured record (taken on the render thread, written elsewhere) for the file as it stands now.</summary>
+    public static Task SaveAsync(IExternal external, string filePath, ViewerDisplayRecord record, CancellationToken cancellationToken)
         => StampOf(filePath) is { } stamp
             ? external.AtomicWriteJsonAsync(PathFor(external, filePath),
-                new ViewerDisplayFileDto(Path.GetFullPath(filePath), stamp.Size, stamp.Ticks, Capture(state)),
+                new ViewerDisplayFileDto(Path.GetFullPath(filePath), stamp.Size, stamp.Ticks, record),
                 ViewerDisplayMemoryJsonContext.Default.ViewerDisplayFileDto, cancellationToken)
             : Task.CompletedTask;
+
+    /// <summary>Forgets the file's record, so the next open shows its defaults.</summary>
+    public static void Forget(IExternal external, string filePath)
+    {
+        try
+        {
+            File.Delete(PathFor(external, filePath));
+        }
+        catch (IOException)
+        {
+            // Held open by a reader for a moment; the record is stamped, so a stale one is worth little and the next Reset clears it.
+        }
+    }
 
     private static (long Size, long Ticks)? StampOf(string filePath)
         => new FileInfo(filePath) is { Exists: true } info ? (info.Length, info.LastWriteTimeUtc.Ticks) : null;

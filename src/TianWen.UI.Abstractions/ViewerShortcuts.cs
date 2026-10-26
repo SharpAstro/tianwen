@@ -162,6 +162,9 @@ public static class ViewerShortcuts
         new("Shift+Space", "Blink backward"),
         new("Ctrl+Space", "Back to the frame the display is held to"),
         new("Ctrl+H", "Hold / release the display across frames", InputKey.H, InputModifier.Ctrl),
+        // A chord, since it forgets what the file was last shown with.
+        new("Ctrl+Shift+R", "Reset the display to the defaults and forget this file's remembered one", InputKey.R,
+            InputModifier.Ctrl | InputModifier.Shift),
 
         // ── Navigation ─────────────────────────────────────────────────────────────────────────
         new("Left / Right", "Step one frame"),

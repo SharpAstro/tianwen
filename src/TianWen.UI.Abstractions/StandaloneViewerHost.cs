@@ -121,6 +121,9 @@ public sealed class StandaloneViewerHost<TSurface>
         // polar-alignment overlay lands in the saved file too.
         bus.Subscribe<SaveImageSignal>(sig =>
             controller.SaveImage(sig.WithOverlays, sig.PngDepth, appToken, viewer.Annotation));
+
+        // Reset display (#1814): the defaults back, and the file's remembered display forgotten.
+        bus.Subscribe<ResetDisplaySignal>(_ => controller.ResetDisplay());
     }
 
     /// <summary>The router every key and press goes through.</summary>

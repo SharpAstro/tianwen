@@ -234,6 +234,12 @@ public readonly record struct OpenUrlSignal(string Url);
 /// </param>
 public readonly record struct SaveImageSignal(bool WithOverlays, PngDepth PngDepth = PngDepth.SixteenBit);
 
+/// <summary>
+/// The viewer's Reset display (#1814): the file on show goes back to the display defaults and its remembered record is forgotten.
+/// Answered by the host that has a controller and a data root (<c>StandaloneViewerHost</c>); another host posts it to nobody.
+/// </summary>
+public readonly record struct ResetDisplaySignal;
+
 /// <summary>Planner session state changed (proposals, sliders, settings). Triggers auto-save.</summary>
 public readonly record struct SavePlannerSessionSignal;
 
