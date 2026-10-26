@@ -2044,3 +2044,23 @@ they will stay, before the Store listing describes them in the strip.
 **How it will be pinned.** As P33's popover is: through the hit tracker, so a closed popover has
 registered nothing and the strip registers no control (`ViewerWhiteBalancePopoverTests` is the model),
 and through `ViewerE2E` at DPI 1 and 1.5.
+
+## The viewer remembers a file's last display (#1814)
+
+`ViewerDisplayMemory` (`TianWen.UI.Abstractions`) keeps one small record per file in the data root: the stretch
+mode and parameters, channel view, background neutralisation, manual white balance and display crop. It is
+stamped with the file's size and modification time, so a file rewritten since reads as having none.
+`ViewerController` restores it when a file opens, after the per-frame stretch-mode defaults and before the
+first paint, and saves it when the user leaves the file and on exit (through `StandaloneViewerHost`, never
+`Program.cs`), only if the display changed since open.
+
+**Per-file memory yields to the carry.** A held display run (P19, `Ctrl+H`) wins: a follower of a held run
+neither restores a record nor saves one, so it shows the anchor's display and leaves what it remembered
+untouched. The first file of a run is its own anchor and is never a follower.
+
+**Reset display** (`Ctrl+Shift+R`, declared in `ViewerShortcuts`, `ResetDisplaySignal`) puts the defaults
+back and forgets the file's record. The display crop belongs to the document and is not carried to a newly
+opened file; only a record restores it.
+
+Pinned by `ViewerDisplayMemoryE2ETests` through `ViewerE2E` at DPI 1 and 1.5: restore, a stale file, a held
+run and reset.
