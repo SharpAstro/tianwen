@@ -377,6 +377,10 @@ namespace TianWen.UI.Abstractions
                         state.CarryDisplayAcrossFrames = !state.CarryDisplayAcrossFrames;
                         state.NeedsRedraw = true;
                         return true;
+                    // Reset display (#1814), declared in ViewerShortcuts; the host with a controller answers the signal.
+                    case InputKey.R when shift:
+                        PostSignal(new ResetDisplaySignal());
+                        return true;
                     // Ctrl+Shift+S is NOT handled here: it names the Save button and is resolved
                     // from the declaration above, which opens that button's menu. Keeping a shift
                     // branch here as well would be the second copy this whole change removes.

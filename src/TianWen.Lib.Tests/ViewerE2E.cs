@@ -43,7 +43,7 @@ internal sealed class ViewerE2E : IAsyncDisposable
     private readonly TempFolders _folders = new TempFolders();
     private int _exitRequests;
 
-    private ViewerE2E(uint width, uint height, float dpiScale)
+    private ViewerE2E(uint width, uint height, float dpiScale, IExternal? external)
     {
         _renderer = new RgbaImageRenderer(width, height);
         Bus = new SignalBus();
@@ -53,17 +53,20 @@ internal sealed class ViewerE2E : IAsyncDisposable
         FileDialog = Substitute.For<IFileDialogs>();
         Controller = new ViewerController(State, new DocumentCache(), FileDialog,
             Substitute.For<IPlateSolverFactory>(), new FakeTimeProviderWrapper(), Tracker,
-            NullLogger<ViewerController>.Instance);
+            NullLogger<ViewerController>.Instance, external);
         Viewer = new Surface(_renderer, Bus) { DpiScale = dpiScale };
         Host = new StandaloneViewerHost<RgbaImage>(Viewer, State, Controller, Tracker, Bus,
-            NullLogger.Instance, external: null, _appCts.Token);
+            NullLogger.Instance, external, _appCts.Token);
         Folder = _folders.Create("tianwen-viewer-e2e-").FullName;
     }
 
-    /// <summary>A viewer the size of an ordinary window at the given DPI scale, with nothing open.</summary>
-    internal static ViewerE2E Start(float dpiScale, uint width = 1600, uint height = 1000)
+    /// <summary>
+    /// A viewer the size of an ordinary window at the given DPI scale, with nothing open. <paramref name="external"/> is the data root
+    /// the viewer remembers things in (a file's display, the planetary telescope); null keeps nothing, as before.
+    /// </summary>
+    internal static ViewerE2E Start(float dpiScale, uint width = 1600, uint height = 1000, IExternal? external = null)
     {
-        var e2e = new ViewerE2E(width, height, dpiScale);
+        var e2e = new ViewerE2E(width, height, dpiScale, external);
         e2e.Frame();
         return e2e;
     }
