@@ -1,5 +1,5 @@
 {
-  "_what": "F2's three master-stretched sets (#1827), exported on DE1 (DESKTOP-U74IF48) on 2026-10-26 by training/star-removal/f2-export.ps1, with the tianwen CLI built Release at the commit named (its src/ is the branch's to this day) and frozen at C:/temp/tianwen-scratch/f2-reexport-bin. 'args' follow the CLI's 'dataset degrade', with one --session per entry of 'sessions' (the 8 of C:/temp/e2/r1-train-random-val-sessions.txt were passed, 7 exported). 'tiles' are the tile-manifest rows (1120 draws and 280 clean masters); 'tile_files' are the .f16 files under tiles/ (each tile and its sigma plane).",
+  "_what": "F2's three master-stretched sets (#1827), exported on DE1 (DESKTOP-U74IF48) on 2026-10-26 by training/star-removal/f2-export.ps1, with the tianwen CLI built Release from a tree whose src/ equals the main commit named (the build ran on a flight branch whose src/ has no difference from it) and frozen at C:/temp/tianwen-scratch/f2-reexport-bin. 'args' follow the CLI's 'dataset degrade', with one --session per entry of 'sessions' (the 8 of C:/temp/e2/r1-train-random-val-sessions.txt were passed, 7 exported). 'tiles' are the tile-manifest rows (1120 draws and 280 clean masters); 'tile_files' are the .f16 files under tiles/ (each tile and its sigma plane).",
   "decision_sessions": "A's new draws hold 7 of the original 8 sessions, as R2k's twins did. The Orion night (ZWO-ASI294MC/UV-IR-Cut/Great-Orion-Nebula/2021-11-28) fails in all three exports with 'plate (3, 4151, 2893) is not its master's shape (3, 4155, 2897)': that master in the 2026-09-29 store was baked again after the plate was made, and nothing in the store gives the old master back. The original A export (C:/temp/tianwen-scratch/r1-train/random: 8 sessions, 1280 draws, 1600 tiles) was restored before the re-bake. So the sets are scored on 7 sessions and 1120 draws, the Orion night absent from every arm's read alike; the rows on them are not comparable with a read on the original 8.",
   "originals": {
     "random": {
@@ -21,7 +21,7 @@
     "random": {
       "path": "C:/temp/tianwen-scratch/f2-random-master",
       "stretch": "master",
-      "commit": "d95c747805e3356e98f96bc2bde918dbb5686c75",
+      "commit": "11499f3e5487798821320b3ec1920ce368167221",
       "command": "dataset degrade",
       "args": [
         "--bake",
@@ -63,7 +63,7 @@
     "plain": {
       "path": "C:/temp/tianwen-scratch/f2-twin-plain-master",
       "stretch": "master",
-      "commit": "d95c747805e3356e98f96bc2bde918dbb5686c75",
+      "commit": "11499f3e5487798821320b3ec1920ce368167221",
       "command": "dataset degrade",
       "args": [
         "--bake",
@@ -105,7 +105,7 @@
     "lobed": {
       "path": "C:/temp/tianwen-scratch/f2-twin-lobed-master",
       "stretch": "master",
-      "commit": "d95c747805e3356e98f96bc2bde918dbb5686c75",
+      "commit": "11499f3e5487798821320b3ec1920ce368167221",
       "command": "dataset degrade",
       "args": [
         "--bake",
