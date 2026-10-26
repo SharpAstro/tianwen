@@ -3978,9 +3978,9 @@ clusters at 12.5 %); every export takes the master's stretch (#1776); M31's nucl
    error, and the hole is a one-sided failure. The speckle teacher (#1362) is the lever built for it and was never tried.
 2. **The teacher is out of domain.** E5's members trained on the plate's stretch; on master-stretched inputs R2t's
    recipe would regress onto answers to a different stretch. Retrain or drop it, never carry it silently.
-3. **The evaluation sets are out of domain too.** A's draws and R2k's twins were exported with the plate's stretch, so
-   R2w and every later arm fall there by construction ("R2w's read"). Until they are re-exported, the whole masters and
-   the real tiles are the only fair reads.
+3. **The evaluation sets were out of domain too.** A's draws and R2k's twins were exported with the plate's stretch, so
+   R2w and every later arm fell there by construction ("R2w's read"). F2 re-exported them (#1827, "F2's read" below),
+   and they are fair reads on those paths.
 4. **The training stars are still the easiest thing to tell from real** (the synthetics review: star crops AUC 0.76 to
    0.79): bright stars carry about half the real 3-5 px light, rising with brightness and differing by rig (S1, #1241),
    and the noise's shared part has no neighbourhood (S4b, #1781) and runs 1.11 to 1.17 times real on the QHY294PROC
@@ -3998,7 +3998,7 @@ Every flight is filed as an issue in the `star-remover-training` milestone and l
 | flight | issue | what lands | done when | connects to |
 |---|---|---|---|---|
 | F1 run tooling | #1774, #1787 folded in | the arm chain runnable as pilot jobs: `training/star-removal/arm-step.ps1 -Step export`, `train` (`-Budget` 7h30m, `-CheckpointEvery`, exit 4 "resumable: run the train step again", run it twice when needed), `onnx`, `score`, `whole`; the driver's stop file on any exception | a dry arm over R2u's outputs runs every step through `pilot run` and exits 0 with no GPU; that dry run on DE1 is the bench check, `test-arm-steps.ps1` the stub one | none |
-| F2 fair reads | to open | A's draws and both twins re-exported on the master's stretch; R2i seed 0 and 1, R2t, R2w re-scored on them; bright-band bars stated from two seeds; M42 read per session in the scorecard | the four baselines' rows on the new sets in the plan | F1 |
+| F2 fair reads | #1827 | A's draws and both twins re-exported on the master's stretch; R2i seed 0 and 1, R2t, R2w re-scored on them; bright-band bars stated from two seeds; M42 read per session in the scorecard | the four baselines' rows on the new sets in the plan | F1 |
 | F3 the dig penalty | #1362 | the speckle teacher as a trainer option, pinned to `StarlessSpeckles` by a parity fixture. **Landed:** the port and fixture, then `--speckle-weight` / `--speckle-sigma` in `n2n_smoke.py` (off by default, in the fingerprint only when set, in the training and held-out objectives, logged), `-SpeckleWeight` / `-SpeckleSigma` in `run-r2.ps1` and `arm-driver.ps1`; see "The speckle teacher" | the fixture passes on CPU; the option off is byte-identical training | none |
 | F4 the wings by brightness | #1241 | S1b: each rig's wing gain with a brightness term, drawn per channel inside the real channel relation (R2s's lesson); the classifier's spread over seeds read first | star-crop AUC moves past the classifier's own spread, and no drawn star outside every real master's relation | none |
 | F5 the noise | #1781, #1786 folded in | S4b's shared component with real's cross-structure at lags 0 to 2, and the QHY294PROC's noise anchor recalibrated | noise-crop AUC below synth4's 0.70 and Lobster's sigma ratio within 1.05 | none |
@@ -4049,7 +4049,12 @@ Every line carries `--timeout 8h` (pilot run's default is 2 h); a job killed at 
 
 - Pre-register before the first training step, a few lines, its kill rule included.
 - Bright-band bars from both of R2i's seeds, or the arm's own two; a difference under the seeds' spread is a seed's.
-- The whole masters and the real tiles decide; A's draws and the twins only once F2 has re-exported them.
+- The whole masters and the real tiles decide. A's draws and the lobed twin are fair reads too, **on F2's master-stretched
+  sets** (`C:/temp/tianwen-scratch/f2-random-master` and `f2-twin-lobed-master`, 7 sessions, recorded in
+  `training/star-removal/f2-sets.json`), against the four baselines' rows in "F2's read", never against a row on the
+  plate-stretched sets. The plain twin is A's draws again (same recipe, seed and shape), so it is no second read.
+- Bright-band bars on F2's sets come from R2i's two seeds there: 2.6 points clean at 100-1000 sigma on A's draws, 3.1 on the
+  lobed twin, and 3.2 / 3.9 dug; M42's real stars 6.4 points flat, the SMC's 24.8 (97 stars, no bar at all).
 - Guards: purity at most 1.0 %; M31's nucleus read without `--protect-cores` at most 5 % in every channel, since a
   remover that takes a core takes other bright compact structure too.
 - M42's bright stars over nebula read per session on every master-stretched arm (two thirds of R2w's real-tile dip).
@@ -4070,6 +4075,114 @@ Every line carries `--timeout 8h` (pilot run's default is 2 h); a job killed at 
 The learned generator (#1740) waits on F4 and F5: if a component stays above about 0.6 AUC after them, it comes next. The
 halo option (#1659), the scenes (#1363, the bright star in nebula first if M42 keeps failing), the background structure
 (#1338, #1311) and the spikes (section 8) stay where they are.
+
+#### F2's read: the fair sets move every plate-stretched arm down, and R2w's fall was the stretch (#1827, 2026-10-26)
+
+F2 (#1827) re-exported A's draws and both of R2k's twins with the master's stretch (`--stretch-from master`, #1776) and scored
+R2i seeds 0 and 1, R2t and R2w on them again, the same binary and scorecard for all four
+(`training/star-removal/f2-scorecard.master-stretch.json`, `score-arm.ps1 -Skip ring,nucleus`; `f2_read.py` tabulates the two
+stretches side by side). The sets are recorded in `training/star-removal/f2-sets.json`. Two things about them first:
+
+- **They hold 7 of the 8 sessions.** The Orion night (`Great-Orion-Nebula`, 2021-11-28) cannot be exported again: its master
+  was baked again after its plate was made. Every row below, old and new, is therefore pooled over the same 7 sessions, so the
+  old figures differ from the 8-session ones above (R2i seed 0's 100-1000 sigma is 61.2 here, 60.2 there). The loss share and
+  far sky are the report's own pool, which has no per-session breakdown, so their old figures are over 8.
+- **The plain twin is A's draws.** Their `dataset degrade` arguments are identical (stars, warped, seed 1, 4 draws, 40 cells),
+  and the new reads agree on every figure of every model. By the old numbers R2k's plain twin was the same draw over the same
+  7 sessions (R2i seed 0 at 100-1000 sigma: 61.2 on the plain twin, 61.2 on A's 7-session pool). So F2's sets give two reads,
+  A's draws and the lobed twin, not three.
+
+The real tiles are unchanged by F2: re-reading them reproduced R2i seed 0's 96.4 % within a sigma and 1.47 % dug to the digit.
+
+On A's draws, plate-stretched / master-stretched (7 sessions):
+
+| | R2i seed 0 | R2i seed 1 | R2t | R2w | seeds' spread (new) |
+|---|---|---|---|---|---|
+| clean 5-20 sigma | 79.6 / 77.4 | 80.7 / 78.4 | 80.5 / 78.8 | 77.1 / 76.1 | 1.0 |
+| clean 20-100 sigma | 75.1 / 70.6 | 75.3 / 71.5 | 78.1 / 73.5 | 71.5 / 69.9 | 0.9 |
+| clean 100-1000 sigma | 61.2 / 53.5 | 57.5 / 50.9 | **67.5 / 59.2** | 52.7 / 53.4 | **2.6** |
+| dug 5-20 sigma | 7.7 / 10.6 | 8.2 / 9.4 | 6.6 / 9.0 | 8.2 / 9.5 | 1.3 |
+| dug 20-100 sigma | 15.4 / 21.0 | 16.6 / 18.9 | 13.7 / 18.1 | 17.8 / 17.4 | 2.1 |
+| dug 100-1000 sigma | 29.6 / 36.7 | 32.4 / 40.0 | 25.1 / 32.4 | 30.0 / 32.4 | **3.2** |
+| clean saturated | 52.1 / 49.5 | 52.6 / 52.1 | 62.9 / 56.7 | 45.4 / 54.1 | 2.6 |
+| dug saturated | 23.7 / 26.3 | 29.9 / 29.4 | 19.1 / 24.2 | 25.3 / 17.5 | 3.1 |
+| clean in colour 5-20 sigma | 57.5 / 67.7 | 56.9 / 66.2 | 60.6 / 67.7 | 56.8 / 68.2 | 1.5 |
+| clean in colour 20-100 sigma | 44.1 / 55.2 | 43.4 / 53.9 | 50.7 / 56.6 | 41.7 / 55.1 | 1.4 |
+| clean in colour 100-1000 sigma | 22.5 / 30.2 | 20.0 / 27.4 | 35.3 / 36.1 | 16.1 / 30.4 | 2.8 |
+| clean in colour saturated | 22.2 / 30.9 | 23.2 / 32.5 | 34.5 / 34.0 | 20.6 / 34.5 | 1.6 |
+| dug in colour 100-1000 sigma | 63.6 / 54.3 | 66.2 / 58.4 | 52.5 / 48.7 | 71.2 / 48.5 | 4.1 |
+| core mean at 100-1000 sigma | -0.26 / -0.34 | -0.35 / -0.49 | -0.28 / -0.32 | +0.13 / -0.02 | 0.14 |
+| core rms at 100-1000 sigma | 1.62 / 1.41 | 1.64 / 1.31 | 1.54 / 1.26 | 1.93 / 1.75 | 0.10 |
+| bright cores' share of the loss, % | 1.27 / 0.69 | 1.37 / 0.72 | 1.15 / 0.66 | 1.35 / 0.70 | 0.03 |
+| far sky | 0.19 / 0.25 | 0.20 / 0.26 | 0.19 / 0.23 | 0.22 / 0.26 | 0.01 |
+
+On the lobed twin the pattern is the same (clean at 100-1000 sigma, plate / master: R2i seed 0 61.0 / 52.3, seed 1
+56.6 / 49.3, R2t 67.1 / 58.1, R2w 51.6 / 52.2; dug 30.0 / 37.9, 33.8 / 41.8, 25.9 / 34.0, 31.4 / 33.2). Its seeds' spread is
+3.1 clean and 3.9 dug at 100-1000 sigma, 1.1 and 1.6 clean at 5-20 and 20-100 sigma, and 0.6 on clean saturated.
+
+**The bright-band bars.** R2i's two seeds stand 2.6 points apart on A's draws at 100-1000 sigma clean (3.1 on the lobed
+twin), 3.2 apart dug (3.9), and 1.0 and 0.9 clean on the faint bands (1.1 and 1.6). The plate-stretched pair stood 4.3 apart
+on the bright band over 8 sessions (3.7 over these 7), so the master-stretched set is a quieter yardstick. From here a
+bright-band clean difference is a model's only past **2.6 on A's draws and 3.1 on the lobed twin**, a dug difference past
+**3.2 and 3.9**, a faint one past 1 to 1.6. Each is one pair of seeds, as the earlier bars were.
+
+**R2w's fall on A's draws was the stretch, wholly.** On the plate's stretch R2w stood 8.5 points under R2i seed 0 at
+100-1000 sigma (52.7 against 61.2). On the master's it is 53.4 against 53.5: level with seed 0, 2.5 above seed 1, inside
+the bar. What it did not do is win: its clean rates sit level or just under R2i's on every band (5-20 sigma 76.1 against
+77.4 and 78.4, past the bar of 1.0; 20-100 sigma 69.9 against 70.6 and 71.5, inside it), so training in the stretch it runs
+in bought it parity on A's draws, not a lead. Where it does lead is the dig: 32.4 % at 100-1000 sigma against 36.7 and 40.0
+(past the bar of 3.2), saturated stars dug 17.5 % against 26.3 and 29.4 (past 3.1), and in colour 48.5 % against 54.3 and
+58.4. The master's stretch gave R2w less dug and not more clean, which is the whole-master pattern of "R2w's read".
+
+**Everything else falls on the new sets, and R2t still leads.** The three plate-stretched arms lose 6.6 to 8.2 points clean
+at 100-1000 sigma and 1.7 to 4.5 on the faint bands when read in the stretch they now run in at inference, and their dug at
+100-1000 sigma rises 7.1 to 7.5 points: the plate-stretched A flattered them, and the master-stretched set is the harder
+one for bright stars. The order at 100-1000 sigma is R2t 59.2, then R2i seed 0 53.5 and R2w 53.4, then seed 1 50.9. R2t's
+lead over R2w is 5.8 points clean (bar 2.6) with the dig equal (32.4 against 32.4), and over R2i seed 0 it is 5.7 clean and
+4.4 less dug, both past their bars. The recipe's gain (four levels, the clusters) is therefore real on a fair set: 6.2
+points over seed 0 on the plate-stretched A, 5.7 now.
+
+**Read, not predicted.** (1) R2t's colour lead mostly disappears: clean in colour at 100-1000 sigma it was 12.8 points over
+R2i seed 0 (35.3 against 22.5) and is 5.9 now (36.1 against 30.2), because R2t barely moves with the stretch (+0.8) and the
+three others rise 7 to 14 (R2w 16.1 to 30.4). (2) The cores' error shrinks for all four (rms 1.3 to 1.8 against 1.5 to 1.9),
+and R2w's core mean goes from +0.13 to -0.02, the closest to zero of the four. (3) The bright cores' share of the squared
+error falls from 1.1 to 1.4 % to 0.7 % for every model, so it belongs to the set's stretch and not to a model. (4) The far sky
+reads 0.23 to 0.26 against 0.19 to 0.22, for all of them alike.
+
+**M42 per session on the real tiles** (the tiles F2 leaves alone; the scorecard's per-session real-star read for all four,
+bright stars 100-1000 sigma, `real-star-read-*.txt` in `f2-reports-master`):
+
+| session | stars | R2i seed 0 | R2i seed 1 | R2t | R2w | seeds' spread |
+|---|---|---|---|---|---|---|
+| Lobster (three views), flat | 933 / 622 / 791 | 98.9 / 99.5 / 99.9 | 98.2 / 99.7 / 100.0 | 98.7 / 99.8 / 99.9 | 98.0 / 99.4 / 99.7 | 0.7 / 0.2 / 0.1 |
+| **M42 (ASI294MC), flat** | 248 | 80.6 | 74.2 | **83.5** | **71.4** | **6.4** |
+| M42, light left >+1 / dug <-1 | | 16.5 / 2.8 | 23.4 / 2.4 | 14.5 / 2.0 | 27.0 / 1.6 | 6.9 / 0.4 |
+| HIP 80609 (three views), flat | 639 / 441 / 444 | 94.8 / 96.4 / 98.2 | 88.6 / 95.7 / 97.3 | 95.6 / 96.8 / 98.6 | 94.5 / 96.1 / 96.2 | 6.2 / 0.7 / 0.9 |
+| SMC, flat | 97 | 67.0 | 91.8 | 93.8 | 79.4 | 24.8 |
+| all: flat / light left / dug | 4,215 | 96.4 / 2.1 / 1.5 | 95.4 / 1.9 / 2.8 | 97.4 / 1.4 / 1.2 | 95.6 / 2.6 / 1.8 | 1.0 / 0.3 / 1.3 |
+
+The faint bands, pooled, within a sigma (R2i seed 0, seed 1, R2t, R2w): 5-20 sigma 94.8 / 96.4 / 95.4 / 94.3 %, 20-100 sigma
+97.1 / 98.3 / 98.7 / 97.5 %.
+
+**M42 stays the watch, and the SMC's gain was a seed's.** R2w's 71.4 % is the lowest of the four: 9.2 under seed 0, 2.8
+under seed 1, and 6.0 under the two seeds' mean, against a spread of 6.4, so on M42 R2w sits at the edge of the bar and
+under both seeds; it leaves light on 27.0 % of M42's bright stars against 16.5 and 23.4. R2t is the best (83.5, 14.5 % left).
+Without M42 R2w stands at 97.1 % flat against 97.4 for seed 0, as written before. **The SMC row argues neither way**: the
+seeds stand 24.8 points apart on its 97 stars (67.0 against 91.8), so the "SMC gains 12 points" that supported the owner's
+call of 2026-10-24 for the master's stretch is inside what a seed does, and R2w is below seed 1 there. F2 removes that half
+of the call's support from the real tiles. The other half, the whole masters (Andromeda's dig, the Tarantula's left light), it does not touch, and
+the call stays the owner's. HIP 80609's first view moves 6.2 points between seeds as well (88.6 against 94.8).
+
+**What surprised.** (1) That the plain twin is A's draws, so one read had been two in the plan. (2) How far every
+plate-stretched arm falls on the fair set: a 7 to 8 point bright-band drop that no training run caused. (3) That R2w, trained
+for this stretch, only reaches parity with R2i seed 0 on A's clean rates and wins on the dig alone. (4) That R2t's colour
+reads barely change with the stretch.
+
+**What it decides.** Any arm trained on the master's stretch is now read on these sets against the four baselines above:
+the bright band against 2.6 (A's draws) and 3.1 (lobed twin) clean and 3.2 and 3.9 dug, M42 against 6.4. R3a's
+pre-registration takes its A's-draws bars from here, not from the plate-stretched rows of "R2i's seed 1 read". R2t is the one
+to beat on A's draws (59.2 clean at 100-1000 sigma, 32.4 dug, 56.7 / 24.2 saturated), on the lobed twin (58.1 / 34.0) and on
+M42 (83.5 % flat).
 
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
