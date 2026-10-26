@@ -55,6 +55,8 @@ public class ViewerWaveletDialRangeTests
         var ct = TestContext.Current.CancellationToken;
         await ViewerPlanetaryMasterTests.OpenMasterAsync(e2e, ct);
         e2e.State.ShowDerivedAt(Derived(AtTruth, AtTwoAndAHalf), 1);
+        // The dials are seeded as the popover that holds them is built.
+        e2e.OpenEnhancePopover();
         e2e.Frame();
         var (min, max) = e2e.State.WaveletDialRange;
 
