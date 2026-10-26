@@ -15,6 +15,7 @@ documented number; the number and what it decided live in the doc named beside i
 | `gate_check.py <master> <label>` | the exporter's `NeedsStretch` statistic (channel 0, `median(v - min)` against 0.125) on the whole frame and on a crop | `docs/todo/imaging.md`, the stretch gate's anchor on the canvas ring (#250's second half) |
 | `gate_sweep.py <bake>/session-masters` | that statistic over every master of a bake, whole and cropped, naming what the gate refuses | same |
 | `linearity.py <fits> <label> [...]` | linear or already stretched: dynamic range, ceiling pile-up, faint-end asymmetry | same |
+| `demagenta.py <master> [--sidecars DIR] [--out DIR] [--feather 1.0]`, `--self-test` | what the #1777 demagenta (`G' = max(G, min(R, B))`, `ScreenedStars.Demagenta`) would do to a linear colour master with no star split, run on (A) the whole frame and (B) weighted by the star mask: per region (star, structure, sky; read from the `tianwen image sources --maps` sidecars beside the master) the fraction of pixels whose green rises over 1 and 3 sky sigma and the median / p99 rise, the magenta left in a ring 1 to 4 px outside the mask, and before / after PNG crops on one shared stretch | #1824 (the finding will be recorded there) |
 
 The edge and hole renders (`edge_band.py`, `edge_level.py`, `hole_map.py`) sit with the auto-crop
 harness in `tools/coverage-edge-walk/`, since that is the question they answer.
