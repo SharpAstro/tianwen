@@ -4003,7 +4003,7 @@ Every flight is filed as an issue in the `star-remover-training` milestone and l
 | F4 the wings by brightness | #1241 | S1b: each rig's wing gain with a brightness term, drawn per channel inside the real channel relation (R2s's lesson); the classifier's spread over seeds read first | star-crop AUC moves past the classifier's own spread, and no drawn star outside every real master's relation | none |
 | F5 the noise | #1781, #1786 folded in | S4b's shared component with real's cross-structure at lags 0 to 2, and the QHY294PROC's noise anchor recalibrated | noise-crop AUC below synth4's 0.70 and Lobster's sigma ratio within 1.05 | none |
 | F6 the clusters' stretch | #1823 | the synthetic cluster tiles stretched with the master's parameters, as synth11's are (they took the plate's, 1.32 to 1.53 times gentler at the sky), and re-exported | the 90 skies re-exported and packed into a cache beside synth11's | none |
-| R3a | #1828 | R2t's recipe on a master-stretched export, no teacher, seeds 0 and 1, both on the 1070 | both rows on whole masters, real tiles and F2's sets | F2, F6 |
+| R3a | #1828 | R2t's recipe on a master-stretched export, no teacher, seeds 0 and 1, both on the 1070 | both rows on whole masters, real tiles and F2's sets. **Read 2026-10-27: killed as R3b's base** (A's draws clean 51.4 / 56.1 against R2t's 59.2, the nucleus guard failed by both seeds, the seeds 4.7 apart); see "R3a's read" | F2, F6 |
 | R3b | to open | R3a plus the dig penalty on the synthetic tiles | its read | R3a, F3 |
 | R3b2 | filed after R3b's read | the dig penalty on real master tiles too, beside the synthetic loss, which must stay or the net learns to remove nothing | its read, timidity checked: real stars within a sigma at 100 to 1000 sigma no worse than R3b's | R3b |
 | R3c | filed after R3b's read | the winner plus a teacher rebuilt from R3a's two seeds (E7, 8 views) | its read | R3b |
@@ -4245,6 +4245,150 @@ the bright band against 2.6 (A's draws) and 3.1 (lobed twin) clean and 3.2 and 3
 pre-registration takes its A's-draws bars from here, not from the plate-stretched rows of "R2i's seed 1 read". R2t is the one
 to beat on A's draws (59.2 clean at 100-1000 sigma, 32.4 dug, 56.7 / 24.2 saturated), on the lobed twin (58.1 / 34.0) and on
 M42 (83.5 % flat).
+
+#### R3a's read (#1828, 2026-10-27)
+
+R3a (#1828) is R2t's recipe trained on the master's stretch on the 1070, two seeds, no teacher. Both seeds were scored by the
+same binary and scorecard as F2's four baselines (`f2-scorecard.master-stretch.json`; `score-arm.ps1` with the nucleus, the
+ring read as well; `score_whole.py` for the whole masters), on F2's sets (#1827), the real tiles and the three whole masters.
+**Both seeds fail the pre-registered kill rule, and the two seeds stand further apart than any pair so far.** R3a is not a base
+for R3b (the dig penalty, #1362 for the trainer option) as it stands.
+
+**A's draws, master-stretched (7 sessions), at 100-1000 sigma unless stated.** The tool is `f2_read.py`; the baselines' columns
+are the ones in "F2's read".
+
+| | R2i seed 0 | R2i seed 1 | R2t | R2w | R3a seed 0 | R3a seed 1 | R3a spread |
+|---|---|---|---|---|---|---|---|
+| clean 5-20 sigma | 77.4 | 78.4 | 78.8 | 76.1 | 77.4 | 78.4 | 1.0 |
+| clean 20-100 sigma | 70.6 | 71.5 | 73.5 | 69.9 | 71.2 | 72.7 | 1.5 |
+| **clean 100-1000 sigma** | 53.5 | 50.9 | **59.2** | 53.4 | **51.4** | **56.1** | **4.7** |
+| **dug 100-1000 sigma** | 36.7 | 40.0 | 32.4 | 32.4 | **40.8** | **34.0** | **6.8** |
+| dug 20-100 sigma | 21.0 | 18.9 | 18.1 | 17.4 | 19.8 | 18.9 | 0.8 |
+| clean saturated | 49.5 | 52.1 | 56.7 | 54.1 | 52.6 | 61.3 | 8.8 |
+| dug saturated | 26.3 | 29.4 | 24.2 | 17.5 | 30.9 | 27.3 | 3.6 |
+| clean in colour 100-1000 sigma | 30.2 | 27.4 | 36.1 | 30.4 | 29.6 | 34.6 | 5.0 |
+| dug in colour 100-1000 sigma | 54.3 | 58.4 | 48.7 | 48.5 | 57.3 | 49.6 | 7.6 |
+| core mean / rms at 100-1000 sigma | -0.34 / 1.41 | -0.49 / 1.31 | -0.32 / 1.26 | -0.02 / 1.75 | -0.48 / 1.51 | -0.26 / 1.37 | 0.23 / 0.14 |
+| far sky | 0.25 | 0.26 | 0.23 | 0.26 | 0.26 | 0.29 | 0.03 |
+
+The lobed twin, clean / dug at 100-1000 sigma: R2i seed 0 52.3 / 37.9, seed 1 49.3 / 41.8, R2t 58.1 / 34.0, R2w 52.2 / 33.2,
+**R3a seed 0 50.7 / 41.2, seed 1 55.1 / 35.5** (spread 4.4 and 5.7). The plain twin is A's draws again, as F2 found.
+
+**The real tiles** (320 master tiles, 53,108 catalogued stars; flat |<1| sigma / light left / dug, bright stars 100-1000 sigma,
+`real-star-read-r3a_synth11_s{0,1}.txt`):
+
+| | R2i seed 0 | R2i seed 1 | R2t | R2w | R3a seed 0 | R3a seed 1 |
+|---|---|---|---|---|---|---|
+| all 4,215 stars, flat | 96.4 | 95.4 | 97.4 | 95.6 | 92.4 | 96.9 |
+| all, left / dug | 2.1 / 1.5 | 1.9 / 2.8 | 1.4 / 1.2 | 2.6 / 1.8 | 3.4 / **4.2** | 1.5 / 1.6 |
+| **M42 (ASI294MC), 248 stars, flat** | 80.6 | 74.2 | 83.5 | 71.4 | **60.1** | 81.5 |
+| M42, left / dug | 16.5 / 2.8 | 23.4 / 2.4 | 14.5 / 2.0 | 27.0 / 1.6 | 37.5 / 2.4 | 13.7 / 4.8 |
+| Lobster (three views), flat | 98.9 / 99.5 / 99.9 | 98.2 / 99.7 / 100.0 | 98.7 / 99.8 / 99.9 | 98.0 / 99.4 / 99.7 | 97.0 / 98.7 / 98.1 | 98.0 / 99.4 / 99.5 |
+| HIP 80609 (three views), flat | 94.8 / 96.4 / 98.2 | 88.6 / 95.7 / 97.3 | 95.6 / 96.8 / 98.6 | 94.5 / 96.1 / 96.2 | 89.5 / 93.2 / 91.4 | 96.2 / 97.1 / 97.3 |
+| SMC (97 stars), flat | 67.0 | 91.8 | 93.8 | 79.4 | 62.9 | 91.8 |
+| faint, 5-20 / 20-100 sigma flat | 94.8 / 97.1 | 96.4 / 98.3 | 95.4 / 98.7 | 94.3 / 97.5 | 92.9 / 96.4 | 94.5 / 98.2 |
+
+HIP 80609's dug share at 100-1000 sigma is 10.5 / 6.6 / 8.3 % over its three views for seed 0 (R2t 4.2 / 2.9 / 0.7) and
+2.8 / 2.5 / 2.0 for seed 1.
+
+**The whole masters** (`score_whole.py`, the master-stretch config; the baselines' columns are their rows in "R2w's read" and
+"Round 3: closing on the judges", whose masters and scorer are the same):
+
+| | R2i seed 0 | R2t | R2w | R3a seed 0 | R3a seed 1 | R3a spread |
+|---|---|---|---|---|---|---|
+| Andromeda bright dark-sky stars flat / dug | 32.8 / 36.6 | 40.6 / 41.7 | 48.7 / 28.8 | 44.0 / 29.0 | 47.6 / 39.0 | 3.6 / 10.0 |
+| Andromeda blue, 1.5-3 / 3-4.5 px | -1.10 / -0.90 | -1.23 / -1.00 | -0.89 / -0.74 | -0.99 / -0.79 | -1.38 / -1.02 | 0.39 / 0.23 |
+| Tarantula bright dark-sky stars flat / left | 35.8 / 60.6 | 57.2 / 40.3 | 56.5 / 31.5 | 43.5 / 32.8 | 51.0 / 24.7 | 7.5 / 8.1 |
+| Tarantula core R / G / B | +0.89 / +1.06 / +0.61 | +0.84 / +0.38 / +0.90 | -0.11 / -0.17 / +0.42 | -0.05 / -0.17 / +0.42 | +0.10 / -0.08 / +0.07 | |
+| held-out crowded Tarantula / BP 17-19 | 69.8 / 90.3 | 81.3 / 85.4 | 77.8 / 92.6 | 75.7 / 92.4 | 79.1 / 93.8 | 3.4 / 1.4 |
+| purity (light taken where no star is) | 0.6 | 0.5 | not in this table | 0.6 | 0.7 | 0.1 |
+| Sagittarius crowded | 95.0 | 95.2 | 94.2 | 94.2 | 93.5 | 0.7 |
+| **M31's nucleus R / G / B, no `--protect-cores`, %** | 3.2 / 3.1 / 0.5 | 1.1 / 6.1 / 3.1 | 0.5 to 4.4 | **3.0 / 6.4 / 4.7** | **20.3 / 19.0 / 16.7** | 17.3 / 12.6 / 12.0 |
+
+The nucleus read in `m31-nucleus-*.txt` (a second reader of the same files) gives seed 0 3.0 / 6.5 / 4.8 % and seed 1 20.6 / 18.6 /
+17.4 % over the inner 6 px; the 6-12 px ring is under 2 % for both. The ring read (the mean residual of injected bright stars
+over 3 to 6 px, in sigma, R / G / B; no bar was set for it): R3a seed 0 -1.37 / -0.57 / -0.58 with 70.7 % of stars dug in a
+channel, seed 1 -1.25 / -0.63 / -0.59 with 71.8 %, against R2t -0.80 / -0.25 / -0.49 (49.8 %), R2w 57.1 %, R2i seed 0 60.2 % and
+seed 1 42.0 %: the deepest rings of any arm.
+
+**The predictions, held or missed.**
+
+1. *A's draws clean, each seed at least 56.6 and the mean at or above 59.2:* **missed.** Seed 0 51.4, seed 1 56.1 (0.5 under
+   the line), the mean 53.8, which is 5.4 under R2t.
+2. *A's draws dug, the mean no worse than 32.4:* **missed.** 40.8 and 34.0, mean 37.4; seed 1 alone is 1.6 over R2t, seed 0
+   is 8.4 over and past R2i seed 1's 40.0.
+3. *Lobed twin, clean at least 55.0 and dug at most 37.9 per seed:* **missed for seed 0** (50.7 and 41.2), **held for seed 1**
+   (55.1 and 35.5, both by a hair).
+4. *Whole masters, Andromeda's dug no worse than R2t's 41.7 and moving toward R2w's, the Tarantula's left at 40.3 or below:*
+   **held, both seeds.** Dug 29.0 and 39.0 (seed 0 level with R2w's 28.8), left 32.8 and 24.7 (seed 1's is the lowest of any
+   arm, R2w's 31.5 the next).
+5. *M42 flat at least 77.1 per seed:* **missed for seed 0** (60.1, the lowest of any arm, 23.4 under R2t), **held for seed 1**
+   (81.5, 2.0 under R2t).
+6. *A bright-band difference under the bars is a seed's:* the rule did not apply, because **the two seeds differ past every
+   bar** (clean 4.7 against 2.6, dug 6.8 against 3.2 on A's draws; 4.4 against 3.1 and 5.7 against 3.9 on the lobed twin).
+
+**The guards.** Purity passes for both (0.6 and 0.7 %, bar 1.0). **M31's nucleus fails for both:** seed 0's green is 6.4 % (6.5
+by the second reader) against 5, seed 1's three channels are 16.7 to 20.3 %. The R2t baseline itself reads 6.1 % in green on
+this guard, so seed 0 sits where R2t does and the guard's line is one R2t also crosses; seed 1 is another matter, a remover that
+takes a nucleus. Both are read without `--protect-cores`, which inference applies (#1658, a galaxy's nucleus is kept from any
+remover), so neither would damage M31 in use, but the guard exists to detect what else compact and bright a remover takes.
+**M42 per session fails for seed 0** (M42 60.1 and HIP 80609's third view 91.4 are both more than 6.4 under R2t's 83.5 and 98.6),
+and passes for seed 1 (no session more than 2.0 under R2t: M42 and the SMC each 2.0 under, HIP 80609 and Lobster within 1.3).
+
+**The kill rule's verdict: killed.** The rule's first clause (either seed under 56.6 clean on A's draws AND the lobed twin
+under 55.0) is met by **seed 0** (51.4 and 50.7); seed 1 is under the line on A's draws (56.1 against 56.6) but not on the lobed twin
+(55.1 against 55.0), so the twin does not agree and the clause does not fire for it. The second clause (a guard failed) is met by both
+seeds, through the nucleus. The third (both seeds' dug above 35.6) is not met, seed 1's 34.0 being under it. A pass needed no
+win over R2t but clean guards, and neither seed has them. R3a is therefore **not a base for R3b**, and its two seeds are kept
+as the arm's own data: the spread below is what the next arm on this recipe is read against.
+
+**The seeds' spread, R3a's own bars from here.** The spread of two seeds of this recipe on the master-stretched sets, wider
+than R2i's on every bright-band read:
+
+| read | R2i's bar | R3a's bar |
+|---|---|---|
+| A's draws, clean / dug at 100-1000 sigma | 2.6 / 3.2 | **4.7 / 6.8** |
+| lobed twin, clean / dug at 100-1000 sigma | 3.1 / 3.9 | **4.4 / 5.7** |
+| A's draws, clean 5-20 / 20-100 sigma | 1.0 / 0.9 | 1.0 / 1.5 |
+| M42's real stars flat | 6.4 | **21.4** |
+| real tiles, all stars flat / dug | 1.0 / 1.3 | 4.5 / 2.6 |
+| Andromeda dug / Tarantula left | | 10.0 / 8.1 |
+| M31's nucleus, green | | 12.6 |
+
+A recipe whose two seeds stand this far apart cannot be separated from R2t by one seed: R2t's 59.2 on A's draws stands 7.8 over
+seed 0 and 3.1 over seed 1, and only seed 1 is inside the arm's own bar of 4.7.
+
+**What surprised.** (1) **That training in the inference stretch did not lift R2t's recipe**: the pre-registration read R3a as
+R2t's net with the domain skew removed, and R2t on A's draws barely moved with the stretch (+0.8 in colour), yet R3a's mean is
+5.4 points under it clean and 5.0 over it dug. R3a also changes the data (synth11's four draws and F6's re-stretched clusters
+against R2t's synth4), so R2t's recipe on the master's stretch is not isolated from the generator's change. (2) **The seed
+spread**: no pair so far stood 4.7 or 6.8 apart on the bright band (R2i's stood 2.6 and 3.2), and seed 1 is the better
+of the two on every guard and bright read except the nucleus, which it takes at 20 %. (3) **The nucleus**: seed 0 is level
+with R2t there, seed 1 at 20 % is the first of ours to fail it since R2s2 (74 to 79 %). (4) **That seed 0's whole-master row is
+nearly R2w's** (Andromeda 44.0 / 29.0 against 48.7 / 28.8, Tarantula core +0.42 in blue as R2w's), while its real tiles are
+the worst of the arms, a mismatch between the whole masters and the tiles, the other way round to R2t's. (5) **The ring**:
+every R3a seed digs 70 % of bright stars in some channel, 10 to 30 points over the other arms, with the loss at 0.00000 at the
+end of a cosine schedule that records no best step.
+
+**Candidate next arms, as issue drafts** (not filed; the owner picks).
+
+1. **Two more seeds of R3a's recipe (seeds 2 and 3), 12 hours each on the 1070.** With a spread this wide, two seeds do not
+   say what the recipe does; four would give a spread and a mean the next arm can be read against. Gate: the mean of four on A's
+   draws against R2t's 59.2 and the nucleus guard, the cost 24 h of the 1070 for a baseline, not a candidate.
+2. **R3b on R2w's recipe (R2i's net on the master's stretch) plus the dig penalty (#1362).** R2w is the arm with the best
+   dig and the nucleus inside its guard (0.5 to 4.4 %); R3a shows R2t's four levels do not carry over to this stretch without
+   an arm of their own. Gate: A's draws dug at 100-1000 sigma under R2w's 32.4 by more than 3.2, and R2w's whole-master rows kept.
+3. **Score R3a's seeds on their best held-out step.** The cosine schedule ran to the last step and no best step is recorded; if
+   the trainer's held-out loss (`--val-every 500`) is in the log and the 2,000-step checkpoints are kept, the step the
+   held-out loss chose may not be the last, and a cheap read (a score step per checkpoint) would say whether the spread is
+   overfitting. Gate: either seed's A's draws clean at 100-1000 sigma at or over 56.6 with the guards clean.
+4. **A nucleus-and-core guard in the trainer's training mix.** The guard failed on seed 1 at 20 % and it was never a
+   training signal; a set of real bright compact structure (M31's nucleus, the cores of other galaxies) held out of the
+   removal target, or a term for it, as R3b2's real-tile term would be. Gate: M31's nucleus under 5 % in every channel
+   without `--protect-cores`, no loss on A's draws beyond the bars.
+5. **Read the nucleus guard with `--protect-cores` as shipped.** The guard is read without it, a remover's own behaviour;
+   R2t itself sits over 5 % in green on it. The owner decides whether the guard's line is 5 % or the shipped path's, which
+   changes whether R3a seed 1 fails anything.
 
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
