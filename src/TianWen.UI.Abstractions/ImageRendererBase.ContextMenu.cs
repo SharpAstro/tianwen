@@ -61,6 +61,48 @@ namespace TianWen.UI.Abstractions
             }
 
             var items = BuildContextMenuItems(state, px, py);
+            return OpenMenu(state, items, px, py);
+        }
+
+        /// <summary>
+        /// Right-click on a file-list row: copy the file's full path, or open its folder. The same
+        /// dropdown as the image menu; payloads are fixed here, when it opens. Selecting the file in
+        /// Explorer was weighed and left out: a second way of asking the OS to do what opening the
+        /// folder already does.
+        /// </summary>
+        public bool TryOpenFileRowContextMenu(ViewerState state, int fileIndex, float px, float py)
+        {
+            if ((uint)fileIndex >= (uint)state.ImageFileNames.Count)
+            {
+                return false;
+            }
+
+            return OpenMenu(state, ImageContextMenu.ItemsForFile(state.CurrentFolder, state.ImageFileNames[fileIndex]), px, py);
+        }
+
+        /// <summary>
+        /// The embedded press path's twin of the row's own Pressable: finds the row under the point.
+        /// </summary>
+        private bool TryOpenFileRowContextMenuAt(ViewerState state, float px, float py)
+        {
+            if (!state.ShowFileList)
+            {
+                return false;
+            }
+
+            foreach (var (fileIndex, rowRect) in _fileListScroll.VisibleRows())
+            {
+                if (rowRect.Contains(px, py))
+                {
+                    return TryOpenFileRowContextMenu(state, fileIndex, px, py);
+                }
+            }
+
+            return false;
+        }
+
+        private bool OpenMenu(ViewerState state, ImmutableArray<ImageContextMenuItem> items, float px, float py)
+        {
             if (items.IsEmpty)
             {
                 return false;

@@ -911,6 +911,13 @@ namespace TianWen.UI.Abstractions
             // HandleViewerMouseUp), so a touch drag scrolls instead of selecting the row under the finger.
             // Through HandleFileListScroll, which stands the controller down while the list is hidden --
             // its extent is stale then, and it would eat the press as a scroll gesture.
+            if (evt is InputEvent.MouseDown { Button: MouseButton.Right }
+                && TryOpenFileRowContextMenuAt(state, px, py))
+            {
+                state.NeedsRedraw = true;
+                return true;
+            }
+
             if (HandleFileListScroll(state, evt))
             {
                 state.NeedsRedraw = true;

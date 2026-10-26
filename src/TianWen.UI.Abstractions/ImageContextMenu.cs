@@ -54,6 +54,27 @@ namespace TianWen.UI.Abstractions
     public static class ImageContextMenu
     {
         /// <summary>
+        /// The entries for a row of the viewer's file list: the file's absolute path, and its folder.
+        /// Same item shape as the image menu, so one dropdown and one pick handler serve both. Empty
+        /// when there is no folder to resolve the name against.
+        /// </summary>
+        public static ImmutableArray<ImageContextMenuItem> ItemsForFile(string? folder, string fileName)
+        {
+            if (string.IsNullOrEmpty(folder) || string.IsNullOrEmpty(fileName))
+            {
+                return [];
+            }
+
+            var fullPath = System.IO.Path.GetFullPath(System.IO.Path.Combine(folder, fileName));
+            return
+            [
+                new ImageContextMenuItem("Copy full path", "full path", fullPath),
+                new ImageContextMenuItem("Open containing folder", "containing folder",
+                    System.IO.Path.GetDirectoryName(fullPath) ?? folder, ImageContextMenuAction.OpenUrl),
+            ];
+        }
+
+        /// <summary>
         /// The items for one pixel, in menu order: sky coordinates first (the reason most people
         /// right-click), then the sample, then the position.
         /// </summary>

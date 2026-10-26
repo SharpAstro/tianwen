@@ -483,6 +483,14 @@ already wrong. The menu also gives the share link (P20) a home. Items, in order:
 most tools take as input), the per-channel **value** (unit and 16-bit forms), and the **position**.
 Every label carries its own value, so the menu answers the question without anything being copied.
 
+**A file-list row has the same menu** (#1326): a right press on a row opens the SAME dropdown
+(`TryOpenFileRowContextMenu`, items from `ImageContextMenu.ItemsForFile`) with **Copy full path** and
+**Open containing folder** (an `OpenUrlSignal` with the directory). A right press arms no scroll gesture
+and selects nothing; selection stays on the left tap release. Both press dispatchers route it (the row's
+`Pressable`, and `HandleViewerMouseDown` for the embedded case). Selecting the file in Explorer
+(`explorer /select`) was weighed and left out: a second way of asking the OS for what opening the folder
+already does.
+
 **It computes nothing**: every mouse move already resolves `ViewerState.CursorPixelInfo`, so this is a
 formatter over existing state (`ImageContextMenu`, non-generic and testable without a GPU, the same
 split `InfoPanelData` makes). The **displayed colour is deliberately absent** -- it is a different
