@@ -216,8 +216,8 @@ namespace TianWen.UI.Abstractions
                 => FormRowLayout.StepMark(glyph, BaseFontSize, ViewerTheme.Palette.BodyText)
                     .WFixed(BaseFontSize + WaveletGap)
                     .HStar()
-                    .Bg(ToolbarButtonBg)
-                    .BgHover(GuiTheme.Hover(ToolbarButtonBg))
+                    .Bg(ChoiceFill)
+                    .BgHover(GuiTheme.Hover(ChoiceFill))
                     .Clickable(new HitResult.ButtonHit(hit), _ =>
                     {
                         step();

@@ -1069,7 +1069,10 @@ namespace TianWen.UI.Abstractions
                 // Lit while running AND while an enhanced result is on screen: the highlight is what
                 // says the toggle is ON, which is why the label below does not spell it out (same rule
                 // the A/B button follows).
-                ToolbarAction.Enhance => state.IsEnhancing || state.IsEnhanced,
+                // The planetary half's enhancement is the sharpening layer on show, so the button is lit for either half's.
+                ToolbarAction.Enhance => state.EnhancesAsPlanet
+                    ? state.SharpenLayerOnShow
+                    : state.IsEnhancing || state.IsEnhanced,
                 ToolbarAction.Compare => Split.IsOn,
                 // A solution is a RESULT rather than a toggle, but it is the state the eye looks
                 // for first: whether this frame has a WCS decides what the grid and the object
@@ -1814,6 +1817,10 @@ namespace TianWen.UI.Abstractions
                 $"{done.Describe()} -- click to turn off (W)",
             ToolbarAction.ColorCalibrate => "Photometric colour calibration (W)",
             ToolbarAction.BackgroundNeutralize => "The sky: its colour neutralised (N toggles) and its level reduced",
+            ToolbarAction.Enhance when state.EnhancesAsPlanet && state.SharpenLayerOnShow =>
+                "Enhance: the planetary sharpening is on; its planet, telescope and dials are here",
+            ToolbarAction.Enhance when state.EnhancesAsPlanet =>
+                "Enhance: the planetary sharpening's planet, telescope and dials",
             ToolbarAction.Enhance when state.IsEnhancing => "Cancel this enhance (E)",
             ToolbarAction.Enhance when state.IsEnhanced => "Enhance: the program and its backend; E turns the enhancement off",
             ToolbarAction.Enhance => "Enhance: the program and its backend; E runs it",
@@ -2284,6 +2291,7 @@ namespace TianWen.UI.Abstractions
                 // The sparkles mark says "AI enhance", so the label is free to say only the part it
                 // cannot: which backend, or how far along. This is the Channel rule again -- a mark that
                 // sits beside the word it replaces gives no width back.
+                ToolbarAction.Enhance when state.EnhancesAsPlanet => string.Empty,
                 ToolbarAction.Enhance when state.IsEnhancing => $"{state.EnhanceProgressPct:F0}%",
                 // Show the selected backend (right-click cycles it); left-click runs the enhance.
                 ToolbarAction.Enhance => state.PreferredEnhanceBackend switch

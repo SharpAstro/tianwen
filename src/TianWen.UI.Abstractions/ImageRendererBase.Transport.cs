@@ -94,7 +94,7 @@ namespace TianWen.UI.Abstractions
                 new(PlanetaryView.Auto, autoLabel) { Hit = new HitResult.ButtonHit("ViewAuto") },
             ];
             // Every segment as wide as the widest label any of them takes, so a running Auto stack never moves the scrub track.
-            var viewStyle = new Layout.ButtonGroupStyle(TransportTrackFill, ToolbarButtonBg, ink, ink, GuiTheme.Hover(ToolbarButtonBg))
+            var viewStyle = PlanetaryChoiceStyle with
             {
                 Gap = pad,
                 SegmentWidth = MeasureText(ViewSwitchWidestLabel, fs) + pad * 2,

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using DIR.Lib;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
 
 namespace TianWen.UI.Abstractions
@@ -12,8 +13,8 @@ namespace TianWen.UI.Abstractions
     /// <remarks>
     /// <para><b>Two halves, one rule.</b> <see cref="ViewerState.EnhancesAsPlanet"/> says which shows: the deep-sky AI
     /// program for a frame, the planetary sharpening for a SER, the live stack or a planetary master. The deep-sky models
-    /// do not serve a planetary frame, so neither half shares the popover with the other. The planetary half is a
-    /// placeholder until the strip's controls move in.</para>
+    /// do not serve a planetary frame, so neither half shares the popover with the other. The planetary half holds
+    /// the planet and telescope and the wavelet sharpening (<see cref="AddPlanetaryRows"/>), which the info strip held until P36.</para>
     /// <para><b>The panel runs nothing.</b> Run, Cancel and Off all press the Enhance button with no mouse button, which is
     /// what <c>E</c> does, so the one toggle (run, cancel, revert) is the controller's, through the host's press policy.
     /// The backend is the one thing the panel writes (<see cref="ViewerState.PreferredEnhanceBackend"/>), and only among the
@@ -27,7 +28,6 @@ namespace TianWen.UI.Abstractions
 
         private const string EnhanceOffLabel = "Off";
         private const string EnhanceCheckingText = "Checking what serves this frame...";
-        private const string EnhancePlanetPlaceholder = "Planetary sharpening: its controls move here from the info strip.";
 
         /// <summary>Presses the Enhance button as <c>E</c> does: through the host's policy, to the controller's toggle.</summary>
         private void PressEnhanceToggle(ViewerState state)
@@ -43,7 +43,7 @@ namespace TianWen.UI.Abstractions
 
             if (state.EnhancesAsPlanet)
             {
-                rows.Add(Layout.Builder.Text(EnhancePlanetPlaceholder, small, ViewerTheme.Palette.DimText).WStar());
+                AddPlanetaryRows(rows, state);
             }
             else
             {
@@ -60,6 +60,26 @@ namespace TianWen.UI.Abstractions
                 .Pad(1f)
                 .Bg(ViewerTheme.Palette.SeparatorStrong)
                 .WStar();
+        }
+
+        /// <summary>
+        /// The planetary half: the planet and telescope (what the derived sharpening is made for) and the wavelet dials, as the info strip
+        /// held them. The dials carry the gains into the tree by reference, so they are seeded before it is built. The telescope applies
+        /// to a SER, the live stack and a planetary master; the dials re-sharpen a master, not a raw frame.
+        /// </summary>
+        private void AddPlanetaryRows(ImmutableArray<Layout.Node>.Builder rows, ViewerState state)
+        {
+            if (state.ShowStacked || state.SequencePath is not null || state.IsPlanetaryMaster)
+            {
+                rows.Add(Section([SectionHeading("Planet and telescope"),
+                    BuildTelescopeTree(state, _source?.SensorType is SensorType.Monochrome)]));
+            }
+
+            if (state.ShowStacked || state.ShowAuto || state.IsPlanetaryMaster)
+            {
+                SeedWaveletDials(state);
+                rows.Add(Section([SectionHeading("Wavelet Sharpen"), BuildWaveletTree(state)]));
+            }
         }
 
         private void AddDeepSkyRows(ImmutableArray<Layout.Node>.Builder rows, ViewerState state, float small)
