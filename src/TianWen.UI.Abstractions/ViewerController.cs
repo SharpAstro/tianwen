@@ -1066,23 +1066,7 @@ public sealed class ViewerController(
                 break;
 
             case ToolbarAction.Enhance:
-                if (reverse)
-                {
-                    // Right-click cycles the preferred backend (Auto -> RC -> TianWen); no enhance is
-                    // kicked. The button label reflects the new pick.
-                    state.PreferredEnhanceBackend = state.PreferredEnhanceBackend switch
-                    {
-                        EnhanceBackend.Auto => EnhanceBackend.ForceRcAstro,
-                        EnhanceBackend.ForceRcAstro => EnhanceBackend.TianWen,
-                        EnhanceBackend.TianWen => EnhanceBackend.Auto,
-                        // Only a value the enum no longer defines lands here (2 was the SAS backend,
-                        // removed 2026-09-26), and a stale one restarts the cycle.
-                        _ => EnhanceBackend.Auto,
-                    };
-                    state.StatusMessage = $"Enhance backend: {state.PreferredEnhanceBackend}";
-                    state.NeedsRedraw = true;
-                    break;
-                }
+                // The backend is chosen in the Enhance popover (one way to choose), never by a press here.
                 // Pressing while a run is in flight CANCELS it. The pipeline threads the token all
                 // the way into RcAstroCli, which kills the child process tree, so this stops the work
                 // rather than merely abandoning it.
@@ -1670,8 +1654,46 @@ public sealed class ViewerController(
         }
     }
 
+    // Which backends serve the frame on show, asked once per (document, pipeline) while the Enhance popover is open. The
+    // roles may probe a licence (a process), so the ask runs on the pool and the render thread polls the Task.
+    private Task<ImmutableArray<EnhanceChoice>>? _enhanceChoicesTask;
+    private AstroImageDocument? _enhanceChoicesDocument;
+    private SharpenPipeline? _enhanceChoicesPipeline;
+
+    private void TickEnhanceChoices()
+    {
+        if (_enhanceChoicesTask is { IsCompleted: true } done)
+        {
+            _enhanceChoicesTask = null;
+            var choices = done.IsCompletedSuccessfully ? done.Result : [new EnhanceChoice(EnhanceBackend.Auto, "Auto", [])];
+            if (ReferenceEquals(_enhanceChoicesDocument, Document) && ReferenceEquals(_enhanceChoicesPipeline, EnhancePipeline))
+            {
+                state.EnhanceChoices = choices;
+                // A preference the frame cannot be served with is not a choice on screen, so it falls back to Auto.
+                if (!choices.Any(c => c.Backend == state.PreferredEnhanceBackend))
+                {
+                    state.PreferredEnhanceBackend = EnhanceBackend.Auto;
+                }
+                state.NeedsRedraw = true;
+            }
+        }
+
+        if (!state.EnhancePopover.IsOpen || state.EnhancesAsPlanet || _enhanceChoicesTask is not null
+            || Document is not { } doc || EnhancePipeline is not { } pipeline
+            || (ReferenceEquals(_enhanceChoicesDocument, doc) && ReferenceEquals(_enhanceChoicesPipeline, pipeline)))
+        {
+            return;
+        }
+
+        _enhanceChoicesDocument = doc;
+        _enhanceChoicesPipeline = pipeline;
+        var image = doc.UnstretchedImage;
+        _enhanceChoicesTask = Task.Run(() => EnhanceChoices.For(pipeline, image));
+    }
+
     public void TryApplyPendingEnhance(CancellationToken appToken = default)
     {
+        TickEnhanceChoices();
         if (_enhanceTask is not { IsCompleted: true } task)
         {
             return;

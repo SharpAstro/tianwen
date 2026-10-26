@@ -145,7 +145,8 @@ public static class ViewerShortcuts
         // ── Work on the frame ──────────────────────────────────────────────────────────────────
         // Both pressed, so the host that runs the button runs the key: the preview's solve is the node's.
         new("P", "Plate solve this frame", InputKey.P, Button: ToolbarAction.PlateSolve, Route: ViewerShortcutRoute.Press),
-        new("E", "AI enhance", InputKey.E, Button: ToolbarAction.Enhance, Route: ViewerShortcutRoute.Press),
+        // Named but not routed: the Enhance button opens its popover, and E keeps the toggle (run, cancel, revert).
+        new("E", "AI enhance: run, cancel or turn off (the button opens its popover)", InputKey.E, Button: ToolbarAction.Enhance),
         new("A / Shift+A", "A/B compare / re-pin the before image", InputKey.A,
             Button: ToolbarAction.Compare, WithShift: true),
 
@@ -196,6 +197,7 @@ public static class ViewerShortcuts
     public static readonly ImmutableArray<ToolbarAction> ActionsWithADropdown =
     [
         ToolbarAction.WhiteBalance,
+        ToolbarAction.Enhance,
         ToolbarAction.Zoom,
         ToolbarAction.Save,
         ToolbarAction.Shortcuts,

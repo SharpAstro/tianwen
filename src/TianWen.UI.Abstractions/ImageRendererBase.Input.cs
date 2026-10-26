@@ -477,6 +477,16 @@ namespace TianWen.UI.Abstractions
                 case InputKey.L:
                     state.ShowFileList = !state.ShowFileList;
                     return true;
+                // E is the Enhance toggle (run, cancel, revert) while its BUTTON opens the popover, so it is not routed as a
+                // press of the button (which a left press turns into the menu): it presses with no mouse button, the way the
+                // popover's own Run / Cancel / Off do, through the same policy and so the same controller path.
+                case InputKey.E when !ctrl:
+                    if (IsToolbarButtonEnabled(ToolbarAction.Enhance, _document))
+                    {
+                        PressToolbarButton(state, ToolbarAction.Enhance, MouseButton.None);
+                        state.NeedsRedraw = true;
+                    }
+                    return true;
                 // F1 is where every application puts help, and this one had it behind a "?" button
                 // alone. Through OpenToolbarDropdown so the key and the button are ONE path: it
                 // anchors under the button, starts the AI capability probe and opens the root page.
@@ -887,7 +897,12 @@ namespace TianWen.UI.Abstractions
             // HandleToolbarAction, which has no arm for either and so does nothing at all -- a button
             // that looks dead. White balance was the only one until the boost and the soft clip folded
             // into Tone; ADD A POPOVER HERE or its button will not open.
+            //
+            // A LEFT press only: the E key and the popover's own Run / Cancel / Off press Enhance as MouseButton.None,
+            // which is the toggle itself (run, cancel, revert), never the menu.
             if (action is ToolbarAction.WhiteBalance or ToolbarAction.Tone or ToolbarAction.BackgroundNeutralize
+                    or ToolbarAction.Enhance
+                && (action is not ToolbarAction.Enhance || button is MouseButton.Left)
                 && OpenToolbarDropdown(state, action))
             {
                 return;
