@@ -4565,8 +4565,9 @@ matches synth11 to f16 rounding; synth11 is the same export re-stretched by the 
   cells clip at 0.83 to 0.95, against the real stars' brightest 0.92 to 0.96 over the plate. So the band's edge sits
   in noise units, and the gap is the synthetic noise level on this rig: 1.11 to 1.17 times real's on Lobster's three
   sessions, 1.00 on M42 and SMC (S2's recount). That level is tracked by #1786. Where to look is the noise anchor's
-  calibration on the QHY294PROC. **Found (flight TIA1781, #1786): it is not the anchor, it is the synthetic background's
-  texture, which carried the plate's own shot noise a second time** (see "S4b: the noise level (#1786)" below).
+  calibration on the QHY294PROC. **Flight TIA1781 (#1786) found a real mechanism, the synthetic background's texture carrying the
+  plate's own shot noise a second time, and fixed it in code; it does not carry Lobster's excess** (1.161 to 1.159, see "S4b: the
+  noise level (#1786)" below). Lobster's 1.16 is still unexplained and #1786 stays open.
 - **As exported, the gap is the stretch alone.** Through the plate's stretch, B/G is 0.27 high at 5-20 sigma and 0.18
   at 20-100, and R/G 0.36 and 0.13 low. Through the master's, the same tiles are within 0.035. Once tiles are exported
   `--stretch-from master` (#1776, synth11), the as-exported column is the re-stretched one.
@@ -4650,17 +4651,17 @@ The likely reason is where in space the channels share their noise. Below is eac
 
 ##### S4b: the shared noise drawn with real's cross-structure
 
-Tracked by #1781 (the step S4's verdict named). **What was built:** `dataset degrade --channel-noise-structure` (stars mode only, off by default, and not with `--channel-noise-correlation`, which stays as it is). The read is a later leg; nothing here is measured on the real sessions yet.
+Tracked by #1781 (the step S4's verdict named). **What was built:** `dataset degrade --channel-noise-structure` (stars mode only, off by default, and not with `--channel-noise-correlation`, which stays as it is). Its read on the real sessions is "S4b: the read" below.
 
 - **The measure** (`ChannelNoiseStructure.Measure`): off each session's starless plate, the same instrument as S4's (the residual from a 5x5 median, the same absence rule, the robust sum-and-difference estimator), but on square blocks of the plate, so a pair is read at every offset (dy, dx) from -2 to 2, both signs, and each channel's own lag-1 is read for the log. The ASI533's R-B on the diagonal is a lag the measure can now hold.
 - **The draw** (`ChannelNoiseStructure.Mix`): channel c is `sqrt(1 - v_c)` times its own field, as the draw made it, plus a 5x5 kernel over ONE shared white field. The channels' cross-covariance at an offset is then the cross-correlation of their kernels. The kernels are fitted (Levenberg-Marquardt, a few starts) to the measure at every offset up to two, with a soft zero beyond, so a kernel stays compact.
 - **Why the fit goes through the instrument.** The measure is of a median's residual, and the residual takes a good part of a structure smooth over a few pixels: a draw whose R-G is 0.144 at zero lag and 0.088 at one pixel reads 0.098 and 0.046. Fitting the kernels to the measure as raw correlations would draw about a third too little, and the classifier would read it through the same residual a second time. The fit therefore maps the kernels' correlation through the residual first, modelled as a 5x5 mean's (its autocorrelation is a fixed 9x9 table; on that draw it predicts the median's read to 0.005), so what is drawn reads, by the same measure, as what was measured. The residual's variance is taken as white noise's (0.96), so a draw whose own shape is far smoother than real's reads a little high; the warp calibration is what keeps those shapes together.
-- **Each channel keeps its own lag-1.** The shared part has a lag-1 of its own, which would raise the channel's. The channel's own field is high-passed (itself less a fraction of the mean of its four neighbours, solved in closed form from the field's own lag sums) by what makes the sum's lag-1 the field's again, and scaled to unit variance, so a channel keeps unit variance and the lag-1 its shape gives it. This relaxes #1739's "each channel's spatial correlation as now" only beyond lag-1.
+- **Each channel's POOLED lag-1 is held (not per axis).** The shared part has a lag-1 of its own, which would raise the channel's. The channel's own field is high-passed (itself less a fraction of the mean of its four neighbours, solved in closed form from the field's own lag sums) so the sum's pooled horizontal-plus-vertical raw lag-1 is the field's again, and scaled to unit variance. The per-axis lag-1 is not held, and a target beyond the beta clamp is not reached (silently); the read found both matter (see "S4b: the read").
 - **An unreachable measure is shrunk, and says so.** A measure that needs kernels with more than half a channel's variance, or that the fit cannot reach to 0.01 rms, is taken at 0.85 of itself and refitted until it can be (`Shrink`; the export's log says by how much it was shrunk toward independent). A plate with no noise to read is identity and draws nothing.
 - **Its own random stream.** The shared field is drawn from a `Random` seeded off the draw seed (a different constant for the stars' noise and the synthetic background's), and nothing else is drawn from it. The fields the draw's own stream makes are the ones it made without the option, and an export with it off is what it was; the degradation row carries `NoiseStructure` and `NoiseStructureShrink` only when it is on.
 - **Pinned by** `StarInjectionTests` (a known diagonal structure is fitted without shrink, and drawn fields, white and warped, carry every lag as the measure reads it, hold unit variance and each channel's lag-1 and leave the draw's own stream where it was; a plate drawn with a known structure reads it back through the real median to 0.03; an unreachable measure is shrunk) and `DatasetDegradationExporterTests` (a noise-free plate reads none, and the export is the one without the option to the byte).
 
-**The read this leaves for the next leg:** as S4's: per rig, the lagged cross-correlations against real, and the noise-only AUC over three seeds against synth4, as exported and re-stretched to the master's own stretch.
+**The read** (per rig, the lagged cross-correlations against real, and the noise-only AUC over three seeds against synth4, as exported and re-stretched) is "S4b: the read" below; it found the own lag-1 is held only pooled, not per axis.
 
 ##### S4b: the noise level (#1786)
 
@@ -4770,6 +4771,16 @@ By rig, red-green at lag (0,0) and (0,1), and the own lag-1 of green (real / str
   QHY294PROC .120 against .179, ASI533MC Pro .105 against .171, but ASI585MC Pro .286 against .169 and ASI294MC .327 against .261.
   Red and blue are within about .03 of real's pooled. The structure is drawn for the cross terms, and the own lag-1 is not held to
   real's; that is the second thing the next leg should look at beside the level.
+- **Why the own lag-1 moved** (a probe on the real 585, 533 and QHY294 plates: `ChannelNoiseStructure.Measure`, then `Mix` over
+  `NoiseField.Warped(256, 256, 16, rng, 0.5)`, 8 seeds; a copy of `HoldLagOne` matched `Mix` bit for bit):
+  (a) `HoldLagOne` holds only the POOLED horizontal-plus-vertical raw lag-1, with an isotropic 4-neighbour high-pass, so the per-axis
+  lag-1, which the classifier reads along x, moves freely. On the 585 green's raw lag-1 goes x .444 to .599 and y .453 to .296, and its x
+  box-residual .299 to .463; that is the tiles' .154 to .286.
+  (b) The fit (`FitKernels`/`Residuals`) constrains only the cross-correlations, so it accepts kernels whose shapes the plate does not
+  have. The 585's green kernel is horizontally elongated (own lag-1 x .82, y -.17) and paired with a vertical red, although the plate's
+  cross-correlations and its green residual are near-isotropic. The 533's green kernel is a checkerboard (box residual along x -0.50).
+  (c) On the 533 red's shared share sits at the 0.5 cap, and `HoldLagOne`'s beta pins at -1.95 in 2 of 3 seeds, so even the pooled raw
+  lag-1 is not held (.460 to .445). A beta at its clamp is silent in the export's log.
 
 The noise-only classifier (`domain_classifier.py`, mode `noise`: 16 px crops with no pixel over 4 sigma above the local sky, less
 their 5 px box mean; leave one camera out over the 8 sessions), run on the CPU at seeds 0, 1 and 2 over base and struct as exported
@@ -4804,8 +4815,9 @@ seeds, the seeds' range in brackets:
 **Verdict: F5's gate is NOT met.** The noise-crop AUC is below 0.70 on the mean (struct .659, struct-rs .671), but only because one
 rig's crops crossed to the far side of chance while the QHY294PROC and ASI533MC Pro became easier to tell (.82 and .74, from .73 and
 .66), and Lobster's sigma ratio is 1.16, not within 1.05. `--channel-noise-structure` is **not proposed for adoption** and stays off by
-default; the owner decides. What it needs before another read: each channel's own lag-1 held to the REAL plate's per rig (today it is
-held to the draw's own), and Lobster's level excess found (red and green at 1.19, blue 1.10, the #1786 mechanism ruled out above).
+default; the owner decides. What it needs before another read: the kernels' own shapes constrained, per axis, and each axis's lag-1
+held (today only the pooled horizontal-plus-vertical raw lag-1 is held; see the diagnosis above), and Lobster's level excess found
+(red and green at 1.19, blue 1.10, the #1786 mechanism ruled out above; #1786 stays open).
 
 #### A learned synthetics generator, kept in sight
 

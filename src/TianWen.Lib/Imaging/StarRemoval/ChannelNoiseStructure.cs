@@ -29,9 +29,10 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// compared, and what is drawn reads, by <see cref="Measure"/>, as what was measured.
 /// A measure the model cannot reach (kernels of more than half the variance, or a residual over
 /// <see cref="FitTolerance"/>) is shrunk toward independent until it can, and <see cref="Shrink"/> says by how much. The shared
-/// part's own lag-1 is not the draw's, so each channel's own field is high-passed by the amount that makes the sum's lag-1
-/// the draw's again: the channel keeps unit variance and the lag-1 its shape gives it, which relaxes #1739's "each channel's
-/// spatial correlation as now" only in what lies beyond lag-1.
+/// part's own lag-1 is not the draw's, so each channel's own field is high-passed (isotropically, by its four neighbours) by the
+/// amount that makes the sum's POOLED horizontal-plus-vertical raw lag-1 the draw's again, with unit variance. Only the pooled
+/// lag-1 is held: the per-axis lag-1 moves freely (and the fit constrains only the cross-correlations, so a kernel's own shape
+/// can be elongated or a checkerboard), and a target beyond the beta range is not reached, silently.
 /// </para>
 /// <para>
 /// The shared field comes from a random stream the caller hands in, and nothing else is drawn, so every other stream of an
@@ -188,7 +189,8 @@ public sealed class ChannelNoiseStructure
     /// <summary>
     /// The channels' fields with the structure: channel c becomes <c>sqrt(1 - v_c) * own_c' + w_c * G</c>, G one white field
     /// of unit variance drawn from <paramref name="sharedRng"/> (the only draw), <c>own_c'</c> the channel's field high-passed
-    /// to the lag-1 that keeps the sum's what the field had, and unit variance. A channel with no shared part is its field,
+    /// to the pooled (horizontal plus vertical) lag-1 that keeps the sum's what the field had, and unit variance; a target
+    /// beyond the beta range is not reached. A channel with no shared part is its field,
     /// the same array; with nothing shared at all, so is every channel and <paramref name="sharedRng"/> is not touched.
     /// </summary>
     /// <param name="fields">One square field per channel, <paramref name="size"/> pixels a side, of unit variance.</param>
@@ -420,8 +422,9 @@ public sealed class ChannelNoiseStructure
     /// <summary>
     /// The field high-passed (<c>field - beta * mean of its four neighbours</c>, an edge repeated) by the beta that makes
     /// the lag-1 of <c>sqrt(1 - shared) * result + a field of lag-1 <paramref name="sharedLag1"/> and energy
-    /// <paramref name="shared"/></c> the field's own, then scaled to unit variance. A beta the target lies beyond is held at
-    /// the end of its range.
+    /// <paramref name="shared"/></c> the field's own, then scaled to unit variance. The lag-1 is the POOLED horizontal plus
+    /// vertical one, so the per-axis lag-1 is not held. A beta the target lies beyond is held at the end of its range, the
+    /// target is then not reached, and nothing says so.
     /// </summary>
     private static float[] HoldLagOne(float[] field, int size, double shared, double sharedLag1)
     {

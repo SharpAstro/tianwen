@@ -454,7 +454,7 @@ namespace TianWen.AI.Imaging
         /// shared part is drawn with the master's spatial cross-structure, each pair's correlation at every offset up to two
         /// pixels measured on its starless plate and fitted by kernels over one shared field
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.ChannelNoiseStructure"/>), each channel keeping unit variance and its
-        /// own lag-1. The shared field has a random stream of its own, so every other draw is what it was. Not with
+        /// own POOLED (horizontal plus vertical) lag-1, not per axis, and not beyond the beta range. The shared field has a random stream of its own, so every other draw is what it was. Not with
         /// <paramref name="ChannelNoiseCorrelation"/>.</param>
         /// <param name="FaintStarFloor">Stars mode on the synthetic background: each master's luminosity function is fitted
         /// to its own catalogue and every draw adds the stars the catalogue lacks under its detection limit, down to this
