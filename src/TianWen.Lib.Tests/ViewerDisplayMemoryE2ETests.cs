@@ -38,6 +38,14 @@ public class ViewerDisplayMemoryE2ETests(ITestOutputHelper output) : IDisposable
         state.BackgroundSkyLevel = 0.05f + (k / 100f);
         state.ManualWhiteBalance = (1.2f + k, 1f, 0.8f);
         state.DisplayCrop = new PixelRect(4, 4, 32, 24);
+        state.CurvesBoost = 0.3f;
+        state.CurvesMode = defaults.CurvesMode + 1;
+        state.HdrAmount = 0.4f + (k / 100f);
+        state.HdrKnee = 0.6f;
+        state.FinishContrast = 0.25f;
+        state.FinishSaturation = 1.4f;
+        state.StarMethod = StarStretchMethod.StarStretch;
+        state.StarAmount = defaults.StarAmount + 0.5f;
     }
 
     private static void ShouldBeTuned(ViewerState state, float k)
@@ -50,6 +58,14 @@ public class ViewerDisplayMemoryE2ETests(ITestOutputHelper output) : IDisposable
         state.BackgroundSkyLevel.ShouldBe(0.05f + (k / 100f));
         state.ManualWhiteBalance.ShouldBe((1.2f + k, 1f, 0.8f));
         state.DisplayCrop.ShouldBe(new PixelRect(4, 4, 32, 24));
+        state.CurvesBoost.ShouldBe(0.3f);
+        state.CurvesMode.ShouldBe(defaults.CurvesMode + 1);
+        state.HdrAmount.ShouldBe(0.4f + (k / 100f));
+        state.HdrKnee.ShouldBe(0.6f);
+        state.FinishContrast.ShouldBe(0.25f);
+        state.FinishSaturation.ShouldBe(1.4f);
+        state.StarMethod.ShouldBe(StarStretchMethod.StarStretch);
+        state.StarAmount.ShouldBe(defaults.StarAmount + 0.5f);
     }
 
     private static void ShouldBeDefault(ViewerState state)
@@ -62,6 +78,14 @@ public class ViewerDisplayMemoryE2ETests(ITestOutputHelper output) : IDisposable
         state.BackgroundSkyLevel.ShouldBe(defaults.BackgroundSkyLevel);
         state.ManualWhiteBalance.ShouldBe(defaults.ManualWhiteBalance);
         state.DisplayCrop.ShouldBeNull();
+        state.CurvesBoost.ShouldBe(defaults.CurvesBoost);
+        state.CurvesMode.ShouldBe(defaults.CurvesMode);
+        state.HdrAmount.ShouldBe(defaults.HdrAmount);
+        state.HdrKnee.ShouldBe(defaults.HdrKnee);
+        state.FinishContrast.ShouldBe(defaults.FinishContrast);
+        state.FinishSaturation.ShouldBe(defaults.FinishSaturation);
+        state.StarMethod.ShouldBe(defaults.StarMethod);
+        state.StarAmount.ShouldBe(defaults.StarAmount);
     }
 
     [Theory(Timeout = 120_000)]
@@ -149,6 +173,35 @@ public class ViewerDisplayMemoryE2ETests(ITestOutputHelper output) : IDisposable
         var record = await ViewerDisplayMemory.LoadAsync(external, b, ct);
         record.ShouldNotBeNull();
         record.StretchParameters.ShouldBe(new StretchParameters(0.1 + 7f, -1.5 - 7f));
+    }
+
+    [Theory(Timeout = 120_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task LeavingAnEnhanceResultLeavesItsSourcesRecordAlone(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = MakeExternal();
+        await using var e2e = ViewerE2E.Start(dpi, external: external);
+        var a = e2e.WriteColourFits("a.fits");
+        var b = e2e.WriteColourFits("b.fits", level: 500f);
+
+        await e2e.OpenAsync(a, ct);
+        Tune(e2e.State, 0f);
+        await e2e.OpenAsync(b, ct);
+        await e2e.OpenAsync(a, ct);
+        ShouldBeTuned(e2e.State, 0f);
+
+        // An enhance result carries a's path but not a's display: its crop is dropped and its tuning is its own.
+        e2e.Controller.Document.ShouldNotBeNull().MarkAsEnhanceResult();
+        Tune(e2e.State, 5f);
+        e2e.State.DisplayCrop = null;
+        await e2e.OpenAsync(b, ct);
+
+        var record = await ViewerDisplayMemory.LoadAsync(external, a, ct);
+        record.ShouldNotBeNull();
+        record.DisplayCrop.ShouldBe(new PixelRect(4, 4, 32, 24));
+        record.StretchParameters.ShouldBe(new StretchParameters(0.1, -1.5));
     }
 
     [Theory(Timeout = 120_000)]
