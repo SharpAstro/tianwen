@@ -133,6 +133,46 @@ public class ViewerDisplayMemoryTests(ITestOutputHelper output) : IDisposable
         }
     }
 
+    /// <summary>
+    /// What <see cref="ViewerState.ForAnnotatedExport"/> assigns that a file's record deliberately does not keep: the capture's own
+    /// wavelet reads, the overlays, the sky backdrop, and the window and chrome.
+    /// </summary>
+    private static readonly string[] NotRemembered =
+    [
+        nameof(ViewerState.WaveletDerived), nameof(ViewerState.WaveletLimb),
+        nameof(ViewerState.ShowGrid), nameof(ViewerState.ShowOverlays), nameof(ViewerState.ShowStarOverlay), nameof(ViewerState.ShowSkyBackdrop),
+        nameof(ViewerState.Zoom), nameof(ViewerState.ZoomToFit), nameof(ViewerState.PanOffset), nameof(ViewerState.HideChrome),
+        nameof(ViewerState.ShowFileList), nameof(ViewerState.ShowInfoPanel), nameof(ViewerState.ShowHistogram), nameof(ViewerState.IsSequence),
+        nameof(ViewerState.SplitFraction), nameof(ViewerState.NeedsTextureUpdate), nameof(ViewerState.MouseScreenPosition),
+    ];
+
+    [Fact]
+    public void EveryMemberForAnnotatedExportAssignsIsRememberedOrListedAsNot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "src", "TianWen.slnx")))
+        {
+            dir = dir.Parent;
+        }
+
+        dir.ShouldNotBeNull($"No src/TianWen.slnx above {AppContext.BaseDirectory}: the source guard has nothing to read");
+
+        var text = File.ReadAllText(Path.Combine(dir.FullName, "src", "TianWen.UI.Abstractions", "ViewerState.cs"));
+        var start = text.IndexOf("ForAnnotatedExport() => new ViewerState", StringComparison.Ordinal);
+        start.ShouldBeGreaterThanOrEqualTo(0, "ForAnnotatedExport moved: update this guard");
+        var end = text.IndexOf("\n    };", start, StringComparison.Ordinal);
+        end.ShouldBeGreaterThan(start);
+
+        var assigned = System.Text.RegularExpressions.Regex.Matches(text[start..end], @"^\s*(\w+)\s*=", System.Text.RegularExpressions.RegexOptions.Multiline)
+            .Select(m => m.Groups[1].Value)
+            .ToArray();
+        assigned.ShouldNotBeEmpty();
+
+        var known = DisplayFields.Select(f => f.Name).Concat(NotRemembered).ToHashSet(StringComparer.Ordinal);
+        assigned.Where(n => !known.Contains(n)).ShouldBeEmpty(
+            "a member ForAnnotatedExport now assigns is neither in DisplayFields (and the record) nor in NotRemembered: a display setting must be remembered per file");
+    }
+
     [Fact]
     public async Task ARewrittenFileReadsAsNone()
     {
