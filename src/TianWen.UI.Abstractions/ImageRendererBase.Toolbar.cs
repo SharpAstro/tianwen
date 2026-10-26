@@ -696,6 +696,11 @@ namespace TianWen.UI.Abstractions
                     state.NeedsRedraw = true;
                     return true;
 
+                case ToolbarAction.Enhance:
+                    state.EnhancePopover.Toggle();
+                    state.NeedsRedraw = true;
+                    return true;
+
                 case ToolbarAction.Zoom:
                     // Index IS the ratio denominator, so "1:N" selects ZoomTo(1/N) with no lookup table
                     // and entry 0 is the one special case. Same set the keyboard reaches, deliberately:
@@ -1810,8 +1815,8 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.ColorCalibrate => "Photometric colour calibration (W)",
             ToolbarAction.BackgroundNeutralize => "The sky: its colour neutralised (N toggles) and its level reduced",
             ToolbarAction.Enhance when state.IsEnhancing => "Cancel this enhance (E)",
-            ToolbarAction.Enhance when state.IsEnhanced => "Turn the enhancement off (E); right-click cycles the backend",
-            ToolbarAction.Enhance => "AI enhance; right-click cycles the backend (E)",
+            ToolbarAction.Enhance when state.IsEnhanced => "Enhance: the program and its backend; E turns the enhancement off",
+            ToolbarAction.Enhance => "Enhance: the program and its backend; E runs it",
             ToolbarAction.Shortcuts => "All keyboard shortcuts",
             _ => null,
         };

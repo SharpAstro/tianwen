@@ -175,7 +175,6 @@ public class ViewerShortcutTableTests
     [InlineData(InputKey.F1, ToolbarAction.Shortcuts, ViewerShortcutRoute.OpenMenu)]
     // Pressed, so the host that runs the button runs the key (the Live Session preview's node solves P).
     [InlineData(InputKey.P, ToolbarAction.PlateSolve, ViewerShortcutRoute.Press)]
-    [InlineData(InputKey.E, ToolbarAction.Enhance, ViewerShortcutRoute.Press)]
     public void TheRoutedKeysResolveToTheirButtonAndRoute(
         InputKey key, ToolbarAction button, ViewerShortcutRoute route)
     {
@@ -191,6 +190,8 @@ public class ViewerShortcutTableTests
     // D and N name a button but keep their arms, because that button opens a dropdown.
     [InlineData(InputKey.D)]
     [InlineData(InputKey.N)]
+    // E names Enhance, whose button opens the popover, and keeps the toggle (run, cancel, revert) in its arm.
+    [InlineData(InputKey.E)]
     // Named but not routed: S and C keep their arms (a toggle, a cycle), their buttons only gate them.
     [InlineData(InputKey.S)]
     [InlineData(InputKey.C)]

@@ -1040,7 +1040,7 @@ public sealed class SharpenPipeline(
     /// Matches the base label the per-step timing log uses (minus the parameter suffixes) so
     /// the progress lines and the timing summary read as the same steps.
     /// </summary>
-    private static string StepDisplayName(SharpenStep step) => step switch
+    public static string StepDisplayName(SharpenStep step) => step switch
     {
         WhiteBalanceStep => "white-balance",
         DeblurStep => "deblur",

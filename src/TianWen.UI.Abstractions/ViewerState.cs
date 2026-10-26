@@ -30,6 +30,7 @@ public sealed class ViewerState
         TonePopover.Closed += () => NeedsRedraw = true;
         WhiteBalancePopover.Closed += () => NeedsRedraw = true;
         BackgroundPopover.Closed += () => NeedsRedraw = true;
+        EnhancePopover.Closed += () => NeedsRedraw = true;
     }
 
     public StretchMode StretchMode { get; set; } = ViewerActions.DefaultStretchMode;
@@ -227,8 +228,30 @@ public sealed class ViewerState
     /// <summary>Preferred AI enhancer backend for the next enhance, snapshotted into an
     /// <see cref="EnhanceOptions"/> per click. Auto = RC-Astro when present + licensed, else the in-house
     /// model where the role has one.
-    /// Cycled by the Enhance toolbar dropdown.</summary>
+    /// Chosen in the Enhance popover (<see cref="EnhancePopover"/>), among <see cref="EnhanceChoices"/>.</summary>
     public EnhanceBackend PreferredEnhanceBackend { get; set; } = EnhanceBackend.Auto;
+
+    /// <summary>
+    /// The Enhance popover (the AI program for a deep-sky frame, the sharpening for a planet, under the toolbar's
+    /// <see cref="ToolbarAction.Enhance"/> button). A <see cref="Layout.Builder.Popover"/> node, a menu on the terms
+    /// <see cref="WhiteBalancePopover"/> is.
+    /// </summary>
+    public PopoverState EnhancePopover { get; } = new();
+
+    /// <summary>
+    /// Which half of the Enhance popover shows: the planetary sharpening where this is a SER, the live stack or a
+    /// planetary master, the deep-sky AI program otherwise. The ONE rule, replacing the info strip's two conditions
+    /// (<c>ShowStacked || SequencePath is not null || IsPlanetaryMaster</c> for the telescope controls, and
+    /// <c>ShowStacked || ShowBest || IsPlanetaryMaster</c> for the dials), because the deep-sky models do not serve a
+    /// planetary frame and neither half shares the popover with the other.
+    /// </summary>
+    public bool EnhancesAsPlanet => ShowStacked || ShowAuto || SequencePath is not null || IsPlanetaryMaster;
+
+    /// <summary>
+    /// The backends that serve the frame on show, each with the program it would run (null until the controller has
+    /// asked, which it does off the render thread once the popover is open). Replaced whole, never edited.
+    /// </summary>
+    public ImmutableArray<EnhanceChoice> EnhanceChoices { get; set; }
 
     /// <summary>Whether the WCS coordinate grid overlay is visible.</summary>
     public bool ShowGrid { get; set; }
