@@ -35,8 +35,10 @@ if (-not $Run) { $Run = $arm.run }
 $Skip = @($Skip | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 if (-not $RealStarBaselines.Count -and $arm.real_star_baselines) { $RealStarBaselines = @($arm.real_star_baselines) }
 # A baseline is a model already scored over the real tiles, and never the arm itself: one not yet scored is left out of this arm's
-# read (the real-star check cannot open its outputs), and a list that names the arm does not read it twice.
-$RealStarBaselines = @($RealStarBaselines | ForEach-Object { $_ -split ',' } | Where-Object { $_ -and $_ -ne $Name -and ($_ -eq 'input' -or (Test-Path "$($arm.eval_root)/$_/on-real-val/outputs.jsonl")) })
+# read (the real-star check cannot open its outputs), and a list that names the arm does not read it twice. Each one left out is
+# said in the score log below, so a wrong eval_root or a typo never drops a baseline unannounced.
+$wantedBaselines = @($RealStarBaselines | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+$RealStarBaselines = @($wantedBaselines | Where-Object { $_ -ne $Name -and ($_ -eq 'input' -or (Test-Path "$($arm.eval_root)/$_/on-real-val/outputs.jsonl")) })
 if (-not $RingBaselines.Count -and $arm.ring_baselines) { $RingBaselines = @($arm.ring_baselines) }
 if (-not $NucleusReference -and $arm.nucleus_reference) { $NucleusReference = $arm.nucleus_reference }
 
@@ -47,6 +49,9 @@ $evals = "$($arm.eval_root)/$Name"
 New-Item -ItemType Directory -Force $logs | Out-Null
 New-Item -ItemType Directory -Force $arm.reports | Out-Null
 function Say([string]$what) { "$(Get-Date -Format o) $what" | Tee-Object -FilePath "$logs/score.log" -Append }
+foreach ($dropped in @($wantedBaselines | Where-Object { $_ -ne $Name -and $RealStarBaselines -notcontains $_ })) {
+    Say "real-star baseline '$dropped' dropped: no $($arm.eval_root)/$dropped/on-real-val/outputs.jsonl"
+}
 function Py([string[]]$arguments, [string]$what, [string]$dir = $Run) {
     $p = Start-Process python -ArgumentList $arguments -WorkingDirectory $dir -NoNewWindow -PassThru -Wait `
         -RedirectStandardOutput "$logs/$what.log" -RedirectStandardError "$logs/$what.err.log"
