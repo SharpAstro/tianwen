@@ -123,7 +123,8 @@ namespace TianWen.Lib.Tests
             var buttons = new Dictionary<string, (float X, float Y)>();
             foreach (var region in viewer.GetRegisteredRegions())
             {
-                if (region.Y >= bottom && region.Result is HitResult.ButtonHit hit)
+                // The statistics toggle sits below the bar whatever the popover does; only the popover's own rows count.
+                if (region.Y >= bottom && region.Result is HitResult.ButtonHit hit && hit.Action.StartsWith("Enhance", StringComparison.Ordinal))
                 {
                     buttons.TryAdd(hit.Action, (region.X + region.Width / 2f, region.Y + region.Height / 2f));
                 }
