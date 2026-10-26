@@ -363,7 +363,8 @@ namespace TianWen.Lib.Tests
             var (viewer, state, _) = await OpenAsync(renderer, dpiScale, ct, OnAStackedCapture);
 
             state.EnhancesAsPlanet.ShouldBeTrue();
-            HitsBelowTheBar(viewer).Keys.ShouldBe(["EnhancePanelBackground"], "neither the AI backends nor Run, Cancel and Off are on a planet's way");
+            // Neither the AI backends nor Run, Cancel and Off are on a planet's way: only the popover's own backdrop is.
+            HitsBelowTheBar(viewer).Keys.ShouldBe(["EnhancePanelBackground"]);
 
             var hits = PlanetaryHits(viewer).Keys;
             hits.ShouldContain("PlanetJupiter");
