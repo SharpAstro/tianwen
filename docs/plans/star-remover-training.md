@@ -4095,6 +4095,12 @@ prints "levels=4 (channels capped at 256), 6.86 M params, 4520 train cells" and 
 **Seed 0 on the 1070, measured:** 224,500 steps in 698.1 min (11.6 h) at 42.9 tiles/s (41.7 at the first 200 steps), loss
 0.00000 at the end, no error output. That is the four-level net's time on this card; R2nc, R2t and R2u ran on T4s.
 
+**Seed 1 on the 1070, measured (a fact added once it finished, 2026-10-26; the predictions and bars above are unchanged):**
+the same recipe with `--seed 1` (the head of its log matches seed 0's line for line), 224,500 steps in 725.3 min (12.1 h) at
+41.3 tiles/s, finished and saved at 23:43 on 2026-10-26, loss 0.00000 at the end, an empty error log. The cosine schedule runs to
+the last step, so the checkpoint is the final one and no best step is recorded. Both seeds are exported to ONNX with contracts
+under `f2-logs-master/score-r3a_synth11_s{0,1}/`.
+
 **What is compared.** R3a seed 0 and seed 1 against R2t and R2w (the two arms on the same recipe or the same stretch), on:
 the three whole masters (Andromeda, the Tarantula and the held-out crowded field), the real tiles with M42 per session, and
 F2's sets (A's draws and the lobed twin, `f2-sets.json`, 7 sessions) against the four baselines' rows in "F2's read". R2t is
