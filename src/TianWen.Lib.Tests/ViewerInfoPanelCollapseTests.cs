@@ -194,25 +194,53 @@ namespace TianWen.Lib.Tests
 
             TablePainted(viewer).ShouldBe(tableOff);
             over["ToggleStatistics"].ShouldBe(off["ToggleStatistics"]);
-            over["WaveletToggle"].ShouldBe(off["WaveletToggle"]);
         }
 
         /// <summary>
-        /// The heading pins the other state, and the rows below move by the table; pressed again, the pin goes, since it
-        /// would only restate what the room decides.
+        /// The strip only reports (#1345, P36): for a SER, the live stack and a planetary master it registers none of the planetary
+        /// controls, which live in the Enhance popover (<see cref="ViewerEnhancePopoverTests"/>).
+        /// </summary>
+        [Theory]
+        [InlineData(1f, false, true, false)]
+        [InlineData(1f, true, false, false)]
+        [InlineData(1f, false, false, true)]
+        [InlineData(1.5f, false, true, false)]
+        [InlineData(1.5f, true, false, false)]
+        [InlineData(1.5f, false, false, true)]
+        public async Task TheStripRegistersNoPlanetaryControl(float dpiScale, bool ser, bool liveStack, bool master)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW * 2, (uint)(1200 * dpiScale));
+            var (viewer, state, document) = await NewViewerAsync(renderer, ct, dpiScale);
+            if (ser)
+            {
+                state.SequencePath = "capture.ser";
+            }
+            state.ShowStacked = liveStack;
+            state.MasterPlanet = master ? TianWen.Lib.Astrometry.Catalogs.CatalogIndex.Jupiter : null;
+
+            viewer.Render(document, state);
+
+            state.EnhancesAsPlanet.ShouldBeTrue("each of these is on a planet's way");
+            PanelButtons(viewer).Keys.ShouldNotContain(a => a.StartsWith("Wavelet", StringComparison.Ordinal)
+                    || a.StartsWith("Planet", StringComparison.Ordinal) || a.StartsWith("Filter", StringComparison.Ordinal)
+                    || a.StartsWith("Design", StringComparison.Ordinal) || a.StartsWith("Aperture", StringComparison.Ordinal)
+                    || a.StartsWith("Strength", StringComparison.Ordinal),
+                "no telescope or wavelet control is in the strip");
+            PanelButtons(viewer).ShouldContainKey("ToggleStatistics");
+        }
+
+        /// <summary>
+        /// The heading pins the other state; pressed again, the pin goes, since it would only restate what the room decides.
         /// </summary>
         [Theory]
         [InlineData(1f)]
         [InlineData(1.5f)]
-        public async Task TheHeadingPinsTheOtherStateAndTheRowsBelowMoveWithIt(float dpiScale)
+        public async Task TheHeadingPinsTheOtherState(float dpiScale)
         {
             var ct = TestContext.Current.CancellationToken;
-            // Tall enough that the wavelet block stays on the strip with the table open or rolled up.
             using var renderer = new RgbaImageRenderer(WindowW * 2, (uint)(1200 * dpiScale));
             var (viewer, state, document) = await NewViewerAsync(renderer, ct, dpiScale);
-
-            // The wavelet toggle is the strip's next registered thing below the statistics, so it is the yardstick.
-            state.ShowStacked = true;
 
             viewer.Render(document, state);
             var before = PanelButtons(viewer);
@@ -224,10 +252,6 @@ namespace TianWen.Lib.Tests
             viewer.Render(document, state);
             var after = PanelButtons(viewer);
             TablePainted(viewer).ShouldBe(!openBefore);
-
-            // Five table rows for a colour frame (a header, R, G, B and Luma), each at least eight design units tall.
-            MathF.Abs(after["WaveletToggle"] - before["WaveletToggle"]).ShouldBeGreaterThan(5 * 8f * dpiScale,
-                "the statistics table sits between the two only while the section is open");
 
             Click(viewer, after["ToggleStatistics"]);
             state.InfoPanelStatisticsPinned.ShouldBeNull("back to what the room decides, the pin has nothing left to say");

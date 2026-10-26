@@ -85,7 +85,7 @@ public class ViewerWaveletDialRangeTests
     private static RectF32 Track(ViewerE2E e2e, int band)
     {
         var dial = e2e.Viewer.WaveletSliderState(band);
-        return e2e.Region(hit => hit is HitResult.SliderStateHit { State: var state } && ReferenceEquals(state, dial),
+        return e2e.EnhanceRegion(hit => hit is HitResult.SliderStateHit { State: var state } && ReferenceEquals(state, dial),
             $"band {band + 1}'s dial");
     }
 

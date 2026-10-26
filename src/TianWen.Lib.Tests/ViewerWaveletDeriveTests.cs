@@ -71,7 +71,7 @@ public class ViewerWaveletDeriveTests
         // Reset puts the preset back and forgets the derivation, but keeps the limb, which is the capture's: hand-set dials are drawn
         // outside it too.
         var drawnBefore = source.MastersDrawnOutsideTheLimb;
-        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "WaveletReset" }, "the Reset button"));
+        e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: "WaveletReset" }, "the Reset button"));
         e2e.State.WaveletDerived.ShouldBeFalse();
         e2e.State.WaveletDeriveNote.ShouldBeNull();
         e2e.State.WaveletGains.ShouldBe(WaveletSharpenOptions.PlanetaryDefault.Gains);
@@ -115,7 +115,7 @@ public class ViewerWaveletDeriveTests
         var ct = TestContext.Current.CancellationToken;
         await OpenStackedAsync(e2e, ct);
         (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (254, OpticalDesign.Newtonian);
-        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "Strength2" }, "the strength 2 button"));
+        e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: "Strength2" }, "the strength 2 button"));
         e2e.Frame();
 
         PressDerive(e2e);
@@ -145,7 +145,7 @@ public class ViewerWaveletDeriveTests
         var (truth, truthNote) = (e2e.State.WaveletGains, e2e.State.WaveletDeriveNote);
         derived.Stops.Length.ShouldBe(PlanetarySharpening.StrengthStops.Length);
 
-        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "Strength2" }, "the strength 2 button"));
+        e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: "Strength2" }, "the strength 2 button"));
         e2e.Frame();
         e2e.State.WaveletDeriving.ShouldBeFalse("a stop after Derive runs no derivation");
         e2e.State.PlanetaryStrength.ShouldBe(2);
@@ -154,16 +154,16 @@ public class ViewerWaveletDeriveTests
         e2e.State.WaveletDeriveNote.ShouldNotBeNull().ShouldContain("strength 2 past the truth");
         e2e.State.WaveletSharpenEnabled.ShouldBeTrue();
 
-        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "StrengthTruth" }, "the truth's button"));
+        e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: "StrengthTruth" }, "the truth's button"));
         e2e.Frame();
         e2e.State.WaveletDeriving.ShouldBeFalse();
         e2e.State.WaveletGains.ToArray().ShouldBe(truth.ToArray());
         e2e.State.WaveletDeriveNote.ShouldBe(truthNote);
 
         // Reset forgets the derivation, so a stop chosen then leaves the preset's dials and is only what the next Derive takes.
-        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "WaveletReset" }, "the Reset button"));
+        e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: "WaveletReset" }, "the Reset button"));
         e2e.State.DerivedWaveletGains.ShouldBeNull();
-        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "Strength25" }, "the strength 2.5 button"));
+        e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: "Strength25" }, "the strength 2.5 button"));
         e2e.Frame();
         e2e.State.PlanetaryStrength.ShouldBe(2.5);
         e2e.State.WaveletGains.ShouldBe(WaveletSharpenOptions.PlanetaryDefault.Gains);
@@ -199,7 +199,7 @@ public class ViewerWaveletDeriveTests
     // The panel's own Derive button, pressed where it is drawn.
     internal static void PressDerive(ViewerE2E e2e)
     {
-        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "WaveletDerive" }, "the Derive button"));
+        e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: "WaveletDerive" }, "the Derive button"));
         e2e.Frame();
     }
 }

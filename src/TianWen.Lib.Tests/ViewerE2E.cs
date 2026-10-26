@@ -54,7 +54,8 @@ internal sealed class ViewerE2E : IAsyncDisposable
         Controller = new ViewerController(State, new DocumentCache(), FileDialog,
             Substitute.For<IPlateSolverFactory>(), new FakeTimeProviderWrapper(), Tracker,
             NullLogger<ViewerController>.Instance, external);
-        Viewer = new Surface(_renderer, Bus) { DpiScale = dpiScale };
+        // The bar tianwen-fits offers (Program.cs): the Enhance button is where the planetary sharpening lives (#1345).
+        Viewer = new Surface(_renderer, Bus) { DpiScale = dpiScale, Offer = ToolbarOffer.FileViewer.With(ToolbarAction.Enhance) };
         Host = new StandaloneViewerHost<RgbaImage>(Viewer, State, Controller, Tracker, Bus,
             NullLogger.Instance, external, _appCts.Token);
         Folder = _folders.Create("tianwen-viewer-e2e-").FullName;
@@ -207,6 +208,24 @@ internal sealed class ViewerE2E : IAsyncDisposable
     /// <summary>A click on a toolbar button, which must be on the bar.</summary>
     internal void Click(ToolbarAction action, MouseButton button = MouseButton.Left)
         => Click(ToolbarButton(action), button);
+
+    /// <summary>Opens the Enhance popover by its button, as a user does, if it is not open; the planetary controls are in it.</summary>
+    internal void OpenEnhancePopover()
+    {
+        if (!State.EnhancePopover.IsOpen)
+        {
+            Click(ToolbarAction.Enhance);
+        }
+
+        State.EnhancePopover.IsOpen.ShouldBeTrue("the Enhance button opens its popover");
+    }
+
+    /// <summary>The one painted region whose hit matches in the Enhance popover, which is opened first (#1345).</summary>
+    internal RectF32 EnhanceRegion(Func<HitResult, bool> match, string what)
+    {
+        OpenEnhancePopover();
+        return Region(match, what);
+    }
 
     /// <summary>A key press and release through the host, then a frame.</summary>
     internal void Key(InputKey key, InputModifier modifiers = InputModifier.None)

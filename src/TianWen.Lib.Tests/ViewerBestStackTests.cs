@@ -69,7 +69,7 @@ public class ViewerBestStackTests
         await e2e.PumpUntilAsync(() => e2e.State.SequencePath == capture, "the capture to open", ct);
         e2e.State.PlanetaryStrength.ShouldBe(1, "the truth until the panel says otherwise");
 
-        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "Strength2" }, "the strength 2 button"));
+        e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: "Strength2" }, "the strength 2 button"));
         e2e.Frame();
         e2e.State.PlanetaryStrength.ShouldBe(2);
         e2e.Key(InputKey.K, InputModifier.Shift);

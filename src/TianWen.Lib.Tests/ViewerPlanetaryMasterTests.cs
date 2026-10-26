@@ -76,14 +76,14 @@ public class ViewerPlanetaryMasterTests
 
         var truth = e2e.State.WaveletGains;
         var drawn = layer.MastersDrawnOutsideTheLimb;
-        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "Strength2" }, "the strength 2 button"));
+        e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: "Strength2" }, "the strength 2 button"));
         e2e.State.WaveletDeriving.ShouldBeFalse("a stop after Derive derives nothing");
         e2e.State.WaveletGains.ToArray().ShouldBe(e2e.State.DerivedWaveletGains.ShouldNotBeNull().GainsAt(2).ToArray());
         e2e.State.WaveletGains.ToArray().ShouldNotBe(truth.ToArray());
         await DrawnAsync(e2e, layer, drawn, ct);
 
         // Sharpening off shows the file as it is again.
-        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "WaveletToggle" }, "the sharpen toggle"));
+        e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: "WaveletToggle" }, "the sharpen toggle"));
         e2e.State.WaveletSharpenEnabled.ShouldBeFalse();
         e2e.Controller.Source.ShouldBeOfType<AstroImageDocument>();
     }
@@ -114,7 +114,7 @@ public class ViewerPlanetaryMasterTests
         foreach (var stop in PlanetarySharpening.StrengthStops)
         {
             var drawn = layer.MastersDrawnOutsideTheLimb;
-            e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: var a } && a == ButtonFor(stop), $"the {stop} button"));
+            e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: var a } && a == ButtonFor(stop), $"the {stop} button"));
             if (stop != 1)
             {
                 await DrawnAsync(e2e, layer, drawn, ct);
@@ -148,11 +148,11 @@ public class ViewerPlanetaryMasterTests
         await e2e.PumpUntilAsync(() => e2e.State.WaveletDeriveNote is not null && !e2e.State.WaveletDeriving, "the derivation's answer", ct, untilTimeout: true);
         var layer = e2e.Controller.Source.ShouldBeOfType<LiveStackPreviewSource>(e2e.State.WaveletDeriveNote);
         var drawn = layer.MastersDrawnOutsideTheLimb;
-        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "Strength2" }, "the strength 2 button"));
+        e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: "Strength2" }, "the strength 2 button"));
         await DrawnAsync(e2e, layer, drawn, ct);
         e2e.Controller.ShownDocument.ShouldBeSameAs(layer.Document, "what is on show is the layer's master");
         var sharpened = await SaveAsync(e2e, "sharpened.tif", ct);
-        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "WaveletToggle" }, "the sharpen toggle"));
+        e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: "WaveletToggle" }, "the sharpen toggle"));
         var asFileAgain = await SaveAsync(e2e, "as-file-again.tif", ct);
 
         var (fileVsAgain, fileVsSharpened) = (LargestDifference(asFile, asFileAgain), LargestDifference(asFile, sharpened));
@@ -213,7 +213,7 @@ public class ViewerPlanetaryMasterTests
         foreach (var stop in PlanetarySharpening.StrengthStops)
         {
             var drawn = layer.MastersDrawnOutsideTheLimb;
-            e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: var a } && a == ButtonFor(stop), $"the {stop} button"));
+            e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: var a } && a == ButtonFor(stop), $"the {stop} button"));
             if (stop != 1)
             {
                 await DrawnAsync(e2e, layer, drawn, ct);
@@ -326,6 +326,7 @@ public class ViewerPlanetaryMasterTests
 
     private static bool HasButton(ViewerE2E e2e, string action)
     {
+        e2e.OpenEnhancePopover();
         return e2e.Viewer.PaintedRegions().Any(r => r.Result is HitResult.ButtonHit { Action: var a } && a == action);
     }
 
