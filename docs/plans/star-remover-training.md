@@ -4700,7 +4700,78 @@ table below is the constructed plate's, and the real one is still owed (see the 
   the stars arm, re-read the median per-tile sigma ratio by `domain_stats` through the master's stretch, and expect Lobster at
   1.05 or under with M42, SMC and HIP 80609 not past 1.05. If Lobster is still above, the next suspect is the lag-1 of the warped
   field against real's (the adjacent-difference estimate falls with correlation), which S4b's per-channel structure now measures.
-  Every export baked before this change drew the doubled noise.
+  Every export baked before this change drew the doubled noise. **Answered below** ("S4b: the level re-read on the validation
+  sessions").
+
+##### S4b: the level re-read on the validation sessions
+
+Flight #1781 (F5, `export-and-level`). The 8 validation sessions were exported twice with synth4's recipe plus the #1786 fix:
+**base** (`--channel-noise-structure` off) and **struct** (on). Star placement is identical in both on all 320 tiles, and both
+match synth4's injections but for the new `Lobe` field and 50 `Knots` peak amplitudes (the fix reshaping the background texture).
+The struct arm's `NoiseStructureShrink` is 1 in every session (no shrink was needed). The ratio is synthetic over real adjacent-difference
+sigma (1.4826 x median |difference| / sqrt 2 per channel, absent pixels masked), the mean of the 3 channels per tile, the median over the
+session's paired tiles, all through the master's stretch (synthetic tiles re-stretched with the exporter's `restretch2` recipe, not the
+faulty first one). Median per session, before the fix (synth4) and after it:
+
+| session | synth4 | base | struct |
+|---|---|---|---|
+| Lobster | 1.161 | 1.159 | 1.156 |
+| Lobster flip a | 1.092 | 1.092 | 1.095 |
+| Lobster flip b | 1.104 | 1.104 | 1.082 |
+| M42 | 1.000 | 1.000 | 1.000 |
+| SMC | 1.000 | 1.000 | 1.000 |
+| HIP 80609 | 0.997 | 0.997 | 0.997 |
+| HIP 80609 flip a | 1.012 | 1.012 | 1.008 |
+| HIP 80609 flip b | 1.018 | 1.018 | 1.019 |
+
+- **Lobster stays above the 1.05 bar**: 1.159 (base) and 1.156 (struct) on the main session, 1.08 to 1.10 on its flips. The fix did
+  not move it (1.161 before). Its red and green channels carry the excess (about 1.19) and blue sits at about 1.10.
+- **M42 (1.000), SMC (1.000) and HIP 80609 (0.997 to 1.019) are inside the bar in every arm.** Nothing the fix or the structure
+  changes moved them past 1.05.
+- **So #1786's constructed plate did not reproduce what Lobster's tiles hold.** The doubled-noise mechanism is real in the code and
+  pinned by its tests, but it is not what carries Lobster's excess on the real sessions. Not fixed in this leg.
+- **The next suspect is the one #1786 named: the lag-1 of the warped field against real's** (the adjacent-difference estimate falls
+  as the lag-1 rises, so a field with less lag-1 reads noisier at equal variance). The read below gives it a size: on the QHY294PROC
+  rig the synthetic own lag-1 is 0.158, 0.160 and 0.146 (R, G, B) against real's 0.205, 0.179 and 0.157, which is worth a factor of
+  about 1.03 on red and 1.01 on green. That is a part of the gap, not the 1.16.
+
+##### S4b: the read
+
+Residual cross-correlation of the tiles AS EXPORTED (not re-stretched), by rig, at lags (dy, dx) 0 to 2, against real, synth4 and the
+zero-lag `corr` arm of #1739. `RG 0,1` is red against green one pixel along x; `RR 0,1` is a channel's own lag-1. The full table is in
+`lagcorr.txt` beside the exports (`C:/temp/tianwen-scratch/tia1781`). All rigs pooled:
+
+| source | RG 0,0 | GB 0,0 | RB 0,0 | RG 0,1 | GB 0,1 | RB 0,1 | RG 1,0 | RG 1,1 | RG 0,2 | RR 0,1 | GG 0,1 | BB 0,1 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| real | .099 | .037 | .029 | .052 | .028 | .018 | .050 | .025 | -.003 | .205 | .181 | .162 |
+| synth4 | .021 | .011 | .010 | .009 | .004 | .004 | .009 | .006 | .001 | .173 | .167 | .155 |
+| corr (#1739) | .079 | .027 | .019 | .017 | .007 | .005 | .019 | .003 | -.005 | .173 | .167 | .155 |
+| base | .021 | .011 | .010 | .009 | .004 | .004 | .009 | .006 | .001 | .173 | .168 | .155 |
+| struct | .079 | .031 | .024 | .041 | .026 | .013 | .046 | .012 | -.008 | .175 | .138 | .170 |
+
+By rig, red-green at lag (0,0) and (0,1), and the own lag-1 of green (real / struct):
+
+| rig | RG 0,0 | RG 0,1 | GG 0,1 |
+|---|---|---|---|
+| QHY294PROC | .101 / .090 | .053 / .041 | .179 / .120 |
+| ZWO ASI294MC | .109 / .119 | .042 / .047 | .261 / .327 |
+| ZWO ASI533MC Pro | .094 / .062 | .060 / .050 | .171 / .105 |
+| ZWO ASI585MC Pro | .066 / .050 | .048 / .034 | .169 / .286 |
+
+- **Base is synth4**: with the structure off the cross-correlation is the near-zero of synth4 at every lag, so the #1786 fix changes
+  none of it (as expected; it moves a level, not a structure).
+- **Struct draws real's lagged cross-structure**: the lag (0,1) and (1,0) red-green, green-blue and red-blue values come to within
+  a few thousandths of real's pooled (RG 0,1 .041 against .052; GB .026 against .028; RG 1,0 .046 against .050), where `corr` had
+  only the zero lag (RG 0,0 .079 against real's .099, and lag (0,1) .017) and synth4 none. The (1,1) and (0,2) values are small in real
+  and small in struct (RG 1,1 .012 against .025).
+- **Where it overshoots or undershoots**: on the ASI533MC Pro the struct blue lags are too strong (RB 1,1 +.078 against real's +.050,
+  RB 0,2 -.050 against -.022). Pooled zero-lag red-green is .079 against real's .099, the same as `corr`'s.
+- **The structure moved a channel's OWN lag-1 the wrong way on green**: pooled green .138 against real's .181 (base .168), by rig
+  QHY294PROC .120 against .179, ASI533MC Pro .105 against .171, but ASI585MC Pro .286 against .169 and ASI294MC .327 against .261.
+  Red and blue are within about .03 of real's pooled. The structure is drawn for the cross terms, and the own lag-1 is not held to
+  real's; that is the second thing the next leg should look at beside the level.
+- **The AUC part is left for the next leg**: the classifier AUC of base and struct against real (the synthetics review's 0.81 for
+  synth4) is not read here.
 
 #### A learned synthetics generator, kept in sight
 
