@@ -4813,7 +4813,7 @@ seeds, the seeds' range in brackets:
 - **The rises follow the own lag-1 the structure moved** (the lag table above): green's lag-1 fell to .120 against real's .179 on the
   QHY294PROC and to .105 against .171 on the ASI533MC Pro, and rose to .286 against .169 on the ASI585MC Pro. The cross-structure came to
   real's, and each channel's own neighbourhood went away from it, by rig in opposite directions; a noise crop sees the second more than
-  the first. `corr` (the zero lag alone) raised every rig a little; struct trades the zero-lag gap for a lag-1 one.
+  the first. `corr` (the zero lag alone) raised every rig, the ASI533MC Pro by .085 (.660 to .745); struct trades the zero-lag gap for a lag-1 one.
 - **Lobster's sigma ratio stays 1.16** (base 1.159, struct 1.156), past the gate's 1.05.
 
 **Verdict: F5's gate is NOT met.** The noise-crop AUC is below 0.70 on the mean (struct .659, struct-rs .671), but only because one
