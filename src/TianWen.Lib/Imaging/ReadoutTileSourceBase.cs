@@ -81,6 +81,19 @@ public abstract class ReadoutTileSourceBase : IReadoutTileSource
     /// </summary>
     protected abstract bool TryReadTile(int channel, int x0, int y0, int width, int height, [NotNullWhen(true)] out float[]? tile);
 
+    /// <summary>
+    /// True where decoding a block yields every channel at once (a TIFF segment holds all of them), so a miss reads the
+    /// file once for all of them, through <see cref="TryReadBlock"/>.
+    /// </summary>
+    protected virtual bool ReadsEveryChannelOfABlock => false;
+
+    /// <summary>Reads the block of every channel in one decode, one array per channel, as <see cref="TryReadTile"/> reads one.</summary>
+    protected virtual bool TryReadBlock(int x0, int y0, int width, int height, [NotNullWhen(true)] out float[][]? planes)
+    {
+        planes = null;
+        return false;
+    }
+
     /// <inheritdoc/>
     public bool TryRead(int channel, int x, int y, out float value)
     {
@@ -127,7 +140,29 @@ public abstract class ReadoutTileSourceBase : IReadoutTileSource
                 return false;
             }
 
-            if (!TryReadTile(channel, x0, y0, Math.Min(TileSize, Width - x0), Math.Min(TileSize, Height - y0), out tile))
+            var width = Math.Min(TileSize, Width - x0);
+            var height = Math.Min(TileSize, Height - y0);
+            if (ReadsEveryChannelOfABlock)
+            {
+                if (!TryReadBlock(x0, y0, width, height, out var planes))
+                {
+                    return false;
+                }
+
+                // The other channels of the block are cached beside the one asked for, so their reads are hits.
+                if (_tiles.Count + planes.Length > MaxTiles)
+                {
+                    _tiles.Clear();
+                }
+
+                for (var c = 0; c < planes.Length; c++)
+                {
+                    _tiles[((((long)c * _tilesDown) + tileRow) * _tilesAcross) + tileColumn] = planes[c];
+                }
+
+                tile = planes[channel];
+            }
+            else if (!TryReadTile(channel, x0, y0, width, height, out tile))
             {
                 return false;
             }
