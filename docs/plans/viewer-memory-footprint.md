@@ -685,6 +685,31 @@ way in M2: run-to-run variance on this document exceeds 1,200 MB, which is large
 would deliver. `GC.GetAllocatedBytesForCurrentThread` for the CPU half; the pipeline's own image
 sizes (the `StagingBufferSize` pattern) for the device half.
 
+### Do the planes stay evicted after the real load? Measured (D2's gate)
+
+`DocumentResidencyTests` opens an 8-bit RGB TIFF with planted stars through `AstroImageDocument.OpenAsync`
+and runs what `ViewerController.StartStarDetection` runs, in order, asserting `Image.PlanesResident` after
+each step. The answer was **no, and star detection is what held them**:
+
+- **Before the fix** the constructor's eviction held only until `DetectStarsAsync`. `FindStarsAsync` and the
+  star-masked background and median passes read the planes, `Image.Planes` publishes what it rebuilds
+  (`RestorePlanesFromRaster` compare-exchanges into the field), and the document sat at 12 B/px
+  of planes beside its raster and texture for the rest of its life. The 6 B/px steady state D1' promised
+  was never reached through the real load; the earlier proof (a `WeakReference` after the stats pass)
+  covered the constructor alone.
+- **Fix**: `AstroImageDocument.DetectStarsAsync` evicts once its own readers are done. The document owns it,
+  so no host has to remember. It declines for a document with no raster, so a float master is untouched.
+- **`LightGrading.Grade` restores nothing**; it needs no eviction of its own.
+- **A cursor readout and a channel toggle (`C`) restore nothing either**: the toggle is view state, and the
+  readout is served from the retained raster. Pinned, not assumed.
+
+**What this means for D2.** The gate asked whether star detection is what holds the planes resident, and it
+is, but only as a transient: with the re-eviction the planes exist for the duration of detection and the
+passes behind it, then go. D2 would therefore remove a 18 B/px **peak** that lasts seconds on a background
+task, not the steady state, which now holds. D2 stays unstarted: its value is the peak alone, and it costs a
+depth-agnostic detector and the parity work that goes with it. Reopen it only if a measured peak, not the
+steady state, is what runs a machine out of memory.
+
 ## Phasing
 
 | Phase | Items | Rationale |
@@ -692,7 +717,7 @@ sizes (the `StagingBufferSize` pattern) for the device half.
 | A | **DONE** -- M1 | Self-contained, one repo, no API design. Fixes the cost that persists across documents -- the one a user experiences as "it got slow after I opened that file". |
 | B | **DONE** -- M2 in `Codecs` (3.11) | A new public API on `SharpAstro.Tiff` plus a release. Second, so A has shipped by the time the pin moves. |
 | C | **CODE DONE**, pin held until 3.11 publishes -- M2 in `tianwen` | Follows B's release; the codec family floats per minor, so the pin edit is one line. |
-| D | **D3' DONE** (measured -6.05 B/px RGB, -2.02 mono); **D1' SHIPPED for raster-backed documents** (an 8-bit document releases its float planes after the stats pass: 18 -> 6 B/px, proven reclaimable by a WeakReference); reload-backed release for float masters still open, D2 designed -- M3 above | D3' shipped first as recommended: device-only, no API change. D1' demotes the float planes to a transient and is the next decision, to be taken against measurements with D3' in place. D2 (depth-agnostic star detection) stays gated on MEASURING that star detection is what holds them resident -- still an assumption. 16-bit retention is gated behind D1' too: the same arithmetic gives net 0 while the float planes stay resident. |
+| D | **D3' DONE** (measured -6.05 B/px RGB, -2.02 mono); **D1' SHIPPED for raster-backed documents** (an 8-bit document releases its float planes after the stats pass: 18 -> 6 B/px, proven reclaimable by a WeakReference); reload-backed release for float masters still open, D2 designed -- M3 above | D3' shipped first as recommended: device-only, no API change. D1' demotes the float planes to a transient and is the next decision, to be taken against measurements with D3' in place. **Measured through the real load: star detection DID leave the planes resident, and `DetectStarsAsync` now re-evicts, so the 6 B/px steady state holds** (`DocumentResidencyTests`; the cursor readout, channel toggle and `LightGrading.Grade` restore nothing). D2 (depth-agnostic star detection) would now only lower a transient peak, so it stays unstarted unless a measured peak asks for it. 16-bit retention is gated behind D1' too: the same arithmetic gives net 0 while the float planes stay resident. |
 
 ## Verification
 
