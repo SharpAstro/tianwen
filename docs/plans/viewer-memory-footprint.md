@@ -791,7 +791,11 @@ through) and one line in `TryOpen`. `FitsReadoutTiles` is the plain-FITS source,
 32 or -32 with two or three axes (matched on `.fz` alone, FITS.Lib 6.4's `CompressedImageData.TileCount` / `GetTileRectangle` /
 `ReadTile<T>`). Open reads headers and the tile geometry only; a miss decodes the stored tiles intersecting the 64 x 64 block (fpack's
 default tile is one row, so 64 per block and channel), opening the file for the miss and closing it after, and converts as the full
-import does (`bscale * stored + bzero`, a float with no scaling as it is, then the `unitScale` multiply). The reload reads the file
+import does. **The miss opens the file with the 64 KB header read-ahead (`OpenFitsHeader`), never the frame-sized one**: a
+`BufferedFile` refills its buffer on every seek, and at 2 MB a block miss cost 111 to 285 ms per channel against 11 to 30 ms at
+64 KB (measured). The intersecting tiles are indexed from `TileDimensions` (row-major, x fastest), not found by scanning every
+`TileCount` rectangle. The multi-block integer `.fz` fixture is deferred to #1860. Conversion is
+(`bscale * stored + bzero`, a float with no scaling as it is, then the `unitScale` multiply). The reload reads the file
 back through `TryReadFitsFile`, bit-identical. FITS.Lib cannot write a compressed file, so `FpackReadoutTileTests` pins the readout
 against the embedded `tilecompressed.fz` (quantized float, 3 x 24 x 32, one block per channel), not a larger multi-block one.
 Gzip stays plane-backed (a gzip stream cannot seek). TIFF and CR2 are what TIA1853 keeps.
