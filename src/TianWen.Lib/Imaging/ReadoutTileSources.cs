@@ -3,14 +3,15 @@ using System.Diagnostics.CodeAnalysis;
 namespace TianWen.Lib.Imaging;
 
 /// <summary>
-/// Picks the <see cref="IReadoutTileSource"/> for a file by its format (#1856). Today a plain FITS only; a format
-/// that can answer one sample without its whole image (a tiled <c>.fz</c>, a tiled TIFF) adds its own source to
-/// the list here and nothing else changes.
+/// Picks the <see cref="IReadoutTileSource"/> for a file by its format (#1856). A plain FITS
+/// (<see cref="FitsReadoutTiles"/>) and a tile-compressed <c>.fz</c> (<see cref="FpackReadoutTiles"/>) today; a format
+/// that can answer one sample without its whole image (a tiled TIFF) adds its own source to the list here and
+/// nothing else changes.
 /// </summary>
 public static class ReadoutTileSources
 {
     /// <summary>
-    /// Opens a source for <paramref name="path"/>, or answers false when no source serves its format (gzip, <c>.fz</c>,
+    /// Opens a source for <paramref name="path"/>, or answers false when no source serves its format (gzip,
     /// TIFF, CR2 today), and the caller keeps reading the planes.
     /// </summary>
     /// <param name="path">The file the document was opened from.</param>
@@ -21,6 +22,12 @@ public static class ReadoutTileSources
         if (FitsReadoutTiles.TryOpen(path, unitScale, out var fits))
         {
             source = fits;
+            return true;
+        }
+
+        if (FpackReadoutTiles.TryOpen(path, unitScale, out var fpack))
+        {
+            source = fpack;
             return true;
         }
 

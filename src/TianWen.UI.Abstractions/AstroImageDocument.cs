@@ -117,7 +117,7 @@ public sealed class AstroImageDocument : IPreviewSource
     /// <summary>
     /// The file's own samples through a small tile cache, for the cursor readout, or null where the document has
     /// no such file: an in-memory frame, a crop, a frame whose interior holes were filled (the file still holds
-    /// the NaN), or a format the tile reader does not serve (<c>.fz</c>, TIFF, CR2), all of which read the planes.
+    /// the NaN), or a format the tile reader does not serve (TIFF, CR2, gzip), all of which read the planes.
     /// </summary>
     /// <remarks>
     /// Attached only by <see cref="OpenAsync"/>, which knows the file IS the image: the image is read-only, so
@@ -895,7 +895,7 @@ public sealed class AstroImageDocument : IPreviewSource
             && tiles.Width == document.UnstretchedImage.Width && tiles.Height == document.UnstretchedImage.Height)
         {
             document.ReadoutTiles = tiles;
-            // The tiles only open a plain, unscaled-by-a-fill FITS, which is exactly what a reload reads back the same.
+            // A source only opens a plain or tile-compressed FITS with no fill, which is exactly what a reload reads back the same.
             var info = new FileInfo(filePath);
             document._reloadStamp = (info.Length, info.LastWriteTimeUtc);
         }
