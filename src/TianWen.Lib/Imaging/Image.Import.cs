@@ -521,11 +521,16 @@ public partial class Image
     {
         foreach (var plane in channels)
         {
-            var flat = MemoryMarshal.CreateSpan(ref plane[0, 0], plane.Length);
-            for (var i = 0; i < flat.Length; i++)
-            {
-                flat[i] = 1f - flat[i];
-            }
+            InvertSamples(MemoryMarshal.CreateSpan(ref plane[0, 0], plane.Length));
+        }
+    }
+
+    /// <summary>The <see cref="TiffPhotometric.MinIsWhite"/> inversion of a run of samples, shared with <see cref="TiffReadoutTiles"/>.</summary>
+    internal static void InvertSamples(Span<float> samples)
+    {
+        for (var i = 0; i < samples.Length; i++)
+        {
+            samples[i] = 1f - samples[i];
         }
     }
 
@@ -679,66 +684,70 @@ public partial class Image
         byte[][]? raster, int outChannels,
         int width, int srcChannels, int bps, bool isFloat, int firstRow, int rowCount)
     {
-        if (isFloat && bps == 32)
+        var bytesPerRow = width * srcChannels * (bps / 8);
+        for (var localRow = 0; localRow < rowCount; localRow++)
         {
-            // Float TIFFs follow the [0, 1] convention regardless of writer (Magick.NET via
-            // SMin/SMax, scientific tools as literal scene-linear values). Store as-is.
-            var floats = MemoryMarshal.Cast<byte, float>(samples);
-            for (var localRow = 0; localRow < rowCount; localRow++)
+            var rowSamples = samples.Slice(localRow * bytesPerRow, bytesPerRow);
+            var y = firstRow + localRow;
+            for (var c = 0; c < outChannels; c++)
             {
-                var row = localRow * width;
-                var y = firstRow + localRow;
-                for (var x = 0; x < width; x++)
+                ConvertTiffSamples(rowSamples, srcChannels, c, bps, isFloat,
+                    MemoryMarshal.CreateSpan(ref channels[c][y, 0], width));
+
+                // The float written above IS this byte divided by 255, so retaining it costs a store and
+                // loses nothing.
+                if (raster is not null)
                 {
-                    var pix = (row + x) * srcChannels;
-                    for (var c = 0; c < outChannels; c++)
+                    var rasterRow = raster[c].AsSpan(y * width, width);
+                    for (var x = 0; x < width; x++)
                     {
-                        channels[c][y, x] = floats[pix + c];
+                        rasterRow[x] = rowSamples[(x * srcChannels) + c];
                     }
                 }
+            }
+        }
+    }
+
+    /// <summary>
+    /// ONE channel of a run of interleaved TIFF pixels into floats normalised to [0, 1] by sample-format max
+    /// (an IEEE float is stored as it is, following the [0, 1] convention regardless of writer: Magick.NET via
+    /// SMin/SMax, scientific tools as literal scene-linear values). The one conversion the whole-page import and
+    /// <see cref="TiffReadoutTiles"/> share, so a readout can never disagree with a plane.
+    /// </summary>
+    /// <param name="samples">Host-order interleaved samples, <paramref name="destination"/>.Length pixels of
+    /// <paramref name="srcChannels"/> samples each.</param>
+    /// <param name="srcChannels">Samples per pixel in <paramref name="samples"/>.</param>
+    /// <param name="channel">The sample to take of each pixel.</param>
+    /// <param name="bps">Bits per sample: 8 or 16 unsigned, or 32 float.</param>
+    /// <param name="isFloat">Whether the samples are IEEE float.</param>
+    /// <param name="destination">One float per pixel.</param>
+    /// <exception cref="NotSupportedException">The sample layout is not one the importer reads.</exception>
+    internal static void ConvertTiffSamples(ReadOnlySpan<byte> samples, int srcChannels, int channel,
+        int bps, bool isFloat, Span<float> destination)
+    {
+        if (isFloat && bps == 32)
+        {
+            var floats = MemoryMarshal.Cast<byte, float>(samples);
+            for (int x = 0, s = channel; x < destination.Length; x++, s += srcChannels)
+            {
+                destination[x] = floats[s];
             }
         }
         else if (!isFloat && bps == 16)
         {
             var shorts = MemoryMarshal.Cast<byte, ushort>(samples);
             const float inv = 1f / 65535f;
-            for (var localRow = 0; localRow < rowCount; localRow++)
+            for (int x = 0, s = channel; x < destination.Length; x++, s += srcChannels)
             {
-                var row = localRow * width;
-                var y = firstRow + localRow;
-                for (var x = 0; x < width; x++)
-                {
-                    var pix = (row + x) * srcChannels;
-                    for (var c = 0; c < outChannels; c++)
-                    {
-                        channels[c][y, x] = shorts[pix + c] * inv;
-                    }
-                }
+                destination[x] = shorts[s] * inv;
             }
         }
         else if (!isFloat && bps == 8)
         {
             const float inv = 1f / 255f;
-            for (var localRow = 0; localRow < rowCount; localRow++)
+            for (int x = 0, s = channel; x < destination.Length; x++, s += srcChannels)
             {
-                var row = localRow * width;
-                var y = firstRow + localRow;
-                var rasterRow = y * width;
-                for (var x = 0; x < width; x++)
-                {
-                    var pix = (row + x) * srcChannels;
-                    for (var c = 0; c < outChannels; c++)
-                    {
-                        var sample = samples[pix + c];
-                        channels[c][y, x] = sample * inv;
-                        // The float above IS this byte divided by 255, so retaining it costs a
-                        // store and loses nothing.
-                        if (raster is not null)
-                        {
-                            raster[c][rasterRow + x] = sample;
-                        }
-                    }
-                }
+                destination[x] = samples[s] * inv;
             }
         }
         else
