@@ -749,6 +749,21 @@ namespace TianWen.UI.Abstractions
 
             state.NeedsTextureUpdate = false;
 
+            // The pin the reload took held the planes across the gap to this frame; the upload below is what reads them.
+            try
+            {
+                UploadDocumentTexturesChecked(source, state);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _uploadPin, null)?.Dispose();
+            }
+        }
+
+        private PlanesPin? _uploadPin;
+
+        private void UploadDocumentTexturesChecked(IPreviewSource source, ViewerState state)
+        {
             // A texture wider or taller than the device allows is INVALID USAGE, which Vulkan need not
             // report and a strict driver may fault on. A drizzle-2x master off a full-frame sensor
             // (19152 x 12776 from an IMX455) is past the 16384 many GPUs allow, so refuse and say why
@@ -788,7 +803,8 @@ namespace TianWen.UI.Abstractions
             {
                 try
                 {
-                    await document.EnsurePlanesAsync().ConfigureAwait(false);
+                    var pin = await document.EnsurePlanesAsync().ConfigureAwait(false);
+                    Interlocked.Exchange(ref _uploadPin, pin)?.Dispose();
                 }
                 catch (Exception ex)
                 {

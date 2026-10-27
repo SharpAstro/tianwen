@@ -449,7 +449,7 @@ public sealed class ViewerController(
                 {
                     try
                     {
-                        await newDoc.EnsurePlanesAsync(loadToken);
+                        using var pin = await newDoc.EnsurePlanesAsync(loadToken);
                         masterLayer = new LiveStackPreviewSource(new FixedMaster(newDoc.UnstretchedImage.Clone()), requestedPath, timeProvider, logger);
                     }
                     catch (Exception ex)
@@ -762,7 +762,7 @@ public sealed class ViewerController(
     public static async Task WriteDisplayedRasterAsync(
         AstroImageDocument saveDoc, ViewerState state, string target, DisplayRasterFormat format, CancellationToken cancellationToken)
     {
-        await saveDoc.EnsurePlanesAsync(cancellationToken).ConfigureAwait(false);
+        using var pin = await saveDoc.EnsurePlanesAsync(cancellationToken).ConfigureAwait(false);
         var image = saveDoc.UnstretchedImage;
         var rendition = DisplayedRendition(saveDoc, state);
 
@@ -1030,7 +1030,7 @@ public sealed class ViewerController(
                     var path = cropDoc.FilePath;
                     _cropTask = Task.Run(async () =>
                     {
-                        await cropDoc.EnsurePlanesAsync(appToken).ConfigureAwait(false);
+                        using var pin = await cropDoc.EnsurePlanesAsync(appToken).ConfigureAwait(false);
                         return ViewerActions.ScanForCrop(image, path, logger);
                     }, appToken);
                     _ = _cropTask.ContinueWith(_ => state.NeedsRedraw = true, TaskScheduler.Default);
@@ -1469,7 +1469,7 @@ public sealed class ViewerController(
         state.PlanetaryLookNote = null;
         _lookTask = Task.Run(async () =>
         {
-            await master.EnsurePlanesAsync(token).ConfigureAwait(false);
+            using var pin = await master.EnsurePlanesAsync(token).ConfigureAwait(false);
             // A master left in the camera's colours is balanced through its camera's own matrix, as the stack balances one (#1279).
             var camera = await PlanetaryColourBalance.CameraColourAsync(image.ImageMeta.Instrument, token).ConfigureAwait(false);
             var (looked, refusal) = PlanetaryColourLook.OnMaster(image, planet, instant, look, camera);

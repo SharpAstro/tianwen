@@ -130,7 +130,7 @@ namespace TianWen.UI.Abstractions
         {
             try
             {
-                await released.EnsurePlanesAsync().ConfigureAwait(false);
+                using var pin = await released.EnsurePlanesAsync().ConfigureAwait(false);
                 if (AutoWhiteBalance.GrayWorld(released) is { } grayWorld && ReferenceEquals(_source, released))
                 {
                     SetEffectiveWhiteBalance(state, grayWorld);

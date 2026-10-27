@@ -75,7 +75,7 @@ public static class EnhanceActions
         // where it came from. Costs one full-size copy of the kept region, against a pipeline that runs
         // for a minute and a half.
         // A master released to its file is read back first, here on the run's own thread, never by a getter.
-        await source.EnsurePlanesAsync(cancellationToken).ConfigureAwait(false);
+        using var pin = await source.EnsurePlanesAsync(cancellationToken).ConfigureAwait(false);
         var input = source.UnstretchedImage;
         var wcs = source.Findings.Wcs;
         if (crop is { } region)
