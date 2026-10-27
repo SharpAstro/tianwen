@@ -141,50 +141,105 @@ public sealed class AstroImageDocument : IPreviewSource
 
     /// <summary>
     /// Makes the float planes resident, reading them back from the file when they were released
-    /// (<see cref="ReleasePlanesAfterLoad"/>); a no-op otherwise, and for a raster-backed document, whose planes rebuild in memory.
+    /// (<see cref="ReleasePlanesAfterLoad"/>, <see cref="TryReleaseForBudget"/>), and returns the <see cref="PlanesPin"/> that keeps them
+    /// so while the caller reads: dispose it when done. A no-op pin for a document with no file to read back from.
     /// </summary>
     /// <remarks>
-    /// <para>EVERY on-demand consumer of pixels awaits this first, off the render thread: Calibrate, SPCC, Enhance, a channel
-    /// toggle or any other texture upload, an export, an auto-crop. A read of a released image throws
+    /// <para>EVERY on-demand consumer of pixels awaits this first, off the render thread, and holds the pin while it reads:
+    /// Calibrate, SPCC, Enhance, a channel toggle or any other texture upload, an export, an auto-crop. A release over the
+    /// total budget skips a pinned document. A read of a released image throws
     /// (<see cref="Image.PlanesNeedReload"/>), so one that forgot is a loud failure rather than a disk read hidden
     /// in a getter or a plausible black picture.</para>
     /// <para>One reload serves every caller waiting (a gate, then a second look), and the file is checked against the length
     /// and write time it was opened with: a master a live stack replaced since is another image, and quoting its pixels
     /// under this document's statistics would be a silent wrong answer, so that throws too.</para>
     /// </remarks>
-    public async ValueTask EnsurePlanesAsync(CancellationToken cancellationToken = default)
+    public async ValueTask<PlanesPin> EnsurePlanesAsync(CancellationToken cancellationToken = default)
     {
-        var image = UnstretchedImage;
-        if (!image.PlanesNeedReload)
+        Touch();
+        if (_reloadStamp is not { } stamp)
         {
-            return;
+            return PlanesPin.None;
         }
 
+        // The gate orders a pin against a release: a release only looks while it holds the gate, so a pin taken here is
+        // either counted before it looks or finds the planes gone and reads them back.
         await _reloadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!image.PlanesNeedReload)
+            var image = UnstretchedImage;
+            if (image.PlanesNeedReload)
             {
-                return;
+                var path = _filePath;
+                var source = ReadoutTiles ?? throw new InvalidOperationException("Planes were released from a document with no readout source to read them back through.");
+                await Task.Run(() =>
+                {
+                    var info = new FileInfo(path);
+                    if (!info.Exists || info.Length != stamp.Length || info.LastWriteTimeUtc != stamp.LastWriteUtc)
+                    {
+                        throw new IOException($"{Path.GetFileName(path)} changed on disk since it was opened; open it again to see its pixels.");
+                    }
+
+                    if (!image.TryReloadPlanes(() => source.TryReadImage(out var read) ? read : null))
+                    {
+                        throw new IOException($"{Path.GetFileName(path)} could not be read back.");
+                    }
+                }, cancellationToken).ConfigureAwait(false);
+                Interlocked.Increment(ref _planeReloads);
             }
 
-            var path = _filePath;
-            var source = ReadoutTiles ?? throw new InvalidOperationException("Planes were released from a document with no readout source to read them back through.");
-            var stamp = _reloadStamp ?? throw new InvalidOperationException("Planes were released from a document with no file to read them back from.");
-            await Task.Run(() =>
-            {
-                var info = new FileInfo(path);
-                if (!info.Exists || info.Length != stamp.Length || info.LastWriteTimeUtc != stamp.LastWriteUtc)
-                {
-                    throw new IOException($"{Path.GetFileName(path)} changed on disk since it was opened; open it again to see its pixels.");
-                }
+            Interlocked.Increment(ref _pins);
+            return new PlanesPin(this);
+        }
+        finally
+        {
+            _reloadGate.Release();
+        }
+    }
 
-                if (!image.TryReloadPlanes(() => source.TryReadImage(out var read) ? read : null))
-                {
-                    throw new IOException($"{Path.GetFileName(path)} could not be read back.");
-                }
-            }, cancellationToken).ConfigureAwait(false);
-            Interlocked.Increment(ref _planeReloads);
+    private int _pins;
+    private long _lastUsedTick;
+    private static long s_tick;
+
+    /// <summary>How many pins are outstanding: a document with one is never released.</summary>
+    internal int PinCount => Volatile.Read(ref _pins);
+
+    /// <summary>When this document was last asked for pixels or shown, as a counter (greater is more recent), for the LRU order of a release.</summary>
+    internal long LastUsedTick => Volatile.Read(ref _lastUsedTick);
+
+    /// <summary>Marks the document as just used, so a release over budget takes the others first.</summary>
+    public void Touch() => Volatile.Write(ref _lastUsedTick, Interlocked.Increment(ref s_tick));
+
+    /// <summary>Bytes the float planes hold right now: zero once they are released, or where a raster rebuilds them.</summary>
+    internal long ResidentPlaneBytes
+        => UnstretchedImage.PlanesResident && !UnstretchedImage.PlanesNeedReload ? EnhanceRevertPolicy.FootprintBytes(UnstretchedImage) : 0;
+
+    /// <summary>Whether the file could give the planes back: one a readout source serves (a plain FITS or a .fz), unchanged since it was opened.</summary>
+    internal bool CanReadBack => _reloadStamp is not null && ReadoutTiles is { IsStale: false };
+
+    internal void Unpin() => Interlocked.Decrement(ref _pins);
+
+    /// <summary>
+    /// Releases the float planes to the file for the sake of the TOTAL budget, whatever this document's own size: false when
+    /// it cannot be read back, is pinned, is being pinned right now, or has no planes resident to give.
+    /// </summary>
+    internal bool TryReleaseForBudget()
+    {
+        if (!CanReadBack || !_reloadGate.Wait(0))
+        {
+            return false;
+        }
+
+        try
+        {
+            var image = UnstretchedImage;
+            if (PinCount > 0 || image.PlanesNeedReload || !image.PlanesResident)
+            {
+                return false;
+            }
+
+            _ = _planetaryStretch.Value;
+            return image.TryEvictForReload();
         }
         finally
         {
@@ -206,6 +261,12 @@ public sealed class AstroImageDocument : IPreviewSource
         if (_reloadStamp is null || image.PlanesNeedReload)
         {
             return image.PlanesNeedReload;
+        }
+
+        // A consumer reading the planes now keeps them; the next release looks again.
+        if (PinCount > 0)
+        {
+            return false;
         }
 
         if (EnhanceRevertPolicy.DecidePlanes(image, canReload: ReadoutTiles is { IsStale: false }, PlaneBudgetBytes) is not PlaneResidency.Release)
@@ -1265,7 +1326,7 @@ public sealed class AstroImageDocument : IPreviewSource
     /// (<see cref="ReleasePlanesAfterLoad"/>), for a reader that needs both and is synchronous, such as <see cref="LightGrading"/>.</param>
     public async Task DetectStarsAsync(CancellationToken cancellationToken = default, Action<Image, StarList>? whileResident = null)
     {
-        await EnsurePlanesAsync(cancellationToken).ConfigureAwait(false);
+        var pin = await EnsurePlanesAsync(cancellationToken).ConfigureAwait(false);
         var sw = Stopwatch.StartNew();
         var stars = await UnstretchedImage.FindStarsAsync(
             channel: UnstretchedImage.ReferenceStarChannel, snrMin: 10f, maxStars: 2000, cancellationToken: cancellationToken);
@@ -1328,6 +1389,8 @@ public sealed class AstroImageDocument : IPreviewSource
             whileResident(UnstretchedImage, found);
         }
 
+        // Done reading: the release below would skip a document this call still held.
+        pin.Dispose();
         if (!UnstretchedImage.TryEvictFloatPlanes())
         {
             // No raster to rebuild them from: a float master over the budget goes back to its file instead.
@@ -1364,7 +1427,7 @@ public sealed class AstroImageDocument : IPreviewSource
         if (Findings.Stars is not { Count: >= 5 } starList) return (0, "Need ≥5 stars");
         if (starList.StarMask is not { } mask) return (0, "No star mask");
 
-        await EnsurePlanesAsync(cancellationToken).ConfigureAwait(false);
+        using var pin = await EnsurePlanesAsync(cancellationToken).ConfigureAwait(false);
         var calibrateImage = UnstretchedImage;
         if (calibrateImage.ChannelCount < 3 && calibrateImage.ImageMeta.SensorType is SensorType.RGGB)
             calibrateImage = await calibrateImage.DebayerAsync(DebayerAlgorithm, cancellationToken: cancellationToken);
@@ -1473,7 +1536,7 @@ public sealed class AstroImageDocument : IPreviewSource
         // successful calibration -- so the failure was invisible from the UI and from the log.
         await FilterCurveDatabase.LoadAsync(cancellationToken);
 
-        await EnsurePlanesAsync(cancellationToken).ConfigureAwait(false);
+        using var pin = await EnsurePlanesAsync(cancellationToken).ConfigureAwait(false);
         var calibrateImage = UnstretchedImage;
         if (calibrateImage.ChannelCount < 3 && calibrateImage.ImageMeta.SensorType is SensorType.RGGB)
             calibrateImage = await calibrateImage.DebayerAsync(DebayerAlgorithm, cancellationToken: cancellationToken);

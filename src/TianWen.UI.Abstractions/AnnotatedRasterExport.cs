@@ -137,7 +137,7 @@ namespace TianWen.UI.Abstractions
             ArgumentNullException.ThrowIfNull(state);
             ArgumentException.ThrowIfNullOrEmpty(path);
 
-            await document.EnsurePlanesAsync(cancellationToken).ConfigureAwait(false);
+            using var pin = await document.EnsurePlanesAsync(cancellationToken).ConfigureAwait(false);
             var image = document.UnstretchedImage;
             var isComposite = state.ChannelView.DisplayedSourceChannel(image.ChannelCount) is null;
 
