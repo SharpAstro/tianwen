@@ -1326,7 +1326,28 @@ public sealed class AstroImageDocument : IPreviewSource
     /// (<see cref="ReleasePlanesAfterLoad"/>), for a reader that needs both and is synchronous, such as <see cref="LightGrading"/>.</param>
     public async Task DetectStarsAsync(CancellationToken cancellationToken = default, Action<Image, StarList>? whileResident = null)
     {
+        // The pin is let go in a finally: the viewer cancels the previous document's detection on every open, and a pin
+        // a cancelled or failed read kept would hold the planes for the document's life, out of the budget's reach.
         var pin = await EnsurePlanesAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await DetectStarsPinnedAsync(whileResident, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            pin.Dispose();
+        }
+
+        // Done reading: the release below would skip a document this call still held.
+        if (!UnstretchedImage.TryEvictFloatPlanes())
+        {
+            // No raster to rebuild them from: a float master over the budget goes back to its file instead.
+            ReleasePlanesAfterLoad();
+        }
+    }
+
+    private async Task DetectStarsPinnedAsync(Action<Image, StarList>? whileResident, CancellationToken cancellationToken)
+    {
         var sw = Stopwatch.StartNew();
         var stars = await UnstretchedImage.FindStarsAsync(
             channel: UnstretchedImage.ReferenceStarChannel, snrMin: 10f, maxStars: 2000, cancellationToken: cancellationToken);
@@ -1387,14 +1408,6 @@ public sealed class AstroImageDocument : IPreviewSource
         if (whileResident is not null && Findings.Stars is { } found)
         {
             whileResident(UnstretchedImage, found);
-        }
-
-        // Done reading: the release below would skip a document this call still held.
-        pin.Dispose();
-        if (!UnstretchedImage.TryEvictFloatPlanes())
-        {
-            // No raster to rebuild them from: a float master over the budget goes back to its file instead.
-            ReleasePlanesAfterLoad();
         }
     }
 

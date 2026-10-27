@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Devices;
@@ -152,5 +153,40 @@ public class ViewerMemoryReleaseTests : IDisposable
         crop.TryReleaseForBudget().ShouldBeFalse("a crop is not what its file holds");
         ShouldBeResident(inMemory);
         ShouldBeResident(crop);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ADetectionThatFailsWhileHoldingItsPinLetsGoOfIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var cache = new DocumentCache { TotalBudgetBytes = OneMaster + 40_000 };
+        var a = await OpenAsync(cache, WriteMaster("a.fits", 1));
+
+        await Should.ThrowAsync<InvalidOperationException>(async () =>
+            await a.DetectStarsAsync(ct, whileResident: static (_, _) => throw new InvalidOperationException("consumer failed")));
+
+        a.PinCount.ShouldBe(0, "a failed read must not keep the planes for the document's life");
+        await OpenAsync(cache, WriteMaster("b.fits", 2));
+        ShouldBeReleased(a);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ADetectionThatIsCancelledWhileHoldingItsPinLetsGoOfIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var cache = new DocumentCache { TotalBudgetBytes = OneMaster + 40_000 };
+        var a = await OpenAsync(cache, WriteMaster("a.fits", 1));
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+        await Should.ThrowAsync<OperationCanceledException>(async () =>
+            await a.DetectStarsAsync(cts.Token, whileResident: (_, _) =>
+            {
+                cts.Cancel();
+                cts.Token.ThrowIfCancellationRequested();
+            }));
+
+        a.PinCount.ShouldBe(0, "a cancelled read must not keep the planes for the document's life");
+        await OpenAsync(cache, WriteMaster("b.fits", 2));
+        ShouldBeReleased(a);
     }
 }
