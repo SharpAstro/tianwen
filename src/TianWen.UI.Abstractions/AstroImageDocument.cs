@@ -121,9 +121,9 @@ public sealed class AstroImageDocument : IPreviewSource
     /// </summary>
     /// <remarks>
     /// Attached only by <see cref="OpenAsync"/>, which knows the file IS the image: the image is read-only, so
-    /// the document can never come to differ from it, and <see cref="FitsReadoutTiles"/> drops itself if the file does.
+    /// the document can never come to differ from it, and the source drops itself if the file does.
     /// </remarks>
-    internal FitsReadoutTiles? ReadoutTiles { get; private set; }
+    internal IReadoutTileSource? ReadoutTiles { get; private set; }
 
     /// <summary>
     /// The file's length and write time when it was opened, set only where this document may release its float planes
@@ -169,6 +169,7 @@ public sealed class AstroImageDocument : IPreviewSource
             }
 
             var path = _filePath;
+            var source = ReadoutTiles ?? throw new InvalidOperationException("Planes were released from a document with no readout source to read them back through.");
             var stamp = _reloadStamp ?? throw new InvalidOperationException("Planes were released from a document with no file to read them back from.");
             await Task.Run(() =>
             {
@@ -178,7 +179,7 @@ public sealed class AstroImageDocument : IPreviewSource
                     throw new IOException($"{Path.GetFileName(path)} changed on disk since it was opened; open it again to see its pixels.");
                 }
 
-                if (!image.TryReloadPlanesFromFitsFile(path))
+                if (!image.TryReloadPlanes(() => source.TryReadImage(out var read) ? read : null))
                 {
                     throw new IOException($"{Path.GetFileName(path)} could not be read back.");
                 }
@@ -889,7 +890,7 @@ public sealed class AstroImageDocument : IPreviewSource
         float? unitScale = rawImage.HasUnitScalePeak || rawImage.UnitScaleDivisor <= 0f ? null : 1.0f / rawImage.UnitScaleDivisor;
 
         var document = await AdoptImageAsync(rawImage, algorithm, fileWcs, filePath, cancellationToken: cancellationToken);
-        if (document.InteriorHolesFilled == 0 && FitsReadoutTiles.TryOpen(filePath, unitScale, out var tiles)
+        if (document.InteriorHolesFilled == 0 && ReadoutTileSources.TryOpen(filePath, unitScale, out var tiles)
             && tiles.ChannelCount == document.UnstretchedImage.ChannelCount
             && tiles.Width == document.UnstretchedImage.Width && tiles.Height == document.UnstretchedImage.Height)
         {

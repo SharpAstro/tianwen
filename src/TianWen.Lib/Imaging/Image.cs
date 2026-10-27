@@ -381,13 +381,21 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// first, the published planes win and this returns true.
     /// </remarks>
     public bool TryReloadPlanesFromFitsFile(string path)
+        => TryReloadPlanes(() => TryReadFitsFile(path, out var read) ? read : null);
+
+    /// <summary>
+    /// <see cref="TryReloadPlanesFromFitsFile"/> for any format: <paramref name="readImage"/> is the format's own
+    /// whole-file reader (an <c>IReadoutTileSource.TryReadImage</c>), returning null when the file will not read.
+    /// The width, height and channel checks, the scaling to [0, 1] and the publication are the same whatever the format.
+    /// </summary>
+    public bool TryReloadPlanes(Func<Image?> readImage)
     {
         if (!PlanesNeedReload)
         {
             return true;
         }
 
-        if (!TryReadFitsFile(path, out var read, out _) || read is null
+        if (readImage() is not { } read
             || read.Width != Width || read.Height != Height || read.ChannelCount != ChannelCount)
         {
             return false;

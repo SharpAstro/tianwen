@@ -1,9 +1,7 @@
 using System;
 using System.Buffers.Binary;
-using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
-using System.Threading;
 using nom.tam.fits;
 
 namespace TianWen.Lib.Imaging;
@@ -34,15 +32,8 @@ namespace TianWen.Lib.Imaging;
 /// at open on every miss; once they differ every read answers false, and the caller falls back to the
 /// planes it already holds rather than quote a different file's pixels.</para>
 /// </remarks>
-public sealed class FitsReadoutTiles
+public sealed class FitsReadoutTiles : ReadoutTileSourceBase
 {
-    /// <summary>Side of a tile in samples.</summary>
-    public const int TileSize = 64;
-
-    /// <summary>The most tiles held before the cache is emptied (3 channels x 4 x 4 tiles around the cursor, and then some).</summary>
-    public const int MaxTiles = 64;
-
-    private readonly string _path;
     private readonly long _dataOffset;
     private readonly long _planeBytes;
     private readonly int _bitPix;
@@ -50,52 +41,20 @@ public sealed class FitsReadoutTiles
     private readonly float _zero;
     private readonly float _scale;
     private readonly float? _unitScale;
-    private readonly long _length;
-    private readonly DateTime _writeTimeUtc;
-    private readonly int _tilesAcross;
-    private readonly int _tilesDown;
-
-    // Key: ((channel * tilesDown) + tileRow) * tilesAcross + tileColumn. A ConcurrentDictionary because the
-    // readout is the render thread's but an export or a test may ask from another: nothing here is worth a lock.
-    private readonly ConcurrentDictionary<long, float[]> _tiles = new();
-    private long _tilesRead;
-    private volatile bool _stale;
 
     private FitsReadoutTiles(
         string path, int bitPix, int width, int height, int channelCount, long dataOffset,
         double bzero, double bscale, float? unitScale, long length, DateTime writeTimeUtc)
+        : base(path, width, height, channelCount, length, writeTimeUtc)
     {
-        _path = path;
         _bitPix = bitPix;
         _bytesPerSample = Math.Abs(bitPix) / 8;
-        Width = width;
-        Height = height;
-        ChannelCount = channelCount;
         _dataOffset = dataOffset;
         _planeBytes = (long)width * height * _bytesPerSample;
         _zero = (float)bzero;
         _scale = (float)bscale;
         _unitScale = unitScale;
-        _length = length;
-        _writeTimeUtc = writeTimeUtc;
-        _tilesAcross = (width + TileSize - 1) / TileSize;
-        _tilesDown = (height + TileSize - 1) / TileSize;
     }
-
-    /// <summary>Samples per row.</summary>
-    public int Width { get; }
-
-    /// <summary>Rows per plane.</summary>
-    public int Height { get; }
-
-    /// <summary>Planes (channels).</summary>
-    public int ChannelCount { get; }
-
-    /// <summary>Tiles read from the file so far: what a test asks to prove a move inside a tile reads nothing.</summary>
-    public long TilesRead => Interlocked.Read(ref _tilesRead);
-
-    /// <summary>Whether the file has changed since it was opened, after which nothing is read from it.</summary>
-    public bool IsStale => _stale;
 
     /// <summary>
     /// Describes <paramref name="path"/> for tile reads, or answers false when the file is not one this serves
@@ -140,63 +99,16 @@ public sealed class FitsReadoutTiles
         }
     }
 
-    /// <summary>
-    /// The sample at (<paramref name="x"/>, <paramref name="y"/>) of <paramref name="channel"/>, reading the tile
-    /// around it from the file when it is not cached. False for a position outside the image, a changed file or a
-    /// failed read, and <paramref name="value"/> is then meaningless.
-    /// </summary>
-    public bool TryRead(int channel, int x, int y, out float value)
-    {
-        value = 0f;
-        if ((uint)channel >= (uint)ChannelCount || (uint)x >= (uint)Width || (uint)y >= (uint)Height || _stale)
-        {
-            return false;
-        }
+    /// <inheritdoc/>
+    public override bool TryReadImage([NotNullWhen(true)] out Image? image)
+        => Image.TryReadFitsFile(Path, out image);
 
-        var tileColumn = x / TileSize;
-        var tileRow = y / TileSize;
-        var key = ((((long)channel * _tilesDown) + tileRow) * _tilesAcross) + tileColumn;
-        if (!_tiles.TryGetValue(key, out var tile))
-        {
-            if (!TryReadTile(channel, tileColumn, tileRow, out tile))
-            {
-                return false;
-            }
-
-            if (_tiles.Count >= MaxTiles)
-            {
-                _tiles.Clear();
-            }
-
-            _tiles[key] = tile;
-        }
-
-        var tileWidth = Math.Min(TileSize, Width - (tileColumn * TileSize));
-        value = tile[((y - (tileRow * TileSize)) * tileWidth) + (x - (tileColumn * TileSize))];
-        return true;
-    }
-
-    private bool TryReadTile(int channel, int tileColumn, int tileRow, [NotNullWhen(true)] out float[]? tile)
+    protected override bool TryReadTile(int channel, int x0, int y0, int tileWidth, int tileHeight, [NotNullWhen(true)] out float[]? tile)
     {
         tile = null;
-        var x0 = tileColumn * TileSize;
-        var y0 = tileRow * TileSize;
-        var tileWidth = Math.Min(TileSize, Width - x0);
-        var tileHeight = Math.Min(TileSize, Height - y0);
         try
         {
-            if (File.GetLastWriteTimeUtc(_path) != _writeTimeUtc)
-            {
-                _stale = true;
-                return false;
-            }
-
-            using var handle = File.OpenHandle(_path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            if (RandomAccess.GetLength(handle) != _length)
-            {
-                _stale = true;
-                return false;
-            }
+            using var handle = File.OpenHandle(Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
 
             var samples = new float[tileWidth * tileHeight];
             Span<byte> row = stackalloc byte[TileSize * sizeof(int)];
@@ -220,7 +132,6 @@ public sealed class FitsReadoutTiles
                 Convert(row, samples.AsSpan(r * tileWidth, tileWidth));
             }
 
-            Interlocked.Increment(ref _tilesRead);
             tile = samples;
             return true;
         }
