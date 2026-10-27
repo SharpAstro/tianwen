@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.IO.MemoryMappedFiles;
@@ -32,6 +31,9 @@ namespace TianWen.Lib.Imaging;
 /// </remarks>
 public sealed class TiffReadoutTiles : ReadoutTileSourceBase
 {
+    /// <summary>The most a strip or tile may decode to (bytes) for the file to be served from segments; larger is declined.</summary>
+    public const int MaxSegmentBytes = 4 * 1024 * 1024;
+
     private readonly TiffPageLayout _layout;
     private readonly int _bitsPerSample;
     private readonly bool _isFloat;
@@ -90,6 +92,15 @@ public sealed class TiffReadoutTiles : ReadoutTileSourceBase
                 return false;
             }
 
+            // A segment is decoded whole to answer one 64 x 64 block, so one that is huge is declined: TianWen's own float
+            // masters are one whole-page Deflate strip, 4.0 s and 805 MB per new block on 6000 x 4000 RGB. The planes serve it.
+            var first = layout.SegmentRectangle(0);
+            var segmentBytes = (long)first.Width * first.Height * layout.SamplesPerPixel * (layout.BitsPerSample / 8);
+            if (first.Width <= 0 || first.Height <= 0 || segmentBytes > MaxSegmentBytes)
+            {
+                return false;
+            }
+
             // Image carries mono or RGB: alpha and other extras are dropped, as TryReadTiff drops them.
             var channelCount = layout.SamplesPerPixel >= 3 ? 3 : 1;
             tiles = new TiffReadoutTiles(
@@ -113,25 +124,43 @@ public sealed class TiffReadoutTiles : ReadoutTileSourceBase
     public override bool TryReadImage([NotNullWhen(true)] out Image? image)
         => Image.TryReadTiff(Path, out image);
 
+    /// <inheritdoc/>
+    protected override bool ReadsEveryChannelOfABlock => true;
+
     protected override bool TryReadTile(int channel, int x0, int y0, int tileWidth, int tileHeight, [NotNullWhen(true)] out float[]? tile)
     {
         tile = null;
-        byte[]? buffer = null;
+        return TryReadBlock(x0, y0, tileWidth, tileHeight, out var planes) && (tile = planes[channel]) is not null;
+    }
+
+    protected override bool TryReadBlock(int x0, int y0, int tileWidth, int tileHeight, [NotNullWhen(true)] out float[][]? planes)
+    {
+        planes = null;
         try
         {
             // Shared read, write and delete, so a viewer showing the file never stops a writer replacing it.
             using var stream = new FileStream(Path, FileMode.Open, FileAccess.Read,
                 FileShare.ReadWrite | FileShare.Delete);
 
-            var samples = new float[tileWidth * tileHeight];
+            var result = new float[ChannelCount][];
+            for (var c = 0; c < result.Length; c++)
+            {
+                result[c] = new float[tileWidth * tileHeight];
+            }
+
             var x1 = x0 + tileWidth;
             var y1 = y0 + tileHeight;
             var samplesPerPixel = _layout.SamplesPerPixel;
             var bytesPerPixel = samplesPerPixel * (_bitsPerSample / 8);
             var covered = 0;
 
+            // One buffer for the block, as big as its largest segment, which TryOpen bounded at MaxSegmentBytes: a
+            // private array, never a rent from the shared pool.
+            byte[]? buffer = null;
+
             // Segments are walked from the block's own corner by the rectangle each one covers, so a strip (the whole
             // width) and a tile (a part of it) are one loop, and an edge tile's padding is never part of a rectangle.
+            // Each segment is decoded ONCE and converted for every channel of the block.
             for (var y = y0; y < y1;)
             {
                 var rowEnd = y1;
@@ -140,20 +169,14 @@ public sealed class TiffReadoutTiles : ReadoutTileSourceBase
                     var index = _layout.SegmentAt(x, y);
                     var rect = _layout.SegmentRectangle(index);
                     var size = rect.Width * rect.Height * bytesPerPixel;
-                    if (rect.Width <= 0 || rect.Height <= 0 || size < 0)
+                    if (rect.Width <= 0 || rect.Height <= 0 || size <= 0 || size > MaxSegmentBytes)
                     {
                         return false;
                     }
 
-                    // A strip is as wide as the image and a frame's strips are megabytes: rented, never a LOH array per miss.
                     if (buffer is null || buffer.Length < size)
                     {
-                        if (buffer is not null)
-                        {
-                            ArrayPool<byte>.Shared.Return(buffer);
-                        }
-
-                        buffer = ArrayPool<byte>.Shared.Rent(size);
+                        buffer = GC.AllocateUninitializedArray<byte>(size);
                     }
 
                     var read = TiffReader.ReadSegment(stream, _layout, index, buffer.AsSpan(0, size));
@@ -166,22 +189,25 @@ public sealed class TiffReadoutTiles : ReadoutTileSourceBase
                     var xb = Math.Min(rect.X + rect.Width, x1);
                     var ya = Math.Max(rect.Y, y0);
                     var yb = Math.Min(rect.Y + rect.Height, y1);
-                    for (var row = ya; row < yb; row++)
+                    for (var c = 0; c < result.Length; c++)
                     {
-                        var source = buffer.AsSpan((((row - rect.Y) * rect.Width) + (xa - rect.X)) * bytesPerPixel,
-                            (xb - xa) * bytesPerPixel);
-                        var destination = samples.AsSpan(((row - y0) * tileWidth) + (xa - x0), xb - xa);
-                        Image.ConvertTiffSamples(source, samplesPerPixel, channel, _bitsPerSample, _isFloat, destination);
-                        if (_invert)
+                        for (var row = ya; row < yb; row++)
                         {
-                            Image.InvertSamples(destination);
-                        }
-
-                        if (_unitScale is { } unit)
-                        {
-                            for (var i = 0; i < destination.Length; i++)
+                            var source = buffer.AsSpan((((row - rect.Y) * rect.Width) + (xa - rect.X)) * bytesPerPixel,
+                                (xb - xa) * bytesPerPixel);
+                            var destination = result[c].AsSpan(((row - y0) * tileWidth) + (xa - x0), xb - xa);
+                            Image.ConvertTiffSamples(source, samplesPerPixel, c, _bitsPerSample, _isFloat, destination);
+                            if (_invert)
                             {
-                                destination[i] *= unit;
+                                Image.InvertSamples(destination);
+                            }
+
+                            if (_unitScale is { } unit)
+                            {
+                                for (var i = 0; i < destination.Length; i++)
+                                {
+                                    destination[i] *= unit;
+                                }
                             }
                         }
                     }
@@ -195,25 +221,18 @@ public sealed class TiffReadoutTiles : ReadoutTileSourceBase
             }
 
             // Every sample of the block must have come from a stored segment, or the block is not served.
-            if (covered != samples.Length)
+            if (covered != tileWidth * tileHeight)
             {
                 return false;
             }
 
-            tile = samples;
+            planes = result;
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException
             or InvalidDataException or ArgumentException)
         {
             return false;
-        }
-        finally
-        {
-            if (buffer is not null)
-            {
-                ArrayPool<byte>.Shared.Return(buffer);
-            }
         }
     }
 

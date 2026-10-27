@@ -220,7 +220,8 @@ public class TiffReadoutTileTests : IDisposable
             }
         }
 
-        tiles.TilesRead.ShouldBe(3 * blocksAcross * blocksDown);
+        // One decode per block serves all three channels.
+        tiles.TilesRead.ShouldBe(blocksAcross * blocksDown);
 
         // A second sweep is all cache.
         var before = tiles.TilesRead;
@@ -233,6 +234,42 @@ public class TiffReadoutTileTests : IDisposable
         }
 
         tiles.TilesRead.ShouldBe(before);
+    }
+
+    [Fact]
+    public void AllChannelsOfABlockAreOneDecodeOfEachSegment()
+    {
+        var path = NewPath();
+        File.WriteAllBytes(path, HandBuiltTiff.Build(new HandBuiltTiff.Spec
+        {
+            Width = Width, Height = Height, Spp = 3, Bps = 16, RowsPerStrip = 40, Deflate = true,
+        }));
+        TiffReadoutTiles.TryOpen(path, null, out var tiles).ShouldBeTrue();
+
+        tiles.TryRead(0, 10, 10, out _).ShouldBeTrue();
+        tiles.TilesRead.ShouldBe(1);
+        tiles.TryRead(1, 10, 10, out _).ShouldBeTrue();
+        tiles.TryRead(2, 63, 39, out _).ShouldBeTrue();
+        tiles.TilesRead.ShouldBe(1, "the other channels of the block came with the first read");
+    }
+
+    [Fact]
+    public void ASegmentPastTheLimitIsDeclinedAndTheSameImageInSmallSegmentsIsServed()
+    {
+        // 1200 x 900 RGB u16 as one whole-page strip decodes to 6.5 MB per block: the planes serve it.
+        var wholePage = NewPath("whole.tif");
+        File.WriteAllBytes(wholePage, HandBuiltTiff.Build(new HandBuiltTiff.Spec
+        {
+            Width = 1200, Height = 900, Spp = 3, Bps = 16, RowsPerStrip = 900, Deflate = true,
+        }));
+        TiffReadoutTiles.TryOpen(wholePage, null, out _).ShouldBeFalse();
+
+        var strips = NewPath("strips.tif");
+        File.WriteAllBytes(strips, HandBuiltTiff.Build(new HandBuiltTiff.Spec
+        {
+            Width = 1200, Height = 900, Spp = 3, Bps = 16, RowsPerStrip = 64, Deflate = true,
+        }));
+        TiffReadoutTiles.TryOpen(strips, null, out _).ShouldBeTrue();
     }
 
     [Fact]
