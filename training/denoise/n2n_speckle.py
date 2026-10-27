@@ -29,7 +29,8 @@ Design choices the C# does not make:
   Pass False to read the statistics' own gradient.
 - The cap is read from a plane you pass (`noise_cap(reference)`): the C# measure caps against the plate it measures. In
   training the plate is the output, whose differences a remover can bend, so cap on the INPUT (or the target), once per
-  tile, never inside the loss. `noise_cap` is a Python loop over cells: compute it in the data pipeline, not per step.
+  tile, never inside the loss. `noise_cap` reads every cell of a tile in one batched sort on the plane's own device (it
+  was a Python loop over cells, which held a trainer on the 1070 at 7 tiles/s, #1829).
 
 Everything is batched over tiles [B, H, W] and sites [N, 3] = (tile, x, y), CPU or GPU.
 """
@@ -113,28 +114,47 @@ def _difference_noise_map(plane, absent, block):
     scale = 1.0 / math.sqrt(2.0 * (1.0 - math.exp(-1.0 / (4.0 * width * width))))
     cells_x = (w + block - 1) // block
     cells_y = (h + block - 1) // block
+    dev = plane.device
     present = torch.isfinite(plane)
     if absent is not None:
         present &= ~absent
-    # A difference counts where both its pixels are present; the one to the right / below may lie in the next cell.
+    # A difference counts where both its pixels are present; the one to the right / below may lie in the next cell. A
+    # difference belongs to the cell of its left / upper pixel (dx's last column and dy's last row do not exist).
     dx = plane[:, 1:] - plane[:, :-1]
     okx = present[:, 1:] & present[:, :-1]
     dy = plane[1:, :] - plane[:-1, :]
     oky = present[1:, :] & present[:-1, :]
-    cells = torch.full((cells_y, cells_x), float("nan"), dtype=torch.float64)
-    for cy in range(cells_y):
-        for cx in range(cells_x):
-            y0, y1 = cy * block, min(h, (cy + 1) * block)
-            x0, x1 = cx * block, min(w, (cx + 1) * block)
-            sx = (slice(y0, y1), slice(x0, min(x1, w - 1)))
-            sy = (slice(y0, min(y1, h - 1)), slice(x0, x1))
-            diffs = torch.cat([dx[sx][okx[sx]], dy[sy][oky[sy]]])
-            if diffs.numel() >= 32:
-                cells[cy, cx] = scale * float(MAD_TO_SIGMA * _upper_median_mad(diffs)[1])
+    # Every cell's differences at once, on the plane's device: each difference plane padded to whole cells with absent
+    # entries, cut into [cells, block * block], and the two concatenated per cell. An absent entry is +inf, which sorts
+    # after every present one, so sorted[count // 2] is the cell's upper median by the same rank rule as
+    # `_upper_median_mad`, and a cell's multiset (not its order) is all the rank reads. One sort for the plane, where the
+    # loop over cells sorted, and synchronised with the host, once per cell (#1829: 7 tiles/s against 50 without the cap).
+    ph, pw = cells_y * block, cells_x * block
+
+    def per_cell(values, ok):
+        padded = torch.full((ph, pw), float("inf"), dtype=values.dtype, device=dev)
+        valid = torch.zeros((ph, pw), dtype=torch.bool, device=dev)
+        padded[: values.shape[0], : values.shape[1]] = values
+        valid[: ok.shape[0], : ok.shape[1]] = ok
+        padded = torch.where(valid, padded, torch.full_like(padded, float("inf")))
+        cut = lambda t: t.reshape(cells_y, block, cells_x, block).permute(0, 2, 1, 3).reshape(cells_y * cells_x, block * block)
+        return cut(padded), cut(valid)
+
+    vx, okcx = per_cell(dx, okx)
+    vy, okcy = per_cell(dy, oky)
+    values = torch.cat([vx, vy], dim=1)
+    valid = torch.cat([okcx, okcy], dim=1)
+    count = valid.sum(dim=1)
+    k = (count // 2)[:, None]
+    median = values.sort(dim=1).values.gather(1, k)
+    deviation = torch.where(valid, (values - median).abs(), torch.full_like(values, float("inf")))
+    mad = deviation.sort(dim=1).values.gather(1, k)[:, 0]
+    sigma = (MAD_TO_SIGMA * mad).double() * scale
+    cells = torch.where(count >= 32, sigma, torch.full_like(sigma, float("nan"))).reshape(cells_y, cells_x)
     cells = torch.where(cells > 0, cells, torch.full_like(cells, pixel_sigma))
 
     def axis(n, cells_n):
-        f = ((torch.arange(n, dtype=torch.float64) + 0.5) / block - 0.5).clamp(0.0, cells_n - 1.0)
+        f = ((torch.arange(n, dtype=torch.float64, device=dev) + 0.5) / block - 0.5).clamp(0.0, cells_n - 1.0)
         i0 = f.floor().long()
         return i0, (i0 + 1).clamp(max=cells_n - 1), f - i0
 

@@ -17,6 +17,7 @@ interpolation on both sides and agrees to 1e-4 relative (what a different summat
 Needs torch (CPU is enough); without it the torch cases are skipped, not failed.
 """
 import json
+import math
 import os
 import unittest
 
@@ -180,6 +181,75 @@ class SpecklePortParity(unittest.TestCase):
         np.testing.assert_array_equal(reads.speckled[:n].numpy(), self.fx["flags"] == 1)
         self.assertFalse(bool(reads.speckled[n:].any()))
         self.assertTrue(bool((reads.penalty[n:] == 0).all()))
+
+
+def _cells_one_at_a_time(plane, absent, block, scale):
+    """The cell noise of `_difference_noise_map` read cell by cell, as the C# `DifferenceNoiseMap` walks them: what the
+    batched sort must equal to the bit (#1829). A cell's differences are those whose left / upper pixel lies in it."""
+    h, w = plane.shape
+    present = torch.isfinite(plane) & ~absent
+    dx, okx = plane[:, 1:] - plane[:, :-1], present[:, 1:] & present[:, :-1]
+    dy, oky = plane[1:, :] - plane[:-1, :], present[1:, :] & present[:-1, :]
+    cells = torch.full(((h + block - 1) // block, (w + block - 1) // block), float("nan"), dtype=torch.float64)
+    for cy in range(cells.shape[0]):
+        for cx in range(cells.shape[1]):
+            y0, y1, x0, x1 = cy * block, min(h, (cy + 1) * block), cx * block, min(w, (cx + 1) * block)
+            sx, sy = (slice(y0, y1), slice(x0, min(x1, w - 1))), (slice(y0, min(y1, h - 1)), slice(x0, x1))
+            diffs = torch.cat([dx[sx][okx[sx]], dy[sy][oky[sy]]])
+            if diffs.numel() >= 32:
+                cells[cy, cx] = scale * float(SP.MAD_TO_SIGMA * SP._upper_median_mad(diffs)[1])
+    return cells
+
+
+class NoiseCapBatching(unittest.TestCase):
+    """`noise_cap` reads every cell in one batched sort (#1829, where a loop over cells held a trainer at 7 tiles/s): the
+    batch must read exactly what the cells read one at a time, on any tile size, absence and device."""
+
+    def planes(self):
+        g = torch.Generator().manual_seed(11)
+        for h, w in ((96, 96), (100, 77), (25, 25), (130, 61)):
+            for share in (0.0, 0.05, 0.9):
+                plane = torch.randn(h, w, generator=g) + 0.2 * torch.linspace(0, 1, w)
+                plane[:3, :4] = float("nan")
+                yield plane, torch.rand(h, w, generator=g) < share
+
+    def test_the_batched_cells_are_the_cells_read_one_at_a_time(self):
+        block = SP.CAP_BLOCK
+        for plane, absent in self.planes():
+            pixel_sigma, width = SP._difference_noise(plane, absent)
+            if not (pixel_sigma > 0):
+                continue
+            scale = 1.0 / math.sqrt(2.0 * (1.0 - math.exp(-1.0 / (4.0 * width * width))))
+            expected = _cells_one_at_a_time(plane, absent, block, scale)
+            expected = torch.where(expected > 0, expected, torch.full_like(expected, pixel_sigma))
+            got = SP._difference_noise_map(plane, absent, block)
+            torch.testing.assert_close(got, _bilinear(expected, plane.shape, block), rtol=0, atol=0,
+                                       msg=f"{tuple(plane.shape)}, absent {float(absent.float().mean()):.2f}")
+
+    @unittest.skipUnless(torch.cuda.is_available(), "no CUDA device")
+    def test_the_cap_on_the_gpu_is_the_cap_on_the_cpu(self):
+        for plane, absent in self.planes():
+            cpu = SP.noise_cap(plane, absent)
+            gpu = SP.noise_cap(plane.cuda(), absent.cuda()).cpu()
+            self.assertTrue(torch.equal(torch.nan_to_num(cpu, posinf=-1.0), torch.nan_to_num(gpu, posinf=-1.0)))
+
+
+def _bilinear(cells, shape, block):
+    """`_difference_noise_map`'s own interpolation of `cells` onto a plane of `shape`, for comparing maps rather than cells."""
+    h, w = shape
+    cells_y, cells_x = cells.shape
+
+    def axis(n, cells_n):
+        f = ((torch.arange(n, dtype=torch.float64) + 0.5) / block - 0.5).clamp(0.0, cells_n - 1.0)
+        i0 = f.floor().long()
+        return i0, (i0 + 1).clamp(max=cells_n - 1), f - i0
+
+    y0i, y1i, ty = axis(h, cells_y)
+    x0i, x1i, tx = axis(w, cells_x)
+    ty, tx = ty[:, None], tx[None, :]
+    top = (1 - tx) * cells[y0i][:, x0i] + tx * cells[y0i][:, x1i]
+    bottom = (1 - tx) * cells[y1i][:, x0i] + tx * cells[y1i][:, x1i]
+    return ((1 - ty) * top + ty * bottom).float()
 
 
 if __name__ == "__main__":
