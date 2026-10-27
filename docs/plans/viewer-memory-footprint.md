@@ -710,6 +710,61 @@ task, not the steady state, which now holds. D2 stays unstarted: its value is th
 depth-agnostic detector and the parity work that goes with it. Reopen it only if a measured peak, not the
 steady state, is what runs a machine out of memory.
 
+### The readout without planes: a tile cache over the file (#368)
+
+The prerequisite named above for a reload-backed release, removed. Nothing evicts a float master yet; this
+makes the cursor readout ready for it.
+
+**Every reader of a sample at the cursor, and which need a plane:**
+
+| reader | what it reads | needs a resident plane? |
+|---|---|---|
+| `ViewerActions.ReadPixel` (via `UpdateCursorInfo` / `UpdateCursorFromScreenPosition`), per mouse move | `IPreviewSource.SampleAt(c, x, y)`, one channel (`ChannelView.DisplayedSourceChannel`) or all | **no longer**: the seam below |
+| `ImageRendererBase` upload (around the channel upload) | `GetChannelData(DisplayedSourceChannel ?? 0)`, the whole plane | yes, but on a view change, not per move (a reload-backed release restores for it) |
+| `AnnotatedRasterExport` (composite test and the per-pixel sampling) | the image, once per export | yes, on demand |
+| `ViewerController` (`DisplayedSourceChannel` at the save and star-split paths) | whole image, on a button | yes, on demand |
+
+So the per-move reader was the one blocker, and it already went through one method, `IPreviewSource.SampleAt`,
+which `AstroImageDocument` answered from its 8-bit raster or from `image[c, y, x]`. **That is the seam**; the
+interface is unchanged and the live sources (`LiveStackPreviewSource`, `SerPreviewSource`, a camera frame)
+are untouched.
+
+**Design.** `FitsReadoutTiles` (`TianWen.Lib/Imaging`) serves one sample from the FILE through a cache of 64 x 64
+tiles. `AstroImageDocument.OpenAsync` attaches one to a FITS document (`ReadoutTiles`); `SampleAt` answers from
+the raster when there is one, else from a resident plane (free), else from the tile cache, and only when the
+tile source declines (`.fz`, gzip, TIFF, CR2, BITPIX 64, a changed file, a position outside the image) from the
+restoring indexer, as before.
+
+- **Bit for bit.** A sample is `(float)BSCALE * stored + (float)BZERO` in single precision, multiplied then added
+  (a float file with no scaling copied as its bits, which keeps a payload NaN and a negative zero), as
+  `FitsReader.ReadPlane` converts it, then multiplied by `1 / UnitScaleDivisor` as `ScaleFloatValuesToUnitInPlace`
+  multiplies a plane. The factor is read off the raw image BEFORE the adoption spends it (`OpenFitsAsync`), and the
+  source is attached only when no interior hole was filled (`InteriorHolesFilled == 0`: the file still holds the NaN
+  the plane no longer does). `FitsReader` has no region read and `BigEndianSamples` is internal to FITS.Lib, so
+  the tile decode is a scalar copy of the same expression, pinned against it rather than trusted.
+- **Opened per miss, never held.** A document showing a live stack's master must not stop its writer replacing it.
+  Length and write time are checked on every miss; a changed file makes the source stale for good and the caller
+  falls back to the planes it holds, never quoting a different file's pixels.
+- **The tile read is bounded, not asynchronous.** A miss is at most 64 positional reads of at most 256 bytes
+  through one handle, and a 16 KB tile; the cache holds 64 tiles (about 1 MB) and empties when full. Asynchronous
+  with a "not yet" answer was rejected: the readout would show nothing until a second mouse move, and a redraw
+  channel for it would be a new subsystem. If a cold network drive makes a miss visible, it is the next step.
+- **Test seam.** `ReadoutPrefersFile` (internal) answers from the file while planes are resident, the only way to
+  exercise it before a float master's planes can be released.
+
+**Measured** (allocation-based, never working set; `ReadoutTileTests`): a read inside a cached tile allocates
+**0 bytes** over 10,000 reads; a miss allocates its 16 KB tile plus a handle, under 20 KB against a 42 KB
+plane for the test's 150 x 70 image and megabytes for a master; every tile of every channel is read exactly once
+however often it is visited; and `moving inside a tile reads nothing new` is asserted on the read counter.
+Parity is asserted over **every sample** of BITPIX 8, 16, 32 and -32, unscaled, unsigned (BZERO 32768) and
+scaled (BZERO -3.25, BSCALE 0.5), mono and three planes, with partial tiles on both axes, against
+`image[c, y, x]` after the importer's scaling; and through the document and the host's own pointer path
+(`ViewerCursorReadoutTests`, `ViewerE2ETests`) in composite and single-channel views.
+
+**What this does not do.** It does not release a float master's planes: that is still the ownership restructure
+(`GetChannelSpan`'s contract) and `EnhanceRevertPolicy`'s generalisation above. And the formats the tile reader
+does not serve keep reading the planes, so a TIFF or `.fz` master still pins them.
+
 ## Phasing
 
 | Phase | Items | Rationale |

@@ -114,6 +114,23 @@ public sealed class AstroImageDocument : IPreviewSource
     /// </remarks>
     public int InteriorHolesFilled { get; private init; }
 
+    /// <summary>
+    /// The file's own samples through a small tile cache, for the cursor readout, or null where the document has
+    /// no such file: an in-memory frame, a crop, a frame whose interior holes were filled (the file still holds
+    /// the NaN), or a format the tile reader does not serve (<c>.fz</c>, TIFF, CR2), all of which read the planes.
+    /// </summary>
+    /// <remarks>
+    /// Attached only by <see cref="OpenAsync"/>, which knows the file IS the image: the image is read-only, so
+    /// the document can never come to differ from it, and <see cref="FitsReadoutTiles"/> drops itself if the file does.
+    /// </remarks>
+    internal FitsReadoutTiles? ReadoutTiles { get; private set; }
+
+    /// <summary>
+    /// A test seam: answer the readout from <see cref="ReadoutTiles"/> even while the planes are resident, which is
+    /// the only way to exercise it before a float master's planes can be released.
+    /// </summary>
+    internal bool ReadoutPrefersFile { get; set; }
+
     /// <summary>Per-channel statistics computed from the raw image.</summary>
     public ImageHistogram[] ChannelStatistics { get; }
 
@@ -492,7 +509,20 @@ public sealed class AstroImageDocument : IPreviewSource
     // planes on the first hover and quietly undo D1 for the whole session. The values are identical rather
     // than close: the plane was normalised by the sample-format maximum from these very bytes, so this is
     // the same division over the same data.
-    float IPreviewSource.SampleAt(int channel, int x, int y) => SampleAt(UnstretchedImage, channel, x, y);
+    float IPreviewSource.SampleAt(int channel, int x, int y)
+    {
+        // A resident plane is free to read, so it answers while it is there; the file answers once the planes
+        // are not, which is what lets a float master's planes ever be released (#368). Never the restoring indexer.
+        if (ReadoutTiles is { } tiles
+            && (ReadoutPrefersFile || !UnstretchedImage.PlanesResident)
+            && !UnstretchedImage.TryGetSourceRaster(channel, out _)
+            && tiles.TryRead(channel, x, y, out var fromFile))
+        {
+            return fromFile;
+        }
+
+        return SampleAt(UnstretchedImage, channel, x, y);
+    }
     int IPreviewSource.FrameCount => 1;
     int IPreviewSource.FrameIndex => 0;
     bool IPreviewSource.SelectFrame(int index) => false;
@@ -755,7 +785,19 @@ public sealed class AstroImageDocument : IPreviewSource
             }
         }
 
-        return await AdoptImageAsync(rawImage, algorithm, fileWcs, filePath, cancellationToken: cancellationToken);
+        // The factor the adoption below multiplies every sample by, read BEFORE it spends the image: the readout
+        // reads the file's samples through the same number.
+        float? unitScale = rawImage.HasUnitScalePeak || rawImage.UnitScaleDivisor <= 0f ? null : 1.0f / rawImage.UnitScaleDivisor;
+
+        var document = await AdoptImageAsync(rawImage, algorithm, fileWcs, filePath, cancellationToken: cancellationToken);
+        if (document.InteriorHolesFilled == 0 && FitsReadoutTiles.TryOpen(filePath, unitScale, out var tiles)
+            && tiles.ChannelCount == document.UnstretchedImage.ChannelCount
+            && tiles.Width == document.UnstretchedImage.Width && tiles.Height == document.UnstretchedImage.Height)
+        {
+            document.ReadoutTiles = tiles;
+        }
+
+        return document;
     }
 
     private static async Task<AstroImageDocument?> OpenImageFileAsync(string filePath, CancellationToken cancellationToken)
