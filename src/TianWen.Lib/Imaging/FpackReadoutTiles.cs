@@ -20,9 +20,12 @@ namespace TianWen.Lib.Imaging;
 /// or three axes, the layout the importer's HDU path reads. <see cref="TryOpen"/> answers false for anything else and the
 /// caller keeps reading the planes. fpack's default tile is one row, so a block reads 64 stored tiles (per channel); a
 /// source of larger tiles decodes fewer, each whole.</para>
-/// <para><b>Bounded, not asynchronous.</b> Open reads headers and the tile geometry only. A miss opens the file, decodes the
-/// tiles of one block and closes it again, so a viewer showing the file does not stop a writer replacing it. The cache is the
-/// base's and so holds about 1 MB whatever the file's size. A file that changed (length or write time) is never read.</para>
+/// <para><b>The real cost.</b> Open reads headers and the tile geometry only. A miss opens the file (with the 64 KB header
+/// read-ahead, since a larger one is refilled on every seek: 2 MB cost 111 to 285 ms per channel per block miss, against 11
+/// to 30 ms), decodes the tiles of one block, found by index from <c>TileDimensions</c>, and closes it again, so a viewer
+/// showing the file does not stop a writer replacing it. It is synchronous, and a miss is 11 to 30 ms per channel on the
+/// reference machine, paid on the thread that asks. The cache is the base's and holds about 1 MB whatever the file's size. A
+/// file that changed (length or write time) is never read.</para>
 /// </remarks>
 public sealed class FpackReadoutTiles : ReadoutTileSourceBase
 {
@@ -67,7 +70,7 @@ public sealed class FpackReadoutTiles : ReadoutTileSourceBase
                 return false;
             }
 
-            using var fits = Image.OpenFits(path);
+            using var fits = Image.OpenFitsHeader(path);
             if (fits.ReadFirstImageHdu() is not CompressedImageHDU hdu
                 || hdu.Axes is not { Length: 2 or 3 } axes
                 || hdu.BitPix is not (8 or 16 or 32 or -32)
@@ -99,7 +102,9 @@ public sealed class FpackReadoutTiles : ReadoutTileSourceBase
         tile = null;
         try
         {
-            using var fits = Image.OpenFits(Path);
+            // The header-sized read-ahead: a BufferedFile fills its whole buffer on every seek, and the frame-sized one
+            // (2 MB) cost 111 to 285 ms per channel per block miss against 11 to 30 ms at 64 KB.
+            using var fits = Image.OpenFitsHeader(Path);
             if (fits.ReadFirstImageHdu() is not CompressedImageHDU { CompressedData: { } data })
             {
                 return false;
@@ -130,8 +135,20 @@ public sealed class FpackReadoutTiles : ReadoutTileSourceBase
         var x1 = x0 + tileWidth;
         var y1 = y0 + tileHeight;
         var covered = 0;
-        for (var n = 0; n < data.TileCount; n++)
+
+        // Tiles are numbered row-major with axis 1 (x) fastest, so the ones a block touches are a few runs of
+        // consecutive indices, found from the tile dimensions, never by scanning every rectangle of the image.
+        var dims = data.TileDimensions;
+        var tileW = dims[0];
+        var tileH = dims[1];
+        var tileD = _axisCount == 3 ? dims[2] : 1;
+        var perRow = (Width + tileW - 1) / tileW;
+        var perPlane = perRow * ((Height + tileH - 1) / tileH);
+        var tileZ = channel / tileD;
+        for (var ty0 = y0 / tileH; ty0 <= (y1 - 1) / tileH; ty0++)
+        for (var tx0 = x0 / tileW; tx0 <= (x1 - 1) / tileW; tx0++)
         {
+            var n = (tileZ * perPlane) + (ty0 * perRow) + tx0;
             var rect = data.GetTileRectangle(n);
             var (tx, ty, tw, th) = (rect.Start[0], rect.Start[1], rect.Size[0], rect.Size[1]);
             var (tz, td) = _axisCount == 3 ? (rect.Start[2], rect.Size[2]) : (0, 1);
