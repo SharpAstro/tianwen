@@ -784,10 +784,17 @@ one it was opened with, so a master a live stack replaced is never quoted under 
 
 **The readout source is per format (#1856).** The document holds an `IReadoutTileSource` (`TianWen.Lib/Imaging`), opened by the one
 dispatching `ReadoutTileSources.TryOpen(path, unitScale, out source)`, which answers false for a format no source serves (gzip,
-`.fz`, TIFF, CR2 today). `ReadoutTileSourceBase` holds what every format shares, the bounded 64 x 64 tile cache and the
+TIFF, CR2 today). `ReadoutTileSourceBase` holds what every format shares, the bounded 64 x 64 tile cache and the
 length/write-time staleness check; a format adds a subclass (`TryReadTile`, and `TryReadImage`, the whole-file read the reload goes
 through) and one line in `TryOpen`. `FitsReadoutTiles` is the plain-FITS source, its reload reading through `TryReadFitsFile`.
-The `.fz` and TIFF sources are the remainders of this issue and TIA1853.
+**`.fz` is served too (#1856).** `FpackReadoutTiles` opens a file whose first image HDU is a `CompressedImageHDU` of BITPIX 8, 16,
+32 or -32 with two or three axes (matched on `.fz` alone, FITS.Lib 6.4's `CompressedImageData.TileCount` / `GetTileRectangle` /
+`ReadTile<T>`). Open reads headers and the tile geometry only; a miss decodes the stored tiles intersecting the 64 x 64 block (fpack's
+default tile is one row, so 64 per block and channel), opening the file for the miss and closing it after, and converts as the full
+import does (`bscale * stored + bzero`, a float with no scaling as it is, then the `unitScale` multiply). The reload reads the file
+back through `TryReadFitsFile`, bit-identical. FITS.Lib cannot write a compressed file, so `FpackReadoutTileTests` pins the readout
+against the embedded `tilecompressed.fz` (quantized float, 3 x 24 x 32, one block per channel), not a larger multi-block one.
+Gzip stays plane-backed (a gzip stream cannot seek). TIFF and CR2 are what TIA1853 keeps.
 
 **Who awaits it** (every reader of `UnstretchedImage` pixels in `UI.Abstractions`, grepped): Calibrate
 (`ComputeColorCalibrationAsync`), SPCC (`ComputeSpccColorCalibrationAsync`), Enhance (`EnhanceActions.EnhanceAsync`), export

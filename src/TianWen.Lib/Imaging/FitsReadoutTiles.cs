@@ -20,7 +20,7 @@ namespace TianWen.Lib.Imaging;
 /// <c>ReadoutTileTests</c>.</para>
 /// <para><b>What it serves.</b> An uncompressed, ungzipped FITS whose first image HDU is BITPIX 8, 16, 32
 /// or -32 with two or three axes, the layout <c>Image.TryReadThroughFitsReader</c> reads. <see cref="TryOpen"/>
-/// answers false for anything else (<c>.fz</c>, gzip, TIFF, CR2, BITPIX 64), and the caller keeps reading
+/// answers false for anything else (gzip, TIFF, CR2, BITPIX 64; a <c>.fz</c> is <see cref="FpackReadoutTiles"/>'s), and the caller keeps reading
 /// the planes. It is never a way to read a file that the importer would not.</para>
 /// <para><b>Bounded, not asynchronous.</b> A miss reads one 64 x 64 tile: at most 64 positional reads of
 /// at most 256 bytes, one file handle opened and closed around them, and 16 KB for the tile. The cache
