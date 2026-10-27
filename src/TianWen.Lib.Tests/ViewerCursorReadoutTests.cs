@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using nom.tam.fits;
 using SharpAstro.Ser;
 using Shouldly;
 using TianWen.Lib.Astrometry;
@@ -171,6 +172,84 @@ namespace TianWen.Lib.Tests
             document.FullScaleAdu.ShouldBeNull();
             var value = InfoPanelData.GetCursorLines(state).Where(line => line.StartsWith("Val: ", StringComparison.Ordinal)).ShouldHaveSingleItem();
             value.ShouldNotContain("(");
+        }
+
+        /// <summary>
+        /// The readout of a FITS document answers the same numbers from the file's tile cache as from the planes, in the
+        /// composite view and a single channel, so a float master's planes can be released without it (#368).
+        /// </summary>
+        [Theory]
+        [InlineData(16, 3)]
+        [InlineData(-32, 3)]
+        [InlineData(-32, 1)]
+        public async Task TheReadoutFromTheFileIsTheReadoutFromThePlanes(int bitpix, int planes)
+        {
+            const int w = 150, h = 70;
+            var path = Path.Combine(_folders.Create("tianwen-readout-doc-").FullName, "master.fits");
+            var header = planes == 1 ? FitsWriter.ImageHeader(bitpix, w, h) : FitsWriter.ImageHeader(bitpix, w, h, planes);
+            if (bitpix == 16)
+            {
+                header.AddValue("BZERO", 32768.0, "");
+            }
+
+            using (var writer = FitsWriter.CreateFile(path, header))
+            {
+                var n = w * h * planes;
+                if (bitpix == 16)
+                {
+                    var data = new short[n];
+                    for (var i = 0; i < n; i++)
+                    {
+                        data[i] = (short)((i * 1301) - 20000);
+                    }
+
+                    writer.Write<short>(data);
+                }
+                else
+                {
+                    var data = new float[n];
+                    for (var i = 0; i < n; i++)
+                    {
+                        data[i] = (i * 0.37f) - 100f;
+                    }
+
+                    writer.Write<float>(data);
+                }
+
+                writer.Finish();
+            }
+
+            var document = (await AstroImageDocument.OpenAsync(path, DebayerAlgorithm.None, TestContext.Current.CancellationToken)).ShouldNotBeNull();
+            var tiles = document.ReadoutTiles.ShouldNotBeNull("an uncompressed FITS opened from a file has a tile source");
+
+            foreach (var channel in new int?[] { null, 0, planes - 1 })
+            {
+                foreach (var (x, y) in new[] { (0, 0), (63, 63), (64, 64), (w - 1, 0), (0, h - 1), (w - 1, h - 1), (101, 33) })
+                {
+                    document.ReadoutPrefersFile = false;
+                    var fromPlanes = ViewerActions.ReadPixel(document, null, x, y, channel);
+                    document.ReadoutPrefersFile = true;
+                    var fromFile = ViewerActions.ReadPixel(document, null, x, y, channel);
+
+                    fromFile.Values.Length.ShouldBe(fromPlanes.Values.Length);
+                    for (var i = 0; i < fromPlanes.Values.Length; i++)
+                    {
+                        BitConverter.SingleToInt32Bits(fromFile.Values[i]).ShouldBe(BitConverter.SingleToInt32Bits(fromPlanes.Values[i]),
+                            $"channel {channel} sample {i} at ({x}, {y})");
+                    }
+                }
+            }
+
+            tiles.TilesRead.ShouldBeGreaterThan(0, "the file answered, not the planes");
+        }
+
+        /// <summary>A document that is not a file the tile reader serves has no tile source and reads its planes, as before.</summary>
+        [Fact]
+        public async Task AnInMemoryFrameHasNoTileSource()
+        {
+            var document = await NewMonoDocumentAsync();
+
+            document.ReadoutTiles.ShouldBeNull();
         }
 
         /// <summary>

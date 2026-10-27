@@ -48,6 +48,51 @@ public class ViewerE2ETests
     ];
 
     /// <summary>
+    /// The pointer over a colour master reads the same three values from the FILE as from the planes, through the host's own
+    /// pointer path, so the readout can serve a master whose planes are released (#368).
+    /// </summary>
+    [Theory(Timeout = 120_000)]
+    [MemberData(nameof(Scales))]
+    public async Task TheReadoutUnderThePointerComesOffTheFileAsItDoesOffThePlanes(float dpiScale)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var e2e = ViewerE2E.Start(dpiScale);
+        var path = e2e.WriteColourFits("readout.fits", level: 7f);
+        await e2e.OpenAsync(path, ct);
+        var document = e2e.Controller.Document.ShouldNotBeNull();
+        var tiles = document.ReadoutTiles.ShouldNotBeNull("a FITS opened from a file reads its pixels through a tile cache");
+
+        var compared = 0;
+        for (var y = 300f; y < 700f; y += 37f)
+        {
+            for (var x = 500f; x < 1100f; x += 41f)
+            {
+                document.ReadoutPrefersFile = false;
+                e2e.Host.HandlePointer(new InputEvent.MouseMove(x, y));
+                if (e2e.State.CursorPixelInfo is not { Values.Length: 3 } fromPlanes || e2e.State.CursorImagePosition is not { } at)
+                {
+                    continue;
+                }
+
+                var planeValues = fromPlanes.Values;
+                document.ReadoutPrefersFile = true;
+                e2e.Host.HandlePointer(new InputEvent.MouseMove(x + 0.01f, y));
+                e2e.State.CursorImagePosition.ShouldBe(at, "the same pixel under the pointer");
+                var fileValues = e2e.State.CursorPixelInfo.ShouldNotBeNull().Values;
+                for (var c = 0; c < 3; c++)
+                {
+                    BitConverter.SingleToInt32Bits(fileValues[c]).ShouldBe(BitConverter.SingleToInt32Bits(planeValues[c]), $"channel {c} at {at}");
+                }
+
+                compared++;
+            }
+        }
+
+        compared.ShouldBeGreaterThan(5, "the sweep must land on the image");
+        tiles.TilesRead.ShouldBeGreaterThan(0, "the file answered");
+    }
+
+    /// <summary>
     /// A link on the object panel opens its page, once, through this host. The standalone host's router had
     /// no <c>OpenUrl</c> subscriber, so a press on a link took the hand pointer, was consumed and opened
     /// nothing, while the same panel in the GUI worked (2026-09-18).
