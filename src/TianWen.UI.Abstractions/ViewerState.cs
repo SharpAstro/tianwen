@@ -184,7 +184,37 @@ public sealed class ViewerState
     /// at the click through <c>ImageRendererBase.BuildSelectionPanelData</c> at the frame's CAPTURE
     /// instant, never re-solved off a live clock a still image has no use for.</para>
     /// </remarks>
-    public SkyMapInfoPanelData? SelectedObject { get; set; }
+    public SkyMapInfoPanelData? SelectedObject
+    {
+        get;
+        set
+        {
+            field = value;
+            if (value is not null)
+            {
+                SelectedStar = null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The DETECTED star a tap selected (#708), or null. Mutually exclusive with
+    /// <see cref="SelectedObject"/>: setting either to a value clears the other, and clearing one
+    /// leaves the other alone. Resolved by <c>StarList.NearestAt</c> in image pixels, so it is the
+    /// star's own measurement and not a catalogue entry.
+    /// </summary>
+    public ImagedStar? SelectedStar
+    {
+        get;
+        set
+        {
+            field = value;
+            if (value is not null)
+            {
+                SelectedObject = null;
+            }
+        }
+    }
 
     /// <summary>
     /// What a click at the pointer would select: the object under the hover wash. The "different

@@ -513,6 +513,7 @@ public sealed class ViewerController(
                 // source replacement: an enhance replaces the document too and its sky is the same
                 // one, so a selection made before it is still about the object on screen.
                 state.SelectedObject = null;
+                state.SelectedStar = null;
 
                 // No stretch for a pre-stretched image, the planetary stretch for a planet's frame (StretchMode.ForFrame, which the
                 // Explorer thumbnail asks too), and the auto-stretch back for a deep-sky frame after either.
