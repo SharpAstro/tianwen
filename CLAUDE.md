@@ -1447,6 +1447,10 @@ once per operation, never per sample; `ImagePlaneResidencyConcurrencyTests`).
 
 - **Eviction is NOT release**, and **every read goes through the `Planes` accessor** (a read of the evicted 0x0
   stub wrote an empty FITS).
+- **A file-backed eviction is its own state and a read of it THROWS** (#368; `TryEvictForReload`, `PlanesNeedReload`): a
+  float master over `EnhanceRevertPolicy`'s budget drops its planes after load, and every pixel consumer awaits
+  `AstroImageDocument.EnsurePlanesAsync` off the render thread first, never a disk read in a getter. A new reader of
+  `UnstretchedImage` pixels owes that await; `docs/plans/viewer-memory-footprint.md`, "The reload-backed release".
 - **A plane is `float[,]` and stays one; what changes is how a LOOP reads it** (span-per-row), and a speed-up is
   per-MACHINE: never quote one without naming the box.
 - **Every histogram goes through ONE vectorised kernel, `Image.Traverse`, and its running sum is ORDERED**

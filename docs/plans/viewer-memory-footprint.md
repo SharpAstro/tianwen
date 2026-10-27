@@ -765,6 +765,44 @@ scaled (BZERO -3.25, BSCALE 0.5), mono and three planes, with partial tiles on b
 (`GetChannelSpan`'s contract) and `EnhanceRevertPolicy`'s generalisation above. And the formats the tile reader
 does not serve keep reading the planes, so a TIFF or `.fz` master still pins them.
 
+### The reload-backed release: a float master drops its planes after load (#368)
+
+The change the sections above deferred, now that the readout needs no plane. A FITS master whose float footprint is over
+`EnhanceRevertPolicy.RetainBudgetBytes` (128 MB, the one budget: `EnhanceRevertPolicy.DecidePlanes`, never a second constant)
+and that the readout tiles serve (a plain FITS, no interior hole filled) releases its planes at the end of
+`AstroImageDocument.DetectStarsAsync`, once its load-time readers are done, and nothing but a file read gives them back.
+
+**The contract, chosen from the three options `GetChannelSpan` was offered.** A file-backed eviction is a SEPARATE state from a
+raster-backed one (`Image.TryEvictForReload`, `PlanesNeedReload`; its plane stub is a distinct reference, so the kind is read off
+the one array and never kept in a flag beside it). A raster-backed image rebuilds itself in memory on a read, as before. A
+file-backed one has nothing to rebuild from, so **a read of it THROWS** (`InvalidOperationException`, from the cold half of the
+`Planes` accessor, so the resident hot path is unchanged): never an empty span, and never a disk read hidden in a property
+getter, on whichever thread asked. Restoring is explicit and asynchronous, `AstroImageDocument.EnsurePlanesAsync`, which runs
+`Image.TryReloadPlanesFromFitsFile` (the same reader and the same scaling to [0, 1] as the open, so the planes are bit-identical)
+off the caller's thread behind a gate: six callers read the file once. It refuses a file whose length or write time is not the
+one it was opened with, so a master a live stack replaced is never quoted under the old statistics.
+
+**Who awaits it** (every reader of `UnstretchedImage` pixels in `UI.Abstractions`, grepped): Calibrate
+(`ComputeColorCalibrationAsync`), SPCC (`ComputeSpccColorCalibrationAsync`), Enhance (`EnhanceActions.EnhanceAsync`), export
+(`WriteDisplayedRasterAsync`, `AnnotatedRasterExport.WriteAsync`), auto-crop, the planetary look, a planetary master's sharpening
+layer, the Auto white balance button, and **the texture upload**, which is the render thread's: `UploadDocumentTextures` starts
+the reload on the pool, keeps `NeedsTextureUpdate`, shows "Reading pixels..." and uploads the frame after the planes are back (so
+a channel toggle on a released master is a read of the file, off the render thread, then an upload). Left alone because they read
+no plane: stretch statistics, the star overlay, the histogram panel (raw bins only for a multi-frame source), `DisplayCarry`'s
+shape comparison, `EnhanceChoices` (capabilities from metadata). `LightGrading.Grade` is synchronous, so it runs inside the
+detection through `DetectStarsAsync(whileResident:)`, before the release. The lazy planetary stretch is taken just before it, as
+it is the one reader the render thread could otherwise reach.
+
+**Pinned by** `ReloadBackedReleaseTests`: over and under budget, an in-memory document (no file, so the budget yields), the loud
+failure (indexer, `GetChannelSpan` and `GetChannelData` throw and restore nothing, no reload counted), the readout answering from
+the tiles with no reload, every restored sample bit-identical to a resident open, one read for six concurrent callers, a changed
+file refused, a displayed PNG byte-identical to a resident document's, Calibrate returning the resident answer, and a channel
+toggle through `ViewerE2E` reading the file once and then uploading.
+
+**Not done, and filed.** Planes are not released again after an on-demand consumer is done with them: a Calibrate or a toggle
+puts a released master back at 12 B/px until it is replaced (#1852). A TIFF or `.fz` master is not served by the tile readout, so it is
+never released (#1853). 16-bit retention (#748) stays gated behind this.
+
 ## Phasing
 
 | Phase | Items | Rationale |
@@ -772,7 +810,7 @@ does not serve keep reading the planes, so a TIFF or `.fz` master still pins the
 | A | **DONE** -- M1 | Self-contained, one repo, no API design. Fixes the cost that persists across documents -- the one a user experiences as "it got slow after I opened that file". |
 | B | **DONE** -- M2 in `Codecs` (3.11) | A new public API on `SharpAstro.Tiff` plus a release. Second, so A has shipped by the time the pin moves. |
 | C | **CODE DONE**, pin held until 3.11 publishes -- M2 in `tianwen` | Follows B's release; the codec family floats per minor, so the pin edit is one line. |
-| D | **D3' DONE** (measured -6.05 B/px RGB, -2.02 mono); **D1' SHIPPED for raster-backed documents** (an 8-bit document releases its float planes after the stats pass: 18 -> 6 B/px, proven reclaimable by a WeakReference); reload-backed release for float masters still open, D2 designed -- M3 above | D3' shipped first as recommended: device-only, no API change. D1' demotes the float planes to a transient and is the next decision, to be taken against measurements with D3' in place. **Measured through the real load: star detection DID leave the planes resident, and `DetectStarsAsync` now re-evicts, so the 6 B/px steady state holds** (`DocumentResidencyTests`; the cursor readout, channel toggle and `LightGrading.Grade` restore nothing). D2 (depth-agnostic star detection) would now only lower a transient peak, so it stays unstarted unless a measured peak asks for it. 16-bit retention is gated behind D1' too: the same arithmetic gives net 0 while the float planes stay resident. |
+| D | **D3' DONE** (measured -6.05 B/px RGB, -2.02 mono); **D1' SHIPPED for raster-backed documents** (an 8-bit document releases its float planes after the stats pass: 18 -> 6 B/px, proven reclaimable by a WeakReference); **reload-backed release SHIPPED for plain FITS masters over the 128 MB budget** (`EnhanceRevertPolicy.DecidePlanes`; planes released after load, read back through `AstroImageDocument.EnsurePlanesAsync`, a read of a released image throws; remainders #1852, #1853), D2 designed -- M3 above | D3' shipped first as recommended: device-only, no API change. D1' demotes the float planes to a transient and is the next decision, to be taken against measurements with D3' in place. **Measured through the real load: star detection DID leave the planes resident, and `DetectStarsAsync` now re-evicts, so the 6 B/px steady state holds** (`DocumentResidencyTests`; the cursor readout, channel toggle and `LightGrading.Grade` restore nothing). D2 (depth-agnostic star detection) would now only lower a transient peak, so it stays unstarted unless a measured peak asks for it. 16-bit retention is gated behind D1' too: the same arithmetic gives net 0 while the float planes stay resident. |
 
 ## Verification
 
