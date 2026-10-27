@@ -162,7 +162,7 @@ def noise_cap(plane, absent=None, block=CAP_BLOCK):
         local = _difference_noise_map(plane[i], None if absent is None else absent[i], block)
         if local is None:
             continue
-        cap = (CONFUSION_SAFETY * local.double()).float()
+        cap = (CONFUSION_SAFETY * local.double()).float().to(out.device)
         out[i] = torch.where((cap > 0) & (cap < out[i]), cap, out[i])
     return out[0] if single else out
 
