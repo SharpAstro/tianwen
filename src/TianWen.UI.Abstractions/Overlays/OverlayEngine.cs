@@ -572,6 +572,17 @@ public static class OverlayEngine
     };
 
     /// <summary>
+    /// The field of view, in arcminutes, the magnitude cutoffs are asked at: the short side of the
+    /// VISIBLE area, not the whole frame.
+    /// </summary>
+    /// <remarks>
+    /// One derivation for the overlay's gather and for the click resolver, so a click is gated by
+    /// exactly the cutoff the overlay drew with (#709).
+    /// </remarks>
+    public static double ViewFieldArcmin(ViewportLayout layout, WCS wcs)
+        => MathF.Min(layout.AreaWidth, layout.AreaHeight) / layout.Zoom * wcs.PixelScaleArcsec / 60.0;
+
+    /// <summary>
     /// Computes the star magnitude cutoff based on field-of-view in arcminutes.
     /// </summary>
     public static double GetStarMagCutoff(double fovArcmin) => fovArcmin switch
@@ -717,8 +728,7 @@ public static class OverlayEngine
 
         // Compute FOV for zoom-dependent filtering
         var pixelScaleArcsec = wcs.PixelScaleArcsec;
-        var viewImagePixels = MathF.Min(layout.AreaWidth, layout.AreaHeight) / scale;
-        var fovArcmin = viewImagePixels * pixelScaleArcsec / 60.0;
+        var fovArcmin = ViewFieldArcmin(layout, wcs);
 
         var magCutoff = GetExtendedMagCutoff(fovArcmin);
         var starMagCutoff = GetStarMagCutoff(fovArcmin);

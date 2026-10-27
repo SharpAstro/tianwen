@@ -168,7 +168,8 @@ namespace TianWen.UI.Abstractions
                 : null;
 
             return ImageContextMenu.ItemsFor(
-                pixel, fovDeg, _source?.ImageMeta?.ExposureStartTime, FindObjectAt(pixel, fovDeg),
+                pixel, fovDeg, _source?.ImageMeta?.ExposureStartTime,
+                FindObjectAt(pixel, fovDeg, OverlayFieldArcmin(state)),
                 state.SelectedObject);
         }
 
@@ -192,8 +193,8 @@ namespace TianWen.UI.Abstractions
         /// <see cref="ICelestialObjectDB.DeepSkyCoordinateGrid"/> the overlay engine gathers from, so
         /// the menu can only ever name something the overlay would have drawn.</para>
         /// </remarks>
-        private ImageContextMenuObject? FindObjectAt(PixelInfo pixel, double? fovDeg)
-            => FindCatalogObjectAt(pixel, fovDeg) is { } found
+        private ImageContextMenuObject? FindObjectAt(PixelInfo pixel, double? fovDeg, double overlayFovArcmin)
+            => FindCatalogObjectAt(pixel, fovDeg, overlayFovArcmin) is { } found
                 ? new ImageContextMenuObject(NameOf(found.Object), found.Object.Index.ToCanonical())
                 : null;
 
@@ -329,6 +330,15 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// The field the overlay's magnitude cutoffs are asked at right now, from the same layout and
+        /// the same function the overlay's gather uses; NaN with no usable solution.
+        /// </summary>
+        private double OverlayFieldArcmin(ViewerState state)
+            => Findings.Wcs is { HasCDMatrix: true } wcs
+                ? OverlayEngine.ViewFieldArcmin(CurrentViewportLayout(state), wcs)
+                : double.NaN;
+
+        /// <summary>
         /// The nearest catalogued object to <paramref name="pixel"/>, as the catalogue holds it.
         /// </summary>
         /// <remarks>
@@ -337,15 +347,23 @@ namespace TianWen.UI.Abstractions
         /// needs the object's own coordinates and its full identification stack. Splitting it this way
         /// rather than widening <see cref="ImageContextMenuObject"/> keeps the menu's payload record
         /// about the menu, and keeps one implementation of "which object is under this pixel".
+        /// <para>It names only what the overlay would have drawn at this field of view: the overlay's
+        /// type gate AND its magnitude cutoff (#709), fed <paramref name="overlayFovArcmin"/>, the value
+        /// <see cref="OverlayEngine.ViewFieldArcmin"/> gives the gather.</para>
         /// </remarks>
-        private (CelestialObject Object, CatalogIndex Index)? FindCatalogObjectAt(PixelInfo pixel, double? fovDeg)
+        private (CelestialObject Object, CatalogIndex Index)? FindCatalogObjectAt(
+            PixelInfo pixel, double? fovDeg, double overlayFovArcmin)
         {
             if (pixel.RA is not { } raHours || pixel.Dec is not { } dec
                 || fovDeg is not { } fov || !double.IsFinite(fov) || fov <= 0
+                || !double.IsFinite(overlayFovArcmin) || overlayFovArcmin <= 0
                 || LoadedCatalog is not { } db)
             {
                 return null;
             }
+
+            var extendedMagCutoff = OverlayEngine.GetExtendedMagCutoff(overlayFovArcmin);
+            var starMagCutoff = OverlayEngine.GetStarMagCutoff(overlayFovArcmin);
 
             var toleranceDeg = Math.Clamp(0.02 * fov, 0.5 / 60.0, 0.5);
             var best = double.MaxValue;
@@ -374,7 +392,24 @@ namespace TianWen.UI.Abstractions
                 // clicking a nebula is asking about. Same two predicates the overlay uses, from the
                 // same class, rather than a list of types repeated here.
                 var type = candidate.ObjectType;
-                if (!OverlayEngine.IsExtendedObjectType(type) && !OverlayEngine.IsStarType(type))
+                var isStar = OverlayEngine.IsStarType(type);
+                if (!OverlayEngine.IsExtendedObjectType(type) && !isStar)
+                {
+                    continue;
+                }
+
+                // The overlay's magnitude gate too (#709, the owner's decision): what you see is what
+                // you can click. Same cutoff functions at the same field (ViewFieldArcmin), the same
+                // constellation-figure floor for a star, and an object with no magnitude passes, as it
+                // does in the overlay.
+                var cutoff = isStar ? starMagCutoff : extendedMagCutoff;
+                if (isStar && cutoff < OverlayEngine.FigureStarMagCutoff
+                    && OverlayEngine.IsConstellationFigureStar(index,
+                        db.TryGetCrossIndices(index, out var crossIndices) ? crossIndices : null))
+                {
+                    cutoff = OverlayEngine.FigureStarMagCutoff;
+                }
+                if (!Half.IsNaN(candidate.V_Mag) && (double)candidate.V_Mag > cutoff)
                 {
                     continue;
                 }
@@ -610,7 +645,7 @@ namespace TianWen.UI.Abstractions
 
             return FindDrawnMarkerAt(px, py)
                 ?? FindDrawnLabelAt(px, py)
-                ?? (info is { } pixel ? FindCatalogObjectAt(pixel, fovDeg) : null)
+                ?? (info is { } pixel ? FindCatalogObjectAt(pixel, fovDeg, OverlayFieldArcmin(state)) : null)
                 ?? FindBackdropObjectAt(state, px, py);
         }
 

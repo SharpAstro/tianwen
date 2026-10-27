@@ -704,9 +704,11 @@ namespace TianWen.Lib.Tests
                 "past the bound the frame's solution may not be asked, so there is nothing to offer");
 
             // And the selection agrees: a tap out there names nothing. Weaker than the two lines above
-            // on its own -- see the remarks -- but it is the gesture the user actually makes.
+            // on its own -- see the remarks -- but it is the gesture the user actually makes. (The frame
+            // centre no longer names M 51 at this zoom: the field is past 30 degrees, where the overlay's
+            // cutoff hides it, and a click follows the overlay, #709.)
             TapAt(viewer, cx, cy);
-            state.SelectedObject.ShouldNotBeNull("the frame centre still resolves at any zoom");
+            state.SelectedObject.ShouldBeNull("M 51 is fainter than this field's cutoff");
             TapAt(viewer, cx + 300f, cy);
             state.SelectedObject.ShouldBeNull();
         }
@@ -751,6 +753,43 @@ namespace TianWen.Lib.Tests
                 || selection.LinkToken.StartsWith("HIP", StringComparison.Ordinal)
                 || selection.LinkToken.StartsWith("HD", StringComparison.Ordinal))
                 .ShouldBeTrue($"expected a drawn type, got {selection.LinkToken}");
+        }
+
+        /// <summary>
+        /// <b>A click names only what the overlay draws at this field (#709).</b> M 51 (V about 8.4)
+        /// sits between the extended cutoff of a field over 30 degrees (8.0) and that of a field under
+        /// a degree (20.0): clicked on a wide field it is not named, clicked on a narrow one it is.
+        /// </summary>
+        [Fact]
+        public async Task ATapNeverNamesAnObjectFainterThanTheFieldsCutoff()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+
+            // Wide: 200 arcsec a pixel over the short side of the area is far past 1800 arcmin.
+            var (wide, wideState, wideDoc, obj) = await NewViewerOnAsync(
+                renderer, CatalogIndex.NGC5194, ct, scaleDeg: 200.0 / 3600.0);
+            wide.Render(wideDoc, wideState);
+            var wideArea = wide.ImageArea;
+            var wideFov = Math.Min(wideArea.Width, wideArea.Height) / wideState.Zoom * 200.0 / 60.0;
+
+            var vMag = (double)obj.V_Mag;
+            double.IsNaN(vMag).ShouldBeFalse("the fixture needs a magnitude to straddle the cutoff");
+            // The band edge the fixture stands on: a retuned table fails here, not silently below.
+            OverlayEngine.GetExtendedMagCutoff(wideFov).ShouldBe(8.0);
+            vMag.ShouldBeGreaterThan(8.0);
+            OverlayEngine.GetExtendedMagCutoff(1200.0 / 60.0).ShouldBe(20.0);
+
+            var (wx, wy) = ObjectOnScreen(wide, wideState);
+            TapAt(wide, wx, wy);
+            (wideState.SelectedObject?.LinkToken ?? "").StartsWith(obj.Index.ToCanonical(), StringComparison.Ordinal)
+                .ShouldBeFalse("M 51 is fainter than the wide field's cutoff, so the overlay hides it and a click may not name it");
+
+            var (narrow, narrowState, narrowDoc, _) = await NewViewerOnAsync(renderer, CatalogIndex.NGC5194, ct);
+            narrow.Render(narrowDoc, narrowState);
+            var (nx, ny) = ObjectOnScreen(narrow, narrowState);
+            TapAt(narrow, nx, ny);
+            narrowState.SelectedObject.ShouldNotBeNull().LinkToken.ShouldStartWith(obj.Index.ToCanonical());
         }
 
         /// <summary>

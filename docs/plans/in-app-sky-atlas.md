@@ -577,10 +577,13 @@ locking the release scope was *"as long as we track everything we skipped in a p
     centre was nearest the letters (a neighbour three times in seven on the 10P master, nothing
     once), and the ring's name landed on the overlay's own label for the same object. The selected
     object's overlay label now steps aside for the ring's name, whose box is reserved.
-  - **Still open:** whether the catalogue search should also apply the overlay's MAGNITUDE cutoff.
-    That would complete the "only what is drawn" promise for the overlay-OFF case, but it makes the
-    answer depend on zoom, so it is a judgement rather than a bug. And clicking a STAR is still a
-    different resolver (below).
+  - **Decided (owner, 2026-10-27, #709): the catalogue search applies the overlay's MAGNITUDE cutoff.**
+    A catalogue click names only what the overlay draws at that field of view, through
+    `OverlayEngine.GetExtendedMagCutoff` / `GetStarMagCutoff` (with the constellation-figure floor, and
+    an object with no magnitude passing) at the SAME field the overlay's gather uses
+    (`OverlayEngine.ViewFieldArcmin`); the hover wash and the right-click menu share the resolver, so
+    they take it too. Pinned by `ViewerObjectSelectionTests.ATapNeverNamesAnObjectFainterThanTheFieldsCutoff`.
+    Clicking a STAR is a different resolver (below), which takes no cutoff.
 - **Clicking a STAR is a different resolver.** The frame's stars (`IPreviewSource.Findings.Stars`) are DETECTED CENTROIDS, not
   catalogue entries, so it is a nearest-centroid search over the star list, not `FindObjectAt`. Worth
   saying because "click an object or a star" reads like one feature and is two.
