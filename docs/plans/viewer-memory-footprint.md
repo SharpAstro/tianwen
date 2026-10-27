@@ -821,6 +821,34 @@ toggle through `ViewerE2E` reading the file once and then uploading.
 puts a released master back at 12 B/px until it is replaced (#1852). A TIFF or `.fz` master is not served by the tile readout, so it is
 never released (#1853). 16-bit retention (#748) stays gated behind this.
 
+### A total budget across open documents, a pin, and the release order (#368 follow-up)
+
+The per-document budget above never fires for the common case of many ordinary masters open at once: ten 95 MB masters are each
+under 128 MB and together hold a gigabyte. So **`DocumentCache`, the one place that knows every open document, holds a TOTAL
+budget** (`DocumentCache.TotalBudgetBytes`, three times `EnhanceRevertPolicy.RetainBudgetBytes`; a number, never an OS memory
+signal, so identical input behaves identically). It is checked when a document opens (`DocumentCache.Admit`): the planes
+resident across every live document, the new one included, are summed (`AstroImageDocument.ResidentPlaneBytes`), and while the sum
+is over, the **least recently used** document the file can give back goes first (`LastUsedTick`, advanced by `Touch()` on every
+cache hit and every `EnsurePlanesAsync`), by `AstroImageDocument.TryReleaseForBudget`. The document being opened is never a
+candidate. Which documents can be read back is the one rule as before: a plain FITS the readout tiles serve with the file
+unchanged (`CanReadBack`); an in-memory frame, a crop, an 8-bit raster-backed document (it rebuilds in memory) and a TIFF, `.fz` or
+CR2 are skipped, so a budget the open documents cannot meet is simply exceeded rather than broken.
+
+**`EnsurePlanesAsync` returns a `PlanesPin`**, and every on-demand consumer holds it for as long as it reads (`using var pin`):
+Calibrate, SPCC, Enhance, both exports, auto-crop, the planetary look and its master layer, the Auto white balance button, star
+detection, and the texture upload (the reload's pin is held across the gap to the render frame and dropped when the upload has
+read the planes, `ImageRendererBase._uploadPin`). A release skips a document with a pin outstanding, and the per-document release
+after load skips one too. The pin and the release meet at the document's reload gate: a release only looks while it holds the gate
+(and gives up rather than wait), and a pin is counted under the same gate, so a pin taken during a release either lands before it
+looks or finds the planes gone and reads them back. The throw on a read of released planes stays as the backstop for a consumer
+that forgot to hold one.
+
+A released document keeps its GPU texture and its readout tiles; the next consumer reads the file once (`PlaneReloads`), however
+many callers wait. **Pinned by** `ViewerMemoryReleaseTests` (CPU only): opening under the budget releases nothing, the least
+recently used goes first, a pinned document is never released (and a double dispose lets go once), the next consumer reads the file
+exactly once and gets the same samples, and an in-memory frame or a crop is never released. **Not done:** releasing again when a
+consumer goes idle rather than at an open (#1852); TIFF, `.fz` and CR2 (#1853).
+
 ## Phasing
 
 | Phase | Items | Rationale |
