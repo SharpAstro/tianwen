@@ -186,6 +186,44 @@ public class ViewerE2ETests
     }
 
     /// <summary>
+    /// A tap on a detected star selects it and shows its panel, and the panel's Close press clears it without the
+    /// press reaching the picture (#708). Escape clears it too. At both scales, so a panel laid out at the square
+    /// of the DPI would show.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Scales))]
+    public async Task ATapOnADetectedStarShowsItsPanelAndClosePutsItAway(float dpiScale)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var e2e = ViewerE2E.Start(dpiScale);
+        await e2e.OpenAsync(e2e.WriteColourFits("frame.fits"), ct);
+
+        var star = new ImagedStar(HFD: 6f, StarFWHM: 7f, SNR: 40f, Flux: 1000f, XCentroid: 32f, YCentroid: 24f,
+            Ellipticity: 0.1f, LocalBackground: 10f);
+        e2e.Controller.Document.ShouldNotBeNull().RecordStars(
+            new StarList(new System.Collections.Concurrent.ConcurrentBag<ImagedStar>([star])));
+        e2e.State.ShowStarOverlay = true;
+        e2e.Frame();
+
+        var placement = e2e.Viewer.Placement;
+        var x = placement.OffsetX + ((star.XCentroid + 0.5f) * placement.Scale);
+        var y = placement.OffsetY + ((star.YCentroid + 0.5f) * placement.Scale);
+
+        e2e.Click(x, y);
+        e2e.State.SelectedStar.ShouldBe(star, $"a tap on the star selects it at dpi {dpiScale}");
+        var panelClose = e2e.Region(hit => hit is HitResult.ButtonHit { Action: "ObjectInfoClose" }, "the star panel's Close");
+        panelClose.Width.ShouldBeGreaterThan(0f);
+
+        e2e.Click(panelClose);
+        e2e.State.SelectedStar.ShouldBeNull($"Close clears the star at dpi {dpiScale}");
+
+        e2e.Click(x, y);
+        e2e.State.SelectedStar.ShouldBe(star);
+        e2e.Key(InputKey.Escape);
+        e2e.State.SelectedStar.ShouldBeNull($"Escape clears the star at dpi {dpiScale}");
+    }
+
+    /// <summary>
     /// Selects an object with no catalogue entry, whose panel therefore has exactly one link, the sky atlas's,
     /// and returns where it was painted.
     /// </summary>
