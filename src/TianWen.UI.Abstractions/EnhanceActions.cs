@@ -74,6 +74,8 @@ public static class EnhanceActions
         // The result IS the crop: smaller pixels, a WCS translated to match, and SourceCrop recording
         // where it came from. Costs one full-size copy of the kept region, against a pipeline that runs
         // for a minute and a half.
+        // A master released to its file is read back first, here on the run's own thread, never by a getter.
+        await source.EnsurePlanesAsync(cancellationToken).ConfigureAwait(false);
         var input = source.UnstretchedImage;
         var wcs = source.Findings.Wcs;
         if (crop is { } region)
