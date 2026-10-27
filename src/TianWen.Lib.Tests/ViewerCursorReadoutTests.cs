@@ -36,6 +36,33 @@ namespace TianWen.Lib.Tests
         private const int Height = 6;
 
         [Fact]
+        public async Task AReleasedTiffMasterReadsCompositeAndSingleChannelFromItsFile()
+        {
+            var path = await TiffReloadBackedReleaseTests.WriteFloatTiffAsync(_folders.Create("tianwen-tiff-cursor-").FullName, "cursor.tif", tiled: true);
+            var ct = TestContext.Current.CancellationToken;
+            var resident = (await AstroImageDocument.OpenAsync(path, cancellationToken: ct)).ShouldNotBeNull();
+            var released = (await AstroImageDocument.OpenAsync(path, cancellationToken: ct)).ShouldNotBeNull();
+            released.PlaneBudgetBytes = 1;
+            await released.DetectStarsAsync(ct);
+            released.UnstretchedImage.PlanesResident.ShouldBeFalse();
+
+            var want = ViewerActions.ReadPixel(resident, resident.Findings.Wcs, 70, 90);
+            var composite = ViewerActions.ReadPixel(released, released.Findings.Wcs, 70, 90);
+            var green = ViewerActions.ReadPixel(released, released.Findings.Wcs, 70, 90, channel: 1);
+
+            composite.Values.Length.ShouldBe(3);
+            for (var c = 0; c < 3; c++)
+            {
+                composite.Values[c].ShouldBe(want.Values[c]);
+            }
+
+            green.Values.Length.ShouldBe(1);
+            green.Values[0].ShouldBe(want.Values[1]);
+            released.PlaneReloads.ShouldBe(0);
+            released.UnstretchedImage.PlanesResident.ShouldBeFalse();
+        }
+
+        [Fact]
         public async Task CompositeReadsEveryChannel()
         {
             var document = await NewThreeChannelDocumentAsync();

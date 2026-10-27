@@ -732,7 +732,7 @@ are untouched.
 **Design.** `FitsReadoutTiles` (`TianWen.Lib/Imaging`) serves one sample from the FILE through a cache of 64 x 64
 tiles. `AstroImageDocument.OpenAsync` attaches one to a FITS document (`ReadoutTiles`); `SampleAt` answers from
 the raster when there is one, else from a resident plane (free), else from the tile cache, and only when the
-tile source declines (`.fz`, gzip, TIFF, CR2, BITPIX 64, a changed file, a position outside the image) from the
+tile source declines (gzip, CR2, a TIFF the readout cannot lay out such as CMYK, BITPIX 64, a changed file, a position outside the image) from the
 restoring indexer, as before.
 
 - **Bit for bit.** A sample is `(float)BSCALE * stored + (float)BZERO` in single precision, multiplied then added
@@ -763,7 +763,7 @@ scaled (BZERO -3.25, BSCALE 0.5), mono and three planes, with partial tiles on b
 
 **What this does not do.** It does not release a float master's planes: that is still the ownership restructure
 (`GetChannelSpan`'s contract) and `EnhanceRevertPolicy`'s generalisation above. And the formats the tile reader
-does not serve keep reading the planes, so a TIFF or `.fz` master still pins them.
+does not serve (gzip, CR2) keep reading the planes and still pin them.
 
 ### The reload-backed release: a float master drops its planes after load (#368)
 
@@ -784,7 +784,7 @@ one it was opened with, so a master a live stack replaced is never quoted under 
 
 **The readout source is per format (#1856).** The document holds an `IReadoutTileSource` (`TianWen.Lib/Imaging`), opened by the one
 dispatching `ReadoutTileSources.TryOpen(path, unitScale, out source)`, which answers false for a format no source serves (gzip,
-TIFF, CR2 today). `ReadoutTileSourceBase` holds what every format shares, the bounded 64 x 64 tile cache and the
+CR2 today). `ReadoutTileSourceBase` holds what every format shares, the bounded 64 x 64 tile cache and the
 length/write-time staleness check; a format adds a subclass (`TryReadTile`, and `TryReadImage`, the whole-file read the reload goes
 through) and one line in `TryOpen`. `FitsReadoutTiles` is the plain-FITS source, its reload reading through `TryReadFitsFile`.
 **`.fz` is served too (#1856).** `FpackReadoutTiles` opens a file whose first image HDU is a `CompressedImageHDU` of BITPIX 8, 16,
@@ -798,7 +798,13 @@ import does. **The miss opens the file with the 64 KB header read-ahead (`OpenFi
 (`bscale * stored + bzero`, a float with no scaling as it is, then the `unitScale` multiply). The reload reads the file
 back through `TryReadFitsFile`, bit-identical. FITS.Lib cannot write a compressed file, so `FpackReadoutTileTests` pins the readout
 against the embedded `tilecompressed.fz` (quantized float, 3 x 24 x 32, one block per channel), not a larger multi-block one.
-Gzip stays plane-backed (a gzip stream cannot seek). TIFF and CR2 are what TIA1853 keeps.
+**TIFF is served and released too (#1853).** `TiffReadoutTiles` opens page 0 of a classic `.tif` / `.tiff` (RGB, MinIsBlack or
+MinIsWhite; 8 or 16-bit unsigned, 32-bit float; stripped or tiled, chunky or planar, every codec SharpAstro.Tiff reads) and reads the
+strips or tiles under a readout block through its on-demand segment read, converting with the importer's own code. The reload reads
+the file back through `TryReadTiff`, bit-identical. `AstroImageDocument.OpenImageFileAsync` attaches it and stamps the file only for a
+document that is NOT raster-backed (an 8-bit TIFF keeps the cheaper raster eviction); a TIFF the source declines (CMYK, which the
+whole-page read rebuilds as RGB) keeps its planes. **Gzip and CR2 stay plane-backed, deliberately (the owner's decision, #1853):**
+neither can be read at an offset (a gzip stream cannot seek; a CR2's raw is one compressed stream).
 
 **Who awaits it** (every reader of `UnstretchedImage` pixels in `UI.Abstractions`, grepped): Calibrate
 (`ComputeColorCalibrationAsync`), SPCC (`ComputeSpccColorCalibrationAsync`), Enhance (`EnhanceActions.EnhanceAsync`), export
@@ -818,8 +824,8 @@ file refused, a displayed PNG byte-identical to a resident document's, Calibrate
 toggle through `ViewerE2E` reading the file once and then uploading.
 
 **Not done, and filed.** Planes are not released again after an on-demand consumer is done with them: a Calibrate or a toggle
-puts a released master back at 12 B/px until it is replaced (#1852). A TIFF or `.fz` master is not served by the tile readout, so it is
-never released (#1853). 16-bit retention (#748) stays gated behind this.
+puts a released master back at 12 B/px until it is replaced (#1852). A gzip or CR2 master cannot be read at an offset, so it is
+never released (#1853 serves TIFF and `.fz`; those two stay by design). 16-bit retention (#748) stays gated behind this.
 
 ### A total budget across open documents, a pin, and the release order (#368 follow-up)
 
@@ -856,7 +862,7 @@ consumer goes idle rather than at an open (#1852); TIFF, `.fz` and CR2 (#1853).
 | A | **DONE** -- M1 | Self-contained, one repo, no API design. Fixes the cost that persists across documents -- the one a user experiences as "it got slow after I opened that file". |
 | B | **DONE** -- M2 in `Codecs` (3.11) | A new public API on `SharpAstro.Tiff` plus a release. Second, so A has shipped by the time the pin moves. |
 | C | **CODE DONE**, pin held until 3.11 publishes -- M2 in `tianwen` | Follows B's release; the codec family floats per minor, so the pin edit is one line. |
-| D | **D3' DONE** (measured -6.05 B/px RGB, -2.02 mono); **D1' SHIPPED for raster-backed documents** (an 8-bit document releases its float planes after the stats pass: 18 -> 6 B/px, proven reclaimable by a WeakReference); **reload-backed release SHIPPED for plain FITS masters over the 128 MB budget** (`EnhanceRevertPolicy.DecidePlanes`; planes released after load, read back through `AstroImageDocument.EnsurePlanesAsync`, a read of a released image throws; remainders #1852, #1853), D2 designed -- M3 above | D3' shipped first as recommended: device-only, no API change. D1' demotes the float planes to a transient and is the next decision, to be taken against measurements with D3' in place. **Measured through the real load: star detection DID leave the planes resident, and `DetectStarsAsync` now re-evicts, so the 6 B/px steady state holds** (`DocumentResidencyTests`; the cursor readout, channel toggle and `LightGrading.Grade` restore nothing). D2 (depth-agnostic star detection) would now only lower a transient peak, so it stays unstarted unless a measured peak asks for it. 16-bit retention is gated behind D1' too: the same arithmetic gives net 0 while the float planes stay resident. |
+| D | **D3' DONE** (measured -6.05 B/px RGB, -2.02 mono); **D1' SHIPPED for raster-backed documents** (an 8-bit document releases its float planes after the stats pass: 18 -> 6 B/px, proven reclaimable by a WeakReference); **reload-backed release SHIPPED for plain FITS masters over the 128 MB budget** (`EnhanceRevertPolicy.DecidePlanes`; planes released after load, read back through `AstroImageDocument.EnsurePlanesAsync`, a read of a released image throws; remainder #1852; `.fz` and TIFF masters too, #1853), D2 designed -- M3 above | D3' shipped first as recommended: device-only, no API change. D1' demotes the float planes to a transient and is the next decision, to be taken against measurements with D3' in place. **Measured through the real load: star detection DID leave the planes resident, and `DetectStarsAsync` now re-evicts, so the 6 B/px steady state holds** (`DocumentResidencyTests`; the cursor readout, channel toggle and `LightGrading.Grade` restore nothing). D2 (depth-agnostic star detection) would now only lower a transient peak, so it stays unstarted unless a measured peak asks for it. 16-bit retention is gated behind D1' too: the same arithmetic gives net 0 while the float planes stay resident. |
 
 ## Verification
 

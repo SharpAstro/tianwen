@@ -117,7 +117,7 @@ public sealed class AstroImageDocument : IPreviewSource
     /// <summary>
     /// The file's own samples through a small tile cache, for the cursor readout, or null where the document has
     /// no such file: an in-memory frame, a crop, a frame whose interior holes were filled (the file still holds
-    /// the NaN), or a format the tile reader does not serve (TIFF, CR2, gzip), all of which read the planes.
+    /// the NaN), or a format the tile reader does not serve (CR2, gzip, a CMYK TIFF), all of which read the planes.
     /// </summary>
     /// <remarks>
     /// Attached only by <see cref="OpenAsync"/>, which knows the file IS the image: the image is read-only, so
@@ -1004,6 +1004,21 @@ public sealed class AstroImageDocument : IPreviewSource
 
         var document = new AstroImageDocument(filePath, image, DebayerAlgorithm.None, statistics, wcs, isPreStretched);
         await document.AdoptStatedBalanceAsync(cancellationToken);
+
+        // A TIFF master reads its samples back from the file like a plain FITS (#1853). A raster-backed document (8-bit)
+        // already evicts its planes the cheaper way and rebuilds them in memory, so it never takes the file route.
+        var ext = Path.GetExtension(filePath);
+        var doc = document.UnstretchedImage;
+        if ((ext.Equals(".tif", StringComparison.OrdinalIgnoreCase) || ext.Equals(".tiff", StringComparison.OrdinalIgnoreCase))
+            && !doc.TryGetSourceRaster(0, out _)
+            && TiffReadoutTiles.TryOpen(filePath, unitScale: null, out var tiles)
+            && tiles.ChannelCount == doc.ChannelCount && tiles.Width == doc.Width && tiles.Height == doc.Height)
+        {
+            document.ReadoutTiles = tiles;
+            var info = new FileInfo(filePath);
+            document._reloadStamp = (info.Length, info.LastWriteTimeUtc);
+        }
+
         return document;
     }
 
