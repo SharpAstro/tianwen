@@ -778,9 +778,16 @@ the one array and never kept in a flag beside it). A raster-backed image rebuild
 file-backed one has nothing to rebuild from, so **a read of it THROWS** (`InvalidOperationException`, from the cold half of the
 `Planes` accessor, so the resident hot path is unchanged): never an empty span, and never a disk read hidden in a property
 getter, on whichever thread asked. Restoring is explicit and asynchronous, `AstroImageDocument.EnsurePlanesAsync`, which runs
-`Image.TryReloadPlanesFromFitsFile` (the same reader and the same scaling to [0, 1] as the open, so the planes are bit-identical)
+`Image.TryReloadPlanes` through the document's readout source (the same reader and the same scaling to [0, 1] as the open, so the planes are bit-identical)
 off the caller's thread behind a gate: six callers read the file once. It refuses a file whose length or write time is not the
 one it was opened with, so a master a live stack replaced is never quoted under the old statistics.
+
+**The readout source is per format (#1856).** The document holds an `IReadoutTileSource` (`TianWen.Lib/Imaging`), opened by the one
+dispatching `ReadoutTileSources.TryOpen(path, unitScale, out source)`, which answers false for a format no source serves (gzip,
+`.fz`, TIFF, CR2 today). `ReadoutTileSourceBase` holds what every format shares, the bounded 64 x 64 tile cache and the
+length/write-time staleness check; a format adds a subclass (`TryReadTile`, and `TryReadImage`, the whole-file read the reload goes
+through) and one line in `TryOpen`. `FitsReadoutTiles` is the plain-FITS source, its reload reading through `TryReadFitsFile`.
+The `.fz` and TIFF sources are the remainders of this issue and TIA1853.
 
 **Who awaits it** (every reader of `UnstretchedImage` pixels in `UI.Abstractions`, grepped): Calibrate
 (`ComputeColorCalibrationAsync`), SPCC (`ComputeSpccColorCalibrationAsync`), Enhance (`EnhanceActions.EnhanceAsync`), export
