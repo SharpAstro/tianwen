@@ -1170,6 +1170,11 @@ public sealed class AstroImageDocument : IPreviewSource
                 }
             }
         }
+
+        // The passes above read the float planes, and a read restores them (Image.Planes publishes what it
+        // rebuilds), so an 8-bit document left here would hold 12 B/px for the rest of its life instead of
+        // the 6 B/px D1' evicted it to. Whatever reads next restores them again, for as long as it needs them.
+        UnstretchedImage.TryEvictFloatPlanes();
     }
 
     /// <summary>
