@@ -130,7 +130,9 @@ internal class QHYDeviceSource(ISerialProbeService probeService) : IDeviceSource
             {
                 try
                 {
-                    if (deviceInfo.IsCfwPlugged && deviceInfo.CfwSlotCount > 0)
+                    // The SDK answers whether a wheel is plugged only on an initialised handle (IsCfwPlugged is false on an open one),
+                    // so the wheel's own connect is what discovery must do too, or no camera-cable wheel is ever found.
+                    if (deviceInfo.Init() && deviceInfo.IsCfwPlugged && deviceInfo.CfwSlotCount > 0)
                     {
                         var deviceId = deviceInfo.SerialNumber is { Length: > 0 } sn ? sn
                             : deviceInfo.IsUSB3Device && deviceInfo.CustomId is { Length: > 0 } cid ? cid
