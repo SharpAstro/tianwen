@@ -4004,7 +4004,7 @@ Every flight is filed as an issue in the `star-remover-training` milestone and l
 | F5 the noise | #1781, #1786 folded in | S4b's shared component with real's cross-structure at lags 0 to 2, and the QHY294PROC's noise anchor recalibrated | noise-crop AUC below synth4's 0.70 and Lobster's sigma ratio within 1.05 (**not met**, 2026-10-26: Lobster 1.16, and the AUC's fall is one rig's; "S4b: the read") | none |
 | F6 the clusters' stretch | #1823 | the synthetic cluster tiles stretched with the master's parameters, as synth11's are (they took the plate's, 1.32 to 1.53 times gentler at the sky), and re-exported | the 90 skies re-exported and packed into a cache beside synth11's | none |
 | R3a | #1828 | R2t's recipe on a master-stretched export, no teacher, seeds 0 and 1, both on the 1070 | both rows on whole masters, real tiles and F2's sets. **Read 2026-10-27: killed as R3b's base** (A's draws clean 51.4 / 56.1 against R2t's 59.2, the nucleus guard failed by both seeds, the seeds 4.7 apart); see "R3a's read" | F2, F6 |
-| R3b | to open | R3a plus the dig penalty on the synthetic tiles | its read | R3a, F3 |
+| R3b | #1829 | R2w's recipe on the master's stretch plus the dig penalty on the synthetic tiles (R3a is not its base, "R3a's read"), `-SpeckleWeight 10000`, seed 0 first; **pre-registered 2026-10-27**, "R3b's pre-registration" | its read: A's draws dug at 100-1000 sigma at most 29.2, R2w's whole-master rows kept | R3a, F3 |
 | R3b2 | filed after R3b's read | the dig penalty on real master tiles too, beside the synthetic loss, which must stay or the net learns to remove nothing | its read, timidity checked: real stars within a sigma at 100 to 1000 sigma no worse than R3b's | R3b |
 | R3c | filed after R3b's read | the winner plus a teacher rebuilt from R3a's two seeds (E7, 8 views) | its read | R3b |
 | R3d | filed after F4 and F5's gates | the winner on the export with whatever F4 and F5 adopted | its read | R3c |
@@ -4389,6 +4389,100 @@ end of a cosine schedule that records no best step.
 5. **Read the nucleus guard with `--protect-cores` as shipped.** The guard is read without it, a remover's own behaviour;
    R2t itself sits over 5 % in green on it. The owner decides whether the guard's line is 5 % or the shipped path's, which
    changes whether R3a seed 1 fails anything.
+
+##### R3b's pre-registration (2026-10-27)
+
+R3b (#1829) is R2w's recipe on the master's stretch plus the dig penalty (#1362, "The speckle teacher"), on the draws only.
+R3a is not its base ("R3a's read", candidate 2): R2w is the arm with the best dig and the nucleus inside its guard, and R3a
+showed R2t's four levels do not carry over to this stretch without an arm of their own.
+
+**When this was written.** Before any R3b training step: nothing has trained on the 1070, and the numbers for W below were
+read on the CPU from existing weights and held-out cells.
+
+**Inputs, as checked (read-only, 2026-10-27, after rebasing the flight on main).**
+
+| input | found |
+|---|---|
+| synth11's export | `C:/temp/tianwen-scratch/r2-train-synth11/export.done` exists (exported 2026-10-23), the one R2w trained on |
+| synth11's cache | `C:/temp/tianwen-scratch/r2-synth11`: `meta.json` and `prepare.done` (4,520 train and 320 held-out cells, 3 channels, 4 injected draws, 11 slots, `sigma.f16` the per-pixel noise planes the penalty reads); R2w's log head says "cells: 4520 train / 320 val", 3-channel tiles only, the same 113 train / 8 val sessions |
+| R2w's recipe | `C:/temp/e2/r2w-driver.ps1` and the head of `r2w.log`: `run-r2.ps1 -Tag r2w -Arms synth11 -SeedCount 1 -FirstSeed 0 -Patience 24 -Steps 480000 -CheckpointEvery 2000`, levels 2, no teacher, no extra cache, plateau schedule on the held-out objective over 240 cells, stopped at step 154,500 (best 6.11e-06 at 130,500) |
+| the dig penalty | `--speckle-weight` / `--speckle-sigma` in `n2n_smoke.py` and `-SpeckleWeight` / `-SpeckleSigma` in `run-r2.ps1`, present after the rebase; the 21 speckle unit tests pass on CPU |
+| the trainer | `C:/temp/e2/r3b-run/FROZEN-AT.txt` names the commit "fix(viewer): a right press on Enhance does nothing and E runs no deep-sky program on a planet's way (#1345)" |
+| R2w's weights | `C:/temp/tianwen-scratch/r2-synth4/r2w_synth11_s0.pt` |
+
+**The arm.** The line, run as the train step of `arm-step.ps1` (the flight's leg 2), `-Name r3b_synth11_s<seed>`:
+
+`run-r2.ps1 -Tag r3b -Arms synth11 -Export C:/temp/tianwen-scratch/r2-train-synth11 -ExportLog C:/temp/tianwen-scratch/r2-train-synth11/export.log -LastChunk 130 -Scratch C:/temp/tianwen-scratch -SeedCount 1 -FirstSeed 0 -Patience 24 -Steps 480000 -CheckpointEvery 2000 -SpeckleWeight 10000`
+
+R2w's recipe exactly: base 32, two levels, `--cond-map`, `--band-loss 3`, the plateau schedule, no teacher, no extra cache, no
+clipping, `--speckle-sigma` at its default 100. The only difference from R2w is `--speckle-weight`. `-CheckpointEvery 2000` is R2w's
+(its driver passed it, so a resumed run is possible), not a recipe change. Seed 0 first; seed 1 (`-FirstSeed 1`) runs only if seed 0
+clears the gate, to read the spread of this recipe.
+
+**W = 10,000, and why.** The term is `site_penalty`'s: the summed squared shortfall of the output's luminance cores below
+sky less 4 sigma at the removed stars' sites, divided by the pixels the pixel term averages. Its docstring says a weight of 1
+is "the same order as the plain objective". **Measured, it is not.** On 64 evenly spread held-out cells of r2-synth11 (two fixed
+draws each, CPU, the trainer's own objective: pixel MSE plus 3 times the band terms, rim masked; `w_read.py`, `w_grad.py` in
+`C:/temp/e2/r3b-measure`):
+
+| weights | plain objective | speckle term, weight 1 | ratio |
+|---|---|---|---|
+| R2w | 8.55e-06 | 3.3e-12 | 3.9e-07 |
+| R3a seed 0 | 8.43e-06 | 2.8e-11 | 3.4e-06 |
+
+The penalty is sparse (793 sites of at least 100 sigma read in 64 cells; 7 of them, 0.9 %, speckled under R2w) and its sum is
+spread over every pixel of the tile, so at weight 1 it is six orders under the objective and training would never feel it.
+Matching the VALUES would take W of about 2.6 million, but the values are the wrong thing to match, since the term is zero on
+most batches and a squared shortfall's gradient is not the loss's. The GRADIENT is what the optimiser sees: over 8 batches of 8
+tiles on R2w's weights, the global gradient norm of the plain objective is 6.8e-04 on average, and of the penalty at weight 1
+1.1e-08 on average (zero on 6 of 8 batches); on the two batches where it is active the ratio is 3e4 and 2.8e3. **W = 10,000 is
+the round number inside that range**: where the penalty is active its gradient is 0.3 to 3.5 times the plain objective's, and
+averaged over batches (the 6 with none) 0.17 times it, so it is felt where a core is dug and costs nothing where none is.
+Matching the values (W of about 2.6e6) would put the gradient 90 to 900 times the plain objective's where active, with no clip in
+R2w's recipe, and is not tried. (The docstring of `site_penalty` in `n2n_speckle.py` carries the "same order" claim and is wrong
+by those six orders; it is left for the code flight, since this leg is docs only.) W is the one knob this arm turns; if it fails, the next arm is W at 1e5, not a second change.
+The measurement is of R2w's weights, which are not the weights training starts from, so it says where W should sit once the
+pixel term has done its work, which is the weights R2w ended on.
+
+**Predictions, against R2w's rows on F2's sets** ("F2's read", `f2-sets.json`, 7 sessions), at 100-1000 sigma unless stated. R2w
+is one seed, so the bars are R2i's two-seed bars (2.6 clean and 3.2 dug on A's draws, 3.1 and 3.9 on the lobed twin; M42 6.4).
+
+1. **A's draws, dug:** R3b at most 29.2 (R2w's 32.4 less 3.2), the hope 27 or less. The term acts on exactly this: a core left
+   more than 4 sigma under the sky.
+2. **A's draws, clean:** no lower than 50.8 (R2w's 53.4 less 2.6). A one-sided penalty on cores below sky does not ask for
+   more removal, so clean should not move; a loss here would be the penalty trading cores for something else.
+3. **Lobed twin:** dug at most 29.3 (33.2 less 3.9), clean at least 49.1 (52.2 less 3.1).
+4. **Dug saturated on A's draws** (R2w 17.5, the lowest of any arm): not above 20.7.
+5. **Whole masters, kept, not won** (R2w's rows, plus the same bars): Andromeda's bright dark-sky stars dug at most 32.0 and flat
+   at least 45.1 (R2w 28.8 / 48.7, less the R3a spread of 3.6 for flat); the Tarantula's left at most 34.7 and flat at least
+   49.0 (31.5 / 56.5, the R3a spread 7.5 for flat); the held-out crowded Tarantula at least 74.4 and Sagittarius at least 93.5
+   (77.8 and 94.2 less R3a's spreads); the Tarantula's core within 0.5 sigma of R2w's (-0.11 / -0.17 / +0.42, R / G / B) in
+   each channel. The digs on whole masters are where the penalty should show most, Andromeda's dug count being 28.8 % for
+   R2w, so an improvement there is welcome but is not asked for.
+6. **Real tiles:** all 4,215 stars flat at least 94.6 (R2w 95.6 less R2i's 1.0), dug no more than 3.1 (R2w 1.8 plus 1.3). **M42's
+   real stars flat at least 65.0** (R2w 71.4 less 6.4); the SMC (97 stars, no bar) reported. The penalty needs no truth, so the
+   real stars are where it could do harm that no synthetic read shows: it leaves a core at the sky's level and nothing more, but
+   a 100-sigma real star left as light is the failure to watch, and M42 over nebula is where R2w already fell.
+7. **Training:** the logged penalty term falls through the run and the plateau still ends it (R2w's ended at step 154,500); the
+   share of held-out sites read as speckled, 0.9 % under R2w, is at most 0.45 %. That count is 7 events over 793 sites, so it is
+   logged and not gated.
+
+**The gate (from #1829).** A's draws dug at 100-1000 sigma under R2w's 32.4 by more than 3.2 (so at most 29.2), **and** R2w's
+whole-master rows kept as in prediction 5. Both, since the dig on the draws is what the term is for and the whole masters are
+what R2w is for.
+
+**Guards, a fail on any is a fail of the arm.** Purity (light taken where no star is) at most 1.0 %. M31's nucleus read without
+`--protect-cores` at most 5 % in every channel (R2w's 0.5 to 4.4 %). M42 read per session, no session more than 6.4 points under
+R2w's (M42 71.4, Lobster 98.0 / 99.4 / 99.7, HIP 80609 94.5 / 96.1 / 96.2, the SMC reported, "R3a's read" for the table).
+
+**Kill rule.** The run is stopped at once if its loss goes non-finite, or if the logged penalty term is above the plain objective
+at step 20,000 (W too heavy, the weights then fitting the penalty and not the pairs). The arm is killed as a base for R3b2 if a
+guard fails, or if A's draws clean at 100-1000 sigma is under 50.8 AND the lobed twin agrees (under 49.1). A miss on the gate alone
+(dug not under 29.2, whole masters kept) is reported and the arm kept as the W data point: the penalty at 10,000 then does not
+move the dig, and the next arm is W at 1e5, one change. A pass on A's draws with a whole-master loss past prediction 5 reads as
+the penalty trading the master's cores for the draws', and R3b2's real-tile term is then not filed until that is understood.
+One seed is a single draw of a recipe whose spread is not known on this net (R2i's two seeds stood 2.6 and 3.2 apart, R3a's
+4.7 and 6.8): a win under 6.8 on the dug count is read as a candidate until seed 1 says otherwise.
 
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
