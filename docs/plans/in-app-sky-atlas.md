@@ -584,9 +584,17 @@ locking the release scope was *"as long as we track everything we skipped in a p
     (`OverlayEngine.ViewFieldArcmin`); the hover wash and the right-click menu share the resolver, so
     they take it too. Pinned by `ViewerObjectSelectionTests.ATapNeverNamesAnObjectFainterThanTheFieldsCutoff`.
     Clicking a STAR is a different resolver (below), which takes no cutoff.
-- **Clicking a STAR is a different resolver.** The frame's stars (`IPreviewSource.Findings.Stars`) are DETECTED CENTROIDS, not
-  catalogue entries, so it is a nearest-centroid search over the star list, not `FindObjectAt`. Worth
-  saying because "click an object or a star" reads like one feature and is two.
+- ~~**Clicking a STAR is a different resolver.**~~ **DONE 2026-10-27 (#708).** The frame's stars
+  (`IPreviewSource.Findings.Stars`) are DETECTED CENTROIDS, not catalogue entries, so it is a
+  nearest-centroid search over the star list, not `FindObjectAt`: `StarList.NearestAt`, measured in IMAGE
+  pixels off the star's own HFD (radius HFD/2, floored at `StarList.MinHitRadiusPx`), so the answer
+  is the same at every zoom and takes no magnitude cutoff (#709). The result is `ViewerState.SelectedStar`
+  (exclusive with `SelectedObject`, ringed at its centroid, cleared by Escape, an empty-sky tap or Close),
+  and it shows a floating panel (`StarInfoPanel`, painted by `RenderStarPanel` where the object panel
+  paints, in its palette and with its Close) of HFD, FWHM, SNR, ellipticity, flux, local background,
+  centroid and, only with a WCS, RA/Dec. Pinned by `ViewerStarSelectionTests`,
+  `ViewerStarSelectionPanelTests` (the rows) and `ViewerE2ETests.ATapOnADetectedStarShowsItsPanelAndClosePutsItAway`
+  (DPI 1 and 1.5).
 - ~~**No info panel for a viewer selection.**~~ **DONE 2026-09-11**, in two steps raised by the user in
   one sitting: *"the GUI sky atlas has clicking on extended objects + labels etc + a dedicated info
   panel, why don't we have that here?"*, then, once the shape of the answer was in view: *"see if we

@@ -1215,6 +1215,7 @@ namespace TianWen.UI.Abstractions
             // sky's controls (a click resolves at every rung of the ladder, sky backdrop included) and
             // below only the dropdowns and the tooltip.
             RenderSelectionPanel(state);
+            RenderStarPanel(state);
 
             if (!state.HideChrome)
             {
