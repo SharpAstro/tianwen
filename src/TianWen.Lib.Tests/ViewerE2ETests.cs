@@ -212,7 +212,12 @@ public class ViewerE2ETests
         e2e.Click(x, y);
         e2e.State.SelectedStar.ShouldBe(star, $"a tap on the star selects it at dpi {dpiScale}");
         var panelClose = e2e.Region(hit => hit is HitResult.ButtonHit { Action: "ObjectInfoClose" }, "the star panel's Close");
-        panelClose.Width.ShouldBeGreaterThan(0f);
+        // Painted at the window's scale, once: applying the DPI twice would make it 1.5 times too big at 1.5x.
+        panelClose.Width.ShouldBe(ObjectInfoPanel.DesignCloseSize * dpiScale, 1f, $"Close is painted at the scale at dpi {dpiScale}");
+        var area = e2e.Viewer.ImageArea;
+        (panelClose.X >= area.X && panelClose.X + panelClose.Width <= area.X + area.Width
+            && panelClose.Y >= area.Y && panelClose.Y + panelClose.Height <= area.Y + area.Height)
+            .ShouldBeTrue($"the star panel lies inside the image area at dpi {dpiScale}");
 
         e2e.Click(panelClose);
         e2e.State.SelectedStar.ShouldBeNull($"Close clears the star at dpi {dpiScale}");
