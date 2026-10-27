@@ -55,4 +55,26 @@ public static class EnhanceRevertPolicy
         // worse than the memory, and it is the one case where the budget must yield.
         return canReload ? EnhanceRevert.Reload : EnhanceRevert.Retained;
     }
+
+    /// <summary>
+    /// Whether a LIVE document's float planes are worth keeping resident once its load-time readers are done,
+    /// or are dropped and read back from the file by whatever needs pixels next (<see cref="PlaneResidency.Release"/>).
+    /// </summary>
+    /// <remarks>
+    /// The same budget as <see cref="Decide"/>, never a second constant: an image too big to hold a pre-enhance
+    /// REFERENCE to is too big to hold twice over in a viewer that only displays it. Where the file cannot give
+    /// the planes back, the budget yields and they stay.
+    /// </remarks>
+    public static PlaneResidency DecidePlanes(Image image, bool canReload, long budgetBytes = RetainBudgetBytes)
+        => canReload && FootprintBytes(image) > budgetBytes ? PlaneResidency.Release : PlaneResidency.Keep;
+}
+
+/// <summary>What happens to a live document's float planes after its load-time readers.</summary>
+public enum PlaneResidency
+{
+    /// <summary>They stay resident.</summary>
+    Keep,
+
+    /// <summary>They are dropped and restored from the file on demand (<c>AstroImageDocument.EnsurePlanesAsync</c>).</summary>
+    Release,
 }

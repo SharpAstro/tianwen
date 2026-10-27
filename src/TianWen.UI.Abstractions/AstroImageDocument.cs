@@ -126,6 +126,98 @@ public sealed class AstroImageDocument : IPreviewSource
     internal FitsReadoutTiles? ReadoutTiles { get; private set; }
 
     /// <summary>
+    /// The file's length and write time when it was opened, set only where this document may release its float planes
+    /// and read them back from that file (<see cref="ReleasePlanesAfterLoad"/>): a plain FITS the readout tiles serve,
+    /// so the readout needs no plane either.
+    /// </summary>
+    private (long Length, DateTime LastWriteUtc)? _reloadStamp;
+
+    private readonly SemaphoreSlim _reloadGate = new(1, 1);
+
+    /// <summary>How many times the planes were read back from the file, for the tests that pin when that happens.</summary>
+    internal int PlaneReloads => Volatile.Read(ref _planeReloads);
+
+    private int _planeReloads;
+
+    /// <summary>
+    /// Makes the float planes resident, reading them back from the file when they were released
+    /// (<see cref="ReleasePlanesAfterLoad"/>); a no-op otherwise, and for a raster-backed document, whose planes rebuild in memory.
+    /// </summary>
+    /// <remarks>
+    /// <para>EVERY on-demand consumer of pixels awaits this first, off the render thread: Calibrate, SPCC, Enhance, a channel
+    /// toggle or any other texture upload, an export, an auto-crop. A read of a released image throws
+    /// (<see cref="Image.PlanesNeedReload"/>), so one that forgot is a loud failure rather than a disk read hidden
+    /// in a getter or a plausible black picture.</para>
+    /// <para>One reload serves every caller waiting (a gate, then a second look), and the file is checked against the length
+    /// and write time it was opened with: a master a live stack replaced since is another image, and quoting its pixels
+    /// under this document's statistics would be a silent wrong answer, so that throws too.</para>
+    /// </remarks>
+    public async ValueTask EnsurePlanesAsync(CancellationToken cancellationToken = default)
+    {
+        var image = UnstretchedImage;
+        if (!image.PlanesNeedReload)
+        {
+            return;
+        }
+
+        await _reloadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!image.PlanesNeedReload)
+            {
+                return;
+            }
+
+            var path = _filePath;
+            var stamp = _reloadStamp ?? throw new InvalidOperationException("Planes were released from a document with no file to read them back from.");
+            await Task.Run(() =>
+            {
+                var info = new FileInfo(path);
+                if (!info.Exists || info.Length != stamp.Length || info.LastWriteTimeUtc != stamp.LastWriteUtc)
+                {
+                    throw new IOException($"{Path.GetFileName(path)} changed on disk since it was opened; open it again to see its pixels.");
+                }
+
+                if (!image.TryReloadPlanesFromFitsFile(path))
+                {
+                    throw new IOException($"{Path.GetFileName(path)} could not be read back.");
+                }
+            }, cancellationToken).ConfigureAwait(false);
+            Interlocked.Increment(ref _planeReloads);
+        }
+        finally
+        {
+            _reloadGate.Release();
+        }
+    }
+
+    /// <summary>A test seam: the budget <see cref="ReleasePlanesAfterLoad"/> measures against, the policy's own by default.</summary>
+    internal long PlaneBudgetBytes { get; set; } = EnhanceRevertPolicy.RetainBudgetBytes;
+
+    /// <summary>
+    /// Drops the float planes once the load-time readers are done, where the size policy says so
+    /// (<see cref="EnhanceRevertPolicy.DecidePlanes"/>) and the file can give them back: false for everything else, which
+    /// keeps its planes. A raster-backed document is evicted the cheaper way and never reaches here.
+    /// </summary>
+    internal bool ReleasePlanesAfterLoad()
+    {
+        var image = UnstretchedImage;
+        if (_reloadStamp is null || image.PlanesNeedReload)
+        {
+            return image.PlanesNeedReload;
+        }
+
+        if (EnhanceRevertPolicy.DecidePlanes(image, canReload: ReadoutTiles is { IsStale: false }, PlaneBudgetBytes) is not PlaneResidency.Release)
+        {
+            return false;
+        }
+
+        // The one lazy reader of pixels the render thread could reach: taken now, while they are here.
+        _ = _planetaryStretch.Value;
+        return image.TryEvictForReload();
+    }
+
+    /// <summary>
     /// A test seam: answer the readout from <see cref="ReadoutTiles"/> even while the planes are resident, which is
     /// the only way to exercise it before a float master's planes can be released.
     /// </summary>
@@ -521,6 +613,13 @@ public sealed class AstroImageDocument : IPreviewSource
             return fromFile;
         }
 
+        // Released for a reload and the file would not answer (a file replaced since): an unknown, never the
+        // restoring read the planes would throw on, which on the per-move path would take the render thread down.
+        if (UnstretchedImage.PlanesNeedReload)
+        {
+            return float.NaN;
+        }
+
         return SampleAt(UnstretchedImage, channel, x, y);
     }
     int IPreviewSource.FrameCount => 1;
@@ -795,6 +894,9 @@ public sealed class AstroImageDocument : IPreviewSource
             && tiles.Width == document.UnstretchedImage.Width && tiles.Height == document.UnstretchedImage.Height)
         {
             document.ReadoutTiles = tiles;
+            // The tiles only open a plain, unscaled-by-a-fill FITS, which is exactly what a reload reads back the same.
+            var info = new FileInfo(filePath);
+            document._reloadStamp = (info.Length, info.LastWriteTimeUtc);
         }
 
         return document;
@@ -1157,8 +1259,12 @@ public sealed class AstroImageDocument : IPreviewSource
     /// <summary>
     /// Detects stars in the image. Should be called as a background task after loading.
     /// </summary>
-    public async Task DetectStarsAsync(CancellationToken cancellationToken = default)
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="whileResident">Runs over the image and the stars once they are found and BEFORE the planes are released
+    /// (<see cref="ReleasePlanesAfterLoad"/>), for a reader that needs both and is synchronous, such as <see cref="LightGrading"/>.</param>
+    public async Task DetectStarsAsync(CancellationToken cancellationToken = default, Action<Image, StarList>? whileResident = null)
     {
+        await EnsurePlanesAsync(cancellationToken).ConfigureAwait(false);
         var sw = Stopwatch.StartNew();
         var stars = await UnstretchedImage.FindStarsAsync(
             channel: UnstretchedImage.ReferenceStarChannel, snrMin: 10f, maxStars: 2000, cancellationToken: cancellationToken);
@@ -1216,7 +1322,16 @@ public sealed class AstroImageDocument : IPreviewSource
         // The passes above read the float planes, and a read restores them (Image.Planes publishes what it
         // rebuilds), so an 8-bit document left here would hold 12 B/px for the rest of its life instead of
         // the 6 B/px D1' evicted it to. Whatever reads next restores them again, for as long as it needs them.
-        UnstretchedImage.TryEvictFloatPlanes();
+        if (whileResident is not null && Findings.Stars is { } found)
+        {
+            whileResident(UnstretchedImage, found);
+        }
+
+        if (!UnstretchedImage.TryEvictFloatPlanes())
+        {
+            // No raster to rebuild them from: a float master over the budget goes back to its file instead.
+            ReleasePlanesAfterLoad();
+        }
     }
 
     /// <summary>
@@ -1248,6 +1363,7 @@ public sealed class AstroImageDocument : IPreviewSource
         if (Findings.Stars is not { Count: >= 5 } starList) return (0, "Need ≥5 stars");
         if (starList.StarMask is not { } mask) return (0, "No star mask");
 
+        await EnsurePlanesAsync(cancellationToken).ConfigureAwait(false);
         var calibrateImage = UnstretchedImage;
         if (calibrateImage.ChannelCount < 3 && calibrateImage.ImageMeta.SensorType is SensorType.RGGB)
             calibrateImage = await calibrateImage.DebayerAsync(DebayerAlgorithm, cancellationToken: cancellationToken);
@@ -1356,6 +1472,7 @@ public sealed class AstroImageDocument : IPreviewSource
         // successful calibration -- so the failure was invisible from the UI and from the log.
         await FilterCurveDatabase.LoadAsync(cancellationToken);
 
+        await EnsurePlanesAsync(cancellationToken).ConfigureAwait(false);
         var calibrateImage = UnstretchedImage;
         if (calibrateImage.ChannelCount < 3 && calibrateImage.ImageMeta.SensorType is SensorType.RGGB)
             calibrateImage = await calibrateImage.DebayerAsync(DebayerAlgorithm, cancellationToken: cancellationToken);

@@ -245,7 +245,7 @@ namespace TianWen.UI.Abstractions
                 state.NeedsRedraw = true;
             },
             "Object catalog load",
-            onError: ex => state.StatusMessage = $"Catalog unavailable: {StatusText.FromException(ex)}");
+            onError: ex => state.StatusMessage = $"Catalog unavailable: {TianWen.Lib.StatusText.FromException(ex)}");
         }
 
         /// <summary>
@@ -738,6 +738,15 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public void UploadDocumentTextures(IPreviewSource source, ViewerState state)
         {
+            // A document whose float planes went back to its file has nothing to upload from yet, and a read would
+            // throw: ask for them, off this thread, and keep the request until they are here. Never a disk read in
+            // this call, which is the render thread's.
+            if (source is AstroImageDocument { UnstretchedImage.PlanesNeedReload: true } released)
+            {
+                RequestPlaneReload(released, state);
+                return;
+            }
+
             state.NeedsTextureUpdate = false;
 
             // A texture wider or taller than the device allows is INVALID USAGE, which Vulkan need not
@@ -762,6 +771,34 @@ namespace TianWen.UI.Abstractions
                 state.NeedsTextureUpdate = true;
                 throw;
             }
+        }
+
+        private Task? _planeReload;
+
+        private void RequestPlaneReload(AstroImageDocument document, ViewerState state)
+        {
+            state.NeedsTextureUpdate = true;
+            if (_planeReload is { IsCompleted: false })
+            {
+                return;
+            }
+
+            state.StatusMessage = "Reading pixels...";
+            _planeReload = Task.Run(async () =>
+            {
+                try
+                {
+                    await document.EnsurePlanesAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    // Not re-armed: a read that fails every time would ask again every frame.
+                    state.NeedsTextureUpdate = false;
+                    state.StatusMessage = $"Could not read the pixels: {TianWen.Lib.StatusText.FromException(ex)}";
+                }
+
+                state.NeedsRedraw = true;
+            });
         }
 
         /// <summary>The largest texture edge the display device takes. Unlimited unless a GPU host says.</summary>

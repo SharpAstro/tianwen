@@ -126,6 +126,24 @@ namespace TianWen.UI.Abstractions
         /// panel and the pipeline cannot disagree about composition order.
         /// </para>
         /// </summary>
+        private async System.Threading.Tasks.Task AutoWhiteBalanceAfterReloadAsync(AstroImageDocument released, ViewerState state)
+        {
+            try
+            {
+                await released.EnsurePlanesAsync().ConfigureAwait(false);
+                if (AutoWhiteBalance.GrayWorld(released) is { } grayWorld && ReferenceEquals(_source, released))
+                {
+                    SetEffectiveWhiteBalance(state, grayWorld);
+                }
+            }
+            catch (Exception ex)
+            {
+                state.StatusMessage = $"Auto white balance failed: {TianWen.Lib.StatusText.FromException(ex)}";
+            }
+
+            state.NeedsRedraw = true;
+        }
+
         private void SetEffectiveWhiteBalance(ViewerState state, (float R, float G, float B) target)
             => state.ManualWhiteBalance =
                 StretchSolver.DecomposeWhiteBalance(ActiveAutoWhiteBalance(state), target);
@@ -269,7 +287,18 @@ namespace TianWen.UI.Abstractions
             // which then act as the fine-tune.
             var auto = PanelButton("Auto", "AutoWhiteBalance", enabled: true, () =>
             {
-                if (_source is { } src && AutoWhiteBalance.GrayWorld(src) is { } grayWorld)
+                if (_source is not { } src)
+                {
+                    return;
+                }
+
+                // A document whose planes went back to its file reads them first, off this thread; every other source
+                // answers at once, as it always did.
+                if (src is AstroImageDocument { UnstretchedImage.PlanesNeedReload: true } released)
+                {
+                    _ = AutoWhiteBalanceAfterReloadAsync(released, state);
+                }
+                else if (AutoWhiteBalance.GrayWorld(src) is { } grayWorld)
                 {
                     // Gray-world returns an ABSOLUTE answer, so it belongs on the effective
                     // value. Writing the manual slot directly would compose it on top of an

@@ -449,6 +449,7 @@ public sealed class ViewerController(
                 {
                     try
                     {
+                        await newDoc.EnsurePlanesAsync(loadToken);
                         masterLayer = new LiveStackPreviewSource(new FixedMaster(newDoc.UnstretchedImage.Clone()), requestedPath, timeProvider, logger);
                     }
                     catch (Exception ex)
@@ -757,9 +758,10 @@ public sealed class ViewerController(
     /// annotated save compose it. The plain save used to stretch the recombined frame with neither, so on an enhanced frame
     /// its file showed the stars through the picture's curve and none of the finish.
     /// </summary>
-    public static Task WriteDisplayedRasterAsync(
+    public static async Task WriteDisplayedRasterAsync(
         AstroImageDocument saveDoc, ViewerState state, string target, DisplayRasterFormat format, CancellationToken cancellationToken)
     {
+        await saveDoc.EnsurePlanesAsync(cancellationToken).ConfigureAwait(false);
         var image = saveDoc.UnstretchedImage;
         var rendition = DisplayedRendition(saveDoc, state);
 
@@ -771,7 +773,7 @@ public sealed class ViewerController(
         var displayedChannel = state.ChannelView.DisplayedSourceChannel(image.ChannelCount);
         var split = ShownStarSplit(saveDoc, state);
 
-        return DisplayRasterExport.WriteAsync(
+        await DisplayRasterExport.WriteAsync(
             split?.Starless ?? image, target,
             format,
             rendition.Stretch,
@@ -1025,7 +1027,11 @@ public sealed class ViewerController(
                     state.StatusMessage = "Finding the covered area...";
                     var image = cropDoc.UnstretchedImage;
                     var path = cropDoc.FilePath;
-                    _cropTask = Task.Run(() => ViewerActions.ScanForCrop(image, path, logger), appToken);
+                    _cropTask = Task.Run(async () =>
+                    {
+                        await cropDoc.EnsurePlanesAsync(appToken).ConfigureAwait(false);
+                        return ViewerActions.ScanForCrop(image, path, logger);
+                    }, appToken);
                     _ = _cropTask.ContinueWith(_ => state.NeedsRedraw = true, TaskScheduler.Default);
                 }
                 break;
@@ -1229,12 +1235,16 @@ public sealed class ViewerController(
         {
             try
             {
-                await document.DetectStarsAsync(sdCts.Token);
-                var found = document.Findings;
-                if (grade && document.FilePath.Length > 0 && found.Stars is { } stars && LightGrading.Grade(document.UnstretchedImage, stars) is { } frameGrade)
+                // The grade reads the planes, so it runs inside the detection, before the planes are released
+                // (LightGrading.Grade is synchronous and a released image refuses a read).
+                await document.DetectStarsAsync(sdCts.Token, whileResident: (image, stars) =>
                 {
-                    state.RecordFrameGrade(document.FilePath, frameGrade);
-                }
+                    if (grade && document.FilePath.Length > 0 && LightGrading.Grade(image, stars) is { } frameGrade)
+                    {
+                        state.RecordFrameGrade(document.FilePath, frameGrade);
+                    }
+                });
+                var found = document.Findings;
                 logger.LogInformation("Detected {StarCount} stars in {Duration:F1}s (HFD={HFD:F2}, FWHM={FWHM:F2})",
                     found.Stars?.Count ?? 0, document.StarDetectionDuration.TotalSeconds, found.MedianHfd, found.MedianFwhm);
                 state.NeedsRedraw = true;
@@ -1458,6 +1468,7 @@ public sealed class ViewerController(
         state.PlanetaryLookNote = null;
         _lookTask = Task.Run(async () =>
         {
+            await master.EnsurePlanesAsync(token).ConfigureAwait(false);
             // A master left in the camera's colours is balanced through its camera's own matrix, as the stack balances one (#1279).
             var camera = await PlanetaryColourBalance.CameraColourAsync(image.ImageMeta.Instrument, token).ConfigureAwait(false);
             var (looked, refusal) = PlanetaryColourLook.OnMaster(image, planet, instant, look, camera);

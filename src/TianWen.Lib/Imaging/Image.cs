@@ -308,8 +308,125 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
 
     private static readonly float[,] EmptyPlane = new float[0, 0];
 
+    /// <summary>
+    /// The stub of a plane evicted for a RELOAD. A distinct reference from <see cref="EmptyPlane"/>, so the
+    /// two evicted states stay one array and the kind is read off it, never kept as a flag beside it.
+    /// </summary>
+    private static readonly float[,] ReloadEmptyPlane = new float[0, 0];
+
+    /// <summary>
+    /// True when the float planes were dropped to be read back from the FILE: unlike a raster-backed
+    /// eviction, nothing here rebuilds them, and a read throws until <see cref="TryReloadPlanesFromFitsFile"/> ran.
+    /// </summary>
+    public bool PlanesNeedReload => IsEvicted(_planes) && ReferenceEquals(_planes[0].Data, ReloadEmptyPlane);
+
+    /// <summary>
+    /// Drops the float planes of an image whose file can give them back, keeping geometry, metadata and
+    /// extrema. False when a plane is a recycled camera buffer, or the image is empty.
+    /// </summary>
+    /// <remarks>
+    /// <para>The reload-backed half of D1' (<c>docs/plans/viewer-memory-footprint.md</c>, "The reload-backed
+    /// release"). It is a SEPARATE state from <see cref="TryEvictFloatPlanes"/>, because the two have opposite
+    /// contracts: a raster-backed image rebuilds itself in memory on the next read, whereas this one has
+    /// nothing to rebuild from. A read of it THROWS rather than reading the disk inside a property getter
+    /// (tens of milliseconds to seconds hidden behind <see cref="GetChannelSpan"/>, on whichever thread
+    /// asked, the render thread included); the caller restores explicitly and off that thread.</para>
+    /// <para>An image already evicted raster-backed is left as it is: that is the cheaper route.</para>
+    /// </remarks>
+    public bool TryEvictForReload()
+    {
+        if (Width * Height == 0)
+        {
+            return false;
+        }
+
+        while (true)
+        {
+            var snapshot = _planes;
+            if (IsEvicted(snapshot))
+            {
+                return ReferenceEquals(snapshot[0].Data, ReloadEmptyPlane);
+            }
+
+            for (var c = 0; c < snapshot.Length; c++)
+            {
+                if (snapshot[c].Buffer is not null)
+                {
+                    return false;
+                }
+            }
+
+            var evicted = ImmutableArray.CreateBuilder<Channel>(snapshot.Length);
+            for (var c = 0; c < snapshot.Length; c++)
+            {
+                evicted.Add(snapshot[c] with { Data = ReloadEmptyPlane });
+            }
+
+            if (ImmutableInterlocked.InterlockedCompareExchange(ref _planes, evicted.MoveToImmutable(), snapshot) == snapshot)
+            {
+                return true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reads <paramref name="path"/> again, through the same reader and the same scaling to [0, 1] the
+    /// document's own open used, and publishes its planes into this image, which must be evicted for reload.
+    /// </summary>
+    /// <remarks>
+    /// Synchronous and slow by design (the read of the whole file): the caller runs it off the render thread
+    /// (<c>AstroImageDocument.EnsurePlanesAsync</c>). Bit-identical to the planes that were dropped because it
+    /// is the same code over the same file, which the caller guarantees is unchanged. A file of another shape,
+    /// or one that will not read, returns false and leaves the image evicted. Where another thread restored
+    /// first, the published planes win and this returns true.
+    /// </remarks>
+    public bool TryReloadPlanesFromFitsFile(string path)
+    {
+        if (!PlanesNeedReload)
+        {
+            return true;
+        }
+
+        if (!TryReadFitsFile(path, out var read, out _) || read is null
+            || read.Width != Width || read.Height != Height || read.ChannelCount != ChannelCount)
+        {
+            return false;
+        }
+
+        var scaled = read.HasUnitScalePeak ? read : read.ScaleFloatValuesToUnitInPlace();
+        var fresh = scaled.ResidentPlanes();
+
+        var snapshot = _planes;
+        if (!IsEvicted(snapshot))
+        {
+            return true;
+        }
+
+        var restored = ImmutableArray.CreateBuilder<Channel>(snapshot.Length);
+        for (var c = 0; c < snapshot.Length; c++)
+        {
+            restored.Add(snapshot[c] with { Data = fresh[c] });
+        }
+
+        // A loser leaves the winner's planes in place, so every reader agrees on one set of arrays.
+        ImmutableInterlocked.InterlockedCompareExchange(ref _planes, restored.MoveToImmutable(), snapshot);
+        return true;
+    }
+
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void ThrowPlanesNeedReload()
+        => throw new InvalidOperationException(
+            "This image's float planes were released to be read back from its file, and a read does not hit the disk "
+            + "by itself. Restore them first (AstroImageDocument.EnsurePlanesAsync) off the render thread.");
+
     private ImmutableArray<Channel> RestorePlanesFromRaster(ImmutableArray<Channel> evicted)
     {
+        if (ReferenceEquals(evicted[0].Data, ReloadEmptyPlane))
+        {
+            ThrowPlanesNeedReload();
+        }
+
         // The raster is the ORIGINAL 8-bit samples and the evicted plane was normalised by the
         // sample-format maximum, so this reproduces the values exactly rather than approximately: the same
         // division over the same bytes. Anything less than exact would show up as a readout that changed
