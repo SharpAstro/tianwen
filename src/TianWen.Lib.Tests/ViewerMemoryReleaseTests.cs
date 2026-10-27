@@ -13,7 +13,7 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// Opening documents stays inside ONE budget across every open document: the least recently used one the file can give back
-/// is released, a pinned one never is, and the next consumer reads the file once (#1853, on #368).
+/// is released, a pinned one never is, and the next consumer reads the file once (#1852, on #368).
 /// </summary>
 /// <remarks>
 /// CPU only. A 200 x 200 three-channel master holds 480,000 bytes of planes, so a total budget of 1,000,000 admits two and
@@ -153,6 +153,28 @@ public class ViewerMemoryReleaseTests : IDisposable
         crop.TryReleaseForBudget().ShouldBeFalse("a crop is not what its file holds");
         ShouldBeResident(inMemory);
         ShouldBeResident(crop);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task AReleaseAfterLoadWhileAConsumerHoldsTheGateKeepsThePlanes()
+    {
+        var cache = new DocumentCache { TotalBudgetBytes = OneMaster + 40_000 };
+        var a = await OpenAsync(cache, WriteMaster("a.fits", 1));
+        a.PlaneBudgetBytes = 0;
+
+        await a.ReloadGate.WaitAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            a.ReleasePlanesAfterLoad().ShouldBeFalse("a pin may be being taken: the release gives up rather than read PinCount unguarded");
+        }
+        finally
+        {
+            a.ReloadGate.Release();
+        }
+
+        ShouldBeResident(a);
+        a.ReleasePlanesAfterLoad().ShouldBeTrue("with the gate free and no pin, the size policy releases");
+        ShouldBeReleased(a);
     }
 
     [Fact(Timeout = 60_000)]

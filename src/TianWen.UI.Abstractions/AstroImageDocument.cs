@@ -217,7 +217,10 @@ public sealed class AstroImageDocument : IPreviewSource
     /// <summary>Whether the file could give the planes back: one a readout source serves (a plain FITS or a .fz), unchanged since it was opened.</summary>
     internal bool CanReadBack => _reloadStamp is not null && ReadoutTiles is { IsStale: false };
 
-    internal void Unpin() => Interlocked.Decrement(ref _pins);
+    /// <summary>A test seam: the gate a pin and a release take turns on, so a test can stand in for a consumer arriving.</summary>
+    internal SemaphoreSlim ReloadGate => _reloadGate;
+
+    internal void Unpin() =>Interlocked.Decrement(ref _pins);
 
     /// <summary>
     /// Releases the float planes to the file for the sake of the TOTAL budget, whatever this document's own size: false when
@@ -263,20 +266,34 @@ public sealed class AstroImageDocument : IPreviewSource
             return image.PlanesNeedReload;
         }
 
-        // A consumer reading the planes now keeps them; the next release looks again.
-        if (PinCount > 0)
+        // Only looks while it holds the gate, like TryReleaseForBudget: a pin being taken right now is counted before this
+        // reads PinCount, or this finds the gate busy and gives up. A busy gate is a consumer arriving, so false is right.
+        if (!_reloadGate.Wait(0))
         {
             return false;
         }
 
-        if (EnhanceRevertPolicy.DecidePlanes(image, canReload: ReadoutTiles is { IsStale: false }, PlaneBudgetBytes) is not PlaneResidency.Release)
+        try
         {
-            return false;
-        }
+            // A consumer reading the planes now keeps them; the next release looks again.
+            if (PinCount > 0)
+            {
+                return false;
+            }
 
-        // The one lazy reader of pixels the render thread could reach: taken now, while they are here.
-        _ = _planetaryStretch.Value;
-        return image.TryEvictForReload();
+            if (EnhanceRevertPolicy.DecidePlanes(image, canReload: ReadoutTiles is { IsStale: false }, PlaneBudgetBytes) is not PlaneResidency.Release)
+            {
+                return false;
+            }
+
+            // The one lazy reader of pixels the render thread could reach: taken now, while they are here.
+            _ = _planetaryStretch.Value;
+            return image.TryEvictForReload();
+        }
+        finally
+        {
+            _reloadGate.Release();
+        }
     }
 
     /// <summary>
