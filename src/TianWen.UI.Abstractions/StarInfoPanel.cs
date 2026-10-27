@@ -44,23 +44,39 @@ public static class StarInfoPanel
         return [.. lines];
     }
 
-    /// <summary>The panel's design height: the title, the rows and the padding that keeps them off the edge.</summary>
-    public static float DesignHeight(int lineCount)
-        => ObjectInfoPanel.DesignTitleRowHeight + (ObjectInfoPanel.DesignRowHeight * lineCount) + 16f;
-
-    /// <summary>The title and the rows as one tree, in design units.</summary>
-    public static Layout.Node BuildRows(string[] lines, in ObjectInfoPanel.PanelPalette palette)
+    /// <summary>
+    /// The whole panel as ONE declared tree, in design units: a one-unit border node that swallows a press
+    /// anywhere on it, around the padded background, around the title row (with Close at its end) and the
+    /// rows. Its width is declared and its height is the engine's measurement of the rows, so there is no
+    /// box to sum by hand; the host floats it with <see cref="Layout.Builder.Anchored"/>.
+    /// </summary>
+    public static Layout.Node Build(string[] lines, in ObjectInfoPanel.PanelPalette palette, in ObjectInfoPanel.PanelActions actions)
     {
         const float dFont = ObjectInfoPanel.DesignFontSize;
         var rows = new Layout.Node[lines.Length + 1];
-        rows[0] = Layout.Builder
+
+        var title = Layout.Builder
             .Text(Title, dFont * 1.1f, palette.Text, TextAlign.Near, TextAlign.Near)
+            .WStar();
+        rows[0] = (ObjectInfoPanel.BuildCloseButton(in actions, in palette) is { } close
+                ? Layout.Builder.HStack(title, close.WFixed(ObjectInfoPanel.DesignCloseSize))
+                : Layout.Builder.HStack(title))
             .RowH(ObjectInfoPanel.DesignTitleRowHeight);
+
         for (var i = 0; i < lines.Length; i++)
         {
             rows[i + 1] = Layout.Builder.Text(lines[i], dFont, palette.Text).RowH(ObjectInfoPanel.DesignRowHeight);
         }
 
-        return Layout.Builder.VStack(rows);
+        var body = Layout.Builder.VStack(rows)
+            .Pad(10f, 6f)
+            .Bg(palette.Background)
+            .WFixed(ObjectInfoPanel.DesignWidth);
+
+        return Layout.Builder.VStack(body)
+            .Pad(1f)
+            .Bg(palette.Border)
+            .WFixed(ObjectInfoPanel.DesignWidth + 2f)
+            .Clickable(new HitResult.ButtonHit("StarPanelBackground"), _ => { });
     }
 }

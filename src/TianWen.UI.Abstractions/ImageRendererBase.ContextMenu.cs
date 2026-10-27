@@ -650,6 +650,29 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// What a click at a screen position would take: a catalogue object or a detected star, never both.
+        /// </summary>
+        private readonly record struct ClickTarget(
+            (CelestialObject Object, CatalogIndex Index)? Object,
+            ImagedStar? Star);
+
+        /// <summary>
+        /// The ONE precedence behind the click and the hover wash (#708): a drawn marker, then a drawn label,
+        /// then a detected star, then the catalogue search, then the sky backdrop. The wash reads only
+        /// <see cref="ClickTarget.Object"/>, so while a click would take a star no catalogue object is lit.
+        /// </summary>
+        private ClickTarget ResolveClickTargetAt(ViewerState state, float px, float py)
+        {
+            var drawn = FindDrawnMarkerAt(px, py) ?? FindDrawnLabelAt(px, py);
+            if (drawn is null && FindDetectedStarAt(state, px, py) is { } star)
+            {
+                return new ClickTarget(null, star);
+            }
+
+            return new ClickTarget(drawn ?? ResolveObjectAt(state, px, py), null);
+        }
+
+        /// <summary>
         /// The detected star a tap at (<paramref name="px"/>, <paramref name="py"/>) lands in, or null.
         /// Only while the star overlay is on ("what is drawn is what is clickable"), and measured in
         /// IMAGE pixels off the star's own HFD (<see cref="StarList.NearestAt"/>), never screen pixels,
@@ -732,7 +755,7 @@ namespace TianWen.UI.Abstractions
             _hoverResolvedX = px;
             _hoverResolvedY = py;
 
-            if (ResolveObjectAt(state, px, py) is not { } hit)
+            if (ResolveClickTargetAt(state, px, py).Object is not { } hit)
             {
                 if (state.HoverObject is null)
                 {
@@ -755,10 +778,8 @@ namespace TianWen.UI.Abstractions
 
         private bool TrySelectObjectAt(ViewerState state, float px, float py)
         {
-            // A drawn marker or label beats a detected star; a star beats the catalogue search. The
-            // hover wash stays objects-only, so it asks ResolveObjectAt and never reaches this.
-            var drawn = FindDrawnMarkerAt(px, py) ?? FindDrawnLabelAt(px, py);
-            if (drawn is null && FindDetectedStarAt(state, px, py) is { } star)
+            var target = ResolveClickTargetAt(state, px, py);
+            if (target.Star is { } star)
             {
                 if (state.SelectedStar == star)
                 {
@@ -771,9 +792,7 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
-            var resolved = drawn ?? ResolveObjectAt(state, px, py);
-
-            if (resolved is not { } hit)
+            if (target.Object is not { } hit)
             {
                 if (state.SelectedObject is null && state.SelectedStar is null)
                 {
