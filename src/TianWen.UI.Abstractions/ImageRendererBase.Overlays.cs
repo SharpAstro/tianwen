@@ -740,6 +740,17 @@ namespace TianWen.UI.Abstractions
             FillEllipseOverlay(ring.ScreenX, ring.ScreenY, semiMajor, semiMinor, ring.AngleRad, OverlayEngine.HoverSpotColor);
         }
 
+        private void RenderSelectedStar(ViewerState state, ImagedStar star)
+        {
+            var layout = CurrentViewportLayout(state);
+            var (sx, sy) = WcsAnnotationLayer.ImageToScreen(star.XCentroid, star.YCentroid, layout);
+            var accent = ViewerTheme.Palette.Accent;
+            var inner = 9f * DpiScale;
+            var outer = inner + (3f * DpiScale);
+            DrawEllipseOverlay((float)sx, (float)sy, inner, inner, 0f, accent, 1.5f);
+            DrawEllipseOverlay((float)sx, (float)sy, outer, outer, 0f, accent, 1.5f);
+        }
+
         private void RenderSelectionHighlight(in SelectionRingGeometry ring)
         {
             var accent = ViewerTheme.Palette.Accent;

@@ -615,6 +615,29 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// The detected star a tap at (<paramref name="px"/>, <paramref name="py"/>) lands in, or null.
+        /// Only while the star overlay is on ("what is drawn is what is clickable"), and measured in
+        /// IMAGE pixels off the star's own HFD (<see cref="StarList.NearestAt"/>), never screen pixels,
+        /// so the answer does not change with the zoom and has no magnitude cutoff (#709).
+        /// </summary>
+        private ImagedStar? FindDetectedStarAt(ViewerState state, float px, float py)
+        {
+            if (!state.ShowStarOverlay || Findings.Stars is not { Count: > 0 } stars)
+            {
+                return null;
+            }
+
+            var layout = CurrentViewportLayout(state);
+            if (layout.Zoom <= 0f)
+            {
+                return null;
+            }
+
+            var (x, y) = WcsAnnotationLayer.ScreenToImage(px, py, layout);
+            return stars.NearestAt(x, y);
+        }
+
+        /// <summary>
         /// Where the pointer was when the hover was last resolved; NaN before the first resolve.
         /// </summary>
         private float _hoverResolvedX = float.NaN;
@@ -697,16 +720,33 @@ namespace TianWen.UI.Abstractions
 
         private bool TrySelectObjectAt(ViewerState state, float px, float py)
         {
-            var resolved = ResolveObjectAt(state, px, py);
+            // A drawn marker or label beats a detected star; a star beats the catalogue search. The
+            // hover wash stays objects-only, so it asks ResolveObjectAt and never reaches this.
+            var drawn = FindDrawnMarkerAt(px, py) ?? FindDrawnLabelAt(px, py);
+            if (drawn is null && FindDetectedStarAt(state, px, py) is { } star)
+            {
+                if (state.SelectedStar == star)
+                {
+                    return false;
+                }
+
+                state.SelectedStar = star;
+                state.StatusMessage = FormattableString.Invariant(
+                    $"Selected star at {star.XCentroid:0.0}, {star.YCentroid:0.0}");
+                return true;
+            }
+
+            var resolved = drawn ?? ResolveObjectAt(state, px, py);
 
             if (resolved is not { } hit)
             {
-                if (state.SelectedObject is null)
+                if (state.SelectedObject is null && state.SelectedStar is null)
                 {
                     return false;
                 }
 
                 state.SelectedObject = null;
+                state.SelectedStar = null;
                 state.StatusMessage = null;
                 return true;
             }

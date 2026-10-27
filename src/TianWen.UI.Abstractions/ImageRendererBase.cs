@@ -1205,6 +1205,14 @@ namespace TianWen.UI.Abstractions
                 RenderSelectionHighlight(in ring);
             }
 
+            // A selected DETECTED star (#708): the selection ring's own pair of accent rings at the
+            // centroid, through the one image-to-screen mapping. Not gated on ShowStarOverlay, for the
+            // same reason the object ring is not gated on ShowOverlays.
+            if (state.SelectedStar is { } selectedStar)
+            {
+                RenderSelectedStar(state, selectedStar);
+            }
+
             // Caller-driven sky annotations (polar alignment, plate-solve verification,
             // target markers, mosaic panel boundaries...). Generic primitive; the
             // renderer doesn't know what the markers represent.

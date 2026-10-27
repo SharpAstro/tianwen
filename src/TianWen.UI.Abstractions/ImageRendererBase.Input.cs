@@ -408,9 +408,10 @@ namespace TianWen.UI.Abstractions
                         return true;
                     }
 
-                    if (state.SelectedObject is not null)
+                    if (state.SelectedObject is not null || state.SelectedStar is not null)
                     {
                         state.SelectedObject = null;
+                        state.SelectedStar = null;
                         state.StatusMessage = null;
                         state.NeedsRedraw = true;
                         return true;

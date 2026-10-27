@@ -70,6 +70,43 @@ public class StarList(ConcurrentBag<ImagedStar> stars, BitMatrix? starMask = nul
         };
     }
 
+    /// <summary>
+    /// The smallest footprint radius, in image pixels, a star answers a hit test with. A tight star
+    /// has an HFD of two or three pixels, which is a footprint smaller than a pointer can place.
+    /// </summary>
+    public const float MinHitRadiusPx = 2f;
+
+    /// <summary>
+    /// The detected star whose centroid is nearest the image-pixel point
+    /// (<paramref name="x"/>, <paramref name="y"/>), counting only stars whose own footprint contains
+    /// it, or null over nothing.
+    /// </summary>
+    /// <remarks>
+    /// <b>Measured in IMAGE pixels, off the star's own HFD</b> (its radius is half the HFD, floored at
+    /// <see cref="MinHitRadiusPx"/>), never in screen pixels: the answer for one image point is the same
+    /// at every zoom, and does not depend on which stars an overlay chose to draw (#709: no magnitude
+    /// cutoff). The point is in the centroid frame, as <c>WcsAnnotationLayer.ScreenToImage</c> answers.
+    /// </remarks>
+    public ImagedStar? NearestAt(double x, double y)
+    {
+        ImagedStar? best = null;
+        var bestDistance = double.MaxValue;
+        foreach (var star in stars)
+        {
+            var dx = star.XCentroid - x;
+            var dy = star.YCentroid - y;
+            var distance = (dx * dx) + (dy * dy);
+            var radius = Math.Max(star.HFD * 0.5, MinHitRadiusPx);
+            if (distance <= radius * radius && distance < bestDistance)
+            {
+                bestDistance = distance;
+                best = star;
+            }
+        }
+
+        return best;
+    }
+
     public int Count => stars.Count;
 
     public IEnumerator<ImagedStar> GetEnumerator() => stars.GetEnumerator();
