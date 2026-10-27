@@ -259,6 +259,43 @@ public class ViewerStarSelectionTests
         state.SelectedStar.ShouldBeNull();
     }
 
+    /// <summary>
+    /// The hover wash and the click are one precedence (#708): over a detected star that sits on a catalogue
+    /// object with no marker drawn there, a click takes the star, so the wash names no catalogue object. With the
+    /// star overlay off the very same point washes the object, which is what makes the first half mean something.
+    /// </summary>
+    [Fact]
+    public async Task OverADetectedStarOnACatalogueObjectTheWashAndTheClickAgree()
+    {
+        using var renderer = new RgbaImageRenderer(WindowW, WindowH);
+        var onTheGalaxy = StarAt(ImageW / 2f, ImageH / 2f, hfd: 6f);
+        var (viewer, state, document) = await NewViewerAsync(renderer, true, true, onTheGalaxy);
+
+        // Rendered with the overlay off so no marker or label is drawn at the galaxy; the catalogue search alone
+        // answers for it once the overlay is on again.
+        state.ShowOverlays = false;
+        viewer.Render(document, state);
+        state.ShowOverlays = true;
+        var (x, y) = viewer.ScreenOf(onTheGalaxy.XCentroid, onTheGalaxy.YCentroid);
+        var (farX, farY) = viewer.ScreenOf(500f, 50f);
+
+        state.ShowStarOverlay = false;
+        viewer.HandleInput(new InputEvent.MouseMove(x, y));
+        state.HoverObject.ShouldNotBeNull("without the star overlay the catalogue object is what is under the pointer")
+            .Index.ShouldBe(CatalogIndex.NGC5194);
+
+        viewer.HandleInput(new InputEvent.MouseMove(farX, farY));
+        state.HoverObject.ShouldBeNull();
+
+        state.ShowStarOverlay = true;
+        viewer.HandleInput(new InputEvent.MouseMove(x, y));
+        state.HoverObject.ShouldBeNull("a click here takes the star, so no catalogue object is washed");
+
+        TapAt(viewer, x, y);
+        state.SelectedStar.ShouldBe(onTheGalaxy);
+        state.SelectedObject.ShouldBeNull();
+    }
+
     [Fact]
     public async Task ASelectedStarAndASelectedObjectExcludeEachOther()
     {

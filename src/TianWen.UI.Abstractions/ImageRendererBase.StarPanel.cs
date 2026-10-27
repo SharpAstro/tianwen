@@ -20,8 +20,6 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var dpiScale = DpiScale;
-            var area = _layout.ImageArea;
             var palette = SelectionPanelPalette;
             var lines = StarInfoPanel.Lines(in star, Findings.Wcs);
 
@@ -32,27 +30,14 @@ namespace TianWen.UI.Abstractions
                     state.NeedsRedraw = true;
                 });
 
-            var pw = ObjectInfoPanel.DesignWidth * dpiScale;
-            var ph = StarInfoPanel.DesignHeight(lines.Length) * dpiScale;
-            var px = area.X + (12f * dpiScale);
-            var py = MathF.Max(area.Y, area.Y + area.Height - ph - (12f * dpiScale));
-
-            // One no-op Clickable on the border rect swallows a press anywhere on the panel, so it never
-            // falls through to a pan or a re-selection underneath (as the object panel does).
-            RenderLayout(Layout.Builder.Spacer().Bg(palette.Border)
-                    .Clickable(new HitResult.ButtonHit("StarPanelBackground"), _ => { }),
-                new RectF32(px - 1, py - 1, pw + 2, ph + 2));
-            RenderLayout(Layout.Builder.Spacer().Bg(palette.Background), new RectF32(px, py, pw, ph));
-
-            var textX = px + (10f * dpiScale);
-            RenderLayout(StarInfoPanel.BuildRows(lines, in palette),
-                new RectF32(textX, py + (4f * dpiScale), pw - (40f * dpiScale), ph - (8f * dpiScale)), scale: Scale);
-
-            var closeSize = ObjectInfoPanel.DesignCloseSize * dpiScale;
-            if (ObjectInfoPanel.BuildCloseButton(in actions, in palette) is { } closeNode)
-            {
-                RenderLayout(closeNode, new RectF32(px + pw - closeSize, py, closeSize, closeSize), scale: Scale);
-            }
+            // Floated bottom-left of the image area by the engine, which measures the panel and keeps it
+            // inside the area; the panel's own border node swallows a press anywhere on it.
+            RenderLayout(
+                Layout.Builder.Overlay(
+                    Layout.Builder.Spacer(),
+                    Layout.Builder.Anchored(StarInfoPanel.Build(lines, in palette, in actions),
+                        Layout.DockSide.Bottom, offsetAlong: 12f, margin: 12f)),
+                _layout.ImageArea, scale: Scale);
         }
     }
 }

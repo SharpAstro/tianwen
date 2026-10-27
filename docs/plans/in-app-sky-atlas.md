@@ -592,7 +592,10 @@ locking the release scope was *"as long as we track everything we skipped in a p
   (exclusive with `SelectedObject`, ringed at its centroid, cleared by Escape, an empty-sky tap or Close),
   and it shows a floating panel (`StarInfoPanel`, painted by `RenderStarPanel` where the object panel
   paints, in its palette and with its Close) of HFD, FWHM, SNR, ellipticity, flux, local background,
-  centroid and, only with a WCS, RA/Dec. Pinned by `ViewerStarSelectionTests`,
+  centroid and, only with a WCS, RA/Dec. The panel is one declared tree (`StarInfoPanel.Build`, floated
+  by `Layout.Builder.Anchored`; its height is the engine's measurement). The click and the hover wash
+  share ONE precedence, `ResolveClickTargetAt` (marker, label, detected star, catalogue, backdrop), so
+  while a click would take a star no catalogue object is washed. Pinned by `ViewerStarSelectionTests`,
   `ViewerStarSelectionPanelTests` (the rows) and `ViewerE2ETests.ATapOnADetectedStarShowsItsPanelAndClosePutsItAway`
   (DPI 1 and 1.5).
 - ~~**No info panel for a viewer selection.**~~ **DONE 2026-09-11**, in two steps raised by the user in
