@@ -14,7 +14,7 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 /// <remarks>
 /// It is also the one place that knows every open document, so it holds the TOTAL float-plane budget
-/// (<see cref="TotalBudgetBytes"/>, #1853): a document that opens when the planes already resident would pass it releases
+/// (<see cref="TotalBudgetBytes"/>, #1852): a document that opens when the planes already resident would pass it releases
 /// the least recently used documents the file can give back (<see cref="AstroImageDocument.TryReleaseForBudget"/>), skipping
 /// any that a consumer has pinned (<see cref="AstroImageDocument.EnsurePlanesAsync"/>), until the total fits or nothing is left to release.
 /// No operating-system memory signal: the budget is a number, so identical input behaves identically.
