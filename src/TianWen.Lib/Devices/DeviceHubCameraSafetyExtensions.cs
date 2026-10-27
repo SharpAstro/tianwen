@@ -91,14 +91,22 @@ public static class DeviceHubCameraSafetyExtensions
         /// <param name="force">Disconnect even if a run owns the camera. Reserved for the shutdown path;
         /// see <see cref="IDeviceHub.DisconnectAsync"/>.</param>
         public ValueTask WarmAndDisconnectAsync(Uri deviceUri, ITimeProvider timeProvider, ILogger logger, bool force, CancellationToken cancellationToken)
-            => WarmCameraAsync(hub, deviceUri, timeProvider, logger, disconnectAfter: true, force, cancellationToken);
+            => WarmCameraAsync(hub, deviceUri, timeProvider, logger, disconnectAfter: true, force, heldBy: null, cancellationToken);
 
         /// <summary>
         /// The warm-up ramp and cooler off without disconnecting, so the camera stays available to cool
         /// again. The same condensation reasoning as <see cref="WarmAndDisconnectAsync"/>.
         /// </summary>
         public ValueTask WarmAndCoolerOffAsync(Uri deviceUri, ITimeProvider timeProvider, ILogger logger, CancellationToken cancellationToken)
-            => WarmCameraAsync(hub, deviceUri, timeProvider, logger, disconnectAfter: false, force: false, cancellationToken);
+            => WarmCameraAsync(hub, deviceUri, timeProvider, logger, disconnectAfter: false, force: false, heldBy: null, cancellationToken);
+
+        /// <summary>
+        /// <see cref="WarmAndCoolerOffAsync(Uri, ITimeProvider, ILogger, CancellationToken)"/> by the run that holds the camera,
+        /// as a dark library asked to warm when finished does: <paramref name="heldBy"/> is its lease's
+        /// <see cref="DeviceLease.OwnerLabel"/>, and a camera held by anyone else is still refused.
+        /// </summary>
+        public ValueTask WarmAndCoolerOffAsync(Uri deviceUri, ITimeProvider timeProvider, ILogger logger, string heldBy, CancellationToken cancellationToken)
+            => WarmCameraAsync(hub, deviceUri, timeProvider, logger, disconnectAfter: false, force: false, heldBy, cancellationToken);
 
         /// <summary>
         /// Cools the camera at <paramref name="cameraUri"/> to <paramref name="setpointC"/> (rounded to a whole degree)
@@ -236,12 +244,14 @@ public static class DeviceHubCameraSafetyExtensions
     // Steps the setpoint toward the heat sink (or +25 °C) in 2 °C / 30 s increments, capped at 15 min, then
     // turns the cooler off and, when asked, disconnects.
     private static async ValueTask WarmCameraAsync(
-        IDeviceHub hub, Uri deviceUri, ITimeProvider timeProvider, ILogger logger, bool disconnectAfter, bool force, CancellationToken cancellationToken)
+        IDeviceHub hub, Uri deviceUri, ITimeProvider timeProvider, ILogger logger, bool disconnectAfter, bool force, string? heldBy,
+        CancellationToken cancellationToken)
     {
-        // A camera a run holds is the run's to warm (its Finalise does). Refused BEFORE the ramp: the ramp used
-        // to run first, and only the disconnect at its end was refused, so a run's cooled camera warmed under it
-        // (P0c item 2 of docs/plans/hardware-in-the-server.md). The shutdown path forces past, and nothing else.
-        if (!force && hub.TryGetLease(deviceUri, out var lease))
+        // A camera a run holds is the run's to warm (its Finalise does, a dark library through heldBy). Refused BEFORE
+        // the ramp: the ramp used to run first, and only the disconnect at its end was refused, so a run's cooled camera
+        // warmed under it (P0c item 2 of docs/plans/hardware-in-the-server.md). The shutdown path forces past, and
+        // nothing else.
+        if (!force && hub.TryGetLease(deviceUri, out var lease) && !string.Equals(lease.OwnerLabel, heldBy, StringComparison.Ordinal))
         {
             throw new DeviceLeasedException(lease);
         }

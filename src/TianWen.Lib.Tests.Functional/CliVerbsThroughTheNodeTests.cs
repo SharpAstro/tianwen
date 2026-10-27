@@ -53,9 +53,9 @@ public class CliVerbsThroughTheNodeTests(ITestOutputHelper output)
 
         public IDeviceHub Hub => Node.App.Services.GetRequiredService<IDeviceHub>();
 
-        public static async Task<Cli> StartAsync(ITestOutputHelper output, CancellationToken ct)
+        public static async Task<Cli> StartAsync(ITestOutputHelper output, CancellationToken ct, Action<IServiceCollection>? configure = null)
         {
-            var node = await NodeHarness.StartAsync(output, ct, onItsSocket: true);
+            var node = await NodeHarness.StartAsync(output, ct, configure, onItsSocket: true);
             var socket = node.SocketPath ?? throw new InvalidOperationException("A node started on its own socket has one.");
             node.Factory.OnCreated = static controlled => RemoteSessionMirrorTests.Observing(controlled.Session);
             node.Factory.Initialised.TrySetResult();
@@ -225,6 +225,80 @@ public class CliVerbsThroughTheNodeTests(ITestOutputHelper output)
         cli.Hub.IsConnected(camera.DeviceUri).ShouldBeFalse("what the verb connected, it disconnected");
         var library = (await cli.Client.GetDarkLibraryAsync(ct)).Value.ShouldNotBeNull();
         library.Frames.Length.ShouldBe(2, "the node's run took them");
+    }
+
+    // The cooling itself is the dark run's, pinned by DarkFrameRunCoolingTests; here the verb has to hand its knobs to the
+    // node's run and give back what it connected. The node keeps its real clock (its loops spin on a fake one), but its dark
+    // run ramps on the fake clock, as no test waits out a cooler ramp in real time. The fake sensor starts at 20 °C beside a
+    // 20 °C heat sink.
+    private async Task<(Cli Cli, DeviceBase Camera)> CliWithTheFakeCameraAsync(CancellationToken ct)
+    {
+        var cli = await Cli.StartAsync(output, ct, static services => services.AddSingleton(sp =>
+            new DarkFrameRun(sp.GetRequiredService<IExternal>(), new FakeTimeProviderWrapper(), NullLogger<DarkFrameRun>.Instance)));
+        var camera = (await cli.Host.ListAllDevicesAsync(DeviceDiscoveryOption.IncludeFake, ct))
+            .First(static d => d.DeviceType == DeviceType.Camera && IsFake(d));
+        return (cli, camera);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ASetpointGoesToTheNodesRunAndACameraTheVerbConnectedIsGivenBackThroughTheWarmUp()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (cli, camera) = await CliWithTheFakeCameraAsync(ct);
+        await using var _ = cli;
+        cli.Hub.IsConnected(camera.DeviceUri).ShouldBeFalse("premise: the verb connects it");
+
+        // 19 °C: the cooler is ON when the verb gives the camera back, and within a degree of the heat sink, so the node's
+        // warm-up (on its real clock) has no step to wait out before it switches the cooler off and disconnects.
+        var exit = await cli.RunAsync(ct, "darks", "--exposure", "0.05", "--count", "1", "--setpoint", "19", "--camera", camera.DisplayName);
+
+        exit.ShouldBe(0, $"{cli.Written}{cli.Errors}");
+        var library = (await cli.Client.GetDarkLibraryAsync(ct)).Value.ShouldNotBeNull();
+        library.SetpointC.ShouldBe(19, "the setpoint is the node's run's, not the verb's");
+        library.Frames.ShouldHaveSingleItem().SensorTemperatureC.ShouldBe(19);
+        // A plain disconnect is refused while the cooler is on: the verb used one, which left a camera it had cooled connected.
+        cli.Hub.IsConnected(camera.DeviceUri).ShouldBeFalse($"given back: {cli.Written}");
+        cli.Written.ToString().ShouldNotContain("was left connected");
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ACameraAlreadyConnectedIsHeldColdUnlessTheVerbIsAskedToWarmIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (cli, camera) = await CliWithTheFakeCameraAsync(ct);
+        await using var _ = cli;
+        var connect = (await cli.Client.ConnectDeviceAsync(camera.DeviceUri, ct)).Value.ShouldNotBeNull();
+        (await cli.Client.UntilEndedAsync(connect, cli.Host.TimeProvider, ct)).Value.ShouldNotBeNull().State.ShouldBe(JobState.Succeeded);
+        cli.Hub.TryGetConnectedDriver<ICameraDriver>(camera.DeviceUri, out var driver).ShouldBeTrue();
+
+        (await cli.RunAsync(ct, "darks", "--exposure", "0.05", "--count", "1", "--setpoint", "-5", "--camera", camera.DisplayName))
+            .ShouldBe(0, $"{cli.Written}{cli.Errors}");
+        cli.Hub.IsConnected(camera.DeviceUri).ShouldBeTrue("a camera the verb found connected stays connected");
+        (await driver.GetCoolerOnAsync(ct)).ShouldBeTrue("and held at its setpoint");
+        cli.Hub.TryGetCoolerIntent(camera.DeviceUri, out var held).ShouldBeTrue();
+        held.ShouldBe(CoolerIntent.CoolTo(-5));
+
+        (await cli.RunAsync(ct, "darks", "--exposure", "0.05", "--count", "1", "--warm-when-finished", "--camera", camera.DisplayName))
+            .ShouldBe(0, $"{cli.Written}{cli.Errors}");
+        cli.Hub.IsConnected(camera.DeviceUri).ShouldBeTrue("warming leaves it connected");
+        (await driver.GetCoolerOnAsync(ct)).ShouldBeFalse("--warm-when-finished reached the node's run");
+        cli.Hub.TryGetCoolerIntent(camera.DeviceUri, out var off).ShouldBeTrue();
+        off.ShouldBe(CoolerIntent.Off);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task ASetpointThatIsNoTemperatureIsRefusedBeforeTheCameraIsTouched()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (cli, camera) = await CliWithTheFakeCameraAsync(ct);
+        await using var _ = cli;
+
+        var exit = await cli.RunAsync(ct, "darks", "--exposure", "0.05", "--count", "2", "--setpoint", "NaN", "--camera", camera.DisplayName);
+
+        exit.ShouldBe(1);
+        cli.Written.ToString().ShouldContain("--setpoint must be a temperature");
+        (await cli.Client.GetDarkLibraryAsync(ct)).Value.ShouldBeNull("no library was started");
+        cli.Hub.IsConnected(camera.DeviceUri).ShouldBeFalse("nothing was connected");
     }
 
     [Fact(Timeout = 60_000)]

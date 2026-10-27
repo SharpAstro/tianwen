@@ -33,6 +33,10 @@ namespace TianWen.Lib.Sequencing;
 /// </param>
 /// <param name="ReadoutMode">The camera's readout mode by name, or null to leave it. A mode can change the photosite and the
 /// frame (a QHY294PROC's 47M mode is 8432 x 5648 against its 11M mode's 4212 x 2850), so a dark serves only lights of its mode.</param>
+/// <param name="SetpointC">The sensor temperature to cool to, through the hub's ramp, before the first frame; null to shoot at
+/// whatever the sensor is. Dark current doubles about every 6 °C, so a dark is defined by its temperature as much as its exposure.</param>
+/// <param name="WarmWhenFinished">Once the frames are taken, warm the sensor through the hub's ramp and switch its cooler off,
+/// leaving the camera connected. Without it the cooler is left as the run made it, held at the setpoint.</param>
 public sealed record DarkFrameRunOptions(
     TimeSpan Exposure,
     int Count,
@@ -40,7 +44,9 @@ public sealed record DarkFrameRunOptions(
     int? Offset = null,
     int Bin = 1,
     FrameType FrameType = FrameType.Dark,
-    string? ReadoutMode = null);
+    string? ReadoutMode = null,
+    double? SetpointC = null,
+    bool WarmWhenFinished = false);
 
 /// <summary>One captured frame and the state it was captured in.</summary>
 public sealed record DarkFrameCaptured(string Path, DateTimeOffset StartedUtc, double SensorTemperatureC);
@@ -70,15 +76,83 @@ public sealed class DarkFrameRun(IExternal external, ITimeProvider timeProvider,
     /// </summary>
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(250);
 
+    /// <summary>How far from <see cref="DarkFrameRunOptions.SetpointC"/> the sensor may read once cooled: the ramp's target is a
+    /// whole degree, and a regulated body holds it to a few tenths.</summary>
+    public const double SetpointToleranceC = 1.0;
+
+    /// <summary>
+    /// Takes the frames with the camera the hub has connected at <paramref name="cameraUri"/>. The cooler goes through the hub,
+    /// never the driver alone, so the camera's cooler intent (which a node's crash journal re-establishes) always says what
+    /// the run left it doing.
+    /// </summary>
+    /// <param name="heldAs">The owner label of the lease the caller holds on the camera, which lets the run warm a camera it
+    /// holds (<see cref="DarkFrameRunOptions.WarmWhenFinished"/>); null when it holds none.</param>
     public async ValueTask<IReadOnlyList<DarkFrameCaptured>> RunAsync(
-        ICameraDriver camera,
+        IDeviceHub hub,
+        Uri cameraUri,
         DarkFrameRunOptions options,
         IProgress<DarkFrameCaptured>? progress = null,
+        string? heldAs = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(options.Count, 1);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.Exposure, TimeSpan.Zero);
+        if (!hub.TryGetConnectedDriver<ICameraDriver>(cameraUri, out var camera))
+        {
+            throw new InvalidOperationException($"No camera is connected at {cameraUri}");
+        }
 
+        if (options.SetpointC is { } setpointC)
+        {
+            await CoolAsync(hub, cameraUri, camera, setpointC, cancellationToken);
+        }
+
+        var captured = await CaptureAsync(camera, options, progress, cancellationToken);
+
+        // Only a run that finished warms: a STOPPED one leaves the cooler held where it is, which is safe (the danger to a
+        // sensor is a cooler switched off at once, never one held), and whoever stopped it decides what comes next.
+        if (options.WarmWhenFinished)
+        {
+            logger.LogInformation("Warming {Camera} as asked, now the frames are taken", camera.Name);
+            await (heldAs is { } holder
+                ? hub.WarmAndCoolerOffAsync(cameraUri, timeProvider, logger, holder, cancellationToken)
+                : hub.WarmAndCoolerOffAsync(cameraUri, timeProvider, logger, cancellationToken));
+        }
+
+        return captured;
+    }
+
+    // Through the session's ramp (CameraCoolingRamp, via the hub), then the sensor itself is read: the ramp gives up after
+    // twice its time, and a dark shot short of its setpoint belongs to another library row while looking complete.
+    private async ValueTask CoolAsync(IDeviceHub hub, Uri cameraUri, ICameraDriver camera, double setpointC, CancellationToken cancellationToken)
+    {
+        if (!double.IsFinite(setpointC))
+        {
+            throw new ArgumentOutOfRangeException(nameof(setpointC), setpointC, "A setpoint must be a temperature");
+        }
+        if (!camera.CanSetCCDTemperature || !camera.CanGetCCDTemperature)
+        {
+            throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
+                $"{camera.Name} cannot regulate its sensor temperature, so it cannot be cooled to {setpointC:0} °C"));
+        }
+
+        var target = CameraCoolingRamp.TargetOf(setpointC);
+        logger.LogInformation("Cooling {Camera} to {Target} °C before the first frame", camera.Name, target);
+        var reached = await hub.CoolToSetpointAsync(cameraUri, target, new SessionConfiguration().CooldownRampInterval, timeProvider, logger, cancellationToken);
+        var sensorC = await camera.GetCCDTemperatureAsync(cancellationToken);
+        if (!reached || !(Math.Abs(sensorC - target) <= SetpointToleranceC))
+        {
+            throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
+                $"{camera.Name} did not reach {target} °C: the sensor reads {sensorC:0.0} °C. No frames were taken."));
+        }
+    }
+
+    private async ValueTask<IReadOnlyList<DarkFrameCaptured>> CaptureAsync(
+        ICameraDriver camera,
+        DarkFrameRunOptions options,
+        IProgress<DarkFrameCaptured>? progress,
+        CancellationToken cancellationToken)
+    {
         // First: a mode decides the geometry, and puts the bin back to 1.
         if (options.ReadoutMode is { Length: > 0 } readoutMode)
         {

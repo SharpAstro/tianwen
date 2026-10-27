@@ -36,6 +36,16 @@ public sealed class DarkLibraryRequestDto
 
     /// <summary>Bias frames rather than darks: labelled so in their headers, which is what a stacker matches on.</summary>
     public bool Bias { get; init; }
+
+    /// <summary>
+    /// The sensor temperature, in °C, to cool to through the node's ramp before the first frame, or null to shoot at whatever
+    /// the sensor is. The run reads the sensor back and takes no frame short of it.
+    /// </summary>
+    public double? SetpointC { get; init; }
+
+    /// <summary>Warm the sensor through the node's ramp and switch its cooler off once the frames are taken (not when the run
+    /// is stopped), leaving the camera connected; otherwise the cooler is left held where the run took it.</summary>
+    public bool WarmWhenFinished { get; init; }
 }
 
 /// <summary>
@@ -55,6 +65,9 @@ public sealed class DarkLibraryStateDto
 
     /// <summary>Frames asked for.</summary>
     public int Count { get; init; }
+
+    /// <summary>The setpoint the run cools to before its first frame, in °C; null when it shoots at whatever the sensor is.</summary>
+    public double? SetpointC { get; init; }
 
     // set, not init: the JSON source generator gives an init-only property its TYPE'S default when the field is
     // absent, dropping the initializer below (CLAUDE.md, Hosting API: the wire traps).

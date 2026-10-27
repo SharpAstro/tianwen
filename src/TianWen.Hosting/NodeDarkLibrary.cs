@@ -58,6 +58,10 @@ internal sealed class NodeDarkLibrary(IDeviceHub hub, NodeJobs jobs, IHostedSess
         {
             return ResponseEnvelope<DarkLibraryStateDto>.Fail($"{name} is not a camera");
         }
+        if (request.SetpointC is not null && !(camera.CanSetCCDTemperature && camera.CanGetCCDTemperature))
+        {
+            return ResponseEnvelope<DarkLibraryStateDto>.Fail($"{name} cannot regulate its sensor temperature, so it takes no setpoint");
+        }
         if (jobs.TryGetRunningOn(uri, out var job))
         {
             return ResponseEnvelope<DarkLibraryStateDto>.Fail($"{name} is busy: a {job.Kind} of it is running (job {job.Id})", 409);
@@ -75,8 +79,8 @@ internal sealed class NodeDarkLibrary(IDeviceHub hub, NodeJobs jobs, IHostedSess
         try
         {
             var options = new DarkFrameRunOptions(TimeSpan.FromSeconds(request.ExposureSeconds), request.Count, request.Gain, request.Offset,
-                request.Bin, request.Bias ? FrameType.Bias : FrameType.Dark, request.ReadoutMode);
-            run = new DarkLibraryRun(capture, camera, name, uri, options, claim, logger);
+                request.Bin, request.Bias ? FrameType.Bias : FrameType.Dark, request.ReadoutMode, request.SetpointC, request.WarmWhenFinished);
+            run = new DarkLibraryRun(capture, hub, name, uri, options, claim, logger);
             claim = null;
             if (!await hosted.TryStartAsync(run, hosted.ActiveProfileId ?? Guid.Empty))
             {
@@ -121,7 +125,7 @@ internal sealed class NodeDarkLibrary(IDeviceHub hub, NodeJobs jobs, IHostedSess
 }
 
 /// <summary>One dark library, as the node runs it: the camera it holds, and every frame written so far.</summary>
-internal sealed class DarkLibraryRun(DarkFrameRun capture, ICameraDriver camera, string cameraName, Uri deviceUri, DarkFrameRunOptions options,
+internal sealed class DarkLibraryRun(DarkFrameRun capture, IDeviceHub hub, string cameraName, Uri deviceUri, DarkFrameRunOptions options,
     DeviceLeaseSet claim, ILogger logger) : INodeRun, IProgress<DarkFrameCaptured>
 {
     private ImmutableArray<DarkLibraryFrameDto> _frames = [];
@@ -144,6 +148,7 @@ internal sealed class DarkLibraryRun(DarkFrameRun capture, ICameraDriver camera,
         Bias = options.FrameType is FrameType.Bias,
         ExposureSeconds = options.Exposure.TotalSeconds,
         Count = options.Count,
+        SetpointC = options.SetpointC,
         Frames = [.. _frames],
         Running = IsRunning,
         Stopped = _stopped,
@@ -154,7 +159,9 @@ internal sealed class DarkLibraryRun(DarkFrameRun capture, ICameraDriver camera,
     {
         try
         {
-            await capture.RunAsync(camera, options, this, cancellationToken);
+            // The cool-down, the frames and the warm-up asked for are one body under the one lease: nothing can take the
+            // camera, or move its cooler, between the setpoint being reached and the last frame.
+            await capture.RunAsync(hub, deviceUri, options, this, NodeDarkLibrary.LeaseOwner, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

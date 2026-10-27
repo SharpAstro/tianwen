@@ -45,10 +45,17 @@ public class DarkFrameRunCancelTests : IDisposable
             return ValueTask.FromResult(false);
         });
 
+        var uri = new Uri("camera://test/cancel#Camera");
+        var hub = Substitute.For<IDeviceHub>();
+        hub.TryGetConnectedDriver(uri, out Arg.Any<ICameraDriver?>()).Returns(call =>
+        {
+            call[1] = camera;
+            return true;
+        });
         var run = new DarkFrameRun(external, new FakeTimeProviderWrapper(), NullLogger<DarkFrameRun>.Instance);
 
         await Should.ThrowAsync<OperationCanceledException>(async () =>
-            await run.RunAsync(camera, new DarkFrameRunOptions(TimeSpan.FromSeconds(30), Count: 3), progress: null, cts.Token));
+            await run.RunAsync(hub, uri, new DarkFrameRunOptions(TimeSpan.FromSeconds(30), Count: 3), progress: null, cancellationToken: cts.Token));
 
         await camera.Received(1).StartExposureAsync(TimeSpan.FromSeconds(30), Arg.Any<Imaging.FrameType>(), Arg.Any<CancellationToken>());
         await camera.Received(1).AbortExposureAsync(CancellationToken.None);

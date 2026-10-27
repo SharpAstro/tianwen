@@ -74,11 +74,11 @@ internal sealed class DarksSubCommand(IConsoleHost consoleHost)
         };
         var setpointOpt = new Option<double?>("--setpoint")
         {
-            Description = "Cool the sensor to this temperature in °C, through the node's ramp, before the first frame. Leave unset to shoot at whatever it is.",
+            Description = "Cool the sensor to this temperature in °C, through the node's ramp, before the first frame; no frame is taken short of it. Leave unset to shoot at whatever it is.",
         };
         var warmWhenFinishedOpt = new Option<bool>("--warm-when-finished")
         {
-            Description = "Warm the sensor through the node's ramp and turn its cooler off once the frames are taken. A camera this command connected is always warmed and disconnected; this is for one that was already connected, which otherwise stays as the run left it.",
+            Description = "Warm the sensor through the node's ramp and turn its cooler off once the frames are taken (not when stopped). A camera this command connected is warmed and disconnected anyway; this is for one that was already connected, which otherwise stays held at the setpoint.",
         };
         var binOpt = new Option<int>("--bin")
         {
@@ -109,6 +109,12 @@ internal sealed class DarksSubCommand(IConsoleHost consoleHost)
                 consoleHost.WriteScrollable(isBias
                     ? "--exposure must be greater than zero"
                     : "--exposure is required for darks (it must match the lights exactly)");
+                return 1;
+            }
+
+            if (parseResult.GetValue(setpointOpt) is { } setpointC && !double.IsFinite(setpointC))
+            {
+                consoleHost.WriteScrollable("--setpoint must be a temperature");
                 return 1;
             }
 
@@ -156,6 +162,8 @@ internal sealed class DarksSubCommand(IConsoleHost consoleHost)
                 ReadoutMode = parseResult.GetValue(readoutModeOpt),
                 Bin = parseResult.GetValue(binOpt),
                 Bias = isBias,
+                SetpointC = parseResult.GetValue(setpointOpt),
+                WarmWhenFinished = parseResult.GetValue(warmWhenFinishedOpt),
             };
             var tag = frameType.ToString().ToLowerInvariant();
             consoleHost.WriteScrollable(
@@ -163,7 +171,9 @@ internal sealed class DarksSubCommand(IConsoleHost consoleHost)
                 + (request.Gain is { } gv ? $", gain {gv}" : "")
                 + (request.Offset is { } ov ? $", offset {ov}" : "")
                 + (request.ReadoutMode is { } rm ? $", {rm}" : "")
-                + $", bin {request.Bin}");
+                + $", bin {request.Bin}"
+                + (request.SetpointC is { } sp ? string.Create(CultureInfo.InvariantCulture, $", cooled to {sp:0} C first") : "")
+                + (request.WarmWhenFinished ? ", warmed when finished" : ""));
 
             var connectedHere = false;
             if (!await IsConnectedAsync(node, device.DeviceUri, ct))
@@ -178,20 +188,6 @@ internal sealed class DarksSubCommand(IConsoleHost consoleHost)
 
             try
             {
-                // A dark is defined by its temperature as much as its exposure, so a stated setpoint is reached before the
-                // first frame, by the same ramp a session cools with. A camera connected here is warmed by the disconnect
-                // below; one that was already connected is left as the run made it, cooler on.
-                if (parseResult.GetValue(setpointOpt) is { } setpointC)
-                {
-                    consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture, $"[{tag}] cooling {device.DisplayName} to {setpointC:0} C"));
-                    if (await RunJobAsync(node, node.CoolCameraAsync(device.DeviceUri, setpointC, null, ct), ct) is { } coolFailure)
-                    {
-                        consoleHost.WriteScrollable(string.Create(CultureInfo.InvariantCulture,
-                            $"[{tag}] {device.DisplayName} did not reach {setpointC:0} C: {coolFailure}"));
-                        return 1;
-                    }
-                }
-
                 var started = await node.StartDarkLibraryAsync(request, ct);
                 if (!started.IsSuccess)
                 {
@@ -230,17 +226,9 @@ internal sealed class DarksSubCommand(IConsoleHost consoleHost)
             }
             finally
             {
-                // A camera connected here is warmed by its disconnect anyway; one that was connected before is warmed only
-                // when asked, and stays connected with its cooler off.
-                if (!connectedHere && parseResult.GetValue(warmWhenFinishedOpt))
-                {
-                    consoleHost.WriteScrollable($"[{tag}] warming {device.DisplayName}");
-                    if (await RunJobAsync(node, node.WarmCameraAsync(device.DeviceUri, CancellationToken.None), CancellationToken.None) is { } warmFailure)
-                    {
-                        consoleHost.WriteScrollable($"[{tag}] {device.DisplayName} was not warmed: {warmFailure}");
-                    }
-                }
-                if (connectedHere && await RunJobAsync(node, node.DisconnectDeviceAsync(device.DeviceUri, skipWarmUp: false, CancellationToken.None),
+                // Given back through the warm-up ramp: a plain disconnect is refused while the cooler is on, which would leave
+                // a camera this command cooled connected and cold. With the cooler off the ramp is skipped.
+                if (connectedHere && await RunJobAsync(node, node.WarmAndDisconnectDeviceAsync(device.DeviceUri, CancellationToken.None),
                     CancellationToken.None) is { } disconnectFailure)
                 {
                     consoleHost.WriteScrollable($"{device.DisplayName} was left connected on the node: {disconnectFailure}");
@@ -299,7 +287,19 @@ internal sealed class DarksSubCommand(IConsoleHost consoleHost)
         {
             return started.Error ?? "the node did not take it";
         }
-        var ended = await node.UntilEndedAsync(job, consoleHost.TimeProvider, cancellationToken);
+        NodeResult<JobDto> ended;
+        try
+        {
+            ended = await node.UntilEndedAsync(job, consoleHost.TimeProvider, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // A job stopped here is stopped on the node too, and waited out (a cancel ends it once its work notices): one left
+            // running would hold the camera against the warm-up that gives it back.
+            await node.CancelJobAsync(job.Id, CancellationToken.None);
+            await node.UntilEndedAsync(job, consoleHost.TimeProvider, CancellationToken.None);
+            throw;
+        }
         return ended.Value is { State: JobState.Succeeded } ? null : ended.Value?.Error ?? ended.Error ?? ended.Value?.State.ToString();
     }
 }
