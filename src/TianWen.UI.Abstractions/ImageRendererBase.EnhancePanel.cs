@@ -162,7 +162,13 @@ namespace TianWen.UI.Abstractions
             var ctx = MeasureContext();
             var content = BuildEnhanceTree(state).WStar(1f, BaseInfoPanelWidth, EnhancePopoverMaxWidth);
             var tree = Layout.Builder.Popover(anchor, content, state.EnhancePopover);
-            PaintLayout(ArrangeLayout(tree, new RectF32(0f, 0f, Width, Height), ctx), ctx);
+            _enhanceArranged = ArrangeLayout(tree, new RectF32(0f, 0f, Width, Height), ctx);
+            PaintLayout(_enhanceArranged, ctx);
         }
+
+        private System.Collections.Immutable.ImmutableArray<Layout.ArrangedNode<float>> _enhanceArranged = [];
+
+        /// <summary>The Enhance popover's last arranged tree, what the painted panel says.</summary>
+        internal System.Collections.Immutable.ImmutableArray<Layout.ArrangedNode<float>> EnhanceLayoutForTest => _enhanceArranged;
     }
 }

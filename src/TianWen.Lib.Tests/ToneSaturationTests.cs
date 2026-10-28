@@ -61,7 +61,9 @@ public class ToneSaturationTests
 
         protected override void RenderImageQuad(IPreviewSource? source, ViewerState state, in DisplayRendition rendition,
             WCS? wcs, float left, float top, float right, float bottom, uint projW, uint projH,
-            RenditionSlot slot, bool sampleBeforeChannels) { }
+            RenditionSlot slot, bool sampleBeforeChannels) => LastFinishSaturation = rendition.Stretch.FinishSaturation;
+
+        public float? LastFinishSaturation { get; private set; }
         protected override void RenderHistogramQuad(StretchUniforms stretch, HistogramDisplay histogram, ViewerState state,
             float left, float top, float right, float bottom, uint projW, uint projH) { }
         protected override void DrawEllipseOverlay(float cx, float cy, float semiMajor, float semiMinor,
@@ -77,9 +79,9 @@ public class ToneSaturationTests
         public ImmutableArray<Layout.ArrangedNode<float>> Arranged => ToneLayoutForTest;
     }
 
-    private static (bool Enabled, bool ReasonShown) Open(IPreviewSource source, float dpiScale)
+    private static (Viewer Viewer, ViewerState State, RgbaImageRenderer Renderer) OpenTone(IPreviewSource source, float dpiScale)
     {
-        using var renderer = new RgbaImageRenderer(1800, 1400);
+        var renderer = new RgbaImageRenderer(1800, 1400);
         var viewer = new Viewer(renderer, dpiScale);
         viewer.UploadChannelTexture(ReadOnlySpan<float>.Empty, 0, source.Width, source.Height);
         var state = new ViewerState { ShowFileList = false, ShowHistogram = false, StretchMode = StretchMode.None };
@@ -90,9 +92,62 @@ public class ToneSaturationTests
         UiRouting.Route(viewer, new InputEvent.MouseDown(x, y), new InputEvent.MouseUp(x, y));
         state.TonePopover.IsOpen.ShouldBeTrue();
         viewer.Render(source, state);
-        var reason = viewer.Arranged
-            .Any(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text t } && t.Value == Reason);
-        return (viewer.Saturation.Enabled, reason);
+        return (viewer, state, renderer);
+    }
+
+    private static (bool Enabled, bool ReasonShown) Open(IPreviewSource source, float dpiScale)
+    {
+        var (viewer, _, renderer) = OpenTone(source, dpiScale);
+        using (renderer)
+        {
+            var reason = viewer.Arranged
+                .Any(n => n.Node is Layout.Node.Leaf { Content: Layout.Content.Text t } && t.Value == Reason);
+            return (viewer.Saturation.Enabled, reason);
+        }
+    }
+
+    /// <summary>Moves the dial and reports the finish saturation the quad was drawn with before and after.</summary>
+    private static (bool Enabled, float? Before, float? After) Move(IPreviewSource source, float dpiScale)
+    {
+        var (viewer, state, renderer) = OpenTone(source, dpiScale);
+        using (renderer)
+        {
+            var before = viewer.LastFinishSaturation;
+            viewer.Saturation.OnChanged?.Invoke(1.8f);
+            state.FinishSaturation.ShouldBe(1.8f);
+            viewer.Render(source, state);
+            return (viewer.Saturation.Enabled, before, viewer.LastFinishSaturation);
+        }
+    }
+
+    [Theory]
+    [InlineData(1, SensorType.RGGB, 1f)]   // a colour SER's raw frame
+    [InlineData(1, SensorType.RGGB, 1.5f)]
+    [InlineData(3, SensorType.Color, 1f)]  // its live stack and full stack's master
+    [InlineData(3, SensorType.Color, 1.5f)]
+    public Task MovingTheDialOnAColourSerChangesWhatIsDrawn(int channels, SensorType sensor, float dpi)
+    {
+        var (enabled, before, after) = Move(new ShownSource(channels, sensor), dpi);
+        enabled.ShouldBeTrue();
+        before.ShouldBe(1f);
+        after.ShouldBe(1.8f, "the finish reaches the rendition the quad is drawn with");
+        return Task.CompletedTask;
+    }
+
+    [Theory]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
+    public async Task AMonoFitsDocumentKeepsTheDialDimWithItsReason(float dpi)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var image = new Image([new float[6, 8]], BitDepth.Int16, 65535f, 0f, 0f,
+            new ImageMeta("synth", DateTimeOffset.UnixEpoch, TimeSpan.Zero, FrameType.Light, "",
+                0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
+                RowOrder.TopDown, float.NaN, float.NaN));
+        var mono = await AstroImageDocument.AdoptImageAsync(image, DebayerAlgorithm.None, null, filePath: "mono.fits", cancellationToken: ct);
+        var (enabled, reason) = Open(mono, dpi);
+        enabled.ShouldBeFalse();
+        reason.ShouldBeTrue("the dim dial says why");
     }
 
     [Theory]
