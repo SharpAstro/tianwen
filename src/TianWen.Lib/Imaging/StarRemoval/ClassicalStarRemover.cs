@@ -36,6 +36,11 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 public static class ClassicalStarRemover
 {
     internal const int MaxSubtractRadius = 128;
+
+    // The factor an unsaturated amplitude may stand over the brightest covered sample less the sky. Amplitude is the
+    // continuous Moffat peak and the sample is a pixel MEAN, so a sharp star centred on a pixel corner has a brightest
+    // pixel of only 60 percent of its peak (1.7 times); a diverged fit is 1e12 off, so 4 refuses it and never a star.
+    internal const double OvershootMargin = 4.0;
     private const int MaxFitRadius = 96;
     private const int TileSize = 2 * MaxSubtractRadius;
     private const int RefinementPasses = 2;
@@ -892,11 +897,6 @@ public static class ClassicalStarRemover
             AddModel(fit, -1);
             return fit;
         }
-
-        // The factor an unsaturated amplitude may stand over the brightest covered sample less the sky. Amplitude is the
-        // continuous Moffat peak and the sample is a pixel MEAN, so a sharp star centred on a pixel corner has a brightest
-        // pixel of only 60 percent of its peak (1.7 times); a diverged fit is 1e12 off, so 4 refuses it and never a star.
-        internal const double OvershootMargin = 4.0;
 
         // An amplitude in any channel well above the channel's brightest covered sample less the fit's sky, or not a number.
         private bool Overshoots(Fit fit)
