@@ -64,7 +64,7 @@ what that listing tells users:
     is set from the Tone button. Check ViewerShortcuts still declares exactly
     that; this sentence is itself a correction, so a second drift is costly.
   - Shift+K on a SER capture identifies the planet and the capture, stacks,
-    sharpens and saves the master beside the video; K switches raw and stack.
+    sharpens and saves the master beside the video; K switches raw and the live stack. The SER bar now reads Raw | Stack: Live / Full.
     The frames tell only Jupiter from Saturn, so "works out which planet" leans
     on the path or header for any other; recheck it if PlanetaryIdentification
     changes.
@@ -181,7 +181,7 @@ an addition now has to displace something. Say NO CHANGE and why, if so.
 
 Unreviewed for this release. The queue, unchanged through 10.0.3416: auto-crop to
 the covered area; A/B and blink; Explorer thumbnails for FITS and SER; stacking a
-planetary SER capture in one key (the Auto view, added as a candidate in 10.0.3416).
+planetary SER capture in one key (the Full view, named Auto in 10.0.3416, added as a candidate in 10.0.3416).
 
 
 SUBMISSION

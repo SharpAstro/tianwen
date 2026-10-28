@@ -10,7 +10,7 @@ The engines are done and measured, and almost all of them are reachable only fro
 - **Deep sky** is `tianwen stack` (`StackingPipeline`) and the `tianwen image` verbs (enhance, colour composition, gradient,
   deblur, star removal, LRGB). Nothing in a window drives them, inspects the subs a run rejected, or re-runs one step.
 - **Planetary** is `planetary stack`, `compose`, `sharpen`, `look`, plus one path in a window: `tianwen-fits` stacks a SER through its
-  Raw / Stack / Auto switch (`PlanetaryAuto`), with no step a user can go back to.
+  Raw / Live / Full switch (`PlanetaryAuto`), with no step a user can go back to.
 
 `stacking.md` ruled a stacking GUI out ("A standalone stacking GUI app is not in scope ... If a dedicated stacking workbench becomes
 desirable later it would be a separate project rather than an extension of tianwen", and its open question 4, "No new 'Stacking
@@ -161,7 +161,7 @@ and 1.5.
 
 ### W3 The planetary steps
 
-Tracked as #1643. Import to Export for planetary, at parity with the viewer's Auto view (the same master to the bit for the same capture and options),
+Tracked as #1643. Import to Export for planetary, at parity with the viewer's Full view (the same master to the bit for the same capture and options),
 then each step's own view: the quality curve and the zeroed frames, the alignment points, the derived gains, the colour.
 
 ### W4 Deep sky: import, inspect and calibrate

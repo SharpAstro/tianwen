@@ -923,14 +923,14 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
   is de-rotated unasked only past `PlanetaryDerotationOptions.MinimumTurnPx`, its north decided by the run's
   quarters, never the limb fit.
 - **A recorded capture's best stack is `PlanetaryBestStack`, ONE routine for `planetary stack` and `tianwen-fits`'
-  Auto view** (Shift+K, #1159; `DerotationFor`, `Sharpen`, `OutputPaths`, `PupilFor`,
+  Full view** (Shift+K, #1159; `DerotationFor`, `Sharpen`, `OutputPaths`, `PupilFor`,
   `PlanetaryTelescopePersistence`, #1179), which identifies the capture first as `planetary stack --auto` does
   (`PlanetaryAuto`, `PlanetaryIdentification`; the Best view folded in, #817): the panel's choices are GIVEN, a telescope
   only once set on that capture (`PlanetaryTelescopeSetHere`), the viewer's last one only where the capture names none.
   **A master names its planet in `OBJECT` and opens in `StretchMode.Planetary`** (`StretchMode.ForFrame`, ONE rule
   for the viewer, the thumbnail and `tianwen view`). **The batch stack runs on every core with one walk's bits**
   (`ParallelFor.RunBands`, `PlanetaryFrameBatches`): **never split a fold across FRAMES**, whose sum is ordered.
-- **AUTO is ONE routine, `PlanetaryAuto`, for `planetary stack --auto` and the viewer's Auto view** (#1391): the capture
+- **AUTO is ONE routine, `PlanetaryAuto`, for `planetary stack --auto` and the viewer's Full view** (#1391): the capture
   read by `PlanetaryIdentification` (each fact's source said in words, written into the master), then Best at the
   defaults. **The frames only tell Jupiter from Saturn** (a crescent Venus is as elongated as the rings); **a mount's
   pointing and the path that disagree name neither**; a telescope is remembered per CAMERA (`PlanetaryTelescopeMemory`).
@@ -982,7 +982,7 @@ fake's noise model, the recenter loop: `docs/plans/live-planetary-capture.md`. T
     what a limb pixel takes `--limb-fix` / `--limb-floor`. A new limb option joins its family's prefix.
   - **A master opened as a file gets the stacked view's own layer** (`LiveStackPreviewSource` on a
     `FixedMaster`), never a second sharpening path; **a Save writes what is on show** (`ShownDocument`); **a
-    SER's view is one switch, Raw / Stack / Auto** (`ViewerState.ChoosePlanetaryView`,
+    SER's view is one switch, Raw / Live / Full** (`ViewerState.ChoosePlanetaryView`,
     `PlanetaryBestStackResult.Layer`); **the derived dials never clamp at a master's peak** (`SliderOptions`,
     `Clamp = false`).
   - **Saturn is sharpened as Jupiter is** (#1184, `ClearRadiiAt` at most 1); **its globe turns under rings that
