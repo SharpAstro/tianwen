@@ -3644,6 +3644,69 @@ guard lost: the nucleus at most 5 % in every channel, purity at most 1.0 %, A's 
 dig came from the training stars' wings; (1) missing with (2) holding means the wings were short but the hole is the cores;
 both missing sends the next arm to the cores. The judges' rows stay the ceiling.
 
+#### The glow row's history and its bar (#1871, 2026-10-28)
+
+The row (`training/star-removal/glow_ring.py`, field `And glow` / `Tar glow` of `training/README.md`'s "Scoring an arm" table) reads the
+light a remover leaves in a wide halo around a bright clipped star, which the core rows do not see. Every number is a sum over the
+10 to 30 px annulus of the starless plate's excess over its own 45 to 60 px ring, in the export's stretch and the master's own noise
+sigma (sigma-pixels). **Thresholds fixed once from the INPUT masters** (`--derive-threshold`, a tenth of the input's own median
+halo, per channel R / G / B; kept in the local config, never re-derived from an arm's plate): Andromeda 273.9 / 187.1 / 148.6 (71
+stars, input median 2739 / 1871 / 1486), Tarantula 252.6 / 225.7 / 153.0 (13 stars), Sagittarius 123.3 on its one plane (7 stars).
+
+Median of the glow, R / G / B, in sigma-pixels (p90 in `score.json`; `score_whole.py --plates` on each arm's linked whole-master
+plates, no inference). The input's own halo is the ceiling the removal starts from, so a lower number is cleaner and a negative one
+is a hole:
+
+| arm | Andromeda median | Andromeda p90 | Tarantula median | Tarantula p90 | Sag median |
+|---|---|---|---|---|---|
+| R2i seed 0 | 420 / 488 / 207 | 1912 / 1838 / 1197 | 1501 / 1269 / 721 | 4224 / 3327 / 2455 | 1590 |
+| R2i seed 1 | 436 / 460 / 324 (M31 8-view plate only) | 2060 / 1783 / 1528 | missing | missing | missing |
+| R2s2 | 497 / 472 / 292 | 1997 / 2072 / 1227 | 1441 / 1161 / 653 | 3724 / 3398 / 2587 | 1687 |
+| R2t | 499 / 547 / 305 | 1960 / 1552 / 1491 | 1748 / 1395 / 897 | 3191 / 3004 / 2482 | 1972 |
+| R2u | 574 / 494 / 379 | 2147 / 1691 / 1407 | 1741 / 1526 / 912 | 4606 / 3788 / 2840 | 1996 |
+| R2v | 415 / 501 / 307 | 1911 / 1890 / 1236 | 1692 / 1491 / 871 | 4286 / 3401 / 2422 | 1817 |
+| R2w | 254 / 447 / 444 | 1323 / 1685 / 1487 | 1960 / 1748 / 1020 | 4386 / 3869 / 2579 | 1957 |
+| R2x | 556 / 638 / 325 | 2120 / 2233 / 1424 | 1734 / 1520 / 911 | 4698 / 3749 / 2357 | 1918 |
+| R3a seed 0 | 566 / 680 / 366 | 1840 / 1938 / 1869 | 2089 / 1490 / 1025 | 4633 / 3548 / 2571 | 2278 |
+| R3a seed 1 | 701 / 700 / 334 | 2266 / 1721 / 1610 | 2047 / 1572 / 955 | 4538 / 3259 / 2392 | 2233 |
+| R3b seed 0 | 577 / 512 / 320 | 2067 / 2272 / 1592 | 1903 / 1559 / 920 | 4392 / 3615 / 2571 | 1995 |
+| R3b seed 1 | 723 / 481 / 440 | 2426 / 1933 / 1721 | 2039 / 1593 / 952 | 4516 / 4057 / 2653 | 2147 |
+| StarNet2 (judge) | 562 / 401 / 459 | 1241 / 837 / 1042 | 746 / 885 / 213 | 1118 / 1277 / 593 | 798 |
+| SXT (judge) | 157 / 243 / 391 | 710 / 575 / 898 | -39 / -31 / -55 | 169 / 203 / 16 | 332 |
+
+**Missing, named.** R2i seed 1 has no whole-master Tarantula or Sagittarius plates on this machine (only M31's 8-view plate,
+`m31_r2i_synth4_s1_v8.fits`, was kept), so its row is Andromeda alone and its seed 0 comparison uses the same 8-view plate (401 /
+534 / 211; the single-view row above is 420 / 488 / 207). R3a and R3b's plates are those of the F2 whole-master scorecard
+(`f2-whole-master/r3a_s0` and the rest; PR #1868). R2u and R2x are listed for history only.
+
+**What the row says.** (1) Every arm of ours keeps a glow of 200 to 700 sigma-pixels in Andromeda and 650 to 2100 in the Tarantula,
+between a seventh and four fifths of the input's own halo (medians 2739 / 1871 / 1486 in Andromeda, 2526 / 2257 / 1530 in the Tarantula): the visible glow is
+real and no arm has cleared it. (2) StarNet2 leaves a third of that in the Tarantula (746 / 885 / 213) and SXT removes it with a
+slight over-removal (negative medians: it digs the sky below the ring), which is the gap a later arm is measured against. (3) The
+**share above threshold** is not discriminating: a tenth of the input's halo sits far below what any of these plates leaves, so
+44 to 90 % of Andromeda's stars and 92.3 % (12 of 13) of the Tarantula's are above it for every arm of ours, in steps of 7.7 points
+on the Tarantula. Read the median and p90; keep the share as a gate that only a judge-level arm moves (the judges' 0 to 8 % on the
+Tarantula).
+
+**The seed spread, the bar.** Two seeds of one recipe, per channel R / G / B, in median sigma-pixels:
+
+| pair | Andromeda | Tarantula |
+|---|---|---|
+| R2i seeds 0 and 1 (M31 8-view plate) | 35 / 74 / 113 | not scored |
+| R3a seeds 0 and 1 | 135 / 20 / 32 | 42 / 82 / 70 |
+| R3b seeds 0 and 1 | 145 / 31 / 119 | 137 / 34 / 32 |
+
+**The bar a later arm must clear: a glow median lower than the best arm of ours by more than the widest spread, 145 / 74 / 119 in
+Andromeda and 137 / 82 / 70 in the Tarantula** (R, G, B), on at least two of three channels. R2i's seed mean is 418 / 497 / 268 in Andromeda. A single-seed gap inside those numbers is noise. R2w's red (254, 166 under R2i seed 0) is
+the one arm-level difference that clears the Andromeda red bar, and it is paid for in blue (444, 237 over R2i seed 0).
+
+**R3b's dig penalty in the glow row.** R3b is R3a plus the dig penalty, whose A's-draws read showed the penalty did not cost the
+bright-star dig. The glow row separates them only in Andromeda green: the two-seed mean falls from 690 (R3a) to 497 (R3b), 193
+under it against a 20 to 31 seed spread, while red (633 to 650) and blue (350 to 380) stay inside the spread, and the Tarantula
+moves by 97 or less in every channel (R3a 2068 / 1531 / 990, R3b 1971 / 1576 / 936). So the dig penalty did not raise the glow
+(it did not buy a bright-star hole at the glow's expense), and it lowered Andromeda's green glow by more than a seed spread. R3b
+does not reach the bar against R2i: its seed mean is 650 / 497 / 380 against R2i's 418 / 497 / 268 in Andromeda.
+
 #### Round 2's first reads: R2s2 killed, and R2u gives the whole masters a seed spread (2026-10-23)
 
 Every row is `score-whole.py` at one view:
