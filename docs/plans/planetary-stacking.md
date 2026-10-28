@@ -821,8 +821,7 @@ only a caller that writes reports. `PlanetaryStackProgress.Words` is the one pla
 
 `tianwen planetary stack --auto` on the 17,934-frame Saturn capture `2023-10-10-1320_8-CK-L-Sat_pipp.ser` (256x160, split CFA, de-rotated;
 8,967 frames kept), stopwatches in the code of main before the change. The progress read 99 percent from the last counted load, which came
-at 1142.3 s of the stack's 1291.8 s and 28,169 loads in all (the estimate counted 27,001: the limb fits made 268 more, plus the
-reference frame itself), and the run took 1707.5 s:
+at 1142.3 s of the stack's 1291.8 s and 28,169 loads in all (the estimate counted 27,901, 17,934 graded + 1,000 reference + 8,967 folded: the limb fits made 268 more), and the run took 1707.5 s:
 
 | Step | Seconds |
 |---|---|
@@ -839,7 +838,7 @@ After the change, stage times from the CLI (run of 1675.5 s):
 | Stage | Seconds |
 |---|---|
 | Stacking | 994.6 |
-| Fitting the planet's turn | 172.3 |
+| Fitting the planet's turn (the limb fits and the derotated reference stack of 1,000 frames that runs inside the stage) | 172.3 |
 | Finishing the master | 120.7 |
 | Sharpening | 220.8 |
 | Balancing colour | 166.7 |

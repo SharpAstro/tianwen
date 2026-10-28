@@ -85,7 +85,6 @@ public class PlanetaryBestStackTests
         using var stream = new InMemoryFrameStream(capture.Frames, capture.Times);
 
         var result = await PlanetaryBestStack.RunAsync(stream, options, progress, TestContext.Current.CancellationToken);
-        var reportsAtReturn = progress.Values.Count;
 
         try
         {
@@ -96,9 +95,13 @@ public class PlanetaryBestStackTests
                 PlanetaryStackStage.Finishing, PlanetaryStackStage.Sharpening]);
             stages.Skip(5).ShouldAllBe(s => s == PlanetaryStackStage.BalancingColour);
             AssertStackingRisesToItsEnd(progress);
-            // Everything the stack loads was counted: the last Stacking report is its end and no load came after it.
             progress.Values[^1].Fraction.ShouldBe(1);
-            progress.Values.Count.ShouldBe(reportsAtReturn);
+            // The de-rotation's loads are counted against their own estimate: its fraction climbs to its end, never short of it
+            // (the 99 % a stage holds until the next stage starts), and it ends at 1.
+            var turning = progress.Values.Where(p => p.Stage == PlanetaryStackStage.Derotating).Select(p => p.Fraction).ToArray();
+            turning[0].ShouldBe(0);
+            turning[^1].ShouldBe(1);
+            turning[^2].ShouldBeGreaterThanOrEqualTo(0.9, "its loads were counted against the estimate, which they reached");
             // The de-rotation's own loads were made, and the stack counted them (more reads than the plain run's grade, reference and fold).
             stream.LoadCount.ShouldBeGreaterThan(41 + Math.Min(options.Stack.ReferenceFrames, 41) + (int)Math.Ceiling(41 * options.Stack.KeepFraction));
         }

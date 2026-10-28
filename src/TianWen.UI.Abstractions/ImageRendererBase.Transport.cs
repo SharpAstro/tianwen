@@ -49,6 +49,15 @@ namespace TianWen.UI.Abstractions
         // disk I/O. The scrub track rect is captured for the press/drag -> frame mapping in ScrubAt.
         // -----------------------------------------------------------------------
 
+        // The view switch's fixed words, named once for the segments and for the width they are sized by.
+        private const string RawLabel = "Raw";
+        private const string StackLabel = "Stack";
+        private const string StackPendingLabel = "Stack...";
+
+        // Every word a segment can take: a live capture offers Raw and Stack, a SER also the Auto stack's stage words.
+        private static readonly string[] LiveViewLabels = [RawLabel, StackLabel, StackPendingLabel];
+        private static readonly string[] SerViewLabels = [.. LiveViewLabels, .. ViewerState.AutoSegmentLabels];
+
         /// <summary>The play / pause button's fill, which the bar draws its mark into.</summary>
         private const string PlayPauseFillKey = "PlayPause";
 
@@ -81,22 +90,29 @@ namespace TianWen.UI.Abstractions
             // video as much as the live stack (the owner, 2026-10-21), so the labels went back to the RAW / STACK toggle's words. "Stack..."
             // while the live stack's first master is still computing, and the Auto stack's progress on its own segment while it runs (the view under it
             // stays on show until it ends). Arranged in device pixels at DesignScale.One, as the toolbar's run is, since the bar around it is.
-            var stackLabel = state.ShowStacked && !state.ShowAuto && _source is not LiveStackPreviewSource ? "Stack..." : "Stack";
+            var stackLabel = state.ShowStacked && !state.ShowAuto && _source is not LiveStackPreviewSource ? StackPendingLabel : StackLabel;
             var autoLabel = state.AutoSegmentLabel;
             ReadOnlySpan<Layout.ButtonGroupOption<PlanetaryView>> views =
             [
-                new(PlanetaryView.Frames, "Raw") { Hit = new HitResult.ButtonHit("ViewFrames"), Tooltip = ViewerShortcuts.RawStack.TooltipText },
+                new(PlanetaryView.Frames, RawLabel) { Hit = new HitResult.ButtonHit("ViewFrames"), Tooltip = ViewerShortcuts.RawStack.TooltipText },
                 new(PlanetaryView.Live, stackLabel) { Hit = new HitResult.ButtonHit("ViewLive"), Tooltip = ViewerShortcuts.RawStack.TooltipText },
                 new(PlanetaryView.Auto, autoLabel) { Hit = new HitResult.ButtonHit("ViewAuto"), Tooltip = ViewerShortcuts.AutoView.TooltipText },
             ];
             // Every segment as wide as the widest label any of them takes, so a running Auto stack never moves the scrub track.
+            // A live capture (no SER on screen, the GUI's planetary tab) has no recording to stack whole: Raw and Stack only, and its
+            // segments take only those labels' width, never the Auto stack's stage words.
+            var live = state.IsLiveCapture;
+            var widestLabels = live ? LiveViewLabels : SerViewLabels;
+            var segmentText = 0f;
+            foreach (var label in widestLabels)
+            {
+                segmentText = MathF.Max(segmentText, MeasureText(label, fs));
+            }
             var viewStyle = PlanetaryChoiceStyle with
             {
                 Gap = pad,
-                SegmentWidth = ViewerState.AutoSegmentLabels.Max(l => MeasureText(l, fs)) + pad * 2,
+                SegmentWidth = segmentText + pad * 2,
             };
-            // A live capture (no SER on screen, the GUI's planetary tab) has no recording to stack whole: Raw and Stack only.
-            var live = state.IsLiveCapture;
             var offered = live ? views[..2] : views;
             var viewSwitch = Layout.Builder.ButtonGroup(offered, state.PlanetaryView, state.ChoosePlanetaryView, viewStyle, fs);
             var controlsCtx = MeasureContext(scale: DesignScale.One);
