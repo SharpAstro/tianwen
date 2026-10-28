@@ -33,6 +33,7 @@ public class GuiBackForwardTests
                 .AddLogging()
                 .AddSingleton<ITimeProvider>(new SystemTimeProvider())
                 .AddSingleton(Substitute.For<ICelestialObjectDB>())
+                .AddSingleton<LiveViewController>()
                 .BuildServiceProvider();
 
             var chrome = Substitute.For<IGuiChrome>();
