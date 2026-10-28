@@ -41,6 +41,13 @@ public sealed class GuiNavigationStrip<TSurface>(Renderer<TSurface> renderer) : 
     /// </summary>
     public const float BaseHeight = 28f;
 
+    /// <summary>
+    /// The strip's height in device pixels, <see cref="BaseHeight"/> at the STRIP's own scale. The host reads this to start
+    /// the rail's tab cells below it, so the box the strip paints into and the space the host reserves are one number
+    /// and cannot disagree if the two widgets ever carry different scales.
+    /// </summary>
+    public float Height => BaseHeight * DpiScale;
+
     // A step mark a little larger than the tab glyphs' x-height read, in design units like the rest of the tree.
     private const float MarkSize = 14f;
 

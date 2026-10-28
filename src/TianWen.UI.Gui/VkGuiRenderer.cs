@@ -321,8 +321,6 @@ namespace TianWen.UI.Gui
 
         // Scaled accessors
         private float SidebarWidth => BaseSidebarWidth * DpiScale;
-        // Back and Forward sit at the top of the rail; the tab cells start below this (one constant, the strip's own).
-        private float NavigationStripHeight => GuiNavigationStrip<VulkanContext>.BaseHeight * DpiScale;
         private float StatusBarHeight => BaseStatusBarHeight * DpiScale;
         private float FontSize => BaseFontSize * DpiScale;
 
@@ -747,7 +745,8 @@ namespace TianWen.UI.Gui
             // Each rail cell declares its tooltip on its own region now (DIR.Lib's tab strip, opening to the
             // right of the rail), so it reaches the router like any other and RenderTooltip draws it.
             // Back and Forward above the tab cells, in the rail's own width; the cells start below them.
-            var stripH = NavigationStripHeight;
+            // Back and Forward sit at the top of the rail; the tab cells start below the height the strip itself reports.
+            var stripH = _navigationStrip.Height;
             _navigationStrip.Render(new RectF32(0f, StatusBarHeight, sw, stripH));
             _sidebar.Render(new RectF32(0f, StatusBarHeight + stripH, sw, _height - StatusBarHeight - stripH),
                 _sidebarItems, appState.ActiveTab);
