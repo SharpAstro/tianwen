@@ -37,9 +37,11 @@ public enum StarProfileFamily
 /// <param name="HaloLogGain">The natural log of the factor the profile's wings are drawn at (<see cref="WingFactor"/>):
 /// 0, the default, draws the profile as measured; ln 2 draws every wing past 1.5 FWHM twice as bright with the core
 /// untouched (<see cref="ChannelVariation"/>). A log, so that <c>default(StarProfile)</c> means no change.</param>
+/// <param name="Outer">The rig's outer halo (<see cref="OuterHalo"/>, #1870), added under everything above and scaled with the
+/// star's amplitude as the profile is; <c>default</c> draws none.</param>
 public readonly record struct StarProfile(
     StarProfileFamily Family, double FwhmPx, double Beta, double AxisRatio, double PositionAngleRad,
-    ImmutableArray<float> Halo = default, double HaloAlpha = 0.0, double HaloLogGain = 0.0) : IPointProfile
+    ImmutableArray<float> Halo = default, double HaloAlpha = 0.0, double HaloLogGain = 0.0, OuterHalo Outer = default) : IPointProfile
 {
     /// <summary>Where the wing gain starts and where it is whole, in FWHM along the elliptical radius.</summary>
     public const double WingStartFwhm = 0.75, WingFullFwhm = 1.5;
@@ -115,6 +117,7 @@ public readonly record struct StarProfile(
         }
         // A brighter wing reaches the fraction farther out; read at fraction over the gain, which is exact past the ramp and
         // only generous inside it. A dimmer wing keeps the measured profile's reach, never less.
+        var requested = fraction;
         if (HaloLogGain > 0.0)
         {
             fraction /= HaloGain;
@@ -134,7 +137,11 @@ public readonly record struct StarProfile(
                 }
             }
         }
-        return reff / Math.Sqrt(Math.Clamp(AxisRatio, 1e-3, 1.0));
+        var reach = reff / Math.Sqrt(Math.Clamp(AxisRatio, 1e-3, 1.0));
+        // The outer halo is round and not under the wing gain; the profile is drawn out as far as either reaches. Where the
+        // profile and the halo together pass the fraction is farther than either alone, which this does not chase: the halo's
+        // own reach at the fraction is generous enough (its tail is the one that is long).
+        return Outer.IsNone ? reach : Math.Max(reach, Outer.RadiusAtFraction(requested));
     }
 
     private bool HasHalo => !Halo.IsDefaultOrEmpty && HaloAlpha > 0;
@@ -178,11 +185,11 @@ public readonly record struct StarProfile(
         var near = Math.Max(4.0, 2.0 * FwhmPx);
         var far = Math.Max(8.0, 4.0 * FwhmPx);
         var sum = d2 >= far * far ? At(dx, dy) : PixelQuadrature.Mean(this, dx, dy, threePoints: d2 < near * near);
-        if (!HasHalo)
+        if (HasHalo)
         {
-            return sum;
+            var r = Math.Sqrt(EllipticalR2(dx, dy));
+            sum = Math.Max(0.0, sum + WingFactor(r) * RadialCorrection.Interpolate(Halo.AsSpan(), r * HaloAlpha / Alpha));
         }
-        var r = Math.Sqrt(EllipticalR2(dx, dy));
-        return Math.Max(0.0, sum + WingFactor(r) * RadialCorrection.Interpolate(Halo.AsSpan(), r * HaloAlpha / Alpha));
+        return Outer.IsNone ? sum : sum + Outer.PixelMean(dx, dy);
     }
 }

@@ -102,6 +102,7 @@ public sealed class InjectionPopulation
     private ChannelRelation? _ownRelation;
     private LuminosityFunction? _luminosity;
     private PoolStar[] _faintColours = [];
+    private ImmutableArray<OuterHalo> _outerHalo;
 
     private InjectionPopulation(
         int width, int height, int channels, BitMatrix? absent, (double Fwhm, double Beta)[] psf, (double X, double Y)[] sites,
@@ -195,8 +196,12 @@ public sealed class InjectionPopulation
     public static InjectionPopulation Build(
         ImmutableArray<FittedStar> catalogue, Image master, Image plate, double scale, IReadOnlyList<(double Fwhm, double Beta)> psf, BitMatrix? absent,
         StarlessFieldProfile? field = null, bool lobes = false, StarShapeRow? shape = null, double? faintFloor = null,
-        ChannelWingEnvelope? wingEnvelope = null)
+        ChannelWingEnvelope? wingEnvelope = null, ImmutableArray<OuterHalo> outerHalo = default)
     {
+        if (!outerHalo.IsDefault && outerHalo.Length != master.ChannelCount)
+        {
+            throw new ArgumentException($"{outerHalo.Length} outer halos for a {master.ChannelCount}-channel master", nameof(outerHalo));
+        }
         if (wingEnvelope is not null && field is null)
         {
             throw new ArgumentException("a wing relation envelope holds the master's field profile; it needs one", nameof(wingEnvelope));
@@ -337,7 +342,7 @@ public sealed class InjectionPopulation
         }
 
         return new InjectionPopulation(width, height, channels, absent, psf.ToArray(), sites, countedSites, amplitudes, saturated, fallbackClips,
-            moments.ToArray(), field) { _shape = shape, _luminosity = luminosity, _faintColours = faintColours, _wingClamp = wingClamp };
+            moments.ToArray(), field) { _shape = shape, _luminosity = luminosity, _faintColours = faintColours, _wingClamp = wingClamp, _outerHalo = outerHalo };
     }
 
     /// <summary>
@@ -635,6 +640,10 @@ public sealed class InjectionPopulation
                 ? new StarProfile(family, field.Channels[c].Fwhm, field.Channels[c].Beta, q, theta, field.Channels[c].Table, field.Channels[c].TableAlpha,
                     wingLogGains.IsDefault ? 0.0 : wingLogGains[c])
                 : new StarProfile(family, _psf[c].Fwhm, _psf[c].Beta, q, theta));
+            if (!_outerHalo.IsDefault)
+            {
+                profiles[c] = profiles[c] with { Outer = _outerHalo[c] };
+            }
         }
         return profiles.MoveToImmutable();
     }

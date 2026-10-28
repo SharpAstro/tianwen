@@ -2,6 +2,7 @@ using Shouldly;
 using System;
 using System.Collections.Immutable;
 using TianWen.Lib.Geometry;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -1676,6 +1677,75 @@ namespace TianWen.Lib.Tests
             await Should.ThrowAsync<ArgumentException>(async () => await DatasetDegradationExporter.RunAsync(noFile, logger: null, TestContext.Current.CancellationToken));
             var cut = held with { OutDir = Path.Combine(_root, "stars-cut"), ChannelWingCut = 0.5 };
             await Should.ThrowAsync<ArgumentException>(async () => await DatasetDegradationExporter.RunAsync(cut, logger: null, TestContext.Current.CancellationToken));
+        }
+
+        /// <summary>
+        /// #1870: <c>OuterHaloPath</c> draws a per-rig outer halo under every injected star. Off, no row says anything of it and
+        /// a second run is byte-identical; on, the stars keep their places and brightness, each row records its rig's term, and
+        /// the tiles change; a profile file without the master's rig draws nothing, says so, and leaves every tile as off.
+        /// </summary>
+        [Fact]
+        public async Task AnOuterHaloIsDrawnPerRigRecordedPerStarAndOffChangesNothing()
+        {
+            var bake = BuildBakeWithHalves();
+            var (platesRoot, _) = await BuildPlatesStoreAsync(bake);
+            string Profile(string rig)
+            {
+                var median = string.Join(",", Enumerable.Range(0, 41).Select(static r =>
+                    (4e-3 * Math.Pow(1.0 + (r * r / 36.0), -1.2)).ToString("R", CultureInfo.InvariantCulture)));
+                return $"{{\"schema\":1,\"rigs\":{{\"{rig}\":{{\"real\":{{\"core1\":{{\"stars\":50,\"channels\":{{\"L\":{{\"linear\":{{\"median\":[{median}]}}}}}}}}}}}}}}}}";
+            }
+            var present = Path.Combine(_root, "halo-present.json");
+            var absent = Path.Combine(_root, "halo-absent.json");
+            await File.WriteAllTextAsync(present, Profile("TestCam"), TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(absent, Profile("OtherCam"), TestContext.Current.CancellationToken);
+
+            var off = new DatasetDegradationExporter.Options(bake, Path.Combine(_root, "halo-off"),
+                Mode: DatasetDegradationExporter.DegradationMode.Stars, Draws: 2, CellsPerSession: 0, Seed: 5,
+                NoiseAnchor: DatasetDegradationExporter.NoiseAnchorKind.MasterCalibration, PlatesRoot: platesRoot, SaturatedFraction: 1.0);
+            var again = off with { OutDir = Path.Combine(_root, "halo-off-again") };
+            var on = off with { OutDir = Path.Combine(_root, "halo-on"), OuterHaloPath = present };
+            var missing = off with { OutDir = Path.Combine(_root, "halo-missing"), OuterHaloPath = absent };
+            foreach (var o in new[] { off, again, on, missing })
+            {
+                (await DatasetDegradationExporter.RunAsync(o, logger: null, TestContext.Current.CancellationToken)).Failed.ShouldBe(0);
+            }
+            string Manifest(DatasetDegradationExporter.Options o)
+                => File.ReadAllText(Path.Combine(o.OutDir, DatasetDegradationExporter.InjectionManifestFileName));
+            string[] TileFiles(DatasetDegradationExporter.Options o)
+                => [.. Directory.GetFiles(Path.Combine(o.OutDir, "tiles"), "*", SearchOption.AllDirectories)
+                    .Select(f => Path.GetRelativePath(o.OutDir, f)).Order(StringComparer.Ordinal)];
+            var files = TileFiles(off);
+            files.Length.ShouldBeGreaterThan(4);
+
+            Manifest(off).ShouldNotContain("OuterHalo", Case.Sensitive, "off, no row says anything of a halo");
+            Manifest(again).ShouldBe(Manifest(off));
+            foreach (var file in files)
+            {
+                File.ReadAllBytes(Path.Combine(again.OutDir, file)).ShouldBe(File.ReadAllBytes(Path.Combine(off.OutDir, file)), file);
+                File.ReadAllBytes(Path.Combine(missing.OutDir, file)).ShouldBe(File.ReadAllBytes(Path.Combine(off.OutDir, file)), $"a rig the file lacks draws none: {file}");
+            }
+            Manifest(missing).ShouldBe(Manifest(off));
+
+            var before = ReadInjectionRows(off.OutDir);
+            var after = ReadInjectionRows(on.OutDir);
+            after.Length.ShouldBe(before.Length);
+            after.SelectMany(static i => i.Stars).ShouldNotBeEmpty();
+            foreach (var (b, a) in before.Zip(after))
+            {
+                a.Stars.Length.ShouldBe(b.Stars.Length);
+                for (var i = 0; i < a.Stars.Length; i++)
+                {
+                    (a.Stars[i].X, a.Stars[i].Y).ShouldBe((b.Stars[i].X, b.Stars[i].Y), "the stars keep their places");
+                    a.Stars[i].Amplitude.ShouldBe(b.Stars[i].Amplitude, "and their brightness");
+                    var halo = a.Stars[i].OuterHalo.ShouldNotBeNull();
+                    halo.Length.ShouldBe(3);
+                    halo.ShouldAllBe(static h => h.Rig == "TestCam" && h.Fraction > 0 && h.AlphaPx > 0 && h.Beta > 0);
+                    b.Stars[i].OuterHalo.ShouldBeNull();
+                }
+            }
+            files.ShouldContain(f => !File.ReadAllBytes(Path.Combine(on.OutDir, f)).AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(off.OutDir, f))),
+                "the halo changes at least one tile");
         }
 
         /// <summary>
