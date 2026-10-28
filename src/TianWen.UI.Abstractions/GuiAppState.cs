@@ -48,8 +48,13 @@ public readonly record struct NotificationEntry(
 /// wants to come back to, not a copy of every tab's state, so a tab's scroll, zoom and field contents are not in it.
 /// </summary>
 /// <param name="Tab">The tab on screen.</param>
-/// <param name="PlannerSelectedTarget">The planner's <see cref="PlannerState.SelectedTargetIndex"/> at that moment.</param>
-public readonly record struct GuiPlace(GuiTab Tab, int PlannerSelectedTarget);
+/// <param name="PlannerSelected">
+/// The planner's selected <see cref="Target"/> at that moment, or null with nothing selected. The target and never its
+/// <see cref="PlannerState.SelectedTargetIndex"/>: the index is a row of <see cref="PlannerActions.GetFilteredTargets"/>,
+/// whose rows move whenever a pin, a recompute or a filter changes while the person is away, so a stored index would come
+/// back on whatever target slid under it (the same trap <c>ToggleProposal(followPinnedSelection:)</c> exists for).
+/// </param>
+public readonly record struct GuiPlace(GuiTab Tab, Target? PlannerSelected);
 
 public class GuiAppState
 {
@@ -206,7 +211,19 @@ public class GuiAppState
     internal PlannerState? Planner { get; set; }
 
     /// <summary>The place the window is at now: the tab on screen and the cheap per-tab state a return should bring back.</summary>
-    public GuiPlace CurrentPlace() => new GuiPlace(_activeTab, Planner?.SelectedTargetIndex ?? 0);
+    public GuiPlace CurrentPlace() => new GuiPlace(_activeTab, SelectedPlannerTarget());
+
+    private Target? SelectedPlannerTarget()
+    {
+        if (Planner is not { } planner)
+        {
+            return null;
+        }
+
+        var filtered = PlannerActions.GetFilteredTargets(planner);
+        var index = planner.SelectedTargetIndex;
+        return index >= 0 && index < filtered.Count ? filtered[index].Target : null;
+    }
 
     /// <summary>
     /// Writes <paramref name="tab"/> as the tab on screen WITHOUT recording a move: a correction (the Equipment tab while
@@ -226,9 +243,11 @@ public class GuiAppState
         try
         {
             ActiveTab = place.Tab;
-            if (Planner is { } planner)
+            // Only a place ON the planner owns its selection: a Back or Forward to the atlas must not rewrite the
+            // planner's cursor behind it.
+            if (place.Tab == GuiTab.Planner && Planner is { } planner)
             {
-                planner.SelectedTargetIndex = place.PlannerSelectedTarget;
+                RestorePlannerSelection(planner, place.PlannerSelected);
             }
         }
         finally
@@ -238,6 +257,30 @@ public class GuiAppState
 
         return true;
     }
+
+    /// <summary>
+    /// Selects <paramref name="target"/> at its row in the planner's CURRENT list, whichever row that is now
+    /// (<see cref="PlannerActions.IsSameObject"/>, so a planet resolved at another instant is still the same planet).
+    /// A target that is gone leaves the cursor where it is, clamped into the list.
+    /// </summary>
+    private static void RestorePlannerSelection(PlannerState planner, Target? target)
+    {
+        var filtered = PlannerActions.GetFilteredTargets(planner);
+        if (target is { } wanted)
+        {
+            for (var i = 0; i < filtered.Count; i++)
+            {
+                if (PlannerActions.IsSameObject(filtered[i].Target, wanted))
+                {
+                    planner.SelectedTargetIndex = i;
+                    return;
+                }
+            }
+        }
+
+        planner.SelectedTargetIndex = Math.Clamp(planner.SelectedTargetIndex, 0, Math.Max(0, filtered.Count - 1));
+    }
+
     public Profile? ActiveProfile { get; set; }
 
     /// <summary>
