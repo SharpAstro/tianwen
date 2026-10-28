@@ -3681,12 +3681,16 @@ is a hole:
 
 **What the row says.** (1) Every arm of ours keeps a glow of 200 to 700 sigma-pixels in Andromeda and 650 to 2100 in the Tarantula,
 between a seventh and four fifths of the input's own halo (medians 2739 / 1871 / 1486 in Andromeda, 2526 / 2257 / 1530 in the Tarantula): the visible glow is
-real and no arm has cleared it. (2) StarNet2 leaves a third of that in the Tarantula (746 / 885 / 213) and SXT removes it with a
-slight over-removal (negative medians: it digs the sky below the ring), which is the gap a later arm is measured against. (3) The
+real and no arm has cleared it. (2) StarNet2 leaves a half to a third of that in the Tarantula (746 / 885 / 213 against our arms' 1441 to 2089 / 1161 to 1748 /
+653 to 1025: about 0.36 to 0.52 in red, 0.51 to 0.76 in green, 0.21 to 0.33 in blue) and SXT removes it with a slight
+over-removal (negative medians: it digs the sky below the ring), which is the gap a later arm is measured against. In Andromeda
+StarNet2 (562 / 401 / 459) is not below ours: R2w and R2i seed 0 beat it in red and blue, so the gap is a Tarantula one. (3) The
 **share above threshold** is not discriminating: a tenth of the input's halo sits far below what any of these plates leaves, so
 44 to 90 % of Andromeda's stars and 92.3 % (12 of 13) of the Tarantula's are above it for every arm of ours, in steps of 7.7 points
-on the Tarantula. Read the median and p90; keep the share as a gate that only a judge-level arm moves (the judges' 0 to 8 % on the
-Tarantula).
+on the Tarantula. Read the median and p90. The share does not even separate the judges: StarNet2's Tarantula medians (746 / 885 / 213) sit above the
+thresholds (252.6 / 225.7 / 153.0), and with 13 stars the median is the 7th value, so at least 7 of 13 stars (53.8 %) are above in
+every channel. Only SXT (p90 169 / 203 / 16, all under the thresholds, so at most one star above) is in the 0 to 8 % range. On
+these numbers the share separates SXT from everything else, StarNet2 included, so it is no gate for a judge-level arm short of SXT.
 
 **The seed spread, the bar.** Two seeds of one recipe, per channel R / G / B, in median sigma-pixels:
 
