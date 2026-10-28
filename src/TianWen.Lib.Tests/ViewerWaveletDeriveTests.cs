@@ -217,6 +217,13 @@ public class ViewerWaveletDeriveTests
         WaveletDerivation.Caption(TimeSpan.FromSeconds(seconds + 0.4)).ShouldBe(expected);
 
     [Fact]
+    public void TheDeriveCaptionShowsTheStageBeforeTheTimeElapsed()
+    {
+        WaveletDerivation.Caption(TimeSpan.FromSeconds(40.2), TianWen.Lib.Imaging.Planetary.PlanetaryStackStage.Sharpening).ShouldBe("Sharpening, 40 s so far");
+        WaveletDerivation.Caption(TimeSpan.FromSeconds(80), TianWen.Lib.Imaging.Planetary.PlanetaryStackStage.BalancingColour).ShouldBe("Balancing colour, 1 min 20 s so far");
+    }
+
+    [Fact]
     public void ARunningDerivationsCaptionPromisesNoDuration()
     {
         var caption = WaveletDerivation.Caption(TimeSpan.FromSeconds(3));
