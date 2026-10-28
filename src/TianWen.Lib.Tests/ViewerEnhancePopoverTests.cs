@@ -432,7 +432,7 @@ namespace TianWen.Lib.Tests
             {
                 if (region.Result is HitResult.ButtonHit { Action: "EnhancePanelBackground" })
                 {
-                    return new RectF32(region.X, region.Y, region.X + region.Width, region.Y + region.Height);
+                    return new RectF32(region.X, region.Y, region.Width, region.Height);
                 }
             }
             throw new InvalidOperationException("the Enhance popover registered no body");
@@ -447,7 +447,7 @@ namespace TianWen.Lib.Tests
         {
             var ct = TestContext.Current.CancellationToken;
 
-            async Task<RectF32> PanelWith(string? note)
+            async Task<(RectF32 Panel, float ContentBottom)> PanelWith(string? note)
             {
                 using var renderer = new RgbaImageRenderer((uint)(designWidth * dpiScale), (uint)(TallH * dpiScale));
                 var (viewer, state, _) = await OpenAsync(renderer, dpiScale, ct, s =>
@@ -456,14 +456,38 @@ namespace TianWen.Lib.Tests
                     s.WaveletDerived = true;
                     s.WaveletDeriveNote = note;
                 });
-                return PanelRect(viewer);
+                var panel = PanelRect(viewer);
+                var bottom = 0f;
+                foreach (var region in viewer.GetRegisteredRegions())
+                {
+                    if (region.Result is not HitResult.ButtonHit { Action: "EnhancePanelBackground" }
+                        && region.X >= panel.X && region.X < panel.Right && region.Y >= panel.Y)
+                    {
+                        bottom = MathF.Max(bottom, region.Y + region.Height);
+                    }
+                }
+                return (panel, bottom);
             }
 
             var bare = await PanelWith(null);
+            var oneLine = await PanelWith("Gains derived.");
             var noted = await PanelWith(LongestDeriveNote);
 
-            noted.Width.ShouldBe(bare.Width, 1f, "a sentence wraps inside the popover's width; it does not set it");
-            noted.Height.ShouldBeGreaterThan(bare.Height + (2f * 10f * dpiScale), "the note spans more than one line");
+            noted.Panel.Width.ShouldBe(bare.Panel.Width, 1f, "a sentence wraps inside the popover's width; it does not set it");
+            noted.Panel.Height.ShouldBeGreaterThan(oneLine.Panel.Height + (2f * 10f * dpiScale), "the note spans more than one line");
+            noted.ContentBottom.ShouldBeLessThanOrEqualTo(noted.Panel.Bottom + 0.5f, "the body is as tall as the wrapped note and the last dial need");
+            noted.Panel.Bottom.ShouldBeLessThanOrEqualTo(TallH * dpiScale, "the popover stays on the window");
+        }
+
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.5f)]
+        public async Task TheDeepSkyHalfKeepsItsOwnWidthUnderTheCap(float dpiScale)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = NewRenderer(dpiScale);
+            var (viewer, _, _) = await OpenAsync(renderer, dpiScale, ct);
+            PanelRect(viewer).Width.ShouldBeLessThanOrEqualTo((ImageRendererBase<RgbaImage>.EnhancePopoverMaxWidth * dpiScale) + 1f, "the deep-sky rows are narrower than the cap, so the cap changes nothing there");
         }
 
         [Fact]
