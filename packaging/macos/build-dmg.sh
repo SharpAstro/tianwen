@@ -264,7 +264,19 @@ cp -R "$bundle" "$staging/"
 ln -s /Applications "$staging/Applications"
 mkdir -p "$(dirname "$out")"
 rm -f "$out"
-hdiutil create -volname "$display" -srcfolder "$staging" -ov -format UDZO -quiet "$out"
+# hdiutil create failed intermittently on the macOS runner image of 2026-10-21: release 10.0.3404
+# lost a different image on each of two attempts with an identical tree, signed and verified each
+# time. Most likely the runners' known "Resource busy" (actions/runner-images#7522), but -quiet
+# printed nothing, so the cause was never read. Hence the retry, and no -quiet: the next failure
+# says what it is.
+attempt=1
+until hdiutil create -volname "$display" -srcfolder "$staging" -ov -format UDZO "$out"; do
+  [ "$attempt" -lt 5 ] || die "hdiutil create failed $attempt times for $out"
+  log "hdiutil create failed (attempt $attempt of 5); retrying in $((attempt * 10)) s"
+  rm -f "$out"
+  sleep $((attempt * 10))
+  attempt=$((attempt + 1))
+done
 if [ "$identity" != "-" ]; then
   codesign --force --sign "$identity" --timestamp "$out"
 fi
