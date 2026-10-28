@@ -87,9 +87,9 @@ namespace TianWen.Lib.Tests
             => new((uint)(WindowW * dpiScale), (uint)(designHeight * dpiScale));
 
         private static async Task<(PopoverViewer Viewer, ViewerState State, AstroImageDocument Document)>
-            NewViewerAsync(RgbaImageRenderer renderer, float dpiScale, CancellationToken ct)
+            NewViewerAsync(RgbaImageRenderer renderer, float dpiScale, CancellationToken ct, AstroImageDocument? shown = null)
         {
-            var document = await ViewerInfoPanelCollapseTests.NewColourDocumentAsync(ct);
+            var document = shown ?? await ViewerInfoPanelCollapseTests.NewColourDocumentAsync(ct);
             var viewer = new PopoverViewer(renderer, new SignalBus(), dpiScale)
             {
                 // The bar a host with an AI pipeline offers; the default offer has no Enhance button.
@@ -148,12 +148,12 @@ namespace TianWen.Lib.Tests
         private static Dictionary<string, (float X, float Y)> PlanetaryHits(PopoverViewer viewer)
             => HitsBelowTheBar(viewer, action => action.StartsWith("Planet", StringComparison.Ordinal)
                 || action.StartsWith("Design", StringComparison.Ordinal) || action.StartsWith("Aperture", StringComparison.Ordinal)
-                || action.StartsWith("Strength", StringComparison.Ordinal) || action.StartsWith("Wavelet", StringComparison.Ordinal));
+                || action.StartsWith("Strength", StringComparison.Ordinal) || action.StartsWith("BalanceSaturation", StringComparison.Ordinal) || action.StartsWith("Wavelet", StringComparison.Ordinal));
 
         private static async Task<(PopoverViewer Viewer, ViewerState State, List<(ToolbarAction Action, MouseButton Button)> Presses)>
-            OpenAsync(RgbaImageRenderer renderer, float dpiScale, CancellationToken ct, Action<ViewerState>? arrange = null)
+            OpenAsync(RgbaImageRenderer renderer, float dpiScale, CancellationToken ct, Action<ViewerState>? arrange = null, AstroImageDocument? shown = null)
         {
-            var (viewer, state, document) = await NewViewerAsync(renderer, dpiScale, ct);
+            var (viewer, state, document) = await NewViewerAsync(renderer, dpiScale, ct, shown);
             var presses = new List<(ToolbarAction, MouseButton)>();
             // The host's policy stands in for the controller: what the popover presses is what reaches it.
             viewer.ToolbarPressPolicy = (viewerState, action, button) =>
@@ -373,6 +373,59 @@ namespace TianWen.Lib.Tests
             var hits = PlanetaryHits(viewer).Keys;
             hits.ShouldContain("PlanetJupiter", "the telescope applies to the capture");
             hits.ShouldNotContain("WaveletDerive", "the dials re-sharpen a master, not a raw frame");
+        }
+
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.5f)]
+        public async Task BalanceSaturationStopsShowOnAColourSourceAndChoosingEyeIsKept(float dpiScale)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            using var renderer = NewRenderer(dpiScale, TallH);
+            var (viewer, state, _) = await OpenAsync(renderer, dpiScale, ct, OnAStackedCapture);
+
+            state.PlanetaryColourSaturation.ShouldBe(PlanetaryColourBalance.DefaultSaturation, "the measured one until the panel says otherwise");
+            var hits = PlanetaryHits(viewer);
+            hits.Keys.ShouldContain("BalanceSaturationTruth");
+            hits.Keys.ShouldContain("BalanceSaturationEye");
+
+            Press(viewer, hits["BalanceSaturationEye"].X, hits["BalanceSaturationEye"].Y);
+            state.PlanetaryColourSaturation.ShouldBe(PlanetaryColourBalance.EyeSaturation);
+            state.EnhancePopover.IsOpen.ShouldBeTrue("a choice leaves the popover open");
+
+            var truth = PlanetaryHits(viewer)["BalanceSaturationTruth"];
+            Press(viewer, truth.X, truth.Y);
+            state.PlanetaryColourSaturation.ShouldBe(PlanetaryColourBalance.DefaultSaturation);
+        }
+
+        [Theory]
+        [InlineData(1f)]
+        [InlineData(1.5f)]
+        public async Task BalanceSaturationRowIsDimWithItsReasonOnAMonoSource(float dpiScale)
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var plane = new float[ImageH, ImageW];
+            var image = new Image([plane], BitDepth.Int16, 65535f, 0f, 0f,
+                new ImageMeta("synth", DateTimeOffset.UnixEpoch, TimeSpan.Zero, FrameType.Light, "",
+                    0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0,
+                    RowOrder.TopDown, float.NaN, float.NaN));
+            var mono = await AstroImageDocument.AdoptImageAsync(image, DebayerAlgorithm.None, null, filePath: "mono.fits", cancellationToken: ct);
+            using var renderer = NewRenderer(dpiScale, TallH);
+            var (viewer, _, _) = await OpenAsync(renderer, dpiScale, ct, OnAStackedCapture, mono);
+
+            var hits = PlanetaryHits(viewer).Keys;
+            hits.ShouldContain("PlanetJupiter", "the rest of the section is there");
+            hits.ShouldNotContain("BalanceSaturationTruth");
+            hits.ShouldNotContain("BalanceSaturationEye");
+            ImageRendererBase<RgbaImage>.BalanceSaturationMonoReason.ShouldContain("needs a colour source");
+        }
+
+        [Fact]
+        public void BalanceSaturationChosenReachesTheAutoStackOptions()
+        {
+            var identity = new PlanetaryIdentity(null, "", null, null, "", null, OpticalDesign.Unknown, "", null, default);
+            ViewerController.AutoOptions(identity, 1, PlanetaryColourBalance.EyeSaturation).ColourSaturation.ShouldBe(PlanetaryColourBalance.EyeSaturation);
+            ViewerController.AutoOptions(identity, 1, PlanetaryColourBalance.DefaultSaturation).ColourSaturation.ShouldBe(PlanetaryColourBalance.DefaultSaturation);
         }
 
         [Theory]

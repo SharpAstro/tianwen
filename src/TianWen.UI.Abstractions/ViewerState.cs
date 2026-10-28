@@ -879,6 +879,21 @@ public sealed class ViewerState
     public double PlanetaryStrength { get; set; } = 1;
 
     /// <summary>
+    /// The colour balance's saturation (#1880): <see cref="TianWen.Lib.Imaging.Planetary.PlanetaryColourBalance.DefaultSaturation"/>, the
+    /// measured one, unless the panel's stop says <see cref="TianWen.Lib.Imaging.Planetary.PlanetaryColourBalance.EyeSaturation"/>. The
+    /// Auto stack and Derive read it as they start (a stop chosen after a Derive applies at the next one: the balance sits in the derived
+    /// limb, not in the stops' gains). Kept while the viewer runs, not saved, as <see cref="PlanetaryStrength"/> is.
+    /// </summary>
+    public double PlanetaryColourSaturation { get; set; } = TianWen.Lib.Imaging.Planetary.PlanetaryColourBalance.DefaultSaturation;
+
+    /// <summary>The panel's balance saturation stop (<see cref="PlanetaryColourSaturation"/>): taken by the next Auto stack and Derive.</summary>
+    public void ChooseColourSaturation(double saturation)
+    {
+        PlanetaryColourSaturation = saturation;
+        NeedsRedraw = true;
+    }
+
+    /// <summary>
     /// The colour look on a balanced master of Jupiter or Saturn (<see cref="TianWen.Lib.Imaging.Planetary.PlanetaryColourLook"/>, #1277),
     /// or null to show it in true colour, as balanced, the default. A RENDERING over the linear master, never written into it: the live stacked view draws
     /// it on each master, a master on show is replaced on screen by its looked copy and given back on "True colour", and the file stays

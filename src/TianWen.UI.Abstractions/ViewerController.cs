@@ -175,6 +175,9 @@ public sealed class ViewerController(
     /// <summary>How many derivations the sharpening layer has started (#1314 rule 7). For tests.</summary>
     internal int DerivationsStarted => _derivation.Started;
 
+    /// <summary>The balance saturation the last Derive started with (#1880). For tests.</summary>
+    internal double? DerivationSaturation => _derivation.StartedAtSaturation;
+
     /// <summary>The live view's rolling stack and the Auto view's layer, for tests (#1314 part 2, A4 #1391).</summary>
     internal (LiveStackPreviewSource? Live, LiveStackPreviewSource? Auto) ViewLayers => (_liveSource, _auto.Layer);
 
@@ -1625,7 +1628,7 @@ public sealed class ViewerController(
         var setHere = state.PlanetaryTelescopeSetHere;
         var given = new PlanetaryIdentityGiven(state.PlanetaryBody, state.PlanetaryFilterNm, setHere ? state.PlanetaryApertureMm : null,
             setHere ? state.PlanetaryDesign : OpticalDesign.Unknown);
-        var (lastMm, lastDesign, strength) = (state.PlanetaryApertureMm, state.PlanetaryDesign, state.PlanetaryStrength);
+        var (lastMm, lastDesign, strength, saturation) = (state.PlanetaryApertureMm, state.PlanetaryDesign, state.PlanetaryStrength, state.PlanetaryColourSaturation);
         state.StatusMessage = "Auto stack running: the capture identified, then stacked at the measured defaults";
         batch.Task = Task.Run(async () =>
         {
@@ -1636,10 +1639,14 @@ public sealed class ViewerController(
                 identity = identity with { ApertureMm = mm, Design = lastDesign, TelescopeFrom = "the viewer's last telescope" };
             }
             using var stream = SerFrameStream.Open(capture);
-            var result = await PlanetaryBestStack.RunAsync(stream, PlanetaryAuto.OptionsFor(identity) with { Strength = strength }, progress, token);
+            var result = await PlanetaryBestStack.RunAsync(stream, AutoOptions(identity, strength, saturation), progress, token);
             return Written(result, PlanetaryAuto.OutputPaths(directory, Path.GetFileNameWithoutExtension(capture)), capture, identity);
         }, token);
     }
+
+    // The Auto stack's options: the identity's, with the panel's strength and balance saturation stops (#1880).
+    internal static PlanetaryBestStackOptions AutoOptions(PlanetaryIdentity identity, double strength, double saturation)
+        => PlanetaryAuto.OptionsFor(identity) with { Strength = strength, ColourSaturation = saturation };
 
     // How a finished batch stack was made, in the words its status line shows: the sharpening, the balance when there was one, and the
     // alignment-point cap when it cut the grid, which is silent otherwise (#1412).
