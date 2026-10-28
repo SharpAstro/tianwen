@@ -696,14 +696,16 @@ internal sealed class PlanetaryStackSubCommand(
                 var baseName = Path.GetFileNameWithoutExtension(serPaths.Order(StringComparer.OrdinalIgnoreCase).First())
                     + (serPaths.Length > 1 ? $"+{serPaths.Length - 1}" : "");
                 var sw = Stopwatch.StartNew();
+                var stageTimer = new PlanetaryStageTimer();
                 PlanetaryBestStackResult result;
                 ImmutableArray<int> autoFileStarts;
                 using (IPlanetaryFrameStream stream = serPaths.Length == 1 ? SerFrameStream.Open(serPaths[0]) : PlanetaryFrameSequence.OpenSer(serPaths))
                 {
                     consoleHost.WriteScrollable($"[planetary] {baseName}: {stream.FrameCount} frames, {stream.Width}x{stream.Height}, layout {stream.Layout}, at the measured defaults...");
                     autoFileStarts = PlanetaryQualityCurve.FileStartsOf(stream);
-                    result = await PlanetaryAuto.RunAsync(stream, identity, progress: null, ct);
+                    result = await PlanetaryAuto.RunAsync(stream, identity, stageTimer, ct);
                 }
+                stageTimer.Enter(PlanetaryStackStage.Writing);
                 try
                 {
                     consoleHost.WriteScrollable(
@@ -734,6 +736,11 @@ internal sealed class PlanetaryStackSubCommand(
                     result.Stack.Master.Release();
                     result.Sharpened.Release();
                     result.Layer?.Master.Release();
+                }
+                // Each stage's wall time, on stderr (#1879): the one place a long run's tail is read.
+                foreach (var (stage, elapsed) in stageTimer.Spent)
+                {
+                    consoleHost.WriteError($"[planetary] stage {PlanetaryStackProgress.Words(stage)}: {elapsed.TotalSeconds:F1}s");
                 }
                 consoleHost.WriteScrollable($"[planetary] done in {sw.Elapsed.TotalSeconds:F1}s -> {autoDir}");
                 return 0;

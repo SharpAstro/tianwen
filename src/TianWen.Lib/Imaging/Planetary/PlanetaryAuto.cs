@@ -35,7 +35,7 @@ public static class PlanetaryAuto
     }
 
     /// <summary>The best stack of <paramref name="stream"/> as AUTO makes it of a capture identified as <paramref name="identity"/>; the caller owns the result's images.</summary>
-    public static Task<PlanetaryBestStackResult> RunAsync(IPlanetaryFrameStream stream, PlanetaryIdentity identity, IProgress<double>? progress = null,
+    public static Task<PlanetaryBestStackResult> RunAsync(IPlanetaryFrameStream stream, PlanetaryIdentity identity, IProgress<PlanetaryStackProgress>? progress = null,
         CancellationToken cancellationToken = default)
         => PlanetaryBestStack.RunAsync(stream, OptionsFor(identity), progress, cancellationToken);
 
