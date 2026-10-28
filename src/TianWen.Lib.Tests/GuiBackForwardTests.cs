@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Threading;
 using DIR.Lib;
 using Microsoft.Extensions.DependencyInjection;
@@ -226,6 +227,44 @@ public class GuiBackForwardTests
 
         rig.App.ActiveTab.ShouldBe(GuiTab.Equipment);
         rig.App.History.CanGoBack.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The rail's strip (#1821): painted on a CPU surface, its Back cell is the region the router would press. A detail
+    /// view opened from a list (the planner's Show in atlas) goes back to that list, its selection kept.
+    /// </summary>
+    [Fact]
+    public void APressOnTheStripsBackRegionReturnsFromTheAtlasToThePlannersSelection()
+    {
+        var rig = new Rig();
+        rig.App.ActiveTab = GuiTab.Planner;
+        rig.Planner.SelectedTargetIndex = 7;
+
+        rig.Bus.Post(new ViewInSkyMapSignal("M 31", 0.7123, 41.27, null, TianWen.Lib.Astrometry.Catalogs.ObjectType.Galaxy));
+        rig.Bus.ProcessPending(rig.Tracker);
+        rig.App.ActiveTab.ShouldBe(GuiTab.SkyMap);
+
+        using var renderer = new RgbaImageRenderer(52, 28);
+        var strip = new GuiNavigationStrip<RgbaImage>(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+        // The handler bound itself to the chrome it was built over, which is how the real chrome hands it to its strip.
+        strip.Navigation = rig.Chrome.Navigation.ShouldNotBeNull();
+        strip.Render(new RectF32(0, 0, 52, GuiNavigationStrip<RgbaImage>.BaseHeight));
+
+        var regions = strip.GetRegisteredRegions();
+        var forward = regions.Single(r => r.Result is HitResult.ButtonHit { Action: Layout.Builder.NavigationForwardAction });
+        var back = regions.Single(r => r.Result is HitResult.ButtonHit { Action: Layout.Builder.NavigationBackAction });
+        back.OnClick.ShouldNotBeNull().Invoke(InputModifier.None);
+
+        rig.App.ActiveTab.ShouldBe(GuiTab.Planner, "the atlas was opened from the planner's list");
+        rig.Planner.SelectedTargetIndex.ShouldBe(7);
+        rig.Chrome.Received().PlannerEnsureVisible(7);
+
+        // Its enabled state reads the history on the next frame: Back dimmed past Home is a swallowed press, Forward lit.
+        strip.Render(new RectF32(0, 0, 52, GuiNavigationStrip<RgbaImage>.BaseHeight));
+        rig.Handler.CanGoForward.ShouldBeTrue();
+        forward = strip.GetRegisteredRegions().Single(r => r.Result is HitResult.ButtonHit { Action: Layout.Builder.NavigationForwardAction });
+        forward.OnClick.ShouldNotBeNull().Invoke(InputModifier.None);
+        rig.App.ActiveTab.ShouldBe(GuiTab.SkyMap);
     }
 
     [Fact]
