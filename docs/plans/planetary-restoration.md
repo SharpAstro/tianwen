@@ -3508,7 +3508,7 @@ Whether a night's own twin can supply them is #1369 (the AUTO mode's step 0, `pl
 **The default where the pixels resolve the telescope (#1632, the owner, 2026-10-17; everywhere since #1668, below).**
 `PlanetarySharpenTarget.Auto`, the default, took the aperture where every channel's pupil cutoff lies below 0.5 cycles a pixel, and since
 L-NYQ wherever every cutoff is known (resolved once by `PlanetarySharpening.TargetFor`, the target taken in `PlanetarySharpenResult.Target`), so
-`planetary stack`, `planetary sharpen` (`--target auto`), the viewer's Auto view and the live view's Derive all take it. Gains given or
+`planetary stack`, `planetary sharpen` (`--target auto`), the viewer's Full view and the live view's Derive all take it. Gains given or
 learned (#817, #1552) were fitted toward the telescope and keep it. Two experiments, rules set before each ran
 (`training/planetary/r9-rules.md`), found the aperture target the best arm wherever the sampling resolves the optics:
 

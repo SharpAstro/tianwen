@@ -177,8 +177,8 @@ Planetary Auto view. "feat(viewer): Best stack of a recorded capture in tianwen-
 the routine planetary-stack runs, its telescope remembered" (#1159), "feat(viewer):
 the Best view folds into Auto, the panel's choices given to it" (#817), "feat
 (planetary): AUTO reads what a capture is and stacks it at the defaults, in the CLI
-and the viewer" (A4, #1391). Shift+K is "Auto view: the whole capture identified and
-stacked once, written beside it (SER)"; K is "Raw / Stack". The frames tell Jupiter
+and the viewer" (A4, #1391). Shift+K is now "Full view: the whole capture identified and
+stacked once, written beside it (SER)"; K is "Raw / Stack: Live". The frames tell Jupiter
 from Saturn only, so a capture of another planet relies on its path or header to be
 named; the copy says "works out which planet" and is true where it can.
 
@@ -285,7 +285,7 @@ an addition now has to displace something. Say NO CHANGE and why, if so.
 Unreviewed for this release. The queue, unchanged through 9.0.1940: auto-crop to
 the covered area; A/B and blink; Explorer thumbnails for FITS and SER.
 Candidate added 2026-10-28, the strongest of the four: stacking a planetary SER
-capture in one key (the Auto view). Deciding what it displaces is the owner's call.
+capture in one key (the Full view). Deciding what it displaces is the owner's call.
 
 
 SUBMISSION

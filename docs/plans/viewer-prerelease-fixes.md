@@ -2031,10 +2031,10 @@ popover for boost and the soft clip:
 - **The button is lit** while either half's enhancement is in force; `E` keeps its toggle.
 - **Its choices take their fills from the palette, not only their text.** Today the planet, telescope and colour-look groups
   (`PlanetaryChoiceStyle`) draw palette text on the toolbar's fixed dark greys (`ToolbarButtonBg`), which in Light is near black on dark
-  grey, unreadable; the transport's Raw / Stack / Auto switch keeps a literal light text for that reason, which Night cannot tint. Found
+  grey, unreadable; the transport's Raw / Live / Full switch keeps a literal light text for that reason, which Night cannot tint. Found
   by the audit on #1343 (its rows 24 and 22).
 
-The strip goes back to what it reports. The Raw / Stack / Auto switch stays in the transport: it
+The strip goes back to what it reports. The Raw / Live / Full switch stays in the transport: it
 chooses what is shown, not how it is enhanced.
 
 **Why in 10.0.** It is the first release to ship the planetary controls, so they should arrive where
@@ -2052,7 +2052,7 @@ false the deep-sky half, and the strip's `ShowsTelescope` / `ShowsWavelets` are 
   Wavelet Sharpen section (dials, Reset) moved whole. The button is enabled on a planet's way, where there is no document.
 - **Lit and tooltip**: the button is lit while either half's enhancement is in force (the AI enhance, or the sharpening
   layer on show), and its tooltip says which.
-- **Palette fills**: `PlanetaryChoiceStyle` and the transport's Raw / Stack / Auto style take fill, text and hover from
+- **Palette fills**: `PlanetaryChoiceStyle` and the transport's Raw / Live / Full style take fill, text and hover from
   `ViewerTheme.Palette`, so the literal light text is gone and Light and Night read.
 
 **How it is pinned.** Through the hit tracker and `ViewerE2E` at DPI 1 and 1.5: `ViewerEnhancePopoverTests`
@@ -2066,7 +2066,7 @@ false the deep-sky half, and the strip's `ShowsTelescope` / `ShowsWavelets` are 
 `TheChoicesAreAskedOfWhatServesAndAutoIsAlwaysFirst`), and the planetary viewer tests (`ViewerInfoPanelCollapseTests`,
 `ViewerWaveletDeriveTests`, `ViewerBestStackTests`, `ViewerAutoViewTests`) now drive the popover.
 
-**Left.** Nothing owed; the Raw / Stack / Auto switch stays in the transport by design.
+**Left.** Nothing owed; the Raw / Live / Full switch stays in the transport by design.
 
 ## The viewer remembers a file's last display (#1814)
 

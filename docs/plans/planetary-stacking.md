@@ -488,7 +488,7 @@ each where one existed):
 ## An AUTO parameter mode
 
 **Tracked by #817.** A SharpCap-style AUTO mode, the owner's standing wish: the stack chooses its own settings from the
-capture, in the CLI (`planetary stack --auto`) and in the viewer (an Auto view beside Frames and Live, which the Best view folded into), where
+capture, in the CLI (`planetary stack --auto`) and in the viewer (a Full view beside Frames and Live, which the Best view folded into), where
 today it asks for them or takes one default for every night. The owner's goal of 2026-10-09: a fully working auto
 mode in both, on top of the `_post` fidelity the pipeline already reaches.
 
@@ -718,7 +718,7 @@ Meade 16-inch Saturns, the EdgeHD 11 Mars), each read with nothing given:
 - Rule 3 has nothing to show (no tune carries, A2). Rule 4's screenshots are on the PR.
 
 **Best folded into Auto (the owner, 2026-10-11).** The two views ran one routine at one set of defaults and differed only in where
-the planet, filter and telescope came from, so the viewer keeps one, **Auto** (Raw, Stack, Auto; Shift+K opens it):
+the planet, filter and telescope came from, so the viewer keeps one, **Full** (Raw, Live, Full; Shift+K opens it):
 - **The panel's choices are given to the identification** (`PlanetaryIdentityGiven`), as `--planet`, `--wavelength` and
   `--aperture-mm` are on the CLI: the planet and filter when chosen (Auto until then), the telescope only once it is set on the
   capture on show (`ViewerState.PlanetaryTelescopeSetHere`, cleared when another opens).
