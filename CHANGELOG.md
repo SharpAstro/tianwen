@@ -33,7 +33,31 @@ other commit hash from before 2026-04-22 no longer resolves anywhere.
 
 ## 10.0
 
-Breaking, so a major. Every planetary CLI verb moves under one `planetary` group command:
+Breaking, so a major. The hardware moves into the server (#751, P9 #938 of
+`docs/plans/hardware-in-the-server.md`): the rig is run by `tianwen-server`, a node, and the GUI,
+the TUI and the CLI are its clients. What that breaks:
+
+- **Closing a window no longer stops the rig.** A run, a cooler and a connected mount belong to the
+  node, which keeps them when the last window closes; quitting asks first only when it is the last
+  client attached, and stopping the rig is its own order (`RigShutdown`).
+- **Every host needs `tianwen-server` beside it.** `tianwen-gui` and `tianwen` start the machine's
+  node from their own folder; every release archive carries it there, and a checkout's build puts it
+  there too (`src/ExeBeside.targets`). A host copied out on its own cannot drive hardware.
+- **A node a client starts stays off the LAN until it is shared.** Over TCP, seeing is free and a
+  command needs control granted by the rig's owner; local-only (`TIANWEN_LOCAL_ONLY=1`,
+  `--local-only`) binds nothing but loopback and the node's socket.
+- **Profiles are edited through the node**, which writes them through one writer and refuses a write
+  made against a stale revision; changing a profile is open only on the node's own socket.
+- **The `TianWen.Lib` API moved with it**: `WarmAndDisconnectAsync` is a Lib extension on the device
+  hub (`DeviceHubCameraSafetyExtensions`), and the job and node wire DTOs live in
+  `TianWen.Hosting.Contracts`.
+
+**Stop the rig before extracting a release over the folder a node runs from**: Windows locks a
+running `tianwen-server`'s executable, so the extract fails part way. Extracting into a new folder
+works as well; the client and node versions are compared on connect, and an idle, unattended node of
+another build is replaced.
+
+Every planetary CLI verb moves under one `planetary` group command:
 `tianwen planetary stack`, not `tianwen planetary-stack` (#1276). The 39 dashed top-level
 `planetary-*` names are gone, with no alias and no shim. A multi-word verb keeps its dash
 INSIDE the group (`planetary render-truth`, `planetary spectral-ratio`, `planetary limb-sectors`,
