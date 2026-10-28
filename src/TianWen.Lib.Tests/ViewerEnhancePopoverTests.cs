@@ -394,6 +394,7 @@ namespace TianWen.Lib.Tests
             state.EnhancePopover.IsOpen.ShouldBeTrue("a choice leaves the popover open");
 
             var truth = PlanetaryHits(viewer)["BalanceSaturationTruth"];
+            TestContext.Current.TestOutputHelper?.WriteLine($"eye {hits["BalanceSaturationEye"]} truth before {hits["BalanceSaturationTruth"]} after {truth}");
             Press(viewer, truth.X, truth.Y);
             state.PlanetaryColourSaturation.ShouldBe(PlanetaryColourBalance.DefaultSaturation);
         }
