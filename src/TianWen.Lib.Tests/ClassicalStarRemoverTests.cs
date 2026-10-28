@@ -420,10 +420,16 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         {
             s.ChannelAmplitudes.All(a => float.IsFinite(a) && a <= Clip - (float.IsFinite(s.Sky) ? s.Sky : 0f)).ShouldBeTrue($"({s.X}, {s.Y}) peaks past the clip");
         }
-        foreach (var s in plate.Stars.Where(s => Math.Abs(s.X - (Ring - 4.0)) < 8 && Math.Abs(s.Y - 512.0) < 8))
+        var near = plate.Stars.Where(s => Math.Abs(s.X - (Ring - 4.0)) < 8 && Math.Abs(s.Y - 512.0) < 8).ToArray();
+        foreach (var s in near)
         {
             output.WriteLine($"near the edge: {s.Outcome} ({s.X:F1}, {s.Y:F1}) amp={(s.ChannelAmplitudes.Length > 0 ? s.ChannelAmplitudes[0] : float.NaN):G4} saturated={s.Saturated}");
         }
+
+        // The diverged fit lands on this star and is kept as NoFit, never as a Subtracted row.
+        near.ShouldNotBeEmpty();
+        near.ShouldAllBe(static s => s.Outcome != StarFitOutcome.Subtracted);
+        near.ShouldContain(static s => s.Outcome == StarFitOutcome.NoFit);
     }
 
     [Fact(Timeout = 300_000)]
