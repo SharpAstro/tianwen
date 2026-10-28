@@ -191,4 +191,59 @@ public class TiffReloadBackedReleaseTests : IDisposable
         document.UnstretchedImage.TryGetSourceRaster(0, out _).ShouldBeTrue();
         document.UnstretchedImage.PlanesNeedReload.ShouldBeFalse();
     }
+
+    private const int BigW = 1200, BigH = 1000;
+
+    [Fact(Timeout = 120_000)]
+    public async Task AWholePageStripTiffOverTheSegmentCapIsDeclinedAndKeepsItsPlanes()
+    {
+        TestContext.Current.CancellationToken.IsCancellationRequested.ShouldBeFalse();
+        var path = Path.Combine(Folder(), "whole-page.tif");
+        await using (var writer = TiffWriter.Create(path))
+        {
+            await writer.AddPageAsync(new byte[BigW * BigH * 4], BigW, BigH, new TiffPageOptions
+            {
+                Compression = TiffCompression.Deflate,
+                SamplesPerPixel = 1,
+                BitsPerSample = 32,
+                Photometric = TiffPhotometric.MinIsBlack,
+                SampleFormat = TiffSampleFormat.IeeeFloat,
+                RowsPerStrip = BigH,
+            }, TestContext.Current.CancellationToken);
+        }
+
+        var document = await OpenAsync(path, released: true);
+
+        document.ReadoutTiles.ShouldBeNull("one 4.8 MB strip is over TiffReadoutTiles.MaxSegmentBytes");
+        document.UnstretchedImage.PlanesResident.ShouldBeTrue();
+        document.UnstretchedImage.PlanesNeedReload.ShouldBeFalse();
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task ATiffTianWenWritesItselfIsBoundedInStripsSoItIsServedAndReleased()
+    {
+        TestContext.Current.CancellationToken.IsCancellationRequested.ShouldBeFalse();
+        var planes = new[] { new float[BigH, BigW] };
+        for (var y = 0; y < BigH; y++)
+        {
+            for (var x = 0; x < BigW; x++)
+            {
+                planes[0][y, x] = ((x * 7) + (y * 13)) % 1000 / 1000f;
+            }
+        }
+
+        var image = new Image(planes, BitDepth.Float32, 1f, 0f, 0f,
+            new ImageMeta("export", DateTimeOffset.UnixEpoch, TimeSpan.FromSeconds(1), FrameType.Light, "",
+                0f, 0f, -1, FocuserPositions.None, Filter.None, 1, 1, float.NaN,
+                SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN));
+        var path = Path.Combine(Folder(), "export.tif");
+        await image.WriteTiffAsync(path, cancellationToken: TestContext.Current.CancellationToken);
+
+        var document = await OpenAsync(path, released: true);
+
+        document.ReadoutTiles.ShouldBeOfType<TiffReadoutTiles>();
+        document.UnstretchedImage.PlanesResident.ShouldBeFalse();
+        await document.EnsurePlanesAsync(TestContext.Current.CancellationToken);
+        document.UnstretchedImage.PlanesResident.ShouldBeTrue();
+    }
 }

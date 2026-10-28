@@ -93,7 +93,8 @@ public sealed class TiffReadoutTiles : ReadoutTileSourceBase
             }
 
             // A segment is decoded whole to answer one 64 x 64 block, so one that is huge is declined: TianWen's own float
-            // masters are one whole-page Deflate strip, 4.0 s and 805 MB per new block on 6000 x 4000 RGB. The planes serve it.
+            // masters were one whole-page Deflate strip (4.0 s and 805 MB per new block on 6000 x 4000 RGB), so the writers now
+            // set RowsPerStrip (Image.FloatTiffRowsPerStrip); an older file or a third-party one with a huge strip stays plane-backed.
             var first = layout.SegmentRectangle(0);
             var segmentBytes = (long)first.Width * first.Height * layout.SamplesPerPixel * (layout.BitsPerSample / 8);
             if (first.Width <= 0 || first.Height <= 0 || segmentBytes > MaxSegmentBytes)
@@ -109,7 +110,8 @@ public sealed class TiffReadoutTiles : ReadoutTileSourceBase
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException
-            or InvalidDataException or ArgumentException or FormatException)
+            or InvalidDataException or ArgumentException or FormatException
+            or IndexOutOfRangeException or OverflowException)
         {
             // A file that cannot be laid out for this is a file the planes serve (BigTIFF among them).
             return false;
@@ -230,7 +232,8 @@ public sealed class TiffReadoutTiles : ReadoutTileSourceBase
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException
-            or InvalidDataException or ArgumentException)
+            or InvalidDataException or ArgumentException
+            or IndexOutOfRangeException or OverflowException)
         {
             return false;
         }

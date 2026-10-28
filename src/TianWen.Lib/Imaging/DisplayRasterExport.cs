@@ -327,6 +327,7 @@ public static class DisplayRasterExport
                     SMaxSampleValue = 1f,
                     Compression = TiffCompression.Deflate,
                     Software = "TianWen",
+                    RowsPerStrip = Image.FloatTiffRowsPerStrip(width, samplesPerPixel),
                 }, cancellationToken).ConfigureAwait(false);
                 await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
                 return;
