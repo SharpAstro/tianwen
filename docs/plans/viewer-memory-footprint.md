@@ -732,7 +732,7 @@ are untouched.
 **Design.** `FitsReadoutTiles` (`TianWen.Lib/Imaging`) serves one sample from the FILE through a cache of 64 x 64
 tiles. `AstroImageDocument.OpenAsync` attaches one to a FITS document (`ReadoutTiles`); `SampleAt` answers from
 the raster when there is one, else from a resident plane (free), else from the tile cache, and only when the
-tile source declines (gzip, CR2, a TIFF the readout cannot lay out such as CMYK, BITPIX 64, a changed file, a position outside the image) from the
+tile source declines (gzip, CR2, a TIFF the readout cannot lay out such as CMYK, a TIFF segment over 4 MB, BITPIX 64, a changed file, a position outside the image) from the
 restoring indexer, as before.
 
 - **Bit for bit.** A sample is `(float)BSCALE * stored + (float)BZERO` in single precision, multiplied then added
@@ -803,7 +803,7 @@ MinIsWhite; 8 or 16-bit unsigned, 32-bit float; stripped or tiled, chunky or pla
 strips or tiles under a readout block through its on-demand segment read, converting with the importer's own code. The reload reads
 the file back through `TryReadTiff`, bit-identical. `AstroImageDocument.OpenImageFileAsync` attaches it and stamps the file only for a
 document that is NOT raster-backed (an 8-bit TIFF keeps the cheaper raster eviction); a TIFF the source declines (CMYK, which the
-whole-page read rebuilds as RGB) keeps its planes. **Gzip and CR2 stay plane-backed, deliberately (the owner's decision, #1853):**
+whole-page read rebuilds as RGB) keeps its planes. **A segment is capped at 4 MB** (`TiffReadoutTiles.MaxSegmentBytes`): a segment is decoded whole for every 64 x 64 block under the readout, and a whole-page Deflate strip measured 4.0 s and 805 MB per new block on a 6000 x 4000 RGB file, so a TIFF with a larger segment is declined and keeps its planes. TianWen's own writers stay under it with bounded strips (`Image.FloatTiffRowsPerStrip`, about 1 MB); older TianWen exports and third-party TIFFs with huge strips keep their planes. **Gzip and CR2 stay plane-backed, deliberately (the owner's decision, #1853):**
 neither can be read at an offset (a gzip stream cannot seek; a CR2's raw is one compressed stream).
 
 **Who awaits it** (every reader of `UnstretchedImage` pixels in `UI.Abstractions`, grepped): Calibrate
