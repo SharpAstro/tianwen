@@ -180,7 +180,11 @@ public class PlannerState : PersistableState<SavePlannerSessionSignal>
     /// <summary>Attach the app-wide state so <see cref="SiteTimeZone"/> reads/writes the
     /// single shared <see cref="GuiAppState.SiteTimeZone"/>. Called once during app
     /// composition (the AppSignalHandler constructor).</summary>
-    internal void AttachAppState(GuiAppState appState) => _appState = appState;
+    internal void AttachAppState(GuiAppState appState)
+    {
+        _appState = appState;
+        appState.Planner = this;
+    }
 
     /// <summary>
     /// The date to plan for. Null = tonight (uses current time).

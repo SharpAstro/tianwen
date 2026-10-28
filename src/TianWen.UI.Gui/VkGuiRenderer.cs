@@ -568,7 +568,7 @@ namespace TianWen.UI.Gui
             // it opened, and the Equipment tab says it is connecting.
             if (appState.NeedsAProfile && appState.ActiveTab is not GuiTab.Equipment)
             {
-                appState.ActiveTab = GuiTab.Equipment;
+                appState.SetActiveTabWithoutHistory(GuiTab.Equipment);
             }
 
             BeginFrame();

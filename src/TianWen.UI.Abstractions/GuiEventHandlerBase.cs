@@ -115,6 +115,22 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         public bool HandleInput(InputEvent evt)
         {
+            // Back and Forward ahead of everything: of a focused text field (Alt+Left would otherwise be the
+            // field's own word-jump), of the router and so of whatever is under the pointer, and of the active tab.
+            // DIR.Lib's one rule says which events they are; a mouse button's release is taken so it cannot
+            // reach the pointer's target as a stray click.
+            switch (NavigationInput.Classify(evt))
+            {
+                case NavigationCommand.Back:
+                    GoBack();
+                    return true;
+                case NavigationCommand.Forward:
+                    GoForward();
+                    return true;
+                case NavigationCommand.Swallow:
+                    return true;
+            }
+
             switch (evt)
             {
                 case InputEvent.MouseDown down:
@@ -264,6 +280,39 @@ namespace TianWen.UI.Abstractions
             }
 
             _appState.NeedsRedraw = true;
+        }
+
+        /// <summary>Whether there is a place to go back to, for a strip's enabled state.</summary>
+        public bool CanGoBack => _appState.History.CanGoBack;
+
+        /// <summary>Whether there is a place to go forward to.</summary>
+        public bool CanGoForward => _appState.History.CanGoForward;
+
+        /// <summary>Goes back one place (Alt+Left, the mouse's back button); false with nowhere to go.</summary>
+        public bool GoBack() => Apply(_appState.TryGoBack(out var place), place);
+
+        /// <summary>Goes forward one place (Alt+Right, the mouse's forward button); false with nowhere to go.</summary>
+        public bool GoForward() => Apply(_appState.TryGoForward(out var place), place);
+
+        /// <summary>
+        /// What follows a restore: the tab policy of the tab returned to, and the planner's selection scrolled into
+        /// view. The history has already moved the state and recorded nothing.
+        /// </summary>
+        private bool Apply(bool moved, GuiPlace place)
+        {
+            if (!moved)
+            {
+                return false;
+            }
+
+            ApplyTabPolicy(place.Tab);
+            if (place.Tab == GuiTab.Planner)
+            {
+                _chrome.PlannerEnsureVisible(place.PlannerSelectedTarget);
+                _plannerState.NeedsRedraw = true;
+            }
+
+            return true;
         }
 
         /// <summary>
