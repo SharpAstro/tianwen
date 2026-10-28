@@ -180,6 +180,7 @@ def cmd_profile(a):
                       'synth_tiles': c['synth_tiles'], 'synth_injected': c['synth_injected']},
            'notes': list(a.note),
            'rigs': rigs}
+    Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     with open(a.out, 'w', encoding='utf-8') as fh:
         json.dump(out, fh, separators=(',', ':'))
     print('wrote', a.out, Path(a.out).stat().st_size, 'bytes')
