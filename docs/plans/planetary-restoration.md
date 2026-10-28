@@ -2901,7 +2901,7 @@ which the GUI seeds from the profile's OTA as a capture starts (`PlanetaryCaptur
   **One stage dominates: `Finishing`, the per-channel limb alignment, is about half of every run** (18 to 24 s), the sharpening is a steady
   9 to 13 s, and the colour balance swings most (8 to 18 s). The runs wander by 25 % with the box shared, and the first run was no slower
   than the others, so the JIT is not the cost; read the stage's share, not the second. The Surface's numbers (win-arm64) are the bench
-  #1891.
+  #1891; making `Finishing` faster is #1893.
 - **The dials apply derived gains as the derived sharpening does**: no denoise, and held at the darkest level the frame records
   (`WaveletSharpenOptions.HoldAtDarkest`, its 0.001 quantile). The floored fix holds at the sky the limb fit finds, which a wavelet pass
   on a live master has no limb fit for; the darkest recorded level stands in for it.
