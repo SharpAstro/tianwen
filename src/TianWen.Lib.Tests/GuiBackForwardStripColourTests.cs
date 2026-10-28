@@ -83,15 +83,20 @@ public class GuiBackForwardStripColourTests
     /// the window's left edge on the 52 px rail; the colour tests above pass on a strip painted anywhere.
     /// </summary>
     [Theory]
-    [InlineData(52)]
-    [InlineData(104)]
-    public void EachArrowIsPaintedInsideItsOwnHalfWithAMarginFromTheEdges(int width)
+    [InlineData(52, 1.0f)]
+    [InlineData(104, 1.0f)]
+    [InlineData(52, 1.5f)]
+    [InlineData(52, 2.0f)]
+    public void EachArrowIsPaintedInsideItsOwnHalfWithAMarginFromTheEdges(int designWidth, float scale)
     {
-        const int margin = 4;
-        var height = (int)GuiNavigationStrip<RgbaImage>.BaseHeight;
+        // The strip at ITS OWN scale, into the box its own Height says the host reserves: the one product that can go wrong.
+        var margin = (int)(4 * scale);
+        var width = (int)(designWidth * scale);
+        var height = (int)MathF.Ceiling(GuiNavigationStrip<RgbaImage>.BaseHeight * scale);
         using var renderer = new RgbaImageRenderer((uint)width, (uint)height);
-        var strip = new GuiNavigationStrip<RgbaImage>(renderer) { Navigation = new Navigation(true, true) };
-        strip.Render(new RectF32(0, 0, width, height));
+        var strip = new GuiNavigationStrip<RgbaImage>(renderer) { InterfaceScale = scale, Navigation = new Navigation(true, true) };
+        strip.Height.ShouldBe(GuiNavigationStrip<RgbaImage>.BaseHeight * scale, 0.001f);
+        strip.Render(new RectF32(0, 0, width, strip.Height));
 
         var ground = GuiTheme.Palette.PanelBg;
         var pixels = renderer.Surface.Pixels;
