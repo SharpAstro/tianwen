@@ -274,3 +274,8 @@ python star-removal/domain/domain_classifier.py --real <real root> --synthetic s
   the mean and sample standard deviation over seeds (`auc_mean`, `auc_std`), per seed and per camera. Read a change to an export
   against that spread, never a single seed: three seeds at least. `--threads` bounds torch's CPU threads (default 4).
 - The JSON holds only counts and AUCs, no tile data. The tiles themselves are the owner's and never committed.
+- `halo_census.py --store <bake> --synth <synth root> --out census.json` finds the clipped stars (stretched peak at least 0.95) in the
+  training masters and the synthetic tiles; `halo_profile.py profile --census census.json --store <bake> --out halo-profiles.json`
+  measures each one's azimuthal excess over the 45 to 60 px sky ring at r = 0..40 px, per rig, clipped-core group and channel, in
+  linear and stretched units (`table <json> [--rig NAME]` prints it, `check <json>` validates the schema and exits non-zero on a
+  problem). The committed `halo-profiles.json` is the table the injector's outer halo is fitted to (#1870).
