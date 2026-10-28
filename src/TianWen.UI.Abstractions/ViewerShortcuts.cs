@@ -81,12 +81,12 @@ public readonly record struct ViewerShortcut(
 /// </summary>
 public static class ViewerShortcuts
 {
-    /// <summary>The K row, which the transport bar's Raw and Stack segments take their tooltip from.</summary>
-    public static readonly ViewerShortcut RawStack = new("K", "Raw / Stack (sequence)", InputKey.K);
+    /// <summary>The K row, which the transport bar's Raw and Live segments take their tooltip from.</summary>
+    public static readonly ViewerShortcut RawStack = new("K", "Raw / Stack: Live (sequence)", InputKey.K);
 
-    /// <summary>The Shift+K row, which the transport bar's Auto segment takes its tooltip from.</summary>
+    /// <summary>The Shift+K row, which the transport bar's Full segment takes its tooltip from.</summary>
     public static readonly ViewerShortcut AutoView = new("Shift+K",
-        "Auto view: the whole capture identified and stacked once, written beside it (SER); again while it runs to cancel",
+        "Full stack: the whole capture identified and stacked once, written beside it (SER); again while it runs to cancel",
         InputKey.K, InputModifier.Shift);
 
     /// <summary>The binding table, in panel order.</summary>

@@ -832,19 +832,19 @@ public sealed class ViewerState
     public PlanetaryStackStage? AutoStackStage { get; set; }
 
     /// <summary>
-    /// The Auto segment's words: "Auto" while none runs, else the stage's short word (<see cref="PlanetaryStackProgress.ShortWords"/>), with the
+    /// The Full segment's words: "Full" while none runs, else the stage's short word (<see cref="PlanetaryStackProgress.ShortWords"/>), with the
     /// percent only for a stage that has one. Every label this can return is in <see cref="AutoSegmentLabels"/>.
     /// </summary>
     public string AutoSegmentLabel => AutoStackStage is { } stage
         ? PlanetaryStackProgress.HasPercent(stage)
             ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{PlanetaryStackProgress.ShortWords(stage)} {(AutoStackProgress ?? 0) * 100:0}%")
             : PlanetaryStackProgress.ShortWords(stage)
-        : "Auto";
+        : "Full";
 
     /// <summary>The widest each stage's label gets, which the view switch sizes its segments to so a running stack never moves the scrub track.</summary>
     public static IEnumerable<string> AutoSegmentLabels { get; } =
     [
-        "Auto",
+        "Full",
         .. Enum.GetValues<PlanetaryStackStage>().Select(s => PlanetaryStackProgress.HasPercent(s)
             ? PlanetaryStackProgress.ShortWords(s) + " 100%"
             : PlanetaryStackProgress.ShortWords(s)),
