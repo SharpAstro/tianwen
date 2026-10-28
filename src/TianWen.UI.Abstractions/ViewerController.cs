@@ -1927,7 +1927,7 @@ public sealed class ViewerController(
             return false;
         }
 
-        var autoUp = state.ShowAuto;
+        var autoUp = false;
         var rawPublished = !autoUp && _player.Tick(seq, state, _playbackClock.Elapsed.TotalSeconds);
 
         // The chosen batch view's layer builds and re-sharpens its one master (#1314 part 2); once it is on show the dials are its own,
@@ -1990,7 +1990,7 @@ public sealed class ViewerController(
         // so this briefly spins for the ~task duration, then the loop idles again. Only a layer on show counts: an Auto run
         // still building has no master to publish, and its progress wakes the loop through AutoStackWantsFrame (#1875).
         return rawPublished || masterPublished || (!autoUp && _player.SeekPending)
-            || (!autoUp && state.ShowStacked && _liveSource is { IsBusy: true }) || batchLayer is { IsBusy: true };
+            || (!autoUp && state.ShowStacked && _liveSource is { IsBusy: true }) || batch?.Layer is { IsBusy: true };
     }
 
     // The dials follow the view on show (#1314 part 2): the one leaving keeps what it had, the one coming (a batch view, or null for the
