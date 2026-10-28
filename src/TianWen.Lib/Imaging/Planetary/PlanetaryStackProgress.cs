@@ -39,6 +39,21 @@ public readonly record struct PlanetaryStackProgress(PlanetaryStackStage Stage, 
         _ => stage.ToString(),
     };
 
+    /// <summary>The stage in a word short enough for a segment of a switch; the percent is shown only where <see cref="HasPercent"/>.</summary>
+    public static string ShortWords(PlanetaryStackStage stage) => stage switch
+    {
+        PlanetaryStackStage.Stacking => "Stacking",
+        PlanetaryStackStage.Derotating => "De-rotating",
+        PlanetaryStackStage.Finishing => "Finishing",
+        PlanetaryStackStage.Sharpening => "Sharpening",
+        PlanetaryStackStage.BalancingColour => "Colour",
+        PlanetaryStackStage.Writing => "Writing",
+        _ => stage.ToString(),
+    };
+
+    /// <summary>Whether the stage's fraction is a real measure, which only stacking's frame reads are; the others report 0 then 1.</summary>
+    public static bool HasPercent(PlanetaryStackStage stage) => stage == PlanetaryStackStage.Stacking;
+
     public override string ToString() => $"{Words(Stage)} {Fraction:P0}";
 }
 
