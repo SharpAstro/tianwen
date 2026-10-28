@@ -56,49 +56,31 @@ outranks a new feature for the space: a user acting on a wrong instruction is wo
 off than one who has not heard about a new button. Record the finding here too, so
 the next release knows what was corrected and why.
 
-NOT YET AUDITED FOR THIS RELEASE. The live listing is 9.0.1940, submitted
-2026-09-21, and release-notes/9.0.1940.txt is its record. Audit these four claims,
-which is what that listing now tells users:
+NOT YET AUDITED FOR THIS RELEASE. The live listing will be 10.0.3416 once it is
+submitted (built 2026-10-28), and release-notes/10.0.3416.txt is its record. Audit
+what that listing tells users:
 
-  - The HDR button is gone, folded with Boost into one Tone button, and a line
-    there names the display HDR the viewer cannot do. TRUE at submission. It goes
-    stale the moment P2 of docs/plans/hdr-display.md ships real display HDR, which
-    would make that line the wrong answer on a capable machine.
-    AUDITED 2026-10-09: ITS LAST SENTENCE IS STALE. "B and H still step them" went
-    out of date on 2026-09-24 ("feat(viewer): H is the histogram, and the soft clip
-    gives up its key"): H now shows the histogram, and the soft clip has no key,
-    only the Tone popover and the wheel. A CORRECTION this release's block owes,
-    and it goes first. The other three claims are not audited yet.
-    RE-AUDITED 2026-10-28 against main after "fix(viewer): TianWen's float TIFF
-    writers bound their strips...": the HDR line is still TRUE (hdr-display.md
-    P2 to P4 NOT STARTED, so the viewer still cannot do display HDR); B still
-    steps Boost (ViewerShortcuts: "B / Shift+B", curves boost / curve mode); H is
-    "H / Shift+H", histogram / log scale. The correction leads the block below.
-  - Hovering the sky atlas washes the object a click would select. Check the wash
-    and the click still come from one resolver; two would drift apart silently.
-    AUDITED 2026-10-28: TRUE. Still one resolver (SkyMapSearchActions.TryResolveHit
-    for the click, ResolveHoverAtScreenPoint over it for the hover). Since 9.0 the
-    wash also shows only while the object overlay or the sky is drawn ("fix(viewer):
-    no hover wash while neither the object overlay nor the sky is shown"), the star
-    panel's wash shares the click's precedence (#708) and a planet's wash is its
-    disc ("fix(atlas): a planet's hover wash is its disc..."). None contradicts it.
-  - Auto crop reads neither a drizzle stack's interior holes nor a dither strip
-    down one edge as the edge of the stack. This sentence has now been widened
-    twice and rewritten once; widen it a third time and rewrite it again instead.
-    AUDITED 2026-10-28: TRUE, and NOT widened this release. The one change to the
-    viewer's crop since 9.0 ("fix(imaging): a master's coverage crop keeps only
-    where every frame reached, on a frame-count plane") tightens a count-plane
-    crop to full coverage; it does not read a hole or a dither strip as an edge,
-    and a fully covered master is still not cut.
-  - Camera and focuser driver libraries are no longer installed with the viewer.
-    Verify against the PACKAGE, not the build output: unzip the msixbundle and
-    confirm neither payload carries ASICamera2.dll, qhyccd.dll, EAFFocuser.dll
-    or EFWFilter.dll (EAFFocuser1.6.dll and EFW1.7.dll before ZWOptical.SDK 6.0).
-    It was 0 of 4 across both x64 and arm64 payloads in 9.0.1940.
-    NOT YET VERIFIED: it can only be checked on the bundle this dispatch builds.
-    Two vendor SDKs joined since 9.0 (SVBONY through SVBony.SDK, and ToupTek), so
-    widen the check to their natives too (SVBCameraSDK.dll, toupcam.dll): six
-    names, both payloads, before submitting.
+  - H shows the histogram (Shift+H a log scale), B steps Boost, and the soft clip
+    is set from the Tone button. Check ViewerShortcuts still declares exactly
+    that; this sentence is itself a correction, so a second drift is costly.
+  - Shift+K on a SER capture identifies the planet and the capture, stacks,
+    sharpens and saves the master beside the video; K switches raw and stack.
+    The frames tell only Jupiter from Saturn, so "works out which planet" leans
+    on the path or header for any other; recheck it if PlanetaryIdentification
+    changes.
+  - One Enhance button, deep sky or planet; a Background panel on by default
+    that neutralises the sky's colour and darkens it to an even level; enhanced
+    stars keep their colour.
+  - The bullets: per-file display memory and Ctrl+Shift+R; S then a click on a
+    star; large FITS, compressed FITS and TIFF masters freeing their memory
+    (TIFFs TianWen wrote before 10.0 do not); the file-list right-click menu;
+    Save starting in the file's folder and PNG/JPEG recording their rendition;
+    the pixel readout quoting the file's own values.
+  - Camera and focuser driver libraries are not installed with the viewer.
+    Verify against the PACKAGE: 0 of 8 names in both payloads of 10.0.3416
+    (ASICamera2.dll, qhyccd.dll, EAFFocuser.dll, EFWFilter.dll,
+    EAFFocuser1.6.dll, EFW1.7.dll, SVBCameraSDK.dll, toupcam.dll). Widen the list
+    when a vendor SDK joins.
 
 
 ================================================================================
@@ -119,22 +101,7 @@ sentinel without writing copy is the one thing that turns that warning off while
 leaving the listing empty.
 
 ----- BEGIN WHAT'S NEW -----
-A correction: the soft clip has moved
-Our last notes said B and H step Boost and the soft clip. B still steps Boost, but H now shows the histogram (Shift+H for a log scale), and the soft clip is set from the Tone button.
-
-Planetary videos stack themselves
-Open a SER capture and press Shift+K: the viewer works out which planet it is and how the capture was taken, stacks the best frames, sharpens the result and saves the master beside the video. K switches between the raw frames and the stack.
-
-One Enhance button
-The sparkles button opens one Enhance panel: deep-sky processing for a nebula or galaxy, planetary sharpening for a planet. A new Background panel neutralises the sky's colour and darkens it to an even level, on by default, and enhanced stars keep their colour.
-
-Also in this release
-- Each file remembers how you last displayed it. Ctrl+Shift+R resets it.
-- Show stars with S, then click one to see its measurements.
-- Large stacked masters (FITS, compressed FITS and TIFF) free their memory after opening and read it back from the file when needed.
-- Right-click a file in the list to copy its full path or open its folder.
-- Save starts in the opened file's folder, and a saved PNG or JPEG records how it was rendered.
-- The pixel readout shows the file's own values.
+WRITE THIS BEFORE DISPATCHING
 ----- END WHAT'S NEW -----
 
 Which way to cut if it goes over: the headed sections are the release and the
@@ -154,61 +121,7 @@ why. An entry carries the measurement, not the adjective: 9.0.1940's entries are
 the model, and the one that went wrong there is the one whose number came from
 somewhere other than the shipped artifact.
 
-The span is v9.0.1940..main as of 2026-10-28, about 1,820 commits, nearly all of
-them outside the viewer (the server split, planetary research, training). Only what
-tianwen-fits shows is listed.
-
-Correction (soft clip). "feat(viewer): H is the histogram, and the soft clip gives
-up its key" (2026-09-24). ViewerShortcuts now declares "H / Shift+H" as histogram /
-log scale and "B / Shift+B" as curves boost / curve mode, with the soft clip on the
-Tone panel. Goes first because a user following the live listing presses H and gets
-a histogram.
-
-Planetary Auto view. "feat(viewer): Best stack of a recorded capture in tianwen-fits,
-the routine planetary-stack runs, its telescope remembered" (#1159), "feat(viewer):
-the Best view folds into Auto, the panel's choices given to it" (#817), "feat
-(planetary): AUTO reads what a capture is and stacks it at the defaults, in the CLI
-and the viewer" (A4, #1391). Shift+K is "Auto view: the whole capture identified and
-stacked once, written beside it (SER)"; K is "Raw / Stack". The frames tell Jupiter
-from Saturn only, so a capture of another planet relies on its path or header to be
-named; the copy says "works out which planet" and is true where it can.
-
-Enhance and Background. "feat(viewer): the sparkles button opens one Enhance
-popover, deep-sky half first" and "...the planetary sharpening moves from the info
-strip into the Enhance popover" (#1345); "feat(viewer): a Background popover, the
-sky's neutralisation and a background reduce on by default"
-(ViewerState.BackgroundReduceEnabled = true, standing down in the planetary
-stretch); "feat(viewer): the stars keep their colour, a Star colour dial and the
-magenta taken out", and the star split ("an enhanced frame keeps its star split").
-The background reduce changes how an untouched master LOOKS on first open, which is
-why the copy says it is on by default.
-
-Also-in bullets, one source each:
-  - Remembered display: "feat(viewer): tianwen-fits restores and saves a file's
-    display, with Reset display" (#1814); Ctrl+Shift+R in ViewerShortcuts.
-  - Star click: "feat(viewer): a selected detected star shows its measurement in a
-    floating panel" (#708). Needs the detected stars on (S).
-  - Memory: #368 (plain FITS), #1856 (tile-compressed .fz), #1853 (float TIFF),
-    #1852 (a total budget across open documents). A master over the plane budget
-    drops its float planes after load and reads them back from the file. NO FIGURE
-    in the copy, by the 9.0.1940 rule: none was measured on a Store install.
-    Excluded: gzip and CR2 (cannot be read at an offset), and see Known issues for
-    TIFFs written before this release.
-  - File list menu: "feat(viewer): right-click a file-list row to copy its full path
-    or open its folder" (#1326); items "Copy full path", "Open containing folder".
-  - Save: "fix(viewer): Save starts in the opened file's folder" (P35); "feat
-    (viewer): the displayed PNG carries how it was rendered, as iTXt text" and "...
-    the displayed JPEG carries its rendition too, as EXIF and XMP".
-  - Readout: "fix(viewer): the pixel readout quotes the source's own counts, not
-    every value times 65535".
-
-Deliberately NOT in the block, for space: the blink grading each frame against the
-best of its group; the metadata showing aperture and focal ratio; the Stars stretch
-choice (arcsinh or Star Stretch); the A/B button's new split-frame mark (#606); the
-keyboard panel generated from one declaration; the faster plain-FITS read
-("perf(fits): a plain FITS file is read straight into its planes, through
-FitsReader", no figure measured on the Store build); a wheel over an open popover no
-longer zooming the picture.
+(empty: fill as the release is built)
 
 
 KNOWN ISSUES IN THIS BUILD
@@ -217,10 +130,9 @@ Carry the previous record's list forward item by item and mark each one Unchange
 closed, or changed. A known issue that quietly vanishes between records is one
 nobody decided about.
 
-Carried forward from 9.0.1940 (2026-09-21). Reviewed 2026-10-28 only where marked;
-re-check the rest at dispatch.
+Carried forward from 10.0.3416 (2026-10-28) UNREVIEWED. Re-check each at dispatch.
 
-  NEW    TIFF masters TianWen wrote BEFORE this release keep their float planes
+  TIFF   TIFF masters TianWen wrote BEFORE this release keep their float planes
          in memory: the readout declines a segment over 4 MB, and the old writers
          put a whole page in one strip ("fix(viewer): TianWen's float TIFF
          writers bound their strips...", #1853). New exports use strips of about
@@ -229,12 +141,6 @@ re-check the rest at dispatch.
 
   P21    Single-channel views of a mosaic show the raw mosaic, not the separated
          colour planes (a shader change).
-
-  P11.2  The ? panel names missing SAS AI weights but cannot fetch them from a
-         Store install.
-         CLOSED (reviewed 2026-10-28): the SETI Astro tier was removed on
-         2026-09-26 (its licence allows use only within SASpro), so nothing
-         loads or names its weights any more.
 
   P9/P10 Unconfirmed, neither reproduced since first report.
 
@@ -273,10 +179,9 @@ not the release, so it is only edited when the product GAINS something. Up to 20
 entries of 200 characters each, and the listing is at the cap as of 7.1.1627, so
 an addition now has to displace something. Say NO CHANGE and why, if so.
 
-Unreviewed for this release. The queue, unchanged through 9.0.1940: auto-crop to
-the covered area; A/B and blink; Explorer thumbnails for FITS and SER.
-Candidate added 2026-10-28, the strongest of the four: stacking a planetary SER
-capture in one key (the Auto view). Deciding what it displaces is the owner's call.
+Unreviewed for this release. The queue, unchanged through 10.0.3416: auto-crop to
+the covered area; A/B and blink; Explorer thumbnails for FITS and SER; stacking a
+planetary SER capture in one key (the Auto view, added as a candidate in 10.0.3416).
 
 
 SUBMISSION
