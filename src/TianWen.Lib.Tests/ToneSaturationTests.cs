@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using DIR.Lib;
 using Shouldly;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 using Xunit;
