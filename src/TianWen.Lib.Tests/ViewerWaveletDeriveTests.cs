@@ -135,7 +135,8 @@ public class ViewerWaveletDeriveTests
         // #1880: the balance's stop goes into the derivation as it starts, as the strength's does.
         await using var e2e = ViewerE2E.Start(dpi);
         var ct = TestContext.Current.CancellationToken;
-        await OpenStackedAsync(e2e, ct);
+        // A colour capture: a mono source shows no saturation stops.
+        await OpenStackedAsync(e2e, ct, dispersed: true);
         (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (254, OpticalDesign.Newtonian);
         e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: "BalanceSaturationEye" }, "the Eye saturation button"));
         e2e.Frame();
