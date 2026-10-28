@@ -506,6 +506,15 @@ of seeing or frame count whose best setting the seed spread can tell from the de
 defaults, and AUTO (A4) adds what a user still had to supply: what the capture is (planet, filter, telescope), read off the
 capture itself.
 
+### The viewer's Auto view is a still picture, and never shows an older stack as its result
+
+(#1875.) While the Auto view is chosen the viewer costs a still frame: playback holds and the live rolling stack does not follow.
+Until THIS capture's Auto master exists, the picture is the raw frame at the held playhead (`ViewerController.Source` is the raw
+source, never the live layer or an older Auto layer), whether Auto was chosen from Raw or from Stack with a live master. The status
+bar says so in one wording, `ViewerState.AutoShowsFramesWording` ("Showing the frames while Auto stacks"), derived from
+`ViewerState.AutoShowsFrames` and cleared when the master is on show. Pinned by `ViewerAutoFrameDemandTests` through `ViewerE2E`
+from both entries at DPI 1 and 1.5.
+
 **What an AUTO setting is**: the keep fraction, the sharpening (the gains, or the strength and target they are
 derived at), and a colour master's finest-band choice. These move a master's error. The alignment-point count and the
 resampling kernel did not (the 2026-06 study below, #1195).

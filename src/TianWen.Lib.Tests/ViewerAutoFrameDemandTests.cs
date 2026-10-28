@@ -63,6 +63,12 @@ public class ViewerAutoFrameDemandTests
         await e2e.PumpUntilAsync(() => e2e.Controller.IsAutoStackPending && e2e.State.AutoStackProgress is not null, "the Auto run to start", ct);
         e2e.Controller.AutoStacksStarted.ShouldBe(1);
 
+        // Honest placeholder (#1875): the raw frame at the held playhead shows, never the live stack or an older Auto layer, and one line says so.
+        e2e.Frame();
+        e2e.Controller.Source.ShouldNotBeNull().ShouldNotBeOfType<LiveStackPreviewSource>("the raw frame, not a previous stack");
+        e2e.State.AutoShowsFrames.ShouldBeTrue();
+        ViewerState.AutoShowsFramesWording.ShouldBe("Showing the frames while Auto stacks");
+
         var playhead = e2e.State.FrameIndex;
         var asked = 0;
         for (var i = 0; i < Iterations; i++)
@@ -82,6 +88,8 @@ public class ViewerAutoFrameDemandTests
         // Released: the run finishes and its master shows; another view frees the playhead.
         gate.SetResult();
         await ViewerBestStackTests.AutoOnShowAsync(e2e, ct);
+        e2e.Controller.Source.ShouldBeSameAs(e2e.Controller.ViewLayers.Auto, "the run's master replaces the raw frame");
+        e2e.State.AutoShowsFrames.ShouldBeFalse();
         e2e.State.IsPlaying = true;
         for (var i = 0; i < Iterations; i++)
         {

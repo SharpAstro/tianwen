@@ -71,6 +71,11 @@ namespace TianWen.UI.Abstractions
                 statusParts.Add($"Crop {crop.Width}x{crop.Height}");
             }
 
+            if (state.AutoShowsFrames)
+            {
+                statusParts.Add(ViewerState.AutoShowsFramesWording);
+            }
+
             if (state.StatusMessage is { } msg)
             {
                 statusParts.Add(msg);

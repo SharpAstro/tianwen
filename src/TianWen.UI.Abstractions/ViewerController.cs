@@ -214,6 +214,7 @@ public sealed class ViewerController(
     // The live rolling-window stack over the same SER (null for stills / non-stacked). Built lazily; shown
     // only once it has produced its first master (HasMaster).
     private LiveStackPreviewSource? _liveSource;
+    private bool _autoAwaitedOnShow;
 
     /// <summary>
     /// The source the renderer previews. The raw frame normally; the sharpening layer's master when it is on show
@@ -222,7 +223,12 @@ public sealed class ViewerController(
     /// is the same object as <see cref="Document"/>; for a SER the raw source is a sequence source and <see cref="Document"/> is null.
     /// </summary>
     public IPreviewSource? Source => BatchLayerOnShow is { } batch ? batch
+        : AutoAwaitsMaster ? _rawSource
         : state.SharpenLayerOnShow && _liveSource is { HasMaster: true } ? _liveSource : _rawSource;
+
+    // The Auto view is chosen and this capture has no Auto master yet: the raw frame at the held playhead shows, never the live
+    // rolling stack or an older view as if it were this run's result (#1875).
+    private bool AutoAwaitsMaster => state.ShowAuto && state.IsSequence && BatchLayerOnShow is null;
 
     // The Auto view's layer, once that view is chosen and its master is built (#1314 part 2); until then the view under it stays.
     private LiveStackPreviewSource? BatchLayerOnShow => state.ShowAuto && state.IsSequence && _auto.Layer is { HasMaster: true } layer ? layer : null;
@@ -1560,6 +1566,12 @@ public sealed class ViewerController(
             (state.AutoStackProgress, state.AutoStackStage) = (shownProgress, shownStage);
             changed = true;
         }
+        var framesShown = AutoAwaitsMaster;
+        if (state.AutoShowsFrames != framesShown)
+        {
+            state.AutoShowsFrames = framesShown;
+            changed = true;
+        }
         return changed;
     }
 
@@ -1948,6 +1960,14 @@ public sealed class ViewerController(
         }
         var bestOnShow = batchLayer is not null;
 
+        // Choosing Auto swaps the picture under it for the held raw frame until the master lands (#1875), and leaving it swaps back.
+        var awaiting = AutoAwaitsMaster;
+        if (awaiting != _autoAwaitedOnShow)
+        {
+            _autoAwaitedOnShow = awaiting;
+            state.NeedsTextureUpdate = true;
+        }
+
         // Live rolling-window stack: consume any finished master first (so the just-completed result is
         // published before we kick the next one), then follow the current playhead. Only runs while the
         // stacked view is requested -- no CPU spent stacking when showing the raw frame.
@@ -1972,7 +1992,7 @@ public sealed class ViewerController(
 
         // Upload whichever source is actually on screen. A raw frame advance only re-uploads when the raw
         // frame is shown; a new master always becomes the displayed image (it only publishes while stacked).
-        var showingStacked = bestOnShow || (state.ShowStacked && _liveSource is { HasMaster: true });
+        var showingStacked = bestOnShow || (!awaiting && state.ShowStacked && _liveSource is { HasMaster: true });
         if (rawPublished && !showingStacked)
         {
             state.NeedsTextureUpdate = true;
