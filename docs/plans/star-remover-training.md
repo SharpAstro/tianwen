@@ -5186,7 +5186,13 @@ Read through the exporter's own master stretch, the injected colours already mat
 draws a whole catalogued star and keeps its amplitude per channel (`InjectionPopulation`, R1). The pool refuses a
 diverged fit (#1867): a star whose `LocalSigma` is not finite (an edge fit with its centre off covered sky), and an
 unsaturated one whose amplitude in any channel is above the frame's clip (the master's unit-scale divisor) less its own
-sky. Neither is drawn, nor carried as a lobe; both still count as sites, and `InjectionPopulation.Refused` says how many. A drawn colour is
+sky. Neither is drawn, nor carried as a lobe; both still count as sites, and `InjectionPopulation.Refused` says how many.
+The plate builder refuses the same fits at the source (#1867): `ClassicalStarRemover` leaves a fit whose centre is off
+covered sky, or whose unsaturated amplitude in any channel is above that channel's brightest covered sample less its sky,
+as `NoFit` before subtracting it, so no reader of the catalogue meets it as a Subtracted Moffat (the catalogue format is
+unchanged, and older catalogues read as before, so the injector's guard stays for them). **Plates and the export must be
+rebuilt**, and the synthetics review's instruments (`training/star-removal/domain/`) read on that re-export before any
+training run uses it; that re-export is the owner's. A drawn colour is
 therefore a real star's colour at that star's own brightness. An option drawing colours from the real distribution
 would draw what the pool already draws. The training session's call (2026-10-23) was to add none.
 

@@ -360,6 +360,22 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         }
     }
 
+    // #1867: the field's star beside the absent ring (4 px inside it) is the edge fit. Whatever it came to, no catalogue row is an
+    // unsaturated Subtracted Moffat whose centre is off covered sky (no local sigma) or whose amplitude is past the clip less its sky.
+    [Fact(Timeout = 300_000)]
+    public async Task ADivergedEdgeFitIsNeverAnUnsaturatedSubtractedMoffat()
+    {
+        var field = MakeField(1);
+        var plate = await ClassicalStarRemover.BuildAsync(field.Image, cancellationToken: TestContext.Current.CancellationToken);
+
+        foreach (var s in plate.Stars.Where(static s => s.Outcome == StarFitOutcome.Subtracted && s.Model == StarFitModel.Moffat && !s.Saturated))
+        {
+            float.IsFinite(s.LocalSigma).ShouldBeTrue($"({s.X}, {s.Y}) has no local sigma");
+            s.ChannelAmplitudes.All(a => a <= Clip - (float.IsFinite(s.Sky) ? s.Sky : 0f)).ShouldBeTrue($"({s.X}, {s.Y}) peaks past the clip");
+        }
+        Nearest(plate, Ring + 4.0, 500.0, within: 3.0).ShouldNotBeNull();
+    }
+
     [Fact(Timeout = 300_000)]
     public async Task EachStarSaysWhetherItSitsOnNebulosityAndOnTexture()
     {
