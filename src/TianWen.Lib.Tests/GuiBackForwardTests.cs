@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using DIR.Lib;
@@ -5,7 +8,9 @@ using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -53,6 +58,31 @@ public class GuiBackForwardTests
             Handler = new GuiEventHandlerBase(sp, App, Planner, chrome, cts, cts.Token,
                 Substitute.For<IExternal>(), Tracker);
         }
+
+        /// <summary>
+        /// Fills tonight's list with <paramref name="count"/> rows, as a planner that has scored a night shows them, so a
+        /// selection is a real target and an index a real row (not a number into an empty list).
+        /// </summary>
+        public void SeedTargets(int count)
+        {
+            var scored = Enumerable.Range(0, count).Select(Scored).ToImmutableArray();
+            Planner.TonightsBest = scored;
+            Planner.ScoredTargets = scored.ToImmutableDictionary(s => s.Target);
+        }
+
+        public static Target TargetAt(int n) => new(1.0 + n, 20.0 + n, $"Test {n}", null);
+
+        private static ScoredTarget Scored(int n) => new(
+            TargetAt(n),
+            (Half)1.0,
+            (Half)1.0,
+            new Dictionary<RaDecEventTime, RaDecEventInfo>(),
+            OptimalStart: new DateTimeOffset(2026, 3, 20, 20, 0, 0, TimeSpan.Zero) + TimeSpan.FromMinutes(n),
+            OptimalDuration: TimeSpan.FromHours(2),
+            OptimalAltitude: 45.0,
+            ObjectType: ObjectType.Galaxy);
+
+        public Target SelectedTarget => PlannerActions.GetFilteredTargets(Planner)[Planner.SelectedTargetIndex].Target;
 
         public void Back() => Handler.HandleInput(new InputEvent.KeyDown(InputKey.Left, InputModifier.Alt)).ShouldBeTrue();
 
@@ -116,6 +146,7 @@ public class GuiBackForwardTests
     public void BackRestoresThePlannersSelectedTargetAndScrollsItIntoView()
     {
         var rig = new Rig();
+        rig.SeedTargets(10);
         rig.App.ActiveTab = GuiTab.Planner;
         rig.Planner.SelectedTargetIndex = 7;
         rig.App.ActiveTab = GuiTab.SkyMap;
@@ -128,7 +159,7 @@ public class GuiBackForwardTests
 
         rig.Forward();
         rig.App.ActiveTab.ShouldBe(GuiTab.SkyMap);
-        rig.Planner.SelectedTargetIndex.ShouldBe(2, "forward comes back to the place Back left, selection included");
+        rig.Planner.SelectedTargetIndex.ShouldBe(7, "a place on the atlas owns no planner selection, so Forward leaves the planner's cursor alone");
     }
 
     [Fact]
@@ -237,6 +268,7 @@ public class GuiBackForwardTests
     public void APressOnTheStripsBackRegionReturnsFromTheAtlasToThePlannersSelection()
     {
         var rig = new Rig();
+        rig.SeedTargets(10);
         rig.App.ActiveTab = GuiTab.Planner;
         rig.Planner.SelectedTargetIndex = 7;
 
@@ -265,6 +297,72 @@ public class GuiBackForwardTests
         forward = strip.GetRegisteredRegions().Single(r => r.Result is HitResult.ButtonHit { Action: Layout.Builder.NavigationForwardAction });
         forward.OnClick.ShouldNotBeNull().Invoke(InputModifier.None);
         rig.App.ActiveTab.ShouldBe(GuiTab.SkyMap);
+    }
+
+    /// <summary>
+    /// A place keeps the planner's selected TARGET, not its row: the atlas pins the very target Show in atlas opened, the
+    /// pinned section moves it to the top, and an index stored before would now point at another target.
+    /// </summary>
+    [Fact]
+    public void BackSelectsTheSameTargetNotTheSameRowAfterThePlannersRowsMoved()
+    {
+        var rig = new Rig();
+        rig.SeedTargets(5);
+        rig.App.ActiveTab = GuiTab.Planner;
+        rig.Planner.SelectedTargetIndex = 2;
+        var opened = Rig.TargetAt(2);
+        rig.SelectedTarget.ShouldBe(opened);
+
+        rig.Bus.Post(new ViewInSkyMapSignal(opened.Name, opened.RA, opened.Dec, opened.CatalogIndex, ObjectType.Galaxy));
+        rig.Bus.ProcessPending(rig.Tracker);
+        rig.App.ActiveTab.ShouldBe(GuiTab.SkyMap);
+
+        rig.Bus.Post(new SkyMapPinObjectSignal(opened.Name, opened.RA, opened.Dec, opened.CatalogIndex, ObjectType.Galaxy));
+        rig.Bus.ProcessPending(rig.Tracker);
+        rig.Planner.Proposals.Length.ShouldBe(1, "the atlas pinned the target");
+        PlannerActions.GetFilteredTargets(rig.Planner)[2].Target.ShouldNotBe(opened, "premise: row 2 is another target now");
+
+        rig.Back();
+
+        rig.App.ActiveTab.ShouldBe(GuiTab.Planner);
+        rig.SelectedTarget.ShouldBe(opened);
+        rig.Planner.SelectedTargetIndex.ShouldBe(0, "the pinned section comes first");
+        rig.Chrome.Received().PlannerEnsureVisible(0);
+    }
+
+    [Fact]
+    public void BackClampsTheCursorWhenTheSelectedTargetIsGone()
+    {
+        var rig = new Rig();
+        rig.SeedTargets(10);
+        rig.App.ActiveTab = GuiTab.Planner;
+        rig.Planner.SelectedTargetIndex = 8;
+        rig.App.ActiveTab = GuiTab.SkyMap;
+        rig.SeedTargets(3); // a recompute while away dropped the target
+
+        rig.Back();
+
+        rig.App.ActiveTab.ShouldBe(GuiTab.Planner);
+        rig.Planner.SelectedTargetIndex.ShouldBe(2);
+    }
+
+    [Fact]
+    public void ABackToTheAtlasLeavesThePlannersSelectionAlone()
+    {
+        var rig = new Rig();
+        rig.SeedTargets(10);
+        rig.App.ActiveTab = GuiTab.SkyMap;
+        rig.App.ActiveTab = GuiTab.Planner;
+        rig.Planner.SelectedTargetIndex = 4;
+        rig.App.ActiveTab = GuiTab.Equipment;
+
+        rig.Back(); // to the planner, as the person left it
+        rig.Planner.SelectedTargetIndex.ShouldBe(4);
+        rig.Planner.SelectedTargetIndex = 6;
+        rig.Back(); // to the atlas, which owns no selection
+
+        rig.App.ActiveTab.ShouldBe(GuiTab.SkyMap);
+        rig.Planner.SelectedTargetIndex.ShouldBe(6);
     }
 
     [Fact]
