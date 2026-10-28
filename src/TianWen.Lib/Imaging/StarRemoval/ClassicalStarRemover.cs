@@ -878,11 +878,12 @@ public static class ClassicalStarRemover
                         : 0.0;
                 }
             }
-            // A diverged fit is refused before it is subtracted (#1867): a centre off covered sky has no local sigma, and an
-            // unsaturated star cannot peak above the brightest covered sample less its own sky, so an amplitude past that is a
-            // fit that ran away (one at 1e12 on a frame's edge once dominated the injector's pool, and subtracting it would
-            // have written a huge hole into the plate). It is left as NoFit, which no reader takes for a star.
-            if (OffCanvas(fit.X, fit.Y) || (!fit.Saturated && Overshoots(fit)))
+            // A diverged fit is refused before it is subtracted (#1867): an unsaturated star cannot peak above the brightest
+            // covered sample less its own sky, so an amplitude past that (or not a number) is a fit that ran away (one at 1e12
+            // on a frame's edge once dominated the injector's pool, and subtracting it would have written a huge hole into the
+            // plate). It is left as NoFit, which no reader takes for a star. A sane fit centred off canvas, saturated or not,
+            // stays subtracted: that is a star the frame's edge cut (see OffCanvas).
+            if (!fit.Saturated && Overshoots(fit))
             {
                 fit.Outcome = StarFitOutcome.NoFit;
                 return fit;
