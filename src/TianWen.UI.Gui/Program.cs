@@ -320,7 +320,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     {
         var wasTab = appState.ActiveTab;
         var fovAtStall = guiRenderer.SkyMapState.FieldOfViewDeg; // capture for the trace before resetting
-        appState.ActiveTab = GuiTab.Notifications;
+        appState.SetActiveTabWithoutHistory(GuiTab.Notifications); // shedding load is no move the person made
         guiRenderer.SkyMapState.FieldOfViewDeg = 60.0; // reset a runaway zoom to a sane default
         guiRenderer.SkyMapState.NeedsRedraw = true;
         appState.NeedsRedraw = true;
@@ -340,7 +340,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     // One pointer callback: the loop synthesizes the InputEvents with the real release coordinates
     // on MouseUp (the previous hand-wired OnMouseUp reconstructed them from a cached position, 
     // without them the click-vs-drag detection in SkyMapTab compared (0, 0) to the real mouse-down
-    // position). Presses route left-button only, as before; everything else flows through.
+    // position). Presses route left-button only, as before, but for Back and Forward; everything else flows through.
     OnPointerInput = evt =>
     {
         // The pointer's appearance comes from the regions painted last frame (active tab first, then the
@@ -356,7 +356,9 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
         return evt switch
         {
-            InputEvent.MouseDown { Button: not MouseButton.Left } => true,
+            // The mouse's back and forward buttons are Back and Forward (and their release is swallowed),
+            // decided by the handler ahead of whatever is under the pointer; any other non-left press stays off.
+            InputEvent.MouseDown { Button: not (MouseButton.Left or MouseButton.Back or MouseButton.Forward) } => true,
             _ => handlers.HandleInput(evt),
         };
     },
