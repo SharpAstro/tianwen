@@ -15,7 +15,9 @@ namespace TianWen.Lib.Imaging.StarRemoval;
 /// <param name="RmsLog">The RMS of ln(measured / fitted) over the fitted radii.</param>
 /// <param name="TailLog">The largest |ln(measured / fitted)| from 20 to 30 px (0 where the profile has no positive value there):
 /// the number to set against the masters' own spread to decide whether a residual table is wanted instead.</param>
-public readonly record struct OuterHaloFitResult(OuterHalo Halo, double RmsLog, double TailLog);
+/// <param name="OnBound">True when beta or alpha ended within a few percent of the search range's edge: the shape could not follow
+/// the data, and the Moffat is not the right model for it (the measured residual table is).</param>
+public readonly record struct OuterHaloFitResult(OuterHalo Halo, double RmsLog, double TailLog, bool OnBound = false);
 
 /// <summary>
 /// The outer halos, per rig, fitted in C# to the clipped-star halo profiles the census measured
@@ -29,7 +31,7 @@ public sealed class OuterHaloFit
     /// <summary>The radii the Moffat is fitted over, pixels: under 4 px the core profile owns the light, and the census stops at 40.</summary>
     public const int FitFromPx = 4, FitToPx = 40;
 
-    private const double MinBeta = 0.6, MaxBeta = 4.0, MinAlphaPx = 1.0, MaxAlphaPx = 200.0;
+    private const double MinBeta = 0.6, MaxBeta = 12.0, MinAlphaPx = 1.0, MaxAlphaPx = 200.0;
 
     private readonly Dictionary<string, Dictionary<string, OuterHaloFitResult>> _rigs;
 
@@ -150,18 +152,22 @@ public sealed class OuterHaloFit
                 continue;
             }
             var measured = Median(own);
-            if (measured is null)
+            if (measured is null || !(measured.Length > 0 && measured[0] > 0.0))
             {
                 continue;
             }
-            if (synth.ValueKind == JsonValueKind.Object && synth.TryGetProperty(group.Name, out var synthGroup)
-                && synthGroup.TryGetProperty("channels", out var synthChannels) && synthChannels.TryGetProperty(channel, out var synthOwn)
-                && Median(synthOwn) is { } drawn && drawn.Length == measured.Length)
+            // No synth11 group to take off: the whole excess would be counted as halo, so the group is left out.
+            if (synth.ValueKind != JsonValueKind.Object || !synth.TryGetProperty(group.Name, out var synthGroup)
+                || !synthGroup.TryGetProperty("channels", out var synthChannels) || !synthChannels.TryGetProperty(channel, out var synthOwn)
+                || Median(synthOwn) is not { } drawn || drawn.Length != measured.Length || !(drawn[0] > 0.0))
             {
-                for (var i = 0; i < measured.Length; i++)
-                {
-                    measured[i] -= drawn[i];
-                }
+                continue;
+            }
+            var realPeak = measured[0];
+            var drawnPeak = drawn[0];
+            for (var i = 0; i < measured.Length; i++)
+            {
+                measured[i] = (measured[i] / realPeak) - (drawn[i] / drawnPeak);
             }
             sum ??= new double[measured.Length];
             if (sum.Length != measured.Length)
@@ -275,12 +281,13 @@ public sealed class OuterHaloFit
                 tail = Math.Max(tail, Math.Abs(Math.Log(byRadius[r] / halo.AtRadius(r))));
             }
         }
-        return new OuterHaloFitResult(halo, Math.Sqrt(bestCost / radii.Count), tail);
+        var onBound = bestB >= MaxBeta * 0.97 || bestB <= MinBeta * 1.03 || bestA >= Math.Log(MaxAlphaPx) - 0.03 || bestA <= Math.Log(MinAlphaPx) + 0.03;
+        return new OuterHaloFitResult(halo, Math.Sqrt(bestCost / radii.Count), tail, onBound);
     }
 
     /// <summary>The fit in words for a log line.</summary>
     public string InWords(string rig)
         => !_rigs.TryGetValue(rig, out var fits) ? $"{rig}: none"
             : string.Join("; ", fits.Select(static kv => string.Create(CultureInfo.InvariantCulture,
-                $"{kv.Key} {kv.Value.Halo.Fraction:G3} (1 + r^2 / {kv.Value.Halo.AlphaPx:F1}^2)^-{kv.Value.Halo.Beta:F2}, rms {kv.Value.RmsLog:F2} ln, tail {kv.Value.TailLog:F2} ln")));
+                $"{kv.Key} {kv.Value.Halo.Fraction:G3} (1 + r^2 / {kv.Value.Halo.AlphaPx:F1}^2)^-{kv.Value.Halo.Beta:F2}, rms {kv.Value.RmsLog:F2} ln, tail {kv.Value.TailLog:F2} ln{(kv.Value.OnBound ? ", ON THE SEARCH BOUND" : "")}")));
 }

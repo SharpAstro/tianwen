@@ -151,39 +151,87 @@ public class OuterHaloTests(ITestOutputHelper output)
         OuterHaloFit.Fit(new double[41]).ShouldBeNull();
     }
 
+    // A synthetic table: Rig-A's real groups are a clipped peak of 0.6 times (the unit-peak profile the injector draws plus the
+    // known halo), its synth11 groups a peak of 0.9 times the unit-peak profile alone; Rig-B has real groups and no synth11.
+    private static double Unit(int r) => Math.Pow(1.0 + (r * r / 9.0), -3.0);
+
+    private static string Array(Func<int, double> f) => "[" + string.Join(",", Enumerable.Range(0, 41).Select(r => f(r).ToString("R", CultureInfo.InvariantCulture))) + "]";
+
+    private static string Group(double stars, string median)
+        => $"{{\"stars\":{stars.ToString(CultureInfo.InvariantCulture)},\"channels\":{{\"L\":{{\"linear\":{{\"median\":{median}}}}}}}}}";
+
+    private static string Table(string extraRealGroup = "")
+    {
+        var real = Array(r => 0.6 * (Unit(r) + Known.AtRadius(r)));
+        var drawn = Array(r => 0.9 * Unit(r));
+        return "{\"schema\":1,\"rigs\":{"
+            + "\"Rig-A\":{\"real\":{\"core1\":" + Group(100, real) + ",\"core2\":" + Group(50, real) + extraRealGroup + "},"
+            + "\"synth11\":{\"core1\":" + Group(10, drawn) + ",\"core2\":" + Group(10, drawn) + "}},"
+            + "\"Rig-B\":{\"real\":{\"core1\":" + Group(30, real) + "}},"
+            + "\"Rig-C\":{\"synth11\":{}}}}";
+    }
+
     [Fact]
     public void TheFitIsReadPerRigFromTheProfileTableLessWhatTheInjectorDrawsAlready()
     {
-        // A synthetic table: one rig whose real L median is the known halo plus a Moffat the injector draws (synth11), a rig
-        // with R, G and B, and a rig with no real set.
-        string Array(Func<int, double> f) => "[" + string.Join(",", Enumerable.Range(0, 41).Select(r => f(r).ToString("R", CultureInfo.InvariantCulture))) + "]";
-        double Drawn(int r) => 0.05 * Math.Pow(1.0 + (r * r / 9.0), -3.0);
-        string Group(double stars, string median) => $"{{\"stars\":{stars.ToString(CultureInfo.InvariantCulture)},\"channels\":{{\"L\":{{\"linear\":{{\"median\":{median}}}}}}}}}";
-        string Rgb(string median) => string.Join(",", new[] { "R", "G", "B" }.Select(n => $"\"{n}\":{{\"linear\":{{\"median\":{median}}}}}"));
-        var both = Array(r => Drawn(r) + Known.AtRadius(r));
-        var json = "{\"schema\":1,\"rigs\":{"
-            + "\"Rig-A\":{\"real\":{\"core1\":" + Group(100, both) + ",\"core2\":" + Group(50, both) + "},"
-            + "\"synth11\":{\"core1\":" + Group(10, Array(Drawn)) + ",\"core2\":" + Group(10, Array(Drawn)) + "}},"
-            + "\"Rig-B\":{\"real\":{\"core1\":{\"stars\":30,\"channels\":{" + Rgb(Array(r => Known.AtRadius(r))) + "}}}},"
-            + "\"Rig-C\":{\"synth11\":{}}}}";
-        using var document = JsonDocument.Parse(json);
+        using var document = JsonDocument.Parse(Table());
         var fit = OuterHaloFit.FromDocument(document.RootElement);
         fit.Has("Rig-A").ShouldBeTrue();
+        fit.Has("Rig-B").ShouldBeFalse("a rig with no synth11 set has nothing to take off, so no fit");
         fit.Has("Rig-C").ShouldBeFalse("a rig without a real set has no fit");
         fit.Has("Rig-Z").ShouldBeFalse();
         var a = fit.For("Rig-A", 1);
         a.Length.ShouldBe(1);
-        a[0].Fraction.ShouldBe(Known.Fraction, Known.Fraction * 0.02, "what the injector draws is taken off first");
+        a[0].Fraction.ShouldBe(Known.Fraction, Known.Fraction * 0.02, "per unit of the group's own peak, what the injector draws taken off");
         a[0].AlphaPx.ShouldBe(Known.AlphaPx, Known.AlphaPx * 0.02);
         // A three-channel master takes the luminance's for every channel where the file has no colour of its own.
         var a3 = fit.For("Rig-A", 3);
         a3.Length.ShouldBe(3);
         a3.ShouldAllBe(h => h == a[0]);
-        fit.For("Rig-B", 3).Length.ShouldBe(3);
-        fit.For("Rig-B", 3).ShouldAllBe(h => Math.Abs(h.Beta - Known.Beta) < 0.02);
         fit.For("Rig-Z", 3).IsDefault.ShouldBeTrue("a rig the file lacks gets none");
         fit.For("Rig-A", 2).IsDefault.ShouldBeTrue();
         fit.InWords("Rig-A").ShouldContain("L ");
+    }
+
+    [Fact]
+    public void AGroupWithNoSynth11CounterpartDoesNotMoveTheFit()
+    {
+        // core6+: a bright extended source, a large flat excess, and no synth11 group to take a star off it.
+        var extra = ",\"core6+\":" + Group(100000, Array(_ => 0.45));
+        using var without = JsonDocument.Parse(Table());
+        using var with = JsonDocument.Parse(Table(extra));
+        var a = OuterHaloFit.FromDocument(without.RootElement).For("Rig-A", 1)[0];
+        var b = OuterHaloFit.FromDocument(with.RootElement).For("Rig-A", 1)[0];
+        b.ShouldBe(a);
+    }
+
+    [Fact]
+    public void AFractionIsPerUnitOfTheMeasuredPeakWhateverTheClippedLevel()
+    {
+        // The same halo on a clipped peak of 0.3 and of 0.9 fits the same Fraction.
+        string Json(double peak) => "{\"rigs\":{\"R\":{\"real\":{\"core1\":" + Group(10, Array(r => peak * (Unit(r) + Known.AtRadius(r)))) + "},"
+            + "\"synth11\":{\"core1\":" + Group(10, Array(Unit)) + "}}}}";
+        using var low = JsonDocument.Parse(Json(0.3));
+        using var high = JsonDocument.Parse(Json(0.9));
+        var l = OuterHaloFit.FromDocument(low.RootElement).For("R", 1)[0];
+        var h = OuterHaloFit.FromDocument(high.RootElement).For("R", 1)[0];
+        l.Fraction.ShouldBe(h.Fraction, h.Fraction * 1e-6);
+        l.Fraction.ShouldBe(Known.Fraction, Known.Fraction * 0.02);
+    }
+
+    [Fact]
+    public void AFitPinnedOnTheSearchBoundSaysSo()
+    {
+        // A profile steeper than any Moffat in range (a Gaussian fall) pins a bound.
+        var steep = new double[41];
+        var known = new double[41];
+        for (var r = 0; r < steep.Length; r++)
+        {
+            steep[r] = Math.Exp(-r * r / 200.0);
+            known[r] = Known.AtRadius(r);
+        }
+        OuterHaloFit.Fit(steep).ShouldNotBeNull().OnBound.ShouldBeTrue();
+        OuterHaloFit.Fit(known).ShouldNotBeNull().OnBound.ShouldBeFalse();
     }
 
     [Fact]
@@ -191,6 +239,8 @@ public class OuterHaloTests(ITestOutputHelper output)
     {
         // The input stretch is the export's own MtfStretchWith: a midtones balance chosen to put the sky at a quarter, a minimum
         // taken off. Read the halo as the stretch shows it: excess over the stretched sky, at 4, 10, 20 and 30 px.
+        using var document = JsonDocument.Parse(Table());
+        var fitted = OuterHaloFit.FromDocument(document.RootElement).For("Rig-A", 1)[0];
         const double sky = 0.02;
         const double target = 0.25;
         // MTF(m, x) = (m - 1) x / ((2m - 1) x - m); solve MTF(m, sky) = target for m.
@@ -201,7 +251,7 @@ public class OuterHaloTests(ITestOutputHelper output)
         var plane = new float[1, 42];
         for (var r = 0; r <= 40; r++)
         {
-            plane[0, r] = (float)(sky + Known.AtRadius(r));
+            plane[0, r] = (float)(sky + fitted.AtRadius(r));
         }
         plane[0, 41] = (float)sky;
         var image = new Image([plane], BitDepth.Float32, 1f, 0f, 0f, new ImageMeta());
@@ -211,9 +261,9 @@ public class OuterHaloTests(ITestOutputHelper output)
         double Excess(int r) => stretched.GetChannelSpan(0)[r] - skyStretched;
         foreach (var r in new[] { 4, 10, 20, 30 })
         {
-            var expected = Mtf(sky + Known.AtRadius(r)) - target;
+            var expected = Mtf(sky + fitted.AtRadius(r)) - target;
             Excess(r).ShouldBe(expected, 2e-6, $"the stretched halo at {r} px");
-            output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"{r} px: linear {Known.AtRadius(r):E2}, stretched excess {Excess(r):F4}"));
+            output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"{r} px: linear {fitted.AtRadius(r):E2}, stretched excess {Excess(r):F4}"));
         }
         Excess(4).ShouldBeGreaterThan(Excess(10));
         Excess(10).ShouldBeGreaterThan(Excess(20));
