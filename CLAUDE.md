@@ -302,8 +302,10 @@ screenshot-poll-and-OCR**. **Every mechanism -- the fake-device URI shapes incl.
 - **A Debug app is found by the sidecar's `list_instances`, never by a port read off a log.** The `.mcp.json` pins
   (`SdlVulkan.Renderer.Inspector` 7.76, `Console.Lib.Inspector` 5.12) read DIR.Lib's per-user inspector registry
   (`%LOCALAPPDATA%/DIR.Lib/inspector`, where an app on DIR.Lib 11.21 or later registers with no socket but its
-  loopback command server) and then multicast, which finds an app below 11.21. **Only a build against the sibling
-  SOURCES has an inspector**, never a worktree's, and nothing on this machine needs `DIR_LIB_INSPECTOR_LAN`.
+  loopback command server) and then multicast, which finds an app below 11.21. **A Debug build has an
+  inspector from the sibling SOURCES in a normal checkout, and in a worktree or plane (no siblings found) from the
+  `.Debug` twin packages** (`DIR.Lib.Debug`, `Console.Lib.Debug`, `SdlVulkan.Renderer.Debug`, pinned at the same
+  MAJOR.MINOR as the plain ones; `TianWen.UI.Web` excepted); Release has none. Nothing on this machine needs `DIR_LIB_INSPECTOR_LAN`.
 - **`ProfileData.SiteLatitude/Longitude` must match the mount URI's `latitude/longitude`** (a split
   site throws "Could not calculate timezone"); canonical wiring
   `SessionTestHelper.CreateSessionAsync(mountPort:"SkyWatcher", latitude, longitude)`.

@@ -55,6 +55,15 @@ commits behind with `DIR.Lib` parked on a feature branch that predated the palet
 the siblings to their mains, never `-p:UseLocalSiblings=false`, which builds against published
 packages and hides whether the local sources agree.
 
+**A Debug build against packages references the `.Debug` twins, so a plane has the inspector.** When
+`Configuration` is Debug and `UseLocalSiblings` is not true (a worktree or flight plane, where the siblings are
+not found), every project that references DIR.Lib, Console.Lib or SdlVulkan.Renderer as a package references
+`DIR.Lib.Debug`, `Console.Lib.Debug` and `SdlVulkan.Renderer.Debug` instead and defines
+`SIBLING_DEBUG_INSPECTORS`; `TianWen.UI.Web` is excepted. Each twin is published at the MAJOR.MINOR of its plain
+package, so the pins stay aligned and Release is untouched. The sibling sources still win in a normal checkout.
+Proven from a plane on 2026-10-29: a Debug `tianwen-fits` started local-only was found by the sidecar's
+`list_instances` and answered `press_key` unfocused ([unattended-ui-driving.md](unattended-ui-driving.md)).
+
 ## The web projects: out of the solution, in CI
 
 **They were both out of `TianWen.slnx`, treated as one decision, and only one of them earned it.**
