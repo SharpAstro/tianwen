@@ -4004,7 +4004,7 @@ Every flight is filed as an issue in the `star-remover-training` milestone and l
 | F5 the noise | #1781, #1786 folded in | S4b's shared component with real's cross-structure at lags 0 to 2, and the QHY294PROC's noise anchor recalibrated | noise-crop AUC below synth4's 0.70 and Lobster's sigma ratio within 1.05 (**not met**, 2026-10-26: Lobster 1.16, and the AUC's fall is one rig's; "S4b: the read") | none |
 | F6 the clusters' stretch | #1823 | the synthetic cluster tiles stretched with the master's parameters, as synth11's are (they took the plate's, 1.32 to 1.53 times gentler at the sky), and re-exported | the 90 skies re-exported and packed into a cache beside synth11's | none |
 | R3a | #1828 | R2t's recipe on a master-stretched export, no teacher, seeds 0 and 1, both on the 1070 | both rows on whole masters, real tiles and F2's sets. **Read 2026-10-27: killed as R3b's base** (A's draws clean 51.4 / 56.1 against R2t's 59.2, the nucleus guard failed by both seeds, the seeds 4.7 apart); see "R3a's read" | F2, F6 |
-| R3b | #1829 | R2w's recipe on the master's stretch plus the dig penalty on the synthetic tiles (R3a is not its base, "R3a's read"), `-SpeckleWeight 10000`, seed 0 first; **pre-registered 2026-10-27**, "R3b's pre-registration" | its read: A's draws dug at 100-1000 sigma at most 29.2, R2w's whole-master rows kept | R3a, F3 |
+| R3b | #1829 | R2w's recipe on the master's stretch plus the dig penalty on the synthetic tiles (R3a is not its base, "R3a's read"), `-SpeckleWeight 10000`, seed 0 first; **pre-registered 2026-10-27**, "R3b's pre-registration" | its read: A's draws dug at 100-1000 sigma at most 29.2, R2w's whole-master rows kept. **Read 2026-10-28: gate missed and killed as R3b2's base by both seeds** (A's draws dug 32.7 / 35.3, clean 48.5 / 50.1, the lobed twin under 49.1 for both; seed 0 also fails the nucleus and M42 guards, seed 1 the nucleus's blue); see "R3b's read" | R3a, F3 |
 | R3b2 | filed after R3b's read | the dig penalty on real master tiles too, beside the synthetic loss, which must stay or the net learns to remove nothing | its read, timidity checked: real stars within a sigma at 100 to 1000 sigma no worse than R3b's | R3b |
 | R3c | filed after R3b's read | the winner plus a teacher rebuilt from R3a's two seeds (E7, 8 views) | its read | R3b |
 | R3d | filed after F4 and F5's gates | the winner on the export with whatever F4 and F5 adopted | its read | R3c |
@@ -4502,6 +4502,129 @@ to lr 1.25e-05. 873.9 min of training (14.6 h) as logged, at 31.6 tiles/s at the
 holds no traceback, error or non-finite value, and the export's error log only the same deprecation warning. ONNX and contract:
 `r3b-logs-master/score-r3b_synth11_s1/r3b_synth11_s1.onnx` and `.contract.json`. Neither seed is scored here; predictions 1 to
 7, the gate and the guards are read by the scoring leg.
+
+#### R3b's read (#1829, 2026-10-28)
+
+R3b (#1829) is R2w's recipe on the master's stretch plus the dig penalty (`--speckle-weight 10000`, `--speckle-sigma` 100) on the
+synthetic draws, two seeds on the 1070. Both were scored as R3a was: F2's sets (#1827), the real tiles, the ring and the nucleus
+(`score-arm.ps1`), the three whole masters (`score_whole.py`, tags `r3b_s0` and `r3b_s1`). **The gate is missed by both seeds,
+and the kill rule trips for both.** The penalty did not take the dig out of A's draws: it sits at 32.7 and 35.3 where R2w's is
+32.4. R3b is not a base for R3b2.
+
+**A's draws, master-stretched (7 sessions), at 100-1000 sigma unless stated** (`f2_read.py`; the baselines' columns are those of
+"F2's read" and "R3a's read"):
+
+| | R2i seed 0 | R2i seed 1 | R2t | R2w | R3a seed 0 | R3a seed 1 | R3b seed 0 | R3b seed 1 | R3b spread |
+|---|---|---|---|---|---|---|---|---|---|
+| clean 5-20 sigma | 77.4 | 78.4 | 78.8 | 76.1 | 77.4 | 78.4 | 76.6 | 78.0 | 1.4 |
+| clean 20-100 sigma | 70.6 | 71.5 | 73.5 | 69.9 | 71.2 | 72.7 | 68.1 | 69.8 | 1.7 |
+| **clean 100-1000 sigma** | 53.5 | 50.9 | 59.2 | 53.4 | 51.4 | 56.1 | **48.5** | **50.1** | **1.6** |
+| **dug 100-1000 sigma** | 36.7 | 40.0 | 32.4 | 32.4 | 40.8 | 34.0 | **32.7** | **35.3** | **2.6** |
+| dug 20-100 sigma | 21.0 | 18.9 | 18.1 | 17.4 | 19.8 | 18.9 | 18.8 | 20.5 | 1.7 |
+| clean saturated | 49.5 | 52.1 | 56.7 | 54.1 | 52.6 | 61.3 | 46.4 | 52.1 | 5.7 |
+| dug saturated | 26.3 | 29.4 | 24.2 | 17.5 | 30.9 | 27.3 | 25.3 | 18.0 | 7.2 |
+| clean in colour 100-1000 sigma | 30.2 | 27.4 | 36.1 | 30.4 | 29.6 | 34.6 | 16.5 | 14.5 | 2.0 |
+| dug in colour 100-1000 sigma | 54.3 | 58.4 | 48.7 | 48.5 | 57.3 | 49.6 | 60.6 | 68.2 | 7.6 |
+| core mean / rms at 100-1000 sigma | -0.34 / 1.41 | -0.49 / 1.31 | -0.32 / 1.26 | -0.02 / 1.75 | -0.48 / 1.51 | -0.26 / 1.37 | +0.06 / 1.60 | -0.17 / 1.43 | 0.23 / 0.17 |
+| far sky | 0.25 | 0.26 | 0.23 | 0.26 | 0.26 | 0.29 | 0.25 | 0.23 | 0.02 |
+
+The lobed twin, clean / dug at 100-1000 sigma: R2w 52.2 / 33.2, **R3b seed 0 47.5 / 34.1, seed 1 48.8 / 36.1** (spread 1.4 and
+1.9). The plain twin is A's draws again, as F2 found.
+
+**The real tiles** (320 master tiles, 53,108 catalogued stars; flat |<1| sigma, bright stars 100-1000 sigma,
+`real-star-read-r3b_synth11_s{0,1}.txt`):
+
+| | R2i seed 0 | R2i seed 1 | R2t | R2w | R3a seed 0 | R3a seed 1 | R3b seed 0 | R3b seed 1 |
+|---|---|---|---|---|---|---|---|---|
+| all 4,215 stars, flat | 96.4 | 95.4 | 97.4 | 95.6 | 92.4 | 96.9 | **91.1** | 95.9 |
+| all, left / dug | 2.1 / 1.5 | 1.9 / 2.8 | 1.4 / 1.2 | 2.6 / 1.8 | 3.4 / 4.2 | 1.5 / 1.6 | 7.4 / 1.4 | 3.3 / 0.8 |
+| **M42 (ASI294MC), 248 stars, flat** | 80.6 | 74.2 | 83.5 | 71.4 | 60.1 | 81.5 | **17.3** | 66.1 |
+| M42, left / dug | 16.5 / 2.8 | 23.4 / 2.4 | 14.5 / 2.0 | 27.0 / 1.6 | 37.5 / 2.4 | 13.7 / 4.8 | 81.5 / 1.2 | 33.5 / 0.4 |
+| Lobster (three views), flat | 98.9 / 99.5 / 99.9 | 98.2 / 99.7 / 100.0 | 98.7 / 99.8 / 99.9 | 98.0 / 99.4 / 99.7 | 97.0 / 98.7 / 98.1 | 98.0 / 99.4 / 99.5 | 98.4 / 99.7 / 99.4 | 97.7 / 99.8 / 99.6 |
+| HIP 80609 (three views), flat | 94.8 / 96.4 / 98.2 | 88.6 / 95.7 / 97.3 | 95.6 / 96.8 / 98.6 | 94.5 / 96.1 / 96.2 | 89.5 / 93.2 / 91.4 | 96.2 / 97.1 / 97.3 | 92.0 / 95.2 / 95.3 | 95.1 / 97.3 / 97.3 |
+| SMC (97 stars), flat | 67.0 | 91.8 | 93.8 | 79.4 | 62.9 | 91.8 | 43.3 | 89.7 |
+| faint, 5-20 / 20-100 sigma flat | 94.8 / 97.1 | 96.4 / 98.3 | 95.4 / 98.7 | 94.3 / 97.5 | 92.9 / 96.4 | 94.5 / 98.2 | 94.8 / 98.0 | 95.9 / 97.3 |
+
+The dig penalty did what it was written to on the real tiles: the dug share at 100-1000 sigma is 1.4 and 0.8 %
+(R2t 1.2, R2i seed 0 1.5; seed 1's is the lowest of any arm), and HIP 80609's is 2.7 / 1.4 / 4.5 % and 0.8 / 0.7 / 0.9 % (R2w 4.5 / 2.7 / 3.8). It was paid for in light left:
+seed 0 leaves 81.5 % of M42's bright stars above +1 sigma, 56.7 % of the SMC's.
+
+**The whole masters** (`score_whole.py`, the master-stretch config; `f2-whole-master/r3b_s{0,1}/row.txt`):
+
+| | R2i seed 0 | R2t | R2w | R3a seed 0 | R3a seed 1 | R3b seed 0 | R3b seed 1 | R3b spread |
+|---|---|---|---|---|---|---|---|---|
+| Andromeda bright dark-sky stars flat / dug | 32.8 / 36.6 | 40.6 / 41.7 | 48.7 / 28.8 | 44.0 / 29.0 | 47.6 / 39.0 | **40.7** / 31.3 | **40.6** / 30.3 | 0.1 / 1.0 |
+| Andromeda blue, 1.5-3 / 3-4.5 px | -1.10 / -0.90 | -1.23 / -1.00 | -0.89 / -0.74 | -0.99 / -0.79 | -1.38 / -1.02 | -0.80 / -0.89 | -0.91 / -0.85 | 0.11 / 0.04 |
+| Tarantula bright dark-sky stars flat / left | 35.8 / 60.6 | 57.2 / 40.3 | 56.5 / 31.5 | 43.5 / 32.8 | 51.0 / 24.7 | 57.5 / **40.6** | 46.7 / **52.2** | 10.8 / 11.6 |
+| Tarantula core R / G / B | +0.89 / +1.06 / +0.61 | +0.84 / +0.38 / +0.90 | -0.11 / -0.17 / +0.42 | -0.05 / -0.17 / +0.42 | +0.10 / -0.08 / +0.07 | +0.23 / -0.09 / +0.82 | +0.28 / +0.26 / +0.93 | |
+| held-out crowded Tarantula / BP 17-19 | 69.8 / 90.3 | 81.3 / 85.4 | 77.8 / 92.6 | 75.7 / 92.4 | 79.1 / 93.8 | 82.4 / 92.5 | 81.3 / 93.0 | 1.1 / 0.5 |
+| purity (light taken where no star is) | 0.6 | 0.5 | | 0.6 | 0.7 | 0.5 | 0.6 | 0.1 |
+| Sagittarius crowded | 95.0 | 95.2 | 94.2 | 94.2 | 93.5 | 94.6 | 96.3 | 1.7 |
+| **M31's nucleus R / G / B, no `--protect-cores`, %** | 3.2 / 3.1 / 0.5 | 1.1 / 6.1 / 3.1 | 0.5 to 4.4 | 3.0 / 6.4 / 4.7 | 20.3 / 19.0 / 16.7 | **14.0 / 11.7 / 6.8** | 3.5 / 4.8 / **6.5** | 10.5 / 6.9 / 0.3 |
+
+The nucleus read in `m31-nucleus-*.txt` gives seed 0 13.3 / 11.4 / 7.0 % and seed 1 3.4 / 5.2 / 6.5 % over the inner 6 px; the 6-12 px
+ring is under 2 % for both. The ring read (mean residual of injected bright stars over 3 to 6 px, R / G / B, sigma): seed 0
+-0.70 / -0.30 / -0.37 with 43.8 % of stars dug in a channel, seed 1 -0.82 / -0.57 / -0.59 with 55.9 %, against R2w 57.1 %, R2t
+49.8 %, R3a 70.7 and 71.8 %: seed 0's ring is the second shallowest of any arm (R2i seed 1 42.0 %), seed 1's level with R2w's.
+
+**The predictions, held or missed.**
+
+1. *A's draws dug at 100-1000 sigma at most 29.2:* **missed by both.** 32.7 and 35.3, the mean 34.0, 1.6 over R2w.
+2. *Clean at least 50.8:* **missed by both.** 48.5 and 50.1, the mean 49.3, 4.1 under R2w.
+3. *Lobed twin dug at most 29.3 and clean at least 49.1:* **missed by both** (34.1 / 47.5 and 36.1 / 48.8).
+4. *Dug saturated at most 20.7:* **missed for seed 0** (25.3), **held for seed 1** (18.0, R2w's 17.5).
+5. *Whole masters kept:* **missed by both.** Held: Andromeda dug 31.3 and 30.3 (at most 32.0), the held-out crowded Tarantula 82.4
+   and 81.3 (at least 74.4, the highest of any arm), Sagittarius 94.6 and 96.3, Tarantula flat 57.5 for seed 0. Missed:
+   Andromeda flat 40.7 and 40.6 (at least 45.1), Tarantula left 40.6 and 52.2 (at most 34.7, seed 1's the highest of any arm),
+   Tarantula flat 46.7 for seed 1 (49.0), and seed 1's core blue +0.93 is 0.51 from R2w's +0.42, a hair past the 0.5 line.
+6. *Real tiles, all flat at least 94.6, dug at most 3.1, M42 flat at least 65.0:* **missed for seed 0** (91.1 all, M42 17.3, the
+   dug share held at 1.4), **held for seed 1** (95.9, 0.8 dug, M42 66.1, 1.1 over the line).
+7. *The penalty term falls, the speckled share at most 0.45 %:* **the term held** (4.4e-11 and 2.1e-10 at step 20,000, 2e-13 to
+   1.3e-12 at the end, in the training legs' logs); **the speckled share was not read in this leg** (the trainer's log carries the
+   term, not the share), so that half stays open. The gate was not set on it.
+
+**The guards.** Purity passes (0.5 and 0.6 %, bar 1.0). **M31's nucleus fails for both:** seed 0 at 14.0 / 11.7 / 6.8 %, seed 1
+at 3.5 / 4.8 / 6.5 % (blue over 5). **M42 fails for seed 0** (17.3 against the floor of 65.0, R2w's 71.4 less 6.4) and passes for
+seed 1 (66.1, 1.1 over).
+
+**The gate and the kill.** The gate (dug at most 29.2 AND R2w's whole-master rows kept) is **missed by both seeds**. The kill rule
+(a guard fails, or clean under 50.8 AND the lobed twin under 49.1) **trips for both**: seed 0 on the nucleus, M42, and the
+clean-and-twin pair; seed 1 on the nucleus's blue and the clean-and-twin pair (50.1 and 48.8, each a short step under the line).
+R3b is **killed as the base for R3b2**. By the pre-registration a gate miss alone would have kept it as the W data point; the kill
+adds that the whole recipe, not only the penalty, lost ground on the draws' clean count (R2w 53.4, R3b 48.5 and 50.1).
+
+**The spread.** On A's draws the two seeds stand 1.6 apart on clean and 2.6 on dug, inside R2i's bars (2.6 / 3.2) and far inside
+R3a's (4.7 / 6.8). On everything else they do not agree: M42 flat 17.3 against 66.1, the Tarantula's left 40.6 against 52.2, the
+nucleus 14.0 against 3.5, dug saturated 25.3 against 18.0. A draws-only read would have called the arm steady; the real tiles and
+the whole masters say it is not.
+
+**What surprised.**
+
+- **The penalty was satisfied almost at once and the dig did not move.** Its term was at 1e-10 by step 20,000 and 1e-13 at the
+  end, yet A's draws dug is at R2w's level or above. Either 10,000 binds too weakly against the plain objective (the gradient
+  ratio set W on R2w's weights, which already dug little by the penalty's measure) or what the penalty counts, a speckle over 100
+  sigma after the noise cap, is not what "dug" counts in the eval. The two readings predict different things for W at 1e5.
+- **Colour clean fell by half** (16.5 and 14.5 against R2w's 30.4 on A's draws) and colour dug rose (60.6 and 68.2 against 48.5).
+  No other arm on this export moved colour like that; the penalty is a luminance-side term and the net may buy it with colour.
+- **The penalty's win shows on the real tiles, as a loss of removal.** Dug on real stars fell to 1.4 and 0.8 %, and seed 0 left 81.5 % of M42's bright stars above +1 sigma. That is the timidity R3b2's pre-registration worries about, here
+  without the real-tile term.
+- **The held-out crowded Tarantula rose** (82.4 and 81.3, the best of any arm) with the Andromeda flat down (40.7, 40.6 against
+  R2w's 48.7): the penalty trades the dark-sky bright stars for the crowded field.
+
+**Candidate next arms** (drafts, not filed; none joins the milestone until the owner picks):
+
+- **R3b-W: W at 1e5 on the same recipe, one change.** The pre-registration's own next arm for a gate miss. Cost 14 to 15 h a seed
+  on the 1070. Read first whether the term at 1e5 still falls to zero, and the speckled share, since both of this read's
+  readings of the miss (too weak, or a different thing counted) are tested by it. With R3b's colour and nucleus misses, a seed 1
+  alone is not enough to start; run it with two seeds or not at all.
+- **R3b-W-cond: the penalty on luminance only, colour left to the plain loss**, if the colour fall above is the penalty's. Cheaper
+  to decide: re-score R3b's draws in luminance before any training.
+- **R3b2: the dig penalty on real master tiles too.** Not filed. Its base is R2w, not R3b, and its pre-registration needs a timidity
+  guard on M42 and the SMC (flat at least R2w's less 6.4), which R3b has just shown it can miss without the real-tile term.
+- **R3c: the winner plus a teacher rebuilt from R3a's two seeds.** Not filed: R3a is killed and R3b has no winner, so there is
+  nothing to put the teacher on top of. R2w stays the arm to beat.
+- **A third seed of R2w on the master's stretch**, to give the plan the bar it is missing: R2w stands alone, so every comparison above
+  is against one draw of its recipe.
 
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
