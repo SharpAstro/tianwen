@@ -382,7 +382,8 @@ namespace TianWen.Lib.Tests
         {
             var ct = TestContext.Current.CancellationToken;
             using var renderer = NewRenderer(dpiScale, TallH);
-            var (viewer, state, document) = await OpenAsync(renderer, dpiScale, ct, OnAStackedCapture);
+            var document = await ViewerInfoPanelCollapseTests.NewColourDocumentAsync(ct);
+            var (viewer, state, _) = await OpenAsync(renderer, dpiScale, ct, OnAStackedCapture, document);
 
             state.PlanetaryColourSaturation.ShouldBe(PlanetaryColourBalance.DefaultSaturation, "the measured one until the panel says otherwise");
             var hits = PlanetaryHits(viewer);
