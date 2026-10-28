@@ -77,6 +77,55 @@ public class GuiBackForwardStripColourTests
         }
     }
 
+    /// <summary>
+    /// Each arrow sits in ITS OWN half of the strip with air on both sides. DIR.Lib 11.39.4991 painted both flush left in
+    /// their cells (the icon row was Auto width in a column, which a stack places at its cross-axis start), so Back touched
+    /// the window's left edge on the 52 px rail; the colour tests above pass on a strip painted anywhere.
+    /// </summary>
+    [Theory]
+    [InlineData(52)]
+    [InlineData(104)]
+    public void EachArrowIsPaintedInsideItsOwnHalfWithAMarginFromTheEdges(int width)
+    {
+        const int margin = 4;
+        var height = (int)GuiNavigationStrip<RgbaImage>.BaseHeight;
+        using var renderer = new RgbaImageRenderer((uint)width, (uint)height);
+        var strip = new GuiNavigationStrip<RgbaImage>(renderer) { Navigation = new Navigation(true, true) };
+        strip.Render(new RectF32(0, 0, width, height));
+
+        var ground = GuiTheme.Palette.PanelBg;
+        var pixels = renderer.Surface.Pixels;
+        var half = width / 2;
+        (int Min, int Max) left = (int.MaxValue, -1), right = (int.MaxValue, -1);
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var i = (y * width + x) * 4;
+                if (new RGBAColor32(pixels[i], pixels[i + 1], pixels[i + 2], 255) == ground)
+                {
+                    continue;
+                }
+
+                if (x < half)
+                {
+                    left = (Math.Min(left.Min, x), Math.Max(left.Max, x));
+                }
+                else
+                {
+                    right = (Math.Min(right.Min, x), Math.Max(right.Max, x));
+                }
+            }
+        }
+
+        left.Max.ShouldBeGreaterThanOrEqualTo(0, "Back painted no ink");
+        right.Max.ShouldBeGreaterThanOrEqualTo(0, "Forward painted no ink");
+        left.Min.ShouldBeGreaterThanOrEqualTo(margin, $"Back's ink starts at column {left.Min} of {width}");
+        left.Max.ShouldBeLessThanOrEqualTo(half - 1 - margin, $"Back's ink ends at column {left.Max}, past its half");
+        right.Min.ShouldBeGreaterThanOrEqualTo(half + margin, $"Forward's ink starts at column {right.Min}, before its half");
+        right.Max.ShouldBeLessThanOrEqualTo(width - 1 - margin, $"Forward's ink ends at column {right.Max} of {width}");
+    }
+
     /// <summary>The strongest contrast of any ink pixel against the rail's ground, over a strip painted at design scale.</summary>
     private static double PaintedPeakContrast(bool canBack, bool canForward)
     {

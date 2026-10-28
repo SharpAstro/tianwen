@@ -310,7 +310,7 @@ namespace TianWen.UI.Abstractions
             ApplyTabPolicy(place.Tab);
             if (place.Tab == GuiTab.Planner)
             {
-                _chrome.PlannerEnsureVisible(place.PlannerSelectedTarget);
+                _chrome.PlannerEnsureVisible(_plannerState.SelectedTargetIndex);
                 _plannerState.NeedsRedraw = true;
             }
 
