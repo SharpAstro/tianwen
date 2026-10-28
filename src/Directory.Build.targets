@@ -1,8 +1,8 @@
 <Project>
 
   <!--
-    Whether the sibling libraries' DEBUG-only debug-inspector surface is available to compile against.
-    The reasoning for needing BOTH conditions is in Directory.Build.props, beside the block this
+    Whether the sibling libraries' DEBUG-only debug-inspector surface is available to compile against:
+    a sibling checkout, or the .Debug twin packages (below). The reasoning for needing BOTH conditions is in Directory.Build.props, beside the block this
     replaced; what matters here is WHY it is in .targets rather than .props.
 
     Directory.Build.props is imported from the top of Microsoft.Common.props, before the SDK defaults
@@ -16,7 +16,31 @@
     The rule this is an instance of: NEVER test $(Configuration) (or anything else the SDK defaults)
     from Directory.Build.props. Put it in Directory.Build.targets, where the value is settled.
   -->
-  <PropertyGroup Condition="'$(Configuration)' == 'Debug' AND '$(UseLocalSiblings)' == 'true'">
+  <!--
+    A Debug build with no sibling checkout takes the siblings' .Debug twin packages (DIR.Lib.Debug,
+    Console.Lib.Debug, SdlVulkan.Renderer.Debug: the same assembly, built Debug, so the inspector types
+    exist), pinned in Directory.Packages.props at the MAJOR.MINOR of the plain packages. The sibling
+    switch still wins (a checkout compiles the sources) and Release is untouched.
+
+    The swap is made in the PROGRAM that wires the inspector, never in a library: a project's
+    obj/project.assets.json is one file whatever the configuration, so a library that named the twins
+    in Debug would hand them to every program above it, TianWen.UI.Web included, whose WebGl.Renderer
+    has no twin and needs the plain DIR.Lib (both ids ship DIR.Lib.dll, two in one graph). A program
+    lists the ids it wants in SiblingDebugTwinIds (e.g. DIR.Lib;SdlVulkan.Renderer). The plain ids stay
+    in its graph with all assets excluded, so only the twin's assembly is compiled against and copied.
+    The restore of such a program is configuration-sensitive: CI restores with -p:Configuration=Release.
+  -->
+  <PropertyGroup Condition="'$(SiblingDebugTwinIds)' != '' AND '$(Configuration)' == 'Debug' AND '$(UseLocalSiblings)' != 'true'">
+    <SiblingDebugTwins>true</SiblingDebugTwins>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(SiblingDebugTwins)' == 'true'">
+    <_SiblingTwinId Include="$(SiblingDebugTwinIds)" />
+    <PackageReference Remove="@(_SiblingTwinId)" />
+    <PackageReference Include="@(_SiblingTwinId)" ExcludeAssets="all" />
+    <PackageReference Include="@(_SiblingTwinId->'%(Identity).Debug')" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug' AND ('$(UseLocalSiblings)' == 'true' OR '$(SiblingDebugTwins)' == 'true')">
     <DefineConstants>$(DefineConstants);SIBLING_DEBUG_INSPECTORS</DefineConstants>
   </PropertyGroup>
 

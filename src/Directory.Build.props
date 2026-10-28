@@ -94,7 +94,8 @@
     -p:UseLocalSiblings=false (the override the block above documents) therefore failed to compile, with
     CS0103 on a name that genuinely is not in that package.
 
-    Both conditions, so the constant means what its name says. CI builds Release, which is why this was
+    Both conditions, so the constant means what its name says: Debug, and either a sibling checkout or
+    the .Debug twin packages Directory.Build.targets swaps in. CI builds Release, which is why this was
     only ever a local-build trap.
 
     It lives in Directory.Build.TARGETS, not here. This file is imported from the TOP of
