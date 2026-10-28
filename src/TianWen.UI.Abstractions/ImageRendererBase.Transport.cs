@@ -89,9 +89,9 @@ namespace TianWen.UI.Abstractions
                 : "Auto";
             ReadOnlySpan<Layout.ButtonGroupOption<PlanetaryView>> views =
             [
-                new(PlanetaryView.Frames, "Raw") { Hit = new HitResult.ButtonHit("ViewFrames") },
-                new(PlanetaryView.Live, stackLabel) { Hit = new HitResult.ButtonHit("ViewLive") },
-                new(PlanetaryView.Auto, autoLabel) { Hit = new HitResult.ButtonHit("ViewAuto") },
+                new(PlanetaryView.Frames, "Raw") { Hit = new HitResult.ButtonHit("ViewFrames"), Tooltip = ViewerShortcuts.RawStack.TooltipText },
+                new(PlanetaryView.Live, stackLabel) { Hit = new HitResult.ButtonHit("ViewLive"), Tooltip = ViewerShortcuts.RawStack.TooltipText },
+                new(PlanetaryView.Auto, autoLabel) { Hit = new HitResult.ButtonHit("ViewAuto"), Tooltip = ViewerShortcuts.AutoView.TooltipText },
             ];
             // Every segment as wide as the widest label any of them takes, so a running Auto stack never moves the scrub track.
             var viewStyle = PlanetaryChoiceStyle with
