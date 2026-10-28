@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>tianwen-server</AssemblyName>
+    <SiblingDebugTwinIds>DIR.Lib</SiblingDebugTwinIds>
     <PublishAot>true</PublishAot>
     <!-- Stated, not left to the Web SDK's default: measured against workstation GC under a saturated box (TIA2), the two kept
          a planetary capture's frames alike (docs/plans/live-planetary-capture.md). -->
