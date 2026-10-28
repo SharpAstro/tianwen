@@ -10,7 +10,7 @@ namespace TianWen.UI.Abstractions
     /// widget/tab system via <see cref="IGuiChrome"/>. Business logic (signal
     /// subscriptions, text input callbacks) is handled by <see cref="AppSignalHandler"/>.
     /// </summary>
-    public class GuiEventHandlerBase
+    public class GuiEventHandlerBase : IGuiNavigation
     {
         private readonly GuiAppState _appState;
         private readonly PlannerState _plannerState;
@@ -48,6 +48,8 @@ namespace TianWen.UI.Abstractions
             _appState = appState;
             _plannerState = plannerState;
             _chrome = chrome;
+            // The rail's strip presses the same Back and Forward the keys and the mouse's buttons reach.
+            chrome.Navigation = this;
 
             // One focus owner per window, not two. The chrome's WindowUiSettings carries the instance the
             // widgets and the input router resolve focus against; the app state used to make its own, so

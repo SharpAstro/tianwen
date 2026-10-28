@@ -92,6 +92,7 @@ namespace TianWen.UI.Gui
         // hand-placed rects here, which is what makes its click regions the rects it drew instead of a
         // second piece of geometry derived from an index.
         private readonly TabBar<VulkanContext> _sidebar;
+        private readonly GuiNavigationStrip<VulkanContext> _navigationStrip;
 
         // Reused per frame so building the strip allocates nothing: the tab set is fixed (GuiAppState
         // .TabOrder) and only the per-item icon / enabled state varies.
@@ -252,6 +253,13 @@ namespace TianWen.UI.Gui
         public SessionTabState SessionState => _sessionTab.State;
 
         /// <inheritdoc/>
+        public IGuiNavigation? Navigation
+        {
+            get => _navigationStrip.Navigation;
+            set => _navigationStrip.Navigation = value;
+        }
+
+        /// <inheritdoc/>
         public ViewContexts ViewContexts { get; } = new ViewContexts();
 
         /// <summary>The on-screen context's session state -- what the chrome and tabs draw.</summary>
@@ -313,6 +321,8 @@ namespace TianWen.UI.Gui
 
         // Scaled accessors
         private float SidebarWidth => BaseSidebarWidth * DpiScale;
+        // Back and Forward sit at the top of the rail; the tab cells start below this (one constant, the strip's own).
+        private float NavigationStripHeight => GuiNavigationStrip<VulkanContext>.BaseHeight * DpiScale;
         private float StatusBarHeight => BaseStatusBarHeight * DpiScale;
         private float FontSize => BaseFontSize * DpiScale;
 
@@ -506,15 +516,16 @@ namespace TianWen.UI.Gui
                 CanCloseTabs = false,
                 CanReorderTabs = false,
             };
+            _navigationStrip = new GuiNavigationStrip<VulkanContext>(renderer);
             ShareUiContext(_plannerTab, _equipmentTab, _sessionTab, _skyMapTab,
                            _liveSessionTab, _guiderTab, _notificationsTab, _homeTab,
-                           _guiderViewer, _previewViewer, _planetaryTab, _sidebar, _nightCalendar);
+                           _guiderViewer, _previewViewer, _planetaryTab, _sidebar, _navigationStrip, _nightCalendar);
 
             // The GUI's own chrome a tad larger than the viewers it embeds (GuiTheme.InterfaceScale): this chrome, every tab,
             // the sidebar and the calendar. Not the three viewers (the preview, the guide camera and the planetary view, which
             // IS a viewer with a strip), whose toolbar keeps the size it has in tianwen-fits.
             foreach (var widget in (ReadOnlySpan<PixelWidgetBase<VulkanContext>>)[this, _plannerTab, _equipmentTab, _sessionTab,
-                _skyMapTab, _liveSessionTab, _guiderTab, _notificationsTab, _homeTab, _sidebar, _nightCalendar])
+                _skyMapTab, _liveSessionTab, _guiderTab, _notificationsTab, _homeTab, _sidebar, _navigationStrip, _nightCalendar])
             {
                 widget.InterfaceScale = GuiTheme.InterfaceScale;
             }
@@ -620,6 +631,7 @@ namespace TianWen.UI.Gui
                 _children.Add(painted);
             }
             _children.Add(_sidebar);
+            _children.Add(_navigationStrip);
             _children.Add(_nightCalendar);
         }
 
@@ -734,7 +746,10 @@ namespace TianWen.UI.Gui
             _sidebar.IconSize = FontSize * 1.3f;
             // Each rail cell declares its tooltip on its own region now (DIR.Lib's tab strip, opening to the
             // right of the rail), so it reaches the router like any other and RenderTooltip draws it.
-            _sidebar.Render(new RectF32(0f, StatusBarHeight, sw, _height - StatusBarHeight),
+            // Back and Forward above the tab cells, in the rail's own width; the cells start below them.
+            var stripH = NavigationStripHeight;
+            _navigationStrip.Render(new RectF32(0f, StatusBarHeight, sw, stripH));
+            _sidebar.Render(new RectF32(0f, StatusBarHeight + stripH, sw, _height - StatusBarHeight - stripH),
                 _sidebarItems, appState.ActiveTab);
         }
 
