@@ -1332,11 +1332,13 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             pAttachments = blendAttachments
         };
 
-        // Required since SdlVulkan.Renderer 7.31, where the shared render pass gained a depth
-        // attachment for VkRenderer.DrawMesh: a pipeline created against a pass that HAS one must
-        // state a depth-stencil, and leaving it null is a spec violation the validation layer catches
-        // and a driver is free to do anything with. Tests nothing and writes nothing, exactly as the
-        // toolkit's own 2D pipelines do, so painter's order still decides among 2D draws.
+        // Since SdlVulkan.Renderer 7.75 every target starts depth-less (_ctx.RenderPassNoDepth) and
+        // TianWen draws no meshes (no BeginMeshRegion / DrawMesh / RequireMeshDepth in src/), so this
+        // pipeline is built against RenderPassNoDepth. If a mesh is ever drawn, build it against
+        // both pass shapes and bind by VkRenderer.CurrentPassHasDepth. The depth-stencil state stays
+        // (it was required while the shared pass carried a depth attachment, 7.31 to 7.74): it tests
+        // nothing and writes nothing, exactly as the toolkit's own 2D pipelines do, so painter's
+        // order still decides among 2D draws.
         VkPipelineDepthStencilStateCreateInfo depthStencil = new()
         {
             depthTestEnable = false,
@@ -1368,7 +1370,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             pColorBlendState = &colorBlend,
             pDynamicState = &dynamicState,
             layout = layoutOverride != VkPipelineLayout.Null ? layoutOverride : _pipelineLayout,
-            renderPass = _ctx.RenderPass,
+            renderPass = _ctx.RenderPassNoDepth,
             subpass = 0
         };
 
