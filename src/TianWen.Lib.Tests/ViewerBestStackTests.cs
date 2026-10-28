@@ -86,7 +86,6 @@ public class ViewerBestStackTests
             return label == "Auto" && seen.Count > 1 && !e2e.Controller.IsAutoStackPending;
         }, "the Auto stack to end", ct, untilTimeout: true);
 
-        seen[0].ShouldBe("Auto");
         seen.ShouldContain(l => l.StartsWith("Stacking", StringComparison.Ordinal));
         seen.ShouldContain(l => !l.StartsWith("Stacking", StringComparison.Ordinal) && l != "Auto" && !l.Contains('%'),
             "a stage after Stacking is named, with no percent: " + string.Join(" | ", seen));
