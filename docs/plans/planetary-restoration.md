@@ -3129,7 +3129,9 @@ nearest are November 2024's. Each map is scaled to I/F by its readme's factor (t
 - **It comes after the sharpening**, which reads each channel's edge through that channel's own diffraction; the saturation mixes the
   channels (at 1.4 red takes about a third of green, negatively).
 - **Both masters say so**: the FITS cards CBALGNR, CBALGNB and CBALSAT. `planetary stack --colour-saturation` sets the strength,
-  `--no-colour-balance` and `--legacy` leave the camera's colours. A mono master, another planet, or a limb that does not fit is left as
+  `--no-colour-balance` and `--legacy` leave the camera's colours. The Enhance panel's planetary half carries the same choice as two stops,
+  `Truth 1.1` (the measured one) and `Eye 1.4` (#1880), which the next Auto stack writes as CBALSAT and the next Derive's balance takes;
+  on a mono source the row is a caption giving the reason. A mono master, another planet, or a limb that does not fit is left as
   captured and the log says which.
 - **The live view takes the same balance since 2026-10-05** (#1212's one routine for all three): its Derive reads the balance the batch
   would give the master on show (`PlanetaryBestStack.DeriveGains`, at the default saturation) and keeps it with the limb
