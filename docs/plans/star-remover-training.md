@@ -5183,7 +5183,10 @@ stretch errors made them, and neither is in the star colours. As exported, the e
 starless plate's parameters, not the master's (#1776). Re-stretched, the S2 read used a re-stretch whose absence rule
 was not the exporter's, which moved green's master floor on four of the eight sessions (S2's read above, "Corrected").
 Read through the exporter's own master stretch, the injected colours already match real's in every band. The injector
-draws a whole catalogued star and keeps its amplitude per channel (`InjectionPopulation`, R1). A drawn colour is
+draws a whole catalogued star and keeps its amplitude per channel (`InjectionPopulation`, R1). The pool refuses a
+diverged fit (#1867): a star whose `LocalSigma` is not finite (an edge fit with its centre off covered sky), and an
+unsaturated one whose amplitude in any channel is above the frame's clip (the master's unit-scale divisor) less its own
+sky. Neither is drawn, nor carried as a lobe; both still count as sites, and `InjectionPopulation.Refused` says how many. A drawn colour is
 therefore a real star's colour at that star's own brightness. An option drawing colours from the real distribution
 would draw what the pool already draws. The training session's call (2026-10-23) was to add none.
 
