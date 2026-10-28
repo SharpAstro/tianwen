@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
@@ -48,9 +49,6 @@ namespace TianWen.UI.Abstractions
         // disk I/O. The scrub track rect is captured for the press/drag -> frame mapping in ScrubAt.
         // -----------------------------------------------------------------------
 
-        /// <summary>The widest label a segment of the view switch takes: the Auto stack's at its end.</summary>
-        private const string ViewSwitchWidestLabel = "Auto 100%";
-
         /// <summary>The play / pause button's fill, which the bar draws its mark into.</summary>
         private const string PlayPauseFillKey = "PlayPause";
 
@@ -84,9 +82,7 @@ namespace TianWen.UI.Abstractions
             // while the live stack's first master is still computing, and the Auto stack's progress on its own segment while it runs (the view under it
             // stays on show until it ends). Arranged in device pixels at DesignScale.One, as the toolbar's run is, since the bar around it is.
             var stackLabel = state.ShowStacked && !state.ShowAuto && _source is not LiveStackPreviewSource ? "Stack..." : "Stack";
-            var autoLabel = state.AutoStackProgress is { } autoDone
-                ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Auto {autoDone * 100:0}%")
-                : "Auto";
+            var autoLabel = state.AutoSegmentLabel;
             ReadOnlySpan<Layout.ButtonGroupOption<PlanetaryView>> views =
             [
                 new(PlanetaryView.Frames, "Raw") { Hit = new HitResult.ButtonHit("ViewFrames"), Tooltip = ViewerShortcuts.RawStack.TooltipText },
@@ -97,7 +93,7 @@ namespace TianWen.UI.Abstractions
             var viewStyle = PlanetaryChoiceStyle with
             {
                 Gap = pad,
-                SegmentWidth = MeasureText(ViewSwitchWidestLabel, fs) + pad * 2,
+                SegmentWidth = ViewerState.AutoSegmentLabels.Max(l => MeasureText(l, fs)) + pad * 2,
             };
             // A live capture (no SER on screen, the GUI's planetary tab) has no recording to stack whole: Raw and Stack only.
             var live = state.IsLiveCapture;

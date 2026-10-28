@@ -150,6 +150,9 @@ public sealed class ViewerController(
         // A field, so the stack's thread can write it with Volatile.Write.
         public int Percent;
 
+        // The stage (a PlanetaryStackStage), written the same way, -1 before the run reports one.
+        public int Stage = -1;
+
         // What a finished run says (where it was written and how it was sharpened), held until its view is on screen: the view's texture
         // upload clears the status line, so set at completion it would never be read. Keyed by the capture it stacked.
         public (string Path, string Message)? Note { get; set; }
@@ -192,7 +195,11 @@ public sealed class ViewerController(
         => state.AutoStackRequested
             || state.AutoViewRequested
             || WantsFrame(_auto)
-            || (_auto.Task is not null && Volatile.Read(ref _auto.Percent) / 100.0 != state.AutoStackProgress);
+            || (_auto.Task is not null && (Volatile.Read(ref _auto.Percent) / 100.0 != state.AutoStackProgress
+                || StageOf(_auto) != state.AutoStackStage));
+
+    private static PlanetaryStackStage? StageOf(BatchView batch)
+        => Volatile.Read(ref batch.Stage) is >= 0 and var stage ? (PlanetaryStackStage)stage : null;
 
     private static bool WantsFrame(BatchView batch) => batch.Note is not null || batch.Task is { IsCompleted: true };
 
@@ -1544,9 +1551,10 @@ public sealed class ViewerController(
 
         changed |= TickBatch(_auto);
         var shownProgress = _auto.Task is { IsCompleted: false } ? Volatile.Read(ref _auto.Percent) / 100.0 : (double?)null;
-        if (state.AutoStackProgress != shownProgress)
+        var shownStage = _auto.Task is { IsCompleted: false } ? StageOf(_auto) : null;
+        if (state.AutoStackProgress != shownProgress || state.AutoStackStage != shownStage)
         {
-            state.AutoStackProgress = shownProgress;
+            (state.AutoStackProgress, state.AutoStackStage) = (shownProgress, shownStage);
             changed = true;
         }
         return changed;
@@ -1621,14 +1629,17 @@ public sealed class ViewerController(
         var token = batch.Cts.Token;
         AutoStacksStarted++;
         Volatile.Write(ref batch.Percent, 0);
-        state.AutoStackProgress = 0;
-        // A percent for now (#1879 reports stages): Stacking's own, held at 99 through the stages after it, 100 when the last ends.
+        Volatile.Write(ref batch.Stage, (int)PlanetaryStackStage.Stacking);
+        (state.AutoStackProgress, state.AutoStackStage) = (0, PlanetaryStackStage.Stacking);
+        // The stage by name (#1879), and a percent that is Stacking's own, held at 99 through the stages after it, 100 when the last ends.
+        // The percent first, so a tick that sees the new stage never sees the old stage's percent.
         var progress = new SynchronousProgress<PlanetaryStackProgress>(p =>
         {
             if (p.Stage != PlanetaryStackStage.Derotating)
             {
                 Volatile.Write(ref batch.Percent, p.Stage == PlanetaryStackStage.Stacking ? (int)Math.Min(99, p.Fraction * 100) : p.Fraction >= 1 ? 100 : 99);
             }
+            Volatile.Write(ref batch.Stage, (int)p.Stage);
         });
         var directory = Path.GetDirectoryName(Path.GetFullPath(capture)) ?? ".";
         // Read here, on the render thread, before the run takes them off it.

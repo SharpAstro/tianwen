@@ -59,6 +59,43 @@ public class ViewerBestStackTests
     [Theory(Timeout = 180_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
+    public async Task TheAutoSegmentNamesTheStageTheRunIsInAndReturnsToAutoWhenDone(float dpi)
+    {
+        // #1879: Stacking with its percent, then a later stage by its word, never a percent frozen at 99.
+        await using var e2e = ViewerE2E.Start(dpi);
+        var ct = TestContext.Current.CancellationToken;
+        var capture = WriteCapture(Path.Combine(e2e.Folder, "2024-12-15-1256_7-Jupiter.ser"));
+        e2e.Host.HandleDropFile(capture);
+        await e2e.PumpUntilAsync(() => e2e.State.SequencePath == capture, "the capture to open", ct);
+        e2e.State.AutoSegmentLabel.ShouldBe("Auto");
+
+        var seen = new System.Collections.Generic.List<string>();
+        float? segmentWidth = null;
+        e2e.Key(InputKey.K, InputModifier.Shift);
+        await e2e.PumpUntilAsync(() =>
+        {
+            var label = e2e.State.AutoSegmentLabel;
+            // The painted segment never changes width, whatever it says: a running stack must not move the scrub track.
+            var width = e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewAuto" }, "the Auto segment").Width;
+            segmentWidth ??= width;
+            width.ShouldBe(segmentWidth.Value, 0.5f, "the Auto segment's width at " + label);
+            if (seen.Count == 0 || seen[^1] != label)
+            {
+                seen.Add(label);
+            }
+            return label == "Auto" && seen.Count > 1 && !e2e.Controller.IsAutoStackPending;
+        }, "the Auto stack to end", ct, untilTimeout: true);
+
+        seen[0].ShouldBe("Auto");
+        seen.ShouldContain(l => l.StartsWith("Stacking", StringComparison.Ordinal));
+        seen.ShouldContain(l => !l.StartsWith("Stacking", StringComparison.Ordinal) && l != "Auto" && !l.Contains('%'),
+            "a stage after Stacking is named, with no percent: " + string.Join(" | ", seen));
+        seen[^1].ShouldBe("Auto");
+    }
+
+    [Theory(Timeout = 180_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
     public async Task AStrengthChosenInThePanelTakesTheAutoStackPastTheTruth(float dpi)
     {
         // #1251: the truth by default, a post's look as an option. The panel's strength reaches the run, and its note says so.
