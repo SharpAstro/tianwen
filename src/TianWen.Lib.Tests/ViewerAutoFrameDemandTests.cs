@@ -40,7 +40,10 @@ public class ViewerAutoFrameDemandTests
         var first = e2e.State.FrameIndex;
         for (var i = 0; i < Iterations && !moved; i++)
         {
-            e2e.Frame();
+            if (e2e.Host.WantsFrame())
+            {
+                e2e.Frame();
+            }
             moved = e2e.State.FrameIndex != first;
             await Task.Delay(2, ct);
         }
@@ -84,7 +87,10 @@ public class ViewerAutoFrameDemandTests
         e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewFrames" }, "the Frames view"));
         for (var i = 0; i < Iterations && e2e.State.FrameIndex == playhead; i++)
         {
-            e2e.Frame();
+            if (e2e.Host.WantsFrame())
+            {
+                e2e.Frame();
+            }
             await Task.Delay(2, ct);
         }
         e2e.State.FrameIndex.ShouldNotBe(playhead, "playback resumes when another view is chosen");
