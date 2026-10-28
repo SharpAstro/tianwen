@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using SharpAstro.Tiff;
 using Shouldly;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 using Xunit;
