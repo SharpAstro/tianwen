@@ -441,6 +441,12 @@ namespace TianWen.AI.Imaging
         /// stars moved are counted in each injection row's <c>WingClamped</c>. Draws no random number, so the stars keep
         /// their places, brightness and colour. Off, every export is what it was. Not with
         /// <paramref name="ChannelWingCut"/>, which departs from the envelope on purpose.</param>
+        /// <param name="OuterHaloPath">Stars mode (#1870): a <c>halo-profiles.json</c> (training/star-removal/domain/halo_profile.py); every
+        /// injected star is drawn with a second, wide, faint Moffat under its profile
+        /// (<see cref="TianWen.Lib.Imaging.StarRemoval.OuterHalo"/>), fitted in C# per rig (the master's camera) to that file's LINEAR
+        /// clipped-star profiles (<see cref="TianWen.Lib.Imaging.StarRemoval.OuterHaloFit"/>) and scaled with the star's amplitude. A rig
+        /// the file lacks draws none, said once. Recorded per star in injections.jsonl (<c>OuterHalo</c>), absent when off. Draws no random
+        /// number. Null, every export is what it was.</param>
         /// <param name="KeptCores">With <paramref name="SyntheticBackground"/>: a share of the cells holds a bright galaxy-like
         /// core in its background, in the input and the target alike, so a remover learns to keep it
         /// (<see cref="TianWen.Lib.Imaging.StarRemoval.KeptCores"/>, #1658), from a stream of its own, so every other draw is
@@ -520,6 +526,7 @@ namespace TianWen.AI.Imaging
             bool StretchFromMaster = true,
             bool ChannelNoiseStructure = false,
             bool ClampWingRelations = false,
+            string? OuterHaloPath = null,
             Action<string>? Say = null);
 
         /// <summary>
