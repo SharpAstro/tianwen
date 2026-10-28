@@ -36,7 +36,7 @@ public class ZzDeriveTimingProbe
                 s += $"{stage} {t.TotalSeconds:0.00} s; ";
             }
             o?.WriteLine(s);
-            Console.Error.WriteLine("PROBE " + s);
+            System.Console.Error.WriteLine("PROBE " + s);
         }
     }
 }
