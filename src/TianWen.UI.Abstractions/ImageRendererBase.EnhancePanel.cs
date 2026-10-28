@@ -27,6 +27,12 @@ namespace TianWen.UI.Abstractions
         private const string EnhanceRunWidthSample = "Cancel";
 
         private const string EnhanceOffLabel = "Off";
+        /// <summary>
+        /// The popover's widest, in design units (#1878): about its choice rows' own width. A sentence in it (the derivation's note)
+        /// WRAPS at this width, and the dials take it, rather than the unwrapped sentence setting the popover's width.
+        /// </summary>
+        internal const float EnhancePopoverMaxWidth = 440f;
+
         private const string EnhanceCheckingText = "Checking what serves this frame...";
 
         /// <summary>Presses the Enhance button as <c>E</c> does: through the host's policy, to the controller's toggle.</summary>
@@ -154,7 +160,7 @@ namespace TianWen.UI.Abstractions
             }
 
             var ctx = MeasureContext();
-            var content = BuildEnhanceTree(state).WStar(1f, BaseInfoPanelWidth);
+            var content = BuildEnhanceTree(state).WStar(1f, BaseInfoPanelWidth, EnhancePopoverMaxWidth);
             var tree = Layout.Builder.Popover(anchor, content, state.EnhancePopover);
             PaintLayout(ArrangeLayout(tree, new RectF32(0f, 0f, Width, Height), ctx), ctx);
         }
