@@ -12,6 +12,14 @@ namespace TianWen.Lib.Imaging;
 
 public partial class Image
 {
+    /// <summary>
+    /// Rows per strip for a float TIFF we write, so a strip is about 1 MB uncompressed. A whole-page strip makes every
+    /// readout block decode the whole page, so the TIFF readout (<c>TiffReadoutTiles.MaxSegmentBytes</c>) declines it and
+    /// the master is never released (#1853).
+    /// </summary>
+    internal static int FloatTiffRowsPerStrip(int width, int samplesPerPixel)
+        => Math.Max(1, (1 << 20) / Math.Max(1, width * samplesPerPixel * sizeof(float)));
+
     // libtiff-HDRI (and Magick.NET in Q16-HDRI) round-trips float TIFFs through
     // SMinSampleValue / SMaxSampleValue: on read the file's [0, 1] floats are
     // multiplied by SMaxSampleValue back to the in-memory range. 65535f is the
@@ -88,6 +96,7 @@ public partial class Image
             SMinSampleValue = 0f,
             SMaxSampleValue = Q16HdriQuantumMax,
             Compression = TiffCompression.Deflate,
+            RowsPerStrip = FloatTiffRowsPerStrip(width, outChannels),
         }, cancellationToken);
         await writer.FlushAsync(cancellationToken);
     }
@@ -152,6 +161,7 @@ public partial class Image
             SMaxSampleValue = 1f,
             Compression = TiffCompression.Deflate,
             Software = "TianWen",
+            RowsPerStrip = FloatTiffRowsPerStrip(width, channels),
         }, cancellationToken);
         await writer.FlushAsync(cancellationToken);
     }
