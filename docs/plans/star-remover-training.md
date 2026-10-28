@@ -4948,6 +4948,125 @@ and the trend and the clamp are opt-in: `star-shapes` with no options measures t
 were drawn from (`TheDefaultMeasureIsTheOneBandRowWithNoBiasAndNoSlope`), the trend takes `--band-edges 20 50 100 200 500 1000
 --sky-bias --pool-by camera`, and the clamp takes `degrade --clamp-wing-relations`.
 
+##### S1c: the outer halo (2026-10-29)
+
+Tracked by #1870 (an outer halo component for injected stars, measured per rig, validated on an 8-session export before any
+training). The wing the S1b read left open is the light past 10 px: the stretched profile table (`halo_profile.py`) showed
+the real clipped stars of a 2 px core keeping 1.2 times synth11's light at 4 to 6 px and twice it at 10 px, and cores of 3 px
+and up keeping a long tail synth11 never draws. `tianwen dataset degrade --mode stars --outer-halo <halo-profiles.json>` is
+the opt-in answer: a per-rig low-beta Moffat under each star, fitted to the linear clipped-star profiles over 4 to 40 px,
+scaled with the star's amplitude and recorded per star as `OuterHalo` in `injections.jsonl`. A rig the file lacks draws none.
+
+Run on DE1 from the flight's branch at "OuterHalo tests: drop a convexity assertion the Moffat's core does not satisfy
+(#1870)", built Release and frozen in `C:/temp/tianwen-scratch/tia1870/bin` (`FROZEN-AT.txt` there and in the export records
+the hash). The export is `synth-halo`, S1b's method with synth11's recipe and `--outer-halo` added, over the same validation
+sessions (nine sessions, 1,440 degraded and 360 clean tiles, nothing skipped or failed, every injection row carrying
+`OuterHalo`). One warning: the profile store measured no profile for channel 2 from channel 1 for the ASI533MC Pro HIP-80609
+session. Both instruments ran as in S1b (`s1b_read.py reads`, seeds 0 to 4, the same 320 real tiles), with synth11 read beside
+it as the control.
+
+**The matched-core table** (`halo_census.py` then `halo_profile.py profile`, the stretched median of the light over the peak
+for clipped stars, grouped by the star's core width). "masters range" is the lowest and highest real median over the rigs
+with at least 5 such stars in the group (14 rigs; 13 for cores 3 to 5, 8 for 6 and up), so a synthetic row outside it is
+further from every rig than the rigs are from each other. The real column is the pooled real value (luminance). In the
+profile file of the new export the label "synth11" means the halo export; the control's file holds luminance only.
+
+New export, per channel (R / G / B), pooled over rigs:
+
+| core | r (px) | real | masters range | halo R / G / B |
+|---|---|---|---|---|
+| 1 px | 4 | 0.0555 | 0.0126 to 0.6205 | 0.062 / 0.068 / 0.038 |
+| 1 px | 10 | 0.0030 | 0.0014 to 0.1200 | 0.0040 / 0.0039 / 0.0018 |
+| 1 px | 20 | 0.0004 | 0.0001 to 0.0069 | 0.0004 / 0.0007 / 0.0002 |
+| 1 px | 30 | 0.0001 | 0.0000 to 0.0049 | 0.0002 / 0.0002 / 0.0001 |
+| 2 px | 4 | 0.1723 | 0.0974 to 0.6091 | 0.107 / 0.104 / **0.068 (below)** |
+| 2 px | 10 | 0.0113 | 0.0061 to 0.1025 | 0.0070 / 0.0064 / **0.0033 (below)** |
+| 2 px | 20 | 0.0016 | 0.0010 to 0.0070 | **0.0009 (below)** / 0.0010 / **0.0005 (below)** |
+| 2 px | 30 | 0.0004 | 0.0003 to 0.0015 | 0.0005 / 0.0005 / **0.0000 (below)** |
+| 3 to 5 px | 4 | 0.513 | 0.166 to 0.680 | 0.454 / 0.437 / 0.407 |
+| 3 to 5 px | 10 | 0.070 | 0.027 to 0.220 | 0.056 / 0.066 / 0.054 |
+| 3 to 5 px | 20 | 0.0089 | 0.0049 to 0.0321 | 0.0103 / 0.0105 / 0.0062 |
+| 3 to 5 px | 30 | 0.0025 | 0.0015 to 0.0086 | 0.0035 / 0.0047 / 0.0034 |
+| 6 px and up (6 stars) | 4 | 0.703 | 0.033 to 0.717 | 0.426 / 0.463 / 0.512 |
+| 6 px and up | 10 | 0.517 | 0.021 to 0.573 | 0.372 / 0.409 / 0.450 |
+| 6 px and up | 20 | 0.113 | 0.017 to 0.376 | 0.319 / 0.338 / 0.360 |
+| 6 px and up | 30 | 0.043 | 0.014 to 0.159 | **0.246 / 0.232 / 0.252 (above)** |
+
+The control, synth11, luminance, same rows (real as above):
+
+| core | r (px) | synth11 | inside the range |
+|---|---|---|---|
+| 1 px | 4 / 10 / 20 / 30 | 0.0527 / 0.0018 / 0.0000 / -0.0001 | yes, yes, no, no |
+| 2 px | 4 / 10 / 20 / 30 | 0.120 / 0.0042 / 0.0002 / 0.0001 | yes, no, no, no |
+| 3 to 5 px | 4 / 10 / 20 / 30 | 0.408 / 0.043 / 0.0026 / 0.0005 | yes, yes, no, no |
+| 6 px and up (10 stars) | 4 / 10 / 20 / 30 | 0.750 / 0.750 / 0.618 / 0.016 | no, no, no, yes |
+
+Read: the halo does what it was built for in the green and red channels. The 2 px and 3 to 5 px groups, which sat outside the
+masters' range at 20 and 30 px in the control, are inside it, and the 1 px group matches real as before. The faults are
+three. **The blue channel of 2 px stars is under real at every radius and outside the range** (0.068 against 0.172 at 4 px,
+0.0000 at 30 px): the halo is fitted to the pooled profile, which the blue channel's own clipped stars do not follow.
+**The 6 px and up group reads far above real from 20 px out** (0.32 to 0.36 at 20 px against 0.113, 0.23 to 0.25 at 30 px
+against 0.043, outside the range), on 6 stars in the new export; the control's 10 stars are also off, and the profile table
+cannot say more from so few. **One rig is badly over**: the ASI294MC's 2 px stars read 0.287 / 0.124 / 0.069 / 0.029 at 4 / 10
+/ 20 / 30 px against real 0.209 / 0.013 / 0.0012 / 0.0004, sixty to seventy times real at 20 and 30 px. The other three rigs read
+within 2 times real at 10 and 20 px (ASI533MC Pro 0.0083 / 0.0008 against 0.0061 / 0.0012; QHY294PROC 0.0056 / 0.0010 against
+0.0068 / 0.0012; ASI585MC Pro 0.049 / 0.0054 against 0.0156 / 0.0015, about three times at 10 px).
+
+**The wing** (`domain_stats.py` through `s1b_read.py wing-table`, the median over the stars of a band of the 3-5 px light over
+the peak, the mean of the three channels' ratios, 320 tiles per source):
+
+| sigma | 20-50 | 50-100 | 100-200 | 200-500 |
+|---|---|---|---|---|
+| real over the halo export | 0.66 | 0.77 | 1.24 | 1.42 |
+| real over synth11 (the control) | 0.67 | 0.78 | 1.34 | 1.38 |
+
+| 3-5 px light over the peak, R / G / B | 20-50 sigma | 50-100 | 100-200 | 200-500 |
+|---|---|---|---|---|
+| real | 0.018 / 0.018 / 0.015 | 0.037 / 0.036 / 0.026 | 0.075 / 0.083 / 0.049 | 0.160 / 0.187 / 0.107 |
+| halo | 0.025 / 0.028 / 0.023 | 0.045 / 0.050 / 0.034 | 0.059 / 0.074 / 0.037 | 0.123 / 0.129 / 0.070 |
+| synth11 | 0.024 / 0.028 / 0.022 | 0.044 / 0.049 / 0.033 | 0.056 / 0.068 / 0.033 | 0.128 / 0.136 / 0.071 |
+
+The halo changes the 3 to 5 px light by under 5 percent in every band, as it should: it is a 4 to 40 px component. It does not
+touch the S1b shortfall at 100 to 500 sigma (1.24 to 1.42 against 1.34 to 1.38 for the control), and the over-bright faint
+bands (real 0.66 / 0.77 of synth) are as they were.
+
+**The classifier** (`domain_classifier.py`, leave one camera out, the mean over the four held-out cameras, then over seeds 0
+to 4; the gate is F4's: a star-crop AUC counts only if the new mean is lower than the baseline's by more than twice the larger
+spread, which against synth4's 0.782 +- 0.009 is a mean below 0.764 on its own spread, or below 0.728 against the halo's):
+
+| crops | synth4 (the bar's baseline) | synth11 (control) | halo |
+|---|---|---|---|
+| star-centred 24 px | 0.782 +- 0.009 | 0.760 +- 0.002 | **0.728 +- 0.027** (0.705, 0.773, 0.719, 0.711, 0.734) |
+| noise, 16 px | 0.705 +- 0.007 | 0.690 +- 0.014 | 0.705 +- 0.007 (0.712, 0.700, 0.713, 0.697, 0.704) |
+
+Per camera, seed 0 against the control's seed 0: QHY294PROC 0.754 (0.781), ASI294MC 0.505 (0.628), ASI533MC Pro 0.820
+(0.851), ASI585MC Pro 0.739 (0.779). Over seeds 0 to 4 the ASI294MC fold, the camera with the 1,085 stars and the rig the
+profile table says is overdrawn, ranges 0.50 to 0.64 and carries most of the halo's spread. The noise crops sit inside the
+baselines' spread, so nothing the halo did reached the noise.
+
+The mean clears the bar of 0.764, by 0.036, and it clears synth4 by 0.054, which is exactly twice its own spread of 0.027, so
+the "more than twice the larger spread" rule is met only at the line. Against its own control, synth11, the drop is 0.032, which
+is 1.2 times the halo's spread and well under twice it. The seed spread is ten times the control's (0.027 against 0.002), so
+the number is not as tight as the drop is large.
+
+**Verdict for the owner: do not train on this export yet.** The halo moves the classifier the right way (0.760 to 0.728, every
+camera lower at seed 0) but not by a margin the gate calls a pass: the strict reading fails against the control and sits on the
+line against synth4, and the AUC is still 0.73 where indistinguishable is 0.5. The profile table says why a larger drop is
+not to be expected from this build: the ASI294MC is drawn sixty to seventy times too bright at 20 to 30 px, the blue channel of
+2 px stars is under real, and cores of 6 px and up carry about six times real's light at 30 px. The halo is worth keeping as an
+opt-in, since the other three rigs and the 2 px and 3 to 5 px groups in red and green land inside the masters' range where the
+control did not.
+**The next step:** (1) cap the halo's scale by the rig's own fit quality, or drop it where the fitted Moffat overdraws the
+measured profile at 20 and 30 px (the ASI294MC first); (2) fit it per channel so the blue channel of 2 px stars is not drawn
+from the pooled profile; (3) do not draw it under a core of 6 px and up, whose bright stars carry their own tail; (4) export
+again and read the classifier at seeds 0 to 4, which takes about 40 minutes. A train waits on a run that clears 0.728
+with a seed spread at or under the control's.
+
+Everything stays on DE1 under `C:/temp/tianwen-scratch/tia1870`: `bin` (the frozen build and `FROZEN-AT.txt`), `synth-halo`
+(the export), `census.json`, `census-halo.json`, `census-synth11.json`, `halo-profiles.json` (the per-rig table the export was
+drawn from), `halo-profiles-newexport.json` and `halo-profiles-synth11ctl.json` (the profiles read above), and `reads/`
+(`stats.json`, `cls-halo.json`, `cls-synth11.json`, the logs and the matched-core script). No model was trained.
+
 #### Synthetics S2: the star population below the catalogue
 
 Tracked by #1737. The injected brightness follows a luminosity function fitted to the real tiles' star counts and
