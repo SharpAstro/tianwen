@@ -138,7 +138,8 @@ namespace TianWen.Lib.Tests
 
             player.Tick(src, state, 0.1).ShouldBeTrue();
             state.FrameIndex.ShouldBe(1);
-            src.StartedDecodes.ShouldBe(1);
+            src.StartedDecodes.ShouldBe(2); // frame 1 decoded once, then frame 2 ahead
+            src.IsDecoding.ShouldBeTrue();
         }
 
         [Fact]
