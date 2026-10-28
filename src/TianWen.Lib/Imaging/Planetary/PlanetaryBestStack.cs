@@ -308,7 +308,7 @@ public static class PlanetaryBestStack
     /// <summary>
     /// The gains <see cref="Sharpen"/> would derive for <paramref name="master"/>, finest scale first, for a live view's wavelet sliders
     /// to sharpen every later master with (<see cref="SliderOptions"/>), and the limb it drew, which those masters are drawn outside of as
-    /// the batch draws it (<see cref="PlanetaryLiveLimb"/>, #1201): the derivation is the slow part (about 35 s), the gains and the limb are
+    /// the batch draws it (<see cref="PlanetaryLiveLimb"/>, #1201): the derivation is the slow part (its cost moves with the master's size, the planet and the machine), the gains and the limb are
     /// cheap to apply. Empty, with no limb and the reason in words, where nothing is derived: no telescope, no planet with a rotation
     /// model, no time, or a limb that does not fit. A colour master's red and blue planes are first moved onto green by their limbs, as
     /// the batch moves its master's (<see cref="PlanetaryChannelAlignment"/>), and the gains and the balance read on it so moved: the limb

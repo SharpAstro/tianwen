@@ -9,7 +9,7 @@ namespace TianWen.UI.Abstractions;
 
 /// <summary>
 /// The live view's Derive (#1159, the owner's choice of 2026-10-02): the gains the derived sharpening would use for the master on show
-/// (<see cref="PlanetaryBestStack.DeriveGains"/>), worked out in the background, about 35 s, and seeded into the wavelet sliders, which then
+/// (<see cref="PlanetaryBestStack.DeriveGains"/>), worked out in the background (its cost moves with the master's size, the planet and the machine), and seeded into the wavelet sliders, which then
 /// sharpen every later master with them at the cost of a wavelet pass. ONE for the viewer's stacked view of a SER and the GUI's planetary
 /// capture, so the two derive alike. Seeded sliders sharpen as the batch's floored derived sharpening does, measured equal on every twin
 /// (docs/plans/planetary-restoration.md, "The live view's derived sharpening"), and the limb the derivation fitted is kept
@@ -20,6 +20,17 @@ internal sealed class WaveletDerivation : IDisposable
     private readonly CancellationTokenSource _cts = new CancellationTokenSource();
     private Task<DerivedGains>? _task;
     private int _disposed;
+
+    /// <summary>
+    /// The caption while a derivation runs: what it works on and the time elapsed so far, in whole seconds under a minute, else minutes and
+    /// seconds ("12 s so far", "1 min 20 s so far"). No promise of how long it takes, which moves with the master, the planet and the machine.
+    /// </summary>
+    internal static string Caption(TimeSpan elapsed)
+    {
+        var total = (long)Math.Max(0, elapsed.TotalSeconds);
+        var shown = total < 60 ? $"{total} s" : $"{total / 60} min {total % 60} s";
+        return $"Deriving the gains from this master, {shown} so far";
+    }
 
     /// <summary>How many derivations have started; switching views and stops starts none (#1314 rule 7). For tests.</summary>
     internal int Started { get; private set; }
@@ -60,7 +71,22 @@ internal sealed class WaveletDerivation : IDisposable
                 logger.LogWarning(done.Exception?.GetBaseException(), "Deriving the wavelet gains failed");
                 state.WaveletDeriveNote = $"Not derived: {done.Exception?.GetBaseException().Message}";
             }
+            state.WaveletDeriveStarted = null;
             state.NeedsRedraw = true;
+        }
+        else if (_task is not null && state.WaveletDeriveStarted is { } started)
+        {
+            // The caption shows whole seconds, so a frame is asked for only when the shown second changes.
+            var elapsed = now - started;
+            if (elapsed < TimeSpan.Zero)
+            {
+                elapsed = TimeSpan.Zero;
+            }
+            if ((long)elapsed.TotalSeconds != (long)state.WaveletDeriveElapsed.TotalSeconds)
+            {
+                state.WaveletDeriveElapsed = elapsed;
+                state.NeedsRedraw = true;
+            }
         }
 
         if (!state.WaveletDeriveRequested)
@@ -92,6 +118,8 @@ internal sealed class WaveletDerivation : IDisposable
         var saturation = state.PlanetaryColourSaturation;
 
         state.WaveletDeriving = true;
+        state.WaveletDeriveStarted = now;
+        state.WaveletDeriveElapsed = TimeSpan.Zero;
         state.NeedsRedraw = true;
         Started++;
         StartedAtSaturation = saturation;

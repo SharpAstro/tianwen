@@ -346,7 +346,7 @@ namespace TianWen.UI.Abstractions
                 .CrossCenter()
                 .WStar());
 
-            var caption = state.WaveletDeriving ? "Deriving the gains from this master, about half a minute" : state.WaveletDeriveNote;
+            var caption = state.WaveletDeriving ? WaveletDerivation.Caption(state.WaveletDeriveElapsed) : state.WaveletDeriveNote;
             if (caption is not null)
             {
                 rows.Add(WrappedText(caption, ViewerTheme.Palette.DimText));

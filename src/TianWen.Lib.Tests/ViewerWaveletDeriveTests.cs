@@ -206,6 +206,25 @@ public class ViewerWaveletDeriveTests
     }
 
     // The synthetic Jupiter capture opened and its stacked view on screen with a master in it.
+    [Theory]
+    [InlineData(0, "Deriving the gains from this master, 0 s so far")]
+    [InlineData(12, "Deriving the gains from this master, 12 s so far")]
+    [InlineData(59, "Deriving the gains from this master, 59 s so far")]
+    [InlineData(60, "Deriving the gains from this master, 1 min 0 s so far")]
+    [InlineData(80, "Deriving the gains from this master, 1 min 20 s so far")]
+    [InlineData(605, "Deriving the gains from this master, 10 min 5 s so far")]
+    public void TheDeriveCaptionReadsTheTimeElapsedSoFar(int seconds, string expected) =>
+        WaveletDerivation.Caption(TimeSpan.FromSeconds(seconds + 0.4)).ShouldBe(expected);
+
+    [Fact]
+    public void ARunningDerivationsCaptionPromisesNoDuration()
+    {
+        var caption = WaveletDerivation.Caption(TimeSpan.FromSeconds(3));
+
+        caption.ShouldNotContain("about");
+        caption.ShouldNotContain("half a minute");
+    }
+
     internal static async Task OpenStackedAsync(ViewerE2E e2e, System.Threading.CancellationToken ct, bool dispersed = false)
     {
         var capture = ViewerBestStackTests.WriteCapture(Path.Combine(e2e.Folder, "2024-12-15-1256_7-Jupiter.ser"), dispersed: dispersed);

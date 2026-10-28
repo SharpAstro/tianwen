@@ -779,8 +779,14 @@ public sealed class ViewerState
     /// <summary>Set by the Derive button; the controller starts a derivation over the master on show, or ignores it while one runs, and clears it.</summary>
     public bool WaveletDeriveRequested { get; set; }
 
-    /// <summary>True while a derivation runs (about 35 s, in the background). Written by the controller.</summary>
+    /// <summary>True while a derivation runs, in the background. Written by the controller.</summary>
     public bool WaveletDeriving { get; set; }
+
+    /// <summary>The clock reading <see cref="WaveletDerivation"/> was given when it started the derivation running; null when none runs.</summary>
+    public DateTimeOffset? WaveletDeriveStarted { get; set; }
+
+    /// <summary>Time the running derivation has taken, as of the last whole second shown; written by the controller's tick.</summary>
+    public TimeSpan WaveletDeriveElapsed { get; set; }
 
     /// <summary>What the last derivation did, in words: what the gains were derived for, or why none were. Null before any, and after Reset.</summary>
     public string? WaveletDeriveNote { get; set; }
