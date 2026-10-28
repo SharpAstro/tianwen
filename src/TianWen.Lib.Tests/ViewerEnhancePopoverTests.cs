@@ -421,6 +421,51 @@ namespace TianWen.Lib.Tests
             state.WaveletGains.ShouldBe(WaveletSharpenOptions.PlanetaryDefault.Gains);
         }
 
+        /// <summary>The longest sentence a derivation writes: colour balance, a camera's matrix and a telescope read from the folder name (#1878).</summary>
+        private const string LongestDeriveNote = "Gains derived for Saturn through a 406 mm pupil at 610 nm toward the aperture (telescope read from the "
+            + "folder name 2026-10-07_Saturn_C14); balanced to Saturn's colour: gains R 1.005, B 0.887 over green through the Uranus-C's matrix, saturation 1.1";
+
+        /// <summary>The painted rect of the popover's body, read from the region it registers rather than measured again.</summary>
+        private static RectF32 PanelRect(PopoverViewer viewer)
+        {
+            foreach (var region in viewer.GetRegisteredRegions())
+            {
+                if (region.Result is HitResult.ButtonHit { Action: "EnhancePanelBackground" })
+                {
+                    return new RectF32(region.X, region.Y, region.X + region.Width, region.Y + region.Height);
+                }
+            }
+            throw new InvalidOperationException("the Enhance popover registered no body");
+        }
+
+        [Theory]
+        [InlineData(1f, 900u)]
+        [InlineData(1f, 2400u)]
+        [InlineData(1.5f, 900u)]
+        [InlineData(1.5f, 2400u)]
+        public async Task TheDerivationNoteWrapsInsideThePopoverInsteadOfWideningIt(float dpiScale, uint designWidth)
+        {
+            var ct = TestContext.Current.CancellationToken;
+
+            async Task<RectF32> PanelWith(string? note)
+            {
+                using var renderer = new RgbaImageRenderer((uint)(designWidth * dpiScale), (uint)(TallH * dpiScale));
+                var (viewer, state, _) = await OpenAsync(renderer, dpiScale, ct, s =>
+                {
+                    OnAStackedCapture(s);
+                    s.WaveletDerived = true;
+                    s.WaveletDeriveNote = note;
+                });
+                return PanelRect(viewer);
+            }
+
+            var bare = await PanelWith(null);
+            var noted = await PanelWith(LongestDeriveNote);
+
+            noted.Width.ShouldBe(bare.Width, 1f, "a sentence wraps inside the popover's width; it does not set it");
+            noted.Height.ShouldBeGreaterThan(bare.Height + (2f * 10f * dpiScale), "the note spans more than one line");
+        }
+
         [Fact]
         public void OneRuleSaysWhichHalfShows()
         {
