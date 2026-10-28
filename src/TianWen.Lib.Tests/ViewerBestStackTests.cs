@@ -36,7 +36,7 @@ public class ViewerBestStackTests
         await AutoOnShowAsync(e2e, ct);
 
         // What the run did is said once its Auto view is on screen (its upload clears the status line first).
-        await e2e.PumpUntilAsync(() => e2e.State.StatusMessage?.StartsWith("Auto stack:", StringComparison.Ordinal) == true,
+        await e2e.PumpUntilAsync(() => e2e.State.StatusMessage?.StartsWith("Full stack:", StringComparison.Ordinal) == true,
             "the Auto stack's note", ct);
 
         File.Exists(Path.Combine(e2e.Folder, "master_2024-12-15-1256_7-Jupiter_auto.fits")).ShouldBeTrue();
@@ -116,7 +116,7 @@ public class ViewerBestStackTests
         // frame may clear it again before the assertion reads it.
         await AutoOnShowAsync(e2e, ct);
         string? note = null;
-        await e2e.PumpUntilAsync(() => (note = e2e.State.StatusMessage)?.StartsWith("Auto stack:", StringComparison.Ordinal) == true,
+        await e2e.PumpUntilAsync(() => (note = e2e.State.StatusMessage)?.StartsWith("Full stack:", StringComparison.Ordinal) == true,
             "the Auto stack's note", ct);
 
         note.ShouldNotBeNull().ShouldContain("strength 2 past the truth");

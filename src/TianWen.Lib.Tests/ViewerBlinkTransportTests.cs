@@ -369,26 +369,36 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
-        /// The switch reads Raw / Stack / Auto (the owner, 2026-10-21): "Live" read as the camera's live video as much as the live stack,
-        /// so the labels went back to the RAW / STACK toggle's words, the same on a recording and a live capture.
+        /// The switch reads Raw | Stack: Live / Full (#1877), so "Auto" is left to the Enhance panel's choice rows. "Stack:" is a label.
         /// </summary>
         [Fact]
-        public void TheViewSwitchReadsRawStackAndAuto()
+        public void TheViewSwitchReadsRawStackLiveAndFull()
         {
             var live = new TextCapturingRenderer(SurfaceW, SurfaceH);
-            NewSequenceViewer(sequencePath: null, live);
+            var (liveViewer, _) = NewSequenceViewer(sequencePath: null, live);
             var liveWords = live.Texts.Select(static t => t.Text).ToArray();
             liveWords.ShouldContain("Raw");
-            liveWords.ShouldContain("Stack");
-            liveWords.ShouldNotContain("Live");
+            liveWords.ShouldContain("Stack:");
+            liveWords.ShouldContain("Live");
+            liveWords.ShouldNotContain("Full");
+            liveWords.ShouldNotContain("Auto");
             liveWords.ShouldNotContain("Frames");
 
             var recorded = new TextCapturingRenderer(SurfaceW, SurfaceH);
-            NewSequenceViewer(sequencePath: Path.Combine("captures", "jupiter.ser"), recorded);
+            var (recordedViewer, _) = NewSequenceViewer(sequencePath: Path.Combine("captures", "jupiter.ser"), recorded);
             var recordedWords = recorded.Texts.Select(static t => t.Text).ToArray();
             recordedWords.ShouldContain("Raw");
-            recordedWords.ShouldContain("Stack");
-            recordedWords.ShouldContain("Auto");
+            recordedWords.ShouldContain("Stack:");
+            recordedWords.ShouldContain("Live");
+            recordedWords.ShouldContain("Full");
+            recordedWords.ShouldNotContain("Auto");
+
+            // The label is plain text: no button carries its words.
+            foreach (var viewer in new[] { liveViewer, recordedViewer })
+            {
+                viewer.PaintedRegions().Select(static r => r.Result).OfType<HitResult.ButtonHit>()
+                    .Select(static h => h.Action).ShouldNotContain("Stack:");
+            }
         }
 
         /// <summary>The transport keys go with the buttons: Space neither plays nor pauses a live capture, and an arrow seeks nothing.</summary>

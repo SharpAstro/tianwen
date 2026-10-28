@@ -160,7 +160,7 @@ public sealed class ViewerController(
         public string? Capture { get; set; }
         public ViewDials? Dials { get; set; }
 
-        public string Name => "Auto stack";
+        public string Name => "Full stack";
     }
 
     private readonly BatchView _auto = new BatchView();
@@ -1544,7 +1544,7 @@ public sealed class ViewerController(
             }
             else if (state.SequencePath is null)
             {
-                state.StatusMessage = "Auto stack: open a SER capture first";
+                state.StatusMessage = "Full stack: open a SER capture first";
             }
             else
             {
@@ -1666,8 +1666,8 @@ public sealed class ViewerController(
         var given = new PlanetaryIdentityGiven(state.PlanetaryBody, state.PlanetaryFilterNm, setHere ? state.PlanetaryApertureMm : null,
             setHere ? state.PlanetaryDesign : OpticalDesign.Unknown);
         var (lastMm, lastDesign, strength, saturation) = (state.PlanetaryApertureMm, state.PlanetaryDesign, state.PlanetaryStrength, state.PlanetaryColourSaturation);
-        state.StatusMessage = "Auto stack running: the capture identified, then stacked at the measured defaults";
         var gate = AutoRunGate;
+        state.StatusMessage = "Full stack running: the capture identified, then stacked at the measured defaults";
         batch.Task = Task.Run(async () =>
         {
             if (gate is not null)
