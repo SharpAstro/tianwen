@@ -1,3 +1,4 @@
+using System;
 using DIR.Lib;
 
 namespace TianWen.UI.Abstractions;
@@ -50,11 +51,21 @@ public sealed class GuiNavigationStrip<TSurface>(Renderer<TSurface> renderer) : 
     public static Layout.NavigationStripColors ColorsFor(UiPalette palette) => new(
         Fill: palette.PanelBg,
         HoverFill: GuiTheme.Hover(palette.PanelBg),
-        // The arrow is an ACTION, so it reads as the active tab's glyph does (BodyText); with nowhere to go it takes the
-        // rail's inactive-tab ink (DimText), which stays an icon at 3:1 or better on the rail in Light, Dark and Night
-        // (6.2, 5.6, 3.6) while reading plainly dimmer than the enabled one.
+        // The arrow is an ACTION, so it reads as the active tab's glyph does (BodyText). With nowhere to go the engine
+        // paints a disabled icon at the MIDPOINT of its colour and the ground it sits on (DIR.Lib's DimTowards), so the
+        // colour handed over is dimmed once more on the way to the screen: DimText there was painted at 2.2, 2.4 and 1.7:1
+        // on the rail in Light, Dark and Night. Handing over BodyText lifted by that same halving paints it at 4.0, 5.2 and
+        // 2.9:1, plainly dimmer than the enabled arrow (17.8, 13.8, 5.0). Night is the one short of 3:1: its ink is red with
+        // blue held at zero, and nothing inside that palette is brighter once halved (GuiNavigationStripColourTests).
         Ink: palette.BodyText,
-        DisabledInk: palette.DimText);
+        DisabledInk: LiftedForTheEnginesDim(palette.BodyText, palette.PanelBg));
+
+    // The inverse of the engine's midpoint dim: c' = 2c - ground, clamped, so (c' + ground) / 2 is c wherever it fits.
+    private static RGBAColor32 LiftedForTheEnginesDim(RGBAColor32 ink, RGBAColor32 ground) => new(
+        (byte)Math.Clamp(2 * ink.Red - ground.Red, 0, 255),
+        (byte)Math.Clamp(2 * ink.Green - ground.Green, 0, 255),
+        (byte)Math.Clamp(2 * ink.Blue - ground.Blue, 0, 255),
+        ink.Alpha);
 
     /// <summary>Paints the strip into <paramref name="bounds"/> (the rail's width, <see cref="BaseHeight"/> tall once scaled).</summary>
     public void Render(RectF32 bounds)
