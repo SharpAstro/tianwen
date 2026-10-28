@@ -5187,10 +5187,13 @@ draws a whole catalogued star and keeps its amplitude per channel (`InjectionPop
 diverged fit (#1867): a star whose `LocalSigma` is not finite (an edge fit with its centre off covered sky), and an
 unsaturated one whose amplitude in any channel is above the frame's clip (the master's unit-scale divisor) less its own
 sky. Neither is drawn, nor carried as a lobe; both still count as sites, and `InjectionPopulation.Refused` says how many.
-The plate builder refuses the same fits at the source (#1867): `ClassicalStarRemover` leaves a fit whose centre is off
-covered sky, or whose unsaturated amplitude in any channel is above that channel's brightest covered sample less its sky,
-as `NoFit` before subtracting it, so no reader of the catalogue meets it as a Subtracted Moffat (the catalogue format is
-unchanged, and older catalogues read as before, so the injector's guard stays for them). **Plates and the export must be
+The plate builder refuses the overshooting half at the source (#1867): `ClassicalStarRemover` leaves an unsaturated fit
+whose amplitude in any channel is non-finite or above that channel's brightest covered sample less its sky as `NoFit`
+before subtracting it, so no reader of the catalogue meets it as a Subtracted Moffat. A fit whose centre is off covered
+sky but whose amplitude is sane is still subtracted, deliberately: an edge-cut star (the Orion master's 700-sigma star,
+fitted 3 px past the last present column) must leave the plate, and refusing it would leave its light there. Its `LocalSigma`
+is NaN and no field marks the row, so the NaN-sigma half of the guard lives only in the injector, which refuses it (the
+catalogue format is unchanged, and older catalogues read as before, so the injector's guard stays for them). **Plates and the export must be
 rebuilt**, and the synthetics review's instruments (`training/star-removal/domain/`) read on that re-export before any
 training run uses it; that re-export is the owner's. A drawn colour is
 therefore a real star's colour at that star's own brightness. An option drawing colours from the real distribution
