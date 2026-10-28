@@ -92,11 +92,11 @@ public sealed class SequencePlayer
             return false; // paused, no seek -> idle
         }
 
-        // Re-anchor the schedule on play-start or fps change so advance stays continuous.
+        // Re-anchor the schedule on play-start or fps change so advance stays continuous. The look-ahead is kept: a decode in flight
+        // (or done) is still the next frame, and forgetting it left a ready decode nothing would publish nor replace, so playback stalled.
         if (!_wasPlaying || state.PlaybackFps != _lastFps)
         {
             _nextDueSeconds = nowSeconds + FrameInterval(state);
-            _lookahead = -1;
         }
         _wasPlaying = state.IsPlaying;
         _lastFps = state.PlaybackFps;
