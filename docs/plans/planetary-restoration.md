@@ -2876,13 +2876,32 @@ except where its mask frees the light (the code of this change, Release):
 ### The live view's derived sharpening
 
 The owner's choice of 2026-10-02 for the live view (the viewer's stacked view of a SER, K, and the GUI's planetary capture): a Derive
-button works out the derived sharpening's gains for the master on show, in the background (about half a minute), and seeds the six
+button works out the derived sharpening's gains for the master on show, in the background (measured below: 39 to 48 s on a 320 x 240 colour master, so the caption counts the seconds and names the stage rather than
+promising a duration), and seeds the six
 wavelet dials with them; every later master is then sharpened by the dials, at the cost of a wavelet pass. The telescope is the panel's,
 which the GUI seeds from the profile's OTA as a capture starts (`PlanetaryCaptureController.SeedTelescope`).
 
 - **The pieces**: `PlanetaryBestStack.DeriveGains` (the batch's derivation, the reason in words when it derives none: no telescope, no
   named Jupiter or Saturn with frame times, no limb fitted), `PlanetaryBestStack.SliderOptions` (the gains as the dials apply them) and
   `WaveletDerivation` (UI), ONE for the viewer and the GUI. Reset puts the preset back and forgets the derivation.
+- **The derivation's stages and their time** (#1882): `DeriveGains` reports `Finishing` (the colours moved onto green by their own limbs,
+  colour masters only), `Sharpening` (the gains) and `BalancingColour` through `IProgress<PlanetaryStackProgress>`, the stages and the
+  `PlanetaryStageTimer` of the batch stack (#1879). The caption reads "Deriving the gains from this master", the stage's words and the
+  seconds so far, and each finished derivation logs its per-stage wall times at Information. **Measured**, Release, the desktop (win-x64,
+  16 cores, GTX 1070, which this CPU path does not use), `master_2021-12-16-1119_3_` (a Saturn colour master, 320 x 240 x 3, 927,360 bytes),
+  a stand-in 254 mm Newtonian (obstruction 58 mm, four vanes), 650 nm, saturation 1.1, four derivations in one process:
+
+  | Run | Total | Finishing | Sharpening | BalancingColour |
+  |---|---|---|---|---|
+  | 0 (first, with the JIT) | 40.8 s | 23.9 s | 9.2 s | 7.7 s |
+  | 1 | 46.6 s | 21.7 s | 13.5 s | 11.4 s |
+  | 2 | 38.7 s | 18.4 s | 9.7 s | 10.6 s |
+  | 3 | 48.3 s | 21.1 s | 9.4 s | 17.7 s |
+
+  **One stage dominates: `Finishing`, the per-channel limb alignment, is about half of every run** (18 to 24 s), the sharpening is a steady
+  9 to 13 s, and the colour balance swings most (8 to 18 s). The runs wander by 25 % with the box shared, and the first run was no slower
+  than the others, so the JIT is not the cost; read the stage's share, not the second. The Surface's numbers (win-arm64) are the bench
+  #1891.
 - **The dials apply derived gains as the derived sharpening does**: no denoise, and held at the darkest level the frame records
   (`WaveletSharpenOptions.HoldAtDarkest`, its 0.001 quantile). The floored fix holds at the sky the limb fit finds, which a wavelet pass
   on a live master has no limb fit for; the darkest recorded level stands in for it.
