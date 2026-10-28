@@ -50,10 +50,11 @@ public sealed class GuiNavigationStrip<TSurface>(Renderer<TSurface> renderer) : 
     public static Layout.NavigationStripColors ColorsFor(UiPalette palette) => new(
         Fill: palette.PanelBg,
         HoverFill: GuiTheme.Hover(palette.PanelBg),
-        // The arrow is an ACTION, so it reads as the active tab's glyph does (BodyText) rather than the rail's dimmed
-        // inactive tabs; the dimmed one is the locked-cell colour, so "nowhere to go" looks like every other inert cell.
+        // The arrow is an ACTION, so it reads as the active tab's glyph does (BodyText); with nowhere to go it takes the
+        // rail's inactive-tab ink (DimText), which stays an icon at 3:1 or better on the rail in Light, Dark and Night
+        // (6.2, 5.6, 3.6) while reading plainly dimmer than the enabled one.
         Ink: palette.BodyText,
-        DisabledInk: palette.SeparatorStrong);
+        DisabledInk: palette.DimText);
 
     /// <summary>Paints the strip into <paramref name="bounds"/> (the rail's width, <see cref="BaseHeight"/> tall once scaled).</summary>
     public void Render(RectF32 bounds)
