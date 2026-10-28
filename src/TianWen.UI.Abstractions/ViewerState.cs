@@ -788,6 +788,17 @@ public sealed class ViewerState
     /// <summary>Time the running derivation has taken, as of the last whole second shown; written by the controller's tick.</summary>
     public TimeSpan WaveletDeriveElapsed { get; set; }
 
+    // The stage the running derivation reports, as a PlanetaryStackStage's value; -1 before its first report. Written from the derivation's
+    // thread and read by the render thread, one int, so a Volatile hand-off needs no lock.
+    private int _waveletDeriveStage = -1;
+
+    /// <summary>The stage the running derivation is in (<see cref="PlanetaryStackProgress.Words"/> names it), or null before its first report.</summary>
+    public TianWen.Lib.Imaging.Planetary.PlanetaryStackStage? WaveletDeriveStage
+    {
+        get => Volatile.Read(ref _waveletDeriveStage) is var v and >= 0 ? (TianWen.Lib.Imaging.Planetary.PlanetaryStackStage)v : null;
+        set => Volatile.Write(ref _waveletDeriveStage, value is { } stage ? (int)stage : -1);
+    }
+
     /// <summary>What the last derivation did, in words: what the gains were derived for, or why none were. Null before any, and after Reset.</summary>
     public string? WaveletDeriveNote { get; set; }
 

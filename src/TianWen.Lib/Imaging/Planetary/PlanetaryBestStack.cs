@@ -322,7 +322,7 @@ public static class PlanetaryBestStack
     /// </summary>
     public static DerivedGains DeriveGains(Image master, CatalogIndex? planet, DateTimeOffset? epoch, Pupil? telescope,
         ImmutableArray<double> wavelengthsNm = default, double? colourSaturation = PlanetaryColourBalance.DefaultSaturation, double strength = 1,
-        ImmutableArray<double> stops = default, CameraColour? camera = null)
+        ImmutableArray<double> stops = default, CameraColour? camera = null, IProgress<PlanetaryStackProgress>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(master);
         if (telescope is not { } pupil)
@@ -336,11 +336,17 @@ public static class PlanetaryBestStack
         }
         // A live master's colours lie where the atmosphere's dispersion put them, 6.4 px red to blue on 2022-10-09 (#1202): moved onto
         // green here as the batch moves its master's, read once and given to every later master.
+        // Finishing is the stage whose words cover the channels' limb fits (PlanetaryStackStage.Finishing); a mono master has none to report.
+        if (master.ChannelCount == 3)
+        {
+            progress?.Report(new PlanetaryStackProgress(PlanetaryStackStage.Finishing, 0));
+        }
         var (aligned, channels) = master.ChannelCount == 3
             ? PlanetaryChannelAlignment.Align(master, PlanetaryFrameLayout.Rgb, PlanetaryChannelAlignment.LimbOptionsFor(options.Planet, options.When))
             : (master, null);
         try
         {
+            progress?.Report(new PlanetaryStackProgress(PlanetaryStackStage.Sharpening, 0));
             if (PlanetarySharpening.Sharpen(aligned, options with { Fix = PlanetaryLimbFix.Floored, Strength = strength, FitStops = stops.IsDefault ? [] : stops })
                 is not { } result)
             {
@@ -354,6 +360,10 @@ public static class PlanetaryBestStack
                     return new DerivedGains([], "the gains could not be derived", null);
                 }
                 // The colour balance the batch gives a master of this planet (#1212), read once here and given to every master drawn.
+                if (aligned.ChannelCount == 3 && colourSaturation is not null)
+                {
+                    progress?.Report(new PlanetaryStackProgress(PlanetaryStackStage.BalancingColour, 0));
+                }
                 var balance = aligned.ChannelCount == 3 && colourSaturation is { } saturation
                     ? PlanetaryColourBalance.For(aligned, options.Planet, options.When, saturation, camera).Balance
                     : null;
