@@ -11,6 +11,14 @@ namespace TianWen.Lib.Tests;
 /// The Auto view is a still picture and costs a still frame (#1875): with its run pending, playback does not advance under it, the live
 /// rolling stack does not follow, and the loop is asked for a frame only when the Auto progress or the picture changed.
 /// </summary>
+/// <remarks>
+/// Measured live on the Debug tianwen-fits against the sibling sources (SEB-SURFACE, 2026-10-29), the inspector's full-frame count
+/// over about 20 s on a synthetic 1,500-frame 640x480 mono capture played at 30 fps, before (main) and after this fix:
+/// while the Auto run is pending, about 30 frames a second before (921 in 30.6 s, the playhead moving 398 to 787) and 1.6 after
+/// (36 in 22 s, the playhead held); on the finished master, 30 a second before (649 in 21 s, every one a blit of an unchanged
+/// cached layer, the playhead still moving) and none after (1 in 22 s). How long the run itself took is not told apart by
+/// these two samples.
+/// </remarks>
 [Collection("Viewer")]
 public class ViewerAutoFrameDemandTests
 {
