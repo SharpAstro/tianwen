@@ -171,8 +171,10 @@ public sealed unsafe class VkPlanetBodies : IDisposable
             };
             VkPipelineColorBlendStateCreateInfo colorBlend = new() { attachmentCount = 1, pAttachments = blend };
 
-            // The shared render pass has a depth attachment (VkRenderer.DrawMesh): state one, testing and writing nothing, so the
-            // painter's order decides among 2D draws, as VkSkyMapPipeline's pipelines do.
+            // Since SdlVulkan.Renderer 7.75 every target starts depth-less (_ctx.RenderPassNoDepth) and TianWen draws no meshes (no
+            // BeginMeshRegion / DrawMesh / RequireMeshDepth in src/), so this pipeline is built against RenderPassNoDepth. If a mesh is
+            // ever drawn, build it against both pass shapes and bind by VkRenderer.CurrentPassHasDepth. The depth-stencil state stays,
+            // testing and writing nothing, so the painter's order decides among 2D draws, as VkSkyMapPipeline's pipelines do.
             VkPipelineDepthStencilStateCreateInfo depthStencil = new()
             {
                 depthTestEnable = false,
@@ -198,7 +200,7 @@ public sealed unsafe class VkPlanetBodies : IDisposable
                 pColorBlendState = &colorBlend,
                 pDynamicState = &dynamicState,
                 layout = _layout,
-                renderPass = _ctx.RenderPass,
+                renderPass = _ctx.RenderPassNoDepth,
                 subpass = 0,
             };
             api.vkCreateGraphicsPipeline(pipelineCI, out _pipeline).CheckResult();
