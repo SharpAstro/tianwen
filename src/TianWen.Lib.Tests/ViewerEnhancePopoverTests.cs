@@ -420,11 +420,22 @@ namespace TianWen.Lib.Tests
             hits.ShouldNotContain("BalanceSaturationTruth");
             hits.ShouldNotContain("BalanceSaturationEye");
             ImageRendererBase<RgbaImage>.BalanceSaturationMonoReason.ShouldContain("needs a colour source");
+
+            // The reason is on the painted panel, a word to a leaf (the caption wraps).
+            var painted = string.Join(' ', viewer.EnhanceLayoutForTest
+                .Select(n => n.Node)
+                .OfType<Layout.Node.Leaf>()
+                .Select(l => l.Content)
+                .OfType<Layout.Content.Text>()
+                .Select(t => t.Value));
+            painted.ShouldContain(ImageRendererBase<RgbaImage>.BalanceSaturationMonoReason);
         }
 
         [Fact]
         public void BalanceSaturationChosenReachesTheAutoStackOptions()
         {
+            // The options are the seam: PlanetaryBestStack hands options.ColourSaturation straight to PlanetaryColourBalance.For, whose
+            // cards carry it as CBALSAT (pinned in PlanetaryColourTests), so there is no second place the value can be lost.
             var identity = new PlanetaryIdentity(null, "", null, null, "", null, OpticalDesign.Unknown, "", null, default);
             ViewerController.AutoOptions(identity, 1, PlanetaryColourBalance.EyeSaturation).ColourSaturation.ShouldBe(PlanetaryColourBalance.EyeSaturation);
             ViewerController.AutoOptions(identity, 1, PlanetaryColourBalance.DefaultSaturation).ColourSaturation.ShouldBe(PlanetaryColourBalance.DefaultSaturation);
