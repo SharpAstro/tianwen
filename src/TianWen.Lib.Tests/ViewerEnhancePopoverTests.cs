@@ -382,7 +382,7 @@ namespace TianWen.Lib.Tests
         {
             var ct = TestContext.Current.CancellationToken;
             using var renderer = NewRenderer(dpiScale, TallH);
-            var (viewer, state, _) = await OpenAsync(renderer, dpiScale, ct, OnAStackedCapture);
+            var (viewer, state, document) = await OpenAsync(renderer, dpiScale, ct, OnAStackedCapture);
 
             state.PlanetaryColourSaturation.ShouldBe(PlanetaryColourBalance.DefaultSaturation, "the measured one until the panel says otherwise");
             var hits = PlanetaryHits(viewer);
@@ -393,8 +393,8 @@ namespace TianWen.Lib.Tests
             state.PlanetaryColourSaturation.ShouldBe(PlanetaryColourBalance.EyeSaturation);
             state.EnhancePopover.IsOpen.ShouldBeTrue("a choice leaves the popover open");
 
+            viewer.Render(document, state);
             var truth = PlanetaryHits(viewer)["BalanceSaturationTruth"];
-            TestContext.Current.TestOutputHelper?.WriteLine($"eye {hits["BalanceSaturationEye"]} truth before {hits["BalanceSaturationTruth"]} after {truth}");
             Press(viewer, truth.X, truth.Y);
             state.PlanetaryColourSaturation.ShouldBe(PlanetaryColourBalance.DefaultSaturation);
         }
