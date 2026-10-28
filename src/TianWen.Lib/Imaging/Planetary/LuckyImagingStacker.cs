@@ -184,7 +184,17 @@ public sealed class LuckyImagingStacker
     /// weighting (each pixel drawn more from frames locally sharp there) when
     /// <see cref="PlanetaryStackOptions.PerPointQualityWeighting"/> is set. The full lucky-imaging path.
     /// </summary>
-    public async Task<PlanetaryStackResult> StackAsync(IPlanetaryFrameStream stream, PlanetaryStackOptions? options = null, CancellationToken cancellationToken = default)
+    public Task<PlanetaryStackResult> StackAsync(IPlanetaryFrameStream stream, PlanetaryStackOptions? options = null, CancellationToken cancellationToken = default)
+        => StackAsync(stream, options, stages: null, cancellationToken);
+
+    /// <summary>
+    /// <see cref="StackAsync(IPlanetaryFrameStream, PlanetaryStackOptions?, CancellationToken)"/> saying where it is to
+    /// <paramref name="stages"/>: <see cref="PlanetaryStackStage.Derotating"/> as the de-rotation's limb fits begin,
+    /// <see cref="PlanetaryStackStage.Stacking"/> once the reference is settled (whether or not the run was de-rotated, which is how a
+    /// caller learns the loads it still owes), and <see cref="PlanetaryStackStage.Finishing"/> as the folded sum becomes the master.
+    /// </summary>
+    public async Task<PlanetaryStackResult> StackAsync(IPlanetaryFrameStream stream, PlanetaryStackOptions? options, IProgress<PlanetaryStackStage>? stages,
+        CancellationToken cancellationToken)
     {
         options ??= new PlanetaryStackOptions();
         if (options.Derotation is not null && (options.WarpPoolFrames > 0 || options.MedianGeometry))
@@ -192,9 +202,7 @@ public sealed class LuckyImagingStacker
             throw new InvalidOperationException(
                 "A de-rotated stack matches each frame's points where the planet's rotation put them; pooled points and the median geometry read every frame's points unrotated, so they do not combine with it.");
         }
-        var tswS = System.Diagnostics.Stopwatch.StartNew(); //TMP
-        var ctx = await PrepareAsync(stream, options, includeAlignmentPoints: true, cancellationToken).ConfigureAwait(false);
-        Console.Error.WriteLine($"TMP prepare (grade+north+reference) {tswS.Elapsed.TotalSeconds:F1}s derotator={(ctx.Derotator is not null)}"); tswS.Restart(); //TMP
+        var ctx = await PrepareAsync(stream, options, includeAlignmentPoints: true, cancellationToken, stages).ConfigureAwait(false);
         var channelAccum = Image.CreateChannelData(ctx.Channels, ctx.Height, ctx.Width);
         var weightAccum = new float[ctx.Height, ctx.Width];
         var coverage = options.CropToCoverage ? new PlanetaryCoverage(ctx.Width, ctx.Height) : null;
@@ -358,11 +366,10 @@ public sealed class LuckyImagingStacker
             used = weighted.Length;
         }
 
-        Console.Error.WriteLine($"TMP fold {tswS.Elapsed.TotalSeconds:F1}s"); tswS.Restart(); //TMP
+        stages?.Report(PlanetaryStackStage.Finishing);
         var stacked = Normalize(channelAccum, weightAccum, ctx);
         var covered = coverage is { } reached ? PlanetaryMaster.CoveredRectangle(reached.Plane()) : PixelRect.Empty;
         var (master, alignment, cropped) = await FinalizeAsync(stacked, stream.Layout, options, ctx.Derotator?.Epoch.Utc, covered, cancellationToken).ConfigureAwait(false);
-        Console.Error.WriteLine($"TMP finish (normalize, channel limb fits, demosaic, crop) {tswS.Elapsed.TotalSeconds:F1}s"); //TMP
         var finishedHalves = halves is null ? null : await halves.FinishAsync(ctx, stream.Layout, alignment, cropped, cancellationToken).ConfigureAwait(false);
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
         {
@@ -633,7 +640,8 @@ public sealed class LuckyImagingStacker
         int AlignmentPointCandidates,
         ImmutableArray<float[]> PointReferences);
 
-    private static async Task<StackContext> PrepareAsync(IPlanetaryFrameStream stream, PlanetaryStackOptions options, bool includeAlignmentPoints, CancellationToken cancellationToken)
+    private static async Task<StackContext> PrepareAsync(IPlanetaryFrameStream stream, PlanetaryStackOptions options, bool includeAlignmentPoints,
+        CancellationToken cancellationToken, IProgress<PlanetaryStackStage>? stages = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
         if (stream.FrameCount <= 0)
@@ -669,6 +677,7 @@ public sealed class LuckyImagingStacker
             // epoch, or a stack of the best frames each carried there. Its north is the one the capture agrees with. The
             // derotator keeps the reference it registers against, so the frame is released here; a run whose north cannot be read
             // keeps the frame as its reference.
+            stages?.Report(PlanetaryStackStage.Derotating);
             try
             {
                 // A run whose quarters cannot tell its north (no frames in one, or a turn under
@@ -699,6 +708,8 @@ public sealed class LuckyImagingStacker
         {
             reference = await StackedReferenceAsync(stream, grades, reference, options, cancellationToken).ConfigureAwait(false);
         }
+        // Every load but the fold's is made: a caller counting loads now knows what it still owes.
+        stages?.Report(PlanetaryStackStage.Stacking);
         try
         {
             var refRegion = PlanetaryDisk.BoundingBox(reference);

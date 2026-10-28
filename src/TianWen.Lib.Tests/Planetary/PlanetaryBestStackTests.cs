@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Shouldly;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Planetary;
@@ -51,11 +53,11 @@ public class PlanetaryBestStackTests
             result.Sharpened.Width.ShouldBe(result.Stack.Master.Width);
             result.HowSharpened.ShouldStartWith("PlanetaryDefault");
             progress.Values.Count.ShouldBeGreaterThan(2);
-            progress.Values[^1].ShouldBe(1);
-            for (var i = 1; i < progress.Values.Count; i++)
-            {
-                progress.Values[i].ShouldBeGreaterThanOrEqualTo(progress.Values[i - 1]);
-            }
+            // Not de-rotated, so no Derotating stage; the colour balance of a mono run is whatever the options ask.
+            progress.Stages().Take(3).ShouldBe([PlanetaryStackStage.Stacking, PlanetaryStackStage.Finishing, PlanetaryStackStage.Sharpening]);
+            progress.Stages().ShouldNotContain(PlanetaryStackStage.Derotating);
+            progress.Values[^1].Fraction.ShouldBe(1);
+            AssertStackingRisesToItsEnd(progress);
         }
         finally
         {
@@ -64,13 +66,84 @@ public class PlanetaryBestStackTests
         }
     }
 
+    [Fact(Timeout = 240_000)]
+    public async Task ADerotatedRunCountsItsLimbFitLoadsAndReportsEveryStageOnceInOrder()
+    {
+        var capture = FrameDerotationCaptures.Capture(frames: 41, minutes: 16, seed: 5);
+        var progress = new Recorded();
+        // A turn of nought asks for the de-rotation whatever the capture turns, so the limb fits' loads are made.
+        var options = new PlanetaryBestStackOptions(CatalogIndex.Jupiter, null)
+        {
+            Stack = new PlanetaryStackOptions
+            {
+                AlignmentPatchSize = 16,
+                AlignmentPointSpacing = 12,
+                CropToCoverage = false,
+                Derotation = new PlanetaryDerotationOptions(CatalogIndex.Jupiter) { MinimumTurnPx = 0 },
+            },
+        };
+        using var stream = new InMemoryFrameStream(capture.Frames, capture.Times);
+
+        var result = await PlanetaryBestStack.RunAsync(stream, options, progress, TestContext.Current.CancellationToken);
+        var reportsAtReturn = progress.Values.Count;
+
+        try
+        {
+            result.Stack.Epoch.ShouldNotBeNull();
+            // Stacking, the limb fits it counts, Stacking again to its end, then each later stage as it starts: never an earlier one after.
+            var stages = progress.Stages();
+            stages.Take(5).ShouldBe([PlanetaryStackStage.Stacking, PlanetaryStackStage.Derotating, PlanetaryStackStage.Stacking,
+                PlanetaryStackStage.Finishing, PlanetaryStackStage.Sharpening]);
+            stages.Skip(5).ShouldAllBe(s => s == PlanetaryStackStage.BalancingColour);
+            AssertStackingRisesToItsEnd(progress);
+            // Everything the stack loads was counted: the last Stacking report is its end and no load came after it.
+            progress.Values[^1].Fraction.ShouldBe(1);
+            progress.Values.Count.ShouldBe(reportsAtReturn);
+            // The de-rotation's own loads were made, and the stack counted them (more reads than the plain run's grade, reference and fold).
+            stream.LoadCount.ShouldBeGreaterThan(41 + Math.Min(options.Stack.ReferenceFrames, 41) + (int)Math.Ceiling(41 * options.Stack.KeepFraction));
+        }
+        finally
+        {
+            result.Stack.Master.Release();
+            result.Sharpened.Release();
+        }
+    }
+
+    // Stacking's fraction never falls, across its two spells either side of the de-rotation, and it ends at 1.
+    private static void AssertStackingRisesToItsEnd(Recorded progress)
+    {
+        var stacking = progress.Values.Where(p => p.Stage == PlanetaryStackStage.Stacking).Select(p => p.Fraction).ToArray();
+        stacking.Length.ShouldBeGreaterThan(1);
+        for (var i = 1; i < stacking.Length; i++)
+        {
+            stacking[i].ShouldBeGreaterThanOrEqualTo(stacking[i - 1]);
+        }
+        stacking[^1].ShouldBe(1);
+        // Short of its end until the next stage starts.
+        stacking[..^1].ShouldAllBe(f => f < 1);
+    }
+
     // Reported values in order, on the reporting thread (Progress<T> would post them to a context the test does not pump).
-    private sealed class Recorded : IProgress<double>
+    private sealed class Recorded : IProgress<PlanetaryStackProgress>
     {
         private readonly System.Threading.Lock _gate = new();
-        public List<double> Values { get; } = [];
+        public List<PlanetaryStackProgress> Values { get; } = [];
 
-        public void Report(double value)
+        // The stages in the order they were entered, each run of one stage once.
+        public List<PlanetaryStackStage> Stages()
+        {
+            var stages = new List<PlanetaryStackStage>();
+            foreach (var value in Values)
+            {
+                if (stages.Count == 0 || stages[^1] != value.Stage)
+                {
+                    stages.Add(value.Stage);
+                }
+            }
+            return stages;
+        }
+
+        public void Report(PlanetaryStackProgress value)
         {
             // The stack loads frames from parallel passes, so reports can arrive together; this is a test probe, read once at the end.
             lock (_gate)

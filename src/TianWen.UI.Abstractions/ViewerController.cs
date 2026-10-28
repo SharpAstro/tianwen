@@ -1622,7 +1622,14 @@ public sealed class ViewerController(
         AutoStacksStarted++;
         Volatile.Write(ref batch.Percent, 0);
         state.AutoStackProgress = 0;
-        var progress = new SynchronousProgress<double>(fraction => Volatile.Write(ref batch.Percent, (int)(fraction * 100)));
+        // A percent for now (#1879 reports stages): Stacking's own, held at 99 through the stages after it, 100 when the last ends.
+        var progress = new SynchronousProgress<PlanetaryStackProgress>(p =>
+        {
+            if (p.Stage != PlanetaryStackStage.Derotating)
+            {
+                Volatile.Write(ref batch.Percent, p.Stage == PlanetaryStackStage.Stacking ? (int)Math.Min(99, p.Fraction * 100) : p.Fraction >= 1 ? 100 : 99);
+            }
+        });
         var directory = Path.GetDirectoryName(Path.GetFullPath(capture)) ?? ".";
         // Read here, on the render thread, before the run takes them off it.
         var setHere = state.PlanetaryTelescopeSetHere;

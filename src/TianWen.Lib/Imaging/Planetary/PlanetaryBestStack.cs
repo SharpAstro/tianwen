@@ -141,25 +141,33 @@ public static class PlanetaryBestStack
     }
 
     /// <summary>
-    /// The stack of <paramref name="stream"/> by <paramref name="options"/>, sharpened, with its progress (0 to 1, read off the frames
-    /// it has loaded against those it will) reported to <paramref name="progress"/>. The caller owns both images of the result.
+    /// The stack of <paramref name="stream"/> by <paramref name="options"/>, sharpened, with the stage it is in and how far through it
+    /// reported to <paramref name="progress"/> (#1879): Stacking by the frames loaded against those it will load (a de-rotated run's
+    /// limb-fit loads counted), then Derotating, Finishing, Sharpening and BalancingColour as each starts; the last stage ends at 1.
+    /// Writing is the caller's. The caller owns both images of the result.
     /// </summary>
     public static async Task<PlanetaryBestStackResult> RunAsync(IPlanetaryFrameStream stream, PlanetaryBestStackOptions options,
-        IProgress<double>? progress = null, CancellationToken cancellationToken = default)
+        IProgress<PlanetaryStackProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         var stackOptions = options.Stack.Derotation is null ? options.Stack with { Derotation = DerotationFor(options.Planet) } : options.Stack;
         stackOptions = stackOptions with { Planet = stackOptions.Planet ?? options.Planet };
-        var tswT = System.Diagnostics.Stopwatch.StartNew(); //TMP
-        using var counted = new ProgressFrameStream(stream, ExpectedLoads(stream.FrameCount, stackOptions), progress);
-        var result = await new LuckyImagingStacker().StackAsync(counted, stackOptions, cancellationToken).ConfigureAwait(false);
-        Console.Error.WriteLine($"TMP stack total {tswT.Elapsed.TotalSeconds:F1}s, last load at {counted.LastLoadAt:F1}s, loads {counted.Loads}"); tswT.Restart(); //TMP
+        var frames = stream.FrameCount;
+        using var counted = new ProgressFrameStream(stream, ExpectedLoads(frames, stackOptions),
+            stackOptions.Derotation is null ? 0 : QuarterLoads(frames) + 2 * QuarterLoads(frames / 4), KeepLoads(frames, stackOptions), progress);
+        var result = await new LuckyImagingStacker().StackAsync(counted, stackOptions, counted, cancellationToken).ConfigureAwait(false);
         // The master is handed on with the result; only a sharpening that throws leaves it here to release.
         var handedOn = false;
         try
         {
+            progress?.Report(new PlanetaryStackProgress(PlanetaryStackStage.Sharpening, 0));
             var (sharpened, how, derived) = SharpenCore(result.Master, options.Planet, result.Epoch, options.Telescope, options.WavelengthsNm,
                 options.Fix, options.Strength, options.LuminanceOnly, options.FitStops, options.Target);
-            Console.Error.WriteLine($"TMP sharpen {tswT.Elapsed.TotalSeconds:F1}s"); tswT.Restart(); //TMP
+            var lastStage = PlanetaryStackStage.Sharpening;
+            if (options.ColourSaturation is not null)
+            {
+                lastStage = PlanetaryStackStage.BalancingColour;
+                progress?.Report(new PlanetaryStackProgress(lastStage, 0));
+            }
             // The balance comes after the sharpening, which reads each channel's edge through that channel's own diffraction: the
             // saturation mixes the channels.
             var camera = options.CameraMatrix && options.ColourSaturation is not null && result.Master.ChannelCount == 3
@@ -183,9 +191,8 @@ public static class PlanetaryBestStack
                 sharpened.Release();
                 (result, sharpened) = (result with { Master = balancedMaster }, balancedSharpened);
             }
-            Console.Error.WriteLine($"TMP balance+layer {tswT.Elapsed.TotalSeconds:F1}s"); //TMP
             handedOn = true;
-            progress?.Report(1);
+            progress?.Report(new PlanetaryStackProgress(lastStage, 1));
             return new PlanetaryBestStackResult(result, sharpened, how) { Balance = balance, HowBalanced = howBalanced, Layer = layer };
         }
         finally
@@ -426,18 +433,83 @@ public static class PlanetaryBestStack
         _ => "plain",
     };
 
-    // The frames the alignment-point stack loads: every frame graded, the reference's best frames stacked, the kept frames folded.
-    // A de-rotated run loads more for its limb fits; the progress simply holds near the end there.
+    // The frames the alignment-point stack loads: every frame graded, the reference's best frames stacked, the kept frames folded, and
+    // for a de-rotated run the limb fits' own: the quarter stack the disk is fitted on and the two the north is decided by
+    // (LuckyImagingStacker's QuarterStackAsync keeps one frame in a hundred, 5 to 200). A run that is not turned enough, or whose north
+    // is given, loads fewer: the stacker says once its reference is settled, and the count is exact from then (KeepLoads).
     private static long ExpectedLoads(int frames, PlanetaryStackOptions options)
-        => frames + Math.Min(options.ReferenceFrames, frames) + (long)Math.Ceiling(frames * options.KeepFraction);
+        => frames + Math.Min(options.ReferenceFrames, frames) + KeepLoads(frames, options)
+            + (options.Derotation is null ? 0 : QuarterLoads(frames) + 2 * QuarterLoads(frames / 4));
 
-    // The stream the stack reads, counting its loads into a progress.
-    private sealed class ProgressFrameStream(IPlanetaryFrameStream inner, long expected, IProgress<double>? progress) : IPlanetaryFrameStream
+    private static long KeepLoads(int frames, PlanetaryStackOptions options) => (long)Math.Ceiling(frames * options.KeepFraction);
+
+    private static int QuarterLoads(int framesInQuarter) => Math.Min(framesInQuarter, Math.Clamp(framesInQuarter / 100, 5, 200));
+
+    // The stream the stack reads, counting its loads into a progress, and the stage the stacker says it is in.
+    private sealed class ProgressFrameStream(IPlanetaryFrameStream inner, long expected, long derotationLoads, long keepLoads,
+        IProgress<PlanetaryStackProgress>? progress) : IPlanetaryFrameStream, IProgress<PlanetaryStackStage>
     {
         private long _loads;
-        private int _lastPercent = -1;
-        private readonly System.Diagnostics.Stopwatch _sw = System.Diagnostics.Stopwatch.StartNew(); //TMP
-        public double LastLoadAt; public long Loads => _loads; //TMP
+        private long _expected = expected;
+        private long _derotationStartedAt;
+        private int _stage = (int)PlanetaryStackStage.Stacking;
+        private int _stackingPercent;
+        private int _lastKey = -1;
+        private bool _derotated;
+
+        // Stacking's percent never falls, whatever the estimate does when the stacker settles the true count.
+        private int StackingPercent()
+        {
+            var now = (int)Math.Min(99, Interlocked.Read(ref _loads) * 100 / Math.Max(1, Interlocked.Read(ref _expected)));
+            int seen;
+            do
+            {
+                seen = Volatile.Read(ref _stackingPercent);
+                if (now <= seen)
+                {
+                    return seen;
+                }
+            }
+            while (Interlocked.CompareExchange(ref _stackingPercent, now, seen) != seen);
+            return now;
+        }
+
+        private void ReportIfChanged(PlanetaryStackStage stage, int percent)
+        {
+            var key = (int)stage * 1000 + percent;
+            if (progress is { } report && Interlocked.Exchange(ref _lastKey, key) != key)
+            {
+                report.Report(new PlanetaryStackProgress(stage, percent / 100.0));
+            }
+        }
+
+        void IProgress<PlanetaryStackStage>.Report(PlanetaryStackStage stage)
+        {
+            switch (stage)
+            {
+                case PlanetaryStackStage.Derotating:
+                    _derotated = true;
+                    Interlocked.Exchange(ref _derotationStartedAt, Interlocked.Read(ref _loads));
+                    Volatile.Write(ref _stage, (int)stage);
+                    ReportIfChanged(stage, 0);
+                    break;
+                case PlanetaryStackStage.Stacking:
+                    if (_derotated)
+                    {
+                        ReportIfChanged(PlanetaryStackStage.Derotating, 100);
+                    }
+                    // Every load but the fold's is made, so the count is known exactly from here.
+                    Interlocked.Exchange(ref _expected, Interlocked.Read(ref _loads) + keepLoads);
+                    Volatile.Write(ref _stage, (int)stage);
+                    ReportIfChanged(stage, StackingPercent());
+                    break;
+                default:
+                    ReportIfChanged(PlanetaryStackStage.Stacking, 100);
+                    Volatile.Write(ref _stage, (int)stage);
+                    ReportIfChanged(stage, 0);
+                    break;
+            }
+        }
 
         public int FrameCount => inner.FrameCount;
         public int Width => inner.Width;
@@ -449,14 +521,18 @@ public static class PlanetaryBestStack
 
         public ValueTask<Image> LoadAsync(int index, CancellationToken cancellationToken = default)
         {
-            var loads = Interlocked.Increment(ref _loads); LastLoadAt = _sw.Elapsed.TotalSeconds; //TMP
-            if (progress is { } report)
+            var loads = Interlocked.Increment(ref _loads);
+            if (progress is not null)
             {
-                // A percent at a time, and never the end: that is reported once the sharpening is done.
-                var percent = (int)Math.Min(99, loads * 100 / Math.Max(1, expected));
-                if (Interlocked.Exchange(ref _lastPercent, percent) != percent)
+                // A percent at a time, and never a stage's end: that is reported as the next stage starts.
+                if (Volatile.Read(ref _stage) == (int)PlanetaryStackStage.Derotating)
                 {
-                    report.Report(percent / 100.0);
+                    var done = (loads - Interlocked.Read(ref _derotationStartedAt)) * 100 / Math.Max(1, derotationLoads);
+                    ReportIfChanged(PlanetaryStackStage.Derotating, (int)Math.Clamp(done, 0, 99));
+                }
+                else if (Volatile.Read(ref _stage) == (int)PlanetaryStackStage.Stacking)
+                {
+                    ReportIfChanged(PlanetaryStackStage.Stacking, StackingPercent());
                 }
             }
             return inner.LoadAsync(index, cancellationToken);
