@@ -408,6 +408,25 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         Math.Abs(sum / n).ShouldBeLessThan(50.0, "the star's light is off the plate");
     }
 
+    // #1867 review: an UNSATURATED star of an ordinary amplitude (0.2, far under the margin) whose centre is on the absent ring has no
+    // local sigma, and nothing in the catalogue marks the row, so it is not subtracted: no unsaturated Subtracted row is without a sigma.
+    [Fact(Timeout = 300_000)]
+    public async Task AnOrdinaryUnsaturatedStarCentredOffCoveredSkyIsNotSubtracted()
+    {
+        var field = MakeField(1, extra: [new Injected(Ring - 4.0, 512.0, 0.2, false)]);
+        var plate = await ClassicalStarRemover.BuildAsync(field.Image, cancellationToken: TestContext.Current.CancellationToken);
+
+        foreach (var s in plate.Stars.Where(static s => s.Outcome == StarFitOutcome.Subtracted && !s.Saturated))
+        {
+            float.IsFinite(s.LocalSigma).ShouldBeTrue($"({s.X}, {s.Y}) is an unsaturated Subtracted row with no local sigma");
+        }
+    }
+
+    // #1867 review: the margin is the code's own (4x the covered ceiling less the sky, not the Done-when's 1x); the injector test pins
+    // the rows just under and just over it, and this pins the number the two share.
+    [Fact]
+    public void TheOvershootMarginIsFourTimesTheCeiling() => ClassicalStarRemover.OvershootMargin.ShouldBe(4.0);
+
     // #1867: an UNSATURATED star whose centre is past the covered sky, its true peak (5.0) far above the clip but only a faint
     // wing (under the clip) seen. Whatever a fit makes of it, it is never an unsaturated Subtracted row over the ceiling.
     [Fact(Timeout = 300_000)]

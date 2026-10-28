@@ -886,9 +886,10 @@ public static class ClassicalStarRemover
             // A diverged fit is refused before it is subtracted (#1867): an unsaturated star cannot peak above the brightest
             // covered sample less its own sky, so an amplitude past that (or not a number) is a fit that ran away (one at 1e12
             // on a frame's edge once dominated the injector's pool, and subtracting it would have written a huge hole into the
-            // plate). It is left as NoFit, which no reader takes for a star. A sane fit centred off canvas, saturated or not,
+            // plate). It is left as NoFit, which no reader takes for a star, and so is an unsaturated fit whose centre has no local
+            // sigma (off the frame, and nothing in the catalogue would mark the row). A saturated fit centred off canvas
             // stays subtracted: that is a star the frame's edge cut (see OffCanvas).
-            if (!fit.Saturated && Overshoots(fit))
+            if (!fit.Saturated && (Overshoots(fit) || HasNoLocalSigma(fit)))
             {
                 fit.Outcome = StarFitOutcome.NoFit;
                 return fit;
@@ -896,6 +897,14 @@ public static class ClassicalStarRemover
             fit.Outcome = StarFitOutcome.Subtracted;
             AddModel(fit, -1);
             return fit;
+        }
+
+        // A centre outside the frame, or where the noise map is not a number: the catalogue row's local sigma (Describe) is NaN.
+        private bool HasNoLocalSigma(Fit fit)
+        {
+            var cx = (int)Math.Round(fit.X);
+            var cy = (int)Math.Round(fit.Y);
+            return !(cx >= 0 && cx < _width && cy >= 0 && cy < _height) || !float.IsFinite(_rms[cy * _width + cx]);
         }
 
         // An amplitude in any channel well above the channel's brightest covered sample less the fit's sky, or not a number.
