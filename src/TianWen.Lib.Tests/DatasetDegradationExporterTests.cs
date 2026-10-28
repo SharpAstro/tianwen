@@ -1691,9 +1691,12 @@ namespace TianWen.Lib.Tests
             var (platesRoot, _) = await BuildPlatesStoreAsync(bake);
             string Profile(string rig)
             {
-                var median = string.Join(",", Enumerable.Range(0, 41).Select(static r =>
-                    (4e-3 * Math.Pow(1.0 + (r * r / 36.0), -1.2)).ToString("R", CultureInfo.InvariantCulture)));
-                return $"{{\"schema\":1,\"rigs\":{{\"{rig}\":{{\"real\":{{\"core1\":{{\"stars\":50,\"channels\":{{\"L\":{{\"linear\":{{\"median\":[{median}]}}}}}}}}}}}}}}}}";
+                static double Core(int r) => Math.Pow(1.0 + (r * r / 9.0), -3.0);
+                static string Median(Func<int, double> f) => string.Join(",", Enumerable.Range(0, 41).Select(r => f(r).ToString("R", CultureInfo.InvariantCulture)));
+                var real = Median(static r => Core(r) + (4e-3 * Math.Pow(1.0 + (r * r / 36.0), -1.2)));
+                var drawn = Median(Core);
+                return $"{{\"schema\":1,\"rigs\":{{\"{rig}\":{{\"real\":{{\"core1\":{{\"stars\":50,\"channels\":{{\"L\":{{\"linear\":{{\"median\":[{real}]}}}}}}}}}}"
+                    + $",\"synth11\":{{\"core1\":{{\"stars\":50,\"channels\":{{\"L\":{{\"linear\":{{\"median\":[{drawn}]}}}}}}}}}}}}}}}}";
             }
             var present = Path.Combine(_root, "halo-present.json");
             var absent = Path.Combine(_root, "halo-absent.json");
