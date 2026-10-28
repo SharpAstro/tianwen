@@ -4484,6 +4484,25 @@ the penalty trading the master's cores for the draws', and R3b2's real-tile term
 One seed is a single draw of a recipe whose spread is not known on this net (R2i's two seeds stood 2.6 and 3.2 apart, R3a's
 4.7 and 6.8): a win under 6.8 on the dug count is read as a candidate until seed 1 says otherwise.
 
+**Measured, seed 0 (2026-10-28).** `r3b_synth11_s0.pt`, W = 10000 over 100 sigma, patience 24, trained on the GTX 1070 in five
+resumed runs from its 2,000-step checkpoints. The plateau ended it at step 195,500, the held-out objective's best 7.298369e-06 at
+step 183,500, after four halvings to lr 1.25e-05. 833.9 min of training (13.9 h) as the trainer logs it, at 31.3 tiles/s at the
+end. That is 0.256 s a step against R2w's 154,500 steps in 6.9 h (0.161 s), so the penalty costs 1.59 times R2w's step (R2w 50.1
+tiles/s). The 833.9 min includes the first 2,000 steps at 7.1 tiles/s, run before the noise cap moved to one batched sort on the
+GPU ("perf(training): the dig penalty's noise cap reads every cell in one batched sort on the GPU"). The kill rule did not trip:
+the loss stayed finite and at step 20,000 the penalty term was 4.4e-11 against a plain objective of 2e-05; from there to the end
+it logged 2e-13 to 4e-11. The trainer log holds no traceback, error or non-finite value, and the ONNX export's error log only
+torch's deprecation warning for the TorchScript exporter. ONNX and contract:
+`r3b-logs-master/score-r3b_synth11_s0/r3b_synth11_s0.onnx` and `.contract.json`.
+
+**Measured, seed 1 (2026-10-28).** `r3b_synth11_s1.pt`, the same recipe, in four runs resumed from its 2,000-step
+checkpoints. The plateau ended it at step 207,000, the held-out objective's best 6.909892e-06 at step 195,000, after four halvings
+to lr 1.25e-05. 873.9 min of training (14.6 h) as logged, at 31.6 tiles/s at the end: 0.253 s a step, 1.58 times R2w's. At step
+20,000 the penalty term was 2.1e-10 against a plain objective of 5e-05; at the end it logged 3e-13 to 1.3e-12. The trainer log
+holds no traceback, error or non-finite value, and the export's error log only the same deprecation warning. ONNX and contract:
+`r3b-logs-master/score-r3b_synth11_s1/r3b_synth11_s1.onnx` and `.contract.json`. Neither seed is scored here; predictions 1 to
+7, the gate and the guards are read by the scoring leg.
+
 #### The synthetics review: what tells the training data from real, measured (2026-10-21)
 
 The owner, 2026-10-21: "review our synthetics, they do still do not look natural enough ... we should be able to measure
