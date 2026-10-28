@@ -50,7 +50,12 @@ public readonly record struct ViewerShortcut(
     InputModifier Modifiers = InputModifier.None,
     ToolbarAction? Button = null,
     ViewerShortcutRoute Route = ViewerShortcutRoute.None,
-    bool WithShift = false);
+    bool WithShift = false)
+{
+    /// <summary>The row as a tooltip reads it, "description, chord", so a control that stands for the key says
+    /// what the panel says and the two cannot drift.</summary>
+    public string TooltipText => $"{Description}, {Chord}";
+}
 
 /// <summary>
 /// Every keyboard binding the FITS viewer has, declared ONCE.
@@ -76,6 +81,14 @@ public readonly record struct ViewerShortcut(
 /// </summary>
 public static class ViewerShortcuts
 {
+    /// <summary>The K row, which the transport bar's Raw and Stack segments take their tooltip from.</summary>
+    public static readonly ViewerShortcut RawStack = new("K", "Raw / Stack (sequence)", InputKey.K);
+
+    /// <summary>The Shift+K row, which the transport bar's Auto segment takes its tooltip from.</summary>
+    public static readonly ViewerShortcut AutoView = new("Shift+K",
+        "Auto view: the whole capture identified and stacked once, written beside it (SER); again while it runs to cancel",
+        InputKey.K, InputModifier.Shift);
+
     /// <summary>The binding table, in panel order.</summary>
     public static readonly ImmutableArray<ViewerShortcut> All =
     [
@@ -157,8 +170,8 @@ public static class ViewerShortcuts
             Route: ViewerShortcutRoute.OpenMenu),
 
         // ── Sequence and blink ─────────────────────────────────────────────────────────────────
-        new("K", "Raw / Stack (sequence)", InputKey.K),
-        new("Shift+K", "Auto view: the whole capture identified and stacked once, written beside it (SER); again while it runs to cancel", InputKey.K, InputModifier.Shift),
+        RawStack,
+        AutoView,
         new("Space / Tab", "Play / pause (recording), else blink the file list"),
         new("Shift+Space", "Blink backward"),
         new("Ctrl+Space", "Back to the frame the display is held to"),
