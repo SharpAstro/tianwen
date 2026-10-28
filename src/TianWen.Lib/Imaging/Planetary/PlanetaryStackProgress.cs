@@ -112,7 +112,7 @@ public sealed class PlanetaryStageTimer(TimeProvider? clock = null) : IProgress<
         {
             return [.. into, (stage, elapsed)];
         }
-        var copy = ((PlanetaryStackStage Stage, TimeSpan Elapsed)[])into.Clone();
+        (PlanetaryStackStage Stage, TimeSpan Elapsed)[] copy = [.. into];
         copy[at] = (stage, into[at].Elapsed + elapsed);
         return copy;
     }
