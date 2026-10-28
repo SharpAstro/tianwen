@@ -246,6 +246,7 @@ def main():
                   'kept', len(res['stars']), flush=True)
     result['synth'], result['synth_tiles'], result['synth_injected'] = census_synth(a.synth, a.max_synth_tiles, rig_of, a.seed)
     print('synth clipped', len(result['synth']), 'of', result['synth_injected'], 'in', result['synth_tiles'], 'tiles', flush=True)
+    Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     with open(a.out, 'w', encoding='utf-8') as fh:
         json.dump(result, fh)
     return 0
