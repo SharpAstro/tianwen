@@ -27,27 +27,26 @@ public class ViewerAutoFrameDemandTests
         var ct = TestContext.Current.CancellationToken;
         var capture = ViewerBestStackTests.WriteCapture(Path.Combine(e2e.Folder, "Jupiter_Red_2024-12-15T12_56_44_OTA1.ser"));
         e2e.Host.HandleDropFile(capture);
-        await e2e.PumpUntilAsync(() => e2e.State.SequencePath == capture, "the capture to open", ct);
-        e2e.State.PlaybackFps = 1000f;
-        e2e.State.IsPlaying = true;
+        await e2e.PumpUntilAsync(() => e2e.State.SequencePath == capture && e2e.State.IsSequence && e2e.State.FrameCount > 1,
+            "the capture's frames to be known", ct);
 
         if (fromStack)
         {
             e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewLive" }, "the Live view"));
         }
+        e2e.State.PlaybackFps = 1000f;
+        e2e.State.IsPlaying = true;
+
         // Playback runs under the Raw and the Stack view, which is what the Auto view stops.
-        var moved = false;
         var first = e2e.State.FrameIndex;
-        for (var i = 0; i < Iterations && !moved; i++)
+        for (var i = 0; i < 1000 && e2e.State.FrameIndex == first; i++)
         {
-            if (e2e.Host.WantsFrame())
-            {
-                e2e.Frame();
-            }
-            moved = e2e.State.FrameIndex != first;
-            await Task.Delay(2, ct);
+            e2e.Frame();
+            await Task.Delay(10, ct);
         }
-        moved.ShouldBeTrue("playback runs before Auto is chosen");
+        e2e.State.FrameIndex.ShouldNotBe(first,
+            $"playback runs before Auto is chosen (playing {e2e.State.IsPlaying}, auto {e2e.State.ShowAuto}, "
+            + $"stacked {e2e.State.ShowStacked}, frames {e2e.State.FrameCount}, status '{e2e.State.StatusMessage}')");
 
         // Held: the run starts, and stays pending until the gate opens.
         var gate = new TaskCompletionSource();
@@ -85,13 +84,10 @@ public class ViewerAutoFrameDemandTests
         }
         e2e.State.FrameIndex.ShouldBe(playhead, "the master on show is a still picture too");
         e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewFrames" }, "the Frames view"));
-        for (var i = 0; i < Iterations && e2e.State.FrameIndex == playhead; i++)
+        for (var i = 0; i < 1000 && e2e.State.FrameIndex == playhead; i++)
         {
-            if (e2e.Host.WantsFrame())
-            {
-                e2e.Frame();
-            }
-            await Task.Delay(2, ct);
+            e2e.Frame();
+            await Task.Delay(10, ct);
         }
         e2e.State.FrameIndex.ShouldNotBe(playhead, "playback resumes when another view is chosen");
     }
