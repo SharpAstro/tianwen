@@ -149,14 +149,17 @@ public static class PlanetaryBestStack
     {
         var stackOptions = options.Stack.Derotation is null ? options.Stack with { Derotation = DerotationFor(options.Planet) } : options.Stack;
         stackOptions = stackOptions with { Planet = stackOptions.Planet ?? options.Planet };
+        var tswT = System.Diagnostics.Stopwatch.StartNew(); //TMP
         using var counted = new ProgressFrameStream(stream, ExpectedLoads(stream.FrameCount, stackOptions), progress);
         var result = await new LuckyImagingStacker().StackAsync(counted, stackOptions, cancellationToken).ConfigureAwait(false);
+        Console.Error.WriteLine($"TMP stack total {tswT.Elapsed.TotalSeconds:F1}s, last load at {counted.LastLoadAt:F1}s, loads {counted.Loads}"); tswT.Restart(); //TMP
         // The master is handed on with the result; only a sharpening that throws leaves it here to release.
         var handedOn = false;
         try
         {
             var (sharpened, how, derived) = SharpenCore(result.Master, options.Planet, result.Epoch, options.Telescope, options.WavelengthsNm,
                 options.Fix, options.Strength, options.LuminanceOnly, options.FitStops, options.Target);
+            Console.Error.WriteLine($"TMP sharpen {tswT.Elapsed.TotalSeconds:F1}s"); tswT.Restart(); //TMP
             // The balance comes after the sharpening, which reads each channel's edge through that channel's own diffraction: the
             // saturation mixes the channels.
             var camera = options.CameraMatrix && options.ColourSaturation is not null && result.Master.ChannelCount == 3
@@ -180,6 +183,7 @@ public static class PlanetaryBestStack
                 sharpened.Release();
                 (result, sharpened) = (result with { Master = balancedMaster }, balancedSharpened);
             }
+            Console.Error.WriteLine($"TMP balance+layer {tswT.Elapsed.TotalSeconds:F1}s"); //TMP
             handedOn = true;
             progress?.Report(1);
             return new PlanetaryBestStackResult(result, sharpened, how) { Balance = balance, HowBalanced = howBalanced, Layer = layer };
@@ -432,6 +436,8 @@ public static class PlanetaryBestStack
     {
         private long _loads;
         private int _lastPercent = -1;
+        private readonly System.Diagnostics.Stopwatch _sw = System.Diagnostics.Stopwatch.StartNew(); //TMP
+        public double LastLoadAt; public long Loads => _loads; //TMP
 
         public int FrameCount => inner.FrameCount;
         public int Width => inner.Width;
@@ -443,7 +449,7 @@ public static class PlanetaryBestStack
 
         public ValueTask<Image> LoadAsync(int index, CancellationToken cancellationToken = default)
         {
-            var loads = Interlocked.Increment(ref _loads);
+            var loads = Interlocked.Increment(ref _loads); LastLoadAt = _sw.Elapsed.TotalSeconds; //TMP
             if (progress is { } report)
             {
                 // A percent at a time, and never the end: that is reported once the sharpening is done.

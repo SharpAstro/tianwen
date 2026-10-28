@@ -36,9 +36,11 @@ public sealed class LuckyImagingStacker
             ? await AccumulateDerotatedAsync(stream, ctx.Selected, derotator, index => ctx.ScoreByIndex[index], channelAccum, weightAccum, coverage, options, cancellationToken).ConfigureAwait(false)
             : await AccumulateGlobalAsync(stream, ctx.Selected, ctx.Aligner, index => ctx.ScoreByIndex[index], channelAccum, weightAccum, coverage, options.Interpolation, cancellationToken).ConfigureAwait(false);
 
+        Console.Error.WriteLine($"TMP fold {tswS.Elapsed.TotalSeconds:F1}s"); tswS.Restart(); //TMP
         var stacked = Normalize(channelAccum, weightAccum, ctx);
         var covered = coverage is { } reached ? PlanetaryMaster.CoveredRectangle(reached.Plane()) : PixelRect.Empty;
         var (master, alignment, cropped) = await FinalizeAsync(stacked, stream.Layout, options, ctx.Derotator?.Epoch.Utc, covered, cancellationToken).ConfigureAwait(false);
+        Console.Error.WriteLine($"TMP finish (normalize, channel limb fits, demosaic, crop) {tswS.Elapsed.TotalSeconds:F1}s"); //TMP
         return new PlanetaryStackResult(master, ctx.ReferenceIndex, used, ctx.Grades.Length)
         {
             Epoch = ctx.Derotator?.Epoch.Utc, North = ctx.North, NorthUnread = ctx.NorthUnread, TurnPx = ctx.TurnPx, ChannelAlignment = alignment, FramesCut = FramesLeftOutAsCut(ctx.Grades), FramesCutKept = FramesKeptThoughCut(ctx.Grades), FramesSmeared = FramesLeftOutAsSmeared(ctx.Grades), FramesDim = FramesLeftOutAsDim(ctx.Grades), Grades = ctx.Grades, Cropped = cropped,
@@ -192,7 +194,9 @@ public sealed class LuckyImagingStacker
             throw new InvalidOperationException(
                 "A de-rotated stack matches each frame's points where the planet's rotation put them; pooled points and the median geometry read every frame's points unrotated, so they do not combine with it.");
         }
+        var tswS = System.Diagnostics.Stopwatch.StartNew(); //TMP
         var ctx = await PrepareAsync(stream, options, includeAlignmentPoints: true, cancellationToken).ConfigureAwait(false);
+        Console.Error.WriteLine($"TMP prepare (grade+north+reference) {tswS.Elapsed.TotalSeconds:F1}s derotator={(ctx.Derotator is not null)}"); tswS.Restart(); //TMP
         var channelAccum = Image.CreateChannelData(ctx.Channels, ctx.Height, ctx.Width);
         var weightAccum = new float[ctx.Height, ctx.Width];
         var coverage = options.CropToCoverage ? new PlanetaryCoverage(ctx.Width, ctx.Height) : null;
