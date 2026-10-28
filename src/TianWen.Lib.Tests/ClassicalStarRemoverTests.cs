@@ -35,7 +35,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
 
     // Textured: a patch of nebula texture (a 4 sigma ripple 40 px in period, faded out over 100 px) about (750, 700), which a
     // smooth glow is not.
-    private static Field MakeField(int channels, int seed = 7, (double X, double Y, double Peak)? giant = null, bool textured = false)
+    private static Field MakeField(int channels, int seed = 7, (double X, double Y, double Peak)? giant = null, bool textured = false, Injected[]? extra = null)
     {
         var rng = new Random(seed);
         var alpha = Fwhm / (2.0 * Math.Sqrt(Math.Pow(2.0, 1.0 / Beta) - 1.0));
@@ -86,6 +86,10 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         if (giant is { } g)
         {
             stars.Add(new Injected(g.X, g.Y, g.Peak, true));
+        }
+        if (extra is not null)
+        {
+            stars.AddRange(extra);
         }
 
         var planes = new float[channels][,];
@@ -374,6 +378,52 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
             s.ChannelAmplitudes.All(a => a <= Clip - (float.IsFinite(s.Sky) ? s.Sky : 0f)).ShouldBeTrue($"({s.X}, {s.Y}) peaks past the clip");
         }
         Nearest(plate, Ring + 4.0, 500.0, within: 3.0).ShouldNotBeNull();
+    }
+
+    // #1867: a bright SATURATED star cut by the frame's edge (centre just inside the absent ring, only the covered part of its
+    // wings seen) is still taken: an off-canvas centre is where a cut star's true centre lies, never a divergence.
+    [Fact(Timeout = 300_000)]
+    public async Task ASaturatedStarCutByTheEdgeIsStillSubtracted()
+    {
+        var field = MakeField(1, extra: [new Injected(Ring - 1.0, 512.0, 20.0, true)]);
+        var plate = await ClassicalStarRemover.BuildAsync(field.Image, cancellationToken: TestContext.Current.CancellationToken);
+
+        var fitted = Nearest(plate, Ring - 1.0, 512.0, 6.0);
+        fitted.ShouldNotBeNull();
+        output.WriteLine($"edge star: {fitted.Value.Outcome} at ({fitted.Value.X:F1}, {fitted.Value.Y:F1}) saturated={fitted.Value.Saturated}");
+        fitted.Value.Outcome.ShouldBe(StarFitOutcome.Subtracted);
+        var truthPlane = field.Truth[0];
+        var platePlane = plate.Plate.GetChannelSpan(0);
+        double sum = 0;
+        var n = 0;
+        for (var y = 512 - 3; y <= 512 + 3; y++)
+        {
+            for (var x = Ring; x < Ring + 6; x++)
+            {
+                sum += (platePlane[y * Size + x] - truthPlane[y * Size + x]) / Sigma;
+                n++;
+            }
+        }
+        output.WriteLine($"plate minus truth beside the edge star {sum / n:F1} sigma a pixel");
+        Math.Abs(sum / n).ShouldBeLessThan(50.0, "the star's light is off the plate");
+    }
+
+    // #1867: an UNSATURATED star whose centre is past the covered sky, its true peak (5.0) far above the clip but only a faint
+    // wing (under the clip) seen. Whatever a fit makes of it, it is never an unsaturated Subtracted row over the ceiling.
+    [Fact(Timeout = 300_000)]
+    public async Task AnUnsaturatedEdgeFitAboveTheCeilingIsNotSubtracted()
+    {
+        var field = MakeField(1, extra: [new Injected(Ring - 4.0, 512.0, 5.0, false)]);
+        var plate = await ClassicalStarRemover.BuildAsync(field.Image, cancellationToken: TestContext.Current.CancellationToken);
+
+        foreach (var s in plate.Stars.Where(static s => s.Outcome == StarFitOutcome.Subtracted && !s.Saturated))
+        {
+            s.ChannelAmplitudes.All(a => float.IsFinite(a) && a <= Clip - (float.IsFinite(s.Sky) ? s.Sky : 0f)).ShouldBeTrue($"({s.X}, {s.Y}) peaks past the clip");
+        }
+        foreach (var s in plate.Stars.Where(s => Math.Abs(s.X - (Ring - 4.0)) < 8 && Math.Abs(s.Y - 512.0) < 8))
+        {
+            output.WriteLine($"near the edge: {s.Outcome} ({s.X:F1}, {s.Y:F1}) amp={(s.ChannelAmplitudes.Length > 0 ? s.ChannelAmplitudes[0] : float.NaN):G4} saturated={s.Saturated}");
+        }
     }
 
     [Fact(Timeout = 300_000)]
