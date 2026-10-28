@@ -190,7 +190,7 @@ public sealed class InjectionPopulation
     // legitimately past the clip.
     private static bool Diverged(FittedStar s, double clip)
         => !float.IsFinite(s.LocalSigma)
-            || (!s.Saturated && s.ChannelAmplitudes.Any(a => a > clip - (float.IsFinite(s.Sky) ? s.Sky : 0.0)));
+            || (!s.Saturated && s.ChannelAmplitudes.Any(a => a > ClassicalStarRemover.OvershootMargin * Math.Max(0.0, clip - (float.IsFinite(s.Sky) ? s.Sky : 0.0))));
 
     /// <summary>
     /// Reads a master's population. <paramref name="master"/> and <paramref name="plate"/> are the master and its starless

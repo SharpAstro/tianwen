@@ -893,12 +893,17 @@ public static class ClassicalStarRemover
             return fit;
         }
 
-        // An amplitude in any channel above the channel's brightest covered sample less the fit's sky, or not a number.
+        // The factor an unsaturated amplitude may stand over the brightest covered sample less the sky. Amplitude is the
+        // continuous Moffat peak and the sample is a pixel MEAN, so a sharp star centred on a pixel corner has a brightest
+        // pixel of only 60 percent of its peak (1.7 times); a diverged fit is 1e12 off, so 4 refuses it and never a star.
+        internal const double OvershootMargin = 4.0;
+
+        // An amplitude in any channel well above the channel's brightest covered sample less the fit's sky, or not a number.
         private bool Overshoots(Fit fit)
         {
             for (var c = 0; c < _channels; c++)
             {
-                if (!double.IsFinite(fit.ChannelAmplitudes[c]) || fit.ChannelAmplitudes[c] > _fullScale[c] - (double.IsFinite(fit.Sky) ? fit.Sky : 0.0))
+                if (!double.IsFinite(fit.ChannelAmplitudes[c]) || fit.ChannelAmplitudes[c] > OvershootMargin * Math.Max(0.0, _fullScale[c] - (double.IsFinite(fit.Sky) ? fit.Sky : 0.0)))
                 {
                     return true;
                 }

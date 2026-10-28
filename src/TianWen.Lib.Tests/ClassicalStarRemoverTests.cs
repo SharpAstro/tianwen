@@ -375,7 +375,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
         foreach (var s in plate.Stars.Where(static s => s.Outcome == StarFitOutcome.Subtracted && s.Model == StarFitModel.Moffat && !s.Saturated))
         {
             float.IsFinite(s.LocalSigma).ShouldBeTrue($"({s.X}, {s.Y}) has no local sigma");
-            s.ChannelAmplitudes.All(a => a <= Clip - (float.IsFinite(s.Sky) ? s.Sky : 0f)).ShouldBeTrue($"({s.X}, {s.Y}) peaks past the clip");
+            s.ChannelAmplitudes.All(a => a <= ClassicalStarRemover.OvershootMargin * Clip).ShouldBeTrue($"({s.X}, {s.Y}) peaks past the clip");
         }
         Nearest(plate, Ring + 4.0, 500.0, within: 3.0).ShouldNotBeNull();
     }
@@ -418,7 +418,7 @@ public class ClassicalStarRemoverTests(ITestOutputHelper output)
 
         foreach (var s in plate.Stars.Where(static s => s.Outcome == StarFitOutcome.Subtracted && !s.Saturated))
         {
-            s.ChannelAmplitudes.All(a => float.IsFinite(a) && a <= Clip - (float.IsFinite(s.Sky) ? s.Sky : 0f)).ShouldBeTrue($"({s.X}, {s.Y}) peaks past the clip");
+            s.ChannelAmplitudes.All(a => float.IsFinite(a) && a <= ClassicalStarRemover.OvershootMargin * Clip).ShouldBeTrue($"({s.X}, {s.Y}) peaks past the clip");
         }
         var near = plate.Stars.Where(s => Math.Abs(s.X - (Ring - 4.0)) < 8 && Math.Abs(s.Y - 512.0) < 8).ToArray();
         foreach (var s in near)
