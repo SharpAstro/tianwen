@@ -40,6 +40,19 @@ namespace TianWen.UI.Abstractions
         ];
 
         /// <summary>
+        /// The colour balance's saturation stops (#1880): the measured one, <see cref="PlanetaryColourBalance.DefaultSaturation"/> (the colour
+        /// contrast the twins' truth says the blur took), and the eye's, <see cref="PlanetaryColourBalance.EyeSaturation"/>, an option.
+        /// </summary>
+        private static readonly Layout.ButtonGroupOption<double>[] BalanceSaturationOptions =
+        [
+            new(PlanetaryColourBalance.DefaultSaturation, "Truth 1.1") { Hit = new HitResult.ButtonHit("BalanceSaturationTruth") },
+            new(PlanetaryColourBalance.EyeSaturation, "Eye 1.4") { Hit = new HitResult.ButtonHit("BalanceSaturationEye") },
+        ];
+
+        /// <summary>What the balance row says on a source with no colour, where it is not pressable.</summary>
+        internal const string BalanceSaturationMonoReason = "Colour saturation: needs a colour source, a mono one has no colour to balance";
+
+        /// <summary>
         /// The planet and telescope section as one tree, which the Auto stack and the live view's Derive both sharpen for: the planet, the
         /// filter (a mono source's only), the aperture stepper, the design. The planet and the filter are Auto until chosen, read from the
         /// capture, and a caption says what that is, so a capture that gives no planet (which leaves the sharpening the preset's) is seen
@@ -131,6 +144,7 @@ namespace TianWen.UI.Abstractions
                 .WStar());
 
             AddStrength(rows);
+            AddBalanceSaturation(rows);
             return Layout.Builder.VStack([.. rows]).WithGap(WaveletGap);
 
             // How far past the truth the sharpening goes (#1251): the truth by default, a post's look as an option. Once derived, a stop
@@ -142,6 +156,23 @@ namespace TianWen.UI.Abstractions
                     : string.Create(inv, $"Sharpening: {state.PlanetaryStrength:0.#} times the truth in the mid scales")));
                 into.Add(Layout.Builder.ButtonGroup(StrengthOptions, state.PlanetaryStrength, state.ChooseStrength,
                         style, BaseFontSize)
+                    .WStar());
+            }
+
+            // The balance's saturation (#1880): the stops, the measured one named; dim with its reason on a mono source. Like the strength
+            // stops, a stop chosen here is what the next Auto stack writes (CBALSAT) and the next Derive's balance takes; neither re-runs.
+            void AddBalanceSaturation(System.Collections.Generic.List<Layout.Node> into)
+            {
+                if (mono)
+                {
+                    into.Add(Caption(BalanceSaturationMonoReason));
+                    return;
+                }
+                into.Add(Caption(state.PlanetaryColourSaturation == PlanetaryColourBalance.EyeSaturation
+                    ? "Colour saturation: 1.4, the eye's look; 1.1 is the measured one"
+                    : "Colour saturation: 1.1, the measured one (the colour contrast the blur took); 1.4 is the eye's look"));
+                into.Add(Layout.Builder.ButtonGroup(BalanceSaturationOptions, state.PlanetaryColourSaturation,
+                        state.ChooseColourSaturation, style, BaseFontSize)
                     .WStar());
             }
 

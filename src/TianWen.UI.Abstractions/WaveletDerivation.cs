@@ -24,6 +24,9 @@ internal sealed class WaveletDerivation : IDisposable
     /// <summary>How many derivations have started; switching views and stops starts none (#1314 rule 7). For tests.</summary>
     internal int Started { get; private set; }
 
+    /// <summary>The balance saturation the last derivation was started with (#1880). For tests.</summary>
+    internal double? StartedAtSaturation { get; private set; }
+
     /// <summary>
     /// Render thread, each tick of a live view: applies a finished derivation to <paramref name="state"/> (its gains to the sliders, or the
     /// reason there are none), then starts one over <paramref name="source"/>'s master when the panel asked and none runs. The planet and a
@@ -86,10 +89,12 @@ internal sealed class WaveletDerivation : IDisposable
         var frameTime = source.HasTimestamps ? source.TimestampOf(source.FrameIndex) : DateTimeOffset.MinValue;
         var epoch = frameTime > DateTimeOffset.MinValue ? frameTime : now;
         var strength = state.PlanetaryStrength;
+        var saturation = state.PlanetaryColourSaturation;
 
         state.WaveletDeriving = true;
         state.NeedsRedraw = true;
         Started++;
+        StartedAtSaturation = saturation;
         var token = _cts.Token;
         _task = Task.Run(async () =>
         {
@@ -99,7 +104,7 @@ internal sealed class WaveletDerivation : IDisposable
                 // The balance through the camera's own matrix, as the batch's (#1279): a live frame names its camera in its Instrument.
                 var camera = await PlanetaryColourBalance.CameraColourAsync(lease.Image.ImageMeta.Instrument, token).ConfigureAwait(false);
                 // Every stop's gains in the one derivation, so a stop chosen after it switches the dials at once (#1314).
-                return PlanetaryBestStack.DeriveGains(lease.Image, planet, epoch, pupil, wavelengths, strength: strength,
+                return PlanetaryBestStack.DeriveGains(lease.Image, planet, epoch, pupil, wavelengths, colourSaturation: saturation, strength: strength,
                     stops: PlanetarySharpening.StrengthStops, camera: camera);
             }
         }, token);

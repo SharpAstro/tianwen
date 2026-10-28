@@ -130,6 +130,25 @@ public class ViewerWaveletDeriveTests
     [Theory(Timeout = 180_000)]
     [InlineData(1f)]
     [InlineData(1.5f)]
+    public async Task DeriveTakesTheBalanceSaturationChosenInThePanel(float dpi)
+    {
+        // #1880: the balance's stop goes into the derivation as it starts, as the strength's does.
+        await using var e2e = ViewerE2E.Start(dpi);
+        var ct = TestContext.Current.CancellationToken;
+        await OpenStackedAsync(e2e, ct);
+        (e2e.State.PlanetaryApertureMm, e2e.State.PlanetaryDesign) = (254, OpticalDesign.Newtonian);
+        e2e.Click(e2e.EnhanceRegion(h => h is HitResult.ButtonHit { Action: "BalanceSaturationEye" }, "the Eye saturation button"));
+        e2e.Frame();
+
+        PressDerive(e2e);
+        await e2e.PumpUntilAsync(() => e2e.State.WaveletDeriveNote is not null && !e2e.State.WaveletDeriving, "the derivation's answer", ct, untilTimeout: true);
+
+        e2e.Controller.DerivationSaturation.ShouldBe(PlanetaryColourBalance.EyeSaturation);
+    }
+
+    [Theory(Timeout = 180_000)]
+    [InlineData(1f)]
+    [InlineData(1.5f)]
     public async Task AStopChosenAfterDeriveSwitchesTheDialsAtOnceAndDerivesNothing(float dpi)
     {
         // #1314: one Derive fits every strength stop, so a stop chosen after it puts that stop's gains on the dials in the frame it is
