@@ -1658,6 +1658,7 @@ public sealed class ViewerController(
             }
             using var stream = SerFrameStream.Open(capture);
             var result = await PlanetaryBestStack.RunAsync(stream, AutoOptions(identity, strength, saturation), progress, token);
+            progress.Report(new PlanetaryStackProgress(PlanetaryStackStage.Writing, 0));
             return Written(result, PlanetaryAuto.OutputPaths(directory, Path.GetFileNameWithoutExtension(capture)), capture, identity);
         }, token);
     }

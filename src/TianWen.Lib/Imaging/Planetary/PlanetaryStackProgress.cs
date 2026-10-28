@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace TianWen.Lib.Imaging.Planetary;
 
@@ -66,27 +67,20 @@ public readonly record struct PlanetaryStackProgress(PlanetaryStackStage Stage, 
 /// </summary>
 public sealed class PlanetaryStageTimer(TimeProvider? clock = null) : IProgress<PlanetaryStackProgress>
 {
+    // One immutable snapshot swapped by Interlocked.CompareExchange (the rule's lock-free row): the stages spent, the open one and its start.
+    private sealed record State((PlanetaryStackStage Stage, TimeSpan Elapsed)[] Spent, PlanetaryStackStage? Current, long Since);
+
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
-    private readonly System.Threading.Lock _gate = new();
-    private readonly List<(PlanetaryStackStage Stage, TimeSpan Elapsed)> _spent = [];
-    private PlanetaryStackStage? _current;
-    private long _since;
+    private State _state = new([], null, 0);
 
     /// <summary>The time of the stage reported so far, in the order they first appeared; the open stage runs to now.</summary>
     public IReadOnlyList<(PlanetaryStackStage Stage, TimeSpan Elapsed)> Spent
     {
         get
         {
-            // Reports come from the stack's parallel passes and the caller's thread; a stage change is a handful of fields, read once at the end.
-            lock (_gate)
-            {
-                var all = new List<(PlanetaryStackStage, TimeSpan)>(_spent);
-                if (_current is { } open)
-                {
-                    Add(all, open, _clock.GetElapsedTime(_since));
-                }
-                return all;
-            }
+            // Reports come from the stack's parallel passes and the caller's thread; one snapshot is read, so the open stage and its start agree.
+            var state = _state;
+            return state.Current is { } open ? Add(state.Spent, open, _clock.GetElapsedTime(state.Since)) : state.Spent;
         }
     }
 
@@ -95,30 +89,31 @@ public sealed class PlanetaryStageTimer(TimeProvider? clock = null) : IProgress<
     /// <summary>Starts <paramref name="stage"/>'s clock, and stops the open one's; entering the open stage changes nothing.</summary>
     public void Enter(PlanetaryStackStage stage)
     {
-        lock (_gate)
+        while (true)
         {
-            if (_current == stage)
+            var seen = _state;
+            if (seen.Current == stage)
             {
                 return;
             }
-            if (_current is { } open)
+            var spent = seen.Current is { } open ? Add(seen.Spent, open, _clock.GetElapsedTime(seen.Since)) : seen.Spent;
+            // A racing Enter that won leaves `seen` stale: read again and decide again.
+            if (ReferenceEquals(Interlocked.CompareExchange(ref _state, new State(spent, stage, _clock.GetTimestamp()), seen), seen))
             {
-                Add(_spent, open, _clock.GetElapsedTime(_since));
+                return;
             }
-            (_current, _since) = (stage, _clock.GetTimestamp());
         }
     }
 
-    private static void Add(List<(PlanetaryStackStage Stage, TimeSpan Elapsed)> into, PlanetaryStackStage stage, TimeSpan elapsed)
+    private static (PlanetaryStackStage Stage, TimeSpan Elapsed)[] Add((PlanetaryStackStage Stage, TimeSpan Elapsed)[] into, PlanetaryStackStage stage, TimeSpan elapsed)
     {
-        var at = into.FindIndex(s => s.Stage == stage);
+        var at = Array.FindIndex(into, s => s.Stage == stage);
         if (at < 0)
         {
-            into.Add((stage, elapsed));
+            return [.. into, (stage, elapsed)];
         }
-        else
-        {
-            into[at] = (stage, into[at].Elapsed + elapsed);
-        }
+        var copy = ((PlanetaryStackStage Stage, TimeSpan Elapsed)[])into.Clone();
+        copy[at] = (stage, into[at].Elapsed + elapsed);
+        return copy;
     }
 }
