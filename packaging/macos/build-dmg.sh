@@ -264,19 +264,15 @@ cp -R "$bundle" "$staging/"
 ln -s /Applications "$staging/Applications"
 mkdir -p "$(dirname "$out")"
 rm -f "$out"
-# hdiutil create failed intermittently on the macOS runner image of 2026-10-21: release 10.0.3404
-# lost a different image on each of two attempts with an identical tree, signed and verified each
-# time. Most likely the runners' known "Resource busy" (actions/runner-images#7522), but -quiet
-# printed nothing, so the cause was never read. Hence the retry, and no -quiet: the next failure
-# says what it is.
-attempt=1
-until hdiutil create -volname "$display" -srcfolder "$staging" -ov -format UDZO "$out"; do
-  [ "$attempt" -lt 5 ] || die "hdiutil create failed $attempt times for $out"
-  log "hdiutil create failed (attempt $attempt of 5); retrying in $((attempt * 10)) s"
-  rm -f "$out"
-  sleep $((attempt * 10))
-  attempt=$((attempt + 1))
-done
+# The image is sized here, never left to hdiutil's -srcfolder estimate: from 10.0 (the ONNX models
+# and their contracts, 22 data files where 9.0 had 10) the estimate fell short, and run 3410 failed
+# all five tries of a retry on the FITS x64 image with "hdiutil: create failed - No space left on
+# device" inside /Volumes/Astro Photo Viewer. Release 10.0.3404 had lost the same step three times
+# with no message at all, because -quiet hid it; it stays off, so a failure says what it is.
+# Size: what the staged tree occupies, plus a quarter and 64 MB for the filesystem's own overhead.
+staged_mb=$(du -sm "$staging" | cut -f1)
+image_mb=$((staged_mb + staged_mb / 4 + 64))
+hdiutil create -volname "$display" -srcfolder "$staging" -size "${image_mb}m" -ov -format UDZO "$out"
 if [ "$identity" != "-" ]; then
   codesign --force --sign "$identity" --timestamp "$out"
 fi
