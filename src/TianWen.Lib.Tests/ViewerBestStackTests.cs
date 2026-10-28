@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using DIR.Lib;
 using SharpAstro.Ser;
@@ -62,23 +63,25 @@ public class ViewerBestStackTests
     public async Task TheAutoSegmentNamesTheStageTheRunIsInAndReturnsToAutoWhenDone(float dpi)
     {
         // #1879: Stacking with its percent, then a later stage by its word, never a percent frozen at 99.
-        await using var e2e = ViewerE2E.Start(dpi);
+        // One design size at both scales, or at 1.5x the controls leave the scrub track no width (#1509).
+        await using var e2e = ViewerE2E.Start(dpi, width: (uint)(1600 * dpi), height: (uint)(1000 * dpi));
         var ct = TestContext.Current.CancellationToken;
         var capture = WriteCapture(Path.Combine(e2e.Folder, "2024-12-15-1256_7-Jupiter.ser"));
         e2e.Host.HandleDropFile(capture);
         await e2e.PumpUntilAsync(() => e2e.State.SequencePath == capture, "the capture to open", ct);
         e2e.State.AutoSegmentLabel.ShouldBe("Auto");
+        bool IsTheTrack(HitResult hit) => hit is HitResult.SliderStateHit { State: var slider } && ReferenceEquals(slider, e2e.Viewer.Scrub);
+        await e2e.PumpUntilAsync(() => e2e.Viewer.PaintedRegions().Any(r => IsTheTrack(r.Result)), "the scrub track to be painted", ct);
+        var trackX = e2e.Region(IsTheTrack, "the scrub track").X;
 
         var seen = new System.Collections.Generic.List<string>();
-        float? segmentWidth = null;
         e2e.Key(InputKey.K, InputModifier.Shift);
         await e2e.PumpUntilAsync(() =>
         {
             var label = e2e.State.AutoSegmentLabel;
-            // The painted segment never changes width, whatever it says: a running stack must not move the scrub track.
-            var width = e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewAuto" }, "the Auto segment").Width;
-            segmentWidth ??= width;
-            width.ShouldBe(segmentWidth.Value, 0.5f, "the Auto segment's width at " + label);
+            // The scrub track starts where it did at "Auto" whatever the segment says: a stage's word must neither resize the view
+            // switch nor push the track off. Read each tick, so it holds for any stage the pump happens to see.
+            e2e.Region(IsTheTrack, "the scrub track").X.ShouldBe(trackX, 0.5f, "the scrub track's left edge at " + label);
             if (seen.Count == 0 || seen[^1] != label)
             {
                 seen.Add(label);

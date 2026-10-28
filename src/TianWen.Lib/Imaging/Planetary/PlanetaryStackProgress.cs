@@ -11,7 +11,10 @@ public enum PlanetaryStackStage
 {
     /// <summary>Grading, registering and folding frames: the only stage whose length follows the capture's frame reads.</summary>
     Stacking,
-    /// <summary>The de-rotation's limb fits and the stacks of the capture's best frames they are read from.</summary>
+    /// <summary>
+    /// The de-rotation's limb fits and the stacks of the capture's best frames they are read from, including the de-rotated reference
+    /// stack, whose loads the fits' estimate does not count: the fraction holds at 99 % through it until Stacking resumes.
+    /// </summary>
     Derotating,
     /// <summary>The folded sum turned into a master: normalising, the channels' limb fits, the demosaic and the crop.</summary>
     Finishing,
