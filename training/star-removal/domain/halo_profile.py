@@ -166,7 +166,7 @@ def cmd_profile(a):
             if groups:
                 rigs.setdefault(rig, {})[kind] = groups
     for rig, n in n_masters.items():
-        rigs[rig]['masters'] = n
+        rigs.setdefault(rig, {})['masters'] = n
     rigs['ALL']['masters'] = sum(n_masters.values())
     out = {'schema': 1,
            'radii': list(range(RADII)),
