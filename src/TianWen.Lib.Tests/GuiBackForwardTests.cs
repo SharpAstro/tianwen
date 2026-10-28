@@ -34,6 +34,8 @@ public class GuiBackForwardTests
                 .AddSingleton<ITimeProvider>(new SystemTimeProvider())
                 .AddSingleton(Substitute.For<ICelestialObjectDB>())
                 .AddSingleton<LiveViewController>()
+                .AddSingleton<ViewerState>()
+                .AddSingleton<PlanetaryCaptureController>()
                 .BuildServiceProvider();
 
             var chrome = Substitute.For<IGuiChrome>();
