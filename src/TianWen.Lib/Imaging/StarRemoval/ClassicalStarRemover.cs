@@ -878,9 +878,31 @@ public static class ClassicalStarRemover
                         : 0.0;
                 }
             }
+            // A diverged fit is refused before it is subtracted (#1867): a centre off covered sky has no local sigma, and an
+            // unsaturated star cannot peak above the brightest covered sample less its own sky, so an amplitude past that is a
+            // fit that ran away (one at 1e12 on a frame's edge once dominated the injector's pool, and subtracting it would
+            // have written a huge hole into the plate). It is left as NoFit, which no reader takes for a star.
+            if (OffCanvas(fit.X, fit.Y) || (!fit.Saturated && Overshoots(fit)))
+            {
+                fit.Outcome = StarFitOutcome.NoFit;
+                return fit;
+            }
             fit.Outcome = StarFitOutcome.Subtracted;
             AddModel(fit, -1);
             return fit;
+        }
+
+        // An amplitude in any channel above the channel's brightest covered sample less the fit's sky, or not a number.
+        private bool Overshoots(Fit fit)
+        {
+            for (var c = 0; c < _channels; c++)
+            {
+                if (!double.IsFinite(fit.ChannelAmplitudes[c]) || fit.ChannelAmplitudes[c] > _fullScale[c] - (double.IsFinite(fit.Sky) ? fit.Sky : 0.0))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         // A core fainter than its own wings predict is saturated, hard or soft: the wings alone (below half the peak)
