@@ -803,3 +803,50 @@ The Canon detail in particular is a list of things that fail SILENTLY, so it is 
   window on cancel so the next call rebuilds cleanly). `_rawMaster`/`_doc` are render-thread-only (the
   background task hands results back through its `Task<T>`; the project's lock-free hand-off).
 
+## Full stack progress by stage (#1879)
+
+`PlanetaryBestStack.RunAsync` and `PlanetaryAuto.RunAsync` report a `PlanetaryStackProgress` (a `PlanetaryStackStage` and a fraction
+inside it) instead of a percent of frame reads. The stages are Stacking, Derotating (the limb fits and the quarter stacks they read),
+Finishing (normalise, channel limb fits, demosaic, crop), Sharpening and BalancingColour, each reported as it starts, and Writing, which
+only a caller that writes reports. `PlanetaryStackProgress.Words` is the one place the labels live. Rules:
+
+- **Stacking's fraction is loads over the expected loads, and never falls.** A de-rotated run's limb-fit loads are in the estimate
+  (`ExpectedLoads`: one quarter stack of `clamp(n/100, 5, 200)` frames plus two of a quarter of the capture). The stacker reports
+  `Stacking` again once its reference is settled, and from then the count is exact (loads so far plus the kept frames), so a run that
+  was not turned enough to de-rotate corrects its estimate down instead of stalling short of the end.
+- **Stacking reaches 1 only as the next stage starts**, and the last stage ends at 1; nothing is reported after it.
+- **`tianwen planetary stack --auto` prints each stage's wall time to stderr** (`PlanetaryStageTimer`).
+
+### Where the tail went (measured, this desktop: win-x64, 16 cores, GTX 1070)
+
+`tianwen planetary stack --auto` on the 17,934-frame Saturn capture `2023-10-10-1320_8-CK-L-Sat_pipp.ser` (256x160, split CFA, de-rotated;
+8,967 frames kept), stopwatches in the code of main before the change. The progress read 99 percent from the last counted load, which came
+at 1142.3 s of the stack's 1291.8 s and 28,169 loads in all (the estimate counted 27,001: the limb fits made 268 more, plus the
+reference frame itself), and the run took 1707.5 s:
+
+| Step | Seconds |
+|---|---|
+| Grade, north, reference (`PrepareAsync`) | 237.7 |
+| Fold | 904.7 |
+| Finish (normalise, channel limb fits, demosaic, crop) | 149.4 |
+| Sharpen | 237.6 |
+| Balance, layer clone, apply | 177.0 |
+
+So 564 s (a third of the run) happened at 99 percent.
+
+After the change, stage times from the CLI (run of 1675.5 s):
+
+| Stage | Seconds |
+|---|---|
+| Stacking | 994.6 |
+| Fitting the planet's turn | 172.3 |
+| Finishing the master | 120.7 |
+| Sharpening | 220.8 |
+| Balancing colour | 166.7 |
+| Writing | 0.3 |
+
+The stages after Stacking add to 680 s, the run no longer sits at 99 percent through them, and Stacking itself now ends at 1 as it
+hands over. The two timings come from separate runs on a busy machine (other jobs queued beside them), so a difference of a few percent
+between them is noise. The step that surprises is Balancing colour: 167 s for a 256x160 master, three quarters of the sharpening's time.
+It is filed as #1887.
+
