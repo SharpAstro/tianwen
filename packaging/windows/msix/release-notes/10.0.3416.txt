@@ -3,6 +3,7 @@ Store package version 10.0.3416.0   -   supersedes 9.0.1940.0
 Package identity  SharpAstro.AstroPhotoViewer   Store ID  9PMDZP16TGBG
 Git tag  v10.0.3416   -   span  v9.0.1940..v10.0.3416   -   1823 commits
 Baked from run 3416 (id 40649419217) on 2026-10-28
+Submitted to Partner Center on 2026-10-28 (the bundle and paste copy of run 3416); in certification.
 
 THIS FILE IS THE DRAFT. It is baked by packaging/windows/msix/bake-release-notes.ps1
 in the msix job, which fills the version in and measures the block below, and the
