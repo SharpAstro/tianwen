@@ -39,4 +39,10 @@ public interface IGuiChrome : IPixelWidget
 
     /// <summary>The signal bus.</summary>
     SignalBus? Bus { get; }
+
+    /// <summary>
+    /// The window's Back and Forward, which the navigation strip at the top of the rail reads and presses. Bound by the
+    /// event handler once it exists, since the chrome is built before it.
+    /// </summary>
+    IGuiNavigation? Navigation { get; set; }
 }
