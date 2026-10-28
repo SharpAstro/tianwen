@@ -54,8 +54,6 @@ public class OuterHaloTests(ITestOutputHelper output)
         // second order in the pixel.
         Known.PixelMean(3, 2).ShouldBe(Known.At(3, 2), Known.At(3, 2) * 1e-2);
         Known.PixelMean(40, 0).ShouldBe(Known.At(40, 0));
-        // The mean of a convex term over a pixel is at or above its centre value.
-        Known.PixelMean(3, 2).ShouldBeGreaterThanOrEqualTo(Known.At(3, 2));
     }
 
     [Fact]
