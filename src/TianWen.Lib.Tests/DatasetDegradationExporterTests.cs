@@ -1744,8 +1744,8 @@ namespace TianWen.Lib.Tests
                     b.Stars[i].OuterHalo.ShouldBeNull();
                 }
             }
-            files.ShouldContain(f => !File.ReadAllBytes(Path.Combine(on.OutDir, f)).AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(off.OutDir, f))),
-                "the halo changes at least one tile");
+            files.Any(f => !File.ReadAllBytes(Path.Combine(on.OutDir, f)).SequenceEqual(File.ReadAllBytes(Path.Combine(off.OutDir, f))))
+                .ShouldBeTrue("the halo changes at least one tile");
         }
 
         /// <summary>
