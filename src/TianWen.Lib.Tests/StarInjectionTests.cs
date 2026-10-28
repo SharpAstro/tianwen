@@ -408,6 +408,41 @@ public class StarInjectionTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void ADivergedEdgeFitIsNeverDrawnFromThePoolOrCarriedAsALobe()
+    {
+        static FittedStar Row(float x, float y, float amplitude, float localSigma, bool secondPass = false)
+            => new FittedStar(x, y, secondPass ? 20 : 100, amplitude, 1f, 0.1f, localSigma, StarFitOutcome.Subtracted, false, false, float.NaN, float.NaN,
+                secondPass, float.NaN, StarFitModel.Moffat, [amplitude]);
+        // Ordinary stars at 0.2 and 0.3; an edge fit with no finite sigma (its centre off covered sky) at 1e12; an unsaturated
+        // star whose amplitude plus its 0.1 sky is past the clip of 1; and a second-pass row of the 0.3 star that diverged too.
+        ImmutableArray<FittedStar> catalogue =
+        [
+            Row(40, 40, 0.2f, 0.01f),
+            Row(100, 100, 0.3f, 0.01f),
+            Row(160, 160, 1e12f, float.NaN),
+            Row(200, 60, 5f, 0.01f),
+            Row(103, 100, 4f, 0.01f, secondPass: true),
+            Row(60, 200, 0.25f, 0.01f),
+        ];
+        var image = Image(256, 0.1f);
+
+        foreach (var lobes in new[] { false, true })
+        {
+            var population = InjectionPopulation.Build(catalogue, image, image, 1.0, [(2.5, 3.0)], null, lobes: lobes);
+            population.AmplitudePool.ShouldBe(3, "the three ordinary stars; the diverged and the over-clip rows are refused");
+            population.Refused.ShouldBe(3);
+            population.CarriedLobes.ShouldBe(0, "the second-pass row is over the clip, so it is not carried");
+            population.Colours.ShouldAllBe(static c => c[0] < 1.0);
+            population.CountedSites.ShouldBe(lobes ? 5 : 6, "the sites still count every refused star; only a claimed lobe leaves the count");
+            for (var seed = 0; seed < 20; seed++)
+            {
+                var plan = population.Plan(0, 0, 256, 0, InjectionPlacement.Random, StarProfileFamily.Moffat, 0.0, new Random(seed));
+                plan.Stars.ShouldAllBe(static s => s.Amplitudes[0] < 1.0);
+            }
+        }
+    }
+
+    [Fact]
     public void ACatalogueFromBeforeTheAmplitudesCannotSeedAPopulation()
     {
         var (_, catalogue) = BuildPopulation();
