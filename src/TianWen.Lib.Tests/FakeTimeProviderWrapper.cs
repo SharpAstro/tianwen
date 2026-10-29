@@ -184,8 +184,34 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     ///   failure, so it is reported here, where the counters that say WHICH failure it was are still
     ///   in hand, rather than as a bare <c>IsCompleted</c> assertion downstream that cannot tell a
     ///   stalled loop from a starved one.</exception>
-    public async Task<TimeSpan> PumpUntilCompletedAsync(
+    public Task<TimeSpan> PumpUntilCompletedAsync(
         Task loopTask,
+        TimeSpan maxFakeTime,
+        Func<int, ValueTask>? onIteration = null,
+        Func<long>? progress = null,
+        TimeSpan? finestStep = null,
+        TimeSpan? coarsestStep = null,
+        CancellationToken cancellationToken = default)
+        => PumpCoreAsync(() => loopTask.IsCompleted, maxFakeTime, onIteration, progress, finestStep, coarsestStep, cancellationToken);
+
+    /// <summary>
+    /// The same cooperative pump as <see cref="PumpUntilCompletedAsync"/> for a loop that never completes
+    /// (a guide loop parks at Guiding): advances paced to the loop, with the same progress probe, until
+    /// <paramref name="condition"/> holds. The condition is read between advances, after the loop has been
+    /// given its turn, so it never races a half-processed frame (#1910). Returns the fake time pumped.
+    /// </summary>
+    public Task<TimeSpan> PumpUntilAsync(
+        Func<bool> condition,
+        TimeSpan maxFakeTime,
+        Func<int, ValueTask>? onIteration = null,
+        Func<long>? progress = null,
+        TimeSpan? finestStep = null,
+        TimeSpan? coarsestStep = null,
+        CancellationToken cancellationToken = default)
+        => PumpCoreAsync(condition, maxFakeTime, onIteration, progress, finestStep, coarsestStep, cancellationToken);
+
+    private async Task<TimeSpan> PumpCoreAsync(
+        Func<bool> isDone,
         TimeSpan maxFakeTime,
         Func<int, ValueTask>? onIteration = null,
         Func<long>? progress = null,
@@ -210,7 +236,7 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
         var startProgress = progress?.Invoke() ?? 0L;
         var lastProgress = startProgress;
         var stalledFor = TimeSpan.Zero;
-        while (!loopTask.IsCompleted && !cancellationToken.IsCancellationRequested)
+        while (!isDone() && !cancellationToken.IsCancellationRequested)
         {
             // Pace to the loop: advance only once it is parked at a SleepAsync waiter; while it is
             // doing CPU work (no waiter) wait for it to re-park rather than racing wall-clock.
@@ -222,16 +248,16 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             // instead of failing with a diagnosis. Waiting a short while and then advancing anyway
             // costs the paced case nothing (a waiter appears at once) and keeps the loop live for the
             // phases that have no waiter at all.
-            await WaitUntilAsync(() => WaiterCount > 0 || loopTask.IsCompleted, PacingBound, cancellationToken);
+            await WaitUntilAsync(() => WaiterCount > 0 || isDone(), PacingBound, cancellationToken);
 
             // And until the pool has no queued work. What a timer woke (the imaging loop's PeriodicTimer), and a loop
             // just started with Task.Run, are parked on nothing the pump can see, and a parked device keeps the waiter
             // count above zero regardless. The old pump's 11 ms delays let such work run by accident; without this a
             // loop was overtaken by a hundred advances before it ran once (FakeTimePumpTests' healthy loop saw no
             // tick, #1017's shape). Bounded short: other tests' work shares the pool.
-            await WaitUntilAsync(() => ThreadPool.PendingWorkItemCount == 0 || loopTask.IsCompleted, SettleBound, cancellationToken);
+            await WaitUntilAsync(() => ThreadPool.PendingWorkItemCount == 0 || isDone(), SettleBound, cancellationToken);
 
-            if (loopTask.IsCompleted || cancellationToken.IsCancellationRequested)
+            if (isDone() || cancellationToken.IsCancellationRequested)
             {
                 break;
             }
@@ -247,7 +273,7 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             // due by now, and the clock does not move on until each has left its park. The waiter pacing above
             // cannot do this, since a parked device keeps the count above zero, and a step that lands exactly on a
             // 100 ms poll is worth nothing if the poll then reads the time of the step after it.
-            await WaitUntilAsync(() => !HasReleasedParks() || loopTask.IsCompleted, PacingBound, cancellationToken);
+            await WaitUntilAsync(() => !HasReleasedParks() || isDone(), PacingBound, cancellationToken);
 
             if (onIteration is not null)
             {
@@ -257,13 +283,13 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
             // And give what they woke to its turn: a poll that sleeps again parks a new target, which the next step
             // must see or it steps past it. Bounded short, since a sleep that wakes to a timer or to the end of its
             // loop never parks again, and every advance that released one pays the bound.
-            await WaitUntilAsync(() => WaiterCount >= waitersBefore || loopTask.IsCompleted, SettleBound, cancellationToken);
+            await WaitUntilAsync(() => WaiterCount >= waitersBefore || isDone(), SettleBound, cancellationToken);
 
             // And never less than a short dwell per advance, yielding. Nothing the pump can observe says that a loop
             // just started, or still being compiled, has reached its first wait: measured, a healthy loop on a
             // PeriodicTimer was overtaken by all hundred advances of a budget, in 18 ms, before it ticked once. The old
             // pump's two 11 ms delays were this dwell by accident; this is it on purpose, at a twentieth of the cost.
-            await WaitUntilAsync(() => loopTask.IsCompleted
+            await WaitUntilAsync(() => isDone()
                 || global::System.Diagnostics.Stopwatch.GetElapsedTime(advancedAt) >= MinimumDwell, MinimumDwell, cancellationToken);
 
             // Charge the budget only while the loop is NOT moving. The probe is read AFTER the wait
