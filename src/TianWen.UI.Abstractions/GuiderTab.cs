@@ -237,7 +237,7 @@ namespace TianWen.UI.Abstractions
             var canTakeDarks = !stoppable && !darksGoing;
             var darksButton = Layout.Builder.Text(darksGoing ? "Stop darks" : "Darks", BaseFontSize * 0.9f, darksGoing || canTakeDarks ? BodyText : DimText,
                     TextAlign.Center, TextAlign.Center)
-                .WFixed(darksGoing ? 80f : 56f).HStar().Bg(darksGoing ? GuiTheme.DangerButtonBg : GuiTheme.NeutralButtonBg);
+                .WFixed(80f).HStar().Bg(darksGoing ? GuiTheme.DangerButtonBg : GuiTheme.NeutralButtonBg);
             if (darksGoing || canTakeDarks)
             {
                 darksButton = darksButton.BgHover(GuiTheme.Hover(darksGoing ? GuiTheme.DangerButtonBg : GuiTheme.NeutralButtonBg))
@@ -279,7 +279,7 @@ namespace TianWen.UI.Abstractions
                 .WFixed(56f).HStar().Bg(GuiTheme.NeutralButtonBg).BgHover(GuiTheme.Hover(GuiTheme.NeutralButtonBg))
                 .Clickable(new HitResult.ButtonHit("GuideStarClear"), _ => State.ClearSelection());
 
-            var controls = Layout.Builder.HStack(button, calibrate, guide, exposure.WFixed(150f), gain.WFixed(150f), darksButton, darkCount.WFixed(110f), auto, clear,
+            var controls = Layout.Builder.HStack(button, calibrate, guide, exposure.WFixed(150f), gain.WFixed(150f), darksButton, darkCount.WFixed(120f), auto, clear,
                     Layout.Builder.Text(quiet ?? status, BaseFontSize * 0.85f, DimText).Stretch())
                 .WithGap(BasePadding).Pad(BasePadding).Bg(HeaderBg);
 
