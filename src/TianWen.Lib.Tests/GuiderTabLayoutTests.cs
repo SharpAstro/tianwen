@@ -6,6 +6,7 @@ using System.IO;
 using DIR.Lib;
 using SharpAstro.Png;
 using Shouldly;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
