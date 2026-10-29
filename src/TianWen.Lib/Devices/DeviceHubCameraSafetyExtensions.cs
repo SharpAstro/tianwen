@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Sequencing;
 
 namespace TianWen.Lib.Devices;
 
@@ -83,10 +84,10 @@ public static class DeviceHubCameraSafetyExtensions
         }
 
         /// <summary>
-        /// Out-of-session warm-up and disconnect for a single camera. Ramps the setpoint toward the heat
-        /// sink (or +25 °C) in 2 °C steps every 30 s, then turns the cooler off and disconnects.
-        /// Non-camera devices disconnect directly. The spirit of the session's own warm-up
-        /// (<c>Session.Cooling</c>), without its multi-camera orchestration and telemetry.
+        /// Out-of-session warm-up and disconnect for a single camera. Warms it through
+        /// <see cref="CameraCoolingRamp"/>, the session's own warm-up (toward the heat sink, or +25 °C, a step every
+        /// <see cref="CameraCoolingRamp.StepInterval"/>, ended early once the cooler no longer holds the sensor down),
+        /// then turns the cooler off and disconnects. Non-camera devices disconnect directly.
         /// </summary>
         /// <param name="force">Disconnect even if a run owns the camera. Reserved for the shutdown path;
         /// see <see cref="IDeviceHub.DisconnectAsync"/>.</param>
@@ -241,8 +242,7 @@ public static class DeviceHubCameraSafetyExtensions
         }
     }
 
-    // Steps the setpoint toward the heat sink (or +25 °C) in 2 °C / 30 s increments, capped at 15 min, then
-    // turns the cooler off and, when asked, disconnects.
+    // Warms through CameraCoolingRamp (the session's own warm-up), then turns the cooler off and, when asked, disconnects.
     private static async ValueTask WarmCameraAsync(
         IDeviceHub hub, Uri deviceUri, ITimeProvider timeProvider, ILogger logger, bool disconnectAfter, bool force, string? heldBy,
         CancellationToken cancellationToken)
@@ -304,42 +304,25 @@ public static class DeviceHubCameraSafetyExtensions
         // cool-down back to the setpoint this ramp is leaving.
         hub.SetCoolerIntent(deviceUri, CoolerIntent.Warm);
 
-        // Determine target temperature: heat-sink if available, else +25°C (CameraReading's rule, which a client's quit
-        // question asks too, so it says "warm up" only where this ramp has something to do).
-        var heatsink = double.NaN;
-        if (camera.CanGetHeatsinkTemperature)
+        // The session's own warm-up, ONE ramp for every host: toward the heat sink (or CameraReading's +25 C fallback),
+        // a step every CameraCoolingRamp.StepInterval, ended by the cooler no longer holding the sensor down.
+        try
         {
-            try { heatsink = await camera.GetHeatSinkTemperatureAsync(cancellationToken); }
-            catch (Exception ex) { logger.LogWarning(ex, "GetHeatSinkTemperatureAsync failed for {Uri}", deviceUri); }
+            await CameraCoolingRamp.RunAsync([camera], new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient),
+                new SessionConfiguration().WarmupRampInterval, CameraCoolingRamp.WarmUpPowerThreshold, SetupointDirection.Up,
+                timeProvider, logger, afterStep: null, cancellationToken);
         }
-        var target = CameraReading.WarmUpTargetC(heatsink);
-
-        var stepInterval = TimeSpan.FromSeconds(30);
-        var stepSize = 2.0;
-        var maxSteps = 30;
-
-        for (var i = 0; i < maxSteps && !cancellationToken.IsCancellationRequested; i++)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            double current;
-            try { current = await camera.GetCCDTemperatureAsync(cancellationToken); }
-            catch { break; }
-
-            if (!CameraReading.NeedsWarmUpFrom(coolerOn: true, current, heatsink)) break;
-
-            var nextSetpoint = Math.Min(current + stepSize, target);
-            try { await camera.SetSetCCDTemperatureAsync(nextSetpoint, cancellationToken); }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "SetSetCCDTemperatureAsync failed mid-ramp for {Uri}", deviceUri);
-                break;
-            }
-
-            await timeProvider.SleepAsync(stepInterval, cancellationToken);
+            logger.LogWarning(ex, "Warm-up ramp failed mid-ramp for {Uri}", deviceUri);
         }
-
-        try { await camera.SetCoolerOnAsync(false, cancellationToken); }
-        catch (Exception ex) { logger.LogWarning(ex, "SetCoolerOnAsync(false) failed for {Uri}", deviceUri); }
-        hub.SetCoolerIntent(deviceUri, CoolerIntent.Off);
+        finally
+        {
+            // Also when the ramp was cancelled: the cooler is switched off and the intent recorded either way.
+            try { await camera.SetCoolerOnAsync(false, cancellationToken); }
+            catch (Exception ex) { logger.LogWarning(ex, "SetCoolerOnAsync(false) failed for {Uri}", deviceUri); }
+            hub.SetCoolerIntent(deviceUri, CoolerIntent.Off);
+        }
 
         await timeProvider.SleepAsync(TimeSpan.FromSeconds(2), cancellationToken);
 
