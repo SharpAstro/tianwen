@@ -96,8 +96,16 @@ public class NodeGuidingTests(ITestOutputHelper outputHelper)
         }, ct);
         try
         {
-            var star = GuideStarReadout.Measure(frame.GetChannel(0).Data, 1f);
-            star.ShouldNotBeNull("the looped guide frame holds a star to choose");
+            // The brightest star well inside the frame: a calibration moves the star by tens of pixels either way, and one chosen
+            // at the edge (the brightest of this fake's field can be) is carried off the sensor and lost, which a user's own pick
+            // near an edge would be too.
+            const int Margin = 200;
+            var data = frame.GetChannel(0).Data;
+            var stars = new GuiderCentroidTracker().FindStars(data);
+            var inside = stars.Where(s => s.X >= Margin && s.X < frame.Width - Margin && s.Y >= Margin && s.Y < frame.Height - Margin).ToList();
+            inside.ShouldNotBeEmpty($"the looped guide frame holds a star at least {Margin} px from every edge to choose; it found {stars.Count}");
+            var star = GuideStarReadout.Measure(data, 1f, (inside[0].X, inside[0].Y));
+            star.ShouldNotBeNull("the star found is read out");
             return (star.Value.X, star.Value.Y);
         }
         finally
@@ -162,8 +170,10 @@ public class NodeGuidingTests(ITestOutputHelper outputHelper)
         started.IsSuccess.ShouldBeTrue(started.Error);
 
         // Guiding follows its calibration, and produces the samples the graph and the RMS are drawn from.
+        // A run that ended early stops the wait, and says why, rather than leaving the test to its timeout.
         var guiding = await UntilGuidingAsync(client, "guide samples",
-            s => s.Running && s.Phase is GuidingPhase.Settling or GuidingPhase.Guiding && s.Guider?.RecentSteps.Length > 2, ct);
+            s => !s.Running || (s.Phase is GuidingPhase.Settling or GuidingPhase.Guiding && s.Guider?.RecentSteps.Length > 2), ct);
+        guiding.Running.ShouldBeTrue($"guiding ended early: {guiding.FailureReason}");
         guiding.Mode.ShouldBe(GuideRunMode.Guide);
         guiding.Calibration.ShouldNotBeNull("a guide run with no calibration calibrates first");
 
