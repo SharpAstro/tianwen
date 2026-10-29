@@ -196,7 +196,7 @@ public sealed class GuideDarkCorrection
         var pedestals = new float[own.Length];
         for (var c = 0; c < pedestals.Length; c++)
         {
-            var p = (own[c] * t2 - theirs[c] * t1) / (t2 - t1);
+            var p = (float)((own[c] * t2 - theirs[c] * t1) / (t2 - t1));
             pedestals[c] = float.IsFinite(p) ? Math.Clamp(p, 0f, own[c]) : 0f;
         }
         return pedestals;
