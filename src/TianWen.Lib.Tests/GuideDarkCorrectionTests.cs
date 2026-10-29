@@ -65,7 +65,7 @@ public class GuideDarkCorrectionTests
     }
 
     [Fact]
-    public void TheNearestExposureServesAndIsScaledAboutItsPedestal()
+    public void TheNearestExposureServesAndIsScaledAboutThePedestalTheLibraryImplies()
     {
         // 1 s has 100 of dark current over a pedestal of 500; 8 s has 800. A 2 s frame is nearer 1 s (a factor of 2 against 4).
         var correction = Library(DarkOf(1, Pedestal + 100), DarkOf(8, Pedestal + 800));
