@@ -102,6 +102,30 @@ public class SessionPersistenceTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task GivenFileSavedWithRampSecondsWhenLoadThenDefaultRatesNeverZero()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output);
+        var profile = CreateTestProfile();
+
+        var state = new SessionTabState();
+        state.InitializeFromProfile(profile);
+        await SessionPersistence.SaveAsync(state, profile, external, ct);
+
+        // Rewrite the file as one saved before #1839: ramp seconds, no rate fields.
+        var path = System.IO.Path.Combine(external.AppDataFolder.FullName, "Session", profile.ProfileId.ToString("D") + ".json");
+        var json = await System.IO.File.ReadAllTextAsync(path, ct);
+        var old = System.Text.RegularExpressions.Regex.Replace(json, @"""(Cooldown|Warmup)MaxRate""\s*:\s*[-0-9.eE+]+", m => $"\"{m.Groups[1].Value}RampSeconds\":300");
+        old.ShouldNotBe(json);
+        await System.IO.File.WriteAllTextAsync(path, old, ct);
+
+        var restored = new SessionTabState();
+        (await SessionPersistence.TryLoadAsync(restored, profile, external, ct)).ShouldBeTrue();
+        restored.Configuration.CooldownMaxRate.ShouldBe(CameraCoolingRamp.DefaultCoolingMaxRateCPerMinute);
+        restored.Configuration.WarmupMaxRate.ShouldBe(CameraCoolingRamp.DefaultWarmingMaxRateCPerMinute);
+    }
+
+    [Fact]
     public async Task GivenPerOtaSetpointWhenSaveAndLoadThenSetpointRestored()
     {
         var ct = TestContext.Current.CancellationToken;

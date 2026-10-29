@@ -13,8 +13,10 @@ cheap: this plan is about how fast a sensor's temperature is made to change, and
 - **One warm-up**: `CameraCoolingRamp` towards ambient, for the session (`CoolCamerasToAmbientAsync`) and for the hub
   (`DeviceHubCameraSafetyExtensions.WarmCameraAsync`), which serves every warm-up outside a session. The hub used to step
   2 °C every 30 s of its own.
-- **Two settings that do not do what they say**: the session tab's `CooldownRampInterval` and `WarmupRampInterval` (5 min
-  each) only cap a ramp, which gives up at twice the budget; neither slows it.
+- **Two settings that did not do what they said** (retired by #1839): `CooldownRampInterval` and `WarmupRampInterval` (5 min
+  each) only capped a ramp. They are now `CooldownMaxRate` and `WarmupMaxRate` in °C a minute (default 2), carried by the
+  saved session (an old file with ramp seconds loads the defaults), `SessionConfigApiDto`, the cool request's optional
+  `MaxRateCPerMinute` and the GUI's "Cooling Rates" rows (0.5 °C/min steps, 0.5 to 10).
 
 Measured on the QHY294PROC on 2026-10-26, cooling 16 to 10 °C: 16.0 to 9.4 °C in about 1.5 min, 1.1 to 1.2 °C per 15 s step
 (about 4.5 °C a minute), 0.6 °C under before settling at 10.0, cooler power never above 20 %. The camera reports no heat sink.
@@ -31,6 +33,9 @@ The change keeps what protects the camera (the setpoint bounded by the sensor, t
 interval settings with a maximum rate for cooling and for warming, in °C a minute. A minimum duration for a large drop then
 follows from the rate, without slowing a small one needlessly. Tests run on the fake clock only: no test waits out a ramp.
 Issue: #1839.
+
+**Shipped (#1839).** A step moves the setpoint min(1 °C, rate x step interval) past the sensor, so the ceiling holds on
+the fake clock and a small drop is not slowed. The default of 2 °C a minute is about half the 4.5 °C a minute measured above.
 
 ## One warm-up
 

@@ -144,7 +144,7 @@ public class NodeDarkLibraryTests(ITestOutputHelper outputHelper) : IDisposable
         (await client.StartDarkLibraryAsync(Request(camera, count: 1), ct)).StatusCode.ShouldBe(404);
 
         await node.App.Services.GetRequiredService<IDeviceHub>().ConnectAsync(camera, ct);
-        var cooling = (await client.CoolCameraAsync(camera.DeviceUri, -10, rampMinutes: null, ct)).Value.ShouldNotBeNull();
+        var cooling = (await client.CoolCameraAsync(camera.DeviceUri, -10, maxRateCPerMinute: null, ct)).Value.ShouldNotBeNull();
 
         var refused = await client.StartDarkLibraryAsync(Request(camera, count: 1), ct);
         refused.StatusCode.ShouldBe(409);
