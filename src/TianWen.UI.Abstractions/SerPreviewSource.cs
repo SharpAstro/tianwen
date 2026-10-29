@@ -175,6 +175,9 @@ public sealed class SerPreviewSource : IPreviewSource, ISequencePlaybackSource, 
     /// <inheritdoc/>
     public bool IsDecodeReady => _decodeTask is { IsCompletedSuccessfully: true };
 
+    /// <summary>How many frame decodes this source has started, which a test counts to show a view costs none (#1875).</summary>
+    internal int DecodesStarted { get; private set; }
+
     /// <inheritdoc/>
     public bool TryStartDecode(int index)
     {
@@ -182,6 +185,8 @@ public sealed class SerPreviewSource : IPreviewSource, ISequencePlaybackSource, 
         {
             return false;
         }
+
+        DecodesStarted++;
 
         // Decode into the back buffer on a background thread; the reader does a memory-mapped frame read
         // (the only disk-touching step) entirely off the render thread. _back + _decodeScratch are owned
