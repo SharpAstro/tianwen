@@ -88,6 +88,12 @@ internal partial record Session
                     _coolingSamples.Enqueue(new CoolingSample(_timeProvider.GetUtcNow(), i, ccdTemp, double.IsNaN(setpoint) ? 0 : setpoint, double.IsNaN(power) ? 0 : power));
                     _currentActivity = $"{ccdTemp:F0}\u00B0C \u2192 {targetLabel} ({(double.IsNaN(power) ? 0 : power):F0}% power)";
                 }
+            },
+            (i, reading) =>
+            {
+                // The sensor a cool-down started from, beside the cooler intent: a warm-up with no heat sink aims at it.
+                DeviceHub?.SetPreCoolReading(Setup.Telescopes[i].Camera.Device.DeviceUri, reading);
+                return ValueTask.CompletedTask;
             }, cancellationToken).ConfigureAwait(false);
     }
 

@@ -86,12 +86,21 @@ internal sealed record NodeJournal
             var displayName = hub.TryGetDeviceFromUri(uri, out var device) ? device.DisplayName : null;
             CoolerIntentKind? cooler = null;
             double? setpoint = null;
+            double? preCool = null;
+            bool? preCoolSettled = null;
+            DateTimeOffset? preCoolUtc = null;
+            if (hub.TryGetPreCoolReading(uri, out var reading) && double.IsFinite(reading.TempC))
+            {
+                preCool = reading.TempC;
+                preCoolSettled = reading.Settled;
+                preCoolUtc = reading.AtUtc;
+            }
             if (hub.TryGetCoolerIntent(uri, out var intent))
             {
                 cooler = intent.Kind;
                 setpoint = double.IsFinite(intent.SetpointC) ? intent.SetpointC : null;
             }
-            devices.Add(new NodeJournalDevice(uri.ToString(), displayName, cooler, setpoint));
+            devices.Add(new NodeJournalDevice(uri.ToString(), displayName, cooler, setpoint, preCool, preCoolSettled, preCoolUtc));
         }
         devices.Sort(static (a, b) => string.CompareOrdinal(a.DeviceUri, b.DeviceUri));
 
@@ -150,8 +159,13 @@ internal sealed record NodeJournal
     private static ImmutableArray<DateTimeOffset> CrashesOrEmpty(NodeJournal journal) => journal.Crashes.IsDefault ? [] : journal.Crashes;
 }
 
-/// <summary>A device the node held, with the full URI it reconnects by, and for a camera its cooler intent.</summary>
-internal sealed record NodeJournalDevice(string DeviceUri, string? DisplayName, CoolerIntentKind? Cooler, double? CoolerSetpointC);
+/// <summary>
+/// A device the node held, with the full URI it reconnects by, and for a camera its cooler intent and the sensor reading
+/// its last cool-down started from (<see cref="SensorAmbientReading"/>; null from a journal written before it existed,
+/// or by a camera that never cooled from an off cooler).
+/// </summary>
+internal sealed record NodeJournalDevice(string DeviceUri, string? DisplayName, CoolerIntentKind? Cooler, double? CoolerSetpointC,
+    double? PreCoolSensorC = null, bool? PreCoolSettled = null, DateTimeOffset? PreCoolUtc = null);
 
 /// <summary>The node's run: its kind, profile and start, and the target it was on when last written.</summary>
 internal sealed record NodeJournalRun(NodeRunKind Kind, Guid ProfileId, DateTimeOffset StartedUtc, string? Target);

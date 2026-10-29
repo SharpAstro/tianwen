@@ -131,7 +131,20 @@ public interface IDeviceHub : IAsyncDisposable
     /// <summary>What the cooler of the camera at <paramref name="cameraUri"/> was last asked to do, if anything asked.</summary>
     bool TryGetCoolerIntent(Uri cameraUri, out CoolerIntent intent);
 
-    /// <summary>Fired when a camera's recorded <see cref="CoolerIntent"/> changes.</summary>
+    /// <summary>
+    /// Records the sensor temperature a cool-down of the camera at <paramref name="cameraUri"/> started from, taken with
+    /// its cooler off, and whether it had settled (<see cref="SensorAmbientReading"/>). Kept beside the cooler intent
+    /// but apart from it, so recording it never disturbs the intent's own change detection. A newer cool-down from a
+    /// cooler that is off replaces it; a cool-down from a cooler already on records nothing, so the reading of the
+    /// cool-down before stays. Forgotten when the camera disconnects through the hub. Raises
+    /// <see cref="CoolerIntentChanged"/> when it changes, so the crash journal carries it.
+    /// </summary>
+    void SetPreCoolReading(Uri cameraUri, SensorAmbientReading reading);
+
+    /// <summary>The sensor reading the camera at <paramref name="cameraUri"/> last cooled down from, if one was taken.</summary>
+    bool TryGetPreCoolReading(Uri cameraUri, out SensorAmbientReading reading);
+
+    /// <summary>Fired when a camera's recorded <see cref="CoolerIntent"/> or pre-cool reading changes.</summary>
     event EventHandler? CoolerIntentChanged;
 
     /// <summary>
