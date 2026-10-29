@@ -167,6 +167,9 @@ public class DeviceOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
 
         (await UntilEndedAsync(warming.Id, ct)).State.ShouldBe(JobState.Cancelled);
         Hub.IsConnected(device.DeviceUri).ShouldBeTrue("a cancelled warm-up disconnects nothing");
+        (await camera.GetCoolerOnAsync(ct)).ShouldBeTrue("a cancelled warm-up stops where it is and never cuts a cold sensor's cooler");
+        Hub.TryGetCoolerIntent(device.DeviceUri, out var intent).ShouldBeTrue();
+        intent.ShouldBe(CoolerIntent.Warm, "a crash journal must still re-warm it");
 
         // A node stopping warms every cooled camera it holds, which would spend this test's teardown on a ramp.
         await camera.SetCoolerOnAsync(false, ct);

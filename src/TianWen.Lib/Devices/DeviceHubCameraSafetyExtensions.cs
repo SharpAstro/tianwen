@@ -316,13 +316,14 @@ public static class DeviceHubCameraSafetyExtensions
         {
             logger.LogWarning(ex, "Warm-up ramp failed mid-ramp for {Uri}", deviceUri);
         }
-        finally
-        {
-            // Also when the ramp was cancelled: the cooler is switched off and the intent recorded either way.
-            try { await camera.SetCoolerOnAsync(false, cancellationToken); }
-            catch (Exception ex) { logger.LogWarning(ex, "SetCoolerOnAsync(false) failed for {Uri}", deviceUri); }
-            hub.SetCoolerIntent(deviceUri, CoolerIntent.Off);
-        }
+
+        // A cancelled warm-up stops where it is: the ramp returns normally on a cancelled token, so it is checked here.
+        // The cooler stays on and the intent stays Warm, so a cold sensor is never cut off and a crash journal re-warms it.
+        cancellationToken.ThrowIfCancellationRequested();
+
+        try { await camera.SetCoolerOnAsync(false, cancellationToken); }
+        catch (Exception ex) { logger.LogWarning(ex, "SetCoolerOnAsync(false) failed for {Uri}", deviceUri); }
+        hub.SetCoolerIntent(deviceUri, CoolerIntent.Off);
 
         await timeProvider.SleepAsync(TimeSpan.FromSeconds(2), cancellationToken);
 
