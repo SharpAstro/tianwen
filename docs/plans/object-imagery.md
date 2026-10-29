@@ -338,8 +338,8 @@ on every target, picture or not, and a resize in memory is not needed: the pictu
 for the slot's own pixel width, so a small slot fetches a small thumbnail. The section sits at the strip's right
 end, at the picture's aspect ratio and at most 40 % of the strip, so the text keeps the most; a target with no
 picture lays out as before. A press on the thumbnail opens it large over the whole planner, painted after
-everything else; Escape or a press on the scrim closes it (`PlannerState.PictureExpanded`). The web host follows
-in the next leg of the flight.
+everything else; Escape or a press on the scrim closes it (`PlannerState.PictureExpanded`). The web planner shows the same
+picture through `WebGlObjectPictures`, as the web atlas does.
 
 ### P2: positioned images on the atlas
 
