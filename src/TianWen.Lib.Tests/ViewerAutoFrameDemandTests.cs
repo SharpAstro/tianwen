@@ -1,4 +1,6 @@
+using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
 using Shouldly;
@@ -33,37 +35,7 @@ public class ViewerAutoFrameDemandTests
     {
         await using var e2e = ViewerE2E.Start(dpi);
         var ct = TestContext.Current.CancellationToken;
-        var capture = ViewerBestStackTests.WriteCapture(Path.Combine(e2e.Folder, "Jupiter_Red_2024-12-15T12_56_44_OTA1.ser"));
-        e2e.Host.HandleDropFile(capture);
-        await e2e.PumpUntilAsync(() => e2e.State.SequencePath == capture && e2e.State.IsSequence && e2e.State.FrameCount > 1,
-            "the capture's frames to be known", ct);
-
-        if (fromStack)
-        {
-            e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewLive" }, "the Live view"));
-            // The live stack has a master before Auto is chosen, so the placeholder is what keeps it off the screen, not its absence.
-            await e2e.PumpUntilAsync(() => e2e.Controller.ViewLayers.Live is { HasMaster: true, IsBusy: false }, "the live stack's first master", ct);
-        }
-        e2e.State.PlaybackFps = 1000f;
-        e2e.State.IsPlaying = true;
-
-        // Playback runs under the Raw and the Stack view, which is what the Auto view stops.
-        var first = e2e.State.FrameIndex;
-        for (var i = 0; i < 1000 && e2e.State.FrameIndex == first; i++)
-        {
-            e2e.Frame();
-            await Task.Delay(10, ct);
-        }
-        e2e.State.FrameIndex.ShouldNotBe(first,
-            $"playback runs before Auto is chosen (playing {e2e.State.IsPlaying}, auto {e2e.State.ShowAuto}, "
-            + $"stacked {e2e.State.ShowStacked}, frames {e2e.State.FrameCount}, status '{e2e.State.StatusMessage}')");
-
-        // Held: the run starts, and stays pending until the gate opens.
-        var gate = new TaskCompletionSource();
-        e2e.Controller.AutoRunGate = gate.Task;
-        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewAuto" }, "the Auto view"));
-        await e2e.PumpUntilAsync(() => e2e.Controller.IsAutoStackPending && e2e.State.AutoStackProgress is not null, "the Auto run to start", ct);
-        e2e.Controller.AutoStacksStarted.ShouldBe(1);
+        var gate = await PendingAutoRunAsync(e2e, fromStack, ct);
 
         // Honest placeholder (#1875): the raw frame at the held playhead shows, never the live stack or an older Auto layer, and one line says so.
         e2e.Frame();
@@ -121,5 +93,101 @@ public class ViewerAutoFrameDemandTests
             await Task.Delay(10, ct);
         }
         e2e.State.FrameIndex.ShouldNotBe(playhead, "playback resumes when another view is chosen");
+    }
+
+    [Theory(Timeout = 300_000)]
+    [InlineData(1f, true)]
+    [InlineData(1.5f, true)]
+    [InlineData(1f, false)]
+    [InlineData(1.5f, false)]
+    public async Task AnAutoRunCancelledOrFailedLetsTheViewUnderItPlay(float dpi, bool cancelled)
+    {
+        await using var e2e = ViewerE2E.Start(dpi);
+        var ct = TestContext.Current.CancellationToken;
+        var gate = await PendingAutoRunAsync(e2e, fromStack: true, ct);
+        e2e.Frame();
+        e2e.State.AutoShowsFrames.ShouldBeTrue("held while the run is pending");
+        var playhead = e2e.State.FrameIndex;
+
+        // Ended without a master: Shift+K cancels the pending run, or the run throws.
+        if (cancelled)
+        {
+            e2e.Key(InputKey.K, InputModifier.Shift);
+        }
+        else
+        {
+            gate.SetException(new InvalidOperationException("no planet"));
+        }
+        await e2e.PumpUntilAsync(() => !e2e.Controller.IsAutoStackPending && e2e.State.AutoStackProgress is null, "the Auto run to end", ct);
+        e2e.Frame();
+
+        // The hold lets go: no placeholder line, the bar says how the run ended, and the live stack under it shows and follows again.
+        e2e.State.AutoShowsFrames.ShouldBeFalse("nothing is stacking, so the frames are not shown 'while Auto stacks'");
+        e2e.State.StatusMessage.ShouldBe(cancelled ? "Auto stack cancelled" : "Auto stack failed: no planet");
+        e2e.Controller.Source.ShouldBeSameAs(e2e.Controller.ViewLayers.Live, "the view under Auto, the live stack, shows again");
+        var folds = e2e.Controller.ViewLayers.Live?.StacksPublished;
+        for (var i = 0; i < 1000 && (e2e.State.FrameIndex == playhead || e2e.Controller.ViewLayers.Live?.StacksPublished == folds); i++)
+        {
+            e2e.Frame();
+            await Task.Delay(10, ct);
+        }
+        e2e.State.FrameIndex.ShouldNotBe(playhead, "playback resumes once the run has ended");
+        (e2e.Controller.ViewLayers.Live?.StacksPublished).ShouldNotBe(folds, "the live stack follows the playhead again");
+
+        // Paused, the loop goes quiet again.
+        e2e.State.IsPlaying = false;
+        var quiet = false;
+        for (var i = 0; i < 1000 && !quiet; i++)
+        {
+            if (e2e.Host.WantsFrame())
+            {
+                e2e.Frame();
+                await Task.Delay(10, ct);
+            }
+            else
+            {
+                quiet = true;
+            }
+        }
+        quiet.ShouldBeTrue("an idle view asks for no frame");
+        e2e.State.AutoShowsFrames.ShouldBeFalse();
+    }
+
+    // A capture opened and played (from the Stack view, with its live master, or from Raw), then the Auto view chosen with its run held
+    // pending until the returned gate is settled.
+    private static async Task<TaskCompletionSource> PendingAutoRunAsync(ViewerE2E e2e, bool fromStack, CancellationToken ct)
+    {
+        var capture = ViewerBestStackTests.WriteCapture(Path.Combine(e2e.Folder, "Jupiter_Red_2024-12-15T12_56_44_OTA1.ser"));
+        e2e.Host.HandleDropFile(capture);
+        await e2e.PumpUntilAsync(() => e2e.State.SequencePath == capture && e2e.State.IsSequence && e2e.State.FrameCount > 1,
+            "the capture's frames to be known", ct);
+
+        if (fromStack)
+        {
+            e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewLive" }, "the Live view"));
+            // The live stack has a master before Auto is chosen, so the placeholder is what keeps it off the screen, not its absence.
+            await e2e.PumpUntilAsync(() => e2e.Controller.ViewLayers.Live is { HasMaster: true, IsBusy: false }, "the live stack's first master", ct);
+        }
+        e2e.State.PlaybackFps = 1000f;
+        e2e.State.IsPlaying = true;
+
+        // Playback runs under the Raw and the Stack view, which is what the Auto view stops.
+        var first = e2e.State.FrameIndex;
+        for (var i = 0; i < 1000 && e2e.State.FrameIndex == first; i++)
+        {
+            e2e.Frame();
+            await Task.Delay(10, ct);
+        }
+        e2e.State.FrameIndex.ShouldNotBe(first,
+            $"playback runs before Auto is chosen (playing {e2e.State.IsPlaying}, auto {e2e.State.ShowAuto}, "
+            + $"stacked {e2e.State.ShowStacked}, frames {e2e.State.FrameCount}, status '{e2e.State.StatusMessage}')");
+
+        // Held: the run starts, and stays pending until the gate opens.
+        var gate = new TaskCompletionSource();
+        e2e.Controller.AutoRunGate = gate.Task;
+        e2e.Click(e2e.Region(h => h is HitResult.ButtonHit { Action: "ViewAuto" }, "the Auto view"));
+        await e2e.PumpUntilAsync(() => e2e.Controller.IsAutoStackPending && e2e.State.AutoStackProgress is not null, "the Auto run to start", ct);
+        e2e.Controller.AutoStacksStarted.ShouldBe(1);
+        return gate;
     }
 }

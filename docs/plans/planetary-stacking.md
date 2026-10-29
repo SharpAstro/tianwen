@@ -506,6 +506,10 @@ of seeing or frame count whose best setting the seed spread can tell from the de
 defaults, and AUTO (A4) adds what a user still had to supply: what the capture is (planet, filter, telescope), read off the
 capture itself.
 
+**What an AUTO setting is**: the keep fraction, the sharpening (the gains, or the strength and target they are
+derived at), and a colour master's finest-band choice. These move a master's error. The alignment-point count and the
+resampling kernel did not (the 2026-06 study below, #1195).
+
 ### The viewer's Auto view is a still picture, and never shows an older stack as its result
 
 (#1875.) While the Auto view is chosen the viewer costs a still frame: playback holds and the live rolling stack does not follow.
@@ -515,9 +519,10 @@ bar says so in one wording, `ViewerState.AutoShowsFramesWording` ("Showing the f
 `ViewerState.AutoShowsFrames` and cleared when the master is on show. Pinned by `ViewerAutoFrameDemandTests` through `ViewerE2E`
 from both entries at DPI 1 and 1.5.
 
-**What an AUTO setting is**: the keep fraction, the sharpening (the gains, or the strength and target they are
-derived at), and a colour master's finest-band choice. These move a master's error. The alignment-point count and the
-resampling kernel did not (the 2026-06 study below, #1195).
+The hold lasts only while there is something to show for it: a run asked for, pending, or its master. A run cancelled (Shift+K
+while it runs) or failed lets go at once: playback resumes, the live stack under it shows and follows again, the line clears, and the
+bar says how the run ended ("Auto stack cancelled", "Auto stack failed: ..."). Pinned by
+`AnAutoRunCancelledOrFailedLetsTheViewUnderItPlay`, both exits at DPI 1 and 1.5.
 
 ### A0. Do a twin's best settings carry to another realisation of its night?
 

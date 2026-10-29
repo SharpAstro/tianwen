@@ -224,11 +224,15 @@ public sealed class ViewerController(
     /// </summary>
     public IPreviewSource? Source => BatchLayerOnShow is { } batch ? batch
         : AutoAwaitsMaster ? _rawSource
-        : state.SharpenLayerOnShow && _liveSource is { HasMaster: true } ? _liveSource : _rawSource;
+        : (state.ShowAuto ? state.ShowStacked : state.SharpenLayerOnShow) && _liveSource is { HasMaster: true } ? _liveSource : _rawSource;
 
-    // The Auto view is chosen and this capture has no Auto master yet: the raw frame at the held playhead shows, never the live
+    // The Auto view holds the picture still (#1875) only while it has something to show for it: a run asked for, pending or just ended
+    // and not yet taken in, or its master. A run cancelled or failed lets go, and the view under it (Frames or Live) plays on.
+    private bool AutoHolds => state.ShowAuto && state.IsSequence && (state.AutoViewRequested || _auto.Task is not null || _auto.Layer is not null);
+
+    // The Auto view holds and this capture has no Auto master yet: the raw frame at the held playhead shows, never the live
     // rolling stack or an older view as if it were this run's result (#1875).
-    private bool AutoAwaitsMaster => state.ShowAuto && state.IsSequence && BatchLayerOnShow is null;
+    private bool AutoAwaitsMaster => AutoHolds && BatchLayerOnShow is null;
 
     // The Auto view's layer, once that view is chosen and its master is built (#1314 part 2); until then the view under it stays.
     private LiveStackPreviewSource? BatchLayerOnShow => state.ShowAuto && state.IsSequence && _auto.Layer is { HasMaster: true } layer ? layer : null;
@@ -1910,7 +1914,8 @@ public sealed class ViewerController(
     /// </summary>
     /// <remarks>
     /// The Auto view is a still picture and costs a still frame (#1875): while <see cref="ViewerState.ShowAuto"/> is up, its run going on
-    /// or its master shown, the player neither advances nor decodes (the playhead holds and resumes when another view is chosen) and the
+    /// or its master shown, the player neither advances nor decodes (the playhead holds and resumes when another view is chosen, or when the
+    /// run is cancelled or fails, which leaves the view under it playing) and the
     /// live rolling stack does not follow or re-stack. The loop is then asked for a frame only when a frame's content changed: a master
     /// published, the on-show layer re-sharpening after a dial change, or the Auto progress label (<see cref="AutoStackWantsFrame"/>,
     /// the one per-progress wake); never merely because a run is busy.
@@ -1939,7 +1944,7 @@ public sealed class ViewerController(
             return false;
         }
 
-        var autoUp = state.ShowAuto;
+        var autoUp = AutoHolds;
         var rawPublished = !autoUp && _player.Tick(seq, state, _playbackClock.Elapsed.TotalSeconds);
 
         // The chosen batch view's layer builds and re-sharpens its one master (#1314 part 2); once it is on show the dials are its own,
