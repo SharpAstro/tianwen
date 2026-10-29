@@ -200,8 +200,8 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     /// <paramref name="condition"/> holds. The condition is read between advances, after the loop has been
     /// given its turn, so it never races a half-processed frame (#1910). Returns the fake time pumped.
     /// <paramref name="settleBound"/> is how long it gives the pool and a released sleep to settle before each
-    /// advance (the 2 ms default unless given): a loop on a coalescing <see cref="System.Threading.PeriodicTimer"/>
-    /// loses a tick whose continuation has not run by the next advance, so a saturated runner needs it longer.
+    /// advance (the 2 ms default unless given). A saturated runner may need it longer, so that an advance does not
+    /// pass over a wake the loop has not yet observed (a hypothesis for #1910, not shown without load).
     /// </summary>
     public Task<TimeSpan> PumpUntilAsync(
         Func<bool> condition,

@@ -67,11 +67,6 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Arm-and-abort an exposure: this triggers the async mount-pointing snapshot in
-    /// <see cref="FakeCameraDriver.StartExposureAsync"/> without paying for a rendered
-    /// frame (the drift offset is what we assert on, not the pixels).
-    /// </summary>
-    /// <summary>
     /// Drives fake time through the cooperative pump (<see cref="FakeTimeProviderWrapper.PumpUntilAsync"/>), which
     /// advances only once the guide loop is parked at a <c>SleepAsync</c> waiter and has had its turn, never a
     /// fixed 250 ms step per real-time yield (#1910: that hand pump let a starved runner skip the loop's frames
@@ -85,8 +80,10 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
             progress: () => guider.GuideFrameCount, cancellationToken: ct, settleBound: GuideSettleBound);
 
     /// <summary>
-    /// How long each advance waits for the pool and the guide loop to settle: past the 2 ms default, which a
-    /// saturated runner overruns, so the loop's coalescing tick is never advanced over unobserved (#1910).
+    /// How long each advance waits for the pool and the guide loop to settle: past the 2 ms default. Hypothesis
+    /// (#1910), not shown: on a saturated runner the guide loop, which waits only through <c>SleepAsync</c>, may not
+    /// have parked again within 2 ms, so an advance could skip over its wake. Two loaded runs each showed one large
+    /// RA excursion; the skipped wake itself was not observed without load.
     /// </summary>
     private static readonly TimeSpan GuideSettleBound = TimeSpan.FromMilliseconds(25);
 
@@ -116,6 +113,11 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
             span + TimeSpan.FromMinutes(10), ct);
     }
 
+    /// <summary>
+    /// Arm-and-abort an exposure: this triggers the async mount-pointing snapshot in
+    /// <see cref="FakeCameraDriver.StartExposureAsync"/> without paying for a rendered
+    /// frame (the drift offset is what we assert on, not the pixels).
+    /// </summary>
     private static async Task SnapshotPointingAsync(FakeCameraDriver camera, CancellationToken ct)
     {
         await camera.StartExposureAsync(TimeSpan.FromSeconds(2), FrameType.Light, ct);
