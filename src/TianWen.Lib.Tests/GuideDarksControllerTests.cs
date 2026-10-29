@@ -1,5 +1,7 @@
 using System;
+using System.Linq;
 using Shouldly;
+using TianWen.Lib.Devices;
 using TianWen.UI.Abstractions;
 using Xunit;
 
