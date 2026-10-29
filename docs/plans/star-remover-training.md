@@ -5195,7 +5195,11 @@ amplitude in any channel is non-finite or above `OvershootMargin` (4) times that
 Subtracted Moffat. A fitted pair passes the same check and stays a knot if either star fails it; that is a backstop, since the
 pair's own acceptance tests (centres within 2.5 FWHM of the wide fit, a cost under it) have not been seen to let one through. The margin, in both guards, departs from the
 leg's wording ("above the ceiling less the star's sky"): the ceiling is a pixel mean and a Moffat's continuous peak sits above it,
-at worst about 1.7 times for a sharp unsaturated star, so 1x would refuse real stars. The plate builder takes no sky off because
+at worst about 1.7 times for a sharp unsaturated star, so 1x would refuse real stars. The margin assumes stars of at least
+about 1 px FWHM: a pixel-integrated beta-3 Moffat on a pixel corner peaks 3.2 to 3.4 times its brightest pixel at 1.0 px and
+4.5 to 4.9 times at 0.8 px (#1873's review), so a fully undersampled field would lose real stars to `NoFit`. None is catalogued:
+over the 201 sessions of the 2026-10-12 bake the sharpest median sub FWHM is 1.60 px and the sharpest single sub 1.56 px
+(`stats/psf-sessions.jsonl`), so a field under 1 px is a new case to measure before it is baked. The plate builder takes no sky off because
 the fit's sky is the luminance's: taken off a colour channel's ceiling, it left a channel whose brightest sample sat under the
 luminance sky a threshold of 0, and refused every star with light in it (#1873's review); against a divergence of 1e12 the margin
 dwarfs any sky. A fit centred outside the frame with a sane amplitude is still subtracted, saturated or not, deliberately: on a
