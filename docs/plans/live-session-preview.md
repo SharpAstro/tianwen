@@ -318,6 +318,23 @@ the whole sensor. A Zoom choice on the Live row sent as a window size, jog arrow
 `JogX`/`JogY`, and an inset marking where the crop sits; a camera with native video takes the same as a readout window.
 **What the zoom buys is resolution, not only size**: at 1x a 6D's ~960 x 640 Live View frame averages about 5.7 x 5.7 sensor pixels into each of its own, so a star 2 to 3 pixels across is under one; at 5x the body sends a 1104 x 736 sensor crop as the frame, about one sensor pixel each (native); 10x upsamples that crop about 2x, larger but with no more detail. The JPEG's compression stays at every zoom.
 
+## P17: the guide camera's loop on the Guider tab
+
+Tracked by #1915 (the Guider tab's live preview of the guide camera while not guiding, as PHD2 has). The first leg, `guide-loop`, is the loop itself; the rest of the issue follows as the next legs.
+
+**Shipped in the first leg.** A live view names which camera it streams (`LiveViewRequestDto.CameraRole`, a numeric `LiveViewCamera`: `Ota` is the default, `Guider` the profile's `GuiderCamera`; `LiveViewStateDto.CameraRole` says which runs). It is the same run as the OTA's (`NodeLiveView`, `PlanetaryCapture.TryPrepare` with `PlanetaryCaptureRequest.GuideCamera`, so the claim and the whole-sensor window are not copied): the guide camera is claimed alone, so the mount, the science camera and a guide focuser stay free. A profile with no guide camera is refused ("The profile has no guide camera to loop"), and so is one whose guider is PHD2, which owns its camera. A session cannot start over the loop and the node names it (one run at a time, invariant 7).
+
+**Frames.** The loop publishes as the live view's frames (`FrameSources.LiveView`, which the client's stream already reads), and `NodeFrames.Guider` shows the same newest frame as `FrameSources.Guider` while the run is a guide-camera loop and no session runs, under the guider's own change token (one token per source). So `/frames/guider/latest`, the guider JPEG preview and `FRAME-AVAILABLE` for `guider` all work for a remote client. An OTA's live view keeps `FrameSources.LiveView` alone.
+
+**The tab.** `GuideLoopController` is a second `LiveViewController` plus the exposure and gain the steppers set. With no session running the Guider tab shows a Loop / Stop button, the exposure and gain steppers (the Preview's `FormRowLayout.StepperControl`) and the looped frames in the same viewer the session's guide frames use, in place of the NoSession placeholder. The signals are `StartGuideLoopSignal` / `StopGuideLoopSignal`, routed in `AppSignalHandler` with `CommandTargetOrSay`. Pinned by `NodeGuideLoopTests` and `GuiderTabLayoutTests.NoSession_WithAGuideLoop_OffersLoopExposureAndGain`.
+
+**Next legs of #1915**, each still open:
+
+- the guide-star pick and the star readout (HFD, SNR, peak) on the looped frame, including a click to choose the star;
+- calibrate and guide from the loop, as PHD2's Loop then Guide;
+- guide darks (a library for the guide camera's exposure and gain, applied to the loop);
+- the guide focuser's controls beside the loop (the Preview's focuser jog, go-to and position, shown only when a guide focuser is assigned and connected).
+
 ## Out of scope
 
 Stacking in the preview (that is the Planetary mode's, and a deep-sky live stack is an idea of its own); the Bahtinov analyser; recording the live view to disk (#814 is the Planetary mode's recording).

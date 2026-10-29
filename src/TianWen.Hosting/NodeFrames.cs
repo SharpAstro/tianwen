@@ -111,8 +111,13 @@ internal sealed class NodeFrames(IHostedSession hosted)
         return null;
     }
 
-    /// <summary>The guide camera's frame now: a session's only.</summary>
-    public Shown Guider() => Observe(FrameSources.Guider, hosted.CurrentSession?.LastGuideFrame);
+    /// <summary>
+    /// The guide camera's frame now: a session's, else the newest frame of the guide-camera loop (#1915, a live view of
+    /// <see cref="LiveViewCamera.Guider"/>), which is published as the live view's and shown here under the guider's one token.
+    /// </summary>
+    public Shown Guider()
+        => Observe(FrameSources.Guider, hosted.CurrentSession?.LastGuideFrame
+            ?? (hosted.CurrentRun is NodeLiveViewRun { IsGuideCamera: true } ? ResolveNamed(FrameSources.LiveView) : null));
 
     /// <summary>How many OTA sources there are to watch: a session's slots, or the node's previews, whichever is more.</summary>
     public int OtaCount => Math.Max(hosted.CurrentSession?.LastCapturedImages.Length ?? 0, Volatile.Read(ref _previews).Length);

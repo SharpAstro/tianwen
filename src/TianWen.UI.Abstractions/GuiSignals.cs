@@ -639,3 +639,12 @@ public readonly record struct SkyMapSetViewSignal(
     double? FieldOfViewDeg = null,
     bool? ShowObjectOverlay = null,
     bool? ShowDarkNebulae = null);
+
+/// <summary>
+/// Loop the profile's guide camera on the Guider tab while no session runs (#1915): the node streams it as a live view of
+/// the guide camera and the tab shows its frames, stretched as a session's guide frames are.
+/// </summary>
+public readonly record struct StartGuideLoopSignal(double ExposureSeconds, int? Gain = null);
+
+/// <summary>Stop the guide-camera loop started by <see cref="StartGuideLoopSignal"/>.</summary>
+public readonly record struct StopGuideLoopSignal;

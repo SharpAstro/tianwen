@@ -60,6 +60,15 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public ImageRendererBase<TSurface>? GuideCameraViewer { get; set; }
 
+        /// <summary>
+        /// The loop of the guide camera while no session runs (#1915), set by the host. With it the NoSession placeholder is a
+        /// Loop / Stop button with the exposure and gain, and the pane shows the looped frames.
+        /// </summary>
+        public GuideLoopController? GuideLoop { get; set; }
+
+        private static FormRowLayout.StepperStyle LoopStepperStyle => new(
+            GuiTheme.NeutralButtonBg, BodyText, GuiTheme.NeutralButtonBg, DimText, BaseFontSize * 0.85f, 28f);
+
         /// <summary>Lightweight live-frame source feeding <see cref="GuideCameraViewer"/>.</summary>
         private readonly LiveFramePreviewSource _guideSource = new();
 
@@ -101,6 +110,12 @@ namespace TianWen.UI.Abstractions
             // the last the node sent.
             var quiet = RemoteRigActions.DescribeContact(liveState.Contact, binding: null, timeProvider.GetUtcNow());
 
+            if (State.PlaceholderReason is GuiderPlaceholder.NoSession && GuideLoop is { } loop)
+            {
+                RenderLoop(loop, contentRect, quiet);
+                return;
+            }
+
             if (State.PlaceholderReason is { } reason)
             {
                 RenderLayout(BuildPlaceholderTree(GuiderActions.PlaceholderText(reason), quiet),
@@ -129,7 +144,7 @@ namespace TianWen.UI.Abstractions
                     {
                         case CameraFillKey:
                             CameraRect = rect;
-                            RenderGuideCamera(rect, fontSize);
+                            RenderGuideCamera(rect, fontSize, _guideSource);
                             break;
                         case ProfileFillKey:
                             ProfilePlotRect = rect;
@@ -143,6 +158,70 @@ namespace TianWen.UI.Abstractions
                             GraphRect = rect;
                             RenderGraph(rect, fontSize);
                             break;
+                    }
+                });
+        }
+
+        /// <summary>
+        /// The tab with no session running and a loop to offer (#1915): a header with the Loop / Stop button, the exposure and
+        /// the gain, and the guide camera's looped frames below, drawn by the same viewer the session's guide frames are.
+        /// </summary>
+        private void RenderLoop(GuideLoopController loop, RectF32 contentRect, string? quiet)
+        {
+            var view = loop.View;
+            if (view.Tick())
+            {
+                _guideState.NeedsTextureUpdate = true;
+            }
+            var fontSize = BaseFontSize * DpiScale;
+            var source = GuideCameraViewer is not null ? view.Source : null;
+
+            var running = view.IsLive;
+            var button = Layout.Builder.Text(running ? "Stop" : "Loop", BaseFontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center)
+                .WFixed(72f).HStar().Bg(running ? GuiTheme.DangerButtonBg : GuiTheme.GoButtonBg)
+                .BgHover(GuiTheme.Hover(running ? GuiTheme.DangerButtonBg : GuiTheme.GoButtonBg))
+                .Clickable(new HitResult.ButtonHit("GuideLoopToggle"), _ =>
+                {
+                    if (running)
+                    {
+                        PostSignal(new StopGuideLoopSignal());
+                    }
+                    else
+                    {
+                        PostSignal(new StartGuideLoopSignal(loop.ExposureSeconds, loop.Gain));
+                    }
+                });
+            var exposure = FormRowLayout.StepperControl(LoopStepperStyle,
+                "-", "GuideLoopExpDec", _ => loop.StepExposure(-1),
+                "+", "GuideLoopExpInc", _ => loop.StepExposure(+1),
+                $"Exp: {LiveSessionActions.FormatExposureLabel(loop.ExposureSeconds)}", BaseFontSize * 0.85f, BodyText, enabled: true);
+            var gain = FormRowLayout.StepperControl(LoopStepperStyle,
+                "-", "GuideLoopGainDec", _ => loop.StepGain(-1),
+                "+", "GuideLoopGainInc", _ => loop.StepGain(+1),
+                loop.GainLabel, BaseFontSize * 0.85f, loop.Gain.HasValue ? BodyText : DimText, enabled: true);
+
+            var status = view.State is { } s
+                ? running
+                    ? s.FramesPerSecond is { } fps && s.Width > 0 ? $"{fps:0.#} fps  {s.Width}x{s.Height}" : "Starting\u2026"
+                    : s.FailureReason ?? ""
+                : "";
+            var controls = Layout.Builder.HStack(button, exposure.WFixed(150f), gain.WFixed(150f),
+                    Layout.Builder.Text(quiet ?? status, BaseFontSize * 0.85f, DimText).Stretch())
+                .WithGap(BasePadding).Pad(BasePadding).Bg(HeaderBg);
+
+            var camera = (source is not null
+                    ? Layout.Builder.Fill(key: CameraFillKey)
+                    : Layout.Builder.Text(running ? "Waiting for guide frame\u2026" : "Press Loop to look through the guide camera",
+                        BaseFontSize, DimText, TextAlign.Center, TextAlign.Center))
+                .Stretch().Bg(CameraBg);
+
+            RenderLayout(Layout.Builder.VStack(controls.RowH(BaseHeaderHeight), camera).Bg(ContentBg), contentRect,
+                drawFill: (fill, rect) =>
+                {
+                    if (fill.Key == CameraFillKey && source is not null)
+                    {
+                        CameraRect = rect;
+                        RenderGuideCamera(rect, fontSize, source);
                     }
                 });
         }
@@ -306,13 +385,13 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 CalOriginColor = new RGBAColor32(0xff, 0xff, 0xff, 0xcc);
         private static RGBAColor32 CameraBg => GuiTheme.Palette.ContentBg;
 
-        private void RenderGuideCamera(RectF32 rect, float fontSize)
+        private void RenderGuideCamera(RectF32 rect, float fontSize, IPreviewSource source)
         {
             var dpiScale = DpiScale;
             var fontPath = FontPath;
             // The frame tree only emits this Fill leaf when both are present (else the pane is a
             // centred empty-state Text leaf), so this is a belt-and-braces guard.
-            if (GuideCameraViewer is not { } viewer || _displayedGuideFrame is not { } image)
+            if (GuideCameraViewer is not { } viewer || source.Width <= 0 || source.Height <= 0)
             {
                 return;
             }
@@ -321,11 +400,11 @@ namespace TianWen.UI.Abstractions
             viewer.SetContentRegion(rect);
             // The texture upload NeedsTextureUpdate asks for happens inside Render's PrepareFrame, before
             // anything in the frame samples the channel views; see the remarks there.
-            viewer.Render(_guideSource, _guideState);
+            viewer.Render(source, _guideState);
 
             // Compute image→screen transform for overlays
-            var imgW = image.Width;
-            var imgH = image.Height;
+            var imgW = source.Width;
+            var imgH = source.Height;
             var fitScale = Math.Min(rect.Width / imgW, rect.Height / imgH);
             var drawW = imgW * fitScale;
             var drawH = imgH * fitScale;
