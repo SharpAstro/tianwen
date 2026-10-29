@@ -643,6 +643,45 @@ namespace TianWen.Lib.Tests
 
             protected override void DrawObjectPicture(in ObjectArticleImage image, RectF32 rect)
                 => Pictures.Add((image, rect));
+
+            /// <summary>Paints a node through the tab's own layout path and returns what it arranged.</summary>
+            public ImmutableArray<Layout.ArrangedNode<float>> Place(Layout.Node node, RectF32 rect)
+                => RenderLayout(node, rect);
+        }
+
+        /// <summary>
+        /// <b>A realistic credit stays inside the picture section.</b> The strip's section is narrow (the slot's
+        /// aspect ratio at the strip's height), and a credit like an artist's full name and a licence is far wider
+        /// than it. The credit's run trims its tail to the rect it is arranged in (<c>TextTrim.End</c>, the
+        /// engine's default, which the painter honours), so it ends inside the section with an ellipsis rather
+        /// than running under the text column; the whole credit is in the large view.
+        /// </summary>
+        [Fact]
+        public void ALongCreditIsTrimmedToThePictureSectionNotPaintedPastIt()
+        {
+            using var renderer = new RgbaImageRenderer(1600, 1000);
+            var tab = new PictureCapturingPlanner(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+            var image = new ObjectArticleImage("Example.jpg", "2c", "CC BY-SA 4.0",
+                "Artist Name Up To Forty-Eight Characters Long", "Observatory", AttributionRequired: true, Width: 4000, Height: 3000);
+            ObjectInfoPanel.CreditLine(in image).ShouldContain("CC BY-SA 4.0");
+
+            var pictureH = ObjectInfoPanel.DesignPictureHeightIn(120f);
+            var sectionW = ObjectInfoPanel.DesignPictureSectionWidthFor(in image, pictureH, 1600f * 0.4f);
+            var section = new RectF32(1000f, 880f, sectionW, 120f);
+            var palette = new ObjectInfoPanel.PanelPalette(
+                default, default, default, GuiTheme.Palette.DimText, default, default, default, default, default, default, default);
+            var arranged = tab.Place(ObjectInfoPanel.BuildPictureSection(in image, in palette, designPictureHeight: pictureH), section);
+
+            var credit = arranged.Single(a => a.Node is Layout.Node.Leaf { Content: Layout.Content.Text t }
+                && t.Value == ObjectInfoPanel.CreditLine(in image));
+            var run = ((Layout.Node.Leaf)credit.Node).Content.ShouldBeOfType<Layout.Content.Text>();
+            run.Trim.ShouldBe(TextTrim.End, "the credit is cut to its rect, never allowed to overhang");
+            credit.Bounds.X.ShouldBeGreaterThanOrEqualTo(section.X);
+            (credit.Bounds.X + credit.Bounds.Width).ShouldBeLessThanOrEqualTo(section.X + section.Width + 0.5f);
+
+            // And the full text really does not fit there, so the trim is doing the work.
+            renderer.MeasureText(run.Value.AsSpan(), FontResolver.ResolveSystemFont(), run.FontSize).Width
+                .ShouldBeGreaterThan(credit.Bounds.Width);
         }
 
         private const string PictureOpenAction = "ObjectInfoPictureOpen";
