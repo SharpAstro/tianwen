@@ -39,6 +39,21 @@ namespace TianWen.UI.Abstractions
         /// the markers, the grid, the ring, the star circles and both readouts cannot disagree about
         /// where pixel (0, 0) is.
         /// </remarks>
+        /// <summary>
+        /// The frame coordinate under a screen point of the last render, through the layout every overlay draws with: for a host
+        /// widget that lets the user point at the frame (the Guider tab's star pick, #1915), never its own origin arithmetic.
+        /// </summary>
+        public (double X, double Y) ScreenToFrame(ViewerState state, double screenX, double screenY)
+            => WcsAnnotationLayer.ScreenToImage(screenX, screenY, CurrentViewportLayout(state));
+
+        /// <summary>The screen point of a frame coordinate, the inverse of <see cref="ScreenToFrame"/>, with the zoom the frame is drawn at.</summary>
+        public (double X, double Y, double Zoom) FrameToScreen(ViewerState state, double frameX, double frameY)
+        {
+            var layout = CurrentViewportLayout(state);
+            var (x, y) = WcsAnnotationLayer.ImageToScreen(frameX, frameY, layout);
+            return (x, y, layout.Zoom);
+        }
+
         private ViewportLayout CurrentViewportLayout(ViewerState state)
         {
             var area = _layout.ImageArea;

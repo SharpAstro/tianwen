@@ -205,6 +205,158 @@ namespace TianWen.Lib.Tests
             starts.Count.ShouldBe(1);
         }
 
+        private static GuiderTab<RgbaImage> LoopTab(RgbaImageRenderer renderer, SignalBus bus)
+            => new(renderer)
+            {
+                DpiScale = 1f,
+                FontPath = FontResolver.ResolveSystemFont(),
+                Bus = bus,
+                GuideLoop = new GuideLoopController(new SystemTimeProvider(),
+                    Microsoft.Extensions.Logging.Abstractions.NullLogger<LiveViewController>.Instance),
+            };
+
+        /// <summary>A looped guide frame as the loop's source holds it: unit-referred, one Gaussian star over a quiet sky.</summary>
+        private static LiveFramePreviewSource SourceWithAStar(double starX, double starY, float peak)
+        {
+            var plane = new float[240, 320];
+            var rng = new Random(3);
+            for (var y = 0; y < 240; y++)
+            {
+                for (var x = 0; x < 320; x++)
+                {
+                    var dx = x - starX;
+                    var dy = y - starY;
+                    plane[y, x] = 0.01f + (0.0005f * (float)rng.NextDouble()) + (peak * MathF.Exp((float)(-(dx * dx + dy * dy) / 8.0)));
+                    plane[y, x] = MathF.Min(plane[y, x], 1f);
+                }
+            }
+            var meta = new ImageMeta("synth", SampleStart, TimeSpan.FromSeconds(1),
+                FrameType.Light, "", 3.76f, 3.76f, 500, FocuserPositions.None, Filter.Luminance, 1, 1,
+                float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
+            var source = new LiveFramePreviewSource();
+            source.AcceptFrame(new Image([plane], BitDepth.Float32, maxValue: 1f, minValue: 0f, pedestal: 0f, imageMeta: meta), freezeStats: false)
+                .ShouldBeTrue();
+            return source;
+        }
+
+        /// <summary>
+        /// While looping, a picked star is read off the frame: Auto finds it, the box follows it frame to frame, and the panes
+        /// show the readout (HFD, SNR, peak) with the profile plotted and the saturation said in words (#1915).
+        /// </summary>
+        [Fact]
+        public void Loop_AutoPicksTheStarAndTheReadoutAndProfileShow()
+        {
+            using var renderer = new RgbaImageRenderer(1280, 800);
+            var bus = new SignalBus();
+            var tab = LoopTab(renderer, bus);
+            var time = new FakeTimeProviderWrapper(SampleStart);
+            var source = SourceWithAStar(150.4, 100.6, 0.5f);
+
+            void Draw() => tab.Render(new LiveSessionState(), new RectF32(0, 0, 1280, 800), time);
+            Draw();
+            tab.State.Readout.ShouldBeNull();
+            tab.GetRegisteredRegions().Any(r => r.Result is HitResult.ButtonHit { Action: "GuideStarAuto" }).ShouldBeTrue();
+
+            // The button asks; the next frame answers.
+            var auto = tab.GetRegisteredRegions().Single(r => r.Result is HitResult.ButtonHit { Action: "GuideStarAuto" });
+            UiRouting.RoutePress(tab, auto.X + (auto.Width / 2f), auto.Y + (auto.Height / 2f));
+            tab.State.UpdateReadout(source, isNewFrame: true);
+
+            var star = tab.State.Readout.ShouldNotBeNull();
+            star.X.ShouldBe(150.4, 0.3);
+            star.Y.ShouldBe(100.6, 0.3);
+            star.Saturated.ShouldBeFalse();
+            tab.State.Selection.ShouldNotBeNull().X.ShouldBe(star.X, 1e-9);
+            GuiderActions.SaturationWords(star).ShouldBe("Not saturated");
+
+            // The next frame moves the star two pixels: the selection follows it.
+            tab.State.UpdateReadout(SourceWithAStar(152.4, 100.6, 0.5f), isNewFrame: true);
+            tab.State.Selection.ShouldNotBeNull().X.ShouldBe(152.4, 0.3);
+
+            // No viewer in this test, so the profile pane is what shows the star: its plot rect is laid out.
+            Draw();
+            tab.ProfilePlotRect.Width.ShouldBeGreaterThan(0f);
+        }
+
+        [Fact]
+        public void Loop_AClippedStarIsSaidToBeSaturated()
+        {
+            using var renderer = new RgbaImageRenderer(1280, 800);
+            var tab = LoopTab(renderer, new SignalBus());
+
+            tab.State.SelectAutoStar();
+            tab.State.UpdateReadout(SourceWithAStar(150, 100, 1.5f), isNewFrame: true);
+
+            var star = tab.State.Readout.ShouldNotBeNull();
+            star.Saturated.ShouldBeTrue();
+            GuiderActions.SaturationWords(star).ShouldContain("Saturated");
+        }
+
+        [Fact]
+        public void Loop_AClickNearAStarPicksIt_AndClearDropsTheSelection()
+        {
+            var state = new GuiderTabState();
+            var source = SourceWithAStar(200, 120, 0.5f);
+
+            state.SelectStar(204, 116);
+            state.UpdateReadout(source, isNewFrame: false);
+            state.Selection.ShouldNotBeNull().X.ShouldBe(200, 0.3);
+
+            state.ClearSelection();
+            state.Selection.ShouldBeNull();
+            state.Readout.ShouldBeNull();
+        }
+
+        /// <summary>
+        /// The guide focuser's controls are the Preview's own, shown only while the profile has one assigned and connected,
+        /// and each press is the Preview's signal aimed at the guide focuser.
+        /// </summary>
+        [Fact]
+        public void Loop_GuideFocuserControlsShowOnlyWithAConnectedGuideFocuser()
+        {
+            using var renderer = new RgbaImageRenderer(1280, 800);
+            var bus = new SignalBus();
+            var tab = LoopTab(renderer, bus);
+            var time = new FakeTimeProviderWrapper(SampleStart);
+            var jogs = new List<JogFocuserSignal>();
+            var gotos = new List<GotoFocuserSignal>();
+            bus.Subscribe<JogFocuserSignal>(signal => jogs.Add(signal));
+            bus.Subscribe<GotoFocuserSignal>(signal => gotos.Add(signal));
+            bool Has(string action) => tab.GetRegisteredRegions().Any(r => r.Result is HitResult.ButtonHit hit && hit.Action == action);
+            void Click(string action)
+            {
+                var region = tab.GetRegisteredRegions().Single(r => r.Result is HitResult.ButtonHit hit && hit.Action == action);
+                UiRouting.RoutePress(tab, region.X + (region.Width / 2f), region.Y + (region.Height / 2f));
+                bus.ProcessPending();
+            }
+
+            // Assigned but not connected (the node reads none), or not assigned: nothing to show.
+            var live = new LiveSessionState();
+            tab.Render(live, new RectF32(0, 0, 1280, 800), time);
+            Has("FocFineInGuide").ShouldBeFalse();
+            Has("FocGotoGuide").ShouldBeFalse();
+
+            live.GuideFocuser = new FocuserReading(5000, 12.5, false);
+            tab.Render(live, new RectF32(0, 0, 1280, 800), time);
+            Has("FocFineInGuide").ShouldBeTrue();
+            Has("FocCoarseOutGuide").ShouldBeTrue();
+            Has("FocGotoGuide").ShouldBeTrue();
+
+            Click("FocFineInGuide");
+            Click("FocCoarseOutGuide");
+            jogs.ShouldBe([new JogFocuserSignal(FocuserTargets.Guider, -10), new JogFocuserSignal(FocuserTargets.Guider, 100)]);
+
+            // The goto field was pre-filled with the position the focuser gave.
+            live.GuideFocuserGotoInput.Text.ShouldBe("5000");
+            Click("FocGotoGuide");
+            gotos.ShouldBe([new GotoFocuserSignal(FocuserTargets.Guider, 5000)]);
+
+            // Disconnected again: the controls go.
+            live.GuideFocuser = null;
+            tab.Render(live, new RectF32(0, 0, 1280, 800), time);
+            Has("FocFineInGuide").ShouldBeFalse();
+        }
+
         // Sentinel the guider tab never paints: the root tree carries the content background and every
         // pane paints an opaque panel background, so after a render almost no sentinel survives. A
         // zero/negative-width pane (the classic conversion failure mode) leaves its whole rect

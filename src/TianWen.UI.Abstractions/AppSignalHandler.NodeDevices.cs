@@ -185,8 +185,12 @@ namespace TianWen.UI.Abstractions
             node = null;
             focuserUri = null;
             // The planetary panel's jog, beside its mount nudges, reaches here from a rig's view too.
-            if (CommandTargetOrSay("A focuser move") is not { Node: var target, Profile.Data.OTAs: var otas } || otaIndex >= otas.Length) return false;
-            if (otas[otaIndex].Focuser is not { } focuser || focuser == NoneDevice.Instance.DeviceUri) return false;
+            if (CommandTargetOrSay("A focuser move") is not { Node: var target, Profile.Data: var data }) return false;
+            // The guide focuser takes the place of an OTA's (#1915); the same route, so the same lease check at the node.
+            var assigned = otaIndex == FocuserTargets.Guider ? data.GuiderFocuser
+                : otaIndex >= 0 && otaIndex < data.OTAs.Length ? data.OTAs[otaIndex].Focuser
+                : null;
+            if (assigned is not { } focuser || focuser == NoneDevice.Instance.DeviceUri) return false;
             node = target;
             focuserUri = focuser;
             return true;
