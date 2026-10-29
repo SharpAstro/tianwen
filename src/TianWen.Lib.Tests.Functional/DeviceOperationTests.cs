@@ -142,7 +142,7 @@ public class DeviceOperationTests(ITestOutputHelper outputHelper) : IAsyncLifeti
         Hub.IsConnected(device.DeviceUri).ShouldBeFalse();
     }
 
-    // The ramp runs in the node, one 2 °C step every 30 s: while it runs the camera is the job's. The same job again joins
+    // The ramp runs in the node, session's own ramp (a step every 15 s): while it runs the camera is the job's. The same job again joins
     // it, another kind is refused naming it, and cancelling it leaves the camera connected where the ramp stopped.
     [Fact(Timeout = 60_000)]
     public async Task AWarmUpHoldsTheCameraUntilItEndsOrIsCancelled()
